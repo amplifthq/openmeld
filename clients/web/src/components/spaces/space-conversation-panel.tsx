@@ -2424,7 +2424,7 @@ function CenterAgentDirectMessageIntro(input: {
 			className="mx-auto flex min-h-80 w-full max-w-3xl flex-col items-center justify-center py-12"
 			data-center-agent-direct-message-intro=""
 		>
-			<div className="flex w-full flex-col items-center gap-8">
+			<div className="flex w-full flex-col items-center gap-4">
 				<div className="flex h-20 items-center justify-center text-foreground">
 					<OpenMeldLetterLogoStrong
 						ariaLabel="OpenMeld O logo"
@@ -2455,7 +2455,8 @@ function CenterAgentDirectMessageIntro(input: {
 									>
 										<LocalAgentLogo
 											agentId={agentId}
-											className="size-9 rounded-[22%] ring-2 ring-background"
+											className="size-9"
+											variant="tile"
 										/>
 									</MagnifyingDockItem>
 								))}
@@ -2466,7 +2467,7 @@ function CenterAgentDirectMessageIntro(input: {
 						organizationHeading
 					)}
 				</h2>
-				<div className="w-full">{starterContent}</div>
+				<div className="mt-4 w-full">{starterContent}</div>
 			</div>
 		</div>
 	);

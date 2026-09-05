@@ -42,7 +42,10 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 			className="grid min-w-0 gap-4"
 			disabled={input.disabled}
 		>
-			<legend className="w-full text-left font-medium text-base" id={headingId}>
+			<legend
+				className="mb-4 w-full text-left font-medium text-base"
+				id={headingId}
+			>
 				{input.locked
 					? "Agent connected to this Session"
 					: "Choose an agent on your computer"}
@@ -67,7 +70,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 			{!input.isResolving && choices.length > 0 ? (
 				<MagnifyingDock
 					aria-labelledby={headingId}
-					className="mt-4 min-h-24 justify-start gap-2 overflow-x-auto overflow-y-hidden px-3 pt-6 pb-4"
+					className="min-h-24 justify-start gap-2 overflow-x-auto overflow-y-hidden px-3 pt-6 pb-4"
 				>
 					{choices.map((choice) => {
 						const selected = choice.value === input.value;
@@ -82,7 +85,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 							>
 								<label
 									className={cn(
-										"relative grid size-14 place-items-center rounded-[22%] outline-none has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-offset-2",
+										"relative grid size-14 place-items-center rounded-lg outline-none has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-offset-2",
 										selectionDisabled && "cursor-default"
 									)}
 								>
@@ -210,8 +213,9 @@ function LocalAgentChoiceIcon(input: { agentId: string }) {
 	return (
 		<LocalAgentLogo
 			agentId={input.agentId}
-			className="size-14 overflow-hidden rounded-[22%] drop-shadow-sm"
+			className="size-14"
 			size="md"
+			variant="tile"
 		/>
 	);
 }

@@ -119,7 +119,7 @@ const LOCAL_AGENT_LOGO_SIZE_CLASS_NAMES = {
   xs: "h-3.5 w-3.5",
 } as const;
 
-type LocalAgentLogoVariant = "default" | "plain";
+type LocalAgentLogoVariant = "default" | "plain" | "tile";
 
 type LocalAgentLogoProps = {
   agentId: string;
@@ -155,6 +155,7 @@ export function LocalAgentLogo({
       aria-hidden="true"
       className={cn(
         "pointer-events-none inline-flex shrink-0 items-center justify-center",
+        variant === "tile" && "overflow-hidden rounded-lg bg-background",
         LOCAL_AGENT_LOGO_SIZE_CLASS_NAMES[size],
         className
       )}
