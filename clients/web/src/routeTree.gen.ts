@@ -22,6 +22,7 @@ import { Route as DesktopRouteImport } from './routes/desktop'
 import { Route as DeviceRouteImport } from './routes/device'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as GuideDotmdRouteImport } from './routes/guide[.md]'
+import { Route as InvitationRequestsRouteImport } from './routes/invitation-requests'
 import { Route as InvitationsRouteImport } from './routes/invitations'
 import { Route as JoinOrganizationRouteImport } from './routes/join-organization'
 import { Route as LinkMessageChannelRouteImport } from './routes/link-message-channel'
@@ -180,6 +181,11 @@ const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
 const GuideDotmdRoute = GuideDotmdRouteImport.update({
   id: '/guide.md',
   path: '/guide.md',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InvitationRequestsRoute = InvitationRequestsRouteImport.update({
+  id: '/invitation-requests',
+  path: '/invitation-requests',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InvitationsRoute = InvitationsRouteImport.update({
@@ -700,6 +706,7 @@ export interface FileRoutesByFullPath {
   '/device': typeof DeviceRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
+  '/invitation-requests': typeof InvitationRequestsRoute
   '/invitations': typeof InvitationsRoute
   '/join-organization': typeof JoinOrganizationRoute
   '/link-message-channel': typeof LinkMessageChannelRoute
@@ -808,6 +815,7 @@ export interface FileRoutesByTo {
   '/device': typeof DeviceRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
+  '/invitation-requests': typeof InvitationRequestsRoute
   '/invitations': typeof InvitationsRoute
   '/join-organization': typeof JoinOrganizationRoute
   '/link-message-channel': typeof LinkMessageChannelRoute
@@ -907,6 +915,7 @@ export interface FileRoutesById {
   '/device': typeof DeviceRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
+  '/invitation-requests': typeof InvitationRequestsRoute
   '/invitations': typeof InvitationsRoute
   '/join-organization': typeof JoinOrganizationRoute
   '/link-message-channel': typeof LinkMessageChannelRoute
@@ -1018,6 +1027,7 @@ export interface FileRouteTypes {
     | '/device'
     | '/forgot-password'
     | '/guide.md'
+    | '/invitation-requests'
     | '/invitations'
     | '/join-organization'
     | '/link-message-channel'
@@ -1126,6 +1136,7 @@ export interface FileRouteTypes {
     | '/device'
     | '/forgot-password'
     | '/guide.md'
+    | '/invitation-requests'
     | '/invitations'
     | '/join-organization'
     | '/link-message-channel'
@@ -1224,6 +1235,7 @@ export interface FileRouteTypes {
     | '/device'
     | '/forgot-password'
     | '/guide.md'
+    | '/invitation-requests'
     | '/invitations'
     | '/join-organization'
     | '/link-message-channel'
@@ -1334,6 +1346,7 @@ export interface RootRouteChildren {
   DeviceRoute: typeof DeviceRouteWithChildren
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   GuideDotmdRoute: typeof GuideDotmdRoute
+  InvitationRequestsRoute: typeof InvitationRequestsRoute
   InvitationsRoute: typeof InvitationsRoute
   JoinOrganizationRoute: typeof JoinOrganizationRoute
   LinkMessageChannelRoute: typeof LinkMessageChannelRoute
@@ -1456,6 +1469,13 @@ declare module '@tanstack/react-router' {
       path: '/guide.md'
       fullPath: '/guide.md'
       preLoaderRoute: typeof GuideDotmdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invitation-requests': {
+      id: '/invitation-requests'
+      path: '/invitation-requests'
+      fullPath: '/invitation-requests'
+      preLoaderRoute: typeof InvitationRequestsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/invitations': {
@@ -2461,6 +2481,7 @@ const rootRouteChildren: RootRouteChildren = {
   DeviceRoute: DeviceRouteWithChildren,
   ForgotPasswordRoute: ForgotPasswordRoute,
   GuideDotmdRoute: GuideDotmdRoute,
+  InvitationRequestsRoute: InvitationRequestsRoute,
   InvitationsRoute: InvitationsRoute,
   JoinOrganizationRoute: JoinOrganizationRoute,
   LinkMessageChannelRoute: LinkMessageChannelRoute,

@@ -23,6 +23,11 @@ export function buildInboxItemSourceNavigation(input: {
 }): { href: string; openInNewTab: boolean } {
 	const target = input.item.sourceTarget;
 	switch (target.kind) {
+		case "organization_join_request":
+			return {
+				href: `/invitation-requests?requestId=${encodeURIComponent(target.requestId)}`,
+				openInNewTab: false,
+			};
 		case "agent_profile":
 			return {
 				href: buildAgentProfilePath({

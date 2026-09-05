@@ -64,8 +64,8 @@ export function OrganizationInviteLink(input: { organizationId: string }) {
 			<CardHeader>
 				<CardTitle>Invite link</CardTitle>
 				<CardDescription>
-					Anyone with this link can join this organization as a member. The link
-					does not expire.
+					Anyone with this link can request an invitation. Each person needs
+					approval before joining. Existing links now follow this rule too.
 				</CardDescription>
 			</CardHeader>
 			<CardContent>

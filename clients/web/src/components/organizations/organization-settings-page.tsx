@@ -34,6 +34,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { InvitationForm } from "#/components/directory/directory-members-overview";
 import { OrganizationInformationProtectionSection } from "#/components/organizations/organization-information-protection-section";
+import { OrganizationInvitationRequestForm } from "#/components/organizations/organization-invitation-request-form";
 import { OrganizationInviteLink } from "#/components/organizations/organization-invite-link";
 import { OrganizationLogoSection } from "#/components/organizations/organization-logo-section";
 import { PersonalWorkspaceInvitationGuidance } from "#/components/organizations/personal-workspace-invitation-guidance";
@@ -784,9 +785,9 @@ function OrganizationInvitationsSection(input: {
 		);
 	} else {
 		invitationsContent = (
-			<p className="text-muted-foreground text-sm">
-				Only organization owners and admins can manage invitations.
-			</p>
+			<OrganizationInvitationRequestForm
+				organizationId={input.organizationId}
+			/>
 		);
 	}
 
