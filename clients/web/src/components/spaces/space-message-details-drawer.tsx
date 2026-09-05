@@ -673,6 +673,9 @@ function ExpandableActivityDescription(input: {
 
 	return (
 		<div className="mt-1.5">
+			{input.preserveFullDescription ? (
+				<p className="mb-1 text-muted-foreground text-xs">Recorded outcome</p>
+			) : null}
 			<p
 				className={cn(
 					"whitespace-pre-wrap break-words text-sm leading-6",
@@ -971,10 +974,14 @@ function resolveNoticeRecoveryPresentation(input: {
 			input.targetLabel ??
 			"This agent")
 		: (input.targetLabel ?? "This agent");
-	const body = resolveHistoricalWakeFailureBody({
-		failureReasonCode: reasonCode,
-		targetLabel,
-	});
+	// The published notice owns the historical explanation. Current recovery
+	// eligibility may supply an action, but must not replace the recorded cause.
+	const body =
+		input.notice.text.trim() ||
+		resolveHistoricalWakeFailureBody({
+			failureReasonCode: reasonCode,
+			targetLabel,
+		});
 	return { action: currentAction, body };
 }
 

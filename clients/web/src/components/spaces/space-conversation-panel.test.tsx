@@ -3647,10 +3647,10 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.getByRole("dialog", { name: "Message details" })
 		).toBeTruthy();
+		expect(screen.getByText(detailedFailure)).toBeTruthy();
 		expect(
-			screen.getByText("Codex 5.6 Sol could not complete this Wake.")
-		).toBeTruthy();
-		expect(screen.queryByText(detailedFailure)).toBeNull();
+			screen.queryByText("Codex 5.6 Sol could not complete this Wake.")
+		).toBeNull();
 	});
 
 	it("does not execute a fresh Wake through Message details recovery", async () => {

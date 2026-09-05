@@ -3247,6 +3247,14 @@ details instead of expanding the source message bubble. Unanchored outcomes and
 only to distinguish execution failure from OpenMeld publication failure.
 Read-only viewers must still see the outcome.
 
+Wake outcomes are message-scoped results, not standalone system announcements.
+Their rows and failure footers do not use system-event divider lines. Message
+details labels the persisted notice text as **Recorded outcome** and preserves
+its full public explanation, including unfamiliar failure codes. Current
+recovery eligibility supplies actions separately; it must not replace the
+recorded explanation with a generic failure summary or imply that an old
+setup instruction describes the Agent's current state.
+
 A persisted terminal system failure is visible in that outcome row without
 hover and remains visible when the timeline is loaded again after refresh. Its
 Message details recovery is state-aware and must not reuse an Agent Profile
