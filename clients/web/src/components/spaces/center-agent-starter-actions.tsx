@@ -22,6 +22,16 @@ const CENTER_AGENT_STARTER_ACTIONS = [
 		title: "Connect my computer",
 	},
 	{
+		description:
+			"Turn a goal into a Space with the right setup. Invite others and share it.",
+		icon: PlusCircleIcon as StarterActionIcon,
+		id: "create_space",
+		kind: "prompt",
+		prompt:
+			"I want to create a Space. Ask me what I'm trying to accomplish, then help me set up the right Space, people, and agents.",
+		title: "Create a Space",
+	},
+	{
 		description: "Learn how OpenMeld works and what to do first.",
 		icon: CompassIcon as StarterActionIcon,
 		id: "show_me_around",
@@ -29,15 +39,6 @@ const CENTER_AGENT_STARTER_ACTIONS = [
 		prompt:
 			"I'm new to OpenMeld. Give me a short, plain-English tour, then recommend the best first step for me.",
 		title: "Show me around",
-	},
-	{
-		description: "Turn a goal into a Space with the right setup.",
-		icon: PlusCircleIcon as StarterActionIcon,
-		id: "start_something_new",
-		kind: "prompt",
-		prompt:
-			"I want to start something new. Ask me what I'm trying to accomplish, then help me set up the right Space, people, and agents.",
-		title: "Start something new",
 	},
 ] as const;
 

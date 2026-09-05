@@ -541,7 +541,7 @@ const ACTIVE_WAKE_SERVICE_WAITING_NOTE_PATTERN =
 const READY_WORD_PATTERN = /\bReady\b/u;
 const WAITING_FOR_OPENMELD_SERVICE_PATTERN = /Waiting for OpenMeld Service/;
 const SHOW_ME_AROUND_BUTTON_NAME_PATTERN = /Show me around/;
-const START_SOMETHING_NEW_BUTTON_NAME_PATTERN = /Start something new/;
+const CREATE_SPACE_BUTTON_NAME_PATTERN = /Create a Space/;
 const ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN = /^Add people or agents/;
 const CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN = /^Connect this computer/;
 const CAN_VIEW_TEXT_PATTERN = /can view$/;
@@ -13571,7 +13571,7 @@ describe("SpaceLanding", () => {
 
 	it("restores a failed Center Agent starter prompt to the composer", async () => {
 		const starterPrompt =
-			"I want to start something new. Ask me what I'm trying to accomplish, then help me set up the right Space, people, and agents.";
+			"I want to create a Space. Ask me what I'm trying to accomplish, then help me set up the right Space, people, and agents.";
 		const postNormalMessageMock = vi
 			.fn()
 			.mockRejectedValue(new Error("The starter message could not be sent."));
@@ -13596,7 +13596,7 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding({ isCenterAgentDirectMessage: true });
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: START_SOMETHING_NEW_BUTTON_NAME_PATTERN,
+				name: CREATE_SPACE_BUTTON_NAME_PATTERN,
 			})
 		);
 

@@ -51,7 +51,7 @@ const FAILED_TEXT_PATTERN = /failed/i;
 const RETRY_BUTTON_NAME_PATTERN = /retry/i;
 const REFERENCED_SPACE_ID = "c".repeat(64);
 const SHOW_ME_AROUND_BUTTON_NAME_PATTERN = /Show me around/;
-const START_SOMETHING_NEW_BUTTON_NAME_PATTERN = /Start something new/;
+const CREATE_SPACE_BUTTON_NAME_PATTERN = /Create a Space/;
 const CONNECT_MY_COMPUTER_BUTTON_NAME_PATTERN = /Connect my computer/;
 const MESSAGES_FROM_DATE_MARKER_NAME_PATTERN = /Messages from/;
 const OPEN_DATE_NAVIGATION_NAME_PATTERN = /Open date navigation for/;
@@ -2418,7 +2418,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", {
-				name: START_SOMETHING_NEW_BUTTON_NAME_PATTERN,
+				name: CREATE_SPACE_BUTTON_NAME_PATTERN,
 			})
 		).toBeTruthy();
 		expect(
@@ -2492,8 +2492,8 @@ describe("SpaceConversationPanel", () => {
 				.map((button) => button.textContent)
 		).toEqual([
 			"Connect my computerBring your local agents into OpenMeld.",
+			"Create a SpaceTurn a goal into a Space with the right setup. Invite others and share it.",
 			"Show me aroundLearn how OpenMeld works and what to do first.",
-			"Start something newTurn a goal into a Space with the right setup.",
 		]);
 	});
 
