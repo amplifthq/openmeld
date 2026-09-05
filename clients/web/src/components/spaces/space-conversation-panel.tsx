@@ -2943,7 +2943,7 @@ function resolveSpaceMessageBubbleVisibilityClassName(input: {
 }): string | undefined {
 	return input.showProgressInAnswerArea ||
 		input.item.text.trim().length > 0 ||
-		Boolean(input.item.agentStreamState?.thinking) ||
+		input.item.agentStreamState?.thinking ||
 		input.item.attachments.length > 0 ||
 		(input.item.files?.length ?? 0) > 0
 		? undefined
@@ -2970,7 +2970,7 @@ function resolveSpaceMessageWakeThinkingEntries(input: {
 	wakeProgressState: ReturnType<typeof resolveSpaceMessageWakeProgressState>;
 	wakeStopTargets: ReturnType<typeof resolveSpaceMessageWakeStopTargets>;
 }) {
-	if (input.item.optimisticAgentReplyState !== undefined) {
+	if (input.item.optimisticAgentReplyProgress !== undefined) {
 		return [];
 	}
 	if (input.wakeProgressState.thinkingEntries.length > 0) {
@@ -3033,7 +3033,7 @@ function resolveIsCenterAgentConversationRun(input: {
 	return (
 		input.isCenterAgentDirectMessage ||
 		input.run.items.some(
-			(item) => item.optimisticAgentReplyState !== undefined
+			(item) => item.optimisticAgentReplyProgress !== undefined
 		) ||
 		input.run.speaker.profileId === input.centerAgentProfileId
 	);
@@ -3506,7 +3506,6 @@ function SystemEventRow(input: {
 				tabIndex={-1}
 			>
 				<SpaceOutcomeRow
-					className="max-w-[min(92vw,44rem)]"
 					onOpenDetails={
 						input.readOnly ? null : () => input.onOpenMessageDetails(input.item)
 					}

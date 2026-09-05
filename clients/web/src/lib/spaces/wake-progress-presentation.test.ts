@@ -31,7 +31,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		});
 
 		expect(state.thinkingEntries).toEqual([
-			expect.objectContaining({ text: "Wake is queued" }),
+			expect.objectContaining({ text: "runner is queued" }),
 		]);
 	});
 
@@ -52,13 +52,13 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
 				elapsedStartedAtMs: 1,
-				text: "Agent is working",
+				text: "runner is working",
 			}),
 		]);
 		expect(state.issueEntries).toEqual([]);
 	});
 
-	it("uses finalizing copy when a Wake is publishing a completed reply", () => {
+	it("uses natural posting copy when a Wake is publishing a completed reply", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			item: createTimelineItem(),
 			items: [
@@ -73,10 +73,10 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
-				text: "Finalizing reply",
+				text: "Posting reply from runner…",
 			}),
 		]);
-		expect(state.thinkingEntries[0]?.text).not.toBe("Agent is working");
+		expect(state.thinkingEntries[0]?.text).not.toBe("runner is working");
 	});
 
 	it("shows an outcome-unknown publication as a problem without a retry spinner", () => {
@@ -112,6 +112,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 				createWakeProgressItem({
 					message: "I’m checking the release configuration now.",
 					phase: "writing",
+					previewText: "I’m checking the release configuration now.",
 					updatedAtMs: 1,
 				}),
 			],
@@ -122,6 +123,26 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 				elapsedStartedAtMs: null,
 				kind: "preview",
 				text: "I’m checking the release configuration now.",
+			}),
+		]);
+	});
+
+	it("does not mistake a generic writing phase for reply text", () => {
+		const state = resolveSpaceMessageWakeProgressState({
+			item: createTimelineItem(),
+			items: [
+				createWakeProgressItem({
+					message: "runner started writing...",
+					phase: "writing",
+					updatedAtMs: 1,
+				}),
+			],
+		});
+
+		expect(state.thinkingEntries).toEqual([
+			expect.objectContaining({
+				kind: "progress",
+				text: "runner is replying",
 			}),
 		]);
 	});
@@ -175,12 +196,12 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "Agent is working",
+				text: "runner is working",
 			}),
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
 				targetProfileId: SECOND_TARGET_PROFILE_ID,
-				text: "Agent is working",
+				text: "codex is working",
 			}),
 		]);
 	});
@@ -204,7 +225,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.hasProblem).toBe(false);
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
-				text: "Agent is working",
+				text: "runner is working",
 			}),
 		]);
 		expect(state.issueEntries).toEqual([]);
@@ -234,7 +255,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			expect.objectContaining({
 				elapsedStartedAtMs: 1,
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "Agent is working",
+				text: "runner is working",
 			}),
 		]);
 		expect(state.issueEntries).toEqual([]);
@@ -358,7 +379,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries[0]).toEqual(
 			expect.objectContaining({
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "Agent is working",
+				text: "runner is working",
 			})
 		);
 		expect(state.issueEntries).toEqual([]);
@@ -609,6 +630,7 @@ function createWakeProgressItem(input: {
 	failureReasonCode?: string | null;
 	message: string;
 	phase: WakeProgressItem["phase"];
+	previewText?: string;
 	sourceSignalId?: string;
 	startedAtMs?: number;
 	targetLabel?: string;
@@ -624,6 +646,7 @@ function createWakeProgressItem(input: {
 		failureReasonCode: input.failureReasonCode ?? null,
 		message: input.message,
 		phase: input.phase,
+		...(input.previewText ? { previewText: input.previewText } : {}),
 		sourceSignalId: input.sourceSignalId ?? "sig-source",
 		startedAtMs: input.startedAtMs ?? input.updatedAtMs,
 		targetLabel: input.targetLabel ?? "@runner",

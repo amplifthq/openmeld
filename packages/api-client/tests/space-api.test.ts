@@ -2199,6 +2199,7 @@ describe("api-client space api", () => {
 
     await api.getWakeProgress({
       clientMessageId: "client-message-1",
+      includePreviewText: true,
       includeSourceContext: true,
       includeTiming: true,
       includeWaitReason: true,
@@ -2208,6 +2209,7 @@ describe("api-client space api", () => {
     });
     await api.getActiveWakeProgress({
       includePageInfo: true,
+      includePreviewText: true,
       includeSourceContext: true,
       includeTiming: true,
       includeWaitReason: true,
@@ -2220,13 +2222,13 @@ describe("api-client space api", () => {
     expect(transport).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/wake-progress?clientMessageId=client-message-1&includeSourceContext=true&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/wake-progress?clientMessageId=client-message-1&includePreviewText=true&includeSourceContext=true&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true",
       })
     );
     expect(transport).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/active-wake-progress?includePageInfo=true&includeSourceContext=true&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true&sourceProfileId=human-source-1",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/active-wake-progress?includePageInfo=true&includePreviewText=true&includeSourceContext=true&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true&sourceProfileId=human-source-1",
       })
     );
   });

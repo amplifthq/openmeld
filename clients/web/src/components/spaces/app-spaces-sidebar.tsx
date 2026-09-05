@@ -524,8 +524,8 @@ function SpaceSidebarMenuItem(input: {
 	const openLabel = buildSpaceSidebarOpenLabel({
 		hasActiveWake,
 		hasUnread,
-		isWaitingForCodexTask:
-			activeWakePresentation?.isWaitingForCodexTask ?? false,
+		isWaitingForCurrentTask:
+			activeWakePresentation?.isWaitingForCurrentTask ?? false,
 		isNewSpace,
 		spaceName: input.item.spaceName,
 	});
@@ -690,7 +690,7 @@ function SpaceSidebarMenuItem(input: {
 function buildSpaceSidebarOpenLabel(input: {
 	hasActiveWake: boolean;
 	hasUnread: boolean;
-	isWaitingForCodexTask: boolean;
+	isWaitingForCurrentTask: boolean;
 	isNewSpace: boolean;
 	spaceName: string;
 }): string {
@@ -706,12 +706,12 @@ function buildSpaceSidebarOpenLabel(input: {
 
 function resolveSpaceSidebarActiveWakeLabel(input: {
 	hasActiveWake: boolean;
-	isWaitingForCodexTask: boolean;
+	isWaitingForCurrentTask: boolean;
 }): string | null {
 	if (!input.hasActiveWake) {
 		return null;
 	}
-	return input.isWaitingForCodexTask ? "agent waiting" : "agent working";
+	return input.isWaitingForCurrentTask ? "agent waiting" : "agent working";
 }
 
 function SpaceSidebarActiveWakeStatus(input: {
@@ -723,7 +723,7 @@ function SpaceSidebarActiveWakeStatus(input: {
 	if (!(input.enabled && input.presentation)) {
 		return null;
 	}
-	const { isWaitingForCodexTask, label } = input.presentation;
+	const { isWaitingForCurrentTask, label } = input.presentation;
 	return (
 		<Tooltip>
 			<TooltipTrigger
@@ -734,18 +734,18 @@ function SpaceSidebarActiveWakeStatus(input: {
 						className={cn(
 							SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME,
 							"pointer-events-auto rounded-full outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring group-focus-within/space-row:scale-[0.625] group-hover/space-row:scale-[0.625]",
-							isWaitingForCodexTask ? "text-muted-foreground" : null
+							isWaitingForCurrentTask ? "text-muted-foreground" : null
 						)}
 						data-space-active-wake-orb={
-							isWaitingForCodexTask ? undefined : "true"
+							isWaitingForCurrentTask ? undefined : "true"
 						}
 						data-space-active-wake-waiting={
-							isWaitingForCodexTask ? "true" : undefined
+							isWaitingForCurrentTask ? "true" : undefined
 						}
 						onClick={input.onOpen}
 						type="button"
 					>
-						{isWaitingForCodexTask ? (
+						{isWaitingForCurrentTask ? (
 							<HourglassMediumIcon className="size-4" />
 						) : (
 							<SpaceAgentOrb />
@@ -820,43 +820,43 @@ function buildCurrentSpaceActiveWakeSummary(input: {
 }
 
 type SpaceActiveWakePresentation = {
-	isWaitingForCodexTask: boolean;
+	isWaitingForCurrentTask: boolean;
 	label: string;
 };
 
 function resolveSpaceActiveWakePresentation(
 	summary: SpaceSidebarActiveWakeSummary
 ): SpaceActiveWakePresentation {
-	const isWaitingForCodexTask =
+	const isWaitingForCurrentTask =
 		summary.waitReasonCode ===
 		WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE;
 	const activeTargets = summary.activeTargets ?? [];
 	if (activeTargets.length > 0) {
 		return {
-			isWaitingForCodexTask,
+			isWaitingForCurrentTask,
 			label: resolveAttributedSpaceWakeStatusLabel({
 				activeTargets,
-				isWaitingForCodexTask,
+				isWaitingForCurrentTask,
 			}),
 		};
 	}
 	return {
-		isWaitingForCodexTask,
+		isWaitingForCurrentTask,
 		label: resolveGenericSpaceWakeStatusLabel({
 			activeWakeCount: summary.activeWakeCount,
-			isWaitingForCodexTask,
+			isWaitingForCurrentTask,
 		}),
 	};
 }
 
 function resolveGenericSpaceWakeStatusLabel(input: {
 	activeWakeCount: number;
-	isWaitingForCodexTask: boolean;
+	isWaitingForCurrentTask: boolean;
 }): string {
-	if (input.isWaitingForCodexTask) {
+	if (input.isWaitingForCurrentTask) {
 		return input.activeWakeCount === 1
-			? "An agent is waiting for its Codex task"
-			: `${String(input.activeWakeCount)} Wakes are waiting for Codex tasks`;
+			? "An agent is waiting for its current task"
+			: `${String(input.activeWakeCount)} Wakes are waiting for current tasks`;
 	}
 	return input.activeWakeCount === 1
 		? "An agent is working"
@@ -865,7 +865,7 @@ function resolveGenericSpaceWakeStatusLabel(input: {
 
 function resolveAttributedSpaceWakeStatusLabel(input: {
 	activeTargets: NonNullable<SpaceSidebarActiveWakeSummary["activeTargets"]>;
-	isWaitingForCodexTask: boolean;
+	isWaitingForCurrentTask: boolean;
 }): string {
 	const namedTargets = input.activeTargets.filter(
 		(target): target is typeof target & { profileName: string } =>
@@ -879,8 +879,8 @@ function resolveAttributedSpaceWakeStatusLabel(input: {
 		targetLabels.push(`${String(unknownTargetCount)} other agents`);
 	}
 	const plural = input.activeTargets.length > 1;
-	const status = input.isWaitingForCodexTask
-		? `${plural ? "are" : "is"} waiting for ${plural ? "their" : "its"} Codex task`
+	const status = input.isWaitingForCurrentTask
+		? `${plural ? "are" : "is"} waiting for ${plural ? "their" : "its"} current task`
 		: `${plural ? "are" : "is"} working`;
 	return capitalizeStatusFragment(
 		`${formatEnglishList(targetLabels)} ${status}`

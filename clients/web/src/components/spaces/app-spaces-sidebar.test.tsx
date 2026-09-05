@@ -1169,7 +1169,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeTruthy();
 	});
 
-	it("shows that the current Agent is waiting when its Codex task is occupied", async () => {
+	it("shows that the current Agent is waiting when its current task is occupied", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1230,7 +1230,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", {
-				name: "Clico Codex is waiting for its Codex task. Open Alpha",
+				name: "Clico Codex is waiting for its current task. Open Alpha",
 			})
 		).toBeTruthy();
 		expect(

@@ -212,6 +212,7 @@ describe("buildSpaceMessageDetailsPresentation", () => {
 					phase: "running",
 					step: {
 						description: "The agent has the Wake.",
+						kind: "working",
 						label: "Agent is working",
 						status: "active",
 					},
@@ -249,6 +250,7 @@ describe("buildSpaceMessageDetailsPresentation", () => {
 					phase: "running",
 					step: {
 						description: "The agent has the Wake.",
+						kind: "working",
 						label: "Agent is working",
 						status: "active",
 					},

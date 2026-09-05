@@ -520,6 +520,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 					phase: "running",
 					step: {
 						description: "The agent has the Wake.",
+						kind: "working",
 						label: "Agent is working",
 						status: "active",
 					},

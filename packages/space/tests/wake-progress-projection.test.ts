@@ -216,6 +216,7 @@ describe("Wake progress projection", () => {
     expect(items[0]).toMatchObject({
       phase: "writing",
       message: "I’m checking the release configuration now.",
+      previewText: "I’m checking the release configuration now.",
     });
 
     items = applyWakeProgressSignals({

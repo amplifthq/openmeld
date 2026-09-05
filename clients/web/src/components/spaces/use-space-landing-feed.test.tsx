@@ -622,6 +622,37 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).not.toHaveBeenCalled();
 	});
+
+	it("refreshes authoritative Wake progress without unrelated Space reads", async () => {
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+		await openLatestSocket();
+
+		await act(async () => {
+			await FakeWebSocket.latest.emitMessage(
+				JSON.stringify({
+					type: "wake.progress.changed",
+					spaceId: "space-123",
+					version: 10,
+					agentProfileIds: ["agt-1"],
+					clientMessageIds: ["client-message-1"],
+					reason: "runtime_coordinator.wake_progress_changed",
+				})
+			);
+		});
+		await flushMicrotasks();
+
+		expect(invalidateQueries).toHaveBeenCalledWith({
+			exact: true,
+			queryKey: spaceQueryKeys.activeWakeProgressSummary(
+				"space-123",
+				"11111111-1111-1111-1111-111111111111"
+			),
+			refetchType: "active",
+		});
+		expect(statusRefetch).not.toHaveBeenCalled();
+		expect(membersRefetch).not.toHaveBeenCalled();
+	});
 });
 
 describe("useSpaceLandingFeed conversation reconcile", () => {
