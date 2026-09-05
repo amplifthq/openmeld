@@ -6,7 +6,10 @@ import * as readinessService from "../src/agent-execution/application/agent-exec
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as runtimeTransportClient from "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import type { CoreBindings } from "../src/lib/bindings";
-import { listSpaceMembersSnapshotUseCase } from "../src/space/application/space-members-service";
+import {
+  listSpaceMembersSnapshotUseCase,
+  recordSpaceMemberWebActivityUseCase,
+} from "../src/space/application/space-members-service";
 import {
   type SpaceMemberRecord,
   upsertSpaceMemberRecord,
@@ -17,6 +20,106 @@ const NOW_ISO = "2026-06-19T00:00:00.000Z";
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
 describe("space members profile details projection", () => {
+  it("uses explicit Human visits, not newer socket entries or read cursors, and persists monotonic activity", async () => {
+    const harness = createSqlStorageHarness();
+    const profileId = "351a30e5-0787-44ac-8731-ab6bc5c9be05";
+    try {
+      ensureSpaceSqlSchema(harness.sql);
+      const member = {
+        ...createAgentMemberRecord(),
+        profileId,
+        profileKindSnapshot: "human" as const,
+        controllerRefSnapshot: null,
+        lastEnteredAt: "2026-06-18T22:00:00.000Z",
+      };
+      upsertSpaceMemberRecord(harness.sql, member);
+      harness.sql.exec(
+        "INSERT INTO space_cursors (profile_id, last_seen_ts, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        profileId,
+        Date.parse(NOW_ISO),
+        0,
+        0
+      );
+      const input = {
+        sql: harness.sql,
+        spaceId: "space-1",
+        env: createCoreEnv({ lineage: {} }),
+        liveSessions: [
+          {
+            enforcedProfile: {
+              kind: "human" as const,
+              profileId,
+              profileName: "Monica",
+              owner: "owner-1",
+            },
+          },
+        ],
+        nowIso: NOW_ISO,
+      };
+      expect(
+        (await listSpaceMembersSnapshotUseCase(input)).humans[0]?.lastSeenAt
+      ).toBeNull();
+      const activity = {
+        profileId,
+        userId: "owner-1",
+        organizationId: "org-1",
+        lastActiveAt: "2026-06-18T04:00:00.000Z",
+      };
+      for (const invalid of [
+        { ...activity, userId: "another-owner" },
+        { ...activity, organizationId: "another-org" },
+      ]) {
+        expect(() =>
+          recordSpaceMemberWebActivityUseCase({
+            sql: harness.sql,
+            organizationId: "org-1",
+            activity: invalid,
+          })
+        ).toThrow();
+      }
+      recordSpaceMemberWebActivityUseCase({
+        sql: harness.sql,
+        organizationId: "org-1",
+        activity,
+      });
+      recordSpaceMemberWebActivityUseCase({
+        sql: harness.sql,
+        organizationId: "org-1",
+        activity: { ...activity, lastActiveAt: "2026-06-18T03:00:00.000Z" },
+      });
+      expect(
+        (await listSpaceMembersSnapshotUseCase(input)).humans[0]
+      ).toMatchObject({
+        lastSeenAt: activity.lastActiveAt,
+        lastSeenLabel: "Seen 20h ago",
+        liveNow: false,
+      });
+      // Re-running schema setup preserves the authoritative visit record.
+      ensureSpaceSqlSchema(harness.sql);
+      expect(
+        (await listSpaceMembersSnapshotUseCase(input)).humans[0]?.lastSeenAt
+      ).toBe(activity.lastActiveAt);
+      recordSpaceMemberWebActivityUseCase({
+        sql: harness.sql,
+        organizationId: "org-1",
+        activity: { ...activity, lastActiveAt: NOW_ISO },
+      });
+      expect(
+        (await listSpaceMembersSnapshotUseCase(input)).humans[0]?.liveNow
+      ).toBe(true);
+      expect(
+        (
+          await listSpaceMembersSnapshotUseCase({
+            ...input,
+            nowIso: "2026-06-19T00:07:00.000Z",
+          })
+        ).humans[0]
+      ).toMatchObject({ lastSeenAt: NOW_ISO, liveNow: false });
+    } finally {
+      harness.close();
+    }
+  });
+
   beforeEach(() => {
     vi.spyOn(
       runtimeTransportClient,

@@ -2625,6 +2625,7 @@ export type GetCurrentOrganizationAgentRuntimeOverviewInput = {
 
 export type RecordCurrentOrganizationWebActivityInput = {
   context?: CoreRpcContextInput;
+  spaceId?: string;
 };
 
 export type GetCurrentOrganizationComputersInput = {
@@ -6253,6 +6254,13 @@ export async function rpcRecordCurrentOrganizationWebActivity(
     organizationId: activeOrganization.organizationId,
     userId: activeOrganization.userId,
   });
+  if (input.spaceId) {
+    const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+    await stub.rpcRecordMemberWebActivity({
+      ...response,
+      profileId: humanProfileId,
+    });
+  }
   console.info("[core.organization_member_activity.recorded]", {
     event: "organization_member_activity.recorded",
     lastActiveAt: response.lastActiveAt,

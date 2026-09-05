@@ -8,6 +8,7 @@ import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld
 
 export async function recordCurrentOrganizationWebActivity(input: {
 	organizationId: string;
+	spaceId?: string;
 }): Promise<OrganizationMemberWebActivityResponse> {
 	try {
 		return await createOrganizationScopedWebOpenMeldApiFoundation({
@@ -17,7 +18,9 @@ export async function recordCurrentOrganizationWebActivity(input: {
 			method: "POST",
 			operation: "organization.member_activity.web.record",
 			schema: organizationMemberWebActivityResponseSchema,
-			url: "/v1/organizations/current/member-activity/web",
+			url: input.spaceId
+				? `/v1/spaces/${encodeURIComponent(input.spaceId)}/member-activity/web`
+				: "/v1/organizations/current/member-activity/web",
 		});
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);

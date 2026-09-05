@@ -1036,6 +1036,7 @@ describe("SpaceMembersSidePanel", () => {
 					humans: [
 						createSpaceMemberHumanSnapshot({
 							lastSeenLabel: "12 minutes ago",
+							lastSeenAt: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
 							ownerUserId: "user_mira",
 							profileId: "22222222-2222-4222-8222-222222222222",
 							profileName: "Mira",

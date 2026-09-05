@@ -511,6 +511,7 @@ export function SpaceConversationPanel(
 	});
 	const {
 		conversationAutoScroll,
+		conversationDefaultScrollPosition,
 		conversationScrollElement,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
@@ -586,7 +587,7 @@ export function SpaceConversationPanel(
 				messages={
 					<MessageScrollerProvider
 						autoScroll={conversationAutoScroll}
-						defaultScrollPosition="end"
+						defaultScrollPosition={conversationDefaultScrollPosition}
 						key={buildSpaceConversationScrollRestorationId(
 							input.spaceId ?? input.spaceViewIdPrefix
 						)}
@@ -1167,12 +1168,24 @@ function useSpaceConversationNavigationController(input: {
 	const messageElementsBySignalIdRef = useRef(new Map<string, HTMLElement>());
 	const conversationPosition = useSpaceConversationPosition({
 		historyIsPending: input.historyIsPending,
+		hasEarlierHistory: input.hasEarlierHistory,
+		isLoadingEarlierHistory: input.isLoadingEarlierHistory,
+		historyVersion: input.mainTimelineItems,
+		onLoadEarlierHistory: input.onLoadEarlierHistory,
+		historyError: input.historyActionErrorMessage,
+		hasExplicitFocus: Boolean(
+			input.initialFocusSignalId ||
+				input.initialFocusInteractionId ||
+				input.initialFocusThreadRootSignalId
+		),
 		messageElementsRef: messageElementsBySignalIdRef,
 		restorationId: scrollRestorationId,
 		selfProfileId: input.selfProfileId,
 		viewport: conversationScrollElement,
 	});
 	const conversationAutoScroll = conversationPosition.autoScroll;
+	const conversationDefaultScrollPosition =
+		conversationPosition.defaultScrollPosition;
 	const onConversationScroll = conversationPosition.onScroll;
 	const onConversationScrollEnd = conversationPosition.onScrollEnd;
 	const highlightMessageTimerRef = useRef<number | null>(null);
@@ -1459,6 +1472,7 @@ function useSpaceConversationNavigationController(input: {
 
 	return {
 		conversationAutoScroll,
+		conversationDefaultScrollPosition,
 		conversationScrollElement,
 		highlightedSignalId,
 		loadEarlierHistory,

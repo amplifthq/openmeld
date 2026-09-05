@@ -1,5 +1,5 @@
-export const SPACE_SQL_SCHEMA_VERSION = 30;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v30";
+export const SPACE_SQL_SCHEMA_VERSION = 31;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v31";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -63,6 +63,13 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     )
   `);
   ensureSpaceCursorsMentionAliasColumn(sql);
+
+  sql.exec(`
+    CREATE TABLE IF NOT EXISTS space_member_web_activity (
+      profile_id TEXT PRIMARY KEY,
+      last_active_at INTEGER NOT NULL
+    )
+  `);
 
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_signals (
