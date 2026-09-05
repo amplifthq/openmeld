@@ -79,7 +79,7 @@ describe("HumanProfileDetailsPopover", () => {
 		expect(
 			dialog.getByRole("button", { name: "Chat with Monica Cheng" }).className
 		).toContain("h-8");
-		expect(dialog.getByText("7h ago")).toBeTruthy();
+		expect(dialog.getByText("Here 7h ago")).toBeTruthy();
 		expect(dialog.getByText("Computer connected")).toBeTruthy();
 		expect(dialog.getByText("5 of 6")).toBeTruthy();
 		const list = dialog.getByRole("list", { name: "Monica Cheng's Agents" });

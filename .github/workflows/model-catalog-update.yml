@@ -19,10 +19,6 @@ jobs:
     if: github.repository == 'amplifthq/openmeld' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        controller: [codex, claude-code, cursor, grok-build, opencode]
     permissions:
       contents: write
       pull-requests: write
@@ -38,16 +34,16 @@ jobs:
       - name: Install schema dependency
         run: |
           corepack enable
-          pnpm install --frozen-lockfile --ignore-scripts --filter @openmeld/schemas
+          pnpm install --frozen-lockfile --ignore-scripts
       - name: Collect and validate public facts
         env:
-          CONTROLLER: ${{ matrix.controller }}
-        run: node scripts/model-catalog/catalog-update.mjs "$CONTROLLER" dev-tmp/catalog-update
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/model-catalog/collect-update.mjs dev-tmp/catalog-update
       - name: Preserve evidence and review brief
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: catalog-update-${{ matrix.controller }}
+          name: catalog-update
           path: dev-tmp/catalog-update
           retention-days: 30
           if-no-files-found: ignore

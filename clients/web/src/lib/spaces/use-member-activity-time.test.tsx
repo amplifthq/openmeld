@@ -31,10 +31,10 @@ it("ages a cached Space timestamp instead of repeating its old relative label", 
 		throw new Error("Human fixture missing");
 	}
 	const { result } = renderHook(() => useMemberActivityTime(entry));
-	expect(result.current).toBe("2h ago");
+	expect(result.current).toBe("Here 2h ago");
 	act(() => {
 		vi.setSystemTime(new Date("2026-09-05T18:00:00Z"));
 		window.dispatchEvent(new Event("focus"));
 	});
-	expect(result.current).toBe("20h ago");
+	expect(result.current).toBe("Here 20h ago");
 });

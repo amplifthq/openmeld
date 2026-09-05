@@ -10,8 +10,8 @@ import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import type { ReactElement } from "react";
 import {
 	AgentProfileDetailsPopover,
+	HistoricalProfilePopover,
 	HumanProfileDetailsPopover,
-	ProfileDetailsPopover,
 } from "#/components/profiles/profile-details-dialog";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 import {
@@ -110,16 +110,21 @@ export function useSpaceProfileDetailsPopover(input: {
 		entry: ProfileDetailsSpaceMemberInput,
 		trigger: ReactElement
 	) => (
-		<ProfileDetailsPopover
-			details={buildProfileDetailsSnapshotFromSpaceMember({
-				agentControllerPermissionModeDetail: null,
-				entry,
-				modelDetail: null,
-				viewerScope: resolveViewerScope({
+		<HistoricalProfilePopover
+			chatHref={
+				entry.profileId === input.centerAgentProfileId && input.orgSlug
+					? buildOrganizationCenterAgentChatPath(input.orgSlug)
+					: undefined
+			}
+			entry={entry}
+			isCenterAgent={entry.profileId === input.centerAgentProfileId}
+			isSelf={
+				entry.profileKind === "human" &&
+				isSameOwnerUserId({
 					currentOwnerUserId: input.currentOwnerUserId,
 					ownerUserId: entry.ownerUserId,
-				}),
-			})}
+				})
+			}
 			trigger={trigger}
 		/>
 	);

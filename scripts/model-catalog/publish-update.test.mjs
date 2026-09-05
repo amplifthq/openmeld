@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { prepareUpdate } from "./catalog-update.mjs";
+import { digest, prepareUpdate } from "./catalog-update.mjs";
 import { publishUpdate } from "./publish-update.mjs";
 
 test("a pushed proposal survives a failed PR request without rewriting the branch", async () => {
@@ -75,13 +75,15 @@ test("a pushed proposal survives a failed PR request without rewriting the branc
     );
     await writeFile(
       join(output, "evidence.json"),
-      JSON.stringify(result.evidence)
+      JSON.stringify([result.evidence])
     );
     await writeFile(
       join(output, "result.json"),
       JSON.stringify({
         controller: "codex",
-        fingerprint: result.evidence.fingerprint,
+        fingerprint: digest([
+          { controller: "codex", fingerprint: result.evidence.fingerprint },
+        ]),
         changed: true,
       })
     );
@@ -119,6 +121,20 @@ if (args[1] === 'list') {
     await publishUpdate(output);
     assert.equal(git("branch", "--show-current"), "main");
     assert.equal(git("status", "--porcelain"), "");
+    git("checkout", pulls[0].headRefName);
+    await writeFile("reviewer-notes.md", "Reviewer decision in progress.\n");
+    git("add", "--", "reviewer-notes.md");
+    git("commit", "-m", "docs: record reviewer decision");
+    git("push", "origin", `HEAD:refs/heads/${pulls[0].headRefName}`);
+    const reviewed = git("rev-parse", "HEAD");
+    git("checkout", "main");
+    await publishUpdate(output);
+    assert.equal(
+      git("ls-remote", "--heads", "origin", pulls[0].headRefName).split(
+        "\t"
+      )[0],
+      reviewed
+    );
   } finally {
     process.chdir(previousCwd);
     process.env.PATH = previousPath;
