@@ -25,6 +25,26 @@
       "body": "Space member names now open a compact profile card with useful, local context:\npeople show when they were last active in that Space, ordinary Agents link to\ntheir proper editor, and Center Agent chat opens Home instead of a Direct\nMessage."
     },
     {
+      "id": "space-profile-recency-scope",
+      "title": "Clarify Space activity times and historical profiles",
+      "kind": "fixed",
+      "areas": [
+        "people",
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-05",
+      "evidence": [
+        "pr:668",
+        "commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f",
+        "workflow:33953073945"
+      ],
+      "body": "Space member lists and profile popovers now say \"Here 2d ago\" to distinguish\nactivity in that Space from activity elsewhere in the app. Live status is\nunchanged.\n\nProfiles opened from older messages stay compact when current member details\nare unavailable, without falling back to a table of technical IDs or implying\nan online status."
+    },
+    {
       "id": "wake-status-orbs-and-response-feedback",
       "title": "Clearer Agent progress and response feedback",
       "kind": "improved",
@@ -110,6 +130,25 @@
         "smoke:chrome:focused-agent-status-20260905"
       ],
       "body": "Agent availability refreshes now stay on the affected Agent, keep names and\nstable status labels still, and point missing working folders to one clear\nrecovery action. Computers also keep an available OpenMeld Tools update visible\nwhen a local agent needs sign-in."
+    },
+    {
+      "id": "web-application-error-diagnostics",
+      "title": "Keep diagnostic records for Web application errors",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "observability"
+      ],
+      "audiences": [
+        "operators"
+      ],
+      "publishedAt": "2026-09-05",
+      "evidence": [
+        "pr:667",
+        "commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f",
+        "workflow:33953073945"
+      ],
+      "body": "Web application errors now produce searchable Cloudflare logs with build\nidentifiers, error categories, and code locations. Browser reports omit private\npage content and credentials. Hosted Web releases retain private browser source\nmaps to help operators investigate errors after an update."
     },
     {
       "id": "remove-agent-logo-from-tools-status",
@@ -217,6 +256,24 @@
         "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
       ],
       "body": "A twice-daily collector prepares model-update pull requests with official source\nevidence and clear decisions for the reviewing coding agent. Confirmed Codex\ncatalog additions are prepared automatically; account access and product defaults\nremain explicit review decisions.\n\nNew Agent Profile recommendations can be configured independently of runtime\ndefaults, while preserving existing selections and remembered preferences."
+    },
+    {
+      "id": "preserve-page-loading-errors",
+      "title": "Preserve page loading errors during refresh",
+      "kind": "fixed",
+      "areas": [
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-05",
+      "evidence": [
+        "pr:667",
+        "commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f",
+        "workflow:33953073945"
+      ],
+      "body": "When an older page cannot load a component after an update, automatic refresh\npreserves the original loading error instead of replacing it with a misleading\nmissing-component error while the refresh is pending."
     },
     {
       "id": "shared-space-wake-progress",
