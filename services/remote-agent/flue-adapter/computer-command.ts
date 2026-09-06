@@ -108,7 +108,7 @@ export function createComputerCommandTool(input: {
   const definition: RemoteAgentToolDefinition = {
     name: "computer_command",
     description:
-      "Run long Linux commands using the Computer's retained native process sessions. start launches the command directly (never add shell &, nohup, or a background subprocess), returning an initial output slice; use a unique stable key per command. poll returns bounded output plus an after cursor; repeat until completed. running with outputPending means the native process is alive but its existing output subscription has not detached; continue polling, and retained output will be available after exit. Use separate polls with the default 20-second wait for long work. list recovers keys after interruption. stop requests SIGTERM for that exact command. Commands belong to this execution only. Repeating start with the same key never launches a second process. A transport error can mean launch outcome is unknown: list/poll, never blindly rerun. Finish all commands before your final answer. Use bash for short commands.",
+      "Run long Linux commands using the Computer's retained native process sessions. Each action accepts only its own fields: start {action,key,command,timeoutSeconds?}; poll {action,key,after?,waitSeconds?}; stop {action,key}; list {action}. Do not pass poll fields to start. start launches the command directly (never add shell &, nohup, or a background subprocess), returning an initial output slice; use a unique stable key per command. poll returns bounded output plus an after cursor; repeat until completed. running with outputPending means the native process is alive but its existing output subscription has not detached; continue polling, and retained output will be available after exit. Use separate polls with the default 20-second wait for long work. list recovers keys after interruption. stop requests SIGTERM for that exact command. Commands belong to this execution only. Repeating start with the same key never launches a second process. A transport error can mean launch outcome is unknown: list/poll, never blindly rerun. While a command is running, publish progress with openmeld_post_space_message and continue polling. A user saying they will press Stop does not stop the command: keep polling until actual cancellation or completion. Never end your turn to wait for Stop; ending the turn terminates unfinished commands. Finish all commands before your final answer. Use bash for short commands.",
     input: commandToolSchema,
     async execute(rawInput, options) {
       options?.signal?.throwIfAborted();
@@ -423,27 +423,43 @@ export async function stopRemoteAgentComputerCommands(input: {
     ),
   });
   let unfinished = 0;
+  const failures: unknown[] = [];
   for (const command of commands.values()) {
-    await input.storage.putExpiring(
-      `${commandPrefix(input.context.submissionId)}${encodeURIComponent(command.key)}`,
-      { ...command, stopRequested: true },
-      Date.now() + 7 * 24 * 60 * 60 * 1000
-    );
-    await access.withWorkspace(async (workspace) => {
-      const result = await pollComputerCommand(
-        workspace.runtime,
-        command,
-        0,
-        1000
+    try {
+      await input.storage.putExpiring(
+        `${commandPrefix(input.context.submissionId)}${encodeURIComponent(command.key)}`,
+        { ...command, stopRequested: true },
+        Date.now() + 7 * 24 * 60 * 60 * 1000
       );
-      if (result.status !== "completed") {
-        unfinished++;
-        await workspace.runtime.killExec(command.id, {
-          backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-          signal: "SIGTERM",
-        });
-      }
-    });
+      await access.withWorkspace(async (workspace) => {
+        let completed = false;
+        try {
+          const result = await pollComputerCommand(
+            workspace.runtime,
+            command,
+            0,
+            1000
+          );
+          completed = result.status === "completed";
+        } finally {
+          // Output transport failure must never strand an owned process after
+          // its turn ends. Signal its exact retained identity even when its
+          // output cannot be read; preserve the inspection error for diagnosis.
+          if (!completed) {
+            unfinished++;
+            await workspace.runtime.killExec(command.id, {
+              backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+              signal: "SIGTERM",
+            });
+          }
+        }
+      });
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(failures, "Computer command cleanup failed.");
   }
   return unfinished;
 }

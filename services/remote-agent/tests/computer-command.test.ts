@@ -10,9 +10,15 @@ import { createRemoteAgentCallbackContext } from "../agent-core/callback-context
 import {
   createComputerCommandTool,
   readCommandSlice,
+  stopRemoteAgentComputerCommands,
 } from "../flue-adapter/computer-command";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
+
+const cleanupAccess = vi.hoisted(() => vi.fn());
+vi.mock("../flue-adapter/agent-computer-workspace-access", () => ({
+  createAgentComputerWorkspaceAccess: cleanupAccess,
+}));
 
 function context(submissionId: string) {
   const request = createSubmitTurnRequest();
@@ -85,10 +91,39 @@ function fixture() {
       workspaceAccess,
       workingDirectory: "/computer/spaces/a",
     });
-  return { tool, exec, getExec, killExec, processes };
+  return { tool, exec, getExec, killExec, processes, storage, workspaceAccess };
 }
 
 describe("retained Computer commands", () => {
+  it("still signals every owned command when terminal output inspection fails", async () => {
+    const f = fixture();
+    const ids: string[] = [];
+    for (const key of ["first", "second"]) {
+      const result = (await f
+        .tool()
+        .execute({ action: "start", key, command: "sleep 300" })) as {
+        id: string;
+      };
+      ids.push(result.id);
+    }
+    await f
+      .tool("other-execution")
+      .execute({ action: "start", key: "other", command: "sleep 300" });
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    f.getExec.mockRejectedValue(
+      new TypeError(
+        "The readable side of this TransformStream is no longer readable."
+      )
+    );
+    await expect(
+      stopRemoteAgentComputerCommands({
+        context: context("execution-a"),
+        storage: f.storage,
+        env: { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } },
+      })
+    ).rejects.toThrow();
+    expect(f.killExec.mock.calls.map(([id]) => id)).toEqual(ids);
+  });
   it("reports a native live subscriber as running and later reads the retained exit", async () => {
     const f = fixture();
     const started = (await f
