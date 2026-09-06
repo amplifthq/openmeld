@@ -16,7 +16,8 @@ export function sortSidebarSpaces<
 	section?: AccountSidebarPreferences["spaces"],
 	attention?: ReadonlySet<string>,
 	latestActivity?: ReadonlyMap<string, number>,
-	working?: ReadonlySet<string>
+	working?: ReadonlySet<string>,
+	conversationActivity?: ReadonlyMap<string, number>
 ) {
 	if (!section) {
 		return items;
@@ -34,19 +35,30 @@ export function sortSidebarSpaces<
 		return [...items].sort(
 			(a, b) =>
 				rank(b.spaceId) - rank(a.spaceId) ||
-				Math.max(
-					latestActivity?.get(b.spaceId) ?? 0,
-					Date.parse(b.spaceUpdatedAt ?? b.spaceCreatedAt ?? "") || 0
-				) -
-					Math.max(
-						latestActivity?.get(a.spaceId) ?? 0,
-						Date.parse(a.spaceUpdatedAt ?? a.spaceCreatedAt ?? "") || 0
-					) ||
+				(conversationActivity
+					? (conversationActivity.get(b.spaceId) ?? 0) -
+						(conversationActivity.get(a.spaceId) ?? 0)
+					: Math.max(
+							latestActivity?.get(b.spaceId) ?? 0,
+							Date.parse(b.spaceUpdatedAt ?? b.spaceCreatedAt ?? "") || 0
+						) -
+						Math.max(
+							latestActivity?.get(a.spaceId) ?? 0,
+							Date.parse(a.spaceUpdatedAt ?? a.spaceCreatedAt ?? "") || 0
+						)) ||
 				a.spaceId.localeCompare(b.spaceId)
 		);
 	}
 	// Accept previously saved Name preferences as the replacement sort.
 	if (section.sort === "recent" || section.sort === "name") {
+		if (conversationActivity) {
+			return [...items].sort(
+				(a, b) =>
+					(conversationActivity.get(b.spaceId) ?? 0) -
+						(conversationActivity.get(a.spaceId) ?? 0) ||
+					a.spaceId.localeCompare(b.spaceId)
+			);
+		}
 		return [...items].sort(
 			(a, b) =>
 				(Date.parse(b.pinnedAt ?? b.spaceCreatedAt ?? "") || 0) -

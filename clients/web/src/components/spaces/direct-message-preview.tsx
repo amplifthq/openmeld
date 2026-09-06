@@ -1,5 +1,5 @@
 import { sanitizeSignalTextPreview } from "@openmeld/schemas";
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 
 export function formatDirectMessageTime(
@@ -37,7 +37,16 @@ export function useSpaceMessagePreview(input: {
 	peerProfileId?: string;
 	enabled: boolean;
 }) {
-	return useQuery({
+	return useQuery(spaceMessagePreviewQueryOptions(input));
+}
+
+export function spaceMessagePreviewQueryOptions(input: {
+	spaceId: string;
+	viewerProfileId: string;
+	peerProfileId?: string;
+	enabled: boolean;
+}) {
+	return queryOptions({
 		queryKey: [
 			"spaces",
 			input.spaceId,

@@ -15,6 +15,7 @@ import { AppSidebarGroup } from "../app/app-sidebar-group";
 import { SidebarDrag, SidebarDropSection } from "../app/sidebar-drag";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
+import { spaceMessagePreviewQueryOptions } from "./direct-message-preview";
 import { NewDirectMessageDialog } from "./new-direct-message-dialog";
 import { moveSidebarSpace, sortSidebarSpaces } from "./sidebar-space-order";
 import { buildSpaceActiveWakeSummary } from "./space-active-wake-presentation";
@@ -93,6 +94,21 @@ export function ManagedDirectMessages(input: {
 			.map(([id, s]) => [id, s.latestUnreadOccurredAtMs])
 	);
 	const assigned = new Set(preferences.groups.flatMap((g) => g.spaceIds));
+	const latestMessages = useQueries({
+		queries: input.items.map((item) =>
+			spaceMessagePreviewQueryOptions({
+				spaceId: item.spaceId,
+				viewerProfileId: item.openProfileId,
+				enabled: true,
+			})
+		),
+	});
+	const conversationActivity = new Map(
+		input.items.map((item, index) => [
+			item.spaceId,
+			latestMessages[index]?.data?.timestamp ?? 0,
+		])
+	);
 	const sections = [
 		...(input.items.some((item) => item.pinnedAt !== null)
 			? [
@@ -127,7 +143,8 @@ export function ManagedDirectMessages(input: {
 			s.settings,
 			attention,
 			unread,
-			indicators.activeWakeSpaceIds
+			indicators.activeWakeSpaceIds,
+			conversationActivity
 		),
 	}));
 	const save = (messages: Preferences) => {
@@ -220,6 +237,11 @@ export function ManagedDirectMessages(input: {
 									)
 								}
 								sort={section.settings.sort}
+								sortOptions={[
+									["priority", "Priority"],
+									["recent", "Recent activity"],
+									["manual", "Manual order"],
+								]}
 							/>
 						}
 						labelClassName={APP_NAV_GROUP_LABEL_CLASS_NAME}
