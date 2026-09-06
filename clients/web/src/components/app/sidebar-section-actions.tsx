@@ -57,7 +57,7 @@ export function SidebarSectionActions(input: {
 		!input.sortOptions && input.sort === "name" ? "recent" : input.sort;
 	const sorts: readonly (readonly [Sort, string])[] = input.sortOptions ?? [
 		["priority", "Priority"],
-		["recent", "Recently added"],
+		["recent", "Recent activity"],
 		["manual", "Manual order"],
 	];
 	return (

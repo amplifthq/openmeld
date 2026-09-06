@@ -25,7 +25,7 @@ it("puts human intervention before recent activity without confusing pin time wi
 		).map((item) => item.spaceId)
 	).toEqual(["older-needs-input", "recent-activity", "newest-pin"]);
 });
-it("orders recently added pins by pin time, independently of name and activity", () => {
+it("does not treat pin time as conversation activity", () => {
 	expect(
 		sortSidebarSpaces(sortItems, { sort: "recent", spaceIds: [] }).map(
 			(item) => item.spaceId

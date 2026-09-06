@@ -31,7 +31,10 @@ import {
 	resolveAccountSpaceViewerProfileId,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
-import { useDirectMessagePreview } from "./direct-message-preview";
+import {
+	useDirectMessagePreview,
+	useSpaceMessagePreview,
+} from "./direct-message-preview";
 import {
 	type ManagedDirectMessageRowProps,
 	ManagedDirectMessages,
@@ -257,6 +260,11 @@ function DirectMessageSidebarItem(
 			(id) => id !== viewerProfileId
 		),
 	});
+	const latestMessage = useSpaceMessagePreview({
+		spaceId: input.item.spaceId,
+		viewerProfileId,
+		enabled: true,
+	});
 	const drag = useSortableSidebarItem({
 		section: input.section,
 		itemId: input.item.spaceId,
@@ -266,7 +274,7 @@ function DirectMessageSidebarItem(
 	const hasUnread = input.unreadCount > 0;
 	const nowMs = useNowMs(preview.data ? 60_000 : null);
 	const timestamp = resolveConversationTimestamp(
-		preview.data?.timestamp,
+		latestMessage.data?.timestamp,
 		input.item.spaceCreatedAt
 	);
 	let previewText = "No messages yet";

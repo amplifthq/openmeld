@@ -35,6 +35,34 @@ import {
 const OTHER_JOINED_PROFILE_TEXT = /Other joined profile/;
 const BROWSE_SPACES_TEXT = /Browse Spaces/;
 
+vi.mock("../app/use-sidebar-preferences", () => ({
+	useSidebarPreferences: () => ({
+		preferences: {
+			pinned: { sort: "priority", spaceIds: [] },
+			spaces: { sort: "priority", spaceIds: [] },
+			groups: [],
+		},
+		isPending: false,
+		disabled: false,
+		save: vi.fn(),
+	}),
+}));
+
+vi.mock("./direct-message-preview", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("./direct-message-preview")>();
+	return {
+		...actual,
+		spaceMessagePreviewQueryOptions: (
+			input: Parameters<typeof actual.spaceMessagePreviewQueryOptions>[0]
+		) => ({
+			...actual.spaceMessagePreviewQueryOptions(input),
+			initialData: null,
+			queryFn: () => Promise.resolve(null),
+		}),
+	};
+});
+
 function WakeProgressProjectionPublisher(input: {
 	items: readonly WakeProgressItem[];
 }) {

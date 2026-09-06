@@ -56,7 +56,7 @@ export function createAccountSidebarRepository(
             revision: 0,
             preferences: {
               pinned: { sort: "priority", spaceIds: [] },
-              spaces: { sort: "priority", spaceIds: [] },
+              spaces: { sort: "recent", spaceIds: [] },
               groups: [],
             },
           };

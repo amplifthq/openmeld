@@ -9,7 +9,7 @@ import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { FunnelSimpleIcon } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
@@ -42,6 +42,7 @@ import {
 	type SpaceUnreadById,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
+import { spaceMessagePreviewQueryOptions } from "./direct-message-preview";
 import { moveSidebarSpace, sortSidebarSpaces } from "./sidebar-space-order";
 import { SortableSpaceSidebarItem } from "./sortable-space-sidebar-item";
 import type { SpaceSidebarActiveWakeSummary } from "./space-active-wake-presentation";
@@ -209,6 +210,26 @@ export function AppSpacesSidebar(input: {
 		</SidebarSpaceDropSection>
 	);
 	const preferences = sidebar.preferences;
+	const conversationItems = [
+		...sidebarSections.pinnedItems,
+		...sidebarSections.spaceItems,
+	];
+	const latestMessages = useQueries({
+		queries: conversationItems.map((item) =>
+			spaceMessagePreviewQueryOptions({
+				spaceId: item.spaceId,
+				viewerProfileId: item.openProfileId,
+				enabled: true,
+			})
+		),
+	});
+	const conversationActivity = new Map(
+		conversationItems.map((item, index) => [
+			item.spaceId,
+			latestMessages[index]?.data?.timestamp ??
+				(Date.parse(item.spaceCreatedAt ?? "") || 0),
+		])
+	);
 	const groupFilter = useSidebarGroupFilter([
 		{ id: "pinned", label: "Pinned" },
 		...(preferences?.groups ?? []).map((group) => ({
@@ -318,7 +339,8 @@ export function AppSpacesSidebar(input: {
 			section ?? { sort: "priority", spaceIds: [] },
 			attention,
 			unreadActivity,
-			working
+			working,
+			conversationActivity
 		);
 	if (sidebarSections.pinnedItems.length > 0) {
 		const items = sortSection(sidebarSections.pinnedItems, preferences?.pinned);
@@ -407,6 +429,29 @@ export function AppSpacesSidebar(input: {
 		writeShownDeletedSpaceNotices(new Set(items.map((item) => item.spaceId)));
 	}, [sections.recentlyDeletedItems]);
 
+	if (sidebar.isPending || latestMessages.some((query) => query.isPending)) {
+		return <Skeleton className="mx-2 h-32" />;
+	}
+	if (
+		(!preferences && sidebar.isError) ||
+		latestMessages.some((query) => query.isError && query.data === undefined)
+	) {
+		return (
+			<Button
+				onClick={() =>
+					Promise.all([
+						sidebar.retry(),
+						...latestMessages
+							.filter((query) => query.isError)
+							.map((query) => query.refetch()),
+					])
+				}
+				variant="ghost"
+			>
+				Retry loading sidebar
+			</Button>
+		);
+	}
 	return (
 		<SidebarSpaceDrag
 			onMove={async (section, spaceId, beforeId) => {

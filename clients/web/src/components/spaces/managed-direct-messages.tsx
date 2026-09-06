@@ -1,4 +1,6 @@
 import type { AccountSidebarPreferences } from "@openmeld/schemas";
+import { Button } from "@openmeld/ui/components/button";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQueries } from "@tanstack/react-query";
@@ -25,7 +27,7 @@ import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 type Preferences = NonNullable<AccountSidebarPreferences["messages"]>;
 const EMPTY: Preferences = {
 	pinned: { sort: "priority", spaceIds: [] },
-	spaces: { sort: "priority", spaceIds: [] },
+	spaces: { sort: "recent", spaceIds: [] },
 	groups: [],
 };
 export type ManagedDirectMessageRowProps = {
@@ -106,7 +108,8 @@ export function ManagedDirectMessages(input: {
 	const conversationActivity = new Map(
 		input.items.map((item, index) => [
 			item.spaceId,
-			latestMessages[index]?.data?.timestamp ?? 0,
+			latestMessages[index]?.data?.timestamp ??
+				(Date.parse(item.spaceCreatedAt ?? "") || 0),
 		])
 	);
 	const sections = [
@@ -152,6 +155,29 @@ export function ManagedDirectMessages(input: {
 			sidebar.save({ ...sidebar.preferences, messages });
 		}
 	};
+	if (sidebar.isPending || latestMessages.some((query) => query.isPending)) {
+		return <Skeleton className="mx-2 h-32" />;
+	}
+	if (
+		(!sidebar.preferences && sidebar.isError) ||
+		latestMessages.some((query) => query.isError && query.data === undefined)
+	) {
+		return (
+			<Button
+				onClick={() =>
+					Promise.all([
+						sidebar.retry(),
+						...latestMessages
+							.filter((query) => query.isError)
+							.map((query) => query.refetch()),
+					])
+				}
+				variant="ghost"
+			>
+				Retry loading sidebar
+			</Button>
+		);
+	}
 	return (
 		<>
 			<SidebarDrag

@@ -61,8 +61,9 @@ export function sortSidebarSpaces<
 		}
 		return [...items].sort(
 			(a, b) =>
-				(Date.parse(b.pinnedAt ?? b.spaceCreatedAt ?? "") || 0) -
-				(Date.parse(a.pinnedAt ?? a.spaceCreatedAt ?? "") || 0)
+				(Date.parse(b.spaceCreatedAt ?? "") || 0) -
+					(Date.parse(a.spaceCreatedAt ?? "") || 0) ||
+				a.spaceId.localeCompare(b.spaceId)
 		);
 	}
 	return sortSidebarManual(items, section.spaceIds, (item) => item.spaceId);
