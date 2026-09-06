@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T14:41:46.435Z",
+  "updatedAt": "2026-09-06T16:27:50.029Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.160",
+      "packageVersion": "0.3.163",
       "updatePolicy": "available",
-      "reason": "Cloud receivers are deployed first; existing CLI commands remain supported and the current required floor is unchanged."
+      "reason": "Existing setup, Wake, and ordinary trace commands remain compatible; older detailed Flue diagnostics fail with explicit upgrade guidance."
     },
     "service": {
-      "bundleHash": "bda3ff3c62377df1dd94430de1f6093ac89eb891a644bca2c6f1dd43e55c3ebe",
-      "bundleVersion": "0.3.160",
+      "bundleHash": "16078eca57e52576eaf34645f9b1f7d438b3ad4b449f9693baa2c2a919cb3df2",
+      "bundleVersion": "0.3.163",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services remain safe for Wake work; publish compatible cloud receivers before the independent Skill bridge capability."
+      "reason": "Existing Services remain compatible; opt-in Space previews and Web telemetry do not change setup, Wake execution, or diagnostics."
     },
     "skills": {
       "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",

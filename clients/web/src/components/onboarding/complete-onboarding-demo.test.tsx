@@ -26,7 +26,7 @@ describe("CompleteOnboardingDemo", () => {
 		expect(screen.queryByText("GitHub")).toBeNull();
 		expect(screen.queryByText("Connected")).toBeNull();
 		expect(screen.getByText("Channels")).not.toBeNull();
-		expect(screen.getByText("Apps")).not.toBeNull();
+		expect(screen.getByText("Plugins")).not.toBeNull();
 		expect(screen.getAllByText("Add when ready")).toHaveLength(2);
 		expect(screen.getByText("Connect when ready")).not.toBeNull();
 	});

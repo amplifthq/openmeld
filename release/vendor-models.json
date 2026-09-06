@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T07:30:14.654Z",
+  "updatedAt": "2026-09-05T17:30:45.000Z",
   "agentControllers": {
     "codex": {
       "defaultModelId": "gpt-5.6-sol",
@@ -9,6 +9,21 @@
         "reasoningLevel": "high"
       },
       "models": [
+        {
+          "id": "gpt-6-astra",
+          "displayName": "GPT-6 Astra",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "minCliVersion": "0.153.0"
+        },
         {
           "id": "gpt-5.6-sol",
           "displayName": "GPT-5.6 Sol",
@@ -71,21 +86,6 @@
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
           "minCliVersion": null
-        },
-        {
-          "id": "gpt-6-astra",
-          "displayName": "GPT-6 Astra",
-          "badgeLabel": "New",
-          "unavailable": false,
-          "supportedReasoningLevels": [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max",
-            "ultra"
-          ],
-          "minCliVersion": "0.153.0"
         }
       ]
     },

@@ -36,7 +36,7 @@ export function publicationDecision({ pulls, fingerprint, changed }) {
 export function assertAdditionsOnly(current, catalog, evidences) {
   const expected = structuredClone(current);
   for (const evidence of evidences) {
-    for (const change of evidence.changes) {
+    for (const change of [...evidence.changes].reverse()) {
       if (
         change.before !== null ||
         expected.agentControllers[evidence.controller].models.some(
@@ -48,7 +48,9 @@ export function assertAdditionsOnly(current, catalog, evidences) {
           "Only new model additions can be published automatically"
         );
       }
-      expected.agentControllers[evidence.controller].models.push(change.after);
+      expected.agentControllers[evidence.controller].models.unshift(
+        change.after
+      );
     }
     if (evidence.changes.length) {
       expected.updatedAt = evidence.observedAt;

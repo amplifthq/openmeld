@@ -36,7 +36,6 @@ import { FluidCardGroup, FluidCardItem } from "#fluid/card";
 import {
   resolveStatusToneAdvisoryBadgeClassName,
   resolveStatusToneIndicatorClassName,
-  resolveStatusToneRingIndicatorClassName,
   resolveStatusToneSoftTextClassName,
   resolveStatusToneStrongTextClassName,
 } from "#lib/status-tone";
@@ -111,8 +110,8 @@ export function SettingsComputerSummaryCardContent({
                   <span
                     aria-hidden="true"
                     className={cn(
-                      "h-2 w-2 rounded-full ring-2",
-                      resolveStatusToneRingIndicatorClassName(status.tone)
+                      "status-dot",
+                      resolveStatusToneIndicatorClassName(status.tone, "quiet")
                     )}
                     data-testid={statusIndicatorTestId}
                   />
@@ -289,10 +288,7 @@ export function SettingsComputerStatusCard({
             >
               <span
                 aria-hidden="true"
-                className={cn(
-                  "h-2 w-2 shrink-0 rounded-full",
-                  resolveStatusDotClassName(tone)
-                )}
+                className={cn("status-dot", resolveStatusDotClassName(tone))}
               />
               {statusLabel}
             </p>
@@ -1486,7 +1482,7 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
             <span
               aria-hidden="true"
               className={cn(
-                "h-2 w-2 shrink-0 rounded-full",
+                "status-dot",
                 resolveStatusToneIndicatorClassName(status.tone ?? "muted")
               )}
               data-testid={`settings-local-agent-status-dot-${row.id}`}
@@ -1596,7 +1592,7 @@ function SettingsLocalAgentDetailsDialog({
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "h-2 w-2 shrink-0 rounded-full",
+                    "status-dot",
                     resolveStatusToneIndicatorClassName(status.tone ?? "muted")
                   )}
                 />

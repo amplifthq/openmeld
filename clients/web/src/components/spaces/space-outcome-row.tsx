@@ -7,12 +7,7 @@ import {
 	type WakeFailureDisplay,
 	type WakeFailureTargetContext,
 } from "#/lib/spaces/wake-failure-display";
-import {
-	Marker,
-	MarkerContent,
-	MarkerIcon,
-	SPACE_SYSTEM_DIVIDER_CLASS_NAME,
-} from "./primitives/marker";
+import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
 import {
 	SpaceExecutionRecoveryButton,
 	type SpaceExecutionRecoveryHandler,
@@ -108,10 +103,9 @@ export function SpaceOutcomeRow(input: {
 		>
 			<div
 				className={cn(
-					"flex w-full min-w-0 items-center gap-2",
-					SPACE_SYSTEM_DIVIDER_CLASS_NAME
+					"flex min-w-0 max-w-full items-center gap-2",
+					isEndAligned ? "justify-end" : "justify-start"
 				)}
-				data-slot="space-system-divider"
 			>
 				<Marker
 					aria-label={isClickable ? "Open message details" : undefined}

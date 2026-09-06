@@ -1,5 +1,6 @@
 import { AppOuterRail } from "@openmeld/ui/components/app-outer-rail";
 import { SettingsNav } from "@openmeld/ui/components/settings-nav";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import type { SettingsNavItem } from "@openmeld/ui/lib/settings-contract";
 import {
   GearSixIcon,
@@ -256,13 +257,17 @@ function SectionRail({
         <h2 className={APP_HEADER_TITLE_CLASS_NAME}>{title}</h2>
         <p className={APP_HEADER_DESCRIPTION_CLASS_NAME}>{description}</p>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <ScrollArea
+        className="min-h-0 flex-1"
+        contentClassName="px-3 py-3"
+        orientation="vertical"
+      >
         <SettingsNav
           activeSectionId={activeSectionId}
           items={items}
           onNavigate={onNavigate}
         />
-      </div>
+      </ScrollArea>
     </nav>
   );
 }

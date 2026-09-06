@@ -60,6 +60,7 @@ export function AppConnectContent(input: {
 	search: ConnectRouteSearch;
 }) {
 	const { orgSlug, search } = input;
+	const isCreatingAgent = search.returnTo === "agent_creation";
 	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);
 	const routeIntent = useMemo<ConnectRouteIntent>(
 		() => resolveConnectRouteIntent(search),
@@ -109,12 +110,20 @@ export function AppConnectContent(input: {
 			}
 		>
 			<Link
-				aria-label="Back"
-				className={buttonVariants({ size: "icon-sm", variant: "ghost" })}
-				title="Back"
+				aria-label={isCreatingAgent ? "Back to creating Agent" : "Back"}
+				className={buttonVariants({
+					size: isCreatingAgent ? "sm" : "icon-sm",
+					variant: "ghost",
+				})}
+				title={
+					search.returnTo === "agent_creation"
+						? "Back to creating Agent"
+						: "Back"
+				}
 				to={backTo}
 			>
 				<ArrowLeftIcon aria-hidden="true" />
+				{isCreatingAgent ? "Back to creating Agent" : null}
 			</Link>
 			<BringAgentsSetupProvider routeIntent={routeIntent}>
 				<StartBringAgentsSetupPage

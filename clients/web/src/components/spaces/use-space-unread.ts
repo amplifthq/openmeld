@@ -44,6 +44,7 @@ export function useSpaceUnread(input: {
 		[input.targets]
 	);
 	const isViewingNow = input.isViewingLatest && visible;
+	const canPersistRead = input.onViewedThroughTs !== undefined;
 	const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const persistedThroughTsRef = useRef(0);
 	const identityRef = useRef(input.spaceId);
@@ -90,7 +91,7 @@ export function useSpaceUnread(input: {
 	useEffect(() => {
 		cancelPendingRead();
 		if (
-			!(isViewingNow && input.onViewedThroughTs && latestVisibleTs > 0) ||
+			!(isViewingNow && canPersistRead && latestVisibleTs > 0) ||
 			latestVisibleTs <= persistedThroughTsRef.current
 		) {
 			return;
@@ -146,7 +147,7 @@ export function useSpaceUnread(input: {
 		return cancelPendingRead;
 	}, [
 		cancelPendingRead,
-		input.onViewedThroughTs,
+		canPersistRead,
 		input.spaceId,
 		isViewingNow,
 		latestVisibleTs,

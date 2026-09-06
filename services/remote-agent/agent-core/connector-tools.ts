@@ -57,7 +57,7 @@ import type { RemoteAgentToolDefinition } from "./tool-definition";
 const TRAILING_SLASH_PATTERN = /\/+$/u;
 const OPENCONNECTOR_ACTION_SEARCH_LIMIT = 50;
 const GITHUB_DEDICATED_ACTION_INSTRUCTION =
-  "This Apps list never reports GitHub access. For a GitHub request, call the matching github_* tool; it will verify the requested Organization or member GitHub connection.";
+  "This Plugins list never reports GitHub access. For a GitHub request, call the matching github_* tool; it will verify the requested Organization or member GitHub connection.";
 export const REMOTE_AGENT_CONNECTOR_TOOL_NAMES = [
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
@@ -112,7 +112,7 @@ export function getRemoteAgentConnectorToolDefinitions(
     {
       name: "openmeld_list_connected_apps",
       description:
-        "List the non-GitHub Apps currently available to this Center Agent. Linked member requests use that member's connection first and fall back to Organization access. Connected Message Channel members use Organization access only. Routines use Organization access when no delegated member connection is available.",
+        "List the non-GitHub Plugins currently available to this Center Agent. Linked member requests use that member's connection first and fall back to Organization access. Connected Message Channel members use Organization access only. Routines use Organization access when no delegated member connection is available.",
       input: object({}),
       execute: async () => {
         const toolContext = await buildRemoteAgentToolContext({
@@ -851,7 +851,7 @@ async function requireAvailableConnectorConnection(
   const selection = await resolveConnectorConnection(input);
   if (!(selection.connection && selection.selection)) {
     throw new Error(
-      `${getConnectedAppDisplayName(input.service as CenterAgentAppConnectorService)} is not connected for this request. Open Center Agent → Apps and connect an account.`
+      `${getConnectedAppDisplayName(input.service as CenterAgentAppConnectorService)} is not connected for this request. Open Center Agent → Plugins and connect an account.`
     );
   }
   return {

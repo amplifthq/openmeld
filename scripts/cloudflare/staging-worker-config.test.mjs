@@ -134,10 +134,20 @@ test("disables external message channels in staging", () => {
     configs.core.env.stg.vars.OPENMELD_FEISHU_CHANNEL_ENABLED,
     "false"
   );
-  assert.equal(configs.gateway.env.stg.vars.OPENMELD_CONNECTORS_BASE_URL, "");
+});
+
+test("routes Apps only to the independent staging connector and GitHub App", () => {
+  assert.equal(
+    configs.gateway.env.stg.vars.OPENMELD_CONNECTORS_BASE_URL,
+    "https://connectors.staging.openmeld.ai"
+  );
   assert.equal(
     configs.remoteAgent.env.stg.vars.OPENMELD_CONNECTORS_BASE_URL,
-    ""
+    "https://connectors.staging.openmeld.ai"
+  );
+  assert.equal(
+    configs.gateway.env.stg.vars.GITHUB_OPENMELD_APP_SLUG,
+    "openmeld-staging-flue2"
   );
 });
 

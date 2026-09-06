@@ -81,7 +81,7 @@ describe("provider runtime capability schema", () => {
     expect(parsed.success).toBe(false);
   });
 
-  it("accepts a runtime adapter capability snapshot with Codex App Server transport", () => {
+  it("accepts a runtime adapter capability snapshot with Codex Plugin Server transport", () => {
     const parsed = daemonRuntimeAdapterCapabilitySnapshotSchema.safeParse({
       adapterId: "codex",
       capabilityDeclaration: createCapabilityDeclaration(),

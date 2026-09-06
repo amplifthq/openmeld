@@ -687,6 +687,15 @@ different Agent Controller's choices. Failed or cancelled creation does not
 replace the remembered values, and dangerous permission confirmations are
 never remembered as approved.
 
+The creation page keeps `Create Agent` as its task heading and explains that a
+local agent runs the Agent Profile. A saved execution target is configuration,
+not evidence of a current Service connection. Empty-state setup guidance must
+use the current matching Service projection; failed, missing, or mismatched
+checks offer a retry instead of claiming that local agents are not installed.
+Computer setup entered from creation preserves the Organization-scoped
+`agent_creation` return intent through fresh-session consumption. Back and
+verified completion return to Agent creation, not the Computer directory.
+
 Web may also keep an unfinished creation journey as a browser-local draft so a
 member can leave the flow and return without rebuilding ordinary selections.
 This draft is scoped by Organization and user, is advisory rather than

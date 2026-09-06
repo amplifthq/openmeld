@@ -233,9 +233,9 @@ describe("computer summary status", () => {
 				}),
 			})
 		).toMatchObject({
-			label: "Computer not connected",
+			label: "Disconnected",
 			reason: "service_not_connected",
-			tone: "danger",
+			tone: "muted",
 		});
 	});
 
@@ -600,7 +600,7 @@ describe("computer summary status", () => {
 	it.each([
 		["connected", "ready", "OpenMeld Tools are ready"],
 		["needs_attention", "warning", "OpenMeld Tools need an update"],
-		["not_connected", "muted", "Computer offline"],
+		["not_connected", "muted", "Disconnected"],
 		["unknown", "muted", "OpenMeld Tools status unavailable"],
 	] as const)("maps an Organization computer's %s projection to %s", (serviceState, tone, label) => {
 		expect(

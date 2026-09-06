@@ -915,7 +915,7 @@ describe("LocalAgentsCard", () => {
 		const row = screen.getByTestId("settings-local-agent-row-codex");
 		expect(row.getAttribute("data-muted")).toBe("true");
 		expect(row.querySelector("p")?.textContent).toBe("Codex");
-		expect(within(row).getByText("Computer not connected")).toBeTruthy();
+		expect(within(row).getByText("Disconnected")).toBeTruthy();
 		expect(within(row).queryByText("Can’t start")).toBeNull();
 		expect(row.querySelector("p")?.className).toContain(
 			"text-muted-foreground"

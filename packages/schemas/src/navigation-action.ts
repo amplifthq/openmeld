@@ -78,15 +78,15 @@ export function buildOrganizationRootPath(orgSlug: string): string {
   return `/o/${encodePathSegment(nonEmptyStringSchema.parse(orgSlug))}`;
 }
 
-export function buildOrganizationAppsPath(orgSlug: string): string {
-  return `${buildOrganizationRootPath(orgSlug)}/center-agent/apps`;
+export function buildOrganizationPluginsPath(orgSlug: string): string {
+  return `${buildOrganizationRootPath(orgSlug)}/center-agent/plugins`;
 }
 
-export function buildOrganizationAppPath(input: {
+export function buildOrganizationPluginPath(input: {
   orgSlug: string;
   service: string;
 }): string {
-  return `${buildOrganizationAppsPath(input.orgSlug)}/${encodePathSegment(nonEmptyStringSchema.parse(input.service))}`;
+  return `${buildOrganizationPluginsPath(input.orgSlug)}/${encodePathSegment(nonEmptyStringSchema.parse(input.service))}`;
 }
 
 export function buildOrganizationSpacePath(input: {
@@ -131,7 +131,7 @@ export function buildOpenMeldNavigationAction(input: {
   switch (target.kind) {
     case "organization_app":
       label = "Open GitHub access";
-      url.pathname = `${organizationPath}/center-agent/apps/${encodePathSegment(target.service)}`;
+      url.pathname = `${organizationPath}/center-agent/plugins/${encodePathSegment(target.service)}`;
       break;
     case "space":
       label = "Open this Space";

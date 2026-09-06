@@ -1,0 +1,175 @@
+{
+  "agentExecutionReadiness": {
+    "agentProfileId": "agt_035c17b9-a82b-590d-b308-1add200ce7e2",
+    "displayState": "not_ready",
+    "facts": {
+      "profile": {
+        "active": true,
+        "reasonCodes": [],
+        "source": "profile_identity"
+      },
+      "binding": {
+        "reasonCodes": ["agent_profile_binding.enabled_primary"],
+        "routable": true,
+        "source": "binding_truth"
+      },
+      "claim": {
+        "executionBlocked": false,
+        "grantsClaimSuccess": false,
+        "reasonCodes": [],
+        "source": "not_checked"
+      },
+      "providerAccount": {
+        "blocked": false,
+        "expiresAtMs": null,
+        "observedAtMs": null,
+        "provider": null,
+        "reasonCodes": [],
+        "source": "not_checked"
+      },
+      "providerConversation": {
+        "agentControllerConversationId": null,
+        "errorCode": null,
+        "errorMessage": null,
+        "errorType": null,
+        "expiresAtMs": null,
+        "method": null,
+        "observedAtMs": null,
+        "provider": null,
+        "ready": true,
+        "reasonCodes": [],
+        "required": false,
+        "source": "not_required",
+        "status": "not_required"
+      },
+      "readinessImpact": {
+        "blocked": false,
+        "expiresAtMs": null,
+        "impactKind": null,
+        "observedAtMs": null,
+        "reasonCodes": [],
+        "source": "not_checked"
+      },
+      "localService": {
+        "reachable": false,
+        "refreshable": false,
+        "reasonCodes": ["local_service.not_connected_for_account"],
+        "source": "runtime_transport"
+      },
+      "service": {
+        "executionCompatible": true,
+        "expectedEpoch": "runtime-transport-epoch-2026-07-default-project",
+        "observedEpoch": null,
+        "reasonCodes": [],
+        "source": "not_checked"
+      },
+      "route": {
+        "deviceId": null,
+        "lane": null,
+        "observedAt": "2026-09-05T16:01:01.412Z",
+        "online": false,
+        "reasonCodes": [
+          "agent_execution.route_offline",
+          "route.not_registered"
+        ],
+        "source": "daemon_route"
+      },
+      "runtime": {
+        "ready": false,
+        "reasonCodes": [
+          "runtime.agent_controller_report_missing",
+          "usage_checking"
+        ],
+        "source": "prepare_readiness"
+      }
+    },
+    "primaryAction": "connect_service",
+    "reasonCodes": [
+      "agent_profile_binding.enabled_primary",
+      "local_service.not_connected_for_account",
+      "runtime.agent_controller_report_missing",
+      "usage_checking",
+      "agent_execution.route_offline",
+      "route.not_registered"
+    ]
+  },
+  "agentWakeAvailability": {
+    "action": "connect_service",
+    "badgeLabel": "Offline",
+    "category": "offline",
+    "isRefreshing": false,
+    "label": "Offline for Wake",
+    "phase": "service_not_connected",
+    "reasonCode": "local_service.not_connected_for_account",
+    "status": "offline_for_wake",
+    "summary": "Connect your computer before this Agent can reply.",
+    "tooltip": "Computer not connected"
+  },
+  "agentWakeRouteRegistration": {
+    "status": "expired",
+    "reasonCode": "wake_route.registration_expired",
+    "reportedAtMs": null,
+    "daemonSessionId": null,
+    "deviceId": null,
+    "lane": null,
+    "serviceVersion": null
+  },
+  "agentProfileId": "agt_035c17b9-a82b-590d-b308-1add200ce7e2",
+  "agentControllerRef": "builtin:codex",
+  "generatedAt": "2026-09-05T16:01:01.412Z",
+  "ownerUserId": "03535b6c-e557-4dd7-b5b3-8432dc5b772c",
+  "primaryBinding": {
+    "agentProfileId": "agt_035c17b9-a82b-590d-b308-1add200ce7e2",
+    "authoritySource": "binding_truth",
+    "bindingId": "f5830680-301e-55b4-b4da-4c607bbffcaf",
+    "bindingState": "enabled_primary",
+    "dispatchEligibility": {
+      "reasonCodes": ["agent_profile_binding.enabled_primary"],
+      "routable": true,
+      "status": "routable"
+    },
+    "grantsClaimSuccess": false,
+    "agentControllerPermissionMode": "codex:askForApproval",
+    "modelSelection": {
+      "modelId": "gpt-5.6-sol",
+      "reasoningLevel": "high"
+    },
+    "reasonCodes": ["agent_profile_binding.enabled_primary"],
+    "resolutionSource": "binding_truth",
+    "routable": true,
+    "executionTarget": {
+      "agentControllerRef": "builtin:codex",
+      "openMeldServiceRuntimeId": {
+        "source": "runtime_registry_authority",
+        "value": "fca9143d-b043-54a4-89ac-c440e438d4f3"
+      }
+    }
+  },
+  "primaryActionPlan": {
+    "action": "connect_service",
+    "target": {
+      "kind": "openmeld_service_connection"
+    }
+  },
+  "profileName": "Maya \u00b7 Codex",
+  "publicProfileConfiguration": {
+    "agentControllerCollaborationMode": null,
+    "agentControllerPermissionMode": "codex:askForApproval",
+    "agentControllerRef": "builtin:codex",
+    "modelSelection": {
+      "modelId": "gpt-5.6-sol",
+      "reasoningLevel": "high"
+    }
+  },
+  "routeDeviceId": null,
+  "routeLane": null,
+  "runtimeDeviceDisplayName": null,
+  "wakeRouteEvidence": {
+    "observedAt": "2026-09-05T16:01:01.412Z",
+    "reasonCode": "route.not_registered",
+    "status": "offline"
+  },
+  "wakeRouteStatus": {
+    "status": "offline"
+  }
+}

@@ -14,6 +14,31 @@ const pendingMessage = {
 } as const;
 
 describe("Center Agent pending message scope", () => {
+	it("preserves separate pending messages when switching sessions in one organization", () => {
+		const queryClient = new QueryClient();
+		const first = {
+			organizationId: "org-acme",
+			organizationSlug: "acme",
+			sessionId: "first",
+		};
+		const second = { ...first, sessionId: "second" };
+		writeCenterAgentPendingMessage(queryClient, first, pendingMessage);
+		activateCenterAgentPendingMessageScope(queryClient, second);
+		expect(readCenterAgentPendingMessage(queryClient, second)).toBeNull();
+		writeCenterAgentPendingMessage(queryClient, second, {
+			...pendingMessage,
+			clientMessageId: "second-message",
+			text: "Separate request",
+		});
+		activateCenterAgentPendingMessageScope(queryClient, first);
+		expect(readCenterAgentPendingMessage(queryClient, first)).toEqual(
+			pendingMessage
+		);
+		clearCenterAgentPendingMessage(queryClient, first);
+		expect(readCenterAgentPendingMessage(queryClient, second)?.text).toBe(
+			"Separate request"
+		);
+	});
 	it("preserves a route-pending message when the same slug resolves to its organization id", () => {
 		const queryClient = new QueryClient();
 		const pendingRouteScope = { organizationSlug: "acme" };

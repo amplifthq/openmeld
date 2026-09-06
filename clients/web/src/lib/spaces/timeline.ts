@@ -1,6 +1,7 @@
 import {
 	AGENT_REPLY_FINAL_PURPOSE,
 	type NavigationAction,
+	REMOTE_AGENT_FAILURE_PURPOSE,
 } from "@openmeld/schemas";
 import type {
 	AgentStreamToolPart,
@@ -742,11 +743,13 @@ function isAgentFinalReplySignal(
 }
 
 function readFinalizedAgentStreamId(signal: SignalEnvelope): string | null {
+	if (signal.type !== "signal.text" || signal.profile.kind !== "agent") {
+		return null;
+	}
+	const purpose = normalizeOptionalText(signal.data.meta?.purpose);
 	if (
-		signal.type !== "signal.text" ||
-		signal.profile.kind !== "agent" ||
-		normalizeOptionalText(signal.data.meta?.purpose) !==
-			AGENT_REPLY_FINAL_PURPOSE
+		purpose !== AGENT_REPLY_FINAL_PURPOSE &&
+		purpose !== REMOTE_AGENT_FAILURE_PURPOSE
 	) {
 		return null;
 	}

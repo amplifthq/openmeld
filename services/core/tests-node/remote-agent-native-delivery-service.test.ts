@@ -8790,6 +8790,49 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
+  it("projects a confirmed cancellation callback as stopped rather than failed", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "idem_1",
+        submissionId: "sub_cancelled",
+        spaceId: SPACE_ID,
+      });
+      const env = buildEnv(harness.db, { postSignalId: "signal_cancelled" });
+      await expect(
+        completeRemoteAgentNativeDelivery(env, {
+          submissionId: "sub_cancelled",
+          idempotencyKey: "idem_1",
+          organizationId: "org_1",
+          spaceId: SPACE_ID,
+          agentProfileId: AGENT_PROFILE_ID,
+          bindingId: "binding_1",
+          triggerMessageId: "signal_1",
+          dispatchId: "dispatch_1",
+          status: "failed",
+          failureCode: "remote_agent.execution_cancelled",
+          failureMessage: "This request was stopped.",
+        })
+      ).resolves.toEqual({
+        status: "accepted",
+        publishedSignalId: "signal_cancelled",
+      });
+      expect(env.__spaceStub.rpcCloseAgentStream).toHaveBeenCalledWith({
+        spaceId: SPACE_ID,
+        streamId: "stream:sub_cancelled",
+        terminal: {
+          kind: "stopped",
+          reasonCode: "remote_agent.execution_cancelled",
+          noticeText: "This request was stopped.",
+        },
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("publishes terminal turn failures as Remote Agent native delivery outcomes", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);

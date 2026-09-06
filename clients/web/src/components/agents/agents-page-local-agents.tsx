@@ -50,6 +50,7 @@ import {
 	type SettingsDetailListRow,
 } from "@openmeld/ui/components/settings-detail-list";
 import { Switch } from "@openmeld/ui/components/switch";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -681,7 +682,7 @@ function resolveLocalAgentConnectionStatus(
 		return { label: "Checking", tone: "muted" };
 	}
 	if (dependency === "not_connected") {
-		return { label: "Computer not connected", tone: "muted" };
+		return { label: "Disconnected", tone: "muted" };
 	}
 	if (dependency === "update_required") {
 		return { label: "Waiting for computer update", tone: "muted" };
@@ -903,7 +904,7 @@ function LocalAgentsCatalogNotice(input: {
 				<span
 					aria-hidden="true"
 					className={cn(
-						"h-2 w-2 shrink-0 rounded-full",
+						"status-dot",
 						resolveLocalAgentsNoticeDotClassName(input.notice.tone)
 					)}
 				/>
@@ -1812,9 +1813,9 @@ function LocalAgentUpdateBanner(input: { command: string; detail: string }) {
 				command, and press Enter.
 			</p>
 			<div className="flex items-center justify-between gap-3">
-				<code className="min-w-0 overflow-x-auto font-mono text-xs leading-5">
-					{input.command}
-				</code>
+				<ScrollArea className="min-w-0" orientation="horizontal">
+					<code className="font-mono text-xs leading-5">{input.command}</code>
+				</ScrollArea>
 				<Button
 					aria-label={
 						copyStatus === "copied" ? "Command copied" : "Copy command"

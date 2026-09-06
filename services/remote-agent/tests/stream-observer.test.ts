@@ -163,7 +163,20 @@ describe("Center Agent stream observation", () => {
     });
   });
 
-  it("publishes connected app completion with the safe label from its start", async () => {
+  it.each([
+    { result: {}, outcome: undefined },
+    {
+      result: {
+        status: "destructive_confirmation_required",
+        sideEffects: 0,
+        confirmationToken: "private-token",
+      },
+      outcome: "confirmation_required",
+    },
+  ])("publishes connected app completion with its start label and outcome $outcome", async ({
+    result,
+    outcome,
+  }) => {
     const storage = new InMemoryDurableObjectStorage();
     await putRemoteAgentCallbackContext(
       storage,
@@ -201,12 +214,26 @@ describe("Center Agent stream observation", () => {
       streamPublisher: createRemoteAgentStreamPublisher(),
     });
     await handleCenterAgentObservation({
-      event: toolCompletionObservation("openmeld_execute_app_action"),
+      // Flue 2 emits the Pi tool-result envelope, not the tool's raw output.
+      event: toolCompletionObservation("openmeld_execute_app_action", {
+        content: [{ type: "text", text: JSON.stringify(result) }],
+        details: { output: result },
+      }),
       resolveDependencies,
       streamPublisher: createRemoteAgentStreamPublisher(),
     });
 
     expect(submitRemoteAgentStreamPart).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.stringify(submitRemoteAgentStreamPart.mock.calls)
+    ).not.toContain("private-token");
+    expect(
+      (
+        submitRemoteAgentStreamPart.mock.calls[1]?.[0] as unknown as {
+          part?: { work?: { outcome?: string } };
+        }
+      )?.part?.work?.outcome
+    ).toBe(outcome);
     expect(submitRemoteAgentStreamPart.mock.calls[1]?.[0]).toMatchObject({
       part: {
         state: "output-available",
@@ -1524,7 +1551,7 @@ function readDouble(
 
 function textDeltaObservation(text: string): FlueObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     eventIndex: 1,
     submissionId: SUBMISSION_ID,
     text,
@@ -1536,7 +1563,7 @@ function textDeltaObservation(text: string): FlueObservation {
 
 function thinkingDeltaObservation(delta: string): FlueObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     delta,
     eventIndex: 1,
     submissionId: SUBMISSION_ID,
@@ -1551,7 +1578,7 @@ function toolStartObservation(
   args: Record<string, unknown> = { private: "must not leave the worker" }
 ): FlueObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     args,
     eventIndex: 1,
     submissionId: SUBMISSION_ID,
@@ -1563,13 +1590,16 @@ function toolStartObservation(
   } satisfies FlueObservation;
 }
 
-function toolCompletionObservation(toolName: string): FlueObservation {
+function toolCompletionObservation(
+  toolName: string,
+  result: unknown = {}
+): FlueObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     durationMs: 10,
     eventIndex: 2,
     isError: false,
-    result: {},
+    result,
     submissionId: SUBMISSION_ID,
     timestamp: new Date(TEST_NOW_MS + 10).toISOString(),
     toolCallId: "tool_call_1",
@@ -1581,7 +1611,7 @@ function toolCompletionObservation(toolName: string): FlueObservation {
 
 function conversationCompactionStartObservation(): FlueObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     estimatedTokens: 120_000,
     eventIndex: 1,
     reason: "threshold",
@@ -1596,7 +1626,7 @@ function conversationCompactionCompletedObservation(
   isError = false
 ): FlueObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     durationMs: 250,
     eventIndex: 2,
     isError,
@@ -1611,7 +1641,7 @@ function conversationCompactionCompletedObservation(
 
 function completedPromptObservation(text: string): FlueObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     agentOutput: {
       finishReason: "stop",
       text,
@@ -1637,7 +1667,7 @@ function failedPromptObservation(
   }
 ): FlueObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     durationMs: 84,
     error,
     errorInfo: {
@@ -1657,7 +1687,7 @@ function failedPromptObservation(
 
 function contextWindowFailedPromptObservation(): FlueObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     durationMs: 120,
     error: {
       message: "The request is too large.",
@@ -1682,7 +1712,7 @@ function contextWindowFailedPromptObservation(): FlueObservation {
 
 function timedOutPromptObservation(): FlueObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     durationMs: 30_000,
     error: {
       message: "private timeout detail",

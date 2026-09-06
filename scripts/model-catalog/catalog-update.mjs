@@ -201,7 +201,6 @@ function proposeCodexAdditions(target, codexModels, sources, discoverySince) {
         );
         continue;
       }
-      target.models.push(entry);
       changes.push({ modelId: entry.id, before: null, after: entry });
     } else if (
       digest(existing.supportedReasoningLevels) !==
@@ -213,6 +212,8 @@ function proposeCodexAdditions(target, codexModels, sources, discoverySince) {
       );
     }
   }
+  // The reviewed catalog owns display order; new additions lead the existing list.
+  target.models.unshift(...changes.map((change) => change.after));
   return { changes, manual };
 }
 

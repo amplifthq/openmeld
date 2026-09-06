@@ -1,5 +1,5 @@
 import { cn } from "@openmeld/ui/lib/utils";
-import type { AppDefinition } from "./app-catalog";
+import type { PluginDefinition } from "./plugin-catalog";
 
 const SIZE_CLASS_NAMES = {
 	lg: "size-12",
@@ -20,7 +20,7 @@ const MESSAGE_CHANNEL_PADDING_CLASS_NAMES = {
 } as const;
 
 export function AppLogo(input: {
-	app: Pick<AppDefinition, "logoPath" | "service">;
+	app: Pick<PluginDefinition, "logoPath" | "service">;
 	className?: string;
 	muted?: boolean;
 	size?: keyof typeof SIZE_CLASS_NAMES;

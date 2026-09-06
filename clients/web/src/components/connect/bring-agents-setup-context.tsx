@@ -31,7 +31,7 @@ export function useBringAgentsSetupContext() {
 	const value = use(BringAgentsSetupContext);
 	if (!value) {
 		throw new Error(
-			"Connect setup context is unavailable outside App Connect."
+			"Connect setup context is unavailable outside Plugin Connect."
 		);
 	}
 

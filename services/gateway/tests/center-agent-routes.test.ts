@@ -15,6 +15,8 @@ type CoreRpcMock = {
   disconnectLarkPlatformRegistration: ReturnType<typeof vi.fn>;
   disconnectMessageChannelIdentityLink: ReturnType<typeof vi.fn>;
   getCenterAgentModel: ReturnType<typeof vi.fn>;
+  getCenterAgentDirectMessageSpaceProjection: ReturnType<typeof vi.fn>;
+  listCenterAgentSessions: ReturnType<typeof vi.fn>;
   getCenterAgentOperatingState: ReturnType<typeof vi.fn>;
   listCenterAgentAuditJournal: ReturnType<typeof vi.fn>;
   listActiveLarkPlatformRegistrations: ReturnType<typeof vi.fn>;
@@ -114,6 +116,17 @@ function makeEnv(input?: {
       organizationId: "org-1",
     })),
     getCenterAgentModel: vi.fn(async () => centerAgentModelConfiguration()),
+    listCenterAgentSessions: vi.fn(async () => ({
+      generatedAt: "2026-09-06T00:00:00.000Z",
+      organizationId: "org-1",
+      sessions: [],
+      nextCursor: null,
+    })),
+    getCenterAgentDirectMessageSpaceProjection: vi.fn(async () => ({
+      generatedAt: "2026-09-06T00:00:00.000Z",
+      organizationId: "org-1",
+      projection: null,
+    })),
     getCenterAgentOperatingState: vi.fn(async () => ({
       canChangeOperatingState: true,
       operatingState: "active",
@@ -794,6 +807,96 @@ describe("Center Agent routes", () => {
         }),
       }),
     });
+  });
+
+  it("forwards session pagination with authenticated organization context and rejects unbounded limits", async () => {
+    const { coreRpc, env } = makeEnv();
+    const url = "http://local/v1/organizations/current/center-agent/sessions";
+    const response = await app.fetch(
+      new Request(`${url}?limit=2&cursor=page-token`),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(coreRpc.listCenterAgentSessions).toHaveBeenCalledWith({
+      limit: 2,
+      cursor: "page-token",
+      context: expect.objectContaining({ activeOrganizationId: "org-1" }),
+    });
+    const invalid = await app.fetch(
+      new Request(`${url}?limit=101`),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(invalid.status).toBe(400);
+    expect(coreRpc.listCenterAgentSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates sessions with the supplied idempotency key and authenticated actor", async () => {
+    const { coreRpc, env } = makeEnv();
+    const creationId = "2e2c7084-bcaf-4321-8fad-cb4bf416e286";
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/center-agent/sessions",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ creationId }),
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(coreRpc.openCenterAgentDirectMessageSpace).toHaveBeenCalledWith({
+      sessionCreationId: creationId,
+      context: expect.objectContaining({
+        activeOrganizationId: "org-1",
+        actorContext: expect.objectContaining({
+          openMeldProfileId: HUMAN_PROFILE_ID,
+        }),
+      }),
+    });
+  });
+
+  it("rejects session bodies that try to supply another actor", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/center-agent/sessions",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            creationId: "2e2c7084-bcaf-4321-8fad-cb4bf416e286",
+            memberProfileId: "someone-else",
+          }),
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(400);
+    expect(coreRpc.openCenterAgentDirectMessageSpace).not.toHaveBeenCalled();
+  });
+
+  it("passes an exact session selector to Core without falling back to a default chat", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/center-agent/sessions/exact-session"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ projection: null });
+    expect(
+      coreRpc.getCenterAgentDirectMessageSpaceProjection
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ spaceId: "exact-session" })
+    );
+    expect(coreRpc.openCenterAgentDirectMessageSpace).not.toHaveBeenCalled();
   });
 
   it("opens the Center Agent DM without a Gateway-side designation fallback", async () => {

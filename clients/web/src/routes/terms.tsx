@@ -3,7 +3,7 @@ import { TermsOfServicePage } from "#/components/legal/terms-of-service-page";
 import { buildPublicPageHead } from "#/lib/site";
 
 const TERMS_DESCRIPTION =
-	"Terms governing use of OpenMeld's experimental collaboration service, local agent connections, and connected Apps.";
+	"Terms governing use of OpenMeld's experimental collaboration service, local agent connections, and connected Plugins.";
 
 export const Route = createFileRoute("/terms")({
 	head: () => ({

@@ -96,7 +96,7 @@ describe("web OpenMeld API foundation", () => {
 		window.history.replaceState(
 			null,
 			"",
-			"/o/amplift/center-agent/apps/github"
+			"/o/amplift/center-agent/plugins/github"
 		);
 		const fetchMock = vi.fn<typeof fetch>(() => {
 			return Promise.resolve(
@@ -134,7 +134,7 @@ describe("web OpenMeld API foundation", () => {
 		window.history.replaceState(
 			null,
 			"",
-			"/o/amplift/center-agent/apps/github"
+			"/o/amplift/center-agent/plugins/github"
 		);
 		const fetchMock = vi.fn<typeof fetch>(() =>
 			Promise.resolve(

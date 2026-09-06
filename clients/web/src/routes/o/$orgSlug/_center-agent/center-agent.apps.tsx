@@ -1,43 +1,19 @@
-import { createFileRoute, useParams } from "@tanstack/react-router";
-import { appShellStaticData } from "#/components/app/shell-layout";
-import { CenterAgentSectionFrame } from "#/components/organizations/center-agent-section-frame";
-import { OrganizationAppsPage } from "#/components/organizations/organization-apps-page";
-import { prefetchAppCatalogRouteData } from "#/lib/organizations/app-route-prefetch";
-import { buildOrganizationAppsPath } from "#/lib/organizations/organization-routes";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-const TRAILING_SLASHES_PATTERN = /\/+$/u;
-
+// Preserve links already published before the Plugins rename.
 export const Route = createFileRoute(
 	"/o/$orgSlug/_center-agent/center-agent/apps"
 )({
-	staticData: appShellStaticData.centerAgent,
-	loader: ({ context, location, params }) => {
-		if (
-			location.pathname.replace(TRAILING_SLASHES_PATTERN, "") ===
-			buildOrganizationAppsPath(params.orgSlug)
-		) {
-			prefetchAppCatalogRouteData({
-				organizationSlug: params.orgSlug,
-				queryClient: context.queryClient,
-				queryPersistence: context.queryPersistence,
-				routeFamily: location.href,
-			}).catch((error: unknown) => {
-				console.error("Failed to prefetch the Apps route data.", error);
-			});
-		}
+	beforeLoad: ({ location }) => {
+		throw redirect({
+			href:
+				location.pathname.replace(
+					"/center-agent/apps",
+					"/center-agent/plugins"
+				) +
+				location.searchStr +
+				location.hash,
+			replace: true,
+		});
 	},
-	component: AppsRoute,
 });
-
-function AppsRoute() {
-	const params = useParams({ strict: false });
-	const selectedService =
-		typeof params.service === "string" ? params.service : null;
-	return (
-		<CenterAgentSectionFrame
-			routeState={{ appsSelectedService: selectedService }}
-		>
-			<OrganizationAppsPage />
-		</CenterAgentSectionFrame>
-	);
-}

@@ -1,4 +1,5 @@
 import type { JsonValue } from "@flue/runtime";
+import { sanitizeDispatchErrorSummary } from "@openmeld/schemas";
 import type {
   RemoteAgentCallbackContext,
   RemoteAgentStorage,
@@ -67,11 +68,25 @@ export async function executeRemoteAgentToolDefinition(input: {
       toolName: input.definition.name,
       source: input.source ?? "direct",
     });
-    const result = input.signal
-      ? await input.definition.execute(input.toolInput, {
-          signal: input.signal,
-        })
-      : await input.definition.execute(input.toolInput);
+    let result: unknown;
+    try {
+      result = input.signal
+        ? await input.definition.execute(input.toolInput, {
+            signal: input.signal,
+          })
+        : await input.definition.execute(input.toolInput);
+    } catch (error) {
+      console.warn("[remote_agent.tool_execution_failed]", {
+        submissionId: input.submissionId,
+        toolName: input.definition.name,
+        source: input.source ?? "direct",
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorSummary: sanitizeDispatchErrorSummary(
+          error instanceof Error ? error.message : String(error)
+        ),
+      });
+      throw error;
+    }
     await recordRemoteAgentToolResultProgress({
       attempt,
       result,

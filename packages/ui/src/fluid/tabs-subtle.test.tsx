@@ -100,14 +100,30 @@ describe("TabsSubtle", () => {
     const selectedTab = screen.getByRole("tab", { name: "Messages" });
 
     expect(tabList.getAttribute("data-variant")).toBe("underline");
+    fireEvent.focus(selectedTab);
+    expect(
+      view.container.querySelector('[data-slot="tabs-subtle-hover-indicator"]')
+    ).toBeNull();
     expect(tabList.className).toContain("bg-transparent");
     expect(tabList.className).toContain("overflow-visible");
     expect(selectedTab.className).not.toContain("rounded-md");
-    expect(selectedTab.className).toContain("after:h-0.5");
-    expect(selectedTab.className).toContain("after:-bottom-px");
-    expect(selectedTab.className).toContain(
-      "data-[state=active]:after:opacity-100"
+    expect(
+      selectedTab.querySelector('[data-slot="tabs-subtle-underline"]')
+    ).not.toBeNull();
+    view.rerender(
+      <TabsSubtle onSelect={vi.fn()} selectedIndex={1} variant="underline">
+        <TabsSubtleItem index={0} label="Messages" />
+        <TabsSubtleItem index={1} label="Graph" />
+      </TabsSubtle>
     );
+    expect(
+      selectedTab.querySelector('[data-slot="tabs-subtle-underline"]')
+    ).toBeNull();
+    expect(
+      screen
+        .getByRole("tab", { name: "Graph" })
+        .querySelector('[data-slot="tabs-subtle-underline"]')
+    ).not.toBeNull();
     expect(
       view.container.querySelector(
         '[data-slot="tabs-subtle-selected-indicator"]'

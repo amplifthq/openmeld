@@ -58,7 +58,7 @@ describe("daemon task-result schema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts success envelope with Codex App Server transport evidence", () => {
+  it("accepts success envelope with Codex Plugin Server transport evidence", () => {
     const result = openMeldDaemonTaskResultEnvelopeSchema.safeParse({
       v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
       code: "service.task_result",

@@ -1,5 +1,5 @@
 export type CenterAgentSectionId =
-	| "apps"
+	| "plugins"
 	| "channels"
 	| "chat"
 	| "memory"
@@ -15,7 +15,7 @@ export function resolveCenterAgentSectionId(
 ): CenterAgentSectionId {
 	const section = CENTER_AGENT_SECTION_PATH_PATTERN.exec(pathname)?.[1];
 	switch (section) {
-		case "apps":
+		case "plugins":
 		case "channels":
 		case "memory":
 		case "routines":

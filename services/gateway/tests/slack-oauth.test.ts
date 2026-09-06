@@ -12,6 +12,7 @@ const SLACK_MANIFEST_BOT_SCOPE_BLOCK_PATTERN =
 const SLACK_MANIFEST_BOT_SCOPE_PATTERN = /^ {6}- (\S+)\s*$/gmu;
 const EXPECTED_SLACK_BOT_SCOPES = [
   "app_mentions:read",
+  "assistant:write",
   "bookmarks:read",
   "bookmarks:write",
   "canvases:read",

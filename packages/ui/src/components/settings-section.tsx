@@ -12,6 +12,7 @@ import { cn } from "#lib/utils";
 export function SettingsSection({
   id,
   title,
+  titleAdornment,
   description,
   className,
   status = "idle",
@@ -30,12 +31,15 @@ export function SettingsSection({
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h2
-            className="font-medium text-foreground text-sm"
-            id={`${id}-heading`}
-          >
-            {title}
-          </h2>
+          <div className="flex items-center gap-1">
+            <h2
+              className="font-medium text-foreground text-sm"
+              id={`${id}-heading`}
+            >
+              {title}
+            </h2>
+            {titleAdornment}
+          </div>
           {description ? (
             <p
               className="text-muted-foreground text-xs/relaxed"

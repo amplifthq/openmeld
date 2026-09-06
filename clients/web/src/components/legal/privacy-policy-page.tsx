@@ -65,7 +65,7 @@ const policySections = [
 		],
 	},
 	{
-		title: "6. Connected Apps and Google Workspace Data",
+		title: "6. Connected Plugins and Google Workspace Data",
 		paragraphs: [
 			"When you connect Gmail, Google Calendar, or Google Drive, OpenMeld accesses only the Google Workspace data covered by the permissions you approve.",
 			"OpenMeld's current production baseline requests read-only access to Gmail, Google Calendar, and Google Drive. This lets your Center Agent find and read email, calendar, and Drive information when you ask. It does not authorize OpenMeld to send email, change calendar events, edit sharing rules, or create, update, or delete Drive files. You can disconnect a Google account from OpenMeld at any time.",

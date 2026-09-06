@@ -35,6 +35,34 @@ import {
 const OTHER_JOINED_PROFILE_TEXT = /Other joined profile/;
 const BROWSE_SPACES_TEXT = /Browse Spaces/;
 
+vi.mock("../app/use-sidebar-preferences", () => ({
+	useSidebarPreferences: () => ({
+		preferences: {
+			pinned: { sort: "priority", spaceIds: [] },
+			spaces: { sort: "priority", spaceIds: [] },
+			groups: [],
+		},
+		isPending: false,
+		disabled: false,
+		save: vi.fn(),
+	}),
+}));
+
+vi.mock("./direct-message-preview", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("./direct-message-preview")>();
+	return {
+		...actual,
+		spaceMessagePreviewQueryOptions: (
+			input: Parameters<typeof actual.spaceMessagePreviewQueryOptions>[0]
+		) => ({
+			...actual.spaceMessagePreviewQueryOptions(input),
+			initialData: null,
+			queryFn: () => Promise.resolve(null),
+		}),
+	};
+});
+
 function WakeProgressProjectionPublisher(input: {
 	items: readonly WakeProgressItem[];
 }) {
@@ -113,10 +141,12 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 		Link: ({
 			children,
 			to,
+			resetScroll: _resetScroll,
 			...props
 		}: {
 			children: ReactNode;
 			to: string;
+			resetScroll?: boolean;
 		} & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
 			<a href={to} {...props}>
 				{children}
@@ -301,7 +331,7 @@ describe("AppSpacesSidebar", () => {
 		expect(beta.className).not.toContain("animate-");
 	});
 
-	it("keeps the user's pinned order even when a later pinned Space is unread", async () => {
+	it("prioritizes unread pinned Spaces when Priority is selected by default", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -337,11 +367,11 @@ describe("AppSpacesSidebar", () => {
 			name: "Beta, unread messages",
 		});
 		expect(alpha.compareDocumentPosition(beta)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
+			Node.DOCUMENT_POSITION_PRECEDING
 		);
 	});
 
-	it("puts newly joined regular Spaces first and keeps unread visible", async () => {
+	it("keeps unread recency ahead of newly joined Spaces", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -380,22 +410,22 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		const newSpace = await screen.findByRole("link", {
-			name: "Launch Room, New Space, unread messages",
+			name: "Launch Room, unread messages",
 		});
 		const existingSpace = screen.getByRole("link", {
 			name: "Existing, unread messages",
 		});
 		expect(newSpace.compareDocumentPosition(existingSpace)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
+			Node.DOCUMENT_POSITION_PRECEDING
 		);
 		expect(newSpace.classList.contains("font-semibold")).toBe(true);
-		expect(newSpace.classList.contains("text-primary")).toBe(true);
+		expect(newSpace.classList.contains("text-primary")).toBe(false);
 		expect(
 			newSpace.querySelector('[data-space-unread-indicator="true"]')
 		).toBeTruthy();
 	});
 
-	it("temporarily puts a newly joined pinned Space before explicit pin order", async () => {
+	it("keeps pin order when a Space has never been opened", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -421,15 +451,15 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		const pinnedNew = await screen.findByRole("link", {
-			name: "Pinned New, New Space",
+			name: "Pinned New",
 		});
 		const pinnedFirst = screen.getByRole("link", { name: "Pinned First" });
 		expect(pinnedNew.compareDocumentPosition(pinnedFirst)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
+			Node.DOCUMENT_POSITION_PRECEDING
 		);
 	});
 
-	it("restores pin and unread ordering after the existing open owner records lastSeenTs", async () => {
+	it("preserves pin and unread ordering when the open owner records lastSeenTs", async () => {
 		const initialSections = {
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -478,20 +508,20 @@ describe("AppSpacesSidebar", () => {
 			queryClient
 		);
 		const pinnedNew = await screen.findByRole("link", {
-			name: "Pinned New, New Space",
+			name: "Pinned New",
 		});
 		const pinnedFirst = screen.getByRole("link", { name: "Pinned First" });
 		const regularNew = screen.getByRole("link", {
-			name: "Regular New, New Space",
+			name: "Regular New",
 		});
 		const regularUnread = screen.getByRole("link", {
 			name: "Regular Unread, unread messages",
 		});
 		expect(pinnedNew.compareDocumentPosition(pinnedFirst)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
+			Node.DOCUMENT_POSITION_PRECEDING
 		);
 		expect(regularNew.compareDocumentPosition(regularUnread)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
+			Node.DOCUMENT_POSITION_PRECEDING
 		);
 
 		const seenAt = Date.parse("2026-04-30T00:00:00.000Z");
@@ -553,12 +583,12 @@ describe("AppSpacesSidebar", () => {
 		).toBeTruthy();
 		expect(
 			screen.queryByRole("button", {
-				name: "Previously Seen, New Space",
+				name: "Previously Seen",
 			})
 		).toBeNull();
 	});
 
-	it("keeps a first unseen Space new through render, hover, and focus", async () => {
+	it("keeps an unseen Space available through render, hover, and focus", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -575,7 +605,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		const firstUnseen = await screen.findByRole("link", {
-			name: "First Unseen, New Space",
+			name: "First Unseen",
 		});
 		fireEvent.pointerEnter(firstUnseen);
 		fireEvent.focus(firstUnseen);
@@ -583,9 +613,7 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		expect(
-			screen.getByRole("link", { name: "First Unseen, New Space" })
-		).toBeTruthy();
+		expect(screen.getByRole("link", { name: "First Unseen" })).toBeTruthy();
 	});
 
 	it("shows a newly joined Space as soon as the window regains focus", async () => {
@@ -626,7 +654,7 @@ describe("AppSpacesSidebar", () => {
 
 		expect(
 			await screen.findByRole("link", {
-				name: "Focus Room, New Space",
+				name: "Focus Room",
 			})
 		).toBeTruthy();
 	});
@@ -671,7 +699,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeNull();
 	});
 
-	it("does not render the pinned section when no spaces are pinned", async () => {
+	it("hides the pinned section when no Spaces are pinned", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -800,7 +828,7 @@ describe("AppSpacesSidebar", () => {
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 	});
 
-	it("uses the channel hash icon for every space row", async () => {
+	it("keeps a channel icon when member previews are not available", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -927,8 +955,7 @@ describe("AppSpacesSidebar", () => {
 			'[data-slot="sidebar-header"]'
 		);
 
-		expect(sidebarHeader?.querySelector("h2")?.textContent).toBe("Spaces");
-		expect(sidebarHeader?.querySelector("h2")?.className).toContain("text-xs");
+		expect(sidebarHeader).toBeNull();
 		expect(screen.queryByText("Chatroom for agents & humans")).toBeNull();
 		expect(
 			screen.queryByRole("heading", { name: "OpenMeld Spaces" })
@@ -1003,7 +1030,9 @@ describe("AppSpacesSidebar", () => {
 		);
 		const pinButton = screen.getByRole("button", { name: "Pin Alpha" });
 
-		expect(spaceRow?.classList.contains("@container/space-item")).toBe(true);
+		expect(spaceRow?.classList.contains("@container/conversation-row")).toBe(
+			true
+		);
 		expect(openSpaceButton?.classList.contains("pr-10")).toBe(false);
 		expect(spaceName?.classList.contains("pr-10")).toBe(false);
 		expect(spaceName?.classList.contains("@[13rem]/space-item:pr-10")).toBe(
@@ -1015,19 +1044,12 @@ describe("AppSpacesSidebar", () => {
 		expect(nameAndDate?.classList.contains("items-center")).toBe(true);
 		expect(nameAndDate?.classList.contains("gap-px")).toBe(true);
 		expect(openSpaceButton.classList.contains("items-center")).toBe(true);
-		expect(timestamp?.classList.contains("absolute")).toBe(false);
-		expect(timestamp?.classList.contains("shrink-0")).toBe(true);
-		expect(timestamp?.classList.contains("hidden")).toBe(true);
-		expect(
-			timestamp?.classList.contains("@[13rem]/space-item:inline-flex")
-		).toBe(true);
-		expect(pinButton.classList.contains("top-1")).toBe(true);
+		expect(timestamp).toBeNull();
+		expect(pinButton.classList.contains("top-1.5")).toBe(true);
 		expect(pinButton.classList.contains("top-1/2")).toBe(false);
-		expect(
-			pinButton.classList.contains("group-hover/space-row:bg-sidebar-accent")
-		).toBe(true);
+		expect(pinButton.classList.contains("hover:bg-sidebar-accent")).toBe(true);
 		expect(pinButton.classList.contains("rounded-md")).toBe(true);
-		expect(pinButton.classList.contains("backdrop-blur-sm")).toBe(true);
+		expect(pinButton.classList.contains("backdrop-blur-sm")).toBe(false);
 	});
 
 	it("shows active Agent names only from the Working orb tooltip", async () => {
@@ -1099,7 +1121,7 @@ describe("AppSpacesSidebar", () => {
 		});
 		expect(
 			orbSlot?.classList.contains("group-hover/space-row:scale-[0.625]")
-		).toBe(true);
+		).toBe(false);
 
 		// The idle row keeps the plain label and never mounts an orb.
 		expect(screen.getByRole("link", { name: "Beta" })).toBeTruthy();
@@ -1107,13 +1129,11 @@ describe("AppSpacesSidebar", () => {
 		// The pin action stays in the slot, hidden until hover/focus reveals it.
 		const pinButton = screen.getByRole("button", { name: "Pin Alpha" });
 		expect(pinButton.classList.contains("opacity-100")).toBe(false);
-		expect(pinButton.classList.contains("pointer-events-none")).toBe(true);
+		expect(pinButton.hasAttribute("data-show-on-hover")).toBe(true);
 		expect(
 			pinButton.classList.contains("group-hover/space-row:opacity-100")
 		).toBe(true);
-		expect(
-			pinButton.classList.contains("group-hover/space-row:pointer-events-auto")
-		).toBe(true);
+		expect(pinButton.classList.contains("pointer-events-none")).toBe(false);
 	});
 
 	it("lists every named Agent in the Working orb tooltip", async () => {
@@ -1592,21 +1612,63 @@ describe("AppSpacesSidebar", () => {
 			workingIndicator?.classList.contains(
 				"group-hover/space-row:translate-x-3"
 			)
-		).toBe(true);
+		).toBe(false);
 		expect(
 			workingIndicator?.classList.contains(
 				"group-focus-within/space-row:-translate-y-3"
 			)
-		).toBe(true);
+		).toBe(false);
 
-		// The name still yields room for the shared slot.
+		// Only the status retains a fixed slot; the action uses Fluid's reveal gutter.
 		const spaceName = openSpaceButton.querySelector<HTMLElement>(
 			'[data-slot="center-truncated-text"]'
 		);
-		expect(spaceName?.classList.contains("pr-10")).toBe(true);
+		expect(spaceName?.classList.contains("pr-8")).toBe(true);
+		expect(openSpaceButton.style.getPropertyValue("--row-gutter")).toBe("8px");
+		expect(openSpaceButton.style.getPropertyValue("--row-gutter-hover")).toBe(
+			"34px"
+		);
+		expect(pinButton.getAttribute("data-sidebar")).toBe("menu-action");
+		expect(pinButton.classList.contains("right-9")).toBe(true);
 	});
 
-	it("orders unread, working, and persistent pin states while keeping status visible on hover", async () => {
+	it("waits for initial activity evidence instead of showing a temporary idle ordering", async () => {
+		let release: () => void = () => undefined;
+		const pending = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		getAccountSpaceActiveWakeSummaryMock.mockImplementation(async () => {
+			await pending;
+			return { generatedAtMs: Date.now(), items: [] };
+		});
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					spaceId: "space-loading",
+					spaceName: "Waiting for activity",
+				}),
+			],
+		});
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+		await waitFor(() =>
+			expect(getAccountSpaceActiveWakeSummaryMock).toHaveBeenCalled()
+		);
+		expect(
+			screen.queryByRole("link", { name: "Waiting for activity" })
+		).toBeNull();
+		await act(async () => {
+			release();
+			await pending;
+		});
+		expect(
+			await screen.findByRole("link", { name: "Waiting for activity" })
+		).toBeTruthy();
+	});
+
+	it("keeps active Wake status visible ahead of unread while retaining unread semantics", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1664,10 +1726,10 @@ describe("AppSpacesSidebar", () => {
 		const workingUnreadIndicator = workingRow?.querySelector<HTMLElement>(
 			'[data-space-unread-indicator="true"]'
 		);
-		expect(workingUnreadIndicator).toBeTruthy();
+		expect(workingUnreadIndicator).toBeNull();
 		expect(
 			workingRow?.querySelector('[data-space-active-wake-orb="true"]')
-		).toBeNull();
+		).toBeTruthy();
 
 		const unreadIndicator = unreadRow?.querySelector<HTMLElement>(
 			'[data-space-unread-indicator="true"]'
@@ -1683,7 +1745,7 @@ describe("AppSpacesSidebar", () => {
 			unreadIndicator?.classList.contains(
 				"group-focus-within/space-row:translate-x-3"
 			)
-		).toBe(true);
+		).toBe(false);
 
 		for (const spaceName of ["Working", "Unread"]) {
 			const pinButton = screen.getByRole("button", {
@@ -1707,16 +1769,16 @@ describe("AppSpacesSidebar", () => {
 		expect(
 			screen
 				.getByRole("button", { name: "Unpin Idle" })
-				.classList.contains("opacity-100")
+				.hasAttribute("data-show-on-hover")
 		).toBe(true);
 		expect(
 			screen
 				.getByRole("button", { name: "Unpin Idle" })
-				.classList.contains("pointer-events-auto")
-		).toBe(true);
+				.classList.contains("pointer-events-none")
+		).toBe(false);
 	});
 
-	it("keeps room for a persistently visible pinned action", async () => {
+	it("reserves the pinned action gutter only when revealed", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1739,7 +1801,11 @@ describe("AppSpacesSidebar", () => {
 			'[data-slot="center-truncated-text"]'
 		);
 
-		expect(spaceName?.classList.contains("pr-10")).toBe(true);
+		expect(spaceName?.classList.contains("pr-8")).toBe(false);
+		expect(openSpaceButton.style.getPropertyValue("--row-gutter")).toBe("8px");
+		expect(openSpaceButton.style.getPropertyValue("--row-gutter-hover")).toBe(
+			"34px"
+		);
 		expect(
 			openSpaceButton.querySelector('[data-slot="space-sidebar-date"]')
 		).toBeNull();
@@ -1860,7 +1926,7 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const link = await screen.findByRole("link", { name: "Alpha, New Space" });
+		const link = await screen.findByRole("link", { name: "Alpha" });
 
 		expect(link.getAttribute("href")).toBe(
 			"/o/acme/spaces/space-alpha?profileId=human-1"
@@ -1923,7 +1989,7 @@ describe("AppSpacesSidebar", () => {
 		});
 	});
 
-	it("keeps Browse Spaces visible and marks it active outside a conversation", async () => {
+	it("removes the redundant discovery section outside a conversation", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [],
@@ -1933,18 +1999,14 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const browseButton = await screen.findByRole("button", {
-			name: BROWSE_SPACES_TEXT,
-		});
-		const browseRow = browseButton.closest("[data-fluid-nav-value]");
-		expect(browseRow?.getAttribute("data-state")).toBe("active");
-
-		fireEvent.click(browseButton);
-
-		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/acme/spaces" });
+		await screen.findByText("No spaces yet.");
+		expect(
+			screen.queryByRole("button", { name: BROWSE_SPACES_TEXT })
+		).toBeNull();
+		expect(screen.queryByText("Explore")).toBeNull();
 	});
 
-	it("uses the shared compact navigation scale for Browse Spaces", async () => {
+	it("offers creation from the Spaces section in a personal organization", async () => {
 		appOrganizationMock.currentOrganization = {
 			id: "org-personal",
 			isPersonal: true,
@@ -1960,20 +2022,19 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const browseButton = await screen.findByRole("button", {
-			name: "Browse Spaces",
+		const createButton = await screen.findByRole("button", {
+			name: "Add Space or group",
 		});
-
-		expect(getSidebarGroupLabel("Explore").className).toContain(
-			"text-sidebar-foreground/55"
+		fireEvent.click(createButton);
+		fireEvent.click(
+			await screen.findByText("New Space", { selector: "button" })
 		);
-		expect(browseButton.firstElementChild?.className).toContain("h-7");
-		expect(browseButton.firstElementChild?.className).toContain("text-[13px]");
+		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/mira/new-space" });
 		expect(screen.queryByText("Open your Spaces")).toBeNull();
 		expect(screen.queryByText("Find public Spaces")).toBeNull();
 	});
 
-	it("places the create-space action before pinned and unpinned spaces", async () => {
+	it("places the create-space action in the Spaces section after pinned spaces", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1997,41 +2058,15 @@ describe("AppSpacesSidebar", () => {
 		expect(
 			await screen.findByRole("link", { name: "Pinned Alpha" })
 		).toBeTruthy();
-		const newSpaceButton = screen.getByRole("button", { name: "New Space" });
-		const pinnedHeading = getSidebarGroupLabel("Pinned");
-		const spacesHeading = getSidebarGroupLabel("Spaces");
-		const sidebarHeader = container.querySelector(
-			'[data-slot="sidebar-header"]'
-		);
-		const sidebarContent = container.querySelector(
-			'[data-slot="sidebar-content"]'
-		);
-
-		expect(sidebarHeader?.contains(newSpaceButton)).toBe(false);
-		expect(sidebarContent?.contains(newSpaceButton)).toBe(true);
-		expect(newSpaceButton.className).toContain("border-border");
-		expect(newSpaceButton.className).toContain("bg-background");
-		expect(newSpaceButton.className).toContain("dark:border-input");
-		expect(newSpaceButton.className).not.toContain("bg-primary");
-		expect(newSpaceButton.className).not.toContain("text-primary-foreground");
 		expect(
-			sidebarHeader?.classList.contains(
-				"h-[var(--space-conversation-header-height)]"
+			screen.getByRole("button", { name: "Add Space or group" })
+		).toBeTruthy();
+		expect(container.querySelector('[data-slot="sidebar-header"]')).toBeNull();
+		expect(
+			getSidebarGroupLabel("Pinned").compareDocumentPosition(
+				getSidebarGroupLabel("Spaces")
 			)
-		).toBe(true);
-		expect(newSpaceButton.compareDocumentPosition(pinnedHeading)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
-		);
-		expect(pinnedHeading.compareDocumentPosition(spacesHeading)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
-		);
-
-		fireEvent.click(newSpaceButton);
-
-		// The sidebar New Space button targets the active first-run entry.
-		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/acme/new-space",
-		});
+		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 	});
 
 	it("optimistically moves a space into the pinned section", async () => {

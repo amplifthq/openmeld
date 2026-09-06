@@ -645,7 +645,7 @@ function resolveHumanProfileComputerRecords(input: {
 	if (computers.length > 0) {
 		return {
 			count: computers.length,
-			label: "Computer offline",
+			label: "Computer disconnected",
 			path: resolveComputerRecordsPath(input),
 			state: "not_connected",
 		};

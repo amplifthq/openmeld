@@ -30,6 +30,7 @@ import {
   ACCOUNT_LAST_SELECTED_ORGANIZATION_ROUTE,
   ACCOUNT_ROUTE_BASE,
 } from "./account-route-paths";
+import { registerAccountSidebarRoutes } from "./account-sidebar-routes";
 import { registerBetterAuthRoutes } from "./better-auth-routes";
 import { registerOrganizationCreationRoutes } from "./organization-creation-routes";
 import { registerOrganizationJoinLinkRoutes } from "./organization-join-link-routes";
@@ -104,6 +105,7 @@ export function createHonoApp() {
 
   registerAccountDisplayNameRoutes(app);
   registerAccountOrganizationPreferenceRoutes(app);
+  registerAccountSidebarRoutes(app);
   registerProfileRoutes(app);
   registerPasswordRoutes(app);
   registerWaitlistRoutes(app);
