@@ -19,7 +19,7 @@ import {
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ChatCircleIcon, StarIcon } from "@phosphor-icons/react";
+import { ChatCircleTextIcon, StarIcon } from "@phosphor-icons/react";
 import { memo } from "react";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { AgentProfileOperationalStatusIndicator } from "#/components/agents/agent-profile-operational-status";
@@ -110,7 +110,7 @@ export function AgentProfileSidebarItemComponent(input: {
 				aria-describedby={availabilityDescriptionId}
 				aria-label={`Open ${input.profile.profileName}`}
 				className={cn(
-					"flex w-full min-w-0 items-start gap-2 px-2 py-1.5 text-left outline-none",
+					"flex w-full min-w-0 items-start gap-1.5 px-2 py-1 text-left outline-none",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
 					input.isActive ? "text-sidebar-accent-foreground" : null
@@ -129,9 +129,9 @@ export function AgentProfileSidebarItemComponent(input: {
 						hasReducedProminence ? "opacity-55 grayscale" : null
 					)}
 					profileId={input.profile.openMeldProfileId}
-					size={24}
+					size={20}
 				/>
-				<span className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
+				<span className="flex min-w-0 flex-1 flex-col overflow-hidden">
 					<span className="flex min-w-0 items-center gap-1.5">
 						<span className={profileNameClassName}>
 							{input.profile.profileName}
@@ -182,7 +182,7 @@ export function AgentProfileSidebarItemComponent(input: {
 							label={`Chat with ${input.profile.profileName}`}
 							onClick={input.onChat}
 						>
-							<ChatCircleIcon />
+							<ChatCircleTextIcon />
 						</SidebarRowAction>
 					)}
 					{input.onToggleStar && (

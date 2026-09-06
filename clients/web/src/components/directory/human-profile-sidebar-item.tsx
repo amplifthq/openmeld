@@ -10,7 +10,7 @@ import {
 } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ChatCircleIcon, StarIcon } from "@phosphor-icons/react";
+import { ChatCircleTextIcon, StarIcon } from "@phosphor-icons/react";
 import { type ReactNode, useMemo } from "react";
 import {
 	APP_NAV_ITEM_TONE_CLASS_NAME,
@@ -108,7 +108,7 @@ export function HumanProfileSidebarItem(input: {
 				aria-current={input.isActive ? "page" : undefined}
 				aria-label={`Open ${input.member.name}'s profile`}
 				className={cn(
-					"flex w-full min-w-0 flex-row items-start gap-2 px-2 py-1.5 text-left outline-none",
+					"flex w-full min-w-0 flex-row items-start gap-1.5 px-2 py-1 text-left outline-none",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
 					input.isActive ? "text-sidebar-accent-foreground" : null
@@ -120,7 +120,7 @@ export function HumanProfileSidebarItem(input: {
 				type="button"
 			>
 				<DirectoryHumanProfileAvatar context="sidebar" member={input.member} />
-				<span className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
+				<span className="flex min-w-0 flex-1 flex-col overflow-hidden">
 					<span
 						className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden whitespace-nowrap"
 						data-slot="human-profile-sidebar-heading"
@@ -225,7 +225,7 @@ export function HumanProfileSidebarItem(input: {
 							label={`Chat with ${input.member.name}`}
 							onClick={input.onChat}
 						>
-							<ChatCircleIcon />
+							<ChatCircleTextIcon />
 						</PeopleRowAction>
 					)}
 					<PeopleRowAction

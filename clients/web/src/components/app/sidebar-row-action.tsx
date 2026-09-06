@@ -4,7 +4,7 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { SidebarMenuAction } from "@openmeld/ui/fluid/sidebar-menu";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 export function SidebarRowAction(input: {
 	label: string;
@@ -21,6 +21,7 @@ export function SidebarRowAction(input: {
 						className="static size-6"
 						disabled={input.disabled}
 						onClick={input.onClick}
+						style={{ "--icon-size": "14px" } as CSSProperties}
 					/>
 				}
 			>

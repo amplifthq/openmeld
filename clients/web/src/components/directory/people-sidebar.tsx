@@ -234,6 +234,7 @@ export function PeopleSidebar(input: {
 						activeLayoutId={`secondary-sidebar-selection-${presentation}`}
 						activeValue={input.selectedProfileId}
 						aria-label={section.label}
+						className="[&_[data-sidebar=menu]]:gap-0.5"
 					>
 						{members.map((member, index) => (
 							<SortablePerson

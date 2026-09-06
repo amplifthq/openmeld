@@ -29,6 +29,8 @@ Find people by name or email, filter by Computer connection, star frequent
 contacts, and organize them into personal groups. Drag people to reorder or move
 them between groups, and open a private conversation from a row's Chat action.
 Smaller avatars and consistent spacing keep the directory compact.
+People and Agents use the Messages icon for quick chats, smaller row action
+icons, and tighter rows so more teammates fit in the sidebar.
 
 Agents now supports the same favorites, personal groups, dragging, and quick
 Chat actions. Filter by owner to find one person's Agents. Compact status dots

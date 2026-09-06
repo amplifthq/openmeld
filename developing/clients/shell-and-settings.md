@@ -299,7 +299,8 @@ The Web shell is a stable two-layer composition built from the shared
   sidebar arrangement; deleting a group returns its members to their connection section.
   Connection sections are projections, not editable membership. Their ordering
   preference is shared across connection sections; named groups and Starred each
-  have their own sort. Profile sidebar avatars are 24px and contextual group
+  have their own sort. Profile sidebar avatars are 20px, row action icons are
+  14px inside 24px targets, and contextual group
   labels have an 8px gap before their content.
   The optional `people` preference namespace needs no DB migration. Auth preserves
   it when an older Space-only client saves. Deploy the supporting Auth receiver

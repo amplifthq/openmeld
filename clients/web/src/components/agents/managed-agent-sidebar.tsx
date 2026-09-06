@@ -248,6 +248,7 @@ export function ManagedAgentSidebar({
 							<FluidNavMenu
 								activeValue={activeProfileId}
 								aria-label={`${section.label} Agents`}
+								className="[&_[data-sidebar=menu]]:gap-0.5"
 							>
 								{section.profiles.map((profile, index) => (
 									<ManagedAgentRow
