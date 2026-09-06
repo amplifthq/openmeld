@@ -11,10 +11,10 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { useSpaceEntryConfirmed } from "./space-entry-confirmation";
+import { useSpaceEntryConfirmation } from "./space-entry-confirmation";
 import { SpaceEntryGate } from "./space-entry-gate";
-import { SpaceEntryRecoveryNotice } from "./space-entry-recovery-notice";
 
 const entryRequest = vi.hoisted(() =>
 	vi.fn<({ signal }: { signal: AbortSignal }) => Promise<unknown>>()
@@ -37,7 +37,7 @@ vi.mock("#/lib/spaces/protected-space-access", () => ({
 }));
 afterEach(cleanup);
 
-it("restarts a stalled access request and preserves the draft until access is confirmed", async () => {
+it("lets Send await the current access request without exposing a retry control", async () => {
 	let confirm: (value: unknown) => void = () => undefined;
 	entryRequest
 		.mockImplementationOnce(() => new Promise(() => undefined))
@@ -50,30 +50,32 @@ it("restarts a stalled access request and preserves the draft until access is co
 	setup();
 	const draft = screen.getByRole("textbox", { name: "Draft" });
 	fireEvent.change(draft, { target: { value: "Unsent work" } });
-	fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+	fireEvent.click(screen.getByRole("button", { name: "Send" }));
+	expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+	expect(screen.queryByText("Sent")).toBeNull();
 	await waitFor(() => expect(entryRequest).toHaveBeenCalledTimes(2));
 	expect(entryRequest.mock.calls[0]?.[0].signal.aborted).toBe(true);
-	expect(
-		(screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled
-	).toBe(true);
 	act(() => confirm({ view: { state: "allowed", experience: "member" } }));
-	await waitFor(() =>
-		expect(
-			(screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
-				.disabled
-		).toBe(false)
-	);
+	await waitFor(() => expect(screen.getByText("Sent")).toBeTruthy());
 	expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
 	expect((draft as HTMLInputElement).value).toBe("Unsent work");
-	expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
 });
 
 function Conversation() {
+	const confirmation = useSpaceEntryConfirmation();
+	const [sent, setSent] = useState(false);
 	return (
 		<>
 			<p>Saved conversation</p>
-			<SpaceEntryRecoveryNotice />
-			<button disabled={!useSpaceEntryConfirmed()} type="button">
+			{sent ? <p>Sent</p> : null}
+			<button
+				onClick={async () => {
+					if (await confirmation.ensureConfirmed()) {
+						setSent(true);
+					}
+				}}
+				type="button"
+			>
 				Send
 			</button>
 			<input aria-label="Draft" defaultValue="Keep my draft" />
@@ -100,12 +102,12 @@ function setup(restored = true) {
 	);
 	return { client, rejected };
 }
-it("shows a saved conversation before entry resolves, without enabling Send or remounting the draft", async () => {
+it("shows a saved conversation and keeps Send available before entry resolves", async () => {
 	const { client } = setup();
 	expect(screen.getByText("Saved conversation")).toBeTruthy();
 	expect(
 		(screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled
-	).toBe(true);
+	).toBe(false);
 	const draft = screen.getByRole("textbox", { name: "Draft" });
 	act(() => {
 		client.setQueryData(["entry"], {
@@ -113,10 +115,7 @@ it("shows a saved conversation before entry resolves, without enabling Send or r
 		});
 	});
 	await waitFor(() =>
-		expect(
-			(screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
-				.disabled
-		).toBe(false)
+		expect(screen.getByText("Saved conversation")).toBeTruthy()
 	);
 	expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
 });
@@ -136,7 +135,8 @@ it("hides saved content on an explicit rejection and clears its owning segment",
 });
 it("uses the checking shell when no saved conversation exists", () => {
 	setup(false);
-	expect(screen.getByText("Checking Space access")).toBeTruthy();
+	expect(screen.getByText("Opening Space")).toBeTruthy();
+	expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
 	expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
 });
 
@@ -166,7 +166,7 @@ it.each([
 	expect(rejected).toHaveBeenCalled();
 });
 
-it("keeps the saved draft and exposes retry for a transient entry failure", async () => {
+it("keeps the saved draft without exposing access controls after a transient failure", async () => {
 	const { client, rejected } = setup();
 	const draft = screen.getByRole("textbox", { name: "Draft" });
 	act(() =>
@@ -183,8 +183,10 @@ it("keeps the saved draft and exposes retry for a transient entry failure", asyn
 			})
 	);
 	await waitFor(() =>
-		expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy()
+		expect(screen.getByText("Saved conversation")).toBeTruthy()
 	);
 	expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
+	expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
 	expect(rejected).not.toHaveBeenCalled();
 });

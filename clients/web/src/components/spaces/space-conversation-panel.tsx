@@ -146,7 +146,6 @@ import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
 import { SpaceConversationSendScrollController } from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
-import { SpaceEntryRecoveryNotice } from "./space-entry-recovery-notice";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	type SpaceExecutionRecoveryHandler,
@@ -297,6 +296,7 @@ type SpaceConversationPanelResolvedProps = {
 	pendingActionSurface?: ReactNode;
 	readOnly?: boolean;
 	readOnlyComposerPlaceholder?: string;
+	allowSendWhileAccessSettles?: boolean;
 	renderSetupGuidance?: (
 		presentation: OnboardingSetupPresentation
 	) => ReactNode;
@@ -482,6 +482,7 @@ function SpaceConversationPanelContent(
 	const presentation = useSpaceConversationPresentationController(input);
 	const {
 		canSendMessage,
+		canUploadFiles,
 		composerContext,
 		composerSendBlocked,
 		composerTargetName,
@@ -716,9 +717,9 @@ function SpaceConversationPanelContent(
 			{showComposer ? (
 				<>
 					{input.pendingActionSurface}
-					<SpaceEntryRecoveryNotice />
 					<SpaceComposerSection
 						canSendMessage={canSendMessage}
+						canUploadFiles={canUploadFiles}
 						composerContext={composerContext}
 						composerSendBlocked={composerSendBlocked}
 						composerTargetName={composerTargetName}
@@ -868,6 +869,10 @@ function useSpaceConversationPresentationController(
 ) {
 	const isReadOnly = input.readOnly === true;
 	const canSendMessage =
+		!isReadOnly &&
+		(input.allowedActions.includes("post_message") ||
+			input.allowSendWhileAccessSettles === true);
+	const canUploadFiles =
 		!isReadOnly && input.allowedActions.includes("post_message");
 	const composerSendBlocked = resolveSpaceComposerSendBlocked({
 		files: input.composerFiles,
@@ -1101,6 +1106,7 @@ function useSpaceConversationPresentationController(
 	return {
 		anchoredOutcomeNoticesBySourceSignalId,
 		canSendMessage,
+		canUploadFiles,
 		composerContext,
 		composerSendBlocked,
 		composerTargetName,
@@ -1927,6 +1933,7 @@ function SpaceConversationTopOverlay(input: {
 }
 
 function SpaceComposerSection(input: {
+	canUploadFiles: boolean;
 	canSendMessage: boolean;
 	composerContext: SpaceComposerConversationKind;
 	composerSendBlocked: boolean;
@@ -1951,6 +1958,7 @@ function SpaceComposerSection(input: {
 						onSubmit: input.submitComposer,
 					}}
 					availability={{
+						canUploadFiles: input.canUploadFiles,
 						canSendMessage: input.canSendMessage,
 						fileLimitReached: panel.composerFileLimitReached,
 						isSendingMessage: panel.isSendingMessage,
