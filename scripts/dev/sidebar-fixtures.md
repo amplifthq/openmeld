@@ -32,10 +32,26 @@ so switching between test accounts does not remove their state matrix.
 Spaces include short discussions, Markdown, varied member combinations, and
 timestamps from minutes to a month ago. Explorations stays empty; Billing
 migration, Incident follow-up, and Security review include failure, stopped,
-and policy-blocked system notices. Plan review, command permission, and live
-conversation activity require the normal runtime data path; the seed does not
-currently exercise these interactions. Sidebar state samples alone do not prove
-that a conversation contains a working Agent or an actionable approval.
+and policy-blocked system notices. The following cases use production components:
+
+| Space | Scenario |
+| --- | --- |
+| Design feedback | Agent working status and elapsed time in the conversation |
+| Release coordination | Plan review in the normal Pending Agent actions surface |
+| Performance lab | Command permission in the normal Pending Agent actions surface |
+| Billing migration | Sandbox failure system message |
+| Incident follow-up | Stopped system message |
+| Security review | Permission-blocked system message |
+
+Transient cases use a development-only Space API response adapter, scoped to the
+generated Space IDs and signed-in fixture profile on loopback. Real API reads
+still check access first; real progress takes precedence. No JSX or separate UI
+is added. The conversation, members, and current Space sidebar consume the same
+progress projection. Approvals validate through the shared interaction schema;
+responses change only disposable browser-memory scenario data. No runtime state
+is written and no command runs. Reload resets transient scenarios. These cases
+validate production UI, not real Agent execution or cross-tab synchronization.
+
 Synthetic conversations use stable IDs and backups; reruns
 replace only these known fixture messages, preserving manually added messages.
 
@@ -94,7 +110,7 @@ signals are written only to those fixture DMs' local databases.
 The seed also creates four local Inbox unread records and writes the ignored
 `clients/web/scripts/sidebar-preview/runtime-states.generated.json` for visual
 fixtures. The product's Space sidebar does not consume synthetic Working or
-needs-input summaries: its indicators must come from the same runtime projections
+needs-input summaries: its indicators come from the same API progress data
 as the conversation. Use the standalone preview below for isolated row states.
 Rerunning the seed restores unread records so clicking them does not exhaust the
 test matrix permanently.

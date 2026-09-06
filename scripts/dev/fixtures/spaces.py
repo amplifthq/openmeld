@@ -2,6 +2,7 @@
 import datetime
 import json
 import urllib.request
+import uuid
 from fixtures import conversations
 
 def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gateway_host, context):
@@ -39,6 +40,10 @@ def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gate
         # Keep a repeatable one/two/three/many-member matrix in Space-owned truth.
         # The creator is already present; mixed groups include real fixture Agents.
         preview_members = [ident(f"human:{i % 18}"), "agt_"+ident(f"agent:{i % 12}"), ident(f"human:{(i + 5) % 18}"), "agt_"+ident(f"agent:{(i + 1) % 12}")][: [2, 1, 2, 4][i % 4]]
+        if i in (1, 2, 3, 8, 9, 10):
+            agent_id = "agt_" + ident(f"agent:{i}")
+            if agent_id not in preview_members:
+                preview_members.append(agent_id)
         if preview_members:
             request = urllib.request.Request(
                 f"http://127.0.0.1:{gateway_port}/v1/spaces/{sid}/organization-directory-profiles",
@@ -69,6 +74,8 @@ def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gate
             agent_name = db.execute("SELECT profile_name FROM openmeld_profiles WHERE profile_id=?", (agent_id,)).fetchone()[0]
             runtime_states.append({"spaceId":sid,"profileId":"agt_"+ident(f"agent:{i}"),
                                    "profileName":agent_name,
+                                   "sourceSignalId":str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:0")),
+                                   "scenario":"plan_review" if i == 3 else "permission" if i == 10 else "working",
                                    "needsInput":i in (3,10)})
 
     return runtime_states
