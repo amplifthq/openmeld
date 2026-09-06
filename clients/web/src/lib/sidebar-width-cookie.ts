@@ -7,7 +7,7 @@ import { createServerFn } from "@tanstack/react-start";
  * never touches storage. This module is the Web filling: it persists the
  * controlled `width` + `tier` state (hidden / icon / expanded) in first-party
  * cookies so the value survives reload and is readable on the SSR pass (no
- * first-paint flash). The outer rail remains global. Each inner-sidebar route
+ * first-paint flash). The outer rail stores widths by page in one cookie. Each inner-sidebar route
  * family owns an independent preference while the original global inner value
  * remains a read-only migration fallback. The Desktop track injects its own
  * electron-store equivalent against the same `onWidthChange` / tier-change
@@ -48,12 +48,15 @@ export const OUTER_SIDEBAR_MIN_WIDTH = "10rem";
 export const OUTER_SIDEBAR_MAX_WIDTH = "24rem";
 const PX_PER_REM = 16;
 const TRAILING_ZERO_REM_PATTERN = /\.?0+$/;
+const SIDEBAR_PAGE_KEY_PATTERN = /^[a-zA-Z-]{1,24}$/;
 
 export type SidebarScope = keyof typeof SIDEBAR_STATE_COOKIE_NAMES;
 
 export type SidebarTier = "expanded" | "icon" | "hidden";
 
 export type SidebarPersistedState = {
+	/** Expanded Main Sidebar widths keyed by stable navigation destination. */
+	pageWidths?: Readonly<Record<string, string>>;
 	/** Stable machine ids for labeled groups the user has explicitly collapsed. */
 	collapsedGroupIds?: readonly string[];
 	width: string;
@@ -195,7 +198,8 @@ export function parseSidebarStateCookieValue(
 	if (!raw) {
 		return APP_SIDEBAR_DEFAULT_STATES[scope];
 	}
-	const [widthPart, tierPart, collapsedGroupIdsPart] = raw.split("|");
+	const [widthPart, tierPart, collapsedGroupIdsPart, pageWidthsPart] =
+		raw.split("|");
 	const width = widthPart?.trim()
 		? clampSidebarWidth(widthPart.trim(), scope)
 		: metrics.defaultWidth;
@@ -209,6 +213,19 @@ export function parseSidebarStateCookieValue(
 	if (collapsedGroupIds.length > 0) {
 		state.collapsedGroupIds = collapsedGroupIds;
 	}
+	if (scope === "outer" && pageWidthsPart) {
+		state.pageWidths = Object.fromEntries(
+			pageWidthsPart
+				.split(",")
+				.flatMap((entry) => {
+					const [key, value] = entry.split(":");
+					return key && SIDEBAR_PAGE_KEY_PATTERN.test(key) && value
+						? [[key, clampSidebarWidth(value, "outer")]]
+						: [];
+				})
+				.slice(0, 24)
+		);
+	}
 	return state;
 }
 
@@ -219,6 +236,14 @@ export function serializeSidebarStateCookieValue(
 ): string {
 	const baseValue = `${clampSidebarWidth(state.width, scope)}|${SIDEBAR_TIER_TOKEN[state.tier]}`;
 	const collapsedGroupIds = normalizeCollapsedGroupIds(state.collapsedGroupIds);
+	if (scope === "outer" && state.pageWidths) {
+		const widths = Object.entries(state.pageWidths)
+			.filter(([key]) => SIDEBAR_PAGE_KEY_PATTERN.test(key))
+			.slice(0, 24)
+			.map(([key, width]) => `${key}:${clampSidebarWidth(width, "outer")}`)
+			.join(",");
+		return `${baseValue}|${collapsedGroupIds.join(",")}|${widths}`;
+	}
 	return collapsedGroupIds.length > 0
 		? `${baseValue}|${collapsedGroupIds.join(",")}`
 		: baseValue;
@@ -415,6 +440,9 @@ export function rememberClientSidebarState(
 		return;
 	}
 	clientSidebarStateMemory[scope] = {
+		...(scope === "outer" && state.pageWidths
+			? { pageWidths: state.pageWidths }
+			: {}),
 		...withCollapsedGroupIds(state.collapsedGroupIds),
 		tier: state.tier,
 		width: clampSidebarWidth(state.width, scope),

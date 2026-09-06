@@ -501,9 +501,14 @@ Persistence is injected by each client. Web stores non-sensitive layout
 preferences in first-party cookies so SSR can read them with no width flash.
 The same SSR-readable state stores width, tier, and stable ids for explicitly
 collapsed labeled groups, so disclosure state does not flash open during
-hydration. The outer rail remains one browser-wide preference:
+hydration. The outer rail stores browser-wide mode and collapsed groups, plus
+independent expanded widths keyed by stable app shell section:
 
 - outer rail: `openmeld_sidebar_outer`
+
+Each section shares its width across detail routes and Organizations. A section
+without a customized width uses the default. Navigation supplies the restored
+width to the existing Fluid geometry animation; reduced motion remains honored.
 
 Without that cookie, Web defaults the outer rail to the expanded mode so a new
 user sees every destination label. Once the user changes tiers, Web restores
