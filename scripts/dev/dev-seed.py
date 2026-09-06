@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from fixtures.context import Context, VIEWER
+from fixtures.context import Context
 from fixtures import people, spaces, messages, sidebar
 
 
@@ -40,7 +40,7 @@ def main():
         manifest["spaces"] = runtime_states
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     url = f"http://{context.lane['laneId']}.localhost:{context.lane['ports']['web']}/o/{context.org['slug']}/spaces"
-    print(f"Seed complete: {args.only or 'all areas'}\nOpen: {url}\nLocal sign-in: {VIEWER['email']}\nPassword: {VIEWER['password']}\nBackup: {context.backup}")
+    print(f"Seed complete: {args.only or 'all areas'}\nOpen: {url}\nLocal sign-in: {context.account['email']}\nPassword: {context.account['password']}\nBackup: {context.backup}")
     context.db.close()
 
 

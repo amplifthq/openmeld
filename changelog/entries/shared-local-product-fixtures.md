@@ -10,3 +10,7 @@ Run `pnpm dev:seed` in a running isolated worktree to prepare a fictional accoun
 team, Agents, computers, Spaces, Inbox activity, and direct messages. Repeat runs
 reuse the same identities. Product owners can extend shared modules, while each
 worktree keeps its own data and local-only status previews.
+
+Use `pnpm dev:account` to prepare or retrieve a random local test email and simple
+password without seeding data. Sign in through the normal product page. `--new`
+creates another account and keeps earlier accounts and their data intact.

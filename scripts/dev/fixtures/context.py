@@ -9,8 +9,8 @@ import urllib.error
 import urllib.request
 import uuid
 
-VIEWER = {"name": "Maya Chen", "email": "maya.chen@example.com",
-          "password": "LocalSidebar-47!Preview"}
+from fixtures.accounts import prepare_account
+
 ORGANIZATION = "Northstar Product Studio"
 
 
@@ -50,11 +50,16 @@ class Context:
         self.db = sqlite3.connect(paths[0], timeout=30)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys=ON")
-        self.backup = root / "dev-tmp" / f"before-dev-seed-{time.time_ns()}.sqlite"
+        self.backup = None
+        self.token = None
+
+    def backup_database(self):
+        if self.backup:
+            return
+        self.backup = self.root / "dev-tmp" / f"before-dev-seed-{time.time_ns()}.sqlite"
         self.backup.parent.mkdir(exist_ok=True)
         with sqlite3.connect(self.backup) as target:
             self.db.backup(target)
-        self.token = None
 
     def request(self, service, path, data=None, method=None):
         port = self.lane["ports"][service]
@@ -74,17 +79,11 @@ class Context:
             return json.load(response)
 
     def bootstrap(self):
-        viewer = self.db.execute("SELECT * FROM users WHERE email=?", (VIEWER["email"],)).fetchone()
-        if not viewer:
-            self.request("auth", "/api/auth/sign-up/email", VIEWER)
-            viewer = self.db.execute("SELECT * FROM users WHERE email=?", (VIEWER["email"],)).fetchone()
-        if not viewer or viewer["name"] != VIEWER["name"]:
-            raise RuntimeError("The fixture email is already used by another local account.")
-        # Local fixture email only: no email delivery or production verification bypass.
-        with self.db:
-            self.db.execute("UPDATE users SET email_verified=1 WHERE id=?", (viewer["id"],))
+        self.account = prepare_account(self)
+        self.backup_database()
+        viewer = self.db.execute("SELECT * FROM users WHERE id=?", (self.account["userId"],)).fetchone()
         result = self.request("auth", "/api/auth/sign-in/email",
-                              {"email": VIEWER["email"], "password": VIEWER["password"]})
+                              {"email": self.account["email"], "password": self.account["password"]})
         self.token = result["token"]
         self.viewer = viewer
         self.human = self.db.execute(

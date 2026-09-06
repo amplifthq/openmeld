@@ -10,7 +10,7 @@ pnpm dev:web:worktree
 ```
 
 `dev:seed` discovers the current checkout's running `wt-*` lane and ports. It
-creates the fictional Maya Chen account and Northstar Product Studio organization
+creates a random fictional test account and Northstar Product Studio organization
 on first use, then reuses them. It prints the local-only email/password and Web
 URL, never session tokens. D1 and modified DM databases are backed up in
 `dev-tmp/` before writes. No production or other worktree state is accepted.
@@ -24,6 +24,24 @@ and Agents directories receive starter stars and custom groups. The fixtures are
 shared source code, while each worktree owns its database and generated manifest.
 
 See [the module contribution guide](fixtures/README.md) to add scenarios.
+
+## Prepare a login without sample data
+
+Run `pnpm dev:account` after the local Workers are ready. It prints the product
+login URL, a random `dev-…@example.com` email, and a simple eight-character password
+(`dev` followed by five digits). Enter these credentials on the normal login page.
+The command pre-verifies only the new fictional email in the isolated database;
+password validation and browser authentication remain unchanged.
+
+Repeat the command to retrieve the active account. Use `pnpm dev:account --new`
+to create another account without removing previous accounts or their data.
+Subsequent `pnpm dev:seed` runs populate the active account's organization.
+For machine-readable output, use `pnpm --silent dev:account --json`.
+
+Credentials are saved with owner-only permissions in the ignored lane-local
+`dev-accounts.json`, beside its `v3` state directory. They are disposable local
+test credentials, never production credentials. If the database was discarded,
+the command prepares a fresh account. Each worktree keeps independent accounts.
 
 The fixture adds 18 fictional members, 42 Agent identities (including two
 disabled identities), multiple owner groups and 30 computer records. Bindings

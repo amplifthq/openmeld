@@ -273,6 +273,7 @@ commands when multiple worktrees need live localhost stacks at the same time:
 | `pnpm dev:worktree` | Preferred start command. Reserve a stable worktree-specific port block and start Auth/Core, Gateway, and Remote Agent with shared Doppler values. Remote Agent Sandbox tools are disabled, so Docker is not required. |
 | `pnpm dev:web:worktree` | Start Web in a second terminal and attach it to the live Worker stack from the same worktree. |
 | `pnpm dev:seed` | Create or refresh shared fictional product fixtures in this worktree's running isolated lane. See [fixture scenarios and ownership](../../scripts/dev/sidebar-fixtures.md). |
+| `pnpm dev:account` | Prepare or retrieve a local test email and simple password for normal browser sign-in. `--new` creates another account; subsequent seeds use it. See [local test accounts](../../scripts/dev/sidebar-fixtures.md#prepare-a-login-without-sample-data). |
 | `pnpm dev:worktree:sandbox` | Start the same Doppler-backed Worker stack with Remote Agent Sandbox tools enabled. Docker is required. |
 | `pnpm dev` | Start the exclusive fixed-port Worker stack for the current worktree. DevGuard blocks before Turbo if another worktree owns a required port and does not stop that owner. |
 | `pnpm dev:web` | Start Web on the fixed-port lane after `pnpm dev` is ready. |

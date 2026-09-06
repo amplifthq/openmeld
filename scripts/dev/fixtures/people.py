@@ -9,11 +9,11 @@ def seed(db, org, viewer, human, now, ident, insert):
     with db:
         for i, name in enumerate(names):
             uid, pid = ident(f"user:{i}"), ident(f"human:{i}")
-            insert("users", id=uid, name=name, email=f"sidebar-{i}@example.invalid",
+            insert("users", id=uid, name=name, email=f"sidebar-{uid}@example.invalid",
                    email_verified=1, created_at=now-86400000*(i+2), updated_at=now)
             insert("members", id=ident(f"member:{i}"), organization_id=org["id"], user_id=uid,
                    role="admin" if i in (0, 7) else "member", created_at=now-86400000*(i+1))
-            insert("openmeld_profiles", profile_id=pid, profile_name=name, profile_handle=f"sidebar-person-{i}",
+            insert("openmeld_profiles", profile_id=pid, profile_name=name, profile_handle=f"sidebar-person-{uid}",
                    profile_kind="human", is_default=1, owner_user_id=uid, created_by_user_id=uid,
                    source="auth_bootstrap", created_at=now-86400000*(i+1), updated_at=now)
             insert("organization_member_activity", organization_id=org["id"], user_id=uid,
@@ -27,7 +27,7 @@ def seed(db, org, viewer, human, now, ident, insert):
             label = [f"{name.split()[0]} · {controller.title()}", "Frontend accessibility review",
                      "Release notes and documentation", "Search relevance experiments",
                      "Payments API integration and regression checks", "Customer research synthesis"][i%6]
-            insert("openmeld_profiles", profile_id=pid, profile_name=label, profile_handle=f"sidebar-agent-{i}",
+            insert("openmeld_profiles", profile_id=pid, profile_name=label, profile_handle=f"sidebar-agent-{pid[4:]}",
                    profile_kind="agent", owner_user_id=owner, organization_id=org["id"],
                    created_by_user_id=owner, creator_profile_id=creator, source="web_create",
                    status="disabled" if i in (39,40) else "active", last_used_at=now-i*7200000,
@@ -64,4 +64,3 @@ def seed(db, org, viewer, human, now, ident, insert):
 
 
     return owners
-

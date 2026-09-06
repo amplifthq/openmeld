@@ -6,7 +6,8 @@ account credentials. Python 3 uses only its standard library.
 
 | Owner area | Module | Current scenarios |
 | --- | --- | --- |
-| Account and organization | `context.py` | Repeatable fictional login, organization, backup, strict local lane selection |
+| Test credentials | `accounts.py` | Random local accounts, credential retrieval, explicit new account creation; shared by `dev:account` and `dev:seed` |
+| Organization and local environment | `context.py` | Organization, authentication, backup, strict local lane selection |
 | People, Agents, Computers | `people.py` | 18 teammates, 42 Agents, multiple owners/controllers, disabled and unbound Agents, historical computer records |
 | Spaces and Inbox | `spaces.py` | 28 Spaces, long names, public/private, pins, mixed membership, unread records, Working/needs-input previews |
 | Messages | `messages.py` | Six DMs, mixed peers, recent/older/long/multiline and outgoing-only previews |
