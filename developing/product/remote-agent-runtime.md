@@ -108,6 +108,13 @@ Infrastructure must not blindly replay an operation whose external effects are
 unknown. Re-running a read or regenerating a disposable file differs from sending
 another message or repeating a mutation. Release acceptance must exercise that
 recovery path; Worker-only continuity does not prove Computer-loss recovery.
+This recovery contract is not a guarantee of seamless arbitrary deployments.
+Computer replacement acceptance establishes retained conversation/files and
+honest command-loss recovery, not uninterrupted external operations. A Core-only
+update does not certify simultaneous Remote Agent and Computer replacement.
+The implementation does not use dual execution targets; publication receipts
+and inspection of external state determine whether an interrupted action can
+be safely retried.
 
 The hosted runtime is normally always available, but the Organization creator
 has one explicit emergency control: **Pause Center Agent**. Pause is not a

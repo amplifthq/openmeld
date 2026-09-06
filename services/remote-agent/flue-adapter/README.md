@@ -62,8 +62,11 @@ sandbox, so shared Computer files cannot silently become instructions.
 Upstream unread-handle cancellation only invokes synchronous disposal, which
 can return before the container releases its single subscriber. A following
 `getExec` then fails with `EEXEC_BUSY` even though the process remains alive.
-The patch adds an acknowledged cancellation method to the SDK's internal
-handle RPC; it does not signal or replay the command. The Worker client and
+The patch awaits cancellation of the SDK's output stream; it does not signal
+or replay the command. Reading and cancellation share one pending stream-open
+promise, so cancelling during connection cannot consume the single-shot RPC
+handle twice. Pending reads do not enqueue or close after cancellation.
+The Worker client and
 Computer RPC owner must deploy together. The regression test uses both real
 SDK wrappers and checks unread, connecting, and actively reading handles.
 UTF-8 command events are decoded by a pull-driven reader, which waits for
@@ -89,6 +92,12 @@ These tests do not certify the WebSocket transport; staging tests cover that
 additional boundary.
 Upstream 0.2.1 still uses the same unacknowledged unread-handle path; upgrading
 alone does not establish this contract.
+
+These seven Flue adaptations are maintained integration code, not a completed
+escape from upstream internals. On each Flue upgrade, compare the patch with
+the new package, remove an adaptation only when the upstream behavior fulfills
+its contract, and exercise the affected cancellation, observation, compaction,
+recovery and steering boundaries. A clean patch apply alone proves none of them.
 
 The footprint reader is a pinned, read-only aggregate over Flue's inline and
 spilled batches. It does not write runtime state or derive execution truth.
@@ -127,13 +136,18 @@ to these boundaries, verify the staging deployment handoff, pending external too
 and delegation, session context continuity, and shared Computer behavior.
 Core memory and visible messages alone are not sufficient to restore opaque
 choices, unpublished drafts, or intermediate tool results.
+Computer replacement acceptance proves a narrower outcome: a command may be
+lost while conversation context and durable files survive, and the model can
+recognize the loss and continue safely. It does not promise uninterrupted
+native processes or transparent replay of arbitrary external effects. Core-only
+deployment smoke does not certify simultaneous Remote Agent and Computer
+updates. No dual-target handoff is implemented or claimed here.
 
 Flue 2 joins queued deliveries into a live response by default; the Center Agent
-disables that default. Before release, bind steering, confirmation, cancellation, and callbacks
-to the exact execution and preserve each sender's authority. Independent work
+disables that default. Steering, confirmation, cancellation, and callbacks must
+remain bound to the exact execution and preserve each sender's authority. Independent work
 must not inherit the running submission's tools or permission context.
 
-Task retirement is deferred by the latest user scope decision; existing Task
-tools and entry points remain coherent for this candidate. Session behavior,
-staging Apps and Slack integration, and complex authenticated acceptance still
-require verification. Passing runtime tests does not certify those paths.
+Task retirement is a separate product change; existing Task tools and entry
+points remain supported. Changes to sessions, Apps or Slack require their own
+authenticated acceptance. Passing runtime tests does not certify those paths.
