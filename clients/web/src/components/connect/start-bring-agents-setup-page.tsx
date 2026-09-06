@@ -901,6 +901,12 @@ function resolveReadyActionDescription(input: {
 	if (input.completionReadiness.kind === "error") {
 		return input.setupCopy.readyDefaultActionSummary;
 	}
+	if (
+		input.routeIntent.kind === "account_computer_setup" &&
+		input.routeIntent.returnTo === "agent_creation"
+	) {
+		return "Return to Agent creation to choose a local agent and finish your profile.";
+	}
 	if (input.completionReadiness.kind === "no_selected_local_agents") {
 		return input.presentation === "conversation"
 			? `${input.setupCopy.readyNoSelectedLocalAgentsSummary} Center Agent can continue here.`
