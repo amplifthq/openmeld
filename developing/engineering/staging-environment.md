@@ -54,6 +54,21 @@ separate staging credential exists.
 
 ### Staging Apps Backend
 
+Slack acceptance uses the dedicated OpenMeld Staging Slack app, with HTTP events
+at `https://gateway.staging.openmeld.ai/slack/events` and OAuth redirect
+`https://gateway.staging.openmeld.ai/slack/oauth/callback`. Disable Socket Mode
+for this HTTP receiver. Store its OAuth client ID, client secret, and signing
+secret in Gateway's staging Doppler config, and a separate 32-byte base64 token
+encryption key in Core's staging config. Never rotate an existing encryption
+key as part of routine deployment.
+
+Sync these opt-in credentials through each component's scoped staging Doppler
+environment using `pnpm --filter @openmeld/gateway sync:secrets:slack:stg` and
+`pnpm --filter @openmeld/core sync:secrets:slack:stg`. The baseline deploy remains
+usable without Slack credentials. Complete the normal Web Slack connection
+flow and restrict acceptance messages to the authorized test scope; creating
+the Slack app alone does not establish an OpenMeld Organization connection.
+
 OpenConnector has a separate opt-in deployment for Apps acceptance:
 `https://connectors.staging.openmeld.ai`. Its Worker, D1 database and transit
 file bucket are `openmeld-open-connector-stg`,

@@ -114,6 +114,22 @@ export const STAGING_WORKER_SECRET_SOURCES = [
     project: "openmeld-remote-agent",
     requiredSecrets: ["CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN"],
   },
+  {
+    config: "stg",
+    optionalSecrets: ["SLACK_OPENMELD_TOKEN_CRYPTO_KEY"],
+    project: "openmeld-core",
+    requiredSecrets: [],
+  },
+  {
+    config: "stg",
+    optionalSecrets: [
+      "SLACK_OPENMELD_OAUTH_CLIENT_ID",
+      "SLACK_OPENMELD_OAUTH_CLIENT_SECRET",
+      "SLACK_OPENMELD_SIGNING_SECRET",
+    ],
+    project: "openmeld-gateway",
+    requiredSecrets: [],
+  },
 ];
 
 const STAGING_COMPONENT_PROJECTS = new Map([
@@ -121,8 +137,8 @@ const STAGING_COMPONENT_PROJECTS = new Map([
   ["release", ["openmeld-release"]],
   ["web", ["openmeld-release", "openmeld-web"]],
   ["auth", ["openmeld-release", "openmeld-auth"]],
-  ["core", ["openmeld-release"]],
-  ["gateway", ["openmeld-release"]],
+  ["core", ["openmeld-release", "openmeld-core"]],
+  ["gateway", ["openmeld-release", "openmeld-gateway"]],
   ["remote-agent", ["openmeld-release", "openmeld-remote-agent"]],
 ]);
 

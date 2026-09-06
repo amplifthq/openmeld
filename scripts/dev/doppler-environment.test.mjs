@@ -224,6 +224,8 @@ test("keeps staging readiness scoped to the minimal stg secret set", () => {
       "openmeld-web",
       "openmeld-auth",
       "openmeld-remote-agent",
+      "openmeld-core",
+      "openmeld-gateway",
     ]
   );
   assert.deepEqual(STAGING_WORKER_SECRET_SOURCES[0].requiredSecrets, [
@@ -244,8 +246,8 @@ test("gives each staging deployable only the secrets it needs", () => {
     ),
     {
       auth: ["openmeld-release", "openmeld-auth"],
-      core: ["openmeld-release"],
-      gateway: ["openmeld-release"],
+      core: ["openmeld-release", "openmeld-core"],
+      gateway: ["openmeld-release", "openmeld-gateway"],
       "remote-agent": ["openmeld-release", "openmeld-remote-agent"],
       web: ["openmeld-release", "openmeld-web"],
     }

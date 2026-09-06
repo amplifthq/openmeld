@@ -273,7 +273,7 @@
         "OPENMELD_CONNECTORS_BASE_URL": "",
         "OPENMELD_GATEWAY_URL": "https://gateway.staging.openmeld.ai",
         "WEB_APP_URL": "https://staging.openmeld.ai",
-        "OPENMELD_SLACK_OAUTH_REDIRECT_URL": ""
+        "OPENMELD_SLACK_OAUTH_REDIRECT_URL": "https://gateway.staging.openmeld.ai/slack/oauth/callback"
       },
       "services": [
         {

@@ -16,6 +16,7 @@
     "deploy:stg": "pnpm run build:workspace-dependencies && wrangler deploy --minify --env stg",
     "sync:config:prod": "pnpm run deploy",
     "sync:config:stg": "pnpm run deploy:stg",
+    "sync:secrets:slack:stg": "node ../../scripts/cloudflare/sync-worker-secrets.mjs --env stg --from-env SLACK_OPENMELD_OAUTH_CLIENT_ID SLACK_OPENMELD_OAUTH_CLIENT_SECRET SLACK_OPENMELD_SIGNING_SECRET",
     "sync:secrets:prod": "node ../../scripts/cloudflare/sync-worker-secrets.mjs --env prod --file .dev.vars.prod SLACK_OPENMELD_OAUTH_CLIENT_ID SLACK_OPENMELD_OAUTH_CLIENT_SECRET SLACK_OPENMELD_SIGNING_SECRET OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
     "sync:prod": "pnpm run sync:secrets:prod && pnpm run sync:config:prod",
     "sync:stg": "pnpm run sync:config:stg",
