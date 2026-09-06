@@ -302,6 +302,51 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
+	it("keeps the overlay gap while the sticky date appears and disappears", async () => {
+		renderSpaceConversationPanel({
+			renderSetupGuidance: () => <section>Setup guidance</section>,
+			timelineItems: [createTimelineItem()],
+		});
+		const viewport = screen.getByRole("log", { name: "Conversation history" });
+		const marker = document.querySelector<HTMLElement>(
+			"[data-conversation-date-marker]"
+		);
+		if (!marker) {
+			throw new Error("Expected a conversation date marker");
+		}
+		let markerTop = 1000;
+		vi.spyOn(marker, "getBoundingClientRect").mockImplementation(
+			() => new DOMRect(0, markerTop, 100, 32)
+		);
+		fireEvent.scroll(viewport);
+		await waitFor(() => {
+			expect(
+				document.querySelector("[data-slot='conversation-date-pill-surface']")
+			).toBeNull();
+		});
+		const removeProperty = vi.spyOn(viewport.style, "removeProperty");
+		markerTop = -100;
+		fireEvent.scroll(viewport);
+		await waitFor(() => {
+			expect(
+				document.querySelector("[data-slot='conversation-date-pill-surface']")
+			).not.toBeNull();
+		});
+		expect(removeProperty).not.toHaveBeenCalledWith(
+			"--space-conversation-top-overlay-height"
+		);
+		markerTop = 1000;
+		fireEvent.scroll(viewport);
+		await waitFor(() => {
+			expect(
+				document.querySelector("[data-slot='conversation-date-pill-surface']")
+			).toBeNull();
+		});
+		expect(removeProperty).not.toHaveBeenCalledWith(
+			"--space-conversation-top-overlay-height"
+		);
+	});
+
 	it("places setup guidance in the centered conversation empty state until a message exists", () => {
 		const renderSetupGuidance = vi.fn(
 			(presentation: "banner" | "empty-state") => (
