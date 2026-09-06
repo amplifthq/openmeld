@@ -876,7 +876,9 @@ function resolveReadyPrimaryActionLabel(
 	routeIntent: ReturnType<typeof useBringAgentsSetupContext>["routeIntent"]
 ) {
 	if (routeIntent.kind === "account_computer_setup") {
-		return "Back to Computers";
+		return routeIntent.returnTo === "agent_creation"
+			? "Continue creating Agent"
+			: "Back to Computers";
 	}
 	if (routeIntent.kind === "space_recovery") {
 		return "Back to Space";

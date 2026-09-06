@@ -111,14 +111,18 @@ export function AppConnectContent(input: {
 			<Link
 				aria-label="Back"
 				className={buttonVariants({ size: "icon-sm", variant: "ghost" })}
-				title="Back"
+				title={
+					search.returnTo === "agent_creation"
+						? "Back to creating Agent"
+						: "Back"
+				}
 				to={backTo}
 			>
 				<ArrowLeftIcon aria-hidden="true" />
 			</Link>
 			<BringAgentsSetupProvider routeIntent={routeIntent}>
 				<StartBringAgentsSetupPage
-					autoReturnOnCompletion={false}
+					autoReturnOnCompletion={search.returnTo === "agent_creation"}
 					orgSlug={orgSlug}
 					selfRoute={buildOrganizationConnectPath({ orgSlug })}
 					selfRouteSearch={resetConsumedSearch}

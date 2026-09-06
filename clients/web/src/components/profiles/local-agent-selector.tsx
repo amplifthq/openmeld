@@ -58,7 +58,16 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 				id={headingId}
 			>
 				{input.surface === "page" ? (
-					<h1 className="font-medium text-2xl tracking-tight">{heading}</h1>
+					<div className="grid gap-2">
+						<h1 className="font-medium text-2xl tracking-tight">
+							Create Agent
+						</h1>
+						<h2 className="font-medium text-base">{heading}</h2>
+						<p className="font-normal text-muted-foreground text-sm">
+							Choose the local agent that will run your Agent profile, such as
+							Codex or Claude Code.
+						</p>
+					</div>
 				) : (
 					heading
 				)}

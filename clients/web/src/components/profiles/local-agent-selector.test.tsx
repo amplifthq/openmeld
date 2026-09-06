@@ -39,7 +39,7 @@ describe("LocalAgentSelector", () => {
 		};
 		const { rerender } = render(<LocalAgentSelector {...props} />);
 		expect(
-			screen.getByRole("heading", { level: 1, name: "Checking local agents…" })
+			screen.getByRole("heading", { level: 2, name: "Checking local agents…" })
 		).toBeTruthy();
 		expect(
 			screen.queryByText("Connect your computer to use a local agent")
@@ -47,7 +47,7 @@ describe("LocalAgentSelector", () => {
 		rerender(<LocalAgentSelector {...props} isResolving={false} />);
 		expect(
 			screen.getByRole("heading", {
-				level: 1,
+				level: 2,
 				name: "Connect your computer to use a local agent",
 			})
 		).toBeTruthy();

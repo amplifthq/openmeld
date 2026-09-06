@@ -738,19 +738,14 @@ function useCreateProfileDialogController(
 	});
 	const recoveryActionHref = buildConnectComputerPath({
 		orgSlug,
+		returnTo: "agent_creation",
 		session: "fresh",
 	});
 	const localAgentEmptyState = resolveLocalAgentEmptyState({
 		centerAgentHref: orgSlug
 			? buildOrganizationCenterAgentChatPath(orgSlug)
 			: null,
-		computerHref:
-			orgSlug && bindingTarget
-				? buildOrganizationComputerPath({
-						deviceId: bindingTarget.deviceId,
-						orgSlug,
-					})
-				: null,
+		computerHref: recoveryActionHref,
 		hasBindingTarget: Boolean(bindingTarget),
 		serviceConnected:
 			recovery.currentLocalRuntimeReplyReadinessQuery.data?.service
