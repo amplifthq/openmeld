@@ -2855,6 +2855,9 @@ CLI trace, operator trace shortcuts, dispatch trace reads, Web Wake waterfall,
 Diagnostic Reports, and claim execution diagnostics all read or derive from the
 same Wake correlation model. They must not invent separate selector rules,
 separate field priority rules, or separate observability schemas.
+Dispatch and attempt status validation uses the shared trace schemas directly.
+A legitimate cancelled dispatch or profile-queue wait must not disappear from
+diagnostics because a reader maintains an older private status list.
 
 For Remote Agent dispatches, runtime diagnostics use the exact runtime
 conversation identity frozen in that dispatch's native-delivery request. The
