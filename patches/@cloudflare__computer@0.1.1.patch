@@ -1,0 +1,71 @@
+diff --git a/dist/index.js b/dist/index.js
+index d85160c7f7c68a37d9fdace811482657921fd8c6..9bc7dd7f259ec432937ddec66741f46e30547284 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -4243,6 +4243,7 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
+ 	#consumed = false;
+ 	#disposed = false;
+ 	#reader;
++	#cancellation;
+ 	constructor(handle) {
+ 		super();
+ 		this.#handle = handle;
+@@ -4251,15 +4252,19 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
+ 	[Symbol.dispose]() {
+ 		if (this.#disposed) return;
+ 		this.#disposed = true;
+-		const reader = this.#reader;
+-		this.#reader = void 0;
+-		if (reader) reader.cancel().catch(() => void 0).finally(() => reader.releaseLock());
+-		else {
+-			const cancel = this.#handle.cancel;
+-			if (typeof cancel === "function") cancel.call(this.#handle).catch(() => void 0);
+-		}
++		this.cancel().catch(() => void 0);
+ 		untrackStub(this);
+ 	}
++	cancel(reason) {
++		return this.#cancellation ??= (async () => {
++			const reader = this.#reader;
++			this.#reader = void 0;
++			if (reader) {
++				try { await reader.cancel(reason); }
++				finally { reader.releaseLock(); }
++			} else await this.#handle.cancel(reason);
++		})();
++	}
+ 	get id() {
+ 		return this.#handle.id;
+ 	}
+@@ -4293,12 +4298,7 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
+ 				}
+ 			},
+ 			async cancel(reason) {
+-				try {
+-					await reader.cancel(reason);
+-				} finally {
+-					reader.releaseLock();
+-					owner.#reader = void 0;
+-				}
++				await owner.cancel(reason);
+ 			}
+ 		}, { highWaterMark: 0 });
+ 	}
+@@ -5205,14 +5205,11 @@ async function rebuildExecHandle(remote, known = {}) {
+ 		cancel: async (reason) => {
+ 			const activeReader = reader;
+ 			reader = void 0;
+-			if (!activeReader) {
+-				dispose();
+-				return;
+-			}
+ 			try {
+-				await activeReader.cancel(reason);
++				if (activeReader) await activeReader.cancel(reason);
++				await remote.cancel(reason);
+ 			} finally {
+-				activeReader.releaseLock();
++				activeReader?.releaseLock();
+ 				dispose();
+ 			}
+ 		}

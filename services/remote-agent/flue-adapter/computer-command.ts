@@ -100,7 +100,7 @@ export function createComputerCommandTool(input: {
     }
     return command;
   };
-  return {
+  const definition: RemoteAgentToolDefinition = {
     name: "computer_command",
     description:
       "Run long Linux commands using the Computer's retained native process sessions. start launches the command directly (never add shell &, nohup, or a background subprocess); use a unique stable key per command. poll reconnects to that same process and returns bounded output plus an after cursor; repeat until completed. list recovers keys after interruption. stop requests SIGTERM for that exact command. Commands belong to this execution only. Repeating start with the same key never launches a second process. A transport error can mean launch outcome is unknown: list/poll, never blindly rerun. Finish all commands before your final answer. Use bash for short commands.",
@@ -168,7 +168,13 @@ export function createComputerCommandTool(input: {
                 backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
                 encoding: "utf8",
               });
-          handle[Symbol.dispose]();
+          try {
+            // Await the native subscriber's detach acknowledgement before a
+            // later tool call can reattach. Symbol.dispose is fire-and-forget.
+            await handle.cancel();
+          } finally {
+            handle[Symbol.dispose]();
+          }
           if (
             (await read(request.key)).stopRequested ||
             options?.signal?.aborted
@@ -219,6 +225,42 @@ export function createComputerCommandTool(input: {
           options?.signal
         );
       });
+    },
+  };
+  return {
+    ...definition,
+    async execute(rawInput, options) {
+      try {
+        const result = await definition.execute(rawInput, options);
+        const receipt =
+          result && typeof result === "object"
+            ? (result as Record<string, unknown>)
+            : {};
+        console.info("[remote_agent.computer_command_result]", {
+          submissionId: input.context.submissionId,
+          action: rawInput.action,
+          commandId: receipt.id,
+          status: receipt.status,
+          exitCode: receipt.exitCode,
+          after: receipt.after,
+          stdoutChars:
+            typeof receipt.stdout === "string"
+              ? receipt.stdout.length
+              : undefined,
+        });
+        return result;
+      } catch (error) {
+        console.warn("[remote_agent.computer_command_failed]", {
+          submissionId: input.context.submissionId,
+          action: rawInput.action,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+          errorCode:
+            typeof error === "object" && error !== null && "code" in error
+              ? error.code
+              : undefined,
+        });
+        throw error;
+      }
     },
   };
 }

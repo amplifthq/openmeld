@@ -46,6 +46,18 @@ ported. Flue 2 repairs partial streams at its execution ownership boundary.
 OpenMeld supplies authorized Computer tools and packaged Skills without a Flue
 sandbox, so shared Computer files cannot silently become instructions.
 
+`patches/@cloudflare__computer@0.1.1.patch` makes a retained command's
+`cancel()` await native output-subscription detachment over Workspace RPC.
+Upstream unread-handle cancellation only invokes synchronous disposal, which
+can return before the container releases its single subscriber. A following
+`getExec` then fails with `EEXEC_BUSY` even though the process remains alive.
+The patch adds an acknowledged cancellation method to the SDK's internal
+handle RPC; it does not signal or replay the command. The Worker client and
+Computer RPC owner must deploy together. The regression test uses both real
+SDK wrappers and checks unread, connecting, and actively reading handles.
+Upstream 0.2.1 still uses the same unacknowledged unread-handle path; upgrading
+alone does not establish this contract.
+
 The footprint reader is a pinned, read-only aggregate over Flue's inline and
 spilled batches. It does not write runtime state or derive execution truth.
 Unknown storage tables fail closed until this adapter is updated and verified.
