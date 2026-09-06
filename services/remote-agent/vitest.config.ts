@@ -14,6 +14,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    exclude: ["tests/workerd/**/*.test.ts"],
     server: {
       deps: {
         // Force these through the vite pipeline so the cloudflare:workers

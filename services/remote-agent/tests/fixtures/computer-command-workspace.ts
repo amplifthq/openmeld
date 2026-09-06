@@ -1,0 +1,126 @@
+import { getWorkspace, Workspace } from "@cloudflare/computer";
+import { readCommandSlice } from "../../flue-adapter/computer-command";
+
+export async function verifyRetainedCommandPolling(
+  storage: ConstructorParameters<typeof Workspace>[0]["storage"]
+) {
+  let subscribed = false;
+  let completed = false;
+  const attach = (id: string) => {
+    if (subscribed) {
+      throw new Error("EEXEC_BUSY");
+    }
+    subscribed = true;
+    return {
+      id,
+      events: new ReadableStream({
+        start(controller) {
+          controller.enqueue({
+            id,
+            seq: 1,
+            name: "stdout",
+            value: new TextEncoder().encode("START\n"),
+          });
+          if (completed) {
+            // A UTF-8 character split across chunks must survive decoding.
+            controller.enqueue({
+              id,
+              seq: 2,
+              name: "stdout",
+              value: new Uint8Array([0xe2, 0x82]),
+            });
+            controller.enqueue({
+              id,
+              seq: 3,
+              name: "stdout",
+              value: new Uint8Array([0xac]),
+            });
+            // A truncated stderr character must flush before the exit receipt.
+            controller.enqueue({
+              id,
+              seq: 4,
+              name: "stderr",
+              value: new Uint8Array([0xe2]),
+            });
+            controller.enqueue({ id, seq: 5, name: "exit", value: 0 });
+            subscribed = false;
+            controller.close();
+          }
+        },
+        async cancel() {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          subscribed = false;
+        },
+      }),
+    };
+  };
+  const owner = new Workspace({
+    storage,
+    backends: [
+      {
+        id: "container",
+        type: "test-retained-container",
+        connect: () =>
+          Promise.resolve({
+            sync: "none" as const,
+            rpc: {
+              shell: {
+                exec: (input: { id?: string }) => {
+                  if (!input.id) {
+                    return Promise.reject(
+                      new Error("Expected an execution ID")
+                    );
+                  }
+                  return Promise.resolve(attach(input.id));
+                },
+                getExec: (input: { id: string }) =>
+                  Promise.resolve(attach(input.id)),
+                killExec: () =>
+                  Promise.reject(new Error("Polling must not kill")),
+                disposeExec: () =>
+                  Promise.reject(new Error("Polling must retain execution")),
+              },
+              sync: {} as never,
+            },
+            close: () => Promise.resolve(),
+          }),
+      },
+    ],
+  });
+  try {
+    using workspace = await getWorkspace({
+      __getWorkspaceStub: () => Promise.resolve(owner.stub()),
+    });
+    using started = await workspace.runtime.exec("sleep 300", {
+      backend: "container",
+      encoding: "utf8",
+    });
+    await started.cancel();
+    const subscribedAfterStartCancel = subscribed;
+    const polling = await workspace.runtime.getExec(started.id, {
+      backend: "container",
+      encoding: "utf8",
+    });
+    const slice = await readCommandSlice(polling, "long", 0, 5);
+    const subscribedAfterPoll = subscribed;
+    using resumed = await workspace.runtime.getExec(started.id, {
+      backend: "container",
+      encoding: "utf8",
+    });
+    await resumed.cancel();
+    completed = true;
+    const finished = await workspace.runtime.getExec(started.id, {
+      backend: "container",
+      encoding: "utf8",
+    });
+    return {
+      subscribedAfterStartCancel,
+      subscribedAfterPoll,
+      slice,
+      finished: await readCommandSlice(finished, "long", 0, 50),
+      commandId: started.id,
+    };
+  } finally {
+    await owner.close();
+  }
+}

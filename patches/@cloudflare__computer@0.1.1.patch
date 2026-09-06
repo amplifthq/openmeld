@@ -1,5 +1,5 @@
 diff --git a/dist/index.js b/dist/index.js
-index d85160c7f7c68a37d9fdace811482657921fd8c6..8ab7e48fcde4f2d7612154b3eb25fa78752dc2de 100644
+index d85160c7f7c68a37d9fdace811482657921fd8c6..3f9deac941494d7e92d680a8424e9a84ea545233 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -3549,11 +3549,12 @@ function wrapCommandHandle(handle, backend, lazyResultHandle) {
@@ -24,38 +24,46 @@ index d85160c7f7c68a37d9fdace811482657921fd8c6..8ab7e48fcde4f2d7612154b3eb25fa78
  		stderrMeta = void 0;
  	};
 -	return source.pipeThrough(new TransformStream({
-+	return pipeWithAcknowledgedCancellation(source, new TransformStream({
++	return decodeCommandEvents(source, {
  		transform(event, controller) {
  			if (event.name === "stdout") {
  				stdoutMeta = {
-@@ -3947,6 +3948,26 @@ function pipeEvents(source, encoding) {
+@@ -3945,7 +3946,33 @@ function pipeEvents(source, encoding) {
+ 			}
+ 		},
  		flush: flushPending
- 	}));
- }
-+function pipeWithAcknowledgedCancellation(source, transform) {
-+	const pumping = source.pipeTo(transform.writable);
-+	pumping.catch(() => void 0);
-+	const reader = transform.readable.getReader();
+-	}));
++	});
++}
++function decodeCommandEvents(source, decoder) {
++	const reader = source.getReader();
++	let cancelled = false;
 +	return new ReadableStream({
 +		async pull(controller) {
 +			try {
 +				const next = await reader.read();
-+				if (next.done) { reader.releaseLock(); controller.close(); }
-+				else controller.enqueue(next.value);
-+			} catch (error) { controller.error(error); }
++				if (cancelled) return;
++				if (next.done) {
++					decoder.flush(controller);
++					reader.releaseLock();
++					controller.close();
++				} else decoder.transform(next.value, controller);
++			} catch (error) {
++				reader.releaseLock();
++				controller.error(error);
++			}
 +		},
 +		async cancel(reason) {
++			cancelled = true;
 +			try {
 +				await reader.cancel(reason);
-+				await pumping.catch(error => { if (error !== reason) throw error; });
 +			} finally { reader.releaseLock(); }
 +		}
 +	}, { highWaterMark: 0 });
-+}
+ }
  function withPostPull(source, sync) {
  	const reader = source.getReader();
- 	let resolveOutcome;
-@@ -4243,6 +4264,7 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
+@@ -4243,6 +4270,7 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
  	#consumed = false;
  	#disposed = false;
  	#reader;
@@ -63,7 +71,7 @@ index d85160c7f7c68a37d9fdace811482657921fd8c6..8ab7e48fcde4f2d7612154b3eb25fa78
  	constructor(handle) {
  		super();
  		this.#handle = handle;
-@@ -4251,15 +4273,19 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
+@@ -4251,15 +4279,19 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
  	[Symbol.dispose]() {
  		if (this.#disposed) return;
  		this.#disposed = true;
@@ -90,7 +98,7 @@ index d85160c7f7c68a37d9fdace811482657921fd8c6..8ab7e48fcde4f2d7612154b3eb25fa78
  	get id() {
  		return this.#handle.id;
  	}
-@@ -4293,12 +4319,7 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
+@@ -4293,12 +4325,7 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
  				}
  			},
  			async cancel(reason) {
@@ -104,7 +112,7 @@ index d85160c7f7c68a37d9fdace811482657921fd8c6..8ab7e48fcde4f2d7612154b3eb25fa78
  			}
  		}, { highWaterMark: 0 });
  	}
-@@ -5205,14 +5226,11 @@ async function rebuildExecHandle(remote, known = {}) {
+@@ -5205,14 +5232,11 @@ async function rebuildExecHandle(remote, known = {}) {
  		cancel: async (reason) => {
  			const activeReader = reader;
  			reader = void 0;

@@ -30,7 +30,7 @@ packageExtensionsChecksum: sha256-KgO1AEvxWG2BkZwreCUQEKVuZnpDPXJ+xMuK4j1L8pE=
 
 patchedDependencies:
   '@cloudflare/computer@0.1.1':
-    hash: 185fc0940efa73bbda807b080b2969a278ccc8e4fc45d0320ac8be3dba7bb2a5
+    hash: c73a6a064d60c864dc19d84ae0439906fba269a944795a73c71014356b9a8738
     path: patches/@cloudflare__computer@0.1.1.patch
   '@flue/runtime@2.0.3':
     hash: 2af016a413c955dd981242765b00945562a3fe7c93d32d9b39d70eee0f7bee49
@@ -1353,7 +1353,7 @@ importers:
         version: 0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.219(zod@4.4.3))(zod@4.4.3)
       '@cloudflare/computer':
         specifier: 0.1.1
-        version: 0.1.1(patch_hash=185fc0940efa73bbda807b080b2969a278ccc8e4fc45d0320ac8be3dba7bb2a5)(ai@6.0.219(zod@4.4.3))(zod@4.4.3)
+        version: 0.1.1(patch_hash=c73a6a064d60c864dc19d84ae0439906fba269a944795a73c71014356b9a8738)(ai@6.0.219(zod@4.4.3))(zod@4.4.3)
       '@earendil-works/pi-ai':
         specifier: 0.83.0
         version: 0.83.0(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
@@ -1394,6 +1394,9 @@ importers:
       '@cloudflare/vite-plugin':
         specifier: 1.43.0
         version: 1.43.0(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))(workerd@1.20260708.1)(wrangler@4.110.0(@cloudflare/workers-types@5.20260708.1))
+      '@cloudflare/vitest-pool-workers':
+        specifier: 0.12.14
+        version: 0.12.14(@cloudflare/workers-types@5.20260708.1)(@vitest/runner@3.2.4)(@vitest/snapshot@3.2.4)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@24.10.13)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.2.0))(lightningcss@1.32.0)(msw@2.12.10(@types/node@24.10.13)(typescript@5.9.3))(tsx@4.21.0)(yaml@2.9.0))
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 5.20260708.1
@@ -14067,7 +14070,7 @@ snapshots:
       ai: 6.0.219(zod@4.4.3)
       zod: 4.4.3
 
-  '@cloudflare/computer@0.1.1(patch_hash=185fc0940efa73bbda807b080b2969a278ccc8e4fc45d0320ac8be3dba7bb2a5)(ai@6.0.219(zod@4.4.3))(zod@4.4.3)':
+  '@cloudflare/computer@0.1.1(patch_hash=c73a6a064d60c864dc19d84ae0439906fba269a944795a73c71014356b9a8738)(ai@6.0.219(zod@4.4.3))(zod@4.4.3)':
     dependencies:
       acorn: 8.17.0
       capnweb: 0.8.0

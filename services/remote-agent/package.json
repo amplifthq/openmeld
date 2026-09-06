@@ -21,7 +21,9 @@
     "sync:secrets:connectors:stg": "node ../../scripts/cloudflare/sync-worker-secrets.mjs --env stg --from-env OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
     "sync:prod": "pnpm run sync:secrets:prod && pnpm run sync:config:prod",
     "sync:stg": "pnpm run sync:secrets:stg && pnpm run sync:config:stg",
-    "test": "vitest run",
+    "test": "pnpm run test:node && pnpm run test:workerd",
+    "test:node": "vitest run",
+    "test:workerd": "vitest run --config vitest.workerd.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "check": "biome check . && pnpm run typecheck",
@@ -45,6 +47,7 @@
   "devDependencies": {
     "@babel/core": "8.0.1",
     "@cloudflare/vite-plugin": "1.43.0",
+    "@cloudflare/vitest-pool-workers": "0.12.14",
     "@cloudflare/workers-types": "catalog:",
     "@flue/cli": "2.0.3",
     "@flue/vite": "2.0.3",

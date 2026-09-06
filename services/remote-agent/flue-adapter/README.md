@@ -66,11 +66,16 @@ The patch adds an acknowledged cancellation method to the SDK's internal
 handle RPC; it does not signal or replay the command. The Worker client and
 Computer RPC owner must deploy together. The regression test uses both real
 SDK wrappers and checks unread, connecting, and actively reading handles.
-The UTF-8 transform also waits for its upstream pipe cancellation, and the
-runtime wrapper captures its reader before cancelling so a concurrent pending
-read cannot clear that reference before cleanup. A real SQLite Workspace test
-exercises every wrapper down to the retained container stream, including a
-live polling slice followed by reattachment and completed output.
+UTF-8 command events are decoded by a pull-driven reader, which waits for
+upstream cancellation without an independently pumping TransformStream. Under
+workerd, cancelling the old transform could race its pending enqueue and fail
+with "The readable side of this TransformStream is no longer readable."
+The runtime wrapper captures its reader before cancelling so a concurrent
+pending read cannot clear that reference before cleanup. The same SQLite
+Workspace contract runs under Node and workerd, exercising unread cancellation,
+a live polling slice, reattachment, split UTF-8 output, and completed output.
+Run `pnpm --filter @openmeld/remote-agent test:workerd` for the Workers boundary;
+the ordinary package test command includes it after the Node suite.
 The lower container Cap'n Web transport still has no eager cancellation
 acknowledgement for a silent stream producer. Consequently the native
 `EEXEC_BUSY` result remains a supported live-process observation, exposed as
