@@ -251,6 +251,7 @@ import {
   type RemoteAgentImagePreparer,
   understandRemoteAgentImages,
 } from "./image-understanding";
+import { pageOrganizationDirectory } from "./organization-directory-page";
 import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "./slack-member-research-state";
 import {
   extractSlackSearchThreadPublicationTargetKeys,
@@ -674,7 +675,7 @@ const centerAgentTaskListToolInputSchema = strictObject({
 const centerAgentTaskGetToolInputSchema = strictObject({
   taskId: pipe(string(), trim(), minLength(1), maxLength(256)),
 });
-const organizationMembersListToolInputSchema = strictObject({
+const organizationReadPageToolInputSchema = strictObject({
   cursor: optional(pipe(string(), trim(), minLength(1), maxLength(1024))),
   limit: optional(pipe(number(), integer(), minValue(1), maxValue(100))),
 });
@@ -1777,9 +1778,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_organization_directory",
       description:
-        "Read the current OpenMeld Organization directory, including members, Human and Agent Profiles, roles, and the latest accepted Human activity that the Center Agent is allowed to see. Missing lastActiveAt means OpenMeld has no authoritative Organization activity for that member; Computer, session, and Agent Activity timestamps are never substitutes.",
-      input: object({}),
-      execute: async () => {
+        "Read one bounded page of the current OpenMeld Organization directory, including members, Human and Agent Profiles, roles, and the latest accepted Human activity that the Center Agent is allowed to see. Pass nextCursor back as cursor until it is null when you need the full directory or must establish that someone is absent or uniquely matched. A page may contain only members or only Agent Profiles; join ownership by exact ownerUserId across pages. totalMembers and totalAgentProfiles count the whole directory. limit caps the combined records (default 20, maximum 100); a byte limit may shorten a page without dropping any fields. Missing lastActiveAt means OpenMeld has no authoritative Organization activity for that member; Computer, session, and Agent Activity timestamps are never substitutes.",
+      input: organizationReadPageToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          organizationReadPageToolInputSchema,
+          payload
+        );
         const toolContext =
           await buildAnonymousCompatibleOrganizationReadToolContext({
             storage: input.storage,
@@ -1790,11 +1795,14 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           input.coreWorker.centerAgentGetOrganizationDirectory,
           "centerAgentGetOrganizationDirectory"
         );
-        const response = organizationDirectoryResponseSchema.parse(
-          await rpc({
-            ...toolContext,
-            includeMemberLastActiveAt: true,
-          })
+        const response = pageOrganizationDirectory(
+          organizationDirectoryResponseSchema.parse(
+            await rpc({
+              ...toolContext,
+              includeMemberLastActiveAt: true,
+            })
+          ),
+          request
         );
         await rememberOrganizationDirectoryMembers({
           memberUserIds: response.members.map((member) => member.userId),
@@ -1808,10 +1816,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       name: "openmeld_list_organization_members",
       description:
         "List one bounded page of the current Organization's human members (name, role, email, Human Profile) for counting or finding people. Returns totalMembers plus a nextCursor; pass nextCursor back as cursor to page through everyone. This read-only listing never includes Agent Profiles, readiness, invitations, or setup actions.",
-      input: organizationMembersListToolInputSchema,
+      input: organizationReadPageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
-          organizationMembersListToolInputSchema,
+          organizationReadPageToolInputSchema,
           payload
         );
         const toolContext =
@@ -6104,9 +6112,11 @@ async function rememberOrganizationDirectoryMembers(input: {
   storage: RemoteAgentStorage;
   submissionId: string;
 }): Promise<void> {
+  const key = `${ORGANIZATION_DIRECTORY_MEMBER_KEY_PREFIX}${input.submissionId}`;
+  const previous = (await input.storage.get<string[]>(key)) ?? [];
   await input.storage.putExpiring(
-    `${ORGANIZATION_DIRECTORY_MEMBER_KEY_PREFIX}${input.submissionId}`,
-    [...new Set(input.memberUserIds)],
+    key,
+    [...new Set([...previous, ...input.memberUserIds])],
     Date.now() + ORGANIZATION_DIRECTORY_MEMBER_RETENTION_MS
   );
 }

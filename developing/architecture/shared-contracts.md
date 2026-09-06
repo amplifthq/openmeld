@@ -937,6 +937,19 @@ Changelog contracts, and RuntimeCoordinator contracts are unchanged.
 
 ### Organization Directory Contracts
 
+Center Agent's `openmeld_read_organization_directory` projects the authorized
+Core response into `centerAgentOrganizationDirectoryPageSchema`. Pages preserve
+complete records, expose total member/Agent counts and an Organization-bound
+`nextCursor`, and stop at a combined record or serialized-byte budget. Follow
+pages until `nextCursor` is null before asserting absence or a unique identity
+match. Each page rechecks current Core authorization; cursors grant no access.
+Returned member IDs accumulate only within the exact submission for subsequent
+member diagnostics, whose Core authorization still applies. This is output
+pagination, not database pagination or a second identity/readiness store: the
+existing full Core RPC and Web/CLI directory contracts remain unchanged.
+Directory changes between calls are not an immutable snapshot; a removed cursor
+record requires restarting the read.
+
 Auth owns the private Organization Directory identity projections.
 `resolveOrganizationDirectoryMembers` returns current membership, account
 identity, and the account-scoped default Human Profile.
