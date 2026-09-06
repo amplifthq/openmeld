@@ -6,9 +6,9 @@ import { getRequiredServerEnv } from "#/env";
 import { fetchSessionFromGateway } from "#/lib/auth-session.server";
 import { fetchAuthOrganizations } from "./auth-organizations.server";
 import {
-	buildOrganizationAppsPath,
 	buildOrganizationDefaultPath,
 	buildOrganizationPeoplePath,
+	buildOrganizationPluginsPath,
 	buildOrganizationSpacePath,
 } from "./organization-routes";
 import {
@@ -41,11 +41,11 @@ type OrganizationSessionLike = {
 };
 
 const ORGANIZATION_APP_DETAIL_PATH_PATTERN =
-	/^\/o\/([^/]+)\/center-agent\/apps\/[^/]+$/u;
+	/^\/o\/([^/]+)\/center-agent\/plugins\/[^/]+$/u;
 
 export function resolvePublicLoginRedirectTarget(routeFamily: string): string {
 	const match = ORGANIZATION_APP_DETAIL_PATH_PATTERN.exec(routeFamily);
-	return match?.[1] ? buildOrganizationAppsPath(match[1]) : routeFamily;
+	return match?.[1] ? buildOrganizationPluginsPath(match[1]) : routeFamily;
 }
 
 function readRequiredUserId(session: { user: { id?: string } }): string {

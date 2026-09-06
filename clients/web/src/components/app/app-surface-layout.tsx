@@ -29,10 +29,12 @@ export function AppSurfaceLayout(input: {
 		setContextualNavigationOpen(true);
 	};
 
+	// Keep :has() bounded to the immediate sidebar owner. A descendant search
+	// makes hover changes in long lists invalidate styles across the full app.
 	return (
 		<div
 			aria-busy={input.ariaBusy || undefined}
-			className="relative flex h-dvh w-full overflow-hidden bg-[var(--app-canvas)] text-foreground"
+			className="group/app-surface relative flex h-dvh w-full overflow-hidden bg-[var(--app-canvas)] text-foreground [--app-toolbar-height:3rem] has-[>[data-slot=app-inline-navigation]>[data-main-sidebar-mode=hidden]]:[--app-toolbar-height:2.25rem]"
 			data-slot={input.frameSlotName ?? "app-surface-layout"}
 			data-testid={input.testId}
 		>
@@ -46,7 +48,7 @@ export function AppSurfaceLayout(input: {
 				data-slot="app-content-column"
 			>
 				<div
-					className="relative mb-[calc(3.5rem+env(safe-area-inset-bottom))] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background lg:mt-2 lg:mr-2 lg:mb-9 lg:rounded-md lg:border-[0.5px] lg:border-border"
+					className="relative mb-[calc(3.5rem+env(safe-area-inset-bottom))] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background transition-[margin-bottom] duration-180 ease-out motion-reduce:transition-none lg:mt-2 lg:mr-2 lg:mb-[var(--app-toolbar-height)] lg:rounded-md lg:shadow-surface-2 lg:group-has-[>[data-slot=app-inline-navigation]>[data-main-sidebar-mode=hidden]]/app-surface:ml-2 lg:after:pointer-events-none lg:after:absolute lg:after:inset-0 lg:after:z-20 lg:after:rounded-[inherit] lg:after:[box-shadow:inherit]"
 					data-slot="app-surface"
 				>
 					<header
@@ -108,7 +110,7 @@ export function AppSurfaceLayout(input: {
 				onOpenChange={setAppNavigationOpen}
 				open={appNavigationOpen}
 				returnFocusRef={appNavigationTriggerRef}
-				title="App navigation"
+				title="Plugin navigation"
 			>
 				{input.outerRail}
 			</AppMobileNavigationDrawer>

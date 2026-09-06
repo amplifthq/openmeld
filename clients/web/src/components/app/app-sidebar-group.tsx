@@ -30,6 +30,10 @@ const AppSidebarGroupStateContext = createContext<AppSidebarGroupState | null>(
 	null
 );
 
+export function useAppSidebarGroupState() {
+	return useContext(AppSidebarGroupStateContext);
+}
+
 const EMPTY_COLLAPSED_GROUP_IDS: readonly string[] = [];
 
 export function AppSidebarGroupStateProvider({

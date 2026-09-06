@@ -23,12 +23,12 @@ import type {
 	DirectoryIdentityAccount,
 	DirectoryProjectionStatus,
 } from "#/components/directory/directory-human-profile-model";
+import { AppLogo } from "#/components/organizations/app-logo";
 import {
 	FEISHU_CHANNEL_IDENTITY,
 	LARK_CHANNEL_IDENTITY,
 	SLACK_CHANNEL_IDENTITY,
-} from "#/components/organizations/app-catalog";
-import { AppLogo } from "#/components/organizations/app-logo";
+} from "#/components/organizations/plugin-catalog";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 

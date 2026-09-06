@@ -62,14 +62,14 @@ must not become user-editable or optional merely to reduce the system prompt.
 Use the surrounding product owners for adjacent concepts:
 
 - **Organization Documents** store Organization facts and shared knowledge.
-- **Apps, tools, and MCP connections** provide data access and actions.
+- **Plugins, tools, and MCP connections** provide data access and actions.
 - **Permissions** decide who may do what.
 - **Routines** decide when the Center Agent runs.
 - **Projects** provide Organization and local execution context.
 - **Organization Skills** describe a repeatable method.
 
 Example: `weekly-customer-risk-review` may describe how to collect signals,
-assess risk, and write the report. CRM and Slack Apps provide data. Organization
+assess risk, and write the report. CRM and Slack Plugins provide data. Organization
 Documents provide customer or policy facts. A Routine chooses Friday at 3 PM.
 Core authority decides whether any read, message, or external write is allowed.
 
@@ -249,7 +249,7 @@ Center Agent owns no secondary sidebar. Its primary header navigation is:
 4. **Tasks**
 5. **Routines**
 6. **Skills**
-7. **Apps**
+7. **Plugins**
 
 One compact header menu preserves **Channels**, **Memory**, and **Center Agent
 settings**. Skills remains one capability inside
@@ -264,8 +264,8 @@ Canonical routes are:
 /o/{orgSlug}/center-agent/skills
 /o/{orgSlug}/center-agent/skills/{skillId}
 /o/{orgSlug}/center-agent/channels
-/o/{orgSlug}/center-agent/apps
-/o/{orgSlug}/center-agent/apps/{service}
+/o/{orgSlug}/center-agent/plugins
+/o/{orgSlug}/center-agent/plugins/{service}
 /o/{orgSlug}/center-agent/memory
 /o/{orgSlug}/center-agent/settings
 ```

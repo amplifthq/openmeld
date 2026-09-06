@@ -6,13 +6,13 @@ import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar
 const AVATAR_SIZE = {
 	card: 56,
 	detail: 96,
-	sidebar: 32,
+	sidebar: 24,
 } as const;
 
 const PLACEHOLDER_SIZE_CLASS_NAME = {
 	card: "size-14",
 	detail: "size-24",
-	sidebar: "size-8",
+	sidebar: "size-6",
 } as const;
 
 const PLACEHOLDER_ICON_SIZE_CLASS_NAME = {

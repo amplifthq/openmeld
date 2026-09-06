@@ -63,6 +63,7 @@ export type AppContextualSidebarNavProps<ItemId extends string> = {
 	leadingContent?: ReactNode;
 	onActivate?: (itemId: ItemId) => void;
 	title: string;
+	placement?: "main" | "secondary";
 };
 
 export function AppContextualContentFrame(input: {
@@ -92,14 +93,20 @@ export function AppContextualContentFrame(input: {
 export function AppContextualSidebarNav<ItemId extends string>(
 	input: AppContextualSidebarNavProps<ItemId>
 ) {
+	const { presentation } = useAppNavigationPresentation();
+	const isMain = input.placement === "main";
+	const Content = isMain ? "div" : SidebarContent;
 	return (
 		<nav
 			aria-label={input.ariaLabel}
-			className="@container/contextual-sidebar flex h-full min-h-0 w-full flex-col text-sidebar-foreground"
+			className={cn(
+				"@container/contextual-sidebar flex w-full min-w-0 flex-col text-sidebar-foreground",
+				!isMain && "h-full min-h-0"
+			)}
 			data-slot="app-contextual-sidebar"
 		>
-			<AppInnerSidebarHeader title={input.title} />
-			<SidebarContent className="px-3 pt-[9px] pb-2">
+			{!isMain && <AppInnerSidebarHeader title={input.title} />}
+			<Content className={isMain ? "min-w-0" : "px-3 pt-[9px] pb-2"}>
 				{input.leadingContent ? (
 					<div className="pb-4" data-slot="app-contextual-sidebar-leading">
 						{input.leadingContent}
@@ -115,7 +122,7 @@ export function AppContextualSidebarNav<ItemId extends string>(
 							APP_NAV_GROUP_CLASS_NAME,
 							groupIndex > 0 ? APP_NAV_GROUP_SPACING_CLASS_NAME : null
 						)}
-						groupId={group.id}
+						groupId={isMain ? `${input.ariaLabel}:${group.id}` : group.id}
 						key={group.id}
 						label={
 							<CenterTruncatedText
@@ -131,11 +138,9 @@ export function AppContextualSidebarNav<ItemId extends string>(
 					>
 						{group.items !== undefined ? (
 							<FluidNavMenu
-								activeIndicatorClassName="bg-sidebar-accent"
+								activeLayoutId={`secondary-sidebar-selection-${presentation}`}
 								activeValue={input.activeItemId}
 								aria-label={group.ariaLabel}
-								focusIndicatorClassName="border-sidebar-ring"
-								hoverIndicatorClassName="bg-sidebar-accent"
 							>
 								{group.items.map((item, index) => (
 									<AppContextualSidebarNavItem
@@ -152,7 +157,7 @@ export function AppContextualSidebarNav<ItemId extends string>(
 						)}
 					</AppSidebarGroup>
 				))}
-			</SidebarContent>
+			</Content>
 		</nav>
 	);
 }

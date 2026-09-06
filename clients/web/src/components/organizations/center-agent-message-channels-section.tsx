@@ -23,13 +23,13 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { LinkIcon, SignOutIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { AppLogo } from "./app-logo";
+import { CenterAgentSlackConnectionDialog } from "./center-agent-slack-connection-dialog";
 import {
 	FEISHU_CHANNEL_IDENTITY,
 	LARK_CHANNEL_IDENTITY,
 	SLACK_CHANNEL_IDENTITY,
-} from "./app-catalog";
-import { AppLogo } from "./app-logo";
-import { CenterAgentSlackConnectionDialog } from "./center-agent-slack-connection-dialog";
+} from "./plugin-catalog";
 
 export type CenterAgentSlackConnection = NonNullable<
 	GetCenterAgentDesignationResponse["slackConnection"]

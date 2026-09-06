@@ -1,6 +1,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --color-interaction-hover: var(--interaction-hover);
+  --color-interaction-active: var(--interaction-active);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-ui-sans);
@@ -95,6 +97,8 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
   --background: oklch(1 0 0);
+  --interaction-hover: rgb(0 0 0 / 0.04);
+  --interaction-active: rgb(0 0 0 / 0.07);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -201,6 +205,8 @@
   --surface-7: #414141;
   --surface-8: #484848;
   --foreground: oklch(0.985 0 0);
+  --interaction-hover: rgb(255 255 255 / 0.06);
+  --interaction-active: rgb(255 255 255 / 0.1);
   --card: var(--surface-1);
   --card-foreground: oklch(0.985 0 0);
   --popover: var(--surface-1);
@@ -378,5 +384,76 @@
     color: color-mix(in oklab, var(--foreground) 55%, var(--muted-foreground));
     background: none;
     animation: none;
+  }
+}
+
+/* Base UI owns edge measurements, including streamed content and resize. */
+.fluid-scroll-viewport[data-fade] {
+  --scroll-fade-top: 0px;
+  --scroll-fade-bottom: 0px;
+  --scroll-fade-left: 0px;
+  --scroll-fade-right: 0px;
+  mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      black var(--scroll-fade-top),
+      black calc(100% - var(--scroll-fade-bottom)),
+      transparent
+    ),
+    linear-gradient(
+      to right,
+      transparent,
+      black var(--scroll-fade-left),
+      black calc(100% - var(--scroll-fade-right)),
+      transparent
+    );
+  mask-composite: intersect;
+}
+.fluid-scroll-viewport[data-fade][data-overflow-y-start] {
+  --scroll-fade-top: 12px;
+}
+.fluid-scroll-viewport[data-fade][data-overflow-y-end] {
+  --scroll-fade-bottom: 12px;
+}
+.fluid-scroll-viewport[data-fade][data-overflow-x-start] {
+  --scroll-fade-left: 12px;
+}
+.fluid-scroll-viewport[data-fade][data-overflow-x-end] {
+  --scroll-fade-right: 12px;
+}
+@media (pointer: coarse) {
+  .fluid-scroll-viewport {
+    scrollbar-width: auto !important;
+  }
+}
+/* Native owners (editors, virtual lists and browser document scrolling) keep
+   their scroll element and receive the same restrained overlay color ramp. */
+@media (hover: hover) and (pointer: fine) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  *:hover,
+  *:focus-visible {
+    scrollbar-color: color-mix(in srgb, var(--foreground) 12%, transparent)
+      transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    border-radius: var(--radius);
+    background: transparent;
+  }
+  :hover::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--foreground) 12%, transparent);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--foreground) 16%, transparent);
   }
 }

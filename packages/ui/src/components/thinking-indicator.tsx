@@ -54,36 +54,7 @@ const ThinkingIndicator = forwardRef<HTMLOutputElement, ThinkingIndicatorProps>(
         ref={ref}
         {...props}
       >
-        {icon ?? (
-          <motion.svg
-            aria-hidden="true"
-            className="shrink-0 text-muted-foreground"
-            fill="none"
-            height={20}
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={1.5}
-            viewBox="0 0 24 24"
-            width={20}
-          >
-            <motion.path
-              animate={{
-                d: [circleA, infinity, circleB, infinity, circleA],
-              }}
-              d={circleA}
-              initial={{ d: circleA }}
-              transition={{
-                d: {
-                  duration: 6,
-                  ease: "easeInOut",
-                  repeat: Number.POSITIVE_INFINITY,
-                  times: [0, 0.25, 0.5, 0.75, 1.0],
-                },
-              }}
-            />
-          </motion.svg>
-        )}
+        {icon ?? <ThinkingIcon />}
         <span
           className="inline-grid overflow-hidden text-[13px]"
           style={{ fontVariationSettings: fontWeights.medium }}
@@ -137,5 +108,41 @@ const ThinkingIndicator = forwardRef<HTMLOutputElement, ThinkingIndicatorProps>(
 
 ThinkingIndicator.displayName = "ThinkingIndicator";
 
-export { ThinkingIndicator };
+export { ThinkingIndicator, ThinkingIcon };
+
+function ThinkingIcon({ className }: { className?: string }) {
+  const shouldReduceMotion = useReducedMotion() === true;
+  return (
+    <motion.svg
+      aria-hidden="true"
+      className={cn("shrink-0 text-muted-foreground", className)}
+      fill="none"
+      height={20}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      viewBox="0 0 24 24"
+      width={20}
+    >
+      <motion.path
+        animate={
+          shouldReduceMotion
+            ? undefined
+            : { d: [circleA, infinity, circleB, infinity, circleA] }
+        }
+        d={shouldReduceMotion ? infinity : circleA}
+        initial={false}
+        transition={{
+          d: {
+            duration: 6,
+            ease: "easeInOut",
+            repeat: Number.POSITIVE_INFINITY,
+            times: [0, 0.25, 0.5, 0.75, 1.0],
+          },
+        }}
+      />
+    </motion.svg>
+  );
+}
 export default ThinkingIndicator;

@@ -11,6 +11,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	resolveStatusToneBadgeClassName,
 	type StatusTone,
@@ -238,10 +239,12 @@ export function SpaceMessageDetailsDrawer(input: {
 								</Drawer.Close>
 							</div>
 						</header>
-						<div
-							className="min-h-0 flex-1 select-text overflow-y-auto px-5 py-5"
+						<ScrollArea
+							className="min-h-0 flex-1"
+							contentClassName="select-text px-5 py-5"
 							data-testid="message-details-scroll-area"
 							data-vaul-no-drag
+							orientation="vertical"
 						>
 							<MessageDetailsBody
 								agentRecoveryPlansByProfileId={
@@ -289,7 +292,7 @@ export function SpaceMessageDetailsDrawer(input: {
 								wakeProgressEntries={input.wakeProgressEntries ?? []}
 								wakeStopTarget={input.wakeStopTarget ?? null}
 							/>
-						</div>
+						</ScrollArea>
 					</div>
 				</Drawer.Content>
 			</Drawer.Portal>

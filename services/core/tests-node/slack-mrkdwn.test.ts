@@ -49,10 +49,10 @@ const ok = true;
   it("keeps Center Agent navigation actions clickable in Slack", async () => {
     expect(
       await toSlackMrkdwn(
-        "[Open GitHub access](https://openmeld.ai/o/amplift/center-agent/apps/github)"
+        "[Open GitHub access](https://openmeld.ai/o/amplift/center-agent/plugins/github)"
       )
     ).toBe(
-      "<https://openmeld.ai/o/amplift/center-agent/apps/github|Open GitHub access>"
+      "<https://openmeld.ai/o/amplift/center-agent/plugins/github|Open GitHub access>"
     );
   });
 

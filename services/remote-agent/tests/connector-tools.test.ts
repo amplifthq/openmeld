@@ -145,7 +145,7 @@ describe("Remote Agent generic App tools", () => {
       github: {
         connectionStatus: "not_checked",
         instruction:
-          "This Apps list never reports GitHub access. For a GitHub request, call the matching github_* tool; it will verify the requested Organization or member GitHub connection.",
+          "This Plugins list never reports GitHub access. For a GitHub request, call the matching github_* tool; it will verify the requested Organization or member GitHub connection.",
       },
     });
     expect(centerAgentResolveConnectorConnection).toHaveBeenCalledWith(

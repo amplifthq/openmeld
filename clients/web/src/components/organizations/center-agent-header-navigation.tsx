@@ -1,11 +1,7 @@
 "use client";
 
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import {
-	BrainIcon,
-	GearSixIcon,
-	PlugsConnectedIcon,
-} from "@phosphor-icons/react";
+import { BrainIcon, GearSixIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import {
 	SpaceHeaderNavigationMenu,
@@ -18,20 +14,21 @@ import {
 } from "#/components/spaces/space-view";
 import type { CenterAgentSectionId } from "#/lib/organizations/center-agent-navigation";
 import {
-	buildOrganizationAppsPath,
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentRoutinesPath,
 	buildOrganizationCenterAgentSettingsPath,
 	buildOrganizationCenterAgentTasksPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationMemoryPath,
+	buildOrganizationPluginsPath,
 	buildOrganizationSkillsPath,
 } from "#/lib/organizations/organization-routes";
 
 const TASKS_TAB_INDEX = 3;
 const ROUTINES_TAB_INDEX = 4;
 const SKILLS_TAB_INDEX = 5;
-const APPS_TAB_INDEX = 6;
+const PLUGINS_TAB_INDEX = 6;
+const CHANNELS_TAB_INDEX = 7;
 
 export function CenterAgentHeaderTabs(input: {
 	activeSectionId: CenterAgentSectionId;
@@ -52,6 +49,7 @@ export function CenterAgentHeaderTabs(input: {
 			aria-label="Center Agent"
 			className={input.className ?? "h-full gap-5"}
 			idPrefix={input.idPrefix}
+			indicatorLayoutId={`center-agent-header-${input.organizationSlug}`}
 			onSelect={(index) => {
 				if (index <= 2) {
 					const view = resolveSpaceView(index);
@@ -89,7 +87,8 @@ export function CenterAgentHeaderTabs(input: {
 			<TabsSubtleItem index={3} label="Tasks" labelClassName="text-sm" />
 			<TabsSubtleItem index={4} label="Routines" labelClassName="text-sm" />
 			<TabsSubtleItem index={5} label="Skills" labelClassName="text-sm" />
-			<TabsSubtleItem index={6} label="Apps" labelClassName="text-sm" />
+			<TabsSubtleItem index={6} label="Plugins" labelClassName="text-sm" />
+			<TabsSubtleItem index={7} label="Channels" labelClassName="text-sm" />
 		</TabsSubtle>
 	);
 }
@@ -107,11 +106,6 @@ export function buildCenterAgentHeaderMenuItems(
 	organizationSlug: string
 ): readonly SpaceHeaderNavigationMenuItem[] {
 	return [
-		{
-			icon: PlugsConnectedIcon,
-			label: "Channels",
-			to: buildOrganizationChannelsPath(organizationSlug),
-		},
 		{
 			icon: BrainIcon,
 			label: "Memory",
@@ -138,8 +132,11 @@ function resolveCenterAgentHeaderTabIndex(input: {
 	if (input.activeSectionId === "skills") {
 		return SKILLS_TAB_INDEX;
 	}
-	if (input.activeSectionId === "apps") {
-		return APPS_TAB_INDEX;
+	if (input.activeSectionId === "plugins") {
+		return PLUGINS_TAB_INDEX;
+	}
+	if (input.activeSectionId === "channels") {
+		return CHANNELS_TAB_INDEX;
 	}
 	if (input.activeSectionId === "chat") {
 		return getSpaceViewIndex(input.activeSpaceView ?? "messages");
@@ -152,14 +149,16 @@ function resolveCenterAgentHeaderDestination(input: {
 	organizationSlug: string;
 }): string {
 	switch (input.index) {
+		case CHANNELS_TAB_INDEX:
+			return buildOrganizationChannelsPath(input.organizationSlug);
 		case TASKS_TAB_INDEX:
 			return buildOrganizationCenterAgentTasksPath(input.organizationSlug);
 		case ROUTINES_TAB_INDEX:
 			return buildOrganizationCenterAgentRoutinesPath(input.organizationSlug);
 		case SKILLS_TAB_INDEX:
 			return buildOrganizationSkillsPath(input.organizationSlug);
-		case APPS_TAB_INDEX:
-			return buildOrganizationAppsPath(input.organizationSlug);
+		case PLUGINS_TAB_INDEX:
+			return buildOrganizationPluginsPath(input.organizationSlug);
 		default:
 			throw new Error(`Unknown Center Agent header tab index: ${input.index}`);
 	}

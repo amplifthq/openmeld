@@ -14,13 +14,13 @@ describe("buildConnectComputerPath", () => {
 		);
 	});
 
-	it("builds the organization App Connect path", () => {
+	it("builds the organization Plugin Connect path", () => {
 		expect(buildConnectComputerPath({ orgSlug: "acme" })).toBe(
 			"/o/acme/connect"
 		);
 	});
 
-	it("uses session=fresh for new App Connect setup sessions", () => {
+	it("uses session=fresh for new Plugin Connect setup sessions", () => {
 		expect(
 			buildConnectComputerPath({
 				orgSlug: "acme",

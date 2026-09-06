@@ -123,6 +123,14 @@ Auth also owns the account's last-selected Organization entry preference. Auth
 is its only writer and accepts a selection only while the account has a current
 membership in that Organization.
 
+Auth also owns `account_sidebar_preferences`, keyed by account user ID and
+Organization ID. It stores personal group names, opaque Space IDs, section sort
+modes, and manual ordering. Membership gates reads and writes; revision-checked
+updates reject stale devices instead of overwriting newer preferences. These
+preferences never grant Space access, write pins, or change Space membership.
+The Web renders only Spaces returned by the existing authorized Space Index.
+Deleting a personal group removes its presentation association only.
+
 | Domain                             | Product role                                                                                                                                                                                        | Ownership rule                                                                                                                                                                                                                                                                                                                                                         |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Auth                               | Authentication and session truth.                                                                                                                                                                   | Auth-owned source of truth.                                                                                                                                                                                                                                                                                                                                            |

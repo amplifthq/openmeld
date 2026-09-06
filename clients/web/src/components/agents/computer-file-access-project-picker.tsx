@@ -12,6 +12,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -120,40 +121,41 @@ export function ComputerFileAccessProjectPicker(input: {
 					</ProjectFolderMessage>
 				) : null}
 				{status === "ready" && options.length > 0 ? (
-					<CheckboxGroup
-						aria-label="Project folders on this computer"
-						checkedIndices={checkedIndices}
-						className="max-h-80 w-full overflow-y-auto"
-					>
-						{options.map((option, index) => {
-							const selected = selectedPaths.has(option.path);
-							const atLimit =
-								!selected && selectedOptions.length >= remainingFolderCount;
-							return (
-								<CheckboxItem
-									aria-disabled={input.disabled || atLimit}
-									checked={selected}
-									description={option.description}
-									index={index}
-									key={option.path}
-									label={option.path}
-									labelClassName="break-all font-mono"
-									onToggle={() => {
-										if (input.disabled || atLimit) {
-											return;
-										}
-										const nextSelection = new Set(selectedPaths);
-										if (selected) {
-											nextSelection.delete(option.path);
-										} else {
-											nextSelection.add(option.path);
-										}
-										setSelectedPaths(nextSelection);
-									}}
-								/>
-							);
-						})}
-					</CheckboxGroup>
+					<ScrollArea className="max-h-80 w-full">
+						<CheckboxGroup
+							aria-label="Project folders on this computer"
+							checkedIndices={checkedIndices}
+						>
+							{options.map((option, index) => {
+								const selected = selectedPaths.has(option.path);
+								const atLimit =
+									!selected && selectedOptions.length >= remainingFolderCount;
+								return (
+									<CheckboxItem
+										aria-disabled={input.disabled || atLimit}
+										checked={selected}
+										description={option.description}
+										index={index}
+										key={option.path}
+										label={option.path}
+										labelClassName="break-all font-mono"
+										onToggle={() => {
+											if (input.disabled || atLimit) {
+												return;
+											}
+											const nextSelection = new Set(selectedPaths);
+											if (selected) {
+												nextSelection.delete(option.path);
+											} else {
+												nextSelection.add(option.path);
+											}
+											setSelectedPaths(nextSelection);
+										}}
+									/>
+								);
+							})}
+						</CheckboxGroup>
+					</ScrollArea>
 				) : null}
 
 				<DialogFooter>

@@ -22,6 +22,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 		await importOriginal<typeof import("@tanstack/react-router")>();
 	return {
 		...actual,
+		useNavigate: () => vi.fn(),
 		Link: ({
 			children,
 			to,
@@ -52,6 +53,23 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 
 vi.mock("./use-account-space-indicators", () => ({
 	useSpaceInboxUnreadById: () => spaceUnreadById,
+	useAccountSpaceIndicators: () => ({
+		unreadBySpaceId: spaceUnreadById,
+		activeWakeSummaryBySpaceId: new Map(),
+		activeWakeSpaceIds: new Set(),
+	}),
+}));
+
+vi.mock("../app/use-sidebar-preferences", () => ({
+	useSidebarPreferences: () => ({
+		preferences: {
+			pinned: { sort: "priority", spaceIds: [] },
+			spaces: { sort: "priority", spaceIds: [] },
+			groups: [],
+		},
+		disabled: false,
+		save: vi.fn(),
+	}),
 }));
 
 vi.mock("#/lib/spaces/account-spaces", () => ({
@@ -247,7 +265,9 @@ describe("AppDirectMessagesSidebar", () => {
 			<AppDirectMessagesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		expect(await screen.findByText("No Direct Messages yet.")).toBeTruthy();
+		expect(
+			await screen.findByText("Conversations will appear here.")
+		).toBeTruthy();
 	});
 
 	it("keeps the last saved Direct Messages navigable when background refresh fails", async () => {

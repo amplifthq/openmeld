@@ -9,6 +9,7 @@ export const schema = {
 } as const;
 
 export const {
+  accountSidebarPreferences,
   accounts,
   accountsRelations,
   deviceCodes,

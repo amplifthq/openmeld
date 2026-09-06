@@ -1,13 +1,16 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppFullWidthLayout } from "./app-full-width-layout";
 
 const appOuterRailSpy = vi.hoisted(() => vi.fn());
 
 vi.mock("#/components/app/app-outer-rail", () => ({
-	AppOuterRail: (props: unknown) => {
+	AppOuterRail: (props: { contextualNavigation?: ReactNode }) => {
 		appOuterRailSpy(props);
-		return <aside data-slot="app-outer-rail" />;
+		return (
+			<aside data-slot="app-outer-rail">{props.contextualNavigation}</aside>
+		);
 	},
 }));
 
@@ -26,9 +29,23 @@ vi.mock("#/components/app/current-computer-toolbar-launcher", () => ({
 afterEach(cleanup);
 
 describe("AppFullWidthLayout", () => {
+	it("places profile lists inside the main sidebar without a secondary pane", () => {
+		render(
+			<AppFullWidthLayout
+				mainSidebarContent={<nav aria-label="People">Members</nav>}
+			>
+				<h1>Profile</h1>
+			</AppFullWidthLayout>
+		);
+		const list = screen.getByRole("navigation", { name: "People" });
+		expect(list.closest('[data-slot="app-outer-rail"]')).toBeTruthy();
+		expect(
+			document.querySelector('[data-slot="app-inline-contextual-navigation"]')
+		).toBeNull();
+	});
 	it("renders the outer rail and full-width scroll content without a contextual sidebar", () => {
 		const initialOuterSidebarState = {
-			tier: "compact" as const,
+			tier: "expanded" as const,
 			width: "6rem",
 		};
 

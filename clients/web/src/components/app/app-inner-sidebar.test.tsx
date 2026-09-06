@@ -44,7 +44,7 @@ describe("AppInnerSidebar", () => {
 	it("restores the matching width when the page family changes", () => {
 		const rendered = render(
 			<AppInnerSidebar
-				initialState={{ tier: "full", width: "18rem" }}
+				initialState={{ tier: "expanded", width: "18rem" }}
 				preferenceKey="center-agent"
 				separatorLabel="Resize inner sidebar"
 			>
@@ -60,7 +60,7 @@ describe("AppInnerSidebar", () => {
 
 		rendered.rerender(
 			<AppInnerSidebar
-				initialState={{ tier: "full", width: "12rem" }}
+				initialState={{ tier: "expanded", width: "12rem" }}
 				preferenceKey="spaces"
 				separatorLabel="Resize inner sidebar"
 			>
@@ -81,7 +81,7 @@ describe("AppInnerSidebar", () => {
 				<AppInnerSidebar
 					initialState={{
 						collapsedGroupIds: ["spaces"],
-						tier: "full",
+						tier: "expanded",
 						width: "15rem",
 					}}
 					preferenceKey="spaces"

@@ -1,9 +1,12 @@
+const AVAILABLE_STATUS_NAME = /^Available/;
+
 import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
 import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
 	ModelCatalog,
 } from "@openmeld/schemas/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
 	fireEvent,
@@ -16,6 +19,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveAgentProfileSidebarGroups } from "./agent-profile-sidebar-groups";
 import { AgentProfilesWorkspace } from "./agent-profiles-workspace";
 
+vi.mock("#/lib/organizations/organization-context", () => ({
+	useAppOrganization: () => ({
+		currentUserId: "user-current",
+		currentOrganization: { id: "org-test", slug: "test" },
+	}),
+}));
+vi.mock("#/components/app/use-sidebar-preferences", () => ({
+	useSidebarPreferences: () => ({
+		preferences: null,
+		disabled: true,
+		save: vi.fn(),
+	}),
+}));
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
+
 const { appFullWidthLayoutSpy, appNavigationPresentationSpy } = vi.hoisted(
 	() => ({
 		appFullWidthLayoutSpy: vi.fn(),
@@ -26,17 +44,17 @@ const { appFullWidthLayoutSpy, appNavigationPresentationSpy } = vi.hoisted(
 vi.mock("#/components/app/app-full-width-layout", () => ({
 	AppFullWidthLayout: ({
 		children,
-		sidebar,
+		mainSidebarContent,
 		...props
 	}: {
 		children: ReactNode;
-		sidebar: ReactNode;
+		mainSidebarContent: ReactNode;
 		[key: string]: unknown;
 	}) => (
 		<>
 			{appFullWidthLayoutSpy(props)}
 			<div data-testid="agents-workspace-layout">
-				<aside data-testid="agents-secondary-sidebar">{sidebar}</aside>
+				<aside data-testid="agents-main-sidebar">{mainSidebarContent}</aside>
 				<main>{children}</main>
 			</div>
 		</>
@@ -212,27 +230,14 @@ describe("AgentProfilesWorkspace", () => {
 		).toEqual(["agent-new", "agent-used"]);
 	});
 
-	it("keeps Agent requests fixed above owner groups and uses the Core request count", () => {
+	it("keeps only profile groups in the main sidebar", () => {
 		renderWorkspace({ pendingRequestCount: 2 });
-
-		const sidebar = screen.getByTestId("agents-secondary-sidebar");
-		const requests = within(sidebar).getByRole("button", {
-			name: "Agent requests, 2 pending",
-		});
-		expect(requests.textContent).toContain("Agent requests");
-		expect(requests.textContent).toContain("2");
-		fireEvent.click(requests);
-	});
-
-	it("opens the separate creation flow from the sidebar", () => {
-		const onCreateAgent = vi.fn();
-		renderWorkspace({
-			onCreateAgent,
-		});
-
-		const createButton = screen.getByRole("button", { name: "Create Agent" });
-		fireEvent.click(createButton);
-		expect(onCreateAgent).toHaveBeenCalledOnce();
+		const sidebar = screen.getByTestId("agents-main-sidebar");
+		expect(
+			within(sidebar).queryByRole("button", {
+				name: "Create Agent",
+			})
+		).toBeNull();
 	});
 
 	it("places Agent search before the availability filter", () => {
@@ -254,10 +259,7 @@ describe("AgentProfilesWorkspace", () => {
 		expect(appFullWidthLayoutSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
 				contentLayout: "flush",
-				mobileSidebarTitle: "Agents",
 				showMainHeader: true,
-				sidebarPreferenceKey: "agents",
-				sidebarSeparatorLabel: "Resize the Agents sidebar",
 			})
 		);
 	});
@@ -357,7 +359,9 @@ describe("AgentProfilesWorkspace", () => {
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
 		expect(item.textContent).toContain("Codex · GPT-5.6 Sol · model default");
-		expect(item.textContent).toContain("Available");
+		expect(
+			within(item).getByRole("img", { name: AVAILABLE_STATUS_NAME })
+		).toBeTruthy();
 		expect(item.textContent).not.toContain("Idle");
 		expect(
 			within(item).queryByTestId("agent-profile-operational-status")
@@ -368,8 +372,8 @@ describe("AgentProfilesWorkspace", () => {
 		const avatar = within(item).getByTestId(
 			"agent-profile-controller-avatar-agent-current"
 		);
-		expect(avatar.style.height).toBe("32px");
-		expect(avatar.style.width).toBe("32px");
+		expect(avatar.style.height).toBe("24px");
+		expect(avatar.style.width).toBe("24px");
 		expect(avatar.className).toContain("rounded-lg");
 		expect(avatar.className).toContain("overflow-hidden");
 		expect(item.querySelector('[data-profile-kind="center-agent"]')).toBeNull();
@@ -393,7 +397,9 @@ describe("AgentProfilesWorkspace", () => {
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(item.textContent).toContain("Available");
+		expect(
+			within(item).getByRole("img", { name: AVAILABLE_STATUS_NAME })
+		).toBeTruthy();
 		expect(item.textContent).not.toContain("checked 3 minutes ago");
 		expect(item.textContent).not.toContain("Refreshing…");
 	});
@@ -403,6 +409,11 @@ describe("AgentProfilesWorkspace", () => {
 		const initialReadiness = createReadiness();
 		const { rerenderWorkspace } = renderWorkspace({
 			onSelectProfile,
+			readinessByProfileId: new Map([["agent-current", initialReadiness]]),
+		});
+		appNavigationPresentationSpy.mockClear();
+		// List containers also read the presentation to scope shared selection.
+		rerenderWorkspace({
 			readinessByProfileId: new Map([["agent-current", initialReadiness]]),
 		});
 		appNavigationPresentationSpy.mockClear();
@@ -419,7 +430,7 @@ describe("AgentProfilesWorkspace", () => {
 			]),
 		});
 
-		expect(appNavigationPresentationSpy).toHaveBeenCalledOnce();
+		expect(appNavigationPresentationSpy).toHaveBeenCalledTimes(1);
 	});
 
 	it("shows the Controller default model when no model is explicitly selected", () => {
@@ -583,7 +594,9 @@ describe("AgentProfilesWorkspace", () => {
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(item.textContent).toContain("Available");
+		expect(
+			within(item).getByRole("img", { name: AVAILABLE_STATUS_NAME })
+		).toBeTruthy();
 		expect(item.textContent).not.toContain("checked just now");
 		expect(item.textContent).not.toContain("Couldn’t refresh availability.");
 		expect(within(item).queryByRole("alert")).toBeNull();
@@ -598,7 +611,9 @@ describe("AgentProfilesWorkspace", () => {
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(item.textContent).toContain("Couldn’t check availability.");
+		expect(
+			within(item).getByRole("img", { name: "Couldn’t check availability." })
+		).toBeTruthy();
 		expect(item.textContent).not.toContain("Unavailable");
 	});
 
@@ -653,9 +668,9 @@ describe("AgentProfilesWorkspace", () => {
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(within(item).getByText("Unavailable").className).toContain(
-			"text-muted-foreground"
-		);
+		expect(
+			within(item).getByRole("img", { name: "Unavailable" }).className
+		).toContain("text-muted-foreground");
 		expect(within(item).getByText("Felix Agent").className).toContain(
 			"text-muted-foreground"
 		);
@@ -700,10 +715,10 @@ describe("AgentProfilesWorkspace", () => {
 		expect(
 			screen.getByRole("heading", { name: "No Agents match this filter" })
 		).toBeTruthy();
-		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
 		expect(
 			screen.queryAllByRole("button", { name: "Create Agent" })
-		).toHaveLength(1);
+		).toHaveLength(0);
 		expect(screen.getByTestId("profiles-controller")).toBeTruthy();
 	});
 
@@ -713,12 +728,15 @@ describe("AgentProfilesWorkspace", () => {
 
 		const createCard = screen.getByTestId("create-agent-empty-state");
 		expect(createCard.tagName).toBe("BUTTON");
-		expect(createCard.parentElement?.className).toContain("flex-1");
-		expect(createCard.parentElement?.className).toContain("place-items-center");
+		expect(
+			screen.getByRole("heading", { name: "Bring your AI into Spaces" })
+		).toBeTruthy();
 		expect(createCard.textContent).toContain("Create Agent");
-		expect(createCard.textContent).toContain(
-			"Give your team an AI teammate that can work and reply in Spaces."
-		);
+		expect(
+			screen.getByText(
+				"Use your own computer or a teammate’s, with their permission."
+			)
+		).toBeTruthy();
 		fireEvent.click(createCard);
 		expect(onCreateAgent).toHaveBeenCalledOnce();
 	});
@@ -743,7 +761,11 @@ describe("AgentProfilesWorkspace", () => {
 			profiles: [],
 			profilesStatus: "loading",
 		});
-		expect(screen.getByRole("status").textContent).toContain("Loading Agents");
+		expect(
+			screen
+				.getAllByRole("status")
+				.some((element) => element.textContent?.includes("Loading Agents"))
+		).toBe(true);
 
 		rerender(
 			<AgentProfilesWorkspace
@@ -819,7 +841,14 @@ function renderWorkspace(
 			{...nextOverrides}
 		/>
 	);
-	const rendered = render(createTree(overrides));
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	const rendered = render(createTree(overrides), {
+		wrapper: ({ children }) => (
+			<QueryClientProvider client={client}>{children}</QueryClientProvider>
+		),
+	});
 	return {
 		...rendered,
 		rerenderWorkspace: (

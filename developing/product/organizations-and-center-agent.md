@@ -548,10 +548,10 @@ The Center Agent has one Web product home with complementary destinations:
 
 - **Center Agent** is the product home for the workspace's managed agent and
   owns no secondary sidebar. Its stable header navigation is **Messages,
-  Graph, Files, Tasks, Routines, Skills, Apps**. The first three preserve the everyday
+  Graph, Files, Tasks, Routines, Skills, Plugins, Channels**. The first three preserve the everyday
   conversation surface; Tasks owns durable parallel work and conversation-first
   re-entry; Routines owns scheduled work. One compact header menu preserves
-  **Channels, Memory, Center Agent settings** and, on the
+  **Memory, Center Agent settings** and, on the
   conversation, **Conversation information**. There is no separate About
   surface or Slack shortcut. Identity and configuration live in Center Agent
   settings, while Slack management lives in Channels.
@@ -739,7 +739,7 @@ concept. Its surviving destinations use the stable header or its compact menu:
 | ---------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Overview   | **Center Agent → Center Agent settings**             | Identity, status, and configuration live in one low-frequency management surface.                                                                                           |
 | Channels   | **Center Agent → Channels**                          | The single Channel destination in every workspace; Organizations manage connections, while Personal Workspaces show read-only discovery and an Organization-creation guide. |
-| Apps       | **Center Agent → Apps**                              | The single member and shared App catalog in every workspace.                                                                                                                |
+| Plugins       | **Center Agent → Plugins**                              | The single member and shared App catalog in every workspace.                                                                                                                |
 | Memory     | **Center Agent → Memory**                            | Organization policy and the current member's erase action share one clearly separated memory home.                                                                          |
 | Routines   | **Center Agent → Routines**                          | Routine use and creation remain daily product work inside the product that executes them.                                                                                   |
 | Activity   | **Center Agent → Center Agent settings → Audit Log** | Retire the misleading label; this journal records Center Agent tool calls.                                                                                                  |
@@ -1037,7 +1037,7 @@ UNIQUE (organizationId)   -- MVP: exactly one Center Agent per org
   Center Agent admission while paused. Recovery and replay paths recheck the
   same operating state.
 - Pause preserves the managed Agent Profile, designation, Direct Message and
-  Space history, memberships, memory, Routines, Channels, Apps, Bindings, and
+  Space history, memberships, memory, Routines, Channels, Plugins, Bindings, and
   settings. Resume returns the same Center Agent identity to `active`; it does
   not recreate or reconnect anything.
 - Pause and resume are idempotent and audited as
@@ -1295,7 +1295,7 @@ unsupported.
 
 The built-in **Center Agent Self-Evolution** onboarding Routine is the bounded
 continuous-learning composition of these existing capabilities. It is
-recommended from connected Organization Apps or Slack, can focus on one
+recommended from connected Organization Plugins or Slack, can focus on one
 Project, maintains explicitly granted approved Organization Documents, and
 publishes its complete result to an OpenMeld Space. An owner or admin may also
 enable one concise Slack team report. That report is the only optional external
@@ -1306,7 +1306,7 @@ connection authority. It cannot create or modify other Routines in the current
 slice. Full product semantics are owned by
 `developing/product/center-agent-routines.md`.
 
-### Channels and Apps
+### Channels and Plugins
 
 Center Agent integrations have two distinct user-facing families. Do not place
 both under a generic `Connections` label:
@@ -1323,7 +1323,7 @@ both under a generic `Connections` label:
   narrowly defined outbound messaging action, such as explicitly publishing a
   top-level message in a Slack channel. That action does not grant model access
   to the provider's wider data or management APIs.
-- **Apps** are external systems the Center Agent may read from or act in while
+- **Plugins** are external systems the Center Agent may read from or act in while
   doing work. GitHub is the first shipped App through OpenConnector. An App owns
   a scoped credential, action policy, and attribution. It is not a conversation
   result surface merely because the same provider also offers messaging.
@@ -1349,7 +1349,7 @@ the user can start or repair registration after classification is restored.
 Disconnect remains the only allowed cleanup operation for a pre-launch
 historical Lark/Feishu connection. An informed Slack move may use a Personal
 Workspace as the previous source while the destination must be a non-personal
-Organization. Creating that Organization does not move Spaces, Apps, Agent
+Organization. Creating that Organization does not move Spaces, Plugins, Agent
 Profiles, memory, or any other Personal Workspace data.
 
 Every accepted Message Channel turn freezes one typed originating-conversation
@@ -1383,14 +1383,14 @@ whose canonical owner makes it available to an ordinary Organization member
 without personal ownership or an OpenMeld role. This includes trusted
 Organization navigation, directory and coarse Service status, approved
 Organization documents, enabled Organization Skills, the Space directory,
-public Web and bounded public-browser research, and Organization-shared Apps.
+public Web and bounded public-browser research, and Organization-shared Plugins.
 GitHub work explicitly selects `githubActor = organization` and executes through
 the Organization's GitHub App installation as the OpenMeld bot; it never borrows
-the requester's GitHub identity. Ordinary non-GitHub Apps resolve only an active
+the requester's GitHub identity. Ordinary non-GitHub Plugins resolve only an active
 shared connection for an unlinked member and never fall back to another
 member's connection.
 
-App reads run directly. For non-GitHub shared Apps, the action owner's
+App reads run directly. For non-GitHub shared Plugins, the action owner's
 registered `write` effect grants the same non-destructive operation to ordinary
 Message Channel members that verified ordinary members already receive. GitHub
 ordinary writes require `githubActor = organization`; file deletion and
@@ -1413,7 +1413,7 @@ transcripts, internal runtime identity, and private provider metadata. Project
 mutations and member-owned Activity or local context remain identity-gated;
 seeing a Session id never grants Resume, Fork, Binding, or Space authority.
 
-Personal memory, member Apps, owner-level Local Agent or Computer details,
+Personal memory, member Plugins, owner-level Local Agent or Computer details,
 role-restricted actions, destructive confirmation, durable member-owned
 mutations, and any action whose owner requires one specific OpenMeld human
 remain unavailable until identity is linked. The strict team-safe Organization
@@ -1593,7 +1593,7 @@ connected workspace is an external participant, not a connected Message
 Channel member. That
 person may still talk to the Center Agent using the current provider
 conversation and general model knowledge, but receives no Organization tools,
-private Organization context, sandbox, connected Apps, or Local Agents. Slack
+private Organization context, sandbox, connected Plugins, or Local Agents. Slack
 guests (`is_restricted` or `is_ultra_restricted`) and Slack Connect external
 participants (`is_stranger`) are also excluded from Slack self-enrollment.
 Current Slack participant status is checked before any stored identity link may
@@ -1611,7 +1611,7 @@ governance, identifier namespaces, and deployment conditions differ. The
 Personal Agent Channel grant authorizes only the implemented bot conversation
 surface. It never creates a member user grant for Docs, Calendar, Mail, Tasks,
 or other business actions. Any future Feishu/Lark App belongs to the separate
-Center Agent → Apps and OpenConnector-or-reviewed-first-party action boundary; its
+Center Agent → Plugins and OpenConnector-or-reviewed-first-party action boundary; its
 credential, execution, idempotency, and audit path must not enter through the
 Channel connection.
 
@@ -1677,7 +1677,7 @@ A normal OpenMeld disconnect removes only the current Organization's registered
 connection and matching OpenConnector credential. It does not sign the browser
 out of GitHub or uninstall the OpenMeld GitHub App; installation repository
 access remains managed in GitHub Settings → Applications → Installed GitHub
-Apps.
+Plugins.
 
 OpenMeld account sign-in remains a separate authentication integration. It
 neither creates GitHub repository access nor conflicts with this App
@@ -1721,7 +1721,7 @@ the shipped Figma actions, uses PKCE, and keeps long-lived access refreshable in
 OpenConnector. Those scopes never expand the authorizing account's existing
 Figma permissions, so only files, libraries, comments, and Dev Resources already
 available to that account are reachable. Figma does not make its Projects
-endpoints available to public OAuth Apps. The public scope set therefore
+endpoints available to public OAuth Plugins. The public scope set therefore
 excludes `projects:read` and `project_metadata:read`, and OpenConnector makes
 project actions ineligible for OAuth connections instead of presenting a
 provider denial as a reconnectable error. Existing PAT-backed registrations may
@@ -1735,11 +1735,11 @@ Center Agent. A future Slack App connection could separately let the Center
 Agent search Slack history or perform Slack actions through OpenConnector.
 Connecting, moving, or disconnecting either integration must not authorize,
 move, or disconnect the other. `Connector` remains an implementation and
-vendor term; the product category is `Apps`.
+vendor term; the product category is `Plugins`.
 
 Do not show a planned Slack App merely because the Slack Channel exists. The
 Channel is presented as Slack in **Center Agent → Channels**. A separate Slack
-entry appears in **Center Agent → Apps** only when OpenMeld ships a distinct
+entry appears in **Center Agent → Plugins** only when OpenMeld ships a distinct
 OpenConnector-backed Slack data/action connection and its model-visible tool
 surface.
 
@@ -1946,7 +1946,7 @@ same ledger then owns the one honest failure-aware welcome instead of storing a
 made-up task.
 The new member may then reply in Slack, invite more teammates, or start the
 channel-introduction flow. A move starts a new Organization context with
-different members, Spaces, Apps, and agent state, so reusing the previous
+different members, Spaces, Plugins, and agent state, so reusing the previous
 welcome state would be misleading. A same-Organization reauthorization does
 not repeat the sequence.
 
@@ -1988,7 +1988,7 @@ App credentials have two ownership forms:
 `Your access` identifies the current member's connections, with `Your GitHub`
 as GitHub's concrete title. `Organization access` identifies
 Organization-controlled shared connections. Both appear inside the same
-**Center Agent → Apps** page and neither label changes the underlying ownership or
+**Center Agent → Plugins** page and neither label changes the underlying ownership or
 execution authority.
 
 Management location follows the owner instead of repeating mutation controls:
@@ -1996,15 +1996,15 @@ Management location follows the owner instead of repeating mutation controls:
 - In every workspace, **Center Agent → Channels** is the single Channel
   destination. It owns Channel management in an Organization and shows only
   Organization-creation guidance in a Personal Workspace. **Center Agent →
-  Apps** is the single catalog and
+  Plugins** is the single catalog and
   management surface for both the current member's connections and
   Organization-shared connections.
 - The first-entry Organization flow may offer one-time, role-appropriate
-  Slack Channel and GitHub App connection actions. It keeps Channels and Apps
+  Slack Channel and GitHub App connection actions. It keeps Channels and Plugins
   visibly separate, has no disconnect
   or repair controls, and accepts success only from the owning Core projection.
   Center Agent remains the ongoing management home.
-- The Center Agent Chat page has no Channels or Apps mutation copy. It may show
+- The Center Agent Chat page has no Channels or Plugins mutation copy. It may show
   a read-only status shortcut and compact handoff dialog when context makes the
   canonical Center Agent destination useful, but the dialog must only
   deep-link; it must not install, move, disconnect, or otherwise manage the
@@ -2041,7 +2041,7 @@ The designated Center Agent may use an active member connection only when the
 verified current requester owns that connection and remains a member of the
 current Organization. It must not fall back to another member's connection.
 Slack turns may use a member connection only after Slack identity resolves to
-that same verified member. For ordinary non-GitHub Apps, an unattended Routine
+that same verified member. For ordinary non-GitHub Plugins, an unattended Routine
 may use a member connection only when its currently reauthorized delegated
 member owns it; it never borrows another member's connection. The same
 requester-first selection may then use Organization access as the fallback.
@@ -2066,7 +2066,7 @@ The connection records `scope = shared` plus the owner/admin who authorized the
 provider setup. Linked OpenMeld members and connected Message Channel members
 may ask the Center Agent to use it, and unattended Routines may use it because
 no member-owned credential is borrowed. For a linked interactive member,
-ordinary non-GitHub Apps retain requester-first, shared-second selection. For
+ordinary non-GitHub Plugins retain requester-first, shared-second selection. For
 an unlinked connected Message Channel member, selection is shared-only. Missing
 delegated-member identity still fails the Routine boundary.
 

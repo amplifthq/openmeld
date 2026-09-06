@@ -86,6 +86,8 @@ describe("listAccountSpaceItems", () => {
 			pinnedItems: [
 				{
 					activeAgentCount: null,
+					spaceCreatedAt: null,
+					spaceUpdatedAt: null,
 					activeHumanCount: null,
 					activeMemberCount: null,
 					directMessageConvertedAt: null,
@@ -115,6 +117,8 @@ describe("listAccountSpaceItems", () => {
 			spaceItems: [
 				{
 					activeAgentCount: null,
+					spaceCreatedAt: null,
+					spaceUpdatedAt: null,
 					activeHumanCount: null,
 					activeMemberCount: null,
 					directMessageConvertedAt: "2026-04-15T00:00:00.000Z",
