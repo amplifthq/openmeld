@@ -6264,7 +6264,9 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_list_computers",
     },
     {
-      expectedPayload: {},
+      expectedPayload: {
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
       input: {},
       response: localAgentConnectionCandidatesResponse(candidateId),
       rpcName: "centerAgentListLocalAgentConnectionCandidates",

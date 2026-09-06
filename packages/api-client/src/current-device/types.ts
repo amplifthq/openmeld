@@ -3,6 +3,8 @@ import type {
   CurrentLocalAgentInstallationsResponse,
   LocalRuntimesQuery,
   ObservedDeviceMetadata,
+  PeopleComputersResponse,
+  PeopleComputerTarget,
   RequestCurrentOpenMeldToolsUpdateResponse,
   SelectCurrentLocalAgentInstallationResponse,
   SetCurrentAgentProfileWorkspaceBody,
@@ -61,6 +63,12 @@ export type SetLocalRuntimeDisplayNameInput = SetLocalRuntimeDisplayNameBody & {
 export type CreateCurrentDeviceApi = (
   client: import("../client").OpenMeldApiClientFoundation
 ) => {
+  listPeopleComputers: (input?: {
+    includeUsageLimits?: "true";
+  }) => Promise<PeopleComputersResponse>;
+  getPeopleComputerReplyReadiness: (
+    input: PeopleComputerTarget
+  ) => Promise<CurrentLocalRuntimeReplyReadinessResponse>;
   getCurrentLocalRuntimeReplyReadiness: () => Promise<CurrentLocalRuntimeReplyReadinessResponse>;
   getCurrentTarget: () => Promise<CurrentDeviceTargetResponse>;
   forgetComputer: (

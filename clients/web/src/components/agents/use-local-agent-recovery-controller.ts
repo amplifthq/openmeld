@@ -150,6 +150,7 @@ export function useLocalAgentRecoveryController(
 		localRuntimesQuery,
 		runtimeLane,
 	} = useLocalRuntimeQueries({
+		selectedHumanProfileId,
 		currentLocalRuntimeReplyReadinessRefetchIntervalMs:
 			options.currentLocalRuntimeReplyReadinessRefetchIntervalMs,
 		storageScope,

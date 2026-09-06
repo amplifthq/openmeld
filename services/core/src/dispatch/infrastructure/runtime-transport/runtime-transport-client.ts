@@ -494,10 +494,7 @@ export const lookupRuntimeTransportOwnerService = async (input: {
       ownerUserId: input.ownerUserId,
     });
   if (!parsedRequest.success) {
-    return {
-      online: false,
-      reasonCode: "daemon.session.not_found",
-    };
+    throw new Error("Invalid Runtime Transport owner-Service request.");
   }
 
   // Same pass-through contract as lookupRuntimeTransportRoute: errored reads
@@ -512,10 +509,7 @@ export const lookupRuntimeTransportOwnerService = async (input: {
   const parsed =
     runtimeTransportLookupOwnerServiceResponseSchema.safeParse(response);
   if (!parsed.success) {
-    return {
-      online: false,
-      reasonCode: "daemon.session.not_found",
-    };
+    throw new Error("Invalid Runtime Transport owner-Service response.");
   }
 
   if (input.blockForgottenDevices === true && parsed.data.online) {

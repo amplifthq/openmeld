@@ -1104,7 +1104,10 @@ export const centerAgentComputerSetupOptionSchema = z
   });
 
 export const centerAgentListLocalAgentConnectionCandidatesBodySchema =
-  z.strictObject({});
+  z.strictObject({
+    memberUserId: trimmedNonEmptyStringSchema.optional(),
+    speakerMember: centerAgentToolSpeakerSchema,
+  });
 
 export const centerAgentListLocalAgentConnectionCandidatesResponseSchema =
   z.strictObject({

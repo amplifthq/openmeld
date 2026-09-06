@@ -1815,6 +1815,12 @@ export {
   summarizeComputerFileAccessPolicy,
 } from "./http/owner-computer-diagnostics";
 export {
+  peopleComputerConnectionSchema,
+  peopleComputerSchema,
+  peopleComputersResponseSchema,
+  peopleComputerTargetSchema,
+} from "./http/people-computers";
+export {
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,
   prepareReadinessDisplayStateSchema,

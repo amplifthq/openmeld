@@ -259,7 +259,7 @@ describe("current device target service", () => {
       localRuntimes: [
         {
           deviceId: "device-owner-1",
-          deviceDisplayName: "This computer",
+          deviceDisplayName: "Unnamed computer",
           deviceDisplayNameSource: "placeholder",
           platformFamily: "Unknown",
           osVersion: null,
@@ -624,7 +624,7 @@ describe("current device target service", () => {
     ]);
   });
 
-  it("adopts the legacy current device when it has fresh runtime evidence", async () => {
+  it("does not enroll a legacy device while listing, even with a Binding and a fresh report", async () => {
     const store = createInMemoryCurrentDeviceTargetStore({
       executionTargetsByUserId: {
         "owner-1": [
@@ -668,16 +668,22 @@ describe("current device target service", () => {
       userId: "owner-1",
     });
 
-    expect(result.currentConnectedComputerId).toBe("computer_adopted");
+    expect(result.currentConnectedComputerId).toBeNull();
     expect(result.currentDeviceId).toBe("device-current");
-    expect(result.localRuntimes).toHaveLength(1);
-    expect(result.localRuntimes[0]).toMatchObject({
-      connectedComputerId: "computer_adopted",
-      connectionStatus: "connected",
-      deviceId: "device-current",
-      legacyDeviceIds: ["device-current"],
-    });
+    expect(result.localRuntimes).toHaveLength(0);
+    expect(await store.readOwnedDevices({ userId: "owner-1" })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          deviceId: "device-current",
+          connectedComputerId: null,
+        }),
+      ])
+    );
     expect(result.legacyDeviceEvidence).toEqual([
+      expect.objectContaining({
+        connectionStatus: "legacy_disconnected",
+        deviceId: "device-current",
+      }),
       expect.objectContaining({
         connectionStatus: "legacy_disconnected",
         deviceId: "device-old",
@@ -1924,6 +1930,88 @@ describe("current device target service", () => {
     });
   });
 
+  it("checks a second computer explicitly without borrowing the first computer's Binding", async () => {
+    const store = createInMemoryCurrentDeviceTargetStore({
+      executionTargetsByUserId: {
+        "owner-1": [
+          {
+            agentControllerRef: "builtin:codex",
+            capabilityReasonCodes: [],
+            capabilityStatus: "ready",
+            deviceId: "device-reconnected",
+            lastObservedAtMs: Date.parse("2026-04-10T00:12:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D5",
+            runtimeLane: "canary",
+          },
+        ],
+      },
+      ownedDevicesByUserId: {
+        "owner-1": [
+          createOwnedDeviceRecord({
+            connectedComputerId: "computer-old",
+            deviceId: "device-binding-stale",
+            ownerUserId: "owner-1",
+          }),
+          createOwnedDeviceRecord({
+            connectedComputerId: "computer-new",
+            deviceId: "device-reconnected",
+            ownerUserId: "owner-1",
+          }),
+        ],
+      },
+    });
+    await seedCurrentDeviceTarget({
+      store,
+      userId: "owner-1",
+      deviceId: "device-binding-stale",
+      runtimeLane: "canary",
+      now: new Date("2026-04-10T00:00:00.000Z"),
+    });
+
+    await expect(
+      getCurrentLocalRuntimeReplyReadinessUseCase({
+        target: { deviceId: "device-reconnected", runtimeLane: "canary" },
+        lookupOwnerService: () =>
+          Promise.resolve({
+            online: true,
+            sessions: [
+              {
+                capabilities: {
+                  localComponents: CURRENT_LOCAL_COMPONENTS_STATUS,
+                },
+                connectionGeneration: 2,
+                daemonSessionId: "daemon-session-reconnected",
+                deviceId: "device-reconnected",
+                executionCompatibility: COMPATIBLE_SERVICE,
+                lane: "canary",
+                lastHeartbeatMs: Date.parse("2026-04-10T00:12:00.000Z"),
+                serviceVersion: "999.0.0",
+              },
+            ],
+          }),
+        now: new Date("2026-04-10T00:13:00.000Z"),
+        store,
+        userId: "owner-1",
+      })
+    ).resolves.toMatchObject({
+      canReplyFromThisComputer: true,
+      currentTarget: {
+        availability: "resolved",
+        deviceId: "device-reconnected",
+        runtimeLane: "canary",
+      },
+      nextAction: "none",
+      primaryBlocker: "none",
+      service: {
+        connected: true,
+        matchingCurrentRuntime: true,
+        sessionDeviceId: "device-reconnected",
+        sessionLane: "canary",
+      },
+      status: "ready",
+    });
+  });
+
   it("still reports missing when there is no Binding and no live ServiceRuntime session", async () => {
     // Without a Binding AND without a fresh ServiceRuntime heartbeat there is no
     // connectivity evidence, so the computer is genuinely not connected.
@@ -2555,7 +2643,7 @@ describe("current device target service", () => {
       localRuntimes: [
         {
           deviceId: "device-current",
-          deviceDisplayName: "This computer",
+          deviceDisplayName: "Unnamed computer",
           deviceDisplayNameSource: "placeholder",
           platformFamily: "Unknown",
           osVersion: null,

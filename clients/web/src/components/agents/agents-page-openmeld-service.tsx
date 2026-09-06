@@ -512,13 +512,29 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 						showCheckStatus={false}
 					/>
 				}
-				description={`Last reported OpenMeld tools state from ${input.computer.deviceDisplayName}.`}
+				description={`OpenMeld tools on ${input.computer.deviceDisplayName}.`}
 			>
-				<NonCurrentOpenMeldServiceGuidance
-					computer={input.computer}
-					setupLabel={setupLabel}
-					setupPath={setupPath}
-				/>
+				<p className="text-muted-foreground text-sm">
+					{selectedComputerConnectionLabel(
+						input.currentLocalRuntimeReplyReadiness,
+						input.replyReadiness
+					)}
+				</p>
+				<p className="text-muted-foreground text-sm">
+					Use setup on this computer to manage its OpenMeld tools.
+				</p>
+				{input.currentLocalRuntimeReplyReadiness?.primaryBlocker !== "none" &&
+				input.currentLocalRuntimeReplyReadiness ? (
+					<p className="text-muted-foreground text-sm">
+						{input.currentLocalRuntimeReplyReadiness.message}
+					</p>
+				) : null}
+				<Link
+					className={buttonVariants({ size: "sm", variant: "outline" })}
+					to={setupPath}
+				>
+					{setupLabel}
+				</Link>
 				<ReadOnlyRuntimeTargetList computer={input.computer} />
 			</OpenMeldToolsCardFrame>
 		);
@@ -693,43 +709,23 @@ function OpenMeldServiceMoreMenu(input: {
 	);
 }
 
-function NonCurrentOpenMeldServiceGuidance(input: {
-	computer: LocalRuntimeComputer;
-	setupLabel: string;
-	setupPath: string;
-}) {
-	if (input.computer.executionTargets.some(isUsableComputerTarget)) {
-		return null;
+function selectedComputerConnectionLabel(
+	readiness: CurrentLocalRuntimeReplyReadinessResponse | null,
+	display: ComputerReplyReadiness | null
+): string {
+	if (readiness?.service.connected === true) {
+		return "Connected";
 	}
-
-	const isStale = input.computer.executionTargets.some(
-		(target) => target.status === "stale"
-	);
-	const title = isStale ? "Needs a fresh check" : "Set up OpenMeld tools";
-	const description = isStale
-		? "This is the last OpenMeld tools report from that computer. Run setup again to refresh this record."
-		: "Set up OpenMeld tools on that computer so OpenMeld can report service state and local agents.";
-
-	return (
-		<div className="flex flex-col gap-4 border-border/60 border-b pb-4 sm:flex-row sm:items-start sm:justify-between">
-			<div className="min-w-0 space-y-1.5">
-				<p className="font-medium text-foreground text-sm">{title}</p>
-				<p className="max-w-2xl text-muted-foreground text-xs leading-5">
-					{description}
-				</p>
-			</div>
-			<Link
-				className={cn(
-					buttonVariants({ size: "sm", variant: "outline" }),
-					"w-fit shrink-0"
-				)}
-				to={input.setupPath}
-			>
-				<WrenchIcon aria-hidden="true" data-icon="inline-start" />
-				{input.setupLabel}
-			</Link>
-		</div>
-	);
+	if (readiness?.primaryBlocker === "service_not_connected") {
+		return (
+			resolveCurrentLocalRuntimeComputerSummaryStatus({ readiness })?.label ??
+			"Connection status unavailable"
+		);
+	}
+	if (display?.status === "checking") {
+		return "Checking connection…";
+	}
+	return "Connection status unavailable";
 }
 
 function resolveNonCurrentOpenMeldServiceSetupLabel(
@@ -738,10 +734,6 @@ function resolveNonCurrentOpenMeldServiceSetupLabel(
 	return computer.executionTargets.some((target) => target.status === "stale")
 		? "Set up again"
 		: "Set up this computer";
-}
-
-function isUsableComputerTarget(target: LocalRuntimeExecutionTarget): boolean {
-	return target.status === "ready" || target.status === "partial";
 }
 
 function ReadOnlyRuntimeTargetList(input: {

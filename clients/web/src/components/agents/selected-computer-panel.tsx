@@ -4,14 +4,15 @@ import type {
 	CurrentLocalRuntimeReplyReadinessResponse,
 	LocalRuntimeComputer,
 } from "@openmeld/schemas/types";
-import type { QueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
+import { currentLocalRuntimeReplyReadinessQueryOptions } from "#/query/connect/local-runtimes";
 import {
 	isSelectedCurrentComputer,
-	resolveEffectiveSelectedComputerReplyReadiness,
-	resolveSelectedComputerReplyReadiness,
+	resolveCurrentExecutionTarget,
 } from "./agents-page-computer";
 import { LocalAgentsCard } from "./agents-page-local-agents";
 import { OpenMeldServiceCard } from "./agents-page-openmeld-service";
@@ -40,27 +41,34 @@ export function SelectedComputerPanel(input: {
 		computer: input.computer,
 		recovery: input.recovery,
 	});
-	const replyReadiness = resolveSelectedComputerReplyReadiness({
-		computer: input.computer,
-		isCurrentComputer,
-		recovery: input.recovery,
-	});
-	const hasAvailableAgentProfile = hasCurrentComputerAvailableAgentProfile(
-		input.recovery
+	const computerFacts =
+		input.recovery.localRuntimesQuery.data?.peopleComputers.computers.find(
+			(computer) => computer.deviceId === input.computer.deviceId
+		);
+	const reportedTarget = resolveCurrentExecutionTarget(input.computer);
+	const liveTarget = computerFacts?.connection.sessions[0];
+	const target = reportedTarget ?? liveTarget ?? null;
+	const selectedReadinessQuery = useQuery(
+		currentLocalRuntimeReplyReadinessQueryOptions({
+			storageScope: input.recovery.storageScope,
+			enabled: target !== null,
+			target: target
+				? { deviceId: target.deviceId, runtimeLane: target.runtimeLane }
+				: null,
+			refetchIntervalMs: 10_000,
+		}),
+		input.queryClient
 	);
-	const hasPendingAgentProfileReadiness =
-		hasCurrentComputerPendingAgentProfileReadiness(input.recovery);
 	const effectiveReplyReadiness =
-		resolveEffectiveSelectedComputerReplyReadiness({
-			hasAvailableAgentProfile,
-			hasPendingAgentProfileReadiness,
-			replyReadiness,
+		mapCurrentLocalRuntimeReplyReadinessQueryState({
+			isPending: target !== null && selectedReadinessQuery.isPending,
+			readiness: selectedReadinessQuery.isError
+				? null
+				: selectedReadinessQuery.data,
 		});
-	const currentLocalRuntimeReplyReadiness =
-		resolveSelectedCurrentLocalRuntimeReplyReadiness({
-			isCurrentComputer,
-			recovery: input.recovery,
-		});
+	const currentLocalRuntimeReplyReadiness = selectedReadinessQuery.isError
+		? null
+		: (selectedReadinessQuery.data ?? null);
 	const canManageComputerFileAccess =
 		input.computer.computerFileAccess?.readPolicy === true &&
 		input.computer.computerFileAccess.updatePolicy === true;
@@ -213,44 +221,4 @@ function isCurrentLocalRuntimeServiceUpdateRequired(
 		readiness?.localComponents.service.wakeBlocked === true ||
 		readiness?.primaryBlocker === "service_update_required"
 	);
-}
-
-function hasCurrentComputerAvailableAgentProfile(
-	recovery: LocalAgentRecoveryController
-): boolean {
-	return recovery.agentProfiles.some((profile) => {
-		const readiness = recovery.agentExecutionReadinessByProfileId.get(
-			profile.openMeldProfileId
-		);
-		if (!readiness) {
-			return false;
-		}
-		return readiness.agentWakeAvailability.category === "available";
-	});
-}
-
-function hasCurrentComputerPendingAgentProfileReadiness(
-	recovery: LocalAgentRecoveryController
-): boolean {
-	return (
-		recovery.agentProfilesQuery.isPending ||
-		recovery.agentProfiles.some((profile) =>
-			recovery.agentExecutionReadinessPendingProfileIds.has(
-				profile.openMeldProfileId
-			)
-		)
-	);
-}
-
-function resolveSelectedCurrentLocalRuntimeReplyReadiness(input: {
-	isCurrentComputer: boolean;
-	recovery: LocalAgentRecoveryController;
-}): CurrentLocalRuntimeReplyReadinessResponse | null {
-	if (!input.isCurrentComputer) {
-		return null;
-	}
-	if (input.recovery.currentLocalRuntimeReplyReadinessQuery.isPending) {
-		return null;
-	}
-	return input.recovery.currentLocalRuntimeReplyReadinessQuery.data ?? null;
 }

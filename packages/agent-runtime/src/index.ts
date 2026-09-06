@@ -259,6 +259,10 @@ export {
 } from "./local-agent-catalog";
 export { resolveConversationPolicyFromModelSelection } from "./model-selection";
 export {
+  peopleComputerCliCommand,
+  peopleComputerContainsDevice,
+} from "./people-computer";
+export {
   type AllRunnableCapabilitiesPreparedStatus,
   assertPrepareOutputHasNoBindingWriteAction,
   assertPrepareOutputHasNoExecutableWorkAction,

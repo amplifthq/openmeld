@@ -225,7 +225,7 @@ describe("computer summary status", () => {
 						connected: false,
 						executionCompatibility: null,
 						matchingCurrentRuntime: false,
-						reasonCodes: ["daemon.session.missing"],
+						reasonCodes: ["daemon.session.not_found"],
 						sessionDeviceId: null,
 						sessionLane: null,
 					},

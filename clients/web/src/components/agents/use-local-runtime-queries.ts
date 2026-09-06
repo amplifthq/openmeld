@@ -6,6 +6,8 @@ import type {
 } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { readCompletedPrepareSessionPointer } from "#/components/connect/prepare-session-pointer";
+import { selectPeopleComputerTarget } from "#/lib/connect/people-computer-selection";
 import { currentDeviceTargetQueryOptions } from "#/query/connect/current-device-target";
 import {
 	currentLocalRuntimeReplyReadinessQueryOptions,
@@ -19,9 +21,12 @@ import { useRefreshReplyReadinessOnRefocus } from "./use-refresh-reply-readiness
 export function useLocalRuntimeQueries(input: {
 	currentLocalRuntimeReplyReadinessRefetchIntervalMs?: false | number;
 	storageScope: string;
+	selectedHumanProfileId?: string | null;
+	selection?: "browser" | "routing";
 }) {
 	const queryClient = useQueryClient();
 	const lastReadyCatalogReconcileKeyRef = useRef<string | null>(null);
+	const lastComputerEvidenceRef = useRef<string | null>(null);
 	const currentDeviceTargetQuery = useQuery(
 		currentDeviceTargetQueryOptions({
 			enabled: true,
@@ -34,25 +39,68 @@ export function useLocalRuntimeQueries(input: {
 			storageScope: input.storageScope,
 		})
 	);
-	// Connectivity is a ServiceRuntime liveness fact, not a Binding fact: reply
-	// readiness must be able to report a freshly connected computer even before
-	// any Agent Profile is bound (when the Binding-derived current-device target
-	// is still "missing"). Enable the query whenever the account has at least one
-	// computer; the server answers liveness-first and returns "missing" only when
-	// there is genuinely nothing connected.
-	const hasLocalRuntimeComputer =
-		(localRuntimesQuery.data?.localRuntimes.length ?? 0) > 0;
-	const isReplyReadinessEnabled =
-		currentDeviceTargetQuery.data?.availability === "resolved" ||
-		hasLocalRuntimeComputer;
+	// A completed handoff selects a computer for this browser/account. It does
+	// not prove the terminal ran on the same physical machine as the browser.
+	const selectedTarget = selectPeopleComputerTarget({
+		inventory: localRuntimesQuery.data?.peopleComputers,
+		routingPreference: currentDeviceTargetQuery.data,
+		completedSetup: readCompletedPrepareSessionPointer(),
+		selectedHumanProfileId: input.selectedHumanProfileId,
+		selection: input.selection,
+	});
+	const isReplyReadinessEnabled = selectedTarget !== null;
 	const currentLocalRuntimeReplyReadinessQuery = useQuery(
 		currentLocalRuntimeReplyReadinessQueryOptions({
 			enabled: isReplyReadinessEnabled,
+			target: selectedTarget,
 			refetchIntervalMs:
 				input.currentLocalRuntimeReplyReadinessRefetchIntervalMs,
 			storageScope: input.storageScope,
 		})
 	);
+	const selectedComputer = selectedTarget
+		? localRuntimesQuery.data?.peopleComputers.computers.find(
+				(computer) =>
+					computer.deviceId === selectedTarget.deviceId ||
+					computer.legacyDeviceIds?.includes(selectedTarget.deviceId) === true
+			)
+		: null;
+	const currentEvidenceKey =
+		selectedComputer && selectedTarget
+			? JSON.stringify({
+					deviceId: selectedTarget.deviceId,
+					lane: selectedTarget.runtimeLane,
+					connection: selectedComputer.connection.status,
+					reasons: selectedComputer.connection.reasonCodes,
+					sessions: selectedComputer.connection.sessions.map(
+						({ lastHeartbeatMs: _heartbeat, ...session }) => session
+					),
+					targets: selectedComputer.executionTargets.map((target) => ({
+						deviceId: target.deviceId,
+						lane: target.runtimeLane,
+						observedAt: target.lastObservedAtMs,
+						status: target.status,
+					})),
+				})
+			: null;
+	useEffect(() => {
+		const previous = lastComputerEvidenceRef.current;
+		lastComputerEvidenceRef.current = currentEvidenceKey;
+		if (!(previous && currentEvidenceKey) || previous === currentEvidenceKey) {
+			return;
+		}
+		// Inventory invalidation changes evidence, never readiness itself. Re-read
+		// Core policy for the same explicit target when its connection/report changes.
+		queryClient
+			.invalidateQueries({
+				queryKey: startQueryKeys.currentLocalRuntimeReplyReadiness(
+					input.storageScope
+				),
+			})
+			.catch((error: unknown) => {
+				console.warn("Could not refresh selected computer readiness.", error);
+			});
+	}, [currentEvidenceKey, input.storageScope, queryClient]);
 	// Reply readiness stops polling once it settles on "Connected", so reconcile
 	// it against Core when the tab regains visibility — otherwise a service that
 	// dies while the tab is idle leaves a stale "Connected" indicator behind.

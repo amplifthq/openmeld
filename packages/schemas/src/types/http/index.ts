@@ -807,6 +807,12 @@ export type {
   OwnerComputerDiagnostics,
 } from "./owner-computer-diagnostics";
 export type {
+  PeopleComputer,
+  PeopleComputerConnection,
+  PeopleComputersResponse,
+  PeopleComputerTarget,
+} from "./people-computers";
+export type {
   GetPrepareReadinessQuery,
   GetPrepareReadinessResponse,
   PrepareReadinessRouteParams,

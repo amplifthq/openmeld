@@ -16,6 +16,7 @@ import type {
   CenterAgentLocalAgentConnectionCandidate,
   EnsureAgentProfilePrimaryBindingResponse,
   LocalRuntimesResponse,
+  PeopleComputersResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -26,15 +27,63 @@ import {
   projectCenterAgentLocalAgentConnectionCandidates,
   updateAgentProfileRuntimeSettingsOperation,
 } from "../src/center-agent/application/product-operations";
+import { projectPeopleComputers } from "../src/people-computers/projection";
 
 const ORGANIZATION_ID = "org_11111111-1111-4111-8111-111111111111";
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const NOW_ISO = "2026-07-08T00:00:00.000Z";
 
 describe("Center Agent product operations", () => {
+  it("does not offer a historical ready report on a disconnected computer", () => {
+    const peopleComputers = createPeopleComputersResponse();
+    const computer = peopleComputers.computers[0];
+    if (!computer) {
+      throw new Error("Missing fixture computer.");
+    }
+    computer.connection = {
+      status: "disconnected",
+      sessions: [],
+      reasonCodes: ["daemon.session.not_found"],
+    };
+    expect(
+      projectCenterAgentLocalAgentConnectionCandidates({
+        peopleComputers,
+        organizationId: ORGANIZATION_ID,
+      }).candidates[0]?.connectable
+    ).toBe(false);
+  });
+
+  it("requires the exact target lane and a supported live Service", () => {
+    const peopleComputers = createPeopleComputersResponse();
+    const session = peopleComputers.computers[0]?.connection.sessions[0];
+    if (!session) {
+      throw new Error("Missing fixture connection.");
+    }
+    session.runtimeLane = "prod";
+    expect(
+      projectCenterAgentLocalAgentConnectionCandidates({
+        peopleComputers,
+        organizationId: ORGANIZATION_ID,
+      }).candidates[0]?.connectable
+    ).toBe(false);
+    session.runtimeLane = "dev-local";
+    session.serviceUpdate = {
+      wakeBlocked: true,
+      reasonCodes: ["service.update_required"],
+    };
+    expect(
+      projectCenterAgentLocalAgentConnectionCandidates({
+        peopleComputers,
+        organizationId: ORGANIZATION_ID,
+      }).candidates[0]
+    ).toMatchObject({
+      connectable: false,
+      reasonCodes: expect.arrayContaining(["service.update_required"]),
+    });
+  });
   it("projects local agent connection candidates from Core runtime reports", () => {
     const response = projectCenterAgentLocalAgentConnectionCandidates({
-      localRuntimes: createLocalRuntimesResponse(),
+      peopleComputers: createPeopleComputersResponse(),
       organizationId: ORGANIZATION_ID,
     });
 
@@ -60,20 +109,19 @@ describe("Center Agent product operations", () => {
   });
 
   it("projects update and reconnect actions from current computer truth", () => {
-    const updateRequired = createLocalRuntimesResponse();
-    const updateComputer = updateRequired.localRuntimes[0];
+    const updateRequired = createPeopleComputersResponse();
+    const updateComputer = updateRequired.computers[0];
     const updateTarget = updateComputer?.executionTargets[0];
     if (!(updateComputer && updateTarget)) {
       throw new Error("Expected one computer and one execution target.");
     }
     updateComputer.connectedComputerId = "computer_1";
-    updateComputer.connectionStatus = "connected";
     updateTarget.reasonCodes = ["service.update_required"];
 
     expect(projectCenterAgentComputerSetupOptions(updateRequired)).toEqual([
       expect.objectContaining({
         connectedComputerId: "computer_1",
-        reasonCodes: ["service.update_required"],
+        reasonCodes: expect.arrayContaining(["service.update_required"]),
         recommendedMode: "update_service",
         status: "needs_attention",
       }),
@@ -81,6 +129,11 @@ describe("Center Agent product operations", () => {
 
     updateTarget.reasonCodes = [];
     updateTarget.status = "stale";
+    updateComputer.connection = {
+      status: "disconnected",
+      reasonCodes: ["daemon.session.not_found"],
+      sessions: [],
+    };
 
     expect(projectCenterAgentComputerSetupOptions(updateRequired)).toEqual([
       expect.objectContaining({
@@ -405,9 +458,36 @@ function createLocalRuntimesResponse(): LocalRuntimesResponse {
   };
 }
 
+function createPeopleComputersResponse(): PeopleComputersResponse {
+  return projectPeopleComputers({
+    generatedAt: NOW_ISO,
+    inventory: createLocalRuntimesResponse(),
+    ownerService: {
+      online: true,
+      sessions: [
+        {
+          daemonSessionId: "session_1",
+          deviceId: "device_1",
+          lane: "dev-local",
+          serviceVersion: "0.3.163",
+          connectionGeneration: 1,
+          lastHeartbeatMs: 1000,
+          capabilities: {},
+          executionCompatibility: {
+            status: "compatible",
+            expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+            observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+            reasonCode: "daemon.runtime_contract.compatible",
+          },
+        },
+      ],
+    },
+  });
+}
+
 function createCandidate(): CenterAgentLocalAgentConnectionCandidate {
   const candidate = projectCenterAgentLocalAgentConnectionCandidates({
-    localRuntimes: createLocalRuntimesResponse(),
+    peopleComputers: createPeopleComputersResponse(),
     organizationId: ORGANIZATION_ID,
   }).candidates[0];
   if (!candidate) {

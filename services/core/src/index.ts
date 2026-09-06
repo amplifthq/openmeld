@@ -268,6 +268,7 @@ import type {
   OrganizationSpaceDirectoryWithMemberCountsResponse,
   PauseCenterAgentRoutineResponse,
   PendingGitHubAppInstallation,
+  PeopleComputersResponse,
   PostSpaceMembersResponse,
   PostSpaceWakeStopResponse,
   PrepareDiagnosticResponse,
@@ -642,6 +643,7 @@ import {
   type GetCurrentOrganizationSpaceDirectoryInput,
   type GetLocalRuntimeExpectedRoutesInput,
   type GetLocalRuntimesInput,
+  type GetPeopleComputerReplyReadinessInput,
   type GetPrepareReadinessInput,
   type GetSpaceBoardInput,
   type GetSpaceBootstrapInput,
@@ -854,6 +856,7 @@ import {
   rpcGetCurrentOrganizationSpaceDirectory,
   rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts,
   rpcGetLocalRuntimeExpectedRoutes,
+  rpcGetPeopleComputerReplyReadiness,
   rpcGetPrepareReadiness,
   rpcGetSpaceBoard,
   rpcGetSpaceBootstrap,
@@ -891,6 +894,7 @@ import {
   rpcListCurrentOrganizationConnectorConnections,
   rpcListLocalRuntimes,
   rpcListMessageChannelConnections,
+  rpcListPeopleComputers,
   rpcListProjects,
   rpcListRoutineRuns,
   rpcListRoutines,
@@ -3205,6 +3209,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcListLocalRuntimes(this.env, input);
   }
 
+  listPeopleComputers(
+    input: GetLocalRuntimesInput
+  ): Promise<PeopleComputersResponse> {
+    return rpcListPeopleComputers(this.env, input);
+  }
+
+  getPeopleComputerReplyReadiness(
+    input: GetPeopleComputerReplyReadinessInput
+  ): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
+    return rpcGetPeopleComputerReplyReadiness(this.env, input);
+  }
+
   getCurrentLocalRuntimeReplyReadiness(
     input: GetCurrentLocalRuntimeReplyReadinessInput
   ): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
@@ -4040,6 +4056,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetLocalRuntimesInput
   ): Promise<LocalRuntimesResponse> {
     return super.listLocalRuntimes(input);
+  }
+
+  listPeopleComputers(
+    input: GetLocalRuntimesInput
+  ): Promise<PeopleComputersResponse> {
+    return super.listPeopleComputers(input);
+  }
+
+  getPeopleComputerReplyReadiness(
+    input: GetPeopleComputerReplyReadinessInput
+  ): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
+    return super.getPeopleComputerReplyReadiness(input);
   }
 
   getCurrentLocalRuntimeReplyReadiness(

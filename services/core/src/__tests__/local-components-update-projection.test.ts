@@ -6,6 +6,20 @@ import { describe, expect, it } from "vitest";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
 
 describe("local component update projection", () => {
+  it("does not describe unknown installed versions as up to date and preserves the command lane", () => {
+    const result = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-09-07T00:00:00.000Z",
+      runtimeLane: "canary",
+      releaseManifest: createReleaseManifest({}),
+      serviceConnected: false,
+      serviceVersion: null,
+    });
+    expect(result.setupActionLabel).toBe("Update status unavailable");
+    expect(result.humanSetupCommand).toBe(
+      "openmeld-canary upgrade && openmeld-canary setup"
+    );
+    expect(result.agentSetupCommand).not.toContain("npm");
+  });
   it("accepts compatible independently maintained Skill content without asking for another CLI upgrade", () => {
     const status = createLocalComponentsStatus({
       skillsBundleHash: "c".repeat(64),
@@ -71,8 +85,8 @@ describe("local component update projection", () => {
 
     expect(projection).toMatchObject({
       agentSetupCommand:
-        "npm install -g openmeld@latest && openmeld setup --view agent",
-      humanSetupCommand: "npm install -g openmeld@latest && openmeld setup",
+        "openmeld upgrade --view agent && openmeld setup --view agent",
+      humanSetupCommand: "openmeld upgrade && openmeld setup",
       setupAction: "none",
       service: {
         installedVersion: "0.7.27",

@@ -4742,20 +4742,34 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_local_agent_connection_candidates",
       description:
-        "List ready and blocked local agent connection candidates for the current OpenMeld account, including computer name, local agent name, freshness, and candidateId. Use this before connecting an Agent Profile to a local agent.",
-      input: object({}),
-      execute: async () => {
-        const context = await buildOpenMeldToolRequestContext({
+        "List local agent connection candidates for the requesting member, or an explicitly selected Organization memberUserId from the directory. Includes current connection evidence and candidateId. Listing another member's candidates does not authorize connecting or creating their Agent; use the creation request and approval flow.",
+      input: object({ memberUserId: optionalNonEmptyStringSchema }),
+      execute: async (payload) => {
+        const toolContext = await buildOpenMeldToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_list_local_agent_connection_candidates",
         });
+        const speakerMember = resolveVerifiedTurnEnvelopeSpeaker(
+          toolContext.turnEnvelope
+        );
+        if (!speakerMember) {
+          throw new Error(
+            "Connect your OpenMeld account before selecting a local agent."
+          );
+        }
         const rpc = requireCoreRpc(
           input.coreWorker.centerAgentListLocalAgentConnectionCandidates,
           "centerAgentListLocalAgentConnectionCandidates"
         );
         return centerAgentListLocalAgentConnectionCandidatesResponseSchema.parse(
-          await rpc({ context })
+          await rpc({
+            context: toolContext.context,
+            speakerMember,
+            ...(payload.memberUserId
+              ? { memberUserId: payload.memberUserId }
+              : {}),
+          })
         );
       },
     }),

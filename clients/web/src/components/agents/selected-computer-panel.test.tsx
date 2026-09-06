@@ -3,9 +3,16 @@ import type {
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
 } from "@openmeld/schemas/types";
+import { QueryClient } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SelectedComputerPanel } from "./selected-computer-panel";
+
+vi.mock("#/lib/connect/local-runtimes", async (importOriginal) => ({
+	...(await importOriginal<typeof import("#/lib/connect/local-runtimes")>()),
+	readPeopleComputerReplyReadiness: async (target: { deviceId: string }) =>
+		buildConnectedReadiness(target.deviceId),
+}));
 
 // Renders the REAL `SelectedComputerPanel` (NOT the recorder stub that
 // `computers-section.test.tsx` uses) to genuinely verify the detail
@@ -91,6 +98,16 @@ function buildRecoveryStub(
 		expectedServiceVersion: null,
 		localRuntimesQuery: {
 			data: {
+				peopleComputers: {
+					generatedAt: "2026-09-07T00:00:00.000Z",
+					computers: [
+						{
+							...computer,
+							identityStatus: "unconfirmed",
+							connection: { status: "unknown", reasonCodes: [], sessions: [] },
+						},
+					],
+				},
 				currentDeviceId: computer.deviceId,
 				currentRuntimeLane: "dev-local",
 				localRuntimes: [computer],
@@ -101,10 +118,9 @@ function buildRecoveryStub(
 	} as unknown as Parameters<typeof SelectedComputerPanel>[0]["recovery"];
 }
 
-const queryClientStub = {
-	fetchQuery: vi.fn(),
-	invalidateQueries: vi.fn(),
-} as unknown as Parameters<typeof SelectedComputerPanel>[0]["queryClient"];
+const queryClientStub = new QueryClient({
+	defaultOptions: { queries: { retry: false } },
+});
 
 function renderPanel(
 	input: {
@@ -131,6 +147,7 @@ function renderPanel(
 
 describe("SelectedComputerPanel detail composition", () => {
 	beforeEach(() => {
+		queryClientStub.clear();
 		openMeldServiceCardSpy.mockReset();
 		localAgentsCardSpy.mockReset();
 		computerFileAccessCardSpy.mockReset();

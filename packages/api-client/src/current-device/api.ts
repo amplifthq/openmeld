@@ -8,6 +8,8 @@ import {
   localRuntimeEnrollmentResponseSchema,
   localRuntimesQuerySchema,
   localRuntimesResponseSchema,
+  peopleComputersResponseSchema,
+  peopleComputerTargetSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
   requestCurrentOpenMeldToolsUpdateResponseSchema,
   selectCurrentLocalAgentInstallationBodySchema,
@@ -171,6 +173,24 @@ export const createCurrentDeviceApi: CreateCurrentDeviceApi = (
   client: OpenMeldApiClientFoundation
 ) => {
   return {
+    listPeopleComputers: async (input) =>
+      client.requestJson({
+        url: `/v1/people-computers${input?.includeUsageLimits === "true" ? "?includeUsageLimits=true" : ""}`,
+        operation: "people_computers.list",
+        method: "GET",
+        schema: peopleComputersResponseSchema,
+        invalidMessage: "Invalid computers response.",
+      }),
+    getPeopleComputerReplyReadiness: (input) => {
+      const target = peopleComputerTargetSchema.parse(input);
+      return client.requestJson({
+        url: `/v1/people-computers/${encodeURIComponent(target.deviceId)}/lanes/${encodeURIComponent(target.runtimeLane)}/reply-readiness`,
+        operation: "people_computers.reply_readiness.read",
+        method: "GET",
+        schema: currentLocalRuntimeReplyReadinessResponseSchema,
+        invalidMessage: "Invalid computer readiness response.",
+      });
+    },
     getCurrentLocalRuntimeReplyReadiness: async () =>
       await client.requestJson({
         url: CURRENT_LOCAL_RUNTIME_REPLY_READINESS_ROUTE,

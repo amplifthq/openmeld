@@ -1,3 +1,4 @@
+import { peopleComputerContainsDevice as computerContainsDevice } from "@openmeld/agent-runtime";
 import {
   type CreateCurrentDeviceApi,
   createComputerFileAccessApi,
@@ -15,6 +16,7 @@ import type {
   OwnerComputerDiagnostics,
 } from "@openmeld/schemas/types";
 import { resolveBaseUrl } from "../config/base-url";
+import { resolveOpenMeldEnvPreset } from "../config/paths";
 import { readCurrentLocalDeviceId } from "../local-service/state/current-device-identity";
 import { resolveRuntimeContext } from "../runtime/context";
 import { createPresenter } from "../runtime/presenter/index";
@@ -49,23 +51,31 @@ export async function runComputerList(
   const currentDeviceApi = createCurrentDeviceApi(
     createCliApiClientFoundation(gatewayUrl)
   );
-  await syncCurrentComputerObservationIfAvailable({ currentDeviceApi });
-  const response = await currentDeviceApi.listLocalRuntimes({
+  const localDeviceId = await readCurrentLocalDeviceId();
+  const response = await currentDeviceApi.listPeopleComputers({
     includeUsageLimits: "true",
   });
 
   if (presenter.view === "agent") {
     presenter.data({
       code: "computer.list.completed",
-      payload: response,
+      payload: {
+        ...response,
+        computers: response.computers.map((computer) => ({
+          ...computer,
+          isThisComputer:
+            localDeviceId !== null &&
+            computerContainsDevice(computer, localDeviceId),
+        })),
+      },
     });
     return;
   }
 
-  if (response.localRuntimes.length === 0) {
+  if (response.computers.length === 0) {
     presenter.line({
       code: "computer.list.empty",
-      text: "No computers are connected to this account yet. Run `openmeld setup` on a computer to set it up.",
+      text: "No computers are registered to this account yet. Run `openmeld setup` on a computer to connect it.",
     });
     return;
   }
@@ -74,10 +84,25 @@ export async function runComputerList(
     code: "computer.list.completed",
     text: "Computers on your account:",
   });
-  for (const computer of response.localRuntimes) {
+  for (const computer of response.computers) {
     presenter.line({
       code: "computer.list.item",
-      text: formatComputerHumanLine(computer),
+      text: [
+        computer.deviceDisplayName,
+        localDeviceId !== null &&
+        computerContainsDevice(computer, localDeviceId)
+          ? "This computer"
+          : null,
+        {
+          connected: "Connected",
+          disconnected: "Disconnected",
+          unknown: "Connection status unavailable",
+        }[computer.connection.status],
+        formatComputerMetadata(computer),
+        formatLastSeen(computer.lastObservedAtMs),
+      ]
+        .filter(Boolean)
+        .join(" — "),
     });
   }
 }
@@ -99,20 +124,30 @@ export async function runComputerCurrent(
   const apiClient = createCliApiClientFoundation(gatewayUrl);
   const currentDeviceApi = createCurrentDeviceApi(apiClient);
 
-  await syncCurrentComputerObservation({
-    currentDeviceApi,
-    deviceId,
-    now: input.now,
-  });
-
-  const response = await currentDeviceApi.listLocalRuntimes({
+  const inventory = await currentDeviceApi.listLocalRuntimes({
     includeUsageLimits: "true",
   });
+  const target = { deviceId, runtimeLane: resolveOpenMeldEnvPreset() };
+  const response: LocalRuntimesResponse = {
+    ...inventory,
+    currentDeviceId: deviceId,
+    currentRuntimeLane: target.runtimeLane,
+    localRuntimes: inventory.localRuntimes.map((computer) => ({
+      ...computer,
+      isCurrent: computerContainsDevice(computer, deviceId),
+      executionTargets: computer.executionTargets.map((entry) => ({
+        ...entry,
+        isCurrent:
+          entry.deviceId === deviceId &&
+          entry.runtimeLane === target.runtimeLane,
+      })),
+    })),
+  };
   const currentComputer = findLocalRuntime(response, deviceId);
 
   if (input.brief) {
     const readiness =
-      await currentDeviceApi.getCurrentLocalRuntimeReplyReadiness();
+      await currentDeviceApi.getPeopleComputerReplyReadiness(target);
     const payload = buildCurrentComputerBrief({
       currentComputer,
       readiness,
@@ -133,13 +168,14 @@ export async function runComputerCurrent(
       apiClient,
       currentComputer,
       currentDeviceApi,
+      target,
       localRuntimes: response,
     });
     presenter.data({
       code: "computer.current.completed",
       payload: {
         computer: currentComputer,
-        currentDeviceId: response.currentDeviceId,
+        currentDeviceId: deviceId,
         diagnostics,
       },
     });
@@ -202,6 +238,7 @@ function buildCurrentComputerBrief(input: {
 }
 
 async function readCurrentComputerDiagnostics(input: {
+  target: import("@openmeld/schemas/types").PeopleComputerTarget;
   apiClient: ReturnType<typeof createCliApiClientFoundation>;
   currentComputer: LocalRuntimeComputer;
   currentDeviceApi: CurrentDeviceApi;
@@ -209,7 +246,7 @@ async function readCurrentComputerDiagnostics(input: {
 }): Promise<OwnerComputerDiagnostics> {
   const [currentLocalRuntimeReplyReadiness, currentComputerFileAccess] =
     await Promise.all([
-      input.currentDeviceApi.getCurrentLocalRuntimeReplyReadiness(),
+      input.currentDeviceApi.getPeopleComputerReplyReadiness(input.target),
       readCurrentComputerFileAccessSummary({
         apiClient: input.apiClient,
         currentComputer: input.currentComputer,
@@ -331,8 +368,8 @@ function findLocalRuntime(
   response: LocalRuntimesResponse,
   deviceId: string
 ): LocalRuntimesResponse["localRuntimes"][number] {
-  const runtime = response.localRuntimes.find(
-    (entry) => entry.deviceId === deviceId
+  const runtime = response.localRuntimes.find((entry) =>
+    computerContainsDevice(entry, deviceId)
   );
 
   if (!runtime) {
@@ -342,21 +379,6 @@ function findLocalRuntime(
   }
 
   return runtime;
-}
-
-async function syncCurrentComputerObservationIfAvailable(input: {
-  currentDeviceApi: CurrentDeviceApi;
-}): Promise<void> {
-  const deviceId = await readCurrentLocalDeviceId();
-
-  if (!deviceId) {
-    return;
-  }
-
-  await syncCurrentComputerObservation({
-    currentDeviceApi: input.currentDeviceApi,
-    deviceId,
-  });
 }
 
 async function syncCurrentComputerObservation(input: {
@@ -381,7 +403,12 @@ function formatComputerHumanLine(computer: LocalRuntimeComputer): string {
     .join(" — ");
 }
 
-function formatComputerMetadata(computer: LocalRuntimeComputer): string {
+function formatComputerMetadata(
+  computer: Pick<
+    LocalRuntimeComputer,
+    "deviceType" | "osVersion" | "platformFamily"
+  >
+): string {
   return [
     formatDeviceType(computer.deviceType),
     computer.osVersion

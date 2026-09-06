@@ -6,6 +6,8 @@ import type {
 	CurrentLocalAgentInstallationsResponse,
 	CurrentLocalRuntimeReplyReadinessResponse,
 	LocalRuntimesResponse,
+	PeopleComputersResponse,
+	PeopleComputerTarget,
 	RefreshCurrentLocalAgentCatalogResponse,
 	RequestCurrentOpenMeldToolsUpdateResponse,
 	SelectCurrentLocalAgentInstallationResponse,
@@ -14,14 +16,54 @@ import type {
 } from "@openmeld/schemas";
 import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
-export async function readLocalRuntimes(): Promise<LocalRuntimesResponse> {
+export type PeopleComputerInventory = LocalRuntimesResponse & {
+	peopleComputers: PeopleComputersResponse;
+};
+
+export async function readLocalRuntimes(): Promise<PeopleComputerInventory> {
+	try {
+		const api = createCurrentDeviceApi(
+			createUnscopedWebOpenMeldApiFoundation()
+		);
+		const [peopleComputers, routingPreference] = await Promise.all([
+			api.listPeopleComputers({ includeUsageLimits: "true" }),
+			api.getCurrentTarget(),
+		]);
+		const target =
+			routingPreference.availability === "resolved" ? routingPreference : null;
+		// Rendering adapter for the existing local-agent controls. isCurrent here
+		// means only the account's routing preference, never this browser's machine.
+		// All live connection facts remain in the Core PeopleComputers snapshot.
+		return {
+			peopleComputers,
+			currentDeviceId: target?.deviceId ?? null,
+			currentRuntimeLane: target?.runtimeLane ?? null,
+			localRuntimes: peopleComputers.computers.map((computer) => ({
+				...computer,
+				isCurrent:
+					target !== null &&
+					(computer.deviceId === target.deviceId ||
+						computer.legacyDeviceIds?.includes(target.deviceId) === true),
+				executionTargets: computer.executionTargets.map((entry) => ({
+					...entry,
+					isCurrent:
+						entry.deviceId === target?.deviceId &&
+						entry.runtimeLane === target?.runtimeLane,
+				})),
+			})),
+		};
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function readPeopleComputerReplyReadiness(
+	target: PeopleComputerTarget
+): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
 	try {
 		return await createCurrentDeviceApi(
 			createUnscopedWebOpenMeldApiFoundation()
-		).listLocalRuntimes({
-			connectionIdentityAdoption: "safe_legacy_current",
-			includeUsageLimits: "true",
-		});
+		).getPeopleComputerReplyReadiness(target);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}

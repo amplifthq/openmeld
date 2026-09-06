@@ -606,15 +606,11 @@ function resolveLocalAgentsCatalogState(input: {
 		input.replyReadiness
 	);
 	const checking =
-		input.isCurrentComputer &&
-		(input.isReconcilingStatus ||
-			!input.replyReadiness ||
-			input.replyReadiness.status === "checking");
-	// Non-current computers expose historical reports, not live readiness.
+		input.isReconcilingStatus ||
+		!input.replyReadiness ||
+		input.replyReadiness.status === "checking";
 	const connectionStatus: LocalAgentCatalogRowSummaryStatus | null =
-		input.isCurrentComputer
-			? resolveLocalAgentConnectionStatus(checking, serviceDependency)
-			: { label: "Status not current", tone: "muted" };
+		resolveLocalAgentConnectionStatus(checking, serviceDependency);
 	const usesCatalogRowsForLocalAgentSetup =
 		input.isCurrentComputer && usesLocalAgentCatalogRowsForSetup(target);
 	const notice = resolveLocalAgentsCatalogNotice({
