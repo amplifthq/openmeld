@@ -170,6 +170,9 @@ export function AppOuterRail({
 							))}
 						</div>
 						<SidebarContent
+							className={
+								contextualNavigation && mode !== "icon" ? "mt-4" : undefined
+							}
 							contentClassName="px-2 pb-2"
 							viewportProps={{
 								onScroll: (event) =>
@@ -181,7 +184,7 @@ export function AppOuterRail({
 							viewportRef={restoreSidebarScroll}
 						>
 							{contextualNavigation && mode !== "icon" ? (
-								<div className="mt-4 min-w-0" data-slot="main-sidebar-context">
+								<div className="min-w-0" data-slot="main-sidebar-context">
 									{contextualNavigation}
 								</div>
 							) : null}
