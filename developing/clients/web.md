@@ -3683,6 +3683,10 @@ outcomes keep their original request context. Active rows expose a request link
 and reuse the shared status, Orb, preview, and Stop controls, without message
 timestamps or publication actions. Missing source history does not hide a Wake
 whose authoritative source context proves its conversation scope.
+Core-published native failure and cancellation text (`remote_agent_failure`)
+replaces its exact submission's temporary stream, just as a successful final
+reply does. A late or stale stream must not retain a working or failed bubble
+beside that durable outcome. Other submissions remain visible.
 All Web progress reads request `includeSourceContext=true`. Thread rendering
 uses the same recovered presentation snapshot as the main conversation, filtered
 to its own Thread; the root message does not import main-conversation controls.

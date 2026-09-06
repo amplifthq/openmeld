@@ -517,6 +517,9 @@ the connected provider API.
    `remote_agent.execution_cancelled` through Core's native-delivery authority:
    this is the stop confirmation, not a late answer. Agent-authored metadata
    cannot grant that authority, and other late failures remain rejected.
+   Confirmed cancellation also closes the public reply stream as `stopped`,
+   not `failed`. Its durable confirmation supersedes that exact submission's
+   temporary stream in Web, including after reconnect or callback retries.
    This closes the last stop-versus-publication race without making the Remote Agent a workstation
    runtime or giving it a RuntimeCoordinator execution.
 4. **Pinned version.** Flue is consumed at the exact version frozen by spike
