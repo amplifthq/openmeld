@@ -377,6 +377,7 @@ function useActiveWakeTargetProfileIds(
 }
 
 type SpaceLandingInput = {
+	conversationControl?: ReactNode;
 	accountProfiles?: readonly AuthProfileView[];
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
 	currentUserAvatarImageUrl?: string | null;
@@ -523,6 +524,9 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	);
 	const controller = useSpaceLandingController({
 		...input,
+		centerAgentProfileId: currentSpaceIsCenterAgentDirectMessage
+			? centerAgentState.centerAgentProfileId
+			: null,
 		onViewedThroughTs: (throughOccurredAtMs) =>
 			spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
 		unreadStateReady: spaceInboxReadPosition.isReady,
@@ -1677,7 +1681,12 @@ function SpaceLandingReady({
 							leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
 							liveErrorMessage={controller.liveErrorMessage}
 							liveState={controller.liveState}
-							managementControl={managementControl}
+							managementControl={
+								<>
+									{input.conversationControl}
+									{managementControl}
+								</>
+							}
 							membersControl={membersControl}
 							menuItems={
 								currentSpaceIsCenterAgentDirectMessage
@@ -1998,8 +2007,7 @@ function SpaceLandingConversation({
 		spaceInboxReadPosition,
 		wakeFailureTargetContextsByProfileId,
 	} = state;
-	let readOnlyComposerPlaceholder =
-		"Write a message while OpenMeld checks access…";
+	let readOnlyComposerPlaceholder: string | undefined;
 	if (agentOwnerDirectMessageObserver) {
 		readOnlyComposerPlaceholder = `You can view this Direct Message because you own ${agentOwnerDirectMessageObserver.agentProfileName}. Join to participate.`;
 	} else if (controller.isCurrentAccessConfirmed) {
@@ -2012,6 +2020,7 @@ function SpaceLandingConversation({
 			agentDirectConversationKind={agentDirectConversationKind}
 			agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
 			allowedActions={controller.status.allowedActions}
+			allowSendWhileAccessSettles={!controller.isCurrentAccessConfirmed}
 			centerAgentProfileId={centerAgentState.centerAgentProfileId}
 			className="min-w-0"
 			composerAddressingTargets={controller.composerAddressingTargets}
@@ -2120,10 +2129,9 @@ function SpaceLandingConversation({
 				isLoadingEarlierHistory: controller.isLoadingEarlierHistory,
 				isPersonalContext: input.isPersonalContext === true,
 				isSendingMessage: controller.isSendingMessage,
-				readOnly: !(
+				readOnly:
 					controller.isCurrentAccessConfirmed &&
-					currentProfileIsActiveSpaceMember
-				),
+					!currentProfileIsActiveSpaceMember,
 				threadsIsLoading: controller.threadsIsLoading,
 				unreadStateReady: controller.unreadStateReady,
 			}}

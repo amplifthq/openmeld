@@ -23,6 +23,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useSortableSidebarGroup } from "./sidebar-drag";
 
 const SidebarGroupRenameContext = createContext<(() => void) | null>(null);
 export function useSidebarGroupRename() {
@@ -85,6 +86,7 @@ export function AppSidebarGroupStateProvider({
 }
 
 export function AppSidebarGroup(input: {
+	reorderId?: string;
 	onRename?: (name: string) => void;
 	children: ReactNode;
 	contentAriaLabel?: string;
@@ -98,6 +100,7 @@ export function AppSidebarGroup(input: {
 	labelTooltip?: string;
 }) {
 	const [editing, setEditing] = useState(false);
+	const drag = useSortableSidebarGroup(input.reorderId, input.labelText);
 	const [draft, setDraft] = useState(input.labelText);
 	const editingRef = useRef(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
@@ -139,6 +142,7 @@ export function AppSidebarGroup(input: {
 
 	const trigger = (
 		<Collapsible.Trigger
+			{...drag.rowProps}
 			aria-label={input.labelText}
 			className="group/sidebar-group-trigger inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
 			ref={triggerRef}
@@ -188,6 +192,8 @@ export function AppSidebarGroup(input: {
 			<Collapsible.Root
 				className="group/sidebar-group-root"
 				data-sidebar-group-id={input.groupId}
+				ref={drag.ref}
+				style={drag.style}
 				{...rootStateProps}
 			>
 				<SidebarGroup className={input.groupClassName}>

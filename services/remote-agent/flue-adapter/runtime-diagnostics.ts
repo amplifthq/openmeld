@@ -35,12 +35,12 @@ export async function readRemoteAgentRuntimeDiagnostics(input: {
           canonical_ready_at,
           attempt_id,
           input_applied_at,
-          recovery_requested_at,
+          joined_into,
           abort_requested_at,
           started_at,
           settled_at,
           attempt_count,
-          max_retry,
+          max_attempts,
           timeout_at,
           owner_id,
           lease_expires_at
@@ -59,30 +59,15 @@ export async function readRemoteAgentRuntimeDiagnostics(input: {
       inputAppliedAtMs: nullableNumber(row.input_applied_at),
       kind: requiredString(row.kind),
       leaseExpiresAtMs: requiredNumber(row.lease_expires_at),
-      maxRetry: requiredNumber(row.max_retry),
+      maxAttempts: requiredNumber(row.max_attempts),
       ownerId: nullableString(row.owner_id),
-      recoveryRequestedAtMs: nullableNumber(row.recovery_requested_at),
+      joinedInto: nullableString(row.joined_into),
       sequence: requiredNumber(row.sequence),
       settledAtMs: nullableNumber(row.settled_at),
       startedAtMs: nullableNumber(row.started_at),
       status: requiredString(row.status),
       submissionId: requiredString(row.submission_id),
       timeoutAtMs: requiredNumber(row.timeout_at),
-    }));
-  const attemptMarkers = input.sql
-    .exec(
-      `
-        SELECT submission_id, attempt_id, created_at
-        FROM flue_agent_attempt_markers
-        ORDER BY created_at DESC
-        LIMIT ${RUNTIME_DIAGNOSTIC_ROW_LIMIT}
-      `
-    )
-    .toArray()
-    .map((row) => ({
-      attemptId: requiredString(row.attempt_id),
-      createdAtMs: requiredNumber(row.created_at),
-      submissionId: requiredString(row.submission_id),
     }));
   const activeRuns = input.sql
     .exec(
@@ -220,7 +205,6 @@ export async function readRemoteAgentRuntimeDiagnostics(input: {
 
   return remoteAgentWorkerRuntimeDiagnosticsResponseSchema.parse({
     activeRuns,
-    attemptMarkers,
     callbackContexts,
     collectedAt: new Date(nowMs).toISOString(),
     durableObjectAlarmAtMs: await input.getAlarmAtMs(),
@@ -229,7 +213,7 @@ export async function readRemoteAgentRuntimeDiagnostics(input: {
     spaceId: input.spaceId,
     submissions,
     turnObservability,
-    v: 1,
+    v: 2,
   });
 }
 

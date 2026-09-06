@@ -49,11 +49,11 @@ export function resolveAccountSpaceTrailingStatus(input: {
 	hasUnread: boolean;
 	isPinned: boolean;
 }): AccountSpaceTrailingStatus {
-	if (input.hasUnread) {
-		return "unread";
-	}
 	if (input.hasActiveWake) {
 		return "working";
+	}
+	if (input.hasUnread) {
+		return "unread";
 	}
 	if (input.isPinned) {
 		return "pinned";

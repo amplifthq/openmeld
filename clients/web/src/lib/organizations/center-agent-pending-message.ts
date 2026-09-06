@@ -4,6 +4,7 @@ import type { PendingSpaceMessage } from "#/lib/spaces/pending-message";
 export type PendingCenterAgentMessage = PendingSpaceMessage;
 
 export type CenterAgentPendingMessageScope = {
+	sessionId?: string;
 	organizationId?: string;
 	organizationSlug: string;
 };
@@ -16,6 +17,7 @@ const centerAgentPendingMessageKeys = {
 			...centerAgentPendingMessageKeys.all,
 			scope.organizationId ? "organization-id" : "organization-slug",
 			scope.organizationId ?? scope.organizationSlug,
+			...(scope.sessionId === undefined ? [] : ["session", scope.sessionId]),
 		] as const,
 };
 
@@ -51,9 +53,11 @@ export function activateCenterAgentPendingMessageScope(
 	}
 
 	if (!isSamePendingMessageScope(activeScope, normalizedScope)) {
-		queryClient.removeQueries({
-			queryKey: centerAgentPendingMessageKeys.all,
-		});
+		if (!isSameOrganization(activeScope, normalizedScope)) {
+			queryClient.removeQueries({
+				queryKey: centerAgentPendingMessageKeys.all,
+			});
+		}
 		queryClient.setQueryData(
 			centerAgentPendingMessageKeys.activeScope,
 			normalizedScope
@@ -156,11 +160,19 @@ function normalizePendingMessageScope(
 	const organizationId = scope.organizationId?.trim();
 	return {
 		organizationSlug,
+		...(scope.sessionId === undefined ? {} : { sessionId: scope.sessionId }),
 		...(organizationId ? { organizationId } : {}),
 	};
 }
 
 function isSamePendingMessageScope(
+	left: CenterAgentPendingMessageScope,
+	right: CenterAgentPendingMessageScope
+): boolean {
+	return left.sessionId === right.sessionId && isSameOrganization(left, right);
+}
+
+function isSameOrganization(
 	left: CenterAgentPendingMessageScope,
 	right: CenterAgentPendingMessageScope
 ): boolean {

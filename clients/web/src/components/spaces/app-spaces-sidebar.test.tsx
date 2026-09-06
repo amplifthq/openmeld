@@ -35,6 +35,34 @@ import {
 const OTHER_JOINED_PROFILE_TEXT = /Other joined profile/;
 const BROWSE_SPACES_TEXT = /Browse Spaces/;
 
+vi.mock("../app/use-sidebar-preferences", () => ({
+	useSidebarPreferences: () => ({
+		preferences: {
+			pinned: { sort: "priority", spaceIds: [] },
+			spaces: { sort: "priority", spaceIds: [] },
+			groups: [],
+		},
+		isPending: false,
+		disabled: false,
+		save: vi.fn(),
+	}),
+}));
+
+vi.mock("./direct-message-preview", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("./direct-message-preview")>();
+	return {
+		...actual,
+		spaceMessagePreviewQueryOptions: (
+			input: Parameters<typeof actual.spaceMessagePreviewQueryOptions>[0]
+		) => ({
+			...actual.spaceMessagePreviewQueryOptions(input),
+			initialData: null,
+			queryFn: () => Promise.resolve(null),
+		}),
+	};
+});
+
 function WakeProgressProjectionPublisher(input: {
 	items: readonly WakeProgressItem[];
 }) {
@@ -671,7 +699,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeNull();
 	});
 
-	it("keeps an empty pinned section available as a drag destination", async () => {
+	it("hides the pinned section when no Spaces are pinned", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -689,7 +717,7 @@ describe("AppSpacesSidebar", () => {
 		expect(await screen.findByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
 			screen.queryByRole("heading", { level: 2, name: "Pinned" })
-		).toBeTruthy();
+		).toBeNull();
 	});
 
 	it("hides legacy welcoming spaces from the sidebar", async () => {
@@ -873,7 +901,7 @@ describe("AppSpacesSidebar", () => {
 		expect(screen.queryByRole("button", { name: "Beta Project" })).toBeNull();
 		expect(
 			screen.queryByRole("heading", { level: 2, name: "Pinned" })
-		).toBeTruthy();
+		).toBeNull();
 		expect(screen.queryByText("Welcoming")).toBeNull();
 	});
 
@@ -1002,7 +1030,9 @@ describe("AppSpacesSidebar", () => {
 		);
 		const pinButton = screen.getByRole("button", { name: "Pin Alpha" });
 
-		expect(spaceRow?.classList.contains("@container/space-item")).toBe(true);
+		expect(spaceRow?.classList.contains("@container/conversation-row")).toBe(
+			true
+		);
 		expect(openSpaceButton?.classList.contains("pr-10")).toBe(false);
 		expect(spaceName?.classList.contains("pr-10")).toBe(false);
 		expect(spaceName?.classList.contains("@[13rem]/space-item:pr-10")).toBe(
@@ -1014,12 +1044,7 @@ describe("AppSpacesSidebar", () => {
 		expect(nameAndDate?.classList.contains("items-center")).toBe(true);
 		expect(nameAndDate?.classList.contains("gap-px")).toBe(true);
 		expect(openSpaceButton.classList.contains("items-center")).toBe(true);
-		expect(timestamp?.classList.contains("absolute")).toBe(false);
-		expect(timestamp?.classList.contains("shrink-0")).toBe(true);
-		expect(timestamp?.classList.contains("hidden")).toBe(true);
-		expect(
-			timestamp?.classList.contains("@[13rem]/space-item:inline-flex")
-		).toBe(true);
+		expect(timestamp).toBeNull();
 		expect(pinButton.classList.contains("top-1.5")).toBe(true);
 		expect(pinButton.classList.contains("top-1/2")).toBe(false);
 		expect(pinButton.classList.contains("hover:bg-sidebar-accent")).toBe(true);
@@ -1603,7 +1628,43 @@ describe("AppSpacesSidebar", () => {
 		expect(pinButton.classList.contains("right-9")).toBe(true);
 	});
 
-	it("orders unread, working, and persistent pin states while keeping status visible on hover", async () => {
+	it("waits for initial activity evidence instead of showing a temporary idle ordering", async () => {
+		let release: () => void = () => undefined;
+		const pending = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		getAccountSpaceActiveWakeSummaryMock.mockImplementation(async () => {
+			await pending;
+			return { generatedAtMs: Date.now(), items: [] };
+		});
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					spaceId: "space-loading",
+					spaceName: "Waiting for activity",
+				}),
+			],
+		});
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+		await waitFor(() =>
+			expect(getAccountSpaceActiveWakeSummaryMock).toHaveBeenCalled()
+		);
+		expect(
+			screen.queryByRole("link", { name: "Waiting for activity" })
+		).toBeNull();
+		await act(async () => {
+			release();
+			await pending;
+		});
+		expect(
+			await screen.findByRole("link", { name: "Waiting for activity" })
+		).toBeTruthy();
+	});
+
+	it("keeps active Wake status visible ahead of unread while retaining unread semantics", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1661,10 +1722,10 @@ describe("AppSpacesSidebar", () => {
 		const workingUnreadIndicator = workingRow?.querySelector<HTMLElement>(
 			'[data-space-unread-indicator="true"]'
 		);
-		expect(workingUnreadIndicator).toBeTruthy();
+		expect(workingUnreadIndicator).toBeNull();
 		expect(
 			workingRow?.querySelector('[data-space-active-wake-orb="true"]')
-		).toBeNull();
+		).toBeTruthy();
 
 		const unreadIndicator = unreadRow?.querySelector<HTMLElement>(
 			'[data-space-unread-indicator="true"]'

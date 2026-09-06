@@ -2,6 +2,7 @@ import type { PeopleSidebarPreferences } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
+	DropdownMenuCheckboxItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import {
@@ -21,7 +22,9 @@ import {
 	SidebarDropSection,
 	useSortableSidebarItem,
 } from "../app/sidebar-drag";
+import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
+import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
@@ -39,7 +42,7 @@ import {
 const FILTERS = [
 	["all", "All people"],
 	["connected", "Computer connected"],
-	["offline", "Computer offline"],
+	["offline", "Computer disconnected"],
 	["unconnected", "No computer connected"],
 	["unknown", "Status needs checking"],
 ] as const;
@@ -67,6 +70,14 @@ export function PeopleSidebar(input: {
 	const preferences = sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR;
 	const [search, setSearch] = useState("");
 	const [filter, setFilter] = useState<PeopleFilter>("all");
+	const [recentlyActive, setRecentlyActive] = useState(false);
+	const groupFilter = useSidebarGroupFilter([
+		{ id: "starred", label: "Starred" },
+		...preferences.groups.map((g) => ({ id: g.id, label: g.name })),
+		{ id: "connected", label: "Connected" },
+		{ id: "not-connected", label: "Not connected" },
+		{ id: "unknown", label: "Status needs checking" },
+	]);
 	const { presentation } = useAppNavigationPresentation();
 	const computers = useMemo(
 		() => new Map(input.computerGroups.map((g) => [g.ownerUserId, g])),
@@ -85,9 +96,14 @@ export function PeopleSidebar(input: {
 					`${member.name} ${member.email ?? ""}`
 						.toLocaleLowerCase()
 						.includes(query)) &&
-				(filter === "all" || peopleConnectionFilter(member) === filter)
+				(filter === "all" || peopleConnectionFilter(member) === filter) &&
+				(!recentlyActive ||
+					(member.profileStatus === "active" &&
+						member.lastActiveAt !== null &&
+						Date.parse(member.lastActiveAt) <= input.activityNowMs &&
+						input.activityNowMs - Date.parse(member.lastActiveAt) < 300_000))
 		);
-	}, [input.members, search, filter]);
+	}, [input.members, input.activityNowMs, search, filter, recentlyActive]);
 	const assigned = new Set([
 		...preferences.starred.itemIds,
 		...preferences.groups.flatMap((g) => g.itemIds),
@@ -95,7 +111,7 @@ export function PeopleSidebar(input: {
 	const starred = new Set(preferences.starred.itemIds);
 	const remaining = filtered.filter((m) => !assigned.has(m.id));
 	const sections = [
-		...(input.members.length
+		...(filtered.some((member) => starred.has(member.id))
 			? [
 					{
 						id: "starred",
@@ -134,7 +150,7 @@ export function PeopleSidebar(input: {
 				),
 			},
 		]
-			.filter((s) => s.id !== "unknown" || s.members.length > 0)
+			.filter((s) => s.members.length > 0)
 			.map((s) => ({ ...s, settings: preferences.people })),
 	];
 	const visible = new Map<string, readonly string[]>();
@@ -158,136 +174,151 @@ export function PeopleSidebar(input: {
 			);
 		}
 	};
-	const groups = sections.map((section) => {
-		const members = sortSidebarPeople(section.members, section.settings);
-		visible.set(
-			section.id,
-			members.map((m) => m.id)
-		);
-		const defaultSection = ["connected", "not-connected", "unknown"].includes(
-			section.id
-		);
-		const setSort = (sort: PeopleSidebarPreferences["people"]["sort"]) => {
-			if (section.id === "starred" || defaultSection) {
-				save({
-					...preferences,
-					[defaultSection ? "people" : section.id]: {
-						...section.settings,
-						sort,
-					},
-				});
-			} else {
-				save({
-					...preferences,
-					groups: preferences.groups.map((g) =>
-						g.id === section.id ? { ...g, sort } : g
-					),
-				});
-			}
-		};
-		return {
-			id: section.id,
-			label: section.label,
-			onRename: preferences.groups.some((group) => group.id === section.id)
-				? (name: string) =>
-						save({
-							...preferences,
-							groups: preferences.groups.map((group) =>
-								group.id === section.id ? { ...group, name } : group
-							),
-						})
-				: undefined,
-			labelTooltip: new Map([
-				["connected", "Computer connected"],
-				["not-connected", "Computer not connected"],
-			]).get(section.id),
-			ariaLabel: section.label,
-			labelAccessory: (
-				<SidebarSectionActions
-					disabled={sidebar.disabled}
-					label={section.label}
-					onDelete={
-						!defaultSection && section.id !== "starred"
-							? () =>
-									save({
-										...preferences,
-										groups: preferences.groups.filter(
-											(g) => g.id !== section.id
-										),
-									})
-							: undefined
-					}
-					onNewGroup={
-						section.id === "connected"
-							? (name) =>
-									save({
-										...preferences,
-										groups: [
-											...preferences.groups,
-											{
-												id: crypto.randomUUID(),
-												name,
-												sort: "manual",
-												itemIds: [],
-											},
-										],
-									})
-							: undefined
-					}
-					onSort={setSort}
-					sort={section.settings.sort}
-					sortOptions={SORTS}
-				/>
-			),
-			content: (
-				<SidebarDropSection ids={members.map((m) => m.id)} section={section.id}>
-					<FluidNavMenu
-						activeLayoutId={`secondary-sidebar-selection-${presentation}`}
-						activeValue={input.selectedProfileId}
-						aria-label={section.label}
-						className="[&_[data-sidebar=menu]]:gap-0.5"
+	const groups = sections
+		.filter(
+			(section) =>
+				groupFilter.includes(section.id) &&
+				(!(
+					search.trim() ||
+					filter !== "all" ||
+					recentlyActive ||
+					groupFilter.selected.length > 0
+				) ||
+					section.members.length > 0)
+		)
+		.map((section, sectionIndex) => {
+			const members = sortSidebarPeople(section.members, section.settings);
+			visible.set(
+				section.id,
+				members.map((m) => m.id)
+			);
+			const defaultSection = ["connected", "not-connected", "unknown"].includes(
+				section.id
+			);
+			const setSort = (sort: PeopleSidebarPreferences["people"]["sort"]) => {
+				if (section.id === "starred" || defaultSection) {
+					save({
+						...preferences,
+						[defaultSection ? "people" : section.id]: {
+							...section.settings,
+							sort,
+						},
+					});
+				} else {
+					save({
+						...preferences,
+						groups: preferences.groups.map((g) =>
+							g.id === section.id ? { ...g, sort } : g
+						),
+					});
+				}
+			};
+			return {
+				id: section.id,
+				label: section.label,
+				onRename: preferences.groups.some((group) => group.id === section.id)
+					? (name: string) =>
+							save({
+								...preferences,
+								groups: preferences.groups.map((group) =>
+									group.id === section.id ? { ...group, name } : group
+								),
+							})
+					: undefined,
+				labelTooltip: new Map([
+					["connected", "Computer connected"],
+					["not-connected", "No computer connected"],
+				]).get(section.id),
+				ariaLabel: section.label,
+				labelAccessory: (
+					<SidebarSectionActions
+						disabled={sidebar.disabled}
+						label={section.label}
+						onDelete={
+							!defaultSection && section.id !== "starred"
+								? () =>
+										save({
+											...preferences,
+											groups: preferences.groups.filter(
+												(g) => g.id !== section.id
+											),
+										})
+								: undefined
+						}
+						onNewGroup={
+							sectionIndex === 0
+								? (name) =>
+										save({
+											...preferences,
+											groups: [
+												...preferences.groups,
+												{
+													id: crypto.randomUUID(),
+													name,
+													sort: "priority",
+													itemIds: [],
+												},
+											],
+										})
+								: undefined
+						}
+						onSort={setSort}
+						sort={section.settings.sort}
+						sortOptions={SORTS}
+					/>
+				),
+				content: (
+					<SidebarDropSection
+						ids={members.map((m) => m.id)}
+						section={section.id}
 					>
-						{members.map((member, index) => (
-							<SortablePerson
-								actionsDisabled={sidebar.disabled || input.chatPending}
-								activityNowMs={input.activityNowMs}
-								computerGroup={computers.get(member.userId) ?? null}
-								disabled={sidebar.disabled}
-								index={index}
-								isActive={input.selectedProfileId === member.id}
-								key={member.id}
-								member={member}
-								onChat={
-									member.profileStatus === "active" && !member.isCurrentUser
-										? () => {
-												input
-													.onChat(member.id)
-													.catch((error) =>
-														toast.error(
-															error instanceof Error
-																? error.message
-																: "Unable to open this conversation. Try again."
-														)
-													);
-											}
-										: undefined
-								}
-								onSelect={input.onSelect}
-								onToggleStar={() => toggleStar(member.id)}
-								section={section.id}
-								starred={starred.has(member.id)}
-							/>
-						))}
-					</FluidNavMenu>
-					{members.length === 0 && (
-						<p className="px-2 py-2 text-muted-foreground text-xs">
-							{defaultSection ? "No people match." : "Drag people here."}
-						</p>
-					)}
-				</SidebarDropSection>
-			),
-		};
-	});
+						<FluidNavMenu
+							activeLayoutId={`secondary-sidebar-selection-${presentation}`}
+							activeValue={input.selectedProfileId}
+							aria-label={section.label}
+							className="[&_[data-sidebar=menu]]:gap-0.5"
+						>
+							{members.map((member, index) => (
+								<SortablePerson
+									actionsDisabled={sidebar.disabled || input.chatPending}
+									activityNowMs={input.activityNowMs}
+									computerGroup={computers.get(member.userId) ?? null}
+									disabled={sidebar.disabled}
+									index={index}
+									isActive={input.selectedProfileId === member.id}
+									key={member.id}
+									member={member}
+									onChat={
+										member.profileStatus === "active" && !member.isCurrentUser
+											? () => {
+													input
+														.onChat(member.id)
+														.catch((error) =>
+															toast.error(
+																error instanceof Error
+																	? error.message
+																	: "Unable to open this conversation. Try again."
+															)
+														);
+												}
+											: undefined
+									}
+									onSelect={input.onSelect}
+									onToggleStar={() => toggleStar(member.id)}
+									section={section.id}
+									starred={starred.has(member.id)}
+								/>
+							))}
+						</FluidNavMenu>
+						{members.length === 0 && (
+							<p className="px-2 py-2 text-muted-foreground text-xs">
+								{defaultSection ? "No people match." : "Drag people here."}
+							</p>
+						)}
+					</SidebarDropSection>
+				),
+			};
+		});
 	return (
 		<SidebarDrag
 			canDrop={(itemId, section) => {
@@ -305,6 +336,9 @@ export function PeopleSidebar(input: {
 						["offline", "unconnected"].includes(connection))
 				);
 			}}
+			groupIds={
+				sidebar.disabled ? [] : preferences.groups.map((group) => group.id)
+			}
 			onMove={(section, id, before) => {
 				if (!sidebar.disabled) {
 					save(
@@ -320,6 +354,12 @@ export function PeopleSidebar(input: {
 					);
 				}
 			}}
+			onMoveGroup={(id, before) =>
+				save({
+					...preferences,
+					groups: moveSidebarGroup(preferences.groups, id, before),
+				})
+			}
 		>
 			<AppContextualSidebarNav
 				activeItemId={input.selectedProfileId}
@@ -341,7 +381,9 @@ export function PeopleSidebar(input: {
 											<Button
 												aria-label="Filter people"
 												className={
-													filter !== "all"
+													filter !== "all" ||
+													recentlyActive ||
+													groupFilter.selected.length > 0
 														? "size-6 text-primary [&_svg]:size-3.5"
 														: "size-6 text-muted-foreground [&_svg]:size-3.5"
 												}
@@ -372,6 +414,13 @@ export function PeopleSidebar(input: {
 												)}
 											</FluidDropdownMenuItem>
 										))}
+										<DropdownMenuCheckboxItem
+											checked={recentlyActive}
+											onCheckedChange={setRecentlyActive}
+										>
+											Active in last 5 minutes
+										</DropdownMenuCheckboxItem>
+										{groupFilter.menu}
 									</FluidDropdownMenuContent>
 								</DropdownMenu>
 							</SidebarDestinationAction>
@@ -386,6 +435,15 @@ export function PeopleSidebar(input: {
 								/>
 							</div>
 						)}
+						{groupFilter.badges}
+						{recentlyActive && (
+							<div className="px-1 pt-1">
+								<SidebarFilterBadge
+									label="Active in last 5 minutes"
+									onRemove={() => setRecentlyActive(false)}
+								/>
+							</div>
+						)}
 						{sidebar.isError && (
 							<Button onClick={() => sidebar.retry()} size="sm" variant="ghost">
 								Retry sidebar settings
@@ -394,6 +452,23 @@ export function PeopleSidebar(input: {
 						{input.loading && (
 							<p className="px-2 py-3 text-muted-foreground text-xs">
 								Loading people…
+							</p>
+						)}
+						{!(
+							input.loading ||
+							input.error ||
+							sections.some(
+								(section) =>
+									groupFilter.includes(section.id) && section.members.length > 0
+							)
+						) && (
+							<p className="px-2 py-2 text-muted-foreground text-xs">
+								{search.trim() ||
+								filter !== "all" ||
+								recentlyActive ||
+								groupFilter.selected.length > 0
+									? "No people match your search or filters."
+									: "No people yet."}
 							</p>
 						)}
 						{input.error && (

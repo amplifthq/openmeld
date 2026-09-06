@@ -1,5 +1,6 @@
 import type { FlueObservation } from "@flue/runtime";
 import type { AgentStreamToolPart } from "@openmeld/schemas/types";
+import { isRemoteAgentDestructiveConfirmationResult } from "../agent-core/destructive-authorization";
 import { resolveRemoteAgentToolWorkActivity } from "./tool-work-activity";
 
 export type FlueStreamDelta = {
@@ -14,6 +15,7 @@ export type FlueToolLifecyclePart = {
   organizationSkillName?: string;
   part: AgentStreamToolPart;
   submissionId: string;
+  workOutcome?: "confirmation_required";
 };
 
 export function extractFlueToolLifecyclePart(
@@ -27,10 +29,19 @@ export function extractFlueToolLifecyclePart(
     return null;
   }
   const observedAtMs = Date.parse(event.timestamp);
-  const work = resolveRemoteAgentToolWorkActivity(event.toolName, event.args);
+  const toolOutput = readFlueToolOutput(event);
+  const work = resolveRemoteAgentToolWorkActivity(
+    event.toolName,
+    event.args,
+    toolOutput
+  );
   return {
     observedAtMs: Number.isFinite(observedAtMs) ? observedAtMs : Date.now(),
     ...readActivatedOrganizationSkillName(event),
+    ...(event.type === "tool" &&
+    isRemoteAgentDestructiveConfirmationResult(toolOutput)
+      ? { workOutcome: "confirmation_required" as const }
+      : {}),
     submissionId: event.submissionId,
     part: {
       type: "tool",
@@ -40,6 +51,24 @@ export function extractFlueToolLifecyclePart(
       ...(work ? { work } : {}),
     },
   };
+}
+
+function readFlueToolOutput(
+  event: Extract<FlueObservation, { type: "tool" | "tool_start" }>
+): unknown {
+  if (
+    event.type !== "tool" ||
+    !event.result ||
+    typeof event.result !== "object"
+  ) {
+    return undefined;
+  }
+  // Flue 2 custom tools publish Pi's structured result envelope. The content
+  // array is model-facing text; only details.output is the authored tool value.
+  const details = (event.result as { details?: unknown }).details;
+  return details && typeof details === "object" && "output" in details
+    ? details.output
+    : undefined;
 }
 
 function readActivatedOrganizationSkillName(

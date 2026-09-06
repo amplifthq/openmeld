@@ -46,9 +46,11 @@ export type SpaceMemberAppearance = {
 export function SpaceMemberAvatars(input: {
 	members: NonNullable<AccountSpaceIndexItem["memberPreviews"]>;
 	appearances?: ReadonlyMap<string, SpaceMemberAppearance>;
+	layout?: "compact" | "horizontal";
 }) {
-	const members = input.members.slice(0, 3);
-	const size = members.length === 1 ? 20 : 12;
+	const horizontal = input.layout === "horizontal";
+	const members = input.members.slice(0, horizontal ? 5 : 3);
+	const size = horizontal || members.length === 1 ? 20 : 12;
 	let positions = ["inset-0"];
 	if (members.length === 3) {
 		positions = TRIANGLE_POSITIONS;
@@ -59,13 +61,32 @@ export function SpaceMemberAvatars(input: {
 	return (
 		<span
 			aria-hidden="true"
-			className="relative size-5 shrink-0"
+			className={
+				horizontal
+					? "isolate inline-flex h-5 max-w-full shrink-0 items-center"
+					: "relative size-5 shrink-0"
+			}
 			data-slot="space-member-avatars"
 		>
 			{members.map((member, index) => (
 				<span
-					className={`absolute flex overflow-hidden rounded-full bg-sidebar ring-1 ring-sidebar ${positions[index]}`}
+					className={
+						horizontal
+							? "relative flex shrink-0 overflow-hidden rounded-full bg-background ring-1 ring-background"
+							: `absolute flex overflow-hidden rounded-full bg-sidebar ring-1 ring-sidebar ${positions[index]}`
+					}
 					key={member.profileId}
+					style={
+						horizontal
+							? {
+									zIndex: members.length - index,
+									marginLeft:
+										index > 0
+											? Math.min(16, 32 / (members.length - 1)) - size
+											: 0,
+								}
+							: undefined
+					}
 				>
 					{member.profileKind === "human" ? (
 						<DitherProfileAvatar

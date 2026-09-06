@@ -1,5 +1,5 @@
 import { sanitizeSignalTextPreview } from "@openmeld/schemas";
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 
 export function formatDirectMessageTime(
@@ -25,7 +25,28 @@ export function useDirectMessagePreview(input: {
 	viewerProfileId: string;
 	peerProfileId: string | undefined;
 }) {
-	return useQuery({
+	return useSpaceMessagePreview({
+		...input,
+		enabled: Boolean(input.peerProfileId),
+	});
+}
+
+export function useSpaceMessagePreview(input: {
+	spaceId: string;
+	viewerProfileId: string;
+	peerProfileId?: string;
+	enabled: boolean;
+}) {
+	return useQuery(spaceMessagePreviewQueryOptions(input));
+}
+
+export function spaceMessagePreviewQueryOptions(input: {
+	spaceId: string;
+	viewerProfileId: string;
+	peerProfileId?: string;
+	enabled: boolean;
+}) {
+	return queryOptions({
 		queryKey: [
 			"spaces",
 			input.spaceId,
@@ -33,11 +54,8 @@ export function useDirectMessagePreview(input: {
 			input.viewerProfileId,
 			input.peerProfileId,
 		],
-		enabled: Boolean(input.peerProfileId),
+		enabled: input.enabled,
 		queryFn: async ({ signal }) => {
-			if (!input.peerProfileId) {
-				throw new Error("A conversation peer is required.");
-			}
 			const result = await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.viewerProfileId,
 			}).listSignalEnvelopes({
@@ -47,12 +65,29 @@ export function useDirectMessagePreview(input: {
 					recent: true,
 					limit: 1,
 					kinds: ["text"],
-					fromProfileIds: [input.peerProfileId],
+					fromProfileIds: input.peerProfileId
+						? [input.peerProfileId]
+						: undefined,
 				},
 			});
-			const message = result.envelopes.find(
+			let message = result.envelopes.find(
 				(entry) => entry.type === "signal.text"
 			);
+			if (!message && input.peerProfileId) {
+				const outgoing = await createUnscopedWebSpaceApi({
+					openMeldProfileId: input.viewerProfileId,
+				}).listSignalEnvelopes({
+					spaceId: input.spaceId,
+					signal,
+					query: { recent: true, limit: 1, kinds: ["text"] },
+				});
+				message = outgoing.envelopes.find(
+					(entry) => entry.type === "signal.text"
+				);
+				if (message?.type === "signal.text") {
+					return { timestamp: message.ts, text: "No replies yet" };
+				}
+			}
 			return message?.type === "signal.text"
 				? {
 						timestamp: message.ts,

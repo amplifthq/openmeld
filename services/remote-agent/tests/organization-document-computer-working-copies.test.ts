@@ -1,6 +1,6 @@
 import type { WorkspaceClient } from "@cloudflare/computer";
 import { describe, expect, it, vi } from "vitest";
-import type { OrganizationDocumentsComputerProjection } from "../flue-adapter/organization-document-computer-projection";
+import type { OrganizationDocumentsComputerSnapshot } from "../flue-adapter/organization-document-computer-snapshot";
 import { createOrganizationDocumentComputerWorkingCopyStore } from "../flue-adapter/organization-document-computer-working-copies";
 
 const SOURCE_PATH =
@@ -48,14 +48,14 @@ function createWorkspaceFake() {
 function createProjection(
   updatedAt = UPDATED_AT,
   content = "# Approved launch plan\n"
-): OrganizationDocumentsComputerProjection {
+): OrganizationDocumentsComputerSnapshot {
   return {
     documents: [
       {
         content,
         id: "doc_launch",
         kind: "knowledge",
-        path: SOURCE_PATH,
+        fileName: "Launch-Plan--doc_launch.md",
         title: "Launch Plan",
         updatedAt,
       },

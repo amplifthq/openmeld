@@ -285,7 +285,12 @@ function CurrentComputerToolbarStatus(input: {
 function CurrentComputerAttentionIndicator(input: {
 	status: ComputerSummaryStatus | null;
 }) {
-	if (input.status?.tone !== "warning" && input.status?.tone !== "danger") {
+	if (
+		!input.status ||
+		(input.status.reason !== "service_not_connected" &&
+			input.status.tone !== "warning" &&
+			input.status.tone !== "danger")
+	) {
 		return null;
 	}
 	return (

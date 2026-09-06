@@ -2413,7 +2413,8 @@ describe("gateway http forwarding", () => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(
       new Request(
-        "http://local/v1/spaces/demo/dispatches/dispatch-1/trace?includeRemoteAgentRuntimeDiagnostics=true"
+        "http://local/v1/spaces/demo/dispatches/dispatch-1/trace?includeRemoteAgentRuntimeDiagnostics=true",
+        { headers: { "x-openmeld-space-dispatch-trace-response-version": "4" } }
       ),
       env,
       TEST_EXECUTION_CONTEXT
@@ -2424,16 +2425,21 @@ describe("gateway http forwarding", () => {
       spaceId: "demo",
       dispatchId: "dispatch-1",
       includeRemoteAgentRuntimeDiagnostics: true,
+      responseContractVersion: 4,
       context: EXPECTED_CORE_CONTEXT,
     });
   });
 
-  it("negotiates the current dispatch trace response without changing the public route", async () => {
+  it.each([
+    "2",
+    "3",
+    "4",
+  ])("negotiates dispatch trace response version %s without changing the public route", async (version) => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(
       new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
         headers: {
-          "x-openmeld-space-dispatch-trace-response-version": "3",
+          "x-openmeld-space-dispatch-trace-response-version": version,
         },
       }),
       env,
@@ -2444,30 +2450,35 @@ describe("gateway http forwarding", () => {
     expect(rpc.getSpaceDispatchTrace).toHaveBeenCalledWith({
       context: EXPECTED_CORE_CONTEXT,
       dispatchId: "dispatch-1",
-      responseContractVersion: 3,
+      responseContractVersion: Number(version),
       spaceId: "demo",
     });
   });
 
-  it("keeps the previous dispatch trace response contract available to published clients", async () => {
+  it.each([
+    undefined,
+    "2",
+    "3",
+  ])("explains how older detailed-trace clients can continue (version %s)", async (version) => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(
-      new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
-        headers: {
-          "x-openmeld-space-dispatch-trace-response-version": "2",
-        },
-      }),
+      new Request(
+        "http://local/v1/spaces/demo/dispatches/dispatch-1/trace?includeRemoteAgentRuntimeDiagnostics=true",
+        {
+          headers: version
+            ? { "x-openmeld-space-dispatch-trace-response-version": version }
+            : {},
+        }
+      ),
       env,
       TEST_EXECUTION_CONTEXT
     );
 
-    expect(response.status).toBe(200);
-    expect(rpc.getSpaceDispatchTrace).toHaveBeenCalledWith({
-      context: EXPECTED_CORE_CONTEXT,
-      dispatchId: "dispatch-1",
-      responseContractVersion: 2,
-      spaceId: "demo",
-    });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain(
+      "Update OpenMeld CLI, or run the trace without --details."
+    );
+    expect(rpc.getSpaceDispatchTrace).not.toHaveBeenCalled();
   });
 
   it("rejects unsupported dispatch trace response versions before Core RPC", async () => {
@@ -2475,7 +2486,7 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(
       new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
         headers: {
-          "x-openmeld-space-dispatch-trace-response-version": "4",
+          "x-openmeld-space-dispatch-trace-response-version": "5",
         },
       }),
       env,

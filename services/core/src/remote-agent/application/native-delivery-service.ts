@@ -11386,11 +11386,10 @@ async function closeRemoteAgentFailedCallbackStream(input: {
     delivery: input.delivery,
     env: input.env,
     submissionId: input.body.submissionId,
-    terminal: {
-      kind: "failed",
-      reasonCode: input.body.failureCode,
+    terminal: buildRemoteAgentFailureStreamTerminal({
+      failureCode: input.body.failureCode,
       noticeText: resolveCenterAgentCallbackFailureMessage(input.body),
-    },
+    }),
   });
 }
 
@@ -12635,6 +12634,13 @@ function buildRemoteAgentFailureStreamTerminal(input: {
   failureCode: string;
   noticeText: string;
 }): SpaceAgentStreamTerminal {
+  if (input.failureCode === REMOTE_AGENT_EXECUTION_CANCELLED_FAILURE_CODE) {
+    return {
+      kind: "stopped",
+      reasonCode: input.failureCode,
+      noticeText: input.noticeText,
+    };
+  }
   if (input.failureCode === REMOTE_AGENT_CALLBACK_PUBLISH_FAILED_FAILURE_CODE) {
     return {
       kind: "completed_but_publish_failed",

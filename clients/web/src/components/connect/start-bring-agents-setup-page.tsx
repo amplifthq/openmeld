@@ -876,7 +876,9 @@ function resolveReadyPrimaryActionLabel(
 	routeIntent: ReturnType<typeof useBringAgentsSetupContext>["routeIntent"]
 ) {
 	if (routeIntent.kind === "account_computer_setup") {
-		return "Back to Computers";
+		return routeIntent.returnTo === "agent_creation"
+			? "Continue creating Agent"
+			: "Back to Computers";
 	}
 	if (routeIntent.kind === "space_recovery") {
 		return "Back to Space";
@@ -898,6 +900,12 @@ function resolveReadyActionDescription(input: {
 	}
 	if (input.completionReadiness.kind === "error") {
 		return input.setupCopy.readyDefaultActionSummary;
+	}
+	if (
+		input.routeIntent.kind === "account_computer_setup" &&
+		input.routeIntent.returnTo === "agent_creation"
+	) {
+		return "Return to Agent creation to choose a local agent and finish your profile.";
 	}
 	if (input.completionReadiness.kind === "no_selected_local_agents") {
 		return input.presentation === "conversation"

@@ -98,6 +98,7 @@ import {
 } from "./center-agent-computer-setup-card";
 import { CenterAgentStarterActions } from "./center-agent-starter-actions";
 import type { OnboardingSetupPresentation } from "./onboarding-setup-presentation";
+import { PersonalHomeOrganizationHint } from "./personal-home-organization-hint";
 import { Bubble, BubbleContent, BubbleGroup } from "./primitives/bubble";
 import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
 import { Message, MessageContent, MessageHeader } from "./primitives/message";
@@ -146,7 +147,6 @@ import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
 import { SpaceConversationSendScrollController } from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
-import { SpaceEntryRecoveryNotice } from "./space-entry-recovery-notice";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	type SpaceExecutionRecoveryHandler,
@@ -297,6 +297,7 @@ type SpaceConversationPanelResolvedProps = {
 	pendingActionSurface?: ReactNode;
 	readOnly?: boolean;
 	readOnlyComposerPlaceholder?: string;
+	allowSendWhileAccessSettles?: boolean;
 	renderSetupGuidance?: (
 		presentation: OnboardingSetupPresentation
 	) => ReactNode;
@@ -387,44 +388,6 @@ function resolveSpaceSetupGuidanceSlots(input: {
 	};
 }
 
-function hasCurrentUserAuthoredSpaceMessage(input: {
-	items: readonly SpaceTimelineItem[];
-	selfProfileId: string;
-}): boolean {
-	return input.items.some(
-		(item) =>
-			item.actorProfileId === input.selfProfileId &&
-			item.actorProfileKind === "human" &&
-			item.signalType === "signal.text"
-	);
-}
-
-function hasSpaceComposerDraft(input: {
-	files: readonly SpaceComposerFile[];
-	replyToSignalId: string | null;
-	text: string;
-}): boolean {
-	return (
-		input.text.trim().length > 0 ||
-		input.files.length > 0 ||
-		input.replyToSignalId !== null
-	);
-}
-
-function shouldShowCenterAgentStarterActions(input: {
-	canSendMessage: boolean;
-	hasComposerDraft: boolean;
-	hasCurrentUserAuthoredMessage: boolean;
-	isCenterAgentDirectMessage: boolean;
-}): boolean {
-	return (
-		input.isCenterAgentDirectMessage &&
-		input.canSendMessage &&
-		!input.hasComposerDraft &&
-		!input.hasCurrentUserAuthoredMessage
-	);
-}
-
 function resolveWritableSpaceAction<T>(
 	isReadOnly: boolean,
 	action: T | undefined
@@ -482,6 +445,7 @@ function SpaceConversationPanelContent(
 	const presentation = useSpaceConversationPresentationController(input);
 	const {
 		canSendMessage,
+		canUploadFiles,
 		composerContext,
 		composerSendBlocked,
 		composerTargetName,
@@ -716,9 +680,9 @@ function SpaceConversationPanelContent(
 			{showComposer ? (
 				<>
 					{input.pendingActionSurface}
-					<SpaceEntryRecoveryNotice />
 					<SpaceComposerSection
 						canSendMessage={canSendMessage}
+						canUploadFiles={canUploadFiles}
 						composerContext={composerContext}
 						composerSendBlocked={composerSendBlocked}
 						composerTargetName={composerTargetName}
@@ -868,6 +832,10 @@ function useSpaceConversationPresentationController(
 ) {
 	const isReadOnly = input.readOnly === true;
 	const canSendMessage =
+		!isReadOnly &&
+		(input.allowedActions.includes("post_message") ||
+			input.allowSendWhileAccessSettles === true);
+	const canUploadFiles =
 		!isReadOnly && input.allowedActions.includes("post_message");
 	const composerSendBlocked = resolveSpaceComposerSendBlocked({
 		files: input.composerFiles,
@@ -940,25 +908,12 @@ function useSpaceConversationPresentationController(
 	);
 	const mainTimelineItems =
 		messageStateTuningPreviewItems ?? activeConversationItems;
-	const hasCurrentUserAuthoredMessage = hasCurrentUserAuthoredSpaceMessage({
-		items: input.timelineItems,
-		selfProfileId: input.selfProfileId,
-	});
-	const hasComposerDraft = hasSpaceComposerDraft({
-		files: input.composerFiles,
-		replyToSignalId: input.composerReplyToSignalId,
-		text: input.composerText,
-	});
 	const messageStateTuningVisibility = resolveSpaceMessageStateTuningVisibility(
 		{
 			isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
 			previewItems: messageStateTuningPreviewItems,
-			showCenterAgentStarterActions: shouldShowCenterAgentStarterActions({
-				canSendMessage,
-				hasComposerDraft,
-				hasCurrentUserAuthoredMessage,
-				isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
-			}),
+			showCenterAgentStarterActions:
+				input.isCenterAgentDirectMessage && canSendMessage,
 		}
 	);
 	const wakeOutcomeIndex = useMemo(
@@ -1101,6 +1056,7 @@ function useSpaceConversationPresentationController(
 	return {
 		anchoredOutcomeNoticesBySourceSignalId,
 		canSendMessage,
+		canUploadFiles,
 		composerContext,
 		composerSendBlocked,
 		composerTargetName,
@@ -1927,6 +1883,7 @@ function SpaceConversationTopOverlay(input: {
 }
 
 function SpaceComposerSection(input: {
+	canUploadFiles: boolean;
 	canSendMessage: boolean;
 	composerContext: SpaceComposerConversationKind;
 	composerSendBlocked: boolean;
@@ -1951,6 +1908,7 @@ function SpaceComposerSection(input: {
 						onSubmit: input.submitComposer,
 					}}
 					availability={{
+						canUploadFiles: input.canUploadFiles,
 						canSendMessage: input.canSendMessage,
 						fileLimitReached: panel.composerFileLimitReached,
 						isSendingMessage: panel.isSendingMessage,
@@ -2422,14 +2380,18 @@ function CenterAgentDirectMessageIntro(input: {
 				target={{ kind: "computer_setup", mode: "setup" }}
 			/>
 		);
-	} else if (input.showStarterActions) {
+	}
+	if (input.showStarterActions) {
 		starterContent = (
-			<CenterAgentStarterActions
-				disabled={input.disabled}
-				onConnectComputer={input.onStartComputerSetup}
-				onSelect={input.onSelectStarterAction}
-				showAgentLogos={!input.isPersonalContext}
-			/>
+			<>
+				<CenterAgentStarterActions
+					disabled={input.disabled}
+					onConnectComputer={input.onStartComputerSetup}
+					onSelect={input.onSelectStarterAction}
+					showAgentLogos={!input.isPersonalContext}
+				/>
+				{starterContent && <div className="mt-4">{starterContent}</div>}
+			</>
 		);
 	}
 
@@ -2493,6 +2455,7 @@ function CenterAgentDirectMessageIntro(input: {
 						organizationHeading
 					)}
 				</h2>
+				{input.isPersonalContext && <PersonalHomeOrganizationHint />}
 				<div className="mt-4 w-full">{starterContent}</div>
 			</div>
 		</div>

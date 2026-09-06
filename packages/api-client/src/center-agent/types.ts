@@ -1,4 +1,10 @@
 import type {
+  CenterAgentSessionSelector,
+  CreateCenterAgentSessionBody,
+  ListCenterAgentSessionsQuery,
+  ListCenterAgentSessionsResponse,
+} from "@openmeld/schemas";
+import type {
   CenterAgentModelConfigurationResponse,
   CenterAgentSlackWorkspaceConnectBody,
   CenterAgentSlackWorkspaceConnectionResponse,
@@ -112,6 +118,15 @@ export type CenterAgentApi = {
   openDirectMessageSpace: (
     input?: CenterAgentRequestInput
   ) => Promise<OpenCenterAgentDirectMessageSpaceResponse>;
+  createSession: (
+    input: CenterAgentRequestInput & CreateCenterAgentSessionBody
+  ) => Promise<OpenCenterAgentDirectMessageSpaceResponse>;
+  listSessions: (
+    input?: CenterAgentRequestInput & ListCenterAgentSessionsQuery
+  ) => Promise<ListCenterAgentSessionsResponse>;
+  getSession: (
+    input: CenterAgentRequestInput & CenterAgentSessionSelector
+  ) => Promise<GetCenterAgentDirectMessageSpaceProjectionResponse>;
   getDirectMessageSpaceProjection: (
     input?: CenterAgentRequestInput
   ) => Promise<GetCenterAgentDirectMessageSpaceProjectionResponse>;

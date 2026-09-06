@@ -1216,6 +1216,54 @@ export async function readCenterAgentDirectMessageProjectionCandidateBySpaceId(i
   return row ? toCenterAgentDirectMessageProjectionCandidate(row) : null;
 }
 
+export async function listCenterAgentSessionIndexRows(input: {
+  db: D1Database;
+  organizationId: string;
+  pairKey: string;
+  limit: number;
+  before?: { createdAtMs: number; spaceId: string };
+}): Promise<
+  Array<{ spaceId: string; name: string | null; createdAtMs: number | null }>
+> {
+  const beforeClause = input.before
+    ? "AND (COALESCE(s.space_created_at_ms, 0) < ? OR (COALESCE(s.space_created_at_ms, 0) = ? AND s.space_id < ?))"
+    : "";
+  const rows = await input.db
+    .prepare(`
+    SELECT s.space_id, s.space_name, s.space_created_at_ms
+    FROM space_index_spaces s
+    WHERE s.organization_id = ? AND s.direct_message_pair_key = ?
+      AND s.space_purpose = ? AND s.direct_message_converted_at_ms IS NULL
+      AND s.status = 'active'
+      ${beforeClause}
+    ORDER BY COALESCE(s.space_created_at_ms, 0) DESC, s.space_id DESC
+    LIMIT ?
+  `)
+    .bind(
+      input.organizationId,
+      input.pairKey,
+      OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+      ...(input.before
+        ? [
+            input.before.createdAtMs,
+            input.before.createdAtMs,
+            input.before.spaceId,
+          ]
+        : []),
+      input.limit
+    )
+    .all<{
+      space_id: string;
+      space_name: string | null;
+      space_created_at_ms: number | null;
+    }>();
+  return rows.results.map((row) => ({
+    spaceId: row.space_id,
+    name: row.space_name,
+    createdAtMs: row.space_created_at_ms,
+  }));
+}
+
 export async function readSpaceIndexOrganizationJoinTarget(input: {
   db: D1Database;
   spaceId: string;

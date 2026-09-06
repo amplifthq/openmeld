@@ -14,11 +14,12 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    exclude: ["tests/workerd/**/*.test.ts"],
     server: {
       deps: {
         // Force these through the vite pipeline so the cloudflare:workers
         // alias above applies inside the package too.
-        inline: [/@cloudflare\/computer/u],
+        inline: [/@cloudflare\/computer/u, /@flue\/runtime/u],
       },
     },
   },

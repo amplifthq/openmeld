@@ -43,6 +43,7 @@ function CenterAgentRouteLayout() {
 }
 
 function CenterAgentRoutePending() {
+	const { session } = Route.useSearch();
 	const { storageScope } = useStartFlowState();
 	const { currentOrganization } = useAppOrganization();
 	const { initialOuterSidebarState } = Route.useRouteContext();
@@ -58,6 +59,7 @@ function CenterAgentRoutePending() {
 			organizationSlug={orgSlug}
 			ownerAccountId={storageScope}
 			section={resolveCenterAgentSectionId(pathname)}
+			sessionId={session}
 		/>
 	);
 }

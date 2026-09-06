@@ -131,7 +131,7 @@ describe("Fluid sidebar interaction contract", () => {
     expect(rail.getAttribute("aria-valuenow")).toBe("160");
     fireEvent.keyDown(rail, { key: "End" });
     fireEvent.keyDown(rail, { key: "ArrowRight" });
-    expect(rail.getAttribute("aria-valuenow")).toBe("288");
+    expect(rail.getAttribute("aria-valuenow")).toBe("384");
   });
 
   it("keeps peek transient and accepts owned portal interaction before outside dismissal", () => {

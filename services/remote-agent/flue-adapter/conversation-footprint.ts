@@ -17,6 +17,8 @@ const REMOTE_AGENT_CANONICAL_CONTEXT_BUDGET_RATIO = 0.85;
 const FLUE_CONVERSATION_STREAMS_TABLE = "flue_conversation_streams";
 const FLUE_CONVERSATION_STREAM_BATCHES_TABLE =
   "flue_conversation_stream_batches";
+const FLUE_CONVERSATION_STREAM_CHUNKS_TABLE =
+  "flue_conversation_stream_batch_chunks";
 const FLUE_CONVERSATION_STREAM_TABLE_PREFIX = "flue_conversation_stream";
 const FLUE_CONVERSATION_FOOTPRINT_SCHEMA_ERROR =
   "Remote Agent conversation footprint schema is incompatible with the pinned Flue runtime.";
@@ -67,9 +69,17 @@ export function readRemoteAgentConversationFootprint(
       `
         SELECT
           COUNT(*) AS batch_count,
-          COALESCE(SUM(LENGTH(CAST(data AS BLOB))), 0) AS canonical_bytes,
-          COALESCE(MAX(LENGTH(CAST(data AS BLOB))), 0) AS largest_batch_bytes
-        FROM flue_conversation_stream_batches
+          COALESCE(SUM(batch_bytes), 0) AS canonical_bytes,
+          COALESCE(MAX(batch_bytes), 0) AS largest_batch_bytes
+        FROM (
+          SELECT COALESCE(chunks.chunk_bytes, LENGTH(CAST(batches.data AS BLOB))) AS batch_bytes
+          FROM flue_conversation_stream_batches AS batches
+          LEFT JOIN (
+            SELECT path, seq, SUM(LENGTH(CAST(data AS BLOB))) AS chunk_bytes
+            FROM flue_conversation_stream_batch_chunks
+            GROUP BY path, seq
+          ) AS chunks ON chunks.path = batches.path AND chunks.seq = batches.seq
+        )
       `
     )
     .toArray()[0];
@@ -111,12 +121,14 @@ function assertFlueConversationFootprintSchema(
     (name) =>
       name.startsWith(FLUE_CONVERSATION_STREAM_TABLE_PREFIX) &&
       name !== FLUE_CONVERSATION_STREAMS_TABLE &&
+      name !== FLUE_CONVERSATION_STREAM_CHUNKS_TABLE &&
       name !== FLUE_CONVERSATION_STREAM_BATCHES_TABLE
   );
   if (
     hasUnexpectedConversationStreamTable ||
     !(
       tableNames.has(FLUE_CONVERSATION_STREAMS_TABLE) &&
+      tableNames.has(FLUE_CONVERSATION_STREAM_CHUNKS_TABLE) &&
       tableNames.has(FLUE_CONVERSATION_STREAM_BATCHES_TABLE)
     )
   ) {

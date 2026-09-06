@@ -398,6 +398,8 @@ describe("command entry CLI wiring", () => {
     await runCli([
       "center-agent",
       "context",
+      "--conversation",
+      "selected-center-session",
       "--organization",
       "org-2",
       "--cursor",
@@ -416,6 +418,7 @@ describe("command entry CLI wiring", () => {
       maxContextTokens: 2048,
       organization: "org-2",
       sessionId: undefined,
+      spaceId: "selected-center-session",
       via: undefined,
       view: "agent",
     });

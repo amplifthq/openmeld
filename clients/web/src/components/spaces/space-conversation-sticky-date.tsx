@@ -220,6 +220,15 @@ function useStickyConversationDate(
 	}, [syncStickyDate]);
 
 	useLayoutEffect(() => {
+		// Keep the reserved space through date-pill observer changes. Clearing it
+		// temporarily shrinks the scroll range and clamps the browser's position.
+		return () => {
+			scrollElement?.style.removeProperty(STICKY_TOP_PROPERTY);
+			scrollElement?.style.removeProperty(TOP_OVERLAY_HEIGHT_PROPERTY);
+		};
+	}, [scrollElement]);
+
+	useLayoutEffect(() => {
 		syncStickyTop();
 		syncStickyDate();
 		if (!scrollElement) {
@@ -264,8 +273,6 @@ function useStickyConversationDate(
 			scrollElement.removeEventListener("scroll", scheduleStickyDateSync);
 			resizeObserver?.disconnect();
 			mutationObserver?.disconnect();
-			scrollElement.style.removeProperty(STICKY_TOP_PROPERTY);
-			scrollElement.style.removeProperty(TOP_OVERLAY_HEIGHT_PROPERTY);
 			if (syncFrameRef.current !== null) {
 				window.cancelAnimationFrame(syncFrameRef.current);
 				syncFrameRef.current = null;

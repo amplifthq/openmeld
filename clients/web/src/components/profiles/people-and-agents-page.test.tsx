@@ -45,6 +45,10 @@ const FILTER_AGENTS_NAME = /Filter Agents/;
 const CHECKING_AGENTS_FILTER_NAME = /Current filter: Checking, 0 Agents/;
 const PERSONAL_ALL_AGENTS_FILTER_NAME = /Current filter: All, 1 Agent/;
 
+vi.mock("../app/use-sidebar-preferences", () => ({
+	useSidebarPreferences: () => ({ preferences: undefined }),
+}));
+
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
 		activeOptions: _activeOptions,

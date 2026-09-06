@@ -64,7 +64,9 @@ import {
 import { agentProfileCreationRequestsQueryOptions } from "#/query/profiles/agent-profile-creation-requests";
 import { startQueryKeys } from "#/query/query-keys";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
+import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
+import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 
 export type ProfileHomeId = "agents" | "people";
 type AgentWorkspaceView = "agents" | "requests";
@@ -102,6 +104,18 @@ export function PeopleAndAgentsPage(input: {
 	const previewReady = useAgentSidebarPreviewReady();
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
+	const sidebarPreferences = useSidebarPreferences(
+		currentUserId,
+		currentOrganization.id
+	);
+	const agentGroups = useSidebarGroupFilter([
+		{ id: "starred", label: "Starred" },
+		...(sidebarPreferences.preferences?.agents?.groups ?? []).map((group) => ({
+			id: group.id,
+			label: group.name,
+		})),
+		{ id: "ungrouped", label: "Ungrouped" },
+	]);
 	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
@@ -269,30 +283,34 @@ export function PeopleAndAgentsPage(input: {
 				currentUserId={currentUserId}
 				fallbackOwnerLabel={fallbackOwnerLabel}
 				filterBadges={
-					agentProfileFilter !== "all" || agentOwnerId ? (
-						<div className="flex flex-wrap gap-1 px-1 pt-1">
-							{agentProfileFilter !== "all" && (
-								<SidebarFilterBadge
-									label={
-										AGENT_PROFILE_FILTER_OPTIONS.find(
-											(option) => option.value === agentProfileFilter
-										)?.label ?? agentProfileFilter
-									}
-									onRemove={() => setAgentProfileFilter("all")}
-								/>
-							)}
-							{agentOwnerId && (
-								<SidebarFilterBadge
-									label={`Owner: ${organizationProfileDirectoryQuery.data?.agentProfiles.find((profile) => profile.ownerUserId === agentOwnerId)?.ownerName ?? "Selected member"}`}
-									onRemove={() => setAgentOwnerId(null)}
-								/>
-							)}
-						</div>
-					) : null
+					<>
+						{agentGroups.badges}
+						{agentProfileFilter !== "all" || agentOwnerId ? (
+							<div className="flex flex-wrap gap-1 px-1 pt-1">
+								{agentProfileFilter !== "all" && (
+									<SidebarFilterBadge
+										label={
+											AGENT_PROFILE_FILTER_OPTIONS.find(
+												(option) => option.value === agentProfileFilter
+											)?.label ?? agentProfileFilter
+										}
+										onRemove={() => setAgentProfileFilter("all")}
+									/>
+								)}
+								{agentOwnerId && (
+									<SidebarFilterBadge
+										label={`Owner: ${organizationProfileDirectoryQuery.data?.agentProfiles.find((profile) => profile.ownerUserId === agentOwnerId)?.ownerName ?? "Selected member"}`}
+										onRemove={() => setAgentOwnerId(null)}
+									/>
+								)}
+							</div>
+						) : null}
+					</>
 				}
 				filterControl={
 					<AgentProfileFilterSelect
 						counts={agentProfileFilterCounts}
+						groupMenu={agentGroups.menu}
 						includeOrganizationMemberFilter={isOrganizationContext}
 						onOwnerChange={setAgentOwnerId}
 						onValueChange={setAgentProfileFilter}
@@ -304,6 +322,7 @@ export function PeopleAndAgentsPage(input: {
 					/>
 				}
 				focusRequestId={input.focusRequestId ?? null}
+				groupFilterIds={agentGroups.selected}
 				initialSidebarStates={input.initialSidebarStates}
 				isOrganizationContext={isOrganizationContext}
 				modelCatalog={modelCatalogQuery.data ?? null}
@@ -430,6 +449,7 @@ function buildOrganizationAgentProjection(input: {
 }
 
 function AgentsWorkspaceHome(input: {
+	groupFilterIds: readonly string[];
 	activeView: AgentWorkspaceView;
 	activityPreview: boolean;
 	availabilityFilter: AgentProfileAvailabilityFilter;
@@ -773,8 +793,10 @@ function AgentsWorkspaceHomeView(input: {
 			currentUserId={workspace.currentUserId}
 			filterBadges={workspace.filterBadges}
 			filterControl={workspace.filterControl}
+			groupFilterIds={workspace.groupFilterIds}
 			hasAnyProfiles={input.agentProfiles.length > 0}
 			initialSidebarStates={workspace.initialSidebarStates}
+			isOrganizationContext={workspace.isOrganizationContext}
 			isSearchActive={input.normalizedSearchQuery.length > 0}
 			modelCatalog={workspace.modelCatalog}
 			onCreateAgent={workspace.onCreateAgent}
@@ -921,6 +943,7 @@ function resolveAgentProfilesStatus(input: {
 }
 
 function AgentProfileFilterSelect(input: {
+	groupMenu: ReactNode;
 	counts: AgentProfileAvailabilityFilterCounts;
 	includeOrganizationMemberFilter: boolean;
 	onValueChange: (value: AgentProfileListFilter) => void;
@@ -977,6 +1000,7 @@ function AgentProfileFilterSelect(input: {
 						</span>
 					</FluidDropdownMenuItem>
 				))}
+				{input.groupMenu}
 				<DropdownMenuSub>
 					<DropdownMenuSubTrigger>
 						Owner:{" "}

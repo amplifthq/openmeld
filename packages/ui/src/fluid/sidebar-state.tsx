@@ -11,12 +11,13 @@ import {
   useRef,
   useState,
 } from "react";
+import { matchesSidebarShortcut } from "../lib/application-shortcuts";
 
 export type SidebarMode = "hidden" | "icon" | "expanded";
 export type SidebarGeometry = { mode: SidebarMode; width: number };
 export const SIDEBAR_ICON_WIDTH = 52;
 export const SIDEBAR_MIN_WIDTH = 160;
-export const SIDEBAR_MAX_WIDTH = 288;
+export const SIDEBAR_MAX_WIDTH = 384;
 
 /** Three snap regions with hysteresis: reversing at a seam must not chatter. */
 export function resolveSidebarDrag(
@@ -161,15 +162,7 @@ export function SidebarProvider({
       ) {
         return;
       }
-      if (
-        (event.key === "[" &&
-          !event.metaKey &&
-          !event.ctrlKey &&
-          !event.altKey) ||
-        (event.key.toLowerCase() === "b" &&
-          (event.metaKey || event.ctrlKey) &&
-          !event.altKey)
-      ) {
+      if (matchesSidebarShortcut(event)) {
         event.preventDefault();
         toggleSidebar();
       }

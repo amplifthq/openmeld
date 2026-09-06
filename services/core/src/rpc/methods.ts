@@ -114,6 +114,7 @@ import {
   centerAgentSearchSlackMessagesResponseSchema,
   centerAgentSelectLocalAgentInstallationBodySchema,
   centerAgentSelectLocalAgentInstallationResponseSchema,
+  centerAgentSessionSelectorSchema,
   centerAgentSetOpenMeldToolsMaintenanceBodySchema,
   centerAgentSetOpenMeldToolsMaintenanceResponseSchema,
   centerAgentSlackWorkspaceConnectBodySchema,
@@ -144,6 +145,7 @@ import {
   createCenterAgentContextLoadReceiptBodySchema,
   createCenterAgentContextLoadReceiptResponseSchema,
   createCenterAgentContextManifestBodySchema,
+  createCenterAgentSessionBodySchema,
   createConnectorAppRequestBodySchema,
   createSpaceDiagnosticReportBodySchema,
   currentAgentProfileSessionLookupQuerySchema,
@@ -200,11 +202,14 @@ import {
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
   isSpaceFileTextEditable,
+  type ListCenterAgentSessionsQuery,
+  type ListCenterAgentSessionsResponse,
   larkPlatformActiveRegistrationListResponseSchema,
   larkPlatformProviderSchema,
   larkPlatformRegistrationAttemptIdSchema,
   listCenterAgentAuditJournalQuerySchema,
   listCenterAgentAuditJournalResponseSchema,
+  listCenterAgentSessionsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
   localRuntimeEnrollmentBodySchema,
   localRuntimeEnrollmentResponseSchema,
@@ -775,6 +780,7 @@ import {
   projectCenterAgentModelConfiguration,
   resolveCenterAgentModelRouteForBinding,
 } from "../center-agent/application/center-agent-model-service";
+import { listAuthorizedCenterAgentSessions } from "../center-agent/application/center-agent-session-list";
 import {
   executeCenterAgentSlackFilePublication,
   executeCenterAgentSlackPublication,
@@ -2793,8 +2799,13 @@ export type DisconnectMessageChannelIdentityLinkInput = {
   identityLinkId: string;
 };
 
+export type ListCenterAgentSessionsInput = ListCenterAgentSessionsQuery & {
+  context?: CoreRpcContextInput;
+};
+
 export type GetCenterAgentDirectMessageSpaceProjectionInput = {
   context?: CoreRpcContextInput;
+  spaceId?: string;
 };
 
 export type CreateCenterAgentContextManifestInput =
@@ -3119,6 +3130,7 @@ export type CenterAgentReadSpaceWakeProgressInput =
 
 export type OpenCenterAgentDirectMessageSpaceInput = {
   context?: CoreRpcContextInput;
+  sessionCreationId?: string;
   suppressWelcome?: boolean;
 };
 
@@ -8130,6 +8142,55 @@ export async function rpcDisconnectLarkPlatformRegistration(
   });
 }
 
+export async function rpcListCenterAgentSessions(
+  env: CoreBindings,
+  input: ListCenterAgentSessionsInput
+): Promise<ListCenterAgentSessionsResponse> {
+  const parsed = listCenterAgentSessionsQuerySchema.safeParse({
+    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+    ...(input.limit === undefined ? {} : { limit: input.limit }),
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Provide a valid chat-list cursor and limit.",
+    });
+  }
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const human = requireHumanSpaceMemberFromContext({
+    context,
+    userId: activeOrganization.userId,
+  });
+  const designation = await readCenterAgentDesignationRecord({
+    db: requireCenterAgentDb(env),
+    organizationId: activeOrganization.organizationId,
+  });
+  if (!designation) {
+    return {
+      generatedAt: new Date().toISOString(),
+      organizationId: activeOrganization.organizationId,
+      sessions: [],
+      nextCursor: null,
+    };
+  }
+  return await listAuthorizedCenterAgentSessions({
+    ...parsed.data,
+    db: requireSpaceIndexDb(env),
+    organizationId: activeOrganization.organizationId,
+    memberProfileId: human.profileId,
+    centerAgentProfileId: designation.agentProfileId,
+    pairKey: buildDirectMessagePairKey(
+      human.profileId,
+      designation.agentProfileId
+    ),
+  });
+}
+
 export async function rpcGetCenterAgentDirectMessageSpaceProjection(
   env: CoreBindings,
   input: GetCenterAgentDirectMessageSpaceProjectionInput
@@ -8144,6 +8205,7 @@ export async function rpcGetCenterAgentDirectMessageSpaceProjection(
       activeOrganization,
       context,
       env,
+      ...(input.spaceId === undefined ? {} : { spaceId: input.spaceId }),
     });
   const response: GetCenterAgentDirectMessageSpaceProjectionResponse = {
     generatedAt: new Date().toISOString(),
@@ -8167,6 +8229,7 @@ export async function rpcCreateCenterAgentContextManifest(
   input: CreateCenterAgentContextManifestInput
 ): Promise<CreateCenterAgentContextManifestResponse> {
   const parsed = createCenterAgentContextManifestBodySchema.safeParse({
+    ...(input.spaceId === undefined ? {} : { spaceId: input.spaceId }),
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
     ...(input.maxContextTokens === undefined
@@ -8198,12 +8261,15 @@ export async function rpcCreateCenterAgentContextManifest(
       activeOrganization,
       context,
       env,
+      ...(parsed.data.spaceId === undefined
+        ? {}
+        : { spaceId: parsed.data.spaceId }),
     });
   if (!conversation) {
     throw createCoreRpcHttpError({
       code: "center_agent.context_conversation_required",
       reason:
-        "Start a conversation with Center Agent before reading its context.",
+        "The selected Center Agent conversation is unavailable. Open a conversation you can access before reading its context.",
       status: 404,
     });
   }
@@ -15512,6 +15578,19 @@ export async function rpcOpenCenterAgentDirectMessageSpace(
   input: OpenCenterAgentDirectMessageSpaceInput
 ): Promise<OpenCenterAgentDirectMessageSpaceResponse> {
   const context = requireRpcContext(input.context);
+  const sessionCreation =
+    input.sessionCreationId === undefined
+      ? undefined
+      : createCenterAgentSessionBodySchema.safeParse({
+          creationId: input.sessionCreationId,
+        });
+  if (sessionCreation && !sessionCreation.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Provide a valid session creation ID.",
+    });
+  }
   const timing = createCenterAgentDirectMessageOpenTiming({
     env,
     requestId: context.actorContext.requestId,
@@ -15579,20 +15658,26 @@ export async function rpcOpenCenterAgentDirectMessageSpace(
         organizationId: activeOrganization.organizationId,
       }
     );
-    const openedSpace = await timing.measure(
-      "direct_message_open",
-      async () =>
-        await openDirectMessageSpaceInternal(env, {
-          context,
-          humanMember,
-          legacySpaceId,
-          organizationId: activeOrganization.organizationId,
-          targetMember: centerAgentMember,
-          timing,
-        })
+    const openedSpace = await timing.measure("direct_message_open", async () =>
+      sessionCreation?.success
+        ? await createCenterAgentSessionSpace(env, {
+            context,
+            creationId: sessionCreation.data.creationId,
+            humanMember,
+            organizationId: activeOrganization.organizationId,
+            targetMember: centerAgentMember,
+          })
+        : await openDirectMessageSpaceInternal(env, {
+            context,
+            humanMember,
+            legacySpaceId,
+            organizationId: activeOrganization.organizationId,
+            targetMember: centerAgentMember,
+            timing,
+          })
     );
     opened = openedSpace;
-    if (!input.suppressWelcome) {
+    if (!(input.suppressWelcome || sessionCreation)) {
       try {
         await timing.measure(
           "welcome",
@@ -15813,7 +15898,19 @@ async function readCurrentMemberCenterAgentDirectMessageSpaceProjection(input: {
   activeOrganization: ActiveOrganization;
   context: CoreRpcContextInput;
   env: CoreBindings;
+  spaceId?: string;
 }): Promise<CenterAgentDirectMessageSpaceProjection | null> {
+  const selector =
+    input.spaceId === undefined
+      ? undefined
+      : centerAgentSessionSelectorSchema.safeParse({ spaceId: input.spaceId });
+  if (selector && !selector.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Provide a valid session ID.",
+    });
+  }
   const designation = await readCenterAgentDesignationRecord({
     db: requireCenterAgentDb(input.env),
     organizationId: input.activeOrganization.organizationId,
@@ -15829,13 +15926,21 @@ async function readCurrentMemberCenterAgentDirectMessageSpaceProjection(input: {
     humanMember.profileId,
     designation.agentProfileId
   );
-  const candidate =
-    await readCenterAgentDirectMessageProjectionCandidateByPairKey({
-      db: requireSpaceIndexDb(input.env),
-      organizationId: input.activeOrganization.organizationId,
-      pairKey,
-    });
-  if (!candidate) {
+  const candidate = selector?.success
+    ? await readCenterAgentDirectMessageProjectionCandidateBySpaceId({
+        db: requireSpaceIndexDb(input.env),
+        spaceId: selector.data.spaceId,
+      })
+    : await readCenterAgentDirectMessageProjectionCandidateByPairKey({
+        db: requireSpaceIndexDb(input.env),
+        organizationId: input.activeOrganization.organizationId,
+        pairKey,
+      });
+  if (
+    !candidate ||
+    candidate.organizationId !== input.activeOrganization.organizationId ||
+    candidate.directMessagePairKey !== pairKey
+  ) {
     return null;
   }
   return deriveCenterAgentDirectMessageSpaceProjection({
@@ -16228,6 +16333,49 @@ async function openDirectMessageSpaceInternal(
         targetMember: input.targetMember,
       })
   );
+  return { created: initialized.created, spaceId };
+}
+
+async function createCenterAgentSessionSpace(
+  env: CoreBindings,
+  input: {
+    context: CoreRpcContextInput;
+    creationId: string;
+    humanMember: ResolvedSpaceMemberProfile;
+    organizationId: string;
+    targetMember: ResolvedSpaceMemberProfile;
+  }
+): Promise<{ created: boolean; spaceId: string }> {
+  const pairKey = buildDirectMessagePairKey(
+    input.humanMember.profileId,
+    input.targetMember.profileId
+  );
+  const spaceId = resolveNamedSpaceId(
+    env.OPENMELD_SPACES,
+    JSON.stringify([
+      "center-agent-session-v1",
+      input.organizationId,
+      pairKey,
+      input.creationId,
+    ])
+  ).toString();
+  const initialized = await initializeDirectMessageSpaceMeta(env, {
+    context: input.context,
+    guide: buildDirectMessageSpaceGuide({
+      firstName: input.humanMember.profileName,
+      secondName: input.targetMember.profileName,
+    }),
+    name: "New chat",
+    organizationId: input.organizationId,
+    pairKey,
+    spaceId,
+  });
+  await addDirectMessageMembers(env, {
+    context: input.context,
+    humanMember: input.humanMember,
+    spaceId,
+    targetMember: input.targetMember,
+  });
   return { created: initialized.created, spaceId };
 }
 

@@ -3,12 +3,15 @@ import type { AccountSpaceActiveWakeSummaryResponse } from "@openmeld/schemas/ty
 import { queryOptions } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { preserveOptimisticAccountSpacePinUpdates } from "#/components/spaces/account-space-sections";
+import { withLocalAccountRuntimeFixtures } from "#/lib/dev/space-runtime-fixtures";
 import { getAccountSpaceActiveWakeSummary } from "#/lib/spaces/account-space-active-wake";
 import {
 	type AccountSpaceSections,
 	listAccountSpaceItems,
 } from "#/lib/spaces/account-spaces";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { baseQueryOptions } from "#/query/query-config";
+import { spaceQueryKeys } from "./status";
 
 const ACCOUNT_SPACE_ACTIVE_WAKE_POLL_INTERVAL_MS = 15_000;
 export const ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS = 15_000;
@@ -62,11 +65,42 @@ export function accountSpaceActiveWakeSummaryQueryOptions(input: {
 }) {
 	return queryOptions<AccountSpaceActiveWakePresentationSnapshot, Error>({
 		queryKey: accountSpaceQueryKeys.activeWakeSummary(input.profileId),
-		queryFn: async () => {
+		queryFn: async ({ client }) => {
 			const browserRequestStartedAtMonotonicMs = readBrowserMonotonicNowMs();
 			const summary = await getAccountSpaceActiveWakeSummary({
 				data: { profileId: input.profileId },
 			});
+			if (import.meta.env.DEV) {
+				const api = createUnscopedWebSpaceApi({
+					openMeldProfileId: input.profileId,
+				});
+				const local = await withLocalAccountRuntimeFixtures(
+					summary,
+					input.profileId,
+					(spaceId) =>
+						api.getActiveWakeProgress({
+							spaceId,
+							includeTiming: true,
+							includeSourceContext: true,
+							includePreviewText: true,
+							includeWaitReason: true,
+							includePageInfo: true,
+							includeWakeStopEligibility: true,
+						})
+				);
+				// Publish detailed snapshots before exposing their account-level entries,
+				// so Priority never needs a visit to discover an approval or working state.
+				for (const snapshot of local.progress) {
+					client.setQueryData(
+						spaceQueryKeys.activeWakeProgressSummary(
+							snapshot.spaceId,
+							input.profileId
+						),
+						snapshot.data
+					);
+				}
+				return { browserRequestStartedAtMonotonicMs, summary: local.summary };
+			}
 			return { browserRequestStartedAtMonotonicMs, summary };
 		},
 		enabled: input.enabled && typeof window !== "undefined",

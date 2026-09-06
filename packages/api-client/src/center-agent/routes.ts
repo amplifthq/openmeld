@@ -22,6 +22,14 @@ export function buildCenterAgentDirectMessageSpacePath(): string {
   return "/v1/organizations/current/center-agent/dm-space";
 }
 
+export function buildCenterAgentSessionsPath(): string {
+  return "/v1/organizations/current/center-agent/sessions";
+}
+
+export function buildCenterAgentSessionPath(spaceId: string): string {
+  return `${buildCenterAgentSessionsPath()}/${encodeURIComponent(spaceId)}`;
+}
+
 export function buildCenterAgentContextManifestPath(): string {
   return "/v1/organizations/current/center-agent/context-manifests";
 }
