@@ -7,6 +7,7 @@ import type {
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
+import { cn } from "@openmeld/ui/lib/utils";
 import { HashIcon, PlusIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
@@ -510,10 +511,7 @@ function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
 				<SpaceWindowHeader
 					actions={
 						<Link
-							className={buttonVariants({
-								size: "sm",
-								className: "max-lg:min-h-8",
-							})}
+							className={cn(buttonVariants({ size: "sm" }), "max-lg:min-h-8")}
 							to={buildOrganizationNewSpacePath(input.orgSlug)}
 						>
 							<PlusIcon />
