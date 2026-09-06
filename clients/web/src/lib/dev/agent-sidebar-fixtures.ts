@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import manifest from "../../../scripts/sidebar-preview/runtime-states.local.json";
+import { isLocalFixtureHost, manifest } from "./fixture-manifest";
 
 const subscribe = () => () => {
 	/* The hydrated snapshot never changes. */
@@ -20,7 +20,7 @@ export function localAgentSidebarState(
 	if (
 		!(enabled && import.meta.env.DEV) ||
 		typeof window === "undefined" ||
-		!["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname) ||
+		!isLocalFixtureHost() ||
 		!window.location.pathname.startsWith(`/o/${manifest.organizationSlug}/`)
 	) {
 		return null;

@@ -1,19 +1,29 @@
-# Local sidebar fixtures
+# Shared local product fixtures
 
 Run from the isolated checkout:
 
 ```sh
-python3 scripts/dev/seed-sidebar.py \
-  --lane wt-3adcea1ef678 \
-  --organization northstar-product-studio-eddhvg \
-  --gateway-port 30177 \
-  --viewer-email maya.chen@example.com
+pnpm dev:worktree
+# In another terminal, after the Workers are ready:
+pnpm dev:seed
+pnpm dev:web:worktree
 ```
 
-Use the current checkout's lane and ports. The script only accepts an existing
-`wt-*` local database. It requires an existing Organization and a signed-in
-fixture viewer, never prints session credentials, and backs up D1 into
-`dev-tmp/` before writes.
+`dev:seed` discovers the current checkout's running `wt-*` lane and ports. It
+creates the fictional Maya Chen account and Northstar Product Studio organization
+on first use, then reuses them. It prints the local-only email/password and Web
+URL, never session tokens. D1 and modified DM databases are backed up in
+`dev-tmp/` before writes. No production or other worktree state is accepted.
+On a new browser, choose **Not now** for notifications and **Skip setup** to go
+straight to the fixture organization; these browser-local choices remain real UI.
+
+Use `pnpm dev:seed --only people`, `--only spaces`, or `--only messages` to seed
+one area and its directory dependencies. Repeat the command to restore unread
+and preview scenarios. Existing sidebar arrangements are preserved; empty People
+and Agents directories receive starter stars and custom groups. The fixtures are
+shared source code, while each worktree owns its database and generated manifest.
+
+See [the module contribution guide](fixtures/README.md) to add scenarios.
 
 The fixture adds 18 fictional members, 42 Agent identities (including two
 disabled identities), multiple owner groups and 30 computer records. Bindings
@@ -21,11 +31,12 @@ cover Codex, Claude Code, OpenCode, Cursor, and a custom Gemini controller;
 some Agents are unbound, have disabled historical bindings, or lack
 Organization authorization. Activity timestamps span minutes to weeks.
 
-It creates 24 real Spaces through the local Gateway/Core creation path and
+It creates 28 real Spaces through the local Gateway/Core creation path and
 sets six pins through the profile history API. Stable identity IDs and Space
 purpose markers make reruns additive without duplicating fixtures. Existing
 identity records are preserved; rerunning resets the fixture Spaces' pins.
-Space membership fixtures cover one, two, three, and five members, including
+Four long Space names exercise the full resize range. Space membership fixtures
+cover one, two, three, and five members, including
 people and Agents together. They use the Organization directory membership API,
 so previews and total counts come from Space truth rather than UI overrides.
 
@@ -36,8 +47,12 @@ Live connected, busy, and permission-prompt states require a local Service
 or a protocol-level simulator. Database and API checks do not replace browser
 or execution-path acceptance.
 
-The seed also creates four local Inbox unread records and writes
-`clients/web/scripts/sidebar-preview/runtime-states.local.json` with six visual
+Six DMs mix people and Agents with short, long, multiline, recent, older, and
+outgoing-only message previews. Their creation uses the DM API; synthetic preview
+signals are written only to those fixture DMs' local databases.
+
+The seed also creates four local Inbox unread records and writes the ignored
+`clients/web/scripts/sidebar-preview/runtime-states.generated.json` with six visual
 Working / needs-input scenarios. The full local app consumes that manifest only
 in a development build on loopback, for its exact fixture Organization and viewer.
 It includes pinned and unpinned Working, unread, combined, and needs-input rows.

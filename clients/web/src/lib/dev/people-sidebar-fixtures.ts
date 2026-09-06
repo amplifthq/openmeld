@@ -1,6 +1,6 @@
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
-import manifest from "../../../scripts/sidebar-preview/runtime-states.local.json";
+import { isLocalFixtureHost, manifest } from "./fixture-manifest";
 
 /** Presentation fixtures for the seeded localhost account only; no Service or readiness writes. */
 export function localPeopleSidebarFixtures(input: {
@@ -12,7 +12,7 @@ export function localPeopleSidebarFixtures(input: {
 	if (
 		!(import.meta.env.DEV && input.enabled) ||
 		typeof window === "undefined" ||
-		!["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname) ||
+		!isLocalFixtureHost() ||
 		input.orgSlug !== manifest.organizationSlug ||
 		!input.members.some((m) => m.isCurrentUser && m.id === manifest.profileId)
 	) {
