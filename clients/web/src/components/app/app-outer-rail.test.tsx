@@ -528,8 +528,10 @@ describe("AppOuterRail", () => {
 			within(railContent).queryByRole("navigation", { name: "Resources" })
 		).toBeNull();
 		expect(
-			within(railContent).queryByRole("button", { name: "Team" })
-		).toBeNull();
+			within(railContent)
+				.getByRole("button", { name: "Team" })
+				.getAttribute("aria-expanded")
+		).toBe("true");
 		expect(
 			within(railContent).queryByRole("button", { name: "Work" })
 		).toBeNull();
@@ -564,6 +566,12 @@ describe("AppOuterRail", () => {
 		appShellSection = destination === "people" ? "people" : "agents";
 		renderRail();
 		const team = screen.getByRole("navigation", { name: "Team" });
+		const trigger = within(team).getByRole("button", { name: "Team" });
+		expect(trigger.getAttribute("data-sidebar")).toBe("menu-button");
+		fireEvent.click(trigger);
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(trigger);
+		expect(trigger.getAttribute("aria-expanded")).toBe("true");
 		const selection = within(team).getByRole("link", {
 			name: destination === "people" ? "People" : "Agents",
 		});
