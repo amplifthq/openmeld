@@ -2501,7 +2501,7 @@ export function useSpaceLandingController(input: {
 				activationTargets:
 					sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [],
 				hasFiles: sendInput.files.length > 0,
-				items: ownActiveWakeProgressQuery.data?.items ?? [],
+				items: presentedWakeProgressItems,
 			});
 			const explicitActivationTargets =
 				sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
