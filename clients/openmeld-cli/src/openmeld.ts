@@ -1084,6 +1084,7 @@ const centerAgentContextCmd = centerAgentCmd
     "Read a bounded, source-linked projection of your Center Agent Chat for a Local Agent."
   )
   .option("--cursor <cursor>", "Continue with older visible messages")
+  .option("--conversation <space-id>", "Read this Center Agent session")
   .option("--limit <count>", "Maximum visible messages (default: 20; max: 50)")
   .option(
     "--max-tokens <count>",
@@ -1104,6 +1105,7 @@ const centerAgentContextCmd = centerAgentCmd
   .option("--json", "Print machine-readable JSON.", false)
   .action(
     async (opts: {
+      conversation?: string;
       cursor?: string;
       json?: boolean;
       limit?: string;
@@ -1118,6 +1120,7 @@ const centerAgentContextCmd = centerAgentCmd
         view,
         run: async () => {
           await runCenterAgentContext({
+            spaceId: opts.conversation,
             cursor: opts.cursor,
             limit: parseNonNegativeIntegerOption(opts.limit, "--limit"),
             maxContextTokens: parseNonNegativeIntegerOption(

@@ -4,20 +4,30 @@ import path from "node:path";
 
 import {
   assertRequiredOpenConnectorRuntimeSecrets,
-  resolveOpenConnectorProductionSecretsIfAvailable,
-} from "./openconnector-production-secrets.mjs";
+  resolveOpenConnectorSecretsIfAvailable,
+} from "./openconnector-secrets.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
+const FULL_GIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
+const options = parseOptions(process.argv.slice(2));
 const deploymentConfigPath = path.join(
   repoRoot,
-  "config/openconnector/wrangler.production.jsonc"
+  `config/openconnector/wrangler.${options.environment}.jsonc`
 );
-const temporaryConfigName = ".openmeld-openconnector-production.jsonc";
+const temporaryConfigName = `.openmeld-openconnector-${options.environment}.jsonc`;
 
-const options = parseOptions(process.argv.slice(2));
 const sourceDirectory = path.resolve(options.source);
 const packageJsonPath = path.join(sourceDirectory, "package.json");
 const temporaryConfigPath = path.join(sourceDirectory, temporaryConfigName);
+
+if (
+  options.environment === "staging" &&
+  run("git", ["status", "--porcelain"], repoRoot).trim()
+) {
+  throw new Error(
+    "The OpenMeld worktree must be clean before a staging deployment."
+  );
+}
 
 if (!existsSync(packageJsonPath)) {
   throw new Error(
@@ -35,7 +45,7 @@ if (packageJson.name !== "@oomol-lab/open-connector") {
 const dirtyFiles = run("git", ["status", "--porcelain"], sourceDirectory);
 if (dirtyFiles.trim()) {
   throw new Error(
-    "The OpenConnector source checkout must be clean before a production deployment."
+    "The OpenConnector source checkout must be clean before deployment."
   );
 }
 
@@ -46,7 +56,7 @@ if (sourceSha !== options.sourceSha) {
   );
 }
 
-const deploymentSecrets = resolveOpenConnectorProductionSecretsIfAvailable();
+const deploymentSecrets = resolveOpenConnectorSecretsIfAvailable();
 const deploymentEnvironment = deploymentSecrets
   ? { ...process.env, ...deploymentSecrets }
   : { ...process.env };
@@ -57,7 +67,31 @@ if (existsSync(temporaryConfigPath)) {
   );
 }
 
-console.log(`Deploying OpenConnector source ${sourceSha}.`);
+if (options.environment === "staging") {
+  runStreaming(
+    process.execPath,
+    ["scripts/cloudflare/verify-worker-env-contract.mjs"],
+    repoRoot,
+    process.env
+  );
+  runStreaming(
+    process.execPath,
+    [
+      "scripts/cloudflare/provision-openmeld-resources.mjs",
+      "--environment",
+      "staging",
+      "--include-open-connector",
+      "--allow-pending-deploy",
+      "--apply",
+    ],
+    repoRoot,
+    process.env
+  );
+}
+
+console.log(
+  `Deploying OpenConnector source ${sourceSha} to ${options.environment}.`
+);
 copyFileSync(deploymentConfigPath, temporaryConfigPath);
 
 try {
@@ -124,26 +158,48 @@ try {
       deploymentEnvironment
     );
   }
+  if (options.environment === "staging") {
+    const health = await fetch("https://connectors.staging.openmeld.ai/health");
+    if (!health.ok) {
+      throw new Error(`OpenConnector staging health failed: ${health.status}.`);
+    }
+    console.log(
+      `OpenConnector staging deployed from ${sourceSha}; public health passed. App authorization and action smoke remain separate checks.`
+    );
+  }
 } finally {
   rmSync(temporaryConfigPath, { force: true });
 }
 
 function parseOptions(args) {
   const parsed = {};
-  const optionArgs = args[0] === "--" ? args.slice(1) : args;
-  for (let index = 0; index < optionArgs.length; index += 2) {
-    const name = optionArgs[index];
-    const value = optionArgs[index + 1];
-    if ((name !== "--source" && name !== "--source-sha") || !value) {
+  const optionArgs = args.values();
+  for (const name of optionArgs) {
+    if (name === "--") {
+      continue;
+    }
+    const value = optionArgs.next().value;
+    if (
+      !(["--source", "--source-sha", "--environment"].includes(name) && value)
+    ) {
       throw new Error(
-        "Usage: pnpm deploy:openconnector:production -- --source <checkout> --source-sha <full-sha>"
+        "Usage: deploy-openconnector.mjs --environment <production|staging> --source <checkout> --source-sha <full-sha>"
       );
     }
-    parsed[name.slice(2).replace("-sha", "Sha")] = value;
+    const key = name.slice(2).replace("-sha", "Sha");
+    if (Object.hasOwn(parsed, key)) {
+      throw new Error(`Duplicate option: ${name}`);
+    }
+    parsed[key] = value;
   }
-  if (!(parsed.source && parsed.sourceSha)) {
+  if (!(parsed.source && FULL_GIT_SHA_PATTERN.test(parsed.sourceSha ?? ""))) {
     throw new Error(
-      "Both --source and --source-sha are required for an immutable production deployment."
+      "Both --source and a full --source-sha are required for an immutable deployment."
+    );
+  }
+  if (!["production", "staging"].includes(parsed.environment)) {
+    throw new Error(
+      "An explicit production or staging environment is required."
     );
   }
   return parsed;

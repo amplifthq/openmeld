@@ -27,7 +27,7 @@ app.get("/internal/remote-agent/health", (c) =>
 // worker has no public route in production (internal service binding
 // only); the guard keeps the surface out of the prod environment anyway.
 app.post("/internal/remote-agent/computer-smoke", async (c) => {
-  if (c.env.OPENMELD_WORKER_ENVIRONMENT === "prod") {
+  if (String(c.env.OPENMELD_WORKER_ENVIRONMENT) === "prod") {
     return new Response("Not found", { status: 404 });
   }
   const { runAgentComputerSmoke } = await import(

@@ -38,6 +38,24 @@ describe("space dispatch read repo", () => {
     ).mockResolvedValue([]);
   });
 
+  it.each([
+    { dispatchStatus: "cancelled", attemptStatus: "failed_terminal" },
+    { dispatchStatus: "dispatching", attemptStatus: "profile_queue_waiting" },
+  ])("preserves trace records for $dispatchStatus / $attemptStatus", async ({
+    dispatchStatus,
+    attemptStatus,
+  }) => {
+    const result = await readSpaceDispatchTrace({
+      db: createTraceDb({ dispatchStatus, attemptStatus }),
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockResolvedValue(null),
+      spaceId: "space-1",
+    });
+    expect(result.trace?.dispatch.status).toBe(dispatchStatus);
+    expect(result.trace?.latestAttempt?.status).toBe(attemptStatus);
+    expect(result.correlation?.dispatchId).toBe("dispatch-1");
+  });
+
   it("projects path-free Default Project failure context from the result inbox", async () => {
     const db = createTraceDb({
       resultInboxRowPatch: {
@@ -1316,6 +1334,13 @@ describe("space dispatch read repo", () => {
       ...commonInput,
       responseContractVersion: SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
     });
+    const v3Result = await readSpaceDispatchTrace({
+      ...commonInput,
+      responseContractVersion: 3,
+    });
+    expect(v3Result.trace?.runtimeCoordinatorHeadLifecycle).toEqual(
+      currentResult.trace?.runtimeCoordinatorHeadLifecycle
+    );
     expect(currentResult.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject({
       noExecutionDecision: {
         publicationCategory: "workspace_unavailable",
@@ -1587,6 +1612,8 @@ describe("space dispatch read repo", () => {
 
 const createTraceDb = (
   input: {
+    dispatchStatus?: string;
+    attemptStatus?: string;
     mutableBindingControllerRef?: { current: string | null };
     resultInboxReadError?: Error;
     resultInboxRowPatch?: Record<string, unknown>;
@@ -1630,7 +1657,7 @@ const createTraceDb = (
               dispatchOwnerKind: "owner_account",
               dispatchOwnerId: "owner-1",
               targetProfileId: "agt-target-1",
-              status: "dispatching",
+              status: input.dispatchStatus ?? "dispatching",
               spaceId: "space-1",
               firstSeenAtMs: 1_700_000_001_000,
               lastAttemptAtMs: 1_700_000_002_000,
@@ -1649,7 +1676,7 @@ const createTraceDb = (
               dispatchId: "dispatch-1",
               idempotencyKey: "idem-1",
               attemptNo: 1,
-              status: "waiting_result",
+              status: input.attemptStatus ?? "waiting_result",
               daemonSessionId: "daemon-session-1",
               connectionGeneration: 2,
               leaseEpoch: 4,

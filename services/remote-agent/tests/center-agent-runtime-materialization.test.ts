@@ -44,7 +44,7 @@ describe("Center Agent runtime materialization", () => {
         trigger: { source: "slack" },
       })
     ).toEqual({
-      materializeOrganizationDocuments: false,
+      includeOrganizationDocuments: false,
       materializeOrganizationSkills: false,
     });
   });
@@ -81,7 +81,7 @@ describe("Center Agent runtime materialization", () => {
         },
       })
     ).toEqual({
-      materializeOrganizationDocuments: true,
+      includeOrganizationDocuments: true,
       materializeOrganizationSkills: true,
     });
   });

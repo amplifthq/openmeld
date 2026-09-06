@@ -42,7 +42,15 @@ export async function preserveToolWorkThroughCompletion(input: {
     throw new Error("Tool work lifecycle changed toolName for one toolCallId.");
   }
   assertCompatibleTerminalWork(started.work, part.work);
-  return { ...part, work: started.work };
+  return {
+    ...part,
+    work: {
+      ...started.work,
+      ...(input.toolPart.workOutcome
+        ? { outcome: input.toolPart.workOutcome }
+        : {}),
+    },
+  };
 }
 
 function buildToolWorkLifecycleKey(toolPart: FlueToolLifecyclePart): string {

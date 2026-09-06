@@ -25,12 +25,51 @@
 
 ## Boundary
 
+### Center Agent selected sessions (Flue 2 candidate)
+
+The Center Agent home accepts `?session=<space-id>`. This selects an exact
+private Center Agent conversation through Core's session projection endpoint;
+the route does not reuse the default conversation cache or call the default
+open operation when the selected session is unavailable. A malformed selected
+session fails rather than dropping the selector. Invalid unrelated legacy
+search fields may be discarded while retaining a valid session selector.
+
+The selected session participates in loader dependencies, query keys and
+component identity. Both server-rendered reads and client reads forward it.
+View changes and retry retain it. Pending-route composers, queued first
+messages and pending drafts use the session scope, then migrate only that
+draft into the canonical Space composer. Switching sessions in one Organization
+preserves separate pending messages; organization switching retains the
+existing cleanup policy. A cache key or URL never grants message/file access.
+
+The unselected home is an entry point, not a separate permanent session
+identity. It retains the existing pair-based open/reuse behavior. Once a
+conversation is displayed, view navigation pins its resolved Space ID in the
+URL so Files/Messages cannot reselect a different conversation. Explicit
+session links always select their exact identity, including after reload.
+
+The conversation header provides New chat and Chats using the existing header
+controls. Creation retains its idempotency key across an uncertain failure;
+successful creation opens the exact returned session. Chats reads the bounded,
+current-member session list and follows its opaque pagination cursor. Selecting
+an item uses the same exact route validation as a direct link. List cache keys
+include the Organization and Human Profile. Generic Space management remains
+restricted; dedicated session rename, archive and deletion are not exposed.
+
+These controls still require real browser acceptance. Shared Computer safety,
+execution steering and release continuity remain required before treating the
+Flue 2 candidate as a release-ready session product.
+
+### Plugins
+
 The external-capability catalog is named **Plugins**. Product routes use
 `/center-agent/plugins`; old `/center-agent/apps` links redirect there, including
 service detail links. Web components and navigation helpers use Plugin names.
 Vendor terms such as GitHub App and existing connector RPC/tool field names
 remain unchanged: this rename does not migrate connection identities, stored
 credentials, wire discriminants, or authorization policy.
+
+### Collaboration presentation
 
 OpenMeld Web is the primary browser surface for the user-visible collaboration loop:
 
@@ -3698,6 +3737,10 @@ outcomes keep their original request context. Active rows expose a request link
 and reuse the shared status, Orb, preview, and Stop controls, without message
 timestamps or publication actions. Missing source history does not hide a Wake
 whose authoritative source context proves its conversation scope.
+Core-published native failure and cancellation text (`remote_agent_failure`)
+replaces its exact submission's temporary stream, just as a successful final
+reply does. A late or stale stream must not retain a working or failed bubble
+beside that durable outcome. Other submissions remain visible.
 All Web progress reads request `includeSourceContext=true`. Thread rendering
 uses the same recovered presentation snapshot as the main conversation, filtered
 to its own Thread; the root message does not import main-conversation controls.

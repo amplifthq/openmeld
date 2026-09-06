@@ -1404,7 +1404,7 @@ test("does not infer the Remote Agent receiver-first profile from bidirectional 
   );
 });
 
-test("deploys Core's strict worker-response reader before PR 194's Remote Agent producer", () => {
+test("deploys worker-response and activity readers before the Remote Agent producer", () => {
   const plan = buildProductionReleasePlan({
     affectedPackages: [],
     base: "previous-release",
@@ -1414,6 +1414,7 @@ test("deploys Core's strict worker-response reader before PR 194's Remote Agent 
       "services/core/src/remote-agent/application/native-delivery-service.ts",
       "services/remote-agent/.flue/agents/center-agent.ts",
       "services/remote-agent/flue-adapter/conversation-footprint.ts",
+      "packages/schemas/src/schemas/protocol/agent-stream.ts",
     ],
     scope: "db,auth,core,gateway,web,remote-agent,cli",
     sourceSha: REMOTE_SOURCE_SHA,
@@ -1428,12 +1429,12 @@ test("deploys Core's strict worker-response reader before PR 194's Remote Agent 
       "Verify Auth Worker health",
       "Deploy Core with the current published CLI projection",
       "Verify Core deployment is visible",
-      "Deploy Remote Agent Worker",
-      "Verify Remote Agent deployment is visible",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Web",
       "Verify Web health",
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
       "Publish CLI and deploy its Core release projection",
       "Verify final R2/npm/Core alignment",
     ]

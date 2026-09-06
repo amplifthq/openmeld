@@ -234,7 +234,30 @@ export const PLUGINS = [
 		availability: "available",
 		category: "Developer tools",
 		connection: {
-			auth: { kind: "oauth" },
+			auth: {
+				credentialFallback: {
+					authType: "custom_credential",
+					fields: [
+						{
+							description: "A Cloudflare API token with R2 permissions.",
+							key: "apiKey",
+							label: "API token",
+							placeholder: "Cloudflare API token",
+							secret: true,
+						},
+						{
+							description: "The Cloudflare account that owns your R2 buckets.",
+							key: "accountId",
+							label: "Account ID",
+							placeholder: "Cloudflare account ID",
+							secret: false,
+						},
+					],
+					kind: "credential",
+					switchLabel: "Use an API token instead",
+				},
+				kind: "oauth",
+			},
 		},
 		description: "Inspect and manage R2 buckets and stored objects.",
 		homepage: "https://www.cloudflare.com/developer-platform/products/r2/",

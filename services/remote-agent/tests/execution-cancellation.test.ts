@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  completeRemoteAgentExecutionState,
   initializeRemoteAgentExecutionState,
   readRemoteAgentExecutionState,
   requestRemoteAgentExecutionCancellation,
@@ -9,10 +10,13 @@ import { createSubmitTurnRequest } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 describe("remote agent execution cancellation", () => {
-  it("settles the execution when Flue no longer has an active submission", async () => {
+  it.each([
+    false,
+    true,
+  ])("keeps cancellation pending when Flue acknowledges abort intent with aborted=%s", async (aborted) => {
     const storage = new InMemoryDurableObjectStorage();
     const identity = createIdentity();
-    const abortSubmission = vi.fn(async () => ({ aborted: false }));
+    const abortSubmission = vi.fn(async () => ({ aborted }));
     await initializeRemoteAgentExecutionState({
       acceptedAtMs: 100,
       identity,
@@ -28,20 +32,19 @@ describe("remote agent execution cancellation", () => {
         storage,
       })
     ).resolves.toMatchObject({
-      abortedFlueSubmission: false,
+      abortedFlueSubmission: aborted,
       response: {
         execution: {
-          completedAtMs: 200,
-          lastProgressKind: "aborted",
-          status: "aborted",
+          completedAtMs: null,
+          status: "cancellation_requested",
         },
-        status: "already_cancelled",
+        status: "cancellation_requested",
       },
     });
     expect(abortSubmission).toHaveBeenCalledTimes(1);
   });
 
-  it("finishes a previously requested cancellation on a retry", async () => {
+  it("does not treat a repeated cancellation request as execution settlement", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const identity = createIdentity();
     const abortSubmission = vi.fn(async () => ({ aborted: false }));
@@ -69,12 +72,50 @@ describe("remote agent execution cancellation", () => {
       abortedFlueSubmission: false,
       response: {
         execution: {
-          completedAtMs: 300,
-          status: "aborted",
+          completedAtMs: null,
+          status: "cancellation_requested",
         },
-        status: "already_cancelled",
+        status: "cancellation_requested",
       },
     });
+  });
+
+  it("reports stopped only after the execution owner settles and does not resend abort", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const identity = createIdentity();
+    const abortSubmission = vi.fn(async () => ({ aborted: true }));
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: 100,
+      identity,
+      storage,
+    });
+    await cancelFlueRemoteAgentExecution({
+      abortSubmission,
+      identity,
+      nowMs: 200,
+      storage,
+    });
+    await completeRemoteAgentExecutionState({
+      identity,
+      nowMs: 300,
+      status: "aborted",
+      storage,
+    });
+    await expect(
+      cancelFlueRemoteAgentExecution({
+        abortSubmission,
+        identity,
+        nowMs: 400,
+        storage,
+      })
+    ).resolves.toMatchObject({
+      abortedFlueSubmission: null,
+      response: {
+        status: "already_cancelled",
+        execution: { status: "aborted", completedAtMs: 300 },
+      },
+    });
+    expect(abortSubmission).toHaveBeenCalledOnce();
   });
 
   it("preserves a retryable cancellation state when Flue abort fails", async () => {

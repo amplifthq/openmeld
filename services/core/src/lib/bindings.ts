@@ -156,6 +156,16 @@ type CoreAuthDispatchBindingRpc = {
 };
 
 export type RemoteAgentWorkerBindingRpc = {
+  receiveExecutionInput?(
+    input: import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputResponse
+  >;
+  readExecutionInput?(
+    input: import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputQuery
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputResponse
+  >;
   cancelExecution?(
     input: import("@openmeld/schemas/types").RemoteAgentWorkerCancellationRequest
   ): Promise<

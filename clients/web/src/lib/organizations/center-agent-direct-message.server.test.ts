@@ -45,7 +45,10 @@ describe("Center Agent direct-message server boundary", () => {
 		expect(proxyRequestMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("reads the existing DM projection through the authenticated Web boundary", async () => {
+	it.each([
+		undefined,
+		"space-ca-dm",
+	])("reads the selected projection through the authenticated Web boundary (%s)", async (spaceId) => {
 		const projection = {
 			generatedAt: "2026-07-16T05:00:00.000Z",
 			organizationId: "org-acme",
@@ -60,7 +63,9 @@ describe("Center Agent direct-message server boundary", () => {
 		};
 		const proxyRequestMock = vi.fn((input: { request: Request }) => {
 			expect(input.request.url).toBe(
-				"https://openmeld.test/v1/organizations/current/center-agent/dm-space"
+				spaceId === undefined
+					? "https://openmeld.test/v1/organizations/current/center-agent/dm-space"
+					: "https://openmeld.test/v1/organizations/current/center-agent/sessions/space-ca-dm"
 			);
 			expect(input.request.method).toBe("GET");
 			expect(input.request.headers.get("cookie")).toBe("session=abc");
@@ -78,6 +83,7 @@ describe("Center Agent direct-message server boundary", () => {
 
 		await expect(
 			readCenterAgentDirectMessageSpaceProjectionAtWebBoundary({
+				...(spaceId === undefined ? {} : { spaceId }),
 				gatewayUrl: "https://gateway.openmeld.test",
 				organizationId: "org-acme",
 				proxyRequestImpl: proxyRequestMock,

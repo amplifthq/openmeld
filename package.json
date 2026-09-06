@@ -16,7 +16,8 @@
     "release:verify:local": "node scripts/release/production-release.mjs verify",
     "release:deploy:local": "node scripts/release/production-release.mjs deploy",
     "deploy:cloud": "pnpm run release:deploy:local -- --scope cloud",
-    "deploy:openconnector:production": "node scripts/cloudflare/deploy-openconnector-production.mjs",
+    "deploy:openconnector:production": "node scripts/cloudflare/deploy-openconnector.mjs --environment production",
+    "deploy:openconnector:staging": "node scripts/dev/doppler-environment.mjs component:stg open-connector -- node scripts/cloudflare/deploy-openconnector.mjs --environment staging",
     "cloudflare:bootstrap:worker-identities": "node scripts/cloudflare/bootstrap-openmeld-worker-identities.mjs",
     "deploy:release-ready": "pnpm run verify:release-ready",
     "deploy:core:local-components": "OPENMELD_RELEASE_CHANNEL_SYNC_CHECK=1 pnpm run deploy:release-ready && node scripts/release/deploy-core-worker.mjs",
@@ -175,6 +176,12 @@
     "yaml": "2.8.2"
   },
   "packageManager": "pnpm@10.30.0",
+  "sherif": {
+    "ignoreDependency": [
+      "@cloudflare/vite-plugin@1.43.0",
+      "vite@8.1.2"
+    ]
+  },
   "engines": {
     "node": "24.x"
   },
