@@ -133,6 +133,8 @@ pnpm staging:smoke:computer -- plan
 - `staging:deploy` requires a clean worktree, creates only missing staging
   prerequisites, applies staging D1 migrations, deploys the five Workers, and
   verifies resources and public entry points.
+  The Worker order is Auth, Core, Gateway, Web, then Remote Agent so stream
+  readers understand new activity fields before the runtime emits them.
 - `staging:deploy -- --scope web` and `--scope remote-agent` deploy one
   non-database Worker after verifying the existing Staging resources. Use these
   narrow paths for component-only changes so an unrelated Worker cannot block

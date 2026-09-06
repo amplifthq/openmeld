@@ -117,9 +117,9 @@ export function buildStagingDeployStepSpecs(input = {}) {
     }),
     workerDeployStep("auth", "@openmeld/auth-worker", "Auth"),
     workerDeployStep("core", "@openmeld/core", "Core"),
-    workerDeployStep("remote-agent", "@openmeld/remote-agent", "Remote Agent"),
     workerDeployStep("gateway", "@openmeld/gateway", "Gateway"),
     workerDeployStep("web", "openmeld-web", "Web"),
+    workerDeployStep("remote-agent", "@openmeld/remote-agent", "Remote Agent"),
     stagingResourceVerificationStep(),
     stagingEntryPointVerificationStep(),
   ];
