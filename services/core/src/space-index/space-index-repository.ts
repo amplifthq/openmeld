@@ -91,6 +91,7 @@ export type ListAccountSpacesFromSpaceIndexInput = {
   includeDirectMessageProfileIds?: boolean;
   includeRecentlyDeletedItems?: boolean;
   includePurposes?: boolean;
+  includeMemberPreviews?: boolean;
 };
 
 export type SpaceIndexProjectionDriftIssueCode =
@@ -720,6 +721,12 @@ export async function listAccountSpacesFromSpaceIndex(
   const sections = partitionAccountSpaceIndexItems(
     buildAccountSpaceItems(input, rows)
   );
+  if (input.includeMemberPreviews === true) {
+    await attachSpaceMemberPreviews(input.db, [
+      ...sections.pinnedItems,
+      ...sections.spaceItems,
+    ]);
+  }
   // Opt-in only: omit recentlyDeletedItems for callers that did not request it, so a
   // strict legacy client (CLI) receives the legacy {pinnedItems, spaceItems} shape
   // its own strictObject parse accepts. See the schema note. The query is skipped
@@ -728,6 +735,56 @@ export async function listAccountSpacesFromSpaceIndex(
     return sections;
   }
   return { ...sections, recentlyDeletedItems };
+}
+
+// Only enrich the already authorized candidate list. Read at most three active
+// members per Space, in stable membership order; never fan out to Space DOs.
+async function attachSpaceMemberPreviews(
+  db: D1Database,
+  items: AccountSpaceIndexResponse["spaceItems"]
+): Promise<void> {
+  for (let offset = 0; offset < items.length; offset += 90) {
+    const chunk = items.slice(offset, offset + 90);
+    const rows = await db
+      .prepare(`
+      SELECT space_id, profile_id, profile_name_snapshot,
+        profile_kind_snapshot, controller_ref_snapshot
+      FROM (
+        SELECT space_id, profile_id, profile_name_snapshot,
+          profile_kind_snapshot, controller_ref_snapshot,
+          ROW_NUMBER() OVER (
+            PARTITION BY space_id ORDER BY added_at_ms, profile_id
+          ) AS member_rank
+        FROM space_index_memberships
+        WHERE status = 'active'
+          AND space_id IN (${chunk.map(() => "?").join(",")})
+      )
+      WHERE member_rank <= 3
+      ORDER BY space_id, member_rank
+    `)
+      .bind(...chunk.map((item) => item.spaceId))
+      .all<{
+        space_id: string;
+        profile_id: string;
+        profile_name_snapshot: string;
+        profile_kind_snapshot: "human" | "agent";
+        controller_ref_snapshot: string | null;
+      }>();
+    const byId = new Map(
+      chunk.map((item) => {
+        item.memberPreviews = [];
+        return [item.spaceId, item] as const;
+      })
+    );
+    for (const row of rows.results ?? []) {
+      byId.get(row.space_id)?.memberPreviews?.push({
+        profileId: row.profile_id,
+        profileName: row.profile_name_snapshot,
+        profileKind: row.profile_kind_snapshot,
+        agentControllerRef: row.controller_ref_snapshot,
+      });
+    }
+  }
 }
 
 export async function listOrganizationSpacesFromSpaceIndex(input: {

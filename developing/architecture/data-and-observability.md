@@ -762,6 +762,15 @@ Examples:
   Gateway-scoped candidate Space ids in the same pin, join, name, and id order
   as the Account Space Index list. They must not run a separate unordered limit
   that can inspect a different subset of the member's Spaces.
+- Account Space member previews are opt-in (`includeMemberPreviews=true`).
+  Enrich only the authorized candidate list from active membership projections,
+  selecting at most three profiles by added time and profile id. The existing
+  active-member count remains the total; the preview is not another membership
+  authority. Batch reads stay under D1's parameter limit and do not contact each
+  Space Durable Object. Legacy callers receive no new response field.
+  Rollout requires Core and Gateway support before Web enables this opt-in query.
+  CLI, Service, Skills, setup, Wake dispatch, Space publication, and diagnostics
+  contracts are unchanged; no local-component contract bump is required.
 - The Space-owned Direct Message conversion timestamp projects to
   `space_index_spaces.direct_message_converted_at_ms`. It is an irreversible
   classification fact, not a client hint: reusable-DM lookup excludes converted

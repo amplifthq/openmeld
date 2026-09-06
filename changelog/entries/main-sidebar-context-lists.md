@@ -11,6 +11,8 @@ the main sidebar, leaving more room for conversations and profile details.
 Groups still collapse, and long lists share one scrolling area. Settings keeps
 its separate navigation panel.
 Pin controls appear without shifting working and unread indicators.
+Spaces show up to three member avatars in a compact triangle, including people
+and Agents. Hover a Space to see its total member count.
 
 Organize Spaces into personal groups, sort each section, or drag Spaces into
 the order you want. Your groups and ordering follow your account across devices.

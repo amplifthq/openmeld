@@ -34,6 +34,10 @@ import {
 	type SpaceAgentOrbState,
 	WAKE_STATUS_ORB_STATE,
 } from "./space-agent-orb-state";
+import {
+	type SpaceMemberAppearance,
+	SpaceMemberAvatars,
+} from "./space-member-avatars";
 
 const LEADING_MENTION_MARKER_PATTERN = /^@+/;
 const SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME =
@@ -45,6 +49,7 @@ export type SpaceSidebarActiveWakeSummary =
 		hasMore?: boolean;
 	};
 export function SpaceSidebarMenuItem(input: {
+	memberAppearances?: ReadonlyMap<string, SpaceMemberAppearance>;
 	drag?: {
 		ref: Ref<HTMLLIElement>;
 		style: CSSProperties;
@@ -111,7 +116,17 @@ export function SpaceSidebarMenuItem(input: {
 								resetScroll={false}
 								to={input.routePath}
 							>
-								<HashIcon data-icon="inline-start" data-space-icon="channel" />
+								{input.item.memberPreviews?.length ? (
+									<SpaceMemberAvatars
+										appearances={input.memberAppearances}
+										members={input.item.memberPreviews}
+									/>
+								) : (
+									<HashIcon
+										data-icon="inline-start"
+										data-space-icon="channel"
+									/>
+								)}
 								<div
 									className="flex min-w-0 flex-1 items-center gap-px"
 									data-slot="space-sidebar-name-and-date"
@@ -161,6 +176,12 @@ export function SpaceSidebarMenuItem(input: {
 						side="right"
 					>
 						<span className="font-medium">{input.item.spaceName}</span>
+						{input.item.activeMemberCount !== null && (
+							<span>
+								{input.item.activeMemberCount}{" "}
+								{input.item.activeMemberCount === 1 ? "member" : "members"}
+							</span>
+						)}
 					</TooltipContent>
 				</Tooltip>
 

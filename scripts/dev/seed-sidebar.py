@@ -135,6 +135,16 @@ for i, name in enumerate(space_names):
         if not sid:
             raise RuntimeError(f"Unexpected create-space response keys: {list(result)}")
     pinned = datetime.datetime.fromtimestamp((now-i*1000)/1000, datetime.timezone.utc).isoformat() if i<6 else None
+    # Keep a repeatable one/two/three/many-member matrix in Space-owned truth.
+    # The creator is already present; mixed groups include real fixture Agents.
+    preview_members = [ident("human:0"), "agt_"+ident("agent:0"), ident("human:1"), "agt_"+ident("agent:1")][: [0, 1, 2, 4][i % 4]]
+    if preview_members:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{args.gateway_port}/v1/spaces/{sid}/organization-directory-profiles",
+            data=json.dumps({"directoryProfileIds": preview_members}).encode(),
+            headers=headers, method="POST")
+        with urllib.request.urlopen(request, timeout=30) as response:
+            json.load(response)
     request = urllib.request.Request(
         f"http://127.0.0.1:{args.gateway_port}/v1/profiles/{human['profile_id']}/spaces/{sid}",
         data=json.dumps({"gatewayHost":f"localhost:{args.gateway_port}","pinnedAt":pinned}).encode(),

@@ -25,6 +25,9 @@ It creates 24 real Spaces through the local Gateway/Core creation path and
 sets six pins through the profile history API. Stable identity IDs and Space
 purpose markers make reruns additive without duplicating fixtures. Existing
 identity records are preserved; rerunning resets the fixture Spaces' pins.
+Space membership fixtures cover one, two, three, and five members, including
+people and Agents together. They use the Organization directory membership API,
+so previews and total counts come from Space truth rather than UI overrides.
 
 These are UI development fixtures, not working AI installations. No Service
 process is impersonated and no online/Available state is fabricated. Core

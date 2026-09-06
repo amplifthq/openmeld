@@ -9,7 +9,7 @@ import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
 	type AppContextualNavGroup,
@@ -26,6 +26,7 @@ import type {
 	AccountSpaceItem,
 	AccountSpaceSections,
 } from "#/lib/spaces/account-spaces";
+import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import {
 	spaceActiveWakeProgressSummaryQueryOptions,
@@ -43,6 +44,7 @@ import {
 } from "./account-space-sections";
 import { moveSidebarSpace, sortSidebarSpaces } from "./sidebar-space-order";
 import { SortableSpaceSidebarItem } from "./sortable-space-sidebar-item";
+import type { SpaceMemberAppearance } from "./space-member-avatars";
 import {
 	buildSpaceActiveWakeSummary,
 	type SpaceSidebarActiveWakeSummary,
@@ -126,6 +128,38 @@ export function AppSpacesSidebar(input: {
 	const navigate = useNavigate();
 	const { currentOrganization } = useAppOrganization();
 	const currentOrganizationId = currentOrganization.id;
+	const profileDirectory = useQuery(
+		organizationProfileDirectoryQueryOptions({
+			enabled: input.currentProfileId.trim().length > 0,
+			organizationId: currentOrganizationId,
+		})
+	);
+	const memberAppearances = useMemo(
+		() =>
+			new Map<string, SpaceMemberAppearance>([
+				...(profileDirectory.data?.members ?? []).flatMap((member) =>
+					member.humanProfile
+						? [
+								[
+									member.humanProfile.profileId,
+									{ avatarUrl: member.user.image, agentControllerRef: null },
+								] as const,
+							]
+						: []
+				),
+				...(profileDirectory.data?.agentProfiles ?? []).map(
+					(profile) =>
+						[
+							profile.profileId,
+							{
+								avatarUrl: null,
+								agentControllerRef: profile.agentControllerRef,
+							},
+						] as const
+				),
+			]),
+		[profileDirectory.data]
+	);
 	const orgSlug = currentOrganization.slug;
 	const sidebar = useSidebarPreferences(
 		input.currentProfileId,
@@ -298,6 +332,7 @@ export function AppSpacesSidebar(input: {
 				isPinPending={() => pinMutation.arePinActionsPending}
 				items={listInput.items}
 				lastJoinedAtFormatter={sidebarTimeFormatter}
+				memberAppearances={memberAppearances}
 				navigationLabel={listInput.navigationLabel}
 				onOpenSpace={openSpace}
 				onRetry={() => {
@@ -523,6 +558,7 @@ export function AppSpacesSidebar(input: {
 }
 
 function SidebarSpacesList(input: {
+	memberAppearances: ReadonlyMap<string, SpaceMemberAppearance>;
 	section: string;
 	dragDisabled: boolean;
 	activeWakeSummaryBySpaceId: ReadonlyMap<
@@ -602,6 +638,7 @@ function SidebarSpacesList(input: {
 						item={item}
 						key={item.spaceId}
 						lastJoinedAtFormatter={input.lastJoinedAtFormatter}
+						memberAppearances={input.memberAppearances}
 						onOpenSpace={input.onOpenSpace}
 						onTogglePinned={input.onTogglePinned}
 						routePath={input.resolveRoutePath(item)}

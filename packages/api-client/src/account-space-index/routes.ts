@@ -23,6 +23,7 @@ export function buildAccountSpaceIndexPath(input: {
   gatewayHost: string;
   includeDirectMessageProfileIds?: boolean;
   includePurposes?: boolean;
+  includeMemberPreviews?: boolean;
   limit?: number;
   scope: "account" | "profile";
   selectedProfileId: string;
@@ -46,6 +47,9 @@ export function buildAccountSpaceIndexPath(input: {
   }
   if (input.includePurposes === true) {
     url.searchParams.set("includePurposes", "true");
+  }
+  if (input.includeMemberPreviews === true) {
+    url.searchParams.set("includeMemberPreviews", "true");
   }
   return `${url.pathname}${url.search}`;
 }

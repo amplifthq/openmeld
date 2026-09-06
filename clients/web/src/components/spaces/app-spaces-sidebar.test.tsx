@@ -800,7 +800,7 @@ describe("AppSpacesSidebar", () => {
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 	});
 
-	it("uses the channel hash icon for every space row", async () => {
+	it("keeps a channel icon when member previews are not available", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
