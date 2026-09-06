@@ -16,7 +16,7 @@ export type SidebarMode = "hidden" | "icon" | "expanded";
 export type SidebarGeometry = { mode: SidebarMode; width: number };
 export const SIDEBAR_ICON_WIDTH = 52;
 export const SIDEBAR_MIN_WIDTH = 160;
-export const SIDEBAR_MAX_WIDTH = 288;
+export const SIDEBAR_MAX_WIDTH = 384;
 
 /** Three snap regions with hysteresis: reversing at a seam must not chatter. */
 export function resolveSidebarDrag(

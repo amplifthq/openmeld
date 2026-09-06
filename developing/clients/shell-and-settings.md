@@ -448,7 +448,7 @@ header/content/footer and collapsible group slots. Row density, typography,
 semantic radii, icons and status indicators retain OpenMeld's design tokens.
 
 There are three desktop modes: hidden (0 px), icon-only (52 px), and expanded
-(160–288 px, initially 220 px). Dragging crosses snap regions with hysteresis
+(160–384 px, initially 220 px). Dragging crosses snap regions with hysteresis
 and can reverse across all three in the same gesture. Expanded width remains
 remembered through icon and hidden modes; only releasing a drag writes the
 preference. Clicking the edge or pressing `[` / Cmd/Ctrl+B toggles expanded and
