@@ -132,7 +132,7 @@ export function SpaceSidebarMenuItem(input: {
 										/>
 									)}
 									<div
-										className="flex min-w-0 flex-1 items-center gap-px"
+										className="flex min-w-0 flex-1 items-center gap-2"
 										data-slot="space-sidebar-name-and-date"
 									>
 										<CenterTruncatedText
@@ -147,7 +147,7 @@ export function SpaceSidebarMenuItem(input: {
 										/>
 										{!(hasActiveWake || hasUnread) && timestamp !== null ? (
 											<SidebarConversationTime
-												className="group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0"
+												className="group-focus-within/space-row:hidden group-hover/space-row:hidden"
 												timestamp={timestamp}
 											/>
 										) : null}
@@ -293,7 +293,7 @@ function resolveSpaceSidebarOpenButtonClassName(input: {
 	hasUnread: boolean;
 }): string {
 	return cn(
-		"flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-1 text-left outline-none",
+		"flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-left outline-none",
 		input.hasUnread ? "font-semibold text-sidebar-foreground" : null
 	);
 }
