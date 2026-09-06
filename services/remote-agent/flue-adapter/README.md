@@ -60,6 +60,13 @@ runtime wrapper captures its reader before cancelling so a concurrent pending
 read cannot clear that reference before cleanup. A real SQLite Workspace test
 exercises every wrapper down to the retained container stream, including a
 live polling slice followed by reattachment and completed output.
+The lower container Cap'n Web transport still has no eager cancellation
+acknowledgement for a silent stream producer. Consequently the native
+`EEXEC_BUSY` result remains a supported live-process observation, exposed as
+`running` with `outputPending` after a bounded wait. Output is retained and
+replayed after exit; it is never fabricated, and the process is never replayed.
+These tests do not certify the WebSocket transport; staging tests cover that
+additional boundary.
 Upstream 0.2.1 still uses the same unacknowledged unread-handle path; upgrading
 alone does not establish this contract.
 

@@ -83,6 +83,12 @@ Worker replacement. An ambiguous spawn or lost container must never trigger an
 automatic replacement process. Polling is bounded and does not kill the command.
 Completion requires its exit receipt and completed file synchronization; a stop
 acknowledgement is only a request. The Computer remains shared across sessions.
+The container's `EEXEC_BUSY` is explicit evidence of a live process with an
+existing output subscriber, not a failed command. A bounded poll can report
+`running` with `outputPending: true` and an unchanged cursor in this case;
+it must not invent output or restart the process. Completed executions replay
+the retained output after that cursor. Other transport or process errors are
+not converted to running state. Start returns a bounded initial output slice.
 When the model ends with unfinished commands, terminal handling requests their
 stop and reports failure rather than claiming the work completed. This is a
 command lifecycle contract, not proof that Computer image updates are safe.

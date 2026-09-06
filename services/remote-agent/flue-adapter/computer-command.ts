@@ -1,4 +1,8 @@
-import type { WorkspaceRuntimeExecHandle } from "@cloudflare/computer";
+import { setTimeout as delay } from "node:timers/promises";
+import type {
+  WorkspaceClient,
+  WorkspaceRuntimeExecHandle,
+} from "@cloudflare/computer";
 import {
   integer,
   literal,
@@ -76,6 +80,7 @@ type CommandResult = {
   stdout: string;
   stderr: string;
   after: number;
+  outputPending?: true;
 };
 
 function commandPrefix(submissionId: string): string {
@@ -103,7 +108,7 @@ export function createComputerCommandTool(input: {
   const definition: RemoteAgentToolDefinition = {
     name: "computer_command",
     description:
-      "Run long Linux commands using the Computer's retained native process sessions. start launches the command directly (never add shell &, nohup, or a background subprocess); use a unique stable key per command. poll reconnects to that same process and returns bounded output plus an after cursor; repeat until completed. list recovers keys after interruption. stop requests SIGTERM for that exact command. Commands belong to this execution only. Repeating start with the same key never launches a second process. A transport error can mean launch outcome is unknown: list/poll, never blindly rerun. Finish all commands before your final answer. Use bash for short commands.",
+      "Run long Linux commands using the Computer's retained native process sessions. start launches the command directly (never add shell &, nohup, or a background subprocess), returning an initial output slice; use a unique stable key per command. poll returns bounded output plus an after cursor; repeat until completed. running with outputPending means the native process is alive but its existing output subscription has not detached; continue polling, and retained output will be available after exit. Use separate polls with the default 20-second wait for long work. list recovers keys after interruption. stop requests SIGTERM for that exact command. Commands belong to this execution only. Repeating start with the same key never launches a second process. A transport error can mean launch outcome is unknown: list/poll, never blindly rerun. Finish all commands before your final answer. Use bash for short commands.",
     input: commandToolSchema,
     async execute(rawInput, options) {
       options?.signal?.throwIfAborted();
@@ -153,45 +158,57 @@ export function createComputerCommandTool(input: {
             "Computer command was already stopped; its key cannot start a new process."
           );
         }
-        await input.workspaceAccess.withWorkspace(async (workspace) => {
+        return await input.workspaceAccess.withWorkspace(async (workspace) => {
+          if (!created) {
+            return await pollComputerCommand(
+              workspace.runtime,
+              command,
+              0,
+              1000,
+              options?.signal
+            );
+          }
           // Persist identity before dispatch. An uncertain spawn must be inspected,
           // never replayed: even a missing retained handle cannot prove no effect.
-          const handle = created
-            ? await workspace.runtime.exec(request.command, {
-                id: command.id,
-                backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-                cwd: input.workingDirectory,
-                encoding: "utf8",
-                timeoutMs: (request.timeoutSeconds ?? 300) * 1000,
-              })
-            : await workspace.runtime.getExec(command.id, {
-                backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-                encoding: "utf8",
-              });
+          const handle = await workspace.runtime.exec(request.command, {
+            id: command.id,
+            backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+            cwd: input.workingDirectory,
+            encoding: "utf8",
+            timeoutMs: (request.timeoutSeconds ?? 300) * 1000,
+          });
+          let result: CommandResult;
           try {
-            // Await the native subscriber's detach acknowledgement before a
-            // later tool call can reattach. Symbol.dispose is fire-and-forget.
-            await handle.cancel();
+            result = await readCommandSlice(
+              handle,
+              command.key,
+              0,
+              1000,
+              options?.signal
+            );
           } finally {
             handle[Symbol.dispose]();
+            if (
+              (await read(request.key)).stopRequested ||
+              options?.signal?.aborted
+            ) {
+              await workspace.runtime.killExec(command.id, {
+                backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+                signal: "SIGTERM",
+              });
+            }
           }
           if (
             (await read(request.key)).stopRequested ||
             options?.signal?.aborted
           ) {
-            await workspace.runtime.killExec(command.id, {
-              backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-              signal: "SIGTERM",
-            });
             throw new Error("Computer command was stopped during launch.");
           }
+          return {
+            ...result,
+            nextAction: result.status === "completed" ? "done" : "poll",
+          };
         });
-        return {
-          id: command.id,
-          key: command.key,
-          status: "started",
-          nextAction: "poll",
-        };
       }
       const command = await read(request.key);
       return await input.workspaceAccess.withWorkspace(async (workspace) => {
@@ -212,16 +229,11 @@ export function createComputerCommandTool(input: {
             nextAction: "poll",
           };
         }
-        const handle = await workspace.runtime.getExec(command.id, {
-          backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-          encoding: "utf8",
-          resume: request.after,
-        });
-        return await readCommandSlice(
-          handle,
-          command.key,
+        return await pollComputerCommand(
+          workspace.runtime,
+          command,
           request.after ?? 0,
-          (request.waitSeconds ?? 5) * 1000,
+          (request.waitSeconds ?? 20) * 1000,
           options?.signal
         );
       });
@@ -263,6 +275,62 @@ export function createComputerCommandTool(input: {
       }
     },
   };
+}
+
+async function pollComputerCommand(
+  runtime: WorkspaceClient["runtime"],
+  command: Pick<Command, "id" | "key">,
+  after: number,
+  waitMs: number,
+  signal?: AbortSignal
+): Promise<CommandResult> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    signal?.throwIfAborted();
+    let handle: WorkspaceRuntimeExecHandle<"utf8">;
+    try {
+      handle = await runtime.getExec(command.id, {
+        backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+        encoding: "utf8",
+        resume: after,
+      });
+    } catch (error) {
+      // computerd emits EEXEC_BUSY only for a live retained process whose
+      // output already has a subscriber. Cap'n Web cancellation need not reach
+      // a silent producer until its next write. This proves running, not lost
+      // execution. Its retained output is replayable when the process exits.
+      if (
+        !(
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "EEXEC_BUSY"
+        )
+      ) {
+        throw error;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining > 0) {
+        await delay(remaining, undefined, { signal });
+        continue;
+      }
+      return {
+        ...command,
+        status: "running",
+        exitCode: null,
+        stdout: "",
+        stderr: "",
+        after,
+        outputPending: true,
+      };
+    }
+    return await readCommandSlice(
+      handle,
+      command.key,
+      after,
+      Math.max(0, deadline - Date.now()),
+      signal
+    );
+  }
 }
 
 export async function readCommandSlice(
@@ -362,11 +430,12 @@ export async function stopRemoteAgentComputerCommands(input: {
       Date.now() + 7 * 24 * 60 * 60 * 1000
     );
     await access.withWorkspace(async (workspace) => {
-      const handle = await workspace.runtime.getExec(command.id, {
-        backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-        encoding: "utf8",
-      });
-      const result = await readCommandSlice(handle, command.key, 0, 1000);
+      const result = await pollComputerCommand(
+        workspace.runtime,
+        command,
+        0,
+        1000
+      );
       if (result.status !== "completed") {
         unfinished++;
         await workspace.runtime.killExec(command.id, {

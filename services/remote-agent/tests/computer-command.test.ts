@@ -89,6 +89,44 @@ function fixture() {
 }
 
 describe("retained Computer commands", () => {
+  it("reports a native live subscriber as running and later reads the retained exit", async () => {
+    const f = fixture();
+    const started = (await f
+      .tool()
+      .execute({ action: "start", key: "quiet", command: "sleep 300" })) as {
+      id: string;
+    };
+    f.getExec.mockRejectedValueOnce(
+      Object.assign(new Error("already has a live subscriber"), {
+        code: "EEXEC_BUSY",
+      })
+    );
+    expect(
+      await f
+        .tool()
+        .execute({ action: "poll", key: "quiet", after: 1, waitSeconds: 0 })
+    ).toMatchObject({
+      id: started.id,
+      status: "running",
+      exitCode: null,
+      outputPending: true,
+      after: 1,
+    });
+    f.getExec.mockResolvedValueOnce(
+      handle(
+        started.id,
+        [{ id: started.id, seq: 2, name: "exit", value: 0 }],
+        true
+      )
+    );
+    expect(
+      await f
+        .tool()
+        .execute({ action: "poll", key: "quiet", after: 1, waitSeconds: 0 })
+    ).toMatchObject({ status: "completed", exitCode: 0, after: 2 });
+    expect(f.exec).toHaveBeenCalledTimes(1);
+    expect(f.killExec).not.toHaveBeenCalled();
+  });
   it("registers through the actual pinned Flue tool boundary", () => {
     const tool = fixture().tool();
     expect(() =>
