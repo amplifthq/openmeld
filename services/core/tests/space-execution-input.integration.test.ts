@@ -183,6 +183,46 @@ async function fixture(
 }
 
 describe("Center Agent execution input in the Space owner", () => {
+  it("shows one unconfirmed-input notice without claiming the original execution failed", async () => {
+    await fixture(async ({ instance, state, request, post }) => {
+      await post();
+      vi.mocked(instance.flushPendingExecutionInputs).mockRestore();
+      instance.bindings = {
+        ...instance.bindings,
+        OPENMELD_REMOTE_AGENT_WORKER: {
+          receiveExecutionInput: async (input) => ({
+            status: "unconfirmed",
+            receipt: {
+              target: input.target,
+              inputId: input.inputId,
+              receivedAtMs: 1,
+              appliedAtMs: null,
+            },
+          }),
+        },
+      };
+      await instance.flushPendingExecutionInputs();
+      const notices = state.storage.sql
+        .exec<{ payload_json: string }>(
+          "SELECT payload_json FROM space_signals WHERE type = 'signal.system_notice'"
+        )
+        .toArray();
+      expect(notices).toHaveLength(1);
+      const notice = JSON.parse(notices[0]?.payload_json ?? "null");
+      expect(notice.data.text).toContain("update wasn't confirmed");
+      expect(notice.data.dispatchId).not.toBe(request.dispatchId);
+      expect(readNextSpaceExecutionInputAlarm(state.storage.sql)).toBeNull();
+      await post();
+      expect(
+        state.storage.sql
+          .exec<{ n: number }>(
+            "SELECT count(*) AS n FROM space_signals WHERE type = 'signal.text'"
+          )
+          .toArray()[0]?.n
+      ).toBe(1);
+    });
+  });
+
   it("atomically persists one message and one exact target across concurrent retries", async () => {
     await fixture(async ({ state, signal, post }) => {
       await Promise.all([post(), post({ ...signal, id: crypto.randomUUID() })]);
