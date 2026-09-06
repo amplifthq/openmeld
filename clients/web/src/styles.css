@@ -598,3 +598,7 @@ html[data-space-self-message-alignment="left"]
     transition: none;
   }
 }
+
+.app-sidebar-footer:not([data-footer-motion-ready]) .app-sidebar-footer-actions {
+  transition: none;
+}

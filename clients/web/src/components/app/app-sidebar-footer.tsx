@@ -21,7 +21,7 @@ import {
 } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { useLogoutAction } from "#/hooks/auth-form.hooks";
@@ -52,6 +52,17 @@ export function AppSidebarFooter({
 	isSettingsActive: boolean;
 }) {
 	const iconOnly = mode === "icon";
+	const footerRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		// Route layouts recreate the footer. Resolve its initial hover geometry
+		// before enabling transitions, so navigation does not replay an entrance.
+		const frame = requestAnimationFrame(() => {
+			if (footerRef.current) {
+				footerRef.current.dataset.footerMotionReady = "true";
+			}
+		});
+		return () => cancelAnimationFrame(frame);
+	}, []);
 	const name = account.name?.trim() || account.email || "Account";
 	const settingsPath = buildOrganizationAccountSettingsPath(orgSlug);
 	const invitationReviewCount = useInvitationReviewCount().data ?? 0;
@@ -96,6 +107,7 @@ export function AppSidebarFooter({
 				iconOnly ? "items-center" : "flex-row items-center"
 			)}
 			data-footer-expanded={!iconOnly && presentation !== "drawer"}
+			ref={footerRef}
 		>
 			<SidebarUserFooter
 				avatar={avatar}
