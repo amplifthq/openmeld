@@ -590,6 +590,7 @@ function renderSpaceLanding(
 		spaceId?: string;
 		observeVisibleWakeProgress?: boolean;
 		entryConfirmed?: boolean;
+		ensureEntryConfirmed?: () => Promise<boolean>;
 	} = {}
 ) {
 	// SpaceLanding's Slack-discovery header state always mounts two real
@@ -611,7 +612,12 @@ function renderSpaceLanding(
 					<WakeProgressVisibleProjectionProbe />
 				) : null}
 				<AppOrganizationProvider scope={organizationScope}>
-					<SpaceEntryConfirmationContext value={input.entryConfirmed ?? true}>
+					<SpaceEntryConfirmationContext
+						value={{
+							confirmed: input.entryConfirmed ?? true,
+							ensureConfirmed: input.ensureEntryConfirmed ?? (async () => true),
+						}}
+					>
 						{ui}
 					</SpaceEntryConfirmationContext>
 				</AppOrganizationProvider>
@@ -2140,8 +2146,20 @@ describe("SpaceLanding", () => {
 	it.each([
 		false,
 		true,
-	])("keeps saved authoring read-only while access confirms (status already succeeded: %s)", async (statusConfirmed) => {
-		const postNormalMessageMock = vi.fn();
+	])("keeps saved authoring natural and confirms access on Send (status already succeeded: %s)", async (statusConfirmed) => {
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "signal-sent-after-access-confirmation",
+				text: "Draft while access settles",
+				ts: 2,
+			})
+		);
+		const currentStatus = createSpaceStatus();
+		const statusRefetch = vi.fn().mockResolvedValue({
+			data: currentStatus,
+			error: null,
+		});
+		const ensureEntryConfirmed = vi.fn().mockResolvedValue(true);
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
 		});
@@ -2159,7 +2177,8 @@ describe("SpaceLanding", () => {
 				isFetching: true,
 				isPending: !statusConfirmed,
 				isSuccess: statusConfirmed,
-				data: statusConfirmed ? createSpaceStatus() : undefined,
+				data: statusConfirmed ? currentStatus : undefined,
+				refetch: statusRefetch,
 			}),
 			members: createQueryResult({
 				isSuccess: true,
@@ -2180,7 +2199,10 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding({ entryConfirmed: !statusConfirmed });
+		renderSpaceLanding({
+			entryConfirmed: false,
+			ensureEntryConfirmed,
+		});
 
 		expect(screen.getByText("Private launch numbers")).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Design Room" })).toBeTruthy();
@@ -2189,10 +2211,10 @@ describe("SpaceLanding", () => {
 		});
 		expect(composer.getAttribute("contenteditable")).toBe("true");
 		expect(composer.getAttribute("aria-placeholder")).toBe(
-			"Write a message while OpenMeld checks access…"
+			"To wake an agent, type @, then pick the agent."
 		);
-		await setComposerValue(composer, "Draft while access is checked");
-		expect(readComposerValue(composer)).toBe("Draft while access is checked");
+		await setComposerValue(composer, "Draft while access settles");
+		expect(readComposerValue(composer)).toBe("Draft while access settles");
 		const mentionButton = screen.getByRole("button", {
 			name: "Mention a member",
 		});
@@ -2216,18 +2238,78 @@ describe("SpaceLanding", () => {
 					name: "Send message",
 				}) as HTMLButtonElement
 			).disabled
-		).toBe(true);
+		).toBe(false);
 		const membersButton = screen.getByRole("button", { name: "Members" });
 		expect(membersButton.textContent).toBe("");
 		fireEvent.click(membersButton);
 		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
 		expect(screen.queryByText("Runner")).toBeNull();
 		fireEvent.keyDown(composer, { key: "Enter" });
-		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await waitFor(() => expect(ensureEntryConfirmed).toHaveBeenCalledTimes(1));
+		expect(statusRefetch).toHaveBeenCalled();
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
+		expect(
+			screen.queryByText(
+				"Checking access before you can send. Your draft stays here."
+			)
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
 		expect(screen.queryByRole("button", { name: "Leave space" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Delete space" })).toBeNull();
 		expect(screen.queryByText("Couldn't Load This Space")).toBeNull();
+	});
+
+	it("keeps the draft and reports not sent when access confirmation cannot finish", async () => {
+		const postNormalMessageMock = vi.fn();
+		const ensureEntryConfirmed = vi
+			.fn()
+			.mockRejectedValue(new Error("Network unavailable"));
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			bootstrap: createQueryResult({
+				isFetching: true,
+				isPending: true,
+			}),
+			displaySnapshot: createQueryResult({
+				isSuccess: true,
+				data: createSpaceConversationDisplaySnapshot(createSpaceStatus()),
+			}),
+			status: createQueryResult({
+				isFetching: true,
+				isPending: true,
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding({
+			entryConfirmed: false,
+			ensureEntryConfirmed,
+		});
+		const composer = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await setComposerValue(composer, "Keep this draft");
+		fireEvent.keyDown(composer, { key: "Enter" });
+
+		await waitFor(() =>
+			expect(
+				screen.getByText(
+					"Message not sent. Check your connection and try again."
+				)
+			).toBeTruthy()
+		);
+		expect(readComposerValue(composer)).toBe("Keep this draft");
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
 	});
 
 	it("hides cached private history when the current Space status denies access", async () => {
@@ -18014,7 +18096,7 @@ function normalizeSpaceBootstrapThreads(value: unknown) {
 }
 
 function createQueryResult(overrides: Record<string, unknown>) {
-	return {
+	const result = {
 		isPending: false,
 		isFetching: false,
 		isFetchedAfterMount: true,
@@ -18022,8 +18104,13 @@ function createQueryResult(overrides: Record<string, unknown>) {
 		isSuccess: false,
 		error: null,
 		data: undefined,
-		refetch: vi.fn().mockResolvedValue(undefined),
 		...overrides,
+	};
+	return {
+		...result,
+		refetch:
+			overrides.refetch ??
+			vi.fn().mockResolvedValue({ data: result.data, error: result.error }),
 	};
 }
 
