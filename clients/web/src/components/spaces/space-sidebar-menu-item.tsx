@@ -192,7 +192,7 @@ export function SpaceSidebarMenuItem(input: {
 							</SidebarMenuAction>
 						}
 					/>
-					<TooltipContent side="right">
+					<TooltipContent side="top">
 						{isPinned ? "Unpin space" : "Pin space"}
 					</TooltipContent>
 				</Tooltip>
@@ -268,7 +268,7 @@ function SpaceSidebarActiveWakeStatus(input: {
 					</button>
 				}
 			/>
-			<TooltipContent side="right">{label}</TooltipContent>
+			<TooltipContent side="top">{label}</TooltipContent>
 		</Tooltip>
 	);
 }

@@ -250,11 +250,14 @@ export function AppRailNavigationGroup(input: {
 export function CollapsedRailTooltip(input: {
 	children: ReactElement;
 	label: string;
+	side?: "top" | "right";
 }) {
 	return (
 		<Tooltip>
 			<TooltipTrigger delay={0} render={input.children} />
-			<TooltipContent side="right">{input.label}</TooltipContent>
+			<TooltipContent side={input.side ?? "right"}>
+				{input.label}
+			</TooltipContent>
 		</Tooltip>
 	);
 }

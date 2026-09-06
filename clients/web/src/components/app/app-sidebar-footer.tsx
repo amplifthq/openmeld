@@ -189,7 +189,10 @@ export function AppSidebarFooter({
 					iconOnly && "flex-col"
 				)}
 			>
-				<CollapsedRailTooltip label={settingsLabel}>
+				<CollapsedRailTooltip
+					label={settingsLabel}
+					side={iconOnly ? "right" : "top"}
+				>
 					<Link
 						aria-current={isSettingsActive ? "page" : undefined}
 						aria-label={settingsLabel}
@@ -212,6 +215,7 @@ export function AppSidebarFooter({
 				</CollapsedRailTooltip>
 				<CollapsedRailTooltip
 					label={dark ? "Switch to light mode" : "Switch to dark mode"}
+					side={iconOnly ? "right" : "top"}
 				>
 					<button
 						aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
