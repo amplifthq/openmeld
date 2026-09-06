@@ -103,7 +103,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 		expect(launcher.textContent).toContain("Computer");
 	});
 
-	it("keeps ordinary disconnection accessible without a toolbar warning dot", () => {
+	it("shows ordinary disconnection with a muted toolbar dot", () => {
 		statusMock.mockReturnValue({
 			label: "Disconnected",
 			reason: "service_not_connected",
@@ -113,7 +113,9 @@ describe("CurrentComputerToolbarLauncher", () => {
 
 		render(<CurrentComputerToolbarLauncher />);
 
-		expect(screen.queryByTestId("current-computer-toolbar-status")).toBeNull();
+		expect(
+			screen.getByTestId("current-computer-toolbar-status").className
+		).toContain("bg-muted-foreground");
 		expect(
 			screen.getByRole("link", {
 				name: "Open Felix's MacBook Pro details, Disconnected",
