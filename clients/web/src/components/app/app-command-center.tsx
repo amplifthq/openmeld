@@ -24,7 +24,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useMatches, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
 	isDirectMessageItem,
@@ -67,6 +67,7 @@ import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import { CommandCenterList, type CommandEntry } from "./command-center-list";
 import { recentSpaceIds, recordRecentSpace } from "./command-recent-spaces";
+import { useAppKeyboardShortcuts } from "./use-app-keyboard-shortcuts";
 
 const EMPTY_SECTIONS: AccountSpaceSections = {
 	pinnedItems: [],
@@ -77,6 +78,11 @@ export function AppCommandCenter() {
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [newMessage, setNewMessage] = useState(false);
+	const toggleCommandCenter = useCallback(() => {
+		setQuery("");
+		setOpen((value) => !value);
+	}, []);
+	useAppKeyboardShortcuts(toggleCommandCenter);
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const profileId = defaultHumanProfile?.openMeldProfileId ?? "";
@@ -117,24 +123,9 @@ export function AppCommandCenter() {
 			setQuery("");
 			setOpen(true);
 		};
-		const shortcut = (event: KeyboardEvent) => {
-			if (
-				(event.metaKey || event.ctrlKey) &&
-				!event.altKey &&
-				!event.shiftKey &&
-				event.key.toLowerCase() === "k" &&
-				!event.isComposing
-			) {
-				event.preventDefault();
-				setQuery("");
-				setOpen((value) => !value);
-			}
-		};
 		window.addEventListener("openmeld:command-center", show);
-		window.addEventListener("keydown", shortcut);
 		return () => {
 			window.removeEventListener("openmeld:command-center", show);
-			window.removeEventListener("keydown", shortcut);
 		};
 	}, []);
 	useEffect(() => {

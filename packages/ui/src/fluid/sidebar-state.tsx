@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { matchesSidebarShortcut } from "../lib/application-shortcuts";
 
 export type SidebarMode = "hidden" | "icon" | "expanded";
 export type SidebarGeometry = { mode: SidebarMode; width: number };
@@ -161,15 +162,7 @@ export function SidebarProvider({
       ) {
         return;
       }
-      if (
-        (event.key === "[" &&
-          !event.metaKey &&
-          !event.ctrlKey &&
-          !event.altKey) ||
-        (event.key.toLowerCase() === "b" &&
-          (event.metaKey || event.ctrlKey) &&
-          !event.altKey)
-      ) {
+      if (matchesSidebarShortcut(event)) {
         event.preventDefault();
         toggleSidebar();
       }
