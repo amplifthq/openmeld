@@ -1,4 +1,8 @@
 const AVAILABLE_STATUS_NAME = /^Available/;
+const PERSONAL_AGENT_DESCRIPTION =
+	/Chat with it directly or give it work in Spaces\./;
+const TEAM_AGENT_DESCRIPTION =
+	/Work with it alongside your teammates in Spaces/;
 
 import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
 import type {
@@ -21,6 +25,7 @@ import { AgentProfilesWorkspace } from "./agent-profiles-workspace";
 
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
+		account: { name: "Current member" },
 		currentUserId: "user-current",
 		currentOrganization: { id: "org-test", slug: "test" },
 	}),
@@ -722,16 +727,20 @@ describe("AgentProfilesWorkspace", () => {
 		const createCard = screen.getByTestId("create-agent-empty-state");
 		expect(createCard.tagName).toBe("BUTTON");
 		expect(
-			screen.getByRole("heading", { name: "Bring your AI into Spaces" })
+			screen.getByRole("heading", { name: "Bring your AI to your workspace" })
 		).toBeTruthy();
 		expect(createCard.textContent).toContain("Create Agent");
-		expect(
-			screen.getByText(
-				"Use your own computer or a teammate’s, with their permission."
-			)
-		).toBeTruthy();
+		expect(screen.getByText(PERSONAL_AGENT_DESCRIPTION)).toBeTruthy();
 		fireEvent.click(createCard);
 		expect(onCreateAgent).toHaveBeenCalledOnce();
+	});
+
+	it("introduces team collaboration in an empty Organization", () => {
+		renderWorkspace({ isOrganizationContext: true, profiles: [] });
+		expect(
+			screen.getByRole("heading", { name: "Bring your AI to your team" })
+		).toBeTruthy();
+		expect(screen.getByText(TEAM_AGENT_DESCRIPTION)).toBeTruthy();
 	});
 
 	it("explains an empty Agent search without blaming the availability filter", () => {

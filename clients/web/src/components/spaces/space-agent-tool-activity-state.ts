@@ -75,6 +75,9 @@ function resolveAgentWorkCalls(
 			const existing = calls[existingIndex];
 			if (existing) {
 				existing.state = part.state;
+				if (part.work.outcome) {
+					existing.work = { ...existing.work, outcome: part.work.outcome };
+				}
 			}
 			continue;
 		}
@@ -95,6 +98,7 @@ function hasSameWork(
 ): boolean {
 	return (
 		left.key === right.key &&
+		left.outcome === right.outcome &&
 		left.subject?.kind === right.subject?.kind &&
 		left.subject?.label === right.subject?.label
 	);

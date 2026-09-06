@@ -15,7 +15,7 @@ const currentComputerToolbarAttentionSchema = z.union([
 	}),
 	z.strictObject({
 		reason: z.literal("service_not_connected"),
-		tone: z.literal("danger"),
+		tone: z.enum(["muted", "danger"]),
 	}),
 	z.strictObject({
 		reason: z.literal("openmeld_tools_update"),
@@ -82,10 +82,10 @@ export function readCurrentComputerToolbarAttention(
 			};
 		case "service_not_connected":
 			return {
-				label: "Computer not connected",
+				label: "Disconnected",
 				reason: attention.reason,
 				showLabel: true,
-				tone: attention.tone,
+				tone: "muted",
 			};
 		case "openmeld_tools_update":
 			return {

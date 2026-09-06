@@ -45,7 +45,7 @@ export const SIDEBAR_MIN_WIDTH = "8rem";
 export const SIDEBAR_MAX_WIDTH = "18rem";
 export const OUTER_SIDEBAR_DEFAULT_WIDTH = "13.75rem";
 export const OUTER_SIDEBAR_MIN_WIDTH = "10rem";
-export const OUTER_SIDEBAR_MAX_WIDTH = "18rem";
+export const OUTER_SIDEBAR_MAX_WIDTH = "24rem";
 const PX_PER_REM = 16;
 const TRAILING_ZERO_REM_PATTERN = /\.?0+$/;
 

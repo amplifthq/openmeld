@@ -1031,7 +1031,7 @@ function resolveOpenMeldToolsServiceBoundaryDisplay(
 				label: RECONNECT_MANUALLY_LABEL,
 				path: input.setupPath,
 			},
-			statusLabel: "Computer not connected",
+			statusLabel: "Disconnected",
 			tone: "muted",
 		};
 	}

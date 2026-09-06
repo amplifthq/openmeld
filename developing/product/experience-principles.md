@@ -29,6 +29,10 @@ substitute a softer state to avoid alarming the user.
   honest "cannot confirm" copy instead of an optimistic green.
 - Applied: a failed route lookup is surfaced as a lookup failure, never
   repainted as a stable `Offline`; `Offline` is never repainted as `Checking`.
+- Applied: an ordinary disconnected computer uses muted `Disconnected` status.
+  Disconnection alone is not a failure and does not deserve a persistent red
+  warning. Show specific operation failures beside the failed action, with a
+  recovery path; never turn unknown status into disconnection to simplify copy.
 - Applied: live Agent work may name the current step, but it keeps the explicit
   `Agent is working` execution state visible until the authoritative stream
   reaches a terminal outcome. A live phase or settled work step remains

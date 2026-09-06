@@ -4429,7 +4429,7 @@ describe("remote agent OpenMeld tool catalog", () => {
             ({
               active: false,
               generationGuidance: {
-                requiredRole: "owner_or_admin",
+                requiredRole: "member",
                 settingsLocation: "Settings → Workspace → General",
                 settingsSection: "Invite link",
               },
@@ -4444,7 +4444,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).resolves.toEqual({
       active: false,
       generationGuidance: {
-        requiredRole: "owner_or_admin",
+        requiredRole: "member",
         settingsLocation: "Settings → Workspace → General",
         settingsSection: "Invite link",
       },

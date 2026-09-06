@@ -1,8 +1,4 @@
-import {
-  type DefineSkillOptions,
-  defineSkill,
-  type SkillReference,
-} from "@flue/runtime";
+import { defineSkill, type SkillDefinition } from "@flue/runtime";
 import {
   organizationSkillRuntimeSnapshotResponseSchema,
   stringifyOrganizationSkillBundleCanonicalJson,
@@ -23,7 +19,7 @@ export async function materializeOrganizationSkillFlueSkills(input: {
   expectedOrganizationId: string;
   selections: readonly OrganizationSkillRuntimeReleaseSelection[];
   snapshot: unknown;
-}): Promise<SkillReference[]> {
+}): Promise<SkillDefinition[]> {
   const snapshot = organizationSkillRuntimeSnapshotResponseSchema.parse(
     input.snapshot
   );
@@ -50,7 +46,7 @@ export async function materializeOrganizationSkillFlueSkills(input: {
   }
 
   const skillNames = new Set<string>();
-  const skills: SkillReference[] = [];
+  const skills: SkillDefinition[] = [];
   for (const selection of input.selections) {
     if (skillNames.has(selection.name)) {
       throw new Error(
@@ -148,7 +144,7 @@ export async function recordOrganizationSkillActivation(input: {
 export function buildFlueSkillDefinition(
   release: OrganizationSkillRuntimeRelease,
   name: string
-): DefineSkillOptions {
+): SkillDefinition {
   const { portable } = release.bundle;
   return {
     ...(portable.compatibility

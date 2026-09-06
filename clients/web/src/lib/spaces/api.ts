@@ -1,4 +1,5 @@
 import { createSpaceApi } from "@openmeld/api-client";
+import { withLocalSpaceRuntimeFixtures } from "#/lib/dev/space-runtime-fixtures";
 import {
 	createOrganizationScopedWebOpenMeldApiFoundation,
 	createUnscopedWebOpenMeldApiFoundation,
@@ -25,5 +26,8 @@ export function createOrganizationScopedWebSpaceApi(
 }
 
 export function createUnscopedWebSpaceApi(input: WebSpaceApiInput = {}) {
-	return createSpaceApi(createUnscopedWebOpenMeldApiFoundation(input));
+	const api = createSpaceApi(createUnscopedWebOpenMeldApiFoundation(input));
+	return import.meta.env.DEV
+		? withLocalSpaceRuntimeFixtures(api, input.openMeldProfileId)
+		: api;
 }

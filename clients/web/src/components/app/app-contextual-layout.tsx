@@ -110,7 +110,9 @@ export function AppContextualSidebarNav<ItemId extends string>(
 			<Content className={isMain ? "min-w-0" : "px-3 pt-[9px] pb-2"}>
 				{input.leadingContent ? (
 					<div
-						className={isMain ? "pb-1" : "pb-4"}
+						className={
+							isMain ? "[&:has(input,p,button,[data-slot=badge])]:pb-1" : "pb-4"
+						}
 						data-slot="app-contextual-sidebar-leading"
 					>
 						{input.leadingContent}
@@ -140,6 +142,7 @@ export function AppContextualSidebarNav<ItemId extends string>(
 						labelText={group.label}
 						labelTooltip={group.labelTooltip}
 						onRename={group.onRename}
+						reorderId={group.id}
 					>
 						{group.items !== undefined ? (
 							<FluidNavMenu

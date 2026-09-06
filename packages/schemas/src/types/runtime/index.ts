@@ -32,6 +32,7 @@ export type {
 } from "./local-agent-catalog";
 export type * from "./message-channel";
 export type * from "./openconnector-runtime";
+export type * from "./remote-agent-execution-input";
 export type * from "./remote-agent-metering";
 export type * from "./remote-agent-slack";
 export type * from "./remote-agent-turn-envelope";

@@ -115,8 +115,7 @@ export function AgentProfileSidebarItemComponent(input: {
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
 					{
-						"group-focus-within/agent-row:pr-14 group-hover/agent-row:pr-14 [@media(hover:none)]:pr-14":
-							hasActions,
+						"pr-14": hasActions,
 					},
 					input.isActive ? "text-sidebar-accent-foreground" : null
 				)}

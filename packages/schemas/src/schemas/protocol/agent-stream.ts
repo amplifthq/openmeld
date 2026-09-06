@@ -270,6 +270,7 @@ const agentWorkActivitySchema = z
     v: z.literal(1),
     key: agentWorkActivityKeySchema,
     subject: agentWorkSubjectSchema.optional(),
+    outcome: z.literal("confirmation_required").optional(),
   })
   .superRefine((work, context) => {
     if (

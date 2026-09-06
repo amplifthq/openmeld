@@ -101,6 +101,12 @@ export {
   openConnectorRuntimeActionSuccessEnvelopeSchema,
 } from "./openconnector-runtime";
 export {
+  remoteAgentWorkerExecutionInputQuerySchema,
+  remoteAgentWorkerExecutionInputReceiptSchema,
+  remoteAgentWorkerExecutionInputRequestSchema,
+  remoteAgentWorkerExecutionInputResponseSchema,
+} from "./remote-agent-execution-input";
+export {
   aiGatewayLogEntrySchema,
   aiGatewayLogsListResponseSchema,
   aiGatewayResultInfoSchema,

@@ -50,22 +50,19 @@ describe("Center Agent admission concurrency", () => {
     const extensionMethods = source.slice(extensionStart, extensionEnd);
 
     expect(extensionMethods).not.toContain("this.fetch");
-    expect(extensionMethods).toContain(
-      "routeRequest: this.onRequest.bind(this)"
-    );
+    expect(extensionMethods).toContain("await this.onRequest(request)");
   });
 
-  it("honors durable receipts before checking new-admission footprint or replaying Agents SDK state", async () => {
+  it("honors durable receipts before checking new-admission footprint", async () => {
     const assertConversationFootprintSchema = vi.fn();
     const cleanupFinalizedSubmissionReplay = vi.fn(async () => undefined);
-    const ensureInitialized = vi.fn(async () => undefined);
     const readConversationFootprint = vi.fn(() => ({
       batchCount: 1,
       canonicalBytes: 13 * 1024 * 1024,
       largestBatchBytes: 13 * 1024 * 1024,
       level: "hard_limit" as const,
     }));
-    const reportConversationFootprintBeforeReplay = vi.fn();
+    const reportConversationFootprint = vi.fn();
     const finalizedReceipt = {
       result: { ack: { submissionId: "submission-finalized" } },
       status: "finalized" as const,
@@ -75,10 +72,9 @@ describe("Center Agent admission concurrency", () => {
       prepareFlueCenterAgentAdmission({
         assertConversationFootprintSchema,
         cleanupFinalizedSubmissionReplay,
-        ensureInitialized,
         readConversationFootprint,
         readExistingSubmission: async () => finalizedReceipt,
-        reportConversationFootprintBeforeReplay,
+        reportConversationFootprint,
       })
     ).resolves.toEqual({
       outcome: "finalized",
@@ -86,46 +82,40 @@ describe("Center Agent admission concurrency", () => {
     });
     expect(readConversationFootprint).not.toHaveBeenCalled();
     expect(assertConversationFootprintSchema).not.toHaveBeenCalled();
-    expect(ensureInitialized).not.toHaveBeenCalled();
     expect(cleanupFinalizedSubmissionReplay).toHaveBeenCalledOnce();
 
     await expect(
       prepareFlueCenterAgentAdmission({
         assertConversationFootprintSchema,
         cleanupFinalizedSubmissionReplay,
-        ensureInitialized,
         readConversationFootprint,
         readExistingSubmission: async () => ({
           claimedAtMs: 1000,
           status: "claimed",
         }),
-        reportConversationFootprintBeforeReplay,
+        reportConversationFootprint,
       })
     ).resolves.toMatchObject({ admission: "claimed", outcome: "ready" });
     expect(readConversationFootprint).not.toHaveBeenCalled();
     expect(assertConversationFootprintSchema).toHaveBeenCalledOnce();
-    expect(ensureInitialized).toHaveBeenCalledTimes(1);
     expect(cleanupFinalizedSubmissionReplay).toHaveBeenCalledOnce();
 
-    ensureInitialized.mockClear();
     assertConversationFootprintSchema.mockClear();
     await expect(
       prepareFlueCenterAgentAdmission({
         assertConversationFootprintSchema,
         cleanupFinalizedSubmissionReplay,
-        ensureInitialized,
         readConversationFootprint,
         readExistingSubmission: async () => null,
-        reportConversationFootprintBeforeReplay,
+        reportConversationFootprint,
       })
     ).resolves.toMatchObject({ outcome: "rejected" });
     expect(readConversationFootprint).toHaveBeenCalledTimes(1);
     expect(assertConversationFootprintSchema).not.toHaveBeenCalled();
-    expect(ensureInitialized).not.toHaveBeenCalled();
     expect(cleanupFinalizedSubmissionReplay).toHaveBeenCalledOnce();
   });
 
-  it("reports a soft-limit footprint before replaying Agents SDK state", async () => {
+  it("admits and reports a soft-limit conversation", async () => {
     const callOrder: string[] = [];
     const footprint = {
       batchCount: 8,
@@ -138,19 +128,15 @@ describe("Center Agent admission concurrency", () => {
       prepareFlueCenterAgentAdmission({
         assertConversationFootprintSchema: () => undefined,
         cleanupFinalizedSubmissionReplay: async () => undefined,
-        ensureInitialized: () => {
-          callOrder.push("replay");
-          return Promise.reject(new Error("replay failed"));
-        },
         readConversationFootprint: () => footprint,
         readExistingSubmission: async () => null,
-        reportConversationFootprintBeforeReplay: (observedFootprint) => {
+        reportConversationFootprint: (observedFootprint) => {
           callOrder.push(`footprint:${observedFootprint.level}`);
         },
       })
-    ).rejects.toThrow("replay failed");
+    ).resolves.toEqual({ admission: "new", footprint, outcome: "ready" });
 
-    expect(callOrder).toEqual(["footprint:soft_limit", "replay"]);
+    expect(callOrder).toEqual(["footprint:soft_limit"]);
   });
 
   it("persists evidence after its SQL adapter is initialized", async () => {

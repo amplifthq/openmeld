@@ -1,3 +1,7 @@
+import {
+  spaceDispatchTraceAttemptStatusSchema,
+  spaceDispatchTraceDispatchStatusSchema,
+} from "@openmeld/schemas";
 import type {
   SpaceDispatchTraceAttemptStatus,
   SpaceDispatchTraceDispatchStatus,
@@ -13,29 +17,6 @@ type DispatchTracePromptRecord = NonNullable<
 type DispatchTraceRuntimeRecord = NonNullable<
   SpaceDispatchTraceSnapshot["runtime"]
 >;
-
-const DISPATCH_TRACE_DISPATCH_STATUSES =
-  new Set<SpaceDispatchTraceDispatchStatus>([
-    "queued",
-    "dispatching",
-    "succeeded",
-    "failed_retryable",
-    "failed_terminal",
-    "deduped",
-    "blocked",
-  ]);
-
-const DISPATCH_TRACE_ATTEMPT_STATUSES =
-  new Set<SpaceDispatchTraceAttemptStatus>([
-    "blocked",
-    "dispatching",
-    "failed_retryable",
-    "failed_terminal",
-    "succeeded",
-    "superseded",
-    "timed_out",
-    "waiting_result",
-  ]);
 
 export type DispatchRuntimeTelemetryDecisionPayload = {
   agentControllerConversationId?: unknown;
@@ -96,27 +77,15 @@ export const toNullableIsoDateTime = (value: unknown): string | null => {
 export const toDispatchTraceDispatchStatus = (
   value: unknown
 ): SpaceDispatchTraceDispatchStatus | null => {
-  if (typeof value !== "string") {
-    return null;
-  }
-  return DISPATCH_TRACE_DISPATCH_STATUSES.has(
-    value as SpaceDispatchTraceDispatchStatus
-  )
-    ? (value as SpaceDispatchTraceDispatchStatus)
-    : null;
+  const parsed = spaceDispatchTraceDispatchStatusSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 };
 
 export const toDispatchTraceAttemptStatus = (
   value: unknown
 ): SpaceDispatchTraceAttemptStatus | null => {
-  if (typeof value !== "string") {
-    return null;
-  }
-  return DISPATCH_TRACE_ATTEMPT_STATUSES.has(
-    value as SpaceDispatchTraceAttemptStatus
-  )
-    ? (value as SpaceDispatchTraceAttemptStatus)
-    : null;
+  const parsed = spaceDispatchTraceAttemptStatusSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 };
 
 export const normalizeDispatchRuntimeTraceRecord = (

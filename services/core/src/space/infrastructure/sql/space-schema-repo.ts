@@ -1,5 +1,7 @@
-export const SPACE_SQL_SCHEMA_VERSION = 31;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v31";
+import { ensureSpaceExecutionInputOutbox } from "./space-execution-input-repo";
+
+export const SPACE_SQL_SCHEMA_VERSION = 32;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v32";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -20,6 +22,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   if (hasCurrentSpaceSqlSchema(sql)) {
     return;
   }
+  ensureSpaceExecutionInputOutbox(sql);
   sql.exec(`CREATE TABLE IF NOT EXISTS space_invitation_receipts (
     invitation_id TEXT PRIMARY KEY,
     profile_id TEXT,

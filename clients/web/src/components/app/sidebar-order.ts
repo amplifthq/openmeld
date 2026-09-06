@@ -6,14 +6,7 @@ export function moveSidebarItemIds(
 	beforeId?: string
 ) {
 	const ids = visibleIds.filter((id) => id !== itemId);
-	let index = beforeId ? ids.indexOf(beforeId) : -1;
-	if (
-		beforeId &&
-		visibleIds.indexOf(itemId) >= 0 &&
-		visibleIds.indexOf(itemId) < visibleIds.indexOf(beforeId)
-	) {
-		index += 1;
-	}
+	const index = beforeId ? ids.indexOf(beforeId) : -1;
 	ids.splice(index < 0 ? ids.length : index, 0, itemId);
 	const rendered = new Set([...visibleIds, itemId]);
 	ids.push(...savedIds.filter((id) => !rendered.has(id)));

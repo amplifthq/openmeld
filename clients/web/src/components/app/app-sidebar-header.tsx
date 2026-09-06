@@ -47,7 +47,10 @@ export function AppSidebarHeader({
 		>
 			<div className={cn("flex items-center gap-0", iconOnly && "flex-col")}>
 				{presentation === "inline" && (
-					<CollapsedRailTooltip label="Toggle sidebar">
+					<CollapsedRailTooltip
+						label="Toggle sidebar"
+						side={iconOnly ? "right" : "top"}
+					>
 						<SidebarTrigger className={actionClass}>
 							<SidebarSimpleIcon className="size-4" />
 						</SidebarTrigger>
@@ -55,7 +58,7 @@ export function AppSidebarHeader({
 				)}
 				{!iconOnly && (
 					<>
-						<CollapsedRailTooltip label="Back">
+						<CollapsedRailTooltip label="Back" side="top">
 							<button
 								aria-label="Back"
 								className={actionClass}
@@ -66,7 +69,7 @@ export function AppSidebarHeader({
 								<ArrowLeftIcon className="size-4" />
 							</button>
 						</CollapsedRailTooltip>
-						<CollapsedRailTooltip label="Forward">
+						<CollapsedRailTooltip label="Forward" side="top">
 							<button
 								aria-label="Forward"
 								className={actionClass}
@@ -89,7 +92,7 @@ export function AppSidebarHeader({
 				>
 					<MagnifyingGlassIcon className="size-4" />
 				</button>
-				<CollapsedRailTooltip label="Inbox">
+				<CollapsedRailTooltip label="Inbox" side={iconOnly ? "right" : "top"}>
 					<Link
 						aria-label="Inbox"
 						className={actionClass}

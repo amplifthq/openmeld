@@ -1,5 +1,6 @@
 "use client";
 
+import { Kbd, KbdGroup } from "@openmeld/ui/components/kbd";
 import { FluidHoverHighlight } from "@openmeld/ui/fluid/hover-highlight";
 import { Command } from "cmdk";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
@@ -14,6 +15,7 @@ export type CommandEntry = {
 	keywords?: string;
 	leading?: ReactNode;
 	trailing?: ReactNode;
+	shortcut?: readonly string[];
 	description?: string;
 	actionLabel?: string;
 	run: () => void;
@@ -189,6 +191,13 @@ export function CommandCenterList(input: {
 										)}
 									</span>
 									{entry.trailing}
+									{entry.shortcut && (
+										<KbdGroup className="shrink-0">
+											{entry.shortcut.map((key) => (
+												<Kbd key={key}>{key}</Kbd>
+											))}
+										</KbdGroup>
+									)}
 								</Command.Item>
 							))}
 					</Command.Group>

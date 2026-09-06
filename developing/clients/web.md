@@ -25,12 +25,51 @@
 
 ## Boundary
 
+### Center Agent selected sessions (Flue 2 candidate)
+
+The Center Agent home accepts `?session=<space-id>`. This selects an exact
+private Center Agent conversation through Core's session projection endpoint;
+the route does not reuse the default conversation cache or call the default
+open operation when the selected session is unavailable. A malformed selected
+session fails rather than dropping the selector. Invalid unrelated legacy
+search fields may be discarded while retaining a valid session selector.
+
+The selected session participates in loader dependencies, query keys and
+component identity. Both server-rendered reads and client reads forward it.
+View changes and retry retain it. Pending-route composers, queued first
+messages and pending drafts use the session scope, then migrate only that
+draft into the canonical Space composer. Switching sessions in one Organization
+preserves separate pending messages; organization switching retains the
+existing cleanup policy. A cache key or URL never grants message/file access.
+
+The unselected home is an entry point, not a separate permanent session
+identity. It retains the existing pair-based open/reuse behavior. Once a
+conversation is displayed, view navigation pins its resolved Space ID in the
+URL so Files/Messages cannot reselect a different conversation. Explicit
+session links always select their exact identity, including after reload.
+
+The conversation header provides New chat and Chats using the existing header
+controls. Creation retains its idempotency key across an uncertain failure;
+successful creation opens the exact returned session. Chats reads the bounded,
+current-member session list and follows its opaque pagination cursor. Selecting
+an item uses the same exact route validation as a direct link. List cache keys
+include the Organization and Human Profile. Generic Space management remains
+restricted; dedicated session rename, archive and deletion are not exposed.
+
+These controls still require real browser acceptance. Shared Computer safety,
+execution steering and release continuity remain required before treating the
+Flue 2 candidate as a release-ready session product.
+
+### Plugins
+
 The external-capability catalog is named **Plugins**. Product routes use
 `/center-agent/plugins`; old `/center-agent/apps` links redirect there, including
 service detail links. Web components and navigation helpers use Plugin names.
 Vendor terms such as GitHub App and existing connector RPC/tool field names
 remain unchanged: this rename does not migrate connection identities, stored
 credentials, wire discriminants, or authorization policy.
+
+### Collaboration presentation
 
 OpenMeld Web is the primary browser surface for the user-visible collaboration loop:
 
@@ -169,6 +208,10 @@ and actions are fixed:
 No page-level Organization picker or second context switcher may compete with
 this control.
 
+Personal Home may show a compact, dismissible link below its introductory heading
+to an Organization the account already belongs to. This is a contextual shortcut,
+not another picker; dismissal is stored per account in the current browser.
+
 Account switching is browser-wide because Better Auth changes the active
 Session cookie. The nested view lists only Sessions saved by Better Auth's
 multi-session plugin, marks the current account, allows up to five saved
@@ -291,8 +334,12 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    Spaces, Direct Messages, People, and Agents place their contextual lists
    below the fixed destinations in the Main Sidebar. Only these contextual
    lists scroll within one Fluid scrolling area; the header, primary entries,
-   and Team group remain fixed. A collapsed Team group shows the selected
-   People or Agents icon and label beside its chevron. These pages do not
+   and Team menu remain fixed. Team uses a collapsible parent menu button with
+   People and Agents as indented children, distinct from the content groups
+   below. When collapsed on People or Agents, the Team button shows a separator
+   followed by the selected child's icon and name. These pages do not
+   reset Team's expansion: it shares the Main Sidebar's persisted group
+   preference across route changes and browser reloads. These pages do not
    mount a secondary sidebar or a second mobile drawer.
    Existing list grouping, pinning, unread indicators, identities, and status
    projections are preserved. The former secondary headers and creation/invite
@@ -602,14 +649,24 @@ suppressing future messages. When Web observes a new Inbox item, it invalidates
 the full Inbox facts projection so per-conversation indicators and aggregate
 launchers refresh from the same Core truth.
 
-Browse Spaces composes the Organization Space Directory with those same
-Account Space Index, unread-summary, and active-Wake projections. Joined cards
-use one status slot with unread first, Working second, and pinned last. When
-unread or Working owns that slot, hover or keyboard focus reveals the shared
-pin or unpin action without showing competing status labels. Joined cards
-follow pinned order before the unread-aware unpinned order. Discover cards keep
-the directory's public-Space order and expose only Join; Web does not attach
-account status or pin actions to an unjoined Space.
+Browse Spaces uses the shared page header with **Your Spaces** and **Discover**
+underline tabs and an explicit **New Space** action. Joined Spaces use a
+two-line table grouped by the same Pinned, custom groups, and Spaces preferences
+as the sidebar. Group edits share the account-sidebar query and mutation;
+Priority is the default and explicit saved sort choices remain authoritative.
+The page composes the Organization Space Directory with the existing Account
+Space Index, message preview, unread-summary, and active-Wake projections.
+Status, member avatar previews, and conversation activity have separate columns.
+Search expands on demand; group and status filters retain visible removable
+selections. Each tab retains its own search and scroll position. Cold loading
+waits for saved group order and conversation previews before presenting rows.
+
+Discover keeps the directory's public-Space order and separates **Preview**
+from **Join**. Preview uses the existing SpaceEntryGate and SpaceLanding with
+the selected account profiles inside the shared Dialog. It never joins on
+open; existing access checks and participation controls remain authoritative.
+Organization directory visibility does not grant conversation access. Web does
+not attach account status or pin actions to an unjoined Space.
 If a joined directory item has no matching Account Space Index item, Open stays
 available while account status and pin controls fail closed.
 
@@ -663,6 +720,11 @@ The authorized Organization root `/o/{orgSlug}` is canonical Home and renders
 the existing Center Agent conversation directly. Home is not an Organization
 dashboard and owns no parallel Inbox, Task, Space, Directory, Project,
 Document, or Agent Activity preview.
+
+The three Center Agent starting-point cards stay at the top of the conversation
+for members who can send messages, including while drafting and after sending.
+They scroll with the conversation and remain reachable by scrolling to the top.
+Opening computer setup adds its flow below the cards instead of replacing them.
 
 The outer app rail keeps one **Home** destination and does not expose a separate
 Center Agent destination. Home owns the Center Agent conversation's unread
@@ -2461,13 +2523,17 @@ read in the current signed-in account, Organization, Space, and acting-Profile
 scope, Web derives the smaller display snapshot by removing current actions and
 the latest-message preview before persistence. On a return visit, that display
 snapshot and the bounded history may render immediately while current access is
-checked. The composer remains available for browser-local text authoring with
-**Write a message while OpenMeld checks access…**, but Send, file actions, and
-every other mutation or authority-bearing secondary surface stay unavailable
-until the current entry resolver and status both succeed. Pressing Enter during confirmation must not
-bypass that mutation boundary. Background `isFetching` and a transient refresh
-failure do not erase an already visible conversation. An explicit access
-rejection immediately hides the private content and clears only that
+checked. The composer keeps its normal authoring and Send experience without
+presenting access-check progress or a separate retry control. A Send intent
+first awaits the current entry resolution and a fresh current-status read, then
+publishes only when both authorize posting. File actions and every other
+mutation or authority-bearing secondary surface stay unavailable until those
+current reads succeed. Pressing Enter follows the same boundary as clicking
+Send. A transient pre-publication failure leaves the draft intact and reports
+that the message was not sent, so the existing Send action is the retry.
+Background `isFetching` and a transient refresh failure do not erase an already
+visible conversation. An explicit access rejection immediately hides the
+private content and clears only that
 account-plus-Organization-plus-Space-plus-acting-Profile segment. Session
 expiry, account replacement, or Organization-scope change still wins
 immediately and clears its broader owning segment.
@@ -3671,6 +3737,10 @@ outcomes keep their original request context. Active rows expose a request link
 and reuse the shared status, Orb, preview, and Stop controls, without message
 timestamps or publication actions. Missing source history does not hide a Wake
 whose authoritative source context proves its conversation scope.
+Core-published native failure and cancellation text (`remote_agent_failure`)
+replaces its exact submission's temporary stream, just as a successful final
+reply does. A late or stale stream must not retain a working or failed bubble
+beside that durable outcome. Other submissions remain visible.
 All Web progress reads request `includeSourceContext=true`. Thread rendering
 uses the same recovered presentation snapshot as the main conversation, filtered
 to its own Thread; the root message does not import main-conversation controls.

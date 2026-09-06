@@ -374,8 +374,12 @@ describe("AppOuterRail", () => {
 		const groups = screen
 			.getByTestId("app-outer-rail")
 			.querySelectorAll('[data-sidebar="group"]');
-		expect(groups).toHaveLength(2);
-		expect(groups[1]?.className).toContain("mt-1");
+		expect(groups).toHaveLength(1);
+		expect(
+			screen
+				.getByRole("navigation", { name: "Team" })
+				.querySelector('[data-sidebar="menu-sub"]')
+		).toBeTruthy();
 	});
 
 	it("warms the Center Agent conversation from primary navigation intent", () => {
@@ -496,7 +500,7 @@ describe("AppOuterRail", () => {
 		);
 	});
 
-	it("keeps primary destinations flat while Team remains collapsible", () => {
+	it("keeps primary destinations flat and nests People and Agents under Team", () => {
 		renderRail();
 
 		const railContent = screen
@@ -507,15 +511,11 @@ describe("AppOuterRail", () => {
 			return;
 		}
 
-		const teamHeading = within(railContent).getByRole("button", {
+		const teamHeading = within(railContent).getByRole("navigation", {
 			name: "Team",
 		});
 		expect(teamHeading).toBeTruthy();
-		expect(teamHeading.className).toContain("ps-1.5");
-		expect(teamHeading.className).toContain("pe-2");
-		expect(
-			teamHeading.closest('[data-sidebar="group"]')?.classList.contains("gap-0")
-		).toBe(true);
+		expect(within(teamHeading).getAllByRole("link")).toHaveLength(2);
 		expect(
 			within(railContent).getByRole("navigation", {
 				name: "Primary navigation",
@@ -528,8 +528,10 @@ describe("AppOuterRail", () => {
 			within(railContent).queryByRole("navigation", { name: "Resources" })
 		).toBeNull();
 		expect(
-			within(railContent).getByRole("button", { name: "Team" })
-		).toBeTruthy();
+			within(railContent)
+				.getByRole("button", { name: "Team" })
+				.getAttribute("aria-expanded")
+		).toBe("true");
 		expect(
 			within(railContent).queryByRole("button", { name: "Work" })
 		).toBeNull();
@@ -559,26 +561,31 @@ describe("AppOuterRail", () => {
 	it.each([
 		"people",
 		"agents",
-	])("shows the selected %s entry when Team is collapsed", (destination) => {
+	])("marks the selected %s child in Team", (destination) => {
 		routerLocation = { pathname: `/o/acme/${destination}`, searchStr: "" };
 		appShellSection = destination === "people" ? "people" : "agents";
 		renderRail();
-		const team = screen.getByRole("button", { name: "Team" });
-		expect(
-			team.querySelector('[data-slot="collapsed-group-selection"]')
-		).toBeNull();
-		fireEvent.click(team);
-		const selection = team.querySelector(
-			'[data-slot="collapsed-group-selection"]'
+		const team = screen.getByRole("navigation", { name: "Team" });
+		const trigger = within(team).getByRole("button", { name: "Team" });
+		expect(trigger.getAttribute("data-sidebar")).toBe("menu-button");
+		fireEvent.click(trigger);
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		const collapsedSelection = trigger.querySelector(
+			'[data-slot="collapsed-team-selection"]'
 		);
-		expect(selection?.textContent).toBe(
+		expect(collapsedSelection?.textContent).toBe(
 			destination === "people" ? "People" : "Agents"
 		);
-		expect(selection?.querySelector("svg")).toBeTruthy();
-		fireEvent.click(team);
+		expect(collapsedSelection?.querySelector("svg")).toBeTruthy();
+		fireEvent.click(trigger);
+		expect(trigger.getAttribute("aria-expanded")).toBe("true");
 		expect(
-			team.querySelector('[data-slot="collapsed-group-selection"]')
+			trigger.querySelector('[data-slot="collapsed-team-selection"]')
 		).toBeNull();
+		const selection = within(team).getByRole("link", {
+			name: destination === "people" ? "People" : "Agents",
+		});
+		expect(selection.getAttribute("aria-current")).toBe("page");
 	});
 
 	it("keeps main navigation outside the scrolling list region", () => {
@@ -592,8 +599,43 @@ describe("AppOuterRail", () => {
 			).toBe(false);
 		}
 		expect(
-			scrollingContent?.contains(screen.getByRole("button", { name: "Team" }))
+			scrollingContent?.contains(
+				screen.getByRole("navigation", { name: "Team" })
+			)
 		).toBe(false);
+	});
+
+	it("restores the persisted Team choice after navigation remounts", () => {
+		const view = renderRail();
+		fireEvent.click(screen.getByRole("button", { name: "Team" }));
+		expect(
+			screen.getByRole("button", { name: "Team" }).getAttribute("aria-expanded")
+		).toBe("false");
+		view.unmount();
+		routerLocation = { pathname: "/o/acme/people", searchStr: "" };
+		appShellSection = "people";
+		renderRail();
+		expect(
+			screen
+				.getByRole("button", { name: "Team People" })
+				.getAttribute("aria-expanded")
+		).toBe("false");
+	});
+
+	it("restores Team from a persisted browser preference", () => {
+		rememberClientSidebarState("outer", {
+			collapsedGroupIds: ["team"],
+			tier: "expanded",
+			width: "13.75rem",
+		});
+		renderRail({
+			collapsedGroupIds: ["team"],
+			tier: "expanded",
+			width: "13.75rem",
+		});
+		expect(
+			screen.getByRole("button", { name: "Team" }).getAttribute("aria-expanded")
+		).toBe("false");
 	});
 
 	it("ignores a stale collapsed Work preference in the full rail", () => {

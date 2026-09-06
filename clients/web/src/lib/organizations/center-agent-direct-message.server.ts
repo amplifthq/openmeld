@@ -60,11 +60,12 @@ export async function openCenterAgentDirectMessageSpaceAtWebBoundary(
 }
 
 export async function readCenterAgentDirectMessageSpaceProjectionAtWebBoundary(
-	input: CenterAgentDirectMessageWebBoundaryInput
+	input: CenterAgentDirectMessageWebBoundaryInput & { spaceId?: string }
 ): Promise<GetCenterAgentDirectMessageSpaceProjectionResponse> {
-	return await createCenterAgentDirectMessageApiAtWebBoundary(
-		input
-	).getDirectMessageSpaceProjection({ signal: input.signal });
+	const api = createCenterAgentDirectMessageApiAtWebBoundary(input);
+	return input.spaceId === undefined
+		? await api.getDirectMessageSpaceProjection({ signal: input.signal })
+		: await api.getSession({ spaceId: input.spaceId, signal: input.signal });
 }
 
 export async function openCenterAgentDirectMessageSpaceFromRequest(input: {
@@ -89,6 +90,7 @@ export async function openCenterAgentDirectMessageSpaceFromRequest(input: {
 }
 
 export async function readCenterAgentDirectMessageSpaceProjectionFromRequest(input: {
+	spaceId?: string;
 	webAppUrl: string;
 	gatewayUrl?: string;
 	organizationId: string;
@@ -97,6 +99,7 @@ export async function readCenterAgentDirectMessageSpaceProjectionFromRequest(inp
 	signal?: AbortSignal;
 }): Promise<GetCenterAgentDirectMessageSpaceProjectionResponse> {
 	return await readCenterAgentDirectMessageSpaceProjectionAtWebBoundary({
+		...(input.spaceId === undefined ? {} : { spaceId: input.spaceId }),
 		...(input.fetchImpl === undefined ? {} : { fetchImpl: input.fetchImpl }),
 		...(input.gatewayUrl === undefined ? {} : { gatewayUrl: input.gatewayUrl }),
 		organizationId: input.organizationId,

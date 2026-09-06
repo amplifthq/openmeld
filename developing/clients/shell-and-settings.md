@@ -277,6 +277,13 @@ The Web shell is a stable two-layer composition built from the shared
   Pinned boundary uses the same Account Space pin mutation as the row control;
   a failed pin mutation must not save a new group placement. Custom groups can
   be renamed inline from section settings (Enter or blur saves; Escape cancels).
+  Drag a custom group's title to reorder custom groups in Spaces, Direct
+  Messages, People, or Agents; built-in groups keep their fixed positions.
+  Row and group drags use a horizontal insertion line, including gaps and empty
+  sections. Rows stay stationary during dragging; dropping inserts before the
+  indicated row (or at the end), then settles using transform-only motion.
+  Reduced-motion preferences disable the settling animation. Group order uses
+  the existing saved group array, independently of each group's row sort.
   People and Agent row actions reveal immediately without translation or fades.
   Deleting a group returns its Spaces to
   the ordinary list without changing membership or deleting Spaces.
@@ -297,6 +304,8 @@ The Web shell is a stable two-layer composition built from the shared
   Older clients omitting `messages` cannot erase it on a revision-checked save.
   Pin/unpin actions reveal on their row's hover or keyboard focus, including
   inside Pinned. Unread and work indicators remain visible without hover.
+  When both are present, the active Wake indicator takes the trailing slot ahead
+  of the unread dot and timestamp; unread styling and accessible text remain.
   People reuses the Web-owned section actions, drag mechanics, manual ordering
   and revision-checked preference hook. Starred and named People groups are
   personal to the account and Organization. Moving a person changes only this
@@ -448,7 +457,7 @@ header/content/footer and collapsible group slots. Row density, typography,
 semantic radii, icons and status indicators retain OpenMeld's design tokens.
 
 There are three desktop modes: hidden (0 px), icon-only (52 px), and expanded
-(160–288 px, initially 220 px). Dragging crosses snap regions with hysteresis
+(160–384 px, initially 220 px). Dragging crosses snap regions with hysteresis
 and can reverse across all three in the same gesture. Expanded width remains
 remembered through icon and hidden modes; only releasing a drag writes the
 preference. Clicking the edge or pressing `[` / Cmd/Ctrl+B toggles expanded and

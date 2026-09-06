@@ -3,6 +3,7 @@ import type {
   CenterAgentModelRoute,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
+import type { GenericSchema } from "valibot";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
@@ -101,19 +102,21 @@ function toFlueTool(input: {
   return defineTool({
     name: definition.name,
     description: definition.description,
-    input: definition.input as never,
-    run: async ({ input: toolInput, signal }) => {
-      return toBoundedRemoteAgentToolResult({
-        toolName: definition.name,
-        value: await executeRemoteAgentToolDefinition({
-          definition,
-          signal,
-          source: "direct",
-          storage: input.storage,
-          submissionId: input.submissionId,
-          toolInput: (toolInput ?? {}) as Record<string, unknown>,
+    input: definition.input as GenericSchema<Record<string, unknown>, unknown>,
+    run: async ({ data: toolInput, signal }) => {
+      return {
+        output: toBoundedRemoteAgentToolResult({
+          toolName: definition.name,
+          value: await executeRemoteAgentToolDefinition({
+            definition,
+            signal,
+            source: "direct",
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolInput: (toolInput ?? {}) as Record<string, unknown>,
+          }),
         }),
-      });
+      };
     },
   });
 }

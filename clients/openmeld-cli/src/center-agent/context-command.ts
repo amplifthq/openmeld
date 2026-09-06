@@ -24,6 +24,7 @@ export async function runCenterAgentContext(input: {
   maxContextTokens?: number;
   organization?: string;
   sessionId?: string;
+  spaceId?: string;
   via?: string;
   view?: string;
 }): Promise<void> {
@@ -51,6 +52,7 @@ export async function runCenterAgentContext(input: {
       organizationId: context.organizationScope.target.id,
     });
     const response = await api.createContextManifest({
+      ...(input.spaceId === undefined ? {} : { spaceId: input.spaceId }),
       ...(input.cursor ? { cursor: input.cursor } : {}),
       ...(input.limit === undefined ? {} : { limit: input.limit }),
       ...(input.maxContextTokens === undefined

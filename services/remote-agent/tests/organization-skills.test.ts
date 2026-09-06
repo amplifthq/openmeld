@@ -1,11 +1,12 @@
-import { defineAgent, type SessionEnv } from "@flue/runtime";
-import { initializeRootHarness } from "@flue/runtime/internal";
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+import { init, useModel, useSkill } from "@flue/runtime";
+import { start } from "@flue/runtime/node";
 import { stringifyOrganizationSkillBundleCanonicalJson } from "@openmeld/schemas";
 import type {
   OrganizationSkillBundle,
   OrganizationSkillRuntimeReleaseSelection,
 } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   buildFlueSkillDefinition,
   materializeOrganizationSkillFlueSkills,
@@ -30,43 +31,47 @@ describe("Organization Skill Flue adapter", () => {
         ],
       },
     });
-    const sessionEnv = createObservedSessionEnv();
-    const harness = await initializeRootHarness(
-      defineAgent(() => ({
-        instructions: "Use Organization Skills when relevant.",
-        model: "test/model",
-        sandbox: {
-          createSessionEnv: async () => sessionEnv,
-        },
-        skills,
-        skipLocalContextDiscovery: true,
-      })),
-      {
-        agentConfig: {
-          resolveModel: () => ({}) as never,
-        },
-        attachmentStore: {} as never,
-        conversationWriter: {} as never,
-        createDefaultEnv: async () => sessionEnv,
-        env: {},
-        id: "space_123",
-      },
-      () => undefined
-    );
-    const runtimeSkill = (
-      harness as unknown as {
-        config: {
-          skills: Record<string, { description: string; name: string }>;
-          systemPrompt: string;
-        };
+    const provider = fauxProvider({
+      provider: "organization-skill",
+      tokensPerSecond: Number.POSITIVE_INFINITY,
+    });
+    const model = provider.getModel();
+    function SkillAgent() {
+      useModel(`${model.provider}/${model.id}`);
+      for (const skill of skills) {
+        useSkill(skill);
       }
-    ).config.skills["release-review"];
+      return "Use Organization Skills when relevant.";
+    }
+    provider.setResponses([
+      (context) => {
+        expect(context.systemPrompt).toContain("release-review");
+        expect(context.tools?.map((tool) => tool.name)).toContain(
+          "read_skill_resource"
+        );
+        expect(context.tools?.map((tool) => tool.name)).not.toContain("bash");
+        return fauxAssistantMessage(
+          "The verified release checklist is available."
+        );
+      },
+    ]);
+    const runtime = await start({
+      agents: [SkillAgent],
+      providers: [provider.provider],
+    });
+    try {
+      const agent = init(SkillAgent, { id: "space_123" });
+      await agent.read(await agent.dispatch("Review this release."));
+    } finally {
+      await runtime.stop();
+    }
+    const runtimeSkill = skills[0];
 
     expect(runtimeSkill).toMatchObject({
       description: "Review a release using the Organization checklist.",
       name: "release-review",
     });
-    expect(runtimeSkill).not.toHaveProperty("allowedTools");
+    expect(runtimeSkill?.allowedTools).toBeUndefined();
     expect(
       buildFlueSkillDefinition(
         {
@@ -78,16 +83,6 @@ describe("Organization Skill Flue adapter", () => {
         selection.name
       )
     ).not.toHaveProperty("allowedTools");
-    expect(
-      (
-        harness as unknown as {
-          config: { systemPrompt: string };
-        }
-      ).config.systemPrompt
-    ).toContain("release-review");
-    expect(sessionEnv.exec).not.toHaveBeenCalled();
-    expect(sessionEnv.exists).not.toHaveBeenCalled();
-    expect(sessionEnv.readFile).not.toHaveBeenCalled();
   });
 
   it("fails closed when release content no longer matches the frozen digest", async () => {
@@ -163,28 +158,5 @@ async function createSelection(
     name: bundle.portable.name,
     releaseId: "release_123",
     skillId: "skill_123",
-  };
-}
-
-function createObservedSessionEnv(): SessionEnv {
-  return {
-    cwd: "/workspace",
-    exec: vi.fn(async () => ({
-      exitCode: 0,
-      stderr: "",
-      stdout: "",
-    })),
-    exists: vi.fn(async () => false),
-    mkdir: vi.fn(async () => undefined),
-    readFile: vi.fn(async () => ""),
-    readFileBuffer: vi.fn(async () => new Uint8Array()),
-    readdir: vi.fn(async () => []),
-    resolvePath: (path) => (path.startsWith("/") ? path : `/workspace/${path}`),
-    rm: vi.fn(async () => undefined),
-    stat: vi.fn(async () => ({
-      isDirectory: false,
-      isFile: true,
-    })),
-    writeFile: vi.fn(async () => undefined),
   };
 }

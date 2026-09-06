@@ -5,7 +5,10 @@ import type {
   SpaceCursor,
   SpaceMeta,
 } from "@openmeld/protocol";
-import { toLegacySpaceAddressingWireValue } from "@openmeld/schemas";
+import {
+  type ListCenterAgentSessionsResponse,
+  toLegacySpaceAddressingWireValue,
+} from "@openmeld/schemas";
 import type {
   AccountSpaceActiveWakeSummaryResponse,
   AccountSpaceIndexResponse,
@@ -668,6 +671,7 @@ import {
   type ListAccountSpacesInput,
   type ListActiveLarkPlatformRegistrationsInput,
   type ListCenterAgentAuditJournalInput,
+  type ListCenterAgentSessionsInput,
   type ListCurrentOrganizationConnectorAppRequestsInput,
   type ListCurrentOrganizationConnectorConnectionsInput,
   type ListMessageChannelConnectionsInput,
@@ -882,6 +886,7 @@ import {
   rpcListAccountSpaces,
   rpcListActiveLarkPlatformRegistrations,
   rpcListCenterAgentAuditJournal,
+  rpcListCenterAgentSessions,
   rpcListCurrentOrganizationConnectorAppRequests,
   rpcListCurrentOrganizationConnectorConnections,
   rpcListLocalRuntimes,
@@ -2601,6 +2606,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetCenterAgentDirectMessageSpaceProjectionInput
   ): Promise<GetCenterAgentDirectMessageSpaceProjectionResponse> {
     return rpcGetCenterAgentDirectMessageSpaceProjection(this.env, input);
+  }
+
+  listCenterAgentSessions(
+    input: ListCenterAgentSessionsInput
+  ): Promise<ListCenterAgentSessionsResponse> {
+    return rpcListCenterAgentSessions(this.env, input);
   }
 
   createCenterAgentContextManifest(
@@ -4420,6 +4431,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetCenterAgentDirectMessageSpaceProjectionInput
   ): Promise<GetCenterAgentDirectMessageSpaceProjectionResponse> {
     return super.getCenterAgentDirectMessageSpaceProjection(input);
+  }
+
+  listCenterAgentSessions(
+    input: ListCenterAgentSessionsInput
+  ): Promise<ListCenterAgentSessionsResponse> {
+    return super.listCenterAgentSessions(input);
   }
 
   createCenterAgentContextManifest(

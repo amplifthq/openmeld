@@ -4,7 +4,6 @@ import {
 	mergeWakeProgressItems,
 } from "@openmeld/space";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { localSidebarWakeFixtures } from "#/lib/dev/sidebar-fixtures";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import {
 	spaceActiveWakeProgressSummaryQueryOptions,
@@ -21,9 +20,9 @@ export function useSpaceListIndicators(input: {
 	currentSpaceId: string;
 	organizationId: string;
 	sections: AccountSpaceSections;
-	browserEnvironmentReady: boolean;
 }) {
 	const {
+		isPending: isAccountSummaryPending,
 		activeWakeSummaryBySpaceId: ambientActiveWakeSummaryBySpaceId,
 		unreadBySpaceId,
 	} = useAccountSpaceIndicators({
@@ -121,13 +120,10 @@ export function useSpaceListIndicators(input: {
 			})
 		);
 	}
-	for (const fixture of input.browserEnvironmentReady
-		? localSidebarWakeFixtures(input.organizationId, input.currentProfileId)
-		: []) {
-		if (!activeWakeSummaryBySpaceId.has(fixture.spaceId)) {
-			activeWakeSummaryBySpaceId.set(fixture.spaceId, fixture);
-		}
-	}
-
-	return { activeWakeSummaryBySpaceId, unreadBySpaceId };
+	return {
+		activeWakeSummaryBySpaceId,
+		unreadBySpaceId,
+		// Keep recovered Space evidence visible even while account discovery retries.
+		isPending: isAccountSummaryPending && activeWakeSummaryBySpaceId.size === 0,
+	};
 }

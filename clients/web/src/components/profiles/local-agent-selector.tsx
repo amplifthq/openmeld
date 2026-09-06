@@ -36,7 +36,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 	const selectedDescription = resolveSelectedChoiceDescription(selectedChoice);
 	const selectionDisabled = input.disabled || input.locked === true;
 	let heading = "Choose a local agent";
-	if (input.isResolving) {
+	if (input.isResolving || input.emptyState?.kind === "checking") {
 		heading = "Checking local agents…";
 	} else if (input.locked) {
 		heading = "Agent connected to this Session";
@@ -58,7 +58,16 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 				id={headingId}
 			>
 				{input.surface === "page" ? (
-					<h1 className="font-medium text-2xl tracking-tight">{heading}</h1>
+					<div className="grid gap-2">
+						<h1 className="font-medium text-2xl tracking-tight">
+							Create Agent
+						</h1>
+						<h2 className="font-medium text-base">{heading}</h2>
+						<p className="font-normal text-muted-foreground text-sm">
+							Choose the local agent that will run your Agent profile, such as
+							Codex or Claude Code.
+						</p>
+					</div>
 				) : (
 					heading
 				)}
@@ -175,6 +184,28 @@ function LocalAgentSelectorEmptyState(input: {
 }) {
 	const emptyState = input.emptyState;
 	const className = cn("min-h-48", input.surface === "page" && "min-h-64");
+	if (emptyState?.kind === "checking") {
+		return (
+			<output
+				className={cn(className, "grid content-center gap-2 text-center")}
+			>
+				<p className="font-medium text-sm">Checking local agents…</p>
+				<p className="text-muted-foreground text-sm">
+					Waiting for this computer to report its local agents.
+				</p>
+			</output>
+		);
+	}
+	if (emptyState?.kind === "check_failed") {
+		return (
+			<ComputerSetupChoiceCard
+				actionLabel="Retry local agent check"
+				className={className}
+				descriptionLead="OpenMeld could not confirm which local agents are available. Retry the check to continue creating your Agent."
+				onAction={emptyState.onRetry}
+			/>
+		);
+	}
 	if (emptyState?.kind === "connect_computer") {
 		return (
 			<ComputerSetupChoiceCard
@@ -182,7 +213,7 @@ function LocalAgentSelectorEmptyState(input: {
 				actionLabel="Connect Computer"
 				centerAgentHref={emptyState.centerAgentHref}
 				className={className}
-				descriptionLead="No computer is connected yet."
+				descriptionLead="Connect a computer so OpenMeld can check its local agents. Then return to finish creating your Agent."
 			/>
 		);
 	}
@@ -211,7 +242,7 @@ function LocalAgentSelectorEmptyState(input: {
 			actionLabel="Set up local agents"
 			centerAgentHref={emptyState?.centerAgentHref}
 			className={className}
-			descriptionLead="This computer is connected, but no local agents are ready yet."
+			descriptionLead="No local agents are available to select. Set up a local agent such as Codex or Claude Code, then return to finish creating your Agent."
 		/>
 	);
 }

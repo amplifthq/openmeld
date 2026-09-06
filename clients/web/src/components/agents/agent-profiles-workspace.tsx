@@ -24,7 +24,9 @@ export type AgentProfilesWorkspaceProps = {
 	activeView: "agents" | "requests";
 	agentControllerRefByProfileId?: ReadonlyMap<string, string | null>;
 	currentUserId: string;
+	isOrganizationContext?: boolean;
 	filterControl?: ReactNode;
+	groupFilterIds?: readonly string[];
 	filterBadges?: ReactNode;
 	hasAnyProfiles?: boolean;
 	isSearchActive?: boolean;
@@ -242,14 +244,17 @@ function AgentProfilesWorkspaceEmptyState(input: {
 						aria-hidden="true"
 						className="mb-5 size-8 text-muted-foreground"
 					/>
-					<h1 className="font-medium text-xl">Bring your AI into Spaces</h1>
+					<h1 className="font-medium text-xl">
+						{input.input.isOrganizationContext
+							? "Bring your AI to your team"
+							: "Bring your AI to your workspace"}
+					</h1>
 					<p className="mt-3 text-muted-foreground text-sm leading-6">
 						Create an Agent profile for Codex, Claude Code, or another AI
-						running on a computer. Give it work in Spaces and see its replies
-						alongside your team’s.
-					</p>
-					<p className="mt-3 text-muted-foreground text-sm leading-6">
-						Use your own computer or a teammate’s, with their permission.
+						running on a computer.{" "}
+						{input.input.isOrganizationContext
+							? "Work with it alongside your teammates in Spaces, or chat with it directly."
+							: "Chat with it directly or give it work in Spaces."}
 					</p>
 					<Button
 						className="mt-6"
