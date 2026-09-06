@@ -5062,7 +5062,7 @@ async function authorizeAnonymousMemberToolAtCore(input: {
   connectToUserId?: string;
   context: OpenMeldRequestContext;
   coreWorker: RemoteAgentCoreWorkerBinding;
-  messageChannelIdentityLinkCapabilityVersion?: 1 | 2;
+  messageChannelIdentityLinkCapabilityVersion?: 2;
   speakerMember: CenterAgentAnonymousMemberToolSpeaker;
   toolName: string;
 }) {
