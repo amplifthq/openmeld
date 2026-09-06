@@ -549,6 +549,21 @@ html[data-space-self-message-alignment="left"]
   }
 }
 @media (hover: hover) and (pointer: fine) {
+  .app-sidebar-footer[data-footer-expanded="true"] {
+    gap: 0;
+  }
+
+  .app-sidebar-footer[data-footer-expanded="true"] .app-sidebar-footer-actions {
+    width: 0;
+    justify-content: flex-end;
+    transition: width 150ms ease-out, transform 150ms ease-out, opacity 100ms ease-out;
+  }
+
+  .app-sidebar-footer[data-footer-expanded="true"]:hover .app-sidebar-footer-actions,
+  .app-sidebar-footer[data-footer-expanded="true"]:focus-within .app-sidebar-footer-actions {
+    width: 64px;
+  }
+
   .app-sidebar-footer-actions {
     opacity: 0;
     pointer-events: none;
@@ -557,7 +572,8 @@ html[data-space-self-message-alignment="left"]
   }
 
   .app-sidebar-footer:hover .app-sidebar-footer-actions,
-  .app-sidebar-footer:focus-within .app-sidebar-footer-actions {
+  .app-sidebar-footer:focus-within .app-sidebar-footer-actions,
+  .app-sidebar-footer[data-footer-expanded="true"]:focus-within .app-sidebar-footer-actions {
     opacity: 1;
     pointer-events: auto;
     transform: translateX(0);
@@ -569,8 +585,11 @@ html[data-space-self-message-alignment="left"]
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-sidebar-footer-actions {
+  .app-sidebar-footer .app-sidebar-footer-actions {
     transform: none;
+    transition: none;
+  }
+  .app-sidebar-footer[data-footer-expanded="true"] .app-sidebar-footer-actions {
     transition: none;
   }
 }

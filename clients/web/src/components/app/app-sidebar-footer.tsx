@@ -95,6 +95,7 @@ export function AppSidebarFooter({
 					"[&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11",
 				iconOnly ? "items-center" : "flex-row items-center"
 			)}
+			data-footer-expanded={!iconOnly && presentation !== "drawer"}
 		>
 			<SidebarUserFooter
 				avatar={avatar}
