@@ -10,10 +10,12 @@ export function FluidHoverHighlight({
   rect,
   className,
   slot,
+  instant = false,
 }: {
   rect: ItemRect;
   className?: string;
   slot: string;
+  instant?: boolean;
 }) {
   const reduceMotion = useReducedMotion() === true;
   return (
@@ -26,11 +28,11 @@ export function FluidHoverHighlight({
       )}
       data-slot={slot}
       exit={{ opacity: 0, transition: { duration: reduceMotion ? 0 : 0.06 } }}
-      initial={{ opacity: 0 }}
-      layout={!reduceMotion}
+      initial={{ opacity: instant ? 1 : 0 }}
+      layout={!(reduceMotion || instant)}
       style={rect}
       transition={
-        reduceMotion
+        reduceMotion || instant
           ? { duration: 0 }
           : { ...springs.fast, opacity: { duration: 0.08 } }
       }

@@ -16,7 +16,7 @@ import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import { NewDirectMessageDialog } from "./new-direct-message-dialog";
 import { moveSidebarSpace, sortSidebarSpaces } from "./sidebar-space-order";
-import { buildSpaceActiveWakeSummary } from "./space-sidebar-menu-item";
+import { buildSpaceActiveWakeSummary } from "./space-active-wake-presentation";
 import { useAccountSpaceIndicators } from "./use-account-space-indicators";
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 

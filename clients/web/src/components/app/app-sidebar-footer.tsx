@@ -183,7 +183,7 @@ export function AppSidebarFooter({
 						<span
 							aria-hidden="true"
 							className={cn(
-								"absolute top-0 right-0 size-2 rounded-full",
+								"status-dot absolute top-0 right-0",
 								resolveStatusToneIndicatorClassName("warning", "quiet")
 							)}
 							data-app-rail-status-indicator="invitation-review"

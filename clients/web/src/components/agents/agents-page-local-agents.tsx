@@ -904,7 +904,7 @@ function LocalAgentsCatalogNotice(input: {
 				<span
 					aria-hidden="true"
 					className={cn(
-						"h-2 w-2 shrink-0 rounded-full",
+						"status-dot",
 						resolveLocalAgentsNoticeDotClassName(input.notice.tone)
 					)}
 				/>

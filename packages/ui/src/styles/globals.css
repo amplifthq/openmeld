@@ -1,6 +1,19 @@
 @custom-variant dark (&:is(.dark *));
 
+/* Compact status and unread indicators share one geometry across clients. */
+@utility status-dot {
+  display: inline-block;
+  width: 0.375rem;
+  height: 0.375rem;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  box-shadow: none;
+}
+
 @theme inline {
+  --color-unread: var(--unread);
   --color-interaction-hover: var(--interaction-hover);
   --color-interaction-active: var(--interaction-active);
   --color-background: var(--background);
@@ -90,6 +103,7 @@
 }
 
 :root {
+  --unread: var(--color-blue-600);
   --font-ui-sans:
     ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
     "Segoe UI Symbol", "Noto Color Emoji";
@@ -193,6 +207,7 @@
 }
 
 .dark {
+  --unread: var(--color-blue-400);
   /* Canonical dark app and platform-chrome background. */
   --background: #111110;
   /* Primitive dark surface ramp. Semantic surfaces reference this scale. */

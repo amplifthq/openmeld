@@ -20,6 +20,8 @@ import { TestQueryClientProvider } from "#/test-support/query-client";
 import { AppOuterRail } from "./app-outer-rail";
 import type { AppShellSection } from "./shell-layout";
 
+vi.mock("./app-command-center", () => ({ AppCommandCenter: () => null }));
+
 const BETA_ORGANIZATION_NAME_PATTERN = /Beta/;
 const navigateMock = vi.fn();
 const routerInvalidateMock = vi.fn();
@@ -631,7 +633,7 @@ describe("AppOuterRail", () => {
 		expect(appSectionLabels).toEqual(PRIMARY_RAIL_LABELS);
 	});
 
-	it("opens Inbox from the header and keeps Search disabled", () => {
+	it("opens Inbox and exposes command search from the header", () => {
 		renderRail();
 		const header = screen
 			.getByTestId("app-outer-rail")
@@ -642,10 +644,10 @@ describe("AppOuterRail", () => {
 		expect(
 			(
 				within(header).getByRole("button", {
-					name: "Search (coming soon)",
+					name: "Search or run a command",
 				}) as HTMLButtonElement
 			).disabled
-		).toBe(true);
+		).toBe(false);
 	});
 
 	it("uses the channel hash icon for Spaces", () => {
@@ -676,7 +678,7 @@ describe("AppOuterRail", () => {
 			'[data-app-rail-status-indicator="center-agent-unread"]'
 		);
 		expect(indicator).toBeTruthy();
-		expect(indicator?.className).toContain("bg-amber-400");
+		expect(indicator?.className).toContain("bg-unread");
 		expect(indicator?.textContent).toBe("");
 	});
 
@@ -693,7 +695,7 @@ describe("AppOuterRail", () => {
 	it.each([
 		"icon",
 		"expanded",
-	] as const)("shows an accessible amber Spaces unread dot in the %s tier", async (tier) => {
+	] as const)("shows an accessible blue Spaces unread dot in the %s tier", async (tier) => {
 		ordinarySpaceUnreadCount = 3;
 		rememberClientSidebarState("outer", {
 			tier,
@@ -708,7 +710,7 @@ describe("AppOuterRail", () => {
 			'[data-app-rail-status-indicator="spaces-unread"]'
 		);
 		expect(indicator).toBeTruthy();
-		expect(indicator?.className).toContain("bg-amber-400");
+		expect(indicator?.className).toContain("bg-unread");
 		expect(indicator?.textContent).toBe("");
 	});
 

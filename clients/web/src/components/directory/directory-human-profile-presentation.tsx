@@ -5,7 +5,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
-import { resolveStatusToneRingIndicatorClassName } from "@openmeld/ui/lib/status-tone";
+import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretRightIcon, DesktopTowerIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -135,9 +135,10 @@ function DirectoryComputerDetailSummary(input: {
 					<span
 						aria-hidden="true"
 						className={cn(
-							"size-2 shrink-0 rounded-full ring-2",
-							resolveStatusToneRingIndicatorClassName(
-								resolveDirectoryComputerStatusTone(computer.state)
+							"status-dot",
+							resolveStatusToneIndicatorClassName(
+								resolveDirectoryComputerStatusTone(computer.state),
+								"quiet"
 							)
 						)}
 						data-testid="human-profile-computer-status"

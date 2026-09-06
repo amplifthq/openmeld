@@ -26,6 +26,7 @@ import {
 	centerAgentInboxSummaryQueryOptions,
 	spaceInboxSummaryQueryOptions,
 } from "#/query/organizations/inbox";
+import { AppCommandCenter } from "./app-command-center";
 import {
 	AppRailNavigationGroup,
 	buildAppRailGroups,
@@ -138,6 +139,7 @@ export function AppOuterRail({
 			collapsedGroupIds={state.collapsedGroupIds}
 			onCollapsedGroupIdsChange={handleCollapsedGroupIdsChange}
 		>
+			<AppCommandCenter />
 			<AppOuterRailFrame
 				onGeometryChange={handleGeometryChange}
 				state={displayState}
@@ -151,10 +153,7 @@ export function AppOuterRail({
 							mode={mode}
 							orgSlug={orgSlug}
 						/>
-						<div
-							className="shrink-0 px-2 pt-1"
-							data-slot="main-sidebar-navigation"
-						>
+						<div className="shrink-0 px-2" data-slot="main-sidebar-navigation">
 							{buildAppRailGroups({
 								orgSlug,
 								centerAgentUnreadCount,
@@ -171,7 +170,7 @@ export function AppOuterRail({
 							))}
 						</div>
 						<SidebarContent
-							className="px-2 pb-2"
+							contentClassName="px-2 pb-2"
 							viewportProps={{
 								onScroll: (event) =>
 									sidebarScrollPositions.set(

@@ -403,7 +403,7 @@ function SpaceLiveStatusIndicator(input: {
 	const isStale = input.liveState === "stale";
 	const needsAttention = isDegraded || isStale;
 	const dotClassName = cn(
-		"size-2 shrink-0 rounded-full",
+		"status-dot",
 		resolveStatusToneIndicatorClassName(
 			needsAttention ? "warning" : "ready",
 			"solid"

@@ -491,13 +491,14 @@ export function SidebarFooter({ className, ...props }: ComponentProps<"div">) {
 }
 export function SidebarContent({
   className,
+  contentClassName,
   ...props
 }: ComponentProps<typeof ScrollArea>) {
   return (
     <ScrollArea
       {...props}
       className={cn("min-h-0 min-w-0 flex-1", className)}
-      contentClassName="flex min-h-full flex-col"
+      contentClassName={cn("flex min-h-full flex-col", contentClassName)}
       data-sidebar="content"
     />
   );

@@ -16,10 +16,7 @@ import {
 	SidebarMenuItem,
 } from "@openmeld/ui/fluid/sidebar-menu";
 import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
-import {
-	resolveStatusToneCompactBadgeClassName,
-	resolveStatusToneIndicatorClassName,
-} from "@openmeld/ui/lib/status-tone";
+import { resolveStatusToneCompactBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
@@ -236,7 +233,6 @@ export function AppRailLink(input: {
 	if (unreadCount > 0 && unreadIndicatorKind) {
 		statusIndicator = {
 			kind: unreadIndicatorKind,
-			tone: "warning",
 		};
 	}
 	const accessibleLabel = buildAppRailAccessibleLabel({
@@ -404,7 +400,6 @@ type AppRailStatusIndicatorKind = "center-agent-unread" | "spaces-unread";
 
 type AppRailStatusIndicator = {
 	kind: AppRailStatusIndicatorKind;
-	tone: "danger" | "warning";
 };
 
 function AppRailStatusDot(input: {
@@ -415,8 +410,8 @@ function AppRailStatusDot(input: {
 		<span
 			aria-hidden="true"
 			className={cn(
-				"size-2 shrink-0 rounded-full ring-2 ring-sidebar",
-				resolveStatusToneIndicatorClassName(input.indicator.tone, "quiet"),
+				"status-dot",
+				"bg-unread",
 				input.placement === "overlay" && "absolute -end-1.5 -top-1.5"
 			)}
 			data-app-rail-status-indicator={input.indicator.kind}

@@ -1,13 +1,9 @@
 "use client";
 
-import {
-	hasVisibleActiveWakeProgress,
-	mergeWakeProgressItems,
-} from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { toast } from "sonner";
@@ -16,7 +12,6 @@ import {
 	AppContextualSidebarNav,
 } from "#/components/app/app-contextual-layout";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
-import { localSidebarWakeFixtures } from "#/lib/dev/sidebar-fixtures";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationNewSpacePath,
@@ -29,10 +24,6 @@ import type {
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import {
-	spaceActiveWakeProgressSummaryQueryOptions,
-	spaceWakeProgressPresentationQueryOptions,
-} from "#/query/spaces/active-wake-progress";
-import {
 	SidebarDrag as SidebarSpaceDrag,
 	SidebarDropSection as SidebarSpaceDropSection,
 } from "../app/sidebar-drag";
@@ -44,14 +35,13 @@ import {
 } from "./account-space-sections";
 import { moveSidebarSpace, sortSidebarSpaces } from "./sidebar-space-order";
 import { SortableSpaceSidebarItem } from "./sortable-space-sidebar-item";
-import type { SpaceMemberAppearance } from "./space-member-avatars";
+import type { SpaceSidebarActiveWakeSummary } from "./space-active-wake-presentation";
 import {
-	buildSpaceActiveWakeSummary,
-	type SpaceSidebarActiveWakeSummary,
-} from "./space-sidebar-menu-item";
-import { useSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
-import { useAccountSpaceIndicators } from "./use-account-space-indicators";
+	resolveSpaceMemberAppearances,
+	type SpaceMemberAppearance,
+} from "./space-member-avatars";
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
+import { useSpaceListIndicators } from "./use-space-list-indicators";
 
 const SIDEBAR_TIME_FORMAT_OPTIONS = {
 	day: "numeric",
@@ -135,29 +125,7 @@ export function AppSpacesSidebar(input: {
 		})
 	);
 	const memberAppearances = useMemo(
-		() =>
-			new Map<string, SpaceMemberAppearance>([
-				...(profileDirectory.data?.members ?? []).flatMap((member) =>
-					member.humanProfile
-						? [
-								[
-									member.humanProfile.profileId,
-									{ avatarUrl: member.user.image, agentControllerRef: null },
-								] as const,
-							]
-						: []
-				),
-				...(profileDirectory.data?.agentProfiles ?? []).map(
-					(profile) =>
-						[
-							profile.profileId,
-							{
-								avatarUrl: null,
-								agentControllerRef: profile.agentControllerRef,
-							},
-						] as const
-				),
-			]),
+		() => resolveSpaceMemberAppearances(profileDirectory.data),
 		[profileDirectory.data]
 	);
 	const orgSlug = currentOrganization.slug;
@@ -180,111 +148,15 @@ export function AppSpacesSidebar(input: {
 			scope: "account",
 		})
 	);
-	const {
-		activeWakeSummaryBySpaceId: ambientActiveWakeSummaryBySpaceId,
-		unreadBySpaceId,
-	} = useAccountSpaceIndicators({
-		enabled: input.currentProfileId.trim().length > 0,
-		organizationId: currentOrganizationId,
-		profileId: input.currentProfileId,
-	});
 	const sections = spacesQuery.data ?? EMPTY_ACCOUNT_SPACE_SECTIONS;
-	const otherActiveSpaceIds = [
-		...new Set(
-			[...sections.pinnedItems, ...sections.spaceItems].flatMap((space) =>
-				space.organizationId === currentOrganizationId &&
-				space.spaceId !== input.currentSpaceId &&
-				ambientActiveWakeSummaryBySpaceId.has(space.spaceId)
-					? [space.spaceId]
-					: []
-			)
-		),
-	];
-	const otherActiveSpaceQueries = useQueries({
-		queries: otherActiveSpaceIds.map((spaceId) => ({
-			...spaceActiveWakeProgressSummaryQueryOptions({
-				enabled: input.currentProfileId.trim().length > 0,
-				openMeldProfileId: input.currentProfileId,
-				spaceId,
-			}),
-			// Closed Spaces follow the existing ambient refresh cadence. The open
-			// Space continues to use its live, invalidation-driven projection.
-			refetchInterval: 15_000,
-			refetchIntervalInBackground: false,
-		})),
-	});
-	const currentSpaceWakeProgressPresentationQuery = useQuery(
-		spaceWakeProgressPresentationQueryOptions({
-			openMeldProfileId: input.currentProfileId,
-			spaceId: input.currentSpaceId,
-		})
-	);
-	const currentSpaceActiveWakeProgressSummaryQuery = useQuery(
-		spaceActiveWakeProgressSummaryQueryOptions({
-			enabled: false,
-			openMeldProfileId: input.currentProfileId,
-			spaceId: input.currentSpaceId,
-		})
-	);
-	const currentSpaceWakeProgressVisibleProjection =
-		useSpaceWakeProgressVisibleProjection();
-	const activeWakeSummaryBySpaceId = new Map<
-		string,
-		SpaceSidebarActiveWakeSummary
-	>(
-		Array.from(ambientActiveWakeSummaryBySpaceId).filter(
-			([spaceId]) => spaceId !== input.currentSpaceId
-		)
-	);
-	const currentSpaceWakeProgressItems =
-		currentSpaceWakeProgressVisibleProjection ??
-		mergeWakeProgressItems({
-			currentItems:
-				currentSpaceActiveWakeProgressSummaryQuery.data?.items ?? [],
-			incomingItems: currentSpaceWakeProgressPresentationQuery.data ?? [],
+	const { activeWakeSummaryBySpaceId, unreadBySpaceId } =
+		useSpaceListIndicators({
+			currentProfileId: input.currentProfileId,
+			currentSpaceId: input.currentSpaceId,
+			organizationId: currentOrganizationId,
+			sections,
+			browserEnvironmentReady,
 		});
-	otherActiveSpaceQueries.forEach((query, index) => {
-		const spaceId = otherActiveSpaceIds[index];
-		if (!(spaceId && query.isSuccess)) {
-			return;
-		}
-		if (query.data.items.length === 0 && !query.data.pageInfo?.hasMore) {
-			activeWakeSummaryBySpaceId.delete(spaceId);
-			return;
-		}
-		activeWakeSummaryBySpaceId.set(spaceId, {
-			...buildSpaceActiveWakeSummary({
-				fallbackSummary: ambientActiveWakeSummaryBySpaceId.get(spaceId),
-				items: query.data.items,
-				spaceId,
-			}),
-			hasMore: query.data.pageInfo?.hasMore,
-		});
-	});
-	if (
-		input.currentSpaceId.trim().length > 0 &&
-		hasVisibleActiveWakeProgress({
-			items: currentSpaceWakeProgressItems,
-		})
-	) {
-		activeWakeSummaryBySpaceId.set(
-			input.currentSpaceId,
-			buildSpaceActiveWakeSummary({
-				fallbackSummary: ambientActiveWakeSummaryBySpaceId.get(
-					input.currentSpaceId
-				),
-				items: currentSpaceWakeProgressItems,
-				spaceId: input.currentSpaceId,
-			})
-		);
-	}
-	for (const fixture of browserEnvironmentReady
-		? localSidebarWakeFixtures(currentOrganizationId, input.currentProfileId)
-		: []) {
-		if (!activeWakeSummaryBySpaceId.has(fixture.spaceId)) {
-			activeWakeSummaryBySpaceId.set(fixture.spaceId, fixture);
-		}
-	}
 	const pinMutation = useAccountSpacePinMutation({
 		currentProfileId: input.currentProfileId,
 	});

@@ -80,9 +80,11 @@ export function AppSidebarHeader({
 				)}
 				{!iconOnly && <span className="flex-1" />}
 				<button
-					aria-label="Search (coming soon)"
+					aria-label="Search or run a command"
 					className={actionClass}
-					disabled
+					onClick={() =>
+						window.dispatchEvent(new Event("openmeld:command-center"))
+					}
 					type="button"
 				>
 					<MagnifyingGlassIcon className="size-4" />

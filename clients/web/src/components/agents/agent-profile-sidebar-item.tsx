@@ -158,10 +158,7 @@ export function AgentProfileSidebarItemComponent(input: {
 								{presentation.availabilityCategory === "checking" ? (
 									<ThinkingIcon className="size-4" />
 								) : (
-									<span
-										aria-hidden="true"
-										className="size-1.5 rounded-full bg-current"
-									/>
+									<span aria-hidden="true" className="status-dot bg-current" />
 								)}
 							</TooltipTrigger>
 							<TooltipContent>

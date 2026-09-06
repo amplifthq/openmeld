@@ -1,4 +1,7 @@
-import type { AccountSpaceIndexItem } from "@openmeld/schemas/types";
+import type {
+	AccountSpaceIndexItem,
+	OrganizationProfileDirectoryResponse,
+} from "@openmeld/schemas/types";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 
@@ -9,6 +12,32 @@ const TRIANGLE_POSITIONS = [
 	"right-0 bottom-0",
 ];
 const PAIR_POSITIONS = ["top-0 left-0", "right-0 bottom-0"];
+export function resolveSpaceMemberAppearances(
+	directory: OrganizationProfileDirectoryResponse | undefined
+) {
+	return new Map<string, SpaceMemberAppearance>([
+		...(directory?.members ?? []).flatMap((member) =>
+			member.humanProfile
+				? [
+						[
+							member.humanProfile.profileId,
+							{ avatarUrl: member.user.image, agentControllerRef: null },
+						] as const,
+					]
+				: []
+		),
+		...(directory?.agentProfiles ?? []).map(
+			(profile) =>
+				[
+					profile.profileId,
+					{
+						avatarUrl: null,
+						agentControllerRef: profile.agentControllerRef,
+					},
+				] as const
+		),
+	]);
+}
 export type SpaceMemberAppearance = {
 	avatarUrl: string | null;
 	agentControllerRef: string | null;

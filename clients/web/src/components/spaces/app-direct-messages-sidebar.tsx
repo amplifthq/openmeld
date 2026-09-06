@@ -21,6 +21,7 @@ import { CenterTruncatedText } from "#/components/app/center-truncated-text";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
+import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
@@ -30,7 +31,10 @@ import {
 	resolveAccountSpaceViewerProfileId,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
-
+import {
+	formatDirectMessageTime,
+	useDirectMessagePreview,
+} from "./direct-message-preview";
 import {
 	type ManagedDirectMessageRowProps,
 	ManagedDirectMessages,
@@ -245,6 +249,13 @@ function DirectMessageSidebarItem(
 		viewerProfileId,
 	});
 	const label = peer?.profileName ?? input.item.spaceName;
+	const preview = useDirectMessagePreview({
+		spaceId: input.item.spaceId,
+		viewerProfileId,
+		peerProfileId: input.item.directMessageProfileIds?.find(
+			(id) => id !== viewerProfileId
+		),
+	});
 	const drag = useSortableSidebarItem({
 		section: input.section,
 		itemId: input.item.spaceId,
@@ -252,6 +263,17 @@ function DirectMessageSidebarItem(
 		disabled: input.disabled,
 	});
 	const hasUnread = input.unreadCount > 0;
+	const nowMs = useNowMs(preview.data ? 60_000 : null);
+	let previewText = "No messages yet";
+	if (preview.isPending) {
+		previewText = "Loading message…";
+	}
+	if (preview.isError) {
+		previewText = "Couldn’t load preview. Open chat to retry.";
+	}
+	if (preview.data) {
+		previewText = preview.data.text;
+	}
 	const accessibleLabel = hasUnread ? `${label}, unread messages` : label;
 	const routePath = buildOrganizationDirectMessagePath({
 		orgSlug: input.organizationSlug,
@@ -274,7 +296,7 @@ function DirectMessageSidebarItem(
 							aria-current={input.isActive ? "page" : undefined}
 							aria-label={accessibleLabel}
 							className={cn(
-								"flex min-h-10 w-full min-w-0 items-center gap-2 px-2 py-1.5 pr-9 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring",
+								"flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring",
 								APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 								APP_NAV_ITEM_TONE_CLASS_NAME,
 								input.isActive
@@ -282,6 +304,11 @@ function DirectMessageSidebarItem(
 									: null,
 								hasUnread ? "font-semibold text-sidebar-foreground" : null
 							)}
+							onClick={() => {
+								if (preview.isError) {
+									return preview.refetch();
+								}
+							}}
 							to={routePath}
 						>
 							{peer ? (
@@ -305,11 +332,29 @@ function DirectMessageSidebarItem(
 									<ChatCircleTextIcon aria-hidden="true" className="size-4" />
 								</span>
 							)}
-							<CenterTruncatedText className="flex-1" text={label} />
+							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+								<span className="flex min-w-0 items-center gap-2">
+									<CenterTruncatedText className="flex-1" text={label} />
+									{preview.data && (
+										<time
+											className="shrink-0 font-normal text-[11px] text-muted-foreground tabular-nums"
+											dateTime={new Date(preview.data.timestamp).toISOString()}
+										>
+											{formatDirectMessageTime(
+												preview.data.timestamp,
+												new Date(nowMs)
+											)}
+										</time>
+									)}
+								</span>
+								<span className="truncate pr-6 font-normal text-muted-foreground text-xs leading-4">
+									{previewText}
+								</span>
+							</span>
 							{hasUnread ? (
 								<span
 									aria-hidden="true"
-									className="size-1.5 shrink-0 rounded-full bg-amber-400"
+									className="status-dot bg-unread"
 									data-direct-message-unread-indicator="true"
 								/>
 							) : null}
@@ -320,7 +365,7 @@ function DirectMessageSidebarItem(
 					{label}
 				</TooltipContent>
 			</Tooltip>
-			<div className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 group-focus-within/dm-row:pointer-events-auto group-focus-within/dm-row:opacity-100 group-hover/dm-row:pointer-events-auto group-hover/dm-row:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+			<div className="pointer-events-none absolute right-1 bottom-0.5 opacity-0 group-focus-within/dm-row:pointer-events-auto group-focus-within/dm-row:opacity-100 group-hover/dm-row:pointer-events-auto group-hover/dm-row:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
 				<SidebarRowAction
 					disabled={input.disabled}
 					label={`${input.item.pinnedAt ? "Unpin" : "Pin"} ${label}`}
