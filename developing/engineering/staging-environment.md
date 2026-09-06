@@ -95,6 +95,16 @@ Remote Agent owns its runtime-token copy. OAuth clients must use
 credentials. Provider authorization and real App actions remain separate
 acceptance checks; a successful health response proves neither.
 
+Gateway and Remote Agent point to that staging endpoint in their checked-in
+configuration. Install the private GitHub App `openmeld-staging-flue2` only
+on the authorized test repositories. After preparing each component's token
+copy, sync it without exposing other components' credentials:
+
+```bash
+node scripts/dev/doppler-environment.mjs component:stg gateway -- pnpm --filter @openmeld/gateway sync:secrets:connectors:stg
+node scripts/dev/doppler-environment.mjs component:stg remote-agent -- pnpm --filter @openmeld/remote-agent sync:secrets:connectors:stg
+```
+
 The optional inventory is included with
 `provision-openmeld-resources.mjs --environment staging --include-open-connector`.
 It does not make unfinished provider setup a prerequisite for baseline or

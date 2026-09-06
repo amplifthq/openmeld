@@ -270,7 +270,8 @@
       ],
       "vars": {
         "OPENMELD_WORKER_ENVIRONMENT": "stg",
-        "OPENMELD_CONNECTORS_BASE_URL": "",
+        "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.staging.openmeld.ai",
+        "GITHUB_OPENMELD_APP_SLUG": "openmeld-staging-flue2",
         "OPENMELD_GATEWAY_URL": "https://gateway.staging.openmeld.ai",
         "WEB_APP_URL": "https://staging.openmeld.ai",
         "OPENMELD_SLACK_OAUTH_REDIRECT_URL": "https://gateway.staging.openmeld.ai/slack/oauth/callback"

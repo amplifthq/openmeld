@@ -18,6 +18,7 @@
     "sync:config:stg": "pnpm run deploy:stg",
     "sync:secrets:prod": "node ../../scripts/cloudflare/sync-worker-secrets.mjs --env prod --file .dev.vars.prod CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
     "sync:secrets:stg": "node ../../scripts/cloudflare/sync-worker-secrets.mjs --env stg --from-env CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN",
+    "sync:secrets:connectors:stg": "node ../../scripts/cloudflare/sync-worker-secrets.mjs --env stg --from-env OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
     "sync:prod": "pnpm run sync:secrets:prod && pnpm run sync:config:prod",
     "sync:stg": "pnpm run sync:secrets:stg && pnpm run sync:config:stg",
     "test": "vitest run",

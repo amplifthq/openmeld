@@ -110,7 +110,7 @@ export const STAGING_WORKER_SECRET_SOURCES = [
   },
   {
     config: "stg",
-    optionalSecrets: [],
+    optionalSecrets: ["OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN"],
     project: "openmeld-remote-agent",
     requiredSecrets: ["CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN"],
   },
@@ -123,6 +123,7 @@ export const STAGING_WORKER_SECRET_SOURCES = [
   {
     config: "stg",
     optionalSecrets: [
+      "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
       "SLACK_OPENMELD_OAUTH_CLIENT_ID",
       "SLACK_OPENMELD_OAUTH_CLIENT_SECRET",
       "SLACK_OPENMELD_SIGNING_SECRET",
