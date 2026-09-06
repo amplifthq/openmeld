@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { Button } from "#components/button";
+import { ScrollArea } from "#fluid/scroll-area";
 import { useSidebarResize } from "#hooks/use-sidebar-resize";
 import { cn } from "#lib/utils";
 
@@ -616,8 +617,9 @@ SidebarHeader.displayName = "SidebarHeader";
 
 const SidebarContent = forwardRef<HTMLDivElement, ComponentProps<"div">>(
   ({ className, ...props }, ref) => (
-    <div
-      className={cn("min-h-0 flex-1 overflow-y-auto", className)}
+    <ScrollArea
+      className={cn("min-h-0 flex-1", className)}
+      contentClassName="flex min-h-full flex-col"
       data-sidebar="content"
       data-slot="sidebar-content"
       ref={ref}
@@ -682,68 +684,6 @@ const SidebarGroupContent = forwardRef<HTMLDivElement, ComponentProps<"div">>(
 );
 SidebarGroupContent.displayName = "SidebarGroupContent";
 
-const SidebarMenu = forwardRef<HTMLUListElement, ComponentProps<"ul">>(
-  ({ className, ...props }, ref) => (
-    <ul
-      className={cn("flex min-w-0 flex-col gap-1", className)}
-      data-sidebar="menu"
-      data-slot="sidebar-menu"
-      ref={ref}
-      {...props}
-    />
-  )
-);
-SidebarMenu.displayName = "SidebarMenu";
-
-const SidebarMenuItem = forwardRef<HTMLLIElement, ComponentProps<"li">>(
-  ({ className, ...props }, ref) => (
-    <li
-      className={cn("min-w-0", className)}
-      data-sidebar="menu-item"
-      data-slot="sidebar-menu-item"
-      ref={ref}
-      {...props}
-    />
-  )
-);
-SidebarMenuItem.displayName = "SidebarMenuItem";
-
-const SidebarMenuButton = forwardRef<
-  HTMLButtonElement,
-  ComponentProps<"button"> & { isActive?: boolean }
->(({ className, isActive = false, ...props }, ref) => (
-  <button
-    className={cn(
-      "flex h-8 w-full min-w-0 items-center gap-2 px-2 text-left text-sm outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-1 focus-visible:ring-sidebar-ring disabled:pointer-events-none disabled:opacity-50",
-      isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
-      className
-    )}
-    data-active={isActive || undefined}
-    data-sidebar="menu-button"
-    data-slot="sidebar-menu-button"
-    ref={ref}
-    type="button"
-    {...props}
-  />
-));
-SidebarMenuButton.displayName = "SidebarMenuButton";
-
-const SidebarMenuBadge = forwardRef<HTMLSpanElement, ComponentProps<"span">>(
-  ({ className, ...props }, ref) => (
-    <span
-      className={cn(
-        "ml-auto shrink-0 text-muted-foreground text-xs",
-        className
-      )}
-      data-sidebar="menu-badge"
-      data-slot="sidebar-menu-badge"
-      ref={ref}
-      {...props}
-    />
-  )
-);
-SidebarMenuBadge.displayName = "SidebarMenuBadge";
-
 export {
   Sidebar,
   SidebarContent,
@@ -753,10 +693,6 @@ export {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
-  SidebarMenu,
-  SidebarMenuBadge,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,

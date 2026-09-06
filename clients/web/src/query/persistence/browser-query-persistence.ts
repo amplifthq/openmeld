@@ -19,12 +19,12 @@ import {
 } from "@tanstack/react-query-persist-client";
 import { z } from "zod/v4";
 import { currentComputerToolbarDisplaySnapshotSchema } from "#/query/connect/current-computer-toolbar-display-snapshot";
-import {
-	organizationAppConnectionQueryKeys,
-	organizationAppConnectionStatusSummarySchema,
-} from "#/query/organizations/app-connections";
 import { centerAgentQueryKeys } from "#/query/organizations/center-agent";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import {
+	organizationPluginConnectionQueryKeys,
+	organizationPluginConnectionStatusSummarySchema,
+} from "#/query/organizations/plugin-connections";
 import { PERSISTED_DISPLAY_QUERY_GC_TIME_MS } from "#/query/query-config";
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-snapshot";
@@ -511,7 +511,9 @@ export function createBrowserQueryPersistenceController(
 						scopeKind: "organization",
 						targetQueryKeys: [
 							organizationQueryKeys.spaces(organizationId),
-							organizationAppConnectionQueryKeys.statusSummary(organizationId),
+							organizationPluginConnectionQueryKeys.statusSummary(
+								organizationId
+							),
 							centerAgentQueryKeys.directMessageSpaceProjection(organizationId),
 						],
 					}),
@@ -994,7 +996,7 @@ function redactOrganizationPersistedDisplayData(data: unknown): unknown {
 		return centerAgentProjection.data;
 	}
 	const statusSummary =
-		organizationAppConnectionStatusSummarySchema.safeParse(data);
+		organizationPluginConnectionStatusSummarySchema.safeParse(data);
 	if (statusSummary.success) {
 		return statusSummary.data;
 	}

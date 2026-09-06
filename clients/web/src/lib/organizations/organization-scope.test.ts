@@ -30,16 +30,18 @@ function createSession(
 }
 
 describe("organization scope resolution", () => {
-	it("keeps provider names out of the public login URL for App detail routes", () => {
+	it("keeps provider names out of the public login URL for Plugin detail routes", () => {
 		expect(
-			resolvePublicLoginRedirectTarget("/o/acme/center-agent/apps/gmail")
-		).toBe("/o/acme/center-agent/apps");
+			resolvePublicLoginRedirectTarget("/o/acme/center-agent/plugins/gmail")
+		).toBe("/o/acme/center-agent/plugins");
 		expect(
-			resolvePublicLoginRedirectTarget("/o/acme/center-agent/apps/googledrive")
-		).toBe("/o/acme/center-agent/apps");
+			resolvePublicLoginRedirectTarget(
+				"/o/acme/center-agent/plugins/googledrive"
+			)
+		).toBe("/o/acme/center-agent/plugins");
 	});
 
-	it("preserves non-App organization deep links during login", () => {
+	it("preserves non-Plugin organization deep links during login", () => {
 		expect(resolvePublicLoginRedirectTarget("/o/acme/spaces/space-123")).toBe(
 			"/o/acme/spaces/space-123"
 		);

@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationAppsPath } from "#/lib/organizations/organization-routes";
+import { buildOrganizationPluginsPath } from "#/lib/organizations/organization-routes";
 
 export const Route = createFileRoute("/o/$orgSlug/settings/connected-apps")({
 	staticData: appShellStaticData.settings,
@@ -13,7 +13,7 @@ function ConnectedAppsSettingsRoute() {
 	return (
 		<Navigate
 			replace
-			to={buildOrganizationAppsPath(currentOrganization.slug)}
+			to={buildOrganizationPluginsPath(currentOrganization.slug)}
 		/>
 	);
 }

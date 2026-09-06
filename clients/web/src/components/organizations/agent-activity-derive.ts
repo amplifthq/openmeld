@@ -956,7 +956,7 @@ export function formatProvider(session: AgentActivityPublicSession) {
 		return session.clientKind === "cursor-cli" ? "Cursor CLI" : "Cursor";
 	}
 	if (session.clientKind === "codex-app") {
-		return "Codex App";
+		return "Codex Plugin";
 	}
 	return session.clientKind === "codex-cli" ? "Codex CLI" : "Codex";
 }

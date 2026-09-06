@@ -64,7 +64,7 @@ export const centerAgentMemberResearchEvidenceItemSchema = z
     ) {
       context.addIssue({
         code: "custom",
-        message: `${item.source === "slack" ? "Slack" : "Connected App"} evidence requires a sourceName.`,
+        message: `${item.source === "slack" ? "Slack" : "Connected Plugin"} evidence requires a sourceName.`,
         path: ["sourceName"],
       });
     }
@@ -86,7 +86,7 @@ export const centerAgentMemberResearchEvidenceItemSchema = z
     ) {
       context.addIssue({
         code: "custom",
-        message: "Connected App evidence sourceUrl must use HTTPS.",
+        message: "Connected Plugin evidence sourceUrl must use HTTPS.",
         path: ["sourceUrl"],
       });
     }

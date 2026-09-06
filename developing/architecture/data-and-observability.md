@@ -123,6 +123,14 @@ Auth also owns the account's last-selected Organization entry preference. Auth
 is its only writer and accepts a selection only while the account has a current
 membership in that Organization.
 
+Auth also owns `account_sidebar_preferences`, keyed by account user ID and
+Organization ID. It stores personal group names, opaque Space IDs, section sort
+modes, and manual ordering. Membership gates reads and writes; revision-checked
+updates reject stale devices instead of overwriting newer preferences. These
+preferences never grant Space access, write pins, or change Space membership.
+The Web renders only Spaces returned by the existing authorized Space Index.
+Deleting a personal group removes its presentation association only.
+
 | Domain                             | Product role                                                                                                                                                                                        | Ownership rule                                                                                                                                                                                                                                                                                                                                                         |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Auth                               | Authentication and session truth.                                                                                                                                                                   | Auth-owned source of truth.                                                                                                                                                                                                                                                                                                                                            |
@@ -754,6 +762,15 @@ Examples:
   Gateway-scoped candidate Space ids in the same pin, join, name, and id order
   as the Account Space Index list. They must not run a separate unordered limit
   that can inspect a different subset of the member's Spaces.
+- Account Space member previews are opt-in (`includeMemberPreviews=true`).
+  Enrich only the authorized candidate list from active membership projections,
+  selecting at most three profiles by added time and profile id. The existing
+  active-member count remains the total; the preview is not another membership
+  authority. Batch reads stay under D1's parameter limit and do not contact each
+  Space Durable Object. Legacy callers receive no new response field.
+  Rollout requires Core and Gateway support before Web enables this opt-in query.
+  CLI, Service, Skills, setup, Wake dispatch, Space publication, and diagnostics
+  contracts are unchanged; no local-component contract bump is required.
 - The Space-owned Direct Message conversion timestamp projects to
   `space_index_spaces.direct_message_converted_at_ms`. It is an irreversible
   classification fact, not a client hint: reusable-DM lookup excludes converted

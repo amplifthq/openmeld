@@ -4,6 +4,7 @@ import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
+import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
 	ADD_CARD_PICKER_CLASS_NAME,
 	CARD_PICKER_GRID_CLASS_NAME,
@@ -281,34 +282,43 @@ function OrganizationPicker(input: {
 					{input.errorMessage}
 				</p>
 			) : null}
-			<ul
-				className={CARD_PICKER_GRID_CLASS_NAME}
-				data-testid="organization-picker-list"
-			>
-				{input.organizations.map((organization) => (
-					<li className="h-full" key={organization.id}>
-						<OrganizationPickerCard
-							intent={input.intent}
-							isOpening={input.openingOrganizationId === organization.id}
-							isOpeningOrganization={input.isOpeningOrganization}
-							onOpen={input.onOpenOrganization}
-							organization={organization}
-						/>
+			<FluidCardGroup>
+				<ul
+					className={CARD_PICKER_GRID_CLASS_NAME}
+					data-testid="organization-picker-list"
+				>
+					{input.organizations.map((organization) => (
+						<li className="h-full" key={organization.id}>
+							<FluidCardItem itemId={organization.id}>
+								<OrganizationPickerCard
+									intent={input.intent}
+									isOpening={input.openingOrganizationId === organization.id}
+									isOpeningOrganization={input.isOpeningOrganization}
+									onOpen={input.onOpenOrganization}
+									organization={organization}
+								/>
+							</FluidCardItem>
+						</li>
+					))}
+					<li className="h-full">
+						<FluidCardItem
+							className="bg-transparent"
+							itemId="create-organization"
+						>
+							<Link
+								className={ADD_CARD_PICKER_CLASS_NAME}
+								search={input.intent ? { intent: input.intent } : {}}
+								to={input.createOrganizationPath}
+							>
+								<SettingsAddComputerCardContent
+									description="Set up shared agents, members, and a Center Agent."
+									title="Create an organization"
+								/>
+							</Link>
+						</FluidCardItem>
 					</li>
-				))}
-				<li className="h-full">
-					<Link
-						className={ADD_CARD_PICKER_CLASS_NAME}
-						search={input.intent ? { intent: input.intent } : {}}
-						to={input.createOrganizationPath}
-					>
-						<SettingsAddComputerCardContent
-							description="Set up shared agents, members, and a Center Agent."
-							title="Create an organization"
-						/>
-					</Link>
-				</li>
-			</ul>
+				</ul>
+			</FluidCardGroup>
 		</>
 	);
 }

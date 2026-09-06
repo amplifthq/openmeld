@@ -92,6 +92,10 @@ becomes a first-class, user-selectable property of an Agent Profile.
    model options and the selected value. It does not change defaults, ordering,
    compatibility, model identity or reasoning. Reviewers add and remove labels;
    clients do not infer recency or expire labels on their own clocks.
+   The catalog's model array is the reviewed display order, newest first.
+   Collectors put new additions before existing models; reviewers confirm
+   recency and relative order before publishing. Display order never changes
+   `defaultModelId`, `creationDefaults`, or an existing Profile's selection.
 7. **Reasoning effort is wired end-to-end in Phase 1** for controllers that
    expose a separate per-call control. Option strings must match the vendor's
    official values exactly (verified at catalog-authoring time). Cursor ACP

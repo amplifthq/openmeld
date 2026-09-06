@@ -109,7 +109,6 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
-import { SpaceActiveWakeSource } from "./space-active-wake-source";
 import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
 import {
 	SpaceAgentInteractionCard,
@@ -194,6 +193,7 @@ import {
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
+import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
@@ -1695,9 +1695,9 @@ function ConversationJumpButton(input: {
 		<MessageScrollerButton
 			aria-label="Jump to latest message"
 			behavior={shouldReduceMotion ? "auto" : "smooth"}
-			className="z-20 min-h-11 min-w-11 gap-1.5 rounded-full border border-border bg-background/95 px-3 text-foreground shadow-md backdrop-blur-sm hover:bg-muted"
+			className="z-20 rounded-full border border-border bg-popover/60 p-0 text-foreground shadow-xs backdrop-blur-sm hover:bg-popover/80 dark:bg-popover/60 dark:hover:bg-popover/80"
 			direction="end"
-			size="icon-lg"
+			size="icon"
 			type="button"
 			variant="secondary"
 		>
@@ -1976,6 +1976,9 @@ function SpaceComposerSection(input: {
 					}}
 					presentation={{ errorClassName: "mt-3" }}
 					slots={{
+						beforePrimaryAction: (
+							<SpaceComposerActiveWakes placement="conversation" />
+						),
 						beforeInput: (
 							<ComposerReplyBanner
 								onClear={panel.onClearComposerReplyTo}
@@ -2704,7 +2707,15 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 				const isLastGroupedRow = index === input.run.items.length - 1;
 
 				return (
-					<MessageScrollerItem key={item.id} messageId={item.id}>
+					<MessageScrollerItem
+						className={
+							item.activeWakeProgress
+								? "[content-visibility:visible]"
+								: undefined
+						}
+						key={item.id}
+						messageId={item.id}
+					>
 						<Message
 							align={messageAlign}
 							className={resolveSpaceMessageRunLayoutClassName({
@@ -2880,10 +2891,6 @@ function ConversationBubbleContent(input: {
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
 			{input.answerProgressStatus}
-			<SpaceActiveWakeSource
-				item={input.item}
-				onJumpToMessage={parent.onJumpToMessage}
-			/>
 			<SpaceMessageInteractionSource
 				source={input.item.centerAgentInteractionSource}
 			/>

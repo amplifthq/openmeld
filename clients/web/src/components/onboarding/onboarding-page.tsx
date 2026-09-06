@@ -3,8 +3,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { AppsOnboardingDemo } from "#/components/onboarding/apps-onboarding-demo";
-import { AppsOnboardingStep } from "#/components/onboarding/apps-onboarding-step";
 import { ChannelsOnboardingDemo } from "#/components/onboarding/channels-onboarding-demo";
 import { ChannelsOnboardingStep } from "#/components/onboarding/channels-onboarding-step";
 import { CompleteOnboardingDemo } from "#/components/onboarding/complete-onboarding-demo";
@@ -21,6 +19,8 @@ import {
 	type OrganizationOnboardingPreview,
 } from "#/components/onboarding/organization-onboarding-demo";
 import { OrganizationOnboardingStep } from "#/components/onboarding/organization-onboarding-step";
+import { PluginsOnboardingDemo } from "#/components/onboarding/plugins-onboarding-demo";
+import { PluginsOnboardingStep } from "#/components/onboarding/plugins-onboarding-step";
 import { SetupOnboardingDemo } from "#/components/onboarding/setup-onboarding-demo";
 import { SetupOnboardingStep } from "#/components/onboarding/setup-onboarding-step";
 import { useAccountAvatar } from "#/hooks/account.hooks";
@@ -49,10 +49,10 @@ const STEP_COPY: Record<
 	OpenMeldOnboardingStep,
 	{ description: string; eyebrow: string; title: string }
 > = {
-	apps: {
+	plugins: {
 		description:
 			"Connect the tools that hold your team’s work. You can request anything that is not ready yet.",
-		eyebrow: "Apps",
+		eyebrow: "Plugins",
 		title: "Connect your team’s context",
 	},
 	channels: {
@@ -99,11 +99,11 @@ function resolveStepCopy(input: {
 	if (!input.isPersonal) {
 		return STEP_COPY[input.step];
 	}
-	if (input.step === "apps") {
+	if (input.step === "plugins") {
 		return {
 			description:
 				"Connect the tools that hold your work. You can request anything that is not ready yet.",
-			eyebrow: "Apps",
+			eyebrow: "Plugins",
 			title: "Connect your context",
 		};
 	}
@@ -357,8 +357,8 @@ export function OnboardingPage() {
 				organizations={organizationContext.organizations}
 			/>
 		);
-	} else if (currentStep === "apps") {
-		stepContent = <AppsOnboardingStep onContinue={goToNextStep} />;
+	} else if (currentStep === "plugins") {
+		stepContent = <PluginsOnboardingStep onContinue={goToNextStep} />;
 	} else if (currentStep === "channels") {
 		stepContent = <ChannelsOnboardingStep onContinue={goToNextStep} />;
 	} else if (currentStep === "local-agents") {
@@ -383,8 +383,8 @@ export function OnboardingPage() {
 	);
 	if (currentStep === "channels") {
 		demo = <ChannelsOnboardingDemo />;
-	} else if (currentStep === "apps") {
-		demo = <AppsOnboardingDemo />;
+	} else if (currentStep === "plugins") {
+		demo = <PluginsOnboardingDemo />;
 	} else if (currentStep === "local-agents") {
 		demo = <LocalAgentsOnboardingDemo />;
 	} else if (currentStep === "setup") {

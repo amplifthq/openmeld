@@ -17,6 +17,9 @@ export type AccountSpaceJoinedProfile = {
 };
 
 export type AccountSpaceItem = {
+	memberPreviews?: AccountSpaceIndexItem["memberPreviews"];
+	spaceCreatedAt?: string | null;
+	spaceUpdatedAt?: string | null;
 	directMessageProfileIds?: readonly [string, string] | null;
 	joinedProfiles: readonly AccountSpaceJoinedProfile[];
 	lastJoinedAt: string;
@@ -129,6 +132,9 @@ function toAccountSpaceSections(
 
 function toAccountSpaceItem(item: AccountSpaceIndexItem): AccountSpaceItem {
 	return {
+		memberPreviews: item.memberPreviews,
+		spaceCreatedAt: item.spaceCreatedAt,
+		spaceUpdatedAt: item.spaceUpdatedAt,
 		directMessageProfileIds: item.directMessageProfileIds ?? null,
 		joinedProfiles: item.joinedProfiles,
 		lastJoinedAt: item.lastJoinedAt,

@@ -23,7 +23,10 @@ FluidCardGroup.displayName = "FluidCardGroup";
 const FluidCardItem = forwardRef<HTMLDivElement, FluidCardItemProps>(
   ({ className, ...props }, ref) => (
     <SharedLayoutItem
-      className={cn("h-full min-w-0 rounded-md bg-card", className)}
+      className={cn(
+        "h-full min-w-0 rounded-md bg-card [&>div>a:hover]:bg-transparent [&>div>a]:bg-transparent [&>div>button:hover]:bg-transparent [&>div>button]:bg-transparent",
+        className
+      )}
       data-fluid-card-item=""
       ref={ref}
       {...props}

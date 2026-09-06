@@ -91,13 +91,13 @@ describe("AppFrame", () => {
       expect(indicator).toBeTruthy();
       return indicator;
     });
-    expect(activeIndicator?.className).toContain("bg-surface-6");
+    expect(activeIndicator?.className).toContain("bg-interaction-active");
     expect(activeItem?.getAttribute("data-state")).toBe("active");
 
-    expect(settings.className).not.toContain("hover:bg-surface-5");
-    expect(settings.className).not.toContain("bg-surface-6");
-    expect(spaces.className).not.toContain("hover:bg-surface-5");
-    expect(spaces.className).not.toContain("bg-surface-6");
+    expect(settings.className).not.toContain("hover:bg-interaction-hover");
+    expect(settings.className).not.toContain("bg-interaction-active");
+    expect(spaces.className).not.toContain("hover:bg-interaction-hover");
+    expect(spaces.className).not.toContain("bg-interaction-active");
     expect(spaces.className).toContain("text-foreground");
   });
 
@@ -122,17 +122,20 @@ describe("AppFrame", () => {
     const nav = view.container.querySelector(
       '[data-slot="app-frame-destinations"]'
     ) as HTMLElement;
-    fireEvent.mouseEnter(nav);
-    fireEvent.mouseMove(nav, { clientX: 0, clientY: 45 });
+    fireEvent.mouseEnter(nav.querySelector("ul") as HTMLElement);
+    fireEvent.mouseMove(nav.querySelector("ul") as HTMLElement, {
+      clientX: 0,
+      clientY: 45,
+    });
 
     const hoverIndicator = await waitFor(() => {
       const indicator = view.container.querySelector(
-        '[data-slot="fluid-nav-menu-hover-indicator"]'
+        '[data-slot="sidebar-menu-hover-indicator"]'
       );
       expect(indicator).toBeTruthy();
       return indicator;
     });
-    expect(hoverIndicator?.className).toContain("bg-surface-5");
+    expect(hoverIndicator?.className).toContain("bg-interaction-hover");
   });
 
   it("uses an injected renderRailLink yet still fires onNavigate as a fallback", () => {
@@ -268,13 +271,15 @@ describe("AppFrame", () => {
       expect(indicator).toBeTruthy();
       return indicator;
     });
-    expect(activeIndicator?.className).toContain("bg-surface-6");
+    expect(activeIndicator?.className).toContain("bg-interaction-active");
     expect(activeItem?.getAttribute("data-state")).toBe("active");
 
-    expect(inactive?.className).not.toContain("hover:[&>*]:bg-surface-5");
-    expect(inactive?.className).not.toContain("[&>*]:bg-surface-6");
-    expect(active?.className).not.toContain("hover:[&>*]:bg-surface-5");
-    expect(active?.className).not.toContain("[&>*]:bg-surface-6");
+    expect(inactive?.className).not.toContain(
+      "hover:[&>*]:bg-interaction-hover"
+    );
+    expect(inactive?.className).not.toContain("[&>*]:bg-interaction-active");
+    expect(active?.className).not.toContain("hover:[&>*]:bg-interaction-hover");
+    expect(active?.className).not.toContain("[&>*]:bg-interaction-active");
     expect(active?.className).toContain("[&>*]:text-foreground");
   });
 

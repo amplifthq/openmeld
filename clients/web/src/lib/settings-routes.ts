@@ -2,7 +2,7 @@ import {
 	buildOrganizationAccountSettingsPath,
 	buildOrganizationAppearanceSettingsPath,
 	buildOrganizationComputerPath,
-	buildOrganizationConnectedAppsSettingsPath,
+	buildOrganizationConnectedPluginsSettingsPath,
 	buildOrganizationNotificationsSettingsPath,
 	buildOrganizationOrgSettingsPath,
 	buildOrganizationPrivacySettingsPath,
@@ -14,7 +14,7 @@ export function buildSettingsRoutes(orgSlug: string) {
 	return {
 		account: buildOrganizationAccountSettingsPath(orgSlug),
 		appearance: buildOrganizationAppearanceSettingsPath(orgSlug),
-		connectedApps: buildOrganizationConnectedAppsSettingsPath(orgSlug),
+		connectedApps: buildOrganizationConnectedPluginsSettingsPath(orgSlug),
 		general: buildOrganizationOrgSettingsPath(orgSlug),
 		members: `${buildOrganizationSettingsRootPath(orgSlug)}/members`,
 		invitations: `${buildOrganizationSettingsRootPath(orgSlug)}/invitations`,

@@ -31,7 +31,7 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
-import { PaperPlaneTiltIcon, PlusIcon } from "@phosphor-icons/react";
+import { PaperPlaneTiltIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -563,34 +563,6 @@ function useDirectoryMembersOverviewModel(
 			recovery: input.recovery,
 			researchErrorMessage: researchErrors.section,
 			selectedProfileId,
-			sidebarLeadingContent: (
-				<Button
-					aria-label="Invite Members"
-					className="w-full min-w-0 justify-start overflow-hidden"
-					onClick={() => setIsInviteDialogOpen(true)}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					<PlusIcon
-						aria-hidden="true"
-						className="shrink-0"
-						data-icon="inline-start"
-					/>
-					<span
-						aria-hidden="true"
-						className="@[12rem]/contextual-sidebar:inline hidden truncate"
-					>
-						Invite Members
-					</span>
-					<span
-						aria-hidden="true"
-						className="@[12rem]/contextual-sidebar:hidden truncate"
-					>
-						Invite
-					</span>
-				</Button>
-			),
 			state: profilesViewState,
 		};
 	return {

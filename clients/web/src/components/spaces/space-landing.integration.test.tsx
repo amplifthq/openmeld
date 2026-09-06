@@ -2193,6 +2193,23 @@ describe("SpaceLanding", () => {
 		);
 		await setComposerValue(composer, "Draft while access is checked");
 		expect(readComposerValue(composer)).toBe("Draft while access is checked");
+		const mentionButton = screen.getByRole("button", {
+			name: "Mention a member",
+		});
+		expect((mentionButton as HTMLButtonElement).disabled).toBe(false);
+		fireEvent.click(mentionButton);
+		const mentionSearch = await screen.findByRole("combobox", {
+			name: "Find a member to mention",
+		});
+		fireEvent.keyDown(mentionSearch, { key: "Escape" });
+		fireEvent.click(screen.getByRole("button", { name: "Add to message" }));
+		const filesItem = await screen.findByRole("menuitem", { name: "Files" });
+		expect(filesItem.getAttribute("aria-disabled")).toBe("true");
+		expect(
+			(screen.getByLabelText("Choose files to send") as HTMLInputElement)
+				.disabled
+		).toBe(true);
+		fireEvent.keyDown(filesItem, { key: "Escape" });
 		expect(
 			(
 				screen.getByRole("button", {

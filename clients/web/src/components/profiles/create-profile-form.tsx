@@ -15,6 +15,7 @@ import type {
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -27,7 +28,6 @@ import {
 	FolderOpenIcon,
 	HandIcon,
 	LockKeyIcon,
-	UserCircleIcon,
 	WaveformIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -58,6 +58,7 @@ import {
 	resolveModelCompatibility,
 	resolveSelectedModelCompatibility,
 } from "./create-profile-form-logic";
+import { DitherProfileAvatar } from "./dither-profile-avatar";
 import {
 	isOpenCodeAgentId,
 	OpenCodePermissionsField,
@@ -108,6 +109,7 @@ export type CreateProfileFormProps = {
 	agentBindingValue?: string;
 	agentOwnershipSlot?: ReactNode;
 	agentOwnershipSummary?: string;
+	agentOwnerAvatar?: { userId: string; imageUrl: string | null };
 	agentSessionSlot?: ReactNode;
 	agentSessionSummary?: string;
 	availableLocalAgentIds: readonly string[];
@@ -177,7 +179,11 @@ export function CreateProfileForm(input: CreateProfileFormProps) {
 			data-testid="create-profile-panel"
 			onSubmit={input.onSubmit}
 		>
-			<div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
+			<ScrollArea
+				className="min-h-0 min-w-0 flex-1"
+				contentClassName="pr-1"
+				orientation="vertical"
+			>
 				<div className="grid min-w-0 gap-4 pb-4">
 					{input.additionalHumanProfileCreationEnabled &&
 					input.allowProfileKindSelection !== false ? (
@@ -213,7 +219,7 @@ export function CreateProfileForm(input: CreateProfileFormProps) {
 						recoveryActionHref={input.recoveryActionHref}
 					/>
 				</div>
-			</div>
+			</ScrollArea>
 			<div
 				className="shrink-0 border-border border-t bg-background pt-4"
 				data-testid="create-profile-actions"
@@ -337,6 +343,43 @@ export function AgentProfileConfigurationCards(input: {
 
 	return (
 		<AgentConfigurationGrid>
+			{form.agentOwnershipSlot ? (
+				<AgentConfigurationCard
+					description="Who owns and maintains this Agent."
+					icon={
+						<DitherProfileAvatar
+							avatarImageUrl={form.agentOwnerAvatar?.imageUrl}
+							profileId={form.agentOwnerAvatar?.userId ?? "owner"}
+							profileKind="human"
+							profileName={summaries.owner}
+							size={32}
+						/>
+					}
+					itemId="owner"
+					label="Owner"
+					summary={summaries.owner}
+				>
+					{form.agentOwnershipSlot}
+				</AgentConfigurationCard>
+			) : null}
+			<AgentConfigurationCard
+				description="Choose the model and how deeply it reasons."
+				icon={<BrainIcon aria-hidden="true" />}
+				itemId="model"
+				label="Model"
+				summary={summaries.model}
+			>
+				<AgentProfileModelSelectionFields
+					agentId={form.boundAgentId}
+					disabled={form.isSubmitting}
+					modelCatalog={form.modelCatalog}
+					modelCompatibilityContext={form.modelCompatibilityContext}
+					modelId={form.boundModelId}
+					onChangeModelId={form.onChangeBoundModelId}
+					onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
+					reasoningLevel={form.boundReasoningLevel}
+				/>
+			</AgentConfigurationCard>
 			<AgentConfigurationCard
 				description="What this Agent can do without asking."
 				icon={<LockKeyIcon aria-hidden="true" />}
@@ -364,17 +407,6 @@ export function AgentProfileConfigurationCards(input: {
 					) : null}
 				</div>
 			</AgentConfigurationCard>
-			{form.agentOwnershipSlot ? (
-				<AgentConfigurationCard
-					description="Who owns and maintains this Agent."
-					icon={<UserCircleIcon aria-hidden="true" />}
-					itemId="owner"
-					label="Owner"
-					summary={summaries.owner}
-				>
-					{form.agentOwnershipSlot}
-				</AgentConfigurationCard>
-			) : null}
 			{form.agentSessionSlot ? (
 				<AgentConfigurationCard
 					description="Start fresh or continue existing work."
@@ -401,24 +433,6 @@ export function AgentProfileConfigurationCards(input: {
 						value={form.projectFolderPath}
 					/>
 				)}
-			</AgentConfigurationCard>
-			<AgentConfigurationCard
-				description="Choose the model and how deeply it reasons."
-				icon={<BrainIcon aria-hidden="true" />}
-				itemId="model"
-				label="Model"
-				summary={summaries.model}
-			>
-				<AgentProfileModelSelectionFields
-					agentId={form.boundAgentId}
-					disabled={form.isSubmitting}
-					modelCatalog={form.modelCatalog}
-					modelCompatibilityContext={form.modelCompatibilityContext}
-					modelId={form.boundModelId}
-					onChangeModelId={form.onChangeBoundModelId}
-					onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
-					reasoningLevel={form.boundReasoningLevel}
-				/>
 			</AgentConfigurationCard>
 			{summaries.collaboration ? (
 				<AgentConfigurationCard
