@@ -289,6 +289,9 @@ For normal localhost development, use two terminals in the same worktree:
 pnpm dev:worktree
 
 # Terminal 2, after the Worker stack is ready
+# Optional: prepare a test login and representative product data
+pnpm dev:account
+pnpm dev:seed
 pnpm dev:web:worktree
 ```
 
