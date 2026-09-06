@@ -1,43 +1,18 @@
 "use client";
 
 import type { OrganizationSpaceDirectoryWithMemberCountsItem } from "@openmeld/schemas/types";
-import { Badge } from "@openmeld/ui/components/badge";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
-import {
-	Card,
-	CardAction,
-	CardContent,
-	CardFooter,
-	CardHeader,
-	CardTitle,
-} from "@openmeld/ui/components/card";
-import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import { cn } from "@openmeld/ui/lib/utils";
-import {
-	ChatCircleTextIcon,
-	HashIcon,
-	PlusIcon,
-	PushPinIcon,
-	UsersThreeIcon,
-} from "@phosphor-icons/react";
+import { HashIcon, PlusIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import {
-	type ReactNode,
-	useDeferredValue,
-	useEffect,
-	useMemo,
-	useState,
-} from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { OrganizationScopedErrorState } from "#/components/organizations/organization-scoped-error-state";
 import {
-	resolveAccountSpaceTrailingStatus,
 	type SpaceUnreadById,
 	selectAccountSpaceSections,
 } from "#/components/spaces/account-space-sections";
@@ -45,7 +20,7 @@ import {
 	AppSpaceShell,
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
-import { SpaceAgentOrb } from "#/components/spaces/space-agent-orb";
+import { SpaceDirectory } from "#/components/spaces/space-directory";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
 import { useAccountSpaceIndicators } from "#/components/spaces/use-account-space-indicators";
 import { useAccountSpacePinMutation } from "#/components/spaces/use-account-space-pin-mutation";
@@ -155,7 +130,7 @@ export function AppSpacesIndexContent(input: {
 			profileId: profileId ?? "",
 		})
 	);
-	const { activeWakeSpaceIds, unreadBySpaceId } = useAccountSpaceIndicators({
+	const { unreadBySpaceId } = useAccountSpaceIndicators({
 		enabled: Boolean(profileId),
 		organizationId: currentOrganization.id,
 		profileId: profileId ?? "",
@@ -325,7 +300,6 @@ export function AppSpacesIndexContent(input: {
 			<SpaceIndexContentState
 				accountSpaceItemsById={accountState.accountSpaceItemsById}
 				activeOrganization={activeOrganization}
-				activeWakeSpaceIds={activeWakeSpaceIds}
 				canJoinSpaces={savedViewState.canJoinSpaces}
 				errorMessage={errorMessage}
 				isMembershipError={savedViewState.isMembershipError}
@@ -342,7 +316,6 @@ export function AppSpacesIndexContent(input: {
 					accountSpacesQuery.isRefetching
 				}
 				joinError={joinError}
-				joinedSpaceOrderById={accountState.joinedSpaceOrderById}
 				onJoinSpace={(spaceId) => {
 					joinSpaceMutation.mutate({ spaceId });
 				}}
@@ -370,7 +343,6 @@ export function AppSpacesIndexContent(input: {
 					(accountSpacesQuery.isError && accountSpacesHaveData)
 				}
 				spaces={regularOrganizationSpaces}
-				unreadBySpaceId={unreadBySpaceId}
 			/>
 		</AppSpaceShell>
 	);
@@ -461,7 +433,6 @@ function selectSpaceIndexAccountState(input: {
 		return {
 			accountSpaceItemsById: new Map<string, AccountSpaceItem>(),
 			directMessageSpaceIds: new Set<string>(),
-			joinedSpaceOrderById: new Map<string, number>(),
 		};
 	}
 
@@ -478,9 +449,6 @@ function selectSpaceIndexAccountState(input: {
 		),
 		directMessageSpaceIds: new Set(
 			sections.directMessageItems.map((item) => item.spaceId)
-		),
-		joinedSpaceOrderById: new Map(
-			accountSpaceItems.map((item, index) => [item.spaceId, index])
 		),
 	};
 }
@@ -506,7 +474,6 @@ function AppSpacesIndexEntryShell(input: {
 
 type SpaceIndexContentStateInput = {
 	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
-	activeWakeSpaceIds: ReadonlySet<string>;
 	activeOrganization: OrganizationSummary | null;
 	canJoinSpaces: boolean;
 	errorMessage: string | null;
@@ -515,7 +482,6 @@ type SpaceIndexContentStateInput = {
 	isPersonalContext: boolean;
 	isRetrying: boolean;
 	joinError: SpaceJoinError | null;
-	joinedSpaceOrderById: ReadonlyMap<string, number>;
 	onJoinSpace: (spaceId: string) => void;
 	onTogglePinned: (item: AccountSpaceItem) => void;
 	onRetry: () => void;
@@ -526,7 +492,6 @@ type SpaceIndexContentStateInput = {
 	selfHealStatus: OrganizationMembershipSelfHealStatus;
 	showSavedViewWarning: boolean;
 	spaces: readonly OrganizationSpaceDirectoryWithMemberCountsItem[];
-	unreadBySpaceId: SpaceUnreadById;
 };
 
 function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
@@ -643,13 +608,10 @@ function resolveSpaceIndexBody(
 	}
 
 	return (
-		<SpaceIndexDirectoryState
+		<SpaceDirectory
 			accountSpaceItemsById={input.accountSpaceItemsById}
-			activeWakeSpaceIds={input.activeWakeSpaceIds}
 			canJoinSpaces={input.canJoinSpaces}
-			isPersonalContext={input.isPersonalContext}
 			joinError={input.joinError}
-			joinedSpaceOrderById={input.joinedSpaceOrderById}
 			onJoinSpace={input.onJoinSpace}
 			onTogglePinned={input.onTogglePinned}
 			orgSlug={input.orgSlug}
@@ -666,7 +628,6 @@ function resolveSpaceIndexBody(
 			}
 			spaces={input.spaces}
 			tab={tab}
-			unreadBySpaceId={input.unreadBySpaceId}
 		/>
 	);
 }
@@ -684,534 +645,21 @@ type SpaceJoinError = {
 	spaceId: string;
 };
 
-function SpaceIndexDirectoryState(input: {
-	tab: number;
-	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
-	activeWakeSpaceIds: ReadonlySet<string>;
-	canJoinSpaces: boolean;
-	isPersonalContext: boolean;
-	joinError: SpaceJoinError | null;
-	joinedSpaceOrderById: ReadonlyMap<string, number>;
-	onJoinSpace: (spaceId: string) => void;
-	onTogglePinned: (item: AccountSpaceItem) => void;
-	orgSlug: string;
-	pendingJoinSpaceId: string | null;
-	pinActionsPending: boolean;
-	profileId: string;
-	savedViewWarning: {
-		isRetrying: boolean;
-		onRetry: () => void;
-	} | null;
-	spaces: readonly OrganizationSpaceDirectoryWithMemberCountsItem[];
-	unreadBySpaceId: SpaceUnreadById;
-}) {
-	const [searchQuery, setSearchQuery] = useState("");
-	const deferredSearchQuery = useDeferredValue(
-		searchQuery.trim().toLowerCase()
-	);
-	const visibleSpaces = useMemo(
-		() =>
-			input.spaces.filter((space) => {
-				if (!space.joined && space.visibility !== "public") {
-					return false;
-				}
-				return (
-					deferredSearchQuery.length === 0 ||
-					space.name.toLowerCase().includes(deferredSearchQuery)
-				);
-			}),
-		[deferredSearchQuery, input.spaces]
-	);
-	const joinedSpaces = sortJoinedOrganizationSpaces({
-		joinedSpaceOrderById: input.joinedSpaceOrderById,
-		spaces: visibleSpaces.filter((space) => space.joined),
-	});
-	const discoverableSpaces = visibleSpaces.filter(
-		(space) => !space.joined && space.visibility === "public"
-	);
-	const hasDirectorySpaces = input.spaces.some(
-		(space) => space.joined || space.visibility === "public"
-	);
-
-	return (
-		<div className="h-full overflow-auto px-6 py-8">
-			<section
-				aria-labelledby="space-index-title"
-				className="mx-auto flex w-full max-w-5xl flex-col gap-6"
-			>
-				{input.savedViewWarning ? (
-					<output className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-card/35 px-4 py-3">
-						<p className="text-muted-foreground text-sm">
-							Couldn't refresh Spaces. Showing the last saved view from this
-							browser.
-						</p>
-						<Button
-							disabled={input.savedViewWarning.isRetrying}
-							onClick={input.savedViewWarning.onRetry}
-							size="sm"
-							type="button"
-							variant="outline"
-						>
-							Retry
-						</Button>
-					</output>
-				) : null}
-
-				{hasDirectorySpaces ? (
-					<>
-						<div className="max-w-md">
-							<label className="sr-only" htmlFor="space-directory-search">
-								Search Spaces
-							</label>
-							<Input
-								id="space-directory-search"
-								onChange={(event) => setSearchQuery(event.target.value)}
-								placeholder="Search Spaces"
-								type="search"
-								value={searchQuery}
-							/>
-						</div>
-						{input.tab === 0 && (
-							<SpaceDirectorySection
-								accountSpaceItemsById={input.accountSpaceItemsById}
-								activeWakeSpaceIds={input.activeWakeSpaceIds}
-								canJoinSpaces={input.canJoinSpaces}
-								description="Spaces you have already joined."
-								emptyMessage={
-									deferredSearchQuery
-										? "No joined Spaces match your search."
-										: "You have not joined any Spaces yet."
-								}
-								joinError={input.joinError}
-								onJoinSpace={input.onJoinSpace}
-								onTogglePinned={input.onTogglePinned}
-								orgSlug={input.orgSlug}
-								pendingJoinSpaceId={input.pendingJoinSpaceId}
-								pinActionsPending={input.pinActionsPending}
-								profileId={input.profileId}
-								spaces={joinedSpaces}
-								title="Your Spaces"
-								unreadBySpaceId={input.unreadBySpaceId}
-							/>
-						)}
-						{input.isPersonalContext || input.tab !== 1 ? null : (
-							<SpaceDirectorySection
-								accountSpaceItemsById={input.accountSpaceItemsById}
-								activeWakeSpaceIds={input.activeWakeSpaceIds}
-								canJoinSpaces={input.canJoinSpaces}
-								description="Public Spaces anyone in this organization can join."
-								emptyMessage={
-									deferredSearchQuery
-										? "No public Spaces match your search."
-										: "You have joined every public Space."
-								}
-								joinError={input.joinError}
-								onJoinSpace={input.onJoinSpace}
-								onTogglePinned={input.onTogglePinned}
-								orgSlug={input.orgSlug}
-								pendingJoinSpaceId={input.pendingJoinSpaceId}
-								pinActionsPending={input.pinActionsPending}
-								profileId={input.profileId}
-								spaces={discoverableSpaces}
-								title="Discover"
-								unreadBySpaceId={input.unreadBySpaceId}
-							/>
-						)}
-					</>
-				) : (
-					<SpaceIndexNoSpacesState
-						isPersonalContext={input.isPersonalContext}
-						orgSlug={input.orgSlug}
-					/>
-				)}
-			</section>
-		</div>
-	);
-}
-
-function sortJoinedOrganizationSpaces(input: {
-	joinedSpaceOrderById: ReadonlyMap<string, number>;
-	spaces: readonly OrganizationSpaceDirectoryWithMemberCountsItem[];
-}): OrganizationSpaceDirectoryWithMemberCountsItem[] {
-	return input.spaces
-		.map((space, directoryIndex) => ({ directoryIndex, space }))
-		.sort((left, right) => {
-			const leftIndex = input.joinedSpaceOrderById.get(left.space.spaceId);
-			const rightIndex = input.joinedSpaceOrderById.get(right.space.spaceId);
-			if (leftIndex !== undefined && rightIndex !== undefined) {
-				return leftIndex - rightIndex;
-			}
-			if (leftIndex !== undefined) {
-				return -1;
-			}
-			if (rightIndex !== undefined) {
-				return 1;
-			}
-			return left.directoryIndex - right.directoryIndex;
-		})
-		.map(({ space }) => space);
-}
-
-function SpaceDirectorySection(input: {
-	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
-	activeWakeSpaceIds: ReadonlySet<string>;
-	canJoinSpaces: boolean;
-	description: string;
-	emptyMessage: string;
-	joinError: SpaceJoinError | null;
-	onJoinSpace: (spaceId: string) => void;
-	onTogglePinned: (item: AccountSpaceItem) => void;
-	orgSlug: string;
-	pendingJoinSpaceId: string | null;
-	pinActionsPending: boolean;
-	profileId: string;
-	spaces: readonly OrganizationSpaceDirectoryWithMemberCountsItem[];
-	title: string;
-	unreadBySpaceId: SpaceUnreadById;
-}) {
-	return (
-		<section
-			aria-labelledby={`space-directory-${input.title.toLowerCase().replace(" ", "-")}`}
-		>
-			<div className="mb-3 space-y-1">
-				<h2
-					className="font-medium text-base text-foreground"
-					id={`space-directory-${input.title.toLowerCase().replace(" ", "-")}`}
-				>
-					{input.title}
-				</h2>
-				<p className="text-muted-foreground text-xs">{input.description}</p>
-			</div>
-			{input.spaces.length > 0 ? (
-				<FluidCardGroup>
-					<ul className="grid gap-3 md:grid-cols-2">
-						{input.spaces.map((space) => (
-							<li key={space.spaceId}>
-								<FluidCardItem itemId={space.spaceId}>
-									<OrganizationSpaceDirectoryCard
-										accountSpaceItem={
-											space.joined
-												? (input.accountSpaceItemsById.get(space.spaceId) ??
-													null)
-												: null
-										}
-										canJoin={input.canJoinSpaces}
-										hasActiveWake={
-											space.joined &&
-											input.activeWakeSpaceIds.has(space.spaceId)
-										}
-										isPinPending={input.pinActionsPending}
-										joinError={
-											input.joinError?.spaceId === space.spaceId
-												? input.joinError.message
-												: null
-										}
-										onJoinSpace={input.onJoinSpace}
-										onTogglePinned={input.onTogglePinned}
-										orgSlug={input.orgSlug}
-										pendingJoin={input.pendingJoinSpaceId === space.spaceId}
-										profileId={input.profileId}
-										space={space}
-										unreadCount={
-											space.joined
-												? (input.unreadBySpaceId.get(space.spaceId)
-														?.unreadCount ?? 0)
-												: 0
-										}
-									/>
-								</FluidCardItem>
-							</li>
-						))}
-					</ul>
-				</FluidCardGroup>
-			) : (
-				<p className="rounded-md border border-border border-dashed px-4 py-5 text-muted-foreground text-xs">
-					{input.emptyMessage}
-				</p>
-			)}
-		</section>
-	);
-}
-
-function SpaceIndexNoSpacesState(input: {
-	isPersonalContext: boolean;
-	orgSlug: string;
-}) {
-	return (
-		<section
-			aria-labelledby="space-index-no-spaces-title"
-			className="flex min-h-64 flex-col items-center justify-center rounded-md border border-border border-dashed px-6 py-12 text-center"
-		>
-			<h2
-				className="max-w-sm text-balance font-medium text-foreground text-xl"
-				id="space-index-no-spaces-title"
-			>
-				{input.isPersonalContext ? "No Spaces yet" : "No public Spaces to join"}
-			</h2>
-			<p className="mt-3 max-w-sm text-pretty text-muted-foreground text-sm leading-6">
-				{input.isPersonalContext
-					? "Create your first Space to get started."
-					: "Private Spaces appear here after someone invites you."}
-			</p>
-			<Link
-				className={buttonVariants({
-					className: "mt-5",
-					size: "sm",
-				})}
-				to={buildOrganizationNewSpacePath(input.orgSlug)}
-			>
-				Create Space
-			</Link>
-		</section>
-	);
-}
-
-function OrganizationSpaceDirectoryCard(input: {
-	accountSpaceItem: AccountSpaceItem | null;
-	canJoin: boolean;
-	hasActiveWake: boolean;
-	isPinPending: boolean;
-	joinError: string | null;
-	onJoinSpace: (spaceId: string) => void;
-	onTogglePinned: (item: AccountSpaceItem) => void;
-	orgSlug: string;
-	pendingJoin: boolean;
-	profileId: string;
-	space: OrganizationSpaceDirectoryWithMemberCountsItem;
-	unreadCount: number;
-}) {
-	return (
-		<Card
-			className="group/space-card h-full min-h-48 bg-transparent"
-			data-testid={`organization-space-card-${input.space.spaceId}`}
-			size="sm"
-		>
-			<CardHeader>
-				<CardTitle className="flex min-w-0 items-center gap-2">
-					<ChatCircleTextIcon
-						aria-hidden="true"
-						className="size-5 shrink-0 text-muted-foreground"
-					/>
-					<h3 className="truncate">{input.space.name}</h3>
-				</CardTitle>
-				<CardAction>
-					<Badge variant="outline">
-						{input.space.visibility === "public" ? "Public" : "Private"}
-					</Badge>
-				</CardAction>
-			</CardHeader>
-			<CardContent className="flex flex-1 flex-col justify-center gap-4 py-2">
-				<p className="max-w-md text-muted-foreground text-sm leading-6">
-					{input.space.joined
-						? "Open this Space to continue where you left off."
-						: "Join this public Space to see its conversation and collaborate."}
-				</p>
-				<p className="flex items-center gap-2 text-muted-foreground text-xs">
-					<UsersThreeIcon aria-hidden="true" className="size-4 shrink-0" />
-					{resolveOrganizationSpaceMemberLabel(input.space.activeMemberCount)}
-				</p>
-				<SpaceDirectoryStatusSlot
-					hasActiveWake={input.hasActiveWake}
-					isPinPending={input.isPinPending}
-					item={input.accountSpaceItem}
-					onTogglePinned={input.onTogglePinned}
-					spaceName={input.space.name}
-					unreadCount={input.unreadCount}
-				/>
-			</CardContent>
-			{input.joinError ? (
-				<p className="px-3 text-destructive text-xs" role="alert">
-					{input.joinError}
-				</p>
-			) : null}
-			<CardFooter className="mt-auto flex-wrap justify-end gap-3">
-				<SpaceDirectoryPrimaryAction
-					canJoin={input.canJoin}
-					onJoinSpace={input.onJoinSpace}
-					orgSlug={input.orgSlug}
-					pendingJoin={input.pendingJoin}
-					profileId={input.profileId}
-					space={input.space}
-				/>
-			</CardFooter>
-		</Card>
-	);
-}
-
-function resolveOrganizationSpaceMemberLabel(
-	activeMemberCount: number | null
-): string {
-	if (typeof activeMemberCount !== "number") {
-		return "Member count unavailable";
-	}
-	return `${String(activeMemberCount)} ${activeMemberCount === 1 ? "member" : "members"}`;
-}
-
-function SpaceDirectoryStatusSlot(input: {
-	hasActiveWake: boolean;
-	isPinPending: boolean;
-	item: AccountSpaceItem | null;
-	onTogglePinned: (item: AccountSpaceItem) => void;
-	spaceName: string;
-	unreadCount: number;
-}) {
-	if (!input.item) {
-		return null;
-	}
-	const item = input.item;
-	const isPinned = item.pinnedAt !== null;
-	const status = resolveAccountSpaceTrailingStatus({
-		hasActiveWake: input.hasActiveWake,
-		hasUnread: input.unreadCount > 0,
-		isPinned,
-	});
-	const hasHigherPriorityStatus = status === "unread" || status === "working";
-	const pinLabel = isPinned
-		? `Unpin ${input.spaceName}`
-		: `Pin ${input.spaceName}`;
-	let pinButtonText = "Pin";
-	if (isPinned) {
-		pinButtonText = hasHigherPriorityStatus ? "Unpin" : "Pinned";
-	}
-
-	return (
-		<div className="relative flex min-h-8 items-center text-muted-foreground text-xs">
-			{status === "unread" ? (
-				<span
-					className="flex items-center gap-2 transition-opacity group-focus-within/space-card:opacity-0 group-hover/space-card:opacity-0 motion-reduce:transition-none"
-					data-testid="space-directory-unread-indicator"
-				>
-					<span aria-hidden="true" className="status-dot bg-unread" />
-					{input.unreadCount} unread
-				</span>
-			) : null}
-			{status === "working" ? (
-				<span
-					className="flex items-center gap-2 transition-opacity group-focus-within/space-card:opacity-0 group-hover/space-card:opacity-0 motion-reduce:transition-none"
-					data-testid="space-directory-working-indicator"
-				>
-					<SpaceAgentOrb />
-					Working
-				</span>
-			) : null}
-			<Button
-				aria-disabled={input.isPinPending}
-				aria-label={pinLabel}
-				aria-pressed={isPinned}
-				className={cn(
-					"h-8 aria-disabled:pointer-events-none aria-disabled:opacity-50",
-					hasHigherPriorityStatus
-						? "pointer-events-none absolute inset-y-0 left-0 opacity-0 transition-opacity group-focus-within/space-card:pointer-events-auto group-focus-within/space-card:opacity-100 group-hover/space-card:pointer-events-auto group-hover/space-card:opacity-100 motion-reduce:transition-none"
-						: null
-				)}
-				onClick={() => {
-					if (!input.isPinPending) {
-						input.onTogglePinned(item);
-					}
-				}}
-				size="sm"
-				type="button"
-				variant="outline"
-			>
-				<PushPinIcon
-					aria-hidden="true"
-					data-icon="inline-start"
-					weight={isPinned ? "fill" : "regular"}
-				/>
-				{pinButtonText}
-			</Button>
-		</div>
-	);
-}
-
-function SpaceDirectoryPrimaryAction(input: {
-	canJoin: boolean;
-	onJoinSpace: (spaceId: string) => void;
-	orgSlug: string;
-	pendingJoin: boolean;
-	profileId: string;
-	space: OrganizationSpaceDirectoryWithMemberCountsItem;
-}) {
-	if (input.space.joined) {
-		return (
-			<Link
-				aria-label={`Open ${input.space.name}`}
-				className={buttonVariants({ size: "sm" })}
-				to={buildOrganizationSpacePath({
-					orgSlug: input.orgSlug,
-					search: { profileId: input.profileId },
-					spaceId: input.space.spaceId,
-				})}
-			>
-				Open
-			</Link>
-		);
-	}
-
-	return (
-		<Button
-			aria-label={`Join ${input.space.name}`}
-			disabled={input.pendingJoin || !input.canJoin}
-			onClick={() => input.onJoinSpace(input.space.spaceId)}
-			size="sm"
-			type="button"
-		>
-			{input.pendingJoin ? "Joining..." : "Join"}
-		</Button>
-	);
-}
-
 function SpaceIndexLoadingState() {
 	return (
-		<div className="h-full overflow-hidden px-6 py-8">
-			<section
-				aria-busy="true"
-				aria-label="Loading Spaces"
-				className="mx-auto flex w-full max-w-5xl flex-col gap-6"
-			>
-				<output aria-label="Loading Spaces" className="sr-only">
-					Loading Spaces
-				</output>
-				<header className="flex items-start justify-between gap-4">
-					<div className="flex w-full max-w-2xl flex-col gap-3">
-						<Skeleton className="h-3 w-28" />
-						<Skeleton className="h-8 w-36" />
-						<Skeleton className="h-4 w-full max-w-xl" />
-						<Skeleton className="h-4 w-4/5 max-w-lg" />
-					</div>
-					<Skeleton className="h-8 w-24 shrink-0" />
-				</header>
-				<ul aria-hidden="true" className="grid gap-3 md:grid-cols-2">
-					{[
-						"space-loading-card-1",
-						"space-loading-card-2",
-						"space-loading-card-3",
-						"space-loading-card-4",
-					].map((key) => (
-						<li key={key}>
-							<Card className="min-h-48" size="sm">
-								<CardHeader>
-									<CardTitle className="flex items-center gap-3">
-										<Skeleton className="size-10" />
-										<Skeleton className="h-4 w-32" />
-									</CardTitle>
-									<CardAction>
-										<Skeleton className="h-5 w-16" />
-									</CardAction>
-								</CardHeader>
-								<CardContent className="flex flex-1 flex-col justify-center gap-4 py-2">
-									<Skeleton className="h-4 w-4/5" />
-									<Skeleton className="h-3 w-24" />
-								</CardContent>
-								<CardFooter className="mt-auto justify-end">
-									<Skeleton className="h-7 w-16" />
-								</CardFooter>
-							</Card>
-						</li>
-					))}
-				</ul>
-			</section>
-		</div>
+		<section
+			aria-busy="true"
+			aria-label="Loading Spaces"
+			className="space-y-5 px-6 py-6 lg:px-8"
+		>
+			<output aria-label="Loading Spaces" className="sr-only">
+				Loading Spaces
+			</output>
+			<Skeleton className="h-4 w-24" />
+			{[0, 1, 2, 3, 4, 5].map((index) => (
+				<Skeleton className="h-16 w-full" key={index} />
+			))}
+		</section>
 	);
 }
 
