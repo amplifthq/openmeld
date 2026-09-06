@@ -2,16 +2,21 @@ import { createContext, useContext } from "react";
 
 // Only the entry resolver can release a restored app conversation for actions.
 // Public and standalone conversation surfaces retain their own access checks.
-export const SpaceEntryConfirmationContext = createContext(true);
-export const SpaceEntryRetryContext = createContext<{
-	retry: () => Promise<void>;
-	isError: boolean;
-} | null>(null);
+export type SpaceEntryConfirmation = {
+	confirmed: boolean;
+	ensureConfirmed: () => Promise<boolean>;
+};
 
-export function useSpaceEntryRetry() {
-	return useContext(SpaceEntryRetryContext);
+export const SpaceEntryConfirmationContext =
+	createContext<SpaceEntryConfirmation>({
+		confirmed: true,
+		ensureConfirmed: async () => true,
+	});
+
+export function useSpaceEntryConfirmation(): SpaceEntryConfirmation {
+	return useContext(SpaceEntryConfirmationContext);
 }
 
 export function useSpaceEntryConfirmed(): boolean {
-	return useContext(SpaceEntryConfirmationContext);
+	return useSpaceEntryConfirmation().confirmed;
 }

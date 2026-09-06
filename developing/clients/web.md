@@ -2461,13 +2461,17 @@ read in the current signed-in account, Organization, Space, and acting-Profile
 scope, Web derives the smaller display snapshot by removing current actions and
 the latest-message preview before persistence. On a return visit, that display
 snapshot and the bounded history may render immediately while current access is
-checked. The composer remains available for browser-local text authoring with
-**Write a message while OpenMeld checks access…**, but Send, file actions, and
-every other mutation or authority-bearing secondary surface stay unavailable
-until the current entry resolver and status both succeed. Pressing Enter during confirmation must not
-bypass that mutation boundary. Background `isFetching` and a transient refresh
-failure do not erase an already visible conversation. An explicit access
-rejection immediately hides the private content and clears only that
+checked. The composer keeps its normal authoring and Send experience without
+presenting access-check progress or a separate retry control. A Send intent
+first awaits the current entry resolution and a fresh current-status read, then
+publishes only when both authorize posting. File actions and every other
+mutation or authority-bearing secondary surface stay unavailable until those
+current reads succeed. Pressing Enter follows the same boundary as clicking
+Send. A transient pre-publication failure leaves the draft intact and reports
+that the message was not sent, so the existing Send action is the retry.
+Background `isFetching` and a transient refresh failure do not erase an already
+visible conversation. An explicit access rejection immediately hides the
+private content and clears only that
 account-plus-Organization-plus-Space-plus-acting-Profile segment. Session
 expiry, account replacement, or Organization-scope change still wins
 immediately and clears its broader owning segment.
