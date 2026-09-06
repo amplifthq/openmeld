@@ -182,7 +182,7 @@ function LocalAgentSelectorEmptyState(input: {
 				actionLabel="Connect Computer"
 				centerAgentHref={emptyState.centerAgentHref}
 				className={className}
-				descriptionLead="No computer is connected yet."
+				descriptionLead="Connect a computer so OpenMeld can check its local agents. Then return to finish creating your Agent."
 			/>
 		);
 	}
@@ -211,7 +211,7 @@ function LocalAgentSelectorEmptyState(input: {
 			actionLabel="Set up local agents"
 			centerAgentHref={emptyState?.centerAgentHref}
 			className={className}
-			descriptionLead="This computer is connected, but no local agents are ready yet."
+			descriptionLead="No local agents are available to select. Set up a local agent such as Codex or Claude Code, then return to finish creating your Agent."
 		/>
 	);
 }

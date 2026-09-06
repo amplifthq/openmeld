@@ -130,7 +130,7 @@ describe("LocalAgentSelector", () => {
 		expect(screen.getByText("Set up local agents")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"This computer is connected, but no local agents are ready yet."
+				"No local agents are available to select. Set up a local agent such as Codex or Claude Code, then return to finish creating your Agent."
 			)
 		).toBeTruthy();
 		expect(screen.queryByRole("radio")).toBeNull();
@@ -154,7 +154,11 @@ describe("LocalAgentSelector", () => {
 		);
 
 		expect(screen.getByText("Connect Computer")).toBeTruthy();
-		expect(screen.getByText("No computer is connected yet.")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Connect a computer so OpenMeld can check its local agents. Then return to finish creating your Agent."
+			)
+		).toBeTruthy();
 		expect(screen.queryByRole("radio")).toBeNull();
 	});
 });

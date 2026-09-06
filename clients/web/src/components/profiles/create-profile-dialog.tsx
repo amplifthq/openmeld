@@ -752,6 +752,11 @@ function useCreateProfileDialogController(
 					})
 				: null,
 		hasBindingTarget: Boolean(bindingTarget),
+		serviceConnected:
+			recovery.currentLocalRuntimeReplyReadinessQuery.data?.service
+				.connected === true &&
+			recovery.currentLocalRuntimeReplyReadinessQuery.data?.service
+				.matchingCurrentRuntime === true,
 		ownerMode,
 		recoveryActionHref,
 	});
@@ -2542,6 +2547,7 @@ function resolveLocalAgentEmptyState(input: {
 	centerAgentHref: string | null;
 	computerHref: string | null;
 	hasBindingTarget: boolean;
+	serviceConnected: boolean;
 	ownerMode: AgentProfileOwnerMode;
 	recoveryActionHref: string;
 }): AgentProfileLocalAgentEmptyState {
@@ -2552,7 +2558,7 @@ function resolveLocalAgentEmptyState(input: {
 			primaryActionHref: null,
 		};
 	}
-	if (input.hasBindingTarget) {
+	if (input.hasBindingTarget && input.serviceConnected) {
 		return {
 			centerAgentHref: input.centerAgentHref,
 			kind: "set_up_local_agents",
