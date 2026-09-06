@@ -30,7 +30,7 @@ import type { AgentProfilesWorkspaceProps } from "./agent-profiles-workspace";
 
 type Preferences = NonNullable<AccountSidebarPreferences["agents"]>;
 const EMPTY: Preferences = {
-	starred: { sort: "manual", itemIds: [] },
+	starred: { sort: "priority", itemIds: [] },
 	items: { sort: "priority", itemIds: [] },
 	groups: [],
 };
@@ -246,7 +246,7 @@ export function ManagedAgentSidebar({
 													{
 														id: crypto.randomUUID(),
 														name,
-														sort: "manual",
+														sort: "priority",
 														itemIds: [],
 													},
 												],

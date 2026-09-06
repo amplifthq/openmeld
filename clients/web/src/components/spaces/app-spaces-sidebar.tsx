@@ -266,7 +266,7 @@ export function AppSpacesSidebar(input: {
 										{
 											id: crypto.randomUUID(),
 											name,
-											sort: "manual",
+											sort: "priority",
 											spaceIds: [],
 										},
 									],

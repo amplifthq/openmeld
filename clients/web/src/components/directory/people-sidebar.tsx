@@ -254,7 +254,7 @@ export function PeopleSidebar(input: {
 												{
 													id: crypto.randomUUID(),
 													name,
-													sort: "manual",
+													sort: "priority",
 													itemIds: [],
 												},
 											],

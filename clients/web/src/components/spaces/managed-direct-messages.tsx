@@ -27,7 +27,7 @@ import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 type Preferences = NonNullable<AccountSidebarPreferences["messages"]>;
 const EMPTY: Preferences = {
 	pinned: { sort: "priority", spaceIds: [] },
-	spaces: { sort: "recent", spaceIds: [] },
+	spaces: { sort: "priority", spaceIds: [] },
 	groups: [],
 };
 export type ManagedDirectMessageRowProps = {
@@ -237,7 +237,7 @@ export function ManagedDirectMessages(input: {
 														{
 															id: crypto.randomUUID(),
 															name,
-															sort: "manual",
+															sort: "priority",
 															spaceIds: [],
 														},
 													],

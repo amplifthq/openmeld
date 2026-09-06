@@ -3,7 +3,7 @@ import { moveSidebarItemIds, sortSidebarManual } from "../app/sidebar-order";
 import type { DirectoryHumanProfileRow } from "./directory-human-profile-model";
 
 export const EMPTY_PEOPLE_SIDEBAR: PeopleSidebarPreferences = {
-	starred: { sort: "manual", itemIds: [] },
+	starred: { sort: "priority", itemIds: [] },
 	people: { sort: "priority", itemIds: [] },
 	groups: [],
 };
