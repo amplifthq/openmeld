@@ -145,9 +145,13 @@ export function ManagedAgentSidebar({
 	]
 		.filter(
 			(section) =>
-				!section.id.startsWith("agent-owner-") ||
-				section.id === `agent-owner-${currentUserId}` ||
-				section.profiles.length > 0
+				(!input.groupFilterIds?.length ||
+					input.groupFilterIds.includes(
+						section.id.startsWith("agent-owner-") ? "ungrouped" : section.id
+					)) &&
+				(!section.id.startsWith("agent-owner-") ||
+					section.id === `agent-owner-${currentUserId}` ||
+					section.profiles.length > 0)
 		)
 		.map((s) => ({ ...s, profiles: sortProfiles(s.profiles, s.settings) }));
 	const move = (sectionId: string, itemId: string, beforeId?: string) => {
@@ -338,6 +342,12 @@ export function ManagedAgentSidebar({
 							</SidebarDestinationAction>
 						</div>
 						{input.filterBadges}
+						{!!input.groupFilterIds?.length &&
+							!sections.some((section) => section.profiles.length > 0) && (
+								<p className="px-2 py-2 text-muted-foreground text-xs">
+									No Agents match your search or filters.
+								</p>
+							)}
 					</>
 				}
 				onActivate={input.onSelectProfile}

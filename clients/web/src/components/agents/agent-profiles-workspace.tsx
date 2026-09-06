@@ -26,6 +26,7 @@ export type AgentProfilesWorkspaceProps = {
 	currentUserId: string;
 	isOrganizationContext?: boolean;
 	filterControl?: ReactNode;
+	groupFilterIds?: readonly string[];
 	filterBadges?: ReactNode;
 	hasAnyProfiles?: boolean;
 	isSearchActive?: boolean;

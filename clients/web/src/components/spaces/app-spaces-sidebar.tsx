@@ -1,11 +1,17 @@
 "use client";
 
 import { Button } from "@openmeld/ui/components/button";
+import {
+	DropdownMenu,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
+import { FunnelSimpleIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
 	type AppContextualNavGroup,
@@ -23,10 +29,13 @@ import type {
 } from "#/lib/spaces/account-spaces";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
+import { SidebarDestinationAction } from "../app/sidebar-destination-actions";
 import {
 	SidebarDrag as SidebarSpaceDrag,
 	SidebarDropSection as SidebarSpaceDropSection,
 } from "../app/sidebar-drag";
+import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
+import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import {
@@ -99,6 +108,7 @@ export function AppSpacesSidebar(input: {
 	currentSpaceId: string;
 }) {
 	const navigate = useNavigate();
+	const [search, setSearch] = useState("");
 	const { currentOrganization } = useAppOrganization();
 	const currentOrganizationId = currentOrganization.id;
 	const profileDirectory = useQuery(
@@ -199,6 +209,14 @@ export function AppSpacesSidebar(input: {
 		</SidebarSpaceDropSection>
 	);
 	const preferences = sidebar.preferences;
+	const groupFilter = useSidebarGroupFilter([
+		{ id: "pinned", label: "Pinned" },
+		...(preferences?.groups ?? []).map((group) => ({
+			id: group.id,
+			label: group.name,
+		})),
+		{ id: "spaces", label: "Spaces" },
+	]);
 	const visibleBySection = new Map<string, readonly AccountSpaceItem[]>();
 	const actions = (id: string, label: string) => (
 		<SidebarSectionActions
@@ -290,7 +308,13 @@ export function AppSpacesSidebar(input: {
 		section: Parameters<typeof sortSidebarSpaces>[1]
 	) =>
 		sortSidebarSpaces(
-			items,
+			items.filter(
+				(item) =>
+					!search.trim() ||
+					(item.spaceName ?? "")
+						.toLocaleLowerCase()
+						.includes(search.trim().toLocaleLowerCase())
+			),
 			section ?? { sort: "priority", spaceIds: [] },
 			attention,
 			unreadActivity,
@@ -411,13 +435,63 @@ export function AppSpacesSidebar(input: {
 			<AppContextualSidebarNav
 				activeItemId={null}
 				ariaLabel="Spaces"
-				groups={sidebarGroups}
+				groups={sidebarGroups.filter(
+					(group) =>
+						groupFilter.includes(group.id) &&
+						(!(search.trim() || groupFilter.selected.length > 0) ||
+							spacesQuery.isPending ||
+							spacesQuery.isError ||
+							(visibleBySection.get(group.id)?.length ?? 0) > 0)
+				)}
 				leadingContent={
-					sidebar.isError ? (
-						<Button onClick={() => sidebar.retry()} size="sm" variant="ghost">
-							Retry sidebar settings
-						</Button>
-					) : undefined
+					<>
+						<div className="flex items-center gap-1 px-1">
+							<SidebarSearchInput
+								destination="spaces"
+								label="Search Spaces"
+								onValueChange={setSearch}
+								value={search}
+							/>
+							<SidebarDestinationAction destination="spaces">
+								<DropdownMenu>
+									<DropdownMenuTrigger
+										render={
+											<Button
+												aria-label="Filter Spaces"
+												className="size-6 [&_svg]:size-3.5"
+												size="icon-sm"
+												variant="ghost"
+											/>
+										}
+									>
+										<FunnelSimpleIcon />
+									</DropdownMenuTrigger>
+									<FluidDropdownMenuContent
+										align="end"
+										className="w-60 max-w-[calc(100vw-2rem)]"
+									>
+										{groupFilter.menu}
+									</FluidDropdownMenuContent>
+								</DropdownMenu>
+							</SidebarDestinationAction>
+						</div>
+						{groupFilter.badges}
+						{(search.trim() || groupFilter.selected.length > 0) &&
+							!spacesQuery.isPending &&
+							!spacesQuery.isError &&
+							![...visibleBySection].some(
+								([id, items]) => groupFilter.includes(id) && items.length > 0
+							) && (
+								<p className="px-2 py-2 text-muted-foreground text-xs">
+									No Spaces match your search or filters.
+								</p>
+							)}
+						{sidebar.isError ? (
+							<Button onClick={() => sidebar.retry()} size="sm" variant="ghost">
+								Retry sidebar settings
+							</Button>
+						) : null}
+					</>
 				}
 				placement="main"
 				title="Spaces"
