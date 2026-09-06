@@ -2305,7 +2305,11 @@ but not trigger.
    compensation.
    A terminal worker result is also retained until Core explicitly accepts its
    callback. Callback retry uses capped backoff and Core publication
-   idempotency, but no attempt ceiling: a temporary Core, Space, or Slack
+   idempotency. Each one-shot wake names its upcoming retry second, so SDK
+   deduplication cannot reuse the currently firing row that is deleted when
+   the callback returns. Repeated scheduling for that same second converges;
+   the durable callback context remains the delivery/backoff authority.
+   There is no attempt ceiling: a temporary Core, Space, or Slack
    publication outage must not discard a completed answer or replace it with a
    synthetic execution failure. A successful worker execution stores its
    bounded final answer in the same compare-and-set durable execution record

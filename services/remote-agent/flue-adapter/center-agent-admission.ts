@@ -93,7 +93,7 @@ export type RemoteAgentProviderRegistrar = (input: {
 export type RemoteAgentCallbackRetryScheduler = (
   delaySeconds: number,
   callbackName: "retryRemoteAgentCallbacks",
-  payload: undefined,
+  payload: { retryAt: number },
   options: { idempotent: true }
 ) => Promise<unknown>;
 
@@ -236,9 +236,16 @@ export async function scheduleRemoteAgentCallbackRetry(input: {
   const nowMs = input.nowMs?.() ?? Date.now();
   const dueAtMs = input.dueAtIso ? Date.parse(input.dueAtIso) : nowMs + 5000;
   const delaySeconds = Math.max(1, Math.ceil((dueAtMs - nowMs) / 1000));
-  await input.schedule(delaySeconds, "retryRemoteAgentCallbacks", undefined, {
-    idempotent: true,
-  });
+  // Agents deduplicates one-shot schedules by callback and payload, including
+  // the row currently executing. That row is deleted when its callback ends.
+  // Name the upcoming second so rearming cannot reuse the firing row, while
+  // concurrent requests for the same retry still converge on one schedule.
+  await input.schedule(
+    delaySeconds,
+    "retryRemoteAgentCallbacks",
+    { retryAt: Math.floor(nowMs / 1000) + delaySeconds },
+    { idempotent: true }
+  );
 }
 
 export async function redeliverRemoteAgentCallbacksAndScheduleNextRetry(input: {
