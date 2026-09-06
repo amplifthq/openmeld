@@ -179,6 +179,10 @@ targeting. Deploy this Remote Agent only with the current Core receiver; when
 rolling back across that receiver contract, roll back Remote Agent first.
 This retires transient Worker-to-Core negotiation, not persisted submission
 versions, historical message navigation targets, or supported local clients.
+Connected App stream parts likewise retain their complete shared work metadata.
+A Core rejection is terminal for that preview; the worker does not strip the
+subject and resend a degraded part. Transient transport retries and final
+answer delivery remain separate and unchanged.
 
 The agent worker is built on **Flue**, pinned by exact package version in
 `services/remote-agent`. OpenMeld uses Flue for the agent harness and Durable

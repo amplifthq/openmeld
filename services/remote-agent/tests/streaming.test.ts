@@ -413,7 +413,7 @@ describe("Remote Agent streaming", () => {
     );
   });
 
-  it("retries connected App work without its new subject for an older Core", async () => {
+  it("preserves connected App evidence and does not downgrade a rejected part", async () => {
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
       nowMs: TEST_NOW_MS,
@@ -454,8 +454,10 @@ describe("Remote Agent streaming", () => {
       storage,
     });
 
-    expect(result).toMatchObject({ status: "published" });
-    expect(submitRemoteAgentStreamPart).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      response: { status: "rejected", reasonCode: "agent_stream.invalid" },
+    });
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledTimes(1);
     expect(submitRemoteAgentStreamPart.mock.calls[0]?.[0]).toMatchObject({
       sequence: 1,
       part: {
@@ -468,16 +470,6 @@ describe("Remote Agent streaming", () => {
         },
       },
     });
-    expect(submitRemoteAgentStreamPart.mock.calls[1]?.[0]).toMatchObject({
-      sequence: 1,
-      part: {
-        toolCallId: "tool_call_connected_app",
-        toolName: "openmeld_execute_app_action",
-      },
-    });
-    expect(
-      submitRemoteAgentStreamPart.mock.calls[1]?.[0].part
-    ).not.toHaveProperty("work");
   });
 
   it("stops the preview after Core rejects a tool part", async () => {
