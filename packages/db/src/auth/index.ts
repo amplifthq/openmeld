@@ -11,6 +11,7 @@ export function createD1Db(database: D1DatabaseLike) {
   return drizzle(database, { schema: authSchema });
 }
 
+export { accountSidebarPreferences } from "./account-sidebar.schema.ts";
 export {
   accounts,
   accountsRelations,

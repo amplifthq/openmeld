@@ -1,4 +1,5 @@
 import type * as React from "react";
+import { Surface } from "#fluid/surface";
 import { cn } from "#lib/utils";
 
 function Card({
@@ -7,9 +8,9 @@ function Card({
   ...props
 }: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
   return (
-    <div
+    <Surface
       className={cn(
-        "group/card flex flex-col gap-4 overflow-hidden rounded-md bg-card py-4 text-card-foreground text-xs/relaxed ring-1 ring-foreground/10 has-[>img:first-child]:pt-0 has-data-[slot=card-footer]:pb-0 data-[size=sm]:gap-2 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-md *:[img:last-child]:rounded-b-md",
+        "group/card flex flex-col gap-4 overflow-hidden rounded-md py-4 text-card-foreground text-xs/relaxed has-[>img:first-child]:pt-0 has-data-[slot=card-footer]:pb-0 data-[size=sm]:gap-2 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-md *:[img:last-child]:rounded-b-md",
         className
       )}
       data-size={size}

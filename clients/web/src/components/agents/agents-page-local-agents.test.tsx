@@ -1210,7 +1210,7 @@ describe("LocalAgentsCard", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Codex details" }));
 
-		expect(screen.getByText("Codex App Server")).toBeTruthy();
+		expect(screen.getByText("Codex Plugin Server")).toBeTruthy();
 		expect(screen.getByText("GPT-5.5")).toBeTruthy();
 		expect(
 			screen.getByText(

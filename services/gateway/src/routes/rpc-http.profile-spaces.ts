@@ -97,6 +97,13 @@ export function registerProfileSpaceHistoryRoutes(
       ...(url.searchParams.has("includePurposes")
         ? { includePurposes: url.searchParams.get("includePurposes") }
         : {}),
+      ...(url.searchParams.has("includeMemberPreviews")
+        ? {
+            includeMemberPreviews: url.searchParams.get(
+              "includeMemberPreviews"
+            ),
+          }
+        : {}),
       ...(url.searchParams.has("limit")
         ? { limit: url.searchParams.get("limit") }
         : {}),
@@ -148,6 +155,9 @@ export function registerProfileSpaceHistoryRoutes(
             : {}),
           ...(parsedQuery.data.includePurposes === true
             ? { includePurposes: true }
+            : {}),
+          ...(parsedQuery.data.includeMemberPreviews === true
+            ? { includeMemberPreviews: true }
             : {}),
         });
       },

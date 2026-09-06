@@ -4,12 +4,12 @@ import { createContext, type ReactNode, use } from "react";
 import type { SlackOAuthResult } from "#/lib/organizations/slack-oauth-result";
 
 export type CenterAgentRouteState = {
-	appsSelectedService: string | null;
+	pluginsSelectedService: string | null;
 	channelsSlackOAuthResult?: SlackOAuthResult;
 };
 
 const DEFAULT_CENTER_AGENT_ROUTE_STATE: CenterAgentRouteState = {
-	appsSelectedService: null,
+	pluginsSelectedService: null,
 };
 
 const CenterAgentRouteStateContext = createContext<CenterAgentRouteState>(

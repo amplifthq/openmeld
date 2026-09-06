@@ -5,6 +5,7 @@ import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	ArrowLeftIcon,
 	CaretDownIcon,
@@ -131,7 +132,11 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 							}
 							variants={GENERATOR_STEP_VARIANTS}
 						>
-							<div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-3">
+							<ScrollArea
+								className="min-h-0 min-w-0 flex-1"
+								contentClassName="px-3"
+								orientation="vertical"
+							>
 								<GeneratorStepContent
 									bindingChoices={bindingChoices}
 									configurationExpanded={configurationExpanded}
@@ -142,7 +147,7 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 									step={step}
 									surface={input.surface}
 								/>
-							</div>
+							</ScrollArea>
 							<GeneratorActions
 								form={form}
 								onCancel={input.onCancel}

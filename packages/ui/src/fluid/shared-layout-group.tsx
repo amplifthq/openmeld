@@ -148,7 +148,7 @@ const SharedLayoutItem = forwardRef<HTMLDivElement, SharedLayoutItemProps>(
             <motion.div
               aria-hidden="true"
               className={cn(
-                "pointer-events-none absolute inset-0 z-0 rounded-md bg-muted/55",
+                "pointer-events-none absolute inset-0 z-0 rounded-md bg-interaction-hover",
                 indicatorClassName
               )}
               data-slot="shared-layout-background"

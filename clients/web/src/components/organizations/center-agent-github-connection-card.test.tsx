@@ -8,7 +8,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { organizationAppConnectionQueryKeys } from "#/query/organizations/app-connections";
+import { organizationPluginConnectionQueryKeys } from "#/query/organizations/plugin-connections";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
@@ -101,11 +101,11 @@ describe("CenterAgentGitHubConnectionCard", () => {
 			screen.getByRole("heading", { name: "Member connections" })
 		).toBeTruthy();
 		expect(
-			screen.getByRole("heading", { name: "Organization GitHub App" })
+			screen.getByRole("heading", { name: "Organization GitHub Plugin" })
 		).toBeTruthy();
-		expect(screen.getAllByTestId("app-access-loading-skeleton")).toHaveLength(
-			3
-		);
+		expect(
+			screen.getAllByTestId("plugin-access-loading-skeleton")
+		).toHaveLength(3);
 		expect(screen.queryByText(TRANSIENT_STATUS_COPY)).toBeNull();
 		expect(screen.queryByText(GITHUB_NOT_CONNECTED_COPY)).toBeNull();
 		expect(screen.queryByText(NO_ORGANIZATION_ACCESS_COPY)).toBeNull();
@@ -149,7 +149,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 			name: "Member connections",
 		});
 		const organizationAccess = screen.getByRole("region", {
-			name: "Organization GitHub App",
+			name: "Organization GitHub Plugin",
 		});
 		expect(await within(yourAccess).findByText("Felix")).toBeTruthy();
 		expect(
@@ -159,7 +159,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 		).toBeTruthy();
 		expect(within(memberConnections).getByText("Ashley")).toBeTruthy();
 		expect(
-			within(organizationAccess).getByText("OpenMeld GitHub App")
+			within(organizationAccess).getByText("OpenMeld GitHub Plugin")
 		).toBeTruthy();
 		expect(
 			within(organizationAccess).getByText(
@@ -213,7 +213,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 		);
 
 		expect(
-			await screen.findByRole("heading", { name: "Workspace GitHub App" })
+			await screen.findByRole("heading", { name: "Workspace GitHub Plugin" })
 		).toBeTruthy();
 		expect(
 			screen.queryByRole("heading", { name: "Member connections" })
@@ -237,12 +237,12 @@ describe("CenterAgentGitHubConnectionCard", () => {
 		expect(await screen.findByText("Felix")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"OpenMeld can use only repositories included in an OpenMeld GitHub App installation and allowed for this GitHub identity."
+				"OpenMeld can use only repositories included in an OpenMeld GitHub Plugin installation and allowed for this GitHub identity."
 			)
 		).toBeTruthy();
 		expect(
 			screen
-				.getByRole("link", { name: "Review GitHub App installations" })
+				.getByRole("link", { name: "Review GitHub Plugin installations" })
 				.getAttribute("href")
 		).toBe("https://github.com/settings/installations");
 
@@ -254,7 +254,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByText(
-				"This removes the connection from this OpenMeld workspace. It does not sign you out of GitHub or uninstall the OpenMeld GitHub App."
+				"This removes the connection from this OpenMeld workspace. It does not sign you out of GitHub or uninstall the OpenMeld GitHub Plugin."
 			)
 		).toBeTruthy();
 		expect(disconnectOrganizationGitHubConnectionMock).not.toHaveBeenCalled();
@@ -330,18 +330,18 @@ describe("CenterAgentGitHubConnectionCard", () => {
 
 		expect(
 			await screen.findByText(
-				"Install the OpenMeld GitHub App and choose the repositories the Center Agent can use. Organization work and Routines run as the OpenMeld bot."
+				"Install the OpenMeld GitHub Plugin and choose the repositories the Center Agent can use. Organization work and Routines run as the OpenMeld bot."
 			)
 		).toBeTruthy();
 		expect(
-			await screen.findByRole("button", { name: "Install GitHub App" })
+			await screen.findByRole("button", { name: "Install GitHub Plugin" })
 		).toBeTruthy();
 	});
 
 	it("keeps cached GitHub status visible but disables actions after refresh fails", async () => {
 		const queryClient = createTestQueryClient();
 		queryClient.setQueryData(
-			organizationAppConnectionQueryKeys.service("org-acme", "github"),
+			organizationPluginConnectionQueryKeys.service("org-acme", "github"),
 			{
 				connections: [createConnection()],
 				currentUserId: "user-1",
@@ -370,12 +370,12 @@ describe("CenterAgentGitHubConnectionCard", () => {
 				.getByRole("button", { name: "Disconnect GitHub" })
 				.hasAttribute("disabled")
 		).toBe(true);
-		expect(screen.queryByTestId("app-access-loading-skeleton")).toBeNull();
+		expect(screen.queryByTestId("plugin-access-loading-skeleton")).toBeNull();
 	});
 
 	it("does not call a background refresh disconnecting", async () => {
 		const queryClient = createTestQueryClient();
-		const queryKey = organizationAppConnectionQueryKeys.service(
+		const queryKey = organizationPluginConnectionQueryKeys.service(
 			"org-acme",
 			"github"
 		);
@@ -507,7 +507,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 		).toBeTruthy();
 	});
 
-	it("waits for the Core-owned GitHub App installation expiry", async () => {
+	it("waits for the Core-owned GitHub Plugin installation expiry", async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		vi.setSystemTime(1_000_000);
 		const expiresAtMs = Date.now() + 600_000;
@@ -536,7 +536,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 		expect(popup.close).toHaveBeenCalledTimes(1);
 	});
 
-	it("does not invent a GitHub App expiry when the response omits it", async () => {
+	it("does not invent a GitHub Plugin expiry when the response omits it", async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		vi.setSystemTime(1_000_000);
 		startCurrentOrganizationSharedGitHubAuthorizationMock.mockResolvedValue({
@@ -639,7 +639,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 
 		expect(
 			await screen.findByText(
-				"GitHub is unavailable right now. Finish setup and connect it later in Center Agent → Apps."
+				"GitHub is unavailable right now. Finish setup and connect it later in Center Agent → Plugins."
 			)
 		).toBeTruthy();
 		expect(
@@ -679,7 +679,7 @@ async function startSharedGitHubAuthorization() {
 	);
 
 	const installButton = await screen.findByRole("button", {
-		name: "Install GitHub App",
+		name: "Install GitHub Plugin",
 	});
 	await waitFor(() => {
 		expect(installButton.hasAttribute("disabled")).toBe(false);

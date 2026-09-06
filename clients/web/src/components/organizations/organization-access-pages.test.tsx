@@ -14,8 +14,8 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
-import { OrganizationAppsPage } from "./organization-apps-page";
 import { OrganizationMessageChannelsPage } from "./organization-message-channels-page";
+import { OrganizationPluginsPage } from "./organization-plugins-page";
 
 const getActiveOrganizationMemberRoleMock = vi.hoisted(() => vi.fn());
 const readCurrentCenterAgentDesignationMock = vi.hoisted(() => vi.fn());
@@ -29,7 +29,7 @@ let currentOrganization: OrganizationSummary = {
 	name: "Acme",
 	slug: "acme",
 };
-let appsSelectedService: string | null = null;
+let pluginsSelectedService: string | null = null;
 const CONNECT_ACTION_NAME = /Connect/;
 const REPAIR_ACTION_NAME = /Repair/;
 
@@ -124,7 +124,7 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 }));
 
 vi.mock("./center-agent-route-state", () => ({
-	useCenterAgentRouteState: () => ({ appsSelectedService }),
+	useCenterAgentRouteState: () => ({ pluginsSelectedService }),
 }));
 
 vi.mock("./center-agent-github-connection-card", () => ({
@@ -143,8 +143,8 @@ vi.mock("./center-agent-github-connection-card", () => ({
 	),
 }));
 
-vi.mock("./center-agent-apps-catalog-panel", () => ({
-	CenterAgentAppsCatalogPanel: ({
+vi.mock("./center-agent-plugins-catalog-panel", () => ({
+	CenterAgentPluginsCatalogPanel: ({
 		organizationSlug,
 	}: {
 		organizationSlug: string;
@@ -153,25 +153,28 @@ vi.mock("./center-agent-apps-catalog-panel", () => ({
 	),
 }));
 
-vi.mock("./organization-app-detail-page", () => ({
-	OrganizationAppDetailPage: ({
-		canManageSharedApps,
+vi.mock("./organization-plugin-detail-page", () => ({
+	OrganizationPluginDetailPage: ({
+		canManageSharedPlugins,
 		permissionNotice,
 	}: {
-		canManageSharedApps: boolean;
+		canManageSharedPlugins: boolean;
 		permissionNotice?: ReactNode;
 	}) => (
-		<div data-can-manage={String(canManageSharedApps)} data-testid="app-detail">
+		<div
+			data-can-manage={String(canManageSharedPlugins)}
+			data-testid="app-detail"
+		>
 			{permissionNotice}
 		</div>
 	),
-	OrganizationAppNotFoundPage: () => <div data-testid="app-not-found" />,
+	OrganizationPluginNotFoundPage: () => <div data-testid="app-not-found" />,
 }));
 
 describe("organization access management pages", () => {
 	beforeEach(() => {
 		currentOrganization = { id: "org-acme", name: "Acme", slug: "acme" };
-		appsSelectedService = null;
+		pluginsSelectedService = null;
 		getActiveOrganizationMemberRoleMock.mockReset().mockResolvedValue("owner");
 		readCurrentCenterAgentDesignationMock.mockReset().mockResolvedValue({
 			designation: null,
@@ -252,14 +255,14 @@ describe("organization access management pages", () => {
 		expect(screen.getByText("Organization")).toBeTruthy();
 	});
 
-	it("announces pending App access without showing loading copy", () => {
+	it("announces pending Plugin access without showing loading copy", () => {
 		getActiveOrganizationMemberRoleMock.mockReturnValue(
 			new Promise(() => undefined)
 		);
-		appsSelectedService = "github";
+		pluginsSelectedService = "github";
 		render(
 			<TestQueryClientProvider>
-				<OrganizationAppsPage />
+				<OrganizationPluginsPage />
 			</TestQueryClientProvider>
 		);
 
@@ -274,10 +277,10 @@ describe("organization access management pages", () => {
 		["member", "false"],
 	])("uses %s permissions on the GitHub detail page", async (role, expected) => {
 		getActiveOrganizationMemberRoleMock.mockResolvedValue(role);
-		appsSelectedService = "github";
+		pluginsSelectedService = "github";
 		render(
 			<TestQueryClientProvider>
-				<OrganizationAppsPage />
+				<OrganizationPluginsPage />
 			</TestQueryClientProvider>
 		);
 
@@ -287,10 +290,10 @@ describe("organization access management pages", () => {
 		});
 	});
 
-	it("shows the App catalog without waiting for role access", () => {
+	it("shows the Plugin catalog without waiting for role access", () => {
 		render(
 			<TestQueryClientProvider>
-				<OrganizationAppsPage />
+				<OrganizationPluginsPage />
 			</TestQueryClientProvider>
 		);
 
@@ -299,7 +302,7 @@ describe("organization access management pages", () => {
 		expect(getActiveOrganizationMemberRoleMock).not.toHaveBeenCalled();
 	});
 
-	it("renders Apps for a personal workspace", async () => {
+	it("renders Plugins for a personal workspace", async () => {
 		currentOrganization = {
 			id: "personal-felix",
 			isPersonal: true,
@@ -308,7 +311,7 @@ describe("organization access management pages", () => {
 		};
 		render(
 			<TestQueryClientProvider>
-				<OrganizationAppsPage />
+				<OrganizationPluginsPage />
 			</TestQueryClientProvider>
 		);
 

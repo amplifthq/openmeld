@@ -138,7 +138,7 @@ describe("onboarding progress", () => {
 	it("uses a shorter setup path for a Personal Workspace", () => {
 		expect(resolveOnboardingSteps({ isPersonal: true })).toEqual([
 			"organization",
-			"apps",
+			"plugins",
 			"local-agents",
 			"complete",
 		]);
@@ -166,7 +166,7 @@ describe("onboarding progress", () => {
 		expect(resolveOnboardingSteps({ isPersonal: false })).toEqual([
 			"organization",
 			"channels",
-			"apps",
+			"plugins",
 			"local-agents",
 			"setup",
 			"invite",

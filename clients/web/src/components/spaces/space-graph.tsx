@@ -437,7 +437,7 @@ function SpaceGraphWakeNodeCard(input: {
 			<div className="mt-2 flex items-center gap-2 text-xs">
 				<span
 					aria-hidden="true"
-					className={cn("size-1.5 rounded-full", status.indicatorClassName)}
+					className={cn("status-dot", status.indicatorClassName)}
 				/>
 				<span className={status.textClassName}>{status.label}</span>
 			</div>

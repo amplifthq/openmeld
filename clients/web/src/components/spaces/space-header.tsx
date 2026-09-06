@@ -77,7 +77,7 @@ export function SpaceWindowHeader(input: {
 					className={cn(
 						"col-end-4 row-start-2 flex min-w-0 items-center gap-3",
 						input.navigation
-							? "col-start-1 overflow-visible"
+							? "col-start-1 -mx-2 overflow-visible px-2"
 							: "col-start-2 overflow-hidden",
 						input.secondaryContentClassName
 					)}
@@ -403,7 +403,7 @@ function SpaceLiveStatusIndicator(input: {
 	const isStale = input.liveState === "stale";
 	const needsAttention = isDegraded || isStale;
 	const dotClassName = cn(
-		"size-2 shrink-0 rounded-full",
+		"status-dot",
 		resolveStatusToneIndicatorClassName(
 			needsAttention ? "warning" : "ready",
 			"solid"

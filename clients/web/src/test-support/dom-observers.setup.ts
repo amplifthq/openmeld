@@ -6,6 +6,12 @@ type ResizeObserverRecord = {
 
 const resizeObserverRecords = new Set<ResizeObserverRecord>();
 
+// jsdom has no Web Animations engine. Base UI checks for active viewport
+// animations before measuring; in this environment there are none.
+if (typeof Element.prototype.getAnimations === "undefined") {
+	Element.prototype.getAnimations = () => [];
+}
+
 class TestResizeObserver implements ResizeObserver {
 	readonly #record: ResizeObserverRecord;
 
