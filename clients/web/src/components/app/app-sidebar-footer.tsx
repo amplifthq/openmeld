@@ -90,7 +90,7 @@ export function AppSidebarFooter({
 	return (
 		<SidebarFooter
 			className={cn(
-				"gap-1 p-2",
+				"app-sidebar-footer gap-1 p-2",
 				presentation === "drawer" &&
 					"[&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11",
 				iconOnly ? "items-center" : "flex-row items-center"
@@ -170,43 +170,50 @@ export function AppSidebarFooter({
 				}}
 				open={menuOpen}
 			/>
-			<CollapsedRailTooltip label={settingsLabel}>
-				<Link
-					aria-current={isSettingsActive ? "page" : undefined}
-					aria-label={settingsLabel}
-					className={cn(actionClass, "relative")}
-					onClick={dismiss}
-					to={settingsPath}
-				>
-					<GearSixIcon className="size-4" />
-					{invitationReviewCount > 0 && (
-						<span
-							aria-hidden="true"
-							className={cn(
-								"status-dot absolute top-0 right-0",
-								resolveStatusToneIndicatorClassName("warning", "quiet")
-							)}
-							data-app-rail-status-indicator="invitation-review"
-						/>
-					)}
-				</Link>
-			</CollapsedRailTooltip>
-			<CollapsedRailTooltip
-				label={dark ? "Switch to light mode" : "Switch to dark mode"}
+			<div
+				className={cn(
+					"app-sidebar-footer-actions flex shrink-0 gap-1",
+					iconOnly && "flex-col"
+				)}
 			>
-				<button
-					aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-					className={actionClass}
-					onClick={() => setTheme(dark ? "light" : "dark")}
-					type="button"
+				<CollapsedRailTooltip label={settingsLabel}>
+					<Link
+						aria-current={isSettingsActive ? "page" : undefined}
+						aria-label={settingsLabel}
+						className={cn(actionClass, "relative")}
+						onClick={dismiss}
+						to={settingsPath}
+					>
+						<GearSixIcon className="size-4" />
+						{invitationReviewCount > 0 && (
+							<span
+								aria-hidden="true"
+								className={cn(
+									"status-dot absolute top-0 right-0",
+									resolveStatusToneIndicatorClassName("warning", "quiet")
+								)}
+								data-app-rail-status-indicator="invitation-review"
+							/>
+						)}
+					</Link>
+				</CollapsedRailTooltip>
+				<CollapsedRailTooltip
+					label={dark ? "Switch to light mode" : "Switch to dark mode"}
 				>
-					{dark ? (
-						<SunIcon className="size-4" />
-					) : (
-						<MoonIcon className="size-4" />
-					)}
-				</button>
-			</CollapsedRailTooltip>
+					<button
+						aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+						className={actionClass}
+						onClick={() => setTheme(dark ? "light" : "dark")}
+						type="button"
+					>
+						{dark ? (
+							<SunIcon className="size-4" />
+						) : (
+							<MoonIcon className="size-4" />
+						)}
+					</button>
+				</CollapsedRailTooltip>
+			</div>
 		</SidebarFooter>
 	);
 }
