@@ -109,9 +109,12 @@ clients provide identity, menu actions, and adjacent settings/theme buttons.
 The existing `components/sidebar` family remains the inner resize-only surface;
 clients must not nest both engines for one Main Sidebar.
 Its unused menu primitives have been removed; menu consumers use the Fluid family.
-Space pin controls reuse `SidebarMenuAction`: fixed action slots and opacity
-reveal replace bespoke translation and blur. Unread and active-Wake markers
-keep their own fixed slot while an adjacent action appears. Status precedence
+Sidebar rows compose `SidebarMenuButton`, `SidebarMenuAction`, and
+`SidebarMenuActions` from the Fluid source. Hidden actions reserve width only
+while revealed by hover, keyboard focus, or an open menu; touch layouts keep
+actions visible. Do not add permanent action padding or a second reveal
+implementation in clients. Unread and active-Wake markers keep their own slot.
+Status precedence
 continues to come from the Space presentation owner. Standalone visual cases
 are documented in `scripts/dev/sidebar-fixtures.md`.
 

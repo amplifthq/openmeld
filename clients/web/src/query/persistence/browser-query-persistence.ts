@@ -1069,6 +1069,7 @@ function createObservedPersister(input: {
 	throttleTimeMs?: number;
 }): { didRestoreUsableClient: () => boolean; persister: Persister } {
 	let restoredUsableClient = false;
+	let restoredSizeBytes: number | undefined;
 	const observedStorage = {
 		getItem: input.storage.getItem,
 		removeItem: input.storage.removeItem,
@@ -1105,7 +1106,11 @@ function createObservedPersister(input: {
 	const basePersister = createAsyncStoragePersister({
 		deserialize: (payload) => {
 			try {
-				return JSON.parse(payload) as PersistedClient;
+				const client = JSON.parse(payload) as PersistedClient;
+				// Measure the payload we already read instead of serializing the
+				// entire restored cache again solely for diagnostics.
+				restoredSizeBytes = new TextEncoder().encode(payload).byteLength;
+				return client;
 			} catch (error) {
 				input.diagnostics.record({
 					errorName: resolvePersistenceErrorName(error),
@@ -1138,6 +1143,7 @@ function createObservedPersister(input: {
 		removeClient: async () => await basePersister.removeClient(),
 		restoreClient: async () => {
 			restoredUsableClient = false;
+			restoredSizeBytes = undefined;
 			const startedAtMs = input.nowMs();
 			try {
 				const client = await basePersister.restoreClient();
@@ -1162,7 +1168,7 @@ function createObservedPersister(input: {
 					durationMs: elapsedMs(input.nowMs, startedAtMs),
 					event: restoreEvent,
 					scopeKind: input.scope.scopeKind,
-					sizeBytes: estimatePersistedClientSize(client),
+					sizeBytes: restoredSizeBytes,
 				});
 				return client;
 			} catch (error) {
@@ -1203,10 +1209,6 @@ async function waitWithinRestoreBudget(input: {
 	if (timeout !== undefined) {
 		clearTimeout(timeout);
 	}
-}
-
-function estimatePersistedClientSize(client: PersistedClient): number {
-	return new TextEncoder().encode(JSON.stringify(client)).byteLength;
 }
 
 function elapsedMs(nowMs: () => number, startedAtMs: number): number {
