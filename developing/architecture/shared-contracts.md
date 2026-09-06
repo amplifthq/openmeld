@@ -64,6 +64,19 @@ runtime history, execution authority, or Computer isolation.
 
 ### Flue 2 Runtime Diagnostics
 
+Text-message metadata may name `centerAgentExecutionInput` with the original
+dispatch and Center Agent Profile. The authenticated Space owner accepts this
+only for the same verified Human Profile's private Center Agent execution.
+It never creates a second Wake. The shared `receiveExecutionInput` and
+`readExecutionInput` RPC contracts carry an exact execution target and stable
+input ID. Runtime receipts distinguish durable receipt, canonical application,
+and unconfirmed application when the execution has ended. Neither receipt nor
+message metadata grants new tool or member authority. Deploy Remote Agent's
+receiver before Core's sender, then Web's metadata producer. Older clients
+continue the ordinary message path; do not remove the receiver while a Space
+has undelivered inputs. This additive contract does not change workstation
+RuntimeCoordinator or installed Service contracts.
+
 Remote Agent emits runtime diagnostics version 2 against Flue 2's actual
 submission store: `maxAttempts` counts total attempts, `joinedInto` identifies
 an absorbed delivery, and joining/joined are explicit lifecycle states.

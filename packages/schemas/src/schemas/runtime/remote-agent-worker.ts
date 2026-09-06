@@ -221,6 +221,8 @@ export const remoteAgentAdmissionStageOperationSchema = z.enum(
 
 export const REMOTE_AGENT_RPC_OPERATIONS = {
   CANCEL_EXECUTION: "cancelExecution",
+  RECEIVE_EXECUTION_INPUT: "receiveExecutionInput",
+  READ_EXECUTION_INPUT: "readExecutionInput",
   READ_EXECUTION_STATE: "readExecutionState",
   RECONCILE_EXECUTION: "reconcileExecution",
   READ_RUNTIME_DIAGNOSTICS: "readRuntimeDiagnostics",

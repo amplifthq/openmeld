@@ -2,6 +2,9 @@ import {
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerCancellationResponseSchema,
+  remoteAgentWorkerExecutionInputQuerySchema,
+  remoteAgentWorkerExecutionInputRequestSchema,
+  remoteAgentWorkerExecutionInputResponseSchema,
   remoteAgentWorkerExecutionQueryResponseSchema,
   remoteAgentWorkerExecutionQuerySchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
@@ -24,6 +27,8 @@ import {
 } from "../agent-core/submission";
 
 type CenterAgentStub = DurableObjectStub & {
+  receiveExecutionInput(input: unknown): Promise<unknown>;
+  readExecutionInput(input: unknown): Promise<unknown>;
   cancelExecution(input: unknown): Promise<unknown>;
   readExecutionState(input: unknown): Promise<unknown>;
   reconcileExecution(input: unknown): Promise<unknown>;
@@ -41,6 +46,36 @@ export type CenterAgentNamespace = {
   get(id: DurableObjectId): CenterAgentStub;
   idFromName(name: string): DurableObjectId;
 };
+
+export async function receiveExecutionInputInCenterAgent(input: {
+  namespace: CenterAgentNamespace;
+  request: unknown;
+}) {
+  const request = remoteAgentWorkerExecutionInputRequestSchema.parse(
+    input.request
+  );
+  const stub = input.namespace.get(
+    input.namespace.idFromName(buildRemoteAgentName(request.target))
+  );
+  return remoteAgentWorkerExecutionInputResponseSchema.parse(
+    await stub.receiveExecutionInput(request)
+  );
+}
+
+export async function readExecutionInputFromCenterAgent(input: {
+  namespace: CenterAgentNamespace;
+  request: unknown;
+}) {
+  const request = remoteAgentWorkerExecutionInputQuerySchema.parse(
+    input.request
+  );
+  const stub = input.namespace.get(
+    input.namespace.idFromName(buildRemoteAgentName(request.target))
+  );
+  return remoteAgentWorkerExecutionInputResponseSchema.parse(
+    await stub.readExecutionInput(request)
+  );
+}
 
 export async function submitConversationTurnToCenterAgent(input: {
   namespace: CenterAgentNamespace;

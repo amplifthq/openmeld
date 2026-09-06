@@ -2790,6 +2790,12 @@ export {
   workingLanguageGuidanceSchema,
   workingLanguageTagSchema,
 } from "./runtime/index";
+export {
+  remoteAgentWorkerExecutionInputQuerySchema,
+  remoteAgentWorkerExecutionInputReceiptSchema,
+  remoteAgentWorkerExecutionInputRequestSchema,
+  remoteAgentWorkerExecutionInputResponseSchema,
+} from "./runtime/remote-agent-execution-input";
 export { spaceAuthorityOrderSchema } from "./space-mesh/authority-order";
 export { continuitySchema } from "./space-mesh/continuity";
 export { dispatchBriefSchema } from "./space-mesh/dispatch-brief";

@@ -522,6 +522,26 @@ the connected provider API.
    temporary stream in Web, including after reconnect or callback retries.
    This closes the last stop-versus-publication race without making the Remote Agent a workstation
    runtime or giving it a RuntimeCoordinator execution.
+   Exact-execution inputs use separate `receiveExecutionInput` and
+   `readExecutionInput` RPCs. Core must authorize the current sender and name
+   the original execution; the runtime additionally requires the same verified
+   Human Profile in a private Center Agent DM. Inputs keep that execution's
+   frozen authority, tools, and one terminal callback. Independent submissions
+   remain queued. An input receipt is not another execution or a Task.
+   Durable intake records distinguish received input from Flue-confirmed
+   canonical application. A terminal execution with no application
+   acknowledgement reports `unconfirmed`; it never silently forwards the
+   input to the next execution. The Flue steering source writes each input
+   into its canonical conversation before acknowledging it to the intake
+   projection. In a private Center Agent chat, Web binds a text-only message
+   sent during one active response to that response's dispatch. Core validates
+   the current writer against the original verified sender, then atomically
+   saves the visible message and its input outbox record. Retries retain that
+   exact execution; a late new input fails instead of starting different work.
+   Files and independent chat submissions retain the ordinary admission path.
+   An unconfirmed terminal input produces a visible update failure scoped to
+   the input, without changing the original execution's outcome. Authenticated
+   acceptance must prove that a correction changes the original response.
 4. **Pinned version.** Flue is consumed at the exact version frozen by spike
    and implementation review. Upgrade requires a separate approval and a
    current-doc/version spike. The product label

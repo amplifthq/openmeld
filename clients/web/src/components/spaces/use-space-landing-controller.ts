@@ -289,7 +289,36 @@ function buildComposerFileSubmission(input: {
 	};
 }
 
+function resolveCenterAgentExecutionInput(input: {
+	centerAgentProfileId?: string | null;
+	hasFiles: boolean;
+	items: readonly Pick<
+		WakeProgressItem,
+		"terminal" | "dispatchId" | "targetProfileId"
+	>[];
+}) {
+	if (!input.centerAgentProfileId || input.hasFiles) {
+		return undefined;
+	}
+	const responses = input.items.filter(
+		(item) =>
+			!item.terminal &&
+			item.dispatchId &&
+			item.targetProfileId === input.centerAgentProfileId
+	);
+	const response = responses.length === 1 ? responses[0] : undefined;
+	return response?.dispatchId
+		? {
+				dispatchId: response.dispatchId,
+				targetProfileId: response.targetProfileId,
+			}
+		: undefined;
+}
+
 function buildNormalMessagePostInput(input: {
+	centerAgentExecutionInput?: NonNullable<
+		TextSignalEnvelope["data"]["meta"]
+	>["centerAgentExecutionInput"];
 	files: readonly SpaceMessageFileReference[];
 	clientMessageId: string;
 	messageEnvelope: TextSignalEnvelope["data"]["messageEnvelope"] | null;
@@ -302,6 +331,9 @@ function buildNormalMessagePostInput(input: {
 			? { messageEnvelope: input.messageEnvelope }
 			: {}),
 		meta: {
+			...(input.centerAgentExecutionInput
+				? { centerAgentExecutionInput: input.centerAgentExecutionInput }
+				: {}),
 			clientMessageId: input.clientMessageId,
 			authorHasRead: true as const,
 		},
@@ -1222,6 +1254,7 @@ function showSpaceExecutionRecoveryFailureToast(input: {
 }
 
 export function useSpaceLandingController(input: {
+	centerAgentProfileId?: string | null;
 	initialComposerDraft?: ComposerDraftRecord | null;
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
 	initialPendingMessage?: PendingSpaceMessage | null;
@@ -2455,17 +2488,32 @@ export function useSpaceLandingController(input: {
 	}): Promise<void> {
 		let postedMessage = false;
 		try {
+			const centerAgentExecutionInput = resolveCenterAgentExecutionInput({
+				centerAgentProfileId: input.centerAgentProfileId,
+				hasFiles: sendInput.files.length > 0,
+				items: ownActiveWakeProgressQuery.data?.items ?? [],
+			});
 			const explicitActivationTargets =
 				sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
-			const wakeProgressTargetProfileIds =
-				resolveComposerWakeProgressTargetProfileIds({
-					explicitActivationTargets,
-					membersSnapshot,
-					senderProfileId: input.profileId,
-					status: statusSnapshot,
-				});
+			const wakeProgressTargetProfileIds = centerAgentExecutionInput
+				? []
+				: resolveComposerWakeProgressTargetProfileIds({
+						explicitActivationTargets,
+						membersSnapshot,
+						senderProfileId: input.profileId,
+						status: statusSnapshot,
+					});
 			const pendingMessageEnvelope =
-				sendInput.preparedSubmission.messageEnvelope ??
+				(centerAgentExecutionInput
+					? {
+							...sendInput.preparedSubmission.messageEnvelope,
+							activationTargets: [],
+							referenceTargets:
+								sendInput.preparedSubmission.messageEnvelope
+									?.referenceTargets ?? [],
+							text: sendInput.preparedSubmission.text,
+						}
+					: sendInput.preparedSubmission.messageEnvelope) ??
 				(wakeProgressTargetProfileIds.length > 0
 					? {
 							activationTargets: wakeProgressTargetProfileIds,
@@ -2509,9 +2557,10 @@ export function useSpaceLandingController(input: {
 				openMeldProfileId: input.profileId,
 			});
 			const postInput = buildNormalMessagePostInput({
+				centerAgentExecutionInput,
 				files: sendInput.files,
 				clientMessageId: sendInput.clientMessageId,
-				messageEnvelope: sendInput.preparedSubmission.messageEnvelope,
+				messageEnvelope: pendingMessageEnvelope,
 				spaceId: input.spaceId,
 				text: sendInput.preparedSubmission.text,
 			});

@@ -524,6 +524,9 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	);
 	const controller = useSpaceLandingController({
 		...input,
+		centerAgentProfileId: currentSpaceIsCenterAgentDirectMessage
+			? centerAgentState.centerAgentProfileId
+			: null,
 		onViewedThroughTs: (throughOccurredAtMs) =>
 			spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
 		unreadStateReady: spaceInboxReadPosition.isReady,

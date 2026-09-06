@@ -9,6 +9,8 @@ export { AgentComputer } from "../flue-adapter/computer-workspace";
 
 import {
   remoteAgentWorkerCancellationRequestSchema,
+  remoteAgentWorkerExecutionInputQuerySchema,
+  remoteAgentWorkerExecutionInputRequestSchema,
   remoteAgentWorkerExecutionQuerySchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
@@ -18,9 +20,11 @@ import { summarizeAgentActivityDigest } from "../agent-core/agent-activity-diges
 import {
   type CenterAgentNamespace,
   cancelExecutionInCenterAgent,
+  readExecutionInputFromCenterAgent,
   readExecutionStateFromCenterAgent,
   readRuntimeDiagnosticsFromCenterAgent,
   readUsageDiagnosticsFromCenterAgent,
+  receiveExecutionInputInCenterAgent,
   reconcileExecutionInCenterAgent,
   submitConversationTurnToCenterAgent,
 } from "../flue-adapter/cloudflare-entrypoint";
@@ -32,6 +36,34 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  async receiveExecutionInput(input: unknown) {
+    const request = remoteAgentWorkerExecutionInputRequestSchema.parse(input);
+    return await observeRemoteAgentRpc({
+      env,
+      operation: "receiveExecutionInput",
+      requestId: request.inputId,
+      spaceId: request.target.spaceId,
+      execute: () =>
+        receiveExecutionInputInCenterAgent({
+          namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+          request,
+        }),
+    });
+  },
+  async readExecutionInput(input: unknown) {
+    const request = remoteAgentWorkerExecutionInputQuerySchema.parse(input);
+    return await observeRemoteAgentRpc({
+      env,
+      operation: "readExecutionInput",
+      requestId: request.inputId,
+      spaceId: request.target.spaceId,
+      execute: () =>
+        readExecutionInputFromCenterAgent({
+          namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+          request,
+        }),
+    });
+  },
   async cancelExecution(input: unknown) {
     const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
     return await observeRemoteAgentRpc({

@@ -5,6 +5,8 @@ import { extend, getCloudflareContext } from "@flue/runtime/cloudflare";
 import {
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerCancellationRequestSchema,
+  remoteAgentWorkerExecutionInputQuerySchema,
+  remoteAgentWorkerExecutionInputRequestSchema,
   remoteAgentWorkerExecutionQuerySchema,
 } from "@openmeld/schemas";
 import type {
@@ -75,6 +77,11 @@ import {
   requireRemoteAgentExecutionResources,
   resolveRemoteAgentExecutionCallbackContext,
 } from "../../flue-adapter/execution-context";
+import {
+  createRemoteAgentSteeringSource,
+  readRemoteAgentExecutionInput,
+  receiveRemoteAgentExecutionInput,
+} from "../../flue-adapter/execution-input";
 import {
   type FlueSubmissionLifecycle,
   reconcileRemoteAgentExecution,
@@ -254,6 +261,9 @@ async function prepareCenterAgentRender() {
   });
 
   return {
+    steeringSource: executionContext
+      ? createRemoteAgentSteeringSource({ context: executionContext, storage })
+      : null,
     compaction: materialization.model.compaction,
     durability: CENTER_AGENT_DURABILITY,
     model: materialization.model.modelSpecifier,
@@ -304,10 +314,38 @@ CenterAgentV2.durability = CENTER_AGENT_DURABILITY;
 // terminal callback. Never silently absorb another turn into that authority.
 // Exact-execution steering is a separate ingress contract.
 CenterAgentV2.joinQueuedDeliveries = false;
+CenterAgentV2.steeringSource = (_submissionId: string) => {
+  const resources =
+    requireRemoteAgentExecutionResources<
+      Awaited<ReturnType<typeof prepareCenterAgentRender>>
+    >();
+  if (!resources.steeringSource) {
+    throw new Error("Execution input requires a prepared execution context.");
+  }
+  return resources.steeringSource;
+};
 
 export const cloudflare = extend<Agent<CloudflareBindings>>({
   base: (Base) =>
     class extends Base {
+      async receiveExecutionInput(input: unknown) {
+        const request =
+          remoteAgentWorkerExecutionInputRequestSchema.parse(input);
+        return await receiveRemoteAgentExecutionInput({
+          request,
+          storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+          nowMs: Date.now(),
+        });
+      }
+
+      async readExecutionInput(input: unknown) {
+        const query = remoteAgentWorkerExecutionInputQuerySchema.parse(input);
+        return await readRemoteAgentExecutionInput({
+          query,
+          storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+        });
+      }
+
       async submitConversationTurn(
         request: RemoteAgentWorkerSubmitTurnRequest
       ) {
