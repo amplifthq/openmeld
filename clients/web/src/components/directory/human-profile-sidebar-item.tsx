@@ -111,9 +111,7 @@ export function HumanProfileSidebarItem(input: {
 					"flex w-full min-w-0 flex-row items-start gap-1.5 px-2 py-1 text-left outline-none",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
-					input.onToggleStar
-						? "group-focus-within/people-row:pr-14 group-hover/people-row:pr-14 [@media(hover:none)]:pr-14"
-						: null,
+					input.onToggleStar ? "pr-14" : null,
 					input.isActive ? "text-sidebar-accent-foreground" : null
 				)}
 				onClick={() => {

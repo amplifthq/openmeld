@@ -1,19 +1,88 @@
-# Local sidebar fixtures
+# Shared local product fixtures
 
 Run from the isolated checkout:
 
 ```sh
-python3 scripts/dev/seed-sidebar.py \
-  --lane wt-3adcea1ef678 \
-  --organization northstar-product-studio-eddhvg \
-  --gateway-port 30177 \
-  --viewer-email maya.chen@example.com
+pnpm dev:worktree
+# In another terminal, after the Workers are ready:
+pnpm dev:seed
+pnpm dev:web:worktree
 ```
 
-Use the current checkout's lane and ports. The script only accepts an existing
-`wt-*` local database. It requires an existing Organization and a signed-in
-fixture viewer, never prints session credentials, and backs up D1 into
-`dev-tmp/` before writes.
+`dev:seed` discovers the current checkout's running `wt-*` lane and ports. It
+creates a random fictional test account and Northstar Product Studio organization
+on first use, then reuses them. It prints the local-only email/password and Web
+URL, never session tokens. D1 and modified DM databases are backed up in
+`dev-tmp/` before writes. No production or other worktree state is accepted.
+On a new browser, choose **Not now** for notifications and **Skip setup** to go
+straight to the fixture organization; these browser-local choices remain real UI.
+
+Use `pnpm dev:seed --only people`, `--only spaces`, or `--only messages` to seed
+one area and its directory dependencies. Repeat the command to restore unread
+and preview scenarios. Existing sidebar arrangements are preserved; empty People
+and Agents directories receive starter stars and custom groups. The fixtures are
+shared source code, while each worktree owns its database and generated manifest.
+
+See [the module contribution guide](fixtures/README.md) to add scenarios.
+
+Use `pnpm dev:seed --account <email>` to refresh another test account already
+saved in this lane. Generated visual scenarios are retained per Organization,
+so switching between test accounts does not remove their state matrix.
+
+Spaces include short discussions, Markdown, varied member combinations, and
+timestamps from minutes to a month ago. Explorations stays empty; Billing
+migration, Incident follow-up, and Security review include failure, stopped,
+and policy-blocked system notices. The following cases use production components:
+
+| Space | Scenario |
+| --- | --- |
+| Design feedback | Agent working status and elapsed time in the conversation |
+| Release coordination | Plan review in the normal Pending Agent actions surface |
+| Performance lab | Command permission in the normal Pending Agent actions surface |
+| Billing migration | Sandbox failure system message |
+| Incident follow-up | Stopped system message |
+| Security review | Permission-blocked system message |
+
+Transient cases use a development-only Space API response adapter, scoped to the
+generated Space IDs and signed-in fixture profile on loopback. Real API reads
+still check access first; real progress takes precedence. No JSX or separate UI
+is added. Account-level discovery, closed Space rows, the conversation, and members
+consume the same scenario state. Detail snapshots are available before the account
+summary is published, so visiting a Space does not discover a new sorting priority.
+Running scenarios refresh progress evidence on reads while retaining their start
+time. Approvals validate through the shared interaction schema;
+responses change only disposable browser-memory scenario data. No runtime state
+is written and no command runs. Reload resets transient scenarios. These cases
+validate production UI, not real Agent execution or cross-tab synchronization.
+
+Synthetic conversations use stable IDs and backups; reruns
+replace only these known fixture messages, preserving manually added messages.
+
+Fixtures must only provide data to production UI and its normal interaction
+entry points. Never add seed-only status rows, buttons, dialogs, or response
+handlers to product components. Missing runtime scenarios must be supplied at
+the data/protocol boundary, not recreated with a parallel UI.
+
+Fictional members use deterministic DiceBear illustrations. This requires network
+access to `api.dicebear.com`; the standard avatar fallback remains available.
+
+## Prepare a login without sample data
+
+Run `pnpm dev:account` after the local Workers are ready. It prints the product
+login URL, a random `dev-…@example.com` email, and a simple eight-character password
+(`dev` followed by five digits). Enter these credentials on the normal login page.
+The command pre-verifies only the new fictional email in the isolated database;
+password validation and browser authentication remain unchanged.
+
+Repeat the command to retrieve the active account. Use `pnpm dev:account --new`
+to create another account without removing previous accounts or their data.
+Subsequent `pnpm dev:seed` runs populate the active account's organization.
+For machine-readable output, use `pnpm --silent dev:account --json`.
+
+Credentials are saved with owner-only permissions in the ignored lane-local
+`dev-accounts.json`, beside its `v3` state directory. They are disposable local
+test credentials, never production credentials. If the database was discarded,
+the command prepares a fresh account. Each worktree keeps independent accounts.
 
 The fixture adds 18 fictional members, 42 Agent identities (including two
 disabled identities), multiple owner groups and 30 computer records. Bindings
@@ -21,11 +90,12 @@ cover Codex, Claude Code, OpenCode, Cursor, and a custom Gemini controller;
 some Agents are unbound, have disabled historical bindings, or lack
 Organization authorization. Activity timestamps span minutes to weeks.
 
-It creates 24 real Spaces through the local Gateway/Core creation path and
+It creates 28 real Spaces through the local Gateway/Core creation path and
 sets six pins through the profile history API. Stable identity IDs and Space
 purpose markers make reruns additive without duplicating fixtures. Existing
 identity records are preserved; rerunning resets the fixture Spaces' pins.
-Space membership fixtures cover one, two, three, and five members, including
+Four long Space names exercise the full resize range. Space membership fixtures
+cover one, two, three, and five members, including
 people and Agents together. They use the Organization directory membership API,
 so previews and total counts come from Space truth rather than UI overrides.
 
@@ -36,13 +106,15 @@ Live connected, busy, and permission-prompt states require a local Service
 or a protocol-level simulator. Database and API checks do not replace browser
 or execution-path acceptance.
 
-The seed also creates four local Inbox unread records and writes
-`clients/web/scripts/sidebar-preview/runtime-states.local.json` with six visual
-Working / needs-input scenarios. The full local app consumes that manifest only
-in a development build on loopback, for its exact fixture Organization and viewer.
-It includes pinned and unpinned Working, unread, combined, and needs-input rows.
-Real runtime summaries take precedence. The visual manifest never writes runtime
-execution, transport liveness, or readiness records, and is disabled in production.
+Seven DMs mix people and Agents with short, long, multiline, recent, older,
+outgoing-only, and empty conversations. Their creation uses the DM API; synthetic preview
+signals are written only to those fixture DMs' local databases.
+
+The seed also creates four local Inbox unread records and writes the ignored
+`clients/web/scripts/sidebar-preview/runtime-states.generated.json` for visual
+fixtures. The product's Space sidebar does not consume synthetic Working or
+needs-input summaries: its indicators come from the same API progress data
+as the conversation. Use the standalone preview below for isolated row states.
 Rerunning the seed restores unread records so clicking them does not exhaust the
 test matrix permanently.
 

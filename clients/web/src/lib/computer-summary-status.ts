@@ -61,10 +61,10 @@ const CHECKING_STATUS = {
 } as const satisfies ComputerSummaryStatus;
 
 const SERVICE_NOT_CONNECTED_STATUS = {
-	label: "Computer not connected",
+	label: "Disconnected",
 	reason: "service_not_connected",
 	showLabel: true,
-	tone: "danger",
+	tone: "muted",
 } as const satisfies ComputerSummaryStatus;
 
 const AGENT_NEEDS_SETUP_STATUS = {
@@ -117,13 +117,6 @@ const ORGANIZATION_UPDATE_STATUS = {
 	reason: "openmeld_tools_update",
 	showLabel: true,
 	tone: "warning",
-} as const satisfies ComputerSummaryStatus;
-
-const ORGANIZATION_NOT_CONNECTED_STATUS = {
-	label: "Computer offline",
-	reason: "service_not_connected",
-	showLabel: true,
-	tone: "muted",
 } as const satisfies ComputerSummaryStatus;
 
 const STATUS_UNAVAILABLE = {
@@ -263,7 +256,7 @@ export function resolveOrganizationComputerSummaryStatus(
 		case "needs_attention":
 			return ORGANIZATION_UPDATE_STATUS;
 		case "not_connected":
-			return ORGANIZATION_NOT_CONNECTED_STATUS;
+			return SERVICE_NOT_CONNECTED_STATUS;
 		default:
 			return STATUS_UNAVAILABLE;
 	}

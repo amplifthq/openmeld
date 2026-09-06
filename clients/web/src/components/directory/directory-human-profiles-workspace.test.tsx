@@ -226,7 +226,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			name: "Not connected",
 		});
 		expect(
-			within(notConnectedGroup).getByText("Computer not connected")
+			within(notConnectedGroup).getByText("No computer connected")
 		).toBeTruthy();
 		expect(
 			within(notConnectedGroup).getByRole("button", {
@@ -267,12 +267,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				screen.getByRole("region", { name: "Status needs checking" })
 			).getByRole("button", { name: "Open Grace Hopper's profile" })
 		).toBeTruthy();
-		expect(
-			within(screen.getByRole("region", { name: "Connected" })).queryByRole(
-				"button",
-				{ name: "Open Felix's profile" }
-			)
-		).toBeNull();
+		expect(screen.queryByRole("region", { name: "Connected" })).toBeNull();
 	});
 
 	it("keeps checking members separate without hiding known connected members", () => {

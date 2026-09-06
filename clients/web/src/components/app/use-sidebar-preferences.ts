@@ -24,7 +24,7 @@ export function useSidebarPreferences(
 				schema: accountSidebarResponseSchema,
 				invalidMessage: "OpenMeld couldn't read your sidebar settings.",
 			}),
-		staleTime: 0,
+		staleTime: 30_000,
 		refetchOnWindowFocus: () =>
 			client.isMutating({ mutationKey: queryKey }) === 0,
 	});
@@ -71,6 +71,7 @@ export function useSidebarPreferences(
 	});
 	return {
 		preferences: query.data?.preferences,
+		isPending: query.isPending,
 		save: (preferences: AccountSidebarPreferences) => {
 			if (query.data && !mutation.isPending) {
 				mutation.mutate({ revision: query.data.revision, preferences });

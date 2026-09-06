@@ -57,7 +57,7 @@ export function SidebarSectionActions(input: {
 		!input.sortOptions && input.sort === "name" ? "recent" : input.sort;
 	const sorts: readonly (readonly [Sort, string])[] = input.sortOptions ?? [
 		["priority", "Priority"],
-		["recent", "Recently added"],
+		["recent", "Recent activity"],
 		["manual", "Manual order"],
 	];
 	return (
@@ -103,7 +103,7 @@ export function SidebarSectionActions(input: {
 								<DropdownMenuTrigger
 									render={
 										<SidebarGroupAction
-											aria-label={`${input.label} section settings`}
+											aria-label={`${input.label} group settings`}
 										/>
 									}
 								/>
@@ -111,7 +111,7 @@ export function SidebarSectionActions(input: {
 						>
 							<SlidersHorizontalIcon />
 						</TooltipTrigger>
-						<TooltipContent>Section settings</TooltipContent>
+						<TooltipContent>Group settings</TooltipContent>
 					</Tooltip>
 					<FluidDropdownMenuContent
 						align="end"

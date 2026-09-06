@@ -1,11 +1,17 @@
 "use client";
 
 import { Button } from "@openmeld/ui/components/button";
+import {
+	DropdownMenu,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
-import { useQuery } from "@tanstack/react-query";
+import { FunnelSimpleIcon } from "@phosphor-icons/react";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
 	type AppContextualNavGroup,
@@ -23,16 +29,21 @@ import type {
 } from "#/lib/spaces/account-spaces";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
+import { SidebarDestinationAction } from "../app/sidebar-destination-actions";
 import {
 	SidebarDrag as SidebarSpaceDrag,
 	SidebarDropSection as SidebarSpaceDropSection,
 } from "../app/sidebar-drag";
+import { moveSidebarGroup } from "../app/sidebar-drop-target";
+import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
+import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import {
 	type SpaceUnreadById,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
+import { spaceMessagePreviewQueryOptions } from "./direct-message-preview";
 import { moveSidebarSpace, sortSidebarSpaces } from "./sidebar-space-order";
 import { SortableSpaceSidebarItem } from "./sortable-space-sidebar-item";
 import type { SpaceSidebarActiveWakeSummary } from "./space-active-wake-presentation";
@@ -43,23 +54,6 @@ import {
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
 
-const SIDEBAR_TIME_FORMAT_OPTIONS = {
-	day: "numeric",
-	month: "short",
-} as const;
-const UTC_SIDEBAR_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
-	...SIDEBAR_TIME_FORMAT_OPTIONS,
-	timeZone: "UTC",
-});
-const BROWSER_SIDEBAR_TIME_ZONE =
-	typeof window === "undefined"
-		? "UTC"
-		: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-const BROWSER_SIDEBAR_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
-	...SIDEBAR_TIME_FORMAT_OPTIONS,
-	timeZone: BROWSER_SIDEBAR_TIME_ZONE,
-});
-
 const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
 	pinnedItems: [],
 	recentlyDeletedItems: [],
@@ -67,18 +61,6 @@ const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
 };
 
 const DELETED_SPACE_NOTICE_STORAGE_KEY = "openmeld:deleted-space-notices-shown";
-function subscribeToBrowserEnvironment() {
-	return () => undefined;
-}
-
-function getBrowserEnvironmentSnapshot(): true {
-	return true;
-}
-
-function getServerEnvironmentSnapshot(): false {
-	return false;
-}
-
 function readShownDeletedSpaceNotices(): Set<string> {
 	if (typeof window === "undefined") {
 		return new Set();
@@ -116,6 +98,7 @@ export function AppSpacesSidebar(input: {
 	currentSpaceId: string;
 }) {
 	const navigate = useNavigate();
+	const [search, setSearch] = useState("");
 	const { currentOrganization } = useAppOrganization();
 	const currentOrganizationId = currentOrganization.id;
 	const profileDirectory = useQuery(
@@ -133,14 +116,6 @@ export function AppSpacesSidebar(input: {
 		input.currentProfileId,
 		currentOrganizationId
 	);
-	const browserEnvironmentReady = useSyncExternalStore(
-		subscribeToBrowserEnvironment,
-		getBrowserEnvironmentSnapshot,
-		getServerEnvironmentSnapshot
-	);
-	const sidebarTimeFormatter = browserEnvironmentReady
-		? BROWSER_SIDEBAR_TIME_FORMATTER
-		: UTC_SIDEBAR_TIME_FORMATTER;
 	const spacesQuery = useQuery(
 		accountSpaceItemsQueryOptions({
 			enabled: input.currentProfileId.trim().length > 0,
@@ -149,14 +124,16 @@ export function AppSpacesSidebar(input: {
 		})
 	);
 	const sections = spacesQuery.data ?? EMPTY_ACCOUNT_SPACE_SECTIONS;
-	const { activeWakeSummaryBySpaceId, unreadBySpaceId } =
-		useSpaceListIndicators({
-			currentProfileId: input.currentProfileId,
-			currentSpaceId: input.currentSpaceId,
-			organizationId: currentOrganizationId,
-			sections,
-			browserEnvironmentReady,
-		});
+	const {
+		activeWakeSummaryBySpaceId,
+		unreadBySpaceId,
+		isPending: areIndicatorsPending,
+	} = useSpaceListIndicators({
+		currentProfileId: input.currentProfileId,
+		currentSpaceId: input.currentSpaceId,
+		organizationId: currentOrganizationId,
+		sections,
+	});
 	const pinMutation = useAccountSpacePinMutation({
 		currentProfileId: input.currentProfileId,
 	});
@@ -200,10 +177,9 @@ export function AppSpacesSidebar(input: {
 				currentSpaceId={input.currentSpaceId}
 				dragDisabled={sidebar.disabled || pinMutation.arePinActionsPending}
 				isError={listInput.isError ?? false}
-				isPending={listInput.isPending ?? false}
+				isPending={areIndicatorsPending || (listInput.isPending ?? false)}
 				isPinPending={() => pinMutation.arePinActionsPending}
 				items={listInput.items}
-				lastJoinedAtFormatter={sidebarTimeFormatter}
 				memberAppearances={memberAppearances}
 				navigationLabel={listInput.navigationLabel}
 				onOpenSpace={openSpace}
@@ -220,6 +196,34 @@ export function AppSpacesSidebar(input: {
 		</SidebarSpaceDropSection>
 	);
 	const preferences = sidebar.preferences;
+	const conversationItems = [
+		...sidebarSections.pinnedItems,
+		...sidebarSections.spaceItems,
+	];
+	const latestMessages = useQueries({
+		queries: conversationItems.map((item) =>
+			spaceMessagePreviewQueryOptions({
+				spaceId: item.spaceId,
+				viewerProfileId: item.openProfileId,
+				enabled: true,
+			})
+		),
+	});
+	const conversationActivity = new Map(
+		conversationItems.map((item, index) => [
+			item.spaceId,
+			latestMessages[index]?.data?.timestamp ??
+				(Date.parse(item.spaceCreatedAt ?? "") || 0),
+		])
+	);
+	const groupFilter = useSidebarGroupFilter([
+		{ id: "pinned", label: "Pinned" },
+		...(preferences?.groups ?? []).map((group) => ({
+			id: group.id,
+			label: group.name,
+		})),
+		{ id: "spaces", label: "Spaces" },
+	]);
 	const visibleBySection = new Map<string, readonly AccountSpaceItem[]>();
 	const actions = (id: string, label: string) => (
 		<SidebarSectionActions
@@ -248,7 +252,7 @@ export function AppSpacesSidebar(input: {
 										{
 											id: crypto.randomUUID(),
 											name,
-											sort: "manual",
+											sort: "priority",
 											spaceIds: [],
 										},
 									],
@@ -311,16 +315,20 @@ export function AppSpacesSidebar(input: {
 		section: Parameters<typeof sortSidebarSpaces>[1]
 	) =>
 		sortSidebarSpaces(
-			items,
+			items.filter(
+				(item) =>
+					!search.trim() ||
+					(item.spaceName ?? "")
+						.toLocaleLowerCase()
+						.includes(search.trim().toLocaleLowerCase())
+			),
 			section ?? { sort: "priority", spaceIds: [] },
 			attention,
 			unreadActivity,
-			working
+			working,
+			conversationActivity
 		);
-	if (
-		sidebarSections.pinnedItems.length + sidebarSections.spaceItems.length >
-		0
-	) {
+	if (sidebarSections.pinnedItems.length > 0) {
 		const items = sortSection(sidebarSections.pinnedItems, preferences?.pinned);
 		visibleBySection.set("pinned", items);
 		sidebarGroups.push({
@@ -407,8 +415,36 @@ export function AppSpacesSidebar(input: {
 		writeShownDeletedSpaceNotices(new Set(items.map((item) => item.spaceId)));
 	}, [sections.recentlyDeletedItems]);
 
+	if (sidebar.isPending || latestMessages.some((query) => query.isPending)) {
+		return <Skeleton className="mx-2 h-32" />;
+	}
+	if (
+		(!preferences && sidebar.isError) ||
+		latestMessages.some((query) => query.isError && query.data === undefined)
+	) {
+		return (
+			<Button
+				onClick={() =>
+					Promise.all([
+						sidebar.retry(),
+						...latestMessages
+							.filter((query) => query.isError)
+							.map((query) => query.refetch()),
+					])
+				}
+				variant="ghost"
+			>
+				Retry loading sidebar
+			</Button>
+		);
+	}
 	return (
 		<SidebarSpaceDrag
+			groupIds={
+				sidebar.disabled || !preferences
+					? []
+					: preferences.groups.map((group) => group.id)
+			}
 			onMove={async (section, spaceId, beforeId) => {
 				if (preferences && !sidebar.disabled) {
 					const item = [
@@ -431,17 +467,76 @@ export function AppSpacesSidebar(input: {
 					);
 				}
 			}}
+			onMoveGroup={(id, before) => {
+				if (!preferences || sidebar.disabled) {
+					return;
+				}
+				sidebar.save({
+					...preferences,
+					groups: moveSidebarGroup(preferences.groups, id, before),
+				});
+			}}
 		>
 			<AppContextualSidebarNav
 				activeItemId={null}
 				ariaLabel="Spaces"
-				groups={sidebarGroups}
+				groups={sidebarGroups.filter(
+					(group) =>
+						groupFilter.includes(group.id) &&
+						(!(search.trim() || groupFilter.selected.length > 0) ||
+							spacesQuery.isPending ||
+							spacesQuery.isError ||
+							(visibleBySection.get(group.id)?.length ?? 0) > 0)
+				)}
 				leadingContent={
-					sidebar.isError ? (
-						<Button onClick={() => sidebar.retry()} size="sm" variant="ghost">
-							Retry sidebar settings
-						</Button>
-					) : undefined
+					<>
+						<div className="flex items-center gap-1 px-1">
+							<SidebarSearchInput
+								destination="spaces"
+								label="Search Spaces"
+								onValueChange={setSearch}
+								value={search}
+							/>
+							<SidebarDestinationAction destination="spaces">
+								<DropdownMenu>
+									<DropdownMenuTrigger
+										render={
+											<Button
+												aria-label="Filter Spaces"
+												className="size-6 [&_svg]:size-3.5"
+												size="icon-sm"
+												variant="ghost"
+											/>
+										}
+									>
+										<FunnelSimpleIcon />
+									</DropdownMenuTrigger>
+									<FluidDropdownMenuContent
+										align="end"
+										className="w-60 max-w-[calc(100vw-2rem)]"
+									>
+										{groupFilter.menu}
+									</FluidDropdownMenuContent>
+								</DropdownMenu>
+							</SidebarDestinationAction>
+						</div>
+						{groupFilter.badges}
+						{(search.trim() || groupFilter.selected.length > 0) &&
+							!spacesQuery.isPending &&
+							!spacesQuery.isError &&
+							![...visibleBySection].some(
+								([id, items]) => groupFilter.includes(id) && items.length > 0
+							) && (
+								<p className="px-2 py-2 text-muted-foreground text-xs">
+									No Spaces match your search or filters.
+								</p>
+							)}
+						{sidebar.isError ? (
+							<Button onClick={() => sidebar.retry()} size="sm" variant="ghost">
+								Retry sidebar settings
+							</Button>
+						) : null}
+					</>
 				}
 				placement="main"
 				title="Spaces"
@@ -463,7 +558,6 @@ function SidebarSpacesList(input: {
 	isPending: boolean;
 	isPinPending: (item: AccountSpaceItem) => boolean;
 	items: readonly AccountSpaceItem[];
-	lastJoinedAtFormatter: Intl.DateTimeFormat;
 	navigationLabel: string;
 	onOpenSpace: (routePath: string) => void;
 	onRetry: () => void;
@@ -530,7 +624,6 @@ function SidebarSpacesList(input: {
 						isPinPending={input.isPinPending(item)}
 						item={item}
 						key={item.spaceId}
-						lastJoinedAtFormatter={input.lastJoinedAtFormatter}
 						memberAppearances={input.memberAppearances}
 						onOpenSpace={input.onOpenSpace}
 						onTogglePinned={input.onTogglePinned}

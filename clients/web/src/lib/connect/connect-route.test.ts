@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildConnectComputerPath,
+	buildConnectRouteSearch,
+	normalizeConnectRouteSearch,
 	parseAgentProfileIdList,
 	resolveConnectBackTarget,
 	resolveConnectCompletionTarget,
+	resolveConnectRouteIntent,
 } from "./connect-route";
 
 describe("buildConnectComputerPath", () => {
@@ -78,6 +81,28 @@ describe("parseAgentProfileIdList", () => {
 });
 
 describe("connect route targets", () => {
+	it("keeps Agent creation as the destination across setup session consumption", () => {
+		const path = buildConnectComputerPath({
+			orgSlug: "acme",
+			returnTo: "agent_creation",
+			session: "fresh",
+		});
+		const search = normalizeConnectRouteSearch(
+			Object.fromEntries(new URL(path, "http://localhost").searchParams)
+		);
+		const intent = resolveConnectRouteIntent(search);
+		const resumed = resolveConnectRouteIntent(
+			buildConnectRouteSearch({ ...intent, resetThisComputer: false })
+		);
+		expect(resolveConnectBackTarget(resumed, "acme")).toBe(
+			"/o/acme/agents/new"
+		);
+		expect(resolveConnectCompletionTarget(resumed, "acme")).toBe(
+			"/o/acme/agents/new"
+		);
+		expect(resumed.resetThisComputer).toBe(false);
+	});
+
 	it("returns account computer setup to the selected Human Profile", () => {
 		const intent = {
 			kind: "account_computer_setup",

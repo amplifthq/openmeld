@@ -682,7 +682,7 @@ function resolveLocalAgentConnectionStatus(
 		return { label: "Checking", tone: "muted" };
 	}
 	if (dependency === "not_connected") {
-		return { label: "Computer not connected", tone: "muted" };
+		return { label: "Disconnected", tone: "muted" };
 	}
 	if (dependency === "update_required") {
 		return { label: "Waiting for computer update", tone: "muted" };
