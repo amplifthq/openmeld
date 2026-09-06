@@ -1617,7 +1617,15 @@ surface adopts official features where they are free**:
     FUSE-mounting this same workspace at `/computer` with `MOUNT_POINT`
     pinned for same-path fidelity; full Linux userland with python3, git,
     curl, jq; changes sync back over capnweb). The model selects the backend
-    per bash call and is prompted to prefer worker-shell. The per-Space
+    per bash call and is prompted to prefer worker-shell. Computer SDK and
+    computerd use version 0.2.1 together. Container network access is explicitly
+    direct; worker-shell remains network-disabled. A replaced runtime reports
+    `EEXEC_LOST` for an old command instead of replaying its launch. The model
+    receives that loss and may inspect durable files and choose a safe next
+    action. Terminal cleanup skips only commands whose definite loss was
+    already reported; unknown transport failures retain normal cleanup and
+    failure handling. This preserves conversation recovery, not native process
+    continuity or automatic replay of external side effects. The per-Space
     `@cloudflare/sandbox` container is fully retired: dependency removed and
     the `Sandbox` Durable Object class deleted (migration
     `v6_retire_sandbox`). Local AGENTS, CLAUDE, and workspace Skill discovery is

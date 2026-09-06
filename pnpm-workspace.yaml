@@ -60,5 +60,5 @@ packageExtensions:
       es-toolkit: 1.46.0
 
 patchedDependencies:
-  '@cloudflare/computer@0.1.1': patches/@cloudflare__computer@0.1.1.patch
+  '@cloudflare/computer@0.2.1': patches/@cloudflare__computer@0.2.1.patch
   '@flue/runtime@2.0.3': patches/@flue__runtime@2.0.3.patch

@@ -6,6 +6,9 @@ export async function verifyRetainedCommandPolling(
 ) {
   let subscribed = false;
   let completed = false;
+  let pauseSync = false;
+  const pullStarted = Promise.withResolvers<void>();
+  const finishPull = Promise.withResolvers<void>();
   const attach = (id: string) => {
     if (subscribed) {
       throw new Error("EEXEC_BUSY");
@@ -42,7 +45,7 @@ export async function verifyRetainedCommandPolling(
               name: "stderr",
               value: new Uint8Array([0xe2]),
             });
-            controller.enqueue({ id, seq: 5, name: "exit", value: 0 });
+            controller.enqueue({ id, seq: 5, name: "exit", code: 0 });
             subscribed = false;
             controller.close();
           }
@@ -62,7 +65,9 @@ export async function verifyRetainedCommandPolling(
         type: "test-retained-container",
         connect: () =>
           Promise.resolve({
-            sync: "none" as const,
+            get sync(): "remote" | "none" {
+              return pauseSync ? "remote" : "none";
+            },
             rpc: {
               shell: {
                 exec: (input: { id?: string }) => {
@@ -80,7 +85,21 @@ export async function verifyRetainedCommandPolling(
                 disposeExec: () =>
                   Promise.reject(new Error("Polling must retain execution")),
               },
-              sync: {} as never,
+              sync: {
+                async fetchChanges() {
+                  pullStarted.resolve();
+                  await finishPull.promise;
+                  return {
+                    currentCursor: { rev: 0, path: null },
+                    appliedPushCursor: { rev: 0, path: null },
+                    stream: new ReadableStream({
+                      start(controller) {
+                        controller.close();
+                      },
+                    }),
+                  };
+                },
+              } as never,
             },
             close: () => Promise.resolve(),
           }),
@@ -116,15 +135,9 @@ export async function verifyRetainedCommandPolling(
     const finalReceipt = await readCommandSlice(finished, "long", 0, 50);
     // The native stream can close before asynchronous file synchronization.
     // Cancellation in that interval must not cancel an already released reader.
-    const pullStarted = Promise.withResolvers<void>();
-    const finishPull = Promise.withResolvers<void>();
-    const originalPull = owner.pull.bind(owner);
-    owner.pull = async (backend) => {
-      const result = await originalPull(backend);
-      pullStarted.resolve();
-      await finishPull.promise;
-      return result;
-    };
+    // Delay the vendor's actual SyncRPC boundary, not an owner method that
+    // the new SDK no longer calls for post-command synchronization.
+    pauseSync = true;
     const syncing = await workspace.runtime.getExec(started.id, {
       backend: "container",
       encoding: "utf8",

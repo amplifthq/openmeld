@@ -124,6 +124,33 @@ describe("retained Computer commands", () => {
     ).rejects.toThrow();
     expect(f.killExec.mock.calls.map(([id]) => id)).toEqual(ids);
   });
+  it("keeps reported lost commands from failing recovered work during cleanup", async () => {
+    const f = fixture();
+    const started = await f
+      .tool()
+      .execute({ action: "start", key: "lost", command: "sleep 300" });
+    // The installed SDK reports a runtime identity mismatch with this code.
+    const lost = Object.assign(new Error("Computer runtime replaced"), {
+      name: "WorkspaceExecutionLostError",
+      code: "EEXEC_LOST",
+    });
+    f.getExec.mockRejectedValue(lost);
+    await expect(
+      f.tool().execute({ action: "poll", key: "lost" })
+    ).rejects.toMatchObject({ code: "EEXEC_LOST" });
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    await expect(
+      stopRemoteAgentComputerCommands({
+        context: context("execution-a"),
+        storage: f.storage,
+        env: { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } },
+      })
+    ).resolves.toBe(0);
+    expect(f.killExec).not.toHaveBeenCalled();
+    expect(f.exec).toHaveBeenCalledTimes(1);
+    expect(started).toMatchObject({ key: "lost", status: "running" });
+  });
+
   it("reports a native live subscriber as running and later reads the retained exit", async () => {
     const f = fixture();
     const started = (await f
@@ -150,7 +177,7 @@ describe("retained Computer commands", () => {
     f.getExec.mockResolvedValueOnce(
       handle(
         started.id,
-        [{ id: started.id, seq: 2, name: "exit", value: 0 }],
+        [{ id: started.id, seq: 2, name: "exit", code: 0 }],
         true
       )
     );
@@ -306,7 +333,7 @@ describe("retained Computer commands", () => {
       "run",
       [
         { id: "run", seq: 2, name: "stdout", value: "DONE\n" },
-        { id: "run", seq: 3, name: "exit", value: 0 },
+        { id: "run", seq: 3, name: "exit", code: 0 },
       ],
       true
     );

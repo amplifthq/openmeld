@@ -3,7 +3,7 @@
 # (python, git, real binaries) sees the same durable file world as the
 # worker-shell isolate — one file world, two engines. Image pattern
 # follows cloudflare/computer examples/container.
-FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.1.1 AS computerd
+FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.2.1 AS computerd
 
 FROM debian:stable-slim
 

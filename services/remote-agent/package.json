@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "@cloudflare/codemode": "0.5.1",
-    "@cloudflare/computer": "0.1.1",
+    "@cloudflare/computer": "0.2.1",
     "@earendil-works/pi-ai": "0.83.0",
     "@flue/runtime": "2.0.3",
     "@modelcontextprotocol/sdk": "^1.29.0",

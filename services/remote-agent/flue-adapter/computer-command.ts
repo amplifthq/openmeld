@@ -72,6 +72,7 @@ type Command = {
   fingerprint: string;
   createdAt: number;
   stopRequested?: boolean;
+  lossReported?: boolean;
 };
 type CommandResult = {
   id: string;
@@ -266,6 +267,19 @@ export function createComputerCommandTool(input: {
         });
         return result;
       } catch (error) {
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "EEXEC_LOST" &&
+          typeof rawInput.key === "string"
+        ) {
+          const command = await read(rawInput.key);
+          await input.storage.putExpiring(
+            `${prefix}${encodeURIComponent(command.key)}`,
+            { ...command, lossReported: true },
+            Date.now() + 7 * 24 * 60 * 60 * 1000
+          );
+        }
         console.warn("[remote_agent.computer_command_failed]", {
           submissionId: input.context.submissionId,
           action: rawInput.action,
@@ -392,7 +406,7 @@ export async function readCommandSlice(
           -MAX_OUTPUT_CHARS
         );
       } else if (next.value.name === "exit") {
-        result.exitCode = next.value.value;
+        result.exitCode = next.value.code;
         // Drain through close so the SDK completes its post-command file sync.
       }
     }
@@ -429,6 +443,12 @@ export async function stopRemoteAgentComputerCommands(input: {
   let unfinished = 0;
   const failures: unknown[] = [];
   for (const command of commands.values()) {
+    // The SDK proved this process belonged to a replaced Computer, and its
+    // failure was returned to the model. Do not override later recovery with
+    // another attempt to signal that now-absent process.
+    if (command.lossReported) {
+      continue;
+    }
     try {
       await input.storage.putExpiring(
         `${commandPrefix(input.context.submissionId)}${encodeURIComponent(command.key)}`,
