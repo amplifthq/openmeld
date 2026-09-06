@@ -290,6 +290,42 @@ describe("AppSpacesSidebar", () => {
 		focusManager.setFocused(undefined);
 	});
 
+	it("shows the indexed message time without subscribing to per-Space previews", async () => {
+		const timestamp = Date.parse("2026-09-06T17:00:00.000Z");
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				{
+					...createAccountSpaceItem({
+						spaceId: "space-alpha",
+						spaceName: "Alpha",
+					}),
+					messagePreview: {
+						signalId: "message-alpha",
+						profileId: "human-1",
+						timestamp,
+						text: "Ready for review.",
+					},
+				},
+			],
+		});
+		const queryClient = createSidebarQueryClient();
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />,
+			queryClient
+		);
+		const row = await screen.findByRole("link", { name: "Alpha" });
+		expect(row.querySelector("time")?.getAttribute("datetime")).toBe(
+			new Date(timestamp).toISOString()
+		);
+		expect(
+			queryClient
+				.getQueryCache()
+				.getAll()
+				.filter((query) => query.queryKey.includes("incoming-preview"))
+		).toHaveLength(0);
+	});
+
 	it("moves unpinned Spaces with unread messages first and shows a static accessible indicator", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
