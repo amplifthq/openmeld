@@ -108,6 +108,7 @@ export function HumanProfileSidebarItem(input: {
 			value={input.member.id}
 		>
 			<SidebarMenuButton
+				actionLayout="heading"
 				isActive={input.isActive}
 				{...input.drag?.rowProps}
 				aria-current={input.isActive ? "page" : undefined}
@@ -128,6 +129,7 @@ export function HumanProfileSidebarItem(input: {
 				<span className="flex min-w-0 flex-1 flex-col overflow-hidden">
 					<span
 						className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden whitespace-nowrap"
+						data-sidebar="menu-heading"
 						data-slot="human-profile-sidebar-heading"
 					>
 						<span className="min-w-0 truncate font-medium text-[13px]">

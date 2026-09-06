@@ -7,6 +7,7 @@ import {
   projectActiveSpaceIndexSnapshot,
   projectDeletedSpaceIndexSnapshot,
 } from "./space-index-projection-service";
+import { projectSpaceMessagePreview } from "./space-message-preview";
 
 const SPACE_INDEX_PROJECTION_RETRY_DELAYS_MS = [
   2000, 5000, 15_000, 60_000,
@@ -76,6 +77,15 @@ async function projectSpaceIndexProjectionSnapshot(input: {
   record: SpaceIndexProjectionOutboxRecord;
 }): Promise<{ projectionEventId: string }> {
   const snapshot = input.record.snapshot;
+  if (snapshot.kind === "message_preview") {
+    await projectSpaceMessagePreview({
+      db: input.db,
+      spaceId: input.record.spaceId,
+      revision: snapshot.revision,
+      preview: snapshot.preview,
+    });
+    return { projectionEventId: input.record.projectionId };
+  }
   if (snapshot.kind === "active") {
     const result = await projectActiveSpaceIndexSnapshot({
       db: input.db,
@@ -96,6 +106,12 @@ async function projectSpaceIndexProjectionSnapshot(input: {
     memberRecords: snapshot.memberRecords,
     metaRecord: snapshot.metaRecord,
   });
+  await input.db
+    .prepare(
+      "UPDATE space_index_spaces SET message_preview_json = NULL WHERE space_id = ? AND status = 'deleted'"
+    )
+    .bind(input.record.spaceId)
+    .run();
   return { projectionEventId: result.projectionEventId };
 }
 

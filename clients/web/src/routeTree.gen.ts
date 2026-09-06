@@ -71,6 +71,7 @@ import { Route as V1AccountDisplayNameRouteImport } from './routes/v1/account/di
 import { Route as V1AccountLastSelectedOrganizationRouteImport } from './routes/v1/account/last-selected-organization'
 import { Route as V1AccountSidebarRouteImport } from './routes/v1/account/sidebar'
 import { Route as V1ObservabilityApplicationErrorsRouteImport } from './routes/v1/observability/application-errors'
+import { Route as V1ObservabilityPerformanceRouteImport } from './routes/v1/observability/performance'
 import { Route as V1ProfilesProfileIdRouteImport } from './routes/v1/profiles/$profileId'
 import { Route as OOrgSlugCenterAgentIndexRouteImport } from './routes/o/$orgSlug/_center-agent/index'
 import { Route as OOrgSlugCenterAgentCenterAgentRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent'
@@ -438,6 +439,12 @@ const V1ObservabilityApplicationErrorsRoute =
     path: '/v1/observability/application-errors',
     getParentRoute: () => rootRouteImport,
   } as any)
+const V1ObservabilityPerformanceRoute =
+  V1ObservabilityPerformanceRouteImport.update({
+    id: '/v1/observability/performance',
+    path: '/v1/observability/performance',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const V1ProfilesProfileIdRoute = V1ProfilesProfileIdRouteImport.update({
   id: '/v1/profiles/$profileId',
   path: '/v1/profiles/$profileId',
@@ -801,6 +808,7 @@ export interface FileRoutesByFullPath {
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
   '/v1/account/sidebar': typeof V1AccountSidebarRoute
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
+  '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
@@ -911,6 +919,7 @@ export interface FileRoutesByTo {
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
   '/v1/account/sidebar': typeof V1AccountSidebarRoute
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
+  '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
@@ -1025,6 +1034,7 @@ export interface FileRoutesById {
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
   '/v1/account/sidebar': typeof V1AccountSidebarRoute
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
+  '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
   '/o/$orgSlug/_center-agent/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
@@ -1143,6 +1153,7 @@ export interface FileRouteTypes {
     | '/v1/account/last-selected-organization'
     | '/v1/account/sidebar'
     | '/v1/observability/application-errors'
+    | '/v1/observability/performance'
     | '/v1/profiles/$profileId'
     | '/o/$orgSlug/center-agent'
     | '/o/$orgSlug/agent-activity/changes'
@@ -1253,6 +1264,7 @@ export interface FileRouteTypes {
     | '/v1/account/last-selected-organization'
     | '/v1/account/sidebar'
     | '/v1/observability/application-errors'
+    | '/v1/observability/performance'
     | '/v1/profiles/$profileId'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
@@ -1366,6 +1378,7 @@ export interface FileRouteTypes {
     | '/v1/account/last-selected-organization'
     | '/v1/account/sidebar'
     | '/v1/observability/application-errors'
+    | '/v1/observability/performance'
     | '/v1/profiles/$profileId'
     | '/o/$orgSlug/_center-agent/center-agent'
     | '/o/$orgSlug/agent-activity/changes'
@@ -1464,6 +1477,7 @@ export interface RootRouteChildren {
   V1AccountLastSelectedOrganizationRoute: typeof V1AccountLastSelectedOrganizationRoute
   V1AccountSidebarRoute: typeof V1AccountSidebarRoute
   V1ObservabilityApplicationErrorsRoute: typeof V1ObservabilityApplicationErrorsRoute
+  V1ObservabilityPerformanceRoute: typeof V1ObservabilityPerformanceRoute
   V1ProfilesProfileIdRoute: typeof V1ProfilesProfileIdRoute
   V1SpacesSpaceIdStreamRoute: typeof V1SpacesSpaceIdStreamRoute
   V1PrepareSessionsPrepareSessionIdStreamRoute: typeof V1PrepareSessionsPrepareSessionIdStreamRoute
@@ -1903,6 +1917,13 @@ declare module '@tanstack/react-router' {
       path: '/v1/observability/application-errors'
       fullPath: '/v1/observability/application-errors'
       preLoaderRoute: typeof V1ObservabilityApplicationErrorsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/observability/performance': {
+      id: '/v1/observability/performance'
+      path: '/v1/observability/performance'
+      fullPath: '/v1/observability/performance'
+      preLoaderRoute: typeof V1ObservabilityPerformanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/v1/profiles/$profileId': {
@@ -2675,6 +2696,7 @@ const rootRouteChildren: RootRouteChildren = {
     V1AccountLastSelectedOrganizationRoute,
   V1AccountSidebarRoute: V1AccountSidebarRoute,
   V1ObservabilityApplicationErrorsRoute: V1ObservabilityApplicationErrorsRoute,
+  V1ObservabilityPerformanceRoute: V1ObservabilityPerformanceRoute,
   V1ProfilesProfileIdRoute: V1ProfilesProfileIdRoute,
   V1SpacesSpaceIdStreamRoute: V1SpacesSpaceIdStreamRoute,
   V1PrepareSessionsPrepareSessionIdStreamRoute:

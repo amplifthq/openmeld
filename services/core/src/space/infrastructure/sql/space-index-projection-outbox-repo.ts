@@ -1,3 +1,4 @@
+import type { SpaceMessagePreview } from "../../../space-index/space-message-preview";
 import type { SpaceMemberRecord } from "./space-member-repo";
 import type { SpaceMetaRecord } from "./space-meta-repo";
 
@@ -18,6 +19,12 @@ export type SpaceIndexActiveProjectionEventType =
   | "space.members_updated";
 
 export type SpaceIndexProjectionOutboxSnapshot =
+  | {
+      kind: "message_preview";
+      eventType: "space.message_preview_updated";
+      revision: number;
+      preview: SpaceMessagePreview;
+    }
   | {
       kind: "active";
       eventType: SpaceIndexActiveProjectionEventType;
@@ -321,7 +328,7 @@ export const readSpaceIndexProjectionOutboxRecord = (
   return row ? toSpaceIndexProjectionOutboxRecord(row) : null;
 };
 
-function createSpaceIndexProjectionOutboxRecord(input: {
+export function createSpaceIndexProjectionOutboxRecord(input: {
   eventType: SpaceIndexProjectionOutboxSnapshot["eventType"];
   nowMs: number;
   projectionId?: string;
@@ -371,7 +378,11 @@ function parseProjectionSnapshot(
   value: string
 ): SpaceIndexProjectionOutboxSnapshot {
   const parsed = JSON.parse(value) as SpaceIndexProjectionOutboxSnapshot;
-  if (parsed.kind === "active" || parsed.kind === "deleted") {
+  if (
+    parsed.kind === "active" ||
+    parsed.kind === "deleted" ||
+    parsed.kind === "message_preview"
+  ) {
     return parsed;
   }
   throw new Error("space index projection outbox snapshot is invalid");

@@ -1,5 +1,35 @@
 # Data And Observability
 
+## Space message previews and slow Web experiences
+
+Space owns message preview truth. Message publication and retention capture a
+bounded text preview and a monotonically increasing Space-local revision into
+the existing durable Space index outbox. Core projects this into
+`space_index_spaces`; delayed retries cannot overwrite a newer revision.
+AccountSpaces attaches previews only to its already-authorized result set, in
+bounded D1 batches, when `includeMessagePreviews=true`. Older strict clients
+receive the unchanged shape. A null preview means no retained text message;
+an omitted preview has not been projected. Existing Spaces are repaired ten at
+a time after the minute scheduler's delivery work, with delayed retries.
+
+Web reports threshold-crossing experiences to its same-origin
+`/v1/observability/performance` receiver. Search Worker logs for
+`web.openmeld.slow_experience`. Reports contain build identity, an ephemeral
+page-session ID, route templates, navigation lifecycle duration, request-category
+counts/durations and long-task summaries. They exclude message text, profile
+identity, concrete URLs, query strings, and resource names. They do not prove
+that independently fetched conversation content has finished rendering.
+
+Tune `clients/web/src/lib/observability/performance-policy.ts`: navigation
+defaults to 1500 ms, interactions to 250 ms, and reporting to twenty events per
+page session per hour. A pending navigation produces an observation after at
+least five seconds. Hidden-page navigation is excluded. Policy changes ship
+with Web; existing clients refresh policy on navigation after five minutes.
+The receiver validates payload size/shape and applies the current threshold
+and a best-effort per-isolate volume cap. These diagnostics are sampled failure
+evidence, not a complete traffic or latency distribution. Worker log retention
+governs how far back an investigation can look.
+
 ## Agent Context
 
 - Purpose: Define durable data ownership, projections, correlation keys, trace
