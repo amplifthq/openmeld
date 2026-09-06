@@ -7,6 +7,8 @@ import { ROUTE_REVISIT_GC_TIME_MS } from "#/query/query-config";
 import { shouldRetrySpaceQuery } from "./retry";
 import { SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS } from "./status";
 
+const SPACE_ENTRY_RESOLUTION_TIMEOUT_MS = 10_000;
+
 export const spaceEntryResolutionQueryKey = (input: {
 	openMeldProfileId?: string | null;
 	signalId?: string | null;
@@ -28,6 +30,7 @@ export async function readSpaceEntryResolution(input: {
 	signalId?: string;
 	spaceId: string;
 	threadRootSignalId?: string;
+	timeoutMs?: number;
 }): Promise<GetSpaceEntryResolutionResponse> {
 	try {
 		return await createUnscopedWebSpaceApi({
@@ -36,6 +39,7 @@ export async function readSpaceEntryResolution(input: {
 				: { openMeldProfileId: input.openMeldProfileId }),
 		}).resolveEntry({
 			spaceId: input.spaceId,
+			timeoutMs: input.timeoutMs ?? SPACE_ENTRY_RESOLUTION_TIMEOUT_MS,
 			...(input.signalId === undefined ? {} : { signalId: input.signalId }),
 			...(input.threadRootSignalId === undefined
 				? {}
@@ -69,6 +73,7 @@ export function spaceEntryResolutionQueryOptions(input: {
 				...(input.threadRootSignalId === undefined
 					? {}
 					: { threadRootSignalId: input.threadRootSignalId }),
+				timeoutMs: SPACE_ENTRY_RESOLUTION_TIMEOUT_MS,
 				signal,
 			}),
 		enabled: input.enabled,

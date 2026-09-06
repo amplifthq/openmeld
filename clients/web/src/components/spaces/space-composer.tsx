@@ -44,6 +44,7 @@ export type SpaceComposerProps = {
 		onFocus?: () => void;
 	};
 	availability: {
+		canUploadFiles?: boolean;
 		canSendMessage: boolean;
 		fileLimitReached: boolean;
 		isSendingMessage: boolean;
@@ -104,7 +105,8 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		isSpaceComposerFileInProgress
 	);
 	const uploadsDisabled =
-		input.availability.isSendingMessage || !input.availability.canSendMessage;
+		input.availability.isSendingMessage ||
+		!(input.availability.canUploadFiles ?? input.availability.canSendMessage);
 	const {
 		addFiles,
 		handleDragLeave,
@@ -204,7 +206,9 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									addFiles={addFiles}
 									disabled={uploadsDisabled}
 									disabledReason={
-										accessHint ?? "Wait for this message to finish sending."
+										input.availability.isSendingMessage
+											? "Wait for this message to finish sending."
+											: (accessHint ?? "Files aren't available yet.")
 									}
 									limitReached={input.availability.fileLimitReached}
 								/>
