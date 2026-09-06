@@ -387,44 +387,6 @@ function resolveSpaceSetupGuidanceSlots(input: {
 	};
 }
 
-function hasCurrentUserAuthoredSpaceMessage(input: {
-	items: readonly SpaceTimelineItem[];
-	selfProfileId: string;
-}): boolean {
-	return input.items.some(
-		(item) =>
-			item.actorProfileId === input.selfProfileId &&
-			item.actorProfileKind === "human" &&
-			item.signalType === "signal.text"
-	);
-}
-
-function hasSpaceComposerDraft(input: {
-	files: readonly SpaceComposerFile[];
-	replyToSignalId: string | null;
-	text: string;
-}): boolean {
-	return (
-		input.text.trim().length > 0 ||
-		input.files.length > 0 ||
-		input.replyToSignalId !== null
-	);
-}
-
-function shouldShowCenterAgentStarterActions(input: {
-	canSendMessage: boolean;
-	hasComposerDraft: boolean;
-	hasCurrentUserAuthoredMessage: boolean;
-	isCenterAgentDirectMessage: boolean;
-}): boolean {
-	return (
-		input.isCenterAgentDirectMessage &&
-		input.canSendMessage &&
-		!input.hasComposerDraft &&
-		!input.hasCurrentUserAuthoredMessage
-	);
-}
-
 function resolveWritableSpaceAction<T>(
 	isReadOnly: boolean,
 	action: T | undefined
@@ -940,25 +902,12 @@ function useSpaceConversationPresentationController(
 	);
 	const mainTimelineItems =
 		messageStateTuningPreviewItems ?? activeConversationItems;
-	const hasCurrentUserAuthoredMessage = hasCurrentUserAuthoredSpaceMessage({
-		items: input.timelineItems,
-		selfProfileId: input.selfProfileId,
-	});
-	const hasComposerDraft = hasSpaceComposerDraft({
-		files: input.composerFiles,
-		replyToSignalId: input.composerReplyToSignalId,
-		text: input.composerText,
-	});
 	const messageStateTuningVisibility = resolveSpaceMessageStateTuningVisibility(
 		{
 			isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
 			previewItems: messageStateTuningPreviewItems,
-			showCenterAgentStarterActions: shouldShowCenterAgentStarterActions({
-				canSendMessage,
-				hasComposerDraft,
-				hasCurrentUserAuthoredMessage,
-				isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
-			}),
+			showCenterAgentStarterActions:
+				input.isCenterAgentDirectMessage && canSendMessage,
 		}
 	);
 	const wakeOutcomeIndex = useMemo(
@@ -2422,14 +2371,18 @@ function CenterAgentDirectMessageIntro(input: {
 				target={{ kind: "computer_setup", mode: "setup" }}
 			/>
 		);
-	} else if (input.showStarterActions) {
+	}
+	if (input.showStarterActions) {
 		starterContent = (
-			<CenterAgentStarterActions
-				disabled={input.disabled}
-				onConnectComputer={input.onStartComputerSetup}
-				onSelect={input.onSelectStarterAction}
-				showAgentLogos={!input.isPersonalContext}
-			/>
+			<>
+				<CenterAgentStarterActions
+					disabled={input.disabled}
+					onConnectComputer={input.onStartComputerSetup}
+					onSelect={input.onSelectStarterAction}
+					showAgentLogos={!input.isPersonalContext}
+				/>
+				{starterContent && <div className="mt-4">{starterContent}</div>}
+			</>
 		);
 	}
 

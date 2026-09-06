@@ -181,7 +181,7 @@ export function AppOuterRail({
 							viewportRef={restoreSidebarScroll}
 						>
 							{contextualNavigation && mode !== "icon" ? (
-								<div className="mt-2 min-w-0" data-slot="main-sidebar-context">
+								<div className="mt-3 min-w-0" data-slot="main-sidebar-context">
 									{contextualNavigation}
 								</div>
 							) : null}

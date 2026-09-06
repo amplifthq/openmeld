@@ -775,6 +775,7 @@ function AgentsWorkspaceHomeView(input: {
 			filterControl={workspace.filterControl}
 			hasAnyProfiles={input.agentProfiles.length > 0}
 			initialSidebarStates={workspace.initialSidebarStates}
+			isOrganizationContext={workspace.isOrganizationContext}
 			isSearchActive={input.normalizedSearchQuery.length > 0}
 			modelCatalog={workspace.modelCatalog}
 			onCreateAgent={workspace.onCreateAgent}

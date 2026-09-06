@@ -68,7 +68,7 @@ export function ManagedAgentSidebar({
 	groups: readonly AgentProfileSidebarGroup[];
 	activeProfileId: string | null;
 }) {
-	const { currentOrganization, currentUserId } = useAppOrganization();
+	const { account, currentOrganization, currentUserId } = useAppOrganization();
 	const sidebar = useSidebarPreferences(currentUserId, currentOrganization.id);
 	const preferences = sidebar.preferences?.agents ?? EMPTY;
 	const navigate = useNavigate();
@@ -105,7 +105,9 @@ export function ManagedAgentSidebar({
 		...preferences.groups.flatMap((g) => g.itemIds),
 	]);
 	const sections = [
-		...(input.profiles.length
+		...(input.profiles.some((profile) =>
+			preferences.starred.itemIds.includes(profile.openMeldProfileId)
+		)
 			? [
 					{
 						id: "starred",
@@ -125,18 +127,38 @@ export function ManagedAgentSidebar({
 				g.itemIds.includes(p.openMeldProfileId)
 			),
 		})),
-		...groups.map((g) => ({
+		...(groups.some((group) => group.id === `agent-owner-${currentUserId}`)
+			? groups
+			: [
+					{
+						id: `agent-owner-${currentUserId}`,
+						label: account.name ? `${account.name} (you)` : "You",
+						profiles: [],
+					},
+					...groups,
+				]
+		).map((g) => ({
 			...g,
 			settings: preferences.items,
 			profiles: g.profiles.filter((p) => !assigned.has(p.openMeldProfileId)),
 		})),
-	].map((s) => ({ ...s, profiles: sortProfiles(s.profiles, s.settings) }));
+	]
+		.filter(
+			(section) =>
+				!section.id.startsWith("agent-owner-") ||
+				section.id === `agent-owner-${currentUserId}` ||
+				section.profiles.length > 0
+		)
+		.map((s) => ({ ...s, profiles: sortProfiles(s.profiles, s.settings) }));
 	const move = (sectionId: string, itemId: string, beforeId?: string) => {
+		const ownerTarget = groups.some((group) => group.id === sectionId)
+			? { settings: preferences.items, profiles: [] }
+			: undefined;
 		const target =
 			sections.find((s) => s.id === sectionId) ??
 			(sectionId === "starred"
 				? { settings: preferences.starred, profiles: [] }
-				: undefined);
+				: ownerTarget);
 		if (!target) {
 			return;
 		}
@@ -195,8 +217,10 @@ export function ManagedAgentSidebar({
 					ariaLabel: `${section.label} Agents`,
 					labelAccessory: (
 						<SidebarSectionActions
+							addLabel="Add Agent or group"
 							disabled={sidebar.disabled}
 							label={section.label}
+							newItemLabel="New Agent"
 							onDelete={
 								preferences.groups.some((g) => g.id === section.id)
 									? () =>
@@ -209,7 +233,7 @@ export function ManagedAgentSidebar({
 									: undefined
 							}
 							onNewGroup={
-								index === 0
+								index === 0 || section.id === `agent-owner-${currentUserId}`
 									? (name) =>
 											save({
 												...preferences,
@@ -223,6 +247,11 @@ export function ManagedAgentSidebar({
 													},
 												],
 											})
+									: undefined
+							}
+							onNewItem={
+								section.id === `agent-owner-${currentUserId}`
+									? input.onCreateAgent
 									: undefined
 							}
 							onSort={(sort) => {
@@ -292,7 +321,9 @@ export function ManagedAgentSidebar({
 							</FluidNavMenu>
 							{section.profiles.length === 0 && (
 								<p className="px-2 py-2 text-muted-foreground text-xs">
-									No Agents here.
+									{input.isSearchActive
+										? "No Agents match your search or filters."
+										: "No Agents yet."}
 								</p>
 							)}
 						</SidebarDropSection>

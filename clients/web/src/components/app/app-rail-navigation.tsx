@@ -161,7 +161,7 @@ export function AppRailNavigationGroup(input: {
 	);
 	const groupClassName = cn(
 		APP_NAV_GROUP_CLASS_NAME,
-		input.position > 0 && "mt-1"
+		input.position > 0 && "mt-0"
 	);
 
 	if (input.tier === "expanded" && input.group.label) {

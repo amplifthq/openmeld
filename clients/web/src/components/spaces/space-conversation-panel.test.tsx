@@ -2611,7 +2611,7 @@ describe("SpaceConversationPanel", () => {
 		).toBe("http://localhost:5173/o/acme/connect");
 	});
 
-	it("hides starter actions after the current user sends their first message", () => {
+	it("keeps starter actions after the current user sends their first message", () => {
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
 			hasEarlierHistory: false,
@@ -2628,10 +2628,10 @@ describe("SpaceConversationPanel", () => {
 
 		expect(
 			screen.queryByRole("group", { name: "Suggested starting points" })
-		).toBeNull();
+		).toBeTruthy();
 	});
 
-	it("gets starter actions out of the way once the user starts writing", () => {
+	it("keeps starter actions while the user writes a draft", () => {
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
 			composerText: "I already know what I want to ask",
@@ -2642,7 +2642,7 @@ describe("SpaceConversationPanel", () => {
 
 		expect(
 			screen.queryByRole("group", { name: "Suggested starting points" })
-		).toBeNull();
+		).toBeTruthy();
 	});
 
 	it("does not offer starter actions when the Center Agent DM is read-only", () => {

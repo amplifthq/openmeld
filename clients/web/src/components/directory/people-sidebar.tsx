@@ -95,7 +95,7 @@ export function PeopleSidebar(input: {
 	const starred = new Set(preferences.starred.itemIds);
 	const remaining = filtered.filter((m) => !assigned.has(m.id));
 	const sections = [
-		...(input.members.length
+		...(filtered.some((member) => starred.has(member.id))
 			? [
 					{
 						id: "starred",
@@ -134,7 +134,7 @@ export function PeopleSidebar(input: {
 				),
 			},
 		]
-			.filter((s) => s.id !== "unknown" || s.members.length > 0)
+			.filter((s) => s.members.length > 0)
 			.map((s) => ({ ...s, settings: preferences.people })),
 	];
 	const visible = new Map<string, readonly string[]>();
@@ -158,7 +158,7 @@ export function PeopleSidebar(input: {
 			);
 		}
 	};
-	const groups = sections.map((section) => {
+	const groups = sections.map((section, sectionIndex) => {
 		const members = sortSidebarPeople(section.members, section.settings);
 		visible.set(
 			section.id,
@@ -218,7 +218,7 @@ export function PeopleSidebar(input: {
 							: undefined
 					}
 					onNewGroup={
-						section.id === "connected"
+						sectionIndex === 0
 							? (name) =>
 									save({
 										...preferences,
@@ -394,6 +394,13 @@ export function PeopleSidebar(input: {
 						{input.loading && (
 							<p className="px-2 py-3 text-muted-foreground text-xs">
 								Loading people…
+							</p>
+						)}
+						{!(input.loading || input.error) && filtered.length === 0 && (
+							<p className="px-2 py-2 text-muted-foreground text-xs">
+								{search.trim() || filter !== "all"
+									? "No people match your search or filters."
+									: "No people yet."}
 							</p>
 						)}
 						{input.error && (

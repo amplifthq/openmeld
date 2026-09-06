@@ -664,6 +664,11 @@ the existing Center Agent conversation directly. Home is not an Organization
 dashboard and owns no parallel Inbox, Task, Space, Directory, Project,
 Document, or Agent Activity preview.
 
+The three Center Agent starting-point cards stay at the top of the conversation
+for members who can send messages, including while drafting and after sending.
+They scroll with the conversation and remain reachable by scrolling to the top.
+Opening computer setup adds its flow below the cards instead of replacing them.
+
 The outer app rail keeps one **Home** destination and does not expose a separate
 Center Agent destination. Home owns the Center Agent conversation's unread
 indicator and intent preload. The Center Agent header continues to expose
