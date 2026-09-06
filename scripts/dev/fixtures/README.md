@@ -9,7 +9,7 @@ account credentials. Python 3 uses only its standard library.
 | Test credentials | `accounts.py` | Random local accounts, credential retrieval, explicit new account creation; shared by `dev:account` and `dev:seed` |
 | Organization and local environment | `context.py` | Organization, authentication, backup, strict local lane selection |
 | People, Agents, Computers | `people.py` | 18 teammates, 42 Agents, multiple owners/controllers, disabled and unbound Agents, historical computer records |
-| Spaces and Inbox | `spaces.py` | 28 Spaces, long names, public/private, pins, mixed membership, unread records, Working/needs-input previews |
+| Spaces and Inbox | `spaces.py` | 28 Spaces, long names, public/private, pins, mixed membership, unread records |
 | Messages | `messages.py` | Six DMs, mixed peers, recent/older/long/multiline and outgoing-only previews |
 | Personal grouping | `sidebar.py` | Starter stars and custom People/Agents groups, existing arrangements preserved |
 
@@ -26,8 +26,9 @@ account credentials. Python 3 uses only its standard library.
    are data preparation, not a passing API, permission, or execution test. Back
    up any additional local database before changing it, and touch only stable
    fixture IDs. Never seed live transport, leases, or running execution truth.
-4. Add transient visuals to the development-only generated manifest. Keep its
-   exact organization/profile scope and loopback guard. Generated IDs, sessions,
+4. Keep isolated transient visual samples in the standalone preview. Do not
+   inject Space Working/needs-input summaries into the product without the
+   corresponding runtime requests and normal response path. Generated IDs, sessions,
    database files, and secrets do not belong in Git.
 5. Run the command twice in an isolated lane and verify counts stay stable.
    Check the relevant real UI entry point and update this scenario table.

@@ -92,12 +92,10 @@ outgoing-only, and empty conversations. Their creation uses the DM API; syntheti
 signals are written only to those fixture DMs' local databases.
 
 The seed also creates four local Inbox unread records and writes the ignored
-`clients/web/scripts/sidebar-preview/runtime-states.generated.json` with six visual
-Working / needs-input scenarios. The full local app consumes that manifest only
-in a development build on loopback, for its exact fixture Organization and viewer.
-It includes pinned and unpinned Working, unread, combined, and needs-input rows.
-Real runtime summaries take precedence. The visual manifest never writes runtime
-execution, transport liveness, or readiness records, and is disabled in production.
+`clients/web/scripts/sidebar-preview/runtime-states.generated.json` for visual
+fixtures. The product's Space sidebar does not consume synthetic Working or
+needs-input summaries: its indicators must come from the same runtime projections
+as the conversation. Use the standalone preview below for isolated row states.
 Rerunning the seed restores unread records so clicking them does not exhaust the
 test matrix permanently.
 

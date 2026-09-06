@@ -198,7 +198,6 @@ function CommandCenterContents(input: {
 		currentSpaceId: input.currentSpaceId,
 		organizationId: currentOrganization.id,
 		sections,
-		browserEnvironmentReady: true,
 	});
 	const pin = useAccountSpacePinMutation({ currentProfileId: input.profileId });
 	const go = (to: string) => {

@@ -11,7 +11,7 @@ import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { FunnelSimpleIcon } from "@phosphor-icons/react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
 	type AppContextualNavGroup,
@@ -60,18 +60,6 @@ const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
 };
 
 const DELETED_SPACE_NOTICE_STORAGE_KEY = "openmeld:deleted-space-notices-shown";
-function subscribeToBrowserEnvironment() {
-	return () => undefined;
-}
-
-function getBrowserEnvironmentSnapshot(): true {
-	return true;
-}
-
-function getServerEnvironmentSnapshot(): false {
-	return false;
-}
-
 function readShownDeletedSpaceNotices(): Set<string> {
 	if (typeof window === "undefined") {
 		return new Set();
@@ -127,11 +115,6 @@ export function AppSpacesSidebar(input: {
 		input.currentProfileId,
 		currentOrganizationId
 	);
-	const browserEnvironmentReady = useSyncExternalStore(
-		subscribeToBrowserEnvironment,
-		getBrowserEnvironmentSnapshot,
-		getServerEnvironmentSnapshot
-	);
 	const spacesQuery = useQuery(
 		accountSpaceItemsQueryOptions({
 			enabled: input.currentProfileId.trim().length > 0,
@@ -146,7 +129,6 @@ export function AppSpacesSidebar(input: {
 			currentSpaceId: input.currentSpaceId,
 			organizationId: currentOrganizationId,
 			sections,
-			browserEnvironmentReady,
 		});
 	const pinMutation = useAccountSpacePinMutation({
 		currentProfileId: input.currentProfileId,
