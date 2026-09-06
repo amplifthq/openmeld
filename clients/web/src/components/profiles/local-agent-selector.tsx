@@ -184,6 +184,16 @@ function LocalAgentSelectorEmptyState(input: {
 }) {
 	const emptyState = input.emptyState;
 	const className = cn("min-h-48", input.surface === "page" && "min-h-64");
+	if (emptyState?.kind === "check_failed") {
+		return (
+			<ComputerSetupChoiceCard
+				actionLabel="Retry local agent check"
+				className={className}
+				descriptionLead="OpenMeld could not confirm which local agents are available. Retry the check to continue creating your Agent."
+				onAction={emptyState.onRetry}
+			/>
+		);
+	}
 	if (emptyState?.kind === "connect_computer") {
 		return (
 			<ComputerSetupChoiceCard
