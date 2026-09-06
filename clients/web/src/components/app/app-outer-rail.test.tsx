@@ -570,8 +570,18 @@ describe("AppOuterRail", () => {
 		expect(trigger.getAttribute("data-sidebar")).toBe("menu-button");
 		fireEvent.click(trigger);
 		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		const collapsedSelection = trigger.querySelector(
+			'[data-slot="collapsed-team-selection"]'
+		);
+		expect(collapsedSelection?.textContent).toBe(
+			destination === "people" ? "People" : "Agents"
+		);
+		expect(collapsedSelection?.querySelector("svg")).toBeTruthy();
 		fireEvent.click(trigger);
 		expect(trigger.getAttribute("aria-expanded")).toBe("true");
+		expect(
+			trigger.querySelector('[data-slot="collapsed-team-selection"]')
+		).toBeNull();
 		const selection = within(team).getByRole("link", {
 			name: destination === "people" ? "People" : "Agents",
 		});

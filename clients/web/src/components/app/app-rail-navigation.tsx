@@ -145,6 +145,9 @@ export function AppRailNavigationGroup(input: {
 }) {
 	const [childrenOpen, setChildrenOpen] = useState(true);
 	const childrenId = useId();
+	const selectedDestination = input.group.destinations.find(
+		(destination) => destination.id === input.activeDestination
+	);
 	const { presentation } = useAppNavigationPresentation();
 	const navigation = (
 		<nav aria-label={input.group.label ?? "Primary navigation"}>
@@ -182,6 +185,20 @@ export function AppRailNavigationGroup(input: {
 						>
 							<UsersThreeIcon aria-hidden="true" className="size-4 shrink-0" />
 							{input.group.label}
+							{!childrenOpen && selectedDestination && (
+								<span
+									className="flex min-w-0 items-center gap-1.5 border-sidebar-border border-l pl-2 text-sidebar-foreground"
+									data-slot="collapsed-team-selection"
+								>
+									<span
+										aria-hidden="true"
+										className="shrink-0 [&_svg]:size-3.5"
+									>
+										{selectedDestination.icon}
+									</span>
+									<span className="truncate">{selectedDestination.label}</span>
+								</span>
+							)}
 							{childrenOpen ? (
 								<CaretDownIcon
 									aria-hidden="true"

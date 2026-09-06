@@ -293,7 +293,8 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    lists scroll within one Fluid scrolling area; the header, primary entries,
    and Team menu remain fixed. Team uses a collapsible parent menu button with
    People and Agents as indented children, distinct from the content groups
-   below. These pages do not
+   below. When collapsed on People or Agents, the Team button shows a separator
+   followed by the selected child's icon and name. These pages do not
    mount a secondary sidebar or a second mobile drawer.
    Existing list grouping, pinning, unread indicators, identities, and status
    projections are preserved. The former secondary headers and creation/invite
