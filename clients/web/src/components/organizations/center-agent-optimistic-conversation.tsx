@@ -1,6 +1,7 @@
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { ArrowUpIcon } from "@phosphor-icons/react";
+import { ArrowUpIcon, ChatCircleTextIcon } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
 import {
 	PromptInput,
 	PromptInputAction,
@@ -11,6 +12,11 @@ import { SpaceMessageDeliveryStatus } from "#/components/spaces/space-message-de
 import type { PendingCenterAgentMessage } from "#/lib/organizations/center-agent-pending-message";
 
 export function CenterAgentOptimisticConversation(input: {
+	composerAccessory?: ReactNode;
+	hasAttachments?: boolean;
+	empty?: boolean;
+	emptyContent?: ReactNode;
+	header?: ReactNode;
 	composerText: string;
 	onComposerChange: (value: string) => void;
 	onSend: () => void;
@@ -21,73 +27,108 @@ export function CenterAgentOptimisticConversation(input: {
 
 	return (
 		<section
-			className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-background"
+			className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden rounded-[inherit] bg-background"
 			data-space-conversation-presentation={input.presentation}
 			data-testid="center-agent-conversation-skeleton"
 		>
-			<header className="flex h-[var(--space-conversation-header-height)] shrink-0 items-center border-border border-b px-4 sm:px-5">
-				<div aria-hidden="true" className="flex min-w-0 items-center gap-3">
-					<Skeleton className="size-9 shrink-0 rounded-full motion-reduce:animate-none" />
-					<div className="flex min-w-0 flex-col gap-2">
-						<Skeleton className="h-4 w-36 motion-reduce:animate-none" />
-						<Skeleton className="h-3 w-24 motion-reduce:animate-none" />
-					</div>
-				</div>
-			</header>
+			{input.header ?? (
+				<header className="flex h-[var(--space-conversation-header-height)] shrink-0 flex-col justify-center gap-4 border-border border-b px-4">
+					{input.empty ? (
+						<div className="flex items-center gap-3">
+							<ChatCircleTextIcon className="size-5 text-muted-foreground" />
+							<h1 className="font-medium text-lg">New chat</h1>
+						</div>
+					) : (
+						<div aria-hidden="true" className="flex min-w-0 items-center gap-3">
+							<ChatCircleTextIcon className="size-5 text-muted-foreground" />
+							<div className="flex min-w-0 flex-col gap-2">
+								<Skeleton className="h-4 w-36 motion-reduce:animate-none" />
+							</div>
+						</div>
+					)}
+					{!input.empty && (
+						<div
+							aria-hidden="true"
+							className="flex gap-5 text-muted-foreground text-sm"
+						>
+							<span className="text-foreground">Messages</span>
+							<span>Graph</span>
+							<span>Files</span>
+							<span>Tasks</span>
+							<span>Routines</span>
+							<span>Skills</span>
+							<span>Plugins</span>
+							<span>Channels</span>
+						</div>
+					)}
+				</header>
+			)}
 			<div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
 				<div
 					aria-label="Center Agent conversation"
-					className="min-h-0 flex-1 overflow-hidden"
+					className="min-h-0 flex-1 overflow-y-auto"
 					role="log"
 				>
-					<div
-						className="flex h-full w-full flex-col gap-5 py-5"
-						data-space-conversation-content-width=""
-					>
-						<div className="flex items-start gap-3">
-							<Skeleton
-								aria-hidden="true"
-								className="size-8 shrink-0 rounded-full motion-reduce:animate-none"
-							/>
-							<div
-								aria-hidden="true"
-								className="flex w-full max-w-xl flex-col gap-2"
-							>
-								<Skeleton className="h-3 w-24 motion-reduce:animate-none" />
-								<Skeleton className="h-16 w-full motion-reduce:animate-none" />
-							</div>
-						</div>
-						<div className="flex justify-end">
-							{input.pendingMessage ? (
-								<div className="max-w-[min(80%,42rem)]">
-									<div className="border border-border bg-muted px-3 py-2 text-foreground text-sm">
-										{input.pendingMessage.text}
+					{input.empty && !input.pendingMessage ? (
+						<div className="px-6">{input.emptyContent}</div>
+					) : (
+						<div
+							className="flex h-full w-full flex-col gap-5 py-5"
+							data-space-conversation-content-width=""
+						>
+							{!input.pendingMessage && (
+								<div className="flex items-start gap-3">
+									<Skeleton
+										aria-hidden="true"
+										className="size-8 shrink-0 rounded-full motion-reduce:animate-none"
+									/>
+									<div
+										aria-hidden="true"
+										className="flex w-full max-w-xl flex-col gap-2"
+									>
+										<Skeleton className="h-3 w-24 motion-reduce:animate-none" />
+										<Skeleton className="h-3 w-full motion-reduce:animate-none" />
+										<Skeleton className="h-3 w-5/6 motion-reduce:animate-none" />
+										<Skeleton className="h-3 w-2/3 motion-reduce:animate-none" />
 									</div>
 								</div>
+							)}
+							<div className="flex justify-end">
+								{input.pendingMessage ? (
+									<div className="max-w-[min(80%,42rem)]">
+										<div className="rounded-lg border border-border bg-muted px-3 py-2 text-foreground text-sm">
+											{input.pendingMessage.text}
+										</div>
+									</div>
+								) : (
+									<Skeleton
+										aria-hidden="true"
+										className="h-10 w-2/3 max-w-lg rounded-lg motion-reduce:animate-none"
+									/>
+								)}
+							</div>
+							{input.pendingMessage ? (
+								<CenterAgentOptimisticReplyShell />
 							) : (
-								<Skeleton
-									aria-hidden="true"
-									className="h-14 w-2/3 max-w-lg motion-reduce:animate-none"
-								/>
+								<div className="flex items-start gap-3">
+									<Skeleton
+										aria-hidden="true"
+										className="size-8 shrink-0 rounded-full motion-reduce:animate-none"
+									/>
+									<div
+										aria-hidden="true"
+										className="flex w-3/4 max-w-2xl flex-col gap-3"
+									>
+										<Skeleton className="h-3 w-28 motion-reduce:animate-none" />
+										<Skeleton className="h-3 w-full motion-reduce:animate-none" />
+										<Skeleton className="h-3 w-4/5 motion-reduce:animate-none" />
+									</div>
+								</div>
 							)}
 						</div>
-						{input.pendingMessage ? (
-							<CenterAgentOptimisticReplyShell />
-						) : (
-							<div className="flex items-start gap-3">
-								<Skeleton
-									aria-hidden="true"
-									className="size-8 shrink-0 rounded-full motion-reduce:animate-none"
-								/>
-								<Skeleton
-									aria-hidden="true"
-									className="h-20 w-3/4 max-w-2xl motion-reduce:animate-none"
-								/>
-							</div>
-						)}
-					</div>
+					)}
 				</div>
-				<footer className="shrink-0 border-border border-t bg-background">
+				<footer className="shrink-0 bg-background">
 					<div className="w-full py-4" data-space-conversation-content-width="">
 						<PromptInput
 							className="w-full"
@@ -99,20 +140,25 @@ export function CenterAgentOptimisticConversation(input: {
 							<PromptInputTextarea
 								aria-label="Message Center Agent"
 								autoComplete="off"
+								autoFocus={input.empty}
 								className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
 								name="center-agent-message"
 								onChange={(event) => {
 									input.onComposerChange(event.target.value);
 								}}
-								placeholder="Message Center Agent…"
+								placeholder="Tell Center Agent what you need…"
 							/>
-							<PromptInputActions className="min-w-0 justify-end border-border border-t pt-2">
+							<PromptInputActions className="min-w-0 justify-between border-border border-t pt-2">
+								<div>{input.composerAccessory}</div>
 								<PromptInputAction
 									tooltip={isSending ? "Sending…" : "Send message"}
 								>
 									<Button
 										aria-label={isSending ? "Sending…" : "Send message"}
-										disabled={isSending}
+										disabled={
+											isSending ||
+											!(input.composerText.trim() || input.hasAttachments)
+										}
 										onClick={input.onSend}
 										size="icon-sm"
 										type="button"

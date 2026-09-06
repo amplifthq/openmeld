@@ -6,6 +6,8 @@ import { z } from "zod/v4";
 import type { SlackOAuthResult } from "./slack-oauth-result";
 
 export const centerAgentRouteSearchSchema = z.object({
+	draft: z.literal("new").optional(),
+	group: z.string().uuid().optional(),
 	session: centerAgentSessionSelectorSchema.shape.spaceId.optional(),
 	focusSignalId: z.string().trim().min(1).max(256).optional(),
 	view: z.enum(["messages", "graph", "files"]).optional(),
@@ -34,7 +36,20 @@ export function parseCenterAgentRouteSearch(
 ): CenterAgentRouteSearch {
 	const parsed = centerAgentRouteSearchSchema.safeParse(search);
 	if (parsed.success) {
+		if (parsed.data.draft && parsed.data.session) {
+			throw new Error(
+				"A chat link cannot select both a draft and a saved chat."
+			);
+		}
 		return parsed.data;
+	}
+	if (
+		typeof search === "object" &&
+		search !== null &&
+		"draft" in search &&
+		search.draft !== undefined
+	) {
+		throw new Error("The new chat link is invalid.");
 	}
 	if (
 		typeof search === "object" &&

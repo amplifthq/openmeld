@@ -2,7 +2,7 @@
 
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { BrainIcon, GearSixIcon } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
 	SpaceHeaderNavigationMenu,
 	type SpaceHeaderNavigationMenuItem,
@@ -39,6 +39,16 @@ export function CenterAgentHeaderTabs(input: {
 	organizationSlug: string;
 }) {
 	const navigate = useNavigate();
+	const searchStr = useRouterState({
+		select: (state) => state.location.searchStr,
+	});
+	const selector = new URLSearchParams(searchStr);
+	const context = Object.fromEntries(
+		["draft", "group", "session"].flatMap((key) => {
+			const value = selector.get(key);
+			return value === null ? [] : [[key, value]];
+		})
+	);
 	const selectedIndex = resolveCenterAgentHeaderTabIndex({
 		activeSectionId: input.activeSectionId,
 		activeSpaceView: input.activeSpaceView,
@@ -58,10 +68,10 @@ export function CenterAgentHeaderTabs(input: {
 						return;
 					}
 					navigate({
-						to: buildOrganizationCenterAgentChatPath(
-							input.organizationSlug,
-							view === "messages" ? undefined : { view }
-						),
+						to: buildOrganizationCenterAgentChatPath(input.organizationSlug, {
+							...context,
+							...(view === "messages" ? {} : { view }),
+						}),
 					}).catch((error: unknown) => {
 						console.error(
 							"Failed to open the Center Agent conversation.",
@@ -74,9 +84,12 @@ export function CenterAgentHeaderTabs(input: {
 					index,
 					organizationSlug: input.organizationSlug,
 				});
-				navigate({ to }).catch((error: unknown) => {
-					console.error("Failed to open Center Agent work.", error);
-				});
+				const contextQuery = new URLSearchParams(context).toString();
+				navigate({ to: contextQuery ? `${to}?${contextQuery}` : to }).catch(
+					(error: unknown) => {
+						console.error("Failed to open Center Agent work.", error);
+					}
+				);
 			}}
 			selectedIndex={selectedIndex}
 			variant="underline"
