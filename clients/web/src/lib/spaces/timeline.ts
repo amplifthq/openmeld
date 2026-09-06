@@ -113,6 +113,7 @@ export type SpaceTimelineAttachment = SpaceMessageAttachment & {
 };
 
 export type SpaceTimelineFile = SpaceMessageFileReference & {
+	isLocal?: boolean;
 	localPreviewUrl: string | null;
 };
 
@@ -458,6 +459,9 @@ function readTimelineFiles(input: {
 	const isPending = input.signal.id.startsWith("pending:");
 	return (input.signal.data.files ?? []).map((file) => ({
 		...file,
+		isLocal:
+			file.fileId.startsWith("composer-file:") &&
+			(isPending || input.signal.id.startsWith("failed:")),
 		localPreviewUrl: isPending
 			? (input.pendingFilePreviewUrlsById?.get(file.fileId) ?? null)
 			: null,

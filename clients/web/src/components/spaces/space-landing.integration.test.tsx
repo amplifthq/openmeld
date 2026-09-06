@@ -755,6 +755,14 @@ function buildLocalRuntimeCacheInvalidations(
 
 describe("SpaceLanding", () => {
 	beforeEach(() => {
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				observe = vi.fn();
+				unobserve = vi.fn();
+				disconnect = vi.fn();
+			}
+		);
 		clearSpaceConversationCacheMock.mockClear();
 		useQueryMock.mockReset();
 		useAccountAvatarMock.mockReset().mockReturnValue({
@@ -12811,7 +12819,15 @@ describe("SpaceLanding", () => {
 		queryClient.clear();
 	});
 
-	it("shows an outgoing normal message in the timeline before the server responds", async () => {
+	it("shows an outgoing normal message before the access refresh or post responds", async () => {
+		let releaseStatus: (() => void) | undefined;
+		const statusRefetch = vi.fn().mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					releaseStatus = () =>
+						resolve({ data: createSpaceStatus(), error: null });
+				})
+		);
 		let resolvePost:
 			| ((signal: ReturnType<typeof createTextSignal>) => void)
 			| null = null;
@@ -12828,6 +12844,7 @@ describe("SpaceLanding", () => {
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
+				refetch: statusRefetch,
 			}),
 			members: createQueryResult({
 				isSuccess: true,
@@ -12849,6 +12866,15 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(textarea, "Optimistic hello");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		expect(readComposerValue(textarea)).toBe("");
+		expect(
+			within(
+				screen.getByRole("log", { name: "Conversation history" })
+			).getByText("Optimistic hello")
+		).toBeTruthy();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await waitFor(() => expect(statusRefetch).toHaveBeenCalled());
+		await act(async () => releaseStatus?.());
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalled();
@@ -12874,6 +12900,11 @@ describe("SpaceLanding", () => {
 				within(conversationLog).getAllByText("Optimistic hello")
 			).toHaveLength(1);
 		});
+		await setComposerValue(textarea, "Next message while projections refresh");
+		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
+			"disabled",
+			false
+		);
 	});
 
 	it("stages a selected image and publishes it as a Space File only on Send", async () => {
@@ -13068,7 +13099,8 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("sends a Space File without requiring a text note", async () => {
+	it("shows a file-only message before file publication completes", async () => {
+		let releasePublication: (() => void) | undefined;
 		const descriptor = createSpaceFileDescriptor({
 			mimeType: "application/pdf",
 			name: "brief.pdf",
@@ -13093,7 +13125,12 @@ describe("SpaceLanding", () => {
 		createWebSpaceApiMock.mockReturnValue({
 			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			postNormalMessage: postNormalMessageMock,
-			publishComposerUpload: vi.fn().mockResolvedValue(descriptor),
+			publishComposerUpload: vi.fn().mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						releasePublication = () => resolve(descriptor);
+					})
+			),
 			stageComposerUpload: stageComposerUploadMock,
 		});
 		mockSpaceQueries({
@@ -13125,6 +13162,16 @@ describe("SpaceLanding", () => {
 			false
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		const log = screen.getByRole("log", { name: "Conversation history" });
+		expect(within(log).getByText("brief.pdf")).toBeTruthy();
+		expect(within(log).queryByText("Open in Files")).toBeNull();
+		expect(
+			within(log).getByRole("button", { name: "Copy message" })
+		).toHaveProperty("disabled", true);
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await waitFor(() => expect(releasePublication).toBeDefined());
+		await act(async () => releasePublication?.());
+
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [createSpaceMessageFileReference(descriptor)],
@@ -16202,7 +16249,20 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows an outgoing thread reply before the server responds", async () => {
+	it.each([
+		false,
+		true,
+	])("shows a thread reply before admission or publication responds (Wake: %s)", async (wake) => {
+		let releaseAdmission: (() => void) | undefined;
+		readSpaceMembersMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					releaseAdmission = () => resolve(createMembersSnapshot());
+				})
+		);
+		const outgoingText = wake
+			? "@runner(wake) Optimistic thread reply"
+			: "Optimistic thread reply";
 		const postThreadSignalMock = vi.fn().mockImplementation(
 			() =>
 				new Promise(() => {
@@ -16291,17 +16351,27 @@ describe("SpaceLanding", () => {
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
-		await setComposerValue(threadComposer, "Optimistic thread reply");
+		await setComposerValue(threadComposer, outgoingText);
 		fireEvent.click(
 			within(threadPanel).getByRole("button", { name: "Send reply" })
 		);
+
+		if (wake) {
+			await waitFor(() => expect(readSpaceMembersMock).toHaveBeenCalled());
+			expect(readComposerValue(threadComposer)).toBe("");
+			expect(
+				within(threadPanel).getByText(outgoingText, { selector: "p" })
+			).toBeTruthy();
+			expect(postThreadSignalMock).not.toHaveBeenCalled();
+			await act(async () => releaseAdmission?.());
+		}
 
 		await waitFor(() => {
 			expect(postThreadSignalMock).toHaveBeenCalled();
 		});
 		expect(readComposerValue(threadComposer)).toBe("");
 		expect(
-			within(threadPanel).getByText("Optimistic thread reply", {
+			within(threadPanel).getByText(outgoingText, {
 				selector: "p",
 			})
 		).toBeTruthy();
