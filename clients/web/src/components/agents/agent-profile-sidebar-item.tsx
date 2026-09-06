@@ -96,6 +96,7 @@ export function AgentProfileSidebarItemComponent(input: {
 		hasReducedProminence ? "text-muted-foreground" : null
 	);
 	const availabilityDescriptionId = `agent-profile-availability-${input.profile.openMeldProfileId}`;
+	const hasActions = Boolean(input.onToggleStar || input.onChat);
 	return (
 		<FluidNavMenuItem
 			className="group/agent-row relative"
@@ -113,6 +114,10 @@ export function AgentProfileSidebarItemComponent(input: {
 					"flex w-full min-w-0 items-start gap-1.5 px-2 py-1 text-left outline-none",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
+					{
+						"group-focus-within/agent-row:pr-14 group-hover/agent-row:pr-14 [@media(hover:none)]:pr-14":
+							hasActions,
+					},
 					input.isActive ? "text-sidebar-accent-foreground" : null
 				)}
 				data-profile-id={input.profile.openMeldProfileId}
@@ -175,8 +180,8 @@ export function AgentProfileSidebarItemComponent(input: {
 					) : null}
 				</span>
 			</button>
-			{(input.onToggleStar || input.onChat) && (
-				<span className="absolute top-1 right-1 flex rounded-md bg-sidebar opacity-0 group-focus-within/agent-row:opacity-100 group-hover/agent-row:opacity-100 [@media(hover:none)]:opacity-100">
+			{hasActions && (
+				<span className="pointer-events-none absolute top-1 right-1 flex opacity-0 group-focus-within/agent-row:pointer-events-auto group-focus-within/agent-row:opacity-100 group-hover/agent-row:pointer-events-auto group-hover/agent-row:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
 					{input.onChat && (
 						<SidebarRowAction
 							label={`Chat with ${input.profile.profileName}`}

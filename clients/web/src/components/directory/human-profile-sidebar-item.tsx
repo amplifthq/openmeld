@@ -111,6 +111,9 @@ export function HumanProfileSidebarItem(input: {
 					"flex w-full min-w-0 flex-row items-start gap-1.5 px-2 py-1 text-left outline-none",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
+					input.onToggleStar
+						? "group-focus-within/people-row:pr-14 group-hover/people-row:pr-14 [@media(hover:none)]:pr-14"
+						: null,
 					input.isActive ? "text-sidebar-accent-foreground" : null
 				)}
 				onClick={() => {
@@ -218,7 +221,7 @@ export function HumanProfileSidebarItem(input: {
 				</span>
 			</button>
 			{input.onToggleStar && (
-				<span className="absolute top-1 right-1 flex rounded-md bg-sidebar opacity-0 group-focus-within/people-row:opacity-100 group-hover/people-row:opacity-100 [@media(hover:none)]:opacity-100">
+				<span className="pointer-events-none absolute top-1 right-1 flex opacity-0 group-focus-within/people-row:pointer-events-auto group-focus-within/people-row:opacity-100 group-hover/people-row:pointer-events-auto group-hover/people-row:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
 					{input.onChat && (
 						<PeopleRowAction
 							disabled={input.actionsDisabled}

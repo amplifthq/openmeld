@@ -20,6 +20,7 @@ Create a Space or group from the Spaces section's plus button.
 Drag conversations freely between Pinned, custom groups, and the ordinary list.
 Rename a custom group from its section settings, directly in the group heading.
 People and Agent row actions appear and disappear immediately, without sliding.
+Row actions blend into their row, with a background only on the hovered button.
 Section actions stay quiet until you hover or focus the group. Drag a whole
 Space row to reorder it, or sort pinned Spaces by priority or when you pinned
 them. Hovering long lists no longer recalculates the whole page's styles.
