@@ -103,7 +103,7 @@ export function SidebarSectionActions(input: {
 								<DropdownMenuTrigger
 									render={
 										<SidebarGroupAction
-											aria-label={`${input.label} section settings`}
+											aria-label={`${input.label} group settings`}
 										/>
 									}
 								/>
@@ -111,7 +111,7 @@ export function SidebarSectionActions(input: {
 						>
 							<SlidersHorizontalIcon />
 						</TooltipTrigger>
-						<TooltipContent>Section settings</TooltipContent>
+						<TooltipContent>Group settings</TooltipContent>
 					</Tooltip>
 					<FluidDropdownMenuContent
 						align="end"
