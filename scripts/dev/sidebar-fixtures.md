@@ -32,13 +32,17 @@ so switching between test accounts does not remove their state matrix.
 Spaces include short discussions, Markdown, varied member combinations, and
 timestamps from minutes to a month ago. Explorations stays empty; Billing
 migration, Incident follow-up, and Security review include failure, stopped,
-and policy-blocked system notices. Release coordination has a plan-review
-dialog; Performance lab has a command-permission dialog. These use the real
-interaction card with an in-memory response handler and a visible local
-simulation label: approving never sends a runtime response or runs a command.
-Reload resets these temporary interactions. Other working scenarios show local
-Agent activity. Synthetic conversations use stable IDs and backups; reruns
+and policy-blocked system notices. Plan review, command permission, and live
+conversation activity require the normal runtime data path; the seed does not
+currently exercise these interactions. Sidebar state samples alone do not prove
+that a conversation contains a working Agent or an actionable approval.
+Synthetic conversations use stable IDs and backups; reruns
 replace only these known fixture messages, preserving manually added messages.
+
+Fixtures must only provide data to production UI and its normal interaction
+entry points. Never add seed-only status rows, buttons, dialogs, or response
+handlers to product components. Missing runtime scenarios must be supplied at
+the data/protocol boundary, not recreated with a parallel UI.
 
 Fictional members use deterministic DiceBear illustrations. This requires network
 access to `api.dicebear.com`; the standard avatar fallback remains available.
