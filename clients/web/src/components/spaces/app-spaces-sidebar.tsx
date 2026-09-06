@@ -5,7 +5,6 @@ import {
 	DropdownMenu,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { FunnelSimpleIcon } from "@phosphor-icons/react";
@@ -18,6 +17,7 @@ import {
 	AppContextualSidebarNav,
 } from "#/components/app/app-contextual-layout";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
+import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationNewSpacePath,
@@ -406,7 +406,7 @@ export function AppSpacesSidebar(input: {
 	}, [sections.recentlyDeletedItems]);
 
 	if (sidebar.isPending) {
-		return <Skeleton className="mx-2 h-32" />;
+		return <SidebarListSkeleton label="Loading Spaces" />;
 	}
 	if (!preferences && sidebar.isError) {
 		return (
@@ -544,19 +544,7 @@ function SidebarSpacesList(input: {
 }) {
 	const { presentation } = useAppNavigationPresentation();
 	if (input.isPending) {
-		return (
-			<div className="flex flex-col gap-1">
-				{Array.from({ length: 6 }).map((_, index) => (
-					<div
-						className="flex h-10 items-center gap-2 px-2"
-						key={`space-sidebar-skeleton-${String(index)}`}
-					>
-						<Skeleton className="size-4" />
-						<Skeleton className="h-4 flex-1" />
-					</div>
-				))}
-			</div>
-		);
+		return <SidebarListSkeleton label="Loading Spaces" />;
 	}
 
 	if (input.isError) {

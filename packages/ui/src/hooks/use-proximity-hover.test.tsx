@@ -7,6 +7,49 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("remeasures moved rows without requiring a resize or new registration", async () => {
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (frame: FrameRequestCallback) =>
+    frames.push(frame)
+  );
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  const container = document.createElement("div");
+  const rows = [
+    document.createElement("button"),
+    document.createElement("button"),
+  ];
+  container.append(...rows);
+  for (const row of rows) {
+    Object.defineProperties(row, {
+      offsetTop: {
+        get: () => Array.from(container.children).indexOf(row) * 40,
+      },
+      offsetHeight: { value: 40 },
+      offsetWidth: { value: 200 },
+    });
+  }
+  const ref = { current: container };
+  const { result } = renderHook(() => useProximityHover(ref));
+  act(() => {
+    for (const [index, row] of rows.entries()) {
+      result.current.registerItem(index, row);
+    }
+    result.current.measureItems();
+  });
+  expect(result.current.itemRects[0].top).toBe(0);
+  await act(async () => {
+    container.append(rows[0]);
+    await Promise.resolve();
+  });
+  act(() => {
+    for (const frame of frames.splice(0)) {
+      frame(0);
+    }
+  });
+  expect(result.current.itemRects[0].top).toBe(40);
+  expect(result.current.itemRects[1].top).toBe(0);
+});
+
 it("uses the hit row without a synchronous layout read, while preserving proximity in gaps", () => {
   const frames: FrameRequestCallback[] = [];
   vi.stubGlobal("requestAnimationFrame", (frame: FrameRequestCallback) =>
