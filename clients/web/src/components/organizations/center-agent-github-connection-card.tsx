@@ -34,19 +34,19 @@ import {
 	startCurrentOrganizationSharedGitHubAuthorization,
 } from "#/lib/organizations/connector-connections";
 import {
-	invalidateOrganizationAppConnections,
-	organizationAppConnectionQueryKeys,
-	organizationAppServiceConnectionsQueryOptions,
-} from "#/query/organizations/app-connections";
+	invalidateOrganizationPluginConnections,
+	organizationPluginConnectionQueryKeys,
+	organizationPluginServiceConnectionsQueryOptions,
+} from "#/query/organizations/plugin-connections";
 import {
-	AppAccessLoadingSkeleton,
-	useAppConnectionSnapshotCurrent,
-} from "./app-connection-status-ui";
+	PluginAccessLoadingSkeleton,
+	usePluginConnectionSnapshotCurrent,
+} from "./plugin-connection-status-ui";
 
 const AUTHORIZATION_POLL_INTERVAL_MS = 1200;
 const MEMBER_AUTHORIZATION_TIMEOUT_MS = 120_000;
 const ONBOARDING_GITHUB_UNAVAILABLE_MESSAGE =
-	"GitHub is unavailable right now. Finish setup and connect it later in Center Agent → Apps.";
+	"GitHub is unavailable right now. Finish setup and connect it later in Center Agent → Plugins.";
 
 type AuthorizationScope = "member" | "shared";
 type GitHubDisconnectRequest = {
@@ -79,7 +79,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 	const [localError, setLocalError] = useState<string | null>(null);
 	const authorizationPopupRef = useRef<Window | null>(null);
 	const connectionsQuery = useQuery(
-		organizationAppServiceConnectionsQueryOptions({
+		organizationPluginServiceConnectionsQueryOptions({
 			organizationId: input.organizationId,
 			queryClient,
 			refetchInterval: waitingScope
@@ -88,10 +88,11 @@ export function CenterAgentGitHubConnectionCard(input: {
 			service: "github",
 		})
 	);
-	const serviceConnectionsQueryKey = organizationAppConnectionQueryKeys.service(
-		input.organizationId,
-		"github"
-	);
+	const serviceConnectionsQueryKey =
+		organizationPluginConnectionQueryKeys.service(
+			input.organizationId,
+			"github"
+		);
 	const activeConnections =
 		connectionsQuery.data?.connections.filter(
 			(connection) => connection.status === "active"
@@ -220,7 +221,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 	const authorizationBusy =
 		authorizationMutation.isPending || Boolean(waitingScope);
 	const connectionSnapshotIsCurrent =
-		useAppConnectionSnapshotCurrent(connectionsQuery);
+		usePluginConnectionSnapshotCurrent(connectionsQuery);
 	const connectionActionsDisabled = !connectionSnapshotIsCurrent;
 	const authorizationDisabled = authorizationBusy || connectionActionsDisabled;
 
@@ -298,7 +299,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 			return { previousConnections };
 		},
 		onSettled: async () => {
-			await invalidateOrganizationAppConnections({
+			await invalidateOrganizationPluginConnections({
 				organizationId: input.organizationId,
 				queryClient,
 				service: "github",
@@ -583,7 +584,7 @@ function YourGitHubSection(input: {
 			}
 			title="Your GitHub"
 		>
-			{input.loading ? <AppAccessLoadingSkeleton /> : null}
+			{input.loading ? <PluginAccessLoadingSkeleton /> : null}
 			{input.disconnectPending && !connection ? (
 				<GitHubPendingDisconnect />
 			) : null}
@@ -627,7 +628,7 @@ function MemberGitHubConnectionsSection(input: {
 			description="Connections owned by other Organization members."
 			title="Member connections"
 		>
-			{input.loading ? <AppAccessLoadingSkeleton /> : null}
+			{input.loading ? <PluginAccessLoadingSkeleton /> : null}
 			{input.statusAvailable &&
 			!input.loading &&
 			input.connections.length > 0 ? (
@@ -678,13 +679,13 @@ function SharedGitHubSection(input: {
 	const isOnboarding = input.presentation === "onboarding";
 	const canShowAuthorizationAction = input.statusAvailable || isOnboarding;
 	let description =
-		"Install the OpenMeld GitHub App and choose the repositories the Center Agent can use. Organization work and Routines run as the OpenMeld bot.";
+		"Install the OpenMeld GitHub Plugin and choose the repositories the Center Agent can use. Organization work and Routines run as the OpenMeld bot.";
 	if (isOnboarding) {
 		description =
-			"Install the OpenMeld GitHub App and choose the repositories the Center Agent can use.";
+			"Install the OpenMeld GitHub Plugin and choose the repositories the Center Agent can use.";
 	} else if (input.scopeName === "Workspace") {
 		description =
-			"Install the OpenMeld GitHub App and choose the repositories the Center Agent can use. Workspace Routines run as the OpenMeld bot.";
+			"Install the OpenMeld GitHub Plugin and choose the repositories the Center Agent can use. Workspace Routines run as the OpenMeld bot.";
 	}
 	return (
 		<GitHubConnectionSection
@@ -696,7 +697,7 @@ function SharedGitHubSection(input: {
 				!canShowAuthorizationAction ? null : (
 					<GitHubAuthorizationAction
 						checking={input.statusChecking}
-						connectLabel="Install GitHub App"
+						connectLabel="Install GitHub Plugin"
 						disabled={input.authorizationDisabled}
 						onCancel={input.onCancelAuthorization}
 						onConnect={input.onConnect}
@@ -706,9 +707,9 @@ function SharedGitHubSection(input: {
 				)
 			}
 			description={description}
-			title={`${input.scopeName} GitHub App`}
+			title={`${input.scopeName} GitHub Plugin`}
 		>
-			{input.loading ? <AppAccessLoadingSkeleton /> : null}
+			{input.loading ? <PluginAccessLoadingSkeleton /> : null}
 			{input.disconnectPending && !connection ? (
 				<GitHubPendingDisconnect />
 			) : null}
@@ -719,7 +720,7 @@ function SharedGitHubSection(input: {
 						connection={connection}
 						disabled={input.disconnectDisabled}
 						disconnectPending={input.disconnectPending}
-						label="OpenMeld GitHub App"
+						label="OpenMeld GitHub Plugin"
 						onDisconnect={input.onDisconnect}
 						statusChecking={input.statusChecking}
 						subtitle={`Installed by ${connection.ownerDisplayName}. ${
@@ -905,7 +906,8 @@ function GitHubConnectionRow(input: {
 						<DialogTitle>Disconnect GitHub?</DialogTitle>
 						<DialogDescription>
 							This removes the connection from this OpenMeld workspace. It does
-							not sign you out of GitHub or uninstall the OpenMeld GitHub App.
+							not sign you out of GitHub or uninstall the OpenMeld GitHub
+							Plugin.
 						</DialogDescription>
 					</DialogHeader>
 					<DialogFooter>
@@ -965,7 +967,7 @@ function GitHubOrganizationAccessNotice() {
 	return (
 		<div className="mt-3 max-w-2xl text-muted-foreground text-xs leading-5">
 			<p>
-				OpenMeld can use only repositories included in an OpenMeld GitHub App
+				OpenMeld can use only repositories included in an OpenMeld GitHub Plugin
 				installation and allowed for this GitHub identity.
 			</p>
 			<a
@@ -974,7 +976,7 @@ function GitHubOrganizationAccessNotice() {
 				rel="noreferrer"
 				target="_blank"
 			>
-				Review GitHub App installations
+				Review GitHub Plugin installations
 				<ArrowSquareOutIcon aria-hidden="true" className="size-3" />
 			</a>
 		</div>

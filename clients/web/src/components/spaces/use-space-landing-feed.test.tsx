@@ -389,7 +389,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		).toEqual(["sig-1"]);
 	});
 
-	it("keeps the write-through history cache bounded to the recent window", async () => {
+	it("retains small live messages beyond the initial 30-message page", async () => {
 		const { queryClient } = renderFeed({
 			seededEnvelopes: createSignals({ count: 30, startIndex: 0 }),
 		});
@@ -406,8 +406,8 @@ describe("useSpaceLandingFeed transport freshness", () => {
 				"11111111-1111-1111-1111-111111111111"
 			)
 		);
-		expect(cached?.envelopes).toHaveLength(30);
-		expect(cached?.envelopes[0]?.id).toBe("sig-1");
+		expect(cached?.envelopes).toHaveLength(31);
+		expect(cached?.envelopes[0]?.id).toBe("sig-0");
 		expect(cached?.envelopes.at(-1)?.id).toBe("sig-30");
 	});
 
@@ -644,7 +644,6 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 		expect(invalidateQueries).toHaveBeenCalledWith(
 			{
-				exact: true,
 				queryKey: spaceQueryKeys.activeWakeProgressSummary(
 					"space-123",
 					"11111111-1111-1111-1111-111111111111"
@@ -695,7 +694,6 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		expect(invalidateQueries).toHaveBeenCalledTimes(2);
 		expect(invalidateQueries).toHaveBeenLastCalledWith(
 			{
-				exact: true,
 				queryKey: spaceQueryKeys.activeWakeProgressSummary(
 					"space-123",
 					"11111111-1111-1111-1111-111111111111"

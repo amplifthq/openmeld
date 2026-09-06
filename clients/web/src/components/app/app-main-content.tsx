@@ -1,3 +1,4 @@
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import type { ReactNode } from "react";
 
@@ -35,16 +36,26 @@ export function AppMainContent(input: {
 					{input.header ?? null}
 				</header>
 			) : null}
-			<div
-				className={cn(
-					"min-h-0 flex-1",
-					input.scroll ? "overflow-y-auto" : "overflow-hidden",
-					input.bodyClassName
-				)}
-				data-slot={input.bodySlotName ?? "app-main-content-body"}
-			>
-				{input.children}
-			</div>
+			{input.scroll ? (
+				<ScrollArea
+					className="min-h-0 flex-1"
+					contentClassName={input.bodyClassName}
+					data-slot={input.bodySlotName ?? "app-main-content-body"}
+				>
+					{input.children}
+				</ScrollArea>
+			) : (
+				<div
+					className={cn(
+						"min-h-0 flex-1",
+						"overflow-hidden",
+						input.bodyClassName
+					)}
+					data-slot={input.bodySlotName ?? "app-main-content-body"}
+				>
+					{input.children}
+				</div>
+			)}
 		</section>
 	);
 }

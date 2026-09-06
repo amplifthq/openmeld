@@ -212,7 +212,7 @@ describe("Center Agent member research contracts", () => {
     ).toBe(false);
   });
 
-  it("accepts attributable Slack messages and read-only connected App artifacts as work evidence", () => {
+  it("accepts attributable Slack messages and read-only connected Plugin artifacts as work evidence", () => {
     expect(
       centerAgentMemberResearchReportSchema.safeParse({
         collaborationGuidance: [],

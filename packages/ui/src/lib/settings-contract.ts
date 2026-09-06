@@ -102,6 +102,8 @@ export type SettingsSectionProps = {
   title: string;
   description?: string;
   className?: string;
+  /** Optional help or context immediately beside the section title. */
+  titleAdornment?: ReactNode;
   /** Optional section-level status (e.g. an "unsaved changes" / error banner). */
   status?: SettingsFieldStatus;
   children: ReactNode;

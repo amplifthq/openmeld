@@ -184,7 +184,7 @@ describe("remote agent system prompt", () => {
     );
     expect(prompt).not.toContain("You are the hosted Center Agent Runtime.");
     expect(prompt).toContain(
-      "Apps provide scoped external data or actions; they are capabilities, not execution runtimes."
+      "Plugins provide scoped external data or actions; they are capabilities, not execution runtimes."
     );
     expect(prompt).toContain(
       "Channels are conversation and result surfaces; a connected Channel does not grant the provider's wider App capabilities."

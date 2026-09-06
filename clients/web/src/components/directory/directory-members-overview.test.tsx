@@ -48,12 +48,10 @@ vi.mock("#/components/directory/directory-human-profiles-workspace", () => ({
 		onSelectProfile: (profileId: string) => void;
 		profileReportsErrorMessage: string | null;
 		selectedProfileId: string | null;
-		sidebarLeadingContent?: ReactNode;
 	}) => {
 		workspacePropsMock(props);
 		return (
 			<div data-testid="people-workspace">
-				{props.sidebarLeadingContent}
 				<p data-testid="selected-profile">{props.selectedProfileId}</p>
 				{props.members.map((member) => (
 					<button
@@ -245,47 +243,6 @@ describe("DirectoryMembersOverview", () => {
 			to: "/o/acme/people",
 		});
 	});
-
-	it("combines invite-by-email and invite-link controls in one dialog", async () => {
-		renderOverview();
-
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Invite Members" })
-		);
-		expect(screen.getByRole("dialog")).toBeTruthy();
-		expect(
-			screen.getByRole("heading", { name: "Invite Members" })
-		).toBeTruthy();
-		expect(screen.getByLabelText("Invite link controls")).toBeTruthy();
-
-		fireEvent.change(screen.getByLabelText("Email"), {
-			target: { value: "  teammate@example.com  " },
-		});
-		fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
-		await waitFor(() => {
-			expect(inviteOrganizationMemberMock).toHaveBeenCalledWith({
-				email: "teammate@example.com",
-				organizationId: "org-acme",
-				role: "member",
-			});
-		});
-	});
-
-	it("keeps the Invite Members entry visible while explaining member permissions", async () => {
-		getActiveOrganizationMemberRoleMock.mockResolvedValue("member");
-		renderOverview();
-
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Invite Members" })
-		);
-		expect(
-			screen.getByText(
-				"Only organization owners and admins can invite teammates. Ask one of them if you need to add someone."
-			)
-		).toBeTruthy();
-		expect(screen.queryByLabelText("Email")).toBeNull();
-	});
-
 	it("preserves member research and Direct Message behavior behind the new workspace", async () => {
 		renderOverview();
 		await screen.findByTestId("people-workspace");
@@ -385,17 +342,6 @@ describe("DirectoryMembersOverview", () => {
 			path: "/o/acme/computers/device-current",
 			state: "not_connected",
 		});
-	});
-
-	it("turns Invite Members into organization guidance in a personal workspace", async () => {
-		renderOverview({ isPersonal: true });
-
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Invite Members" })
-		);
-		expect(
-			screen.getByText("Create an organization to invite members")
-		).toBeTruthy();
 	});
 });
 

@@ -176,11 +176,11 @@ const CENTER_AGENT_ACTION_PRESENTATION = {
 	},
 	disconnect_shared_app: {
 		icon: XCircleIcon,
-		label: "Disconnected shared App",
+		label: "Disconnected shared Plugin",
 	},
 	start_shared_app_authorization: {
 		icon: LinkIcon,
-		label: "Started shared App authorization",
+		label: "Started shared Plugin authorization",
 	},
 	set_agent_profile_default_project: {
 		icon: FolderOpenIcon,

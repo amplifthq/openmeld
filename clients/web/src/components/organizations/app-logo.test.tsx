@@ -1,11 +1,11 @@
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { AppLogo } from "#/components/organizations/app-logo";
 import {
-	GITHUB_APP,
+	GITHUB_PLUGIN,
 	LARK_CHANNEL_IDENTITY,
 	SLACK_CHANNEL_IDENTITY,
-} from "#/components/organizations/app-catalog";
-import { AppLogo } from "#/components/organizations/app-logo";
+} from "#/components/organizations/plugin-catalog";
 
 describe("AppLogo", () => {
 	it("gives Message Channel marks consistent room without changing the outer logo size", () => {
@@ -13,7 +13,7 @@ describe("AppLogo", () => {
 			<>
 				<AppLogo app={SLACK_CHANNEL_IDENTITY} size="md" />
 				<AppLogo app={LARK_CHANNEL_IDENTITY} size="md" />
-				<AppLogo app={GITHUB_APP} size="md" />
+				<AppLogo app={GITHUB_PLUGIN} size="md" />
 			</>
 		);
 		const { getByTestId } = within(container);
@@ -35,7 +35,7 @@ describe("AppLogo", () => {
 			<>
 				<AppLogo app={SLACK_CHANNEL_IDENTITY} size="md" />
 				<AppLogo app={LARK_CHANNEL_IDENTITY} size="md" />
-				<AppLogo app={GITHUB_APP} size="md" />
+				<AppLogo app={GITHUB_PLUGIN} size="md" />
 			</>
 		);
 		const { getByTestId } = within(container);

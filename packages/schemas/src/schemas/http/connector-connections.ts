@@ -145,14 +145,14 @@ export const createConnectorAppRequestBodySchema = z
       context.addIssue({
         code: "custom",
         message:
-          "A catalog App request requires its OpenConnector provider ID.",
+          "A catalog Plugin request requires its OpenConnector provider ID.",
         path: ["providerId"],
       });
     }
     if (input.source === "freeform" && input.providerId != null) {
       context.addIssue({
         code: "custom",
-        message: "A freeform App request cannot include a provider ID.",
+        message: "A freeform Plugin request cannot include a provider ID.",
         path: ["providerId"],
       });
     }

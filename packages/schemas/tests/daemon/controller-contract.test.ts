@@ -26,7 +26,7 @@ describe("daemon controller contract schema", () => {
     expect(result.data.retry).toBe(0);
   });
 
-  it("accepts controller settings for Codex App Server transport", () => {
+  it("accepts controller settings for Codex Plugin Server transport", () => {
     const result = runtimeAgentControllerSettingsSchema.safeParse({
       transport_mode: "codex-app-server",
       context_id_mapping_spec: {

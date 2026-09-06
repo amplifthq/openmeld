@@ -68,6 +68,48 @@ describe("useSpaceUnread", () => {
 		expect(onViewedThroughTs).toHaveBeenCalledWith(40);
 	});
 
+	it("does not postpone a visible read when the parent rerenders with a new callback", async () => {
+		const persist = vi.fn().mockResolvedValue(undefined);
+		const { rerender } = renderHook(() =>
+			useSpaceUnread({
+				envelopes: [textSignal(40)],
+				isReady: true,
+				isViewingLatest: true,
+				onViewedThroughTs: (throughTs) => persist(throughTs),
+				spaceId: "space-1",
+				targets: [],
+			})
+		);
+		for (let iteration = 0; iteration < 4; iteration += 1) {
+			await act(async () => vi.advanceTimersByTime(200));
+			rerender();
+		}
+		expect(persist).toHaveBeenCalledExactlyOnceWith(40);
+	});
+
+	it("waits for access confirmation and cancels a pending read if confirmation is withdrawn", async () => {
+		const persist = vi.fn().mockResolvedValue(undefined);
+		const { rerender } = renderHook(
+			({ confirmed }) =>
+				useSpaceUnread({
+					envelopes: [textSignal(40)],
+					isReady: true,
+					isViewingLatest: true,
+					onViewedThroughTs: confirmed ? persist : undefined,
+					spaceId: "space-1",
+					targets: [],
+				}),
+			{ initialProps: { confirmed: true } }
+		);
+		await act(async () => vi.advanceTimersByTime(400));
+		rerender({ confirmed: false });
+		await act(async () => vi.advanceTimersByTime(1000));
+		expect(persist).not.toHaveBeenCalled();
+		rerender({ confirmed: true });
+		await act(async () => vi.advanceTimersByTime(800));
+		expect(persist).toHaveBeenCalledExactlyOnceWith(40);
+	});
+
 	it("cancels read-through when the page becomes hidden", () => {
 		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
 		renderHook(() =>

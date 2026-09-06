@@ -255,7 +255,7 @@ describe("Slack direct messages", () => {
             action_id: "open_openmeld_github_settings",
             text: { text: "Connect GitHub", type: "plain_text" },
             type: "button",
-            url: "https://openmeld.test/o/acme/center-agent/apps/github",
+            url: "https://openmeld.test/o/acme/center-agent/plugins/github",
           },
         ],
         type: "actions",

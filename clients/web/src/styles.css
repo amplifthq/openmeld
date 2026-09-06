@@ -264,24 +264,6 @@ html[data-space-self-message-alignment="left"]
 }
 
 @layer base {
-  ::-webkit-scrollbar {
-    width: 5px;
-  }
-
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: var(--radius);
-  }
-
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
-  }
-
   .landing-display-tight {
     letter-spacing: -0.055em !important;
   }

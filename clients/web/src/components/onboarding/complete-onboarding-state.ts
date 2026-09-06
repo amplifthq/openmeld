@@ -1,13 +1,12 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { findAppDefinition } from "#/components/organizations/app-catalog";
+import { findPluginDefinition } from "#/components/organizations/plugin-catalog";
 import { resolveCurrentLocalRuntime } from "#/lib/connect/current-local-runtime";
 import { listOrganizationInvitations } from "#/lib/organizations/auth-organizations";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import { localRuntimesQueryOptions } from "#/query/connect/local-runtimes";
-import { organizationAppConnectionCatalogQueryOptions } from "#/query/organizations/app-connections";
 import {
 	centerAgentDesignationQueryOptions,
 	centerAgentMemoryPolicyQueryOptions,
@@ -17,6 +16,7 @@ import {
 	organizationMemberRoleQueryOptions,
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
+import { organizationPluginConnectionCatalogQueryOptions } from "#/query/organizations/plugin-connections";
 
 export type CompleteOnboardingState = {
 	appNames: string[];
@@ -61,7 +61,7 @@ export function useCompleteOnboardingState(input: {
 		enabled: loadTeamState,
 	});
 	const appsQuery = useQuery({
-		...organizationAppConnectionCatalogQueryOptions({
+		...organizationPluginConnectionCatalogQueryOptions({
 			organizationId: currentOrganization.id,
 			queryClient,
 		}),
@@ -108,7 +108,7 @@ export function useCompleteOnboardingState(input: {
 				.filter((connection) => connection.status === "active")
 				.map(
 					(connection) =>
-						findAppDefinition(connection.service)?.name ?? connection.service
+						findPluginDefinition(connection.service)?.name ?? connection.service
 				)
 		),
 	];

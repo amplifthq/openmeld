@@ -993,6 +993,7 @@ export type SpaceLandingController =
 			composerText: string;
 			ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 			presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
+			ownActiveWakesHaveMore: boolean;
 			hasEarlierHistory: boolean;
 			historyActionErrorMessage: string | null;
 			historyError: StructuredApiClientFailure | null;
@@ -1312,6 +1313,16 @@ export function useSpaceLandingController(input: {
 				input.profileId.trim().length > 0 && input.spaceId.trim().length > 0,
 			spaceId: input.spaceId,
 			openMeldProfileId: input.profileId,
+		})
+	);
+	const ownActiveWakeProgressQuery = useQuery(
+		spaceActiveWakeProgressSummaryQueryOptions({
+			enabled: [input.profileId, input.spaceId].every(
+				(value) => value.trim().length > 0
+			),
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+			sourceProfileId: input.profileId,
 		})
 	);
 	useEffect(() => {
@@ -1800,10 +1811,15 @@ export function useSpaceLandingController(input: {
 			mergeActiveWakeProgressPresentation({
 				detailedItems: wakeProgressItems,
 				signals: timelineEnvelopes,
-				summaryItems: activeWakeProgressSummaryQuery.data?.items ?? [],
+				summaryItems: mergeWakeProgressItemState({
+					currentItems: activeWakeProgressSummaryQuery.data?.items ?? [],
+					incomingItems: ownActiveWakeProgressQuery.data?.items ?? [],
+					signals: timelineEnvelopes,
+				}),
 			}),
 		[
 			activeWakeProgressSummaryQuery.data?.items,
+			ownActiveWakeProgressQuery.data?.items,
 			timelineEnvelopes,
 			wakeProgressItems,
 		]
@@ -2119,6 +2135,8 @@ export function useSpaceLandingController(input: {
 		composerText: mentionAuthoring.composerText,
 		ephemeralActivityItems: presentedWakeProgressItems,
 		presentedWakeProgressItems,
+		ownActiveWakesHaveMore:
+			ownActiveWakeProgressQuery.data?.pageInfo?.hasMore === true,
 		hasEarlierHistory,
 		historyActionErrorMessage,
 		historyError,
@@ -3382,25 +3400,25 @@ function useSpaceThreadController(input: {
 		const messageCreatedAtMs = Date.now();
 		const activationTargets =
 			sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
-		appendPendingOutgoingSignal(
-			setPendingOutgoingSignals,
-			createPendingOutgoingSignal({
-				clientMessageId,
-				createdAtMs: messageCreatedAtMs,
-				files: sendInput.files,
-				filePreviewUrlsById: sendInput.filePreviewUrlsById,
-				membersSnapshot: input.membersSnapshot,
-				messageEnvelope: sendInput.preparedSubmission.messageEnvelope,
-				profileId: input.profileId,
-				spaceId: input.spaceId,
-				text: sendInput.preparedSubmission.text,
-			})
-		);
+		const pendingSignal = createPendingOutgoingSignal({
+			clientMessageId,
+			createdAtMs: messageCreatedAtMs,
+			files: sendInput.files,
+			filePreviewUrlsById: sendInput.filePreviewUrlsById,
+			membersSnapshot: input.membersSnapshot,
+			messageEnvelope: sendInput.preparedSubmission.messageEnvelope,
+			profileId: input.profileId,
+			spaceId: input.spaceId,
+			text: sendInput.preparedSubmission.text,
+		});
+		appendPendingOutgoingSignal(setPendingOutgoingSignals, pendingSignal);
 		const sendingWakeProgressItems = buildLocalWakeProgressItems({
 			activationTargets,
 			clientMessageId,
 			membersSnapshot: input.membersSnapshot,
 			phase: "sending",
+			sourceSignal: pendingSignal.signal,
+			threadId: sendInput.thread.threadId,
 			updatedAtMs: messageCreatedAtMs,
 		});
 		setWakeProgressItems((currentItems) =>
@@ -3462,6 +3480,7 @@ function useSpaceThreadController(input: {
 				membersSnapshot: input.membersSnapshot,
 				phase: "request_sent",
 				sourceSignal: response.signal,
+				threadId: sendInput.thread.threadId,
 				updatedAtMs: Math.max(response.signal.ts, Date.now()),
 			});
 			setWakeProgressItems((currentItems) =>

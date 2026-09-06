@@ -9,7 +9,7 @@ import {
 } from "./center-agent-self-evolution";
 
 describe("Center Agent Self-Evolution", () => {
-	it("qualifies only active Apps and a connected Slack workspace as learning sources", () => {
+	it("qualifies only active Plugins and a connected Slack workspace as learning sources", () => {
 		expect(
 			buildCenterAgentSelfEvolutionSources({
 				appConnections: [
@@ -131,7 +131,7 @@ describe("Center Agent Self-Evolution", () => {
 			"Do not create, edit, pause, resume, or delete Routines"
 		);
 		expect(body.instructions).toContain(
-			"Do not write to any selected App or Message Channel except for the configured Slack team report"
+			"Do not write to any selected Plugin or Message Channel except for the configured Slack team report"
 		);
 		expect(body.instructions).toContain(
 			"authorized Slack channel, member, and history read tools"

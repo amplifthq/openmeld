@@ -38,7 +38,7 @@ export async function listCurrentOrganizationConnectorConnections(input: {
 		const response = await createConnectorApiFoundation(
 			input.organizationId
 		).requestJson({
-			invalidMessage: "Invalid App connection response.",
+			invalidMessage: "Invalid Plugin connection response.",
 			method: "GET",
 			operation: `connector.${input.service}.connections.list`,
 			schema: connectorConnectionListResponseSchema,
@@ -63,7 +63,7 @@ export async function listCurrentOrganizationAppConnections(input: {
 		const response = await createConnectorApiFoundation(
 			input.organizationId
 		).requestJson({
-			invalidMessage: "Invalid App connection response.",
+			invalidMessage: "Invalid Plugin connection response.",
 			method: "GET",
 			operation: "connector.connections.catalog",
 			schema: connectorConnectionListResponseSchema,
@@ -88,7 +88,7 @@ export async function listCurrentOrganizationConnectorAppRequests(input: {
 		const response = await createConnectorApiFoundation(
 			input.organizationId
 		).requestJson({
-			invalidMessage: "Invalid App request response.",
+			invalidMessage: "Invalid Plugin request response.",
 			method: "GET",
 			operation: "connector.requests.list",
 			schema: connectorAppRequestListResponseSchema,
@@ -113,7 +113,7 @@ export async function listCurrentOrganizationConnectorAppCatalog(input: {
 		const response = await createConnectorApiFoundation(
 			input.organizationId
 		).requestJson({
-			invalidMessage: "Invalid App catalog response.",
+			invalidMessage: "Invalid Plugin catalog response.",
 			method: "GET",
 			operation: "connector.catalog.providers",
 			schema: connectorAppCatalogResponseSchema,
@@ -145,7 +145,7 @@ export async function createCurrentOrganizationConnectorAppRequest(
 				useCase: input.useCase,
 			}),
 			headers: { "content-type": "application/json" },
-			invalidMessage: "Invalid App request response.",
+			invalidMessage: "Invalid Plugin request response.",
 			method: "POST",
 			operation: "connector.requests.create",
 			schema: connectorAppRequestResponseSchema,
@@ -213,7 +213,7 @@ export async function disconnectSharedOrganizationConnectorConnection(input: {
 
 export function resolveConnectorConnectionErrorMessage(
 	error: unknown,
-	appName = "App"
+	appName = "Plugin"
 ): string {
 	const failure = toStructuredApiClientFailure(error);
 	if (failure.status === 401) {
@@ -317,7 +317,7 @@ async function startConnectorAuthorization(input: {
 		const response = await createConnectorApiFoundation(
 			input.organizationId
 		).requestJson({
-			invalidMessage: "Invalid App authorization response.",
+			invalidMessage: "Invalid Plugin authorization response.",
 			method: "POST",
 			operation: `connector.${input.service}.${input.scope}_authorization.start`,
 			schema: connectorAuthorizationStartResponseSchema,
@@ -356,7 +356,7 @@ async function connectConnectorCredential(input: {
 				values: input.values,
 			}),
 			headers: { "content-type": "application/json" },
-			invalidMessage: "Invalid App credential response.",
+			invalidMessage: "Invalid Plugin credential response.",
 			method: "POST",
 			operation: `connector.${input.service}.${input.scope}_credential.connect`,
 			schema: connectorCredentialConnectResponseSchema,
@@ -392,7 +392,7 @@ async function disconnectConnectorConnection(input: {
 		const response = await createConnectorApiFoundation(
 			input.organizationId
 		).requestJson({
-			invalidMessage: "Invalid App disconnect response.",
+			invalidMessage: "Invalid Plugin disconnect response.",
 			method: "DELETE",
 			operation: `connector.${input.service}.${input.scope}_connection.disconnect`,
 			schema: connectorDisconnectResponseSchema,
@@ -432,7 +432,7 @@ function requireMatchingOrganization(
 	expectedOrganizationId: string
 ): void {
 	if (actualOrganizationId !== expectedOrganizationId) {
-		throw Object.assign(new Error("App response Organization mismatch."), {
+		throw Object.assign(new Error("Plugin response Organization mismatch."), {
 			upstreamCode: CONNECTOR_ORGANIZATION_CONTEXT_CHANGED_CODE,
 		});
 	}
@@ -440,7 +440,7 @@ function requireMatchingOrganization(
 
 function requireUserId(userId: string | undefined): string {
 	if (!userId) {
-		throw new Error("The App connection owner is missing.");
+		throw new Error("The Plugin connection owner is missing.");
 	}
 	return userId;
 }

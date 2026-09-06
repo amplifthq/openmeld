@@ -23,7 +23,7 @@ describe("CompleteOnboardingStep", () => {
 		expect(screen.getByText("Workspace memory is on")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Your Center Agent can remember useful context from your Spaces and connected Apps."
+				"Your Center Agent can remember useful context from your Spaces and connected Plugins."
 			)
 		).toBeTruthy();
 	});

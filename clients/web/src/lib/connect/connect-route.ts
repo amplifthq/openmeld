@@ -46,7 +46,7 @@ export const DEFAULT_CONNECT_ROUTE_INTENT: ConnectRouteIntent = {
 };
 
 // Canonical "Connect this computer" entry point. This is the official
-// App Connect URL builder used by live Agents, Spaces, and profile surfaces.
+// Plugin Connect URL builder used by live Agents, Spaces, and profile surfaces.
 export function buildConnectComputerPath(input?: {
 	connectedComputerId?: string;
 	orgSlug?: string;

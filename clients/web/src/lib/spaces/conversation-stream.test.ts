@@ -140,7 +140,7 @@ describe("space conversation stream state", () => {
 		).toBe(false);
 	});
 
-	it("does not let compatibility-only App work consume the live work budget", () => {
+	it("does not let compatibility-only Plugin work consume the live work budget", () => {
 		let state: SpaceConversationStreamState = [];
 		for (let index = 0; index < 50; index += 1) {
 			state = applySpaceConversationStreamFrame({

@@ -11,6 +11,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	resolveStatusToneBadgeClassName,
 	type StatusTone,
@@ -238,10 +239,12 @@ export function SpaceMessageDetailsDrawer(input: {
 								</Drawer.Close>
 							</div>
 						</header>
-						<div
-							className="min-h-0 flex-1 select-text overflow-y-auto px-5 py-5"
+						<ScrollArea
+							className="min-h-0 flex-1"
+							contentClassName="select-text px-5 py-5"
 							data-testid="message-details-scroll-area"
 							data-vaul-no-drag
+							orientation="vertical"
 						>
 							<MessageDetailsBody
 								agentRecoveryPlansByProfileId={
@@ -289,7 +292,7 @@ export function SpaceMessageDetailsDrawer(input: {
 								wakeProgressEntries={input.wakeProgressEntries ?? []}
 								wakeStopTarget={input.wakeStopTarget ?? null}
 							/>
-						</div>
+						</ScrollArea>
 					</div>
 				</Drawer.Content>
 			</Drawer.Portal>
@@ -673,6 +676,9 @@ function ExpandableActivityDescription(input: {
 
 	return (
 		<div className="mt-1.5">
+			{input.preserveFullDescription ? (
+				<p className="mb-1 text-muted-foreground text-xs">Recorded outcome</p>
+			) : null}
 			<p
 				className={cn(
 					"whitespace-pre-wrap break-words text-sm leading-6",
@@ -971,10 +977,14 @@ function resolveNoticeRecoveryPresentation(input: {
 			input.targetLabel ??
 			"This agent")
 		: (input.targetLabel ?? "This agent");
-	const body = resolveHistoricalWakeFailureBody({
-		failureReasonCode: reasonCode,
-		targetLabel,
-	});
+	// The published notice owns the historical explanation. Current recovery
+	// eligibility may supply an action, but must not replace the recorded cause.
+	const body =
+		input.notice.text.trim() ||
+		resolveHistoricalWakeFailureBody({
+			failureReasonCode: reasonCode,
+			targetLabel,
+		});
 	return { action: currentAction, body };
 }
 

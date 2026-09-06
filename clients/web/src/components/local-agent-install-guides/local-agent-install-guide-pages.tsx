@@ -1,5 +1,6 @@
 import { buttonVariants } from "@openmeld/ui/components/button";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { Link } from "@tanstack/react-router";
 import { PublicPageHeader } from "#/components/app/public-page-header";
 import {
@@ -191,9 +192,11 @@ export function LocalAgentInstallGuideDetailPage({
 								<p className="mt-4 text-muted-foreground leading-6">
 									Run this command in Terminal:
 								</p>
-								<code className="mt-3 block overflow-x-auto whitespace-nowrap rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-foreground text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-									{guide.verifyCommand}
-								</code>
+								<ScrollArea className="" orientation="horizontal">
+									<code className="mt-3 block whitespace-nowrap rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-foreground text-xs">
+										{guide.verifyCommand}
+									</code>
+								</ScrollArea>
 							</section>
 						) : null}
 

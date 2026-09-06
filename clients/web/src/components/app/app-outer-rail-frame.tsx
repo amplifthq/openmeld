@@ -1,47 +1,49 @@
 "use client";
 
-import { Sidebar, SidebarProvider } from "@openmeld/ui/components/sidebar";
+import { Sidebar } from "@openmeld/ui/fluid/sidebar";
+import type {
+	SidebarGeometry,
+	SidebarMode,
+} from "@openmeld/ui/fluid/sidebar-state";
+import { SidebarProvider, useSidebar } from "@openmeld/ui/fluid/sidebar-state";
 import type { ReactNode } from "react";
-import {
-	OUTER_SIDEBAR_COMPACT_WIDTH,
-	OUTER_SIDEBAR_MAX_WIDTH,
-	OUTER_SIDEBAR_MIN_WIDTH,
-	type SidebarPersistedState,
-} from "#/lib/sidebar-width-cookie";
-
-const APP_OUTER_RAIL_COLLAPSED_WIDTH = "3.25rem";
+import type { SidebarPersistedState } from "#/lib/sidebar-width-cookie";
 
 export function AppOuterRailFrame(input: {
 	ariaHidden?: boolean;
-	children: ReactNode;
-	onCompactChange?: (compact: boolean) => void;
-	onOpenChange?: (open: boolean) => void;
-	onWidthChange?: (width: string) => void;
+	children: ReactNode | ((mode: SidebarMode) => ReactNode);
+	onGeometryChange?: (geometry: SidebarGeometry) => void;
+	static?: boolean;
 	state: SidebarPersistedState;
 	testId?: string;
 }) {
+	const width =
+		Number.parseFloat(input.state.width) *
+		(input.state.width.endsWith("rem") ? 16 : 1);
 	return (
 		<SidebarProvider
-			collapsedWidth={APP_OUTER_RAIL_COLLAPSED_WIDTH}
-			compact={input.state.tier === "compact"}
-			compactWidth={OUTER_SIDEBAR_COMPACT_WIDTH}
-			maxWidth={OUTER_SIDEBAR_MAX_WIDTH}
-			minWidth={OUTER_SIDEBAR_MIN_WIDTH}
-			onCompactChange={input.onCompactChange}
-			onOpenChange={input.onOpenChange}
-			onWidthChange={input.onWidthChange}
-			open={input.state.tier !== "collapsed"}
-			side="left"
-			width={input.state.width}
+			geometry={{ mode: input.state.tier, width }}
+			inert={input.ariaHidden || undefined}
+			onGeometryChange={input.onGeometryChange ?? (() => undefined)}
+			static={input.static}
 		>
 			<Sidebar
 				aria-hidden={input.ariaHidden || undefined}
-				className="border-r-0 bg-transparent text-sidebar-foreground"
+				className="text-sidebar-foreground"
 				data-slot="app-outer-rail"
 				data-testid={input.testId ?? "app-outer-rail"}
 			>
-				{input.children}
+				<SidebarContents>{input.children}</SidebarContents>
 			</Sidebar>
 		</SidebarProvider>
 	);
+}
+
+function SidebarContents({
+	children,
+}: {
+	children: ReactNode | ((mode: SidebarMode) => ReactNode);
+}) {
+	const { state } = useSidebar();
+	return typeof children === "function" ? children(state) : children;
 }
