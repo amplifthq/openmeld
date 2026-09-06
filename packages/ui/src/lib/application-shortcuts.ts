@@ -18,6 +18,7 @@ export const APPLICATION_SHORTCUTS = {
     p: "people",
     a: "agents",
     i: "inbox",
+    c: "computers",
   },
 } as const;
 

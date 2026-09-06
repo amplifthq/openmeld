@@ -27,6 +27,7 @@ it.each([
 	["p", "/o/acme/people"],
 	["a", "/o/acme/agents"],
 	["i", "/o/acme/inbox"],
+	["c", "/o/acme/computers"],
 ])("navigates with g then %s", (key, to) => {
 	renderHook(() => useAppKeyboardShortcuts(vi.fn()));
 	fireEvent.keyDown(window, { key: "g" });

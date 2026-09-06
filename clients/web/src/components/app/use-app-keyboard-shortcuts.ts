@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAgentsPath,
+	buildOrganizationComputersPath,
 	buildOrganizationDefaultPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationInboxPath,
@@ -21,6 +22,7 @@ const routes = {
 	people: buildOrganizationPeoplePath,
 	agents: buildOrganizationAgentsPath,
 	inbox: buildOrganizationInboxPath,
+	computers: buildOrganizationComputersPath,
 };
 
 function isCommandShortcut(event: KeyboardEvent) {
