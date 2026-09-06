@@ -336,8 +336,10 @@ describe("SpaceHeader", () => {
 		expect(dialog.className).toContain("max-h-[min(42rem,calc(100dvh-2rem))]");
 		expect(dialog.className).toContain("overflow-hidden");
 		expect(
-			screen.getByTestId("space-info-dialog-scroll-area").className
-		).toContain("overflow-y-auto");
+			screen
+				.getByTestId("space-info-dialog-scroll-area")
+				.querySelector('[data-slot="scroll-area-viewport"]')
+		).toBeTruthy();
 		expect(screen.getByText("Space information")).toBeTruthy();
 		expect(screen.getByText("Space ID")).toBeTruthy();
 		expect(screen.getByText("space-123")).toBeTruthy();
@@ -465,8 +467,10 @@ describe("SpaceHeader", () => {
 		expect(dialog.className).toContain("max-h-[min(42rem,calc(100dvh-2rem))]");
 		expect(dialog.className).toContain("overflow-hidden");
 		expect(
-			within(dialog).getByTestId("space-share-dialog-scroll-area").className
-		).toContain("overflow-y-auto");
+			within(dialog)
+				.getByTestId("space-share-dialog-scroll-area")
+				.querySelector('[data-slot="scroll-area-viewport"]')
+		).toBeTruthy();
 		expect(within(dialog).getByText("Share Space")).toBeTruthy();
 		expect(
 			within(dialog).getByRole("radio", { name: SHARE_PUBLIC_MODE_LABEL_TEXT })
