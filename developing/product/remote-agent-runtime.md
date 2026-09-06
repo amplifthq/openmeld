@@ -92,6 +92,11 @@ not converted to running state. Start returns a bounded initial output slice.
 When the model ends with unfinished commands, terminal handling requests their
 stop and reports failure rather than claiming the work completed. This is a
 command lifecycle contract, not proof that Computer image updates are safe.
+The retained PID runs Tini with process-group signal forwarding, so cancellation
+reaches shell children and pipelines belonging to that command. Each command
+gets its own process group on the shared Computer. No parallel PID registry is
+introduced. Terminal cleanup still attempts every owned command when output
+inspection fails; an output transport error must not strand an active process.
 
 The hosted runtime is normally always available, but the Organization creator
 has one explicit emergency control: **Pause Center Agent**. Pause is not a

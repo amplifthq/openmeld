@@ -93,6 +93,15 @@ requests cleanup and fails the execution if commands were left unfinished or
 their outcome cannot be verified. These are execution receipts, not a new Task
 or a separate Computer per chat. Real restart and stop smoke remains required.
 
+The container installs Tini. Retained commands replace computerd's outer shell
+with `tini -s -g`, so its native PID forwards cancellation to that command's
+process group, including shell children and pipelines. Keep the image and
+command launcher changes together. Verify the real Linux process boundary with
+`node --experimental-strip-types services/remote-agent/scripts/verify-computer-command-process.mjs <local-image>`
+from the repository root. `--baseline` reproduces the unwrapped shell behavior
+in a disposable, network-disabled container. The check also proves a concurrent
+peer survives cancellation and compound commands preserve quoting and exit codes.
+
 Local runtime recovery is not proof of an uninterrupted deployment. Before
 production, verify the real staging deployment handoff, pending external tools
 and delegation, session context continuity, and shared Computer behavior.

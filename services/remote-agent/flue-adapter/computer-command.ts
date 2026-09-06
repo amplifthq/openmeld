@@ -28,6 +28,7 @@ import {
   type AgentComputerWorkspaceAccess,
   createAgentComputerWorkspaceAccess,
 } from "./agent-computer-workspace-access";
+import { buildComputerCommandProcess } from "./computer-command-process";
 import { buildAgentComputerName } from "./computer-identity";
 import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace";
 
@@ -170,13 +171,16 @@ export function createComputerCommandTool(input: {
           }
           // Persist identity before dispatch. An uncertain spawn must be inspected,
           // never replayed: even a missing retained handle cannot prove no effect.
-          const handle = await workspace.runtime.exec(request.command, {
-            id: command.id,
-            backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-            cwd: input.workingDirectory,
-            encoding: "utf8",
-            timeoutMs: (request.timeoutSeconds ?? 300) * 1000,
-          });
+          const handle = await workspace.runtime.exec(
+            buildComputerCommandProcess(request.command),
+            {
+              id: command.id,
+              backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+              cwd: input.workingDirectory,
+              encoding: "utf8",
+              timeoutMs: (request.timeoutSeconds ?? 300) * 1000,
+            }
+          );
           let result: CommandResult;
           try {
             result = await readCommandSlice(
