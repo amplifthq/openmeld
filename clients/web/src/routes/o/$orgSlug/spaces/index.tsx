@@ -14,9 +14,12 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
+	HashIcon,
+	PlusIcon,
 	PushPinIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
@@ -527,12 +530,59 @@ type SpaceIndexContentStateInput = {
 };
 
 function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
-	const body = resolveSpaceIndexBody(input);
+	const [tab, setTab] = useState(0);
+	const body = resolveSpaceIndexBody(input, tab);
 
-	return <AppMainContent>{body}</AppMainContent>;
+	return (
+		<AppMainContent
+			header={
+				<div className="flex h-full flex-col px-4">
+					<div className="flex min-h-0 flex-1 items-center justify-between gap-4">
+						<h1 className="flex items-center gap-3 font-semibold text-base">
+							<HashIcon className="size-4 text-muted-foreground" />
+							Spaces
+						</h1>
+						<Link
+							className={buttonVariants({ size: "sm" })}
+							to={buildOrganizationNewSpacePath(input.orgSlug)}
+						>
+							<PlusIcon />
+							New Space
+						</Link>
+					</div>
+					<TabsSubtle
+						aria-label="Spaces view"
+						className="h-9 shrink-0 gap-5"
+						idPrefix="spaces-directory"
+						onSelect={setTab}
+						selectedIndex={tab}
+						variant="underline"
+					>
+						<TabsSubtleItem
+							index={0}
+							label="Your Spaces"
+							labelClassName="text-sm"
+						/>
+						{!input.isPersonalContext && (
+							<TabsSubtleItem
+								index={1}
+								label="Discover"
+								labelClassName="text-sm"
+							/>
+						)}
+					</TabsSubtle>
+				</div>
+			}
+		>
+			{body}
+		</AppMainContent>
+	);
 }
 
-function resolveSpaceIndexBody(input: SpaceIndexContentStateInput) {
+function resolveSpaceIndexBody(
+	input: SpaceIndexContentStateInput,
+	tab: number
+) {
 	// While a one-shot activation repair is in flight (or the mismatch was just
 	// detected and the repair is about to run), show loading rather than the
 	// raw membership error that is being resolved.
@@ -615,6 +665,7 @@ function resolveSpaceIndexBody(input: SpaceIndexContentStateInput) {
 					: null
 			}
 			spaces={input.spaces}
+			tab={tab}
 			unreadBySpaceId={input.unreadBySpaceId}
 		/>
 	);
@@ -634,6 +685,7 @@ type SpaceJoinError = {
 };
 
 function SpaceIndexDirectoryState(input: {
+	tab: number;
 	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
 	activeWakeSpaceIds: ReadonlySet<string>;
 	canJoinSpaces: boolean;
@@ -687,36 +739,6 @@ function SpaceIndexDirectoryState(input: {
 				aria-labelledby="space-index-title"
 				className="mx-auto flex w-full max-w-5xl flex-col gap-6"
 			>
-				<header className="flex flex-wrap items-start justify-between gap-4">
-					<div className="max-w-2xl">
-						<p className="font-medium text-muted-foreground text-xs">
-							OpenMeld Spaces
-						</p>
-						<h1
-							className="mt-2 font-medium text-2xl text-foreground"
-							id="space-index-title"
-						>
-							Spaces
-						</h1>
-						<p className="mt-3 text-muted-foreground text-sm leading-6">
-							{input.isPersonalContext
-								? "Browse your Spaces and open the work you want to continue."
-								: "Browse Spaces in this organization. Public Spaces are open to every member; private Spaces require an invitation."}
-						</p>
-					</div>
-					{hasDirectorySpaces ? (
-						<Link
-							className={buttonVariants({
-								size: "sm",
-								variant: "outline",
-							})}
-							to={buildOrganizationNewSpacePath(input.orgSlug)}
-						>
-							New Space
-						</Link>
-					) : null}
-				</header>
-
 				{input.savedViewWarning ? (
 					<output className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-card/35 px-4 py-3">
 						<p className="text-muted-foreground text-sm">
@@ -749,28 +771,30 @@ function SpaceIndexDirectoryState(input: {
 								value={searchQuery}
 							/>
 						</div>
-						<SpaceDirectorySection
-							accountSpaceItemsById={input.accountSpaceItemsById}
-							activeWakeSpaceIds={input.activeWakeSpaceIds}
-							canJoinSpaces={input.canJoinSpaces}
-							description="Spaces you have already joined."
-							emptyMessage={
-								deferredSearchQuery
-									? "No joined Spaces match your search."
-									: "You have not joined any Spaces yet."
-							}
-							joinError={input.joinError}
-							onJoinSpace={input.onJoinSpace}
-							onTogglePinned={input.onTogglePinned}
-							orgSlug={input.orgSlug}
-							pendingJoinSpaceId={input.pendingJoinSpaceId}
-							pinActionsPending={input.pinActionsPending}
-							profileId={input.profileId}
-							spaces={joinedSpaces}
-							title="Your Spaces"
-							unreadBySpaceId={input.unreadBySpaceId}
-						/>
-						{input.isPersonalContext ? null : (
+						{input.tab === 0 && (
+							<SpaceDirectorySection
+								accountSpaceItemsById={input.accountSpaceItemsById}
+								activeWakeSpaceIds={input.activeWakeSpaceIds}
+								canJoinSpaces={input.canJoinSpaces}
+								description="Spaces you have already joined."
+								emptyMessage={
+									deferredSearchQuery
+										? "No joined Spaces match your search."
+										: "You have not joined any Spaces yet."
+								}
+								joinError={input.joinError}
+								onJoinSpace={input.onJoinSpace}
+								onTogglePinned={input.onTogglePinned}
+								orgSlug={input.orgSlug}
+								pendingJoinSpaceId={input.pendingJoinSpaceId}
+								pinActionsPending={input.pinActionsPending}
+								profileId={input.profileId}
+								spaces={joinedSpaces}
+								title="Your Spaces"
+								unreadBySpaceId={input.unreadBySpaceId}
+							/>
+						)}
+						{input.isPersonalContext || input.tab !== 1 ? null : (
 							<SpaceDirectorySection
 								accountSpaceItemsById={input.accountSpaceItemsById}
 								activeWakeSpaceIds={input.activeWakeSpaceIds}
