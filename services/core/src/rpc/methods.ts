@@ -2276,6 +2276,7 @@ export type ListAccountSpacesInput = {
   includeRecentlyDeletedItems?: boolean;
   includePurposes?: boolean;
   includeMemberPreviews?: boolean;
+  includeMessagePreviews?: boolean;
 };
 
 export type ListAccountSpaceActiveWakeSummaryInput =
@@ -18052,6 +18053,7 @@ export async function rpcListAccountSpaces(
     includeRecentlyDeletedItems: input.includeRecentlyDeletedItems === true,
     includePurposes: input.includePurposes === true,
     includeMemberPreviews: input.includeMemberPreviews === true,
+    includeMessagePreviews: input.includeMessagePreviews === true,
   });
 }
 

@@ -1,5 +1,5 @@
 diff --git a/dist/index.js b/dist/index.js
-index 68b728218a7a86764d78c96c0f72cdb02b249204..63fd1dda95ca1b50b3d32a19c75cfaf2aad2c630 100644
+index 68b728218a7a86764d78c96c0f72cdb02b249204..0e7b8ed34f2d92e59645c17228373b2571c6da36 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -1,5 +1,5 @@
@@ -63,18 +63,63 @@ index 68b728218a7a86764d78c96c0f72cdb02b249204..63fd1dda95ca1b50b3d32a19c75cfaf2
  				} finally {
  					reader.releaseLock();
  					resolveOutcome({
-@@ -5277,7 +5283,8 @@ async function rebuildExecHandle(remote, known = {}) {
- 			const activeReader = reader;
- 			reader = void 0;
- 			if (!activeReader) {
--				dispose();
-+				try { await (await remote.stream()).cancel(reason); }
-+				finally { dispose(); }
- 				return;
+@@ -5246,6 +5252,9 @@ async function rebuildExecHandle(remote, known = {}) {
+ 	let claimed;
+ 	let resultPromise;
+ 	let reader;
++	let readerPromise;
++	let cancelled = false;
++	const openReader = () => readerPromise ??= Promise.resolve(remote.stream()).then((source) => reader = decodeRuntimeEvents(source).getReader());
+ 	const stream = new ReadableStream({
+ 		pull: async (controller) => {
+ 			if (claimed === "result") {
+@@ -5254,12 +5263,14 @@ async function rebuildExecHandle(remote, known = {}) {
  			}
+ 			if (reader === void 0) {
+ 				claimed = "stream";
+-				reader = decodeRuntimeEvents(await remote.stream()).getReader();
++				await openReader();
+ 			}
++			if (cancelled) return;
  			try {
+ 				const activeReader = reader;
+ 				if (!activeReader) throw new Error("runtime stream reader was not initialized");
+ 				const { value, done } = await activeReader.read();
++				if (cancelled) return;
+ 				if (done) {
+ 					activeReader.releaseLock();
+ 					reader = void 0;
+@@ -5268,22 +5279,21 @@ async function rebuildExecHandle(remote, known = {}) {
+ 				}
+ 				controller.enqueue(value);
+ 			} catch (error) {
++				if (cancelled) return;
+ 				reader?.releaseLock();
+ 				reader = void 0;
+ 				controller.error(error);
+ 			}
+ 		},
+ 		cancel: async (reason) => {
+-			const activeReader = reader;
+-			reader = void 0;
+-			if (!activeReader) {
+-				dispose();
+-				return;
+-			}
++			cancelled = true;
++			let activeReader;
+ 			try {
++				activeReader = await openReader();
+ 				await activeReader.cancel(reason);
+ 			} finally {
+-				activeReader.releaseLock();
++				reader = void 0;
++				activeReader?.releaseLock();
+ 				dispose();
+ 			}
+ 		}
 diff --git a/dist/shared-kgWICmfl.js b/dist/shared-kgWICmfl.js
-index 03cabafe5fc18a37f0963aae4f7456b4d48ae958..4b05c5b98a6693d19d861ea3f7e9416b2815eb19 100644
+index 03cabafe5fc18a37f0963aae4f7456b4d48ae958..63bbf57eb32559480fc0421c628513c930483ca4 100644
 --- a/dist/shared-kgWICmfl.js
 +++ b/dist/shared-kgWICmfl.js
 @@ -84,11 +84,12 @@ function wrapModuleHandle(runtime, backend, id, source, encoding, resultMayUseSo

@@ -45,7 +45,7 @@ import {
 	UsersThreeIcon,
 	XIcon,
 } from "@phosphor-icons/react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
 	useCallback,
@@ -64,7 +64,6 @@ import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
-import { spaceMessagePreviewQueryOptions } from "./direct-message-preview";
 import {
 	resolveConversationTimestamp,
 	SidebarConversationTime,
@@ -152,17 +151,8 @@ export function SpaceDirectory(input: {
 		})
 	);
 	const appearances = resolveSpaceMemberAppearances(directory.data);
-	const messages = useQueries({
-		queries: items.map((item) =>
-			spaceMessagePreviewQueryOptions({
-				spaceId: item.spaceId,
-				viewerProfileId: item.openProfileId,
-				enabled: true,
-			})
-		),
-	});
 	const previews = new Map(
-		items.map((item, index) => [item.spaceId, messages[index]?.data])
+		items.map((item) => [item.spaceId, item.messagePreview])
 	);
 	const activity = new Map(
 		items.map((item) => [
@@ -260,8 +250,7 @@ export function SpaceDirectory(input: {
 	);
 	const { loading, blockingError } = resolveDirectoryLoadingState(
 		discovering,
-		sidebar,
-		messages
+		sidebar
 	);
 	const changeSection = (
 		id: string,
@@ -439,11 +428,6 @@ export function SpaceDirectory(input: {
 						<Button
 							onClick={() => {
 								sidebar.retry();
-								for (const query of messages) {
-									if (query.isError) {
-										query.refetch();
-									}
-								}
 							}}
 							variant="ghost"
 						>
@@ -585,19 +569,14 @@ export function SpaceDirectory(input: {
 
 function resolveDirectoryLoadingState(
 	discovering: boolean,
-	sidebar: ReturnType<typeof useSidebarPreferences>,
-	messages: readonly { isPending: boolean; isError: boolean; data: unknown }[]
+	sidebar: ReturnType<typeof useSidebarPreferences>
 ) {
 	if (discovering) {
 		return { loading: false, blockingError: false };
 	}
 	return {
-		loading:
-			sidebar.isPending ||
-			messages.some((query) => query.isPending && query.data === undefined),
-		blockingError:
-			(sidebar.isError && !sidebar.preferences) ||
-			messages.some((query) => query.isError && query.data === undefined),
+		loading: sidebar.isPending,
+		blockingError: sidebar.isError && !sidebar.preferences,
 	};
 }
 
@@ -760,7 +739,9 @@ function JoinedRow(input: {
 						)}
 					</span>
 					<span className="mt-1 block truncate pl-6 text-muted-foreground text-xs">
-						{input.preview?.text ?? item.spacePurpose ?? "No messages yet"}
+						{input.preview === undefined
+							? "Message preview unavailable"
+							: (input.preview?.text ?? item.spacePurpose ?? "No messages yet")}
 					</span>
 				</Link>
 				<div className="mt-1 pl-6 lg:hidden">
