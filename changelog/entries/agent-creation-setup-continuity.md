@@ -6,8 +6,9 @@ areas: ["agents"]
 audiences: ["users"]
 ---
 
-Agent creation explains how local agents run Agent profiles and returns to
-creation after computer setup. Saved computer configurations no longer imply
+Agent creation explains how local agents run Agent profiles and offers a clear
+way back to creation after computer setup. Saved computer configurations no longer imply
 a live connection, and inconclusive local-agent checks offer a retry instead
 of installation guidance. Empty Agents pages now describe personal workspaces
-and team collaboration separately.
+and team collaboration separately. Checks in progress remain distinct from
+failed checks.

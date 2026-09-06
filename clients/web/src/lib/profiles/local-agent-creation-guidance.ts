@@ -19,13 +19,16 @@ export function resolveLocalAgentCreationGuidance(input: {
 		| null
 		| undefined;
 	target: Pick<LocalRuntimeExecutionTarget, "deviceId" | "runtimeLane"> | null;
-}): "check_failed" | "connect_computer" | "set_up_local_agents" {
+}): "checking" | "check_failed" | "connect_computer" | "set_up_local_agents" {
 	if (input.queryFailed) {
 		return "check_failed";
 	}
 	const readiness = input.readiness;
 	if (input.target && !readiness) {
 		return "check_failed";
+	}
+	if (readiness?.status === "checking") {
+		return "checking";
 	}
 	if (
 		!(readiness?.service.connected && readiness.service.matchingCurrentRuntime)
@@ -40,10 +43,7 @@ export function resolveLocalAgentCreationGuidance(input: {
 	) {
 		return "check_failed";
 	}
-	if (
-		readiness.status === "checking" ||
-		readiness.nextAction === "check_status"
-	) {
+	if (readiness.nextAction === "check_status") {
 		return "check_failed";
 	}
 	return "set_up_local_agents";

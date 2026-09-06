@@ -127,7 +127,7 @@ export function AppConnectContent(input: {
 			</Link>
 			<BringAgentsSetupProvider routeIntent={routeIntent}>
 				<StartBringAgentsSetupPage
-					autoReturnOnCompletion={search.returnTo === "agent_creation"}
+					autoReturnOnCompletion={false}
 					orgSlug={orgSlug}
 					selfRoute={buildOrganizationConnectPath({ orgSlug })}
 					selfRouteSearch={resetConsumedSearch}

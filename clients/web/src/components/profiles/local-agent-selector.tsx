@@ -36,7 +36,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 	const selectedDescription = resolveSelectedChoiceDescription(selectedChoice);
 	const selectionDisabled = input.disabled || input.locked === true;
 	let heading = "Choose a local agent";
-	if (input.isResolving) {
+	if (input.isResolving || input.emptyState?.kind === "checking") {
 		heading = "Checking local agents…";
 	} else if (input.locked) {
 		heading = "Agent connected to this Session";
@@ -184,6 +184,18 @@ function LocalAgentSelectorEmptyState(input: {
 }) {
 	const emptyState = input.emptyState;
 	const className = cn("min-h-48", input.surface === "page" && "min-h-64");
+	if (emptyState?.kind === "checking") {
+		return (
+			<output
+				className={cn(className, "grid content-center gap-2 text-center")}
+			>
+				<p className="font-medium text-sm">Checking local agents…</p>
+				<p className="text-muted-foreground text-sm">
+					Waiting for this computer to report its local agents.
+				</p>
+			</output>
+		);
+	}
 	if (emptyState?.kind === "check_failed") {
 		return (
 			<ComputerSetupChoiceCard

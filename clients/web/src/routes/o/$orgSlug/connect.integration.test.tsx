@@ -167,7 +167,7 @@ describe("/o/$orgSlug/connect route", () => {
 		).toBe("/o/acme/agents/new");
 		expect(startBringAgentsSetupPageMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				autoReturnOnCompletion: true,
+				autoReturnOnCompletion: false,
 				selfRouteSearch: expect.objectContaining({
 					returnTo: "agent_creation",
 					session: undefined,

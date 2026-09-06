@@ -2563,9 +2563,9 @@ function resolveLocalAgentEmptyState(input: {
 			primaryActionHref: null,
 		};
 	}
-	if (input.guidance === "check_failed") {
+	if (input.guidance === "check_failed" || input.guidance === "checking") {
 		return {
-			kind: "check_failed",
+			kind: input.guidance,
 			centerAgentHref: input.centerAgentHref,
 			primaryActionHref: null,
 			onRetry: input.onRetry,

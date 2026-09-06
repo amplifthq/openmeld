@@ -10,6 +10,15 @@ const readiness = {
 } as const;
 
 describe("Agent creation guidance", () => {
+	it("keeps an active check distinct from a failed check", () => {
+		expect(
+			resolveLocalAgentCreationGuidance({
+				target,
+				queryFailed: false,
+				readiness: { ...readiness, status: "checking" },
+			})
+		).toBe("checking");
+	});
 	it("does not treat a saved target as a live connection", () => {
 		expect(
 			resolveLocalAgentCreationGuidance({
