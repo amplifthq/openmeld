@@ -21,7 +21,6 @@ import {
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { resolveAccountSpaceTrailingStatus } from "./account-space-sections";
-import { useSpaceMessagePreview } from "./direct-message-preview";
 import {
 	resolveConversationTimestamp,
 	SidebarConversationTime,
@@ -77,13 +76,8 @@ export function SpaceSidebarMenuItem(input: {
 			activeWakePresentation?.isWaitingForCurrentTask ?? false,
 		spaceName: input.item.spaceName,
 	});
-	const latestMessage = useSpaceMessagePreview({
-		spaceId: input.item.spaceId,
-		viewerProfileId: input.item.openProfileId,
-		enabled: !(hasActiveWake || hasUnread),
-	});
 	const timestamp = resolveConversationTimestamp(
-		latestMessage.data?.timestamp,
+		input.item.messagePreview?.timestamp,
 		input.item.spaceCreatedAt
 	);
 	return (
