@@ -309,6 +309,7 @@ function DirectMessageSidebarItem(
 				<TooltipTrigger
 					render={
 						<SidebarMenuButton
+							actionLayout="heading"
 							asChild
 							className="h-auto"
 							isActive={input.isActive}
@@ -357,7 +358,10 @@ function DirectMessageSidebarItem(
 									</span>
 								)}
 								<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-									<span className="flex min-w-0 items-center gap-2">
+									<span
+										className="flex min-w-0 items-center gap-2"
+										data-sidebar="menu-heading"
+									>
 										<CenterTruncatedText className="flex-1" text={label} />
 										{timestamp !== null && (
 											<SidebarConversationTime

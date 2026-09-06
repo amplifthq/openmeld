@@ -70,6 +70,9 @@ export const accountSpaceIndexIncludeDirectMessageProfileIdsSchema = z
   .optional();
 
 export const accountSpaceIndexQuerySchema = z.strictObject({
+  includeMessagePreviews: z
+    .preprocess((value) => value === true || value === "true", z.boolean())
+    .optional(),
   includeMemberPreviews: z
     .preprocess((value) => value === true || value === "true", z.boolean())
     .optional(),
@@ -92,6 +95,16 @@ export const accountSpaceIndexJoinedProfileSchema = z.strictObject({
 });
 
 export const accountSpaceIndexItemSchema = z.strictObject({
+  // Absent means not requested/not projected; null is a known empty conversation.
+  messagePreview: z
+    .strictObject({
+      signalId: trimmedNonEmptyStringSchema,
+      profileId: trimmedNonEmptyStringSchema,
+      timestamp: z.number().int().nonnegative(),
+      text: z.string().max(240),
+    })
+    .nullable()
+    .optional(),
   memberPreviews: z
     .array(
       z.strictObject({
