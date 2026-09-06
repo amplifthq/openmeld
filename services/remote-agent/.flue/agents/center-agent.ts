@@ -18,6 +18,7 @@ import type { Agent } from "agents";
 import {
   listRemoteAgentUsageRecords,
   type RemoteAgentCoreWorkerBinding,
+  waitForRemoteAgentCallbackContext,
 } from "../../agent-core/callback-context";
 import { callCoreRpc } from "../../agent-core/core-rpc";
 import {
@@ -57,6 +58,7 @@ import {
   emitRemoteAgentAdmissionStageEvidence,
   emitRemoteAgentExecutionStageEvidence,
 } from "../../flue-adapter/cloudflare-runtime-evidence";
+import { stopRemoteAgentComputerCommands } from "../../flue-adapter/computer-command";
 import {
   createRemoteAgentComputerCapability,
   isRemoteAgentComputerEnabled,
@@ -131,6 +133,7 @@ async function prepareCenterAgentRender() {
             context: executionContext,
             coreWorker,
             env,
+            storage,
             includeOrganizationDocuments:
               runtimeContextPlan.includeOrganizationDocuments,
           })
@@ -556,12 +559,27 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
         const request = remoteAgentWorkerCancellationRequestSchema.parse(input);
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
         const cancellation = await cancelFlueRemoteAgentExecution({
-          abortSubmission: () =>
-            abortFlueCenterAgentSubmission({
+          abortSubmission: async () => {
+            const abort = await abortFlueCenterAgentSubmission({
               conversationId: buildRemoteAgentName(request),
-              routeRequest: async (request) => await this.onRequest(request),
+              routeRequest: async (routeRequest) =>
+                await this.onRequest(routeRequest),
               submissionId: request.submissionId,
-            }),
+            });
+            const callbackContext = await waitForRemoteAgentCallbackContext({
+              storage,
+              submissionId: request.submissionId,
+              waitMs: 0,
+            });
+            if (callbackContext) {
+              await stopRemoteAgentComputerCommands({
+                context: callbackContext,
+                env: this.env,
+                storage,
+              });
+            }
+            return abort;
+          },
           identity: request,
           nowMs: Date.now(),
           reason: request.reason,

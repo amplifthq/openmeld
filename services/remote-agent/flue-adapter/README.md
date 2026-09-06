@@ -58,6 +58,17 @@ diagnostic row cannot hide upstream schema drift.
 
 ## Remaining release gates
 
+Long container commands use `computer_command` and the Computer SDK's retained
+`exec` / `getExec` / `killExec` handles. OpenMeld persists dispatch keys before
+spawn and scopes them to the exact submission. Repeating a key reconnects;
+it never respawns after an ambiguous transport failure or a lost container.
+Polling detaches after a bounded slice without killing the process. Completion
+requires an exit receipt and stream close (including the SDK's file sync).
+Cancellation requests stop only that submission's commands. Terminal handling
+requests cleanup and fails the execution if commands were left unfinished or
+their outcome cannot be verified. These are execution receipts, not a new Task
+or a separate Computer per chat. Real restart and stop smoke remains required.
+
 Local runtime recovery is not proof of an uninterrupted deployment. Before
 production, verify the real staging deployment handoff, pending external tools
 and delegation, session context continuity, and shared Computer behavior.

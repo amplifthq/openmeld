@@ -75,6 +75,18 @@ can provide.
 
 ## Center Agent operating control
 
+Long Computer commands use the native retained container execution API through
+`computer_command`; shell backgrounding is not a supported command-session
+mechanism. The runtime persists a dispatch key before spawn, scopes controls to
+the exact submission, and reconnects to the same native execution ID after a
+Worker replacement. An ambiguous spawn or lost container must never trigger an
+automatic replacement process. Polling is bounded and does not kill the command.
+Completion requires its exit receipt and completed file synchronization; a stop
+acknowledgement is only a request. The Computer remains shared across sessions.
+When the model ends with unfinished commands, terminal handling requests their
+stop and reports failure rather than claiming the work completed. This is a
+command lifecycle contract, not proof that Computer image updates are safe.
+
 The hosted runtime is normally always available, but the Organization creator
 has one explicit emergency control: **Pause Center Agent**. Pause is not a
 disconnect and does not remove the designation, profile, Binding, conversation
