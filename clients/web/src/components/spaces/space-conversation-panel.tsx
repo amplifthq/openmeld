@@ -148,7 +148,10 @@ import {
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 } from "./space-message-bubble-style";
-import { copySpaceTimelineItemWithFeedback } from "./space-message-copy";
+import {
+	copySpaceTimelineItemWithFeedback,
+	isSpaceMessageCopyPending,
+} from "./space-message-copy";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
 import {
@@ -489,6 +492,7 @@ function SpaceConversationPanelContent(
 		conversationAutoScroll,
 		conversationDefaultScrollPosition,
 		conversationScrollElement,
+		followLatest,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
 		onConversationScroll,
@@ -570,6 +574,7 @@ function SpaceConversationPanelContent(
 					>
 						<SpaceConversationSendScrollController
 							isSendingMessage={input.isSendingMessage}
+							onSendStart={followLatest}
 						/>
 						<MessageScroller className="relative min-h-0 flex-1">
 							<ConversationLatestObserver
@@ -1426,6 +1431,7 @@ function useSpaceConversationNavigationController(input: {
 		conversationAutoScroll,
 		conversationDefaultScrollPosition,
 		conversationScrollElement,
+		followLatest: conversationPosition.followLatest,
 		highlightedSignalId,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
@@ -3118,6 +3124,7 @@ function renderConversationMessageFooter(input: {
 		<SpaceMessageFooter
 			addressingTargets={addressingTargets}
 			align={input.messageAlign}
+			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={
 				messageDetailsItem
 					? {

@@ -380,9 +380,17 @@ async function commitAgentProfileBindingUpdate(input: {
 		}
 	);
 	input.context.onBindingUpdated?.(input.binding);
-	await invalidateAgentProfilePrimaryBindingEditQueries({
-		queryClient: input.context.queryClient,
-		queryKey,
-		storageScope: input.context.storageScope,
-	});
+	await Promise.all([
+		invalidateAgentProfilePrimaryBindingEditQueries({
+			queryClient: input.context.queryClient,
+			queryKey,
+			storageScope: input.context.storageScope,
+		}),
+		refreshWebAgentReadinessFacts({
+			agentProfileIds: [input.context.profile.openMeldProfileId],
+			organizationId: input.context.organizationId,
+			queryClient: input.context.queryClient,
+			storageScope: input.context.storageScope,
+		}),
+	]);
 }

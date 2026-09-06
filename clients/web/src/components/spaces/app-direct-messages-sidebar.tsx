@@ -2,7 +2,6 @@
 
 import type { OrganizationProfileDirectoryResponse } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	Tooltip,
 	TooltipContent,
@@ -22,6 +21,7 @@ import {
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
+import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
@@ -152,20 +152,7 @@ function DirectMessagesList(input: {
 	>;
 }) {
 	if (input.state === "loading") {
-		return (
-			<output className="flex flex-col gap-1">
-				<span className="sr-only">Loading Direct Messages</span>
-				{Array.from({ length: 6 }).map((_, index) => (
-					<div
-						className="flex h-10 items-center gap-2 px-2"
-						key={`direct-message-sidebar-skeleton-${String(index)}`}
-					>
-						<Skeleton className="size-6 rounded-full" />
-						<Skeleton className="h-4 flex-1" />
-					</div>
-				))}
-			</output>
-		);
+		return <SidebarListSkeleton label="Loading Direct Messages" showPreview />;
 	}
 
 	if (input.state === "load-error") {
