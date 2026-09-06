@@ -10,6 +10,19 @@ const generated = import.meta.env.DEV
 
 export const manifest = Object.values(generated)[0] ?? defaults;
 
+export function currentFixtureManifest() {
+	const data = manifest as typeof manifest & {
+		organizations?: (typeof manifest)[];
+	};
+	return (
+		data.organizations?.find(
+			(item) =>
+				typeof window !== "undefined" &&
+				window.location.pathname.startsWith(`/o/${item.organizationSlug}/`)
+		) ?? manifest
+	);
+}
+
 export function isLocalFixtureHost() {
 	return (
 		typeof window !== "undefined" &&

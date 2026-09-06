@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { isLocalFixtureHost, manifest } from "./fixture-manifest";
+import { currentFixtureManifest, isLocalFixtureHost } from "./fixture-manifest";
 
 const subscribe = () => () => {
 	/* The hydrated snapshot never changes. */
@@ -17,6 +17,7 @@ export function localAgentSidebarState(
 	profileId: string,
 	enabled = false
 ): "available" | "checking" | "offline" | "connect" | "unavailable" | null {
+	const manifest = currentFixtureManifest();
 	if (
 		!(enabled && import.meta.env.DEV) ||
 		typeof window === "undefined" ||

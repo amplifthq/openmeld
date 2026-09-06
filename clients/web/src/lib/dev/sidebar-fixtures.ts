@@ -1,11 +1,12 @@
 import type { SpaceSidebarActiveWakeSummary } from "#/components/spaces/space-active-wake-presentation";
-import { isLocalFixtureHost, manifest } from "./fixture-manifest";
+import { currentFixtureManifest, isLocalFixtureHost } from "./fixture-manifest";
 
 /** Local visual fixtures only; never report these as execution or readiness facts. */
 export function localSidebarWakeFixtures(
 	organizationId: string,
 	profileId: string
 ): SpaceSidebarActiveWakeSummary[] {
+	const manifest = currentFixtureManifest();
 	if (
 		!import.meta.env.DEV ||
 		typeof window === "undefined" ||

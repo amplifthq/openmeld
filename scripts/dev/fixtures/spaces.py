@@ -2,8 +2,9 @@
 import datetime
 import json
 import urllib.request
+from fixtures import conversations
 
-def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gateway_host):
+def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gateway_host, context):
     space_names = ["Product planning", "Design feedback", "Engineering daily", "Release coordination",
                    "Customer interviews", "Website refresh", "Mobile onboarding", "API design",
                    "Search quality", "Documentation", "Performance lab", "Accessibility review",
@@ -37,7 +38,7 @@ def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gate
         pinned = datetime.datetime.fromtimestamp((now-i*1000)/1000, datetime.timezone.utc).isoformat() if i<6 else None
         # Keep a repeatable one/two/three/many-member matrix in Space-owned truth.
         # The creator is already present; mixed groups include real fixture Agents.
-        preview_members = [ident("human:0"), "agt_"+ident("agent:0"), ident("human:1"), "agt_"+ident("agent:1")][: [0, 1, 2, 4][i % 4]]
+        preview_members = [ident(f"human:{i % 18}"), "agt_"+ident(f"agent:{i % 12}"), ident(f"human:{(i + 5) % 18}"), "agt_"+ident(f"agent:{(i + 1) % 12}")][: [2, 1, 2, 4][i % 4]]
         if preview_members:
             request = urllib.request.Request(
                 f"http://127.0.0.1:{gateway_port}/v1/spaces/{sid}/organization-directory-profiles",
@@ -51,6 +52,7 @@ def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gate
             headers=headers, method="PATCH")
         with urllib.request.urlopen(request, timeout=30) as response:
             json.load(response)
+        conversations.seed(context, sid, i, preview_members)
         if i in (0, 2, 7, 9):
             with db:
                 insert("inbox_items", id=ident(f"unread:{i}"), organization_id=org["id"],

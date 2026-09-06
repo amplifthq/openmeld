@@ -78,8 +78,13 @@ class Context:
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.load(response)
 
-    def bootstrap(self):
+    def bootstrap(self, email=None):
         self.account = prepare_account(self)
+        if email:
+            accounts = json.loads((self.state.parent / "dev-accounts.json").read_text())["accounts"]
+            self.account = next((account for account in accounts if account["email"] == email), None)
+            if not self.account:
+                raise RuntimeError("Choose an existing account from this lane's dev-accounts.json.")
         self.backup_database()
         viewer = self.db.execute("SELECT * FROM users WHERE id=?", (self.account["userId"],)).fetchone()
         result = self.request("auth", "/api/auth/sign-in/email",

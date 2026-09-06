@@ -10,10 +10,13 @@ CASES = ["Done. The updated designs are ready for your review.",
 
 
 def seed(context):
-    peers = [context.ident(f"human:{i}") for i in range(4)] + ["agt_" + context.ident(f"agent:{i}") for i in range(2)]
+    peers = [context.ident(f"human:{i}") for i in range(4)] + ["agt_" + context.ident(f"agent:{i}") for i in range(2)] + [context.ident("human:4")]
     for i, peer in enumerate(peers):
         result = context.request("gateway", "/v1/organizations/current/dm-space", {"targetProfileId": peer})
         sid = result.get("data", result)["spaceId"]
+        if i == 6:
+            # Intentionally empty: creation timestamp and no-messages state.
+            continue
         path = context.state / "do/openmeld-core-Space" / f"{sid}.sqlite"
         if not path.exists():
             raise RuntimeError(f"The created DM has no local Space database: {sid}")

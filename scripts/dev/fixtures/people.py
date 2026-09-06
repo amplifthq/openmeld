@@ -1,4 +1,5 @@
 """Directory fixtures: people, Agents, computers, and bindings."""
+from urllib.parse import quote
 
 def seed(db, org, viewer, human, now, ident, insert):
     names = ["Jordan Rivera", "Avery Park", "Samir Patel", "Lena Hoffmann", "Noah Williams",
@@ -11,6 +12,7 @@ def seed(db, org, viewer, human, now, ident, insert):
             uid, pid = ident(f"user:{i}"), ident(f"human:{i}")
             insert("users", id=uid, name=name, email=f"sidebar-{uid}@example.invalid",
                    email_verified=1, created_at=now-86400000*(i+2), updated_at=now)
+            db.execute("UPDATE users SET image=? WHERE id=?", (f"https://api.dicebear.com/9.x/notionists/svg?seed={quote(name)}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf", uid))
             insert("members", id=ident(f"member:{i}"), organization_id=org["id"], user_id=uid,
                    role="admin" if i in (0, 7) else "member", created_at=now-86400000*(i+1))
             insert("openmeld_profiles", profile_id=pid, profile_name=name, profile_handle=f"sidebar-person-{uid}",
@@ -19,6 +21,7 @@ def seed(db, org, viewer, human, now, ident, insert):
             insert("organization_member_activity", organization_id=org["id"], user_id=uid,
                    human_profile_id=pid, last_active_at_ms=now-[120000,3600000,72000000,86400000*4,86400000*21][i%5],
                    updated_at_ms=now)
+            db.execute("UPDATE organization_member_activity SET last_active_at_ms=?,updated_at_ms=? WHERE organization_id=? AND user_id=?", (now-[120000,3600000,72000000,86400000*4,86400000*21][i%5], now, org["id"], uid))
             owners.append((uid,pid,name))
         for i in range(42):
             owner, creator, name = owners[0 if i < 9 else (i-8)%len(owners)]

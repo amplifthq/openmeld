@@ -56,6 +56,7 @@ import {
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { FixtureConversationScene } from "#/lib/dev/fixture-conversation-scene";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildActiveWakeConversationItems,
@@ -654,6 +655,13 @@ function SpaceConversationPanelContent(
 									data-space-conversation-content-width=""
 								>
 									{conversationBody}
+									{import.meta.env.DEV && (
+										<FixtureConversationScene
+											key={input.spaceId}
+											profileId={input.selfProfileId}
+											spaceId={input.spaceId}
+										/>
+									)}
 								</MessageScrollerContent>
 							</MessageScrollerViewport>
 

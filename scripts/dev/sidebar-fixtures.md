@@ -25,6 +25,24 @@ shared source code, while each worktree owns its database and generated manifest
 
 See [the module contribution guide](fixtures/README.md) to add scenarios.
 
+Use `pnpm dev:seed --account <email>` to refresh another test account already
+saved in this lane. Generated visual scenarios are retained per Organization,
+so switching between test accounts does not remove their state matrix.
+
+Spaces include short discussions, Markdown, varied member combinations, and
+timestamps from minutes to a month ago. Explorations stays empty; Billing
+migration, Incident follow-up, and Security review include failure, stopped,
+and policy-blocked system notices. Release coordination has a plan-review
+dialog; Performance lab has a command-permission dialog. These use the real
+interaction card with an in-memory response handler and a visible local
+simulation label: approving never sends a runtime response or runs a command.
+Reload resets these temporary interactions. Other working scenarios show local
+Agent activity. Synthetic conversations use stable IDs and backups; reruns
+replace only these known fixture messages, preserving manually added messages.
+
+Fictional members use deterministic DiceBear illustrations. This requires network
+access to `api.dicebear.com`; the standard avatar fallback remains available.
+
 ## Prepare a login without sample data
 
 Run `pnpm dev:account` after the local Workers are ready. It prints the product
@@ -65,8 +83,8 @@ Live connected, busy, and permission-prompt states require a local Service
 or a protocol-level simulator. Database and API checks do not replace browser
 or execution-path acceptance.
 
-Six DMs mix people and Agents with short, long, multiline, recent, older, and
-outgoing-only message previews. Their creation uses the DM API; synthetic preview
+Seven DMs mix people and Agents with short, long, multiline, recent, older,
+outgoing-only, and empty conversations. Their creation uses the DM API; synthetic preview
 signals are written only to those fixture DMs' local databases.
 
 The seed also creates four local Inbox unread records and writes the ignored
