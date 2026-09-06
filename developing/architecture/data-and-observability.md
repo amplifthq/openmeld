@@ -67,6 +67,17 @@ Agent Profile state; Core remains the only owner and writer of those facts.
 
 ## Durable Data Domains
 
+The Space execution-input outbox owns reliable forwarding of already-authorized
+human corrections to one native Center Agent execution. The Space is its only
+writer. It atomically retains the human Signal and exact request, including
+the original Signal ID for idempotent retries. It cannot rebuild an unsent
+request from a chat summary or retarget it to the next execution. Its runtime
+receipt is a projection, not execution truth. The Remote Agent intake owns
+durable receipt; Flue owns canonical conversation application and acknowledges
+it only after the input is recorded there. Core retries pending forwarding
+through the existing Space alarm and retains terminal receipts for replay.
+Deleting the Space removes its input outbox with the rest of Space data.
+
 OpenMeld separates durable truth from query projections.
 
 Agent Profile Work Coordinator state lives in the existing owner-sharded
@@ -2872,6 +2883,9 @@ CLI trace, operator trace shortcuts, dispatch trace reads, Web Wake waterfall,
 Diagnostic Reports, and claim execution diagnostics all read or derive from the
 same Wake correlation model. They must not invent separate selector rules,
 separate field priority rules, or separate observability schemas.
+Dispatch and attempt status validation uses the shared trace schemas directly.
+A legitimate cancelled dispatch or profile-queue wait must not disappear from
+diagnostics because a reader maintains an older private status list.
 
 For Remote Agent dispatches, runtime diagnostics use the exact runtime
 conversation identity frozen in that dispatch's native-delivery request. The

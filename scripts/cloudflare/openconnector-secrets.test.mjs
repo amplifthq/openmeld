@@ -3,11 +3,11 @@ import test from "node:test";
 
 import {
   assertRequiredOpenConnectorRuntimeSecrets,
-  OPENCONNECTOR_PRODUCTION_SECRET_MAPPINGS,
-  resolveOpenConnectorProductionEnvironment,
-  resolveOpenConnectorProductionSecrets,
-  resolveOpenConnectorProductionSecretsIfAvailable,
-} from "./openconnector-production-secrets.mjs";
+  OPENCONNECTOR_SECRET_MAPPINGS,
+  resolveOpenConnectorEnvironment,
+  resolveOpenConnectorSecrets,
+  resolveOpenConnectorSecretsIfAvailable,
+} from "./openconnector-secrets.mjs";
 
 test("maps canonical OpenMeld credentials to the upstream runtime contract", () => {
   const canonicalValues = {
@@ -18,7 +18,7 @@ test("maps canonical OpenMeld credentials to the upstream runtime contract", () 
     OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN: "runtime-value",
   };
 
-  const resolved = resolveOpenConnectorProductionEnvironment({
+  const resolved = resolveOpenConnectorEnvironment({
     CLOUDFLARE_API_TOKEN: "cloudflare-value",
     ...canonicalValues,
   });
@@ -32,14 +32,14 @@ test("maps canonical OpenMeld credentials to the upstream runtime contract", () 
   );
   assert.equal(resolved.OOMOL_CONNECT_RUNTIME_TOKEN, "runtime-value");
   assert.equal(resolved.CLOUDFLARE_API_TOKEN, "cloudflare-value");
-  assert.deepEqual(Object.values(OPENCONNECTOR_PRODUCTION_SECRET_MAPPINGS), [
+  assert.deepEqual(Object.values(OPENCONNECTOR_SECRET_MAPPINGS), [
     "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
     "OPEN_CONNECTOR_OPENMELD_ENCRYPTION_KEY",
     "OPEN_CONNECTOR_OPENMELD_GITHUB_APP_ID",
     "OPEN_CONNECTOR_OPENMELD_GITHUB_APP_PRIVATE_KEY",
     "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
   ]);
-  assert.deepEqual(resolveOpenConnectorProductionSecrets(canonicalValues), {
+  assert.deepEqual(resolveOpenConnectorSecrets(canonicalValues), {
     OOMOL_CONNECT_ADMIN_TOKEN: "admin-value",
     OOMOL_CONNECT_ENCRYPTION_KEY: "encryption-value",
     OOMOL_CONNECT_GITHUB_APP_ID: "github-app-id",
@@ -47,27 +47,27 @@ test("maps canonical OpenMeld credentials to the upstream runtime contract", () 
     OOMOL_CONNECT_RUNTIME_TOKEN: "runtime-value",
   });
   assert.deepEqual(
-    resolveOpenConnectorProductionSecretsIfAvailable(canonicalValues),
-    resolveOpenConnectorProductionSecrets(canonicalValues)
+    resolveOpenConnectorSecretsIfAvailable(canonicalValues),
+    resolveOpenConnectorSecrets(canonicalValues)
   );
 });
 
 test("fails closed and names every missing canonical credential", () => {
   assert.throws(
     () =>
-      resolveOpenConnectorProductionEnvironment({
+      resolveOpenConnectorEnvironment({
         OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN: "admin-value",
       }),
     {
       message:
-        "Missing required OpenConnector production credentials: OPEN_CONNECTOR_OPENMELD_ENCRYPTION_KEY, OPEN_CONNECTOR_OPENMELD_GITHUB_APP_ID, OPEN_CONNECTOR_OPENMELD_GITHUB_APP_PRIVATE_KEY, OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN.",
+        "Missing required OpenConnector credentials: OPEN_CONNECTOR_OPENMELD_ENCRYPTION_KEY, OPEN_CONNECTOR_OPENMELD_GITHUB_APP_ID, OPEN_CONNECTOR_OPENMELD_GITHUB_APP_PRIVATE_KEY, OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN.",
     }
   );
 });
 
 test("accepts a deployed Worker only when every required runtime secret already exists", () => {
   assert.equal(
-    resolveOpenConnectorProductionSecretsIfAvailable({
+    resolveOpenConnectorSecretsIfAvailable({
       OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN: "admin-value",
     }),
     undefined

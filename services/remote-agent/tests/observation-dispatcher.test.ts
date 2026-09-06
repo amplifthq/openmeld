@@ -94,7 +94,7 @@ function createObservation(input: {
   instanceId: string;
 }): FlueObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     eventIndex: input.eventIndex,
     instanceId: input.instanceId,
     text: `delta-${input.eventIndex}`,

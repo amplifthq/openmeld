@@ -1,47 +1,21 @@
 packages:
-  - "clients/*"
-  - "services/*"
-  - "runtime/local-execution"
-  - "runtime/local-service"
-  - "runtime/adapters/core"
-  - "runtime/adapters/claude-code"
-  - "runtime/adapters/codex"
-  - "runtime/adapters/cursor"
-  - "runtime/adapters/grok-build"
-  - "runtime/adapters/openclaw"
-  - "runtime/adapters/opencode"
-  - "packages/*"
-  - "tooling/*"
-
-catalog:
-  "@cloudflare/workers-types": 5.20260708.1
-  wrangler: 4.110.0
-
-overrides:
-  "@aws-sdk/core": "3.974.28"
-  "@aws-sdk/credential-provider-env": "3.972.54"
-  "@aws-sdk/credential-provider-http": "3.972.56"
-  "@aws-sdk/credential-provider-ini": "3.972.61"
-  "@aws-sdk/credential-provider-login": "3.972.60"
-  "@aws-sdk/credential-provider-node": "3.972.63"
-  "@aws-sdk/credential-provider-process": "3.972.54"
-  "@aws-sdk/credential-provider-sso": "3.972.60"
-  "@aws-sdk/credential-provider-web-identity": "3.972.60"
-  "@aws-sdk/middleware-websocket": "3.972.36"
-  "@aws-sdk/nested-clients": "3.997.28"
-  "@aws-sdk/token-providers": "3.1080.0"
-  "@flue/cli>@cloudflare/vite-plugin": "1.43.0"
-  rolldown: "1.1.4"
-  wrangler: "catalog:"
-
-packageExtensions:
-  "@lobehub/icons@5.0.1":
-    dependencies:
-      es-toolkit: 1.46.0
+  - clients/*
+  - services/*
+  - runtime/local-execution
+  - runtime/local-service
+  - runtime/adapters/core
+  - runtime/adapters/claude-code
+  - runtime/adapters/codex
+  - runtime/adapters/cursor
+  - runtime/adapters/grok-build
+  - runtime/adapters/openclaw
+  - runtime/adapters/opencode
+  - packages/*
+  - tooling/*
 
 allowBuilds:
   '@google/genai': false
-  "@mongodb-js/zstd": false
+  '@mongodb-js/zstd': false
   better-sqlite3: true
   core-js-pure: false
   electron: true
@@ -55,10 +29,36 @@ allowBuilds:
   sharp: true
   workerd: true
 
+catalog:
+  '@cloudflare/workers-types': 5.20260708.1
+  wrangler: 4.110.0
+
 minimumReleaseAgeExclude:
   - '@cloudflare/workers-types@5.20260708.1'
   - miniflare
   - wrangler@4.108.0
 
+overrides:
+  '@aws-sdk/core': 3.974.28
+  '@aws-sdk/credential-provider-env': 3.972.54
+  '@aws-sdk/credential-provider-http': 3.972.56
+  '@aws-sdk/credential-provider-ini': 3.972.61
+  '@aws-sdk/credential-provider-login': 3.972.60
+  '@aws-sdk/credential-provider-node': 3.972.63
+  '@aws-sdk/credential-provider-process': 3.972.54
+  '@aws-sdk/credential-provider-sso': 3.972.60
+  '@aws-sdk/credential-provider-web-identity': 3.972.60
+  '@aws-sdk/middleware-websocket': 3.972.36
+  '@aws-sdk/nested-clients': 3.997.28
+  '@aws-sdk/token-providers': 3.1080.0
+  rolldown: 1.1.4
+  wrangler: 'catalog:'
+
+packageExtensions:
+  '@lobehub/icons@5.0.1':
+    dependencies:
+      es-toolkit: 1.46.0
+
 patchedDependencies:
-  '@flue/runtime@1.0.0-beta.9': patches/@flue__runtime@1.0.0-beta.9.patch
+  '@cloudflare/computer@0.2.1': patches/@cloudflare__computer@0.2.1.patch
+  '@flue/runtime@2.0.3': patches/@flue__runtime@2.0.3.patch

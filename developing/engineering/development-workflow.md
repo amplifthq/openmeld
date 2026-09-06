@@ -578,6 +578,15 @@ Canonical command families:
 - repository gates: `verify:pre-push:checks`, `verify:release-ready`,
   `verify:pr`, and `verify:pr:full`.
 
+Remote Agent's Flue 2 build uses Vite 8.1.2 and Cloudflare Vite plugin 1.43.0;
+`@flue/vite@2.0.3` requires Vite 8. Web and Desktop retain their independently
+validated Vite 7 builds. Root Sherif configuration allows only those exact
+Remote Agent build dependency versions to differ; it does not disable the
+dependency rule or exempt a package. Reassess these version-specific entries
+when upgrading either build, and remove them when the build versions converge.
+Do not widen a runtime upgrade into a Web/Desktop build migration merely to
+make independently deployed build tools use one version.
+
 `verify:pre-push:checks` covers dependency consistency, static workflow and
 environment contracts, Changelog and documentation contracts, formatting
 support contracts, and retired identifiers. It does not replace workspace type

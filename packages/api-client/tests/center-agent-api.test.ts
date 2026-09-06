@@ -20,6 +20,34 @@ const REQUEST_CONTEXT = {
 };
 
 describe("api-client Center Agent api", () => {
+  it("forwards the chat-list cursor unchanged and bounds page size", async () => {
+    const transport = vi.fn().mockResolvedValue(
+      jsonResponse({
+        generatedAt: "2026-09-06T00:00:00.000Z",
+        organizationId: "org-1",
+        sessions: [],
+        nextCursor: null,
+      })
+    );
+    const api = createCenterAgentApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    await expect(
+      api.listSessions({ cursor: "opaque+/=", limit: 2 })
+    ).resolves.toMatchObject({ sessions: [], nextCursor: null });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://gateway.openmeld.invalid/v1/organizations/current/center-agent/sessions?limit=2&cursor=opaque%2B%2F%3D",
+      })
+    );
+    await expect(api.listSessions({ limit: 101 })).rejects.toThrow(
+      "valid chat-list cursor and limit"
+    );
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
   it("reads and updates the Organization model through the canonical route", async () => {
     const modelConfiguration = {
       canManage: true,
@@ -458,6 +486,58 @@ describe("api-client Center Agent api", () => {
         url: `https://gateway.openmeld.invalid/v1/organizations/current/center-agent/context-manifests/${manifestId}/load-receipt`,
       })
     );
+  });
+
+  it("keeps session creation retries and exact selection on their dedicated routes", async () => {
+    const creationId = "2e2c7084-bcaf-4321-8fad-cb4bf416e286";
+    const transport = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          organizationId: "org-1",
+          centerAgentProfileId: AGENT_PROFILE_ID,
+          memberProfileId: HUMAN_PROFILE_ID,
+          spaceId: "session-1",
+          created: true,
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          generatedAt: "2026-09-06T00:00:00.000Z",
+          organizationId: "org-1",
+          projection: null,
+        })
+      );
+    const api = createCenterAgentApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    await api.createSession({ creationId, requestContext: REQUEST_CONTEXT });
+    expect(transport).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        url: "https://gateway.openmeld.invalid/v1/organizations/current/center-agent/sessions",
+        init: expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ creationId }),
+        }),
+      })
+    );
+    await expect(
+      api.getSession({ spaceId: "session-1", requestContext: REQUEST_CONTEXT })
+    ).resolves.toMatchObject({ projection: null });
+    expect(transport).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        url: "https://gateway.openmeld.invalid/v1/organizations/current/center-agent/sessions/session-1",
+      })
+    );
+    await expect(api.createSession({ creationId: "invalid" })).rejects.toThrow(
+      "Provide a valid session creation ID."
+    );
+    expect(transport).toHaveBeenCalledTimes(2);
   });
 
   it("opens the lazy Center Agent DM Space through the canonical route", async () => {

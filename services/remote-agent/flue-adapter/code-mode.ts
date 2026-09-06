@@ -124,7 +124,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
     name: REMOTE_AGENT_CODE_MODE_TOOL_NAME,
     description,
     input: codeModeInputSchema,
-    run: async ({ input: toolInput, signal }) => {
+    run: async ({ data: toolInput, signal }) => {
       const context = await requireRemoteAgentToolExecutionContext(input);
       await beginRemoteAgentToolExecutionAttempt({
         storage: input.storage,
@@ -184,7 +184,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
           value: output,
         });
         outcome = "succeeded";
-        return boundedOutput;
+        return { output: boundedOutput };
       } finally {
         emitRemoteAgentToolUsage(input.env, {
           durationMs: Date.now() - startedAtMs,
@@ -246,6 +246,7 @@ function buildCodeModeToolSet(input: {
             toolCallId,
             toolInput,
             toolName: definition.name,
+            toolResult: result,
           });
           return (
             toBoundedRemoteAgentToolResult({
@@ -279,10 +280,12 @@ async function publishCodeModeInnerWorkBestEffort(input: {
   toolCallId: string;
   toolInput: unknown;
   toolName: string;
+  toolResult: unknown;
 }): Promise<void> {
   const work = resolveRemoteAgentToolWorkActivity(
     input.toolName,
-    input.toolInput
+    input.toolInput,
+    input.toolResult
   );
   if (!work) {
     return;

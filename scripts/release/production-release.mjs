@@ -69,9 +69,9 @@ const CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER = [
   "db",
   "auth",
   "core",
-  "remote-agent",
   "gateway",
   "web",
+  "remote-agent",
   "cli",
 ];
 const INBOX_SOURCE_TARGET_RECEIVER_FIRST_SCOPE_ORDER = [

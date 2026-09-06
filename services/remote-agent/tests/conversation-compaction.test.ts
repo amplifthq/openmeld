@@ -91,7 +91,6 @@ describe("Remote Agent conversation compaction", () => {
       }),
       model,
       undefined,
-      undefined,
       observer
     );
     appendCompactionCheckpoint(canonicalConversation, first.summary);
@@ -104,7 +103,6 @@ describe("Remote Agent conversation compaction", () => {
         previousSummary: first.summary,
       }),
       model,
-      undefined,
       undefined,
       observer
     );
@@ -225,7 +223,6 @@ type InstalledCompactionInternals = {
   compact: (
     preparation: ReturnType<typeof compactionPreparation>,
     model: Record<string, unknown>,
-    apiKey: undefined,
     signal: undefined,
     observer: {
       end: () => undefined;
@@ -248,8 +245,7 @@ function resolveProjectionModulePath(): string {
     "../node_modules/@flue/runtime/dist"
   );
   const projectionModuleName = readdirSync(runtimeDistPath).find(
-    (name) =>
-      name.startsWith("conversation-projections-") && name.endsWith(".mjs")
+    (name) => name.startsWith("dispatch-") && name.endsWith(".mjs")
   );
   if (!projectionModuleName) {
     throw new Error("Installed Flue compaction module was not found.");
@@ -437,7 +433,7 @@ function compactionStartObservation(
   eventIndex: number
 ): CompactionStartObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     estimatedTokens: 120_000,
     eventIndex,
     reason: "threshold",
@@ -454,7 +450,7 @@ function compactionCompletedObservation(
   messagesAfter: number
 ): CompactionObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     durationMs: 250,
     eventIndex,
     isError: false,

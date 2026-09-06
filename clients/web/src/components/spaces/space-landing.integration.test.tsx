@@ -3353,6 +3353,93 @@ describe("SpaceLanding", () => {
 		});
 	});
 
+	it("sends a Center Agent correction to the visible running response when the initial summary is empty", async () => {
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				observe = vi.fn();
+				unobserve = vi.fn();
+				disconnect = vi.fn();
+			}
+		);
+		const queryClient = createTestQueryClient();
+		const item = createWakeProgressItem({
+			clientMessageId: "original-message",
+			dispatchId: "original-dispatch",
+			phase: "running",
+			sourceSignalId: "original-signal",
+			targetLabel: "Center Agent",
+			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+			updatedAtMs: RECENT_ACTIVITY_TS + 10,
+		});
+		queryClient.setQueryData(
+			spaceQueryKeys.wakeProgressPresentation(
+				"space-123",
+				DEFAULT_SPACE_PROFILE_ID
+			),
+			[item]
+		);
+		useQueryClientMock.mockReturnValue(queryClient);
+		const postNormalMessage = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "correction-signal",
+				text: "Only North America.",
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage,
+			getActiveWakeProgress: vi.fn().mockResolvedValue({
+				items: [item],
+				query: { spaceId: "space-123", targetProfileId: null },
+			}),
+			getWakeProgress: vi.fn().mockResolvedValue({
+				items: [item],
+				query: { spaceId: "space-123", targetProfileId: null },
+			}),
+			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+		});
+		mockSpaceQueries({
+			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: {
+					envelopes: [
+						createTextSignal({
+							id: "original-signal",
+							text: "Analyze customers.",
+							ts: RECENT_ACTIVITY_TS,
+						}),
+					],
+					nextCursor: null,
+				},
+			}),
+		});
+		renderSpaceLanding({ queryClient, isCenterAgentDirectMessage: true });
+		await setComposerValue(
+			screen.getByRole("textbox", { name: "Message Center Agent" }),
+			"Only North America."
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		await waitFor(() =>
+			expect(postNormalMessage).toHaveBeenCalledWith(
+				expect.objectContaining({
+					meta: expect.objectContaining({
+						centerAgentExecutionInput: {
+							dispatchId: "original-dispatch",
+							targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+						},
+					}),
+					messageEnvelope: expect.objectContaining({ activationTargets: [] }),
+				})
+			)
+		);
+	});
+
 	it("clears a cached Sending to agent row when Core confirms that no Wake is active", async () => {
 		const queryClient = createTestQueryClient();
 		const cachedItem = createWakeProgressItem({

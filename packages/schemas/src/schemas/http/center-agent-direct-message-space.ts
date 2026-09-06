@@ -6,6 +6,21 @@ const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 
+export const createCenterAgentSessionBodySchema = z.strictObject({
+  creationId: z.uuid(),
+});
+
+export const centerAgentSessionSelectorSchema = z.strictObject({
+  spaceId: trimmedNonEmptyStringSchema.max(128),
+});
+
+export type CreateCenterAgentSessionBody = z.infer<
+  typeof createCenterAgentSessionBodySchema
+>;
+export type CenterAgentSessionSelector = z.infer<
+  typeof centerAgentSessionSelectorSchema
+>;
+
 export const centerAgentDirectMessageSpaceProjectionSchema = z.strictObject({
   centerAgentProfileId: trimmedNonEmptyStringSchema,
   isCenterAgentDirectMessageSpace: z.literal(true),
@@ -24,6 +39,39 @@ export const getCenterAgentDirectMessageSpaceProjectionResponseSchema =
       z.null(),
     ]),
   });
+
+export const listCenterAgentSessionsQuerySchema = z.strictObject({
+  cursor: z.string().trim().min(1).max(1024).optional(),
+  limit: z.number().int().min(1).max(100).default(20),
+});
+
+export const centerAgentSessionListCursorSchema = z.strictObject({
+  v: z.literal(1),
+  organizationId: trimmedNonEmptyStringSchema,
+  pairKey: trimmedNonEmptyStringSchema,
+  createdAtMs: z.number().int().nonnegative(),
+  spaceId: centerAgentSessionSelectorSchema.shape.spaceId,
+});
+
+export const centerAgentSessionListItemSchema =
+  centerAgentDirectMessageSpaceProjectionSchema.extend({
+    name: z.string().nullable(),
+    createdAt: ISO_DATE_TIME_SCHEMA.nullable(),
+  });
+
+export const listCenterAgentSessionsResponseSchema = z.strictObject({
+  generatedAt: ISO_DATE_TIME_SCHEMA,
+  organizationId: trimmedNonEmptyStringSchema,
+  sessions: z.array(centerAgentSessionListItemSchema).max(100),
+  nextCursor: z.string().min(1).max(1024).nullable(),
+});
+
+export type ListCenterAgentSessionsQuery = z.input<
+  typeof listCenterAgentSessionsQuerySchema
+>;
+export type ListCenterAgentSessionsResponse = z.infer<
+  typeof listCenterAgentSessionsResponseSchema
+>;
 
 export type CenterAgentDirectMessageSpaceProjection = z.infer<
   typeof centerAgentDirectMessageSpaceProjectionSchema

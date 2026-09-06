@@ -40,6 +40,29 @@ const RAW_DOPPLER_ENOENT_RE = /spawn doppler ENOENT/u;
 const SCOPED_GATEWAY_ENVIRONMENT_RE =
   /\{"auth":false,"gateway":true,"remoteAgent":false\}/u;
 
+test("checks the opt-in staging connector source in the real child entrypoint", () => {
+  const source = resolveStagingComponentSources("open-connector").find(
+    (candidate) => candidate.project === "openmeld-open-connector"
+  );
+  const result = spawnSync(
+    process.execPath,
+    [DOPPLER_ENVIRONMENT_SCRIPT, "__check-source", source.project, "stg"],
+    {
+      encoding: "utf8",
+      env: Object.fromEntries(
+        source.requiredSecrets.map((name) => [name, "fixture-present"])
+      ),
+    }
+  );
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  assert.equal(
+    STAGING_WORKER_SECRET_SOURCES.some(
+      (candidate) => candidate.project === source.project
+    ),
+    false
+  );
+});
+
 test("exposes one newcomer-friendly command set", () => {
   const packageJson = JSON.parse(
     readFileSync(new URL("../../package.json", import.meta.url), "utf8")
@@ -224,6 +247,8 @@ test("keeps staging readiness scoped to the minimal stg secret set", () => {
       "openmeld-web",
       "openmeld-auth",
       "openmeld-remote-agent",
+      "openmeld-core",
+      "openmeld-gateway",
     ]
   );
   assert.deepEqual(STAGING_WORKER_SECRET_SOURCES[0].requiredSecrets, [
@@ -244,8 +269,8 @@ test("gives each staging deployable only the secrets it needs", () => {
     ),
     {
       auth: ["openmeld-release", "openmeld-auth"],
-      core: ["openmeld-release"],
-      gateway: ["openmeld-release"],
+      core: ["openmeld-release", "openmeld-core"],
+      gateway: ["openmeld-release", "openmeld-gateway"],
       "remote-agent": ["openmeld-release", "openmeld-remote-agent"],
       web: ["openmeld-release", "openmeld-web"],
     }

@@ -110,18 +110,49 @@ export const STAGING_WORKER_SECRET_SOURCES = [
   },
   {
     config: "stg",
-    optionalSecrets: [],
+    optionalSecrets: ["OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN"],
     project: "openmeld-remote-agent",
     requiredSecrets: ["CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN"],
   },
+  {
+    config: "stg",
+    optionalSecrets: ["SLACK_OPENMELD_TOKEN_CRYPTO_KEY"],
+    project: "openmeld-core",
+    requiredSecrets: [],
+  },
+  {
+    config: "stg",
+    optionalSecrets: [
+      "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
+      "SLACK_OPENMELD_OAUTH_CLIENT_ID",
+      "SLACK_OPENMELD_OAUTH_CLIENT_SECRET",
+      "SLACK_OPENMELD_SIGNING_SECRET",
+    ],
+    project: "openmeld-gateway",
+    requiredSecrets: [],
+  },
 ];
 
+const STAGING_OPEN_CONNECTOR_SECRET_SOURCE = {
+  config: "stg",
+  project: "openmeld-open-connector",
+  optionalSecrets: [],
+  requiredSecrets: [
+    "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
+    "OPEN_CONNECTOR_OPENMELD_ENCRYPTION_KEY",
+    "OPEN_CONNECTOR_OPENMELD_GITHUB_APP_ID",
+    "OPEN_CONNECTOR_OPENMELD_GITHUB_APP_PRIVATE_KEY",
+    "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
+  ],
+};
+
 const STAGING_COMPONENT_PROJECTS = new Map([
+  ["open-connector", ["openmeld-release", "openmeld-open-connector"]],
   ["release", ["openmeld-release"]],
   ["web", ["openmeld-release", "openmeld-web"]],
   ["auth", ["openmeld-release", "openmeld-auth"]],
-  ["core", ["openmeld-release"]],
-  ["gateway", ["openmeld-release"]],
+  ["core", ["openmeld-release", "openmeld-core"]],
+  ["gateway", ["openmeld-release", "openmeld-gateway"]],
   ["remote-agent", ["openmeld-release", "openmeld-remote-agent"]],
 ]);
 
@@ -228,7 +259,7 @@ async function main() {
       const targetArgs = stripCommandSeparator(args.slice(1));
       if (targetArgs.length === 0) {
         throw new Error(
-          "Usage: doppler-environment.mjs component:stg <release|web|auth|core|gateway|remote-agent> -- <command> [arguments]"
+          "Usage: doppler-environment.mjs component:stg <release|web|auth|core|gateway|remote-agent|open-connector> -- <command> [arguments]"
         );
       }
       const sources = resolveStagingComponentSources(component);
@@ -420,6 +451,9 @@ export function resolveStagingComponentSources(component) {
     throw new Error(`Unsupported Doppler staging component: ${component}`);
   }
   return projects.map((project) => {
+    if (project === "openmeld-open-connector") {
+      return STAGING_OPEN_CONNECTOR_SECRET_SOURCE;
+    }
     const source = STAGING_WORKER_SECRET_SOURCES.find(
       (candidate) => candidate.project === project
     );
@@ -508,6 +542,7 @@ async function checkDopplerSources(input) {
 
 function runSourceEnvironmentCheck(project, config) {
   const source = [
+    STAGING_OPEN_CONNECTOR_SECRET_SOURCE,
     ...DEVELOPMENT_SECRET_SOURCES,
     ...PRODUCTION_WORKER_SECRET_SOURCES,
     ...STAGING_WORKER_SECRET_SOURCES,

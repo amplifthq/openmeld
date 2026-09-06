@@ -3,6 +3,23 @@ import { describe, expect, it } from "vitest";
 import { resolveAgentWorkPresentation } from "./agent-work-presentation";
 
 describe("Agent work presentation", () => {
+	it("does not report a confirmation proposal as an executed action", () => {
+		expect(
+			resolveAgentWorkPresentation(
+				{
+					v: 1,
+					key: "connected_app.action.execute",
+					subject: {
+						kind: "connected_app",
+						label: "Cloudflare R2: delete bucket",
+					},
+					outcome: "confirmation_required",
+				},
+				"output-available",
+				false
+			).text
+		).toBe("Requested confirmation: Cloudflare R2: delete bucket");
+	});
 	it("uses a safe subject label when one is available", () => {
 		const work = {
 			v: 1,
