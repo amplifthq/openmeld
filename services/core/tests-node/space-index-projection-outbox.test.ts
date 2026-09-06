@@ -23,6 +23,30 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("space index projection outbox", () => {
+  it("upgrades an existing v32 Space before capturing a message preview", () => {
+    const spaceSql = createSqlStorageHarness();
+    try {
+      ensureSpaceSqlSchema(spaceSql.sql);
+      spaceSql.sql.exec("DROP TABLE space_message_preview_revision");
+      spaceSql.sql.exec("DELETE FROM schema_migrations");
+      spaceSql.sql.exec(
+        "INSERT INTO schema_migrations (version, checksum, applied_at) VALUES (32, 'space-sql-schema-v32', 1)"
+      );
+      spaceSql.sql.exec(
+        "INSERT INTO space_signals (id, ts, type, profile_id, payload_json) VALUES ('existing', 1, 'signal.text', 'human', ?)",
+        JSON.stringify({ data: { text: "Keep this message" } })
+      );
+      ensureSpaceSqlSchema(spaceSql.sql);
+      expect(captureSpaceMessagePreview(spaceSql.sql)).toMatchObject({
+        revision: 1,
+        preview: { signalId: "existing", text: "Keep this message" },
+      });
+      ensureSpaceSqlSchema(spaceSql.sql);
+      expect(captureSpaceMessagePreview(spaceSql.sql).revision).toBe(2);
+    } finally {
+      spaceSql.close();
+    }
+  });
   it("keeps previews ordered through delayed writes and complete message retention", async () => {
     const d1 = createSpaceIndexHarness();
     const spaceSql = createSqlStorageHarness();
