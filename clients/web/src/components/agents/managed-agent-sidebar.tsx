@@ -21,6 +21,7 @@ import {
 	SidebarDropSection,
 	useSortableSidebarItem,
 } from "../app/sidebar-drag";
+import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { moveSidebarItemIds, sortSidebarManual } from "../app/sidebar-order";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
@@ -201,7 +202,16 @@ export function ManagedAgentSidebar({
 				input.profiles.find((p) => p.openMeldProfileId === id)?.ownerUserId ===
 					section.slice("agent-owner-".length)
 			}
+			groupIds={
+				sidebar.disabled ? [] : preferences.groups.map((group) => group.id)
+			}
 			onMove={move}
+			onMoveGroup={(id, before) =>
+				save({
+					...preferences,
+					groups: moveSidebarGroup(preferences.groups, id, before),
+				})
+			}
 		>
 			<AppContextualSidebarNav
 				activeItemId={activeProfileId}

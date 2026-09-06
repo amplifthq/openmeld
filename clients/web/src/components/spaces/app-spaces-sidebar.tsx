@@ -34,6 +34,7 @@ import {
 	SidebarDrag as SidebarSpaceDrag,
 	SidebarDropSection as SidebarSpaceDropSection,
 } from "../app/sidebar-drag";
+import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
@@ -436,6 +437,11 @@ export function AppSpacesSidebar(input: {
 	}
 	return (
 		<SidebarSpaceDrag
+			groupIds={
+				sidebar.disabled || !preferences
+					? []
+					: preferences.groups.map((group) => group.id)
+			}
 			onMove={async (section, spaceId, beforeId) => {
 				if (preferences && !sidebar.disabled) {
 					const item = [
@@ -457,6 +463,15 @@ export function AppSpacesSidebar(input: {
 						)
 					);
 				}
+			}}
+			onMoveGroup={(id, before) => {
+				if (!preferences || sidebar.disabled) {
+					return;
+				}
+				sidebar.save({
+					...preferences,
+					groups: moveSidebarGroup(preferences.groups, id, before),
+				});
 			}}
 		>
 			<AppContextualSidebarNav

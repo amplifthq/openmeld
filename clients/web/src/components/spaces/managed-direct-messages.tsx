@@ -15,6 +15,7 @@ import {
 } from "../app/app-nav-item-style";
 import { AppSidebarGroup } from "../app/app-sidebar-group";
 import { SidebarDrag, SidebarDropSection } from "../app/sidebar-drag";
+import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import { spaceMessagePreviewQueryOptions } from "./direct-message-preview";
@@ -181,6 +182,9 @@ export function ManagedDirectMessages(input: {
 	return (
 		<>
 			<SidebarDrag
+				groupIds={
+					sidebar.disabled ? [] : preferences.groups.map((group) => group.id)
+				}
 				onMove={async (section, id, before) => {
 					if (!sidebar.disabled) {
 						const item = input.items.find((item) => item.spaceId === id);
@@ -200,6 +204,12 @@ export function ManagedDirectMessages(input: {
 						);
 					}
 				}}
+				onMoveGroup={(id, before) =>
+					save({
+						...preferences,
+						groups: moveSidebarGroup(preferences.groups, id, before),
+					})
+				}
 			>
 				{sections.map((section, sectionIndex) => (
 					<AppSidebarGroup
@@ -283,6 +293,7 @@ export function ManagedDirectMessages(input: {
 										})
 								: undefined
 						}
+						reorderId={section.id}
 					>
 						<SidebarDropSection
 							ids={section.items.map((i) => i.spaceId)}

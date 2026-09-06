@@ -277,6 +277,13 @@ The Web shell is a stable two-layer composition built from the shared
   Pinned boundary uses the same Account Space pin mutation as the row control;
   a failed pin mutation must not save a new group placement. Custom groups can
   be renamed inline from section settings (Enter or blur saves; Escape cancels).
+  Drag a custom group's title to reorder custom groups in Spaces, Direct
+  Messages, People, or Agents; built-in groups keep their fixed positions.
+  Row and group drags use a horizontal insertion line, including gaps and empty
+  sections. Rows stay stationary during dragging; dropping inserts before the
+  indicated row (or at the end), then settles using transform-only motion.
+  Reduced-motion preferences disable the settling animation. Group order uses
+  the existing saved group array, independently of each group's row sort.
   People and Agent row actions reveal immediately without translation or fades.
   Deleting a group returns its Spaces to
   the ordinary list without changing membership or deleting Spaces.

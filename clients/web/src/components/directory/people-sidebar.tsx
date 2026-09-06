@@ -22,6 +22,7 @@ import {
 	SidebarDropSection,
 	useSortableSidebarItem,
 } from "../app/sidebar-drag";
+import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
@@ -335,6 +336,9 @@ export function PeopleSidebar(input: {
 						["offline", "unconnected"].includes(connection))
 				);
 			}}
+			groupIds={
+				sidebar.disabled ? [] : preferences.groups.map((group) => group.id)
+			}
 			onMove={(section, id, before) => {
 				if (!sidebar.disabled) {
 					save(
@@ -350,6 +354,12 @@ export function PeopleSidebar(input: {
 					);
 				}
 			}}
+			onMoveGroup={(id, before) =>
+				save({
+					...preferences,
+					groups: moveSidebarGroup(preferences.groups, id, before),
+				})
+			}
 		>
 			<AppContextualSidebarNav
 				activeItemId={input.selectedProfileId}

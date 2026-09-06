@@ -132,9 +132,9 @@ it("moves a Space between groups once without losing hidden pinned members", () 
 	expect(next.groups[0]?.sort).toBe("manual");
 	expect(next.pinned).toEqual(preferences.pinned);
 });
-it("moves down and up to the position previewed by the sortable list", () => {
+it("inserts before the indicated row in either direction", () => {
 	expect(
-		moveSidebarSpace(preferences, "spaces", "a", ["a", "b", "c"], "b").spaces
+		moveSidebarSpace(preferences, "spaces", "a", ["a", "b", "c"], "c").spaces
 			.spaceIds
 	).toEqual(["b", "a", "c"]);
 	expect(

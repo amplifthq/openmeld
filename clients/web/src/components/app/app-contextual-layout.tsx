@@ -142,6 +142,7 @@ export function AppContextualSidebarNav<ItemId extends string>(
 						labelText={group.label}
 						labelTooltip={group.labelTooltip}
 						onRename={group.onRename}
+						reorderId={group.id}
 					>
 						{group.items !== undefined ? (
 							<FluidNavMenu
