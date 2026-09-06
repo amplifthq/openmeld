@@ -2,9 +2,15 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
-import { init, observe, useModel } from "@flue/runtime";
+import { init, instrument, observe, useModel } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
 import { expect, it, vi } from "vitest";
+import {
+  getRemoteAgentExecutionSubmissionId,
+  REMOTE_AGENT_EXECUTION_INSTRUMENTATION,
+  registerRemoteAgentExecutionPreparation,
+  requireRemoteAgentExecutionResources,
+} from "../flue-adapter/execution-context";
 
 it("repairs an interrupted assistant stream before continuing this session", async () => {
   const directory = await mkdtemp(join(tmpdir(), "flue-stream-recovery-"));
@@ -14,7 +20,19 @@ it("repairs an interrupted assistant stream before continuing this session", asy
     tokensPerSecond: 20,
   });
   const model = provider.getModel();
+  const disposeInstrumentation = instrument(
+    REMOTE_AGENT_EXECUTION_INSTRUMENTATION
+  );
+  const restorePreparation = registerRemoteAgentExecutionPreparation(() => {
+    const submissionId = getRemoteAgentExecutionSubmissionId();
+    expect(submissionId).not.toBeNull();
+    return Promise.resolve({ submissionId });
+  });
   function Center() {
+    const resources = requireRemoteAgentExecutionResources<{
+      submissionId: string;
+    }>();
+    expect(resources.submissionId).toBe(getRemoteAgentExecutionSubmissionId());
     useModel(`${model.provider}/${model.id}`);
     return "Keep the user's exact choices across an interrupted response.";
   }
@@ -74,6 +92,8 @@ it("repairs an interrupted assistant stream before continuing this session", asy
     unsubscribe();
     await runtime.stop();
     clock.mockRestore();
+    restorePreparation();
+    await disposeInstrumentation();
     await rm(directory, { recursive: true, force: true });
   }
 });

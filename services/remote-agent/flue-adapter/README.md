@@ -12,7 +12,7 @@ is not a future release strategy.
 
 ## Retained package adaptations
 
-`patches/@flue__runtime@2.0.3.patch` retains five explicit contracts:
+`patches/@flue__runtime@2.0.3.patch` retains six explicit contracts:
 
 1. A zero durability timeout disables total wall-clock expiration. Recovery
    attempts remain bounded. Healthy long-running work must not fail because
@@ -34,6 +34,11 @@ is not a future release strategy.
    callback. Upstream's default join behavior remains unchanged for other
    agents. Exact-execution steering must be completed through its own authorized
    ingress before the session upgrade is release-ready.
+6. Submission instrumentation encloses the shared session-opening boundary,
+   including recovery inspection and abort/terminal reconciliation. These paths
+   render the agent just as live execution does and require the same exact
+   submission authority and prepared resources. Instrumenting only the live
+   process leaves a restarted Worker unable to reconcile an interrupted turn.
 
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not

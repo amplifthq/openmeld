@@ -51,7 +51,7 @@ index b29a9f9d99cf8174bcdc03c2eabe6b56ed57cbf2..5304743bd491b420c41ba45901dd26ce
  		* The Agents SDK alarm handler dispatches `schedule`/`scheduleEvery`/
  		* `queue` callbacks to methods on this class — including
 diff --git a/dist/conversation-stream-store-CXwRWonS.mjs b/dist/conversation-stream-store-CXwRWonS.mjs
-index 3fa342b27631ffcf2a05f0f8dcf571fc2236e2cd..e816ccfc7230fb611c35854f5fd587197e42cebc 100644
+index 3fa342b27631ffcf2a05f0f8dcf571fc2236e2cd..a8cd394b72513d674f994a4b3d04e80fdf93d150 100644
 --- a/dist/conversation-stream-store-CXwRWonS.mjs
 +++ b/dist/conversation-stream-store-CXwRWonS.mjs
 @@ -1,3 +1,4 @@
@@ -101,7 +101,27 @@ index 3fa342b27631ffcf2a05f0f8dcf571fc2236e2cd..e816ccfc7230fb611c35854f5fd58719
  		};
  	}
  	async runPersistedContextInput(options) {
-@@ -4938,7 +4947,7 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -4867,7 +4876,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
+ }
+ function createAgentSubmissionSessionHandler(agent, input, execute) {
+ 	return async (ctx) => {
+-		return execute(await openAgentSubmissionSession(ctx, agent, input));
++		// Recovery and terminal reconciliation render the same agent as live
++		// execution. Keep preparation and authority inside this shared boundary.
++		return interceptExecution({
++			type: "agent",
++			operationId: input.submissionId,
++			operationKind: "prompt"
++		}, {
++			instanceId: input.id,
++			submissionId: input.submissionId,
++			agentName: input.agent,
++			traceCarrier: input.traceCarrier
++		}, async () => execute(await openAgentSubmissionSession(ctx, agent, input)));
+ 	};
+ }
+ /**
+@@ -4938,7 +4958,7 @@ function unreadySubmissionDeadline(submission, agent) {
  		assertDurability(agent.durability, `[agent "${submission.input.agent}"]`);
  		timeoutMs = agent.durability?.timeoutMs ?? 36e5;
  	} catch {}
@@ -110,7 +130,7 @@ index 3fa342b27631ffcf2a05f0f8dcf571fc2236e2cd..e816ccfc7230fb611c35854f5fd58719
  }
  /**
  * Settle a queued submission that can never be claimed — a durable abort on
-@@ -5000,7 +5009,7 @@ async function processSubmission(opts) {
+@@ -5000,7 +5020,7 @@ async function processSubmission(opts) {
  		maxAttempts: submission.maxAttempts
  	});
  	const joinSource = {
@@ -119,6 +139,25 @@ index 3fa342b27631ffcf2a05f0f8dcf571fc2236e2cd..e816ccfc7230fb611c35854f5fd58719
  		finalize: (submissionId) => submissions.finalizeJoinedSubmission(attempt, submissionId),
  		revert: (submissionId) => submissions.revertJoiningSubmission(attempt, submissionId),
  		listUnresolved: () => submissions.listJoinedSubmissions(attempt.submissionId)
+@@ -5033,17 +5053,7 @@ async function processSubmission(opts) {
+ 		return;
+ 	}
+ 	try {
+-		const run = () => interceptExecution({
+-			type: "agent",
+-			operationId: submission.submissionId,
+-			operationKind: "prompt"
+-		}, {
+-			instanceId: input.id,
+-			submissionId: submission.submissionId,
+-			agentName: input.agent,
+-			traceCarrier: input.traceCarrier
+-		}, execute);
+-		await run();
++		await execute();
+ 	} catch (error) {
+ 		if (opts.isShutdownAbort?.(error)) throw error;
+ 		if (opts.signal?.reason instanceof SubmissionAbortedError) {
 diff --git a/dist/dispatch-nU3cIlT-.mjs b/dist/dispatch-nU3cIlT-.mjs
 index c661b214b2c1e0e33c5fe696e23f44e3ac96a474..237bf54f497c7a0b7f8ee66c4764af246040f4f6 100644
 --- a/dist/dispatch-nU3cIlT-.mjs

@@ -30,7 +30,7 @@ packageExtensionsChecksum: sha256-KgO1AEvxWG2BkZwreCUQEKVuZnpDPXJ+xMuK4j1L8pE=
 
 patchedDependencies:
   '@flue/runtime@2.0.3':
-    hash: 7c053fe2625f3b5df9132d0f2340f2f999d78a1b164631cb8fd7fb91bddee197
+    hash: b6a41c02420dd7b119ba42c7cc83a9da1fbbc3a10101c11de2bb9627bba785df
     path: patches/@flue__runtime@2.0.3.patch
 
 importers:
@@ -1356,7 +1356,7 @@ importers:
         version: 0.83.0(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@flue/runtime':
         specifier: 2.0.3
-        version: 2.0.3(patch_hash=7c053fe2625f3b5df9132d0f2340f2f999d78a1b164631cb8fd7fb91bddee197)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@5.9.3)(ws@8.21.0)(zod@4.4.3)
+        version: 2.0.3(patch_hash=b6a41c02420dd7b119ba42c7cc83a9da1fbbc3a10101c11de2bb9627bba785df)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@5.9.3)(ws@8.21.0)(zod@4.4.3)
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
@@ -15093,7 +15093,7 @@ snapshots:
 
   '@flue/cli@2.0.3(@babel/core@8.0.1)(@babel/runtime@7.29.2)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.219(zod@4.4.3))(zod@4.4.3))(@cloudflare/workers-types@5.20260708.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@modelcontextprotocol/server@2.0.0)(@types/node@24.10.13)(ai@6.0.219(zod@4.4.3))(chat@4.32.0(ai@6.0.219(zod@4.4.3))(zod@4.4.3))(esbuild@0.28.1)(hono@4.12.22)(jiti@2.7.0)(just-bash@3.0.2)(react@19.2.4)(rolldown@1.1.4)(tsx@4.21.0)(typescript@5.9.3)(ws@8.21.0)(yaml@2.9.0)(zod@4.4.3)':
     dependencies:
-      '@flue/runtime': 2.0.3(patch_hash=7c053fe2625f3b5df9132d0f2340f2f999d78a1b164631cb8fd7fb91bddee197)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@5.9.3)(ws@8.21.0)(zod@4.4.3)
+      '@flue/runtime': 2.0.3(patch_hash=b6a41c02420dd7b119ba42c7cc83a9da1fbbc3a10101c11de2bb9627bba785df)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@5.9.3)(ws@8.21.0)(zod@4.4.3)
       '@flue/vite': 2.0.3(@babel/core@8.0.1)(@babel/runtime@7.29.2)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.219(zod@4.4.3))(zod@4.4.3))(@cloudflare/workers-types@5.20260708.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@modelcontextprotocol/server@2.0.0)(ai@6.0.219(zod@4.4.3))(chat@4.32.0(ai@6.0.219(zod@4.4.3))(zod@4.4.3))(hono@4.12.22)(just-bash@3.0.2)(react@19.2.4)(rolldown@1.1.4)(typescript@5.9.3)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))(ws@8.21.0)(zod@4.4.3)
       '@vercel/detect-agent': 1.2.3
       cac: 7.0.0
@@ -15140,7 +15140,7 @@ snapshots:
       - yaml
       - zod
 
-  '@flue/runtime@2.0.3(patch_hash=7c053fe2625f3b5df9132d0f2340f2f999d78a1b164631cb8fd7fb91bddee197)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@5.9.3)(ws@8.21.0)(zod@4.4.3)':
+  '@flue/runtime@2.0.3(patch_hash=b6a41c02420dd7b119ba42c7cc83a9da1fbbc3a10101c11de2bb9627bba785df)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@5.9.3)(ws@8.21.0)(zod@4.4.3)':
     dependencies:
       '@earendil-works/pi-agent-core': 0.83.0(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@earendil-works/pi-ai': 0.83.0(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
@@ -15162,7 +15162,7 @@ snapshots:
 
   '@flue/vite@2.0.3(@babel/core@8.0.1)(@babel/runtime@7.29.2)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.219(zod@4.4.3))(zod@4.4.3))(@cloudflare/workers-types@5.20260708.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@modelcontextprotocol/server@2.0.0)(ai@6.0.219(zod@4.4.3))(chat@4.32.0(ai@6.0.219(zod@4.4.3))(zod@4.4.3))(hono@4.12.22)(just-bash@3.0.2)(react@19.2.4)(rolldown@1.1.4)(typescript@5.9.3)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
-      '@flue/runtime': 2.0.3(patch_hash=7c053fe2625f3b5df9132d0f2340f2f999d78a1b164631cb8fd7fb91bddee197)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@5.9.3)(ws@8.21.0)(zod@4.4.3)
+      '@flue/runtime': 2.0.3(patch_hash=b6a41c02420dd7b119ba42c7cc83a9da1fbbc3a10101c11de2bb9627bba785df)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@5.9.3)(ws@8.21.0)(zod@4.4.3)
       '@hono/node-server': 2.0.8(hono@4.12.22)
       agents: 0.20.1(@babel/core@8.0.1)(@babel/runtime@7.29.2)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.219(zod@4.4.3))(zod@4.4.3))(@cloudflare/workers-types@5.20260708.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@modelcontextprotocol/server@2.0.0)(ai@6.0.219(zod@4.4.3))(chat@4.32.0(ai@6.0.219(zod@4.4.3))(zod@4.4.3))(just-bash@3.0.2)(react@19.2.4)(rolldown@1.1.4)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))(zod@4.4.3)
       magic-string: 1.2.3
