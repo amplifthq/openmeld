@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T14:41:46.435Z",
+  "updatedAt": "2026-09-06T06:11:35.947Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.160",
+      "packageVersion": "0.3.161",
       "updatePolicy": "available",
       "reason": "Cloud receivers are deployed first; existing CLI commands remain supported and the current required floor is unchanged."
     },
     "service": {
-      "bundleHash": "bda3ff3c62377df1dd94430de1f6093ac89eb891a644bca2c6f1dd43e55c3ebe",
-      "bundleVersion": "0.3.160",
+      "bundleHash": "e27440aea9ff6bf135d5052a5209f7c3e8715a47933c63b6fb5c59fce1c614a2",
+      "bundleVersion": "0.3.161",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services remain safe for Wake work; publish compatible cloud receivers before the independent Skill bridge capability."
+      "reason": "Sidebar shared-schema and navigation copy changes preserve existing setup, Wake, status, and recovery contracts in both cloud/local version directions."
     },
     "skills": {
       "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",
