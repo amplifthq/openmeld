@@ -109,7 +109,10 @@ export function AppContextualSidebarNav<ItemId extends string>(
 			{!isMain && <AppInnerSidebarHeader title={input.title} />}
 			<Content className={isMain ? "min-w-0" : "px-3 pt-[9px] pb-2"}>
 				{input.leadingContent ? (
-					<div className="pb-4" data-slot="app-contextual-sidebar-leading">
+					<div
+						className={isMain ? "pb-1" : "pb-4"}
+						data-slot="app-contextual-sidebar-leading"
+					>
 						{input.leadingContent}
 					</div>
 				) : null}

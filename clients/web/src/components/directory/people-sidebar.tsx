@@ -21,6 +21,7 @@ import {
 	SidebarDropSection,
 	useSortableSidebarItem,
 } from "../app/sidebar-drag";
+import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
@@ -376,13 +377,14 @@ export function PeopleSidebar(input: {
 							</SidebarDestinationAction>
 						</div>
 						{filter !== "all" && (
-							<Button
-								onClick={() => setFilter("all")}
-								size="sm"
-								variant="ghost"
-							>
-								Clear filter
-							</Button>
+							<div className="flex flex-wrap gap-1 px-1 pt-1">
+								<SidebarFilterBadge
+									label={
+										FILTERS.find(([value]) => value === filter)?.[1] ?? filter
+									}
+									onRemove={() => setFilter("all")}
+								/>
+							</div>
 						)}
 						{sidebar.isError && (
 							<Button onClick={() => sidebar.retry()} size="sm" variant="ghost">

@@ -25,6 +25,7 @@ export type AgentProfilesWorkspaceProps = {
 	agentControllerRefByProfileId?: ReadonlyMap<string, string | null>;
 	currentUserId: string;
 	filterControl?: ReactNode;
+	filterBadges?: ReactNode;
 	hasAnyProfiles?: boolean;
 	isSearchActive?: boolean;
 	initialSidebarStates?: AppSidebarPersistedStates;

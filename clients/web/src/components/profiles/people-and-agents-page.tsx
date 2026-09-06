@@ -63,6 +63,7 @@ import {
 } from "#/query/organizations/organization-directory";
 import { agentProfileCreationRequestsQueryOptions } from "#/query/profiles/agent-profile-creation-requests";
 import { startQueryKeys } from "#/query/query-keys";
+import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
 
 export type ProfileHomeId = "agents" | "people";
@@ -267,6 +268,28 @@ export function PeopleAndAgentsPage(input: {
 				)}
 				currentUserId={currentUserId}
 				fallbackOwnerLabel={fallbackOwnerLabel}
+				filterBadges={
+					agentProfileFilter !== "all" || agentOwnerId ? (
+						<div className="flex flex-wrap gap-1 px-1 pt-1">
+							{agentProfileFilter !== "all" && (
+								<SidebarFilterBadge
+									label={
+										AGENT_PROFILE_FILTER_OPTIONS.find(
+											(option) => option.value === agentProfileFilter
+										)?.label ?? agentProfileFilter
+									}
+									onRemove={() => setAgentProfileFilter("all")}
+								/>
+							)}
+							{agentOwnerId && (
+								<SidebarFilterBadge
+									label={`Owner: ${organizationProfileDirectoryQuery.data?.agentProfiles.find((profile) => profile.ownerUserId === agentOwnerId)?.ownerName ?? "Selected member"}`}
+									onRemove={() => setAgentOwnerId(null)}
+								/>
+							)}
+						</div>
+					) : null
+				}
 				filterControl={
 					<AgentProfileFilterSelect
 						counts={agentProfileFilterCounts}
@@ -417,6 +440,7 @@ function AgentsWorkspaceHome(input: {
 	profileDirectoryQuery: OrganizationProfileDirectoryQueryState;
 	fallbackOwnerLabel: string;
 	filterControl: ReactNode;
+	filterBadges: ReactNode;
 	focusRequestId: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
 	isOrganizationContext: boolean;
@@ -747,6 +771,7 @@ function AgentsWorkspaceHomeView(input: {
 			activeView={workspace.activeView}
 			agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 			currentUserId={workspace.currentUserId}
+			filterBadges={workspace.filterBadges}
 			filterControl={workspace.filterControl}
 			hasAnyProfiles={input.agentProfiles.length > 0}
 			initialSidebarStates={workspace.initialSidebarStates}

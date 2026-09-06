@@ -39,6 +39,7 @@ icons, and tighter rows so more teammates fit in the sidebar.
 Search and filter actions appear on the People or Agents navigation row when
 hovered or focused. Search opens only when needed and can be closed with its
 close button or Escape. Filter menus use consistent widths and left-aligned labels.
+Active filters appear as compact labeled pills with individual remove buttons.
 
 Agents now supports the same favorites, personal groups, dragging, and quick
 Chat actions. Filter by owner to find one person's Agents. Compact status dots

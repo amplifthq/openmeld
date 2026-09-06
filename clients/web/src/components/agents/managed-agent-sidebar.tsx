@@ -299,12 +299,15 @@ export function ManagedAgentSidebar({
 					),
 				}))}
 				leadingContent={
-					<div className="flex min-w-0 items-center gap-2">
-						<div className="min-w-0 flex-1">{input.searchControl}</div>
-						<SidebarDestinationAction destination="agents">
-							{input.filterControl}
-						</SidebarDestinationAction>
-					</div>
+					<>
+						<div className="flex min-w-0 items-center gap-2">
+							<div className="min-w-0 flex-1">{input.searchControl}</div>
+							<SidebarDestinationAction destination="agents">
+								{input.filterControl}
+							</SidebarDestinationAction>
+						</div>
+						{input.filterBadges}
+					</>
 				}
 				onActivate={input.onSelectProfile}
 				placement="main"
