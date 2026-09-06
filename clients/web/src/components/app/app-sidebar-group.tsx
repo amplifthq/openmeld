@@ -1,6 +1,7 @@
 "use client";
 
 import { Collapsible } from "@base-ui/react/collapsible";
+import { Input } from "@openmeld/ui/components/input";
 import {
 	SidebarGroup,
 	SidebarGroupContent,
@@ -19,7 +20,14 @@ import {
 	useCallback,
 	useContext,
 	useMemo,
+	useRef,
+	useState,
 } from "react";
+
+const SidebarGroupRenameContext = createContext<(() => void) | null>(null);
+export function useSidebarGroupRename() {
+	return useContext(SidebarGroupRenameContext);
+}
 
 type AppSidebarGroupState = {
 	isOpen: (groupId: string) => boolean;
@@ -77,6 +85,7 @@ export function AppSidebarGroupStateProvider({
 }
 
 export function AppSidebarGroup(input: {
+	onRename?: (name: string) => void;
 	children: ReactNode;
 	contentAriaLabel?: string;
 	contentRole?: "region";
@@ -88,6 +97,38 @@ export function AppSidebarGroup(input: {
 	labelText: string;
 	labelTooltip?: string;
 }) {
+	const [editing, setEditing] = useState(false);
+	const [draft, setDraft] = useState(input.labelText);
+	const editingRef = useRef(false);
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const focusEditor = useCallback((node: HTMLInputElement | null) => {
+		if (node) {
+			requestAnimationFrame(() => {
+				if (node.isConnected) {
+					node.focus({ preventScroll: true });
+					node.select();
+				}
+			});
+		}
+	}, []);
+	const finish = (save: boolean) => {
+		if (!editingRef.current) {
+			return;
+		}
+		editingRef.current = false;
+		setEditing(false);
+		const name = draft.trim();
+		if (save && name && name !== input.labelText) {
+			input.onRename?.(name);
+		}
+	};
+	const rename = input.onRename
+		? () => {
+				setDraft(input.labelText);
+				editingRef.current = true;
+				setEditing(true);
+			}
+		: null;
 	const state = useContext(AppSidebarGroupStateContext);
 	const rootStateProps = state
 		? {
@@ -100,6 +141,7 @@ export function AppSidebarGroup(input: {
 		<Collapsible.Trigger
 			aria-label={input.labelText}
 			className="group/sidebar-group-trigger inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
+			ref={triggerRef}
 		>
 			<span className="min-w-0">{input.label}</span>
 			<CaretRightIcon
@@ -109,44 +151,70 @@ export function AppSidebarGroup(input: {
 			/>
 		</Collapsible.Trigger>
 	);
+	let heading = input.labelTooltip ? (
+		<Tooltip>
+			<TooltipTrigger render={trigger} />
+			<TooltipContent side="top">{input.labelTooltip}</TooltipContent>
+		</Tooltip>
+	) : (
+		trigger
+	);
+	if (editing) {
+		heading = (
+			<Input
+				aria-label="Group name"
+				className="h-6 min-w-0 flex-1 px-1 text-xs"
+				maxLength={80}
+				onBlur={() => finish(true)}
+				onChange={(event) => setDraft(event.target.value)}
+				onKeyDown={(event) => {
+					if (event.key === "Enter" || event.key === "Escape") {
+						event.preventDefault();
+						event.stopPropagation();
+						finish(event.key === "Enter");
+						requestAnimationFrame(() =>
+							triggerRef.current?.focus({ preventScroll: true })
+						);
+					}
+				}}
+				ref={focusEditor}
+				value={draft}
+			/>
+		);
+	}
 
 	return (
-		<Collapsible.Root
-			className="group/sidebar-group-root"
-			data-sidebar-group-id={input.groupId}
-			{...rootStateProps}
-		>
-			<SidebarGroup className={input.groupClassName}>
-				<SidebarGroupLabel
-					aria-label={input.labelText}
-					className={cn(
-						"flex min-w-0 items-center gap-1",
-						input.labelClassName
-					)}
-				>
-					{input.labelTooltip ? (
-						<Tooltip>
-							<TooltipTrigger render={trigger} />
-							<TooltipContent side="top">{input.labelTooltip}</TooltipContent>
-						</Tooltip>
-					) : (
-						trigger
-					)}
-					{input.labelAccessory ? (
-						<span className="ml-auto flex shrink-0 items-center">
-							{input.labelAccessory}
-						</span>
-					) : null}
-				</SidebarGroupLabel>
-				<Collapsible.Panel>
-					<SidebarGroupContent
-						aria-label={input.contentAriaLabel}
-						role={input.contentRole}
+		<SidebarGroupRenameContext.Provider value={rename}>
+			<Collapsible.Root
+				className="group/sidebar-group-root"
+				data-sidebar-group-id={input.groupId}
+				{...rootStateProps}
+			>
+				<SidebarGroup className={input.groupClassName}>
+					<SidebarGroupLabel
+						aria-label={input.labelText}
+						className={cn(
+							"flex min-w-0 items-center gap-1",
+							input.labelClassName
+						)}
 					>
-						{input.children}
-					</SidebarGroupContent>
-				</Collapsible.Panel>
-			</SidebarGroup>
-		</Collapsible.Root>
+						{heading}
+						{input.labelAccessory ? (
+							<span className="ml-auto flex shrink-0 items-center">
+								{input.labelAccessory}
+							</span>
+						) : null}
+					</SidebarGroupLabel>
+					<Collapsible.Panel>
+						<SidebarGroupContent
+							aria-label={input.contentAriaLabel}
+							role={input.contentRole}
+						>
+							{input.children}
+						</SidebarGroupContent>
+					</Collapsible.Panel>
+				</SidebarGroup>
+			</Collapsible.Root>
+		</SidebarGroupRenameContext.Provider>
 	);
 }

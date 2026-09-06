@@ -273,8 +273,12 @@ The Web shell is a stable two-layer composition built from the shared
   work, then idle Spaces, with recent activity breaking ties. Opening a Space must not promote it
   merely because its visit timestamp changed. Recently added uses pin time for
   Pinned and creation time for ordinary Spaces. Dragging the whole row changes manual order
-  within Pinned or moves ordinary Spaces between groups. Existing pin controls
-  remain the owner of pin/unpin actions. Deleting a group returns its Spaces to
+  within or across Pinned, custom groups, and ordinary Spaces. Crossing the
+  Pinned boundary uses the same Account Space pin mutation as the row control;
+  a failed pin mutation must not save a new group placement. Custom groups can
+  be renamed inline from section settings (Enter or blur saves; Escape cancels).
+  People and Agent row actions reveal immediately without translation or fades.
+  Deleting a group returns its Spaces to
   the ordinary list without changing membership or deleting Spaces.
   Groups and ordering are personal account × Organization preferences, stored
   by Auth with revision-checked writes and refreshed on window focus. They do

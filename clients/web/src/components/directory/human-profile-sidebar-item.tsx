@@ -218,7 +218,7 @@ export function HumanProfileSidebarItem(input: {
 				</span>
 			</button>
 			{input.onToggleStar && (
-				<span className="absolute top-1 right-1 flex translate-x-1 rounded-md bg-sidebar opacity-0 transition-[opacity,translate] duration-150 ease-out group-focus-within/people-row:translate-x-0 group-focus-within/people-row:opacity-100 group-focus-within/people-row:transition-none group-hover/people-row:translate-x-0 group-hover/people-row:opacity-100 motion-reduce:translate-x-0 motion-reduce:transition-none [@media(hover:none)]:translate-x-0 [@media(hover:none)]:opacity-100">
+				<span className="absolute top-1 right-1 flex rounded-md bg-sidebar opacity-0 group-focus-within/people-row:opacity-100 group-hover/people-row:opacity-100 [@media(hover:none)]:opacity-100">
 					{input.onChat && (
 						<PeopleRowAction
 							disabled={input.actionsDisabled}

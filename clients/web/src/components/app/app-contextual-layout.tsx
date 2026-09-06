@@ -33,6 +33,7 @@ export type AppContextualNavItem<ItemId extends string = string> = {
 };
 
 type AppContextualNavGroupBase = {
+	onRename?: (name: string) => void;
 	ariaLabel: string;
 	id: string;
 	label: string;
@@ -135,6 +136,7 @@ export function AppContextualSidebarNav<ItemId extends string>(
 						labelClassName={APP_NAV_GROUP_LABEL_CLASS_NAME}
 						labelText={group.label}
 						labelTooltip={group.labelTooltip}
+						onRename={group.onRename}
 					>
 						{group.items !== undefined ? (
 							<FluidNavMenu

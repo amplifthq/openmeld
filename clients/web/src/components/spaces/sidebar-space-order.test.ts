@@ -112,7 +112,20 @@ it("returns a Space to the ordinary list and keeps pinned sorting independent", 
 		"other"
 	);
 	expect(pinned.pinned.spaceIds).toEqual(["pinned", "other"]);
-	expect(pinned.groups).toEqual(preferences.groups);
+	expect(pinned.groups[0]?.spaceIds).toEqual(["a"]);
+});
+it("moves between pinned, custom groups, and ordinary Spaces without duplicate placement", () => {
+	const pinned = moveSidebarSpace(preferences, "pinned", "b", ["pinned"]);
+	expect(pinned.pinned.spaceIds).toEqual(["pinned", "b"]);
+	expect(pinned.groups[1]?.spaceIds).toEqual([]);
+	const grouped = moveSidebarSpace(pinned, "design", "b", ["a"]);
+	expect(grouped.pinned.spaceIds).toEqual(["pinned"]);
+	expect(grouped.groups[0]?.spaceIds).toContain("b");
+	const ordinary = moveSidebarSpace(grouped, "spaces", "b", []);
+	expect(ordinary.spaces.spaceIds).toEqual(["b"]);
+	expect(ordinary.groups.every((group) => !group.spaceIds.includes("b"))).toBe(
+		true
+	);
 });
 it("does not remove membership if a destination no longer exists", () => {
 	expect(moveSidebarSpace(preferences, "deleted-group", "a", [])).toBe(

@@ -94,7 +94,7 @@ export function PeopleSidebar(input: {
 	const starred = new Set(preferences.starred.itemIds);
 	const remaining = filtered.filter((m) => !assigned.has(m.id));
 	const sections = [
-		...(preferences.starred.itemIds.length
+		...(input.members.length
 			? [
 					{
 						id: "starred",
@@ -187,6 +187,15 @@ export function PeopleSidebar(input: {
 		return {
 			id: section.id,
 			label: section.label,
+			onRename: preferences.groups.some((group) => group.id === section.id)
+				? (name: string) =>
+						save({
+							...preferences,
+							groups: preferences.groups.map((group) =>
+								group.id === section.id ? { ...group, name } : group
+							),
+						})
+				: undefined,
 			labelTooltip: new Map([
 				["connected", "Computer connected"],
 				["not-connected", "Computer not connected"],

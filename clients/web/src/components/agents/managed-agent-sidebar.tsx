@@ -105,7 +105,7 @@ export function ManagedAgentSidebar({
 		...preferences.groups.flatMap((g) => g.itemIds),
 	]);
 	const sections = [
-		...(preferences.starred.itemIds.length
+		...(input.profiles.length
 			? [
 					{
 						id: "starred",
@@ -183,6 +183,15 @@ export function ManagedAgentSidebar({
 				groups={sections.map((section, index) => ({
 					id: section.id,
 					label: section.label,
+					onRename: preferences.groups.some((group) => group.id === section.id)
+						? (name: string) =>
+								save({
+									...preferences,
+									groups: preferences.groups.map((group) =>
+										group.id === section.id ? { ...group, name } : group
+									),
+								})
+						: undefined,
 					ariaLabel: `${section.label} Agents`,
 					labelAccessory: (
 						<SidebarSectionActions

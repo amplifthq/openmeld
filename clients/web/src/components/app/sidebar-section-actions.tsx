@@ -30,6 +30,7 @@ import {
 	SlidersHorizontalIcon,
 } from "@phosphor-icons/react";
 import { useId, useState } from "react";
+import { useSidebarGroupRename } from "./app-sidebar-group";
 
 type Sort = AccountSidebarPreferences["spaces"]["sort"];
 export function SidebarSectionActions(input: {
@@ -44,6 +45,7 @@ export function SidebarSectionActions(input: {
 	onDelete?: () => void;
 	sortOptions?: readonly (readonly [Sort, string])[];
 }) {
+	const rename = useSidebarGroupRename();
 	const [addOpen, setAddOpen] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [creatingGroup, setCreatingGroup] = useState(false);
@@ -134,10 +136,19 @@ export function SidebarSectionActions(input: {
 								)}
 							</FluidDropdownMenuItem>
 						))}
+						{rename && (
+							<FluidDropdownMenuItem
+								disabled={input.disabled}
+								index={sorts.length}
+								onClick={() => rename?.()}
+							>
+								Rename group
+							</FluidDropdownMenuItem>
+						)}
 						{input.onDelete && (
 							<FluidDropdownMenuItem
 								disabled={input.disabled}
-								index={3}
+								index={sorts.length + 1}
 								onClick={input.onDelete}
 							>
 								Delete group

@@ -326,7 +326,7 @@ export function AppSpacesSidebar(input: {
 			<SidebarSpacesList
 				activeWakeSummaryBySpaceId={activeWakeSummaryBySpaceId}
 				currentSpaceId={input.currentSpaceId}
-				dragDisabled={sidebar.disabled}
+				dragDisabled={sidebar.disabled || pinMutation.arePinActionsPending}
 				isError={listInput.isError ?? false}
 				isPending={listInput.isPending ?? false}
 				isPinPending={() => pinMutation.arePinActionsPending}
@@ -351,7 +351,7 @@ export function AppSpacesSidebar(input: {
 	const visibleBySection = new Map<string, readonly AccountSpaceItem[]>();
 	const actions = (id: string, label: string) => (
 		<SidebarSectionActions
-			disabled={sidebar.disabled}
+			disabled={sidebar.disabled || pinMutation.arePinActionsPending}
 			label={label}
 			onDelete={
 				id !== "pinned" && id !== "spaces"
@@ -445,7 +445,10 @@ export function AppSpacesSidebar(input: {
 			unreadActivity,
 			working
 		);
-	if (sidebarSections.pinnedItems.length > 0) {
+	if (
+		sidebarSections.pinnedItems.length + sidebarSections.spaceItems.length >
+		0
+	) {
 		const items = sortSection(sidebarSections.pinnedItems, preferences?.pinned);
 		visibleBySection.set("pinned", items);
 		sidebarGroups.push({
@@ -473,6 +476,16 @@ export function AppSpacesSidebar(input: {
 		sidebarGroups.push({
 			id: group.id,
 			label: group.name,
+			onRename: (name) => {
+				if (preferences) {
+					sidebar.save({
+						...preferences,
+						groups: preferences.groups.map((item) =>
+							item.id === group.id ? { ...item, name } : item
+						),
+					});
+				}
+			},
 			ariaLabel: group.name,
 			labelAccessory: actions(group.id, group.name),
 			content: renderSpacesList({
@@ -524,9 +537,17 @@ export function AppSpacesSidebar(input: {
 
 	return (
 		<SidebarSpaceDrag
-			isolatedSection="pinned"
-			onMove={(section, spaceId, beforeId) => {
+			onMove={async (section, spaceId, beforeId) => {
 				if (preferences && !sidebar.disabled) {
+					const item = [
+						...sidebarSections.pinnedItems,
+						...sidebarSections.spaceItems,
+					].find((item) => item.spaceId === spaceId);
+					if (
+						!(item && (await pinMutation.setPinned(item, section === "pinned")))
+					) {
+						return;
+					}
 					sidebar.save(
 						moveSidebarSpace(
 							preferences,

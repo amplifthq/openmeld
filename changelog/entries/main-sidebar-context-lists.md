@@ -17,6 +17,9 @@ and Agents. Hover a Space to see its total member count.
 Organize Spaces into personal groups, sort each section, or drag Spaces into
 the order you want. Your groups and ordering follow your account across devices.
 Create a Space or group from the Spaces section's plus button.
+Drag conversations freely between Pinned, custom groups, and the ordinary list.
+Rename a custom group from its section settings, directly in the group heading.
+People and Agent row actions appear and disappear immediately, without sliding.
 Section actions stay quiet until you hover or focus the group. Drag a whole
 Space row to reorder it, or sort pinned Spaces by priority or when you pinned
 them. Hovering long lists no longer recalculates the whole page's styles.

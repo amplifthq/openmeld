@@ -176,7 +176,7 @@ export function AgentProfileSidebarItemComponent(input: {
 				</span>
 			</button>
 			{(input.onToggleStar || input.onChat) && (
-				<span className="absolute top-1 right-1 flex translate-x-1 rounded-md bg-sidebar opacity-0 transition-[opacity,translate] duration-150 ease-out group-focus-within/agent-row:translate-x-0 group-focus-within/agent-row:opacity-100 group-focus-within/agent-row:transition-none group-hover/agent-row:translate-x-0 group-hover/agent-row:opacity-100 motion-reduce:translate-x-0 motion-reduce:transition-none [@media(hover:none)]:translate-x-0 [@media(hover:none)]:opacity-100">
+				<span className="absolute top-1 right-1 flex rounded-md bg-sidebar opacity-0 group-focus-within/agent-row:opacity-100 group-hover/agent-row:opacity-100 [@media(hover:none)]:opacity-100">
 					{input.onChat && (
 						<SidebarRowAction
 							label={`Chat with ${input.profile.profileName}`}

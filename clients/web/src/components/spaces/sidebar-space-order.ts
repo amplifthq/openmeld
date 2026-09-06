@@ -78,13 +78,21 @@ export function moveSidebarSpace(
 	);
 	const next = {
 		...preferences,
+		pinned: {
+			...preferences.pinned,
+			spaceIds: preferences.pinned.spaceIds.filter((id) => id !== spaceId),
+		},
+		spaces: {
+			...preferences.spaces,
+			spaceIds: preferences.spaces.spaceIds.filter((id) => id !== spaceId),
+		},
 		groups: preferences.groups.map((group) => ({
 			...group,
 			spaceIds: group.spaceIds.filter((id) => id !== spaceId),
 		})),
 	};
 	if (sectionId === "pinned") {
-		return { ...preferences, pinned: { sort: "manual", spaceIds: ids } };
+		return { ...next, pinned: { sort: "manual", spaceIds: ids } };
 	}
 	if (sectionId === "spaces") {
 		return { ...next, spaces: { sort: "manual", spaceIds: ids } };

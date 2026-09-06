@@ -22,7 +22,6 @@ import { type ReactNode, useMemo, useState } from "react";
 export function SidebarDrag(input: {
 	children: ReactNode;
 	onMove: (section: string, itemId: string, beforeId?: string) => void;
-	isolatedSection?: string;
 	canDrop?: (itemId: string, section: string) => boolean;
 }) {
 	const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
@@ -63,15 +62,10 @@ export function SidebarDrag(input: {
 					...args,
 					droppableContainers: args.droppableContainers.filter(
 						(container) =>
-							(!input.isolatedSection ||
-								(container.data.current?.section === input.isolatedSection) ===
-									(args.active.data.current?.section ===
-										input.isolatedSection)) &&
-							(input.canDrop?.(
+							input.canDrop?.(
 								args.active.data.current?.itemId,
 								container.data.current?.section
-							) ??
-								true)
+							) ?? true
 					),
 				})
 			}
@@ -85,10 +79,7 @@ export function SidebarDrag(input: {
 				const target = over.data.current;
 				if (
 					!(source && target) ||
-					input.canDrop?.(source.itemId, target.section) === false ||
-					(input.isolatedSection &&
-						(source.section === input.isolatedSection) !==
-							(target.section === input.isolatedSection))
+					input.canDrop?.(source.itemId, target.section) === false
 				) {
 					return;
 				}

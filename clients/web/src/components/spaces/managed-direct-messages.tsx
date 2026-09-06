@@ -93,7 +93,7 @@ export function ManagedDirectMessages(input: {
 	);
 	const assigned = new Set(preferences.groups.flatMap((g) => g.spaceIds));
 	const sections = [
-		...(input.items.some((i) => i.pinnedAt !== null)
+		...(input.items.length > 0
 			? [
 					{
 						id: "pinned",
@@ -137,9 +137,12 @@ export function ManagedDirectMessages(input: {
 	return (
 		<>
 			<SidebarDrag
-				isolatedSection="pinned"
-				onMove={(section, id, before) => {
+				onMove={async (section, id, before) => {
 					if (!sidebar.disabled) {
+						const item = input.items.find((item) => item.spaceId === id);
+						if (!(item && (await pin.setPinned(item, section === "pinned")))) {
+							return;
+						}
 						save(
 							moveSidebarSpace(
 								preferences,
@@ -166,7 +169,7 @@ export function ManagedDirectMessages(input: {
 						labelAccessory={
 							<SidebarSectionActions
 								addLabel="Add conversation or group"
-								disabled={sidebar.disabled}
+								disabled={sidebar.disabled || pin.arePinActionsPending}
 								label={section.label}
 								newItemLabel="New conversation"
 								onDelete={
@@ -220,6 +223,17 @@ export function ManagedDirectMessages(input: {
 						}
 						labelClassName="ps-1.5"
 						labelText={section.label}
+						onRename={
+							preferences.groups.some((group) => group.id === section.id)
+								? (name) =>
+										save({
+											...preferences,
+											groups: preferences.groups.map((group) =>
+												group.id === section.id ? { ...group, name } : group
+											),
+										})
+								: undefined
+						}
 					>
 						<SidebarDropSection
 							ids={section.items.map((i) => i.spaceId)}
