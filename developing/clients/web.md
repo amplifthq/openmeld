@@ -1,12 +1,5 @@
 # Web Client
 
-The external-capability catalog is named **Plugins**. Product routes use
-`/center-agent/plugins`; old `/center-agent/apps` links redirect there, including
-service detail links. Web components and navigation helpers use Plugin names.
-Vendor terms such as GitHub App and existing connector RPC/tool field names
-remain unchanged: this rename does not migrate connection identities, stored
-credentials, wire discriminants, or authorization policy.
-
 ## Agent Context
 
 - Purpose: Define the OpenMeld Web client's product responsibilities in
@@ -31,6 +24,13 @@ credentials, wire discriminants, or authorization policy.
   client as a browser client.
 
 ## Boundary
+
+The external-capability catalog is named **Plugins**. Product routes use
+`/center-agent/plugins`; old `/center-agent/apps` links redirect there, including
+service detail links. Web components and navigation helpers use Plugin names.
+Vendor terms such as GitHub App and existing connector RPC/tool field names
+remain unchanged: this rename does not migrate connection identities, stored
+credentials, wire discriminants, or authorization policy.
 
 OpenMeld Web is the primary browser surface for the user-visible collaboration loop:
 
