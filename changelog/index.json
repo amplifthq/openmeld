@@ -2,6 +2,66 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "existing-spaces-message-preview-upgrade",
+      "title": "Keep existing chats writable after the preview upgrade",
+      "kind": "fixed",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-07",
+      "release": "v0.3.164",
+      "evidence": [
+        "pr:697",
+        "workflow:34048141546",
+        "signal:2ee4894f-6463-4bdc-9abf-4acd6bf76384"
+      ],
+      "body": "Existing chats now create the message preview counter during their database\nupgrade. Sending a message no longer fails because the chat already completed\nan earlier database version. Existing messages and preview ordering are preserved."
+    },
+    {
+      "id": "center-agent-reconnect-and-directory-pages",
+      "title": "More reliable command reconnection and directory reads",
+      "kind": "fixed",
+      "areas": [
+        "center-agent"
+      ],
+      "audiences": [
+        "members",
+        "contributors"
+      ],
+      "publishedAt": "2026-09-07",
+      "release": "v0.3.164",
+      "evidence": [
+        "pr:697",
+        "workflow:34048148581",
+        "signal:6f67a276-764a-4687-a9ac-9216455094c6"
+      ],
+      "body": "Center Agent can detach from a command while its output connection is still\nopening without trying to open that connection twice. Detaching does not stop\nor restart the command.\n\nLarge organization directories can be read in bounded pages, preserving member\nand Agent details with explicit totals and continuation cursors. The Agent must\nfinish the pages before treating a roster or identity match as complete."
+    },
+    {
+      "id": "retire-remote-agent-core-rollout-fallbacks",
+      "title": "Retire completed Remote Agent rollout fallbacks",
+      "kind": "improved",
+      "areas": [
+        "center-agent",
+        "operations"
+      ],
+      "audiences": [
+        "operators",
+        "contributors"
+      ],
+      "publishedAt": "2026-09-07",
+      "release": "v0.3.164",
+      "evidence": [
+        "pr:697",
+        "workflow:34048141546",
+        "workflow:34048148581"
+      ],
+      "body": "Remote Agent now requires the current Core contracts for Slack results,\nMessage Channel account linking, and connected App progress. It no longer\ndowngrades requests or progress metadata for older Core versions. Keep Core\ncurrent before deploying this worker; roll back Remote Agent first when\nreverting those Core contracts. Existing local clients and saved conversation\nformats are unchanged."
+    },
+    {
       "id": "connect-cloudflare-r2-with-an-api-token",
       "title": "Connect Cloudflare R2 with an API token",
       "kind": "fixed",

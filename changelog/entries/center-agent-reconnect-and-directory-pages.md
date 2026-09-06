@@ -4,6 +4,9 @@ title: More reliable command reconnection and directory reads
 kind: fixed
 areas: ["center-agent"]
 audiences: ["members", "contributors"]
+publishedAt: 2026-09-07
+release: v0.3.164
+evidence: ["pr:697", "workflow:34048148581", "signal:6f67a276-764a-4687-a9ac-9216455094c6"]
 ---
 
 Center Agent can detach from a command while its output connection is still
