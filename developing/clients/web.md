@@ -169,6 +169,10 @@ and actions are fixed:
 No page-level Organization picker or second context switcher may compete with
 this control.
 
+Personal Home may show a compact, dismissible link below its introductory heading
+to an Organization the account already belongs to. This is a contextual shortcut,
+not another picker; dismissal is stored per account in the current browser.
+
 Account switching is browser-wide because Better Auth changes the active
 Session cookie. The nested view lists only Sessions saved by Better Auth's
 multi-session plugin, marks the current account, allows up to five saved

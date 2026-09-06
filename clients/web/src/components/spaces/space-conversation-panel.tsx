@@ -99,6 +99,7 @@ import {
 } from "./center-agent-computer-setup-card";
 import { CenterAgentStarterActions } from "./center-agent-starter-actions";
 import type { OnboardingSetupPresentation } from "./onboarding-setup-presentation";
+import { PersonalHomeOrganizationHint } from "./personal-home-organization-hint";
 import { Bubble, BubbleContent, BubbleGroup } from "./primitives/bubble";
 import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
 import { Message, MessageContent, MessageHeader } from "./primitives/message";
@@ -2454,6 +2455,7 @@ function CenterAgentDirectMessageIntro(input: {
 						organizationHeading
 					)}
 				</h2>
+				{input.isPersonalContext && <PersonalHomeOrganizationHint />}
 				<div className="mt-4 w-full">{starterContent}</div>
 			</div>
 		</div>
