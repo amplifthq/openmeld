@@ -8,6 +8,7 @@ import {
   number,
   optional,
   parse,
+  picklist,
   pipe,
   strictObject,
   string,
@@ -46,6 +47,19 @@ const commandSchema = variant("action", [
   strictObject({ action: literal("stop"), key: pipe(string(), minLength(1)) }),
   strictObject({ action: literal("list") }),
 ]);
+
+// Flue requires an object at the tool boundary. The action-specific schema
+// above remains the strict execution validator (including forbidden fields).
+const commandToolSchema = strictObject({
+  action: picklist(["start", "poll", "stop", "list"]),
+  key: optional(pipe(string(), minLength(1))),
+  command: optional(pipe(string(), minLength(1))),
+  timeoutSeconds: optional(
+    pipe(number(), integer(), minValue(1), maxValue(3600))
+  ),
+  after: optional(pipe(number(), integer(), minValue(0))),
+  waitSeconds: optional(pipe(number(), integer(), minValue(0), maxValue(20))),
+});
 
 type Command = {
   id: string;
@@ -90,7 +104,7 @@ export function createComputerCommandTool(input: {
     name: "computer_command",
     description:
       "Run long Linux commands using the Computer's retained native process sessions. start launches the command directly (never add shell &, nohup, or a background subprocess); use a unique stable key per command. poll reconnects to that same process and returns bounded output plus an after cursor; repeat until completed. list recovers keys after interruption. stop requests SIGTERM for that exact command. Commands belong to this execution only. Repeating start with the same key never launches a second process. A transport error can mean launch outcome is unknown: list/poll, never blindly rerun. Finish all commands before your final answer. Use bash for short commands.",
-    input: commandSchema,
+    input: commandToolSchema,
     async execute(rawInput, options) {
       options?.signal?.throwIfAborted();
       const request = parse(commandSchema, rawInput);

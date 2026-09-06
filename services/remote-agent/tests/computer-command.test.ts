@@ -3,6 +3,8 @@ import type {
   WorkspaceRuntimeEvent,
   WorkspaceRuntimeExecHandle,
 } from "@cloudflare/computer";
+import { defineTool } from "@flue/runtime";
+import type { GenericSchema } from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import { createRemoteAgentCallbackContext } from "../agent-core/callback-context";
 import {
@@ -87,6 +89,17 @@ function fixture() {
 }
 
 describe("retained Computer commands", () => {
+  it("registers through the actual pinned Flue tool boundary", () => {
+    const tool = fixture().tool();
+    expect(() =>
+      defineTool({
+        name: tool.name,
+        description: tool.description,
+        input: tool.input as GenericSchema<Record<string, unknown>, unknown>,
+        run: () => Promise.resolve({ output: "unused" }),
+      })
+    ).not.toThrow();
+  });
   it("reattaches after adapter reconstruction without rerunning the command", async () => {
     const f = fixture();
     const request = {
