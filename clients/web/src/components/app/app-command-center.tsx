@@ -1,7 +1,6 @@
 "use client";
 
 import type { OrganizationProfileDirectoryResponse } from "@openmeld/schemas/types";
-
 import {
 	Dialog,
 	DialogContent,
@@ -12,6 +11,10 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import {
+	APPLICATION_SHORTCUTS,
+	navigationShortcutKeys,
+} from "@openmeld/ui/lib/application-shortcuts";
 import {
 	ArrowRightIcon,
 	ChatCircleTextIcon,
@@ -47,6 +50,7 @@ import {
 	buildOrganizationAgentCreationPath,
 	buildOrganizationAgentsPath,
 	buildOrganizationAppearanceSettingsPath,
+	buildOrganizationComputersPath,
 	buildOrganizationConnectPath,
 	buildOrganizationDefaultPath,
 	buildOrganizationDirectMessagePath,
@@ -174,7 +178,7 @@ function CommandCenterContents(input: {
 	const { currentOrganization } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
 	const navigate = useNavigate();
-	const { setTheme } = useTheme();
+	const { resolvedTheme, setTheme } = useTheme();
 	const spaces = useQuery(
 		accountSpaceItemsQueryOptions({
 			enabled: !!input.profileId,
@@ -294,16 +298,33 @@ function CommandCenterContents(input: {
 			},
 		});
 	}
-	for (const [label, to] of [
-		["Home", buildOrganizationDefaultPath(orgSlug)],
-		["Spaces", buildOrganizationSpacesPath(orgSlug)],
-		["Messages", buildOrganizationDirectMessagesPath(orgSlug)],
-		["People", buildOrganizationPeoplePath(orgSlug)],
-		["Agents", buildOrganizationAgentsPath(orgSlug)],
-		["Inbox", buildOrganizationInboxPath(orgSlug)],
+	for (const [label, to, destination] of [
+		["Home", buildOrganizationDefaultPath(orgSlug), "home"],
+		["Spaces", buildOrganizationSpacesPath(orgSlug), "spaces"],
+		["Messages", buildOrganizationDirectMessagesPath(orgSlug), "messages"],
+		["People", buildOrganizationPeoplePath(orgSlug), "people"],
+		["Agents", buildOrganizationAgentsPath(orgSlug), "agents"],
+		["Inbox", buildOrganizationInboxPath(orgSlug), "inbox"],
+		["Computers", buildOrganizationComputersPath(orgSlug), "computers"],
 	] as const) {
-		entries.push(link(label, to, "Go to"));
+		entries.push({
+			...link(label, to, "Go to"),
+			shortcut: navigationShortcutKeys(destination),
+		});
 	}
+	entries.push({
+		id: "toggle-theme",
+		label: "Toggle light/dark theme",
+		group: "Settings",
+		keywords: "appearance mode",
+		leading: <SunIcon className="size-4" />,
+		shortcut: ["Shift", APPLICATION_SHORTCUTS.theme.toUpperCase()],
+		actionLabel: "Change theme",
+		run: () => {
+			setTheme(resolvedTheme === "dark" ? "light" : "dark");
+			input.close();
+		},
+	});
 	for (const [label, to] of [
 		["Account settings", buildOrganizationAccountSettingsPath(orgSlug)],
 		["Appearance", buildOrganizationAppearanceSettingsPath(orgSlug)],

@@ -22,6 +22,20 @@ export const APPLICATION_SHORTCUTS = {
   },
 } as const;
 
+export function navigationShortcutKeys(
+  destination: (typeof APPLICATION_SHORTCUTS.destinations)[keyof typeof APPLICATION_SHORTCUTS.destinations]
+) {
+  const entry = Object.entries(APPLICATION_SHORTCUTS.destinations).find(
+    ([, target]) => target === destination
+  );
+  return entry
+    ? [
+        APPLICATION_SHORTCUTS.navigationPrefix.toUpperCase(),
+        entry[0].toUpperCase(),
+      ]
+    : [];
+}
+
 export function blocksLetterShortcuts(event: KeyboardEvent) {
   const target = event.target;
   return (

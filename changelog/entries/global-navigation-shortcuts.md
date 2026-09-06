@@ -11,3 +11,6 @@ Agents, Inbox, or Computers in your current organization. Shift D switches betwe
 and dark themes throughout the site, including the homepage and onboarding.
 Navigation shortcuts are available inside the app. Existing command center and
 sidebar shortcuts remain available.
+
+The command palette shows keycaps next to actions with shortcuts, so you can
+learn them while navigating or switching themes.
