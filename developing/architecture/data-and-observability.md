@@ -1,5 +1,25 @@
 # Data And Observability
 
+## Agent Context
+
+- Purpose: Define durable data ownership, projections, correlation keys, trace
+  contracts, Opportunity, Center Agent Routine and memory storage boundaries,
+  diagnostic reports, weekly evaluation reports, Cloudflare runtime evidence,
+  and sensitive-data boundaries.
+- Read this when: You are changing D1 ownership, projections, database writer
+  rules, Opportunity, Routine or Run storage, Center Agent memory storage, Wake trace
+  selectors, `clientMessageId`, weekly evaluation reports, Cloudflare runtime
+  evidence, diagnostic reports, structured logs, or observability payload
+  schemas.
+- Update this when: Data ownership, Opportunity storage, trace correlation,
+  diagnostic read paths, memory/provider ownership, runtime evidence projection, evaluation or
+  Diagnostic Report ownership, or sensitive-data logging rules change.
+- Do not use this for: Product object semantics, local service lifecycle, client
+  presentation details, SQL tutorials, Cloudflare operations runbooks, endpoint
+  implementation, schema field catalogs, or temporary investigation logs.
+- Source of truth: This file owns the durable architecture boundary for data
+  ownership and observability.
+
 ## Space message previews and slow Web experiences
 
 Space owns message preview truth. Message publication and retention capture a
@@ -29,26 +49,6 @@ The receiver validates payload size/shape and applies the current threshold
 and a best-effort per-isolate volume cap. These diagnostics are sampled failure
 evidence, not a complete traffic or latency distribution. Worker log retention
 governs how far back an investigation can look.
-
-## Agent Context
-
-- Purpose: Define durable data ownership, projections, correlation keys, trace
-  contracts, Opportunity, Center Agent Routine and memory storage boundaries,
-  diagnostic reports, weekly evaluation reports, Cloudflare runtime evidence,
-  and sensitive-data boundaries.
-- Read this when: You are changing D1 ownership, projections, database writer
-  rules, Opportunity, Routine or Run storage, Center Agent memory storage, Wake trace
-  selectors, `clientMessageId`, weekly evaluation reports, Cloudflare runtime
-  evidence, diagnostic reports, structured logs, or observability payload
-  schemas.
-- Update this when: Data ownership, Opportunity storage, trace correlation,
-  diagnostic read paths, memory/provider ownership, runtime evidence projection, evaluation or
-  Diagnostic Report ownership, or sensitive-data logging rules change.
-- Do not use this for: Product object semantics, local service lifecycle, client
-  presentation details, SQL tutorials, Cloudflare operations runbooks, endpoint
-  implementation, schema field catalogs, or temporary investigation logs.
-- Source of truth: This file owns the durable architecture boundary for data
-  ownership and observability.
 
 ## Boundary
 
