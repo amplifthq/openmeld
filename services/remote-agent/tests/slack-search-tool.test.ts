@@ -89,7 +89,7 @@ describe("Remote Agent Slack search tool", () => {
     });
   });
 
-  it("labels the exact legacy Core presentation acknowledgement during rollout", async () => {
+  it("rejects an acknowledgement without the current search result contract", async () => {
     const request = createSlackSearchRequest();
     const centerAgentSearchSlackMessages = vi.fn(async () => ({
       organizationId: request.organizationId,
@@ -106,10 +106,7 @@ describe("Remote Agent Slack search tool", () => {
       executeTool(tools, "openmeld_search_slack_messages", {
         query: "project gizmo status",
       })
-    ).resolves.toEqual({
-      organizationId: request.organizationId,
-      status: "legacy_core_presented",
-    });
+    ).rejects.toThrow();
   });
 
   it("lets the same Center Agent refine its Slack evidence in one turn", async () => {

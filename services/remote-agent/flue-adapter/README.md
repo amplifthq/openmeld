@@ -57,7 +57,7 @@ ported. Flue 2 repairs partial streams at its execution ownership boundary.
 OpenMeld supplies authorized Computer tools and packaged Skills without a Flue
 sandbox, so shared Computer files cannot silently become instructions.
 
-`patches/@cloudflare__computer@0.1.1.patch` makes a retained command's
+`patches/@cloudflare__computer@0.2.1.patch` makes a retained command's
 `cancel()` await native output-subscription detachment over Workspace RPC.
 Upstream unread-handle cancellation only invokes synchronous disposal, which
 can return before the container releases its single subscriber. A following
@@ -100,7 +100,7 @@ tables. Core must accept that version before the producer is deployed. A test
 reads a submission admitted through the pinned SQLite adapter, so a mocked
 diagnostic row cannot hide upstream schema drift.
 
-## Remaining release gates
+## Runtime validation boundaries
 
 Long container commands use `computer_command` and the Computer SDK's retained
 `exec` / `getExec` / `killExec` handles. OpenMeld persists dispatch keys before
@@ -122,8 +122,8 @@ from the repository root. `--baseline` reproduces the unwrapped shell behavior
 in a disposable, network-disabled container. The check also proves a concurrent
 peer survives cancellation and compound commands preserve quoting and exit codes.
 
-Local runtime recovery is not proof of an uninterrupted deployment. Before
-production, verify the real staging deployment handoff, pending external tools
+Local runtime recovery is not proof of an uninterrupted deployment. For changes
+to these boundaries, verify the staging deployment handoff, pending external tools
 and delegation, session context continuity, and shared Computer behavior.
 Core memory and visible messages alone are not sufficient to restore opaque
 choices, unpublished drafts, or intermediate tool results.

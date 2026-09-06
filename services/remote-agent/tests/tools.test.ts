@@ -704,7 +704,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(JSON.stringify(result)).not.toContain("join-organization");
   });
 
-  it("labels the exact legacy Core invitation acknowledgement during rollout", async () => {
+  it("rejects an acknowledgement without the current invitation result contract", async () => {
     const baseRequest = createSubmitTurnRequest();
     if (baseRequest.turnEnvelope.sender.kind !== "member") {
       throw new Error("Expected a member sender fixture.");
@@ -743,7 +743,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_invite_slack_teammates", {
         targetSlackUserIds: ["U_MORGAN"],
       })
-    ).resolves.toEqual({ status: "legacy_core_handled" });
+    ).rejects.toThrow();
   });
 
   it("returns guided Slack connection help as a normal tool result", async () => {
@@ -2276,44 +2276,6 @@ describe("remote agent OpenMeld tool catalog", () => {
       "Message Channel identity linking is not available until Core supports this action."
     );
     messageChannelIdentityLinkSupported = true;
-    await expect(
-      executeTool(tools, "openmeld_require_identity_for_action", {
-        boundary: "identity_owned",
-        requestedAction: "Create an OpenMeld Space",
-      })
-    ).resolves.toEqual({
-      actionWillBeAttached: true,
-      boundary: "identity_owned",
-      identityRequired: true,
-      label: "Connect my account and continue",
-      requestedAction: "Create an OpenMeld Space",
-      target: {
-        kind: "message_channel_identity_link",
-        purpose: "continue_request",
-      },
-    });
-    await expect(
-      readRemoteAgentCallbackContext(storage, ACK.submissionId)
-    ).resolves.toMatchObject({
-      navigationTarget: {
-        kind: "message_channel_identity_link",
-        purpose: "continue_request",
-      },
-    });
-    await expect(
-      executeTool(tools, "openmeld_get_navigation_action", {
-        connectToUserId: "user_mina",
-        kind: "message_channel_identity_link",
-        purpose: "continue_request",
-      })
-    ).resolves.toEqual({
-      actionWillBeAttached: true,
-      label: "Connect my account and continue",
-      target: {
-        kind: "message_channel_identity_link",
-        purpose: "continue_request",
-      },
-    });
     messageChannelAccountTargetSupported = true;
     await expect(
       executeTool(tools, "openmeld_get_navigation_action", {

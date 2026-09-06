@@ -170,6 +170,16 @@ existing wake system.
 
 ## Implementation Base: Flue Harness (updated 2026-09-06)
 
+The prelaunch Flue 2 cutover is complete. Current Remote Agent Slack search and
+invitation tools accept only the shared Core result schemas; an acknowledgement
+without the requested result is not success. Message Channel identity actions
+use capability version 2 in one Core authorization, including any selected
+account. They do not retry an older request shape or silently discard account
+targeting. Deploy this Remote Agent only with the current Core receiver; when
+rolling back across that receiver contract, roll back Remote Agent first.
+This retires transient Worker-to-Core negotiation, not persisted submission
+versions, historical message navigation targets, or supported local clients.
+
 The agent worker is built on **Flue**, pinned by exact package version in
 `services/remote-agent`. OpenMeld uses Flue for the agent harness and Durable
 Object session boundary, while keeping OpenMeld product facts out of Flue's

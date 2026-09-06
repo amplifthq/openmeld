@@ -204,7 +204,6 @@ import {
   union,
   unknown as unknownSchema,
 } from "valibot";
-import * as z from "zod/v4";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentReadableStorage,
@@ -723,13 +722,6 @@ const SLACK_MEMBER_RESEARCH_CHANNEL_ELIGIBILITY_KEY_PREFIX = `${REMOTE_AGENT_SLA
 const SLACK_MEMBER_RESEARCH_HISTORY_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}history:`;
 const SLACK_MEMBER_RESEARCH_SUBJECT_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}subject:`;
 const SLACK_MEMBER_RESEARCH_MAX_CHANNELS = 5;
-const legacyCenterAgentSlackSearchResponseSchema = z.strictObject({
-  organizationId: z.string().trim().min(1),
-  status: z.literal("presented"),
-});
-const legacyCenterAgentSlackTeammateInvitationResponseSchema = z.strictObject({
-  handled: z.literal(true),
-});
 const SLACK_USER_MENTION_TOKEN_PATTERN = /<@[A-Z0-9]+>/u;
 const slackChannelNameSchema = pipe(
   string(),
@@ -1268,44 +1260,28 @@ async function executeMessageChannelIdentityNavigationAction(input: {
     }
     requestedAction = callbackContext.anonymousIdentityBoundary.requestedAction;
   }
-  const authorization =
-    await authorizeMessageChannelIdentityLinkAtCoreWithLegacyFallback({
-      context: input.toolContext.context,
-      coreWorker: input.coreWorker,
-      speakerMember,
-    });
-  const providerNeutralSupport =
-    authorization.messageChannelIdentityLinkSupported;
-  const legacySlackSupport =
-    speakerMember.messageChannelIdentity.provider === "slack" &&
-    authorization.slackIdentityLinkSupported;
-  if (!(providerNeutralSupport || legacySlackSupport)) {
+  const authorization = await authorizeAnonymousMemberToolAtCore({
+    ...(connectToUserId ? { connectToUserId } : {}),
+    context: input.toolContext.context,
+    coreWorker: input.coreWorker,
+    messageChannelIdentityLinkCapabilityVersion: 2,
+    speakerMember,
+    toolName: "openmeld_get_navigation_action",
+  });
+  if (
+    !(
+      authorization.messageChannelIdentityLinkSupported &&
+      authorization.messageChannelAccountTargetSupported
+    )
+  ) {
     throw new Error(
       "Message Channel identity linking is not available until Core supports this action."
     );
   }
-  if (authorization.messageChannelAccountTargetSupported) {
-    await authorizeAnonymousMemberToolAtCore({
-      ...(connectToUserId ? { connectToUserId } : {}),
-      context: input.toolContext.context,
-      coreWorker: input.coreWorker,
-      messageChannelIdentityLinkCapabilityVersion: 2,
-      speakerMember,
-      toolName: "openmeld_get_navigation_action",
-    });
-  }
-  // During a receiver-first rollout, an older Core can still issue a generic
-  // account connection action. It must never receive or persist unverified
-  // account targeting or guidance details.
-  const authorizedTarget = authorization.messageChannelAccountTargetSupported
-    ? {
-        ...target,
-        ...(requestedAction ? { requestedAction } : {}),
-      }
-    : {
-        kind: target.kind,
-        purpose: target.purpose,
-      };
+  const authorizedTarget = {
+    ...target,
+    ...(requestedAction ? { requestedAction } : {}),
+  };
   await recordRemoteAgentNavigationTarget({
     storage: input.storage,
     submissionId: input.submissionId,
@@ -2046,15 +2022,16 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           speakerMember,
           targetSlackUserIds,
         });
-        const invitationResponse = parseSlackTeammateInvitationResponse(
-          await callCoreRpc(
-            input.coreWorker,
-            "centerAgentInviteSlackTeammates",
-            rpcInput,
-            (binding, interaction) =>
-              binding.centerAgentInviteSlackTeammates?.(interaction)
-          )
-        );
+        const invitationResponse =
+          centerAgentInviteSlackTeammatesRpcResponseSchema.parse(
+            await callCoreRpc(
+              input.coreWorker,
+              "centerAgentInviteSlackTeammates",
+              rpcInput,
+              (binding, interaction) =>
+                binding.centerAgentInviteSlackTeammates?.(interaction)
+            )
+          );
         return interactionEnvironment === "organization_shared"
           ? protectSharedSlackInvitationResult(invitationResponse)
           : invitationResponse;
@@ -2218,7 +2195,8 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           (binding, rpcInput) =>
             binding.centerAgentSearchSlackMessages?.(rpcInput)
         );
-        const parsedResponse = parseSlackSearchResponse(response);
+        const parsedResponse =
+          centerAgentSearchSlackMessagesResponseSchema.parse(response);
         await rememberSlackThreadPublicationEvidence({
           response: parsedResponse,
           storage: input.storage,
@@ -5112,71 +5090,6 @@ async function authorizeAnonymousMemberToolAtCore(input: {
   return centerAgentAuthorizeAnonymousMemberToolResponseSchema.parse(response);
 }
 
-async function authorizeMessageChannelIdentityLinkAtCoreWithLegacyFallback(input: {
-  context: OpenMeldRequestContext;
-  coreWorker: RemoteAgentCoreWorkerBinding;
-  speakerMember: CenterAgentAnonymousMemberToolSpeaker;
-}) {
-  try {
-    return await authorizeAnonymousMemberToolAtCore({
-      context: input.context,
-      coreWorker: input.coreWorker,
-      messageChannelIdentityLinkCapabilityVersion: 1,
-      speakerMember: input.speakerMember,
-      toolName: "openmeld_get_navigation_action",
-    });
-  } catch (error) {
-    if (!isInvalidPayloadCoreRpcError(error)) {
-      throw error;
-    }
-  }
-
-  // Old Core uses a strict request schema that predates both capability
-  // negotiation and provider email. Retry its exact legacy shape once so a
-  // current Remote Agent can still request Slack's generic connection action.
-  const identity = input.speakerMember.messageChannelIdentity;
-  return await authorizeAnonymousMemberToolAtCore({
-    context: input.context,
-    coreWorker: input.coreWorker,
-    speakerMember: {
-      ...input.speakerMember,
-      messageChannelIdentity: {
-        connectionId: identity.connectionId,
-        provider: identity.provider,
-        providerUserId: identity.providerUserId,
-      },
-    },
-    toolName: "openmeld_get_navigation_action",
-  });
-}
-
-function isInvalidPayloadCoreRpcError(error: unknown): boolean {
-  const visited = new Set<unknown>();
-  let current: unknown = error;
-  for (let depth = 0; depth < 4 && current; depth += 1) {
-    if (visited.has(current)) {
-      return false;
-    }
-    visited.add(current);
-    if (typeof current !== "object") {
-      return false;
-    }
-    const record = current as Record<string, unknown>;
-    if (record.code === "invalid_payload") {
-      return true;
-    }
-    if (
-      typeof record.message === "string" &&
-      record.message.startsWith("HTTP 400:") &&
-      record.message.includes('"code":"invalid_payload"')
-    ) {
-      return true;
-    }
-    current = record.cause;
-  }
-  return false;
-}
-
 function enforceAnonymousMemberToolPolicyAtExecution(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   definition: RemoteAgentOpenMeldToolDefinition;
@@ -5849,37 +5762,6 @@ function parseCoreToolResponse<T>(
     });
   }
   return parsed.data;
-}
-
-function parseSlackSearchResponse(response: unknown): unknown {
-  const current =
-    centerAgentSearchSlackMessagesResponseSchema.safeParse(response);
-  if (current.success) {
-    return current.data;
-  }
-  const legacy = legacyCenterAgentSlackSearchResponseSchema.safeParse(response);
-  if (legacy.success) {
-    return {
-      organizationId: legacy.data.organizationId,
-      status: "legacy_core_presented" as const,
-    };
-  }
-  return centerAgentSearchSlackMessagesResponseSchema.parse(response);
-}
-
-function parseSlackTeammateInvitationResponse(response: unknown): unknown {
-  const current =
-    centerAgentInviteSlackTeammatesRpcResponseSchema.safeParse(response);
-  if (current.success) {
-    return current.data;
-  }
-  if (
-    legacyCenterAgentSlackTeammateInvitationResponseSchema.safeParse(response)
-      .success
-  ) {
-    return { status: "legacy_core_handled" as const };
-  }
-  return centerAgentInviteSlackTeammatesRpcResponseSchema.parse(response);
 }
 
 function protectSharedSlackInvitationResult(response: unknown): unknown {
