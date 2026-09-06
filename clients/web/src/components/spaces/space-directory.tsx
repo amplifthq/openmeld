@@ -298,18 +298,18 @@ export function SpaceDirectory(input: {
 			id={`spaces-directory-panel-${input.tab}`}
 			role="tabpanel"
 		>
-			<div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-6 py-4 lg:px-8">
-				<p className="text-muted-foreground text-xs">
+			<div className="flex h-16 shrink-0 items-center justify-between gap-3 px-6 lg:px-8">
+				<p className="min-w-0 truncate text-muted-foreground text-xs">
 					{discovering
-						? "Explore public Spaces in this organization. Preview before joining."
+						? ""
 						: `${joinedIds.size} ${joinedIds.size === 1 ? "Space" : "Spaces"}`}
 				</p>
-				<div className="flex items-center gap-1">
+				<div className="flex h-11 min-w-0 items-center justify-end gap-1">
 					{searchOpen[input.tab] || search ? (
-						<div className="flex items-center gap-1">
+						<div className="flex min-w-0 items-center gap-1">
 							<Input
 								aria-label="Search Spaces"
-								className="h-8 w-52"
+								className="h-8 w-52 max-w-full"
 								onChange={(event) =>
 									setSearches((current) =>
 										current.map((value, index) =>
@@ -895,7 +895,7 @@ function MemberPreview(input: {
 				render={
 					<Button
 						aria-label={`Preview members of ${input.item.spaceName}`}
-						className="gap-2 px-1"
+						className="max-w-full gap-1 px-0"
 						size="sm"
 						variant="ghost"
 					/>
@@ -904,15 +904,17 @@ function MemberPreview(input: {
 				{input.item.memberPreviews?.length ? (
 					<SpaceMemberAvatars
 						appearances={input.appearances}
+						layout="horizontal"
 						members={input.item.memberPreviews}
 					/>
 				) : (
 					<UsersThreeIcon />
 				)}
-				{input.item.activeMemberCount ?? ""}
 			</PopoverTrigger>
 			<PopoverContent className="w-64 rounded-lg" side="top">
-				<p className="px-2 font-medium">Members</p>
+				<p className="px-2 font-medium">
+					Members {input.item.activeMemberCount ?? ""}
+				</p>
 				{input.item.memberPreviews?.map((member) => (
 					<Link
 						className="flex items-center gap-3 rounded-md p-2 hover:bg-accent"

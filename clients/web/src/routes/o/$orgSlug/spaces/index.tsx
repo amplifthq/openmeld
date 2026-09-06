@@ -24,6 +24,7 @@ import {
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
 import { SpaceDirectory } from "#/components/spaces/space-directory";
+import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
 import { useAccountSpaceIndicators } from "#/components/spaces/use-account-space-indicators";
 import { useAccountSpacePinMutation } from "#/components/spaces/use-account-space-pin-mutation";
@@ -506,42 +507,46 @@ function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
 	return (
 		<AppMainContent
 			header={
-				<div className="flex h-full flex-col px-4">
-					<div className="flex min-h-0 flex-1 items-center justify-between gap-4">
-						<h1 className="flex items-center gap-3 font-semibold text-base">
-							<HashIcon className="size-4 text-muted-foreground" />
-							Spaces
-						</h1>
+				<SpaceWindowHeader
+					actions={
 						<Link
-							className={buttonVariants({ size: "sm" })}
+							className={buttonVariants({
+								size: "sm",
+								className: "max-lg:min-h-8",
+							})}
 							to={buildOrganizationNewSpacePath(input.orgSlug)}
 						>
 							<PlusIcon />
 							New Space
 						</Link>
-					</div>
-					<TabsSubtle
-						aria-label="Spaces view"
-						className="h-9 shrink-0 gap-5"
-						idPrefix="spaces-directory"
-						onSelect={setTab}
-						selectedIndex={tab}
-						variant="underline"
-					>
-						<TabsSubtleItem
-							index={0}
-							label="Your Spaces"
-							labelClassName="text-sm"
-						/>
-						{!input.isPersonalContext && (
+					}
+					leadingControl={<HashIcon className="size-4 text-muted-foreground" />}
+					navigation={
+						<TabsSubtle
+							aria-label="Spaces view"
+							className="h-full shrink-0 gap-5"
+							idPrefix="spaces-directory"
+							onSelect={setTab}
+							selectedIndex={tab}
+							variant="underline"
+						>
 							<TabsSubtleItem
-								index={1}
-								label="Discover"
+								index={0}
+								label="Your Spaces"
 								labelClassName="text-sm"
 							/>
-						)}
-					</TabsSubtle>
-				</div>
+							{!input.isPersonalContext && (
+								<TabsSubtleItem
+									index={1}
+									label="Discover"
+									labelClassName="text-sm"
+								/>
+							)}
+						</TabsSubtle>
+					}
+					renderFrame={false}
+					title="Spaces"
+				/>
 			}
 		>
 			{body}
