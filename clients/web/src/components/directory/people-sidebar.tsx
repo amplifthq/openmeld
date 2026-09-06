@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { AppContextualSidebarNav } from "../app/app-contextual-layout";
 import { useAppNavigationPresentation } from "../app/app-navigation-presentation";
+import { SidebarDestinationAction } from "../app/sidebar-destination-actions";
 import {
 	SidebarDrag,
 	SidebarDropSection,
@@ -318,48 +319,52 @@ export function PeopleSidebar(input: {
 					<>
 						<div className="flex items-center gap-1 px-1">
 							<SidebarSearchInput
+								destination="people"
 								label="Search people"
 								onValueChange={setSearch}
 								value={search}
 							/>
-							<DropdownMenu>
-								<DropdownMenuTrigger
-									render={
-										<Button
-											aria-label="Filter people"
-											className={
-												filter !== "all"
-													? "text-primary"
-													: "text-muted-foreground"
-											}
-											size="icon-sm"
-											variant="ghost"
-										/>
-									}
-								>
-									<FunnelSimpleIcon />
-								</DropdownMenuTrigger>
-								<FluidDropdownMenuContent
-									align="end"
-									aria-label="Filter people"
-								>
-									{FILTERS.map(([value, label], index) => (
-										<FluidDropdownMenuItem
-											index={index}
-											key={value}
-											onClick={() => setFilter(value)}
-										>
-											<CheckIcon
-												className={filter === value ? "" : "invisible"}
+							<SidebarDestinationAction destination="people">
+								<DropdownMenu>
+									<DropdownMenuTrigger
+										render={
+											<Button
+												aria-label="Filter people"
+												className={
+													filter !== "all"
+														? "size-6 text-primary [&_svg]:size-3.5"
+														: "size-6 text-muted-foreground [&_svg]:size-3.5"
+												}
+												size="icon-sm"
+												variant="ghost"
 											/>
-											{label}
-											{filter === value && (
-												<span className="sr-only">, selected</span>
-											)}
-										</FluidDropdownMenuItem>
-									))}
-								</FluidDropdownMenuContent>
-							</DropdownMenu>
+										}
+									>
+										<FunnelSimpleIcon />
+									</DropdownMenuTrigger>
+									<FluidDropdownMenuContent
+										align="end"
+										aria-label="Filter people"
+										className="w-60 max-w-[calc(100vw-2rem)]"
+									>
+										{FILTERS.map(([value, label], index) => (
+											<FluidDropdownMenuItem
+												index={index}
+												key={value}
+												onClick={() => setFilter(value)}
+											>
+												<CheckIcon
+													className={filter === value ? "" : "invisible"}
+												/>
+												{label}
+												{filter === value && (
+													<span className="sr-only">, selected</span>
+												)}
+											</FluidDropdownMenuItem>
+										))}
+									</FluidDropdownMenuContent>
+								</DropdownMenu>
+							</SidebarDestinationAction>
 						</div>
 						{filter !== "all" && (
 							<Button

@@ -31,12 +31,12 @@ import {
 	buildAppRailGroups,
 } from "./app-rail-navigation";
 import { AppSidebarFooter } from "./app-sidebar-footer";
-
 import { AppSidebarHeader } from "./app-sidebar-header";
 import type {
 	AppOuterRailAccount,
 	HumanProfileAvatarIdentity,
 } from "./app-workspace-switcher";
+import { SidebarDestinationActionsProvider } from "./sidebar-destination-actions";
 
 type AppOuterRailProps = {
 	account: AppOuterRailAccount;
@@ -144,7 +144,7 @@ export function AppOuterRail({
 				static={drawerPresentation}
 			>
 				{(mode) => (
-					<>
+					<SidebarDestinationActionsProvider>
 						<AppSidebarHeader
 							account={{ ...account, image: accountAvatarImage }}
 							humanProfileAvatar={humanProfileAvatar}
@@ -194,7 +194,7 @@ export function AppOuterRail({
 							mode={mode}
 							orgSlug={orgSlug}
 						/>
-					</>
+					</SidebarDestinationActionsProvider>
 				)}
 			</AppOuterRailFrame>
 		</AppSidebarGroupStateProvider>

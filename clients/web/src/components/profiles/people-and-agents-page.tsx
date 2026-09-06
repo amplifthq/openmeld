@@ -313,6 +313,7 @@ export function PeopleAndAgentsPage(input: {
 				runtimeOverviewQuery={organizationAgentRuntimeOverviewQuery}
 				searchControl={
 					<SidebarSearchInput
+						destination="agents"
 						label="Search Agents"
 						onValueChange={setAgentProfileSearchQuery}
 						value={agentProfileSearchQuery}
@@ -920,6 +921,7 @@ function AgentProfileFilterSelect(input: {
 				render={
 					<Button
 						aria-label={`Filter Agents. Current filter: ${displayValue}, ${resolveAgentProfileListFilterCount({ counts: input.counts, value: input.value })} ${resolveAgentProfileListFilterCount({ counts: input.counts, value: input.value }) === 1 ? "Agent" : "Agents"}.`}
+						className="size-6 [&_svg]:size-3.5"
 						size="icon"
 						variant="ghost"
 					/>
@@ -927,7 +929,10 @@ function AgentProfileFilterSelect(input: {
 			>
 				<FunnelSimpleIcon />
 			</DropdownMenuTrigger>
-			<FluidDropdownMenuContent align="end" className="w-56">
+			<FluidDropdownMenuContent
+				align="end"
+				className="w-60 max-w-[calc(100vw-2rem)]"
+			>
 				{AGENT_PROFILE_FILTER_OPTIONS.map((option, index) => (
 					<FluidDropdownMenuItem
 						aria-label={`${option.label}, ${resolveAgentProfileListFilterCount({ counts: input.counts, value: option.value })} ${resolveAgentProfileListFilterCount({ counts: input.counts, value: option.value }) === 1 ? "Agent" : "Agents"}`}
@@ -938,7 +943,7 @@ function AgentProfileFilterSelect(input: {
 						<span className="w-4">
 							{input.value === option.value ? "✓" : ""}
 						</span>
-						<span className="flex-1">{option.label}</span>
+						<span className="min-w-0 flex-1 text-left">{option.label}</span>
 						<span className="text-muted-foreground">
 							{resolveAgentProfileListFilterCount({
 								counts: input.counts,

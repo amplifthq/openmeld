@@ -307,6 +307,12 @@ The Web shell is a stable two-layer composition built from the shared
   Profile sidebar avatars are 20px, row action icons are
   14px inside 24px targets, and contextual group
   labels have an 8px gap before their content.
+  People and Agents contextual controls render into their Team navigation row's
+  action slot, preserving local ownership of search and filter state. Actions
+  reveal on hover, focus, open menus, and touch. Search starts collapsed unless
+  a query is already active, opens with focus, and closes by clearing the query
+  and returning focus to its trigger. Search reveal animates opacity/transform
+  only and respects reduced motion. Filter menus remain left-aligned.
   The optional `people` preference namespace needs no DB migration. Auth preserves
   it when an older Space-only client saves. Deploy the supporting Auth receiver
   before Web; no CLI, Service, Core Wake or Gateway execution contract changes.

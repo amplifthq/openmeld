@@ -48,7 +48,7 @@ function FluidDropdownMenuItem({
   return (
     <DropdownMenuItem
       {...props}
-      className={cn("focus:bg-transparent", className)}
+      className={cn("justify-start text-left focus:bg-transparent", className)}
       nativeButton
       render={<FluidActionListItem index={index} />}
     />

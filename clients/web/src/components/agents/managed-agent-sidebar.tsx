@@ -15,6 +15,7 @@ import {
 } from "#/lib/spaces/direct-message";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { AppContextualSidebarNav } from "../app/app-contextual-layout";
+import { SidebarDestinationAction } from "../app/sidebar-destination-actions";
 import {
 	SidebarDrag,
 	SidebarDropSection,
@@ -291,7 +292,9 @@ export function ManagedAgentSidebar({
 				leadingContent={
 					<div className="flex min-w-0 items-center gap-2">
 						<div className="min-w-0 flex-1">{input.searchControl}</div>
-						{input.filterControl}
+						<SidebarDestinationAction destination="agents">
+							{input.filterControl}
+						</SidebarDestinationAction>
 					</div>
 				}
 				onActivate={input.onSelectProfile}

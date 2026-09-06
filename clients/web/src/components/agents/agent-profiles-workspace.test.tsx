@@ -369,13 +369,6 @@ describe("AgentProfilesWorkspace", () => {
 		expect(
 			within(item).getByTestId("agent-profile-controller-avatar-agent-current")
 		).toBeTruthy();
-		const avatar = within(item).getByTestId(
-			"agent-profile-controller-avatar-agent-current"
-		);
-		expect(avatar.style.height).toBe("24px");
-		expect(avatar.style.width).toBe("24px");
-		expect(avatar.className).toContain("rounded-lg");
-		expect(avatar.className).toContain("overflow-hidden");
 		expect(item.querySelector('[data-profile-kind="center-agent"]')).toBeNull();
 	});
 

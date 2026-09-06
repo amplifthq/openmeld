@@ -50,6 +50,7 @@ import {
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
 import { useAppSidebarGroupState } from "./app-sidebar-group";
+import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
 
 type AppRailDestinationId = AppOuterRailDestination;
 
@@ -296,7 +297,9 @@ export function AppRailLink(input: {
 	);
 
 	return (
-		<SidebarMenuItem className={isIcon ? "mx-auto size-9" : undefined}>
+		<SidebarMenuItem
+			className={isIcon ? "mx-auto size-9" : "group/destination relative"}
+		>
 			{isIcon ? (
 				<CollapsedRailTooltip label={accessibleLabel}>
 					<SidebarMenuButton isActive={input.active} render={link}>
@@ -308,6 +311,11 @@ export function AppRailLink(input: {
 					{children}
 				</SidebarMenuButton>
 			)}
+			{!isIcon &&
+				(input.destination.id === "people" ||
+					input.destination.id === "agents") && (
+					<SidebarDestinationActionSlot destination={input.destination.id} />
+				)}
 		</SidebarMenuItem>
 	);
 }
