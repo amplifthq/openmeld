@@ -94,8 +94,11 @@ export type AgentProfileLocalAgentEmptyState = {
 	kind:
 		| "connect_computer"
 		| "set_up_local_agents"
+		| "check_failed"
+		| "checking"
 		| "teammate_local_agents_unavailable";
 	primaryActionHref: string | null;
+	onRetry?: () => void;
 };
 
 // Presentational, route-free Create Profile form. All state lives in the

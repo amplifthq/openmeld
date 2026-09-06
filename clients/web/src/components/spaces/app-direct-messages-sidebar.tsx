@@ -32,13 +32,17 @@ import {
 	selectAccountSpaceSections,
 } from "./account-space-sections";
 import {
-	formatDirectMessageTime,
 	useDirectMessagePreview,
+	useSpaceMessagePreview,
 } from "./direct-message-preview";
 import {
 	type ManagedDirectMessageRowProps,
 	ManagedDirectMessages,
 } from "./managed-direct-messages";
+import {
+	resolveConversationTimestamp,
+	SidebarConversationTime,
+} from "./sidebar-conversation-time";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import { useSpaceInboxUnreadById } from "./use-account-space-indicators";
 
@@ -256,6 +260,11 @@ function DirectMessageSidebarItem(
 			(id) => id !== viewerProfileId
 		),
 	});
+	const latestMessage = useSpaceMessagePreview({
+		spaceId: input.item.spaceId,
+		viewerProfileId,
+		enabled: true,
+	});
 	const drag = useSortableSidebarItem({
 		section: input.section,
 		itemId: input.item.spaceId,
@@ -264,6 +273,10 @@ function DirectMessageSidebarItem(
 	});
 	const hasUnread = input.unreadCount > 0;
 	const nowMs = useNowMs(preview.data ? 60_000 : null);
+	const timestamp = resolveConversationTimestamp(
+		latestMessage.data?.timestamp,
+		input.item.spaceCreatedAt
+	);
 	let previewText = "No messages yet";
 	if (preview.isPending) {
 		previewText = "Loading message…";
@@ -282,7 +295,7 @@ function DirectMessageSidebarItem(
 	});
 	return (
 		<FluidNavMenuItem
-			className="group/dm-row relative"
+			className="@container/conversation-row group/dm-row relative"
 			index={input.index}
 			ref={drag.ref}
 			style={drag.style}
@@ -335,16 +348,11 @@ function DirectMessageSidebarItem(
 							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 								<span className="flex min-w-0 items-center gap-2">
 									<CenterTruncatedText className="flex-1" text={label} />
-									{preview.data && (
-										<time
-											className="shrink-0 font-normal text-[11px] text-muted-foreground tabular-nums"
-											dateTime={new Date(preview.data.timestamp).toISOString()}
-										>
-											{formatDirectMessageTime(
-												preview.data.timestamp,
-												new Date(nowMs)
-											)}
-										</time>
+									{timestamp !== null && (
+										<SidebarConversationTime
+											now={new Date(nowMs)}
+											timestamp={timestamp}
+										/>
 									)}
 								</span>
 								<span className="truncate pr-6 font-normal text-muted-foreground text-xs leading-4">

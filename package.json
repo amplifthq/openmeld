@@ -40,6 +40,8 @@
     "dev:desktop": "pnpm run desktop:dev",
     "dev:raw": "turbo run dev",
     "dev:status": "node scripts/dev/dev-status.mjs",
+    "dev:seed": "python3 scripts/dev/dev-seed.py",
+    "dev:account": "python3 scripts/dev/dev-account.py",
     "dev:stop": "node scripts/dev/dev-stop.mjs",
     "dev:fresh": "node --experimental-strip-types scripts/dev/prepare-fresh-web-start-cli.mts --clear-auth-sessions --print-shell-export",
     "dev:prepare:fresh-web-start": "node --experimental-strip-types scripts/dev/prepare-fresh-web-start-cli.mts",

@@ -169,6 +169,10 @@ and actions are fixed:
 No page-level Organization picker or second context switcher may compete with
 this control.
 
+Personal Home may show a compact, dismissible link below its introductory heading
+to an Organization the account already belongs to. This is a contextual shortcut,
+not another picker; dismissal is stored per account in the current browser.
+
 Account switching is browser-wide because Better Auth changes the active
 Session cookie. The nested view lists only Sessions saved by Better Auth's
 multi-session plugin, marks the current account, allows up to five saved
@@ -291,8 +295,12 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    Spaces, Direct Messages, People, and Agents place their contextual lists
    below the fixed destinations in the Main Sidebar. Only these contextual
    lists scroll within one Fluid scrolling area; the header, primary entries,
-   and Team group remain fixed. A collapsed Team group shows the selected
-   People or Agents icon and label beside its chevron. These pages do not
+   and Team menu remain fixed. Team uses a collapsible parent menu button with
+   People and Agents as indented children, distinct from the content groups
+   below. When collapsed on People or Agents, the Team button shows a separator
+   followed by the selected child's icon and name. These pages do not
+   reset Team's expansion: it shares the Main Sidebar's persisted group
+   preference across route changes and browser reloads. These pages do not
    mount a secondary sidebar or a second mobile drawer.
    Existing list grouping, pinning, unread indicators, identities, and status
    projections are preserved. The former secondary headers and creation/invite
@@ -602,14 +610,24 @@ suppressing future messages. When Web observes a new Inbox item, it invalidates
 the full Inbox facts projection so per-conversation indicators and aggregate
 launchers refresh from the same Core truth.
 
-Browse Spaces composes the Organization Space Directory with those same
-Account Space Index, unread-summary, and active-Wake projections. Joined cards
-use one status slot with unread first, Working second, and pinned last. When
-unread or Working owns that slot, hover or keyboard focus reveals the shared
-pin or unpin action without showing competing status labels. Joined cards
-follow pinned order before the unread-aware unpinned order. Discover cards keep
-the directory's public-Space order and expose only Join; Web does not attach
-account status or pin actions to an unjoined Space.
+Browse Spaces uses the shared page header with **Your Spaces** and **Discover**
+underline tabs and an explicit **New Space** action. Joined Spaces use a
+two-line table grouped by the same Pinned, custom groups, and Spaces preferences
+as the sidebar. Group edits share the account-sidebar query and mutation;
+Priority is the default and explicit saved sort choices remain authoritative.
+The page composes the Organization Space Directory with the existing Account
+Space Index, message preview, unread-summary, and active-Wake projections.
+Status, member avatar previews, and conversation activity have separate columns.
+Search expands on demand; group and status filters retain visible removable
+selections. Each tab retains its own search and scroll position. Cold loading
+waits for saved group order and conversation previews before presenting rows.
+
+Discover keeps the directory's public-Space order and separates **Preview**
+from **Join**. Preview uses the existing SpaceEntryGate and SpaceLanding with
+the selected account profiles inside the shared Dialog. It never joins on
+open; existing access checks and participation controls remain authoritative.
+Organization directory visibility does not grant conversation access. Web does
+not attach account status or pin actions to an unjoined Space.
 If a joined directory item has no matching Account Space Index item, Open stays
 available while account status and pin controls fail closed.
 
@@ -663,6 +681,11 @@ The authorized Organization root `/o/{orgSlug}` is canonical Home and renders
 the existing Center Agent conversation directly. Home is not an Organization
 dashboard and owns no parallel Inbox, Task, Space, Directory, Project,
 Document, or Agent Activity preview.
+
+The three Center Agent starting-point cards stay at the top of the conversation
+for members who can send messages, including while drafting and after sending.
+They scroll with the conversation and remain reachable by scrolling to the top.
+Opening computer setup adds its flow below the cards instead of replacing them.
 
 The outer app rail keeps one **Home** destination and does not expose a separate
 Center Agent destination. Home owns the Center Agent conversation's unread

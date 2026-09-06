@@ -23,6 +23,29 @@ const CHOICES = [
 afterEach(cleanup);
 
 describe("LocalAgentSelector", () => {
+	it("keeps a reported check in progress distinct from failed or missing setup", () => {
+		render(
+			<LocalAgentSelector
+				choices={[]}
+				disabled={false}
+				emptyState={{
+					kind: "checking",
+					centerAgentHref: null,
+					primaryActionHref: null,
+				}}
+				isResolving={false}
+				onChange={vi.fn()}
+				value=""
+			/>
+		);
+		expect(screen.getByRole("status").textContent).toContain(
+			"Waiting for this computer"
+		);
+		expect(
+			screen.queryByRole("button", { name: "Retry local agent check" })
+		).toBeNull();
+		expect(screen.queryByText("Set up local agents")).toBeNull();
+	});
 	it("does not ask to connect while local agents are still being checked", () => {
 		const props = {
 			choices: [],
@@ -39,7 +62,7 @@ describe("LocalAgentSelector", () => {
 		};
 		const { rerender } = render(<LocalAgentSelector {...props} />);
 		expect(
-			screen.getByRole("heading", { level: 1, name: "Checking local agents…" })
+			screen.getByRole("heading", { level: 2, name: "Checking local agents…" })
 		).toBeTruthy();
 		expect(
 			screen.queryByText("Connect your computer to use a local agent")
@@ -47,7 +70,7 @@ describe("LocalAgentSelector", () => {
 		rerender(<LocalAgentSelector {...props} isResolving={false} />);
 		expect(
 			screen.getByRole("heading", {
-				level: 1,
+				level: 2,
 				name: "Connect your computer to use a local agent",
 			})
 		).toBeTruthy();
@@ -130,7 +153,7 @@ describe("LocalAgentSelector", () => {
 		expect(screen.getByText("Set up local agents")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"This computer is connected, but no local agents are ready yet."
+				"No local agents are available to select. Set up a local agent such as Codex or Claude Code, then return to finish creating your Agent."
 			)
 		).toBeTruthy();
 		expect(screen.queryByRole("radio")).toBeNull();
@@ -154,7 +177,11 @@ describe("LocalAgentSelector", () => {
 		);
 
 		expect(screen.getByText("Connect Computer")).toBeTruthy();
-		expect(screen.getByText("No computer is connected yet.")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Connect a computer so OpenMeld can check its local agents. Then return to finish creating your Agent."
+			)
+		).toBeTruthy();
 		expect(screen.queryByRole("radio")).toBeNull();
 	});
 });

@@ -18,6 +18,11 @@ import {
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { resolveAccountSpaceTrailingStatus } from "./account-space-sections";
+import { useSpaceMessagePreview } from "./direct-message-preview";
+import {
+	resolveConversationTimestamp,
+	SidebarConversationTime,
+} from "./sidebar-conversation-time";
 import { SpaceActiveWakeIndicator } from "./space-active-wake-indicator";
 import {
 	resolveSpaceActiveWakePresentation,
@@ -43,7 +48,6 @@ export function SpaceSidebarMenuItem(input: {
 	isActive: boolean;
 	isPinPending: boolean;
 	item: AccountSpaceItem;
-	lastJoinedAtFormatter: Intl.DateTimeFormat;
 	onOpenSpace: (routePath: string) => void;
 	onTogglePinned: (item: AccountSpaceItem) => void;
 	routePath: string;
@@ -70,6 +74,15 @@ export function SpaceSidebarMenuItem(input: {
 			activeWakePresentation?.isWaitingForCurrentTask ?? false,
 		spaceName: input.item.spaceName,
 	});
+	const latestMessage = useSpaceMessagePreview({
+		spaceId: input.item.spaceId,
+		viewerProfileId: input.item.openProfileId,
+		enabled: !(hasActiveWake || hasUnread),
+	});
+	const timestamp = resolveConversationTimestamp(
+		latestMessage.data?.timestamp,
+		input.item.spaceCreatedAt
+	);
 	return (
 		<FluidNavMenuItem
 			className="group/space-row"
@@ -80,7 +93,7 @@ export function SpaceSidebarMenuItem(input: {
 		>
 			<div
 				className={cn(
-					"@container/space-item relative flex min-h-9 min-w-0 items-stretch focus-within:text-sidebar-accent-foreground",
+					"@container/conversation-row relative flex min-h-9 min-w-0 items-stretch focus-within:text-sidebar-accent-foreground",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
 					input.isActive ? "font-medium text-sidebar-accent-foreground" : null
@@ -124,16 +137,11 @@ export function SpaceSidebarMenuItem(input: {
 										)}
 										text={input.item.spaceName}
 									/>
-									{trailingStatus === null ? (
-										<span
-											className="@[13rem]/space-item:inline-flex hidden shrink-0 text-muted-foreground text-xs opacity-100 transition-opacity group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0"
-											data-slot="space-sidebar-date"
-										>
-											{formatLastJoinedAt(
-												input.item.lastJoinedAt,
-												input.lastJoinedAtFormatter
-											)}
-										</span>
+									{!(hasActiveWake || hasUnread) && timestamp !== null ? (
+										<SidebarConversationTime
+											className="group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0"
+											timestamp={timestamp}
+										/>
 									) : null}
 								</div>
 								{trailingStatus === "unread" ? (
@@ -191,7 +199,7 @@ export function SpaceSidebarMenuItem(input: {
 							</SidebarMenuAction>
 						}
 					/>
-					<TooltipContent side="right">
+					<TooltipContent side="top">
 						{isPinned ? "Unpin space" : "Pin space"}
 					</TooltipContent>
 				</Tooltip>
@@ -267,7 +275,7 @@ function SpaceSidebarActiveWakeStatus(input: {
 					</button>
 				}
 			/>
-			<TooltipContent side="right">{label}</TooltipContent>
+			<TooltipContent side="top">{label}</TooltipContent>
 		</Tooltip>
 	);
 }
@@ -279,16 +287,4 @@ function resolveSpaceSidebarOpenButtonClassName(input: {
 		"flex min-w-0 flex-1 items-center gap-2 px-1 py-1.5 text-left outline-none",
 		input.hasUnread ? "font-semibold text-sidebar-foreground" : null
 	);
-}
-
-function formatLastJoinedAt(
-	value: string,
-	formatter: Intl.DateTimeFormat
-): string {
-	const timestamp = Date.parse(value);
-	if (!Number.isFinite(timestamp)) {
-		return "";
-	}
-
-	return formatter.format(timestamp);
 }

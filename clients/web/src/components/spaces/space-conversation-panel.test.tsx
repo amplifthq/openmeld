@@ -302,6 +302,51 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
+	it("keeps the overlay gap while the sticky date appears and disappears", async () => {
+		renderSpaceConversationPanel({
+			renderSetupGuidance: () => <section>Setup guidance</section>,
+			timelineItems: [createTimelineItem()],
+		});
+		const viewport = screen.getByRole("log", { name: "Conversation history" });
+		const marker = document.querySelector<HTMLElement>(
+			"[data-conversation-date-marker]"
+		);
+		if (!marker) {
+			throw new Error("Expected a conversation date marker");
+		}
+		let markerTop = 1000;
+		vi.spyOn(marker, "getBoundingClientRect").mockImplementation(
+			() => new DOMRect(0, markerTop, 100, 32)
+		);
+		fireEvent.scroll(viewport);
+		await waitFor(() => {
+			expect(
+				document.querySelector("[data-slot='conversation-date-pill-surface']")
+			).toBeNull();
+		});
+		const removeProperty = vi.spyOn(viewport.style, "removeProperty");
+		markerTop = -100;
+		fireEvent.scroll(viewport);
+		await waitFor(() => {
+			expect(
+				document.querySelector("[data-slot='conversation-date-pill-surface']")
+			).not.toBeNull();
+		});
+		expect(removeProperty).not.toHaveBeenCalledWith(
+			"--space-conversation-top-overlay-height"
+		);
+		markerTop = 1000;
+		fireEvent.scroll(viewport);
+		await waitFor(() => {
+			expect(
+				document.querySelector("[data-slot='conversation-date-pill-surface']")
+			).toBeNull();
+		});
+		expect(removeProperty).not.toHaveBeenCalledWith(
+			"--space-conversation-top-overlay-height"
+		);
+	});
+
 	it("places setup guidance in the centered conversation empty state until a message exists", () => {
 		const renderSetupGuidance = vi.fn(
 			(presentation: "banner" | "empty-state") => (
@@ -2611,7 +2656,7 @@ describe("SpaceConversationPanel", () => {
 		).toBe("http://localhost:5173/o/acme/connect");
 	});
 
-	it("hides starter actions after the current user sends their first message", () => {
+	it("keeps starter actions after the current user sends their first message", () => {
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
 			hasEarlierHistory: false,
@@ -2628,10 +2673,10 @@ describe("SpaceConversationPanel", () => {
 
 		expect(
 			screen.queryByRole("group", { name: "Suggested starting points" })
-		).toBeNull();
+		).toBeTruthy();
 	});
 
-	it("gets starter actions out of the way once the user starts writing", () => {
+	it("keeps starter actions while the user writes a draft", () => {
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
 			composerText: "I already know what I want to ask",
@@ -2642,7 +2687,7 @@ describe("SpaceConversationPanel", () => {
 
 		expect(
 			screen.queryByRole("group", { name: "Suggested starting points" })
-		).toBeNull();
+		).toBeTruthy();
 	});
 
 	it("does not offer starter actions when the Center Agent DM is read-only", () => {

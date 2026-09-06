@@ -25,7 +25,7 @@ it("puts human intervention before recent activity without confusing pin time wi
 		).map((item) => item.spaceId)
 	).toEqual(["older-needs-input", "recent-activity", "newest-pin"]);
 });
-it("orders recently added pins by pin time, independently of name and activity", () => {
+it("does not treat pin time as conversation activity", () => {
 	expect(
 		sortSidebarSpaces(sortItems, { sort: "recent", spaceIds: [] }).map(
 			(item) => item.spaceId
@@ -41,6 +41,48 @@ const preferences: AccountSidebarPreferences = {
 		{ id: "research", name: "Research", sort: "name", spaceIds: ["b"] },
 	],
 };
+
+it("sorts conversations by message recency and keeps priority and manual choices", () => {
+	const activity = new Map([
+		["older-needs-input", 100],
+		["recent-activity", 300],
+	]);
+	for (const sort of ["recent", "priority"] as const) {
+		expect(
+			sortSidebarSpaces(
+				sortItems,
+				{ sort, spaceIds: [] },
+				undefined,
+				undefined,
+				undefined,
+				activity
+			).map((item) => item.spaceId)
+		).toEqual(["recent-activity", "older-needs-input", "newest-pin"]);
+	}
+	expect(
+		sortSidebarSpaces(
+			sortItems,
+			{ sort: "priority", spaceIds: [] },
+			new Set(["older-needs-input"]),
+			undefined,
+			undefined,
+			activity
+		).map((item) => item.spaceId)
+	).toEqual(["older-needs-input", "recent-activity", "newest-pin"]);
+	expect(
+		sortSidebarSpaces(
+			sortItems,
+			{
+				sort: "manual",
+				spaceIds: ["newest-pin", "recent-activity", "older-needs-input"],
+			},
+			undefined,
+			undefined,
+			undefined,
+			activity
+		).map((item) => item.spaceId)
+	).toEqual(["newest-pin", "recent-activity", "older-needs-input"]);
+});
 it("ranks input, unread, working, then idle even when idle has the newest timestamp", () => {
 	const items = ["idle", "working", "unread", "input"].map((spaceId) => ({
 		spaceId,
@@ -90,9 +132,9 @@ it("moves a Space between groups once without losing hidden pinned members", () 
 	expect(next.groups[0]?.sort).toBe("manual");
 	expect(next.pinned).toEqual(preferences.pinned);
 });
-it("moves down and up to the position previewed by the sortable list", () => {
+it("inserts before the indicated row in either direction", () => {
 	expect(
-		moveSidebarSpace(preferences, "spaces", "a", ["a", "b", "c"], "b").spaces
+		moveSidebarSpace(preferences, "spaces", "a", ["a", "b", "c"], "c").spaces
 			.spaceIds
 	).toEqual(["b", "a", "c"]);
 	expect(

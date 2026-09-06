@@ -12,6 +12,11 @@ import {
   FluidDropdownMenuItem,
 } from "./dropdown-menu";
 
+// jsdom has no active Web Animations for Base UI to wait for.
+if (typeof Element.prototype.getAnimations === "undefined") {
+  Element.prototype.getAnimations = () => [];
+}
+
 describe("FluidDropdownMenu", () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -22,11 +27,6 @@ describe("FluidDropdownMenu", () => {
         unobserve = vi.fn();
       }
     );
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
-    });
-    vi.stubGlobal("cancelAnimationFrame", vi.fn());
     Object.defineProperties(HTMLElement.prototype, {
       offsetHeight: {
         configurable: true,
@@ -74,7 +74,9 @@ describe("FluidDropdownMenu", () => {
     fireEvent.mouseEnter(fluidList as HTMLElement);
     fireEvent.mouseMove(fluidList as HTMLElement, { clientY: 50 });
 
-    expect(editItem.getAttribute("data-hovered")).toBe("true");
+    await waitFor(() => {
+      expect(editItem.getAttribute("data-hovered")).toBe("true");
+    });
     expect(
       menu.querySelectorAll('[data-slot="fluid-action-list-hover-indicator"]')
     ).toHaveLength(1);
@@ -103,8 +105,8 @@ describe("FluidDropdownMenu", () => {
     );
 
     fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Escape" });
-    expect(screen.queryByRole("menu")).toBeNull();
     await waitFor(() => {
+      expect(screen.queryByRole("menu")).toBeNull();
       expect(document.activeElement).toBe(trigger);
     });
   });

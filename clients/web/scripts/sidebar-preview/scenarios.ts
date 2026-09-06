@@ -62,10 +62,6 @@ function space(
 		routePath: "/",
 		unreadCount: unread,
 		isPinPending: false,
-		lastJoinedAtFormatter: new Intl.DateTimeFormat("en-US", {
-			month: "short",
-			day: "numeric",
-		}),
 		activeWakeSummary: kind
 			? {
 					spaceId: id,

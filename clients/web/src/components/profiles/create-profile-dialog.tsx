@@ -84,6 +84,7 @@ import {
 	createProfileWithFollowUps,
 	type SpaceJoinedProfileReference,
 } from "#/lib/profiles/create-profile-orchestration";
+import { resolveLocalAgentCreationGuidance } from "#/lib/profiles/local-agent-creation-guidance";
 import {
 	bindableLocalAgentIdsFromTarget,
 	resolveProfileBindingCatalogExecutionTarget,
@@ -738,20 +739,29 @@ function useCreateProfileDialogController(
 	});
 	const recoveryActionHref = buildConnectComputerPath({
 		orgSlug,
+		returnTo: "agent_creation",
 		session: "fresh",
 	});
 	const localAgentEmptyState = resolveLocalAgentEmptyState({
 		centerAgentHref: orgSlug
 			? buildOrganizationCenterAgentChatPath(orgSlug)
 			: null,
-		computerHref:
-			orgSlug && bindingTarget
-				? buildOrganizationComputerPath({
-						deviceId: bindingTarget.deviceId,
-						orgSlug,
-					})
-				: null,
-		hasBindingTarget: Boolean(bindingTarget),
+		computerHref: recoveryActionHref,
+		guidance: resolveLocalAgentCreationGuidance({
+			queryFailed:
+				recovery.localRuntimesQuery.isError ||
+				recovery.currentDeviceTargetQuery.isError ||
+				recovery.currentLocalRuntimeReplyReadinessQuery.isError,
+			readiness: recovery.currentLocalRuntimeReplyReadinessQuery.data,
+			target: bindingTarget,
+		}),
+		onRetry: () => {
+			recovery
+				.refreshAll()
+				.catch((error: unknown) =>
+					console.error("Could not refresh local agents for creation.", error)
+				);
+		},
 		ownerMode,
 		recoveryActionHref,
 	});
@@ -2541,7 +2551,8 @@ function resolveAgentControllerRef(boundAgentId: string): string {
 function resolveLocalAgentEmptyState(input: {
 	centerAgentHref: string | null;
 	computerHref: string | null;
-	hasBindingTarget: boolean;
+	guidance: ReturnType<typeof resolveLocalAgentCreationGuidance>;
+	onRetry: () => void;
 	ownerMode: AgentProfileOwnerMode;
 	recoveryActionHref: string;
 }): AgentProfileLocalAgentEmptyState {
@@ -2552,7 +2563,15 @@ function resolveLocalAgentEmptyState(input: {
 			primaryActionHref: null,
 		};
 	}
-	if (input.hasBindingTarget) {
+	if (input.guidance === "check_failed" || input.guidance === "checking") {
+		return {
+			kind: input.guidance,
+			centerAgentHref: input.centerAgentHref,
+			primaryActionHref: null,
+			onRetry: input.onRetry,
+		};
+	}
+	if (input.guidance === "set_up_local_agents") {
 		return {
 			centerAgentHref: input.centerAgentHref,
 			kind: "set_up_local_agents",

@@ -1,4 +1,6 @@
 import type { AccountSidebarPreferences } from "@openmeld/schemas";
+import { Button } from "@openmeld/ui/components/button";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQueries } from "@tanstack/react-query";
@@ -8,12 +10,15 @@ import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { spaceActiveWakeProgressSummaryQueryOptions } from "#/query/spaces/active-wake-progress";
 import {
 	APP_NAV_GROUP_CLASS_NAME,
+	APP_NAV_GROUP_LABEL_CLASS_NAME,
 	APP_NAV_GROUP_SPACING_CLASS_NAME,
 } from "../app/app-nav-item-style";
 import { AppSidebarGroup } from "../app/app-sidebar-group";
 import { SidebarDrag, SidebarDropSection } from "../app/sidebar-drag";
+import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
+import { spaceMessagePreviewQueryOptions } from "./direct-message-preview";
 import { NewDirectMessageDialog } from "./new-direct-message-dialog";
 import { moveSidebarSpace, sortSidebarSpaces } from "./sidebar-space-order";
 import { buildSpaceActiveWakeSummary } from "./space-active-wake-presentation";
@@ -92,8 +97,24 @@ export function ManagedDirectMessages(input: {
 			.map(([id, s]) => [id, s.latestUnreadOccurredAtMs])
 	);
 	const assigned = new Set(preferences.groups.flatMap((g) => g.spaceIds));
+	const latestMessages = useQueries({
+		queries: input.items.map((item) =>
+			spaceMessagePreviewQueryOptions({
+				spaceId: item.spaceId,
+				viewerProfileId: item.openProfileId,
+				enabled: true,
+			})
+		),
+	});
+	const conversationActivity = new Map(
+		input.items.map((item, index) => [
+			item.spaceId,
+			latestMessages[index]?.data?.timestamp ??
+				(Date.parse(item.spaceCreatedAt ?? "") || 0),
+		])
+	);
 	const sections = [
-		...(input.items.length > 0
+		...(input.items.some((item) => item.pinnedAt !== null)
 			? [
 					{
 						id: "pinned",
@@ -126,7 +147,8 @@ export function ManagedDirectMessages(input: {
 			s.settings,
 			attention,
 			unread,
-			indicators.activeWakeSpaceIds
+			indicators.activeWakeSpaceIds,
+			conversationActivity
 		),
 	}));
 	const save = (messages: Preferences) => {
@@ -134,9 +156,35 @@ export function ManagedDirectMessages(input: {
 			sidebar.save({ ...sidebar.preferences, messages });
 		}
 	};
+	if (sidebar.isPending || latestMessages.some((query) => query.isPending)) {
+		return <Skeleton className="mx-2 h-32" />;
+	}
+	if (
+		(!sidebar.preferences && sidebar.isError) ||
+		latestMessages.some((query) => query.isError && query.data === undefined)
+	) {
+		return (
+			<Button
+				onClick={() =>
+					Promise.all([
+						sidebar.retry(),
+						...latestMessages
+							.filter((query) => query.isError)
+							.map((query) => query.refetch()),
+					])
+				}
+				variant="ghost"
+			>
+				Retry loading sidebar
+			</Button>
+		);
+	}
 	return (
 		<>
 			<SidebarDrag
+				groupIds={
+					sidebar.disabled ? [] : preferences.groups.map((group) => group.id)
+				}
 				onMove={async (section, id, before) => {
 					if (!sidebar.disabled) {
 						const item = input.items.find((item) => item.spaceId === id);
@@ -156,6 +204,12 @@ export function ManagedDirectMessages(input: {
 						);
 					}
 				}}
+				onMoveGroup={(id, before) =>
+					save({
+						...preferences,
+						groups: moveSidebarGroup(preferences.groups, id, before),
+					})
+				}
 			>
 				{sections.map((section, sectionIndex) => (
 					<AppSidebarGroup
@@ -193,7 +247,7 @@ export function ManagedDirectMessages(input: {
 														{
 															id: crypto.randomUUID(),
 															name,
-															sort: "manual",
+															sort: "priority",
 															spaceIds: [],
 														},
 													],
@@ -219,9 +273,14 @@ export function ManagedDirectMessages(input: {
 									)
 								}
 								sort={section.settings.sort}
+								sortOptions={[
+									["priority", "Priority"],
+									["recent", "Recent activity"],
+									["manual", "Manual order"],
+								]}
 							/>
 						}
-						labelClassName="ps-1.5"
+						labelClassName={APP_NAV_GROUP_LABEL_CLASS_NAME}
 						labelText={section.label}
 						onRename={
 							preferences.groups.some((group) => group.id === section.id)
@@ -234,6 +293,7 @@ export function ManagedDirectMessages(input: {
 										})
 								: undefined
 						}
+						reorderId={section.id}
 					>
 						<SidebarDropSection
 							ids={section.items.map((i) => i.spaceId)}

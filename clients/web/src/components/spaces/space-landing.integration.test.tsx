@@ -13732,7 +13732,7 @@ describe("SpaceLanding", () => {
 		expect(screen.getByText(starterPrompt)).toBeTruthy();
 		expect(
 			screen.queryByRole("group", { name: "Suggested starting points" })
-		).toBeNull();
+		).toBeTruthy();
 
 		await act(async () => {
 			resolvePost?.(
@@ -13788,7 +13788,7 @@ describe("SpaceLanding", () => {
 		).toBe(starterPrompt);
 		expect(
 			screen.queryByRole("group", { name: "Suggested starting points" })
-		).toBeNull();
+		).toBeTruthy();
 	});
 
 	it("automatically sends a Center Agent message queued while Space bootstrap is still settling", async () => {

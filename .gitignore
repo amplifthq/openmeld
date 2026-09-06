@@ -60,6 +60,8 @@ yarn-error.log*
 *.pem
 
 # dev
+__pycache__/
+clients/web/scripts/sidebar-preview/runtime-states.generated.json
 cli/_spike/
 dev-tmp/
 sandbox/

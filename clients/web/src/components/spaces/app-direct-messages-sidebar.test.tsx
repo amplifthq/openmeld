@@ -7,6 +7,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { AppDirectMessagesSidebar } from "./app-direct-messages-sidebar";
 
+vi.mock("./direct-message-preview", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("./direct-message-preview")>();
+	return {
+		...actual,
+		spaceMessagePreviewQueryOptions: (
+			input: Parameters<typeof actual.spaceMessagePreviewQueryOptions>[0]
+		) => ({
+			...actual.spaceMessagePreviewQueryOptions(input),
+			initialData: null,
+			queryFn: () => Promise.resolve(null),
+		}),
+	};
+});
+
 const { listAccountSpaceItemsMock, readProfileDirectoryMock, spaceUnreadById } =
 	vi.hoisted(() => ({
 		listAccountSpaceItemsMock: vi.fn(),
