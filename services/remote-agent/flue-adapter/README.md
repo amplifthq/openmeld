@@ -32,8 +32,10 @@ is not a future release strategy.
 5. An agent may disable automatic queued-delivery joins. Center Agent does so
    because each admitted turn currently has its own authority and terminal
    callback. Upstream's default join behavior remains unchanged for other
-   agents. Exact-execution steering must be completed through its own authorized
-   ingress before the session upgrade is release-ready.
+   agents. Current-work corrections instead use Core's durable execution-input
+   outbox and the exact-execution steering source described below. Core verifies
+   the original sender and private Center Agent chat before accepting an input;
+   independent queued deliveries retain separate authority and callbacks.
 6. Submission instrumentation encloses the shared session-opening boundary,
    including recovery inspection and abort/terminal reconciliation. These paths
    render the agent just as live execution does and require the same exact
