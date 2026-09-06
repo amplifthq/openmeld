@@ -133,6 +133,19 @@ export const STAGING_WORKER_SECRET_SOURCES = [
   },
 ];
 
+const STAGING_OPEN_CONNECTOR_SECRET_SOURCE = {
+  config: "stg",
+  project: "openmeld-open-connector",
+  optionalSecrets: [],
+  requiredSecrets: [
+    "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
+    "OPEN_CONNECTOR_OPENMELD_ENCRYPTION_KEY",
+    "OPEN_CONNECTOR_OPENMELD_GITHUB_APP_ID",
+    "OPEN_CONNECTOR_OPENMELD_GITHUB_APP_PRIVATE_KEY",
+    "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
+  ],
+};
+
 const STAGING_COMPONENT_PROJECTS = new Map([
   ["open-connector", ["openmeld-release", "openmeld-open-connector"]],
   ["release", ["openmeld-release"]],
@@ -439,18 +452,7 @@ export function resolveStagingComponentSources(component) {
   }
   return projects.map((project) => {
     if (project === "openmeld-open-connector") {
-      return {
-        config: "stg",
-        project,
-        optionalSecrets: [],
-        requiredSecrets: [
-          "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
-          "OPEN_CONNECTOR_OPENMELD_ENCRYPTION_KEY",
-          "OPEN_CONNECTOR_OPENMELD_GITHUB_APP_ID",
-          "OPEN_CONNECTOR_OPENMELD_GITHUB_APP_PRIVATE_KEY",
-          "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
-        ],
-      };
+      return STAGING_OPEN_CONNECTOR_SECRET_SOURCE;
     }
     const source = STAGING_WORKER_SECRET_SOURCES.find(
       (candidate) => candidate.project === project
@@ -540,6 +542,7 @@ async function checkDopplerSources(input) {
 
 function runSourceEnvironmentCheck(project, config) {
   const source = [
+    STAGING_OPEN_CONNECTOR_SECRET_SOURCE,
     ...DEVELOPMENT_SECRET_SOURCES,
     ...PRODUCTION_WORKER_SECRET_SOURCES,
     ...STAGING_WORKER_SECRET_SOURCES,
