@@ -233,12 +233,17 @@ The guarded deployment order is intentional:
 3. create missing staging account resources;
 4. create missing route-free Worker identities;
 5. apply migrations to `openmeld-db-stg`;
-6. deploy Auth, Web, Gateway, Core, and Remote Agent;
+6. deploy Auth, Core, Remote Agent, Gateway, and Web;
 7. verify the resource inventory and public entry points.
 
 Worker identities exist before the real deploy because the internal Service
 Bindings form a cycle. The bootstrap Workers have no routes and return a
 diagnostic `503`; the guarded deploy replaces them with the real code.
+
+Core receives runtime contracts before Remote Agent produces them, and Web
+publishes new input metadata only after both backend receivers are deployed.
+If a change requires Remote Agent's receiver before Core's sender, deploy the
+compatible Remote Agent scope first, then run the full guarded deployment.
 
 ## Secrets And Authority
 
