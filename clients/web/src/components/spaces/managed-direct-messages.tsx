@@ -8,6 +8,7 @@ import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { spaceActiveWakeProgressSummaryQueryOptions } from "#/query/spaces/active-wake-progress";
 import {
 	APP_NAV_GROUP_CLASS_NAME,
+	APP_NAV_GROUP_LABEL_CLASS_NAME,
 	APP_NAV_GROUP_SPACING_CLASS_NAME,
 } from "../app/app-nav-item-style";
 import { AppSidebarGroup } from "../app/app-sidebar-group";
@@ -93,7 +94,7 @@ export function ManagedDirectMessages(input: {
 	);
 	const assigned = new Set(preferences.groups.flatMap((g) => g.spaceIds));
 	const sections = [
-		...(input.items.length > 0
+		...(input.items.some((item) => item.pinnedAt !== null)
 			? [
 					{
 						id: "pinned",
@@ -221,7 +222,7 @@ export function ManagedDirectMessages(input: {
 								sort={section.settings.sort}
 							/>
 						}
-						labelClassName="ps-1.5"
+						labelClassName={APP_NAV_GROUP_LABEL_CLASS_NAME}
 						labelText={section.label}
 						onRename={
 							preferences.groups.some((group) => group.id === section.id)

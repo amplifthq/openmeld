@@ -317,10 +317,7 @@ export function AppSpacesSidebar(input: {
 			unreadActivity,
 			working
 		);
-	if (
-		sidebarSections.pinnedItems.length + sidebarSections.spaceItems.length >
-		0
-	) {
+	if (sidebarSections.pinnedItems.length > 0) {
 		const items = sortSection(sidebarSections.pinnedItems, preferences?.pinned);
 		visibleBySection.set("pinned", items);
 		sidebarGroups.push({
