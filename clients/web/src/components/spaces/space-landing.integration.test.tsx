@@ -577,6 +577,7 @@ function renderSpaceLanding(
 		initialFocusSignalId?: string;
 		initialFocusThreadRootSignalId?: string;
 		initialPendingMessage?: {
+			files?: readonly File[];
 			clientMessageId: string;
 			createdAtMs: number;
 			text: string;
@@ -13720,6 +13721,63 @@ describe("SpaceLanding", () => {
 			screen.getByRole("button", { name: "Add to message" })
 		).toHaveProperty("disabled", true);
 		expect(screen.getByText("You can add up to 10 files.")).toBeTruthy();
+	});
+
+	it.each([
+		"Review this file",
+		"",
+	])("uploads first-chat draft files before sending once (text: %s)", async (text) => {
+		const descriptor = createSpaceFileDescriptor();
+		const messageFile = createSpaceMessageFileReference(descriptor);
+		const postNormalMessage = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "first-file-message",
+				text,
+				files: [messageFile],
+			})
+		);
+		const stageComposerUpload = vi.fn().mockImplementation((input) =>
+			Promise.resolve(
+				createSpaceComposerUpload({
+					id: input.uploadId,
+					mimeType: input.mimeType,
+					name: input.name,
+					sizeBytes: input.bytes.size,
+				})
+			)
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage,
+			stageComposerUpload,
+			publishComposerUpload: vi.fn().mockResolvedValue(descriptor),
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+		renderSpaceLanding({
+			initialPendingMessage: {
+				clientMessageId: "first-files",
+				createdAtMs: 1_751_000_000_000,
+				text,
+				files: [new File(["launch"], "launch.txt", { type: "text/plain" })],
+			},
+		});
+		await waitFor(() =>
+			expect(postNormalMessage).toHaveBeenCalledWith(
+				expect.objectContaining({ files: [messageFile], text })
+			)
+		);
+		expect(stageComposerUpload).toHaveBeenCalledTimes(1);
+		expect(postNormalMessage).toHaveBeenCalledTimes(1);
 	});
 
 	it("automatically sends a Center Agent message queued before Space bootstrap", async () => {
