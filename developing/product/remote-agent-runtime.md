@@ -512,8 +512,12 @@ the connected provider API.
    stopped Wake before worker submission, rechecks after admission and requests
    worker cancellation if Stop raced the ACK, and discards any late callback as
    a stopped terminal outcome. The Space Durable Object also rejects a matching
-   final reply after its outbox is cancelled, which closes the last
-   stop-versus-publication race without making the Remote Agent a workstation
+   final reply after its outbox is cancelled. It still accepts the exact
+   execution owner's `remote_agent_failure` with
+   `remote_agent.execution_cancelled` through Core's native-delivery authority:
+   this is the stop confirmation, not a late answer. Agent-authored metadata
+   cannot grant that authority, and other late failures remain rejected.
+   This closes the last stop-versus-publication race without making the Remote Agent a workstation
    runtime or giving it a RuntimeCoordinator execution.
 4. **Pinned version.** Flue is consumed at the exact version frozen by spike
    and implementation review. Upgrade requires a separate approval and a

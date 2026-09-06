@@ -17202,6 +17202,17 @@ export class Space extends DurableObject<CoreBindings> {
     ) {
       return;
     }
+    // The outbox fences late answers, not the native execution owner's
+    // confirmation that cancellation finished. Without this distinction,
+    // Stop winning the race before its callback leaves that callback retrying
+    // forever and the visible stream stuck in Stopping.
+    if (
+      signal.type === "signal.text" &&
+      signal.data.meta?.purpose === REMOTE_AGENT_FAILURE_PURPOSE &&
+      signal.data.meta?.errorCode === "remote_agent.execution_cancelled"
+    ) {
+      return;
+    }
     throw new SpaceSignalAuthoringError({
       code: SPACE_FINAL_OUTCOME_STOPPED_ERROR_CODE,
       message:

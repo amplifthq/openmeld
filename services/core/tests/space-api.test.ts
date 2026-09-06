@@ -9256,7 +9256,7 @@ describe("OpenMeld Core", () => {
     );
   });
 
-  it("rejects a late Remote Agent final reply after its dispatch was stopped", async () => {
+  it("rejects late Remote Agent replies but publishes the confirmed stopped outcome", async () => {
     const spaceId = await createSpace({
       name: `rpc-stopped-final-reply-${Date.now()}`,
     });
@@ -9371,6 +9371,79 @@ describe("OpenMeld Core", () => {
           signal.data.text === "This late reply must not appear."
       )
     ).toBe(false);
+    const stoppedInput = {
+      authoringPolicy: "system_emitted" as const,
+      messageEnvelope: {
+        activationTargets: [],
+        referenceTargets: [],
+        replyToSignalId: sourceSignal.id,
+        text: "This request was stopped.",
+      },
+      meta: {
+        clientMessageId: "sub-stopped-confirmation",
+        dispatchId: dispatchRecord.dispatchId,
+        errorCode: "remote_agent.execution_cancelled",
+        purpose: REMOTE_AGENT_FAILURE_PURPOSE,
+        targetProfileId,
+      },
+      profile: {
+        kind: "agent" as const,
+        owner: "remote-agent-owner",
+        profileId: targetProfileId,
+        profileName: "Stopped Remote Agent",
+      },
+      spaceAccess: createDispatchContinuationSpaceAccessContext({
+        dispatchId: dispatchRecord.dispatchId,
+        requestContext: dispatchContext,
+        sourceSignalId: sourceSignal.id,
+        spaceId,
+        targetProfileId,
+      }),
+      spaceId,
+      text: "This request was stopped.",
+    };
+    // A tool or agent cannot forge cancellation authority through metadata.
+    const unauthorizedStop = await stub.rpcPostSignal(stoppedInput).then(
+      () => null,
+      (error: unknown) => error
+    );
+    expect(unauthorizedStop).toBeInstanceOf(Error);
+    expect((unauthorizedStop as Error).message).toContain(
+      "space.final_outcome_owner_required"
+    );
+    const lateFailure = await stub
+      .rpcPostSignal({
+        ...stoppedInput,
+        finalOutcomeAuthority: "remote_agent_native_delivery",
+        meta: {
+          ...stoppedInput.meta,
+          errorCode: "remote_agent.turn_not_completed",
+        },
+      })
+      .then(
+        () => null,
+        (error: unknown) => error
+      );
+    expect(lateFailure).toBeInstanceOf(Error);
+    expect((lateFailure as Error).message).toContain(
+      "space.final_outcome_stopped"
+    );
+    const stopped = await stub.rpcPostSignal({
+      ...stoppedInput,
+      finalOutcomeAuthority: "remote_agent_native_delivery",
+    });
+    const finalHistory = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=20`
+    );
+    const finalSignals = (await finalHistory.json()) as {
+      signals: SignalEnvelope[];
+    };
+    expect(
+      finalSignals.signals.filter((signal) => signal.id === stopped.id)
+    ).toHaveLength(1);
+    expect(stopped.type === "signal.text" && stopped.data.text).toBe(
+      "This request was stopped."
+    );
   });
 
   it("requires Remote Agent authority before persisting and claiming a failure outcome", async () => {
