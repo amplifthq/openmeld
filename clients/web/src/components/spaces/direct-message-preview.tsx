@@ -25,6 +25,18 @@ export function useDirectMessagePreview(input: {
 	viewerProfileId: string;
 	peerProfileId: string | undefined;
 }) {
+	return useSpaceMessagePreview({
+		...input,
+		enabled: Boolean(input.peerProfileId),
+	});
+}
+
+export function useSpaceMessagePreview(input: {
+	spaceId: string;
+	viewerProfileId: string;
+	peerProfileId?: string;
+	enabled: boolean;
+}) {
 	return useQuery({
 		queryKey: [
 			"spaces",
@@ -33,11 +45,8 @@ export function useDirectMessagePreview(input: {
 			input.viewerProfileId,
 			input.peerProfileId,
 		],
-		enabled: Boolean(input.peerProfileId),
+		enabled: input.enabled,
 		queryFn: async ({ signal }) => {
-			if (!input.peerProfileId) {
-				throw new Error("A conversation peer is required.");
-			}
 			const result = await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.viewerProfileId,
 			}).listSignalEnvelopes({
@@ -47,7 +56,9 @@ export function useDirectMessagePreview(input: {
 					recent: true,
 					limit: 1,
 					kinds: ["text"],
-					fromProfileIds: [input.peerProfileId],
+					fromProfileIds: input.peerProfileId
+						? [input.peerProfileId]
+						: undefined,
 				},
 			});
 			const message = result.envelopes.find(

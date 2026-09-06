@@ -1002,7 +1002,9 @@ describe("AppSpacesSidebar", () => {
 		);
 		const pinButton = screen.getByRole("button", { name: "Pin Alpha" });
 
-		expect(spaceRow?.classList.contains("@container/space-item")).toBe(true);
+		expect(spaceRow?.classList.contains("@container/conversation-row")).toBe(
+			true
+		);
 		expect(openSpaceButton?.classList.contains("pr-10")).toBe(false);
 		expect(spaceName?.classList.contains("pr-10")).toBe(false);
 		expect(spaceName?.classList.contains("@[13rem]/space-item:pr-10")).toBe(
@@ -1014,12 +1016,7 @@ describe("AppSpacesSidebar", () => {
 		expect(nameAndDate?.classList.contains("items-center")).toBe(true);
 		expect(nameAndDate?.classList.contains("gap-px")).toBe(true);
 		expect(openSpaceButton.classList.contains("items-center")).toBe(true);
-		expect(timestamp?.classList.contains("absolute")).toBe(false);
-		expect(timestamp?.classList.contains("shrink-0")).toBe(true);
-		expect(timestamp?.classList.contains("hidden")).toBe(true);
-		expect(
-			timestamp?.classList.contains("@[13rem]/space-item:inline-flex")
-		).toBe(true);
+		expect(timestamp).toBeNull();
 		expect(pinButton.classList.contains("top-1.5")).toBe(true);
 		expect(pinButton.classList.contains("top-1/2")).toBe(false);
 		expect(pinButton.classList.contains("hover:bg-sidebar-accent")).toBe(true);

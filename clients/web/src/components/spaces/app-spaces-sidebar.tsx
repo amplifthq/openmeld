@@ -43,23 +43,6 @@ import {
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
 
-const SIDEBAR_TIME_FORMAT_OPTIONS = {
-	day: "numeric",
-	month: "short",
-} as const;
-const UTC_SIDEBAR_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
-	...SIDEBAR_TIME_FORMAT_OPTIONS,
-	timeZone: "UTC",
-});
-const BROWSER_SIDEBAR_TIME_ZONE =
-	typeof window === "undefined"
-		? "UTC"
-		: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-const BROWSER_SIDEBAR_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
-	...SIDEBAR_TIME_FORMAT_OPTIONS,
-	timeZone: BROWSER_SIDEBAR_TIME_ZONE,
-});
-
 const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
 	pinnedItems: [],
 	recentlyDeletedItems: [],
@@ -138,9 +121,6 @@ export function AppSpacesSidebar(input: {
 		getBrowserEnvironmentSnapshot,
 		getServerEnvironmentSnapshot
 	);
-	const sidebarTimeFormatter = browserEnvironmentReady
-		? BROWSER_SIDEBAR_TIME_FORMATTER
-		: UTC_SIDEBAR_TIME_FORMATTER;
 	const spacesQuery = useQuery(
 		accountSpaceItemsQueryOptions({
 			enabled: input.currentProfileId.trim().length > 0,
@@ -203,7 +183,6 @@ export function AppSpacesSidebar(input: {
 				isPending={listInput.isPending ?? false}
 				isPinPending={() => pinMutation.arePinActionsPending}
 				items={listInput.items}
-				lastJoinedAtFormatter={sidebarTimeFormatter}
 				memberAppearances={memberAppearances}
 				navigationLabel={listInput.navigationLabel}
 				onOpenSpace={openSpace}
@@ -460,7 +439,6 @@ function SidebarSpacesList(input: {
 	isPending: boolean;
 	isPinPending: (item: AccountSpaceItem) => boolean;
 	items: readonly AccountSpaceItem[];
-	lastJoinedAtFormatter: Intl.DateTimeFormat;
 	navigationLabel: string;
 	onOpenSpace: (routePath: string) => void;
 	onRetry: () => void;
@@ -527,7 +505,6 @@ function SidebarSpacesList(input: {
 						isPinPending={input.isPinPending(item)}
 						item={item}
 						key={item.spaceId}
-						lastJoinedAtFormatter={input.lastJoinedAtFormatter}
 						memberAppearances={input.memberAppearances}
 						onOpenSpace={input.onOpenSpace}
 						onTogglePinned={input.onTogglePinned}

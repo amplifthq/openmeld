@@ -31,14 +31,12 @@ import {
 	resolveAccountSpaceViewerProfileId,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
-import {
-	formatDirectMessageTime,
-	useDirectMessagePreview,
-} from "./direct-message-preview";
+import { useDirectMessagePreview } from "./direct-message-preview";
 import {
 	type ManagedDirectMessageRowProps,
 	ManagedDirectMessages,
 } from "./managed-direct-messages";
+import { SidebarConversationTime } from "./sidebar-conversation-time";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import { useSpaceInboxUnreadById } from "./use-account-space-indicators";
 
@@ -282,7 +280,7 @@ function DirectMessageSidebarItem(
 	});
 	return (
 		<FluidNavMenuItem
-			className="group/dm-row relative"
+			className="@container/conversation-row group/dm-row relative"
 			index={input.index}
 			ref={drag.ref}
 			style={drag.style}
@@ -335,16 +333,11 @@ function DirectMessageSidebarItem(
 							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 								<span className="flex min-w-0 items-center gap-2">
 									<CenterTruncatedText className="flex-1" text={label} />
-									{preview.data && (
-										<time
-											className="shrink-0 font-normal text-[11px] text-muted-foreground tabular-nums"
-											dateTime={new Date(preview.data.timestamp).toISOString()}
-										>
-											{formatDirectMessageTime(
-												preview.data.timestamp,
-												new Date(nowMs)
-											)}
-										</time>
+									{!hasUnread && preview.data && (
+										<SidebarConversationTime
+											now={new Date(nowMs)}
+											timestamp={preview.data.timestamp}
+										/>
 									)}
 								</span>
 								<span className="truncate pr-6 font-normal text-muted-foreground text-xs leading-4">
