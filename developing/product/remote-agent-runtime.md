@@ -98,6 +98,17 @@ gets its own process group on the shared Computer. No parallel PID registry is
 introduced. Terminal cleanup still attempts every owned command when output
 inspection fails; an output transport error must not strand an active process.
 
+Computer availability and conversation continuity are separate requirements.
+A Computer replacement may interrupt a native command; preserving that Linux
+process is not required. The conversation must retain its accepted input,
+working context, completed tool results and publication receipts, and expose
+the lost or unavailable Computer operation truthfully to the model. The model
+can inspect durable outputs and choose a safe recovery using existing tools.
+Infrastructure must not blindly replay an operation whose external effects are
+unknown. Re-running a read or regenerating a disposable file differs from sending
+another message or repeating a mutation. Release acceptance must exercise that
+recovery path; Worker-only continuity does not prove Computer-loss recovery.
+
 The hosted runtime is normally always available, but the Organization creator
 has one explicit emergency control: **Pause Center Agent**. Pause is not a
 disconnect and does not remove the designation, profile, Binding, conversation

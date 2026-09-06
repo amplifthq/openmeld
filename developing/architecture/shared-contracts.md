@@ -3269,6 +3269,19 @@ Remote Agent first. Old Remote Agent never calls the new RPC, and the existing
 strict local-agent candidate response remains byte-for-byte unchanged for
 mixed-version compatibility.
 
+### Agent Work confirmation outcomes
+
+Agent Work may carry the optional `outcome: confirmation_required` projection.
+It means the tool returned a confirmation proposal, not that its external action
+executed. The tool result remains the execution owner's fact; this field grants
+no permission and carries no confirmation token or raw result. Runtime preserves
+the original tool-call identity and safe subject while attaching the terminal
+outcome, including Code Mode inner calls. Web labels it as a confirmation request.
+
+Deploy Core/Gateway/Web readers before Runtime emits the optional field because
+older stream readers use strict schemas. Refresh existing Web tabs before the
+producer rollout. Rollback removes the Runtime producer before old readers.
+
 ### Organization Document Contracts
 
 `packages/schemas/src/schemas/http/organization-documents.ts` owns the strict

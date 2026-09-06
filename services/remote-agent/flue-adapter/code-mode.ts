@@ -246,6 +246,7 @@ function buildCodeModeToolSet(input: {
             toolCallId,
             toolInput,
             toolName: definition.name,
+            toolResult: result,
           });
           return (
             toBoundedRemoteAgentToolResult({
@@ -279,10 +280,12 @@ async function publishCodeModeInnerWorkBestEffort(input: {
   toolCallId: string;
   toolInput: unknown;
   toolName: string;
+  toolResult: unknown;
 }): Promise<void> {
   const work = resolveRemoteAgentToolWorkActivity(
     input.toolName,
-    input.toolInput
+    input.toolInput,
+    input.toolResult
   );
   if (!work) {
     return;

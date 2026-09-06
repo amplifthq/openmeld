@@ -1,5 +1,6 @@
 import type { FlueObservation } from "@flue/runtime";
 import type { AgentStreamToolPart } from "@openmeld/schemas/types";
+import { isRemoteAgentDestructiveConfirmationResult } from "../agent-core/destructive-authorization";
 import { resolveRemoteAgentToolWorkActivity } from "./tool-work-activity";
 
 export type FlueStreamDelta = {
@@ -14,6 +15,7 @@ export type FlueToolLifecyclePart = {
   organizationSkillName?: string;
   part: AgentStreamToolPart;
   submissionId: string;
+  workOutcome?: "confirmation_required";
 };
 
 export function extractFlueToolLifecyclePart(
@@ -27,10 +29,18 @@ export function extractFlueToolLifecyclePart(
     return null;
   }
   const observedAtMs = Date.parse(event.timestamp);
-  const work = resolveRemoteAgentToolWorkActivity(event.toolName, event.args);
+  const work = resolveRemoteAgentToolWorkActivity(
+    event.toolName,
+    event.args,
+    event.type === "tool" ? event.result : undefined
+  );
   return {
     observedAtMs: Number.isFinite(observedAtMs) ? observedAtMs : Date.now(),
     ...readActivatedOrganizationSkillName(event),
+    ...(event.type === "tool" &&
+    isRemoteAgentDestructiveConfirmationResult(event.result)
+      ? { workOutcome: "confirmation_required" as const }
+      : {}),
     submissionId: event.submissionId,
     part: {
       type: "tool",

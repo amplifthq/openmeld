@@ -52,6 +52,57 @@ async function runCodeModeTool(
 }
 
 describe("Remote Agent Code Mode", () => {
+  it("publishes a confirmation outcome without publishing its token", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const submitRemoteAgentStreamPart = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const result = {
+      status: "destructive_confirmation_required",
+      sideEffects: 0,
+      confirmationToken: "private-confirmation",
+    };
+    const definition = {
+      name: "openmeld_prepare_remove_project",
+      description: "Prepare removal.",
+      input: strictObject({}),
+      execute: async () => result,
+    } satisfies RemoteAgentToolDefinition;
+    const runtime = createRuntime({
+      executorOptions: [],
+      execute: async (tools) => {
+        const prepare = tools.openmeld_prepare_remove_project;
+        if (!prepare?.execute) {
+          throw new Error("Code Mode preparation tool is unavailable.");
+        }
+        return { result: await prepare.execute({}, TOOL_OPTIONS) };
+      },
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions: [definition],
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+      storage,
+      submissionId: SUBMISSION_ID,
+      coreWorker: { submitRemoteAgentStreamPart },
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    });
+    await runCodeModeTool(tool, { input: { code: "async () => null" } });
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        part: expect.objectContaining({
+          work: expect.objectContaining({ outcome: "confirmation_required" }),
+        }),
+      })
+    );
+    expect(
+      JSON.stringify(submitRemoteAgentStreamPart.mock.calls)
+    ).not.toContain("private-confirmation");
+  });
   it("keeps the executable catalog fixed without embedding every schema in the prompt", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const definitions = getRemoteAgentOpenMeldToolDefinitions({
