@@ -17,7 +17,7 @@ it("remeasures moved rows without requiring a resize or new registration", async
   const rows = [
     document.createElement("button"),
     document.createElement("button"),
-  ];
+  ] as const;
   container.append(...rows);
   for (const row of rows) {
     Object.defineProperties(row, {
@@ -36,7 +36,7 @@ it("remeasures moved rows without requiring a resize or new registration", async
     }
     result.current.measureItems();
   });
-  expect(result.current.itemRects[0].top).toBe(0);
+  expect(result.current.itemRects[0]?.top).toBe(0);
   await act(async () => {
     container.append(rows[0]);
     await Promise.resolve();
@@ -46,8 +46,8 @@ it("remeasures moved rows without requiring a resize or new registration", async
       frame(0);
     }
   });
-  expect(result.current.itemRects[0].top).toBe(40);
-  expect(result.current.itemRects[1].top).toBe(0);
+  expect(result.current.itemRects[0]?.top).toBe(40);
+  expect(result.current.itemRects[1]?.top).toBe(0);
 });
 
 it("uses the hit row without a synchronous layout read, while preserving proximity in gaps", () => {
