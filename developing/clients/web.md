@@ -291,8 +291,9 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    Spaces, Direct Messages, People, and Agents place their contextual lists
    below the fixed destinations in the Main Sidebar. Only these contextual
    lists scroll within one Fluid scrolling area; the header, primary entries,
-   and Team group remain fixed. A collapsed Team group shows the selected
-   People or Agents icon and label beside its chevron. These pages do not
+   and Team menu remain fixed. Team uses a non-collapsing parent menu with
+   People and Agents as indented children, distinct from the content groups
+   below. These pages do not
    mount a secondary sidebar or a second mobile drawer.
    Existing list grouping, pinning, unread indicators, identities, and status
    projections are preserved. The former secondary headers and creation/invite

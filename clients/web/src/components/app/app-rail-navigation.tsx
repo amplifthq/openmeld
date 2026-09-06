@@ -7,13 +7,15 @@ import {
 } from "@openmeld/ui/components/tooltip";
 import {
 	SidebarGroup as FluidSidebarGroup,
-	SidebarGroupLabel as FluidSidebarGroupLabel,
 	SidebarGroupContent,
 } from "@openmeld/ui/fluid/sidebar-group";
 import {
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
+	SidebarMenuSub,
+	SidebarMenuSubButton,
+	SidebarMenuSubItem,
 } from "@openmeld/ui/fluid/sidebar-menu";
 import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
 import { resolveStatusToneCompactBadgeClassName } from "@openmeld/ui/lib/status-tone";
@@ -25,12 +27,12 @@ import {
 	PlusIcon,
 	RobotIcon,
 	UserIcon,
+	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactElement, ReactNode } from "react";
 import {
 	APP_NAV_GROUP_CLASS_NAME,
-	APP_NAV_GROUP_LABEL_CLASS_NAME,
 	APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
 	APP_NAV_ITEM_TONE_CLASS_NAME,
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
@@ -46,7 +48,6 @@ import {
 	buildOrganizationRootPath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
-import { useAppSidebarGroupState } from "./app-sidebar-group";
 import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
 
 type AppRailDestinationId = AppOuterRailDestination;
@@ -140,10 +141,6 @@ export function AppRailNavigationGroup(input: {
 	position: number;
 	tier: SidebarMode;
 }) {
-	const groupState = useAppSidebarGroupState();
-	const selectedDestination = input.group.destinations.find(
-		(destination) => destination.id === input.activeDestination
-	);
 	const { presentation } = useAppNavigationPresentation();
 	const navigation = (
 		<nav aria-label={input.group.label ?? "Primary navigation"}>
@@ -166,34 +163,33 @@ export function AppRailNavigationGroup(input: {
 
 	if (input.tier === "expanded" && input.group.label) {
 		return (
-			<FluidSidebarGroup
-				className={cn(groupClassName, "gap-0")}
-				collapsible
-				data-sidebar-group-id={input.group.id}
-				onOpenChange={(open) => groupState?.setOpen(input.group.id, open)}
-				open={groupState?.isOpen(input.group.id) ?? true}
-			>
-				<FluidSidebarGroupLabel
-					aria-label={input.group.label}
-					className={cn(APP_NAV_GROUP_LABEL_CLASS_NAME, "ps-1.5")}
-					collapsedContent={
-						selectedDestination ? (
-							<span
-								className="ml-1 flex min-w-0 items-center gap-1.5 text-sidebar-foreground"
-								data-slot="collapsed-group-selection"
-							>
-								<span className="flex shrink-0 [&_svg]:size-3.5">
-									{selectedDestination.icon}
-								</span>
-								<span className="truncate">{selectedDestination.label}</span>
-							</span>
-						) : undefined
-					}
-				>
-					{input.group.label}
-				</FluidSidebarGroupLabel>
-				{navigation}
-			</FluidSidebarGroup>
+			<nav aria-label={input.group.label}>
+				<SidebarMenu activeLayoutId={`main-sidebar-selection-${presentation}`}>
+					<SidebarMenuItem>
+						<div
+							className={cn(
+								"flex items-center gap-1.5 ps-[5px] text-sidebar-foreground/60",
+								APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
+								APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME
+							)}
+						>
+							<UsersThreeIcon aria-hidden="true" className="size-4 shrink-0" />
+							{input.group.label}
+						</div>
+						<SidebarMenuSub>
+							{input.group.destinations.map((destination) => (
+								<AppRailLink
+									active={destination.id === input.activeDestination}
+									destination={destination}
+									key={destination.id}
+									nested
+									tier={input.tier}
+								/>
+							))}
+						</SidebarMenuSub>
+					</SidebarMenuItem>
+				</SidebarMenu>
+			</nav>
 		);
 	}
 
@@ -217,6 +213,7 @@ export function CollapsedRailTooltip(input: {
 }
 
 export function AppRailLink(input: {
+	nested?: boolean;
 	active: boolean;
 	destination: AppRailDestination;
 	tier: SidebarMode;
@@ -292,10 +289,10 @@ export function AppRailLink(input: {
 		</Link>
 	);
 
+	const Item = input.nested ? SidebarMenuSubItem : SidebarMenuItem;
+	const MenuButton = input.nested ? SidebarMenuSubButton : SidebarMenuButton;
 	return (
-		<SidebarMenuItem
-			className={isIcon ? "mx-auto size-9" : "group/destination relative"}
-		>
+		<Item className={isIcon ? "mx-auto size-9" : "group/destination relative"}>
 			{isIcon ? (
 				<CollapsedRailTooltip label={accessibleLabel}>
 					<SidebarMenuButton isActive={input.active} render={link}>
@@ -303,16 +300,16 @@ export function AppRailLink(input: {
 					</SidebarMenuButton>
 				</CollapsedRailTooltip>
 			) : (
-				<SidebarMenuButton isActive={input.active} render={link}>
+				<MenuButton isActive={input.active} render={link}>
 					{children}
-				</SidebarMenuButton>
+				</MenuButton>
 			)}
 			{!isIcon &&
 				(input.destination.id === "people" ||
 					input.destination.id === "agents") && (
 					<SidebarDestinationActionSlot destination={input.destination.id} />
 				)}
-		</SidebarMenuItem>
+		</Item>
 	);
 }
 
