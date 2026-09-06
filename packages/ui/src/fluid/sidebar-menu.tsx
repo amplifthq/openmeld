@@ -1206,12 +1206,14 @@ const SidebarMenuButton = forwardRef<HTMLButtonElement, SidebarMenuButtonProps>(
 
     const inner = (
       <>
-        {effectiveActive && scope?.activeLayoutId && (
-          <SidebarSelectionBackground
-            className={cn(shape.bg, scope.activeIndicatorClassName)}
-            layoutId={scope.activeLayoutId}
-          />
-        )}
+        {effectiveActive &&
+          scope?.activeLayoutId &&
+          !row?.hasAttribute("data-fluid-nav-value") && (
+            <SidebarSelectionBackground
+              className={cn(shape.bg, scope.activeIndicatorClassName)}
+              layoutId={scope.activeLayoutId}
+            />
+          )}
         {Icon && (
           <Icon
             className={cn(
@@ -1273,7 +1275,7 @@ const SidebarMenuButton = forwardRef<HTMLButtonElement, SidebarMenuButtonProps>(
           sidebarMenuButtonVariants({ variant }),
           scope?.activeLayoutId && "isolate",
           gutterRest !== gutterHover &&
-            "group-focus-within/menu-item:pr-[var(--row-gutter-hover)] group-focus-within/menu-sub-item:pr-[var(--row-gutter-hover)] group-hover/menu-item:pr-[var(--row-gutter-hover)] group-hover/menu-sub-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-sub-item:pr-[var(--row-gutter-hover)]",
+            "group-focus-within/menu-item:pr-[var(--row-gutter-hover)] group-focus-within/menu-sub-item:pr-[var(--row-gutter-hover)] group-hover/menu-item:pr-[var(--row-gutter-hover)] group-hover/menu-sub-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-sub-item:pr-[var(--row-gutter-hover)] [@media(hover:none)]:pr-[var(--row-gutter-hover)]",
           heightClass,
           shape.item,
           className
@@ -1416,7 +1418,7 @@ const SidebarMenuActions = forwardRef<HTMLDivElement, SidebarMenuActionsProps>(
       icon: 16,
       text: "text-[13px]",
     };
-    const count = Children.count(children);
+    const count = Children.toArray(children).length;
 
     const setActions = item?.setActions;
     useIsoLayoutEffect(() => {
@@ -1428,6 +1430,7 @@ const SidebarMenuActions = forwardRef<HTMLDivElement, SidebarMenuActionsProps>(
       <div
         className={cn(
           "absolute right-1.5 z-10 flex items-center gap-1",
+          showOnHover && "[@media(hover:none)]:opacity-100",
           // The badge keeps the rightmost slot; the cluster sits left of it.
           item?.isSubRow
             ? "group-has-[>[data-sidebar=menu-badge]]/menu-sub-item:right-8.5"

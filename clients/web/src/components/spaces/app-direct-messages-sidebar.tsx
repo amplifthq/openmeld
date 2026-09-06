@@ -9,6 +9,10 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
+import {
+	SidebarMenuActions,
+	SidebarMenuButton,
+} from "@openmeld/ui/fluid/sidebar-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, PushPinIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -295,7 +299,7 @@ function DirectMessageSidebarItem(
 	});
 	return (
 		<FluidNavMenuItem
-			className="@container/conversation-row group/dm-row relative"
+			className="@container/conversation-row relative"
 			index={input.index}
 			ref={drag.ref}
 			style={drag.style}
@@ -304,76 +308,84 @@ function DirectMessageSidebarItem(
 			<Tooltip>
 				<TooltipTrigger
 					render={
-						<Link
-							{...drag.rowProps}
-							aria-current={input.isActive ? "page" : undefined}
-							aria-label={accessibleLabel}
-							className={cn(
-								"flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring",
-								APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
-								APP_NAV_ITEM_TONE_CLASS_NAME,
-								input.isActive
-									? "font-medium text-sidebar-accent-foreground"
-									: null,
-								hasUnread ? "font-semibold text-sidebar-foreground" : null
-							)}
-							onClick={() => {
-								if (preview.isError) {
-									return preview.refetch();
-								}
-							}}
-							to={routePath}
+						<SidebarMenuButton
+							asChild
+							className="h-auto"
+							isActive={input.isActive}
 						>
-							{peer ? (
-								<SpaceProfileIcon
-									agentControllerRef={
-										peer.profileKind === "agent"
-											? peer.agentControllerRef
-											: null
+							<Link
+								{...drag.rowProps}
+								aria-current={input.isActive ? "page" : undefined}
+								aria-label={accessibleLabel}
+								className={cn(
+									"flex min-h-12 w-full min-w-0 items-center gap-2 py-1.5 pl-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring",
+									APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
+									APP_NAV_ITEM_TONE_CLASS_NAME,
+									input.isActive
+										? "font-medium text-sidebar-accent-foreground"
+										: null,
+									hasUnread ? "font-semibold text-sidebar-foreground" : null
+								)}
+								onClick={() => {
+									if (preview.isError) {
+										return preview.refetch();
 									}
-									avatarImageUrl={
-										peer.profileKind === "human" ? peer.avatarUrl : undefined
-									}
-									isCenterAgent={peer.profileId === input.centerAgentProfileId}
-									profileId={peer.profileId}
-									profileKind={peer.profileKind}
-									profileName={peer.profileName}
-									size="sm"
-								/>
-							) : (
-								<span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
-									<ChatCircleTextIcon aria-hidden="true" className="size-4" />
+								}}
+								to={routePath}
+							>
+								{peer ? (
+									<SpaceProfileIcon
+										agentControllerRef={
+											peer.profileKind === "agent"
+												? peer.agentControllerRef
+												: null
+										}
+										avatarImageUrl={
+											peer.profileKind === "human" ? peer.avatarUrl : undefined
+										}
+										isCenterAgent={
+											peer.profileId === input.centerAgentProfileId
+										}
+										profileId={peer.profileId}
+										profileKind={peer.profileKind}
+										profileName={peer.profileName}
+										size="sm"
+									/>
+								) : (
+									<span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
+										<ChatCircleTextIcon aria-hidden="true" className="size-4" />
+									</span>
+								)}
+								<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+									<span className="flex min-w-0 items-center gap-2">
+										<CenterTruncatedText className="flex-1" text={label} />
+										{timestamp !== null && (
+											<SidebarConversationTime
+												now={new Date(nowMs)}
+												timestamp={timestamp}
+											/>
+										)}
+									</span>
+									<span className="truncate font-normal text-muted-foreground text-xs leading-4">
+										{previewText}
+									</span>
 								</span>
-							)}
-							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-								<span className="flex min-w-0 items-center gap-2">
-									<CenterTruncatedText className="flex-1" text={label} />
-									{timestamp !== null && (
-										<SidebarConversationTime
-											now={new Date(nowMs)}
-											timestamp={timestamp}
-										/>
-									)}
-								</span>
-								<span className="truncate pr-6 font-normal text-muted-foreground text-xs leading-4">
-									{previewText}
-								</span>
-							</span>
-							{hasUnread ? (
-								<span
-									aria-hidden="true"
-									className="status-dot bg-unread"
-									data-direct-message-unread-indicator="true"
-								/>
-							) : null}
-						</Link>
+								{hasUnread ? (
+									<span
+										aria-hidden="true"
+										className="status-dot bg-unread"
+										data-direct-message-unread-indicator="true"
+									/>
+								) : null}
+							</Link>
+						</SidebarMenuButton>
 					}
 				/>
 				<TooltipContent align="start" side="right">
 					{label}
 				</TooltipContent>
 			</Tooltip>
-			<div className="pointer-events-none absolute right-1 bottom-0.5 opacity-0 group-focus-within/dm-row:pointer-events-auto group-focus-within/dm-row:opacity-100 group-hover/dm-row:pointer-events-auto group-hover/dm-row:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+			<SidebarMenuActions className="top-auto bottom-0.5" showOnHover>
 				<SidebarRowAction
 					disabled={input.disabled}
 					label={`${input.item.pinnedAt ? "Unpin" : "Pin"} ${label}`}
@@ -381,7 +393,7 @@ function DirectMessageSidebarItem(
 				>
 					<PushPinIcon weight={input.item.pinnedAt ? "fill" : "regular"} />
 				</SidebarRowAction>
-			</div>
+			</SidebarMenuActions>
 		</FluidNavMenuItem>
 	);
 }
