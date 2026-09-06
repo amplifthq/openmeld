@@ -7,6 +7,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
+import { Surface } from "@openmeld/ui/fluid/surface";
 import {
 	DeviceMobileIcon,
 	MonitorIcon,
@@ -224,8 +225,8 @@ export function SessionsManagementCard() {
 								session.id ?? session.token ?? `${String(index)}-session`;
 
 							return (
-								<div
-									className="flex flex-col gap-3 border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
+								<Surface
+									className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between"
 									key={sessionKey}
 								>
 									<div className="flex items-start gap-2">
@@ -272,7 +273,7 @@ export function SessionsManagementCard() {
 											{sessionActionLabel({ isCurrent, isRevoking })}
 										</Button>
 									)}
-								</div>
+								</Surface>
 							);
 						})
 					)}

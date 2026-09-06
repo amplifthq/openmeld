@@ -83,7 +83,7 @@ export function SpaceAgentAvailabilityIndicator(input: {
 		<span
 			aria-hidden="true"
 			className={cn(
-				"size-2 rounded-full",
+				"status-dot",
 				resolveStatusToneIndicatorClassName(input.tone, "solid")
 			)}
 			data-slot="space-agent-availability-indicator-dot"
@@ -92,7 +92,7 @@ export function SpaceAgentAvailabilityIndicator(input: {
 	const commonProps = {
 		"aria-label": input.label,
 		className:
-			"relative inline-flex size-3 shrink-0 cursor-help items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+			"relative inline-flex shrink-0 cursor-help items-center justify-center p-0 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2",
 		"data-availability-action": input.action ?? undefined,
 		"data-availability-category": input.category ?? undefined,
 		"data-availability-phase": input.phase ?? undefined,

@@ -3488,7 +3488,7 @@ delivery fails closed. Successful audited reads store
 without creating a second member record.
 
 The connected-member contract includes public research and bounded
-Organization reads plus Organization-shared Apps. Dedicated GitHub reads accept
+Organization reads plus Organization-shared Plugins. Dedicated GitHub reads accept
 only `githubActor = organization` and resolve only the Organization's GitHub App
 installation. Generic App catalog reads resolve only `scope = shared`; execution
 must read the provider action metadata before deciding whether the action is an
@@ -3551,7 +3551,7 @@ receiver-first rollout:
    provider-delivery attribution;
 3. deploy Remote Agent so connected-member turns begin exposing GitHub
    Organization reads and ordinary writes plus shared generic App capabilities;
-4. for non-GitHub Apps, treat the action owner's registered `write` effect as
+4. for non-GitHub Plugins, treat the action owner's registered `write` effect as
    the ordinary-member policy already used for verified members. Unknown and
    destructive effects remain identity-gated. GitHub requires
    `githubActor = organization`; file deletion, pull-request merge, requester-
@@ -3922,7 +3922,7 @@ connection or `shared` for the Organization-controlled connection; it must
 return no connection instead of lending another member's connection.
 
 The shared preference vocabulary is `automatic | requester | shared`.
-Ordinary non-GitHub Apps may use `automatic` for requester-first,
+Ordinary non-GitHub Plugins may use `automatic` for requester-first,
 shared-second selection. Every dedicated GitHub tool instead exposes required
 `githubActor = requester | organization`; Remote Agent maps it to
 `requester | shared`, and Core rejects `automatic` for GitHub. Missing exact

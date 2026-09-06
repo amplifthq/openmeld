@@ -1,12 +1,12 @@
 import {
-	buildOrganizationAppPath as buildSharedOrganizationAppPath,
-	buildOrganizationAppsPath as buildSharedOrganizationAppsPath,
+	buildOrganizationPluginPath as buildSharedOrganizationAppPath,
+	buildOrganizationPluginsPath as buildSharedOrganizationPluginsPath,
 	buildOrganizationRootPath as buildSharedOrganizationRootPath,
 	buildOrganizationSpacePath as buildSharedOrganizationSpacePath,
 } from "@openmeld/schemas";
 
-export const buildOrganizationAppPath = buildSharedOrganizationAppPath;
-export const buildOrganizationAppsPath = buildSharedOrganizationAppsPath;
+export const buildOrganizationPluginPath = buildSharedOrganizationAppPath;
+export const buildOrganizationPluginsPath = buildSharedOrganizationPluginsPath;
 export const buildOrganizationRootPath = buildSharedOrganizationRootPath;
 export const buildOrganizationSpacePath = buildSharedOrganizationSpacePath;
 
@@ -312,10 +312,10 @@ export function buildOrganizationNotificationsSettingsPath(
 	return `${buildOrganizationSettingsRootPath(orgSlug)}/notifications`;
 }
 
-export function buildOrganizationConnectedAppsSettingsPath(
+export function buildOrganizationConnectedPluginsSettingsPath(
 	orgSlug: string
 ): string {
-	return `${buildOrganizationSettingsRootPath(orgSlug)}/connected-apps`;
+	return buildOrganizationPluginsPath(orgSlug);
 }
 
 export function buildOrganizationComputersSettingsPath(
@@ -396,8 +396,8 @@ export function resolveOrganizationSwitchPath(input: {
 				return buildOrganizationSkillsPath(input.nextOrgSlug);
 			case "channels":
 				return buildOrganizationChannelsPath(input.nextOrgSlug);
-			case "apps":
-				return buildOrganizationAppsPath(input.nextOrgSlug);
+			case "plugins":
+				return buildOrganizationPluginsPath(input.nextOrgSlug);
 			case "memory":
 				return buildOrganizationMemoryPath(input.nextOrgSlug);
 			case "settings":
@@ -504,7 +504,7 @@ function resolveSettingsSwitchPath(input: {
 		case "notifications":
 			return buildOrganizationNotificationsSettingsPath(input.nextOrgSlug);
 		case "connected-apps":
-			return buildOrganizationConnectedAppsSettingsPath(input.nextOrgSlug);
+			return buildOrganizationConnectedPluginsSettingsPath(input.nextOrgSlug);
 		case "general":
 			return buildOrganizationOrgSettingsPath(input.nextOrgSlug);
 		case "privacy":

@@ -5,7 +5,7 @@ import { createServerFn } from "@tanstack/react-start";
  * seam, see developing/clients/shell-and-settings.md §6). The shared
  * Sidebar primitive in `packages/ui` is PURELY presentational — it
  * never touches storage. This module is the Web filling: it persists the
- * controlled `width` + `tier` state (collapsed / compact / full) in first-party
+ * controlled `width` + `tier` state (hidden / icon / expanded) in first-party
  * cookies so the value survives reload and is readable on the SSR pass (no
  * first-paint flash). The outer rail remains global. Each inner-sidebar route
  * family owns an independent preference while the original global inner value
@@ -44,17 +44,14 @@ export const SIDEBAR_DEFAULT_WIDTH = "15rem";
 export const SIDEBAR_MIN_WIDTH = "8rem";
 export const SIDEBAR_MAX_WIDTH = "18rem";
 export const OUTER_SIDEBAR_DEFAULT_WIDTH = "13.75rem";
-export const OUTER_SIDEBAR_MIN_WIDTH = "9.3rem";
+export const OUTER_SIDEBAR_MIN_WIDTH = "10rem";
 export const OUTER_SIDEBAR_MAX_WIDTH = "18rem";
-// Fixed compact-tier width (standalone from OUTER_SIDEBAR_MIN_WIDTH/MAX): measured in Geist against every fixed rail label, floor set by "Center Agent" (~67px) plus padding.
-export const OUTER_SIDEBAR_COMPACT_WIDTH = "6rem";
-
 const PX_PER_REM = 16;
 const TRAILING_ZERO_REM_PATTERN = /\.?0+$/;
 
 export type SidebarScope = keyof typeof SIDEBAR_STATE_COOKIE_NAMES;
 
-export type SidebarTier = "full" | "compact" | "collapsed";
+export type SidebarTier = "expanded" | "icon" | "hidden";
 
 export type SidebarPersistedState = {
 	/** Stable machine ids for labeled groups the user has explicitly collapsed. */
@@ -65,12 +62,12 @@ export type SidebarPersistedState = {
 
 export const SIDEBAR_DEFAULT_STATE: SidebarPersistedState = {
 	width: SIDEBAR_DEFAULT_WIDTH,
-	tier: "full",
+	tier: "expanded",
 };
 
 export const OUTER_SIDEBAR_DEFAULT_STATE: SidebarPersistedState = {
 	width: OUTER_SIDEBAR_DEFAULT_WIDTH,
-	tier: "full",
+	tier: "expanded",
 };
 
 export type AppSidebarPersistedStates = {
@@ -146,20 +143,19 @@ export function clampSidebarWidth(
 		: `${Math.round(clampedPx)}px`;
 }
 
-// Token alphabet for the persisted tier. "0"/"1" preserve the exact meaning
-// they had when this field was a plain `collapsed` boolean, so a cookie
-// written before the compact tier existed ("<width>|0" / "<width>|1") keeps
-// parsing correctly under this parser with no version bump and no migration
-// step. "2" (compact) is new vocabulary only ever written after this change.
+// Preserve expanded (0) and icon-only (1) preferences. Retire the old
+// icon-and-label compact mode (2) into expanded; hidden uses a distinct token
+// (3), so an existing icon-only preference never becomes fully hidden.
 const SIDEBAR_TIER_TOKEN: Record<SidebarTier, string> = {
-	collapsed: "1",
-	compact: "2",
-	full: "0",
+	expanded: "0",
+	icon: "1",
+	hidden: "3",
 };
 const SIDEBAR_TOKEN_TIER: Record<string, SidebarTier> = {
-	"0": "full",
-	"1": "collapsed",
-	"2": "compact",
+	"0": "expanded",
+	"1": "icon",
+	"2": "expanded",
+	"3": "hidden",
 };
 // Keep the encoded preference comfortably below the common 4 KB per-cookie
 // limit even when future user-defined Space groups use UUID-like ids.
@@ -207,7 +203,7 @@ export function parseSidebarStateCookieValue(
 		collapsedGroupIdsPart?.split(",")
 	);
 	const state: SidebarPersistedState = {
-		tier: SIDEBAR_TOKEN_TIER[tierPart?.trim() ?? ""] ?? "full",
+		tier: SIDEBAR_TOKEN_TIER[tierPart?.trim() ?? ""] ?? "expanded",
 		width,
 	};
 	if (collapsedGroupIds.length > 0) {

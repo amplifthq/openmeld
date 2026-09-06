@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { groupAgentWorkParts } from "./space-agent-tool-activity-state";
 
 describe("Space Agent work activity state", () => {
-	it("hides compatibility connected App work until it has a concrete subject", () => {
+	it("hides compatibility connected Plugin work until it has a concrete subject", () => {
 		expect(
 			groupAgentWorkParts([
 				{

@@ -6,7 +6,7 @@ export const OPENMELD_ONBOARDING_VERSION = 1;
 export const OPENMELD_ONBOARDING_STEPS = [
 	"organization",
 	"channels",
-	"apps",
+	"plugins",
 	"local-agents",
 	"setup",
 	"invite",
@@ -17,7 +17,7 @@ export type OpenMeldOnboardingStep = (typeof OPENMELD_ONBOARDING_STEPS)[number];
 
 const PERSONAL_ONBOARDING_STEPS = [
 	"organization",
-	"apps",
+	"plugins",
 	"local-agents",
 	"complete",
 ] as const satisfies readonly OpenMeldOnboardingStep[];

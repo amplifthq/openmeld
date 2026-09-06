@@ -15,6 +15,7 @@ import type {
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -178,7 +179,11 @@ export function CreateProfileForm(input: CreateProfileFormProps) {
 			data-testid="create-profile-panel"
 			onSubmit={input.onSubmit}
 		>
-			<div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
+			<ScrollArea
+				className="min-h-0 min-w-0 flex-1"
+				contentClassName="pr-1"
+				orientation="vertical"
+			>
 				<div className="grid min-w-0 gap-4 pb-4">
 					{input.additionalHumanProfileCreationEnabled &&
 					input.allowProfileKindSelection !== false ? (
@@ -214,7 +219,7 @@ export function CreateProfileForm(input: CreateProfileFormProps) {
 						recoveryActionHref={input.recoveryActionHref}
 					/>
 				</div>
-			</div>
+			</ScrollArea>
 			<div
 				className="shrink-0 border-border border-t bg-background pt-4"
 				data-testid="create-profile-actions"

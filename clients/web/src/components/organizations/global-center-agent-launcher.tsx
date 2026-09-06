@@ -293,7 +293,7 @@ function CenterAgentTaskLauncher(input: {
 						{needsAction ? (
 							<span
 								aria-hidden="true"
-								className="size-2 shrink-0 rounded-full bg-amber-400"
+								className="status-dot bg-amber-400"
 								data-slot="task-attention-indicator"
 							/>
 						) : null}

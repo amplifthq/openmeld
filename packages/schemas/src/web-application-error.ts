@@ -58,6 +58,7 @@ export const webApplicationErrorReportSchema = z.object({
     .regex(/^[a-f0-9]{40}$/)
     .nullable(),
   source: webApplicationErrorSourceSchema,
+  submission: z.enum(["user"]).optional(),
   routeId: z
     .string()
     .max(240)

@@ -17,13 +17,13 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AppLogo } from "#/components/organizations/app-logo";
+import { LarkPlatformChannelDialog } from "#/components/organizations/lark-platform-channel-dialog";
 import {
 	FEISHU_CHANNEL_IDENTITY,
 	LARK_CHANNEL_IDENTITY,
 	SLACK_CHANNEL_IDENTITY,
-} from "#/components/organizations/app-catalog";
-import { AppLogo } from "#/components/organizations/app-logo";
-import { LarkPlatformChannelDialog } from "#/components/organizations/lark-platform-channel-dialog";
+} from "#/components/organizations/plugin-catalog";
 import { useLarkPlatformChannelManagement } from "#/components/organizations/use-lark-platform-channel-management";
 import { resolveCenterAgentErrorMessage } from "#/lib/organizations/center-agent";
 import { resolveMessageChannelErrorMessage } from "#/lib/organizations/message-channels";

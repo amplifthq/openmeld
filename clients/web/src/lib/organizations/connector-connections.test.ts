@@ -53,7 +53,7 @@ describe("connector connection Web API helpers", () => {
 		).toBe("OpenMeld could not finish GitHub setup. Try again.");
 	});
 
-	it("retries only transient App connection confirmation failures", () => {
+	it("retries only transient Plugin connection confirmation failures", () => {
 		expect(
 			isConnectorConnectionConfirmationRetryable({
 				code: "network.request_failed",
@@ -97,12 +97,12 @@ describe("connector connection Web API helpers", () => {
 		).toBe(false);
 		expect(
 			isConnectorConnectionConfirmationRetryable(
-				new Error("App response Organization mismatch.")
+				new Error("Plugin response Organization mismatch.")
 			)
 		).toBe(false);
 	});
 
-	it("preserves a mismatched App response as an actionable Organization error", async () => {
+	it("preserves a mismatched Plugin response as an actionable Organization error", async () => {
 		requestJsonMock.mockResolvedValueOnce({
 			connections: [],
 			currentUserId: "user-1",
@@ -147,7 +147,7 @@ describe("connector connection Web API helpers", () => {
 		);
 	});
 
-	it("lists App requests inside the expected Organization boundary", async () => {
+	it("lists Plugin requests inside the expected Organization boundary", async () => {
 		requestJsonMock.mockResolvedValueOnce({
 			organizationId: "org-acme",
 			requests: [],
@@ -197,7 +197,7 @@ describe("connector connection Web API helpers", () => {
 		);
 	});
 
-	it("creates a catalog App request without sending requester identity", async () => {
+	it("creates a catalog Plugin request without sending requester identity", async () => {
 		requestJsonMock.mockResolvedValueOnce({
 			request: {
 				availableAtMs: null,

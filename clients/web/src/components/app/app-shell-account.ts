@@ -13,7 +13,9 @@ export const AppShellAccountContext = createContext<AppShellAccount | null>(
 export function useAppShellAccount(): AppShellAccount {
 	const account = use(AppShellAccountContext);
 	if (!account) {
-		throw new Error("App shell account is unavailable outside the app shell.");
+		throw new Error(
+			"Plugin shell account is unavailable outside the app shell."
+		);
 	}
 
 	return account;

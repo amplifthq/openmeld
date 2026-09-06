@@ -2,19 +2,17 @@
 
 import type { OrganizationProfileDirectoryResponse } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { SidebarContent } from "@openmeld/ui/components/sidebar";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
-import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
+import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ChatCircleTextIcon } from "@phosphor-icons/react";
+import { ChatCircleTextIcon, PushPinIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { AppInnerSidebarHeader } from "#/components/app/app-inner-sidebar";
 import {
 	APP_NAV_ITEM_TONE_CLASS_NAME,
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
@@ -23,13 +21,24 @@ import { CenterTruncatedText } from "#/components/app/center-truncated-text";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
+import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
+import { useSortableSidebarItem } from "../app/sidebar-drag";
+import { SidebarRowAction } from "../app/sidebar-row-action";
 import {
 	resolveAccountSpaceViewerProfileId,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
+import {
+	formatDirectMessageTime,
+	useDirectMessagePreview,
+} from "./direct-message-preview";
+import {
+	type ManagedDirectMessageRowProps,
+	ManagedDirectMessages,
+} from "./managed-direct-messages";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import { useSpaceInboxUnreadById } from "./use-account-space-indicators";
 
@@ -98,27 +107,24 @@ export function AppDirectMessagesSidebar(input: {
 	return (
 		<nav
 			aria-label="Direct Messages"
-			className="flex h-full min-h-0 w-full flex-col text-sidebar-foreground"
+			className="flex w-full min-w-0 flex-col text-sidebar-foreground"
 			data-slot="app-direct-messages-sidebar"
 		>
-			<AppInnerSidebarHeader title="Direct Messages" />
-			<SidebarContent className="px-3 pt-[9px] pb-2">
-				<DirectMessagesList
-					centerAgentProfileId={centerAgentProfileId}
-					currentProfileId={input.currentProfileId}
-					currentSpaceId={input.currentSpaceId}
-					items={directMessageItems}
-					onRetry={() => {
-						spacesQuery.refetch().catch((error: unknown) => {
-							console.error("Failed to refresh Direct Messages.", error);
-						});
-					}}
-					organizationSlug={currentOrganization.slug}
-					profileDirectory={profileDirectoryQuery.data}
-					state={listState}
-					unreadBySpaceId={unreadBySpaceId}
-				/>
-			</SidebarContent>
+			<DirectMessagesList
+				centerAgentProfileId={centerAgentProfileId}
+				currentProfileId={input.currentProfileId}
+				currentSpaceId={input.currentSpaceId}
+				items={directMessageItems}
+				onRetry={() => {
+					spacesQuery.refetch().catch((error: unknown) => {
+						console.error("Failed to refresh Direct Messages.", error);
+					});
+				}}
+				organizationSlug={currentOrganization.slug}
+				profileDirectory={profileDirectoryQuery.data}
+				state={listState}
+				unreadBySpaceId={unreadBySpaceId}
+			/>
 		</nav>
 	);
 }
@@ -172,36 +178,27 @@ function DirectMessagesList(input: {
 		);
 	}
 
-	const conversations =
-		input.items.length === 0 ? (
-			<p className="p-2 text-muted-foreground text-xs">
-				No Direct Messages yet.
-			</p>
-		) : (
-			<FluidNavMenu
-				activeIndicatorClassName="bg-sidebar-accent"
-				activeValue={input.currentSpaceId || null}
-				aria-label="Direct Message conversations"
-				focusIndicatorClassName="border-sidebar-ring"
-				hoverIndicatorClassName="bg-sidebar-accent"
-			>
-				{input.items.map((item, index) => (
-					<DirectMessageSidebarItem
-						centerAgentProfileId={input.centerAgentProfileId}
-						currentProfileId={input.currentProfileId}
-						index={index}
-						isActive={item.spaceId === input.currentSpaceId}
-						item={item}
-						key={item.spaceId}
-						organizationSlug={input.organizationSlug}
-						profileDirectory={input.profileDirectory}
-						unreadCount={
-							input.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0
-						}
-					/>
-				))}
-			</FluidNavMenu>
-		);
+	const conversations = (
+		<ManagedDirectMessages
+			currentProfileId={input.currentProfileId}
+			currentSpaceId={input.currentSpaceId}
+			items={input.items}
+			renderRow={(props) => (
+				<DirectMessageSidebarItem
+					{...props}
+					centerAgentProfileId={input.centerAgentProfileId}
+					currentProfileId={input.currentProfileId}
+					isActive={props.item.spaceId === input.currentSpaceId}
+					key={props.item.spaceId}
+					organizationSlug={input.organizationSlug}
+					profileDirectory={input.profileDirectory}
+					unreadCount={
+						input.unreadBySpaceId.get(props.item.spaceId)?.unreadCount ?? 0
+					}
+				/>
+			)}
+		/>
+	);
 
 	if (input.state === "ready") {
 		return conversations;
@@ -230,16 +227,18 @@ function DirectMessagesList(input: {
 	);
 }
 
-function DirectMessageSidebarItem(input: {
-	centerAgentProfileId: string | null;
-	currentProfileId: string;
-	index: number;
-	isActive: boolean;
-	item: AccountSpaceItem;
-	organizationSlug: string;
-	profileDirectory: OrganizationProfileDirectoryResponse | undefined;
-	unreadCount: number;
-}) {
+function DirectMessageSidebarItem(
+	input: ManagedDirectMessageRowProps & {
+		centerAgentProfileId: string | null;
+		currentProfileId: string;
+		index: number;
+		isActive: boolean;
+		item: AccountSpaceItem;
+		organizationSlug: string;
+		profileDirectory: OrganizationProfileDirectoryResponse | undefined;
+		unreadCount: number;
+	}
+) {
 	const viewerProfileId = resolveAccountSpaceViewerProfileId({
 		currentProfileId: input.currentProfileId,
 		item: input.item,
@@ -250,7 +249,31 @@ function DirectMessageSidebarItem(input: {
 		viewerProfileId,
 	});
 	const label = peer?.profileName ?? input.item.spaceName;
+	const preview = useDirectMessagePreview({
+		spaceId: input.item.spaceId,
+		viewerProfileId,
+		peerProfileId: input.item.directMessageProfileIds?.find(
+			(id) => id !== viewerProfileId
+		),
+	});
+	const drag = useSortableSidebarItem({
+		section: input.section,
+		itemId: input.item.spaceId,
+		name: label,
+		disabled: input.disabled,
+	});
 	const hasUnread = input.unreadCount > 0;
+	const nowMs = useNowMs(preview.data ? 60_000 : null);
+	let previewText = "No messages yet";
+	if (preview.isPending) {
+		previewText = "Loading message…";
+	}
+	if (preview.isError) {
+		previewText = "Couldn’t load preview. Open chat to retry.";
+	}
+	if (preview.data) {
+		previewText = preview.data.text;
+	}
 	const accessibleLabel = hasUnread ? `${label}, unread messages` : label;
 	const routePath = buildOrganizationDirectMessagePath({
 		orgSlug: input.organizationSlug,
@@ -258,15 +281,22 @@ function DirectMessageSidebarItem(input: {
 		spaceId: input.item.spaceId,
 	});
 	return (
-		<FluidNavMenuItem index={input.index} value={input.item.spaceId}>
+		<FluidNavMenuItem
+			className="group/dm-row relative"
+			index={input.index}
+			ref={drag.ref}
+			style={drag.style}
+			value={input.item.spaceId}
+		>
 			<Tooltip>
 				<TooltipTrigger
 					render={
 						<Link
+							{...drag.rowProps}
 							aria-current={input.isActive ? "page" : undefined}
 							aria-label={accessibleLabel}
 							className={cn(
-								"flex min-h-10 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring",
+								"flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring",
 								APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 								APP_NAV_ITEM_TONE_CLASS_NAME,
 								input.isActive
@@ -274,6 +304,11 @@ function DirectMessageSidebarItem(input: {
 									: null,
 								hasUnread ? "font-semibold text-sidebar-foreground" : null
 							)}
+							onClick={() => {
+								if (preview.isError) {
+									return preview.refetch();
+								}
+							}}
 							to={routePath}
 						>
 							{peer ? (
@@ -297,11 +332,29 @@ function DirectMessageSidebarItem(input: {
 									<ChatCircleTextIcon aria-hidden="true" className="size-4" />
 								</span>
 							)}
-							<CenterTruncatedText className="flex-1" text={label} />
+							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+								<span className="flex min-w-0 items-center gap-2">
+									<CenterTruncatedText className="flex-1" text={label} />
+									{preview.data && (
+										<time
+											className="shrink-0 font-normal text-[11px] text-muted-foreground tabular-nums"
+											dateTime={new Date(preview.data.timestamp).toISOString()}
+										>
+											{formatDirectMessageTime(
+												preview.data.timestamp,
+												new Date(nowMs)
+											)}
+										</time>
+									)}
+								</span>
+								<span className="truncate pr-6 font-normal text-muted-foreground text-xs leading-4">
+									{previewText}
+								</span>
+							</span>
 							{hasUnread ? (
 								<span
 									aria-hidden="true"
-									className="size-1.5 shrink-0 rounded-full bg-amber-400"
+									className="status-dot bg-unread"
 									data-direct-message-unread-indicator="true"
 								/>
 							) : null}
@@ -312,6 +365,15 @@ function DirectMessageSidebarItem(input: {
 					{label}
 				</TooltipContent>
 			</Tooltip>
+			<div className="pointer-events-none absolute right-1 bottom-0.5 opacity-0 group-focus-within/dm-row:pointer-events-auto group-focus-within/dm-row:opacity-100 group-hover/dm-row:pointer-events-auto group-hover/dm-row:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+				<SidebarRowAction
+					disabled={input.disabled}
+					label={`${input.item.pinnedAt ? "Unpin" : "Pin"} ${label}`}
+					onClick={input.onTogglePin}
+				>
+					<PushPinIcon weight={input.item.pinnedAt ? "fill" : "regular"} />
+				</SidebarRowAction>
+			</div>
 		</FluidNavMenuItem>
 	);
 }

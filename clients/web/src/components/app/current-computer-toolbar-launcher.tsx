@@ -292,7 +292,7 @@ function CurrentComputerAttentionIndicator(input: {
 		<span
 			aria-hidden="true"
 			className={cn(
-				"size-2 shrink-0 rounded-full ring-2 ring-background",
+				"status-dot",
 				resolveStatusToneIndicatorClassName(input.status.tone, "quiet")
 			)}
 			data-testid="current-computer-toolbar-status"

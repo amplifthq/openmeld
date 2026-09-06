@@ -14,11 +14,11 @@ describe("OnboardingShell", () => {
 				demo={<div>Personal demo</div>}
 				description="Personal description"
 				eyebrow="Workspace"
-				step="apps"
-				steps={["organization", "apps", "local-agents", "complete"]}
-				title="Apps"
+				step="plugins"
+				steps={["organization", "plugins", "local-agents", "complete"]}
+				title="Plugins"
 			>
-				<div>Apps step</div>
+				<div>Plugins step</div>
 			</OnboardingShell>
 		);
 
@@ -41,7 +41,7 @@ describe("OnboardingShell", () => {
 					steps={[
 						"organization",
 						"channels",
-						"apps",
+						"plugins",
 						"local-agents",
 						"setup",
 						"invite",
@@ -65,22 +65,22 @@ describe("OnboardingShell", () => {
 		rerender(
 			<main>
 				<OnboardingShell
-					demo={<div>Apps demo</div>}
-					description="Apps description"
-					eyebrow="Apps"
-					step="apps"
+					demo={<div>Plugins demo</div>}
+					description="Plugins description"
+					eyebrow="Plugins"
+					step="plugins"
 					steps={[
 						"organization",
 						"channels",
-						"apps",
+						"plugins",
 						"local-agents",
 						"setup",
 						"invite",
 						"complete",
 					]}
-					title="Apps"
+					title="Plugins"
 				>
-					<div>Apps step</div>
+					<div>Plugins step</div>
 				</OnboardingShell>
 			</main>
 		);

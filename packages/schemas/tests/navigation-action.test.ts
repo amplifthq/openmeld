@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
-  buildOrganizationAppPath,
+  buildOrganizationPluginPath,
   buildOrganizationSpacePath,
   buildSlackIdentityLinkNavigationAction,
   navigationActionSchema,
@@ -18,8 +18,8 @@ describe("buildOpenMeldNavigationAction", () => {
       })
     ).toBe("https://openmeld.ai/o/amplift");
     expect(
-      buildOrganizationAppPath({ orgSlug: "amplift", service: "github" })
-    ).toBe("/o/amplift/center-agent/apps/github");
+      buildOrganizationPluginPath({ orgSlug: "amplift", service: "github" })
+    ).toBe("/o/amplift/center-agent/plugins/github");
     expect(
       buildOrganizationSpacePath({
         orgSlug: "amplift",
@@ -44,7 +44,7 @@ describe("buildOpenMeldNavigationAction", () => {
         kind: "organization_app",
         service: "github",
       },
-      url: "https://openmeld.ai/o/amplift/center-agent/apps/github",
+      url: "https://openmeld.ai/o/amplift/center-agent/plugins/github",
     });
   });
 

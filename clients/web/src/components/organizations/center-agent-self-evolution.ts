@@ -2,7 +2,7 @@ import type {
 	CenterAgentRoutineManagement,
 	CreateCenterAgentRoutineBody,
 } from "@openmeld/schemas/types";
-import { findAppDefinition } from "./app-catalog";
+import { findPluginDefinition } from "./plugin-catalog";
 
 export const CENTER_AGENT_SELF_EVOLUTION_NAME = "Center Agent Self-Evolution";
 export const CENTER_AGENT_SELF_EVOLUTION_MARKER =
@@ -12,9 +12,9 @@ export const CENTER_AGENT_SELF_EVOLUTION_DEFAULT_FOCUS =
 const INVALID_SLACK_CHANNEL_NAME_PATTERN = /[\s#\p{Cc}]/u;
 const LEADING_SLACK_CHANNEL_MARKERS_PATTERN = /^#+/u;
 const NO_EXTERNAL_WRITE_BOUNDARY =
-	"- Do not write to any selected App or Message Channel. Do not send messages, change external records, or trigger external actions.";
+	"- Do not write to any selected Plugin or Message Channel. Do not send messages, change external records, or trigger external actions.";
 const SLACK_REPORT_BOUNDARY =
-	"- Do not write to any selected App or Message Channel except for the configured Slack team report. The report is the only permitted external write.";
+	"- Do not write to any selected Plugin or Message Channel except for the configured Slack team report. The report is the only permitted external write.";
 const SLACK_REPORT_SECTION_PREFIX = "\n\nSlack team report: #";
 
 export type CenterAgentSelfEvolutionSource =
@@ -69,7 +69,7 @@ export function buildCenterAgentSelfEvolutionSources(input: {
 	);
 	const appSources = [...activeAppServices]
 		.map((service): CenterAgentSelfEvolutionSource => {
-			const definition = findAppDefinition(service);
+			const definition = findPluginDefinition(service);
 			return {
 				id: `app:${service}`,
 				kind: "app",
@@ -215,7 +215,7 @@ function buildCenterAgentSelfEvolutionInstructions(input: {
 }): string {
 	const sourceLines = input.sources.map((source) => {
 		if (source.kind === "app") {
-			return `- App: ${source.label} (service: ${source.service})`;
+			return `- Plugin: ${source.label} (service: ${source.service})`;
 		}
 		return `- Message Channel: ${source.label} (connection: ${source.connectionId})`;
 	});
@@ -259,7 +259,7 @@ function buildCenterAgentSelfEvolutionInstructions(input: {
 		"   - Opportunity Ledger — evidence, expected value, confidence, owner or audience, smallest next step, status, and the last reviewed time for each opportunity.",
 		"   - Learning Log — YYYY-MM — a time-ordered record for the current calendar month of material observations, changed beliefs, recommendations, and document updates.",
 		"5. Surface only the strongest new or materially changed opportunities. Prefer a small actionable set over a long generic list.",
-		"6. If a missing OpenMeld capability would materially improve the Organization's work, recommend it with a concrete benefit. Examples include connecting GitHub for repository and issue context, Slack for team discussion signals, another relevant App for authoritative data, or Local Service so the Center Agent can delegate suitable work to members' local agents with their permission. Do not recommend a connection without explaining the evidence and expected benefit.",
+		"6. If a missing OpenMeld capability would materially improve the Organization's work, recommend it with a concrete benefit. Examples include connecting GitHub for repository and issue context, Slack for team discussion signals, another relevant Plugin for authoritative data, or Local Service so the Center Agent can delegate suitable work to members' local agents with their permission. Do not recommend a connection without explaining the evidence and expected benefit.",
 		"",
 		"Result",
 		"Publish a concise report in the target Space with exactly these sections:",

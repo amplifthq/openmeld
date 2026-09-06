@@ -70,6 +70,9 @@ export const accountSpaceIndexIncludeDirectMessageProfileIdsSchema = z
   .optional();
 
 export const accountSpaceIndexQuerySchema = z.strictObject({
+  includeMemberPreviews: z
+    .preprocess((value) => value === true || value === "true", z.boolean())
+    .optional(),
   gatewayHost: profileSpaceHistoryGatewayHostSchema,
   includeDirectMessageProfileIds:
     accountSpaceIndexIncludeDirectMessageProfileIdsSchema,
@@ -89,6 +92,17 @@ export const accountSpaceIndexJoinedProfileSchema = z.strictObject({
 });
 
 export const accountSpaceIndexItemSchema = z.strictObject({
+  memberPreviews: z
+    .array(
+      z.strictObject({
+        profileId: trimmedNonEmptyStringSchema,
+        profileName: trimmedNonEmptyStringSchema,
+        profileKind: z.enum(["human", "agent"]),
+        agentControllerRef: nullableTrimmedStringSchema,
+      })
+    )
+    .max(3)
+    .optional(),
   creatorKind: z.union([profileSpaceCreatorKindSchema, z.null()]),
   creatorOwnerUserId: nullableTrimmedStringSchema,
   creatorProfileId: nullableTrimmedStringSchema,

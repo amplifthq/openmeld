@@ -17,6 +17,7 @@ import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { OpenMeldLogoStrong } from "@openmeld/ui/components/openmeld-logo-strong";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -1160,45 +1161,49 @@ function ProtectedSpaceForm(input: {
 	password: string;
 }) {
 	return (
-		<section className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 py-10">
-			<form
-				className="flex w-full max-w-md flex-col gap-5 border border-border bg-background px-5 py-5"
-				onSubmit={(event) => {
-					event.preventDefault();
-					input.onSubmit().catch((error) => {
-						console.error("Failed to unlock protected Space.", error);
-					});
-				}}
-			>
-				<div className="flex items-center gap-3">
-					<div className="flex size-10 items-center justify-center border border-border bg-muted">
-						<LockKeyIcon aria-hidden="true" className="size-5" />
+		<ScrollArea className="min-h-0 flex-1" orientation="vertical">
+			<section className="flex items-center justify-center px-4 py-10">
+				<form
+					className="flex w-full max-w-md flex-col gap-5 border border-border bg-background px-5 py-5"
+					onSubmit={(event) => {
+						event.preventDefault();
+						input.onSubmit().catch((error) => {
+							console.error("Failed to unlock protected Space.", error);
+						});
+					}}
+				>
+					<div className="flex items-center gap-3">
+						<div className="flex size-10 items-center justify-center border border-border bg-muted">
+							<LockKeyIcon aria-hidden="true" className="size-5" />
+						</div>
+						<div>
+							<h2 className="font-semibold text-lg">
+								View This Protected Space
+							</h2>
+							<p className="text-muted-foreground text-sm">
+								Enter the space password to view the conversation.
+							</p>
+						</div>
 					</div>
-					<div>
-						<h2 className="font-semibold text-lg">View This Protected Space</h2>
-						<p className="text-muted-foreground text-sm">
-							Enter the space password to view the conversation.
-						</p>
+					<div className="flex flex-col gap-2">
+						<Label htmlFor="space-password">Space password</Label>
+						<Input
+							autoComplete="current-password"
+							id="space-password"
+							onChange={(event) => input.onPasswordChange(event.target.value)}
+							type="password"
+							value={input.password}
+						/>
 					</div>
-				</div>
-				<div className="flex flex-col gap-2">
-					<Label htmlFor="space-password">Space password</Label>
-					<Input
-						autoComplete="current-password"
-						id="space-password"
-						onChange={(event) => input.onPasswordChange(event.target.value)}
-						type="password"
-						value={input.password}
-					/>
-				</div>
-				{input.errorMessage ? (
-					<p className="text-destructive text-sm">{input.errorMessage}</p>
-				) : null}
-				<Button disabled={input.isSubmitting} type="submit">
-					View Space
-				</Button>
-			</form>
-		</section>
+					{input.errorMessage ? (
+						<p className="text-destructive text-sm">{input.errorMessage}</p>
+					) : null}
+					<Button disabled={input.isSubmitting} type="submit">
+						View Space
+					</Button>
+				</form>
+			</section>
+		</ScrollArea>
 	);
 }
 
@@ -1207,17 +1212,19 @@ function PublicSpaceErrorState(input: {
 	onRetry: () => void;
 }) {
 	return (
-		<section className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 py-10">
-			<div className="w-full max-w-md border border-border px-5 py-5">
-				<h2 className="font-semibold text-lg">Space unavailable</h2>
-				<p className="mt-2 text-muted-foreground text-sm">
-					{input.error.message}
-				</p>
-				<Button className="mt-4" onClick={input.onRetry} type="button">
-					Try Again
-				</Button>
-			</div>
-		</section>
+		<ScrollArea className="min-h-0 flex-1" orientation="vertical">
+			<section className="flex items-center justify-center px-4 py-10">
+				<div className="w-full max-w-md border border-border px-5 py-5">
+					<h2 className="font-semibold text-lg">Space unavailable</h2>
+					<p className="mt-2 text-muted-foreground text-sm">
+						{input.error.message}
+					</p>
+					<Button className="mt-4" onClick={input.onRetry} type="button">
+						Try Again
+					</Button>
+				</div>
+			</section>
+		</ScrollArea>
 	);
 }
 

@@ -33,6 +33,7 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { springs } from "@openmeld/ui/lib/springs";
 import {
 	resolveStatusToneIconClassName,
@@ -691,7 +692,11 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 	return (
 		<LazyMotion features={domAnimation} strict>
 			<MotionConfig reducedMotion="user">
-				<div className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-3">
+				<ScrollArea
+					className="min-h-0 flex-1"
+					contentClassName="px-3 pt-2 pb-3"
+					orientation="vertical"
+				>
 					<div className="flex flex-col gap-3">
 						<SpaceAddProfilesSection
 							accountProfiles={input.accountProfiles}
@@ -778,7 +783,7 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 							snapshot={input.snapshot}
 						/>
 					</div>
-				</div>
+				</ScrollArea>
 			</MotionConfig>
 		</LazyMotion>
 	);

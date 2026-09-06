@@ -14,7 +14,6 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
-import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
@@ -1058,13 +1057,7 @@ function SpaceDirectoryStatusSlot(input: {
 					className="flex items-center gap-2 transition-opacity group-focus-within/space-card:opacity-0 group-hover/space-card:opacity-0 motion-reduce:transition-none"
 					data-testid="space-directory-unread-indicator"
 				>
-					<span
-						aria-hidden="true"
-						className={`size-2 shrink-0 rounded-full ${resolveStatusToneIndicatorClassName(
-							"warning",
-							"quiet"
-						)}`}
-					/>
+					<span aria-hidden="true" className="status-dot bg-unread" />
 					{input.unreadCount} unread
 				</span>
 			) : null}

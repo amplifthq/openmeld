@@ -5,7 +5,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
-import { resolveStatusToneRingIndicatorClassName } from "@openmeld/ui/lib/status-tone";
+import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretRightIcon, DesktopTowerIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -23,12 +23,12 @@ import type {
 	DirectoryIdentityAccount,
 	DirectoryProjectionStatus,
 } from "#/components/directory/directory-human-profile-model";
+import { AppLogo } from "#/components/organizations/app-logo";
 import {
 	FEISHU_CHANNEL_IDENTITY,
 	LARK_CHANNEL_IDENTITY,
 	SLACK_CHANNEL_IDENTITY,
-} from "#/components/organizations/app-catalog";
-import { AppLogo } from "#/components/organizations/app-logo";
+} from "#/components/organizations/plugin-catalog";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 
@@ -135,9 +135,10 @@ function DirectoryComputerDetailSummary(input: {
 					<span
 						aria-hidden="true"
 						className={cn(
-							"size-2 shrink-0 rounded-full ring-2",
-							resolveStatusToneRingIndicatorClassName(
-								resolveDirectoryComputerStatusTone(computer.state)
+							"status-dot",
+							resolveStatusToneIndicatorClassName(
+								resolveDirectoryComputerStatusTone(computer.state),
+								"quiet"
 							)
 						)}
 						data-testid="human-profile-computer-status"
