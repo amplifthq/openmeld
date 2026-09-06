@@ -33,7 +33,7 @@ import {
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { type ReactElement, type ReactNode, useId, useState } from "react";
+import { type ReactElement, type ReactNode, useId } from "react";
 import {
 	APP_NAV_GROUP_CLASS_NAME,
 	APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
@@ -51,6 +51,7 @@ import {
 	buildOrganizationRootPath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
+import { useAppSidebarGroupState } from "./app-sidebar-group";
 import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
 
 type AppRailDestinationId = AppOuterRailDestination;
@@ -144,7 +145,8 @@ export function AppRailNavigationGroup(input: {
 	position: number;
 	tier: SidebarMode;
 }) {
-	const [childrenOpen, setChildrenOpen] = useState(true);
+	const groupState = useAppSidebarGroupState();
+	const childrenOpen = groupState?.isOpen(input.group.id) ?? true;
 	const childrenId = useId();
 	const selectedDestination = input.group.destinations.find(
 		(destination) => destination.id === input.activeDestination
@@ -177,12 +179,17 @@ export function AppRailNavigationGroup(input: {
 						<SidebarMenuButton
 							aria-controls={childrenId}
 							aria-expanded={childrenOpen}
+							aria-label={
+								!childrenOpen && selectedDestination
+									? `${input.group.label} ${selectedDestination.label}`
+									: input.group.label
+							}
 							className={cn(
 								"flex items-center gap-1.5 ps-[5px] text-sidebar-foreground/60",
 								APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
 								APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME
 							)}
-							onClick={() => setChildrenOpen((open) => !open)}
+							onClick={() => groupState?.setOpen(input.group.id, !childrenOpen)}
 						>
 							<UsersThreeIcon aria-hidden="true" className="size-4 shrink-0" />
 							{input.group.label}
@@ -346,6 +353,7 @@ export function AppRailLink(input: {
 			)}
 			{!isIcon &&
 				(input.destination.id === "people" ||
+					input.destination.id === "spaces" ||
 					input.destination.id === "agents") && (
 					<SidebarDestinationActionSlot destination={input.destination.id} />
 				)}

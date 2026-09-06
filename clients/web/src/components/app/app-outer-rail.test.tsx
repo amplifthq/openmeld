@@ -605,6 +605,39 @@ describe("AppOuterRail", () => {
 		).toBe(false);
 	});
 
+	it("restores the persisted Team choice after navigation remounts", () => {
+		const view = renderRail();
+		fireEvent.click(screen.getByRole("button", { name: "Team" }));
+		expect(
+			screen.getByRole("button", { name: "Team" }).getAttribute("aria-expanded")
+		).toBe("false");
+		view.unmount();
+		routerLocation = { pathname: "/o/acme/people", searchStr: "" };
+		appShellSection = "people";
+		renderRail();
+		expect(
+			screen
+				.getByRole("button", { name: "Team People" })
+				.getAttribute("aria-expanded")
+		).toBe("false");
+	});
+
+	it("restores Team from a persisted browser preference", () => {
+		rememberClientSidebarState("outer", {
+			collapsedGroupIds: ["team"],
+			tier: "expanded",
+			width: "13.75rem",
+		});
+		renderRail({
+			collapsedGroupIds: ["team"],
+			tier: "expanded",
+			width: "13.75rem",
+		});
+		expect(
+			screen.getByRole("button", { name: "Team" }).getAttribute("aria-expanded")
+		).toBe("false");
+	});
+
 	it("ignores a stale collapsed Work preference in the full rail", () => {
 		rememberClientSidebarState("outer", {
 			collapsedGroupIds: ["work"],

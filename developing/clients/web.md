@@ -295,6 +295,8 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    People and Agents as indented children, distinct from the content groups
    below. When collapsed on People or Agents, the Team button shows a separator
    followed by the selected child's icon and name. These pages do not
+   reset Team's expansion: it shares the Main Sidebar's persisted group
+   preference across route changes and browser reloads. These pages do not
    mount a secondary sidebar or a second mobile drawer.
    Existing list grouping, pinning, unread indicators, identities, and status
    projections are preserved. The former secondary headers and creation/invite
