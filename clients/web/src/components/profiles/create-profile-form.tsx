@@ -27,7 +27,6 @@ import {
 	FolderOpenIcon,
 	HandIcon,
 	LockKeyIcon,
-	UserCircleIcon,
 	WaveformIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -58,6 +57,7 @@ import {
 	resolveModelCompatibility,
 	resolveSelectedModelCompatibility,
 } from "./create-profile-form-logic";
+import { DitherProfileAvatar } from "./dither-profile-avatar";
 import {
 	isOpenCodeAgentId,
 	OpenCodePermissionsField,
@@ -108,6 +108,7 @@ export type CreateProfileFormProps = {
 	agentBindingValue?: string;
 	agentOwnershipSlot?: ReactNode;
 	agentOwnershipSummary?: string;
+	agentOwnerAvatar?: { userId: string; imageUrl: string | null };
 	agentSessionSlot?: ReactNode;
 	agentSessionSummary?: string;
 	availableLocalAgentIds: readonly string[];
@@ -337,6 +338,43 @@ export function AgentProfileConfigurationCards(input: {
 
 	return (
 		<AgentConfigurationGrid>
+			{form.agentOwnershipSlot ? (
+				<AgentConfigurationCard
+					description="Who owns and maintains this Agent."
+					icon={
+						<DitherProfileAvatar
+							avatarImageUrl={form.agentOwnerAvatar?.imageUrl}
+							profileId={form.agentOwnerAvatar?.userId ?? "owner"}
+							profileKind="human"
+							profileName={summaries.owner}
+							size={32}
+						/>
+					}
+					itemId="owner"
+					label="Owner"
+					summary={summaries.owner}
+				>
+					{form.agentOwnershipSlot}
+				</AgentConfigurationCard>
+			) : null}
+			<AgentConfigurationCard
+				description="Choose the model and how deeply it reasons."
+				icon={<BrainIcon aria-hidden="true" />}
+				itemId="model"
+				label="Model"
+				summary={summaries.model}
+			>
+				<AgentProfileModelSelectionFields
+					agentId={form.boundAgentId}
+					disabled={form.isSubmitting}
+					modelCatalog={form.modelCatalog}
+					modelCompatibilityContext={form.modelCompatibilityContext}
+					modelId={form.boundModelId}
+					onChangeModelId={form.onChangeBoundModelId}
+					onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
+					reasoningLevel={form.boundReasoningLevel}
+				/>
+			</AgentConfigurationCard>
 			<AgentConfigurationCard
 				description="What this Agent can do without asking."
 				icon={<LockKeyIcon aria-hidden="true" />}
@@ -364,17 +402,6 @@ export function AgentProfileConfigurationCards(input: {
 					) : null}
 				</div>
 			</AgentConfigurationCard>
-			{form.agentOwnershipSlot ? (
-				<AgentConfigurationCard
-					description="Who owns and maintains this Agent."
-					icon={<UserCircleIcon aria-hidden="true" />}
-					itemId="owner"
-					label="Owner"
-					summary={summaries.owner}
-				>
-					{form.agentOwnershipSlot}
-				</AgentConfigurationCard>
-			) : null}
 			{form.agentSessionSlot ? (
 				<AgentConfigurationCard
 					description="Start fresh or continue existing work."
@@ -401,24 +428,6 @@ export function AgentProfileConfigurationCards(input: {
 						value={form.projectFolderPath}
 					/>
 				)}
-			</AgentConfigurationCard>
-			<AgentConfigurationCard
-				description="Choose the model and how deeply it reasons."
-				icon={<BrainIcon aria-hidden="true" />}
-				itemId="model"
-				label="Model"
-				summary={summaries.model}
-			>
-				<AgentProfileModelSelectionFields
-					agentId={form.boundAgentId}
-					disabled={form.isSubmitting}
-					modelCatalog={form.modelCatalog}
-					modelCompatibilityContext={form.modelCompatibilityContext}
-					modelId={form.boundModelId}
-					onChangeModelId={form.onChangeBoundModelId}
-					onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
-					reasoningLevel={form.boundReasoningLevel}
-				/>
 			</AgentConfigurationCard>
 			{summaries.collaboration ? (
 				<AgentConfigurationCard

@@ -1889,6 +1889,10 @@ entry points use the dialog composition. Both surfaces use the same creation
 controller and generator components: local-Agent selection is the first
 decision, lower-frequency configuration stays under an inline **Advanced**
 disclosure, and the editable generated name appears only in the final review.
+The standalone page uses the current step as its main heading rather than
+repeating a generic creation title. While local agents are loading, the heading
+reports checking instead of prematurely asking the user to connect a computer.
+Both steps keep their actions separate through spacing without a footer divider.
 An unfinished browser-local draft may prefill that first decision, but the first
 new local-Agent or execution-target choice dismisses restoration for the current
 open flow so later renders cannot reverse the user's click.
@@ -3284,6 +3288,14 @@ details instead of expanding the source message bubble. Unanchored outcomes and
 only to distinguish execution failure from OpenMeld publication failure.
 Read-only viewers must still see the outcome.
 
+Wake outcomes are message-scoped results, not standalone system announcements.
+Their rows and failure footers do not use system-event divider lines. Message
+details labels the persisted notice text as **Recorded outcome** and preserves
+its full public explanation, including unfamiliar failure codes. Current
+recovery eligibility supplies actions separately; it must not replace the
+recorded explanation with a generic failure summary or imply that an old
+setup instruction describes the Agent's current state.
+
 A persisted terminal system failure is visible in that outcome row without
 hover and remains visible when the timeline is loaded again after refresh. Its
 Message details recovery is state-aware and must not reuse an Agent Profile
@@ -3399,6 +3411,15 @@ uses `To wake an agent, type @, then pick the agent.` as its placeholder;
 Human-only DMs use `Message {name}…`, Agent DMs use `Message {name}…`, Center
 Agent DMs use `Tell Center Agent what you need…`, and Threads use
 `Reply in thread…`.
+
+Draft editing and opening the `+` and `@` tools do not require permission to
+send. The `+` menu explains why file selection is unavailable when uploads are
+not authorized or a message is still sending. Send and upload authorization
+remain unchanged. The Composer keeps its access explanation visible after text
+is entered and offers the ordinary Human Join action beside the draft.
+Restored conversations expose an access-check retry even while the first request
+is pending. Retry cancels that request and asks the entry resolver again; it
+preserves the draft and never confirms access locally.
 
 The `@` picker optimizes for the common user action:
 selecting an Agent Profile authors Wake by default only when the current
@@ -3669,6 +3690,25 @@ to its own Thread; the root message does not import main-conversation controls.
 Stop confirmation is owned by the conversation rather than a movable message
 row, so progress updates and streaming replacement do not dismiss an open
 confirmation. The existing selector and Core eligibility remain authoritative.
+
+The Composer provides an offscreen bookmark for active Wakes started by the
+current Human Profile in this Space. It reuses the same presentation snapshot,
+status resolver, and Orb as the conversation. The own-work query applies
+`sourceProfileId` before the server's bounded result limit, and live invalidation
+refreshes both filtered and unfiltered summaries through their shared key prefix.
+Viewport visibility changes placement only, never execution state. A readable
+working status hides its matching bookmark; a short visibility delay and separate
+enter/leave thresholds avoid flicker at the scroll boundary. One bookmark jumps
+directly to the working status; multiple bookmarks open a stable-order list with
+request previews and Thread attribution. An open list updates state in place and
+disables finished entries until it closes. The main Composer summarizes work from
+the entire Space except the currently open Thread, whose Composer hosts only
+that Thread's work. Closing the Thread returns its bookmarks to the main summary.
+Thread bookmarks identify their scope and open the owning Thread before focusing
+its working status. Navigation preserves text drafts and blocks a Thread switch
+that would discard pending attachments.
+Pending Actions retain their
+existing ownership and controls. Reduced motion disables the bookmark transition.
 
 Web derives message-level progress, the details drawer, and Space-level current
 work from the same shared Wake progress item. It must not introduce a second

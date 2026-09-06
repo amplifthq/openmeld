@@ -14,6 +14,7 @@ import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import { hasLiveSpaceAgentToolActivity } from "./space-agent-tool-activity-state";
 import { SpaceMessageDeliveryStatus } from "./space-message-delivery-status";
 import { SpaceMessageWakeThinkingIndicator } from "./space-message-wake-thinking-indicator";
+import { SpaceWakeBookmarkAnchor } from "./space-wake-bookmarks";
 
 export function SpaceMessageProgressStatus(input: {
 	align?: "start" | "end";
@@ -46,7 +47,8 @@ export function SpaceMessageProgressStatus(input: {
 				item={input.item}
 				onOpenMessageDetails={input.onOpenMessageDetails}
 			/>,
-			input.containerClassName
+			input.containerClassName,
+			input.item.activeWakeProgress
 		);
 	}
 
@@ -68,7 +70,8 @@ export function SpaceMessageProgressStatus(input: {
 				/>
 			) : null}
 		</>,
-		input.containerClassName
+		input.containerClassName,
+		input.item.activeWakeProgress
 	);
 }
 
@@ -177,17 +180,23 @@ function resolveSpaceMessageProgressContent(input: {
 
 function wrapProgressStatus(
 	content: ReactNode,
-	containerClassName: string | undefined
+	containerClassName: string | undefined,
+	progress?: SpaceTimelineItem["activeWakeProgress"]
 ) {
+	const anchoredContent = progress ? (
+		<SpaceWakeBookmarkAnchor item={progress}>{content}</SpaceWakeBookmarkAnchor>
+	) : (
+		content
+	);
 	if (!containerClassName) {
-		return content;
+		return anchoredContent;
 	}
 	return (
 		<div
 			className={containerClassName}
 			data-slot="space-message-row-progress-inset"
 		>
-			{content}
+			{anchoredContent}
 		</div>
 	);
 }

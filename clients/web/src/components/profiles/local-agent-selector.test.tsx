@@ -23,6 +23,35 @@ const CHOICES = [
 afterEach(cleanup);
 
 describe("LocalAgentSelector", () => {
+	it("does not ask to connect while local agents are still being checked", () => {
+		const props = {
+			choices: [],
+			disabled: false,
+			isResolving: true,
+			onChange: vi.fn(),
+			value: "",
+			surface: "page" as const,
+			emptyState: {
+				kind: "connect_computer" as const,
+				primaryActionHref: null,
+				centerAgentHref: null,
+			},
+		};
+		const { rerender } = render(<LocalAgentSelector {...props} />);
+		expect(
+			screen.getByRole("heading", { level: 1, name: "Checking local agents…" })
+		).toBeTruthy();
+		expect(
+			screen.queryByText("Connect your computer to use a local agent")
+		).toBeNull();
+		rerender(<LocalAgentSelector {...props} isResolving={false} />);
+		expect(
+			screen.getByRole("heading", {
+				level: 1,
+				name: "Connect your computer to use a local agent",
+			})
+		).toBeTruthy();
+	});
 	it("renders a semantic single-choice control and selects by click", () => {
 		const onChange = vi.fn();
 		render(
