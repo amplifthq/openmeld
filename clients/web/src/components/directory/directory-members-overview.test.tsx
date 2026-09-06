@@ -338,7 +338,7 @@ describe("DirectoryMembersOverview", () => {
 		expect(currentGroup?.computers).toHaveLength(1);
 		expect(currentMember?.computer).toMatchObject({
 			count: 1,
-			label: "Computer offline",
+			label: "Computer disconnected",
 			path: "/o/acme/computers/device-current",
 			state: "not_connected",
 		});
