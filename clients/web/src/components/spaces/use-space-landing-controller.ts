@@ -291,6 +291,7 @@ function buildComposerFileSubmission(input: {
 
 function resolveCenterAgentExecutionInput(input: {
 	centerAgentProfileId?: string | null;
+	activationTargets: readonly string[];
 	hasFiles: boolean;
 	items: readonly Pick<
 		WakeProgressItem,
@@ -298,6 +299,13 @@ function resolveCenterAgentExecutionInput(input: {
 	>[];
 }) {
 	if (!input.centerAgentProfileId || input.hasFiles) {
+		return undefined;
+	}
+	if (
+		input.activationTargets.some(
+			(profileId) => profileId !== input.centerAgentProfileId
+		)
+	) {
 		return undefined;
 	}
 	const responses = input.items.filter(
@@ -2490,6 +2498,8 @@ export function useSpaceLandingController(input: {
 		try {
 			const centerAgentExecutionInput = resolveCenterAgentExecutionInput({
 				centerAgentProfileId: input.centerAgentProfileId,
+				activationTargets:
+					sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [],
 				hasFiles: sendInput.files.length > 0,
 				items: ownActiveWakeProgressQuery.data?.items ?? [],
 			});
@@ -2560,7 +2570,9 @@ export function useSpaceLandingController(input: {
 				centerAgentExecutionInput,
 				files: sendInput.files,
 				clientMessageId: sendInput.clientMessageId,
-				messageEnvelope: pendingMessageEnvelope,
+				messageEnvelope: centerAgentExecutionInput
+					? pendingMessageEnvelope
+					: sendInput.preparedSubmission.messageEnvelope,
 				spaceId: input.spaceId,
 				text: sendInput.preparedSubmission.text,
 			});
