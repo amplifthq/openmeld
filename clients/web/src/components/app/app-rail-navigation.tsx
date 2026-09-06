@@ -21,12 +21,12 @@ import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
 import { resolveStatusToneCompactBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
-	ArrowRightIcon,
 	CaretDownIcon,
 	CaretRightIcon,
 	ChatCircleTextIcon,
 	HashIcon,
 	HouseIcon,
+	MinusIcon,
 	PlusIcon,
 	RobotIcon,
 	UserIcon,
@@ -191,7 +191,7 @@ export function AppRailNavigationGroup(input: {
 									className="flex min-w-0 items-center gap-1.5 text-sidebar-foreground"
 									data-slot="collapsed-team-selection"
 								>
-									<ArrowRightIcon
+									<MinusIcon
 										aria-hidden="true"
 										className="size-3 shrink-0 text-muted-foreground"
 									/>
