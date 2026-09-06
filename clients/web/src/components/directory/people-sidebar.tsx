@@ -41,7 +41,7 @@ import {
 const FILTERS = [
 	["all", "All people"],
 	["connected", "Computer connected"],
-	["offline", "Computer offline"],
+	["offline", "Computer disconnected"],
 	["unconnected", "No computer connected"],
 	["unknown", "Status needs checking"],
 ] as const;
@@ -226,7 +226,7 @@ export function PeopleSidebar(input: {
 					: undefined,
 				labelTooltip: new Map([
 					["connected", "Computer connected"],
-					["not-connected", "Computer not connected"],
+					["not-connected", "No computer connected"],
 				]).get(section.id),
 				ariaLabel: section.label,
 				labelAccessory: (

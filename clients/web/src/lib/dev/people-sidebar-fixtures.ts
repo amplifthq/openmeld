@@ -35,7 +35,7 @@ export function localPeopleSidebarFixtures(input: {
 				: "not_connected";
 		const labels = {
 			connected: "Computer connected",
-			offline: "Computer offline",
+			offline: "Computer disconnected",
 			unconnected: "No computer connected",
 			needs_attention: "Computer needs attention",
 			unknown: "Computer status unavailable",

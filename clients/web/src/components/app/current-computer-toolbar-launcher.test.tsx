@@ -103,20 +103,20 @@ describe("CurrentComputerToolbarLauncher", () => {
 		expect(launcher.textContent).toContain("Computer");
 	});
 
-	it("shows current Computer attention on the toolbar instead of the main sidebar", () => {
+	it("keeps ordinary disconnection accessible without a toolbar warning dot", () => {
 		statusMock.mockReturnValue({
-			label: "OpenMeld Service is not connected",
+			label: "Disconnected",
 			reason: "service_not_connected",
 			showLabel: true,
-			tone: "danger",
+			tone: "muted",
 		});
 
 		render(<CurrentComputerToolbarLauncher />);
 
-		expect(screen.getByTestId("current-computer-toolbar-status")).toBeTruthy();
+		expect(screen.queryByTestId("current-computer-toolbar-status")).toBeNull();
 		expect(
 			screen.getByRole("link", {
-				name: "Open Felix's MacBook Pro details, OpenMeld Service is not connected",
+				name: "Open Felix's MacBook Pro details, Disconnected",
 			})
 		).toBeTruthy();
 		const tooltip = screen.getByTestId("toolbar-tooltip");
@@ -470,12 +470,12 @@ describe("CurrentComputerToolbarLauncher", () => {
 		});
 	});
 
-	it("keeps an offline result honest while its refresh is in flight", () => {
+	it("keeps a disconnected result honest while its refresh is in flight", () => {
 		statusMock.mockReturnValue({
-			label: "OpenMeld Service is not connected",
+			label: "Disconnected",
 			reason: "service_not_connected",
 			showLabel: true,
-			tone: "danger",
+			tone: "muted",
 		});
 		useLocalRuntimeQueriesMock.mockReturnValue(
 			buildRuntimeQueries({
@@ -491,7 +491,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 
 		expect(
 			screen.getByRole("link", {
-				name: "Open Felix's MacBook Pro details, OpenMeld Service is not connected",
+				name: "Open Felix's MacBook Pro details, Disconnected",
 			})
 		).toBeTruthy();
 		expect(statusMock).toHaveBeenCalledWith({
