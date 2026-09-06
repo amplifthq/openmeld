@@ -214,7 +214,11 @@ describe("Center Agent stream observation", () => {
       streamPublisher: createRemoteAgentStreamPublisher(),
     });
     await handleCenterAgentObservation({
-      event: toolCompletionObservation("openmeld_execute_app_action", result),
+      // Flue 2 emits the Pi tool-result envelope, not the tool's raw output.
+      event: toolCompletionObservation("openmeld_execute_app_action", {
+        content: [{ type: "text", text: JSON.stringify(result) }],
+        details: { output: result },
+      }),
       resolveDependencies,
       streamPublisher: createRemoteAgentStreamPublisher(),
     });

@@ -29,16 +29,17 @@ export function extractFlueToolLifecyclePart(
     return null;
   }
   const observedAtMs = Date.parse(event.timestamp);
+  const toolOutput = readFlueToolOutput(event);
   const work = resolveRemoteAgentToolWorkActivity(
     event.toolName,
     event.args,
-    event.type === "tool" ? event.result : undefined
+    toolOutput
   );
   return {
     observedAtMs: Number.isFinite(observedAtMs) ? observedAtMs : Date.now(),
     ...readActivatedOrganizationSkillName(event),
     ...(event.type === "tool" &&
-    isRemoteAgentDestructiveConfirmationResult(event.result)
+    isRemoteAgentDestructiveConfirmationResult(toolOutput)
       ? { workOutcome: "confirmation_required" as const }
       : {}),
     submissionId: event.submissionId,
@@ -50,6 +51,24 @@ export function extractFlueToolLifecyclePart(
       ...(work ? { work } : {}),
     },
   };
+}
+
+function readFlueToolOutput(
+  event: Extract<FlueObservation, { type: "tool" | "tool_start" }>
+): unknown {
+  if (
+    event.type !== "tool" ||
+    !event.result ||
+    typeof event.result !== "object"
+  ) {
+    return undefined;
+  }
+  // Flue 2 custom tools publish Pi's structured result envelope. The content
+  // array is model-facing text; only details.output is the authored tool value.
+  const details = (event.result as { details?: unknown }).details;
+  return details && typeof details === "object" && "output" in details
+    ? details.output
+    : undefined;
 }
 
 function readActivatedOrganizationSkillName(
