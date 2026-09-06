@@ -108,6 +108,13 @@ Infrastructure must not blindly replay an operation whose external effects are
 unknown. Re-running a read or regenerating a disposable file differs from sending
 another message or repeating a mutation. Release acceptance must exercise that
 recovery path; Worker-only continuity does not prove Computer-loss recovery.
+This recovery contract is not a guarantee of seamless arbitrary deployments.
+Computer replacement acceptance establishes retained conversation/files and
+honest command-loss recovery, not uninterrupted external operations. A Core-only
+update does not certify simultaneous Remote Agent and Computer replacement.
+The implementation does not use dual execution targets; publication receipts
+and inspection of external state determine whether an interrupted action can
+be safely retried.
 
 The hosted runtime is normally always available, but the Organization creator
 has one explicit emergency control: **Pause Center Agent**. Pause is not a
@@ -169,6 +176,20 @@ the agent's home") and (b) waking the org's local agents through the
 existing wake system.
 
 ## Implementation Base: Flue Harness (updated 2026-09-06)
+
+The prelaunch Flue 2 cutover is complete. Current Remote Agent Slack search and
+invitation tools accept only the shared Core result schemas; an acknowledgement
+without the requested result is not success. Message Channel identity actions
+use capability version 2 in one Core authorization, including any selected
+account. They do not retry an older request shape or silently discard account
+targeting. Deploy this Remote Agent only with the current Core receiver; when
+rolling back across that receiver contract, roll back Remote Agent first.
+This retires transient Worker-to-Core negotiation, not persisted submission
+versions, historical message navigation targets, or supported local clients.
+Connected App stream parts likewise retain their complete shared work metadata.
+A Core rejection is terminal for that preview; the worker does not strip the
+subject and resend a degraded part. Transient transport retries and final
+answer delivery remain separate and unchanged.
 
 The agent worker is built on **Flue**, pinned by exact package version in
 `services/remote-agent`. OpenMeld uses Flue for the agent harness and Durable
