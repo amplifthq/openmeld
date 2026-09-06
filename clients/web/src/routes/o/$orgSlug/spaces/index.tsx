@@ -1,6 +1,9 @@
 "use client";
 
-import type { OrganizationSpaceDirectoryWithMemberCountsItem } from "@openmeld/schemas/types";
+import type {
+	AuthProfileView,
+	OrganizationSpaceDirectoryWithMemberCountsItem,
+} from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
@@ -298,6 +301,7 @@ export function AppSpacesIndexContent(input: {
 			showSpacesSidebar={showSpacesSidebar}
 		>
 			<SpaceIndexContentState
+				accountProfiles={profilesQuery.data ?? []}
 				accountSpaceItemsById={accountState.accountSpaceItemsById}
 				activeOrganization={activeOrganization}
 				canJoinSpaces={savedViewState.canJoinSpaces}
@@ -473,6 +477,7 @@ function AppSpacesIndexEntryShell(input: {
 }
 
 type SpaceIndexContentStateInput = {
+	accountProfiles: readonly AuthProfileView[];
 	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
 	activeOrganization: OrganizationSummary | null;
 	canJoinSpaces: boolean;
@@ -609,6 +614,7 @@ function resolveSpaceIndexBody(
 
 	return (
 		<SpaceDirectory
+			accountProfiles={input.accountProfiles}
 			accountSpaceItemsById={input.accountSpaceItemsById}
 			canJoinSpaces={input.canJoinSpaces}
 			joinError={input.joinError}

@@ -1,5 +1,8 @@
 import type { AccountSidebarPreferences } from "@openmeld/schemas";
-import type { OrganizationSpaceDirectoryWithMemberCountsItem } from "@openmeld/schemas/types";
+import type {
+	AuthProfileView,
+	OrganizationSpaceDirectoryWithMemberCountsItem,
+} from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
@@ -89,6 +92,7 @@ const FILTERS: readonly [StatusFilter, string][] = [
 ];
 
 export function SpaceDirectory(input: {
+	accountProfiles: readonly AuthProfileView[];
 	tab: number;
 	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
 	canJoinSpaces: boolean;
@@ -198,6 +202,13 @@ export function SpaceDirectory(input: {
 		{ id: "spaces", label: "Spaces" },
 	];
 	const groupFilter = useSidebarGroupFilter(groups);
+	const unindexed = input.spaces.filter(
+		(space) =>
+			space.joined &&
+			!input.accountSpaceItemsById.has(space.spaceId) &&
+			space.name.toLowerCase().includes(searchTerm) &&
+			statusFilters.length === 0
+	);
 	const groupedIds = new Set(
 		preferences?.groups.flatMap((group) => group.spaceIds)
 	);
@@ -228,6 +239,7 @@ export function SpaceDirectory(input: {
 			return {
 				...group,
 				section,
+				unindexed: group.id === "spaces" ? unindexed : [],
 				items: sortSidebarSpaces(
 					members.filter(matches),
 					section ?? { sort: "priority", spaceIds: [] },
@@ -290,7 +302,7 @@ export function SpaceDirectory(input: {
 				<p className="text-muted-foreground text-xs">
 					{discovering
 						? "Explore public Spaces in this organization. Preview before joining."
-						: `${items.length} ${items.length === 1 ? "Space" : "Spaces"}`}
+						: `${joinedIds.size} ${joinedIds.size === 1 ? "Space" : "Spaces"}`}
 				</p>
 				<div className="flex items-center gap-1">
 					{searchOpen[input.tab] || search ? (
@@ -464,6 +476,7 @@ export function SpaceDirectory(input: {
 							.filter(
 								(group) =>
 									group.id === "spaces" ||
+									groupFilter.selected.includes(group.id) ||
 									group.items.length > 0 ||
 									(!searchTerm &&
 										statusFilters.length === 0 &&
@@ -478,7 +491,7 @@ export function SpaceDirectory(input: {
 										<span>
 											{group.label}
 											<span className="ml-2 text-muted-foreground/60">
-												{group.items.length}
+												{group.items.length + group.unindexed.length}
 											</span>
 										</span>
 									}
@@ -534,9 +547,18 @@ export function SpaceDirectory(input: {
 													}
 												/>
 											))}
+											{group.unindexed.map((space, index) => (
+												<UnindexedJoinedRow
+													index={group.items.length + index}
+													key={space.spaceId}
+													orgSlug={input.orgSlug}
+													profileId={input.profileId}
+													space={space}
+												/>
+											))}
 										</TableBody>
 									</Table>
-									{group.items.length === 0 && (
+									{group.items.length + group.unindexed.length === 0 && (
 										<p className="px-3 py-6 text-muted-foreground text-sm">
 											{searchTerm ||
 											statusFilters.length ||
@@ -551,6 +573,7 @@ export function SpaceDirectory(input: {
 				)}
 			</ScrollArea>
 			<SpaceDirectoryPreview
+				accountProfiles={input.accountProfiles}
 				onClose={() => setPreview(null)}
 				orgSlug={input.orgSlug}
 				profileId={input.profileId}
@@ -621,6 +644,38 @@ function DirectoryGroupActions({
 			onSort={onSort}
 			sort={group.section?.sort ?? "priority"}
 		/>
+	);
+}
+
+function UnindexedJoinedRow(input: {
+	space: DirectorySpace;
+	index: number;
+	orgSlug: string;
+	profileId: string;
+}) {
+	return (
+		<TableRow className="border-0" index={input.index}>
+			<TableCell className="py-4">
+				<Link
+					aria-label={`Open ${input.space.name}`}
+					className="flex items-center gap-2 font-medium text-sm"
+					to={buildOrganizationSpacePath({
+						orgSlug: input.orgSlug,
+						spaceId: input.space.spaceId,
+						search: { profileId: input.profileId },
+					})}
+				>
+					<HashIcon className="size-4 shrink-0 text-muted-foreground" />
+					{input.space.name}
+				</Link>
+			</TableCell>
+			<TableCell className="hidden lg:table-cell" />
+			<TableCell className="hidden md:table-cell">
+				{input.space.activeMemberCount ?? "—"}
+			</TableCell>
+			<TableCell />
+			<TableCell />
+		</TableRow>
 	);
 }
 

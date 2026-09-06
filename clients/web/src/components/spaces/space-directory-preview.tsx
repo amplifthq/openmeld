@@ -1,3 +1,4 @@
+import type { AuthProfileView } from "@openmeld/schemas/types";
 import {
 	Dialog,
 	DialogContent,
@@ -11,6 +12,7 @@ const SpaceLanding = lazy(() =>
 );
 
 export function SpaceDirectoryPreview(input: {
+	accountProfiles: readonly AuthProfileView[];
 	space: { spaceId: string; name: string } | null;
 	profileId: string;
 	orgSlug: string;
@@ -34,7 +36,7 @@ export function SpaceDirectoryPreview(input: {
 					Preview {input.space?.name}
 				</DialogTitle>
 				{space && (
-					<div className="flex min-h-0 flex-1 flex-col [&_[data-slot=space-conversation-header]]:pr-10">
+					<div className="flex min-h-0 flex-1 flex-col [&_[data-slot=app-main-content-header]]:pr-10">
 						<SpaceEntryGate
 							key={space.spaceId}
 							openMeldProfileId={input.profileId}
@@ -55,6 +57,7 @@ export function SpaceDirectoryPreview(input: {
 									}
 								>
 									<SpaceLanding
+										accountProfiles={input.accountProfiles}
 										orgSlug={input.orgSlug}
 										profileId={input.profileId}
 										spaceId={space.spaceId}

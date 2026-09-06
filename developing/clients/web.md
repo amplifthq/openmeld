@@ -610,14 +610,24 @@ suppressing future messages. When Web observes a new Inbox item, it invalidates
 the full Inbox facts projection so per-conversation indicators and aggregate
 launchers refresh from the same Core truth.
 
-Browse Spaces composes the Organization Space Directory with those same
-Account Space Index, unread-summary, and active-Wake projections. Joined cards
-use one status slot with unread first, Working second, and pinned last. When
-unread or Working owns that slot, hover or keyboard focus reveals the shared
-pin or unpin action without showing competing status labels. Joined cards
-follow pinned order before the unread-aware unpinned order. Discover cards keep
-the directory's public-Space order and expose only Join; Web does not attach
-account status or pin actions to an unjoined Space.
+Browse Spaces uses the shared page header with **Your Spaces** and **Discover**
+underline tabs and an explicit **New Space** action. Joined Spaces use a
+two-line table grouped by the same Pinned, custom groups, and Spaces preferences
+as the sidebar. Group edits share the account-sidebar query and mutation;
+Priority is the default and explicit saved sort choices remain authoritative.
+The page composes the Organization Space Directory with the existing Account
+Space Index, message preview, unread-summary, and active-Wake projections.
+Status, member avatar previews, and conversation activity have separate columns.
+Search expands on demand; group and status filters retain visible removable
+selections. Each tab retains its own search and scroll position. Cold loading
+waits for saved group order and conversation previews before presenting rows.
+
+Discover keeps the directory's public-Space order and separates **Preview**
+from **Join**. Preview uses the existing SpaceEntryGate and SpaceLanding with
+the selected account profiles inside the shared Dialog. It never joins on
+open; existing access checks and participation controls remain authoritative.
+Organization directory visibility does not grant conversation access. Web does
+not attach account status or pin actions to an unjoined Space.
 If a joined directory item has no matching Account Space Index item, Open stays
 available while account status and pin controls fail closed.
 

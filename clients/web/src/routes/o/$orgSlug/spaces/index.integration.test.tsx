@@ -534,6 +534,22 @@ describe("app spaces index route", () => {
 		expect(pinned).toBeTruthy();
 	});
 
+	it("keeps joined Spaces openable when account-specific index facts are missing", async () => {
+		listStartProfilesMock.mockResolvedValue([
+			createProfile({ isDefault: true, openMeldProfileId: "selected-human" }),
+		]);
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [],
+		});
+		renderSpacesIndex();
+		expect(
+			await screen.findByRole("link", { name: "Open Planning" })
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Pin Planning" })).toBeNull();
+		expect(screen.queryByText("Support")).toBeNull();
+	});
+
 	it("keeps current Direct Messages out of the Spaces directory", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({
