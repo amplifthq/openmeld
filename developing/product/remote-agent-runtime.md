@@ -1146,7 +1146,11 @@ execution, capability discovery, and Code Mode. Whenever that catalog includes
 progressive discovery and Code Mode, every tool-capable primary model receives
 the same stable provider bootstrap: `codemode`, the always-direct capability
 search and describe tools, the three generic Connected App tools, and the
-bounded read-only member and Center Agent Task list/detail tools. These
+bounded read-only member and Center Agent Task list/detail tools, plus the
+authorized foundational Computer tools (`read`, `write`, `edit`, `bash`, `grep`,
+`glob`, and `computer_command`). Computer operations remain directly usable in
+a fresh chat without first requiring a discovery call; the provider filter
+never adds a tool absent from the authorized turn catalog. These
 foundational reads stay direct because supported models must be able to inspect
 the requester's current OpenMeld state even when they do not first invoke a
 meta-discovery tool. The worker never reads the latest user request to preselect
@@ -1154,7 +1158,7 @@ business tools and never branches this policy by model id or a fixed schema
 count. The generic Connected App tools remain direct because a provider-specific
 request such as Gmail may not name OpenMeld's Apps vocabulary before discovery
 begins.
-Dedicated GitHub and all other capabilities remain fully available inside the
+Dedicated GitHub and other business capabilities remain fully available inside the
 exact same Code Mode catalog instead of duplicating their descriptions and
 schemas at the provider boundary. The primary model chooses a search query,
 loads the exact schemas it needs, and then calls them through Code Mode.

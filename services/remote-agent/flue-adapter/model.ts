@@ -898,6 +898,16 @@ const REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET = new Set<string>([
   ...REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
   ...REMOTE_AGENT_FOUNDATIONAL_READ_TOOL_NAMES,
   REMOTE_AGENT_SKILL_ACTIVATION_TOOL_NAME,
+  // Foundational Computer operations must be usable in a fresh conversation,
+  // without requiring the model to discover that it has its own Computer.
+  // This filters the authorized catalog; it never adds unavailable tools.
+  "read",
+  "write",
+  "edit",
+  "bash",
+  "grep",
+  "glob",
+  "computer_command",
 ]);
 
 function exposeRemoteAgentBootstrapTools(tools: unknown): unknown {
