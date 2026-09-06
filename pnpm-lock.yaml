@@ -30,7 +30,7 @@ packageExtensionsChecksum: sha256-KgO1AEvxWG2BkZwreCUQEKVuZnpDPXJ+xMuK4j1L8pE=
 
 patchedDependencies:
   '@cloudflare/computer@0.1.1':
-    hash: c73a6a064d60c864dc19d84ae0439906fba269a944795a73c71014356b9a8738
+    hash: f5abac345da9f360e703b5c546e22096acf4d71f2c692e1f14a5ca03740ceee6
     path: patches/@cloudflare__computer@0.1.1.patch
   '@flue/runtime@2.0.3':
     hash: 2af016a413c955dd981242765b00945562a3fe7c93d32d9b39d70eee0f7bee49
@@ -1362,7 +1362,7 @@ importers:
         version: 0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.219(zod@4.4.3))(zod@4.4.3)
       '@cloudflare/computer':
         specifier: 0.1.1
-        version: 0.1.1(patch_hash=c73a6a064d60c864dc19d84ae0439906fba269a944795a73c71014356b9a8738)(ai@6.0.219(zod@4.4.3))(zod@4.4.3)
+        version: 0.1.1(patch_hash=f5abac345da9f360e703b5c546e22096acf4d71f2c692e1f14a5ca03740ceee6)(ai@6.0.219(zod@4.4.3))(zod@4.4.3)
       '@earendil-works/pi-ai':
         specifier: 0.83.0
         version: 0.83.0(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
@@ -14079,7 +14079,7 @@ snapshots:
       ai: 6.0.219(zod@4.4.3)
       zod: 4.4.3
 
-  '@cloudflare/computer@0.1.1(patch_hash=c73a6a064d60c864dc19d84ae0439906fba269a944795a73c71014356b9a8738)(ai@6.0.219(zod@4.4.3))(zod@4.4.3)':
+  '@cloudflare/computer@0.1.1(patch_hash=f5abac345da9f360e703b5c546e22096acf4d71f2c692e1f14a5ca03740ceee6)(ai@6.0.219(zod@4.4.3))(zod@4.4.3)':
     dependencies:
       acorn: 8.17.0
       capnweb: 0.8.0

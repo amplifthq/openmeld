@@ -1,5 +1,5 @@
 diff --git a/dist/index.js b/dist/index.js
-index d85160c7f7c68a37d9fdace811482657921fd8c6..3f9deac941494d7e92d680a8424e9a84ea545233 100644
+index d85160c7f7c68a37d9fdace811482657921fd8c6..ea53822625a62d1a4414e126f5c76f05dc269ffb 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -3549,11 +3549,12 @@ function wrapCommandHandle(handle, backend, lazyResultHandle) {
@@ -28,7 +28,7 @@ index d85160c7f7c68a37d9fdace811482657921fd8c6..3f9deac941494d7e92d680a8424e9a84
  		transform(event, controller) {
  			if (event.name === "stdout") {
  				stdoutMeta = {
-@@ -3945,7 +3946,33 @@ function pipeEvents(source, encoding) {
+@@ -3945,10 +3946,38 @@ function pipeEvents(source, encoding) {
  			}
  		},
  		flush: flushPending
@@ -63,7 +63,39 @@ index d85160c7f7c68a37d9fdace811482657921fd8c6..3f9deac941494d7e92d680a8424e9a84
  }
  function withPostPull(source, sync) {
  	const reader = source.getReader();
-@@ -4243,6 +4270,7 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
++	let sourceDone = false;
++	let cancelled = false;
+ 	let resolveOutcome;
+ 	const outcome = new Promise((resolve) => {
+ 		resolveOutcome = resolve;
+@@ -3958,12 +3987,15 @@ function withPostPull(source, sync) {
+ 			async pull(controller) {
+ 				try {
+ 					const next = await reader.read();
++					if (cancelled) return;
+ 					if (!next.done) {
+ 						controller.enqueue(next.value);
+ 						return;
+ 					}
++					sourceDone = true;
+ 					reader.releaseLock();
+ 					const pulled = await runPostPull(sync);
++					if (cancelled) return;
+ 					resolveOutcome(pulled);
+ 					controller.close();
+ 				} catch (error) {
+@@ -3984,8 +4016,9 @@ function withPostPull(source, sync) {
+ 				}
+ 			},
+ 			async cancel(reason) {
++				cancelled = true;
+ 				try {
+-					await reader.cancel(reason);
++					if (!sourceDone) await reader.cancel(reason);
+ 				} finally {
+ 					reader.releaseLock();
+ 					resolveOutcome({
+@@ -4243,6 +4276,7 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
  	#consumed = false;
  	#disposed = false;
  	#reader;
@@ -71,7 +103,7 @@ index d85160c7f7c68a37d9fdace811482657921fd8c6..3f9deac941494d7e92d680a8424e9a84
  	constructor(handle) {
  		super();
  		this.#handle = handle;
-@@ -4251,15 +4279,19 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
+@@ -4251,15 +4285,19 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
  	[Symbol.dispose]() {
  		if (this.#disposed) return;
  		this.#disposed = true;
@@ -98,7 +130,7 @@ index d85160c7f7c68a37d9fdace811482657921fd8c6..3f9deac941494d7e92d680a8424e9a84
  	get id() {
  		return this.#handle.id;
  	}
-@@ -4293,12 +4325,7 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
+@@ -4293,12 +4331,7 @@ var WorkspaceRuntimeExecHandleStub = class extends RpcTarget {
  				}
  			},
  			async cancel(reason) {
@@ -112,7 +144,7 @@ index d85160c7f7c68a37d9fdace811482657921fd8c6..3f9deac941494d7e92d680a8424e9a84
  			}
  		}, { highWaterMark: 0 });
  	}
-@@ -5205,14 +5232,11 @@ async function rebuildExecHandle(remote, known = {}) {
+@@ -5205,14 +5238,11 @@ async function rebuildExecHandle(remote, known = {}) {
  		cancel: async (reason) => {
  			const activeReader = reader;
  			reader = void 0;

@@ -113,11 +113,44 @@ export async function verifyRetainedCommandPolling(
       backend: "container",
       encoding: "utf8",
     });
+    const finalReceipt = await readCommandSlice(finished, "long", 0, 50);
+    // The native stream can close before asynchronous file synchronization.
+    // Cancellation in that interval must not cancel an already released reader.
+    const pullStarted = Promise.withResolvers<void>();
+    const finishPull = Promise.withResolvers<void>();
+    const originalPull = owner.pull.bind(owner);
+    owner.pull = async (backend) => {
+      const result = await originalPull(backend);
+      pullStarted.resolve();
+      await finishPull.promise;
+      return result;
+    };
+    const syncing = await workspace.runtime.getExec(started.id, {
+      backend: "container",
+      encoding: "utf8",
+    });
+    const syncReader = syncing.getReader();
+    for (;;) {
+      const event = await syncReader.read();
+      if (event.done || event.value.name === "exit") {
+        break;
+      }
+    }
+    const close = syncReader.read();
+    await pullStarted.promise;
+    try {
+      await syncReader.cancel();
+      await close;
+    } finally {
+      finishPull.resolve();
+      syncReader.releaseLock();
+      syncing[Symbol.dispose]();
+    }
     return {
       subscribedAfterStartCancel,
       subscribedAfterPoll,
       slice,
-      finished: await readCommandSlice(finished, "long", 0, 50),
+      finished: finalReceipt,
       commandId: started.id,
     };
   } finally {

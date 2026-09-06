@@ -76,6 +76,10 @@ Workspace contract runs under Node and workerd, exercising unread cancellation,
 a live polling slice, reattachment, split UTF-8 output, and completed output.
 Run `pnpm --filter @openmeld/remote-agent test:workerd` for the Workers boundary;
 the ordinary package test command includes it after the Node suite.
+Cancellation also distinguishes a live output reader from a reader already
+released before post-command file synchronization. A delayed synchronization
+regression covers cancellation in that interval without cancelling the same
+reader twice or publishing completion after the consumer has detached.
 The lower container Cap'n Web transport still has no eager cancellation
 acknowledgement for a silent stream producer. Consequently the native
 `EEXEC_BUSY` result remains a supported live-process observation, exposed as
