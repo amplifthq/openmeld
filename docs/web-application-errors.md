@@ -26,6 +26,20 @@ not a product Audit Log or an execution authority.
    `http_5xx` may have no exception frames: the framework's native log carries
    the original exception when it handled it internally.
 
+The application error screen offers **Send error report** in addition to
+automatic capture. Explicit submissions use the same minimized contract and
+intake, with optional `report.submission: "user"`. They bypass automatic
+deduplication. The UI confirms only a 204 response, displays `report.id` for
+lookup, and offers a user-initiated retry after failure. Requests time out after
+10 seconds; there is no background retry. A receipt confirms Web intake, not
+Cloudflare retention or dashboard availability.
+
+Error details are collapsed by default with a short fading preview. Expanded
+details and copying remain local to the browser; sending a report does not
+upload that raw text. Go back uses browser history, or the home page when no
+previous entry exists. Environment repair instructions appear only in local
+development and inside the disclosure.
+
 Workers Logs currently retain 3 days on Free and 7 days on Paid. This facility
 does not add long-term storage, Tail Workers, scheduled jobs, or GitHub Issues.
 Do not wait weeks to investigate an incident.
@@ -86,6 +100,12 @@ report; new browsers encountering an older Web Worker may lose a report but
 continue normal operation. CLI, Service, Skills, Core, Gateway, setup, Wake,
 Space actions, and existing diagnostics retain their contracts and require no
 version-floor bump or coordinated local-component release.
+
+The manual-submission addition is backward compatible: older Web receivers
+strip the optional submission marker but still log the same report and ID;
+new receivers accept automatic reports without it. No CLI, Service, Core,
+Gateway, Skills, setup, Wake, or Space action contract changes. This satisfies
+the Contract Impact Audit without a local-component version bump.
 
 After an authorized Web deployment, verify one safe diagnostic report is
 searchable in the production Logs UI and verify that its source map cannot be

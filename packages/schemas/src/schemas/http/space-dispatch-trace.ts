@@ -22,27 +22,26 @@ const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 const SPACE_DISPATCH_TRACE_TIMEOUT_POLICY_MAX_MS = 604_800_000;
 const SPACE_DISPATCH_TRACE_PROMPT_LENGTH_MAX = 1_000_000 as const;
 export const SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS = 1200 as const;
-export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION = 3 as const;
+export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION = 4 as const;
 export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS =
-  2 as const;
+  3 as const;
 export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER =
   "x-openmeld-space-dispatch-trace-response-version";
 const SPACE_DISPATCH_TRACE_INVALID_OUTPUT_PREVIEW_MAX_CHARS = 180 as const;
 
 export const spaceDispatchTraceResponseContractVersionSchema = z.union([
+  z.literal(2),
   z.literal(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS),
   z.literal(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
 ]);
 export const spaceDispatchTraceResponseContractVersionHeaderSchema = z
   .enum([
+    "2",
     String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS),
     String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
   ])
-  .transform((value) =>
-    value === String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION)
-      ? SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
-      : SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS
-  );
+  .transform(Number)
+  .pipe(spaceDispatchTraceResponseContractVersionSchema);
 
 const boundedNullableTrimmedStringSchema = (maxLength: number) =>
   z.union([trimmedNonEmptyStringSchema.max(maxLength), z.null()]);

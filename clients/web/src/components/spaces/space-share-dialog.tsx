@@ -16,6 +16,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { CopyIcon, ShareNetworkIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -71,9 +72,11 @@ export function SpaceShareDialog(input: {
 					</DialogDescription>
 				</DialogHeader>
 
-				<div
-					className="min-h-0 min-w-0 flex-1 divide-y divide-border/60 overflow-y-auto pr-1"
+				<ScrollArea
+					className="min-h-0 min-w-0 flex-1"
+					contentClassName="divide-y divide-border/60 pr-1"
 					data-testid="space-share-dialog-scroll-area"
+					orientation="vertical"
 				>
 					<section className="pb-4">
 						<SpaceAccessEditor
@@ -103,7 +106,7 @@ export function SpaceShareDialog(input: {
 							<CopyIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
 						</button>
 					</section>
-				</div>
+				</ScrollArea>
 			</DialogContent>
 		</Dialog>
 	);

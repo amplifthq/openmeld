@@ -1,0 +1,70 @@
+{
+  "name": "openmeld-open-connector-stg",
+  "main": "src/server/cloudflare.ts",
+  "compatibility_date": "2026-07-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "connectors.staging.openmeld.ai",
+      "custom_domain": true
+    }
+  ],
+  "keep_vars": true,
+  "cache": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "dist/web",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/v1/*",
+      "/mcp*",
+      "/oauth/*",
+      "/docs",
+      "/docs/*",
+      "/openapi.json",
+      "/health"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+      "persist": true
+    }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "openmeld-open-connector-db-stg",
+      "database_id": "79e940f3-e607-4c3a-bf5a-32bea2794763",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "TRANSIT_FILES",
+      "bucket_name": "openmeld-open-connector-transit-files-stg"
+    }
+  ],
+  "vars": {
+    "OOMOL_CONNECT_ORIGIN": "https://connectors.staging.openmeld.ai",
+    "OOMOL_CONNECT_ALLOWED_ACTIONS": "github.*,gmail.search_threads,gmail.list_threads,gmail.fetch_emails,gmail.get_message,gmail.fetch_message_by_message_id,gmail.fetch_message_by_thread_id,gmail.get_profile,gmail.list_history,googlecalendar.list_calendars,googlecalendar.get_calendar_list_entry,googlecalendar.get_calendar,googlecalendar.list_events,googlecalendar.list_events_all_calendars,googlecalendar.get_event,googlecalendar.list_event_instances,googlecalendar.sync_events,googlecalendar.free_busy_query,googlecalendar.find_free_slots,googlecalendar.get_colors,googlecalendar.find_event,googledrive.about.get,googledrive.apps.get,googledrive.changes.getStartPageToken,googledrive.changes.list,googledrive.comments.get,googledrive.comments.list,googledrive.drives.get,googledrive.drives.list,googledrive.files.export,googledrive.files.get,googledrive.files.list,googledrive.files.listLabels,googledrive.permissions.get,googledrive.permissions.list,googledrive.replies.get,googledrive.replies.list,googledrive.revisions.get,googledrive.revisions.list,googledrive.accessproposals.list,googledrive.approvals.list,notion.*,linear.*,figma.*,posthog.*,cloudflare_browser_rendering.*,cloudflare_dns.*,cloudflare_r2.*,cloudflare_worker.*",
+    "OOMOL_CONNECT_BLOCKED_ACTIONS": "github.delete_repository,github.create_release",
+    "OOMOL_CONNECT_BLOCKED_PROXIES": "*"
+  },
+  "secrets": {
+    "required": [
+      "OOMOL_CONNECT_ADMIN_TOKEN",
+      "OOMOL_CONNECT_ENCRYPTION_KEY",
+      "OOMOL_CONNECT_GITHUB_APP_ID",
+      "OOMOL_CONNECT_GITHUB_APP_PRIVATE_KEY",
+      "OOMOL_CONNECT_RUNTIME_TOKEN"
+    ]
+  }
+}

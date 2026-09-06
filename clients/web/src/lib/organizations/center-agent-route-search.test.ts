@@ -5,6 +5,14 @@ import {
 } from "./center-agent-route-search";
 
 describe("Center Agent route search", () => {
+	it("keeps an exact session even when an unrelated legacy search field is invalid", () => {
+		expect(
+			parseCenterAgentRouteSearch({ session: "session-2", view: "manage" })
+		).toEqual({ session: "session-2" });
+		expect(() => parseCenterAgentRouteSearch({ session: "" })).toThrow(
+			"invalid session ID"
+		);
+	});
 	it("drops the retired manage view", () => {
 		const search = parseCenterAgentRouteSearch({ view: "manage" });
 		expect(search).toEqual({});

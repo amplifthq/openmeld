@@ -3,6 +3,7 @@
 import type { OrganizationSkillFile } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
@@ -78,9 +79,11 @@ function SkillFile(input: {
 		);
 	} else if (input.file.encoding === "utf8") {
 		fileContent = (
-			<pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-4 text-xs">
-				{input.file.content}
-			</pre>
+			<ScrollArea className="max-h-96" orientation="both">
+				<pre className="whitespace-pre-wrap rounded-md border bg-muted/30 p-4 text-xs">
+					{input.file.content}
+				</pre>
+			</ScrollArea>
 		);
 	} else {
 		fileContent = (

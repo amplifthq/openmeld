@@ -12,14 +12,19 @@ import type {
 	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
-import { Input } from "@openmeld/ui/components/input";
+import { Button } from "@openmeld/ui/components/button";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-} from "@openmeld/ui/fluid/select";
-import { FunnelSimpleIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+	DropdownMenu,
+	DropdownMenuSub,
+	DropdownMenuSubTrigger,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
+import {
+	FluidDropdownMenuSubContent as DropdownMenuSubContent,
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
+import { FunnelSimpleIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -41,6 +46,10 @@ import { DirectoryMembersOverview } from "#/components/directory/directory-membe
 import { CreateProfileDialog } from "#/components/profiles/create-profile-dialog";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
+import {
+	localAgentSidebarState,
+	useAgentSidebarPreviewReady,
+} from "#/lib/dev/agent-sidebar-fixtures";
 import { isLocalWebOrigin } from "#/lib/local-web-origin";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationAgentCreationPath } from "#/lib/organizations/organization-routes";
@@ -54,6 +63,10 @@ import {
 } from "#/query/organizations/organization-directory";
 import { agentProfileCreationRequestsQueryOptions } from "#/query/profiles/agent-profile-creation-requests";
 import { startQueryKeys } from "#/query/query-keys";
+import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
+import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
+import { SidebarSearchInput } from "../app/sidebar-search-input";
+import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 
 export type ProfileHomeId = "agents" | "people";
 type AgentWorkspaceView = "agents" | "requests";
@@ -71,13 +84,6 @@ const AGENT_PROFILE_FILTER_OPTIONS = [
 	label: string;
 	value: AgentProfileAvailabilityFilter;
 }[];
-const ORGANIZATION_MEMBER_AGENT_PROFILE_FILTER_OPTION = {
-	label: "Organization members",
-	value: "organization_members",
-} as const satisfies {
-	label: string;
-	value: AgentProfileListFilter;
-};
 const EMPTY_AGENT_PROFILE_READINESS_ERROR_BY_PROFILE_ID: ReadonlyMap<
 	string,
 	string
@@ -95,12 +101,26 @@ export function PeopleAndAgentsPage(input: {
 	onAgentViewChange?: (view: AgentWorkspaceView, profileId?: string) => void;
 }) {
 	const account = useAppShellAccount();
+	const previewReady = useAgentSidebarPreviewReady();
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
+	const sidebarPreferences = useSidebarPreferences(
+		currentUserId,
+		currentOrganization.id
+	);
+	const agentGroups = useSidebarGroupFilter([
+		{ id: "starred", label: "Starred" },
+		...(sidebarPreferences.preferences?.agents?.groups ?? []).map((group) => ({
+			id: group.id,
+			label: group.name,
+		})),
+		{ id: "ungrouped", label: "Ungrouped" },
+	]);
 	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [isCreateProfileOpen, setIsCreateProfileOpen] = useState(false);
+	const [agentOwnerId, setAgentOwnerId] = useState<string | null>(null);
 	const [agentProfileFilter, setAgentProfileFilter] =
 		useState<AgentProfileListFilter>("all");
 	const [agentProfileSearchQuery, setAgentProfileSearchQuery] = useState("");
@@ -142,9 +162,14 @@ export function PeopleAndAgentsPage(input: {
 	const modelCatalogQuery = useQuery(modelCatalogQueryOptions());
 	const agentProfileFilterCounts = useMemo(() => {
 		return summarizeOrganizationAgentProfileAvailabilityFilters({
+			previewReady,
 			profiles: (
 				organizationProfileDirectoryQuery.data?.agentProfiles ?? []
-			).filter((profile) => profile.managedRole !== "center_agent"),
+			).filter(
+				(profile) =>
+					profile.managedRole !== "center_agent" &&
+					(!agentOwnerId || profile.ownerUserId === agentOwnerId)
+			),
 			runtimeOverview: organizationAgentRuntimeOverviewQuery.data,
 			runtimeOverviewFailed:
 				organizationAgentRuntimeOverviewQuery.isError &&
@@ -158,6 +183,8 @@ export function PeopleAndAgentsPage(input: {
 		organizationAgentRuntimeOverviewQuery.isError,
 		organizationAgentRuntimeOverviewQuery.isPending,
 		organizationProfileDirectoryQuery.data?.agentProfiles,
+		previewReady,
+		agentOwnerId,
 	]);
 	const handleProfileCreated = (profile: AuthProfileView) => {
 		Promise.all([
@@ -255,15 +282,47 @@ export function PeopleAndAgentsPage(input: {
 				)}
 				currentUserId={currentUserId}
 				fallbackOwnerLabel={fallbackOwnerLabel}
+				filterBadges={
+					<>
+						{agentGroups.badges}
+						{agentProfileFilter !== "all" || agentOwnerId ? (
+							<div className="flex flex-wrap gap-1 px-1 pt-1">
+								{agentProfileFilter !== "all" && (
+									<SidebarFilterBadge
+										label={
+											AGENT_PROFILE_FILTER_OPTIONS.find(
+												(option) => option.value === agentProfileFilter
+											)?.label ?? agentProfileFilter
+										}
+										onRemove={() => setAgentProfileFilter("all")}
+									/>
+								)}
+								{agentOwnerId && (
+									<SidebarFilterBadge
+										label={`Owner: ${organizationProfileDirectoryQuery.data?.agentProfiles.find((profile) => profile.ownerUserId === agentOwnerId)?.ownerName ?? "Selected member"}`}
+										onRemove={() => setAgentOwnerId(null)}
+									/>
+								)}
+							</div>
+						) : null}
+					</>
+				}
 				filterControl={
 					<AgentProfileFilterSelect
 						counts={agentProfileFilterCounts}
+						groupMenu={agentGroups.menu}
 						includeOrganizationMemberFilter={isOrganizationContext}
+						onOwnerChange={setAgentOwnerId}
 						onValueChange={setAgentProfileFilter}
+						ownerId={agentOwnerId}
+						profiles={
+							organizationProfileDirectoryQuery.data?.agentProfiles ?? []
+						}
 						value={agentProfileFilter}
 					/>
 				}
 				focusRequestId={input.focusRequestId ?? null}
+				groupFilterIds={agentGroups.selected}
 				initialSidebarStates={input.initialSidebarStates}
 				isOrganizationContext={isOrganizationContext}
 				modelCatalog={modelCatalogQuery.data ?? null}
@@ -290,11 +349,14 @@ export function PeopleAndAgentsPage(input: {
 				}
 				organizationId={currentOrganization.id}
 				orgSlug={orgSlug}
+				ownerId={agentOwnerId}
 				profileDirectoryQuery={organizationProfileDirectoryQuery}
 				recovery={recovery}
 				runtimeOverviewQuery={organizationAgentRuntimeOverviewQuery}
 				searchControl={
-					<AgentProfileSearchInput
+					<SidebarSearchInput
+						destination="agents"
+						label="Search Agents"
 						onValueChange={setAgentProfileSearchQuery}
 						value={agentProfileSearchQuery}
 					/>
@@ -387,15 +449,18 @@ function buildOrganizationAgentProjection(input: {
 }
 
 function AgentsWorkspaceHome(input: {
+	groupFilterIds: readonly string[];
 	activeView: AgentWorkspaceView;
 	activityPreview: boolean;
 	availabilityFilter: AgentProfileAvailabilityFilter;
+	ownerId: string | null;
 	agentProfileSearchQuery: string;
 	currentUserId: string;
 	runtimeOverviewQuery: OrganizationAgentRuntimeOverviewQueryState;
 	profileDirectoryQuery: OrganizationProfileDirectoryQueryState;
 	fallbackOwnerLabel: string;
 	filterControl: ReactNode;
+	filterBadges: ReactNode;
 	focusRequestId: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
 	isOrganizationContext: boolean;
@@ -410,6 +475,7 @@ function AgentsWorkspaceHome(input: {
 	selectedProfileId: string | null;
 }) {
 	const queryClient = useQueryClient();
+	const previewReady = useAgentSidebarPreviewReady();
 	const accountComputerSetupPath = buildConnectComputerPath({
 		orgSlug: input.orgSlug,
 	});
@@ -539,18 +605,22 @@ function AgentsWorkspaceHome(input: {
 				readinessByProfileId,
 			}).filter(
 				(profile) =>
-					input.availabilityFilter === "all" ||
-					resolveOrganizationAgentProfileAvailabilityState({
-						errorByProfileId,
-						pendingProfileIds,
-						profileId: profile.openMeldProfileId,
-						readinessByProfileId,
-					}) === input.availabilityFilter
+					(!input.ownerId || profile.ownerUserId === input.ownerId) &&
+					(input.availabilityFilter === "all" ||
+						resolveOrganizationAgentProfileAvailabilityState({
+							previewReady,
+							errorByProfileId,
+							pendingProfileIds,
+							profileId: profile.openMeldProfileId,
+							readinessByProfileId,
+						}) === input.availabilityFilter)
 			),
 		[
 			agentProfiles,
 			errorByProfileId,
 			input.availabilityFilter,
+			input.ownerId,
+			previewReady,
 			pendingProfileIds,
 			readinessByProfileId,
 		]
@@ -581,6 +651,7 @@ function AgentsWorkspaceHome(input: {
 			(profile) => profile.openMeldProfileId === input.selectedProfileId
 		);
 		if (
+			input.ownerId !== null ||
 			normalizedSearchQuery.length > 0 ||
 			!selectedProfile ||
 			visibleAgentProfiles.some(
@@ -593,12 +664,13 @@ function AgentsWorkspaceHome(input: {
 		return [selectedProfile, ...visibleAgentProfiles];
 	}, [
 		agentProfiles,
+		input.ownerId,
 		input.selectedProfileId,
 		normalizedSearchQuery,
 		visibleAgentProfiles,
 	]);
 	const sidebarSelectedProfileId =
-		normalizedSearchQuery.length > 0 &&
+		(normalizedSearchQuery.length > 0 || input.ownerId !== null) &&
 		input.selectedProfileId !== null &&
 		!sidebarAgentProfiles.some(
 			(profile) => profile.openMeldProfileId === input.selectedProfileId
@@ -719,9 +791,12 @@ function AgentsWorkspaceHomeView(input: {
 			activeView={workspace.activeView}
 			agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 			currentUserId={workspace.currentUserId}
+			filterBadges={workspace.filterBadges}
 			filterControl={workspace.filterControl}
+			groupFilterIds={workspace.groupFilterIds}
 			hasAnyProfiles={input.agentProfiles.length > 0}
 			initialSidebarStates={workspace.initialSidebarStates}
+			isOrganizationContext={workspace.isOrganizationContext}
 			isSearchActive={input.normalizedSearchQuery.length > 0}
 			modelCatalog={workspace.modelCatalog}
 			onCreateAgent={workspace.onCreateAgent}
@@ -820,31 +895,6 @@ function useMinuteNowMs(): number {
 	return nowMs;
 }
 
-function AgentProfileSearchInput(input: {
-	onValueChange: (value: string) => void;
-	value: string;
-}) {
-	return (
-		<div className="relative min-w-0 flex-1">
-			<MagnifyingGlassIcon
-				aria-hidden="true"
-				className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
-			/>
-			<Input
-				aria-label="Search Agents"
-				autoComplete="off"
-				className="pl-7"
-				name="agent-search"
-				onChange={(event) => input.onValueChange(event.target.value)}
-				placeholder="Search Agents"
-				spellCheck={false}
-				type="search"
-				value={input.value}
-			/>
-		</div>
-	);
-}
-
 function matchesAgentProfileSearch(input: {
 	profile: AuthProfileView;
 	query: string;
@@ -893,71 +943,93 @@ function resolveAgentProfilesStatus(input: {
 }
 
 function AgentProfileFilterSelect(input: {
+	groupMenu: ReactNode;
 	counts: AgentProfileAvailabilityFilterCounts;
 	includeOrganizationMemberFilter: boolean;
 	onValueChange: (value: AgentProfileListFilter) => void;
 	value: AgentProfileListFilter;
+	ownerId: string | null;
+	onOwnerChange: (id: string | null) => void;
+	profiles: readonly Pick<AuthProfileView, "ownerUserId" | "ownerName">[];
 }) {
-	const options = input.includeOrganizationMemberFilter
-		? [
-				AGENT_PROFILE_FILTER_OPTIONS[0],
-				ORGANIZATION_MEMBER_AGENT_PROFILE_FILTER_OPTION,
-				...AGENT_PROFILE_FILTER_OPTIONS.slice(1),
-			]
-		: AGENT_PROFILE_FILTER_OPTIONS;
-	const currentOption =
-		options.find((option) => option.value === input.value) ??
-		AGENT_PROFILE_FILTER_OPTIONS[0];
-	const displayValue = formatAgentProfileFilterOptionName({
-		count: resolveAgentProfileListFilterCount({
-			counts: input.counts,
-			value: currentOption.value,
-		}),
-		label: currentOption.label,
-	});
-
+	const owners = [
+		...new Map(
+			input.profiles.map((p) => [
+				p.ownerUserId,
+				p.ownerName?.trim() || "Unknown member",
+			])
+		).entries(),
+	].sort((a, b) => a[1].localeCompare(b[1]));
+	const displayValue =
+		AGENT_PROFILE_FILTER_OPTIONS.find((o) => o.value === input.value)?.label ??
+		"All";
 	return (
-		<Select
-			onValueChange={(value) => {
-				input.onValueChange(value as AgentProfileListFilter);
-			}}
-			value={input.value}
-		>
-			<SelectTrigger
-				aria-label={`Filter Agents. Current filter: ${displayValue}.`}
-				className="size-8 min-w-0 justify-center px-0 text-muted-foreground hover:text-foreground [&>span>span]:sr-only [&>span]:flex-none [&>svg]:hidden"
-				displayValue={displayValue}
-				icon={FunnelSimpleIcon}
-				variant="borderless"
-			/>
-			<SelectContent className="w-44 -translate-x-[calc(100%-2rem)]">
-				{options.map((option, index) => (
-					<SelectItem index={index} key={option.value} value={option.value}>
-						<span className="sr-only">
-							{formatAgentProfileFilterOptionName({
-								count: resolveAgentProfileListFilterCount({
-									counts: input.counts,
-									value: option.value,
-								}),
-								label: option.label,
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={
+					<Button
+						aria-label={`Filter Agents. Current filter: ${displayValue}, ${resolveAgentProfileListFilterCount({ counts: input.counts, value: input.value })} ${resolveAgentProfileListFilterCount({ counts: input.counts, value: input.value }) === 1 ? "Agent" : "Agents"}.`}
+						className="size-6 [&_svg]:size-3.5"
+						size="icon"
+						variant="ghost"
+					/>
+				}
+			>
+				<FunnelSimpleIcon />
+			</DropdownMenuTrigger>
+			<FluidDropdownMenuContent
+				align="end"
+				className="w-60 max-w-[calc(100vw-2rem)]"
+			>
+				{AGENT_PROFILE_FILTER_OPTIONS.map((option, index) => (
+					<FluidDropdownMenuItem
+						aria-label={`${option.label}, ${resolveAgentProfileListFilterCount({ counts: input.counts, value: option.value })} ${resolveAgentProfileListFilterCount({ counts: input.counts, value: option.value }) === 1 ? "Agent" : "Agents"}`}
+						index={index}
+						key={option.value}
+						onClick={() => input.onValueChange(option.value)}
+					>
+						<span className="w-4">
+							{input.value === option.value ? "✓" : ""}
+						</span>
+						<span className="min-w-0 flex-1 text-left">{option.label}</span>
+						<span className="text-muted-foreground">
+							{resolveAgentProfileListFilterCount({
+								counts: input.counts,
+								value: option.value,
 							})}
 						</span>
-						<span
-							aria-hidden="true"
-							className="flex min-w-0 flex-1 items-center justify-between gap-6"
-						>
-							<span className="min-w-0 truncate">{option.label}</span>
-							<span className="shrink-0 text-right font-mono text-[11px] text-muted-foreground tabular-nums">
-								{resolveAgentProfileListFilterCount({
-									counts: input.counts,
-									value: option.value,
-								})}
-							</span>
-						</span>
-					</SelectItem>
+					</FluidDropdownMenuItem>
 				))}
-			</SelectContent>
-		</Select>
+				{input.groupMenu}
+				<DropdownMenuSub>
+					<DropdownMenuSubTrigger>
+						Owner:{" "}
+						{input.ownerId
+							? (owners.find((o) => o[0] === input.ownerId)?.[1] ??
+								"Selected member")
+							: "Anyone"}
+					</DropdownMenuSubTrigger>
+					<DropdownMenuSubContent className="max-h-80 w-56 overflow-y-auto">
+						<FluidDropdownMenuItem
+							index={0}
+							onClick={() => input.onOwnerChange(null)}
+						>
+							Anyone
+						</FluidDropdownMenuItem>
+						{owners.map(([id, name], index) => (
+							<FluidDropdownMenuItem
+								index={index + 1}
+								key={id}
+								onClick={() => input.onOwnerChange(id)}
+							>
+								<span className="w-4">{input.ownerId === id ? "✓" : ""}</span>
+								{name}
+							</FluidDropdownMenuItem>
+						))}
+					</DropdownMenuSubContent>
+				</DropdownMenuSub>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
@@ -976,14 +1048,6 @@ function resolveAgentProfileListFilterCount(input: {
 		: input.counts[input.value];
 }
 
-function formatAgentProfileFilterOptionName(input: {
-	count: number;
-	label: string;
-}) {
-	const profileLabel = input.count === 1 ? "Agent" : "Agents";
-	return `${input.label}, ${input.count} ${profileLabel}`;
-}
-
 type OrganizationProfileDirectoryQueryState = {
 	data?: OrganizationProfileDirectoryResponse;
 	error: { message?: string } | null;
@@ -1000,6 +1064,7 @@ type OrganizationAgentRuntimeOverviewQueryState = {
 };
 
 function summarizeOrganizationAgentProfileAvailabilityFilters(input: {
+	previewReady?: boolean;
 	profiles: readonly OrganizationProfileDirectoryResponse["agentProfiles"][number][];
 	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 	runtimeOverviewFailed: boolean;
@@ -1028,6 +1093,7 @@ function summarizeOrganizationAgentProfileAvailabilityFilters(input: {
 		: EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS;
 	for (const profile of input.profiles) {
 		const category = resolveOrganizationAgentProfileAvailabilityState({
+			previewReady: input.previewReady,
 			errorByProfileId,
 			pendingProfileIds,
 			profileId: profile.profileId,
@@ -1039,6 +1105,7 @@ function summarizeOrganizationAgentProfileAvailabilityFilters(input: {
 }
 
 function resolveOrganizationAgentProfileAvailabilityState(input: {
+	previewReady?: boolean;
 	errorByProfileId: ReadonlyMap<string, string>;
 	pendingProfileIds: ReadonlySet<string>;
 	profileId: string;
@@ -1047,6 +1114,10 @@ function resolveOrganizationAgentProfileAvailabilityState(input: {
 		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
 	>;
 }): Exclude<AgentProfileAvailabilityFilter, "all"> {
+	const preview = localAgentSidebarState(input.profileId, input.previewReady);
+	if (preview) {
+		return preview === "connect" ? "unavailable" : preview;
+	}
 	const readiness = input.readinessByProfileId.get(input.profileId);
 	if (readiness) {
 		return resolveAgentWakeAvailabilityDisplayCategory(

@@ -21,10 +21,7 @@ import {
 } from "../agent-core/terminal-callback-projection";
 import { createRemoteAgentTerminalFailureFact } from "../agent-core/terminal-failure";
 
-export type FlueSubmissionLifecycle = {
-  error?: string;
-  status: "queued" | "running" | "terminalizing" | "settled";
-};
+export type FlueSubmissionLifecycle = Pick<AgentSubmission, "error" | "status">;
 
 export async function reconcileSettledRemoteAgentExecutionFailures(input: {
   coreWorker?: RemoteAgentCoreWorkerBinding;
@@ -191,3 +188,5 @@ async function projectRemoteAgentTerminalExecution(input: {
     submissionId: input.identity.submissionId,
   });
 }
+
+import type { AgentSubmission } from "@flue/runtime/adapter";

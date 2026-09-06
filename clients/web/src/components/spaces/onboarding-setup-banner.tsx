@@ -142,7 +142,7 @@ export function OnboardingSetupEmptyStateActions(
 			aria-label="Set up this Space"
 			className={cn(
 				"grid w-full gap-3",
-				showConnect && showBringAgents ? "sm:grid-cols-2" : "mx-auto max-w-sm"
+				showConnect && showBringAgents ? "sm:grid-cols-2" : "mx-auto max-w-xl"
 			)}
 			role="group"
 		>

@@ -302,6 +302,51 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
+	it("keeps the overlay gap while the sticky date appears and disappears", async () => {
+		renderSpaceConversationPanel({
+			renderSetupGuidance: () => <section>Setup guidance</section>,
+			timelineItems: [createTimelineItem()],
+		});
+		const viewport = screen.getByRole("log", { name: "Conversation history" });
+		const marker = document.querySelector<HTMLElement>(
+			"[data-conversation-date-marker]"
+		);
+		if (!marker) {
+			throw new Error("Expected a conversation date marker");
+		}
+		let markerTop = 1000;
+		vi.spyOn(marker, "getBoundingClientRect").mockImplementation(
+			() => new DOMRect(0, markerTop, 100, 32)
+		);
+		fireEvent.scroll(viewport);
+		await waitFor(() => {
+			expect(
+				document.querySelector("[data-slot='conversation-date-pill-surface']")
+			).toBeNull();
+		});
+		const removeProperty = vi.spyOn(viewport.style, "removeProperty");
+		markerTop = -100;
+		fireEvent.scroll(viewport);
+		await waitFor(() => {
+			expect(
+				document.querySelector("[data-slot='conversation-date-pill-surface']")
+			).not.toBeNull();
+		});
+		expect(removeProperty).not.toHaveBeenCalledWith(
+			"--space-conversation-top-overlay-height"
+		);
+		markerTop = 1000;
+		fireEvent.scroll(viewport);
+		await waitFor(() => {
+			expect(
+				document.querySelector("[data-slot='conversation-date-pill-surface']")
+			).toBeNull();
+		});
+		expect(removeProperty).not.toHaveBeenCalledWith(
+			"--space-conversation-top-overlay-height"
+		);
+	});
+
 	it("places setup guidance in the centered conversation empty state until a message exists", () => {
 		const renderSetupGuidance = vi.fn(
 			(presentation: "banner" | "empty-state") => (
@@ -2137,10 +2182,14 @@ describe("SpaceConversationPanel", () => {
 
 		expect(
 			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", true);
+		).toHaveProperty("disabled", false);
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
-		).toHaveProperty("disabled", true);
+		).toHaveProperty("disabled", false);
+		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
+			"disabled",
+			true
+		);
 	});
 
 	it("uses the Agent name as the Agent DM placeholder", () => {
@@ -2607,7 +2656,7 @@ describe("SpaceConversationPanel", () => {
 		).toBe("http://localhost:5173/o/acme/connect");
 	});
 
-	it("hides starter actions after the current user sends their first message", () => {
+	it("keeps starter actions after the current user sends their first message", () => {
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
 			hasEarlierHistory: false,
@@ -2624,10 +2673,10 @@ describe("SpaceConversationPanel", () => {
 
 		expect(
 			screen.queryByRole("group", { name: "Suggested starting points" })
-		).toBeNull();
+		).toBeTruthy();
 	});
 
-	it("gets starter actions out of the way once the user starts writing", () => {
+	it("keeps starter actions while the user writes a draft", () => {
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
 			composerText: "I already know what I want to ask",
@@ -2638,7 +2687,7 @@ describe("SpaceConversationPanel", () => {
 
 		expect(
 			screen.queryByRole("group", { name: "Suggested starting points" })
-		).toBeNull();
+		).toBeTruthy();
 	});
 
 	it("does not offer starter actions when the Center Agent DM is read-only", () => {
@@ -2724,9 +2773,9 @@ describe("SpaceConversationPanel", () => {
 		);
 		expect(jumpButton.getAttribute("data-variant")).toBe("secondary");
 		expect(jumpButton.className).toContain("border-border");
-		expect(jumpButton.className).toContain("bg-background/95");
+		expect(jumpButton.className).toContain("bg-popover/60");
 		expect(jumpButton.className).toContain("backdrop-blur-sm");
-		expect(jumpButton.className).toContain("shadow-md");
+		expect(jumpButton.className).toContain("shadow-xs");
 		expect(jumpButton.className).not.toContain("ring-background");
 		expect(jumpButton.className).not.toContain("shadow-lg");
 		expect(jumpButton.className).toContain("data-[active=false]:blur-[6px]");
@@ -3647,10 +3696,10 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.getByRole("dialog", { name: "Message details" })
 		).toBeTruthy();
+		expect(screen.getByText(detailedFailure)).toBeTruthy();
 		expect(
-			screen.getByText("Codex 5.6 Sol could not complete this Wake.")
-		).toBeTruthy();
-		expect(screen.queryByText(detailedFailure)).toBeNull();
+			screen.queryByText("Codex 5.6 Sol could not complete this Wake.")
+		).toBeNull();
 	});
 
 	it("does not execute a fresh Wake through Message details recovery", async () => {

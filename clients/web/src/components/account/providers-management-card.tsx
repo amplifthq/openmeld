@@ -15,6 +15,7 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@openmeld/ui/components/dialog";
+import { Surface } from "@openmeld/ui/fluid/surface";
 import {
 	DeviceMobileIcon,
 	EnvelopeIcon,
@@ -155,7 +156,7 @@ function ProviderRowLayout({
 	warning?: string | null;
 }) {
 	return (
-		<div className="space-y-2 border border-border p-3">
+		<Surface className="space-y-2 p-3">
 			<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 				<div className="flex items-center gap-2">
 					<span className="text-muted-foreground">{providerIcon(card.id)}</span>
@@ -169,7 +170,7 @@ function ProviderRowLayout({
 			{warning ? (
 				<p className="text-muted-foreground text-xs">{warning}</p>
 			) : null}
-		</div>
+		</Surface>
 	);
 }
 
@@ -208,8 +209,8 @@ function PasskeyManageDialog({
 						</p>
 					) : (
 						passkeys.map((passkey) => (
-							<div
-								className="flex items-center justify-between border border-border p-2"
+							<Surface
+								className="flex items-center justify-between p-2"
 								key={passkey.id}
 							>
 								<div className="space-y-0.5">
@@ -235,7 +236,7 @@ function PasskeyManageDialog({
 								>
 									<TrashIcon className="size-3" />
 								</Button>
-							</div>
+							</Surface>
 						))
 					)}
 				</div>

@@ -15,10 +15,16 @@ import { useEffect } from "react";
 import { ApplicationErrorState } from "#/components/app/application-error-state";
 import { PublicPageHeader } from "#/components/app/public-page-header";
 import { AppearanceShapeProvider } from "#/components/appearance/appearance-shape-provider";
+import { GlobalThemeShortcut } from "#/components/global-theme-shortcut";
 import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
 import { Toaster } from "#/components/ui/sonner";
 import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-slot";
 import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-preference";
+import {
+	summarizeApplicationError,
+	WEB_ERROR_BUILD,
+} from "#/lib/observability/application-error";
+import { submitApplicationErrorReport } from "#/lib/observability/application-error-client";
 import { buildPublicPageHead, siteConfig } from "#/lib/site";
 import { SPACE_CONVERSATION_LAYOUT_BOOTSTRAP_SCRIPT } from "#/lib/spaces/conversation-layout-preference";
 import { SPACE_SELF_MESSAGE_ALIGNMENT_BOOTSTRAP_SCRIPT } from "#/lib/spaces/self-message-alignment-preference";
@@ -187,6 +193,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 				>
 					<AppearanceShapeProvider>
 						<ThemeColorMeta />
+						<GlobalThemeShortcut />
 						<TooltipProvider>
 							<NuqsAdapter>{children}</NuqsAdapter>
 						</TooltipProvider>
@@ -238,14 +245,21 @@ export function RootErrorComponent({ error }: ErrorComponentProps) {
 		"importing a module script failed",
 		"unable to preload css for",
 	].some((fragment) => normalizedMessage.includes(fragment));
-	let description = "Unhandled application error.";
+	let description =
+		"Try refreshing the page, or go back to where you left off.";
 	let displayMessage = message;
 	if (isEnvError) {
-		description = "Environment configuration is invalid. See details below.";
+		description = "OpenMeld could not start this page. Try again in a moment.";
 	} else if (isClientVersionError) {
 		description = "OpenMeld was updated while this page was open.";
 		displayMessage = "Refresh to load the latest version.";
 	}
+
+	const errorDetails =
+		error instanceof Error ? (error.stack ?? message) : message;
+	const diagnosticDetails = isClientVersionError
+		? JSON.stringify(summarizeApplicationError(error), null, 2)
+		: errorDetails;
 
 	return (
 		<div className="min-h-svh bg-background">
@@ -253,14 +267,16 @@ export function RootErrorComponent({ error }: ErrorComponentProps) {
 			<main className="flex min-h-[calc(100svh-3.5rem)] w-full items-center justify-center px-4 py-6 sm:px-6">
 				<ApplicationErrorState
 					description={description}
+					details={`${diagnosticDetails}\n\nBuild: ${WEB_ERROR_BUILD.id ?? "development"}\nSource: ${WEB_ERROR_BUILD.sha ?? "local"}`}
 					message={displayMessage}
 					onAction={() => {
 						if (typeof window !== "undefined") {
 							window.location.reload();
 						}
 					}}
+					onReport={() => submitApplicationErrorReport(error)}
 				>
-					{isEnvError ? (
+					{isEnvError && import.meta.env.DEV ? (
 						<div className="space-y-1 text-left text-muted-foreground text-xs">
 							<p>Quick fix checklist:</p>
 							<p>

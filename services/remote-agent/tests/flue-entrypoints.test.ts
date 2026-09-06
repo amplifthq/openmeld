@@ -17,7 +17,6 @@ import {
   createFlueCenterAgentAdmissionHost,
   reconcileAndRedeliverRemoteAgentCallbacks,
   redeliverRemoteAgentCallbacksAndScheduleNextRetry,
-  scheduleRemoteAgentCallbackRetry,
 } from "../flue-adapter/center-agent-admission";
 import {
   type CenterAgentNamespace,
@@ -404,7 +403,7 @@ describe("Flue Cloudflare entrypoints", () => {
       async (_request: Request): Promise<Response> =>
         Response.json({
           acceptedAt: new Date(TEST_NOW_MS).toISOString(),
-          dispatchId: request.dispatchId,
+          submissionId: request.dispatchId,
         })
     );
     const host = createFlueCenterAgentAdmissionHost({
@@ -442,12 +441,13 @@ describe("Flue Cloudflare entrypoints", () => {
       );
       await expect(flueRequest?.json()).resolves.toEqual({
         acceptedAt: new Date(TEST_NOW_MS).toISOString(),
-        agent: "center-agent",
-        dispatchId: request.dispatchId,
+        agent: "center-agent-v2",
+        submissionId: request.dispatchId,
         id: request.spaceId,
-        input: {
-          message: buildRemoteAgentPromptMessage(request),
-          images: [
+        message: {
+          kind: "user",
+          body: buildRemoteAgentPromptMessage(request),
+          attachments: [
             {
               type: "image",
               data: "AQID",
@@ -468,23 +468,6 @@ describe("Flue Cloudflare entrypoints", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("schedules callback retry with an idempotent Flue task", async () => {
-    const schedule = vi.fn(async () => undefined);
-
-    await scheduleRemoteAgentCallbackRetry({
-      dueAtIso: new Date(TEST_NOW_MS + 12_500).toISOString(),
-      nowMs: () => TEST_NOW_MS,
-      schedule,
-    });
-
-    expect(schedule).toHaveBeenCalledWith(
-      13,
-      "retryRemoteAgentCallbacks",
-      undefined,
-      { idempotent: true }
-    );
   });
 
   it("reconciles durable failures from the callback alarm before continuing ordinary redelivery", async () => {
@@ -588,7 +571,7 @@ describe("Flue Cloudflare entrypoints", () => {
       expect(schedule).toHaveBeenCalledWith(
         1,
         "retryRemoteAgentCallbacks",
-        undefined,
+        expect.objectContaining({ retryAt: expect.any(Number) }),
         { idempotent: true }
       );
     } finally {
@@ -749,7 +732,7 @@ describe("Flue Cloudflare entrypoints", () => {
     expect(schedule).toHaveBeenCalledWith(
       5,
       "retryRemoteAgentCallbacks",
-      undefined,
+      expect.objectContaining({ retryAt: expect.any(Number) }),
       { idempotent: true }
     );
   });
@@ -802,7 +785,7 @@ describe("Flue Cloudflare entrypoints", () => {
     expect(schedule).toHaveBeenCalledWith(
       60,
       "retryRemoteAgentCallbacks",
-      undefined,
+      expect.objectContaining({ retryAt: expect.any(Number) }),
       { idempotent: true }
     );
     await expect(storage.get(expiredReceiptKey)).resolves.toEqual({

@@ -129,7 +129,7 @@ describe("SpaceMessageBody", () => {
 		expect(mentionButton).toBe(mention);
 		expect(mentionButton.className).toContain("items-center");
 		expect(mentionButton.className).toContain("gap-1");
-		expect(mentionButton.className).toContain("align-middle");
+		expect(mentionButton.className).toContain("align-baseline");
 		const atMark = mention?.querySelector('[aria-hidden="true"]');
 		expect(atMark?.textContent).toBe("@");
 		expect(mention?.childNodes.item(2).textContent).toBe(

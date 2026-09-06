@@ -102,23 +102,26 @@ describe("SettingsNav", () => {
       expect(indicator).toBeTruthy();
       return indicator;
     });
-    expect(activeIndicator?.className).toContain("bg-surface-6");
+    expect(activeIndicator?.className).toContain("bg-interaction-active");
     expect(activeIndicator?.className).not.toContain("bg-sidebar-accent");
 
     const nav = view.container.querySelector(
       '[data-slot="settings-nav"]'
     ) as HTMLElement;
-    fireEvent.mouseEnter(nav);
-    fireEvent.mouseMove(nav, { clientX: 0, clientY: 45 });
+    fireEvent.mouseEnter(nav.querySelector("ul") as HTMLElement);
+    fireEvent.mouseMove(nav.querySelector("ul") as HTMLElement, {
+      clientX: 0,
+      clientY: 45,
+    });
 
     const hoverIndicator = await waitFor(() => {
       const indicator = view.container.querySelector(
-        '[data-slot="fluid-nav-menu-hover-indicator"]'
+        '[data-slot="sidebar-menu-hover-indicator"]'
       );
       expect(indicator).toBeTruthy();
       return indicator;
     });
-    expect(hoverIndicator?.className).toContain("bg-surface-5");
+    expect(hoverIndicator?.className).toContain("bg-interaction-hover");
     expect(hoverIndicator?.className).not.toContain("bg-sidebar-accent");
   });
 

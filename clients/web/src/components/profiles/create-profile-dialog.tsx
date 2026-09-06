@@ -84,6 +84,7 @@ import {
 	createProfileWithFollowUps,
 	type SpaceJoinedProfileReference,
 } from "#/lib/profiles/create-profile-orchestration";
+import { resolveLocalAgentCreationGuidance } from "#/lib/profiles/local-agent-creation-guidance";
 import {
 	bindableLocalAgentIdsFromTarget,
 	resolveProfileBindingCatalogExecutionTarget,
@@ -465,12 +466,6 @@ export function CreateAgentProfilePage(
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col px-5 py-8 sm:px-8 lg:px-12">
 			<div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-6">
-				<header className="grid shrink-0 gap-1.5">
-					<h1 className="font-medium text-2xl tracking-tight">{view.title}</h1>
-					<p className="max-w-2xl text-pretty text-muted-foreground text-sm leading-6">
-						{view.description}
-					</p>
-				</header>
 				<AgentProfileGenerator
 					form={view.formProps}
 					onCancel={input.onCancel}
@@ -744,20 +739,29 @@ function useCreateProfileDialogController(
 	});
 	const recoveryActionHref = buildConnectComputerPath({
 		orgSlug,
+		returnTo: "agent_creation",
 		session: "fresh",
 	});
 	const localAgentEmptyState = resolveLocalAgentEmptyState({
 		centerAgentHref: orgSlug
 			? buildOrganizationCenterAgentChatPath(orgSlug)
 			: null,
-		computerHref:
-			orgSlug && bindingTarget
-				? buildOrganizationComputerPath({
-						deviceId: bindingTarget.deviceId,
-						orgSlug,
-					})
-				: null,
-		hasBindingTarget: Boolean(bindingTarget),
+		computerHref: recoveryActionHref,
+		guidance: resolveLocalAgentCreationGuidance({
+			queryFailed:
+				recovery.localRuntimesQuery.isError ||
+				recovery.currentDeviceTargetQuery.isError ||
+				recovery.currentLocalRuntimeReplyReadinessQuery.isError,
+			readiness: recovery.currentLocalRuntimeReplyReadinessQuery.data,
+			target: bindingTarget,
+		}),
+		onRetry: () => {
+			recovery
+				.refreshAll()
+				.catch((error: unknown) =>
+					console.error("Could not refresh local agents for creation.", error)
+				);
+		},
 		ownerMode,
 		recoveryActionHref,
 	});
@@ -1115,6 +1119,15 @@ function useCreateProfileDialogController(
 			ownerMode,
 		}),
 		agentOwnershipSlot: ownerChoice,
+		agentOwnerAvatar: {
+			userId: ownerMode === "teammate" ? targetOwnerUserId : currentUserId,
+			imageUrl:
+				organizationDirectoryQuery.data?.members.find(
+					(member) =>
+						member.userId ===
+						(ownerMode === "teammate" ? targetOwnerUserId : currentUserId)
+				)?.user.image ?? null,
+		},
 		agentOwnershipSummary: resolveAgentOwnershipSummary({
 			ownerMode,
 			targetOwnerName,
@@ -2538,7 +2551,8 @@ function resolveAgentControllerRef(boundAgentId: string): string {
 function resolveLocalAgentEmptyState(input: {
 	centerAgentHref: string | null;
 	computerHref: string | null;
-	hasBindingTarget: boolean;
+	guidance: ReturnType<typeof resolveLocalAgentCreationGuidance>;
+	onRetry: () => void;
 	ownerMode: AgentProfileOwnerMode;
 	recoveryActionHref: string;
 }): AgentProfileLocalAgentEmptyState {
@@ -2549,7 +2563,15 @@ function resolveLocalAgentEmptyState(input: {
 			primaryActionHref: null,
 		};
 	}
-	if (input.hasBindingTarget) {
+	if (input.guidance === "check_failed" || input.guidance === "checking") {
+		return {
+			kind: input.guidance,
+			centerAgentHref: input.centerAgentHref,
+			primaryActionHref: null,
+			onRetry: input.onRetry,
+		};
+	}
+	if (input.guidance === "set_up_local_agents") {
 		return {
 			centerAgentHref: input.centerAgentHref,
 			kind: "set_up_local_agents",

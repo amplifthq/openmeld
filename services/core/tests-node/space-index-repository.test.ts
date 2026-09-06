@@ -19,6 +19,103 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("space index AccountSpaces read model", () => {
+  it("opts in to the first three active members without exposing other Spaces", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      const members = ["human-1", "human-2", "agent-1", "agent-2"].map(
+        (profileId, index) => ({
+          ...createMember({
+            addedAt: `2026-04-10T00:0${index + 1}:00.000Z`,
+            profileId,
+            profileKindSnapshot: profileId.startsWith("human")
+              ? ("human" as const)
+              : ("agent" as const),
+            profileNameSnapshot: profileId,
+            spaceId: "shared",
+          }),
+          controllerRefSnapshot: profileId.startsWith("agent") ? "codex" : null,
+        })
+      );
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Shared",
+          spaceId: "shared",
+          updatedAt: "2026-04-11T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createRemovedMember({
+            addedAt: "2026-04-09T00:00:00.000Z",
+            removedAt: "2026-04-10T00:00:00.000Z",
+            profileId: "removed",
+            profileNameSnapshot: "Removed",
+            profileKindSnapshot: "human",
+            spaceId: "shared",
+          }),
+          ...members.reverse(),
+        ],
+      });
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Private",
+          spaceId: "private",
+          updatedAt: "2026-04-11T00:00:00.000Z",
+        }),
+        memberRecords: [
+          {
+            ...createMember({
+              addedAt: "2026-04-10T00:00:00.000Z",
+              profileId: "other",
+              profileNameSnapshot: "Other",
+              profileKindSnapshot: "human",
+              spaceId: "private",
+            }),
+            ownerUserIdSnapshot: "owner-other",
+          },
+        ],
+      });
+      const input = {
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 500,
+        ownerUserId: "owner-1",
+        scope: "account" as const,
+        selectedProfileId: "human-1",
+      };
+      const legacy = await listAccountSpacesFromSpaceIndex(input);
+      expect(legacy.spaceItems[0]).not.toHaveProperty("memberPreviews");
+      const result = await listAccountSpacesFromSpaceIndex({
+        ...input,
+        includeMemberPreviews: true,
+      });
+      expect(result.spaceItems.map((item) => item.spaceId)).toEqual(["shared"]);
+      expect(result.spaceItems[0]?.memberPreviews).toEqual([
+        {
+          profileId: "human-1",
+          profileName: "human-1",
+          profileKind: "human",
+          agentControllerRef: null,
+        },
+        {
+          profileId: "human-2",
+          profileName: "human-2",
+          profileKind: "human",
+          agentControllerRef: null,
+        },
+        {
+          profileId: "agent-1",
+          profileName: "agent-1",
+          profileKind: "agent",
+          agentControllerRef: "codex",
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
   it("projects bounded Space entry guidance without reading Space content", async () => {
     const harness = createSpaceIndexHarness();
     try {

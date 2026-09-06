@@ -430,7 +430,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		});
 	});
 
-	it("keeps standalone App Connect completion visible until the user returns", async () => {
+	it("keeps standalone Plugin Connect completion visible until the user returns", async () => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
 		useBringAgentsSetupContextMock.mockReturnValue(
 			createSetupContext(

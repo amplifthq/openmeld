@@ -71,7 +71,7 @@ describe("RootErrorComponent", () => {
 		for (const oldTab of publicHeader.oldTabs) {
 			expect(oldTab).toBeNull();
 		}
-		expect(screen.getByText("Application Error")).toBeTruthy();
+		expect(screen.getByText("This page couldn’t load.")).toBeTruthy();
 		expect(
 			screen.getByText("resolveServiceAction is not defined")
 		).toBeTruthy();

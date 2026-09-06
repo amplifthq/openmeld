@@ -17,6 +17,7 @@ export type ItemRect = {
 
 type UseProximityHoverOptions = {
   axis?: "x" | "y";
+  isItemDisabled?: (element: HTMLElement) => boolean;
   measureOnRegister?: "raf" | "sync";
 };
 
@@ -37,6 +38,7 @@ type UseProximityHoverReturn = {
 type PointerPositionEvent = {
   clientX: number;
   clientY: number;
+  target?: EventTarget | null;
 };
 
 type ResolvedAxisMetrics = {
@@ -170,7 +172,7 @@ export function useProximityHover<T extends HTMLElement>(
   containerRef: RefObject<T | null>,
   options: UseProximityHoverOptions = {}
 ): UseProximityHoverReturn {
-  const { axis = "y", measureOnRegister = "raf" } = options;
+  const { axis = "y", measureOnRegister = "raf", isItemDisabled } = options;
   const itemsRef = useRef(new Map<number, HTMLElement>());
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [itemRects, setItemRects] = useState<ItemRect[]>([]);
@@ -188,15 +190,25 @@ export function useProximityHover<T extends HTMLElement>(
     }
     const rects: ItemRect[] = [];
     itemsRef.current.forEach((element, index) => {
-      // Use offset* instead of getBoundingClientRect so measurements are
-      // unaffected by CSS transforms (e.g. scaleY animation on the parent
-      // motion.div). offsetTop/offsetLeft are layout values relative to the
-      // offsetParent (the scroll container), matching the coordinate space
-      // used by `position: absolute` children.
+      if (isItemDisabled?.(element)) {
+        return;
+      }
+      // Layout offsets stay stable while a containing panel transforms.
+      // A menu button may be inside positioned list items; sum that chain
+      // instead of treating every button's local offsetTop (often 0) as its
+      // position in the overlay container.
+      let top = element.offsetTop;
+      let left = element.offsetLeft;
+      let parent = element.offsetParent as HTMLElement | null;
+      while (parent && parent !== container) {
+        top += parent.offsetTop + parent.clientTop;
+        left += parent.offsetLeft + parent.clientLeft;
+        parent = parent.offsetParent as HTMLElement | null;
+      }
       rects[index] = {
-        top: element.offsetTop,
+        top,
+        left,
         height: element.offsetHeight,
-        left: element.offsetLeft,
         width: element.offsetWidth,
       };
     });
@@ -206,7 +218,7 @@ export function useProximityHover<T extends HTMLElement>(
 
     itemRectsRef.current = rects;
     setItemRects(rects);
-  }, [containerRef]);
+  }, [containerRef, isItemDisabled]);
 
   const scheduleMeasureItems = useCallback(() => {
     if (resizeRafIdRef.current !== null) {
@@ -278,6 +290,18 @@ export function useProximityHover<T extends HTMLElement>(
   const handleMouseMove = useCallback(
     (event: PointerPositionEvent) => {
       const mousePosition = axis === "x" ? event.clientX : event.clientY;
+      // The browser has already hit-tested the pointer. Reuse that result
+      // inside a row instead of forcing layout immediately after :hover
+      // invalidated its styles. Gaps still use proximity geometry.
+      const target = event.target instanceof Node ? event.target : null;
+      let hitIndex: number | null = null;
+      if (target) {
+        for (const [index, element] of itemsRef.current) {
+          if (element.contains(target) && !isItemDisabled?.(element)) {
+            hitIndex = index;
+          }
+        }
+      }
 
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current);
@@ -290,16 +314,17 @@ export function useProximityHover<T extends HTMLElement>(
           return;
         }
         setActiveIndex(
-          resolveClosestIndex({
-            axis,
-            container,
-            mousePosition,
-            rects: itemRectsRef.current,
-          })
+          hitIndex ??
+            resolveClosestIndex({
+              axis,
+              container,
+              mousePosition,
+              rects: itemRectsRef.current,
+            })
         );
       });
     },
-    [axis, containerRef]
+    [axis, containerRef, isItemDisabled]
   );
 
   const handleMouseEnter = useCallback(() => {

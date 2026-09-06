@@ -27,6 +27,7 @@ export function resolveTrustedOrigins(
   addOrigin(origins, input.appUrl);
 
   if (input.env === "development") {
+    addConfiguredLoopbackAliases(origins, input.appUrl);
     for (const origin of LOCAL_DEV_ORIGINS) {
       origins.add(origin);
     }
@@ -38,6 +39,31 @@ export function resolveTrustedOrigins(
   }
 
   return Array.from(origins);
+}
+
+function addConfiguredLoopbackAliases(
+  origins: Set<string>,
+  appUrl: string
+): void {
+  const origin = normalizeToOrigin(appUrl);
+  if (!origin) {
+    return;
+  }
+  const url = new URL(origin);
+  if (
+    url.hostname !== "localhost" &&
+    url.hostname !== "127.0.0.1" &&
+    url.hostname !== "[::1]" &&
+    !url.hostname.endsWith(".localhost")
+  ) {
+    return;
+  }
+  // Derive aliases from trusted configuration, never from the request's Origin.
+  // Preserve its port so another worktree does not gain cookie-write access.
+  for (const hostname of ["localhost", "127.0.0.1", "[::1]"]) {
+    url.hostname = hostname;
+    origins.add(url.origin);
+  }
 }
 
 function addOrigin(origins: Set<string>, value: string | undefined): void {

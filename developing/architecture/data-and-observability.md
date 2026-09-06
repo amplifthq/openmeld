@@ -20,6 +20,36 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Space message previews and slow Web experiences
+
+Space owns message preview truth. Message publication and retention capture a
+bounded text preview and a monotonically increasing Space-local revision into
+the existing durable Space index outbox. Core projects this into
+`space_index_spaces`; delayed retries cannot overwrite a newer revision.
+AccountSpaces attaches previews only to its already-authorized result set, in
+bounded D1 batches, when `includeMessagePreviews=true`. Older strict clients
+receive the unchanged shape. A null preview means no retained text message;
+an omitted preview has not been projected. Existing Spaces are repaired ten at
+a time after the minute scheduler's delivery work, with delayed retries.
+
+Web reports threshold-crossing experiences to its same-origin
+`/v1/observability/performance` receiver. Search Worker logs for
+`web.openmeld.slow_experience`. Reports contain build identity, an ephemeral
+page-session ID, route templates, navigation lifecycle duration, request-category
+counts/durations and long-task summaries. They exclude message text, profile
+identity, concrete URLs, query strings, and resource names. They do not prove
+that independently fetched conversation content has finished rendering.
+
+Tune `clients/web/src/lib/observability/performance-policy.ts`: navigation
+defaults to 1500 ms, interactions to 250 ms, and reporting to twenty events per
+page session per hour. A pending navigation produces an observation after at
+least five seconds. Hidden-page navigation is excluded. Policy changes ship
+with Web; existing clients refresh policy on navigation after five minutes.
+The receiver validates payload size/shape and applies the current threshold
+and a best-effort per-isolate volume cap. These diagnostics are sampled failure
+evidence, not a complete traffic or latency distribution. Worker log retention
+governs how far back an investigation can look.
+
 ## Boundary
 
 OpenMeld data and observability exist to support the main product chain:
@@ -66,6 +96,17 @@ host and must fail closed. It gives Auth no write authority over Center Agent or
 Agent Profile state; Core remains the only owner and writer of those facts.
 
 ## Durable Data Domains
+
+The Space execution-input outbox owns reliable forwarding of already-authorized
+human corrections to one native Center Agent execution. The Space is its only
+writer. It atomically retains the human Signal and exact request, including
+the original Signal ID for idempotent retries. It cannot rebuild an unsent
+request from a chat summary or retarget it to the next execution. Its runtime
+receipt is a projection, not execution truth. The Remote Agent intake owns
+durable receipt; Flue owns canonical conversation application and acknowledges
+it only after the input is recorded there. Core retries pending forwarding
+through the existing Space alarm and retains terminal receipts for replay.
+Deleting the Space removes its input outbox with the rest of Space data.
 
 OpenMeld separates durable truth from query projections.
 
@@ -122,6 +163,14 @@ The long-term data domains are:
 Auth also owns the account's last-selected Organization entry preference. Auth
 is its only writer and accepts a selection only while the account has a current
 membership in that Organization.
+
+Auth also owns `account_sidebar_preferences`, keyed by account user ID and
+Organization ID. It stores personal group names, opaque Space IDs, section sort
+modes, and manual ordering. Membership gates reads and writes; revision-checked
+updates reject stale devices instead of overwriting newer preferences. These
+preferences never grant Space access, write pins, or change Space membership.
+The Web renders only Spaces returned by the existing authorized Space Index.
+Deleting a personal group removes its presentation association only.
 
 | Domain                             | Product role                                                                                                                                                                                        | Ownership rule                                                                                                                                                                                                                                                                                                                                                         |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -754,6 +803,15 @@ Examples:
   Gateway-scoped candidate Space ids in the same pin, join, name, and id order
   as the Account Space Index list. They must not run a separate unordered limit
   that can inspect a different subset of the member's Spaces.
+- Account Space member previews are opt-in (`includeMemberPreviews=true`).
+  Enrich only the authorized candidate list from active membership projections,
+  selecting at most three profiles by added time and profile id. The existing
+  active-member count remains the total; the preview is not another membership
+  authority. Batch reads stay under D1's parameter limit and do not contact each
+  Space Durable Object. Legacy callers receive no new response field.
+  Rollout requires Core and Gateway support before Web enables this opt-in query.
+  CLI, Service, Skills, setup, Wake dispatch, Space publication, and diagnostics
+  contracts are unchanged; no local-component contract bump is required.
 - The Space-owned Direct Message conversion timestamp projects to
   `space_index_spaces.direct_message_converted_at_ms`. It is an irreversible
   classification fact, not a client hint: reusable-DM lookup excludes converted
@@ -2855,6 +2913,9 @@ CLI trace, operator trace shortcuts, dispatch trace reads, Web Wake waterfall,
 Diagnostic Reports, and claim execution diagnostics all read or derive from the
 same Wake correlation model. They must not invent separate selector rules,
 separate field priority rules, or separate observability schemas.
+Dispatch and attempt status validation uses the shared trace schemas directly.
+A legitimate cancelled dispatch or profile-queue wait must not disappear from
+diagnostics because a reader maintains an older private status list.
 
 For Remote Agent dispatches, runtime diagnostics use the exact runtime
 conversation identity frozen in that dispatch's native-delivery request. The

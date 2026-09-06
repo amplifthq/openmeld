@@ -105,7 +105,7 @@ describe("deriveActivityView", () => {
 		expect(view.nowCards).toHaveLength(1);
 		expect(view.nowCards[0]).toMatchObject({
 			durationLabel: "26m",
-			sessionName: "Codex App session",
+			sessionName: "Codex Plugin session",
 		});
 		expect(
 			view.memberLanes
@@ -521,7 +521,7 @@ describe("deriveActivityView", () => {
 
 describe("formatProvider", () => {
 	it("preserves the client-specific public provider name", () => {
-		expect(formatProvider(session())).toBe("Codex App");
+		expect(formatProvider(session())).toBe("Codex Plugin");
 	});
 
 	it("names Cursor IDE and CLI activity explicitly", () => {

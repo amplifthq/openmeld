@@ -1,6 +1,7 @@
 import { resolveCommandAgentWorkActivity } from "@openmeld/schemas";
 import type { AgentWorkActivity } from "@openmeld/schemas/types";
 import { resolveConnectedAppDisplayName } from "../agent-core/connector-service-presentation";
+import { isRemoteAgentDestructiveConfirmationResult } from "../agent-core/destructive-authorization";
 
 type AgentWorkActivityKey = AgentWorkActivity["key"];
 type AgentWorkSubject = NonNullable<AgentWorkActivity["subject"]>;
@@ -255,7 +256,8 @@ const WEBSITE_SUBJECT_TOOL_NAMES = new Set([
 
 export function resolveRemoteAgentToolWorkActivity(
   toolName: unknown,
-  toolInput: unknown
+  toolInput: unknown,
+  toolResult?: unknown
 ): AgentWorkActivity | null {
   if (typeof toolName !== "string") {
     return null;
@@ -267,7 +269,14 @@ export function resolveRemoteAgentToolWorkActivity(
     if (CONNECTED_APP_SUBJECT_TOOL_NAMES.has(toolName) && !subject) {
       return null;
     }
-    return { key, v: 1, ...(subject ? { subject } : {}) };
+    return {
+      key,
+      v: 1,
+      ...(subject ? { subject } : {}),
+      ...(isRemoteAgentDestructiveConfirmationResult(toolResult)
+        ? { outcome: "confirmation_required" as const }
+        : {}),
+    };
   }
   if (toolName !== "bash") {
     return null;

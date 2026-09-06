@@ -204,7 +204,7 @@ function TeamOpenMeldServiceCard(input: {
 					<span
 						aria-hidden="true"
 						className={cn(
-							"h-2 w-2 shrink-0 rounded-full",
+							"status-dot",
 							resolveStatusToneIndicatorClassName(status.tone)
 						)}
 					/>
@@ -910,7 +910,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 						<span
 							aria-hidden="true"
 							className={cn(
-								"h-2 w-2 shrink-0 rounded-full",
+								"status-dot",
 								resolveOpenMeldServiceStatusDotClassName(display.tone)
 							)}
 						/>
@@ -1031,7 +1031,7 @@ function resolveOpenMeldToolsServiceBoundaryDisplay(
 				label: RECONNECT_MANUALLY_LABEL,
 				path: input.setupPath,
 			},
-			statusLabel: "Computer not connected",
+			statusLabel: "Disconnected",
 			tone: "muted",
 		};
 	}

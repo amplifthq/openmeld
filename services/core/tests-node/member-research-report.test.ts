@@ -156,7 +156,7 @@ describe("member research report quality", () => {
       "[Google Drive: drive:file-42](https://drive.google.com/open?id=file-42)"
     );
     expect(draft).toContain("| Slack channel history | Checked |");
-    expect(draft).toContain("| Connected Apps | Checked |");
+    expect(draft).toContain("| Connected Plugins | Checked |");
   });
 
   it("preserves the approved About section verbatim", () => {

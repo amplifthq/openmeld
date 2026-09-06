@@ -209,6 +209,12 @@ Signals itself, read Flue storage, infer authorization from a conversation or
 session id, or construct its own summary. Each page is independently
 authorized, source-linked, and audited.
 
+`--conversation <space-id>` selects one exact Center Agent session. This is
+separate from `--session`, which only overrides the Local Agent source locator.
+An unavailable selected conversation fails instead of reading a different
+chat. Omitting `--conversation` retains the default conversation behavior;
+session-aware callers must pass their selection on each context page.
+
 Token-budget pages are contiguous. Core never advances the cursor past a
 visible message that cannot be materialized inside the requested budget. If
 that message's required metadata cannot fit even with empty text, Core returns

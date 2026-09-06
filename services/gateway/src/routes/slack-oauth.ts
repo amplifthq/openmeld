@@ -18,6 +18,7 @@ const SLACK_IDENTITY_AUTHORIZE_URL =
   "https://slack.com/openid/connect/authorize";
 export const SLACK_BOT_SCOPES = [
   "app_mentions:read",
+  "assistant:write",
   "bookmarks:read",
   "bookmarks:write",
   "canvases:read",

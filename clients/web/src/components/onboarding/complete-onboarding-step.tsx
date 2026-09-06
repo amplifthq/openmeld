@@ -101,7 +101,7 @@ function buildOnboardingOutcomes(input: {
 	if (input.memoryEnabled) {
 		outcomes.push({
 			description: input.isPersonal
-				? "Your Center Agent can remember useful context from your Spaces and connected Apps."
+				? "Your Center Agent can remember useful context from your Spaces and connected Plugins."
 				: "Your Center Agent can use shared context from Spaces and connected channels.",
 			icon: <BrainIcon weight="duotone" />,
 			title: input.isPersonal

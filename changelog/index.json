@@ -2,6 +2,125 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "connect-cloudflare-r2-with-an-api-token",
+      "title": "Connect Cloudflare R2 with an API token",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "plugins"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-09-06",
+      "evidence": [
+        "pr:689",
+        "pr:693",
+        "commit:5bffe90ba001eec03f043797a61940fc922d9e06"
+      ],
+      "body": "Connect Cloudflare R2 using an API token and account ID from its Plugin page.\nThe token option is available for both personal and organization access."
+    },
+    {
+      "id": "slack-agent-connection-permission",
+      "title": "Connect Slack with Agent status support",
+      "kind": "improved",
+      "areas": [
+        "channels",
+        "center-agent"
+      ],
+      "audiences": [
+        "admins",
+        "members"
+      ],
+      "publishedAt": "2026-09-06",
+      "evidence": [
+        "pr:689",
+        "pr:693",
+        "commit:5bffe90ba001eec03f043797a61940fc922d9e06"
+      ],
+      "body": "Connecting Slack now requests the permission needed to show the Center Agent's\nworking status in threads. Existing Slack apps can enable the Agent experience\nand grant the added permission without creating a replacement app."
+    },
+    {
+      "id": "distinguish-confirmation-from-completed-actions",
+      "title": "Distinguish confirmation requests from completed actions",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "plugins"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-06",
+      "evidence": [
+        "pr:689",
+        "pr:693",
+        "commit:5bffe90ba001eec03f043797a61940fc922d9e06"
+      ],
+      "body": "Center Agent work summaries identify actions that are waiting for confirmation\ninstead of describing them as already executed. Confirmation requests remain\nseparate from completed actions when similar steps are grouped together."
+    },
+    {
+      "id": "reliable-center-agent-command-stops",
+      "title": "Stop Center Agent commands and continue chatting",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "computer",
+        "spaces",
+        "diagnostics"
+      ],
+      "audiences": [
+        "members",
+        "operators"
+      ],
+      "publishedAt": "2026-09-06",
+      "evidence": [
+        "pr:689",
+        "pr:693",
+        "commit:5bffe90ba001eec03f043797a61940fc922d9e06"
+      ],
+      "body": "Stopping a Center Agent request now stops its long-running Computer commands\nwithout stopping commands from another chat. The stopped outcome replaces\ntemporary progress or failure messages, and you can continue the conversation\nafterward.\n\nTemporary callback failures retry until the outcome can be delivered. Stopped\nrequests remain available in diagnostics instead of appearing to be missing.\n\nWhen a Computer runtime is replaced, the Agent receives an explicit command\nloss and can inspect saved files before continuing. Lost commands are not\nsilently relaunched, and cleanup does not turn recovered work into a failure."
+    },
+    {
+      "id": "update-center-agent-while-it-works",
+      "title": "Update your Center Agent while it works",
+      "kind": "improved",
+      "areas": [
+        "center-agent",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-06",
+      "evidence": [
+        "pr:689",
+        "pr:693",
+        "commit:5bffe90ba001eec03f043797a61940fc922d9e06"
+      ],
+      "body": "Send a text update in your Center Agent chat while it is working to add a\ncorrection or missing detail to that response. Updates stay attached to the\noriginal response, including during network retries. If an update cannot be\nconfirmed before the response ends, the chat tells you so you can review the\nresult and send it again."
+    },
+    {
+      "id": "separate-center-agent-chats",
+      "title": "Work in separate Center Agent chats",
+      "kind": "new",
+      "areas": [
+        "center-agent",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-06",
+      "evidence": [
+        "pr:689",
+        "pr:693",
+        "commit:5bffe90ba001eec03f043797a61940fc922d9e06"
+      ],
+      "body": "Use New chat to start a separate conversation with your Center Agent, then\nswitch between conversations from Chats. Each chat keeps its own history,\ndraft, and files view, so you can work on several requests at once without\ncombining their conversation context. The chats share your Center Agent's\ncloud Computer."
+    },
+    {
       "id": "clearer-space-profile-popovers",
       "title": "Check Space members without leaving the conversation",
       "kind": "improved",

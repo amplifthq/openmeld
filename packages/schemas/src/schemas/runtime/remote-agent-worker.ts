@@ -221,6 +221,8 @@ export const remoteAgentAdmissionStageOperationSchema = z.enum(
 
 export const REMOTE_AGENT_RPC_OPERATIONS = {
   CANCEL_EXECUTION: "cancelExecution",
+  RECEIVE_EXECUTION_INPUT: "receiveExecutionInput",
+  READ_EXECUTION_INPUT: "readExecutionInput",
   READ_EXECUTION_STATE: "readExecutionState",
   RECONCILE_EXECUTION: "reconcileExecution",
   READ_RUNTIME_DIAGNOSTICS: "readRuntimeDiagnostics",
@@ -715,30 +717,68 @@ export const remoteAgentTurnRuntimeEvidenceSchema = z.strictObject({
   updatedAtMs: z.number().int().nonnegative(),
 });
 
-export const remoteAgentWorkerRuntimeDiagnosticsResponseSchema = z.strictObject(
-  {
-    activeRuns: z.array(remoteAgentRuntimeActiveRunDiagnosticSchema).max(50),
-    attemptMarkers: z
-      .array(remoteAgentRuntimeAttemptMarkerDiagnosticSchema)
-      .max(50),
-    callbackContexts: z
-      .array(remoteAgentRuntimeCallbackContextDiagnosticSchema)
-      .max(50),
-    collectedAt: z.iso.datetime({ offset: true }),
-    durableObjectAlarmAtMs: nullableNonNegativeIntegerSchema,
-    fibers: z.array(remoteAgentRuntimeFiberDiagnosticSchema).max(50),
-    schedules: z.array(remoteAgentRuntimeScheduleDiagnosticSchema).max(50),
-    spaceId: nonEmptyStringSchema,
-    submissions: z.array(remoteAgentRuntimeSubmissionDiagnosticSchema).max(50),
-    // Optional during rolling deploys so a new Core can still inspect an older
-    // Remote Agent generation without misreporting missing evidence as zeroes.
-    turnObservability: z
-      .array(remoteAgentTurnRuntimeEvidenceSchema)
-      .max(50)
-      .optional(),
-    v: z.literal(1),
-  }
-);
+const remoteAgentWorkerRuntimeDiagnosticsResponseV1Schema = z.strictObject({
+  activeRuns: z.array(remoteAgentRuntimeActiveRunDiagnosticSchema).max(50),
+  attemptMarkers: z
+    .array(remoteAgentRuntimeAttemptMarkerDiagnosticSchema)
+    .max(50),
+  callbackContexts: z
+    .array(remoteAgentRuntimeCallbackContextDiagnosticSchema)
+    .max(50),
+  collectedAt: z.iso.datetime({ offset: true }),
+  durableObjectAlarmAtMs: nullableNonNegativeIntegerSchema,
+  fibers: z.array(remoteAgentRuntimeFiberDiagnosticSchema).max(50),
+  schedules: z.array(remoteAgentRuntimeScheduleDiagnosticSchema).max(50),
+  spaceId: nonEmptyStringSchema,
+  submissions: z.array(remoteAgentRuntimeSubmissionDiagnosticSchema).max(50),
+  // Optional during rolling deploys so a new Core can still inspect an older
+  // Remote Agent generation without misreporting missing evidence as zeroes.
+  turnObservability: z
+    .array(remoteAgentTurnRuntimeEvidenceSchema)
+    .max(50)
+    .optional(),
+  v: z.literal(1),
+});
+
+// Core accepts both during the beta-to-Flue-2 rollout. Flue 2 emits only V2;
+// removed upstream fields are not fabricated as empty historical evidence.
+const remoteAgentWorkerRuntimeDiagnosticsResponseV2Schema =
+  remoteAgentWorkerRuntimeDiagnosticsResponseV1Schema
+    .omit({
+      attemptMarkers: true,
+      submissions: true,
+      v: true,
+    })
+    .extend({
+      submissions: z
+        .array(
+          remoteAgentRuntimeSubmissionDiagnosticSchema
+            .omit({
+              maxRetry: true,
+              recoveryRequestedAtMs: true,
+            })
+            .extend({
+              maxAttempts: z.number().int().positive(),
+              joinedInto: nullableNonEmptyStringSchema,
+              status: z.enum([
+                "queued",
+                "running",
+                "terminalizing",
+                "settled",
+                "joining",
+                "joined",
+              ]),
+            })
+        )
+        .max(50),
+      v: z.literal(2),
+    });
+
+export const remoteAgentWorkerRuntimeDiagnosticsResponseSchema =
+  z.discriminatedUnion("v", [
+    remoteAgentWorkerRuntimeDiagnosticsResponseV1Schema,
+    remoteAgentWorkerRuntimeDiagnosticsResponseV2Schema,
+  ]);
 
 const remoteAgentCoreCallbackIdentitySchema = {
   submissionId: nonEmptyStringSchema,

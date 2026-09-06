@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react";
 import { AppGlobalControls } from "#/components/app/app-global-controls";
-import { AppInnerSidebar } from "#/components/app/app-inner-sidebar";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
@@ -26,16 +25,13 @@ export function SpaceWindowShell(input: {
 	const account = useAppShellAccount();
 	return (
 		<SpaceWindowFrame
-			initialSidebarState={input.initialSidebarState}
 			outerRail={
 				<AppOuterRail
 					account={account}
+					contextualNavigation={input.sidebar}
 					initialState={input.initialOuterSidebarState}
 				/>
 			}
-			sidebar={input.sidebar}
-			sidebarPreferenceKey={input.sidebarPreferenceKey}
-			sidebarSeparatorLabel={input.sidebarSeparatorLabel}
 		>
 			{input.children}
 		</SpaceWindowFrame>
@@ -44,51 +40,19 @@ export function SpaceWindowShell(input: {
 
 export function SpaceWindowFrame(input: {
 	children: ReactNode;
-	initialSidebarState?: SidebarPersistedState;
 	outerRail: ReactNode;
-	sidebar?: ReactNode;
-	sidebarPreferenceKey: InnerSidebarPreferenceKey;
-	sidebarSeparatorLabel?: string;
 }) {
 	return (
 		<AppSurfaceLayout
 			frameSlotName="space-window-frame"
 			globalControls={<AppGlobalControls />}
-			mobileSidebarTitle={resolveSpaceWindowSidebarTitle(
-				input.sidebarPreferenceKey
-			)}
 			outerRail={input.outerRail}
-			sidebar={
-				input.sidebar ? (
-					<AppInnerSidebar
-						initialState={input.initialSidebarState}
-						preferenceKey={input.sidebarPreferenceKey}
-						separatorLabel={input.sidebarSeparatorLabel ?? "Resize the sidebar"}
-					>
-						{input.sidebar}
-					</AppInnerSidebar>
-				) : undefined
-			}
 			testId="space-window-frame"
 		>
 			<section className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
 				{input.children}
 			</section>
 		</AppSurfaceLayout>
-	);
-}
-
-function resolveSpaceWindowSidebarTitle(
-	preferenceKey: InnerSidebarPreferenceKey
-): string {
-	if (preferenceKey === "spaces") {
-		return "Spaces";
-	}
-	if (preferenceKey === "direct-messages") {
-		return "Direct Messages";
-	}
-	throw new Error(
-		`Unsupported Space window sidebar preference: ${preferenceKey}`
 	);
 }
 

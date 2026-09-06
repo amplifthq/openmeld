@@ -35,11 +35,12 @@ describe("CenterAgentHeaderTabs", () => {
 			screen.getByRole("tab", { name: "Tasks" }),
 			screen.getByRole("tab", { name: "Routines" }),
 			screen.getByRole("tab", { name: "Skills" }),
-			screen.getByRole("tab", { name: "Apps" }),
+			screen.getByRole("tab", { name: "Plugins" }),
+			screen.getByRole("tab", { name: "Channels" }),
 		]);
 	});
 
-	it("opens Tasks, Routines, Skills, and Apps from the header", () => {
+	it("opens Tasks, Routines, Skills, and Plugins from the header", () => {
 		render(
 			<CenterAgentHeaderTabs
 				activeSectionId="chat"
@@ -51,7 +52,8 @@ describe("CenterAgentHeaderTabs", () => {
 		fireEvent.click(screen.getByRole("tab", { name: "Tasks" }));
 		fireEvent.click(screen.getByRole("tab", { name: "Routines" }));
 		fireEvent.click(screen.getByRole("tab", { name: "Skills" }));
-		fireEvent.click(screen.getByRole("tab", { name: "Apps" }));
+		fireEvent.click(screen.getByRole("tab", { name: "Plugins" }));
+		fireEvent.click(screen.getByRole("tab", { name: "Channels" }));
 
 		expect(navigateSpy).toHaveBeenNthCalledWith(1, {
 			to: "/o/acme/center-agent/tasks",
@@ -63,7 +65,10 @@ describe("CenterAgentHeaderTabs", () => {
 			to: "/o/acme/center-agent/skills",
 		});
 		expect(navigateSpy).toHaveBeenNthCalledWith(4, {
-			to: "/o/acme/center-agent/apps",
+			to: "/o/acme/center-agent/plugins",
+		});
+		expect(navigateSpy).toHaveBeenNthCalledWith(5, {
+			to: "/o/acme/center-agent/channels",
 		});
 	});
 
@@ -98,7 +103,6 @@ describe("buildCenterAgentHeaderMenuItems", () => {
 				item.to,
 			])
 		).toEqual([
-			["Channels", "/o/acme/center-agent/channels"],
 			["Memory", "/o/acme/center-agent/memory"],
 			["Center Agent settings", "/o/acme/center-agent/settings"],
 		]);

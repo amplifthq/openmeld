@@ -284,6 +284,14 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			},
 			insertMentionTrigger: () => {
 				focusEditorAtSelection(editor, focusWhenReady);
+				// The toolbar opens the picker even after a word. Typed @ keeps
+				// the plugin's whitespace rule, so email addresses stay plain text.
+				const previousChar = editor.api.string(
+					editor.api.range("before", editor.selection)
+				);
+				if (previousChar.trim().length > 0) {
+					editor.tf.insertText(" ");
+				}
 				editor.tf.insertText("@");
 			},
 			selectTextRange: (selection) => {
@@ -523,7 +531,7 @@ function SpaceComposerProfileToken(
 	return (
 		<PlateElement {...props} as="span">
 			<span
-				className="group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-middle text-foreground ring-1 ring-border/70 focus-within:ring-2 focus-within:ring-ring"
+				className="group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-baseline text-foreground ring-1 ring-border/70 focus-within:ring-2 focus-within:ring-ring"
 				contentEditable={false}
 				data-mention-text={element.mentionText}
 				data-testid="space-composer-profile-token"

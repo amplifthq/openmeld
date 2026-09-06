@@ -307,7 +307,10 @@ describe("Agent stream work invariants", () => {
     });
   });
 
-  it("keeps new Connected App work out of the legacy final-reply field", async () => {
+  it.each([
+    undefined,
+    "confirmation_required",
+  ] as const)("preserves Connected App outcome %s outside the legacy final-reply field", async (outcome) => {
     const storage = createStorage();
 
     await applyPart(storage, 1, {
@@ -319,6 +322,7 @@ describe("Agent stream work invariants", () => {
         v: 1,
         key: "connected_app.action.execute",
         subject: { kind: "connected_app", label: "Slack" },
+        ...(outcome ? { outcome } : {}),
       },
     });
 
@@ -365,6 +369,7 @@ describe("Agent stream work invariants", () => {
                   v: 1,
                   key: "connected_app.action.execute",
                   subject: { kind: "connected_app", label: "Slack" },
+                  ...(outcome ? { outcome } : {}),
                 },
               },
             ],

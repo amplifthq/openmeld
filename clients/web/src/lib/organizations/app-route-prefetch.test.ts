@@ -1,16 +1,16 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { organizationAppConnectionQueryKeys } from "#/query/organizations/app-connections";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { organizationPluginConnectionQueryKeys } from "#/query/organizations/plugin-connections";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
 	prefetchAgentsRouteIdentityData,
-	prefetchAppCatalogRouteData,
 	prefetchAppDetailRouteData,
 	prefetchCenterAgentConversationData,
 	prefetchKnownSpaceConversationData,
+	prefetchPluginCatalogRouteData,
 	prefetchSpaceConversationRouteData,
 	prefetchSpacesRouteData,
 	restoreSpaceConversationRouteData,
@@ -177,37 +177,37 @@ describe("organization app route prefetch", () => {
 		queryPersistence = createQueryPersistenceMock();
 	});
 
-	it("warms the App Catalog connection snapshot", async () => {
+	it("warms the Plugin Catalog connection snapshot", async () => {
 		const queryClient = createQueryClient();
 
-		await prefetchAppCatalogRouteData({
+		await prefetchPluginCatalogRouteData({
 			organizationSlug: "acme",
 			queryClient,
 			queryPersistence,
-			routeFamily: "/o/acme/center-agent/apps",
+			routeFamily: "/o/acme/center-agent/plugins",
 		});
 
 		expect(
 			queryClient.getQueryData(
-				organizationAppConnectionQueryKeys.catalog("org-acme")
+				organizationPluginConnectionQueryKeys.catalog("org-acme")
 			)
 		).toEqual(createConnectorResponse());
 	});
 
-	it("warms one App detail connection snapshot without loading the full Catalog", async () => {
+	it("warms one Plugin detail connection snapshot without loading the full Catalog", async () => {
 		const queryClient = createQueryClient();
 
 		await prefetchAppDetailRouteData({
 			organizationSlug: "acme",
 			queryClient,
 			queryPersistence,
-			routeFamily: "/o/acme/center-agent/apps/github",
+			routeFamily: "/o/acme/center-agent/plugins/github",
 			service: "github",
 		});
 
 		expect(
 			queryClient.getQueryData(
-				organizationAppConnectionQueryKeys.service("org-acme", "github")
+				organizationPluginConnectionQueryKeys.service("org-acme", "github")
 			)
 		).toEqual(createConnectorResponse());
 		expect(listCurrentOrganizationAppConnectionsMock).not.toHaveBeenCalled();

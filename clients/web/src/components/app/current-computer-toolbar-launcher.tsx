@@ -285,14 +285,19 @@ function CurrentComputerToolbarStatus(input: {
 function CurrentComputerAttentionIndicator(input: {
 	status: ComputerSummaryStatus | null;
 }) {
-	if (input.status?.tone !== "warning" && input.status?.tone !== "danger") {
+	if (
+		!input.status ||
+		(input.status.reason !== "service_not_connected" &&
+			input.status.tone !== "warning" &&
+			input.status.tone !== "danger")
+	) {
 		return null;
 	}
 	return (
 		<span
 			aria-hidden="true"
 			className={cn(
-				"size-2 shrink-0 rounded-full ring-2 ring-background",
+				"status-dot",
 				resolveStatusToneIndicatorClassName(input.status.tone, "quiet")
 			)}
 			data-testid="current-computer-toolbar-status"

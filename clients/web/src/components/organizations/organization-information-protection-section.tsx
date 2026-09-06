@@ -73,7 +73,10 @@ export function OrganizationInformationProtectionSection(input: {
 
 	return (
 		<SettingsSection
-			action={
+			description="Add organization-specific categories that OpenMeld should not disclose outside an appropriate private context."
+			id="organization-information-protection"
+			title="Information protection"
+			titleAdornment={
 				<Tooltip>
 					<TooltipTrigger
 						render={
@@ -94,9 +97,6 @@ export function OrganizationInformationProtectionSection(input: {
 					</TooltipContent>
 				</Tooltip>
 			}
-			description="Add organization-specific categories that OpenMeld should not disclose outside an appropriate private context."
-			id="organization-information-protection"
-			title="Information protection"
 		>
 			<form className="space-y-4" onSubmit={handleSubmit}>
 				<div className="grid gap-2">

@@ -186,7 +186,9 @@ send an envelope that the active Remote Agent rejects before execution.
 The planner selects the `core-worker-response-reader-first` profile when the
 strict Remote Agent worker-response schema and its Remote Agent producer change
 in the same diff. Within the selected scopes it deploys Database, Auth, Core,
-Remote Agent, Gateway, Web, then CLI. Core must accept the expanded strict
+Gateway, Web, Remote Agent, then CLI. Gateway and Web activity readers also
+precede the runtime so a coordinated release can add activity outcomes without
+emitting them to older readers. Core must accept the expanded strict
 response union before Remote Agent can emit it; otherwise an old Core treats a
 valid new rejection as a protocol error. The schema path alone remains
 non-directional, so request-only changes do not accidentally select this

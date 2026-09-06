@@ -14,11 +14,109 @@ import { attemptSpaceIndexProjectionOutboxRecord } from "../src/space-index/spac
 import { projectActiveSpaceIndexSnapshot } from "../src/space-index/space-index-projection-service";
 import { listAccountSpacesFromSpaceIndex } from "../src/space-index/space-index-repository";
 import {
+  captureSpaceMessagePreview,
+  projectSpaceMessagePreview,
+} from "../src/space-index/space-message-preview";
+import {
   applyDrizzleMigrationsForTables,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("space index projection outbox", () => {
+  it("keeps previews ordered through delayed writes and complete message retention", async () => {
+    const d1 = createSpaceIndexHarness();
+    const spaceSql = createSqlStorageHarness();
+    try {
+      ensureSpaceSqlSchema(spaceSql.sql);
+      await projectActiveSpaceIndexSnapshot({
+        db: d1.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Preview",
+          spaceId: "space-alpha",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-10T00:00:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Mira",
+            spaceId: "space-alpha",
+          }),
+        ],
+      });
+      const empty = captureSpaceMessagePreview(spaceSql.sql);
+      expect(empty.preview).toBeNull();
+      spaceSql.sql.exec(
+        "INSERT INTO space_signals (id, ts, type, profile_id, payload_json) VALUES (?, ?, ?, ?, ?)",
+        "message-1",
+        100,
+        "signal.text",
+        "human-1",
+        JSON.stringify({ data: { text: "Ready for review" } })
+      );
+      const populated = captureSpaceMessagePreview(spaceSql.sql);
+      expect(populated.preview?.text).toBe("Ready for review");
+      await projectSpaceMessagePreview({
+        db: d1.db,
+        spaceId: "space-alpha",
+        ...populated,
+      });
+      await projectSpaceMessagePreview({
+        db: d1.db,
+        spaceId: "space-alpha",
+        ...empty,
+      });
+      const input = {
+        db: d1.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 500,
+        ownerUserId: "owner-1",
+        scope: "account" as const,
+        selectedProfileId: "human-1",
+      };
+      const legacy = await listAccountSpacesFromSpaceIndex(input);
+      expect(legacy.spaceItems[0]).not.toHaveProperty("messagePreview");
+      const current = await listAccountSpacesFromSpaceIndex({
+        ...input,
+        includeMessagePreviews: true,
+      });
+      expect(current.spaceItems[0]?.messagePreview?.text).toBe(
+        "Ready for review"
+      );
+      const unauthorized = await listAccountSpacesFromSpaceIndex({
+        ...input,
+        ownerUserId: "another-owner",
+        includeMessagePreviews: true,
+      });
+      expect(unauthorized.spaceItems).toEqual([]);
+      spaceSql.sql.exec("DELETE FROM space_signals");
+      const retained = captureSpaceMessagePreview(spaceSql.sql);
+      expect(retained.revision).toBeGreaterThan(populated.revision);
+      await projectSpaceMessagePreview({
+        db: d1.db,
+        spaceId: "space-alpha",
+        ...retained,
+      });
+      await projectSpaceMessagePreview({
+        db: d1.db,
+        spaceId: "space-alpha",
+        ...populated,
+      });
+      expect(
+        (
+          await listAccountSpacesFromSpaceIndex({
+            ...input,
+            includeMessagePreviews: true,
+          })
+        ).spaceItems[0]?.messagePreview
+      ).toBeNull();
+    } finally {
+      spaceSql.close();
+      d1.close();
+    }
+  });
   it("keeps failed evidence and retries until AccountSpaces catches up to Space truth", async () => {
     const d1 = createSpaceIndexHarness();
     const spaceSql = createSqlStorageHarness();
@@ -237,7 +335,11 @@ class SqliteSqlStorage {
 
 function isReadStatement(sql: string): boolean {
   const normalized = sql.trim().toUpperCase();
-  return normalized.startsWith("SELECT") || normalized.startsWith("PRAGMA");
+  return (
+    normalized.startsWith("SELECT") ||
+    normalized.startsWith("PRAGMA") ||
+    normalized.includes(" RETURNING ")
+  );
 }
 
 function toSqliteParams(

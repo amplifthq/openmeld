@@ -13,12 +13,14 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 export const Route = createFileRoute("/o/$orgSlug/_center-agent/")({
 	staticData: appShellStaticData.home,
 	preload: false,
-	loader: async ({ context, location, params }) => {
+	loaderDeps: ({ search }) => ({ session: search.session }),
+	loader: async ({ context, deps, location, params }) => {
 		return await loadCenterAgentRouteData({
 			organizationSlug: params.orgSlug,
 			queryClient: context.queryClient,
 			routeFamily: location.href,
 			shouldOpenDirectMessage: true,
+			...(deps.session === undefined ? {} : { sessionId: deps.session }),
 		});
 	},
 	pendingComponent: CenterAgentConversationPending,
@@ -28,27 +30,32 @@ export const Route = createFileRoute("/o/$orgSlug/_center-agent/")({
 });
 
 function CenterAgentConversationPending() {
+	const { session } = Route.useSearch();
 	const { storageScope } = useStartFlowState();
 	const { currentOrganization } = useAppOrganization();
 	const { orgSlug } = Route.useParams();
 
 	return (
 		<CenterAgentPendingConversation
+			key={session ?? "default"}
 			organizationId={currentOrganization.id}
 			organizationSlug={orgSlug}
 			ownerAccountId={storageScope}
+			sessionId={session}
 		/>
 	);
 }
 
 function CenterAgentHomeRoute() {
 	const directMessageRouteData = Route.useLoaderData();
-	const { focusSignalId, view } = Route.useSearch();
+	const { focusSignalId, session, view } = Route.useSearch();
 	return (
 		<CenterAgentPage
 			directMessageRouteData={directMessageRouteData}
 			initialFocusSignalId={focusSignalId}
 			initialSpaceView={view}
+			key={session ?? "default"}
+			sessionId={session}
 		/>
 	);
 }

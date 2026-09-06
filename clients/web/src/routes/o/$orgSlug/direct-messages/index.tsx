@@ -132,25 +132,23 @@ export function DirectMessagesIndexContent(input: {
 						<span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
 							<ChatCircleTextIcon aria-hidden="true" className="size-5" />
 						</span>
-						<h1 className="mt-4 font-medium text-base">
-							Choose a Direct Message
-						</h1>
+						<h1 className="mt-4 font-medium text-base">Your direct messages</h1>
 						<p className="mt-2 text-muted-foreground text-sm leading-6">
-							Select a person or Agent from the list, or start a conversation
-							from their profile.
+							A place for one-to-one conversations. Choose a person or agent to
+							start chatting.
 						</p>
-						<div className="mt-5 flex items-center gap-2">
+						<div className="mt-5 flex flex-wrap justify-center gap-2">
 							<Link
-								className={buttonVariants({ size: "sm", variant: "outline" })}
+								className={buttonVariants({ variant: "outline" })}
 								to={buildOrganizationPeoplePath(input.orgSlug)}
 							>
-								People
+								Choose people
 							</Link>
 							<Link
-								className={buttonVariants({ size: "sm", variant: "outline" })}
+								className={buttonVariants({ variant: "outline" })}
 								to={buildOrganizationAgentsPath(input.orgSlug)}
 							>
-								Agents
+								Choose agents
 							</Link>
 						</div>
 					</div>

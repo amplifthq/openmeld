@@ -40,6 +40,7 @@ export function useAccountSpaceIndicators(input: {
 	);
 
 	return {
+		isPending: input.enabled && activeWakeSummaryQuery.isPending,
 		activeWakeSpaceIds,
 		activeWakeSummaryBySpaceId,
 		unreadBySpaceId,
