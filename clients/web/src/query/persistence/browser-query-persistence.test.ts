@@ -633,7 +633,7 @@ describe("BrowserQueryPersistenceController", () => {
 			queryClient: sourceQueryClient,
 		});
 
-		const profile = createProfileFixture("profile-a", "Felix");
+		const profile = createProfileFixture("profile-a", "Félix 🎉");
 		const organizationSpaces = createOrganizationSpacesFixture(
 			"organization-a",
 			[{ name: "Launch", spaceId: "space-a" }],
@@ -761,6 +761,7 @@ describe("BrowserQueryPersistenceController", () => {
 		expect(organizationPayload).not.toContain("Must Not Persist");
 		expect(organizationPayload).not.toContain("private-user-id");
 		sourceController.deactivate();
+		diagnostics.length = 0;
 
 		const restoredQueryClient = createQueryClient();
 		const restoredController = createBrowserQueryPersistenceController({
@@ -775,6 +776,18 @@ describe("BrowserQueryPersistenceController", () => {
 			ownerAccountId: "account-a",
 			queryClient: restoredQueryClient,
 		});
+		for (const [scopeKind, payload] of [
+			["account", accountPayload],
+			["organization", organizationPayload],
+		] as const) {
+			expect(diagnostics).toContainEqual(
+				expect.objectContaining({
+					event: "restore_hit",
+					scopeKind,
+					sizeBytes: new TextEncoder().encode(payload ?? "").byteLength,
+				})
+			);
+		}
 
 		expect(
 			restoredQueryClient.getQueryData(

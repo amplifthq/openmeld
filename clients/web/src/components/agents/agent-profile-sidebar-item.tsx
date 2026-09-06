@@ -17,6 +17,10 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
+import {
+	SidebarMenuActions,
+	SidebarMenuButton,
+} from "@openmeld/ui/fluid/sidebar-menu";
 import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, StarIcon } from "@phosphor-icons/react";
@@ -99,24 +103,22 @@ export function AgentProfileSidebarItemComponent(input: {
 	const hasActions = Boolean(input.onToggleStar || input.onChat);
 	return (
 		<FluidNavMenuItem
-			className="group/agent-row relative"
+			className="relative"
 			index={input.index}
 			ref={input.drag?.ref}
 			style={input.drag?.style}
 			value={input.profile.openMeldProfileId}
 		>
-			<button
+			<SidebarMenuButton
+				isActive={input.isActive}
 				{...input.drag?.rowProps}
 				aria-current={input.isActive ? "page" : undefined}
 				aria-describedby={availabilityDescriptionId}
 				aria-label={`Open ${input.profile.profileName}`}
 				className={cn(
-					"flex w-full min-w-0 items-start gap-1.5 px-2 py-1 text-left outline-none",
+					"h-auto min-w-0 items-start gap-1.5 py-1 text-left outline-none",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
-					{
-						"pr-14": hasActions,
-					},
 					input.isActive ? "text-sidebar-accent-foreground" : null
 				)}
 				data-profile-id={input.profile.openMeldProfileId}
@@ -175,9 +177,9 @@ export function AgentProfileSidebarItemComponent(input: {
 						</span>
 					) : null}
 				</span>
-			</button>
+			</SidebarMenuButton>
 			{hasActions && (
-				<span className="pointer-events-none absolute top-1 right-1 flex opacity-0 group-focus-within/agent-row:pointer-events-auto group-focus-within/agent-row:opacity-100 group-hover/agent-row:pointer-events-auto group-hover/agent-row:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+				<SidebarMenuActions className="top-1" showOnHover>
 					{input.onChat && (
 						<SidebarRowAction
 							label={`Chat with ${input.profile.profileName}`}
@@ -195,7 +197,7 @@ export function AgentProfileSidebarItemComponent(input: {
 							<StarIcon weight={input.starred ? "fill" : "regular"} />
 						</SidebarRowAction>
 					)}
-				</span>
+				</SidebarMenuActions>
 			)}
 		</FluidNavMenuItem>
 	);

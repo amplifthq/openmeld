@@ -1,5 +1,7 @@
 ---
 id: reliable-center-agent-command-stops
+publishedAt: 2026-09-06
+evidence: ["pr:689", "pr:693", "commit:5bffe90ba001eec03f043797a61940fc922d9e06"]
 title: Stop Center Agent commands and continue chatting
 kind: fixed
 areas: ["center-agent", "computer", "spaces", "diagnostics"]

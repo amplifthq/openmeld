@@ -9,6 +9,10 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
+import {
+	SidebarMenuActions,
+	SidebarMenuButton,
+} from "@openmeld/ui/fluid/sidebar-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, StarIcon } from "@phosphor-icons/react";
 import { type ReactNode, useMemo } from "react";
@@ -97,21 +101,21 @@ export function HumanProfileSidebarItem(input: {
 	}
 	return (
 		<FluidNavMenuItem
-			className="group/people-row relative"
+			className="relative"
 			index={input.index}
 			ref={input.drag?.ref}
 			style={input.drag?.style}
 			value={input.member.id}
 		>
-			<button
+			<SidebarMenuButton
+				isActive={input.isActive}
 				{...input.drag?.rowProps}
 				aria-current={input.isActive ? "page" : undefined}
 				aria-label={`Open ${input.member.name}'s profile`}
 				className={cn(
-					"flex w-full min-w-0 flex-row items-start gap-1.5 px-2 py-1 text-left outline-none",
+					"h-auto min-w-0 flex-row items-start gap-1.5 py-1 text-left outline-none",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
-					input.onToggleStar ? "pr-14" : null,
 					input.isActive ? "text-sidebar-accent-foreground" : null
 				)}
 				onClick={() => {
@@ -217,9 +221,9 @@ export function HumanProfileSidebarItem(input: {
 						</span>
 					) : null}
 				</span>
-			</button>
+			</SidebarMenuButton>
 			{input.onToggleStar && (
-				<span className="pointer-events-none absolute top-1 right-1 flex opacity-0 group-focus-within/people-row:pointer-events-auto group-focus-within/people-row:opacity-100 group-hover/people-row:pointer-events-auto group-hover/people-row:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+				<SidebarMenuActions className="top-1" showOnHover>
 					{input.onChat && (
 						<PeopleRowAction
 							disabled={input.actionsDisabled}
@@ -236,7 +240,7 @@ export function HumanProfileSidebarItem(input: {
 					>
 						<StarIcon weight={input.starred ? "fill" : "regular"} />
 					</PeopleRowAction>
-				</span>
+				</SidebarMenuActions>
 			)}
 		</FluidNavMenuItem>
 	);

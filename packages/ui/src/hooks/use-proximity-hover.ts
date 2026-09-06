@@ -38,6 +38,7 @@ type UseProximityHoverReturn = {
 type PointerPositionEvent = {
   clientX: number;
   clientY: number;
+  target?: EventTarget | null;
 };
 
 type ResolvedAxisMetrics = {
@@ -289,6 +290,18 @@ export function useProximityHover<T extends HTMLElement>(
   const handleMouseMove = useCallback(
     (event: PointerPositionEvent) => {
       const mousePosition = axis === "x" ? event.clientX : event.clientY;
+      // The browser has already hit-tested the pointer. Reuse that result
+      // inside a row instead of forcing layout immediately after :hover
+      // invalidated its styles. Gaps still use proximity geometry.
+      const target = event.target instanceof Node ? event.target : null;
+      let hitIndex: number | null = null;
+      if (target) {
+        for (const [index, element] of itemsRef.current) {
+          if (element.contains(target) && !isItemDisabled?.(element)) {
+            hitIndex = index;
+          }
+        }
+      }
 
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current);
@@ -301,16 +314,17 @@ export function useProximityHover<T extends HTMLElement>(
           return;
         }
         setActiveIndex(
-          resolveClosestIndex({
-            axis,
-            container,
-            mousePosition,
-            rects: itemRectsRef.current,
-          })
+          hitIndex ??
+            resolveClosestIndex({
+              axis,
+              container,
+              mousePosition,
+              rects: itemRectsRef.current,
+            })
         );
       });
     },
-    [axis, containerRef]
+    [axis, containerRef, isItemDisabled]
   );
 
   const handleMouseEnter = useCallback(() => {

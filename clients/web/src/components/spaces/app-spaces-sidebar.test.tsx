@@ -1619,11 +1619,15 @@ describe("AppSpacesSidebar", () => {
 			)
 		).toBe(false);
 
-		// Status and action retain separate fixed slots.
+		// Only the status retains a fixed slot; the action uses Fluid's reveal gutter.
 		const spaceName = openSpaceButton.querySelector<HTMLElement>(
 			'[data-slot="center-truncated-text"]'
 		);
-		expect(spaceName?.classList.contains("pr-16")).toBe(true);
+		expect(spaceName?.classList.contains("pr-8")).toBe(true);
+		expect(openSpaceButton.style.getPropertyValue("--row-gutter")).toBe("8px");
+		expect(openSpaceButton.style.getPropertyValue("--row-gutter-hover")).toBe(
+			"34px"
+		);
 		expect(pinButton.getAttribute("data-sidebar")).toBe("menu-action");
 		expect(pinButton.classList.contains("right-9")).toBe(true);
 	});
@@ -1774,7 +1778,7 @@ describe("AppSpacesSidebar", () => {
 		).toBe(false);
 	});
 
-	it("keeps room for a persistently visible pinned action", async () => {
+	it("reserves the pinned action gutter only when revealed", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1797,7 +1801,11 @@ describe("AppSpacesSidebar", () => {
 			'[data-slot="center-truncated-text"]'
 		);
 
-		expect(spaceName?.classList.contains("pr-8")).toBe(true);
+		expect(spaceName?.classList.contains("pr-8")).toBe(false);
+		expect(openSpaceButton.style.getPropertyValue("--row-gutter")).toBe("8px");
+		expect(openSpaceButton.style.getPropertyValue("--row-gutter-hover")).toBe(
+			"34px"
+		);
 		expect(
 			openSpaceButton.querySelector('[data-slot="space-sidebar-date"]')
 		).toBeNull();
