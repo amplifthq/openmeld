@@ -77,6 +77,15 @@ export function useSidebarPreferences(
 				mutation.mutate({ revision: query.data.revision, preferences });
 			}
 		},
+		saveAsync: async (preferences: AccountSidebarPreferences) => {
+			if (!query.data || mutation.isPending) {
+				throw new Error("Sidebar settings are still loading. Try again.");
+			}
+			await mutation.mutateAsync({
+				revision: query.data.revision,
+				preferences,
+			});
+		},
 		disabled: !query.data || mutation.isPending,
 		isError: query.isError,
 		retry: query.refetch,

@@ -117,7 +117,16 @@ export function SpaceWindowHeader(input: {
 	);
 }
 
+function resolveHeaderTitle(
+	conversationTitle: string | undefined,
+	spaceName: string | null | undefined
+) {
+	return conversationTitle ?? (spaceName?.trim() || "Untitled space");
+}
+
 export function SpaceHeader(input: {
+	conversationTitle?: string;
+	conversationTitleAction?: (title: string) => ReactNode;
 	accessModeErrorMessage: string | null;
 	canManageSpaceAccess: boolean;
 	canManageSpaceName: boolean;
@@ -164,7 +173,10 @@ export function SpaceHeader(input: {
 	status: GetSpaceStatusResponse;
 }) {
 	const [spaceInformationOpen, setSpaceInformationOpen] = useState(false);
-	const spaceName = input.status.name?.trim() || "Untitled space";
+	const spaceName = resolveHeaderTitle(
+		input.conversationTitle,
+		input.status.name
+	);
 	const isDirectMessage = isDirectMessageSpace({
 		activeMemberCount: input.status.members.totalCount,
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
@@ -285,6 +297,7 @@ export function SpaceHeader(input: {
 			title={spaceName}
 			titleAdornment={
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
+					{input.conversationTitleAction?.(spaceName)}
 					{isDirectMessage && !input.isCenterAgentDirectMessage ? (
 						<DirectMessageHeaderLabel />
 					) : null}
