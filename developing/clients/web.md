@@ -2672,8 +2672,22 @@ restored across refresh in the MVP.
 
 The send path takes an immutable snapshot of the current submission, clears that
 draft once, and immediately leaves the Composer available for the next draft.
+For main and Thread composers, this local feedback happens before entry
+confirmation, status refresh, current Wakeability reads, or file publication.
+The pending source and intended Wake presentation use the same client message
+identity throughout admission, publication, retry, and reconciliation. Local
+attachment previews cannot open Files or request file content until publication
+returns canonical references. Server admission remains authoritative; local
+feedback grants no permission and proves no delivery or execution.
+An explicit send releases any restored reading-position anchor before scrolling
+to the latest message; history or layout updates must not pull the new message
+out of view. Restoring a page with an already pending send does not itself
+override the member's reading position.
 The next draft cannot send until the current request has a safe outcome, and
 neither a success callback nor a projection refresh may clear or overwrite it.
+After acceptance, projection refreshes run in the background and do not hold
+the send lock. A failed preflight is definitely unsent; only a publication
+request that actually started can have an unknown delivery outcome.
 When a definitive unsent failure returns and no next draft exists, Web restores
 the failed submission to the Composer. When the member has already started the
 next draft, Web preserves that draft and keeps the failed submission visibly
@@ -3540,9 +3554,11 @@ An existing or restored Wake draft remains a Wake while the user edits it; Web
 does not silently downgrade the authored relation. Before every send path that
 would create a new Wake, Web reads the current Core-owned Wakeability and blocks
 before publishing the message or any Composer Upload when the Agent is not
-currently ready or the read cannot be completed. The Composer stays editable,
-the draft stays intact, and Reference authoring and ordinary text input remain
-available.
+currently ready or the read cannot be completed. Local optimistic feedback
+precedes this check. Rejection restores the submitted draft if no next draft
+exists; otherwise it preserves the next draft and marks the local message as
+unsent. The Composer stays editable, and Reference authoring and ordinary text
+input remain available.
 
 The Composer member picker reuses the shared Fluid layout indicator for its
 active row. Pointer hover and combobox keyboard navigation update that one

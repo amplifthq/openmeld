@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 
 export function SpaceConversationSendScrollController(input: {
 	isSendingMessage: boolean;
+	onSendStart: () => void;
 }) {
 	const { scrollToEnd } = useMessageScroller();
 	const wasSendingMessageRef = useRef(input.isSendingMessage);
@@ -12,9 +13,10 @@ export function SpaceConversationSendScrollController(input: {
 		wasSendingMessageRef.current = input.isSendingMessage;
 
 		if (sendStarted) {
+			input.onSendStart();
 			scrollToEnd({ behavior: "auto" });
 		}
-	}, [input.isSendingMessage, scrollToEnd]);
+	}, [input.isSendingMessage, input.onSendStart, scrollToEnd]);
 
 	return null;
 }
