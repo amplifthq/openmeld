@@ -304,6 +304,8 @@ The Web shell is a stable two-layer composition built from the shared
   Older clients omitting `messages` cannot erase it on a revision-checked save.
   Pin/unpin actions reveal on their row's hover or keyboard focus, including
   inside Pinned. Unread and work indicators remain visible without hover.
+  When both are present, the active Wake indicator takes the trailing slot ahead
+  of the unread dot and timestamp; unread styling and accessible text remain.
   People reuses the Web-owned section actions, drag mechanics, manual ordering
   and revision-checked preference hook. Starred and named People groups are
   personal to the account and Organization. Moving a person changes only this

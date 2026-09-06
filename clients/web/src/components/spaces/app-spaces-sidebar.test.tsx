@@ -1628,7 +1628,43 @@ describe("AppSpacesSidebar", () => {
 		expect(pinButton.classList.contains("right-9")).toBe(true);
 	});
 
-	it("orders unread, working, and persistent pin states while keeping status visible on hover", async () => {
+	it("waits for initial activity evidence instead of showing a temporary idle ordering", async () => {
+		let release: () => void = () => undefined;
+		const pending = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		getAccountSpaceActiveWakeSummaryMock.mockImplementation(async () => {
+			await pending;
+			return { generatedAtMs: Date.now(), items: [] };
+		});
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					spaceId: "space-loading",
+					spaceName: "Waiting for activity",
+				}),
+			],
+		});
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+		await waitFor(() =>
+			expect(getAccountSpaceActiveWakeSummaryMock).toHaveBeenCalled()
+		);
+		expect(
+			screen.queryByRole("link", { name: "Waiting for activity" })
+		).toBeNull();
+		await act(async () => {
+			release();
+			await pending;
+		});
+		expect(
+			await screen.findByRole("link", { name: "Waiting for activity" })
+		).toBeTruthy();
+	});
+
+	it("keeps active Wake status visible ahead of unread while retaining unread semantics", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1686,10 +1722,10 @@ describe("AppSpacesSidebar", () => {
 		const workingUnreadIndicator = workingRow?.querySelector<HTMLElement>(
 			'[data-space-unread-indicator="true"]'
 		);
-		expect(workingUnreadIndicator).toBeTruthy();
+		expect(workingUnreadIndicator).toBeNull();
 		expect(
 			workingRow?.querySelector('[data-space-active-wake-orb="true"]')
-		).toBeNull();
+		).toBeTruthy();
 
 		const unreadIndicator = unreadRow?.querySelector<HTMLElement>(
 			'[data-space-unread-indicator="true"]'

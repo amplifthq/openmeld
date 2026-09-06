@@ -158,7 +158,7 @@ describe("SpaceHeader", () => {
 		expect(navigationRow).not.toBeNull();
 		expect(secondaryRow?.className).toContain("overflow-visible");
 		expect(inlineFrame?.className).toContain(
-			"grid-rows-[minmax(0,2.5rem)_minmax(0,var(--space-conversation-navigation-height))]"
+			"grid-rows-[minmax(0,var(--space-conversation-title-height))_minmax(0,var(--space-conversation-navigation-height))]"
 		);
 		expect(secondaryRow?.className).toContain("col-start-1");
 		expect(titleRow).not.toBeNull();

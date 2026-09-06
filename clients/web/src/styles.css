@@ -100,7 +100,8 @@
   --border: oklch(0 0 0 / 7%);
   --sidebar-accent: oklch(0 0 0 / 6%);
   --sidebar-border: var(--border);
-  --space-conversation-header-height: 4.3125rem;
+  --space-conversation-title-height: 3rem;
+  --space-conversation-header-height: calc(var(--space-conversation-title-height) + var(--space-conversation-navigation-height));
   --space-conversation-navigation-height: 1.8125rem;
   --space-conversation-centered-max-width: min(52rem, 90vw);
   --space-conversation-inline-padding: 1rem;

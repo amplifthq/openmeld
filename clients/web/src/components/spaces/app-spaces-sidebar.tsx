@@ -124,13 +124,16 @@ export function AppSpacesSidebar(input: {
 		})
 	);
 	const sections = spacesQuery.data ?? EMPTY_ACCOUNT_SPACE_SECTIONS;
-	const { activeWakeSummaryBySpaceId, unreadBySpaceId } =
-		useSpaceListIndicators({
-			currentProfileId: input.currentProfileId,
-			currentSpaceId: input.currentSpaceId,
-			organizationId: currentOrganizationId,
-			sections,
-		});
+	const {
+		activeWakeSummaryBySpaceId,
+		unreadBySpaceId,
+		isPending: areIndicatorsPending,
+	} = useSpaceListIndicators({
+		currentProfileId: input.currentProfileId,
+		currentSpaceId: input.currentSpaceId,
+		organizationId: currentOrganizationId,
+		sections,
+	});
 	const pinMutation = useAccountSpacePinMutation({
 		currentProfileId: input.currentProfileId,
 	});
@@ -174,7 +177,7 @@ export function AppSpacesSidebar(input: {
 				currentSpaceId={input.currentSpaceId}
 				dragDisabled={sidebar.disabled || pinMutation.arePinActionsPending}
 				isError={listInput.isError ?? false}
-				isPending={listInput.isPending ?? false}
+				isPending={areIndicatorsPending || (listInput.isPending ?? false)}
 				isPinPending={() => pinMutation.arePinActionsPending}
 				items={listInput.items}
 				memberAppearances={memberAppearances}

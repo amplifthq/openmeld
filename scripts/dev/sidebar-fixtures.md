@@ -46,8 +46,11 @@ and policy-blocked system notices. The following cases use production components
 Transient cases use a development-only Space API response adapter, scoped to the
 generated Space IDs and signed-in fixture profile on loopback. Real API reads
 still check access first; real progress takes precedence. No JSX or separate UI
-is added. The conversation, members, and current Space sidebar consume the same
-progress projection. Approvals validate through the shared interaction schema;
+is added. Account-level discovery, closed Space rows, the conversation, and members
+consume the same scenario state. Detail snapshots are available before the account
+summary is published, so visiting a Space does not discover a new sorting priority.
+Running scenarios refresh progress evidence on reads while retaining their start
+time. Approvals validate through the shared interaction schema;
 responses change only disposable browser-memory scenario data. No runtime state
 is written and no command runs. Reload resets transient scenarios. These cases
 validate production UI, not real Agent execution or cross-tab synchronization.

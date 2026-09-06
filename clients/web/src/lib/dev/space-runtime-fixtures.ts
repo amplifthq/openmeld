@@ -1,10 +1,13 @@
 import type { createSpaceApi } from "@openmeld/api-client";
 import {
+	accountSpaceActiveWakeSummaryResponseSchema,
 	agentInteractionResolutionSchema,
 	wakeProgressItemSchema,
 } from "@openmeld/schemas";
 import type {
+	AccountSpaceActiveWakeSummaryResponse,
 	AgentInteractionRequest,
+	GetActiveSpaceWakeProgressResponse,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import { currentFixtureManifest, isLocalFixtureHost } from "./fixture-manifest";
@@ -36,7 +39,11 @@ function fixture(spaceId: string, viewer?: string): WakeProgressItem | null {
 	const key = `${viewer}:${spaceId}`;
 	const existing = states.get(key);
 	if (existing) {
-		return existing;
+		// A running simulation represents continuing progress, not a disconnected
+		// runtime. Keep its start time stable while each read supplies fresh evidence.
+		return existing.terminal
+			? existing
+			: { ...existing, updatedAtMs: Date.now() };
 	}
 	const now = Date.now();
 	const interactionId = `seed:${scenario.sourceSignalId}`;
@@ -105,6 +112,76 @@ function fixture(spaceId: string, viewer?: string): WakeProgressItem | null {
 	});
 	states.set(key, item);
 	return item;
+}
+
+/** Account discovery and Space detail are projections of the same fixture state. */
+export async function withLocalAccountRuntimeFixtures(
+	summary: AccountSpaceActiveWakeSummaryResponse,
+	viewer: string,
+	read: (spaceId: string) => Promise<GetActiveSpaceWakeProgressResponse>
+) {
+	const progress: {
+		spaceId: string;
+		data: GetActiveSpaceWakeProgressResponse;
+	}[] = [];
+	if (!(import.meta.env.DEV && isLocalFixtureHost())) {
+		return { summary, progress };
+	}
+	const manifest = currentFixtureManifest();
+	if (manifest.profileId !== viewer) {
+		return { summary, progress };
+	}
+	const snapshots = await Promise.all(
+		manifest.spaces.map(async ({ spaceId }) => {
+			if (!fixture(spaceId, viewer)) {
+				return null;
+			}
+			return { spaceId, data: await read(spaceId) };
+		})
+	);
+	const items = new Map(summary.items.map((item) => [item.spaceId, item]));
+	for (const snapshot of snapshots) {
+		if (!snapshot) {
+			continue;
+		}
+		progress.push(snapshot);
+		if (items.has(snapshot.spaceId)) {
+			continue;
+		}
+		const targets = new Map<
+			string,
+			{ profileId: string; profileName: string; activeWakeCount: number }
+		>();
+		for (const item of snapshot.data.items) {
+			if (item.terminal) {
+				continue;
+			}
+			const target = targets.get(item.targetProfileId);
+			targets.set(item.targetProfileId, {
+				profileId: item.targetProfileId,
+				profileName: item.targetLabel,
+				activeWakeCount: (target?.activeWakeCount ?? 0) + 1,
+			});
+		}
+		const activeTargets = [...targets.values()];
+		if (activeTargets.length) {
+			items.set(snapshot.spaceId, {
+				spaceId: snapshot.spaceId,
+				activeWakeCount: activeTargets.reduce(
+					(total, target) => total + target.activeWakeCount,
+					0
+				),
+				activeTargets,
+			});
+		}
+	}
+	return {
+		summary: accountSpaceActiveWakeSummaryResponseSchema.parse({
+			...summary,
+			items: [...items.values()],
+		}),
+		progress,
+	};
 }
 
 /** Disposable API response simulation. No JSX, runtime writes, or execution authority. */
