@@ -70,9 +70,24 @@ export function spaceMessagePreviewQueryOptions(input: {
 						: undefined,
 				},
 			});
-			const message = result.envelopes.find(
+			let message = result.envelopes.find(
 				(entry) => entry.type === "signal.text"
 			);
+			if (!message && input.peerProfileId) {
+				const outgoing = await createUnscopedWebSpaceApi({
+					openMeldProfileId: input.viewerProfileId,
+				}).listSignalEnvelopes({
+					spaceId: input.spaceId,
+					signal,
+					query: { recent: true, limit: 1, kinds: ["text"] },
+				});
+				message = outgoing.envelopes.find(
+					(entry) => entry.type === "signal.text"
+				);
+				if (message?.type === "signal.text") {
+					return { timestamp: message.ts, text: "No replies yet" };
+				}
+			}
 			return message?.type === "signal.text"
 				? {
 						timestamp: message.ts,

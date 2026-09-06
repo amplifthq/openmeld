@@ -36,7 +36,10 @@ import {
 	type ManagedDirectMessageRowProps,
 	ManagedDirectMessages,
 } from "./managed-direct-messages";
-import { SidebarConversationTime } from "./sidebar-conversation-time";
+import {
+	resolveConversationTimestamp,
+	SidebarConversationTime,
+} from "./sidebar-conversation-time";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import { useSpaceInboxUnreadById } from "./use-account-space-indicators";
 
@@ -262,6 +265,10 @@ function DirectMessageSidebarItem(
 	});
 	const hasUnread = input.unreadCount > 0;
 	const nowMs = useNowMs(preview.data ? 60_000 : null);
+	const timestamp = resolveConversationTimestamp(
+		preview.data?.timestamp,
+		input.item.spaceCreatedAt
+	);
 	let previewText = "No messages yet";
 	if (preview.isPending) {
 		previewText = "Loading message…";
@@ -333,10 +340,10 @@ function DirectMessageSidebarItem(
 							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 								<span className="flex min-w-0 items-center gap-2">
 									<CenterTruncatedText className="flex-1" text={label} />
-									{!hasUnread && preview.data && (
+									{timestamp !== null && (
 										<SidebarConversationTime
 											now={new Date(nowMs)}
-											timestamp={preview.data.timestamp}
+											timestamp={timestamp}
 										/>
 									)}
 								</span>

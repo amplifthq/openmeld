@@ -19,7 +19,10 @@ import { CenterTruncatedText } from "#/components/app/center-truncated-text";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { resolveAccountSpaceTrailingStatus } from "./account-space-sections";
 import { useSpaceMessagePreview } from "./direct-message-preview";
-import { SidebarConversationTime } from "./sidebar-conversation-time";
+import {
+	resolveConversationTimestamp,
+	SidebarConversationTime,
+} from "./sidebar-conversation-time";
 import { SpaceActiveWakeIndicator } from "./space-active-wake-indicator";
 import {
 	resolveSpaceActiveWakePresentation,
@@ -76,6 +79,10 @@ export function SpaceSidebarMenuItem(input: {
 		viewerProfileId: input.item.openProfileId,
 		enabled: !(hasActiveWake || hasUnread),
 	});
+	const timestamp = resolveConversationTimestamp(
+		latestMessage.data?.timestamp,
+		input.item.spaceCreatedAt
+	);
 	return (
 		<FluidNavMenuItem
 			className="group/space-row"
@@ -130,10 +137,10 @@ export function SpaceSidebarMenuItem(input: {
 										)}
 										text={input.item.spaceName}
 									/>
-									{!(hasActiveWake || hasUnread) && latestMessage.data ? (
+									{!(hasActiveWake || hasUnread) && timestamp !== null ? (
 										<SidebarConversationTime
 											className="group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0"
-											timestamp={latestMessage.data.timestamp}
+											timestamp={timestamp}
 										/>
 									) : null}
 								</div>
