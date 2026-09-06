@@ -174,6 +174,12 @@
     "yaml": "2.8.2"
   },
   "packageManager": "pnpm@10.30.0",
+  "sherif": {
+    "ignoreDependency": [
+      "@cloudflare/vite-plugin@1.43.0",
+      "vite@8.1.2"
+    ]
+  },
   "engines": {
     "node": "24.x"
   },
