@@ -1590,6 +1590,7 @@ export {
   centerAgentListOrganizationMembersBodySchema,
   centerAgentListOrganizationMembersResponseSchema,
   centerAgentListOrganizationMembersToolRpcInputSchema,
+  centerAgentOrganizationDirectoryPageSchema,
   organizationAgentRuntimeOverviewItemSchema,
   organizationAgentRuntimeOverviewResponseSchema,
   organizationDirectoryAgentProfileIdentitySchema,

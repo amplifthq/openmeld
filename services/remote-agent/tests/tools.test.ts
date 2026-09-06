@@ -4,9 +4,11 @@ import { fileURLToPath } from "node:url";
 import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   centerAgentCheckAgentProfileReadinessResponseSchema,
+  centerAgentOrganizationDirectoryPageSchema,
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
   FEEDBACK_ISSUE_INVALID_TRANSITION_ERROR_CODE,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  organizationDirectoryResponseSchema,
 } from "@openmeld/schemas";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
 import {
@@ -26,6 +28,7 @@ import {
   type RemoteAgentCoreWorkerBinding,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import {
   getRemoteAgentOpenMeldToolDefinitions as buildRemoteAgentOpenMeldToolDefinitions,
   REMOTE_AGENT_OPENMELD_TOOL_NAMES,
@@ -112,6 +115,92 @@ type ToolPayloadScenario = {
 };
 
 describe("remote agent OpenMeld tool catalog", () => {
+  it("pages a large authorized directory without losing member or Agent fields", async () => {
+    const directory = organizationDirectoryResponseSchema.parse({
+      ...organizationDirectoryResponse(),
+      members: Array.from({ length: 19 }, (_, index) => ({
+        ...organizationDirectoryMember(),
+        userId: `user_${index}`,
+        memberId: `member_${index}`,
+        lastActiveAt: ISO_NOW,
+        user: {
+          ...organizationDirectoryMember().user,
+          id: `user_${index}`,
+          image: `https://example.com/${"x".repeat(9000)}`,
+        },
+      })),
+      agentProfiles: [
+        {
+          organizationId: "org_123",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Agent",
+          profileHandle: "agent",
+          profileKind: "agent",
+          isDefault: false,
+          status: "active",
+          ownerUserId: "user_1",
+          source: "local",
+          managedRole: null,
+          createdByUserId: null,
+          creatorProfileId: null,
+          lastUsedAt: null,
+          createdAt: ISO_NOW,
+          updatedAt: ISO_NOW,
+          readiness: readinessResponse(AGENT_PROFILE_ID),
+        },
+      ],
+    });
+    expect(isRemoteAgentToolResultWithinLimit(directory)).toBe(false);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+      coreWorker: {
+        centerAgentGetOrganizationDirectory: vi.fn(async () => directory),
+        centerAgentReadMemberComputers: vi.fn(async () =>
+          memberComputersResponse()
+        ),
+      },
+    });
+    const members: typeof directory.members = [];
+    const agents: typeof directory.agentProfiles = [];
+    let cursor: string | undefined;
+    let pageCount = 0;
+    do {
+      const page = centerAgentOrganizationDirectoryPageSchema.parse(
+        await executeTool(tools, "openmeld_read_organization_directory", {
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        })
+      );
+      expect(
+        isRemoteAgentToolResultWithinLimit({
+          result: page,
+          logs: ["x".repeat(10_000)],
+        })
+      ).toBe(true);
+      expect(page.totalMembers).toBe(19);
+      expect(page.totalAgentProfiles).toBe(1);
+      members.push(...page.members);
+      agents.push(...page.agentProfiles);
+      cursor = page.nextCursor ?? undefined;
+      pageCount += 1;
+      expect(pageCount).toBeLessThan(10);
+    } while (cursor);
+    expect(pageCount).toBeGreaterThan(1);
+    expect(members).toHaveLength(directory.members.length);
+    expect(members).toEqual(expect.arrayContaining(directory.members));
+    expect(agents).toEqual(directory.agentProfiles);
+    // A later page must not forget the member IDs returned by an earlier page.
+    await expect(
+      executeTool(tools, "openmeld_read_member_computers", {
+        memberUserId: "user_1",
+      })
+    ).resolves.toMatchObject(memberComputersResponse());
+    await expect(
+      executeTool(tools, "openmeld_read_organization_directory", {
+        cursor: '["another_org","member","user_1"]',
+      })
+    ).rejects.toThrow("cursor");
+  });
   it("reads the represented member's complete Agent Profile creation defaults", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorageWithPendingContext(request);
@@ -318,7 +407,12 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(tools, "openmeld_read_organization_directory", {})
-    ).resolves.toEqual(organizationDirectoryResponse());
+    ).resolves.toEqual({
+      ...organizationDirectoryResponse(),
+      nextCursor: null,
+      totalMembers: 0,
+      totalAgentProfiles: 0,
+    });
     expect(centerAgentAuthorizeAnonymousMemberTool).toHaveBeenCalledWith({
       context: expectedHostedCenterAgentContext(
         request,
@@ -704,7 +798,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(JSON.stringify(result)).not.toContain("join-organization");
   });
 
-  it("labels the exact legacy Core invitation acknowledgement during rollout", async () => {
+  it("rejects an acknowledgement without the current invitation result contract", async () => {
     const baseRequest = createSubmitTurnRequest();
     if (baseRequest.turnEnvelope.sender.kind !== "member") {
       throw new Error("Expected a member sender fixture.");
@@ -743,7 +837,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_invite_slack_teammates", {
         targetSlackUserIds: ["U_MORGAN"],
       })
-    ).resolves.toEqual({ status: "legacy_core_handled" });
+    ).rejects.toThrow();
   });
 
   it("returns guided Slack connection help as a normal tool result", async () => {
@@ -2242,7 +2336,12 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(tools, "openmeld_read_organization_directory", {})
-    ).resolves.toEqual(organizationDirectoryResponse());
+    ).resolves.toEqual({
+      ...organizationDirectoryResponse(),
+      nextCursor: null,
+      totalMembers: 0,
+      totalAgentProfiles: 0,
+    });
     await expect(
       executeTool(tools, "openmeld_get_navigation_action", {
         kind: "message_channel_identity_link",
@@ -2276,44 +2375,6 @@ describe("remote agent OpenMeld tool catalog", () => {
       "Message Channel identity linking is not available until Core supports this action."
     );
     messageChannelIdentityLinkSupported = true;
-    await expect(
-      executeTool(tools, "openmeld_require_identity_for_action", {
-        boundary: "identity_owned",
-        requestedAction: "Create an OpenMeld Space",
-      })
-    ).resolves.toEqual({
-      actionWillBeAttached: true,
-      boundary: "identity_owned",
-      identityRequired: true,
-      label: "Connect my account and continue",
-      requestedAction: "Create an OpenMeld Space",
-      target: {
-        kind: "message_channel_identity_link",
-        purpose: "continue_request",
-      },
-    });
-    await expect(
-      readRemoteAgentCallbackContext(storage, ACK.submissionId)
-    ).resolves.toMatchObject({
-      navigationTarget: {
-        kind: "message_channel_identity_link",
-        purpose: "continue_request",
-      },
-    });
-    await expect(
-      executeTool(tools, "openmeld_get_navigation_action", {
-        connectToUserId: "user_mina",
-        kind: "message_channel_identity_link",
-        purpose: "continue_request",
-      })
-    ).resolves.toEqual({
-      actionWillBeAttached: true,
-      label: "Connect my account and continue",
-      target: {
-        kind: "message_channel_identity_link",
-        purpose: "continue_request",
-      },
-    });
     messageChannelAccountTargetSupported = true;
     await expect(
       executeTool(tools, "openmeld_get_navigation_action", {

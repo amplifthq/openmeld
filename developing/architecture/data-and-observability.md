@@ -31,6 +31,9 @@ bounded D1 batches, when `includeMessagePreviews=true`. Older strict clients
 receive the unchanged shape. A null preview means no retained text message;
 an omitted preview has not been projected. Existing Spaces are repaired ten at
 a time after the minute scheduler's delivery work, with delayed retries.
+Space SQL schema v33 creates the preview revision table for existing v32
+Spaces before message publication or backfill. Fresh-table initialization alone
+does not upgrade a Space that already has the previous migration marker.
 
 Web reports threshold-crossing experiences to its same-origin
 `/v1/observability/performance` receiver. Search Worker logs for

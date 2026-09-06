@@ -204,7 +204,6 @@ import {
   union,
   unknown as unknownSchema,
 } from "valibot";
-import * as z from "zod/v4";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentReadableStorage,
@@ -252,6 +251,7 @@ import {
   type RemoteAgentImagePreparer,
   understandRemoteAgentImages,
 } from "./image-understanding";
+import { pageOrganizationDirectory } from "./organization-directory-page";
 import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "./slack-member-research-state";
 import {
   extractSlackSearchThreadPublicationTargetKeys,
@@ -675,7 +675,7 @@ const centerAgentTaskListToolInputSchema = strictObject({
 const centerAgentTaskGetToolInputSchema = strictObject({
   taskId: pipe(string(), trim(), minLength(1), maxLength(256)),
 });
-const organizationMembersListToolInputSchema = strictObject({
+const organizationReadPageToolInputSchema = strictObject({
   cursor: optional(pipe(string(), trim(), minLength(1), maxLength(1024))),
   limit: optional(pipe(number(), integer(), minValue(1), maxValue(100))),
 });
@@ -723,13 +723,6 @@ const SLACK_MEMBER_RESEARCH_CHANNEL_ELIGIBILITY_KEY_PREFIX = `${REMOTE_AGENT_SLA
 const SLACK_MEMBER_RESEARCH_HISTORY_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}history:`;
 const SLACK_MEMBER_RESEARCH_SUBJECT_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}subject:`;
 const SLACK_MEMBER_RESEARCH_MAX_CHANNELS = 5;
-const legacyCenterAgentSlackSearchResponseSchema = z.strictObject({
-  organizationId: z.string().trim().min(1),
-  status: z.literal("presented"),
-});
-const legacyCenterAgentSlackTeammateInvitationResponseSchema = z.strictObject({
-  handled: z.literal(true),
-});
 const SLACK_USER_MENTION_TOKEN_PATTERN = /<@[A-Z0-9]+>/u;
 const slackChannelNameSchema = pipe(
   string(),
@@ -1268,44 +1261,28 @@ async function executeMessageChannelIdentityNavigationAction(input: {
     }
     requestedAction = callbackContext.anonymousIdentityBoundary.requestedAction;
   }
-  const authorization =
-    await authorizeMessageChannelIdentityLinkAtCoreWithLegacyFallback({
-      context: input.toolContext.context,
-      coreWorker: input.coreWorker,
-      speakerMember,
-    });
-  const providerNeutralSupport =
-    authorization.messageChannelIdentityLinkSupported;
-  const legacySlackSupport =
-    speakerMember.messageChannelIdentity.provider === "slack" &&
-    authorization.slackIdentityLinkSupported;
-  if (!(providerNeutralSupport || legacySlackSupport)) {
+  const authorization = await authorizeAnonymousMemberToolAtCore({
+    ...(connectToUserId ? { connectToUserId } : {}),
+    context: input.toolContext.context,
+    coreWorker: input.coreWorker,
+    messageChannelIdentityLinkCapabilityVersion: 2,
+    speakerMember,
+    toolName: "openmeld_get_navigation_action",
+  });
+  if (
+    !(
+      authorization.messageChannelIdentityLinkSupported &&
+      authorization.messageChannelAccountTargetSupported
+    )
+  ) {
     throw new Error(
       "Message Channel identity linking is not available until Core supports this action."
     );
   }
-  if (authorization.messageChannelAccountTargetSupported) {
-    await authorizeAnonymousMemberToolAtCore({
-      ...(connectToUserId ? { connectToUserId } : {}),
-      context: input.toolContext.context,
-      coreWorker: input.coreWorker,
-      messageChannelIdentityLinkCapabilityVersion: 2,
-      speakerMember,
-      toolName: "openmeld_get_navigation_action",
-    });
-  }
-  // During a receiver-first rollout, an older Core can still issue a generic
-  // account connection action. It must never receive or persist unverified
-  // account targeting or guidance details.
-  const authorizedTarget = authorization.messageChannelAccountTargetSupported
-    ? {
-        ...target,
-        ...(requestedAction ? { requestedAction } : {}),
-      }
-    : {
-        kind: target.kind,
-        purpose: target.purpose,
-      };
+  const authorizedTarget = {
+    ...target,
+    ...(requestedAction ? { requestedAction } : {}),
+  };
   await recordRemoteAgentNavigationTarget({
     storage: input.storage,
     submissionId: input.submissionId,
@@ -1801,9 +1778,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_organization_directory",
       description:
-        "Read the current OpenMeld Organization directory, including members, Human and Agent Profiles, roles, and the latest accepted Human activity that the Center Agent is allowed to see. Missing lastActiveAt means OpenMeld has no authoritative Organization activity for that member; Computer, session, and Agent Activity timestamps are never substitutes.",
-      input: object({}),
-      execute: async () => {
+        "Read one bounded page of the current OpenMeld Organization directory, including members, Human and Agent Profiles, roles, and the latest accepted Human activity that the Center Agent is allowed to see. Pass nextCursor back as cursor until it is null when you need the full directory or must establish that someone is absent or uniquely matched. A page may contain only members or only Agent Profiles; join ownership by exact ownerUserId across pages. totalMembers and totalAgentProfiles count the whole directory. limit caps the combined records (default 20, maximum 100); a byte limit may shorten a page without dropping any fields. Missing lastActiveAt means OpenMeld has no authoritative Organization activity for that member; Computer, session, and Agent Activity timestamps are never substitutes.",
+      input: organizationReadPageToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          organizationReadPageToolInputSchema,
+          payload
+        );
         const toolContext =
           await buildAnonymousCompatibleOrganizationReadToolContext({
             storage: input.storage,
@@ -1814,11 +1795,14 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           input.coreWorker.centerAgentGetOrganizationDirectory,
           "centerAgentGetOrganizationDirectory"
         );
-        const response = organizationDirectoryResponseSchema.parse(
-          await rpc({
-            ...toolContext,
-            includeMemberLastActiveAt: true,
-          })
+        const response = pageOrganizationDirectory(
+          organizationDirectoryResponseSchema.parse(
+            await rpc({
+              ...toolContext,
+              includeMemberLastActiveAt: true,
+            })
+          ),
+          request
         );
         await rememberOrganizationDirectoryMembers({
           memberUserIds: response.members.map((member) => member.userId),
@@ -1832,10 +1816,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       name: "openmeld_list_organization_members",
       description:
         "List one bounded page of the current Organization's human members (name, role, email, Human Profile) for counting or finding people. Returns totalMembers plus a nextCursor; pass nextCursor back as cursor to page through everyone. This read-only listing never includes Agent Profiles, readiness, invitations, or setup actions.",
-      input: organizationMembersListToolInputSchema,
+      input: organizationReadPageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
-          organizationMembersListToolInputSchema,
+          organizationReadPageToolInputSchema,
           payload
         );
         const toolContext =
@@ -2046,15 +2030,16 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           speakerMember,
           targetSlackUserIds,
         });
-        const invitationResponse = parseSlackTeammateInvitationResponse(
-          await callCoreRpc(
-            input.coreWorker,
-            "centerAgentInviteSlackTeammates",
-            rpcInput,
-            (binding, interaction) =>
-              binding.centerAgentInviteSlackTeammates?.(interaction)
-          )
-        );
+        const invitationResponse =
+          centerAgentInviteSlackTeammatesRpcResponseSchema.parse(
+            await callCoreRpc(
+              input.coreWorker,
+              "centerAgentInviteSlackTeammates",
+              rpcInput,
+              (binding, interaction) =>
+                binding.centerAgentInviteSlackTeammates?.(interaction)
+            )
+          );
         return interactionEnvironment === "organization_shared"
           ? protectSharedSlackInvitationResult(invitationResponse)
           : invitationResponse;
@@ -2218,7 +2203,8 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           (binding, rpcInput) =>
             binding.centerAgentSearchSlackMessages?.(rpcInput)
         );
-        const parsedResponse = parseSlackSearchResponse(response);
+        const parsedResponse =
+          centerAgentSearchSlackMessagesResponseSchema.parse(response);
         await rememberSlackThreadPublicationEvidence({
           response: parsedResponse,
           storage: input.storage,
@@ -5098,7 +5084,7 @@ async function authorizeAnonymousMemberToolAtCore(input: {
   connectToUserId?: string;
   context: OpenMeldRequestContext;
   coreWorker: RemoteAgentCoreWorkerBinding;
-  messageChannelIdentityLinkCapabilityVersion?: 1 | 2;
+  messageChannelIdentityLinkCapabilityVersion?: 2;
   speakerMember: CenterAgentAnonymousMemberToolSpeaker;
   toolName: string;
 }) {
@@ -5124,71 +5110,6 @@ async function authorizeAnonymousMemberToolAtCore(input: {
       binding.centerAgentAuthorizeAnonymousMemberTool?.(request)
   );
   return centerAgentAuthorizeAnonymousMemberToolResponseSchema.parse(response);
-}
-
-async function authorizeMessageChannelIdentityLinkAtCoreWithLegacyFallback(input: {
-  context: OpenMeldRequestContext;
-  coreWorker: RemoteAgentCoreWorkerBinding;
-  speakerMember: CenterAgentAnonymousMemberToolSpeaker;
-}) {
-  try {
-    return await authorizeAnonymousMemberToolAtCore({
-      context: input.context,
-      coreWorker: input.coreWorker,
-      messageChannelIdentityLinkCapabilityVersion: 1,
-      speakerMember: input.speakerMember,
-      toolName: "openmeld_get_navigation_action",
-    });
-  } catch (error) {
-    if (!isInvalidPayloadCoreRpcError(error)) {
-      throw error;
-    }
-  }
-
-  // Old Core uses a strict request schema that predates both capability
-  // negotiation and provider email. Retry its exact legacy shape once so a
-  // current Remote Agent can still request Slack's generic connection action.
-  const identity = input.speakerMember.messageChannelIdentity;
-  return await authorizeAnonymousMemberToolAtCore({
-    context: input.context,
-    coreWorker: input.coreWorker,
-    speakerMember: {
-      ...input.speakerMember,
-      messageChannelIdentity: {
-        connectionId: identity.connectionId,
-        provider: identity.provider,
-        providerUserId: identity.providerUserId,
-      },
-    },
-    toolName: "openmeld_get_navigation_action",
-  });
-}
-
-function isInvalidPayloadCoreRpcError(error: unknown): boolean {
-  const visited = new Set<unknown>();
-  let current: unknown = error;
-  for (let depth = 0; depth < 4 && current; depth += 1) {
-    if (visited.has(current)) {
-      return false;
-    }
-    visited.add(current);
-    if (typeof current !== "object") {
-      return false;
-    }
-    const record = current as Record<string, unknown>;
-    if (record.code === "invalid_payload") {
-      return true;
-    }
-    if (
-      typeof record.message === "string" &&
-      record.message.startsWith("HTTP 400:") &&
-      record.message.includes('"code":"invalid_payload"')
-    ) {
-      return true;
-    }
-    current = record.cause;
-  }
-  return false;
 }
 
 function enforceAnonymousMemberToolPolicyAtExecution(input: {
@@ -5865,37 +5786,6 @@ function parseCoreToolResponse<T>(
   return parsed.data;
 }
 
-function parseSlackSearchResponse(response: unknown): unknown {
-  const current =
-    centerAgentSearchSlackMessagesResponseSchema.safeParse(response);
-  if (current.success) {
-    return current.data;
-  }
-  const legacy = legacyCenterAgentSlackSearchResponseSchema.safeParse(response);
-  if (legacy.success) {
-    return {
-      organizationId: legacy.data.organizationId,
-      status: "legacy_core_presented" as const,
-    };
-  }
-  return centerAgentSearchSlackMessagesResponseSchema.parse(response);
-}
-
-function parseSlackTeammateInvitationResponse(response: unknown): unknown {
-  const current =
-    centerAgentInviteSlackTeammatesRpcResponseSchema.safeParse(response);
-  if (current.success) {
-    return current.data;
-  }
-  if (
-    legacyCenterAgentSlackTeammateInvitationResponseSchema.safeParse(response)
-      .success
-  ) {
-    return { status: "legacy_core_handled" as const };
-  }
-  return centerAgentInviteSlackTeammatesRpcResponseSchema.parse(response);
-}
-
 function protectSharedSlackInvitationResult(response: unknown): unknown {
   const parsed =
     centerAgentInviteSlackTeammatesRpcResponseSchema.safeParse(response);
@@ -6236,9 +6126,11 @@ async function rememberOrganizationDirectoryMembers(input: {
   storage: RemoteAgentStorage;
   submissionId: string;
 }): Promise<void> {
+  const key = `${ORGANIZATION_DIRECTORY_MEMBER_KEY_PREFIX}${input.submissionId}`;
+  const previous = (await input.storage.get<string[]>(key)) ?? [];
   await input.storage.putExpiring(
-    `${ORGANIZATION_DIRECTORY_MEMBER_KEY_PREFIX}${input.submissionId}`,
-    [...new Set(input.memberUserIds)],
+    key,
+    [...new Set([...previous, ...input.memberUserIds])],
     Date.now() + ORGANIZATION_DIRECTORY_MEMBER_RETENTION_MS
   );
 }

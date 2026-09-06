@@ -48,17 +48,48 @@ conversation is displayed, view navigation pins its resolved Space ID in the
 URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
-The conversation header provides New chat and Chats using the existing header
-controls. Creation retains its idempotency key across an uncertain failure;
-successful creation opens the exact returned session. Chats reads the bounded,
-current-member session list and follows its opaque pagination cursor. Selecting
-an item uses the same exact route validation as a direct link. List cache keys
-include the Organization and Human Profile. Generic Space management remains
-restricted; dedicated session rename, archive and deletion are not exposed.
+Home places Center Agent chats in the Main Sidebar, reusing destination search
+and filters, collapsible groups, group actions and whole-row drag ordering.
+Pinned chats appear once; unpin restores their original group. Empty built-in
+sections are omitted. User-created groups remain visible with the same compact
+empty-state treatment as Spaces. A New chat entry remains available when no
+sections are visible. The old header New chat/Chats dropdown is removed.
 
-These controls still require real browser acceptance. Shared Computer safety,
-execution steering and release continuity remain required before treating the
-Flue 2 candidate as a release-ready session product.
+New chat opens a local `?draft=new` composer without creating a session or
+waiting for a session-list request. The first send creates the session and
+hands its message to the existing Space composer. Creation identity survives
+uncertain failures and same-tab reloads until navigation succeeds. Draft text
+uses the account/Organization composer store. A `group` selector places the
+new chat in that group if it still exists. Explicit draft and session selectors
+cannot be combined. Existing-session loading and pending sends share one
+conversation skeleton inside the inset app frame.
+
+Drafts and saved chats use the same header navigation and welcome template.
+Management tabs retain the session or draft selector when navigating back.
+Messages, Graph and Files remain scoped to that conversation; management tabs
+remain Organization-scoped. A draft has empty Graph and Files views until sent.
+The header pencil edits a personal chat title, including before the first send.
+Draft titles persist alongside draft text. First-send naming uses a manual title
+when present, otherwise the first message or attachment name. It does not run
+an asynchronous model-title job or overwrite a manual name.
+
+The authorized session index supplies chat identities and paginated discovery.
+Pages render progressively; title search covers all loaded pages while older
+pages continue loading with visible progress. Personal titles, archive state,
+pinning, groups and order live in the account/Organization sidebar preferences.
+The same personal title is rendered in the conversation header. These preferences
+are presentation only: archive hides a chat from the normal list, Unarchive returns
+it, and neither changes membership, execution or history. Generic Space
+management remains restricted; permanent deletion is not exposed.
+Archived chats can be found through either Home's filter or a chat group's
+settings menu. Both controls share one filter state and the Archived badge.
+
+Contract impact: the shared account-sidebar payload adds an optional `chats`
+namespace. Auth preserves it when older clients omit it and uses the existing
+revision check for concurrent writes. Deploy the updated Auth before Web; old
+Auth does not retain this namespace. Core/Gateway session contracts, CLI,
+Service, Skills, setup, Wake dispatch and diagnostic protocols are unchanged.
+No local-component floor or runtime contract bump is required.
 
 ### Plugins
 
