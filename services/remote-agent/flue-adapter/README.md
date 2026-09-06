@@ -12,7 +12,7 @@ is not a future release strategy.
 
 ## Retained package adaptations
 
-`patches/@flue__runtime@2.0.3.patch` retains six explicit contracts:
+`patches/@flue__runtime@2.0.3.patch` retains seven explicit contracts:
 
 1. A zero durability timeout disables total wall-clock expiration. Recovery
    attempts remain bounded. Healthy long-running work must not fail because
@@ -39,6 +39,15 @@ is not a future release strategy.
    render the agent just as live execution does and require the same exact
    submission authority and prepared resources. Instrumenting only the live
    process leaves a restarted Worker unable to reconcile an interrupted turn.
+7. An optional exact-execution steering source can supply durably accepted
+   inputs at the existing model-turn boundary. It resolves inside submission
+   instrumentation. Flue validates the named agent, conversation and host
+   execution, writes the input under that host's canonical authority, then
+   acknowledges application. These inputs neither admit another execution nor
+   run another delivery's start hooks. Canonical entry IDs make replay
+   idempotent, and unresolved inputs participate in the existing recovery
+   seam. The application must retain accepted inputs and enforce sender
+   permissions; this runtime seam alone does not enable Web steering.
 
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not

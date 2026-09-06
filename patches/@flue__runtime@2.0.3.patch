@@ -51,7 +51,7 @@ index b29a9f9d99cf8174bcdc03c2eabe6b56ed57cbf2..5304743bd491b420c41ba45901dd26ce
  		* The Agents SDK alarm handler dispatches `schedule`/`scheduleEvery`/
  		* `queue` callbacks to methods on this class — including
 diff --git a/dist/conversation-stream-store-CXwRWonS.mjs b/dist/conversation-stream-store-CXwRWonS.mjs
-index 3fa342b27631ffcf2a05f0f8dcf571fc2236e2cd..a8cd394b72513d674f994a4b3d04e80fdf93d150 100644
+index 3fa342b27631ffcf2a05f0f8dcf571fc2236e2cd..e6fa31a31addc1fe6f24522350ac9d22d1211ae5 100644
 --- a/dist/conversation-stream-store-CXwRWonS.mjs
 +++ b/dist/conversation-stream-store-CXwRWonS.mjs
 @@ -1,3 +1,4 @@
@@ -59,6 +59,36 @@ index 3fa342b27631ffcf2a05f0f8dcf571fc2236e2cd..a8cd394b72513d674f994a4b3d04e80f
  import { c as encodeBase64, f as createCallHandle, l as abandonToolOnAbort, r as createCwdSandbox, s as decodeBase64, u as abortErrorFor } from "./sandbox-DAJ0daML.mjs";
  import { A as createEditTool, D as READ_SKILL_RESOURCE_TOOL_NAME, E as redactObservationDetailImages, F as createTaskTool, I as createWriteTool, L as formatBashResult, M as createGrepTool, N as createPackagedSkillReadTool, O as createActivateSkillTool, P as createReadTool, R as overlayPackagedSkills, S as renderWithFrame, T as redactEventImages, _ as packageSkillDefinition, a as buildPromptText, b as getSkillReferenceDirectory, c as buildWorkspaceSkillPrompt, d as parseSkillMarkdown, f as getPreparedToolAdapter, g as isSkillDefinition, i as buildPackagedSkillPrompt, j as createGlobTool, k as createBashTool, l as createResultTools, n as GIVE_UP_TOOL_NAME, o as buildResultFollowUpPrompt, r as ResultUnavailableError, s as buildSkillByPathlessNamePrompt, t as FINISH_TOOL_NAME, u as prepareResultTool, w as IMAGE_DATA_OMITTED } from "./result-DfjetCf9.mjs";
  import { $ as generateIncarnationId, A as SubmissionConflictError, F as ToolNameConflictError, J as createConversationIdentity, K as serializeEventError, M as SubmissionRetryExhaustedError, N as SubmissionTimeoutError, O as SubagentNotDeclaredError, S as SessionBusyError, T as SkillNotRegisteredError, W as normalizeLogAttributes, X as generateAttemptId, Y as deriveKeyedSubmissionId, Z as generateBlockId, a as AttachmentNotAvailableError, c as ConversationRecordInvariantError, ct as generateToolCallId, d as FlueError, ft as interceptExecution, h as OperationFailedError, j as SubmissionInterruptedError, k as SubmissionAbortedError, l as ConversationStreamStoreError, lt as generateTurnId, n as AgentInstanceNotFoundError, nt as generateInvocationId, ot as generateSubmissionId, p as InvalidRequestError, rt as generateOperationId, st as generateTaskId, t as AgentInstanceExistsError, tt as generateInstanceUid, u as DelegationDepthExceededError, z as classifyError } from "./errors-CsDcT_C4.mjs";
+@@ -1794,11 +1795,11 @@ var Session = class {
+ 		const entryId = submissionEntryId(input.kind, input.submissionId);
+ 		if (!await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
+ 			const parentId = await this.conversationWriter.getConversationLeaf(this.conversationId);
+-			await this.appendCanonical([await this.buildSubmissionInputRecord(input, parentId, { asJoinedDelivery: true })]);
++			await this.appendCanonical([await this.buildSubmissionInputRecord(input, parentId, { asJoinedDelivery: !submission.isSteering })]);
+ 			await this.steerJoinedEntry(entryId);
+ 		}
+ 		this.advanceDelivery?.(input.message);
+-		await this.runAgentStartHooks(signal, input.submissionId, { joined: true });
++		if (!submission.isSteering) await this.runAgentStartHooks(signal, input.submissionId, { joined: true });
+ 		await source.finalize(input.submissionId);
+ 	}
+ 	/**
+@@ -1835,13 +1836,13 @@ var Session = class {
+ 			if (submission.status === "joining") {
+ 				if (await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
+ 					this.advanceDelivery?.(input.message);
+-					await this.runAgentStartHooks(signal, input.submissionId, { joined: true });
++					if (!submission.isSteering) await this.runAgentStartHooks(signal, input.submissionId, { joined: true });
+ 					await source.finalize(input.submissionId);
+ 				} else await source.revert(input.submissionId);
+ 				continue;
+ 			}
+ 			this.advanceDelivery?.(input.message);
+-			await this.runAgentStartHooks(signal, input.submissionId, { joined: true });
++			if (!submission.isSteering) await this.runAgentStartHooks(signal, input.submissionId, { joined: true });
+ 		}
+ 		await this.restoreDeliveryCursor();
+ 	}
 @@ -2544,7 +2545,14 @@ var Session = class {
  		return this.inspectCanonicalState(classifyConversationSubmission(conversation, this.canonicalInputEntryId(input), { contextWindow: this.agentLoop.state.model?.contextWindow ?? 0 }));
  	}
@@ -130,16 +160,44 @@ index 3fa342b27631ffcf2a05f0f8dcf571fc2236e2cd..a8cd394b72513d674f994a4b3d04e80f
  }
  /**
  * Settle a queued submission that can never be claimed — a durable abort on
-@@ -5000,7 +5020,7 @@ async function processSubmission(opts) {
+@@ -4999,11 +5019,32 @@ async function processSubmission(opts) {
+ 		attemptCount: submission.attemptCount,
  		maxAttempts: submission.maxAttempts
  	});
++	// Explicit inputs stay under this execution's authority. The application
++	// owns their durable intake; Flue owns canonical application and recovery.
++	// Resolve inside the instrumented execution, where its resources exist.
++	let steeringSource;
++	const steeringIds = new Set();
++	const getSteeringSource = () => steeringSource ??= agent.steeringSource?.(input.submissionId);
++	const steeringRecords = async (method) => {
++		const source = getSteeringSource();
++		if (!source) return [];
++		return (await source[method]()).map((record) => {
++			if (record.input.agent !== input.agent || record.input.id !== input.id || record.targetSubmissionId !== input.submissionId || record.input.submissionId === input.submissionId) throw new Error("[flue] Steering input does not belong to the active execution.");
++			steeringIds.add(record.input.submissionId);
++			return { ...record, isSteering: true };
++		});
++	};
  	const joinSource = {
 -		claim: () => submissions.claimJoinableSubmissions(attempt, input.agent),
-+		claim: () => agent.joinQueuedDeliveries === false ? Promise.resolve([]) : submissions.claimJoinableSubmissions(attempt, input.agent),
- 		finalize: (submissionId) => submissions.finalizeJoinedSubmission(attempt, submissionId),
- 		revert: (submissionId) => submissions.revertJoiningSubmission(attempt, submissionId),
- 		listUnresolved: () => submissions.listJoinedSubmissions(attempt.submissionId)
-@@ -5033,17 +5053,7 @@ async function processSubmission(opts) {
+-		finalize: (submissionId) => submissions.finalizeJoinedSubmission(attempt, submissionId),
+-		revert: (submissionId) => submissions.revertJoiningSubmission(attempt, submissionId),
+-		listUnresolved: () => submissions.listJoinedSubmissions(attempt.submissionId)
++		claim: async () => [
++			...await steeringRecords("claim"),
++			...agent.joinQueuedDeliveries === false ? [] : await submissions.claimJoinableSubmissions(attempt, input.agent)
++		],
++		finalize: (submissionId) => steeringIds.has(submissionId) ? getSteeringSource().finalize(submissionId) : submissions.finalizeJoinedSubmission(attempt, submissionId),
++		revert: (submissionId) => steeringIds.has(submissionId) ? getSteeringSource().revert(submissionId) : submissions.revertJoiningSubmission(attempt, submissionId),
++		listUnresolved: async () => [
++			...await steeringRecords("listUnresolved"),
++			...await submissions.listJoinedSubmissions(attempt.submissionId)
++		]
+ 	};
+ 	const execute = () => createAgentSubmissionSessionHandler(agent, input, (session) => {
+ 		const handle = session.processSubmissionInput(input, {
+@@ -5033,17 +5074,7 @@ async function processSubmission(opts) {
  		return;
  	}
  	try {
@@ -421,3 +479,42 @@ index 126e36e087bc16263eb50da6f8a6f65867361734..06314ed24e8f5ff9e24473b4db6dc158
  	async requeueSubmission(attempt) {
  		return this.sql.exec(`UPDATE flue_agent_submissions
  					 SET status = 'queued', attempt_id = NULL, input_applied_at = NULL, started_at = NULL, owner_id = NULL, lease_expires_at = 0
+diff --git a/dist/types-CVx9SjIx.d.mts b/dist/types-CVx9SjIx.d.mts
+index 0c9ab2477d44e4df8b60c007f5e04c327abb20c3..0bbcdfd68176fd839abb0a43743bc0947cc2163b 100644
+--- a/dist/types-CVx9SjIx.d.mts
++++ b/dist/types-CVx9SjIx.d.mts
+@@ -698,7 +698,34 @@ interface AgentProps {
+  * IssueTriage.durability = { maxAttempts: 5, timeoutMs: 7_200_000 };
+  * ```
+  */
++interface AgentSteeringInput {
++  targetSubmissionId: string;
++  status: "joining" | "joined";
++  input: {
++    kind: "dispatch";
++    submissionId: string;
++    agent: string;
++    id: string;
++    acceptedAt: string;
++    message: DeliveredMessageInput;
++  };
++}
++interface AgentSteeringSource {
++  claim(): Promise<AgentSteeringInput[]>;
++  listUnresolved(): Promise<AgentSteeringInput[]>;
++  finalize(inputId: string): Promise<unknown>;
++  revert(inputId: string): Promise<unknown>;
++}
+ interface AgentStatics {
++  /** Disable absorption of independently admitted deliveries. */
++  joinQueuedDeliveries?: boolean;
++  /**
++   * Exact-execution input seam. Called inside submission instrumentation.
++   * Inputs are durably accepted and authorized by the application, never
++   * separate executions. Flue appends them to its canonical context before
++   * acknowledging application. Pending records must survive recovery.
++   */
++  steeringSource?: (submissionId: string) => AgentSteeringSource;
+   /**
+    * The agent's durable identity — keys conversation storage everywhere and
+    * the Durable Object class on Cloudflare. Defaults to the function's own
