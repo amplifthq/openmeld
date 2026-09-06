@@ -1078,7 +1078,7 @@ describe("AppSpacesSidebar", () => {
 		expect(nameAndDate?.classList.contains("min-w-0")).toBe(true);
 		expect(nameAndDate?.classList.contains("flex-1")).toBe(true);
 		expect(nameAndDate?.classList.contains("items-center")).toBe(true);
-		expect(nameAndDate?.classList.contains("gap-px")).toBe(true);
+		expect(nameAndDate?.classList.contains("gap-2")).toBe(true);
 		expect(openSpaceButton.classList.contains("items-center")).toBe(true);
 		expect(timestamp).toBeNull();
 		expect(pinButton.classList.contains("top-1.5")).toBe(true);
