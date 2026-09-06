@@ -33,13 +33,13 @@ it.each([
 	fireEvent.keyDown(window, { key });
 	expect(navigate).toHaveBeenCalledWith({ to });
 });
-it("keeps Command K and toggles the resolved theme", () => {
+it("keeps Command K and leaves theme switching to the global owner", () => {
 	const command = vi.fn();
 	renderHook(() => useAppKeyboardShortcuts(command));
 	fireEvent.keyDown(window, { key: "k", metaKey: true });
 	expect(command).toHaveBeenCalledOnce();
 	fireEvent.keyDown(window, { key: "D", shiftKey: true });
-	expect(setTheme).toHaveBeenCalledWith("light");
+	expect(setTheme).not.toHaveBeenCalled();
 });
 it("ignores typing, composition, and expired sequences", () => {
 	vi.useFakeTimers();

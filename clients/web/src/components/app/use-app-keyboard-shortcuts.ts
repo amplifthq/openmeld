@@ -1,6 +1,8 @@
-import { APPLICATION_SHORTCUTS } from "@openmeld/ui/lib/application-shortcuts";
+import {
+	APPLICATION_SHORTCUTS,
+	blocksLetterShortcuts,
+} from "@openmeld/ui/lib/application-shortcuts";
 import { useNavigate } from "@tanstack/react-router";
-import { useTheme } from "next-themes";
 import { useEffect } from "react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -30,26 +32,9 @@ function isCommandShortcut(event: KeyboardEvent) {
 	);
 }
 
-function blocksLetterShortcuts(event: KeyboardEvent) {
-	const target = event.target;
-	return (
-		event.metaKey ||
-		event.ctrlKey ||
-		event.altKey ||
-		(target instanceof HTMLElement &&
-			Boolean(
-				target.closest(
-					"input,textarea,select,[contenteditable]:not([contenteditable=false]),[role=textbox],[role=dialog],[role=menu]"
-				)
-			)) ||
-		Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'))
-	);
-}
-
 export function useAppKeyboardShortcuts(toggleCommandCenter: () => void) {
 	const { currentOrganization } = useAppOrganization();
 	const navigate = useNavigate();
-	const { resolvedTheme, setTheme } = useTheme();
 	useEffect(() => {
 		let prefixAt = 0;
 		const clear = () => {
@@ -74,10 +59,6 @@ export function useAppKeyboardShortcuts(toggleCommandCenter: () => void) {
 			}
 			if (event.shiftKey) {
 				clear();
-				if (key === APPLICATION_SHORTCUTS.theme) {
-					event.preventDefault();
-					setTheme(resolvedTheme === "dark" ? "light" : "dark");
-				}
 				return;
 			}
 			if (prefixAt && Date.now() - prefixAt <= 1000) {
@@ -106,11 +87,5 @@ export function useAppKeyboardShortcuts(toggleCommandCenter: () => void) {
 			window.removeEventListener("blur", clear);
 			window.removeEventListener("focusin", clear);
 		};
-	}, [
-		currentOrganization.slug,
-		navigate,
-		resolvedTheme,
-		setTheme,
-		toggleCommandCenter,
-	]);
+	}, [currentOrganization.slug, navigate, toggleCommandCenter]);
 }

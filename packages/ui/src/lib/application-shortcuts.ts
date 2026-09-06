@@ -21,6 +21,22 @@ export const APPLICATION_SHORTCUTS = {
   },
 } as const;
 
+export function blocksLetterShortcuts(event: KeyboardEvent) {
+  const target = event.target;
+  return (
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    (target instanceof HTMLElement &&
+      Boolean(
+        target.closest(
+          "input,textarea,select,[contenteditable]:not([contenteditable=false]),[role=textbox],[role=dialog],[role=menu]"
+        )
+      )) ||
+    Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'))
+  );
+}
+
 export function matchesSidebarShortcut(event: KeyboardEvent) {
   return (
     (event.key === APPLICATION_SHORTCUTS.sidebarAlternate &&

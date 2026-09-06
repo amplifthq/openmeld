@@ -15,6 +15,7 @@ import { useEffect } from "react";
 import { ApplicationErrorState } from "#/components/app/application-error-state";
 import { PublicPageHeader } from "#/components/app/public-page-header";
 import { AppearanceShapeProvider } from "#/components/appearance/appearance-shape-provider";
+import { GlobalThemeShortcut } from "#/components/global-theme-shortcut";
 import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
 import { Toaster } from "#/components/ui/sonner";
 import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-slot";
@@ -192,6 +193,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 				>
 					<AppearanceShapeProvider>
 						<ThemeColorMeta />
+						<GlobalThemeShortcut />
 						<TooltipProvider>
 							<NuqsAdapter>{children}</NuqsAdapter>
 						</TooltipProvider>
