@@ -38,3 +38,7 @@ Messages now supports pinned conversations, personal groups, section sorting,
 and drag ordering. Start a conversation with a person or Agent from the section's
 plus button. Groups and ordering sync across devices without changing who can
 access a conversation.
+
+Local previews accept localhost aliases on the configured development Web port
+when saving sidebar groups and order. Failed saves show readable guidance
+instead of raw JSON.

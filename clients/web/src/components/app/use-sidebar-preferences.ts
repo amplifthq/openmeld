@@ -1,3 +1,4 @@
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import {
 	type AccountSidebarPreferences,
 	type AccountSidebarSnapshot,
@@ -54,7 +55,17 @@ export function useSidebarPreferences(
 			if (previous) {
 				client.setQueryData(queryKey, previous);
 			}
-			toast.error(error.message);
+			const failure = toStructuredApiClientFailure(error);
+			console.error("Could not save sidebar preferences.", error);
+			const messages: Record<number, string> = {
+				401: "Sign in again to save your sidebar changes.",
+				403: "This page can't save sidebar changes. Reopen your workspace and try again.",
+				409: "Your sidebar changed on another device. Refresh and try again.",
+			};
+			toast.error(
+				messages[failure.status ?? 0] ??
+					"Couldn't save your sidebar changes. Try again."
+			);
 			await client.invalidateQueries({ queryKey });
 		},
 	});
