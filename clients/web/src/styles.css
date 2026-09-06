@@ -571,6 +571,11 @@ html[data-space-self-message-alignment="left"]
     transition: transform 150ms ease-out, opacity 100ms ease-out;
   }
 
+  /* Let the pointer cross small gaps without collapsing the account row. */
+  .app-sidebar-footer:not(:hover):not(:focus-within) .app-sidebar-footer-actions {
+    transition-delay: 180ms;
+  }
+
   .app-sidebar-footer:hover .app-sidebar-footer-actions,
   .app-sidebar-footer:focus-within .app-sidebar-footer-actions,
   .app-sidebar-footer[data-footer-expanded="true"]:focus-within .app-sidebar-footer-actions {
