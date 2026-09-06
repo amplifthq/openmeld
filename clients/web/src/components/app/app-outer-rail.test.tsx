@@ -428,7 +428,9 @@ describe("AppOuterRail", () => {
 
 		const content = screen
 			.getByTestId("app-outer-rail")
-			.querySelector('[data-sidebar="content"]');
+			.querySelector(
+				'[data-sidebar="content"] [data-slot="scroll-area-viewport"] > div'
+			);
 
 		expect(content?.className).toContain("px-2");
 		expect(content?.className).not.toContain("px-3");

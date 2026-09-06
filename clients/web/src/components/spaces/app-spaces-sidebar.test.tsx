@@ -671,7 +671,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeNull();
 	});
 
-	it("does not render the pinned section when no spaces are pinned", async () => {
+	it("keeps an empty pinned section available as a drag destination", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -689,7 +689,7 @@ describe("AppSpacesSidebar", () => {
 		expect(await screen.findByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
 			screen.queryByRole("heading", { level: 2, name: "Pinned" })
-		).toBeNull();
+		).toBeTruthy();
 	});
 
 	it("hides legacy welcoming spaces from the sidebar", async () => {
@@ -873,7 +873,7 @@ describe("AppSpacesSidebar", () => {
 		expect(screen.queryByRole("button", { name: "Beta Project" })).toBeNull();
 		expect(
 			screen.queryByRole("heading", { level: 2, name: "Pinned" })
-		).toBeNull();
+		).toBeTruthy();
 		expect(screen.queryByText("Welcoming")).toBeNull();
 	});
 
