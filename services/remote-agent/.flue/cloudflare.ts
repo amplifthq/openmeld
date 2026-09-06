@@ -33,7 +33,7 @@ const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
   async cancelExecution(input: unknown) {
-    const namespace = env.FLUE_CENTER_AGENT_AGENT as CenterAgentNamespace;
+    const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
     return await observeRemoteAgentRpc({
       ...readCancellationCorrelation(input),
       env,
@@ -44,7 +44,7 @@ export default {
   },
 
   async readExecutionState(input: unknown) {
-    const namespace = env.FLUE_CENTER_AGENT_AGENT as CenterAgentNamespace;
+    const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
     return await observeRemoteAgentRpc({
       ...readExecutionStateCorrelation(input),
       env,
@@ -58,7 +58,7 @@ export default {
   },
 
   async reconcileExecution(input: unknown) {
-    const namespace = env.FLUE_CENTER_AGENT_AGENT as CenterAgentNamespace;
+    const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
     return await observeRemoteAgentRpc({
       ...readExecutionStateCorrelation(input),
       env,
@@ -87,7 +87,7 @@ export default {
     });
   },
   async submitConversationTurn(input: unknown) {
-    const namespace = env.FLUE_CENTER_AGENT_AGENT as CenterAgentNamespace;
+    const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
     return await observeRemoteAgentRpc({
       ...readSubmitTurnCorrelation(input),
       env,
@@ -106,7 +106,7 @@ export default {
     runtimeConversationId: string;
     spaceId: string;
   }) {
-    const namespace = env.FLUE_CENTER_AGENT_AGENT as CenterAgentNamespace;
+    const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
     return await observeRemoteAgentRpc({
       env,
       execute: () =>
@@ -120,7 +120,7 @@ export default {
   },
 
   async readRuntimeDiagnostics(input: unknown) {
-    const namespace = env.FLUE_CENTER_AGENT_AGENT as CenterAgentNamespace;
+    const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
     return await observeRemoteAgentRpc({
       env,
       execute: () =>

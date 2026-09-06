@@ -247,15 +247,19 @@ export function buildOrganizationCenterAgentRootPath(orgSlug: string): string {
 export function buildOrganizationCenterAgentChatPath(
 	orgSlug: string,
 	search?: {
+		session?: string;
 		focusSignalId?: string;
 		view?: "files" | "graph" | "messages";
 	}
 ): string {
 	const path = buildOrganizationDefaultPath(orgSlug);
-	if (!(search?.focusSignalId || search?.view)) {
+	if (!(search?.focusSignalId || search?.view || search?.session)) {
 		return path;
 	}
 	const params = new URLSearchParams();
+	if (search.session) {
+		params.set("session", search.session);
+	}
 	if (search.focusSignalId) {
 		params.set("focusSignalId", search.focusSignalId);
 	}

@@ -18,7 +18,7 @@ export default defineConfig({
       deps: {
         // Force these through the vite pipeline so the cloudflare:workers
         // alias above applies inside the package too.
-        inline: [/@cloudflare\/computer/u],
+        inline: [/@cloudflare\/computer/u, /@flue\/runtime/u],
       },
     },
   },

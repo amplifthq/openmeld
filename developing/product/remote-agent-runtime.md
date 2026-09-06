@@ -90,6 +90,15 @@ also fail while paused. A partial cancellation failure remains visible and
 leaves the operating state paused; Resume re-enables the same identity without
 recreating runtime or integration state.
 
+A cancellation acknowledgement is not execution settlement. Remote Agent keeps
+`cancellation_requested` until the execution observer or reconciler receives
+the terminal runtime fact; repeating the request reports that same pending
+state. A missing submission or Flue's abort-intent acknowledgement cannot
+fabricate `aborted`. Callback reconciliation remains armed while cancellation
+is pending. Deployment draining must additionally account for outstanding
+external operations and delegation receipts; a model-loop terminal fact alone
+does not prove those resources are idle.
+
 ## Two Runtime Families (settled 2026-07-06)
 
 | Family               | Members                                                                        | Contract                                                                                                                                                                          |
@@ -125,7 +134,7 @@ Agent's future heavy work is done by (a) sandboxed per-call execution tools
 the agent's home") and (b) waking the org's local agents through the
 existing wake system.
 
-## Implementation Base: Flue Harness (updated 2026-07-10)
+## Implementation Base: Flue Harness (updated 2026-09-06)
 
 The agent worker is built on **Flue**, pinned by exact package version in
 `services/remote-agent`. OpenMeld uses Flue for the agent harness and Durable
@@ -138,6 +147,16 @@ New provider-neutral Message Channel turns use
 `{provider}:{connectionId}:{chatId}:{rootMessageId}`. Existing Slack
 conversation ids remain readable and continue through their current producer
 until the separately gated Slack adapter migration.
+
+The Flue 2.0.3 upgrade uses synchronous agent hooks and a fresh
+`FlueCenterAgentV2Agent` namespace for the authorized prelaunch beta reset.
+The Computer namespace and Core business data remain separate. The adapter's
+[pinned integration contracts](../../services/remote-agent/flue-adapter/README.md)
+document the retained package adaptations and outstanding release gates.
+This first reset does not authorize interrupting accepted work on subsequent
+releases. A real staging handoff must prove continued execution and the exact
+session context, including intermediate choices and unpublished work; rebuilding
+Core memory or a visible-message excerpt alone does not establish that guarantee.
 
 Model-visible tool results must cross an OpenMeld-owned bounded persistence
 boundary before Flue stores them in the conversation session. A direct tool
@@ -1484,16 +1503,19 @@ surface adopts official features where they are free**:
     Center Agent speaks in), exactly as it already does for Organization
     memory and Documents. Before each hosted turn starts, Remote Agent pulls a
     versioned approved Organization Documents snapshot from Core when the
-    current turn's `contextScopePlan` allows it and materializes it read-only
-    under `/computer/org/documents`. When the plan disallows Organization
-    Documents, Remote Agent clears any projection left by an earlier turn
-    before exposing Computer tools and does not expose the Document checkout or
-    submit tools. The snapshot
-    exposes a convenience manifest, preserves clean Markdown bodies without
-    frontmatter, and is fully rematerialized before computer tools become
-    available on every authorized turn. The manifest is not trusted identity or
-    version state: working-copy submission is bound to the current Core snapshot
-    held outside the Agent-writable filesystem. Center Agent edits happen in a
+    current turn's `contextScopePlan` allows it. The trusted snapshot stays in
+    turn-local memory; approved documents are no longer automatically copied
+    onto shared disk. This removes the global refresh/clear race between
+    concurrent sessions without leaving prior automatic snapshots accessible
+    to a turn that excludes Documents. Remote Agent retires the old reserved
+    `/computer/org/documents` projection before exposing Computer tools. This
+    migration cleanup never touches current session working copies.
+    A disallowed plan neither fetches the snapshot nor exposes Document checkout
+    or submit tools. Authorized reads use the existing Core tools; explicit
+    checkout writes one document into the current working directory. Working
+    copies are ordinary shared Computer files, not a per-member privacy
+    boundary. Working-copy submission remains bound to the current trusted
+    snapshot outside the Agent-writable filesystem. Center Agent edits happen in a
     working directory and return through the Core-owned draft or explicitly
     authorized direct-save contracts; Computer files never become a second
     approved-content writer.
@@ -1502,7 +1524,7 @@ surface adopts official features where they are free**:
     acquires and disposes one client for each materialization attempt and later
     Computer operation; an exec handle is disposed before its parent client on
     success, failure, or cancellation. If that RPC connection disappears while
-    the pre-model layout or Organization Documents projection is being built,
+    the pre-model layout or legacy projection cleanup is in progress,
     Remote Agent reacquires the same AgentComputer identity and restarts the
     complete deterministic materialization from the already-read Core snapshot.
     It does not match error prose or create another Computer. If immediate

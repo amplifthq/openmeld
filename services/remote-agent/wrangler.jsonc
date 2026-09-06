@@ -102,6 +102,11 @@
         "FlueCenterAgentAgent",
         "AgentComputer"
       ]
+    },
+    {
+      "tag": "v2_flue_sessions",
+      "deleted_classes": ["FlueRegistry", "FlueCenterAgentAgent"],
+      "new_sqlite_classes": ["FlueCenterAgentV2Agent"]
     }
   ],
   "env": {

@@ -404,7 +404,7 @@ describe("Flue Cloudflare entrypoints", () => {
       async (_request: Request): Promise<Response> =>
         Response.json({
           acceptedAt: new Date(TEST_NOW_MS).toISOString(),
-          dispatchId: request.dispatchId,
+          submissionId: request.dispatchId,
         })
     );
     const host = createFlueCenterAgentAdmissionHost({
@@ -442,12 +442,13 @@ describe("Flue Cloudflare entrypoints", () => {
       );
       await expect(flueRequest?.json()).resolves.toEqual({
         acceptedAt: new Date(TEST_NOW_MS).toISOString(),
-        agent: "center-agent",
-        dispatchId: request.dispatchId,
+        agent: "center-agent-v2",
+        submissionId: request.dispatchId,
         id: request.spaceId,
-        input: {
-          message: buildRemoteAgentPromptMessage(request),
-          images: [
+        message: {
+          kind: "user",
+          body: buildRemoteAgentPromptMessage(request),
+          attachments: [
             {
               type: "image",
               data: "AQID",

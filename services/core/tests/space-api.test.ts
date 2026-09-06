@@ -40,9 +40,11 @@ import {
 import {
   rpcAddSpaceMembers,
   rpcCenterAgentPostSpaceMessage,
+  rpcCreateCenterAgentContextManifest,
   rpcCreateSpace,
   rpcGetSpaceBoard,
   rpcGetSpaceStatus,
+  rpcListCenterAgentSessions,
   rpcOpenCenterAgentDirectMessageSpace,
   rpcPostSignal,
   rpcPostStatusSignal,
@@ -7602,7 +7604,7 @@ describe("OpenMeld Core", () => {
     });
   });
 
-  it("opens the Center Agent DM through the real Space DO member path", async () => {
+  it("opens the default Center chat and independent idempotent sessions through the real Space DO", async () => {
     const organizationId = `org-center-dm-${randomUUID()}`;
     const ownerUserId = `user-center-dm-${randomUUID()}`;
     const humanProfileId = randomUUID();
@@ -7612,6 +7614,10 @@ describe("OpenMeld Core", () => {
       agentProfileName: "OpenMeld Assistant",
       organizationId,
       ownerUserId,
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: humanProfileId,
     });
     const context = createRpcContext({
       activeOrganizationId: organizationId,
@@ -7624,12 +7630,35 @@ describe("OpenMeld Core", () => {
     const rpc = SELF as unknown as {
       openCenterAgentDirectMessageSpace: (input: {
         context: typeof context;
+        sessionCreationId?: string;
       }) => Promise<{
         centerAgentProfileId: string;
         created: boolean;
         memberProfileId: string;
         organizationId: string;
         spaceId: string;
+      }>;
+      getCenterAgentDirectMessageSpaceProjection: (input: {
+        context: typeof context;
+        spaceId: string;
+      }) => Promise<{
+        projection: { spaceId: string; memberProfileId: string } | null;
+      }>;
+      createCenterAgentContextManifest: (input: {
+        context: typeof context;
+        spaceId: string;
+        source: { kind: "local_agent"; client: string };
+      }) => Promise<{
+        subject: { conversationId: string };
+        entries: unknown[];
+      }>;
+      listCenterAgentSessions: (input: {
+        context: typeof context;
+        limit?: number;
+        cursor?: string;
+      }) => Promise<{
+        sessions: Array<{ spaceId: string; memberProfileId: string }>;
+        nextCursor: string | null;
       }>;
     };
 
@@ -7646,6 +7675,127 @@ describe("OpenMeld Core", () => {
     expect(second).toEqual({
       ...first,
       created: false,
+    });
+
+    const creationId = randomUUID();
+    const [session, repeatedSession, anotherSession] = await Promise.all([
+      rpc.openCenterAgentDirectMessageSpace({
+        context,
+        sessionCreationId: creationId,
+      }),
+      rpc.openCenterAgentDirectMessageSpace({
+        context,
+        sessionCreationId: creationId,
+      }),
+      rpc.openCenterAgentDirectMessageSpace({
+        context,
+        sessionCreationId: randomUUID(),
+      }),
+    ]);
+    expect(session.spaceId).toBe(repeatedSession.spaceId);
+    expect(
+      new Set([first.spaceId, session.spaceId, anotherSession.spaceId]).size
+    ).toBe(3);
+    for (const selected of [session, anotherSession]) {
+      expect(selected.memberProfileId).toBe(humanProfileId);
+      expect(selected.centerAgentProfileId).toBe(agentProfileId);
+      await expect(
+        rpc.getCenterAgentDirectMessageSpaceProjection({
+          context,
+          spaceId: selected.spaceId,
+        })
+      ).resolves.toMatchObject({
+        projection: {
+          spaceId: selected.spaceId,
+          memberProfileId: humanProfileId,
+        },
+      });
+    }
+    await expect(
+      rpc.getCenterAgentDirectMessageSpaceProjection({
+        context,
+        spaceId: "f".repeat(64),
+      })
+    ).resolves.toMatchObject({ projection: null });
+
+    const otherMemberUserId = `user-other-session-${randomUUID()}`;
+    const otherMemberProfileId = randomUUID();
+    await ensureTestOrganizationMembership({
+      organizationId,
+      userId: otherMemberUserId,
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId: otherMemberUserId,
+      profileId: otherMemberProfileId,
+    });
+    const otherProfileContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: otherMemberUserId,
+      profileId: otherMemberProfileId,
+      profileKind: "human",
+      profileName: "Other Profile",
+      requestId: "center-session-other-profile",
+    });
+    await expect(
+      rpc.getCenterAgentDirectMessageSpaceProjection({
+        context: otherProfileContext,
+        spaceId: session.spaceId,
+      })
+    ).resolves.toMatchObject({ projection: null });
+
+    const manifestInput = {
+      context,
+      source: { kind: "local_agent" as const, client: "codex" },
+      spaceId: session.spaceId,
+    };
+    const firstPage = await rpc.listCenterAgentSessions({ context, limit: 1 });
+    expect(firstPage.sessions).toHaveLength(1);
+    expect(firstPage.nextCursor).not.toBeNull();
+    const secondPage = await rpc.listCenterAgentSessions({
+      context,
+      limit: 1,
+      cursor: firstPage.nextCursor ?? undefined,
+    });
+    const lastPage = await rpc.listCenterAgentSessions({
+      context,
+      limit: 1,
+      cursor: secondPage.nextCursor ?? undefined,
+    });
+    expect(lastPage.nextCursor).toBeNull();
+    const listed = [
+      ...firstPage.sessions,
+      ...secondPage.sessions,
+      ...lastPage.sessions,
+    ];
+    expect(listed.map((item) => item.spaceId).sort()).toEqual(
+      [first.spaceId, session.spaceId, anotherSession.spaceId].sort()
+    );
+    expect(
+      listed.every((item) => item.memberProfileId === humanProfileId)
+    ).toBe(true);
+    await expect(
+      rpc.listCenterAgentSessions({ context: otherProfileContext })
+    ).resolves.toMatchObject({ sessions: [], nextCursor: null });
+    await expect(
+      rpcListCenterAgentSessions(env as unknown as CoreBindings, {
+        context: otherProfileContext,
+        cursor: firstPage.nextCursor ?? undefined,
+      })
+    ).rejects.toMatchObject({ status: 400, code: "invalid_payload" });
+    await expect(
+      rpc.createCenterAgentContextManifest(manifestInput)
+    ).resolves.toMatchObject({
+      subject: { conversationId: session.spaceId },
+      entries: [],
+    });
+    await expect(
+      rpcCreateCenterAgentContextManifest(env as unknown as CoreBindings, {
+        ...manifestInput,
+        context: otherProfileContext,
+      })
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "center_agent.context_conversation_required",
     });
 
     const membersResponse = await fetchWithOpenMeldAuth(

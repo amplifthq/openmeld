@@ -1,16 +1,14 @@
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import {
-  defineAgent,
   type FlueObservation,
   observe,
-  registerProvider,
-  type SessionEnv,
+  setProvider,
+  useModel,
 } from "@flue/runtime";
 import {
   createFlueContext,
   createNodeAgentCoordinator,
-  resetProviderRuntime,
+  resetModelsForTests,
   resolveModel,
 } from "@flue/runtime/internal";
 import { sqlite } from "@flue/runtime/node";
@@ -27,7 +25,7 @@ import { createRemoteAgentStreamPublisher } from "../flue-adapter/streaming";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
-const AGENT_NAME = "center-agent";
+const AGENT_NAME = "center-agent-v2";
 const INSTANCE_ID = "space-usage-observability";
 const MODEL_ID = "usage-observability-model";
 const PROVIDER_ID = "usage-observability-provider";
@@ -39,7 +37,7 @@ describe("Remote Agent usage observability integration", () => {
     for (const cleanup of cleanups.splice(0).reverse()) {
       await cleanup();
     }
-    resetProviderRuntime();
+    resetModelsForTests();
   });
 
   it("writes provider turn usage to Analytics Engine", async () => {
@@ -91,7 +89,7 @@ describe("Remote Agent usage observability integration", () => {
     });
     cleanups.push(unsubscribe);
 
-    const faux = registerFauxProvider({
+    const faux = fauxProvider({
       api: "usage-observability-faux",
       models: [
         {
@@ -102,14 +100,7 @@ describe("Remote Agent usage observability integration", () => {
       ],
       provider: PROVIDER_ID,
     });
-    cleanups.push(faux.unregister);
-    registerProvider(PROVIDER_ID, {
-      api: faux.api as never,
-      baseUrl: "https://usage-observability.invalid",
-      contextWindow: 32_000,
-      maxTokens: 1024,
-      models: { [MODEL_ID]: { contextWindow: 32_000, maxTokens: 1024 } },
-    });
+    setProvider(faux.provider);
     faux.setResponses([
       fauxAssistantMessage("Usage from this completed turn must be recorded."),
     ]);
@@ -118,27 +109,24 @@ describe("Remote Agent usage observability integration", () => {
     cleanups.push(async () => await persistence.close?.());
     await persistence.migrate?.();
     const stores = await persistence.connect();
-    const sessionEnv = createTestSessionEnv();
-    const agent = defineAgent(() => ({
-      instructions: "Answer the user directly.",
-      model: `${PROVIDER_ID}/${MODEL_ID}`,
-      sandbox: { createSessionEnv: async () => sessionEnv },
-      skipLocalContextDiscovery: true,
-    }));
+    function agent() {
+      useModel(`${PROVIDER_ID}/${MODEL_ID}`);
+      return "Answer the user directly.";
+    }
     const coordinator = createNodeAgentCoordinator({
-      agents: [{ definition: agent, name: AGENT_NAME }],
+      agents: [{ agent, name: AGENT_NAME }],
       attachmentStore: stores.attachmentStore,
       conversationStreamStore: stores.conversationStreamStore,
-      createContext: ({ agentName, id, request }) =>
+      createContext: ({ agentName, id, request, submissionId }) =>
         createFlueContext({
           agentConfig: { resolveModel },
           agentName,
-          createDefaultEnv: async () => sessionEnv,
           env: {},
           id,
           req: request,
+          submissionId,
         }),
-      submissions: stores.executionStore.submissions,
+      submissions: stores.submissionStore,
     });
     cleanups.push(async () => await coordinator.shutdown());
 
@@ -159,9 +147,9 @@ describe("Remote Agent usage observability integration", () => {
         const admission = await coordinator.admitDispatch({
           acceptedAt: new Date(TEST_NOW_MS).toISOString(),
           agent: AGENT_NAME,
-          dispatchId: submissionId,
+          submissionId,
           id: INSTANCE_ID,
-          input: { message },
+          message: { kind: "user", body: message },
         });
         if (admission.kind === "conflict") {
           throw new Error("Deterministic Flue dispatch conflicted.");
@@ -228,22 +216,6 @@ describe("Remote Agent usage observability integration", () => {
   });
 });
 
-function createTestSessionEnv(): SessionEnv {
-  return {
-    cwd: "/workspace",
-    exec: vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" })),
-    exists: vi.fn(async () => false),
-    mkdir: vi.fn(async () => undefined),
-    readFile: vi.fn(async () => ""),
-    readFileBuffer: vi.fn(async () => new Uint8Array()),
-    readdir: vi.fn(async () => []),
-    resolvePath: (path) => (path.startsWith("/") ? path : `/workspace/${path}`),
-    rm: vi.fn(async () => undefined),
-    stat: vi.fn(async () => ({ isDirectory: false, isFile: true })),
-    writeFile: vi.fn(async () => undefined),
-  };
-}
-
 function summarizeEvents(events: readonly FlueObservation[]): string {
   return JSON.stringify(
     events.map((event) => ({
@@ -251,6 +223,9 @@ function summarizeEvents(events: readonly FlueObservation[]): string {
       submissionId: event.submissionId,
       type: event.type,
       usage: "usage" in event ? event.usage : undefined,
+      error: "error" in event ? event.error : undefined,
+      result: "result" in event ? event.result : undefined,
+      isError: "isError" in event ? event.isError : undefined,
     })),
     null,
     2

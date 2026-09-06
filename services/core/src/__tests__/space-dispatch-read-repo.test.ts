@@ -1316,6 +1316,13 @@ describe("space dispatch read repo", () => {
       ...commonInput,
       responseContractVersion: SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
     });
+    const v3Result = await readSpaceDispatchTrace({
+      ...commonInput,
+      responseContractVersion: 3,
+    });
+    expect(v3Result.trace?.runtimeCoordinatorHeadLifecycle).toEqual(
+      currentResult.trace?.runtimeCoordinatorHeadLifecycle
+    );
     expect(currentResult.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject({
       noExecutionDecision: {
         publicationCategory: "workspace_unavailable",

@@ -1,16 +1,19 @@
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import { defineAgent, registerProvider, type SessionEnv } from "@flue/runtime";
+import {
+  fauxAssistantMessage,
+  fauxProvider,
+  fauxToolCall,
+} from "@earendil-works/pi-ai";
+import { setProvider, useModel, useTool } from "@flue/runtime";
 import type { ConversationRecord } from "@flue/runtime/adapter";
 import {
   createFlueContext,
   createNodeAgentCoordinator,
-  resetProviderRuntime,
+  resetModelsForTests,
   resolveModel,
 } from "@flue/runtime/internal";
 import { sqlite } from "@flue/runtime/node";
 import { object } from "valibot";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
@@ -44,7 +47,7 @@ describe("Remote Agent canonical tool result persistence", () => {
     for (const cleanup of cleanups.splice(0).reverse()) {
       await cleanup();
     }
-    resetProviderRuntime();
+    resetModelsForTests();
   });
 
   it("persists an oversized tool response as a bounded explicit error instead of a successful semantic shell", async () => {
@@ -68,7 +71,7 @@ describe("Remote Agent canonical tool result persistence", () => {
       throw new Error(`Expected ${TOOL_NAME} to be registered.`);
     }
 
-    const faux = registerFauxProvider({
+    const faux = fauxProvider({
       api: "tool-result-budget-faux",
       models: [
         {
@@ -79,14 +82,7 @@ describe("Remote Agent canonical tool result persistence", () => {
       ],
       provider: PROVIDER_ID,
     });
-    cleanups.push(faux.unregister);
-    registerProvider(PROVIDER_ID, {
-      api: faux.api as never,
-      baseUrl: "https://tool-result-budget.invalid",
-      contextWindow: 32_000,
-      maxTokens: 1024,
-      models: { [MODEL_ID]: { contextWindow: 32_000, maxTokens: 1024 } },
-    });
+    setProvider(faux.provider);
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall(TOOL_NAME, {}, { id: "call-1" }), {
         stopReason: "toolUse",
@@ -100,37 +96,32 @@ describe("Remote Agent canonical tool result persistence", () => {
     cleanups.push(async () => await persistence.close?.());
     await persistence.migrate?.();
     const stores = await persistence.connect();
-    const sessionEnv = createTestSessionEnv();
-    const agent = defineAgent(() => ({
-      instructions:
-        "Call the oversized read tool once, then explain its error.",
-      model: `${PROVIDER_ID}/${MODEL_ID}`,
-      sandbox: { createSessionEnv: async () => sessionEnv },
-      skipLocalContextDiscovery: true,
-      tools: [tool],
-    }));
+    const agent = () => {
+      useModel(`${PROVIDER_ID}/${MODEL_ID}`);
+      useTool(tool);
+      return "Call the oversized read tool once, then explain its error.";
+    };
     const coordinator = createNodeAgentCoordinator({
-      agents: [{ definition: agent, name: AGENT_NAME }],
+      agents: [{ agent, name: AGENT_NAME }],
       attachmentStore: stores.attachmentStore,
       conversationStreamStore: stores.conversationStreamStore,
-      createContext: ({ agentName, id, request }) =>
+      createContext: ({ agentName, id, request, submissionId }) =>
         createFlueContext({
           agentConfig: { resolveModel },
           agentName,
-          createDefaultEnv: async () => sessionEnv,
           env: {},
           id,
           req: request,
+          submissionId,
         }),
-      submissions: stores.executionStore.submissions,
+      submissions: stores.submissionStore,
     });
     cleanups.push(async () => await coordinator.shutdown());
 
-    await coordinator.createAdmission(AGENT_NAME, INSTANCE_ID)(
-      { message: `Call ${TOOL_NAME}.` },
-      undefined,
-      true
-    );
+    await coordinator.createAdmission(
+      AGENT_NAME,
+      INSTANCE_ID
+    )({ kind: "user", body: `Call ${TOOL_NAME}.` });
     await coordinator.waitForIdle();
 
     const stream = await stores.conversationStreamStore.read(STREAM_PATH, {
@@ -189,22 +180,6 @@ async function createToolExecutionStorage(): Promise<InMemoryDurableObjectStorag
     storage,
   });
   return storage;
-}
-
-function createTestSessionEnv(): SessionEnv {
-  return {
-    cwd: "/workspace",
-    exec: vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" })),
-    exists: vi.fn(async () => false),
-    mkdir: vi.fn(async () => undefined),
-    readFile: vi.fn(async () => ""),
-    readFileBuffer: vi.fn(async () => new Uint8Array()),
-    readdir: vi.fn(async () => []),
-    resolvePath: (path) => (path.startsWith("/") ? path : `/workspace/${path}`),
-    rm: vi.fn(async () => undefined),
-    stat: vi.fn(async () => ({ isDirectory: false, isFile: true })),
-    writeFile: vi.fn(async () => undefined),
-  };
 }
 
 function utf8ByteLength(value: string): number {

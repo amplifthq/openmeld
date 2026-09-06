@@ -32,10 +32,9 @@ export async function prepareFlueCenterAgentAdmission<Result>(input: {
   providerContextCapacity?: RemoteAgentProviderContextCapacity;
   assertConversationFootprintSchema(): void;
   cleanupFinalizedSubmissionReplay(): Promise<void>;
-  ensureInitialized(): Promise<void>;
   readConversationFootprint(): RemoteAgentConversationFootprint;
   readExistingSubmission(): Promise<FlueCenterAgentAdmissionReceipt<Result> | null>;
-  reportConversationFootprintBeforeReplay(
+  reportConversationFootprint(
     footprint: RemoteAgentConversationFootprint
   ): void;
 }): Promise<
@@ -77,9 +76,8 @@ export async function prepareFlueCenterAgentAdmission<Result>(input: {
     if (rejection) {
       return { footprint, outcome: "rejected", rejection };
     }
-    input.reportConversationFootprintBeforeReplay(footprint);
+    input.reportConversationFootprint(footprint);
   }
-  await input.ensureInitialized();
   return {
     admission: existingSubmission ? "claimed" : "new",
     footprint,
@@ -158,13 +156,14 @@ export function createFlueCenterAgentAdmissionHost(input: {
           {
             body: JSON.stringify({
               acceptedAt: metadata.submittedAt,
-              agent: "center-agent",
-              dispatchId: submissionId,
+              agent: "center-agent-v2",
+              submissionId,
               id: buildRemoteAgentName(request),
-              input: {
-                message: routedMessage,
+              message: {
+                kind: "user",
+                body: routedMessage,
                 ...(serializedImages.length > 0
-                  ? { images: serializedImages }
+                  ? { attachments: serializedImages }
                   : {}),
               },
             }),
@@ -176,7 +175,7 @@ export function createFlueCenterAgentAdmissionHost(input: {
       input.reportStage?.("flue_request_completed");
       const body = (await response.json().catch(() => ({}))) as {
         acceptedAt?: unknown;
-        dispatchId?: unknown;
+        submissionId?: unknown;
         error?: unknown;
       };
       const acceptedAtMs =
@@ -186,7 +185,7 @@ export function createFlueCenterAgentAdmissionHost(input: {
       if (
         !(
           response.ok &&
-          body.dispatchId === submissionId &&
+          body.submissionId === submissionId &&
           Number.isFinite(acceptedAtMs)
         )
       ) {
@@ -212,7 +211,7 @@ export async function abortFlueCenterAgentSubmission(input: {
   submissionId: string;
 }): Promise<{ aborted: boolean }> {
   const url = new URL(
-    `https://flue.internal/agents/center-agent/${encodeURIComponent(input.conversationId)}/abort`
+    `https://flue.internal/agents/center-agent-v2/${encodeURIComponent(input.conversationId)}/abort`
   );
   url.searchParams.set("submissionId", input.submissionId);
   const response = await input.routeRequest(

@@ -28,6 +28,70 @@
 
 ## Boundary
 
+### Center Agent Session Creation, Listing And Selection
+
+The Flue 2 candidate adds `POST /v1/organizations/current/center-agent/sessions`
+with the strict shared `{ creationId: UUID }` body. Core resolves Organization
+membership and the actual Human/Center Agent pair. The resulting private DM
+Space ID is deterministic for that pair, Organization and creation key;
+independent keys cannot collapse through the old open-or-reuse path. No caller
+supplies a member identity or Computer identity. Retrying membership setup
+converges in the existing Space owner after metadata initialization.
+
+`GET /v1/organizations/current/center-agent/sessions` uses the shared bounded
+`limit` and opaque `cursor` query schema. Core resolves current membership and
+designation, then reads the Space index for the exact Organization and pair.
+Keyset pagination orders creation time and Space ID descending. The cursor
+must match that Organization and pair; it grants no authority and the query
+always repeats those filters. Responses preserve a missing creation time as
+null. The shared response includes `sessions` and a nullable `nextCursor`.
+
+`GET /v1/organizations/current/center-agent/sessions/:spaceId` returns the
+existing Center DM projection only for that exact current-member pair and
+Organization; unavailable selections return a null projection. There is no
+fallback to another chat. The SDK exposes `createSession` and `getSession`.
+Existing `/dm-space` consumers retain the default open/read behavior.
+
+Context Manifest requests may supply `spaceId` using the same shared selector.
+Core verifies the pair before reading Signals or recording a manifest. A
+foreign or missing selected conversation returns the existing unavailable
+conversation error; it never reads the default chat. Older callers that omit
+the selector retain the existing default behavior. New session consumers must
+pass their exact selection. The Local Agent `source.sessionId` remains
+attribution only and is not this selector. Deploy Core/Gateway receivers before
+clients use these additive routes and fields. None of these projections owns
+runtime history, execution authority, or Computer isolation.
+
+### Flue 2 Runtime Diagnostics
+
+Remote Agent emits runtime diagnostics version 2 against Flue 2's actual
+submission store: `maxAttempts` counts total attempts, `joinedInto` identifies
+an absorbed delivery, and joining/joined are explicit lifecycle states.
+The removed beta recovery-request field and attempt-marker table are not
+reported as fabricated empty evidence. Core accepts versions 1 and 2 during
+the beta cutover; deploy that receiver before the Flue 2 producer. Version 1
+remains readable only for the still-deployed beta runtime. These bounded
+diagnostics are observations, never proof that an entire deployment target is
+drained or that pending callbacks and delegated work have finished.
+
+The dispatch-trace HTTP response can embed this diagnostic contract when the
+caller explicitly requests runtime diagnostics. Dispatch-trace response
+contract 4 admits both runtime diagnostic versions. Gateway requires version 4
+for the opt-in path; older clients receive an explicit update instruction and
+can still request ordinary traces. Contracts 2 and 3 retain their existing
+ordinary-trace projections; an omitted version retains the legacy projection.
+Core transports all three negotiated versions without dropping the selector.
+
+Roll out the Core receiver and Gateway negotiation first, then the CLI that
+requests contract 4, then the Flue 2 producer. The new CLI cannot request version
+4 from an old Gateway; do not publish it ahead of that receiver. During rollback,
+restore the beta producer before removing its v2 diagnostic receiver. Keep the
+Gateway negotiation receiver while published clients request version 4.
+Ordinary traces without runtime diagnostics do not carry the changed payload.
+Do not discard the diagnostic error or invent beta fields to make an old
+validator accept new evidence. This ordering is a release gate, not deployment
+evidence.
+
 Official CLI Skill content uses the signed Markdown channel contract in
 `packages/schemas/src/official-cli-skill.ts`, separately from Organization
 Skills. The optional local component `skills.contentRelease` reports the

@@ -52,6 +52,39 @@ deployable. Magic-link authentication is the initial human sign-in path.
 Enable an omitted integration only when a concrete staging test needs it and a
 separate staging credential exists.
 
+### Staging Apps Backend
+
+OpenConnector has a separate opt-in deployment for Apps acceptance:
+`https://connectors.staging.openmeld.ai`. Its Worker, D1 database and transit
+file bucket are `openmeld-open-connector-stg`,
+`openmeld-open-connector-db-stg` and
+`openmeld-open-connector-transit-files-stg`. The checked-in configuration is
+`config/openconnector/wrangler.staging.jsonc`. The action policy matches the
+reviewed production policy, including read-only Google actions and blocked
+generic proxies. Staging credentials never come from production.
+
+From a clean OpenMeld checkout and a separate clean OpenConnector checkout:
+
+```bash
+pnpm deploy:openconnector:staging -- --source <checkout> --source-sha <full-sha>
+```
+
+The guarded entry point obtains only the release and OpenConnector `stg`
+credentials, verifies the environment contract, provisions missing staging
+resources, builds the exact external source, applies only its staging D1
+migrations, deploys with secrets over stdin, and checks its public health.
+The five canonical deployment secrets are owned by
+`openmeld-open-connector/stg`; Gateway owns its administration-token copy and
+Remote Agent owns its runtime-token copy. OAuth clients must use
+`https://connectors.staging.openmeld.ai/oauth/callback` and independent staging
+credentials. Provider authorization and real App actions remain separate
+acceptance checks; a successful health response proves neither.
+
+The optional inventory is included with
+`provision-openmeld-resources.mjs --environment staging --include-open-connector`.
+It does not make unfinished provider setup a prerequisite for baseline or
+Remote Agent-only staging verification.
+
 ## Operate Staging
 
 Use one guarded entry point from the repository root:

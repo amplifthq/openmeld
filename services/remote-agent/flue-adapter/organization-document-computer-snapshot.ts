@@ -5,10 +5,6 @@ import type { CenterAgentOrganizationDocumentsComputerSnapshotResponse } from "@
 export const ORGANIZATION_DOCUMENTS_COMPUTER_ROOT = "/computer/org/documents";
 export const ORGANIZATION_DOCUMENTS_COMPUTER_MANIFEST = `${ORGANIZATION_DOCUMENTS_COMPUTER_ROOT}/.openmeld-documents.json`;
 
-const MANIFEST_SCHEMA = "openmeld-organization-documents-projection-v1";
-const READ_ONLY_DIRECTORY_MODE = 0o555;
-const READ_ONLY_FILE_MODE = 0o444;
-const WRITABLE_DIRECTORY_MODE = 0o755;
 const INVALID_PATH_CHARACTERS_PATTERN = /[\\/:*?"<>|]/gu;
 const REPEATED_SEPARATOR_PATTERN = /[-\s]+/gu;
 const LEADING_OR_TRAILING_DOTS_PATTERN = /^\.+|\.+$/gu;
@@ -17,132 +13,56 @@ const UNSAFE_ID_CHARACTERS_PATTERN = /[^A-Za-z0-9_-]/gu;
 const MAX_VISIBLE_PATH_SEGMENT_CHARS = 96;
 const MAX_VISIBLE_ID_CHARS = 80;
 
-export type OrganizationDocumentProjectionManifest = {
+/** Trusted turn-local data. No approved document is automatically exported to disk. */
+export type OrganizationDocumentsComputerSnapshot = {
   documents: Array<{
+    content: string;
     id: string;
     kind: CenterAgentOrganizationDocumentsComputerSnapshotResponse["documents"][number]["kind"];
-    path: string;
+    fileName: string;
     title: string;
     updatedAt: string;
   }>;
   organizationId: string;
-  readOnly: true;
-  revision: string;
-  schema: typeof MANIFEST_SCHEMA;
-};
-
-export type OrganizationDocumentsComputerProjection = {
-  documents: Array<
-    OrganizationDocumentProjectionManifest["documents"][number] & {
-      content: string;
-    }
-  >;
-  organizationId: string;
   revision: string;
 };
 
-export async function materializeOrganizationDocumentsComputerProjection(
-  workspace: Pick<WorkspaceClient, "fs">,
+export function prepareOrganizationDocumentsComputerSnapshot(
   rawSnapshot: CenterAgentOrganizationDocumentsComputerSnapshotResponse
-): Promise<{
-  documentCount: number;
-  outcome: "updated";
-  projection: OrganizationDocumentsComputerProjection;
-  revision: string;
-}> {
+): OrganizationDocumentsComputerSnapshot {
   const snapshot =
     centerAgentOrganizationDocumentsComputerSnapshotResponseSchema.parse(
       rawSnapshot
     );
-  await resetProjectionRoot(workspace);
   const folderPaths = buildFolderPaths(snapshot);
-  const directories = [
-    ORGANIZATION_DOCUMENTS_COMPUTER_ROOT,
-    ...new Set(folderPaths.values()),
-  ].sort((left, right) => left.length - right.length);
-  for (const directory of directories) {
-    await workspace.fs.mkdir(directory, { recursive: true });
-  }
 
-  const projectedDocuments = snapshot.documents.map((document) => ({
-    content: document.content,
-    id: document.id,
-    kind: document.kind,
-    path: buildDocumentPath(document, folderPaths),
-    title: document.title,
-    updatedAt: document.updatedAt,
-  }));
-  requireUniquePaths(projectedDocuments.map(({ path }) => path));
-  for (const document of projectedDocuments) {
-    await workspace.fs.writeFile(document.path, document.content);
-  }
-
-  const manifest: OrganizationDocumentProjectionManifest = {
-    documents: projectedDocuments.map((document) => ({
+  const projectedDocuments = snapshot.documents.map((document) => {
+    const path = buildDocumentPath(document, folderPaths);
+    return {
+      content: document.content,
       id: document.id,
       kind: document.kind,
-      path: document.path,
+      fileName: path.slice(path.lastIndexOf("/") + 1),
       title: document.title,
       updatedAt: document.updatedAt,
-    })),
-    organizationId: snapshot.organizationId,
-    readOnly: true,
-    revision: snapshot.revision,
-    schema: MANIFEST_SCHEMA,
-  };
-  await workspace.fs.writeFile(
-    ORGANIZATION_DOCUMENTS_COMPUTER_MANIFEST,
-    `${JSON.stringify(manifest, null, 2)}\n`
-  );
-
-  for (const document of projectedDocuments) {
-    await workspace.fs.chmod(document.path, READ_ONLY_FILE_MODE);
-  }
-  await workspace.fs.chmod(
-    ORGANIZATION_DOCUMENTS_COMPUTER_MANIFEST,
-    READ_ONLY_FILE_MODE
-  );
-  for (const directory of [...directories].reverse()) {
-    await workspace.fs.chmod(directory, READ_ONLY_DIRECTORY_MODE);
-  }
+    };
+  });
+  requireUniquePaths(projectedDocuments.map(({ fileName }) => fileName));
 
   return {
-    documentCount: projectedDocuments.length,
-    outcome: "updated",
-    projection: {
-      documents: projectedDocuments,
-      organizationId: snapshot.organizationId,
-      revision: snapshot.revision,
-    },
+    documents: projectedDocuments,
+    organizationId: snapshot.organizationId,
     revision: snapshot.revision,
   };
 }
 
-export async function clearOrganizationDocumentsComputerProjection(
+export async function clearLegacyOrganizationDocumentsComputerProjection(
   workspace: Pick<WorkspaceClient, "fs">
 ): Promise<void> {
-  await resetProjectionRoot(workspace);
-  await workspace.fs.chmod(
-    ORGANIZATION_DOCUMENTS_COMPUTER_ROOT,
-    READ_ONLY_DIRECTORY_MODE
-  );
-}
-
-async function resetProjectionRoot(
-  workspace: Pick<WorkspaceClient, "fs">
-): Promise<void> {
-  await workspace.fs.mkdir(ORGANIZATION_DOCUMENTS_COMPUTER_ROOT, {
-    recursive: true,
-  });
-  await workspace.fs.chmod(
-    ORGANIZATION_DOCUMENTS_COMPUTER_ROOT,
-    WRITABLE_DIRECTORY_MODE
-  );
+  // The pinned Computer VFS removes a subtree synchronously. No chmod/mkdir
+  // sequence can race another turn; force makes an already-retired root safe.
   await workspace.fs.rm(ORGANIZATION_DOCUMENTS_COMPUTER_ROOT, {
     force: true,
-    recursive: true,
-  });
-  await workspace.fs.mkdir(ORGANIZATION_DOCUMENTS_COMPUTER_ROOT, {
     recursive: true,
   });
 }

@@ -53,7 +53,7 @@ export function getOrganizationDocumentComputerToolDefinitions(input: {
     {
       name: "openmeld_checkout_org_document",
       description:
-        "Create or reopen a writable Computer working copy of one approved Organization Document. Pass the exact document id from openmeld_read_org_documents or the Computer projection manifest. Edit the returned path with the normal Computer tools. This does not change the formal Document.",
+        "Create or reopen a writable Computer working copy of one approved Organization Document. Pass the exact document id from openmeld_read_org_documents. Edit the returned path with the normal Computer tools. This does not change the formal Document.",
       input: checkoutInputSchema,
       execute: async (rawInput) => {
         const request = parse(checkoutInputSchema, rawInput);

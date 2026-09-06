@@ -14,6 +14,38 @@ describe("useComposerDraft", () => {
 		window.localStorage.clear();
 	});
 
+	it("keeps drafts separate while switching Center Agent sessions", () => {
+		const first = {
+			kind: "center_agent_pending" as const,
+			organizationId: "org-acme",
+			ownerAccountId: "account-1",
+			sessionId: "first",
+		};
+		const second = { ...first, sessionId: "second" };
+		writeComposerDraft(
+			first,
+			createComposerDraftRecord(
+				{ ...EMPTY_COMPOSER_DRAFT_CONTENT, text: "First draft" },
+				100
+			)
+		);
+		writeComposerDraft(
+			second,
+			createComposerDraftRecord(
+				{ ...EMPTY_COMPOSER_DRAFT_CONTENT, text: "Second draft" },
+				101
+			)
+		);
+		const composer = renderHook(({ scope }) => useComposerDraft({ scope }), {
+			initialProps: { scope: first },
+		});
+		expect(composer.result.current.content.text).toBe("First draft");
+		composer.rerender({ scope: second });
+		expect(composer.result.current.content.text).toBe("Second draft");
+		composer.rerender({ scope: first });
+		expect(composer.result.current.content.text).toBe("First draft");
+	});
+
 	it("moves a pending Center Agent draft to its canonical Space identity", () => {
 		const pendingScope = {
 			kind: "center_agent_pending" as const,

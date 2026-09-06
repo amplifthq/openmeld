@@ -117,6 +117,7 @@ export const STAGING_WORKER_SECRET_SOURCES = [
 ];
 
 const STAGING_COMPONENT_PROJECTS = new Map([
+  ["open-connector", ["openmeld-release", "openmeld-open-connector"]],
   ["release", ["openmeld-release"]],
   ["web", ["openmeld-release", "openmeld-web"]],
   ["auth", ["openmeld-release", "openmeld-auth"]],
@@ -228,7 +229,7 @@ async function main() {
       const targetArgs = stripCommandSeparator(args.slice(1));
       if (targetArgs.length === 0) {
         throw new Error(
-          "Usage: doppler-environment.mjs component:stg <release|web|auth|core|gateway|remote-agent> -- <command> [arguments]"
+          "Usage: doppler-environment.mjs component:stg <release|web|auth|core|gateway|remote-agent|open-connector> -- <command> [arguments]"
         );
       }
       const sources = resolveStagingComponentSources(component);
@@ -420,6 +421,20 @@ export function resolveStagingComponentSources(component) {
     throw new Error(`Unsupported Doppler staging component: ${component}`);
   }
   return projects.map((project) => {
+    if (project === "openmeld-open-connector") {
+      return {
+        config: "stg",
+        project,
+        optionalSecrets: [],
+        requiredSecrets: [
+          "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
+          "OPEN_CONNECTOR_OPENMELD_ENCRYPTION_KEY",
+          "OPEN_CONNECTOR_OPENMELD_GITHUB_APP_ID",
+          "OPEN_CONNECTOR_OPENMELD_GITHUB_APP_PRIVATE_KEY",
+          "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
+        ],
+      };
+    }
     const source = STAGING_WORKER_SECRET_SOURCES.find(
       (candidate) => candidate.project === project
     );

@@ -495,7 +495,10 @@ export async function requestRemoteAgentExecutionCancellation(input: {
     ) {
       return remoteAgentWorkerCancellationResponseSchema.parse({
         execution: result.execution,
-        status: "already_cancelled",
+        status:
+          result.execution.status === "aborted"
+            ? "already_cancelled"
+            : "cancellation_requested",
       });
     }
     if (isTerminalStatus(result.execution.status)) {

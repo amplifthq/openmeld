@@ -376,6 +376,7 @@ function useActiveWakeTargetProfileIds(
 }
 
 type SpaceLandingInput = {
+	conversationControl?: ReactNode;
 	accountProfiles?: readonly AuthProfileView[];
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
 	currentUserAvatarImageUrl?: string | null;
@@ -1660,7 +1661,12 @@ function SpaceLandingReady({
 						leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
 						liveErrorMessage={controller.liveErrorMessage}
 						liveState={controller.liveState}
-						managementControl={managementControl}
+						managementControl={
+							<>
+								{input.conversationControl}
+								{managementControl}
+							</>
+						}
 						membersControl={membersControl}
 						menuItems={
 							currentSpaceIsCenterAgentDirectMessage

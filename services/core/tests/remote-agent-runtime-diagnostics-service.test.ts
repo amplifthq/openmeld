@@ -43,7 +43,9 @@ describe("Remote Agent runtime diagnostics service", () => {
     expect(readRuntimeDiagnostics).not.toHaveBeenCalled();
   });
 
-  it("reads the exact runtime generation frozen on the dispatch", async () => {
+  it.each([
+    1, 2,
+  ] as const)("reads diagnostics v%s from the exact runtime generation frozen on the dispatch", async (version) => {
     const suffix = randomUUID();
     const dispatchId = `dispatch-${suffix}`;
     const idempotencyKey = `remote-agent:${dispatchId}`;
@@ -84,7 +86,7 @@ describe("Remote Agent runtime diagnostics service", () => {
     });
     const response = {
       activeRuns: [],
-      attemptMarkers: [],
+      ...(version === 1 ? { attemptMarkers: [] } : {}),
       callbackContexts: [],
       collectedAt: "2026-08-12T00:00:00.000Z",
       durableObjectAlarmAtMs: null,
@@ -92,7 +94,7 @@ describe("Remote Agent runtime diagnostics service", () => {
       schedules: [],
       spaceId,
       submissions: [],
-      v: 1 as const,
+      v: version,
     };
     const readRuntimeDiagnostics = vi.fn().mockResolvedValue(response);
 

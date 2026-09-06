@@ -9,6 +9,7 @@ import {
   centerAgentInviteMemberBodySchema,
   centerAgentInviteMemberResponseSchema,
   centerAgentModelConfigurationResponseSchema,
+  centerAgentSessionSelectorSchema,
   centerAgentSlackWorkspaceConnectBodySchema,
   centerAgentSlackWorkspaceConnectionResponseSchema,
   centerAgentSlackWorkspaceDisconnectResponseSchema,
@@ -20,6 +21,7 @@ import {
   createCenterAgentContextLoadReceiptResponseSchema,
   createCenterAgentContextManifestBodySchema,
   createCenterAgentContextManifestResponseSchema,
+  createCenterAgentSessionBodySchema,
   designateCenterAgentBodySchema,
   designateCenterAgentResponseSchema,
   getCenterAgentDesignationResponseSchema,
@@ -27,6 +29,8 @@ import {
   getCenterAgentOperatingStateResponseSchema,
   listCenterAgentAuditJournalQuerySchema,
   listCenterAgentAuditJournalResponseSchema,
+  listCenterAgentSessionsQuerySchema,
+  listCenterAgentSessionsResponseSchema,
   openCenterAgentDirectMessageSpaceResponseSchema,
   openDirectMessageSpaceBodySchema,
   openDirectMessageSpaceResponseSchema,
@@ -64,6 +68,8 @@ const CENTER_AGENT_DIRECTORY_ROUTE = `${CENTER_AGENT_BASE_ROUTE}/directory`;
 const CENTER_AGENT_AGENT_PROFILES_ROUTE = `${CENTER_AGENT_BASE_ROUTE}/agent-profiles`;
 const CENTER_AGENT_INVITATIONS_ROUTE = `${CENTER_AGENT_BASE_ROUTE}/invitations`;
 const CENTER_AGENT_DM_SPACE_ROUTE = `${CENTER_AGENT_BASE_ROUTE}/dm-space`;
+const CENTER_AGENT_SESSIONS_ROUTE = `${CENTER_AGENT_BASE_ROUTE}/sessions`;
+const CENTER_AGENT_SESSION_ROUTE = `${CENTER_AGENT_SESSIONS_ROUTE}/:spaceId`;
 const CENTER_AGENT_SLACK_CONNECTION_ROUTE = `${CENTER_AGENT_BASE_ROUTE}/slack-connection`;
 const SLACK_IDENTITY_LINK_PREVIEW_ROUTE = "/v1/slack/identity-link/preview";
 const SLACK_IDENTITY_LINK_CONSUME_ROUTE = "/v1/slack/identity-link/consume";
@@ -449,6 +455,77 @@ export function registerCenterAgentRoutes(app: Hono<HonoBindings>): void {
         }),
     })
   );
+
+  app.post(CENTER_AGENT_SESSIONS_ROUTE, async (c) => {
+    const parsed = await parseJsonBody(c, createCenterAgentSessionBodySchema);
+    if (!parsed.ok) {
+      return parsed.response;
+    }
+    return await executeRpcRoute({
+      c,
+      route: CENTER_AGENT_SESSIONS_ROUTE,
+      method: "POST",
+      responseSchema: openCenterAgentDirectMessageSpaceResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.openCenterAgentDirectMessageSpace({
+          context: buildCoreRpcContext(c),
+          sessionCreationId: parsed.data.creationId,
+        }),
+    });
+  });
+
+  app.get(CENTER_AGENT_SESSIONS_ROUTE, async (c) => {
+    const cursor = c.req.query("cursor");
+    const limit = c.req.query("limit");
+    const parsed = listCenterAgentSessionsQuerySchema.safeParse({
+      ...(cursor === undefined ? {} : { cursor }),
+      ...(limit === undefined ? {} : { limit: Number(limit) }),
+    });
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: CENTER_AGENT_SESSIONS_ROUTE,
+        method: "GET",
+        message: "Provide a valid chat-list cursor and limit.",
+      });
+    }
+    return await executeRpcRoute({
+      c,
+      route: CENTER_AGENT_SESSIONS_ROUTE,
+      method: "GET",
+      responseSchema: listCenterAgentSessionsResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.listCenterAgentSessions({
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+
+  app.get(CENTER_AGENT_SESSION_ROUTE, async (c) => {
+    const selector = centerAgentSessionSelectorSchema.safeParse({
+      spaceId: c.req.param("spaceId"),
+    });
+    if (!selector.success) {
+      return respondBadRequest({
+        c,
+        route: CENTER_AGENT_SESSION_ROUTE,
+        method: "GET",
+        message: "Provide a valid session ID.",
+      });
+    }
+    return await executeRpcRoute({
+      c,
+      route: CENTER_AGENT_SESSION_ROUTE,
+      method: "GET",
+      responseSchema: getCenterAgentDirectMessageSpaceProjectionResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.getCenterAgentDirectMessageSpaceProjection({
+          context: buildCoreRpcContext(c),
+          spaceId: selector.data.spaceId,
+        }),
+    });
+  });
 
   app.post(CENTER_AGENT_DM_SPACE_ROUTE, async (c) => {
     const context = buildCoreRpcContext(c);

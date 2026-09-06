@@ -2300,14 +2300,17 @@ that file creates or replaces the normal reviewable draft only when the formal
 Document still has that exact version; any intervening human edit, approval,
 discard, or Agent draft fails with an explicit working-copy conflict. The
 working copy never writes approved content directly and never becomes a second
-Document identity. Remote Agent rematerializes the exact Core-owned approved
-snapshot at the start of every turn whose frozen context plan allows
-Organization Documents so Agent-written projection drift cannot survive as
-current content. Before a turn whose plan disallows Organization Documents can
-use Computer tools, Remote Agent clears any projection left by an earlier turn.
-Working-copy identity and base-version checks come
-from that trusted in-memory snapshot, never from a manifest or sidecar inside
-the Agent-writable Computer filesystem.
+Document identity. Remote Agent reads the exact Core-owned approved snapshot
+into turn-local memory when the frozen context plan allows Organization
+Documents. It does not automatically export the snapshot onto shared disk;
+only explicit checkout creates a working copy in the current conversation's
+directory. This prevents one session's document preparation from deleting
+another's inputs. The old reserved automatic projection is retired before
+Computer tools become available. A plan excluding Documents does not fetch
+the snapshot or expose checkout/submit tools. Explicit working copies remain
+ordinary files on the shared Computer; session directories are not privacy
+sandboxes. Identity and base-version checks use the trusted snapshot, never a
+manifest or sidecar inside the Agent-writable filesystem.
 
 Only the approved, non-empty Organization Brief is placed into the Center Agent
 system prompt. The full body is explicitly organization-maintained data and

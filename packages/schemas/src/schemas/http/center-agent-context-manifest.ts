@@ -1,5 +1,6 @@
 import * as z from "../../lazy-zod";
 import { centerAgentInteractionSourceSchema } from "../protocol/center-agent-interaction-source";
+import { centerAgentSessionSelectorSchema } from "./center-agent-direct-message-space";
 
 export const CENTER_AGENT_CONTEXT_MANIFEST_VERSION =
   "center_agent_context_manifest.v1" as const;
@@ -37,6 +38,7 @@ const loadReceiptIdSchema = z
 export const centerAgentContextManifestViewSchema = z.literal("messages");
 
 export const createCenterAgentContextManifestBodySchema = z.strictObject({
+  spaceId: centerAgentSessionSelectorSchema.shape.spaceId.optional(),
   cursor: z.string().trim().min(1).max(768).optional(),
   limit: z
     .number()

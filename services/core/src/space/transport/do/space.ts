@@ -78,7 +78,6 @@ import {
   runtimeCoordinatorFinalizationCommandSchema,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
-  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_PASSWORD_MIN_LENGTH,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_MESSAGE,
   type SpaceInvitationAccessInput,
@@ -93,6 +92,7 @@ import {
   spaceAgentStreamTerminalFrameSchema,
   spaceBoardRoomProjectionSchema,
   spaceDispatchOutboxRedriveReasonSchema,
+  spaceDispatchTraceResponseContractVersionHeaderSchema,
   spaceFileAuditEventSchema,
   spaceFileClientMutationIdSchema,
   spaceFileEntryIdSchema,
@@ -9309,11 +9309,13 @@ export class Space extends DurableObject<CoreBindings> {
       new URL(request.url).searchParams.get(
         "includeRemoteAgentRuntimeDiagnostics"
       ) === "true";
-    const responseContractVersion =
-      new URL(request.url).searchParams.get("responseContractVersion") ===
-      String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION)
-        ? SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
-        : undefined;
+    const parsedResponseContractVersion =
+      spaceDispatchTraceResponseContractVersionHeaderSchema.safeParse(
+        new URL(request.url).searchParams.get("responseContractVersion")
+      );
+    const responseContractVersion = parsedResponseContractVersion.success
+      ? parsedResponseContractVersion.data
+      : undefined;
     return this.dispatchSpaceAccessReadRequest(request, resolved.spaceAccess, {
       GET: async () =>
         Response.json(

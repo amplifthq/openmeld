@@ -65,7 +65,7 @@ export async function createRemoteAgentComputerCapability(input: {
   context: RemoteAgentCallbackContext;
   coreWorker: RemoteAgentCoreWorkerBinding;
   env: ComputerObservabilityEnv & { AGENT_COMPUTER?: unknown };
-  materializeOrganizationDocuments: boolean;
+  includeOrganizationDocuments: boolean;
 }): Promise<{
   definitions: RemoteAgentToolDefinition[];
   fileHandoff: ReturnType<typeof createAgentComputerFileHandoff>;
@@ -81,7 +81,7 @@ export async function createRemoteAgentComputerCapability(input: {
     ),
     namespace,
   });
-  const organizationDocumentsSnapshot = input.materializeOrganizationDocuments
+  const organizationDocumentsSnapshot = input.includeOrganizationDocuments
     ? await callCoreRpc(
         input.coreWorker,
         "centerAgentOrganizationDocumentsComputerSnapshot",
@@ -112,7 +112,7 @@ export async function createRemoteAgentComputerCapability(input: {
         context: input.context,
         coreWorker: input.coreWorker,
         workingCopies: createReacquiringOrganizationDocumentWorkingCopyStore({
-          projection: documents.projection,
+          projection: documents,
           workspaceAccess,
           workingDirectory,
         }),
@@ -136,7 +136,7 @@ export async function createRemoteAgentComputerCapability(input: {
       workspaceAccess,
     }),
     sandbox: {
-      createSessionEnv: () => Promise.resolve(sessionEnv),
+      createSandbox: () => Promise.resolve(sessionEnv),
       tools: () => [],
     },
   };

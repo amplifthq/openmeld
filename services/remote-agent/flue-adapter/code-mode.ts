@@ -124,7 +124,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
     name: REMOTE_AGENT_CODE_MODE_TOOL_NAME,
     description,
     input: codeModeInputSchema,
-    run: async ({ input: toolInput, signal }) => {
+    run: async ({ data: toolInput, signal }) => {
       const context = await requireRemoteAgentToolExecutionContext(input);
       await beginRemoteAgentToolExecutionAttempt({
         storage: input.storage,
@@ -184,7 +184,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
           value: output,
         });
         outcome = "succeeded";
-        return boundedOutput;
+        return { output: boundedOutput };
       } finally {
         emitRemoteAgentToolUsage(input.env, {
           durationMs: Date.now() - startedAtMs,

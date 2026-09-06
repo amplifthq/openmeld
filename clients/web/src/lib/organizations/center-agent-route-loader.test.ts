@@ -9,6 +9,7 @@ import { listStartProfiles } from "#/lib/profiles/existing-profiles";
 import { organizationScopeQueryKeys } from "#/query/organizations/organization-scope";
 import { Route } from "../../routes/o/$orgSlug/_center-agent/index";
 import {
+	loadCenterAgentDirectMessageRouteData,
 	loadCenterAgentRouteData,
 	readCachedCenterAgentDirectMessageRouteData,
 } from "./center-agent-route-loader";
@@ -120,6 +121,73 @@ describe("loadCenterAgentRouteData", () => {
 		expect(
 			readCurrentCenterAgentDirectMessageSpaceProjection
 		).toHaveBeenCalledTimes(1);
+		expect(openCurrentCenterAgentDirectMessageSpace).not.toHaveBeenCalled();
+	});
+
+	it("does not reuse the default chat cache for an exact session", async () => {
+		const queryClient = createQueryClient();
+		await loadCenterAgentDirectMessageRouteData({
+			organizationId: "org-acme",
+			queryClient,
+		});
+		vi.mocked(
+			readCurrentCenterAgentDirectMessageSpaceProjection
+		).mockResolvedValueOnce({
+			generatedAt: "2026-07-16T03:20:00.000Z",
+			organizationId: "org-acme",
+			projection: {
+				centerAgentProfileId: "agt-center-agent",
+				memberProfileId: "human-1",
+				organizationId: "org-acme",
+				spaceId: "second-session",
+				kind: "center_agent_direct_message_space",
+				isCenterAgentDirectMessageSpace: true,
+			},
+		});
+		const result = await loadCenterAgentDirectMessageRouteData({
+			organizationId: "org-acme",
+			queryClient,
+			sessionId: "second-session",
+		});
+		expect(result).toMatchObject({
+			status: "ready",
+			directMessage: { spaceId: "second-session" },
+		});
+		expect(
+			readCurrentCenterAgentDirectMessageSpaceProjection
+		).toHaveBeenLastCalledWith(
+			expect.objectContaining({ spaceId: "second-session" })
+		);
+		expect(openCurrentCenterAgentDirectMessageSpace).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		null,
+		"wrong-session",
+	])("fails an unavailable or mismatched selected session without opening another chat (%s)", async (returnedId) => {
+		vi.mocked(
+			readCurrentCenterAgentDirectMessageSpaceProjection
+		).mockResolvedValueOnce({
+			generatedAt: "2026-07-16T03:20:00.000Z",
+			organizationId: "org-acme",
+			projection:
+				returnedId === null
+					? null
+					: {
+							centerAgentProfileId: "agt-center-agent",
+							memberProfileId: "human-1",
+							organizationId: "org-acme",
+							spaceId: returnedId,
+							kind: "center_agent_direct_message_space",
+							isCenterAgentDirectMessageSpace: true,
+						},
+		});
+		const result = await loadCenterAgentDirectMessageRouteData({
+			organizationId: "org-acme",
+			queryClient: createQueryClient(),
+			sessionId: "selected-session",
+		});
+		expect(result?.status).toBe("error");
 		expect(openCurrentCenterAgentDirectMessageSpace).not.toHaveBeenCalled();
 	});
 

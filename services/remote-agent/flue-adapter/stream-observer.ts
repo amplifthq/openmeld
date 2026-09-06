@@ -78,7 +78,7 @@ export async function handleCenterAgentObservation(input: {
   scheduleBackground?: (task: Promise<void>) => void;
   streamPublisher: RemoteAgentStreamPublisher;
 }): Promise<void> {
-  if (input.event.agentName !== "center-agent") {
+  if (input.event.agentName !== "center-agent-v2") {
     return;
   }
   const event = isRemoteAgentExecutionObservation(input.event)

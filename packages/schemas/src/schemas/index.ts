@@ -1098,10 +1098,20 @@ export {
   createCenterAgentContextManifestResponseSchema,
 } from "./http/center-agent-context-manifest";
 export {
+  type CenterAgentSessionSelector,
+  type CreateCenterAgentSessionBody,
   centerAgentDirectMessageSpaceProjectionSchema,
+  centerAgentSessionListCursorSchema,
+  centerAgentSessionListItemSchema,
+  centerAgentSessionSelectorSchema,
+  createCenterAgentSessionBodySchema,
   deriveCenterAgentDirectMessageSpaceProjection,
   getCenterAgentDirectMessageSpaceProjectionResponseSchema,
   isCenterAgentDirectMessageSpaceProjection,
+  type ListCenterAgentSessionsQuery,
+  type ListCenterAgentSessionsResponse,
+  listCenterAgentSessionsQuerySchema,
+  listCenterAgentSessionsResponseSchema,
 } from "./http/center-agent-direct-message-space";
 export {
   CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES,
