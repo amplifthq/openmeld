@@ -56,8 +56,9 @@ vi.mock("#/lib/connect/local-runtimes", async () => {
 	>("#/lib/connect/local-runtimes");
 	return {
 		...actual,
-		readCurrentLocalAgentInstallations: readCurrentLocalAgentInstallationsMock,
-		selectCurrentLocalAgentInstallation:
+		readPeopleComputerLocalAgentInstallations:
+			readCurrentLocalAgentInstallationsMock,
+		selectPeopleComputerLocalAgentInstallation:
 			selectCurrentLocalAgentInstallationMock,
 	};
 });
@@ -349,6 +350,8 @@ describe("LocalAgentsCard", () => {
 		await waitFor(() => {
 			expect(setLocalAgentEnabled).toHaveBeenCalledWith({
 				agentId: "codex",
+				deviceId: "device-macbook-pro",
+				runtimeLane: "dev-local",
 				enabled: false,
 			});
 		});
@@ -381,6 +384,8 @@ describe("LocalAgentsCard", () => {
 		await waitFor(() => {
 			expect(setLocalAgentEnabled).toHaveBeenCalledWith({
 				agentId: "codex",
+				deviceId: "device-macbook-pro",
+				runtimeLane: "dev-local",
 				enabled: true,
 			});
 		});
@@ -521,6 +526,8 @@ describe("LocalAgentsCard", () => {
 		await waitFor(() => {
 			expect(selectCurrentLocalAgentInstallationMock).toHaveBeenCalledWith({
 				agentId: "codex",
+				deviceId: "device-macbook-pro",
+				runtimeLane: "dev-local",
 				installationId: "install-chatgpt",
 			});
 			expect(refreshAll).toHaveBeenCalledTimes(1);
@@ -927,13 +934,35 @@ describe("LocalAgentsCard", () => {
 
 	it("does not show historical agent readiness as live on a non-current computer", () => {
 		renderLocalAgentsCard({
-			isCurrentComputer: false,
+			hasSelectedEnvironment: false,
 			setEnabledSupported: true,
 		});
 		const row = screen.getByTestId("settings-local-agent-row-codex");
-		expect(within(row).getByText("Status not current")).toBeTruthy();
+		expect(within(row).getByText("Status unavailable")).toBeTruthy();
 		expect(within(row).queryByText("Ready")).toBeNull();
 		expect(row.getAttribute("data-muted")).toBe("true");
+		expect(
+			screen
+				.getByRole("switch", { name: "Codex local agent" })
+				.hasAttribute("data-disabled")
+		).toBe(true);
+	});
+
+	it("does not reuse a ready agent report when the current connection query fails", () => {
+		renderLocalAgentsCard({
+			setEnabledSupported: true,
+			replyReadiness: {
+				status: "unknown",
+				reasonCode: "device_reply_readiness.unknown",
+				detailReasonCode: null,
+				executionTargetStatus: null,
+				service: null,
+			},
+		});
+		const row = screen.getByTestId("settings-local-agent-row-codex");
+		expect(within(row).getByText("Status unavailable")).toBeTruthy();
+		expect(within(row).queryByText("Ready")).toBeNull();
+		expect(within(row).queryByText("Disconnected")).toBeNull();
 		expect(
 			screen
 				.getByRole("switch", { name: "Codex local agent" })
@@ -1611,7 +1640,7 @@ describe("isLocalAgentControlStillRunningError", () => {
 });
 
 function renderLocalAgentsCard(input: {
-	isCurrentComputer?: boolean;
+	hasSelectedEnvironment?: boolean;
 	isReconcilingStatus?: boolean;
 	agentControllerAuth?: AgentControllerInterfaceSnapshot["auth"];
 	agentControllerCheck?: AgentControllerInterfaceSnapshot["check"];
@@ -1673,7 +1702,7 @@ function renderLocalAgentsCard(input: {
 			<QueryClientProvider client={queryClient}>
 				<LocalAgentsCard
 					computer={buildComputer(executionTarget)}
-					isCurrentComputer={input.isCurrentComputer ?? true}
+					hasSelectedEnvironment={input.hasSelectedEnvironment ?? true}
 					isReconcilingStatus={input.isReconcilingStatus}
 					recovery={
 						{

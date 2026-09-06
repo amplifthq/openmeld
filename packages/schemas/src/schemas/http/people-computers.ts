@@ -19,6 +19,21 @@ export const peopleComputerConnectionSchema = z.strictObject({
       lastHeartbeatMs: z.number().int().nonnegative(),
       serviceVersion: z.string().nullable(),
       executionCompatibility: daemonExecutionCompatibilitySchema,
+      controls: z
+        .strictObject({
+          localAgentControl: z.strictObject({
+            refreshCatalog: z.boolean(),
+            setEnabled: z.boolean(),
+            manageInstallations: z.boolean(),
+            manageInstallationsSafely: z.boolean(),
+            setProfileWorkspace: z.boolean(),
+          }),
+          openMeldToolsControl: z.strictObject({
+            requestUpdate: z.boolean(),
+            setAutomaticUpdates: z.boolean(),
+          }),
+        })
+        .optional(),
       serviceUpdate: z.strictObject({
         wakeBlocked: z.boolean(),
         reasonCodes: z.array(z.string()),

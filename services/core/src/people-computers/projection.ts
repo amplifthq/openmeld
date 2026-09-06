@@ -8,6 +8,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
 import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../runtime-transport/application/current-owner-service-sessions";
+import { projectPeopleComputerControls } from "./control-policy";
 
 export function resolvePeopleComputerTarget(input: {
   inventory: LocalRuntimesResponse;
@@ -63,6 +64,7 @@ export function projectPeopleComputerConnection(input: {
         lastHeartbeatMs: session.lastHeartbeatMs,
         serviceVersion: session.serviceVersion ?? null,
         executionCompatibility: session.executionCompatibility,
+        controls: projectPeopleComputerControls(session),
         serviceUpdate: {
           wakeBlocked: updates.service.wakeBlocked,
           reasonCodes: updates.service.reasonCodes,

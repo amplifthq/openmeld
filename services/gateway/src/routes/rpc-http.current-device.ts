@@ -42,6 +42,7 @@ import {
   respondBadRequest,
 } from "./rpc-http.helpers";
 import { readJsonRequestBody } from "./rpc-http.parsers";
+import { registerPeopleComputerControlRoutes } from "./rpc-http.people-computers";
 
 const CURRENT_DEVICE_ROUTE = "/v1/devices/current";
 const FORGET_CURRENT_COMPUTER_ROUTE = "/v1/devices/current/forget";
@@ -79,6 +80,7 @@ const START_SESSION_RETIRED_MESSAGE =
 export function registerCurrentDeviceTargetRoutes(
   app: Hono<HonoBindings>
 ): void {
+  registerPeopleComputerControlRoutes(app);
   app.get("/v1/people-computers", (c) =>
     executeRpcRoute({
       c,

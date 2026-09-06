@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 
 type CoreRpcMock = {
+  setPeopleComputerLocalAgentEnabled: ReturnType<typeof vi.fn>;
+  getPeopleComputerLocalAgentInstallations: ReturnType<typeof vi.fn>;
+  selectPeopleComputerLocalAgentInstallation: ReturnType<typeof vi.fn>;
+  refreshPeopleComputerLocalAgentCatalog: ReturnType<typeof vi.fn>;
+  requestPeopleComputerOpenMeldToolsUpdate: ReturnType<typeof vi.fn>;
+  setPeopleComputerOpenMeldToolsMaintenance: ReturnType<typeof vi.fn>;
   readComputerFileAccessPolicy: ReturnType<typeof vi.fn>;
   forgetComputer: ReturnType<typeof vi.fn>;
   forgetCurrentComputer: ReturnType<typeof vi.fn>;
@@ -35,6 +41,12 @@ function makeEnv(input?: {
   authOverrides?: Partial<AuthRpcMock>;
 }) {
   const coreRpc: CoreRpcMock = {
+    setPeopleComputerLocalAgentEnabled: vi.fn(),
+    getPeopleComputerLocalAgentInstallations: vi.fn(),
+    selectPeopleComputerLocalAgentInstallation: vi.fn(),
+    refreshPeopleComputerLocalAgentCatalog: vi.fn(),
+    requestPeopleComputerOpenMeldToolsUpdate: vi.fn(),
+    setPeopleComputerOpenMeldToolsMaintenance: vi.fn(),
     readComputerFileAccessPolicy: vi.fn(async () => ({
       deviceId: "device-123",
       policy: {
@@ -152,6 +164,98 @@ function makeEnv(input?: {
 }
 
 describe("current device target routes", () => {
+  it.each([
+    [
+      "PUT",
+      "local-agents/codex/enabled",
+      "setPeopleComputerLocalAgentEnabled",
+      { enabled: false },
+    ],
+    [
+      "GET",
+      "local-agents/codex/installations",
+      "getPeopleComputerLocalAgentInstallations",
+      undefined,
+    ],
+    [
+      "PUT",
+      "local-agents/codex/installations",
+      "selectPeopleComputerLocalAgentInstallation",
+      { installationId: "selected-installation" },
+    ],
+    [
+      "POST",
+      "local-agents/refresh-catalog",
+      "refreshPeopleComputerLocalAgentCatalog",
+      undefined,
+    ],
+    [
+      "POST",
+      "openmeld-tools/update",
+      "requestPeopleComputerOpenMeldToolsUpdate",
+      undefined,
+    ],
+    [
+      "PUT",
+      "openmeld-tools/maintenance",
+      "setPeopleComputerOpenMeldToolsMaintenance",
+      { automaticUpdatesEnabled: false },
+    ],
+  ] as const)("forwards an explicit %s %s target and preserves Core rejection", async (method, suffix, rpc, body) => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc[rpc].mockRejectedValueOnce(
+      new Error("Disconnected", {
+        cause: {
+          status: 503,
+          code: "computer.target_disconnected",
+          message: "Selected environment is disconnected.",
+        },
+      })
+    );
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/people-computers/selected-device/lanes/canary/${suffix}`,
+        {
+          method,
+          ...(body
+            ? {
+                body: JSON.stringify(body),
+                headers: { "content-type": "application/json" },
+              }
+            : {}),
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(503);
+    expect(coreRpc[rpc]).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        deviceId: "selected-device",
+        runtimeLane: "canary",
+        ...body,
+        ...(suffix.includes("/codex/") ? { agentId: "codex" } : {}),
+      })
+    );
+    expect(coreRpc.getCurrentDeviceTarget).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid explicit environment before calling Core", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/people-computers/selected-device/lanes/unknown/openmeld-tools/update",
+        { method: "POST" }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(400);
+    expect(
+      coreRpc.requestPeopleComputerOpenMeldToolsUpdate
+    ).not.toHaveBeenCalled();
+  });
+
   it("forwards the Organization Computers usage-limit opt-in", async () => {
     const { coreRpc, env } = makeEnv();
 

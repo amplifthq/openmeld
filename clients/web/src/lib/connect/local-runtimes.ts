@@ -92,71 +92,83 @@ export async function setLocalRuntimeDisplayName(input: {
 	}
 }
 
-export async function setCurrentLocalAgentEnabled(input: {
-	agentId: string;
-	enabled: boolean;
-}): Promise<SetCurrentLocalAgentEnabledResponse> {
+export async function setPeopleComputerLocalAgentEnabled(
+	input: PeopleComputerTarget & {
+		agentId: string;
+		enabled: boolean;
+	}
+): Promise<SetCurrentLocalAgentEnabledResponse> {
 	try {
 		return await createCurrentDeviceApi(
 			createUnscopedWebOpenMeldApiFoundation()
-		).setCurrentLocalAgentEnabled(input);
+		).setPeopleComputerLocalAgentEnabled(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}
 }
 
-export async function readCurrentLocalAgentInstallations(input: {
-	agentId: string;
-}): Promise<CurrentLocalAgentInstallationsResponse> {
+export async function readPeopleComputerLocalAgentInstallations(
+	input: PeopleComputerTarget & {
+		agentId: string;
+	}
+): Promise<CurrentLocalAgentInstallationsResponse> {
 	try {
 		return await createCurrentDeviceApi(
 			createUnscopedWebOpenMeldApiFoundation()
-		).getCurrentLocalAgentInstallations(input);
+		).getPeopleComputerLocalAgentInstallations(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}
 }
 
-export async function selectCurrentLocalAgentInstallation(input: {
-	agentId: string;
-	installationId: string;
-}): Promise<SelectCurrentLocalAgentInstallationResponse> {
+export async function selectPeopleComputerLocalAgentInstallation(
+	input: PeopleComputerTarget & {
+		agentId: string;
+		installationId: string;
+	}
+): Promise<SelectCurrentLocalAgentInstallationResponse> {
 	try {
 		return await createCurrentDeviceApi(
 			createUnscopedWebOpenMeldApiFoundation()
-		).selectCurrentLocalAgentInstallation(input);
+		).selectPeopleComputerLocalAgentInstallation(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}
 }
 
-export async function requestCurrentOpenMeldToolsUpdate(): Promise<RequestCurrentOpenMeldToolsUpdateResponse> {
+export async function requestPeopleComputerOpenMeldToolsUpdate(
+	target: PeopleComputerTarget
+): Promise<RequestCurrentOpenMeldToolsUpdateResponse> {
 	try {
 		return await createCurrentDeviceApi(
 			createUnscopedWebOpenMeldApiFoundation()
-		).requestCurrentOpenMeldToolsUpdate();
+		).requestPeopleComputerOpenMeldToolsUpdate(target);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}
 }
 
-export async function setCurrentOpenMeldToolsMaintenance(input: {
-	automaticUpdatesEnabled: boolean;
-}): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
+export async function setPeopleComputerOpenMeldToolsMaintenance(
+	input: PeopleComputerTarget & {
+		automaticUpdatesEnabled: boolean;
+	}
+): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
 	try {
 		return await createCurrentDeviceApi(
 			createUnscopedWebOpenMeldApiFoundation()
-		).setCurrentOpenMeldToolsMaintenance(input);
+		).setPeopleComputerOpenMeldToolsMaintenance(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}
 }
 
-export async function refreshCurrentLocalAgentCatalog(): Promise<RefreshCurrentLocalAgentCatalogResponse> {
+export async function refreshPeopleComputerLocalAgentCatalog(
+	target: PeopleComputerTarget
+): Promise<RefreshCurrentLocalAgentCatalogResponse> {
 	try {
 		return await createCurrentDeviceApi(
 			createUnscopedWebOpenMeldApiFoundation()
-		).refreshCurrentLocalAgentCatalog();
+		).refreshPeopleComputerLocalAgentCatalog(target);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}

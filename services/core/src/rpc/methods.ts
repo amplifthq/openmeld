@@ -967,6 +967,8 @@ import {
   recordOrganizationMemberActivity,
 } from "../organizations/organization-member-activity-repository";
 import { listOrganizationMemberOpenMeldServiceStatuses } from "../organizations/organization-member-openmeld-service-status-service";
+import { projectPeopleComputerControls } from "../people-computers/control-policy";
+import { requirePeopleComputerControlSession } from "../people-computers/control-target";
 import {
   projectPeopleComputerConnection,
   projectPeopleComputers,
@@ -2552,15 +2554,131 @@ export function rpcGetPeopleComputerReplyReadiness(
   env: CoreBindings,
   input: GetPeopleComputerReplyReadinessInput
 ): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
-  const target = peopleComputerTargetSchema.parse({
+  const target = peopleComputerTargetSchema.safeParse({
     deviceId: input.deviceId,
     runtimeLane: input.runtimeLane,
   });
+  if (!target.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
   return getCurrentLocalRuntimeReplyReadinessForOwnerUser({
     env,
     userId: requireAuthenticatedOwnerUserId(input.context),
-    target,
+    target: target.data,
   });
+}
+
+// Explicit RPC names prevent an older receiver from ignoring the selected target.
+export function rpcSetPeopleComputerLocalAgentEnabled(
+  env: CoreBindings,
+  input: SetCurrentLocalAgentEnabledInput & PeopleComputerTarget
+) {
+  const parsed = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return rpcSetCurrentLocalAgentEnabled(env, input, parsed.data);
+}
+
+export function rpcGetPeopleComputerLocalAgentInstallations(
+  env: CoreBindings,
+  input: GetCurrentLocalAgentInstallationsInput & PeopleComputerTarget
+) {
+  const parsed = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return rpcGetCurrentLocalAgentInstallations(env, input, parsed.data);
+}
+
+export function rpcSelectPeopleComputerLocalAgentInstallation(
+  env: CoreBindings,
+  input: SelectCurrentLocalAgentInstallationInput & PeopleComputerTarget
+) {
+  const parsed = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return rpcSelectCurrentLocalAgentInstallation(env, input, parsed.data);
+}
+
+export function rpcRefreshPeopleComputerLocalAgentCatalog(
+  env: CoreBindings,
+  input: RefreshCurrentLocalAgentCatalogInput & PeopleComputerTarget
+) {
+  const parsed = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return rpcRefreshCurrentLocalAgentCatalog(env, input, parsed.data);
+}
+
+export function rpcRequestPeopleComputerOpenMeldToolsUpdate(
+  env: CoreBindings,
+  input: RequestCurrentOpenMeldToolsUpdateInput & PeopleComputerTarget
+) {
+  const parsed = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return rpcRequestCurrentOpenMeldToolsUpdate(env, input, parsed.data);
+}
+
+export function rpcSetPeopleComputerOpenMeldToolsMaintenance(
+  env: CoreBindings,
+  input: SetCurrentOpenMeldToolsMaintenanceInput & PeopleComputerTarget
+) {
+  const parsed = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return rpcSetCurrentOpenMeldToolsMaintenance(env, input, parsed.data);
 }
 
 export type SetLocalRuntimeDisplayNameInput = SetLocalRuntimeDisplayNameBody & {
@@ -3558,6 +3676,7 @@ async function resolveCurrentLocalControlTarget(input: {
 
 async function resolveCurrentLocalServiceContext(input: {
   env: CoreBindings;
+  target?: PeopleComputerTarget;
   userId: string;
 }) {
   const lookupOwnerServiceForUser: LookupOwnerServiceForUser = async ({
@@ -3572,7 +3691,9 @@ async function resolveCurrentLocalServiceContext(input: {
     ownerUserId: input.userId,
   });
   const localRuntimes = await listLocalRuntimesUseCase({
-    connectionIdentityAdoption: "safe_legacy_current",
+    connectionIdentityAdoption: input.target
+      ? undefined
+      : "safe_legacy_current",
     lookupOwnerService: async () => ownerService,
     store: buildCurrentDeviceTargetStore(input.env),
     userId: input.userId,
@@ -3596,13 +3717,35 @@ async function resolveCurrentLocalServiceContext(input: {
 async function resolveCurrentLocalAgentControlTarget(input: {
   capability: keyof CurrentLocalAgentControlTarget["localAgentControl"];
   env: CoreBindings;
+  target?: PeopleComputerTarget;
   unsupportedCode: string;
   unsupportedReason: string;
   userId: string;
 }): Promise<{
-  currentTarget: CurrentLocalAgentControlTarget;
+  currentTarget: PeopleComputerTarget;
   lookupOwnerServiceForUser: LookupOwnerServiceForUser;
 }> {
+  if (input.target) {
+    const { localRuntimes, ownerService, lookupOwnerServiceForUser } =
+      await resolveCurrentLocalServiceContext(input);
+    const session = requirePeopleComputerControlSession({
+      target: input.target,
+      inventory: localRuntimes,
+      ownerService,
+    });
+    if (
+      projectPeopleComputerControls(session).localAgentControl[
+        input.capability
+      ] !== true
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: input.unsupportedCode,
+        reason: input.unsupportedReason,
+      });
+    }
+    return { currentTarget: input.target, lookupOwnerServiceForUser };
+  }
   const { currentTarget, lookupOwnerServiceForUser } =
     await resolveCurrentLocalControlTarget({
       env: input.env,
@@ -3627,28 +3770,39 @@ async function resolveCurrentLocalAgentControlTarget(input: {
 async function resolveCurrentOpenMeldToolsControlTarget(input: {
   capability: "requestUpdate" | "setAutomaticUpdates";
   env: CoreBindings;
+  target?: PeopleComputerTarget;
   userId: string;
 }): Promise<{ deviceId: string; runtimeLane: DaemonServiceLane }> {
   const { bindingTarget, localRuntimes, ownerService } =
     await resolveCurrentLocalServiceContext(input);
-  const currentTarget = requireCurrentLocalRuntimeServiceTarget({
-    bindingTarget,
-    inventory: localRuntimes,
-    offlineError: {
-      code: "service_offline",
-      reason: "OpenMeld Service is offline.",
-      status: 503,
-    },
-    ownerService,
-  });
+  const explicitSession = input.target
+    ? requirePeopleComputerControlSession({
+        target: input.target,
+        inventory: localRuntimes,
+        ownerService,
+      })
+    : undefined;
+  const currentTarget = explicitSession
+    ? { deviceId: explicitSession.deviceId, runtimeLane: explicitSession.lane }
+    : requireCurrentLocalRuntimeServiceTarget({
+        bindingTarget,
+        inventory: localRuntimes,
+        offlineError: {
+          code: "service_offline",
+          reason: "OpenMeld Service is offline.",
+          status: 503,
+        },
+        ownerService,
+      });
   const supportsControl =
     ownerService.online &&
-    ownerService.sessions.some(
+    (explicitSession ? [explicitSession] : ownerService.sessions).some(
       (session) =>
         session.deviceId === currentTarget.deviceId &&
         session.lane === currentTarget.runtimeLane &&
-        session.executionCompatibility.status === "compatible" &&
-        session.capabilities.openMeldToolsControl?.[input.capability] === true
+        projectPeopleComputerControls(session).openMeldToolsControl[
+          input.capability
+        ] === true
     );
   if (!supportsControl) {
     throw createCoreRpcHttpError({
@@ -3687,6 +3841,7 @@ function requireAcceptedOpenMeldToolsControlResult(
 
 async function controlOpenMeldToolsForUser(input: {
   env: CoreBindings;
+  target?: PeopleComputerTarget;
   request: OpenMeldToolsControlRequest;
   userId: string;
 }) {
@@ -3697,6 +3852,7 @@ async function controlOpenMeldToolsForUser(input: {
   const currentTarget = await resolveCurrentOpenMeldToolsControlTarget({
     capability,
     env: input.env,
+    target: input.target,
     userId: input.userId,
   });
   return requireAcceptedOpenMeldToolsControlResult(
@@ -3712,10 +3868,12 @@ async function controlOpenMeldToolsForUser(input: {
 
 export async function rpcRequestCurrentOpenMeldToolsUpdate(
   env: CoreBindings,
-  input: RequestCurrentOpenMeldToolsUpdateInput
+  input: RequestCurrentOpenMeldToolsUpdateInput,
+  target?: PeopleComputerTarget
 ): Promise<RequestCurrentOpenMeldToolsUpdateResponse> {
   const result = await controlOpenMeldToolsForUser({
     env,
+    target,
     request: {
       operation: "request_update",
       requestSource: "web",
@@ -3730,7 +3888,8 @@ export async function rpcRequestCurrentOpenMeldToolsUpdate(
 
 export async function rpcSetCurrentOpenMeldToolsMaintenance(
   env: CoreBindings,
-  input: SetCurrentOpenMeldToolsMaintenanceInput
+  input: SetCurrentOpenMeldToolsMaintenanceInput,
+  target?: PeopleComputerTarget
 ): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
   const parsed = setCurrentOpenMeldToolsMaintenanceBodySchema.safeParse({
     automaticUpdatesEnabled: input.automaticUpdatesEnabled,
@@ -3744,6 +3903,7 @@ export async function rpcSetCurrentOpenMeldToolsMaintenance(
   }
   const result = await controlOpenMeldToolsForUser({
     env,
+    target,
     request: {
       automaticUpdatesEnabled: parsed.data.automaticUpdatesEnabled,
       operation: "set_automatic_updates",
@@ -3789,7 +3949,8 @@ async function resolveCurrentLocalProjectControlTarget(input: {
 
 export async function rpcSetCurrentLocalAgentEnabled(
   env: CoreBindings,
-  input: SetCurrentLocalAgentEnabledInput
+  input: SetCurrentLocalAgentEnabledInput,
+  target?: PeopleComputerTarget
 ): Promise<SetCurrentLocalAgentEnabledResponse> {
   const userId = requireAuthenticatedOwnerUserId(input.context);
   const routeParams = setCurrentLocalAgentEnabledRouteParamsSchema.safeParse({
@@ -3813,6 +3974,7 @@ export async function rpcSetCurrentLocalAgentEnabled(
     await resolveCurrentLocalAgentControlTarget({
       capability: "setEnabled",
       env,
+      target,
       unsupportedCode: "local_agent_control.unsupported",
       unsupportedReason:
         "The current local OpenMeld Service does not support local agent changes from OpenMeld Web.",
@@ -3855,17 +4017,19 @@ export async function rpcSetCurrentLocalAgentEnabled(
 
 export async function rpcGetCurrentLocalAgentInstallations(
   env: CoreBindings,
-  input: GetCurrentLocalAgentInstallationsInput
+  input: GetCurrentLocalAgentInstallationsInput,
+  target?: PeopleComputerTarget
 ): Promise<CurrentLocalAgentInstallationsResponse> {
   return await getCurrentLocalAgentInstallationsForUser(env, {
     agentId: input.agentId,
+    target,
     userId: requireAuthenticatedOwnerUserId(input.context),
   });
 }
 
 async function getCurrentLocalAgentInstallationsForUser(
   env: CoreBindings,
-  input: { agentId: string; userId: string }
+  input: { agentId: string; userId: string; target?: PeopleComputerTarget }
 ): Promise<CurrentLocalAgentInstallationsResponse> {
   const routeParams = currentLocalAgentInstallationsRouteParamsSchema.safeParse(
     {
@@ -3885,6 +4049,7 @@ async function getCurrentLocalAgentInstallationsForUser(
   const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
     capability: "manageInstallationsSafely",
     env,
+    target: input.target,
     unsupportedCode: "local_agent_control.unsupported",
     unsupportedReason:
       "Update OpenMeld Service before choosing a local agent installation.",
@@ -3922,10 +4087,12 @@ async function getCurrentLocalAgentInstallationsForUser(
 
 export async function rpcSelectCurrentLocalAgentInstallation(
   env: CoreBindings,
-  input: SelectCurrentLocalAgentInstallationInput
+  input: SelectCurrentLocalAgentInstallationInput,
+  target?: PeopleComputerTarget
 ): Promise<SelectCurrentLocalAgentInstallationResponse> {
   return await selectCurrentLocalAgentInstallationForUser(env, {
     agentId: input.agentId,
+    target,
     installationId: input.installationId,
     userId: requireAuthenticatedOwnerUserId(input.context),
   });
@@ -3933,7 +4100,12 @@ export async function rpcSelectCurrentLocalAgentInstallation(
 
 async function selectCurrentLocalAgentInstallationForUser(
   env: CoreBindings,
-  input: { agentId: string; installationId: string; userId: string }
+  input: {
+    agentId: string;
+    installationId: string;
+    userId: string;
+    target?: PeopleComputerTarget;
+  }
 ): Promise<SelectCurrentLocalAgentInstallationResponse> {
   const routeParams = currentLocalAgentInstallationsRouteParamsSchema.safeParse(
     {
@@ -3958,6 +4130,7 @@ async function selectCurrentLocalAgentInstallationForUser(
     await resolveCurrentLocalAgentControlTarget({
       capability: "manageInstallationsSafely",
       env,
+      target: input.target,
       unsupportedCode: "local_agent_control.unsupported",
       unsupportedReason:
         "Update OpenMeld Service before choosing a local agent installation.",
@@ -4170,13 +4343,15 @@ function requireUpdatedProfileWorkspaceResponse(
 
 export async function rpcRefreshCurrentLocalAgentCatalog(
   env: CoreBindings,
-  input: RefreshCurrentLocalAgentCatalogInput
+  input: RefreshCurrentLocalAgentCatalogInput,
+  target?: PeopleComputerTarget
 ): Promise<RefreshCurrentLocalAgentCatalogResponse> {
   const userId = requireAuthenticatedOwnerUserId(input.context);
   const { currentTarget, lookupOwnerServiceForUser } =
     await resolveCurrentLocalAgentControlTarget({
       capability: "refreshCatalog",
       env,
+      target,
       unsupportedCode: "local_agent_control.refresh_catalog_unsupported",
       unsupportedReason:
         "The current local OpenMeld Service does not support checking local agents from OpenMeld Web.",

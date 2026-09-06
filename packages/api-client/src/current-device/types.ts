@@ -63,6 +63,24 @@ export type SetLocalRuntimeDisplayNameInput = SetLocalRuntimeDisplayNameBody & {
 export type CreateCurrentDeviceApi = (
   client: import("../client").OpenMeldApiClientFoundation
 ) => {
+  setPeopleComputerLocalAgentEnabled: (
+    input: SetCurrentLocalAgentEnabledInput & PeopleComputerTarget
+  ) => Promise<SetCurrentLocalAgentEnabledResponse>;
+  getPeopleComputerLocalAgentInstallations: (
+    input: { agentId: string } & PeopleComputerTarget
+  ) => Promise<CurrentLocalAgentInstallationsResponse>;
+  selectPeopleComputerLocalAgentInstallation: (
+    input: SelectCurrentLocalAgentInstallationInput & PeopleComputerTarget
+  ) => Promise<SelectCurrentLocalAgentInstallationResponse>;
+  refreshPeopleComputerLocalAgentCatalog: (
+    input: PeopleComputerTarget
+  ) => Promise<RefreshCurrentLocalAgentCatalogResponse>;
+  requestPeopleComputerOpenMeldToolsUpdate: (
+    input: PeopleComputerTarget
+  ) => Promise<RequestCurrentOpenMeldToolsUpdateResponse>;
+  setPeopleComputerOpenMeldToolsMaintenance: (
+    input: SetCurrentOpenMeldToolsMaintenanceInput & PeopleComputerTarget
+  ) => Promise<SetCurrentOpenMeldToolsMaintenanceResponse>;
   listPeopleComputers: (input?: {
     includeUsageLimits?: "true";
   }) => Promise<PeopleComputersResponse>;

@@ -50,8 +50,10 @@ vi.mock("#/lib/cli-entry-command", async (importOriginal) => {
 });
 
 vi.mock("#/lib/connect/local-runtimes", () => ({
-	requestCurrentOpenMeldToolsUpdate: requestCurrentOpenMeldToolsUpdateMock,
-	setCurrentOpenMeldToolsMaintenance: setCurrentOpenMeldToolsMaintenanceMock,
+	requestPeopleComputerOpenMeldToolsUpdate:
+		requestCurrentOpenMeldToolsUpdateMock,
+	setPeopleComputerOpenMeldToolsMaintenance:
+		setCurrentOpenMeldToolsMaintenanceMock,
 }));
 
 vi.mock("#/query/agents/execution-readiness", () => ({
@@ -1210,6 +1212,8 @@ describe("OpenMeldServiceCard", () => {
 
 		await waitFor(() => {
 			expect(setCurrentOpenMeldToolsMaintenanceMock).toHaveBeenCalledWith({
+				deviceId: "device-macbook-pro",
+				runtimeLane: "dev-local",
 				automaticUpdatesEnabled: false,
 			});
 		});
@@ -1616,7 +1620,7 @@ describe("OpenMeldServiceCard", () => {
 		renderOpenMeldServiceCard({
 			computer: buildComputer({ isCurrent: false, targetStatus: "stale" }),
 			currentLocalRuntimeReplyReadiness: null,
-			isCurrentComputer: false,
+			hasSelectedEnvironment: false,
 			replyReadiness: SERVICE_NOT_CONNECTED_REPLY_READINESS,
 		});
 
@@ -1625,7 +1629,7 @@ describe("OpenMeldServiceCard", () => {
 		);
 		expect(
 			screen.getByText(
-				"This is the last OpenMeld tools report from that computer. Run setup again to refresh this record."
+				"Use setup on this computer to manage its OpenMeld tools."
 			)
 		).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Set up again" })).toHaveProperty(
@@ -1758,7 +1762,7 @@ function buildUpdateOperation(input: {
 function renderOpenMeldServiceCard(input: {
 	computer?: LocalRuntimeComputer;
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
-	isCurrentComputer?: boolean;
+	hasSelectedEnvironment?: boolean;
 	isReconcilingStatus?: boolean;
 	replyReadiness: ComputerReplyReadiness;
 }) {
@@ -1768,7 +1772,7 @@ function renderOpenMeldServiceCard(input: {
 function buildOpenMeldServiceCard(input: {
 	computer?: LocalRuntimeComputer;
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
-	isCurrentComputer?: boolean;
+	hasSelectedEnvironment?: boolean;
 	isReconcilingStatus?: boolean;
 	replyReadiness: ComputerReplyReadiness;
 }) {
@@ -1781,7 +1785,7 @@ function buildOpenMeldServiceCard(input: {
 					input.currentLocalRuntimeReplyReadiness
 				}
 				focusService={false}
-				isCurrentComputer={input.isCurrentComputer ?? true}
+				hasSelectedEnvironment={input.hasSelectedEnvironment ?? true}
 				isReconcilingStatus={input.isReconcilingStatus ?? false}
 				organizationId="org-acme"
 				queryClient={queryClientStub}

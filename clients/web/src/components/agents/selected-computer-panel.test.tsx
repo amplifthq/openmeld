@@ -4,14 +4,20 @@ import type {
 	LocalRuntimeExecutionTarget,
 } from "@openmeld/schemas/types";
 import { QueryClient } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SelectedComputerPanel } from "./selected-computer-panel";
 
+const readPeopleComputerReadinessSpy = vi.hoisted(() => vi.fn());
 vi.mock("#/lib/connect/local-runtimes", async (importOriginal) => ({
 	...(await importOriginal<typeof import("#/lib/connect/local-runtimes")>()),
-	readPeopleComputerReplyReadiness: async (target: { deviceId: string }) =>
-		buildConnectedReadiness(target.deviceId),
+	readPeopleComputerReplyReadiness: readPeopleComputerReadinessSpy,
 }));
 
 // Renders the REAL `SelectedComputerPanel` (NOT the recorder stub that
@@ -148,6 +154,14 @@ function renderPanel(
 describe("SelectedComputerPanel detail composition", () => {
 	beforeEach(() => {
 		queryClientStub.clear();
+		readPeopleComputerReadinessSpy.mockReset();
+		readPeopleComputerReadinessSpy.mockImplementation(
+			(target: { deviceId: string; runtimeLane: string }) =>
+				Promise.resolve({
+					...buildConnectedReadiness(target.deviceId),
+					currentTarget: { availability: "resolved", ...target },
+				})
+		);
 		openMeldServiceCardSpy.mockReset();
 		localAgentsCardSpy.mockReset();
 		computerFileAccessCardSpy.mockReset();
@@ -174,6 +188,39 @@ describe("SelectedComputerPanel detail composition", () => {
 			screen.getByTestId("computer-file-access-card")
 		);
 		expect(screen.queryByText("Available for Wake")).toBeNull();
+	});
+
+	it("requires an environment choice instead of using the default Binding when two environments exist", async () => {
+		const development = buildExecutionTarget("ready");
+		const production = {
+			...development,
+			runtimeLane: "prod" as const,
+			isCurrent: true,
+		};
+		renderPanel({ computer: buildComputer([development, production]) });
+		expect(readPeopleComputerReadinessSpy).not.toHaveBeenCalled();
+		expect(localAgentsCardSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				hasSelectedEnvironment: false,
+				controlTarget: null,
+			})
+		);
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Computer environment" })
+		);
+		fireEvent.click(await screen.findByRole("option", { name: "Production" }));
+		await waitFor(() =>
+			expect(readPeopleComputerReadinessSpy).toHaveBeenCalledWith({
+				deviceId: "device-office",
+				runtimeLane: "prod",
+			})
+		);
+		expect(localAgentsCardSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				hasSelectedEnvironment: true,
+				controlTarget: { deviceId: "device-office", runtimeLane: "prod" },
+			})
+		);
 	});
 
 	it("forwards a Settings deep-link focus to file access", () => {

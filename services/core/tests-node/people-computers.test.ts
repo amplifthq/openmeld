@@ -8,6 +8,7 @@ import type {
   RuntimeTransportLookupOwnerServiceResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
+import { requirePeopleComputerControlSession } from "../src/people-computers/control-target";
 import {
   projectPeopleComputerConnection,
   projectPeopleComputers,
@@ -64,6 +65,48 @@ function live(
 }
 
 describe("PeopleComputers authority", () => {
+  it("does not redirect a mutation to another device incarnation or environment", () => {
+    const source = inventory();
+    source.localRuntimes = [
+      {
+        ...computer("old-device"),
+        connectedComputerId: "same-computer",
+        legacyDeviceIds: ["old-device", "new-device"],
+      },
+    ];
+    const ownerService = {
+      online: true as const,
+      sessions: [live("new-device")],
+    };
+    expect(() =>
+      requirePeopleComputerControlSession({
+        inventory: source,
+        ownerService,
+        target: { deviceId: "old-device", runtimeLane: "prod" },
+      })
+    ).toThrow("disconnected in this environment");
+    expect(() =>
+      requirePeopleComputerControlSession({
+        inventory: source,
+        ownerService,
+        target: { deviceId: "new-device", runtimeLane: "canary" },
+      })
+    ).toThrow("disconnected in this environment");
+    expect(() =>
+      requirePeopleComputerControlSession({
+        inventory: source,
+        ownerService,
+        target: { deviceId: "foreign-device", runtimeLane: "prod" },
+      })
+    ).toThrow("not available on your account");
+    expect(
+      requirePeopleComputerControlSession({
+        inventory: source,
+        ownerService,
+        target: { deviceId: "new-device", runtimeLane: "prod" },
+      }).deviceId
+    ).toBe("new-device");
+  });
   it("uses the exact owned target, not the owner's older Binding or another live computer", () => {
     expect(
       resolvePeopleComputerTarget({

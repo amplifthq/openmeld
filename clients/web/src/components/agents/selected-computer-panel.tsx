@@ -3,17 +3,22 @@
 import type {
 	CurrentLocalRuntimeReplyReadinessResponse,
 	LocalRuntimeComputer,
+	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+} from "@openmeld/ui/fluid/select";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
 import { currentLocalRuntimeReplyReadinessQueryOptions } from "#/query/connect/local-runtimes";
-import {
-	isSelectedCurrentComputer,
-	resolveCurrentExecutionTarget,
-} from "./agents-page-computer";
+import { isSelectedCurrentComputer } from "./agents-page-computer";
+import { formatRuntimeLane } from "./agents-page-formatters";
 import { LocalAgentsCard } from "./agents-page-local-agents";
 import { OpenMeldServiceCard } from "./agents-page-openmeld-service";
 import { ComputerFileAccessCard } from "./computer-file-access-card";
@@ -45,9 +50,41 @@ export function SelectedComputerPanel(input: {
 		input.recovery.localRuntimesQuery.data?.peopleComputers.computers.find(
 			(computer) => computer.deviceId === input.computer.deviceId
 		);
-	const reportedTarget = resolveCurrentExecutionTarget(input.computer);
-	const liveTarget = computerFacts?.connection.sessions[0];
-	const target = reportedTarget ?? liveTarget ?? null;
+	const [selectedEnvironmentKey, setSelectedEnvironmentKey] = useState<
+		string | null
+	>(null);
+	const environments = [
+		...new Map(
+			[
+				...(computerFacts?.connection.sessions ?? []),
+				...input.computer.executionTargets,
+			].map((entry) => [
+				computerEnvironmentKey(entry),
+				{ deviceId: entry.deviceId, runtimeLane: entry.runtimeLane },
+			])
+		).values(),
+	];
+	const target =
+		environments.find(
+			(entry) => computerEnvironmentKey(entry) === selectedEnvironmentKey
+		) ??
+		(environments.length === 1 ? environments[0] : null) ??
+		null;
+	const reportedTarget =
+		input.computer.executionTargets.find(
+			(entry) =>
+				entry.deviceId === target?.deviceId &&
+				entry.runtimeLane === target.runtimeLane
+		) ?? null;
+	const selectedSession = computerFacts?.connection.sessions.find(
+		(entry) =>
+			entry.deviceId === target?.deviceId &&
+			entry.runtimeLane === target.runtimeLane
+	);
+	const selectedRecovery = {
+		...input.recovery,
+		selectedExecutionTarget: reportedTarget,
+	};
 	const selectedReadinessQuery = useQuery(
 		currentLocalRuntimeReplyReadinessQueryOptions({
 			storageScope: input.recovery.storageScope,
@@ -74,6 +111,39 @@ export function SelectedComputerPanel(input: {
 		input.computer.computerFileAccess.updatePolicy === true;
 	return (
 		<div className="flex flex-col gap-4">
+			{environments.length > 1 ? (
+				<div className="max-w-sm space-y-2">
+					<p className="font-medium text-sm">Environment</p>
+					<Select
+						onValueChange={setSelectedEnvironmentKey}
+						value={target ? computerEnvironmentKey(target) : ""}
+					>
+						<SelectTrigger
+							aria-label="Computer environment"
+							placeholder="Choose an environment"
+						/>
+						<SelectContent>
+							{environments.map((entry, index) => (
+								<SelectItem
+									index={index}
+									key={computerEnvironmentKey(entry)}
+									value={computerEnvironmentKey(entry)}
+								>
+									{formatRuntimeLane(entry.runtimeLane)}
+									{environments.filter(
+										(other) => other.runtimeLane === entry.runtimeLane
+									).length > 1
+										? ` · ${entry.deviceId.slice(-8)}`
+										: ""}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<p className="text-muted-foreground text-xs">
+						Status and actions apply to the selected environment.
+					</p>
+				</div>
+			) : null}
 			<OpenMeldServiceCard
 				computer={input.computer}
 				currentExpectedServiceVersion={
@@ -81,8 +151,9 @@ export function SelectedComputerPanel(input: {
 				}
 				currentLocalRuntimeReplyReadiness={currentLocalRuntimeReplyReadiness}
 				focusService={input.focusService}
-				isCurrentComputer={isCurrentComputer}
+				hasSelectedEnvironment={target !== null}
 				isReconcilingStatus={input.isReconcilingStatus}
+				key={`service/${target ? computerEnvironmentKey(target) : input.computer.deviceId}`}
 				onCheckingStatusChange={(checking) => {
 					const deviceId = input.computer.deviceId;
 					setCheckingComputerId((current) => {
@@ -95,19 +166,28 @@ export function SelectedComputerPanel(input: {
 				onFocusConsumed={input.onFocusConsumed}
 				organizationId={input.organizationId}
 				queryClient={input.queryClient}
-				recovery={input.recovery}
+				recovery={selectedRecovery}
 				replyReadiness={effectiveReplyReadiness}
 				setupCompleteRefreshPending={input.setupCompleteRefreshPending}
 			/>
 			<LocalAgentsCard
 				computer={input.computer}
-				isCurrentComputer={isCurrentComputer}
+				controlCapabilities={
+					selectedSession?.controls?.localAgentControl ?? {
+						refreshCatalog: false,
+						setEnabled: false,
+						setProfileWorkspace: false,
+					}
+				}
+				controlTarget={target}
+				hasSelectedEnvironment={target !== null}
 				isReconcilingStatus={
 					input.isReconcilingStatus ||
 					input.setupCompleteRefreshPending ||
 					checkingComputerId === input.computer.deviceId
 				}
-				recovery={input.recovery}
+				key={`local-agents/${target ? computerEnvironmentKey(target) : input.computer.deviceId}`}
+				recovery={selectedRecovery}
 				replyReadiness={effectiveReplyReadiness}
 			/>
 			{isCurrentComputer && canManageComputerFileAccess ? (
@@ -123,6 +203,10 @@ export function SelectedComputerPanel(input: {
 			) : null}
 		</div>
 	);
+}
+
+function computerEnvironmentKey(target: PeopleComputerTarget) {
+	return `${target.deviceId}/${target.runtimeLane}`;
 }
 
 type SetupCompleteRefreshStatus = "idle" | "pending" | "ready" | "error";

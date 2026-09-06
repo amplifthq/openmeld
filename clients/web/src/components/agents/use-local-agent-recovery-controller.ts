@@ -9,6 +9,7 @@ import type {
 	GetAgentExecutionReadinessResponse,
 	LocalRuntimeComputer,
 	LocalRuntimesResponse,
+	PeopleComputerTarget,
 	PrepareSessionSnapshot,
 } from "@openmeld/schemas/types";
 import {
@@ -39,9 +40,9 @@ import {
 } from "#/lib/connect/current-device-target";
 import { resolveCurrentLocalRuntime } from "#/lib/connect/current-local-runtime";
 import {
-	refreshCurrentLocalAgentCatalog,
-	setCurrentLocalAgentEnabled,
+	refreshPeopleComputerLocalAgentCatalog,
 	setLocalRuntimeDisplayName,
+	setPeopleComputerLocalAgentEnabled,
 } from "#/lib/connect/local-runtimes";
 import { readStartGatewayUrl } from "#/lib/connect/start-gateway-url";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
@@ -874,11 +875,13 @@ function useLocalRuntimeActions(input: {
 		});
 	};
 
-	const setLocalAgentEnabled = async (target: {
-		agentId: string;
-		enabled: boolean;
-	}) => {
-		await setCurrentLocalAgentEnabled(target);
+	const setLocalAgentEnabled = async (
+		target: PeopleComputerTarget & {
+			agentId: string;
+			enabled: boolean;
+		}
+	) => {
+		await setPeopleComputerLocalAgentEnabled(target);
 		await Promise.all([
 			input.queryClient.invalidateQueries({
 				queryKey: startQueryKeys.localRuntimes(input.storageScope),
@@ -896,8 +899,8 @@ function useLocalRuntimeActions(input: {
 		]);
 	};
 
-	const refreshLocalAgentCatalog = async () => {
-		await refreshCurrentLocalAgentCatalog();
+	const refreshLocalAgentCatalog = async (target: PeopleComputerTarget) => {
+		await refreshPeopleComputerLocalAgentCatalog(target);
 		await Promise.all([
 			input.queryClient.invalidateQueries({
 				queryKey: startQueryKeys.localRuntimes(input.storageScope),

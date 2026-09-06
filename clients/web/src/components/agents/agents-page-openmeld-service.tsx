@@ -75,8 +75,8 @@ import {
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { buildExecutionTargetLabel } from "#/lib/connect/local-runtime-display";
 import {
-	requestCurrentOpenMeldToolsUpdate,
-	setCurrentOpenMeldToolsMaintenance,
+	requestPeopleComputerOpenMeldToolsUpdate,
+	setPeopleComputerOpenMeldToolsMaintenance,
 } from "#/lib/connect/local-runtimes";
 import {
 	hasOpenMeldToolsUpdate,
@@ -124,7 +124,7 @@ export type OpenMeldServiceCardOwnerProps = {
 	currentExpectedServiceVersion: string | null;
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	focusService: boolean;
-	isCurrentComputer: boolean;
+	hasSelectedEnvironment: boolean;
 	isReconcilingStatus: boolean;
 	onCheckingStatusChange?: (checking: boolean) => void;
 	onFocusConsumed?: () => void;
@@ -259,7 +259,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 		refreshAttempts: 0,
 	});
 	useEffect(() => {
-		if (!(input.focusService && input.isCurrentComputer)) {
+		if (!(input.focusService && input.hasSelectedEnvironment)) {
 			return;
 		}
 
@@ -281,7 +281,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			highlightEndTimerRef.current = null;
 		}, 1800);
 		input.onFocusConsumed?.();
-	}, [input.focusService, input.isCurrentComputer, input.onFocusConsumed]);
+	}, [input.focusService, input.hasSelectedEnvironment, input.onFocusConsumed]);
 
 	useEffect(() => {
 		return () => {
@@ -434,7 +434,11 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 		};
 		setIsUpdatingTools(true);
 		try {
-			const result = await requestCurrentOpenMeldToolsUpdate();
+			const target = input.currentLocalRuntimeReplyReadiness?.currentTarget;
+			if (target?.availability !== "resolved") {
+				throw new Error("Choose a computer environment first.");
+			}
+			const result = await requestPeopleComputerOpenMeldToolsUpdate(target);
 			if (result.status === "current") {
 				setPendingManagedUpdate({
 					currentVersion: result.currentVersion,
@@ -450,9 +454,13 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 					operation: result.operation,
 				});
 				input.queryClient.setQueryData<CurrentLocalRuntimeReplyReadinessResponse>(
-					startQueryKeys.currentLocalRuntimeReplyReadiness(
-						input.recovery.storageScope
-					),
+					[
+						...startQueryKeys.currentLocalRuntimeReplyReadiness(
+							input.recovery.storageScope
+						),
+						target.deviceId,
+						target.runtimeLane,
+					],
 					(current) =>
 						current
 							? {
@@ -481,7 +489,15 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 	const setAutomaticUpdates = async (automaticUpdatesEnabled: boolean) => {
 		setIsSavingAutomaticUpdates(true);
 		try {
-			await setCurrentOpenMeldToolsMaintenance({ automaticUpdatesEnabled });
+			const target = input.currentLocalRuntimeReplyReadiness?.currentTarget;
+			if (target?.availability !== "resolved") {
+				throw new Error("Choose a computer environment first.");
+			}
+			await setPeopleComputerOpenMeldToolsMaintenance({
+				deviceId: target.deviceId,
+				runtimeLane: target.runtimeLane,
+				automaticUpdatesEnabled,
+			});
 			await refreshServiceStatus();
 		} catch (error) {
 			toast.error(formatMutationError(error, "Setting not saved."));
@@ -497,7 +513,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 		session: "fresh",
 	});
 
-	if (!input.isCurrentComputer) {
+	if (!input.hasSelectedEnvironment) {
 		const setupLabel = resolveNonCurrentOpenMeldServiceSetupLabel(
 			input.computer
 		);

@@ -191,6 +191,99 @@ export const createCurrentDeviceApi: CreateCurrentDeviceApi = (
         invalidMessage: "Invalid computer readiness response.",
       });
     },
+    setPeopleComputerLocalAgentEnabled: async (input) => {
+      const target = peopleComputerTargetSchema.parse({
+        deviceId: input.deviceId,
+        runtimeLane: input.runtimeLane,
+      });
+      const body = setCurrentLocalAgentEnabledBodySchema.parse({
+        enabled: input.enabled,
+      });
+      return await client.requestJson({
+        url: `/v1/people-computers/${encodeURIComponent(target.deviceId)}/lanes/${encodeURIComponent(target.runtimeLane)}/local-agents/${encodeURIComponent(input.agentId)}/enabled`,
+        operation: "people_computer.setPeopleComputerLocalAgentEnabled",
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        schema: setCurrentLocalAgentEnabledResponseSchema,
+        invalidMessage: "Invalid computer action response.",
+      });
+    },
+    getPeopleComputerLocalAgentInstallations: async (input) => {
+      const target = peopleComputerTargetSchema.parse({
+        deviceId: input.deviceId,
+        runtimeLane: input.runtimeLane,
+      });
+      return await client.requestJson({
+        url: `/v1/people-computers/${encodeURIComponent(target.deviceId)}/lanes/${encodeURIComponent(target.runtimeLane)}/local-agents/${encodeURIComponent(input.agentId)}/installations`,
+        operation: "people_computer.getPeopleComputerLocalAgentInstallations",
+        method: "GET",
+        schema: currentLocalAgentInstallationsResponseSchema,
+        invalidMessage: "Invalid computer action response.",
+      });
+    },
+    selectPeopleComputerLocalAgentInstallation: async (input) => {
+      const target = peopleComputerTargetSchema.parse({
+        deviceId: input.deviceId,
+        runtimeLane: input.runtimeLane,
+      });
+      const body = selectCurrentLocalAgentInstallationBodySchema.parse({
+        installationId: input.installationId,
+      });
+      return await client.requestJson({
+        url: `/v1/people-computers/${encodeURIComponent(target.deviceId)}/lanes/${encodeURIComponent(target.runtimeLane)}/local-agents/${encodeURIComponent(input.agentId)}/installations`,
+        operation: "people_computer.selectPeopleComputerLocalAgentInstallation",
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        schema: selectCurrentLocalAgentInstallationResponseSchema,
+        invalidMessage: "Invalid computer action response.",
+      });
+    },
+    refreshPeopleComputerLocalAgentCatalog: async (input) => {
+      const target = peopleComputerTargetSchema.parse({
+        deviceId: input.deviceId,
+        runtimeLane: input.runtimeLane,
+      });
+      return await client.requestJson({
+        url: `/v1/people-computers/${encodeURIComponent(target.deviceId)}/lanes/${encodeURIComponent(target.runtimeLane)}/local-agents/refresh-catalog`,
+        operation: "people_computer.refreshPeopleComputerLocalAgentCatalog",
+        method: "POST",
+        schema: refreshCurrentLocalAgentCatalogResponseSchema,
+        invalidMessage: "Invalid computer action response.",
+      });
+    },
+    requestPeopleComputerOpenMeldToolsUpdate: async (input) => {
+      const target = peopleComputerTargetSchema.parse({
+        deviceId: input.deviceId,
+        runtimeLane: input.runtimeLane,
+      });
+      return await client.requestJson({
+        url: `/v1/people-computers/${encodeURIComponent(target.deviceId)}/lanes/${encodeURIComponent(target.runtimeLane)}/openmeld-tools/update`,
+        operation: "people_computer.requestPeopleComputerOpenMeldToolsUpdate",
+        method: "POST",
+        schema: requestCurrentOpenMeldToolsUpdateResponseSchema,
+        invalidMessage: "Invalid computer action response.",
+      });
+    },
+    setPeopleComputerOpenMeldToolsMaintenance: async (input) => {
+      const target = peopleComputerTargetSchema.parse({
+        deviceId: input.deviceId,
+        runtimeLane: input.runtimeLane,
+      });
+      const body = setCurrentOpenMeldToolsMaintenanceBodySchema.parse({
+        automaticUpdatesEnabled: input.automaticUpdatesEnabled,
+      });
+      return await client.requestJson({
+        url: `/v1/people-computers/${encodeURIComponent(target.deviceId)}/lanes/${encodeURIComponent(target.runtimeLane)}/openmeld-tools/maintenance`,
+        operation: "people_computer.setPeopleComputerOpenMeldToolsMaintenance",
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        schema: setCurrentOpenMeldToolsMaintenanceResponseSchema,
+        invalidMessage: "Invalid computer action response.",
+      });
+    },
     getCurrentLocalRuntimeReplyReadiness: async () =>
       await client.requestJson({
         url: CURRENT_LOCAL_RUNTIME_REPLY_READINESS_ROUTE,

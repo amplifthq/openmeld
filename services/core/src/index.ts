@@ -856,6 +856,7 @@ import {
   rpcGetCurrentOrganizationSpaceDirectory,
   rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts,
   rpcGetLocalRuntimeExpectedRoutes,
+  rpcGetPeopleComputerLocalAgentInstallations,
   rpcGetPeopleComputerReplyReadiness,
   rpcGetPrepareReadiness,
   rpcGetSpaceBoard,
@@ -936,11 +937,13 @@ import {
   rpcRecordCurrentOrganizationWebActivity,
   rpcRecordSpaceAttachment,
   rpcRefreshCurrentLocalAgentCatalog,
+  rpcRefreshPeopleComputerLocalAgentCatalog,
   rpcRemoveConnection,
   rpcRemoveMissingConnections,
   rpcRemoveSpaceMembers,
   rpcRequestCurrentOpenMeldToolsUpdate,
   rpcRequestMessageChannelSetup,
+  rpcRequestPeopleComputerOpenMeldToolsUpdate,
   rpcResolveSpaceAttachmentForDownload,
   rpcResolveSpaceFileContent,
   rpcRespondToSpaceAgentInteraction,
@@ -949,6 +952,7 @@ import {
   rpcResumeRoutine,
   rpcSelectCurrentLocalAgentInstallation,
   rpcSelectLocalFolders,
+  rpcSelectPeopleComputerLocalAgentInstallation,
   rpcSetAgentProfileCreationDefaults,
   rpcSetCenterAgentOrganizationMemoryPolicy,
   rpcSetCurrentAgentProfileWorkspace,
@@ -958,6 +962,8 @@ import {
   rpcSetDefaultConnection,
   rpcSetLocalRuntimeDisplayName,
   rpcSetOrganizationInformationProtectionPolicy,
+  rpcSetPeopleComputerLocalAgentEnabled,
+  rpcSetPeopleComputerOpenMeldToolsMaintenance,
   rpcSetSpaceAccessMode,
   rpcStageSpaceComposerUpload,
   rpcSubmitAgentActivityEvents,
@@ -3215,6 +3221,42 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcListPeopleComputers(this.env, input);
   }
 
+  setPeopleComputerLocalAgentEnabled(
+    input: Parameters<typeof rpcSetPeopleComputerLocalAgentEnabled>[1]
+  ) {
+    return rpcSetPeopleComputerLocalAgentEnabled(this.env, input);
+  }
+
+  getPeopleComputerLocalAgentInstallations(
+    input: Parameters<typeof rpcGetPeopleComputerLocalAgentInstallations>[1]
+  ) {
+    return rpcGetPeopleComputerLocalAgentInstallations(this.env, input);
+  }
+
+  selectPeopleComputerLocalAgentInstallation(
+    input: Parameters<typeof rpcSelectPeopleComputerLocalAgentInstallation>[1]
+  ) {
+    return rpcSelectPeopleComputerLocalAgentInstallation(this.env, input);
+  }
+
+  refreshPeopleComputerLocalAgentCatalog(
+    input: Parameters<typeof rpcRefreshPeopleComputerLocalAgentCatalog>[1]
+  ) {
+    return rpcRefreshPeopleComputerLocalAgentCatalog(this.env, input);
+  }
+
+  requestPeopleComputerOpenMeldToolsUpdate(
+    input: Parameters<typeof rpcRequestPeopleComputerOpenMeldToolsUpdate>[1]
+  ) {
+    return rpcRequestPeopleComputerOpenMeldToolsUpdate(this.env, input);
+  }
+
+  setPeopleComputerOpenMeldToolsMaintenance(
+    input: Parameters<typeof rpcSetPeopleComputerOpenMeldToolsMaintenance>[1]
+  ) {
+    return rpcSetPeopleComputerOpenMeldToolsMaintenance(this.env, input);
+  }
+
   getPeopleComputerReplyReadiness(
     input: GetPeopleComputerReplyReadinessInput
   ): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
@@ -4062,6 +4104,42 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetLocalRuntimesInput
   ): Promise<PeopleComputersResponse> {
     return super.listPeopleComputers(input);
+  }
+
+  setPeopleComputerLocalAgentEnabled(
+    input: Parameters<typeof rpcSetPeopleComputerLocalAgentEnabled>[1]
+  ) {
+    return super.setPeopleComputerLocalAgentEnabled(input);
+  }
+
+  getPeopleComputerLocalAgentInstallations(
+    input: Parameters<typeof rpcGetPeopleComputerLocalAgentInstallations>[1]
+  ) {
+    return super.getPeopleComputerLocalAgentInstallations(input);
+  }
+
+  selectPeopleComputerLocalAgentInstallation(
+    input: Parameters<typeof rpcSelectPeopleComputerLocalAgentInstallation>[1]
+  ) {
+    return super.selectPeopleComputerLocalAgentInstallation(input);
+  }
+
+  refreshPeopleComputerLocalAgentCatalog(
+    input: Parameters<typeof rpcRefreshPeopleComputerLocalAgentCatalog>[1]
+  ) {
+    return super.refreshPeopleComputerLocalAgentCatalog(input);
+  }
+
+  requestPeopleComputerOpenMeldToolsUpdate(
+    input: Parameters<typeof rpcRequestPeopleComputerOpenMeldToolsUpdate>[1]
+  ) {
+    return super.requestPeopleComputerOpenMeldToolsUpdate(input);
+  }
+
+  setPeopleComputerOpenMeldToolsMaintenance(
+    input: Parameters<typeof rpcSetPeopleComputerOpenMeldToolsMaintenance>[1]
+  ) {
+    return super.setPeopleComputerOpenMeldToolsMaintenance(input);
   }
 
   getPeopleComputerReplyReadiness(
