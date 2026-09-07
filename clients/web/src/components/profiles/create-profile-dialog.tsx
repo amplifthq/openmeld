@@ -2046,6 +2046,11 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 	const defaultProjectId = input.selectedProjectId || null;
 	const connection = resolveRequestedAgentConnection(input);
+	if (!(connection.agentControllerRef && connection.targetComputerId)) {
+		throw new Error(
+			"Choose a local agent on a connected computer to continue."
+		);
+	}
 	const result = await createAgentProfileCreationRequest({
 		configuration: {
 			agentControllerCollaborationMode: input.agentControllerCollaborationMode,

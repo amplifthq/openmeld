@@ -8,7 +8,12 @@ import {
 } from "@openmeld/ui/components/magnifying-dock";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { cn } from "@openmeld/ui/lib/utils";
-import { CheckIcon, RobotIcon } from "@phosphor-icons/react";
+import {
+	CheckIcon,
+	CloudIcon,
+	DesktopTowerIcon,
+	RobotIcon,
+} from "@phosphor-icons/react";
 import { useId } from "react";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
@@ -72,6 +77,37 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 					heading
 				)}
 			</legend>
+			<div className="grid gap-2 sm:grid-cols-2">
+				<div className="flex items-start gap-3 rounded-lg border border-border bg-muted/25 p-3">
+					<DesktopTowerIcon
+						aria-hidden="true"
+						className="mt-0.5 size-5 shrink-0"
+					/>
+					<div className="space-y-1">
+						<p className="font-medium text-sm">Local Agent</p>
+						<p className="text-muted-foreground text-xs">
+							Runs on a connected computer using tools like Codex or Claude
+							Code.
+						</p>
+					</div>
+				</div>
+				<button
+					className="flex items-start gap-3 rounded-lg border border-border p-3 text-left text-muted-foreground"
+					disabled
+					type="button"
+				>
+					<CloudIcon aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+					<span className="space-y-1">
+						<span className="flex flex-wrap items-center gap-2 text-sm">
+							<span className="font-medium">Remote Agent</span>
+							<span className="text-xs">Coming soon</span>
+						</span>
+						<span className="block text-xs">
+							Runs in the cloud without a connected computer.
+						</span>
+					</span>
+				</button>
+			</div>
 			{input.locked ? (
 				<p className="text-pretty text-muted-foreground text-sm leading-5">
 					This Agent will keep using the agent connected to this Session.

@@ -132,6 +132,9 @@ export function resolveCreateProfileSubmitBlockReason(input: {
 	if (input.additionalSubmitBlockReason) {
 		return input.additionalSubmitBlockReason;
 	}
+	if (input.profileKind === "agent" && !input.boundAgentId) {
+		return "Choose a local agent to continue. Connect a computer if none are available.";
+	}
 	if (input.projectSelectionBlockReason) {
 		return input.projectSelectionBlockReason;
 	}
