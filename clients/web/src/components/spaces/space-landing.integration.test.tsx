@@ -2294,9 +2294,11 @@ describe("SpaceLanding", () => {
 		expect(membersButton.textContent).toBe("");
 		fireEvent.click(membersButton);
 		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
-		expect(screen.queryByText("Runner")).toBeNull();
+		expect(screen.queryByRole("dialog", { name: "Members" })).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: "Add People or Agents" })
+			screen.queryByRole("button", {
+				name: "Add People or Agents",
+			})
 		).toBeNull();
 		fireEvent.click(membersButton);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
