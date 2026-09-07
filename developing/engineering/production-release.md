@@ -456,6 +456,15 @@ checks.
 
 ## Local Scoped Release
 
+The `people-computers-receivers-first` profile recognizes the shared computer
+schema, Core projection, and Gateway endpoint together. It deploys selected
+Auth, Core, Gateway, Web, Remote Agent, then CLI scopes (Database remains first
+when selected). Core and Gateway must precede new computer callers. A staged
+Core receiver deploy uses the immutable current stable CLI projection even when
+CLI publication is reserved for the later signed GitHub lane. Pass the same
+pre-feature base to each staged plan so the directional contract remains visible.
+Unreviewed combinations with opposing receiver profiles fail closed.
+
 Use this lane only from a dedicated clean release worktree at the exact approved
 `main` commit being released. The primary `main` checkout remains the human
 workspace and is not an agent release lane.

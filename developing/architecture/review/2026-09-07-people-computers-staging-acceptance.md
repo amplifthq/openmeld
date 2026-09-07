@@ -1,5 +1,17 @@
 # PeopleComputers staging acceptance
 
+## Agent Context
+
+- Purpose: Preserve bounded staging acceptance evidence.
+- Read this when: Reviewing the PeopleComputers rollout evidence.
+- Update this when: Correcting a staging receipt or its coverage.
+- Do not use this for: Production acceptance or permission to deploy.
+- Source of truth: The exact source and smoke receipts below.
+
+Status: Historical staging acceptance; production validation remains separate.
+
+Remove this document after its receipts are preserved in the completed release record.
+
 ## Delivery boundary
 
 Implementation and the staging smoke paths below are accepted at source

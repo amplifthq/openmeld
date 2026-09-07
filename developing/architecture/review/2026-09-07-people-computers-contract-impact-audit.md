@@ -1,5 +1,15 @@
 # PeopleComputers Contract Impact Audit
 
+## Agent Context
+
+- Purpose: Preserve the compatibility decisions and exact acceptance evidence for this rollout.
+- Read this when: Preparing the PeopleComputers production release.
+- Update this when: New rollout or smoke evidence is recorded.
+- Do not use this for: General release policy or current production status.
+- Source of truth: The linked implementation and immutable delivery receipts.
+
+Remove this document after the rollout evidence and enduring contracts are preserved in owner docs and the release record.
+
 Status: staging evidence at `572142a0f` is preserved below. Subsequent local UI
 follow-ups are included in the delivery candidate. On September 7 the user
 explicitly authorized current-main integration, merge, release and production
