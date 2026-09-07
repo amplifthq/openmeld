@@ -44,6 +44,7 @@ import { cn } from "#lib/utils";
 export type SettingsComputerLocalAgentIcon = {
   agentId: string;
   displayName: string;
+  muted?: boolean;
 };
 
 export type SettingsComputerSummaryStatus = {
@@ -226,7 +227,11 @@ function SettingsComputerLocalAgentSummary({
           <TooltipTrigger
             render={
               <span className="inline-flex size-5 items-center justify-center opacity-90 transition-opacity hover:opacity-100">
-                <LocalAgentLogo agentId={icon.agentId} size="sm" />
+                <LocalAgentLogo
+                  agentId={icon.agentId}
+                  className={icon.muted ? "opacity-50 grayscale" : undefined}
+                  size="sm"
+                />
               </span>
             }
           />

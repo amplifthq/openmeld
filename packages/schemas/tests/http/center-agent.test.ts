@@ -11,6 +11,7 @@ import {
   centerAgentListComputersBodySchema,
   centerAgentListComputersResponseSchema,
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
+  centerAgentListLocalAgentInstallationsBodySchema,
   centerAgentListLocalAgentInstallationsResponseSchema,
   centerAgentModelConfigurationResponseSchema,
   centerAgentReadConnectorActionOperationResponseSchema,
@@ -18,8 +19,10 @@ import {
   centerAgentReadSpaceContextBodySchema,
   centerAgentReadSpaceContextResponseSchema,
   centerAgentRemoteRuntimeAvailabilityReasonCodeSchema,
+  centerAgentRequestOpenMeldToolsUpdateBodySchema,
   centerAgentRequestOpenMeldToolsUpdateResponseSchema,
   centerAgentSelectLocalAgentInstallationBodySchema,
+  centerAgentSetOpenMeldToolsMaintenanceBodySchema,
   centerAgentSetOpenMeldToolsMaintenanceResponseSchema,
   centerAgentUpdateAgentProfileRuntimeSettingsBodySchema,
   deriveCenterAgentDirectMessageSpaceProjection,
@@ -33,6 +36,50 @@ import {
 } from "../../src";
 
 describe("Center Agent HTTP schemas", () => {
+  it("preserves exact Computer control targets and rejects partial targets", () => {
+    const speakerMember = { memberId: "member_1", userId: "user_1" };
+    const target = { deviceId: "second-computer", runtimeLane: "canary" };
+    const requests = [
+      { schema: centerAgentRequestOpenMeldToolsUpdateBodySchema, body: {} },
+      {
+        schema: centerAgentSetOpenMeldToolsMaintenanceBodySchema,
+        body: { automaticUpdatesEnabled: false },
+      },
+      {
+        schema: centerAgentListLocalAgentInstallationsBodySchema,
+        body: { agentId: "codex" },
+      },
+      {
+        schema: centerAgentSelectLocalAgentInstallationBodySchema,
+        body: {
+          agentId: "codex",
+          installationId: "install-1",
+          confirmed: true,
+        },
+      },
+    ];
+    for (const { schema, body } of requests) {
+      expect(schema.parse({ ...body, speakerMember, target }).target).toEqual(
+        target
+      );
+      expect(schema.safeParse({ ...body, speakerMember }).success).toBe(true);
+      expect(
+        schema.safeParse({
+          ...body,
+          speakerMember,
+          target: { deviceId: target.deviceId },
+        }).success
+      ).toBe(false);
+      expect(
+        schema.safeParse({
+          ...body,
+          speakerMember,
+          target: { ...target, runtimeLane: "cloudflare" },
+        }).success
+      ).toBe(false);
+    }
+  });
+
   it("keeps model reads visible while model writes use optimistic concurrency", () => {
     const configuration = {
       canManage: false,

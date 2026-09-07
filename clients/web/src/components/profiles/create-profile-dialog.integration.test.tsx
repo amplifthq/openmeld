@@ -68,6 +68,7 @@ const createStartAgentProfileMock = vi.hoisted(() => vi.fn());
 const addMembersMock = vi.hoisted(() => vi.fn());
 const recordProfileSpaceHistoryMock = vi.hoisted(() => vi.fn());
 const refreshAllMock = vi.hoisted(() => vi.fn());
+const readPeopleComputerReplyReadinessMock = vi.hoisted(() => vi.fn());
 const checkRuntimeReadinessMock = vi.hoisted(() => vi.fn());
 const ensureRuntimeBindingMock = vi.hoisted(() => vi.fn());
 const setCurrentAgentProfileWorkspaceMock = vi.hoisted(() => vi.fn());
@@ -307,6 +308,12 @@ vi.mock("#/query/config/model-catalog", () => ({
 
 type DialogRecovery = ComponentProps<typeof CreateProfileDialog>["recovery"];
 
+vi.mock("#/lib/connect/local-runtimes", async (importOriginal) => ({
+	...(await importOriginal<typeof import("#/lib/connect/local-runtimes")>()),
+	readPeopleComputerReplyReadiness: (target: unknown) =>
+		readPeopleComputerReplyReadinessMock(target),
+}));
+
 function buildFakeRecovery(
 	catalogEntries: readonly unknown[] = [
 		buildCatalogEntry({
@@ -324,15 +331,14 @@ function buildFakeRecovery(
 	const fetchStatus = input.fetchStatus ?? "idle";
 	const setProfileWorkspaceSupported =
 		input.setProfileWorkspaceSupported ?? true;
-	return {
+	const recovery = {
 		deviceId: "device-123",
 		runtimeLane: "dev-local",
 		runContext: { localAgentIds: [] },
 		storageScope: "scope-test",
 		refreshAll: refreshAllMock,
-		// Exercise the real-app fallback: the current-device target is unresolved
-		// (selectedExecutionTarget + currentComputer null, no isCurrent computer),
-		// so the catalog must be found via the reported localRuntimes computer.
+		// The fixture selects an explicit device/lane below. Historical reports
+		// from an unselected computer must never supply the creation catalog.
 		selectedExecutionTarget: null,
 		currentComputer: null,
 		currentDeviceTargetQuery: { data: undefined, fetchStatus },
@@ -362,6 +368,7 @@ function buildFakeRecovery(
 													]
 												: [],
 											deviceId: "device-123",
+											openMeldServiceRuntimeId: "runtime-device-123",
 											isCurrent: false,
 											localAgentControl: {
 												refreshCatalog: true,
@@ -379,6 +386,32 @@ function buildFakeRecovery(
 			fetchStatus,
 		},
 	} as unknown as DialogRecovery;
+	const data = recovery.localRuntimesQuery.data;
+	if (!data) {
+		throw new Error("Expected the fixture Computer inventory.");
+	}
+	data.peopleComputers = {
+		generatedAt: new Date().toISOString(),
+		computers: data.localRuntimes.map((computer) => ({
+			...computer,
+			identityStatus: "unconfirmed",
+			connection: { status: "connected", sessions: [], reasonCodes: [] },
+		})) as typeof data.peopleComputers.computers,
+	};
+	recovery.currentComputer = data.localRuntimes[0] ?? null;
+	recovery.selectedExecutionTarget =
+		recovery.currentComputer?.executionTargets[0] ?? null;
+	recovery.currentLocalRuntimeReplyReadinessQuery.data = {
+		currentTarget: {
+			availability: "resolved",
+			deviceId: "device-123",
+			runtimeLane: "dev-local",
+		},
+		status: "ready",
+		nextAction: "none",
+		service: { connected: true, matchingCurrentRuntime: true },
+	} as NonNullable<typeof recovery.currentLocalRuntimeReplyReadinessQuery.data>;
+	return recovery;
 }
 
 function buildCrossComputerRecovery(): DialogRecovery {
@@ -602,6 +635,10 @@ async function selectAgentProfileKind() {
 
 describe("CreateProfileDialog", () => {
 	beforeEach(() => {
+		readPeopleComputerReplyReadinessMock.mockImplementation(async (target) => ({
+			...buildFakeRecovery().currentLocalRuntimeReplyReadinessQuery.data,
+			currentTarget: { availability: "resolved", ...target },
+		}));
 		window.localStorage.clear();
 		window.sessionStorage.clear();
 		getProfileCapabilitiesMock.mockReset().mockResolvedValue({
@@ -900,6 +937,7 @@ describe("CreateProfileDialog", () => {
 	});
 
 	it("targets Session Resume at the selected Session Computer", async () => {
+		readPeopleComputerReplyReadinessMock.mockClear();
 		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
 		renderCreateProfileDialog({
 			agentActivitySessionPreset: {
@@ -939,6 +977,10 @@ describe("CreateProfileDialog", () => {
 					targetOwnerUserId: "user-123",
 				})
 			);
+		});
+		expect(readPeopleComputerReplyReadinessMock).toHaveBeenCalledWith({
+			deviceId: "device-session",
+			runtimeLane: "canary",
 		});
 		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
 	});
@@ -1063,6 +1105,7 @@ describe("CreateProfileDialog", () => {
 					openCodePermission: null,
 					reasoningLevel: "high",
 					targetComputerId: "device-ashley",
+					localAgentConnectionCandidateId: null,
 				},
 				idempotencyKey: expect.any(String),
 				nativeSessionId: null,

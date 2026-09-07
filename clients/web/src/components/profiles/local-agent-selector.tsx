@@ -14,7 +14,7 @@ import {
 	DesktopTowerIcon,
 	RobotIcon,
 } from "@phosphor-icons/react";
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
 import type { AgentProfileLocalAgentEmptyState } from "./create-profile-form";
@@ -22,6 +22,7 @@ import { LocalAgentLogoStack } from "./local-agent-logo-stack";
 
 export type LocalAgentSelectorProps = {
 	choices: readonly AgentProfileBindingChoice[];
+	computerSlot?: ReactNode;
 	disabled: boolean;
 	emptyState?: AgentProfileLocalAgentEmptyState;
 	isResolving: boolean;
@@ -110,6 +111,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 					</span>
 				</button>
 			</div>
+			{input.computerSlot}
 			{input.locked ? (
 				<p className="text-pretty text-muted-foreground text-sm leading-5">
 					This Agent will keep using the agent connected to this Session.

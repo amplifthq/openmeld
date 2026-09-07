@@ -117,6 +117,7 @@ Workers, and verifies the public entry points. See
   - `GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID`
   - `GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_ID`
   - `AUTH_COOKIE_DOMAIN`
+  - `AUTH_COOKIE_PREFIX` (staging-only `openmeld-staging`; production retains default names)
   - `PASSKEY_RP_ID`
   - `AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS`
 - `.dev.vars` / `.dev.vars.prod`

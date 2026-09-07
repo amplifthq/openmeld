@@ -44,7 +44,7 @@ function computer(input: {
 
 function sources(
 	computers: LocalRuntimeComputer[],
-	selectedExecutionTarget?: LocalRuntimeExecutionTarget
+	selectedExecutionTarget?: LocalRuntimeExecutionTarget | null
 ): ProfileBindingCatalogExecutionTargetSources {
 	return {
 		localRuntimesQuery: { data: { localRuntimes: computers } },
@@ -53,6 +53,28 @@ function sources(
 }
 
 describe("resolveProfileBindingCatalogExecutionTarget", () => {
+	it("does not substitute another computer when the selected target has no catalog", () => {
+		const otherTarget = executionTarget({
+			agentId: "codex",
+			deviceId: "other-device",
+			isCurrent: true,
+		});
+		expect(
+			resolveProfileBindingCatalogExecutionTarget(
+				sources(
+					[
+						computer({
+							connectedComputerId: "other-computer",
+							deviceId: "other-device",
+							executionTargets: [otherTarget],
+						}),
+					],
+					null
+				)
+			)
+		).toBeNull();
+	});
+
 	it("selects the Local Agent target from the requested public Computer", () => {
 		const currentTarget = executionTarget({
 			agentId: "codex",

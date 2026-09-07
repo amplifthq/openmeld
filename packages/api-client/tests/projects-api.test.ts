@@ -300,7 +300,10 @@ describe("api-client local Project control API", () => {
     ]);
   });
 
-  it("keeps transport controls out of strict local Project request bodies", async () => {
+  it.each([
+    false,
+    true,
+  ])("keeps transport controls out of strict Project bodies (explicit target: %s)", async (explicitTarget) => {
     const controller = new AbortController();
     const transport = vi.fn<OpenMeldApiClientTransport>(() =>
       Promise.resolve(
@@ -321,17 +324,31 @@ describe("api-client local Project control API", () => {
       })
     );
 
-    await api.discoverProjects({
+    const input = {
       clientGeneration: 1,
       expectedOrganizationId: "org-1",
       projectIds: ["project-1"],
       signal: controller.signal,
       timeoutMs: 12_000,
-    });
+    };
+    if (explicitTarget) {
+      await api.discoverPeopleComputerProjects({
+        ...input,
+        deviceId: "device-1",
+        runtimeLane: "canary",
+      });
+    } else {
+      await api.discoverProjects(input);
+    }
 
     expect(transport).toHaveBeenCalledOnce();
     const [request] = transport.mock.calls[0] ?? [];
     expect(request).toMatchObject({ timeoutMs: 12_000 });
+    expect(request?.url).toBe(
+      explicitTarget
+        ? "https://gateway.openmeld.invalid/v1/people-computers/device-1/lanes/canary/projects/discover"
+        : `https://gateway.openmeld.invalid${buildLocalProjectControlPath("discover")}`
+    );
     expect(request?.init?.signal).toBe(controller.signal);
     expect(JSON.parse(String(request?.init?.body))).toEqual({
       clientGeneration: 1,

@@ -1,6 +1,6 @@
 "use client";
 
-import type { Project } from "@openmeld/schemas/types";
+import type { PeopleComputerTarget, Project } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -25,6 +25,7 @@ type ProjectFolderOption = {
 };
 
 export function ComputerFileAccessProjectPicker(input: {
+	target: PeopleComputerTarget;
 	currentFolders: readonly string[];
 	disabled: boolean;
 	onAddFolders: (folders: readonly string[]) => void;
@@ -40,6 +41,7 @@ export function ComputerFileAccessProjectPicker(input: {
 	);
 	const projects = projectsQuery.data?.projects ?? [];
 	const discovery = useProjectDiscovery({
+		target: input.target,
 		enabled: input.open && projectsQuery.isSuccess && projects.length > 0,
 		organizationId: currentOrganization.id,
 		projects,

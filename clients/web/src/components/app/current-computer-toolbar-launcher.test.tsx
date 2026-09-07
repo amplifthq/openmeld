@@ -75,9 +75,10 @@ describe("CurrentComputerToolbarLauncher", () => {
 		useOptionalAppOrganizationMock.mockReset().mockReturnValue({
 			currentOrganization: { slug: "acme" },
 		});
-		useStartFlowStateMock
-			.mockReset()
-			.mockReturnValue({ storageScope: "user-current" });
+		useStartFlowStateMock.mockReset().mockReturnValue({
+			state: { selectedHumanProfileId: "human-current" },
+			storageScope: "user-current",
+		});
 		statusMock.mockReset().mockReturnValue(null);
 		displaySnapshotQueryMock.mockReset().mockReturnValue({ data: undefined });
 		queryClientMock.setQueryData.mockReset();

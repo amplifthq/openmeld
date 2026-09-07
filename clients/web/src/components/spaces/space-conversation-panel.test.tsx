@@ -2546,9 +2546,12 @@ describe("SpaceConversationPanel", () => {
 		]);
 	});
 
-	it("sends the exact starter prompt selected by the user", async () => {
+	it("appends the starter prompt to the draft without sending", async () => {
 		const onSendStarterPrompt = vi.fn().mockResolvedValue(undefined);
+		const onComposerEditorChange = vi.fn();
 		renderSpaceConversationPanel({
+			composerText: "Keep my draft.",
+			onComposerEditorChange,
 			allowedActions: ["post_message"],
 			hasEarlierHistory: false,
 			isCenterAgentDirectMessage: true,
@@ -2563,9 +2566,12 @@ describe("SpaceConversationPanel", () => {
 		);
 
 		await waitFor(() => {
-			expect(onSendStarterPrompt).toHaveBeenCalledWith(
-				"I'm new to OpenMeld. Give me a short, plain-English tour, then recommend the best first step for me."
+			expect(onComposerEditorChange).toHaveBeenCalledWith(
+				expect.objectContaining({
+					text: "Keep my draft.\n\nI'm new to OpenMeld. Give me a short, plain-English tour, then recommend the best first step for me.",
+				})
 			);
+			expect(onSendStarterPrompt).not.toHaveBeenCalled();
 		});
 	});
 

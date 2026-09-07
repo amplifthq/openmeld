@@ -54,6 +54,7 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 				<div className="grid min-w-0 gap-5 pb-2">
 					<LocalAgentSelector
 						choices={resolveGeneratorBindingChoices(form)}
+						computerSlot={form.agentComputerSlot}
 						disabled={form.isSubmitting}
 						emptyState={form.localAgentEmptyState}
 						isResolving={form.isResolvingLocalAgents}

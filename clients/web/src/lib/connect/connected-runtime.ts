@@ -28,24 +28,14 @@ export type ConnectedRuntimeSources = {
 /**
  * Resolves the Computer described by current local-runtime surfaces.
  *
- * A resolved Binding identifies the routed Computer. When no Binding exists,
- * the reply-readiness subject lets a freshly connected, unbound Computer remain
- * visible without creating a separate browser-owned selection.
- *
- * Prefer the Binding target when present because it is the account's routing
- * intent. Otherwise read the reply-readiness subject, which lets a connected
- * but unbound computer surface without inventing a browser-owned pointer.
+ * Prefer the exact subject of the supplied readiness query. The caller chooses
+ * whether this is a browser selection or an account routing preference; neither
+ * establishes which physical computer hosts the browser. Binding is used only
+ * as a selection preference before readiness is available, never as liveness.
  */
 export function resolveConnectedRuntimeTarget(
 	sources: ConnectedRuntimeSources
 ): ConnectedRuntimeTarget | null {
-	const currentDeviceTarget = sources.currentDeviceTargetQuery.data;
-	if (currentDeviceTarget?.availability === "resolved") {
-		return {
-			deviceId: currentDeviceTarget.deviceId,
-			runtimeLane: currentDeviceTarget.runtimeLane,
-		};
-	}
 	const replyReadinessTarget =
 		sources.currentLocalRuntimeReplyReadinessQuery?.data?.currentTarget;
 	if (replyReadinessTarget?.availability === "resolved") {
@@ -54,10 +44,17 @@ export function resolveConnectedRuntimeTarget(
 			runtimeLane: replyReadinessTarget.runtimeLane,
 		};
 	}
+	const currentDeviceTarget = sources.currentDeviceTargetQuery.data;
+	if (currentDeviceTarget?.availability === "resolved") {
+		return {
+			deviceId: currentDeviceTarget.deviceId,
+			runtimeLane: currentDeviceTarget.runtimeLane,
+		};
+	}
 	return null;
 }
 
-/** The connected computer record (liveness-first), or null if none is connected. */
+/** The selected computer record. Connection is a separate Core fact. */
 export function resolveConnectedLocalRuntime(
 	sources: ConnectedRuntimeSources
 ): LocalRuntimeComputer | null {

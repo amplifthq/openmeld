@@ -65,7 +65,7 @@ describe("Agent Profile creation request service", () => {
         requesterUserId: "user-requester",
       })
     ).rejects.toThrow("Choose a local agent on a connected computer");
-    expect(repository.records).toHaveLength(0);
+    expect(await repository.listForParticipant()).toHaveLength(0);
     expect(createAgentProfile).not.toHaveBeenCalled();
     expect(projectApprovalInbox).not.toHaveBeenCalled();
   });

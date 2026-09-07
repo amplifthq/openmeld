@@ -10,6 +10,7 @@ import {
   localProjectControlRemoveMissingConnectionsResponseSchema,
   localProjectControlSetDefaultConnectionRequestSchema,
   localProjectControlSetDefaultConnectionResponseSchema,
+  peopleComputerTargetSchema,
 } from "@openmeld/schemas";
 import { buildLocalProjectControlPath } from "./routes";
 import type {
@@ -20,6 +21,31 @@ import type {
 export const createLocalProjectControlApi: CreateLocalProjectControlApi = (
   client
 ) => ({
+  discoverPeopleComputerProjects: async (input) => {
+    const target = requireValidInput(peopleComputerTargetSchema, {
+      deviceId: input.deviceId,
+      runtimeLane: input.runtimeLane,
+    });
+    const {
+      deviceId: _deviceId,
+      runtimeLane: _runtimeLane,
+      ...request
+    } = input;
+    const body = requireValidInput(
+      localProjectControlDiscoverProjectsRequestSchema,
+      requestBody(request)
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      operation: "people-computer.projects.discover",
+      schema: localProjectControlDiscoverProjectsResponseSchema,
+      invalidMessage: "Invalid local Project discovery response.",
+      url: `/v1/people-computers/${encodeURIComponent(target.deviceId)}/lanes/${encodeURIComponent(target.runtimeLane)}/projects/discover`,
+    });
+  },
   discoverProjects: async (input) =>
     await client.requestJson({
       ...requestOptions(input),

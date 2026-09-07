@@ -1019,6 +1019,8 @@ export {
   centerAgentReadinessBlockerSchema,
   centerAgentReadMemberComputersBodySchema,
   centerAgentReadMemberComputersResponseSchema,
+  centerAgentReadPeopleComputersBodySchema,
+  centerAgentReadPeopleComputersResponseSchema,
   centerAgentReadSpaceContextBodySchema,
   centerAgentReadSpaceContextResponseSchema,
   centerAgentRecordConnectorActionAuditBodySchema,
@@ -1815,6 +1817,19 @@ export {
   projectOwnerComputerLocalRuntimes,
   summarizeComputerFileAccessPolicy,
 } from "./http/owner-computer-diagnostics";
+export {
+  peopleComputerCliInventorySchema,
+  peopleComputerConnectionSchema,
+  peopleComputerFileAccessReadRpcInputSchema,
+  peopleComputerFileAccessUpdateBodySchema,
+  peopleComputerFileAccessUpdateRpcInputSchema,
+  peopleComputerFolderPickerBodySchema,
+  peopleComputerFolderPickerRpcInputSchema,
+  peopleComputerProjectDiscoveryRpcInputSchema,
+  peopleComputerSchema,
+  peopleComputersResponseSchema,
+  peopleComputerTargetSchema,
+} from "./http/people-computers";
 export {
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,

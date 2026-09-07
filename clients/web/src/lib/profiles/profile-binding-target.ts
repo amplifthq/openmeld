@@ -3,10 +3,7 @@ import type {
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
 } from "@openmeld/schemas/types";
-import {
-	type ConnectedRuntimeSources,
-	resolveConnectedLocalRuntime,
-} from "#/lib/connect/connected-runtime";
+import type { ConnectedRuntimeSources } from "#/lib/connect/connected-runtime";
 
 export type ProfileBindingCatalogExecutionTargetSources =
 	ConnectedRuntimeSources & {
@@ -44,10 +41,8 @@ export function bindableLocalAgentEntriesFromTarget(
 	);
 }
 
-// The current-device target is often unresolved (no isCurrent computer, empty
-// currentDeviceId) even when the service is connected and agents are detected.
-// Prefer the resolved current-device target, then the live connected runtime,
-// then any reported computer, and read its current/first execution target.
+// The catalog and Binding must use the same selected computer and lane.
+// Missing selection or catalog is not permission to choose another computer.
 export function resolveProfileBindingCatalogExecutionTarget(
 	sources: ProfileBindingCatalogExecutionTargetSources,
 	preference?: ProfileBindingCatalogExecutionTargetPreference
@@ -55,22 +50,7 @@ export function resolveProfileBindingCatalogExecutionTarget(
 	if (preference) {
 		return resolvePreferredProfileBindingExecutionTarget(sources, preference);
 	}
-	if (sources.selectedExecutionTarget) {
-		return sources.selectedExecutionTarget;
-	}
-	const computer =
-		resolveConnectedLocalRuntime(sources) ??
-		sources.currentComputer ??
-		sources.localRuntimesQuery?.data?.localRuntimes[0] ??
-		null;
-	if (!computer) {
-		return null;
-	}
-	return (
-		computer.executionTargets.find((target) => target.isCurrent) ??
-		computer.executionTargets[0] ??
-		null
-	);
+	return sources.selectedExecutionTarget ?? null;
 }
 
 function resolvePreferredProfileBindingExecutionTarget(

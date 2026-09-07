@@ -1,6 +1,7 @@
 import {
   hasOnlyAgentControllerSignInReasonCodes,
   projectLocalAgentCatalogFromCapabilities,
+  peopleComputerCliCommand as resolveUserFacingCommand,
 } from "@openmeld/agent-runtime";
 import {
   currentDeviceTargetDeviceIdSchema,
@@ -21,9 +22,15 @@ import type {
   LocalRuntimeExecutionTarget,
   LocalRuntimesQuery,
   LocalRuntimesResponse,
+  PeopleComputerTarget,
   RuntimeTransportLookupOwnerServiceResponse,
 } from "@openmeld/schemas/types";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
+import {
+  groupPeopleComputerDevices,
+  selectPeopleComputerDisplayDevice,
+} from "../../people-computers/identity";
+import { resolvePeopleComputerTarget } from "../../people-computers/projection";
 import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../../runtime-transport/application/current-owner-service-sessions";
 import type { ForgetCurrentComputerRecordResult } from "../infrastructure/d1/current-device-forget-repo";
 import {
@@ -89,11 +96,6 @@ type LocalRuntimeInventoryRows = {
   currentRuntimeLane: DaemonServiceLane | null;
   devices: readonly OwnedDeviceRecord[];
   executionTargets: readonly OwnedDeviceExecutionTargetRecord[];
-};
-
-type LegacyCurrentComputerAdoptionCandidate = {
-  deviceId: string;
-  runtimeLane: DaemonServiceLane;
 };
 
 type LocalAgentControlByDeviceLane = ReadonlyMap<
@@ -468,14 +470,6 @@ async function readLocalRuntimeInventoryRows(input: {
       ? currentDeviceTarget.runtimeLane
       : null;
 
-  if (currentDeviceId !== null) {
-    await ensureOwnedDevicePlaceholderUseCase({
-      store: input.store,
-      userId: input.userId,
-      deviceId: currentDeviceId,
-    });
-  }
-
   const devices = await input.store.readOwnedDevices({
     userId: input.userId,
   });
@@ -484,159 +478,20 @@ async function readLocalRuntimeInventoryRows(input: {
       nowMs,
       userId: input.userId,
     })) ?? [];
-  const adopted =
-    input.connectionIdentityAdoption === "safe_legacy_current"
-      ? await adoptLegacyCurrentComputerIdentityIfSafe({
-          store: input.store,
-          userId: input.userId,
-          currentDeviceId,
-          currentRuntimeLane,
-          devices,
-          executionTargets,
-          nowMs,
-        })
-      : {
-          currentDeviceId,
-          currentRuntimeLane,
-          devices,
-        };
+  // Enrollment is an explicit authenticated setup/reconnect mutation. Listing
+  // must never create an identity from a Binding or a historical report.
   const currentConnectedComputerId =
-    adopted.currentDeviceId === null
+    currentDeviceId === null
       ? null
-      : (adopted.devices.find(
-          (device) => device.deviceId === adopted.currentDeviceId
-        )?.connectedComputerId ?? null);
-
+      : (devices.find((device) => device.deviceId === currentDeviceId)
+          ?.connectedComputerId ?? null);
   return {
     currentConnectedComputerId,
-    currentDeviceId: adopted.currentDeviceId,
-    currentRuntimeLane: adopted.currentRuntimeLane,
-    devices: adopted.devices,
+    currentDeviceId,
+    currentRuntimeLane,
+    devices,
     executionTargets,
   };
-}
-
-async function adoptLegacyCurrentComputerIdentityIfSafe(input: {
-  store: CurrentDeviceTargetStore;
-  userId: string;
-  currentDeviceId: string | null;
-  currentRuntimeLane: DaemonServiceLane | null;
-  devices: readonly OwnedDeviceRecord[];
-  executionTargets: readonly OwnedDeviceExecutionTargetRecord[];
-  nowMs: number;
-}): Promise<{
-  currentDeviceId: string | null;
-  currentRuntimeLane: DaemonServiceLane | null;
-  devices: readonly OwnedDeviceRecord[];
-}> {
-  const passthrough = {
-    currentDeviceId: input.currentDeviceId,
-    currentRuntimeLane: input.currentRuntimeLane,
-    devices: input.devices,
-  };
-  if (
-    input.currentRuntimeLane === null ||
-    input.store.connectCurrentDeviceIdentity === undefined
-  ) {
-    return passthrough;
-  }
-
-  const currentDevice = input.devices.find(
-    (device) => device.deviceId === input.currentDeviceId
-  );
-  if (!currentDevice || currentDevice.connectedComputerId) {
-    return passthrough;
-  }
-
-  // The current computer is Binding-derived; legacy identity adoption may
-  // link a connected-computer identity for that derived device, but it never
-  // moves which device is current.
-  const candidates = resolveLegacyCurrentComputerAdoptionCandidates({
-    devices: input.devices,
-    executionTargets: input.executionTargets,
-    runtimeLane: input.currentRuntimeLane,
-  });
-  const currentCandidate =
-    candidates.find(
-      (candidate) =>
-        candidate.deviceId === input.currentDeviceId &&
-        candidate.runtimeLane === input.currentRuntimeLane
-    ) ?? null;
-  if (!currentCandidate) {
-    return passthrough;
-  }
-
-  const connected = await input.store.connectCurrentDeviceIdentity({
-    userId: input.userId,
-    deviceId: currentCandidate.deviceId,
-    runtimeLane: currentCandidate.runtimeLane,
-    connectedAtMs: input.nowMs,
-  });
-  if (connected.status !== "connected") {
-    throw new ConnectedComputerEnrollmentInvalidError(
-      connected.requestedConnectedComputerId
-    );
-  }
-  console.info("[core.connected_computer.legacy_current_adopted]", {
-    event: "connected_computer.legacy_current_adopted",
-    userId: input.userId,
-    deviceId: currentCandidate.deviceId,
-    runtimeLane: currentCandidate.runtimeLane,
-    connectedComputerId: connected.connectedComputerId,
-  });
-
-  return {
-    currentDeviceId: input.currentDeviceId,
-    currentRuntimeLane: input.currentRuntimeLane,
-    devices: input.devices.map((device) =>
-      device.deviceId === currentCandidate.deviceId
-        ? {
-            ...device,
-            connectedComputerId: connected.connectedComputerId,
-          }
-        : device
-    ),
-  };
-}
-
-function resolveLegacyCurrentComputerAdoptionCandidates(input: {
-  devices: readonly OwnedDeviceRecord[];
-  executionTargets: readonly OwnedDeviceExecutionTargetRecord[];
-  runtimeLane: DaemonServiceLane;
-}): LegacyCurrentComputerAdoptionCandidate[] {
-  const legacyDeviceIds = new Set(
-    input.devices
-      .filter((device) => device.connectedComputerId === null)
-      .map((device) => device.deviceId)
-  );
-  const candidateKeys = new Map<
-    string,
-    LegacyCurrentComputerAdoptionCandidate
-  >();
-  for (const target of input.executionTargets) {
-    if (
-      !legacyDeviceIds.has(target.deviceId) ||
-      target.runtimeLane !== input.runtimeLane ||
-      !isFreshLegacyRuntimeEvidence(target)
-    ) {
-      continue;
-    }
-    const key = `${target.deviceId}\u0000${target.runtimeLane}`;
-    candidateKeys.set(key, {
-      deviceId: target.deviceId,
-      runtimeLane: target.runtimeLane,
-    });
-  }
-
-  return [...candidateKeys.values()];
-}
-
-function isFreshLegacyRuntimeEvidence(
-  target: OwnedDeviceExecutionTargetRecord
-): boolean {
-  return (
-    target.lastObservedAtMs !== null && target.capabilityStatus !== "stale"
-  );
 }
 
 export async function resolveConnectedLocalRuntimeDisplayNameUseCase(input: {
@@ -748,6 +603,7 @@ export async function resolveConnectedLocalRuntimeDisplayNamesUseCase(input: {
 }
 
 export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
+  target?: PeopleComputerTarget;
   lookupOwnerService: (input: {
     ownerUserId: string;
   }) => Promise<RuntimeTransportLookupOwnerServiceResponse>;
@@ -760,33 +616,18 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
     store: input.store,
     userId: input.userId,
   });
-  const bindingTarget =
-    localRuntimeInventory.currentDeviceId &&
-    localRuntimeInventory.currentRuntimeLane
-      ? {
-          availability: "resolved" as const,
-          deviceId: localRuntimeInventory.currentDeviceId,
-          runtimeLane: localRuntimeInventory.currentRuntimeLane,
-        }
-      : { availability: "missing" as const };
-
   const ownerService = await input.lookupOwnerService({
     ownerUserId: input.userId,
   });
 
-  // "Can this computer reply" is a connectivity question, and connectivity is a
-  // ServiceRuntime heartbeat-freshness fact (agent-transport-contract.md, "Service
-  // Online Evidence") — NOT a Binding fact. The Binding-derived current-device
-  // pointer answers "which device is the account's active/current one" for
-  // routing; it must not gate whether a freshly connected computer (OpenMeld Service +
-  // local agents up, but no Agent Profile bound yet) is reported as connected.
-  // Prefer the Binding target when present; otherwise fall back to the live
-  // ServiceRuntime session so the connected computer reports its real readiness.
-  const currentTarget = resolveCurrentLocalRuntimeTarget({
-    bindingTarget,
-    inventory: localRuntimeInventory,
-    ownerService,
-  });
+  // New callers name the device/lane. Only the legacy endpoint retains its
+  // account-routing selection behavior; neither path guesses physical identity.
+  const currentTarget = input.target
+    ? resolvePeopleComputerTarget({
+        inventory: localRuntimeInventory,
+        target: input.target,
+      })
+    : resolveLegacyComputerReadinessTarget(localRuntimeInventory, ownerService);
 
   if (currentTarget.availability === "missing") {
     return buildCurrentLocalRuntimeReplyReadiness({
@@ -814,7 +655,7 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
 
   const matchingSession =
     ownerService.online === true
-      ? (ownerService.sessions.find(
+      ? (selectCurrentOwnerServiceSessionsByDeviceLane(ownerService).find(
           (session) =>
             session.deviceId === currentTarget.deviceId &&
             session.lane === currentTarget.runtimeLane
@@ -862,6 +703,7 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
 
   const localComponents = resolveLocalComponentUpdateProjection({
     generatedAt,
+    runtimeLane: currentTarget.runtimeLane,
     localComponentsStatus,
     serviceConnected: true,
     serviceVersion: matchingSession.serviceVersion ?? null,
@@ -926,7 +768,8 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
   return buildCurrentLocalRuntimeReplyReadiness({
     currentTarget,
     generatedAt,
-    message: "Local agents can reply from this computer in Spaces.",
+    message:
+      "This computer has local agents ready to run. Check the Agent's availability before starting a task.",
     nextAction: "none",
     primaryBlocker: "none",
     runtime: buildCurrentRuntimeEvidence({
@@ -947,6 +790,25 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
   });
 }
 
+function resolveLegacyComputerReadinessTarget(
+  inventory: LocalRuntimesResponse,
+  ownerService: RuntimeTransportLookupOwnerServiceResponse
+) {
+  const bindingTarget =
+    inventory.currentDeviceId && inventory.currentRuntimeLane
+      ? {
+          availability: "resolved" as const,
+          deviceId: inventory.currentDeviceId,
+          runtimeLane: inventory.currentRuntimeLane,
+        }
+      : { availability: "missing" as const };
+  return resolveCurrentLocalRuntimeTarget({
+    inventory,
+    ownerService,
+    bindingTarget,
+  });
+}
+
 function resolveOwnerServiceDisconnectReadiness(input: {
   currentTarget: {
     availability: "resolved";
@@ -959,6 +821,21 @@ function resolveOwnerServiceDisconnectReadiness(input: {
   generatedAt: string;
   ownerService: RuntimeTransportLookupOwnerServiceResponse;
 }): CurrentLocalRuntimeReplyReadinessResponse {
+  if (
+    input.ownerService.online === false &&
+    ![
+      "daemon.session.not_found",
+      "daemon.session.stale_lease",
+      "daemon.profile.offline",
+      "daemon.session.reject_conflict",
+    ].includes(input.ownerService.reasonCode)
+  ) {
+    // A failed lookup must remain a query failure, not a successful offline
+    // snapshot that clients can cache and present as a known disconnection.
+    throw new Error(
+      `Computer connection status unavailable: ${input.ownerService.reasonCode}`
+    );
+  }
   const isOwnershipConflict =
     input.ownerService.online === false &&
     input.ownerService.reasonCode === "daemon.session.reject_conflict";
@@ -1063,7 +940,15 @@ function resolveExecutionTargetReplyBlocker(
       status: "blocked",
     };
   }
-  if (target.status === "ready") {
+  if (
+    target.status === "ready" ||
+    (target.status === "partial" &&
+      resolveEnabledExecutionTargetCapabilities(target.capabilities).some(
+        (capability) => capability.status === "ready"
+      ))
+  ) {
+    // Computer-level availability is not an all-controllers health check.
+    // Per-Agent Wakeability still validates its exact controller and Binding.
     return null;
   }
   if (target.status === "stale") {
@@ -1174,6 +1059,10 @@ function buildCurrentLocalRuntimeReplyReadiness(input: {
     input.localComponents ??
     resolveLocalComponentUpdateProjection({
       generatedAt: input.generatedAt,
+      runtimeLane:
+        input.currentTarget.availability === "resolved"
+          ? input.currentTarget.runtimeLane
+          : undefined,
       localComponentsStatus: input.localComponentsStatus ?? null,
       serviceConnected:
         input.service?.connected === true &&
@@ -1487,20 +1376,9 @@ function buildDeviceLaneKey(input: {
 function groupConnectedComputerDevices(
   devices: readonly OwnedDeviceRecord[]
 ): OwnedDeviceRecord[][] {
-  const groupsByConnectedComputerId = new Map<string, OwnedDeviceRecord[]>();
-  for (const device of devices) {
-    if (!device.connectedComputerId) {
-      continue;
-    }
-    const group = groupsByConnectedComputerId.get(device.connectedComputerId);
-    if (group) {
-      group.push(device);
-    } else {
-      groupsByConnectedComputerId.set(device.connectedComputerId, [device]);
-    }
-  }
-
-  return [...groupsByConnectedComputerId.values()];
+  return groupPeopleComputerDevices(
+    devices.filter((device) => Boolean(device.connectedComputerId))
+  );
 }
 
 function buildConnectedLocalRuntimeComputer(input: {
@@ -1513,10 +1391,7 @@ function buildConnectedLocalRuntimeComputer(input: {
   localAgentControlByDeviceLane: LocalAgentControlByDeviceLane;
   localProjectControlByDeviceLane: LocalProjectControlByDeviceLane;
 }): LocalRuntimeComputer {
-  const primaryDevice = resolvePrimaryConnectedComputerDevice({
-    currentDeviceId: input.currentDeviceId,
-    devices: input.devices,
-  });
+  const primaryDevice = selectPeopleComputerDisplayDevice(input.devices);
   const computer = buildLocalRuntimeComputer({
     currentDeviceId: input.currentDeviceId,
     currentRuntimeLane: input.currentRuntimeLane,
@@ -1530,6 +1405,9 @@ function buildConnectedLocalRuntimeComputer(input: {
 
   return {
     ...computer,
+    isCurrent: input.devices.some(
+      (device) => device.deviceId === input.currentDeviceId
+    ),
     connectedComputerId: primaryDevice.connectedComputerId ?? undefined,
     connectionStatus: "connected",
     legacyDeviceIds: input.devices.map((device) => device.deviceId).sort(),
@@ -1605,31 +1483,6 @@ function hasUserVisibleConnectedComputerDisplay(
   );
 }
 
-function resolvePrimaryConnectedComputerDevice(input: {
-  devices: readonly OwnedDeviceRecord[];
-  currentDeviceId: string | null;
-}): OwnedDeviceRecord {
-  const currentDevice = input.devices.find(
-    (device) => device.deviceId === input.currentDeviceId
-  );
-  if (currentDevice) {
-    return currentDevice;
-  }
-
-  const [firstDevice] = [...input.devices].sort((left, right) => {
-    const leftObservedAt = left.lastObservedAtMs ?? left.firstSeenAtMs;
-    const rightObservedAt = right.lastObservedAtMs ?? right.firstSeenAtMs;
-    return (
-      rightObservedAt - leftObservedAt ||
-      left.deviceId.localeCompare(right.deviceId)
-    );
-  });
-  if (!firstDevice) {
-    throw new Error("connected computer projection has no device evidence");
-  }
-  return firstDevice;
-}
-
 function resolveDeviceDisplayName(input: {
   device: OwnedDeviceRecord;
   isCurrent: boolean;
@@ -1655,7 +1508,7 @@ function resolveDeviceDisplayName(input: {
 
   return {
     source: "placeholder",
-    value: input.isCurrent ? "This computer" : "Unnamed computer",
+    value: "Unnamed computer",
   };
 }
 
@@ -1804,18 +1657,6 @@ function resolveEnabledExecutionTargetCapabilities(
   capabilities: readonly LocalRuntimeExecutionTarget["capabilities"][number][]
 ): readonly LocalRuntimeExecutionTarget["capabilities"][number][] {
   return capabilities.filter((capability) => capability.enabled);
-}
-
-function resolveUserFacingCommand(
-  runtimeLane: DaemonServiceLane
-): LocalRuntimeExecutionTarget["userFacingCommand"] {
-  if (runtimeLane === "dev-local") {
-    return "openmeld-dev";
-  }
-  if (runtimeLane === "canary") {
-    return "openmeld-canary";
-  }
-  return "openmeld";
 }
 
 function maxNullableTimestamp(
