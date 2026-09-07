@@ -219,7 +219,7 @@ export function HumanProfileItem(input: {
 		>
 			{row}
 			{input.onToggleStar && (
-				<SidebarMenuActions className="top-1" showOnHover>
+				<SidebarMenuActions showOnHover>
 					{input.onChat && (
 						<PeopleRowAction
 							disabled={input.actionsDisabled}
