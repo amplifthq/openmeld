@@ -18,6 +18,7 @@ import { useId } from "react";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
 import type { AgentProfileLocalAgentEmptyState } from "./create-profile-form";
+import { LocalAgentLogoStack } from "./local-agent-logo-stack";
 
 export type LocalAgentSelectorProps = {
 	choices: readonly AgentProfileBindingChoice[];
@@ -82,7 +83,10 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 						className="mt-0.5 size-5 shrink-0"
 					/>
 					<div className="space-y-1">
-						<p className="font-medium text-sm">Local Agent</p>
+						<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+							<p className="font-medium text-sm">Local Agent</p>
+							<LocalAgentLogoStack compact />
+						</div>
 						<p className="text-muted-foreground text-xs">
 							Runs on a connected computer using tools like Codex or Claude
 							Code.
