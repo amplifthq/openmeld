@@ -5,9 +5,9 @@ import { createServerFn } from "@tanstack/react-start";
  * seam, see developing/clients/shell-and-settings.md §6). The shared
  * Sidebar primitive in `packages/ui` is PURELY presentational — it
  * never touches storage. This module is the Web filling: it persists the
- * controlled `width` + `tier` state (collapsed / compact / full) in first-party
+ * controlled `width` + `tier` state (hidden / icon / expanded) in first-party
  * cookies so the value survives reload and is readable on the SSR pass (no
- * first-paint flash). The outer rail remains global. Each inner-sidebar route
+ * first-paint flash). The outer rail stores widths by page in one cookie. Each inner-sidebar route
  * family owns an independent preference while the original global inner value
  * remains a read-only migration fallback. The Desktop track injects its own
  * electron-store equivalent against the same `onWidthChange` / tier-change
@@ -44,19 +44,19 @@ export const SIDEBAR_DEFAULT_WIDTH = "15rem";
 export const SIDEBAR_MIN_WIDTH = "8rem";
 export const SIDEBAR_MAX_WIDTH = "18rem";
 export const OUTER_SIDEBAR_DEFAULT_WIDTH = "13.75rem";
-export const OUTER_SIDEBAR_MIN_WIDTH = "9.3rem";
-export const OUTER_SIDEBAR_MAX_WIDTH = "18rem";
-// Fixed compact-tier width (standalone from OUTER_SIDEBAR_MIN_WIDTH/MAX): measured in Geist against every fixed rail label, floor set by "Center Agent" (~67px) plus padding.
-export const OUTER_SIDEBAR_COMPACT_WIDTH = "6rem";
-
+export const OUTER_SIDEBAR_MIN_WIDTH = "10rem";
+export const OUTER_SIDEBAR_MAX_WIDTH = "24rem";
 const PX_PER_REM = 16;
 const TRAILING_ZERO_REM_PATTERN = /\.?0+$/;
+const SIDEBAR_PAGE_KEY_PATTERN = /^[a-zA-Z-]{1,24}$/;
 
 export type SidebarScope = keyof typeof SIDEBAR_STATE_COOKIE_NAMES;
 
-export type SidebarTier = "full" | "compact" | "collapsed";
+export type SidebarTier = "expanded" | "icon" | "hidden";
 
 export type SidebarPersistedState = {
+	/** Expanded Main Sidebar widths keyed by stable navigation destination. */
+	pageWidths?: Readonly<Record<string, string>>;
 	/** Stable machine ids for labeled groups the user has explicitly collapsed. */
 	collapsedGroupIds?: readonly string[];
 	width: string;
@@ -65,12 +65,12 @@ export type SidebarPersistedState = {
 
 export const SIDEBAR_DEFAULT_STATE: SidebarPersistedState = {
 	width: SIDEBAR_DEFAULT_WIDTH,
-	tier: "full",
+	tier: "expanded",
 };
 
 export const OUTER_SIDEBAR_DEFAULT_STATE: SidebarPersistedState = {
 	width: OUTER_SIDEBAR_DEFAULT_WIDTH,
-	tier: "full",
+	tier: "expanded",
 };
 
 export type AppSidebarPersistedStates = {
@@ -146,20 +146,19 @@ export function clampSidebarWidth(
 		: `${Math.round(clampedPx)}px`;
 }
 
-// Token alphabet for the persisted tier. "0"/"1" preserve the exact meaning
-// they had when this field was a plain `collapsed` boolean, so a cookie
-// written before the compact tier existed ("<width>|0" / "<width>|1") keeps
-// parsing correctly under this parser with no version bump and no migration
-// step. "2" (compact) is new vocabulary only ever written after this change.
+// Preserve expanded (0) and icon-only (1) preferences. Retire the old
+// icon-and-label compact mode (2) into expanded; hidden uses a distinct token
+// (3), so an existing icon-only preference never becomes fully hidden.
 const SIDEBAR_TIER_TOKEN: Record<SidebarTier, string> = {
-	collapsed: "1",
-	compact: "2",
-	full: "0",
+	expanded: "0",
+	icon: "1",
+	hidden: "3",
 };
 const SIDEBAR_TOKEN_TIER: Record<string, SidebarTier> = {
-	"0": "full",
-	"1": "collapsed",
-	"2": "compact",
+	"0": "expanded",
+	"1": "icon",
+	"2": "expanded",
+	"3": "hidden",
 };
 // Keep the encoded preference comfortably below the common 4 KB per-cookie
 // limit even when future user-defined Space groups use UUID-like ids.
@@ -199,7 +198,8 @@ export function parseSidebarStateCookieValue(
 	if (!raw) {
 		return APP_SIDEBAR_DEFAULT_STATES[scope];
 	}
-	const [widthPart, tierPart, collapsedGroupIdsPart] = raw.split("|");
+	const [widthPart, tierPart, collapsedGroupIdsPart, pageWidthsPart] =
+		raw.split("|");
 	const width = widthPart?.trim()
 		? clampSidebarWidth(widthPart.trim(), scope)
 		: metrics.defaultWidth;
@@ -207,11 +207,24 @@ export function parseSidebarStateCookieValue(
 		collapsedGroupIdsPart?.split(",")
 	);
 	const state: SidebarPersistedState = {
-		tier: SIDEBAR_TOKEN_TIER[tierPart?.trim() ?? ""] ?? "full",
+		tier: SIDEBAR_TOKEN_TIER[tierPart?.trim() ?? ""] ?? "expanded",
 		width,
 	};
 	if (collapsedGroupIds.length > 0) {
 		state.collapsedGroupIds = collapsedGroupIds;
+	}
+	if (scope === "outer" && pageWidthsPart) {
+		state.pageWidths = Object.fromEntries(
+			pageWidthsPart
+				.split(",")
+				.flatMap((entry) => {
+					const [key, value] = entry.split(":");
+					return key && SIDEBAR_PAGE_KEY_PATTERN.test(key) && value
+						? [[key, clampSidebarWidth(value, "outer")]]
+						: [];
+				})
+				.slice(0, 24)
+		);
 	}
 	return state;
 }
@@ -223,6 +236,14 @@ export function serializeSidebarStateCookieValue(
 ): string {
 	const baseValue = `${clampSidebarWidth(state.width, scope)}|${SIDEBAR_TIER_TOKEN[state.tier]}`;
 	const collapsedGroupIds = normalizeCollapsedGroupIds(state.collapsedGroupIds);
+	if (scope === "outer" && state.pageWidths) {
+		const widths = Object.entries(state.pageWidths)
+			.filter(([key]) => SIDEBAR_PAGE_KEY_PATTERN.test(key))
+			.slice(0, 24)
+			.map(([key, width]) => `${key}:${clampSidebarWidth(width, "outer")}`)
+			.join(",");
+		return `${baseValue}|${collapsedGroupIds.join(",")}|${widths}`;
+	}
 	return collapsedGroupIds.length > 0
 		? `${baseValue}|${collapsedGroupIds.join(",")}`
 		: baseValue;
@@ -419,6 +440,9 @@ export function rememberClientSidebarState(
 		return;
 	}
 	clientSidebarStateMemory[scope] = {
+		...(scope === "outer" && state.pageWidths
+			? { pageWidths: state.pageWidths }
+			: {}),
 		...withCollapsedGroupIds(state.collapsedGroupIds),
 		tier: state.tier,
 		width: clampSidebarWidth(state.width, scope),

@@ -1,5 +1,6 @@
 import type { MouseEvent, ReactNode } from "react";
 import { FluidNavMenu, FluidNavMenuItem } from "#fluid/nav-menu";
+import { ScrollArea } from "#fluid/scroll-area";
 import type {
   AppFrameProps,
   RailDestination,
@@ -190,7 +191,6 @@ export function AppFrame({
         {railHeaderSlot}
 
         <FluidNavMenu
-          activeIndicatorClassName="bg-surface-6"
           activeValue={activeDestinationId}
           aria-label="Primary"
           className={cn(
@@ -199,7 +199,6 @@ export function AppFrame({
           )}
           data-slot="app-frame-destinations"
           focusIndicatorClassName="border-sidebar-ring"
-          hoverIndicatorClassName="bg-surface-5"
         >
           {destinations.map((destination, index) => (
             <FluidNavMenuItem
@@ -258,12 +257,13 @@ export function AppFrame({
             {header}
           </header>
         ) : null}
-        <main
-          className="min-h-0 min-w-0 flex-1 overflow-y-auto"
+        <ScrollArea
+          className="min-h-0 min-w-0 flex-1"
           data-slot="app-frame-content"
+          role="main"
         >
           {content}
-        </main>
+        </ScrollArea>
       </div>
 
       {/* Optional right drawer (Space members panel). */}

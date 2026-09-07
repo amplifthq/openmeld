@@ -131,7 +131,7 @@ import type {
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
 import { requireCurrentSpaceComposerWakeAdmission } from "./space-composer-wake-admission";
-import { useSpaceEntryConfirmed } from "./space-entry-confirmation";
+import { useSpaceEntryConfirmation } from "./space-entry-confirmation";
 import { projectSpaceExecutionRecoveryResolution } from "./space-execution-recovery";
 import type {
 	SpaceExecutionRecoveryAttempt,
@@ -204,6 +204,22 @@ type PreparedSpaceMessageSubmission = Pick<
 	"messageEnvelope" | "text"
 >;
 
+type SpaceComposerSendBoundary =
+	| { state: "access_rejected" }
+	| { error: unknown; state: "failed" }
+	| { state: "posting_not_allowed" }
+	| { state: "ready"; status: GetSpaceStatusResponse };
+
+class SpaceComposerSendBoundaryError extends Error {
+	readonly boundary: Exclude<SpaceComposerSendBoundary, { state: "ready" }>;
+	constructor(
+		boundary: Exclude<SpaceComposerSendBoundary, { state: "ready" }>
+	) {
+		super("The Space send boundary rejected this message.");
+		this.boundary = boundary;
+	}
+}
+
 class PreparedSpaceMessageSendError extends Error {
 	readonly clientMessageId: string;
 	readonly originalError: unknown;
@@ -225,6 +241,21 @@ class PreparedSpaceMessageSendError extends Error {
 	}
 }
 
+function unwrapPreparedSpaceMessageSendError(error: unknown): {
+	originalError: unknown;
+	outcomeUnknown: boolean;
+	postedMessage: boolean;
+} {
+	if (error instanceof PreparedSpaceMessageSendError) {
+		return error;
+	}
+	return {
+		originalError: error,
+		outcomeUnknown: false,
+		postedMessage: false,
+	};
+}
+
 function throwSpaceSendFailureWhenRequested(input: {
 	error: unknown;
 	postedMessage: boolean;
@@ -235,7 +266,50 @@ function throwSpaceSendFailureWhenRequested(input: {
 	}
 }
 
+async function resolveSpaceComposerSendBoundary(input: {
+	ensureEntryConfirmed: () => Promise<boolean>;
+	readCurrentStatus: () => Promise<GetSpaceStatusResponse>;
+}): Promise<SpaceComposerSendBoundary> {
+	try {
+		if (!(await input.ensureEntryConfirmed())) {
+			return { state: "access_rejected" };
+		}
+		const status = await input.readCurrentStatus();
+		if (!status.allowedActions.includes("post_message")) {
+			return { state: "posting_not_allowed" };
+		}
+		return { state: "ready", status };
+	} catch (error) {
+		return { error, state: "failed" };
+	}
+}
+
+function settleSpaceComposerSendBoundaryFailure(input: {
+	boundary: Exclude<SpaceComposerSendBoundary, { state: "ready" }>;
+	setComposerErrorMessage: (message: string | null) => void;
+	throwOnFailure: boolean;
+}): void {
+	if (input.boundary.state === "access_rejected") {
+		return;
+	}
+	if (input.boundary.state === "posting_not_allowed") {
+		input.setComposerErrorMessage(
+			"Message not sent. You can no longer send messages in this Space."
+		);
+		return;
+	}
+	input.setComposerErrorMessage(
+		"Message not sent. Check your connection and try again."
+	);
+	throwSpaceSendFailureWhenRequested({
+		error: input.boundary.error,
+		postedMessage: false,
+		throwOnFailure: input.throwOnFailure,
+	});
+}
+
 function createPendingOutgoingSignal(input: {
+	composerFiles?: readonly SpaceComposerFile[];
 	files?: readonly SpaceMessageFileReference[];
 	filePreviewUrlsById?: ReadonlyMap<string, string>;
 	clientMessageId: string;
@@ -246,8 +320,28 @@ function createPendingOutgoingSignal(input: {
 	spaceId: string;
 	text: string;
 }): PendingOutgoingSignal {
+	// Browser-only attachment placeholders are replaced with server references
+	// before publication. Their local ids must never enter an API request.
+	const localFiles = (input.composerFiles ?? []).filter(
+		(file) => file.status === "ready" && file.upload !== null
+	);
+	const files =
+		input.files ??
+		localFiles.map((file) => ({
+			fileId: file.localId,
+			revision: 1,
+			name: file.fileName,
+			mimeType: file.mimeType,
+			sizeBytes: file.upload?.sizeBytes ?? 0,
+		}));
+	const previewUrls = new Map(input.filePreviewUrlsById);
+	for (const file of localFiles) {
+		if (file.previewUrl) {
+			previewUrls.set(file.localId, file.previewUrl);
+		}
+	}
 	return {
-		filePreviewUrlsById: input.filePreviewUrlsById ?? new Map<string, string>(),
+		filePreviewUrlsById: previewUrls,
 		clientMessageId: input.clientMessageId,
 		signal: {
 			v: 1,
@@ -261,9 +355,7 @@ function createPendingOutgoingSignal(input: {
 			type: "signal.text",
 			data: {
 				text: input.text,
-				...(input.files && input.files.length > 0
-					? { files: [...input.files] }
-					: {}),
+				...(files.length > 0 ? { files: [...files] } : {}),
 				...(input.messageEnvelope
 					? { messageEnvelope: input.messageEnvelope }
 					: {}),
@@ -289,7 +381,44 @@ function buildComposerFileSubmission(input: {
 	};
 }
 
+function resolveCenterAgentExecutionInput(input: {
+	centerAgentProfileId?: string | null;
+	activationTargets: readonly string[];
+	hasFiles: boolean;
+	items: readonly Pick<
+		WakeProgressItem,
+		"terminal" | "dispatchId" | "targetProfileId"
+	>[];
+}) {
+	if (!input.centerAgentProfileId || input.hasFiles) {
+		return undefined;
+	}
+	if (
+		input.activationTargets.some(
+			(profileId) => profileId !== input.centerAgentProfileId
+		)
+	) {
+		return undefined;
+	}
+	const responses = input.items.filter(
+		(item) =>
+			!item.terminal &&
+			item.dispatchId &&
+			item.targetProfileId === input.centerAgentProfileId
+	);
+	const response = responses.length === 1 ? responses[0] : undefined;
+	return response?.dispatchId
+		? {
+				dispatchId: response.dispatchId,
+				targetProfileId: response.targetProfileId,
+			}
+		: undefined;
+}
+
 function buildNormalMessagePostInput(input: {
+	centerAgentExecutionInput?: NonNullable<
+		TextSignalEnvelope["data"]["meta"]
+	>["centerAgentExecutionInput"];
 	files: readonly SpaceMessageFileReference[];
 	clientMessageId: string;
 	messageEnvelope: TextSignalEnvelope["data"]["messageEnvelope"] | null;
@@ -302,6 +431,9 @@ function buildNormalMessagePostInput(input: {
 			? { messageEnvelope: input.messageEnvelope }
 			: {}),
 		meta: {
+			...(input.centerAgentExecutionInput
+				? { centerAgentExecutionInput: input.centerAgentExecutionInput }
+				: {}),
 			clientMessageId: input.clientMessageId,
 			authorHasRead: true as const,
 		},
@@ -483,15 +615,8 @@ function restoreFailedPendingSubmission(input: {
 	);
 }
 
-function canStartSpaceComposerSend(input: {
-	allowedToPost: boolean;
-	isInFlight: boolean;
-	statusReady: boolean;
-}): boolean {
-	return input.statusReady && input.allowedToPost && !input.isInFlight;
-}
-
 function settleSpaceComposerSendFailure(input: {
+	onRejected: () => void;
 	clearFiles: () => void;
 	clientMessageId: string;
 	consumePublishedFiles: (publishedLocalIds: readonly string[]) => void;
@@ -515,6 +640,7 @@ function settleSpaceComposerSendFailure(input: {
 		});
 		return;
 	}
+	input.onRejected();
 	const restoredPreviousSubmission = restoreFailedPendingSubmission({
 		mentionAuthoring: input.mentionAuthoring,
 		pendingSubmission: input.pendingSubmission,
@@ -554,7 +680,8 @@ function prepareSpaceMessageSendAttempt(input: {
 }) {
 	const fileSubmission = buildComposerFileSubmission({
 		files: input.composerFiles,
-		isPendingMessage: input.pendingMessage !== undefined,
+		isPendingMessage:
+			input.pendingMessage !== undefined && !input.pendingMessage.files?.length,
 	});
 	if (fileSubmission.uploadInProgress) {
 		return { errorMessage: null, status: "blocked" as const };
@@ -583,18 +710,16 @@ function prepareMainComposerSubmission(input: {
 	missingMembersMessage: string;
 	pendingMessage: PendingSpaceMessage | undefined;
 }): PendingComposerSubmission {
+	if (input.messageSeed.text.length === 0) {
+		return input.mentionAuthoring.prepareFileOnlySubmission();
+	}
 	if (input.pendingMessage) {
 		return input.mentionAuthoring.preparePlainTextSubmission(
 			input.messageSeed.text,
 			input.missingMembersMessage
 		);
 	}
-	if (input.messageSeed.text.length > 0) {
-		return input.mentionAuthoring.prepareSubmission(
-			input.missingMembersMessage
-		);
-	}
-	return input.mentionAuthoring.prepareFileOnlySubmission();
+	return input.mentionAuthoring.prepareSubmission(input.missingMembersMessage);
 }
 
 function resolveThreadComposerBlockedReason(input: {
@@ -748,7 +873,8 @@ function useSpaceLandingBootstrapState(input: {
 	queryClient: ReturnType<typeof useQueryClient>;
 	spaceId: string;
 }) {
-	const entryConfirmed = useSpaceEntryConfirmed();
+	const entryConfirmation = useSpaceEntryConfirmation();
+	const entryConfirmed = entryConfirmation.confirmed;
 	const bootstrapQuery = useQuery(
 		spaceBootstrapQueryOptions({
 			spaceId: input.spaceId,
@@ -871,6 +997,7 @@ function useSpaceLandingBootstrapState(input: {
 		historyQuery,
 		historyReady: historySnapshot !== null || historyQuery.isSuccess,
 		historySnapshot,
+		ensureEntryConfirmed: entryConfirmation.ensureConfirmed,
 		landingError,
 		membersError: membersLoadError,
 		membersErrorMessage: resolveSpaceMembersLoadErrorMessage(membersLoadError),
@@ -993,6 +1120,7 @@ export type SpaceLandingController =
 			composerText: string;
 			ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 			presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
+			ownActiveWakesHaveMore: boolean;
 			hasEarlierHistory: boolean;
 			historyActionErrorMessage: string | null;
 			historyError: StructuredApiClientFailure | null;
@@ -1221,6 +1349,7 @@ function showSpaceExecutionRecoveryFailureToast(input: {
 }
 
 export function useSpaceLandingController(input: {
+	centerAgentProfileId?: string | null;
 	initialComposerDraft?: ComposerDraftRecord | null;
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
 	initialPendingMessage?: PendingSpaceMessage | null;
@@ -1314,6 +1443,16 @@ export function useSpaceLandingController(input: {
 			openMeldProfileId: input.profileId,
 		})
 	);
+	const ownActiveWakeProgressQuery = useQuery(
+		spaceActiveWakeProgressSummaryQueryOptions({
+			enabled: [input.profileId, input.spaceId].every(
+				(value) => value.trim().length > 0
+			),
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+			sourceProfileId: input.profileId,
+		})
+	);
 	useEffect(() => {
 		if (!activeWakeProgressSummaryQuery.isError) {
 			return;
@@ -1362,6 +1501,7 @@ export function useSpaceLandingController(input: {
 		bootstrapQuery,
 		currentAccessRejection,
 		currentStatusConfirmationPending,
+		ensureEntryConfirmed,
 		historyError,
 		historyPending,
 		historyQuery,
@@ -1530,6 +1670,36 @@ export function useSpaceLandingController(input: {
 		mentionAuthoring.textareaRef.current?.focus();
 	}, [mentionAuthoring.textareaRef, statusReady]);
 	const consumedInitialPendingMessageIdRef = useRef<string | null>(null);
+	const stagedInitialFileMessageIdRef = useRef<string | null>(null);
+	const [preparedInitialFileMessageId, setPreparedInitialFileMessageId] =
+		useState<string | null>(null);
+	useEffect(() => {
+		const pending = input.initialPendingMessage;
+		if (
+			!(
+				pending?.files?.length &&
+				statusReady &&
+				currentProfileIsActiveSpaceMember
+			) ||
+			stagedInitialFileMessageIdRef.current === pending.clientMessageId
+		) {
+			return;
+		}
+		stagedInitialFileMessageIdRef.current = pending.clientMessageId;
+		composerFilesController
+			.addFiles(pending.files)
+			.then(() => setPreparedInitialFileMessageId(pending.clientMessageId))
+			.catch((error: unknown) => {
+				console.error("Could not prepare the first chat attachments.", error);
+				setComposerErrorMessage("Could not attach the files. Try again.");
+			});
+	}, [
+		input.initialPendingMessage,
+		statusReady,
+		currentProfileIsActiveSpaceMember,
+		composerFilesController.addFiles,
+		setComposerErrorMessage,
+	]);
 	const sendInitialPendingMessage = useEffectEvent(
 		async (pendingMessage: PendingSpaceMessage) => {
 			input.onInitialPendingMessageConsumed?.();
@@ -1540,6 +1710,11 @@ export function useSpaceLandingController(input: {
 		const pendingMessage = input.initialPendingMessage;
 		const canAttemptPendingMessage =
 			statusReady &&
+			(!pendingMessage?.files?.length ||
+				(preparedInitialFileMessageId === pendingMessage.clientMessageId &&
+					composerFilesController.files.every(
+						(file) => file.status === "ready"
+					))) &&
 			currentProfileIsActiveSpaceMember &&
 			(membersReady || membersError) &&
 			!isSendingMessage &&
@@ -1561,6 +1736,8 @@ export function useSpaceLandingController(input: {
 		});
 	}, [
 		input.initialPendingMessage,
+		preparedInitialFileMessageId,
+		composerFilesController.files,
 		currentProfileIsActiveSpaceMember,
 		isSendingMessage,
 		membersError,
@@ -1800,10 +1977,15 @@ export function useSpaceLandingController(input: {
 			mergeActiveWakeProgressPresentation({
 				detailedItems: wakeProgressItems,
 				signals: timelineEnvelopes,
-				summaryItems: activeWakeProgressSummaryQuery.data?.items ?? [],
+				summaryItems: mergeWakeProgressItemState({
+					currentItems: activeWakeProgressSummaryQuery.data?.items ?? [],
+					incomingItems: ownActiveWakeProgressQuery.data?.items ?? [],
+					signals: timelineEnvelopes,
+				}),
 			}),
 		[
 			activeWakeProgressSummaryQuery.data?.items,
+			ownActiveWakeProgressQuery.data?.items,
 			timelineEnvelopes,
 			wakeProgressItems,
 		]
@@ -2119,6 +2301,8 @@ export function useSpaceLandingController(input: {
 		composerText: mentionAuthoring.composerText,
 		ephemeralActivityItems: presentedWakeProgressItems,
 		presentedWakeProgressItems,
+		ownActiveWakesHaveMore:
+			ownActiveWakeProgressQuery.data?.pageInfo?.hasMore === true,
 		hasEarlierHistory,
 		historyActionErrorMessage,
 		historyError,
@@ -2256,15 +2440,7 @@ export function useSpaceLandingController(input: {
 		pendingMessage?: PendingSpaceMessage;
 		throwOnFailure?: boolean;
 	}) {
-		if (
-			!canStartSpaceComposerSend({
-				allowedToPost:
-					currentProfileIsActiveSpaceMember &&
-					statusSnapshot?.allowedActions.includes("post_message") === true,
-				isInFlight: composerSendInFlightRef.current,
-				statusReady,
-			})
-		) {
+		if (composerSendInFlightRef.current) {
 			return;
 		}
 		const sendAttempt = prepareSpaceMessageSendAttempt({
@@ -2285,6 +2461,9 @@ export function useSpaceLandingController(input: {
 			return;
 		}
 		const { messageSeed } = sendAttempt;
+		const isTextOnlyPendingMessage =
+			options?.pendingMessage !== undefined &&
+			!options.pendingMessage.files?.length;
 
 		composerSession.send.begin();
 
@@ -2303,37 +2482,37 @@ export function useSpaceLandingController(input: {
 			});
 			pendingSubmission = preparedSubmission;
 			mentionAuthoring.recordPendingSubmission();
-			// The pending message is local feedback, not admission or publication.
-			// Show authored text before the fresh Wakeability read can block on network.
-			appendPendingOutgoingSignal(
-				setPendingOutgoingSignals,
-				createPendingOutgoingSignal({
-					clientMessageId: messageSeed.clientMessageId,
-					createdAtMs: messageSeed.createdAtMs,
-					membersSnapshot,
-					messageEnvelope: preparedSubmission.messageEnvelope,
-					profileId: input.profileId,
-					spaceId: input.spaceId,
-					text: preparedSubmission.text,
-				})
-			);
+			// Local feedback precedes every network admission or publication step.
+			stagePreparedSpaceMessage({
+				composerFiles: options?.pendingMessage
+					? []
+					: composerFilesController.files,
+				clientMessageId: messageSeed.clientMessageId,
+				createdAtMs: messageSeed.createdAtMs,
+				preparedSubmission,
+				status: statusSnapshot,
+			});
+			const sendBoundary = await resolveSpaceComposerSendBoundary({
+				ensureEntryConfirmed,
+				readCurrentStatus: readCurrentSpaceComposerSendStatus,
+			});
+			if (sendBoundary.state !== "ready") {
+				throw new SpaceComposerSendBoundaryError(sendBoundary);
+			}
+			const currentStatus = sendBoundary.status;
 			await requireCurrentSpaceComposerWakeAdmission({
 				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 					explicitActivationTargets:
 						preparedSubmission.messageEnvelope?.activationTargets ?? [],
 					membersSnapshot,
 					senderProfileId: input.profileId,
-					status: statusSnapshot,
+					status: currentStatus,
 				}),
 				readCurrentMembers: readCurrentMembersForWakeAdmission,
 			});
-			const publishedFiles = options?.pendingMessage
-				? {
-						messageFiles: [] as SpaceMessageFileReference[],
-						previewUrlsByFileId: new Map<string, string>(),
-						publishedLocalIds: [] as string[],
-					}
-				: await composerFilesController.publishReadyFiles();
+			const publishedFiles = await publishComposerFilesForSend(
+				isTextOnlyPendingMessage
+			);
 			hasPublishedFiles = publishedFiles.messageFiles.length > 0;
 			publishedLocalIds = publishedFiles.publishedLocalIds;
 			if (
@@ -2342,10 +2521,9 @@ export function useSpaceLandingController(input: {
 					text: messageSeed.text,
 				})
 			) {
-				setComposerErrorMessage(
+				throw new Error(
 					"None of the files could be sent. Add them again or enter a message."
 				);
-				return;
 			}
 			await sendPreparedSpaceMessage({
 				files: publishedFiles.messageFiles,
@@ -2353,33 +2531,50 @@ export function useSpaceLandingController(input: {
 				clientMessageId: messageSeed.clientMessageId,
 				createdAtMs: messageSeed.createdAtMs,
 				preparedSubmission,
+				status: currentStatus,
 			});
 			postedMessage = true;
 			mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
 			clearManualComposerFiles({
 				clearFiles: composerFilesController.clearFiles,
-				isPendingMessage: options?.pendingMessage !== undefined,
+				isPendingMessage: isTextOnlyPendingMessage,
 			});
 			setComposerBlockedWakeProfileId(null);
-			await Promise.all([membersQuery.refetch(), statusQuery.refetch()]);
+			Promise.all([membersQuery.refetch(), statusQuery.refetch()]).catch(
+				(error) => {
+					console.error(
+						"A sent message's projections could not be refreshed.",
+						error
+					);
+				}
+			);
 		} catch (error) {
-			const sendError =
-				error instanceof PreparedSpaceMessageSendError ? error : null;
-			postedMessage ||= sendError?.postedMessage ?? false;
-			const originalError = sendError?.originalError ?? error;
+			const sendError = unwrapPreparedSpaceMessageSendError(error);
+			postedMessage ||= sendError.postedMessage;
+			const { originalError } = sendError;
 			settleSpaceComposerSendFailure({
+				onRejected: () =>
+					removeRejectedWakeProgress(messageSeed.clientMessageId),
 				clearFiles: composerFilesController.clearFiles,
 				clientMessageId: messageSeed.clientMessageId,
 				consumePublishedFiles: composerFilesController.consumePublishedFiles,
 				hasPublishedFiles,
-				isPendingMessage: options?.pendingMessage !== undefined,
+				isPendingMessage: isTextOnlyPendingMessage,
 				mentionAuthoring,
-				outcomeUnknown: sendError?.outcomeUnknown ?? false,
+				outcomeUnknown: sendError.outcomeUnknown,
 				pendingSubmission,
 				publishedLocalIds,
 				postedMessage,
 				setPendingSignals: setPendingOutgoingSignals,
 			});
+			if (originalError instanceof SpaceComposerSendBoundaryError) {
+				settleSpaceComposerSendBoundaryFailure({
+					boundary: originalError.boundary,
+					setComposerErrorMessage,
+					throwOnFailure: options?.throwOnFailure === true,
+				});
+				return;
+			}
 			const failure = toStructuredApiClientFailure(originalError);
 			reportComposerSendFailure({
 				failure,
@@ -2405,6 +2600,33 @@ export function useSpaceLandingController(input: {
 		}
 	}
 
+	function publishComposerFilesForSend(isTextOnlyPendingMessage: boolean) {
+		return isTextOnlyPendingMessage
+			? {
+					messageFiles: [] as SpaceMessageFileReference[],
+					previewUrlsByFileId: new Map<string, string>(),
+					publishedLocalIds: [] as string[],
+				}
+			: composerFilesController.publishReadyFiles();
+	}
+
+	function removeRejectedWakeProgress(clientMessageId: string) {
+		setWakeProgressItems((items) =>
+			removeWakeProgressItemsForClientMessageId({ clientMessageId, items })
+		);
+	}
+
+	async function readCurrentSpaceComposerSendStatus(): Promise<GetSpaceStatusResponse> {
+		const refreshedStatus = await statusQuery.refetch();
+		if (refreshedStatus.error) {
+			throw refreshedStatus.error;
+		}
+		if (!refreshedStatus.data) {
+			throw new Error("The current Space status is unavailable.");
+		}
+		return refreshedStatus.data;
+	}
+
 	async function readCurrentMembersForWakeAdmission(): Promise<SpaceMembersSnapshot> {
 		const currentMembersSnapshot = await readSpaceMembers({
 			openMeldProfileId: input.profileId,
@@ -2428,72 +2650,116 @@ export function useSpaceLandingController(input: {
 		});
 	}
 
+	function stagePreparedSpaceMessage(sendInput: {
+		composerFiles?: readonly SpaceComposerFile[];
+		files?: readonly SpaceMessageFileReference[];
+		filePreviewUrlsById?: ReadonlyMap<string, string>;
+		clientMessageId: string;
+		createdAtMs: number;
+		preparedSubmission: PreparedSpaceMessageSubmission;
+		status: GetSpaceStatusResponse | null;
+	}) {
+		const centerAgentExecutionInput = resolveCenterAgentExecutionInput({
+			centerAgentProfileId: input.centerAgentProfileId,
+			activationTargets:
+				sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [],
+			hasFiles:
+				(sendInput.files?.length ?? sendInput.composerFiles?.length ?? 0) > 0,
+			items: presentedWakeProgressItems,
+		});
+		const explicitActivationTargets =
+			sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
+		const wakeProgressTargetProfileIds = centerAgentExecutionInput
+			? []
+			: resolveComposerWakeProgressTargetProfileIds({
+					explicitActivationTargets,
+					membersSnapshot,
+					senderProfileId: input.profileId,
+					status: sendInput.status,
+				});
+		const pendingMessageEnvelope =
+			(centerAgentExecutionInput
+				? {
+						...sendInput.preparedSubmission.messageEnvelope,
+						activationTargets: [],
+						referenceTargets:
+							sendInput.preparedSubmission.messageEnvelope?.referenceTargets ??
+							[],
+						text: sendInput.preparedSubmission.text,
+					}
+				: sendInput.preparedSubmission.messageEnvelope) ??
+			(wakeProgressTargetProfileIds.length > 0
+				? {
+						activationTargets: wakeProgressTargetProfileIds,
+						referenceTargets: [],
+						text: sendInput.preparedSubmission.text,
+					}
+				: null);
+		const pendingOutgoingSignal = createPendingOutgoingSignal({
+			composerFiles: sendInput.composerFiles,
+			files: sendInput.files,
+			filePreviewUrlsById: sendInput.filePreviewUrlsById,
+			clientMessageId: sendInput.clientMessageId,
+			createdAtMs: sendInput.createdAtMs,
+			membersSnapshot,
+			messageEnvelope: pendingMessageEnvelope,
+			profileId: input.profileId,
+			spaceId: input.spaceId,
+			text: sendInput.preparedSubmission.text,
+		});
+		appendPendingOutgoingSignal(
+			setPendingOutgoingSignals,
+			pendingOutgoingSignal
+		);
+		const sendingWakeProgressItems = buildLocalWakeProgressItems({
+			activationTargets: wakeProgressTargetProfileIds,
+			clientMessageId: sendInput.clientMessageId,
+			membersSnapshot,
+			phase: "sending",
+			sourceSignal: pendingOutgoingSignal.signal,
+			updatedAtMs: sendInput.createdAtMs,
+		});
+		setWakeProgressItems((currentItems) =>
+			mergeWakeProgressItemState({
+				currentItems,
+				incomingItems: sendingWakeProgressItems,
+				signals: timelineEnvelopes,
+			})
+		);
+
+		return {
+			centerAgentExecutionInput,
+			pendingMessageEnvelope,
+			wakeProgressTargetProfileIds,
+		};
+	}
+
 	async function sendPreparedSpaceMessage(sendInput: {
 		files: readonly SpaceMessageFileReference[];
 		filePreviewUrlsById: ReadonlyMap<string, string>;
 		clientMessageId: string;
 		createdAtMs: number;
 		preparedSubmission: PreparedSpaceMessageSubmission;
+		status: GetSpaceStatusResponse;
 	}): Promise<void> {
 		let postedMessage = false;
 		try {
-			const explicitActivationTargets =
-				sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
-			const wakeProgressTargetProfileIds =
-				resolveComposerWakeProgressTargetProfileIds({
-					explicitActivationTargets,
-					membersSnapshot,
-					senderProfileId: input.profileId,
-					status: statusSnapshot,
-				});
-			const pendingMessageEnvelope =
-				sendInput.preparedSubmission.messageEnvelope ??
-				(wakeProgressTargetProfileIds.length > 0
-					? {
-							activationTargets: wakeProgressTargetProfileIds,
-							referenceTargets: [],
-							text: sendInput.preparedSubmission.text,
-						}
-					: null);
-			const pendingOutgoingSignal = createPendingOutgoingSignal({
-				files: sendInput.files,
-				filePreviewUrlsById: sendInput.filePreviewUrlsById,
-				clientMessageId: sendInput.clientMessageId,
-				createdAtMs: sendInput.createdAtMs,
-				membersSnapshot,
-				messageEnvelope: pendingMessageEnvelope,
-				profileId: input.profileId,
-				spaceId: input.spaceId,
-				text: sendInput.preparedSubmission.text,
-			});
-			appendPendingOutgoingSignal(
-				setPendingOutgoingSignals,
-				pendingOutgoingSignal
-			);
-			const sendingWakeProgressItems = buildLocalWakeProgressItems({
-				activationTargets: wakeProgressTargetProfileIds,
-				clientMessageId: sendInput.clientMessageId,
-				membersSnapshot,
-				phase: "sending",
-				sourceSignal: pendingOutgoingSignal.signal,
-				updatedAtMs: sendInput.createdAtMs,
-			});
-			setWakeProgressItems((currentItems) =>
-				mergeWakeProgressItemState({
-					currentItems,
-					incomingItems: sendingWakeProgressItems,
-					signals: timelineEnvelopes,
-				})
-			);
-
+			const {
+				centerAgentExecutionInput,
+				pendingMessageEnvelope,
+				wakeProgressTargetProfileIds,
+			} = stagePreparedSpaceMessage(sendInput);
 			const spaceApi = createOrganizationScopedWebSpaceApi({
 				organizationSlug: input.orgSlug,
 				openMeldProfileId: input.profileId,
 			});
 			const postInput = buildNormalMessagePostInput({
+				centerAgentExecutionInput,
 				files: sendInput.files,
 				clientMessageId: sendInput.clientMessageId,
-				messageEnvelope: sendInput.preparedSubmission.messageEnvelope,
+				messageEnvelope: centerAgentExecutionInput
+					? pendingMessageEnvelope
+					: sendInput.preparedSubmission.messageEnvelope,
 				spaceId: input.spaceId,
 				text: sendInput.preparedSubmission.text,
 			});
@@ -3212,31 +3478,23 @@ function useSpaceThreadController(input: {
 						)
 					: mentionAuthoring.prepareFileOnlySubmission();
 			pendingSubmission = preparedSubmission;
-			await requireCurrentSpaceComposerWakeAdmission({
-				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
-					explicitActivationTargets:
-						preparedSubmission.messageEnvelope?.activationTargets ?? [],
-					membersSnapshot: input.membersSnapshot,
-					senderProfileId: input.profileId,
-					status: input.status,
-				}),
-				readCurrentMembers: input.readCurrentMembers,
-			});
-			const publishedFiles = await composerFilesController.publishReadyFiles();
-			publishedLocalIds = publishedFiles.publishedLocalIds;
-			if (
-				trimmedText.length === 0 &&
-				publishedFiles.messageFiles.length === 0
-			) {
-				setComposerErrorMessage(
-					"None of the files could be sent. Add them again or enter a reply."
-				);
-				return;
-			}
 			mentionAuthoring.recordPendingSubmission();
 			await sendPreparedThreadMessage({
-				files: publishedFiles.messageFiles,
-				filePreviewUrlsById: publishedFiles.previewUrlsByFileId,
+				composerFiles: composerFilesController.files,
+				prepareFiles: async () => {
+					const publishedFiles =
+						await composerFilesController.publishReadyFiles();
+					publishedLocalIds = publishedFiles.publishedLocalIds;
+					if (
+						trimmedText.length === 0 &&
+						publishedFiles.messageFiles.length === 0
+					) {
+						throw new Error(
+							"None of the files could be sent. Add them again or enter a reply."
+						);
+					}
+					return publishedFiles;
+				},
 				onPosted: () => {
 					mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
 					composerFilesController.clearFiles();
@@ -3254,6 +3512,21 @@ function useSpaceThreadController(input: {
 		} finally {
 			composerSession.send.finish();
 		}
+	}
+
+	async function requireThreadWakeAdmission(
+		preparedSubmission: PreparedSpaceMessageSubmission
+	) {
+		await requireCurrentSpaceComposerWakeAdmission({
+			agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
+				explicitActivationTargets:
+					preparedSubmission.messageEnvelope?.activationTargets ?? [],
+				membersSnapshot: input.membersSnapshot,
+				senderProfileId: input.profileId,
+				status: input.status,
+			}),
+			readCurrentMembers: input.readCurrentMembers,
+		});
 	}
 
 	async function handleSendMessageFailure(failureInput: {
@@ -3328,16 +3601,6 @@ function useSpaceThreadController(input: {
 				trimmedText,
 				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before continuing."
 			);
-			await requireCurrentSpaceComposerWakeAdmission({
-				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
-					explicitActivationTargets:
-						preparedSubmission.messageEnvelope?.activationTargets ?? [],
-					membersSnapshot: input.membersSnapshot,
-					senderProfileId: input.profileId,
-					status: input.status,
-				}),
-				readCurrentMembers: input.readCurrentMembers,
-			});
 			await sendPreparedThreadMessage({
 				preparedSubmission,
 				thread,
@@ -3370,9 +3633,12 @@ function useSpaceThreadController(input: {
 	}
 
 	async function sendPreparedThreadMessage(sendInput: {
+		composerFiles?: readonly SpaceComposerFile[];
 		clientMessageId?: string;
-		files?: readonly SpaceMessageFileReference[];
-		filePreviewUrlsById?: ReadonlyMap<string, string>;
+		prepareFiles?: () => Promise<{
+			messageFiles: SpaceMessageFileReference[];
+			previewUrlsByFileId: Map<string, string>;
+		}>;
 		onPosted?: () => void;
 		preparedSubmission: PreparedSpaceMessageSubmission;
 		thread: SpaceThread;
@@ -3382,25 +3648,24 @@ function useSpaceThreadController(input: {
 		const messageCreatedAtMs = Date.now();
 		const activationTargets =
 			sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
-		appendPendingOutgoingSignal(
-			setPendingOutgoingSignals,
-			createPendingOutgoingSignal({
-				clientMessageId,
-				createdAtMs: messageCreatedAtMs,
-				files: sendInput.files,
-				filePreviewUrlsById: sendInput.filePreviewUrlsById,
-				membersSnapshot: input.membersSnapshot,
-				messageEnvelope: sendInput.preparedSubmission.messageEnvelope,
-				profileId: input.profileId,
-				spaceId: input.spaceId,
-				text: sendInput.preparedSubmission.text,
-			})
-		);
+		const pendingSignal = createPendingOutgoingSignal({
+			composerFiles: sendInput.composerFiles,
+			clientMessageId,
+			createdAtMs: messageCreatedAtMs,
+			membersSnapshot: input.membersSnapshot,
+			messageEnvelope: sendInput.preparedSubmission.messageEnvelope,
+			profileId: input.profileId,
+			spaceId: input.spaceId,
+			text: sendInput.preparedSubmission.text,
+		});
+		appendPendingOutgoingSignal(setPendingOutgoingSignals, pendingSignal);
 		const sendingWakeProgressItems = buildLocalWakeProgressItems({
 			activationTargets,
 			clientMessageId,
 			membersSnapshot: input.membersSnapshot,
 			phase: "sending",
+			sourceSignal: pendingSignal.signal,
+			threadId: sendInput.thread.threadId,
 			updatedAtMs: messageCreatedAtMs,
 		});
 		setWakeProgressItems((currentItems) =>
@@ -3413,12 +3678,30 @@ function useSpaceThreadController(input: {
 		input.onWakeProgressItems(sendingWakeProgressItems);
 
 		let postedMessage = false;
+		let publicationStarted = false;
 		try {
+			await requireThreadWakeAdmission(sendInput.preparedSubmission);
+			const publishedFiles = await sendInput.prepareFiles?.();
+			if (publishedFiles) {
+				appendPendingOutgoingSignal(setPendingOutgoingSignals, {
+					...pendingSignal,
+					filePreviewUrlsById: publishedFiles.previewUrlsByFileId,
+					signal: {
+						...pendingSignal.signal,
+						data: {
+							...pendingSignal.signal.data,
+							files: publishedFiles.messageFiles,
+						},
+					},
+				});
+			}
 			const postInput = {
 				body: {
 					clientMessageId,
 					authorHasRead: true as const,
-					...(sendInput.files?.length ? { files: [...sendInput.files] } : {}),
+					...(publishedFiles?.messageFiles.length
+						? { files: publishedFiles.messageFiles }
+						: {}),
 					...(sendInput.preparedSubmission.messageEnvelope
 						? {
 								messageEnvelope: sendInput.preparedSubmission.messageEnvelope,
@@ -3430,6 +3713,7 @@ function useSpaceThreadController(input: {
 				threadId: sendInput.thread.threadId,
 				timeoutMs: SPACE_MESSAGE_SEND_TIMEOUT_MS,
 			};
+			publicationStarted = true;
 			const response = await runSpaceComposerIdempotentRequestWithRetry(
 				async () =>
 					await createUnscopedWebSpaceApi({
@@ -3462,6 +3746,7 @@ function useSpaceThreadController(input: {
 				membersSnapshot: input.membersSnapshot,
 				phase: "request_sent",
 				sourceSignal: response.signal,
+				threadId: sendInput.thread.threadId,
 				updatedAtMs: Math.max(response.signal.ts, Date.now()),
 			});
 			setWakeProgressItems((currentItems) =>
@@ -3473,16 +3758,21 @@ function useSpaceThreadController(input: {
 			);
 			input.onWakeProgressItems(requestSentWakeProgressItems);
 			sendInput.onPosted?.();
-			await Promise.all([
+			Promise.all([
 				threadSignalsQuery.refetch(),
 				threadsQuery.refetch(),
 				input.membersRefetch(),
 				input.statusRefetch(),
-			]);
+			]).catch((error) => {
+				console.error(
+					"A sent thread reply's projections could not be refreshed.",
+					error
+				);
+			});
 		} catch (error) {
-			const outcomeUnknown = isSpaceComposerSendOutcomeUnknown(
-				toStructuredApiClientFailure(error)
-			);
+			const outcomeUnknown =
+				publicationStarted &&
+				isSpaceComposerSendOutcomeUnknown(toStructuredApiClientFailure(error));
 			if (!(postedMessage || outcomeUnknown)) {
 				setWakeProgressItems((currentItems) =>
 					removeWakeProgressItemsForClientMessageId({
@@ -3491,6 +3781,10 @@ function useSpaceThreadController(input: {
 					})
 				);
 				input.onWakeProgressRemoveClientMessageId(clientMessageId);
+				markPendingOutgoingSignalFailed(
+					setPendingOutgoingSignals,
+					clientMessageId
+				);
 			}
 			throw new PreparedSpaceMessageSendError({
 				clientMessageId,

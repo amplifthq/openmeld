@@ -49,6 +49,19 @@
   },
   "overrides": [
     {
+      // Flue agent hooks are not React hooks: resource hooks may be composed
+      // conditionally and in loops under Flue's per-render resource contract.
+      "includes": [
+        "services/remote-agent/.flue/agents/**",
+        "services/remote-agent/tests/**/*.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": { "useHookAtTopLevel": "off" }
+        }
+      }
+    },
+    {
       // These Worker entrypoints use Zod's namespace import so esbuild can
       // remove unused locale modules from the production bundle.
       "includes": [

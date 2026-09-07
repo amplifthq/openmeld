@@ -12,6 +12,7 @@ import {
 	ToggleGroup,
 	ToggleGroupItem,
 } from "@openmeld/ui/components/toggle-group";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -129,7 +130,7 @@ export function AgentActivityRhythm(input: {
 				</CardAction>
 			</CardHeader>
 			<CardContent className="flex flex-1 flex-col px-0">
-				<div className="overflow-x-auto">
+				<ScrollArea className="" contentClassName="" orientation="horizontal">
 					<div className="min-w-[610px]">
 						<TimelineHeader view={input.view} />
 						{input.view.memberLanes.length > 0 ? (
@@ -156,7 +157,7 @@ export function AgentActivityRhythm(input: {
 							</div>
 						)}
 					</div>
-				</div>
+				</ScrollArea>
 				{input.view.foldedMembers.length > 0 ? (
 					<div className="mt-auto border-t border-dashed px-4 py-3">
 						<div className="flex flex-wrap items-center gap-3">

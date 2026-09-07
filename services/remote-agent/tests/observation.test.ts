@@ -68,7 +68,7 @@ describe("Flue observation parsing", () => {
   it("extracts correlated Flue text deltas without trimming user-visible spacing", () => {
     expect(
       extractFlueStreamDelta({
-        agentName: "center-agent",
+        agentName: "center-agent-v2",
         eventIndex: 2,
         submissionId: "flue_submission_123",
         text: " next",
@@ -87,7 +87,7 @@ describe("Flue observation parsing", () => {
   it("extracts correlated Flue thinking deltas without relabeling them as text", () => {
     expect(
       extractFlueStreamDelta({
-        agentName: "center-agent",
+        agentName: "center-agent-v2",
         delta: "Checking the Space",
         eventIndex: 3,
         submissionId: "flue_submission_123",
@@ -123,7 +123,7 @@ function promptOperationObservation(input: {
   result?: unknown;
 }): FlueObservation {
   return {
-    agentName: "center-agent",
+    agentName: "center-agent-v2",
     durationMs: 42,
     eventIndex: 1,
     isError: false,

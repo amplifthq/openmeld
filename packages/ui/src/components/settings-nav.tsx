@@ -65,13 +65,11 @@ export function SettingsNav({
 }: SettingsNavProps & { renderLink?: RenderSettingsLink }) {
   return (
     <FluidNavMenu
-      activeIndicatorClassName="bg-surface-6"
       activeValue={activeSectionId}
       aria-label="Settings sections"
       className="w-full"
       data-slot="settings-nav"
       focusIndicatorClassName="border-sidebar-ring"
-      hoverIndicatorClassName="bg-surface-5"
     >
       {items.map((item, index) => {
         const isActive = item.id === activeSectionId;

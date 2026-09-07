@@ -1916,6 +1916,17 @@ function buildAgentProfileDirectoryRowActions(input: {
 				queryClient: input.cardInput.queryClient,
 				storageScope: input.cardInput.recovery.storageScope,
 			});
+			refreshWebAgentReadinessFacts({
+				agentProfileIds: [updatedProfile.openMeldProfileId],
+				organizationId: input.controller.currentOrganization.id,
+				queryClient: input.cardInput.queryClient,
+				storageScope: input.cardInput.recovery.storageScope,
+			}).catch((error: unknown) => {
+				console.error(
+					"Failed to refresh Agent configuration after saving.",
+					error
+				);
+			});
 		},
 		onRecoveryAction: (recoveryAction) => {
 			if (input.cardInput.onRecoveryAction) {

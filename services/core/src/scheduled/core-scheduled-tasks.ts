@@ -65,6 +65,7 @@ import {
 } from "../rpc/methods";
 import { emitCoreCloudflareRuntimeEvidence } from "../shared/observability/cloudflare-runtime-evidence";
 import { deleteExpiredSpaceComposerUploads } from "../space/application/space-composer-upload-storage";
+import { backfillSpaceMessagePreviews } from "../space-index/space-message-preview-backfill";
 
 export const ROUTINE_TICK_CRON = "* * * * *";
 export const WAKE_EVIDENCE_RETENTION_CRON = "0 4 * * *";
@@ -219,6 +220,11 @@ export async function runCoreScheduledTasks(input: {
         })
       );
     }
+    await backfillSpaceMessagePreviews(input.env, input.nowMs).catch(() => {
+      console.warn({
+        event: "core.space_message_preview.backfill_tick_failed",
+      });
+    });
     return;
   }
 

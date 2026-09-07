@@ -363,6 +363,41 @@ describe("Remote Agent model reasoning", () => {
     });
   });
 
+  it("exposes authorized Computer tools on the first provider turn", async () => {
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
+    const computerTools = [
+      "read",
+      "write",
+      "edit",
+      "bash",
+      "grep",
+      "glob",
+      "computer_command",
+    ].map((name) => ({ function: { name }, type: "function" }));
+    const codemode = { function: { name: "codemode" }, type: "function" };
+    const otherTool = {
+      function: { name: "openmeld_create_task" },
+      type: "function",
+    };
+    const payload = await options.onPayload?.(
+      {
+        messages: [{ role: "user", content: "Run Python on your Computer." }],
+        tools: [...computerTools, otherTool, codemode],
+      },
+      { ...TEXT_ONLY_MODEL, id: "z-ai/glm-5.3-flash" }
+    );
+    expect(payload).toMatchObject({ tools: [...computerTools, codemode] });
+
+    const unavailable = await options.onPayload?.(
+      {
+        messages: [{ role: "user", content: "Run Python on your Computer." }],
+        tools: [codemode],
+      },
+      TEXT_ONLY_MODEL
+    );
+    expect(unavailable).toMatchObject({ tools: [codemode] });
+  });
+
   it("keeps the generic Connected App bootstrap direct for provider-specific goals", async () => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(

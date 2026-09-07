@@ -231,10 +231,7 @@ function CenterAgentTaskConversationEvent(input: {
 				className="flex items-center gap-2 px-3 py-1 text-muted-foreground text-xs"
 				data-slot="task-status-event"
 			>
-				<span
-					aria-hidden="true"
-					className="size-1.5 shrink-0 rounded-full bg-border"
-				/>
+				<span aria-hidden="true" className="status-dot bg-border" />
 				<p className="whitespace-pre-wrap leading-5">{input.event.text}</p>
 			</li>
 		);
@@ -261,10 +258,7 @@ function CenterAgentTaskConversationEvent(input: {
 							<RobotIcon aria-hidden="true" className="size-3.5" />
 						)}
 						{needsAttention ? (
-							<span
-								aria-hidden="true"
-								className="size-2 rounded-full bg-amber-400"
-							/>
+							<span aria-hidden="true" className="status-dot bg-amber-400" />
 						) : null}
 						<span>{resolveTaskEventActorLabel(input.event)}</span>
 					</MessageHeader>

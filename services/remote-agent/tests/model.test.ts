@@ -1,7 +1,15 @@
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { stream as streamRegisteredModel } from "@earendil-works/pi-ai/compat";
-import { resetProviderRuntime, resolveModel } from "@flue/runtime/internal";
-import { describe, expect, it, vi } from "vitest";
+import {
+  createModels,
+  fauxAssistantMessage,
+  fauxToolCall,
+} from "@earendil-works/pi-ai";
+// biome-ignore lint/performance/noNamespaceImport: Vitest spies on the real provider registration export.
+import * as flue from "@flue/runtime";
+import {
+  resetModelsForTests as resetProviderRuntime,
+  resolveModel,
+} from "@flue/runtime/internal";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -40,6 +48,18 @@ const CONFIGURED_AI_GATEWAY_ENV = {
 } as const;
 
 describe("remote agent model routing", () => {
+  let models = createModels();
+  const streamRegisteredModel: typeof models.stream = (...args) =>
+    models.stream(...args);
+  beforeEach(() => {
+    models = createModels();
+    const register = flue.setProvider;
+    vi.spyOn(flue, "setProvider").mockImplementation((provider) => {
+      models.setProvider(provider);
+      register(provider);
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
   it("registers GPT-5.4 mini from static metadata", async () => {
     let resolveRefresh: ((response: Response) => void) | undefined;
     const fetchModelMetadata = vi.fn(

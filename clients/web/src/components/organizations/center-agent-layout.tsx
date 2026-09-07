@@ -12,6 +12,7 @@ import {
 	resolveClientSidebarInitialState,
 	type SidebarPersistedState,
 } from "#/lib/sidebar-width-cookie";
+import { CenterAgentChatSidebar } from "./center-agent-chat-sidebar";
 
 export function CenterAgentLayout(input: {
 	children: ReactNode;
@@ -28,6 +29,7 @@ export function CenterAgentLayout(input: {
 			outerRail={
 				<AppOuterRail
 					account={account}
+					contextualNavigation={<CenterAgentChatSidebar />}
 					initialState={input.initialOuterSidebarState}
 				/>
 			}
@@ -70,11 +72,8 @@ function CenterAgentPendingOuterRail(input: {
 		resolveClientSidebarInitialState("outer", input.initialState)
 	);
 
-	// Matches AppRailBrand's own simplification: the compact tier reuses the
-	// narrow/icon skeleton shape rather than a bespoke third placeholder, same
-	// as it reuses the icon-mark brand treatment in the real (non-skeleton)
-	// rail.
-	const isIconLike = state.tier !== "full";
+	// Match the persisted icon rail. Hidden mode has no visible panel.
+	const isIconLike = state.tier !== "expanded";
 
 	return (
 		<AppOuterRailFrame

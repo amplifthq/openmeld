@@ -1176,14 +1176,13 @@ function projectSpaceDispatchTraceResponseForContractVersion(input: {
 }): SpaceDispatchTraceResponse {
   if (
     input.responseContractVersion ===
-    SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION ||
+    input.responseContractVersion ===
+      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS
   ) {
     return input.response;
   }
-  if (
-    input.responseContractVersion ===
-    SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS
-  ) {
+  if (input.responseContractVersion === 2) {
     return projectSpaceDispatchTraceResponseV2(input.response);
   }
   return projectSpaceDispatchTraceResponseV1(input.response);

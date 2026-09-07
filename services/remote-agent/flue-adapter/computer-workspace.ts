@@ -10,6 +10,15 @@ import {
   withWorkspaceContainer,
 } from "@cloudflare/computer/backends/container";
 import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
+import curlModules from "@cloudflare/computer/shell/curl";
+import fileModules from "@cloudflare/computer/shell/file";
+import htmlToMarkdownModules from "@cloudflare/computer/shell/html-to-markdown";
+import jqModules from "@cloudflare/computer/shell/jq";
+import jsExecModules from "@cloudflare/computer/shell/js-exec";
+import pythonModules from "@cloudflare/computer/shell/python";
+import sqliteModules from "@cloudflare/computer/shell/sqlite";
+import xanModules from "@cloudflare/computer/shell/xan";
+import yqModules from "@cloudflare/computer/shell/yq";
 
 /**
  * The Center Agent's computer: an org-level durable workspace backed by
@@ -56,6 +65,8 @@ function workspaceRef(ctx: DurableObjectState) {
 export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
   readonly #containerBackend = new CloudflareContainerBackend({
     container: () => this,
+    // Preserve the native Computer's existing public-network capability.
+    egress: { mode: "direct" },
     // The backend defaults MOUNT_POINT to /workspace; our tree lives
     // under /computer, so pin the FUSE mount there for same-path
     // fidelity between the isolate and the container.
@@ -67,6 +78,19 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
   readonly workspace = new Workspace({
     backends: [
       new WorkerShellBackend({
+        // SDK 0.2 makes previously bundled commands opt-in. Preserve the
+        // existing tool surface; worker-shell network access remains disabled.
+        commands: [
+          curlModules,
+          fileModules,
+          htmlToMarkdownModules,
+          jqModules,
+          jsExecModules,
+          pythonModules,
+          sqliteModules,
+          xanModules,
+          yqModules,
+        ],
         ctx: this.ctx,
         id: AGENT_COMPUTER_SHELL_BACKEND_ID,
         loader: (this.env as AgentComputerEnv).LOADER as never,

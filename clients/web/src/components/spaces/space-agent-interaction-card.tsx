@@ -11,6 +11,7 @@ import { Input } from "@openmeld/ui/components/input";
 import { Textarea } from "@openmeld/ui/components/textarea";
 import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import { type ReactNode, useId, useState } from "react";
 import { MessageResponse } from "#/components/ai/message-response";
@@ -318,9 +319,11 @@ function PermissionSubject(input: {
 	return (
 		<div className="grid gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
 			{subject.command ? (
-				<pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5">
-					<code>{subject.command}</code>
-				</pre>
+				<ScrollArea className="max-h-48" orientation="both">
+					<pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5">
+						<code>{subject.command}</code>
+					</pre>
+				</ScrollArea>
 			) : null}
 			{subject.cwd ? (
 				<SubjectFact label="Working directory" value={subject.cwd} />
@@ -669,11 +672,15 @@ function PlanReviewInteraction(input: {
 
 	return (
 		<>
-			<div className="max-h-80 overflow-auto rounded-md border border-border bg-muted/40 p-3">
+			<ScrollArea
+				className="max-h-80 rounded-md border border-border bg-muted/40"
+				contentClassName="p-3"
+				orientation="both"
+			>
 				<MessageResponse variant="space-message">
 					{input.request.plan}
 				</MessageResponse>
-			</div>
+			</ScrollArea>
 			{showFeedback ? (
 				<label className="grid gap-2 text-sm" htmlFor={feedbackId}>
 					<span className="font-medium text-foreground">

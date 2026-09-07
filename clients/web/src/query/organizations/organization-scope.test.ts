@@ -53,7 +53,7 @@ describe("organizationScopeQueryOptions", () => {
 	it("marks route membership scope stale so loaders can revalidate it", () => {
 		const options = organizationScopeQueryOptions({
 			organizationSlug: "acme",
-			routeFamily: "/o/acme/center-agent/apps/github",
+			routeFamily: "/o/acme/center-agent/plugins/github",
 		});
 
 		expect(options.staleTime).toBe(0);

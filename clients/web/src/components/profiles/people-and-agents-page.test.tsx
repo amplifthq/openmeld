@@ -1,3 +1,5 @@
+const ANY_OWNER_NAME = /Owner: Anyone/;
+
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
@@ -42,6 +44,10 @@ let organizationDirectoryFixture: OrganizationDirectoryResponse;
 const FILTER_AGENTS_NAME = /Filter Agents/;
 const CHECKING_AGENTS_FILTER_NAME = /Current filter: Checking, 0 Agents/;
 const PERSONAL_ALL_AGENTS_FILTER_NAME = /Current filter: All, 1 Agent/;
+
+vi.mock("../app/use-sidebar-preferences", () => ({
+	useSidebarPreferences: () => ({ preferences: undefined }),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -1323,9 +1329,9 @@ describe("PeopleAndAgentsPage", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("combobox", { name: FILTER_AGENTS_NAME }));
+		fireEvent.click(screen.getByRole("button", { name: FILTER_AGENTS_NAME }));
 		fireEvent.click(
-			await screen.findByRole("option", { name: "Checking, 0 Agents" })
+			await screen.findByRole("menuitem", { name: "Checking, 0 Agents" })
 		);
 
 		await waitFor(() => {
@@ -1440,7 +1446,7 @@ describe("PeopleAndAgentsPage", () => {
 				.agentProfiles.map((profile: AuthProfileView) => profile.profileName)
 		).toEqual(["Personal Scout"]);
 		expect(
-			screen.getByRole("combobox", {
+			screen.getByRole("button", {
 				name: PERSONAL_ALL_AGENTS_FILTER_NAME,
 			})
 		).toBeTruthy();
@@ -1476,14 +1482,11 @@ describe("PeopleAndAgentsPage", () => {
 			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
 		);
 
-		fireEvent.click(screen.getByRole("combobox", { name: FILTER_AGENTS_NAME }));
-		const organizationMembersOption = await screen.findByRole("option", {
-			name: "Organization members, 1 Agent",
-		});
+		fireEvent.click(screen.getByRole("button", { name: FILTER_AGENTS_NAME }));
 		expect(
-			within(organizationMembersOption).getByText("Organization members")
+			await screen.findByRole("menuitem", { name: ANY_OWNER_NAME })
 		).toBeTruthy();
-		const checkingOption = await screen.findByRole("option", {
+		const checkingOption = await screen.findByRole("menuitem", {
 			name: "Checking, 0 Agents",
 		});
 		expect(within(checkingOption).getByText("Checking")).toBeTruthy();
@@ -1492,7 +1495,7 @@ describe("PeopleAndAgentsPage", () => {
 
 		await waitFor(() => {
 			expect(
-				screen.getByRole("combobox", {
+				screen.getByRole("button", {
 					name: CHECKING_AGENTS_FILTER_NAME,
 				})
 			).toBeTruthy();

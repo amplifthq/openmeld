@@ -9,7 +9,7 @@ const COVERAGE_SOURCE_LABELS = {
   approved_profile_report: "Approved Profile Report",
   github: "GitHub",
   organization_directory: "Organization directory",
-  connected_apps: "Connected Apps",
+  connected_apps: "Connected Plugins",
   slack_channel_history: "Slack channel history",
   slack_workspace_directory: "Slack workspace directory",
 } as const satisfies Record<

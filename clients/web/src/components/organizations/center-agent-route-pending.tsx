@@ -17,6 +17,7 @@ import { CenterAgentPendingLayout } from "./center-agent-layout";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 
 export function CenterAgentRoutePendingPage(input: {
+	sessionId?: string;
 	initialOuterSidebarState?: SidebarPersistedState;
 	ownerAccountId?: string;
 	organizationId?: string;
@@ -29,9 +30,11 @@ export function CenterAgentRoutePendingPage(input: {
 		>
 			{input.section === "chat" ? (
 				<CenterAgentPendingConversation
+					key={input.sessionId ?? "default"}
 					organizationId={input.organizationId}
 					organizationSlug={input.organizationSlug}
 					ownerAccountId={input.ownerAccountId}
+					sessionId={input.sessionId}
 				/>
 			) : (
 				<CenterAgentPendingSection />
@@ -55,12 +58,16 @@ function CenterAgentPendingSection() {
 }
 
 export function CenterAgentPendingConversation(input: {
+	sessionId?: string;
 	ownerAccountId?: string;
 	organizationId?: string;
 	organizationSlug: string;
 }) {
 	const queryClient = useQueryClient();
-	const scope = { organizationSlug: input.organizationSlug };
+	const scope = {
+		organizationSlug: input.organizationSlug,
+		...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+	};
 	const ownerAccountId = input.ownerAccountId?.trim() ?? "";
 	const organizationId = input.organizationId?.trim() ?? "";
 	const composerDraft = useComposerDraft({
@@ -68,6 +75,9 @@ export function CenterAgentPendingConversation(input: {
 			ownerAccountId && organizationId
 				? {
 						kind: "center_agent_pending",
+						...(input.sessionId === undefined
+							? {}
+							: { sessionId: input.sessionId }),
 						organizationId,
 						ownerAccountId,
 					}

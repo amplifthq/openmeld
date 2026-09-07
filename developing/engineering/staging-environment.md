@@ -52,6 +52,64 @@ deployable. Magic-link authentication is the initial human sign-in path.
 Enable an omitted integration only when a concrete staging test needs it and a
 separate staging credential exists.
 
+### Staging Apps Backend
+
+Slack acceptance uses the dedicated OpenMeld Staging Slack app, with HTTP events
+at `https://gateway.staging.openmeld.ai/slack/events` and OAuth redirect
+`https://gateway.staging.openmeld.ai/slack/oauth/callback`. Disable Socket Mode
+for this HTTP receiver. Store its OAuth client ID, client secret, and signing
+secret in Gateway's staging Doppler config, and a separate 32-byte base64 token
+encryption key in Core's staging config. Never rotate an existing encryption
+key as part of routine deployment.
+
+Sync these opt-in credentials through each component's scoped staging Doppler
+environment using `pnpm --filter @openmeld/gateway sync:secrets:slack:stg` and
+`pnpm --filter @openmeld/core sync:secrets:slack:stg`. The baseline deploy remains
+usable without Slack credentials. Complete the normal Web Slack connection
+flow and restrict acceptance messages to the authorized test scope; creating
+the Slack app alone does not establish an OpenMeld Organization connection.
+
+OpenConnector has a separate opt-in deployment for Apps acceptance:
+`https://connectors.staging.openmeld.ai`. Its Worker, D1 database and transit
+file bucket are `openmeld-open-connector-stg`,
+`openmeld-open-connector-db-stg` and
+`openmeld-open-connector-transit-files-stg`. The checked-in configuration is
+`config/openconnector/wrangler.staging.jsonc`. The action policy matches the
+reviewed production policy, including read-only Google actions and blocked
+generic proxies. Staging credentials never come from production.
+
+From a clean OpenMeld checkout and a separate clean OpenConnector checkout:
+
+```bash
+pnpm deploy:openconnector:staging -- --source <checkout> --source-sha <full-sha>
+```
+
+The guarded entry point obtains only the release and OpenConnector `stg`
+credentials, verifies the environment contract, provisions missing staging
+resources, builds the exact external source, applies only its staging D1
+migrations, deploys with secrets over stdin, and checks its public health.
+The five canonical deployment secrets are owned by
+`openmeld-open-connector/stg`; Gateway owns its administration-token copy and
+Remote Agent owns its runtime-token copy. OAuth clients must use
+`https://connectors.staging.openmeld.ai/oauth/callback` and independent staging
+credentials. Provider authorization and real App actions remain separate
+acceptance checks; a successful health response proves neither.
+
+Gateway and Remote Agent point to that staging endpoint in their checked-in
+configuration. Install the private GitHub App `openmeld-staging-flue2` only
+on the authorized test repositories. After preparing each component's token
+copy, sync it without exposing other components' credentials:
+
+```bash
+node scripts/dev/doppler-environment.mjs component:stg gateway -- pnpm --filter @openmeld/gateway sync:secrets:connectors:stg
+node scripts/dev/doppler-environment.mjs component:stg remote-agent -- pnpm --filter @openmeld/remote-agent sync:secrets:connectors:stg
+```
+
+The optional inventory is included with
+`provision-openmeld-resources.mjs --environment staging --include-open-connector`.
+It does not make unfinished provider setup a prerequisite for baseline or
+Remote Agent-only staging verification.
+
 ## Operate Staging
 
 Use one guarded entry point from the repository root:
@@ -75,6 +133,8 @@ pnpm staging:smoke:computer -- plan
 - `staging:deploy` requires a clean worktree, creates only missing staging
   prerequisites, applies staging D1 migrations, deploys the five Workers, and
   verifies resources and public entry points.
+  The Worker order is Auth, Core, Gateway, Web, then Remote Agent so stream
+  readers understand new activity fields before the runtime emits them.
 - `staging:deploy -- --scope web` and `--scope remote-agent` deploy one
   non-database Worker after verifying the existing Staging resources. Use these
   narrow paths for component-only changes so an unrelated Worker cannot block
@@ -175,12 +235,17 @@ The guarded deployment order is intentional:
 3. create missing staging account resources;
 4. create missing route-free Worker identities;
 5. apply migrations to `openmeld-db-stg`;
-6. deploy Auth, Web, Gateway, Core, and Remote Agent;
+6. deploy Auth, Core, Remote Agent, Gateway, and Web;
 7. verify the resource inventory and public entry points.
 
 Worker identities exist before the real deploy because the internal Service
 Bindings form a cycle. The bootstrap Workers have no routes and return a
 diagnostic `503`; the guarded deploy replaces them with the real code.
+
+Core receives runtime contracts before Remote Agent produces them, and Web
+publishes new input metadata only after both backend receivers are deployed.
+If a change requires Remote Agent's receiver before Core's sender, deploy the
+compatible Remote Agent scope first, then run the full guarded deployment.
 
 ## Secrets And Authority
 

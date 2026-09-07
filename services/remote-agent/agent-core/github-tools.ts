@@ -2794,7 +2794,7 @@ function resolveUnavailableGitHubConnectionMessage(input: {
       : "Your GitHub";
   const action = input.hasNavigationAction
     ? "Use the Open GitHub access action below"
-    : "Open Center Agent → Apps → GitHub for this workspace";
+    : "Open Center Agent → Plugins → GitHub for this workspace";
   return `${accessName} is not ready. It may be disconnected or authorization may still be pending. ${action}, check ${accessName}, and try again. OpenMeld did not use a different GitHub identity.`;
 }
 
@@ -2966,7 +2966,7 @@ function resolveOpenConnectorGitHubActionError(input: {
     input.errorCode === "authorization_failed" ||
     (input.errorCode === "invalid_input" && normalizedMessage === "not found")
   ) {
-    return `${baseMessage} GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Center Agent → Apps → GitHub and the installation's repository access.`;
+    return `${baseMessage} GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Center Agent → Plugins → GitHub and the installation's repository access.`;
   }
 
   return baseMessage;

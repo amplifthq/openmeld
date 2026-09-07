@@ -5,10 +5,10 @@ import { createAgentComputerFileHandoff } from "./computer-file-handoff";
 import { ensureAgentComputerLayout } from "./computer-workspace";
 import { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
 import {
-  clearOrganizationDocumentsComputerProjection,
-  materializeOrganizationDocumentsComputerProjection,
-  type OrganizationDocumentsComputerProjection,
-} from "./organization-document-computer-projection";
+  clearLegacyOrganizationDocumentsComputerProjection,
+  type OrganizationDocumentsComputerSnapshot,
+  prepareOrganizationDocumentsComputerSnapshot,
+} from "./organization-document-computer-snapshot";
 import {
   createOrganizationDocumentComputerWorkingCopyStore,
   type OrganizationDocumentComputerWorkingCopyStore,
@@ -61,9 +61,7 @@ export async function materializeAgentComputerWorkspace(input: {
   organizationDocumentsSnapshot: CenterAgentOrganizationDocumentsComputerSnapshotResponse | null;
   workspaceAccess: AgentComputerWorkspaceAccess;
 }): Promise<{
-  documents: Awaited<
-    ReturnType<typeof materializeOrganizationDocumentsComputerProjection>
-  > | null;
+  documents: OrganizationDocumentsComputerSnapshot | null;
   workingDirectory: string;
 }> {
   let lastError: unknown;
@@ -83,14 +81,13 @@ export async function materializeAgentComputerWorkspace(input: {
           }
         );
         const documents = input.organizationDocumentsSnapshot
-          ? await materializeOrganizationDocumentsComputerProjection(
-              workspace,
+          ? prepareOrganizationDocumentsComputerSnapshot(
               input.organizationDocumentsSnapshot
             )
           : null;
-        if (!documents) {
-          await clearOrganizationDocumentsComputerProjection(workspace);
-        }
+        // Retire only the old reserved automatic projection. Current turns
+        // never write there; explicit working copies live in their Space.
+        await clearLegacyOrganizationDocumentsComputerProjection(workspace);
         return { documents, workingDirectory };
       });
     } catch (error) {
@@ -141,7 +138,7 @@ export function createReacquiringAgentComputerFileHandoff(input: {
 }
 
 export function createReacquiringOrganizationDocumentWorkingCopyStore(input: {
-  projection: OrganizationDocumentsComputerProjection;
+  projection: OrganizationDocumentsComputerSnapshot;
   workspaceAccess: AgentComputerWorkspaceAccess;
   workingDirectory: string;
 }): OrganizationDocumentComputerWorkingCopyStore {

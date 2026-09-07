@@ -16,6 +16,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { CopyIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -107,9 +108,11 @@ export function SpaceInfoDialog(input: {
 					</DialogDescription>
 				</DialogHeader>
 
-				<div
-					className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto pr-1"
+				<ScrollArea
+					className="min-h-0 min-w-0 flex-1"
+					contentClassName="space-y-4 pr-1"
 					data-testid="space-info-dialog-scroll-area"
+					orientation="vertical"
 				>
 					{input.currentProfileName ? (
 						<SpaceInfoReadOnlyField
@@ -181,7 +184,7 @@ export function SpaceInfoDialog(input: {
 							onStartDeleteConfirmation={() => setIsConfirmingLeave(false)}
 						/>
 					) : null}
-				</div>
+				</ScrollArea>
 			</DialogContent>
 		</Dialog>
 	);

@@ -33,27 +33,53 @@ export function reportClientApplicationError(
 			return;
 		}
 		reported.add(key);
-		const report: WebApplicationErrorReport = {
-			version: 1,
-			id: crypto.randomUUID(),
-			source,
-			buildId: WEB_ERROR_BUILD.id,
-			sourceSha: WEB_ERROR_BUILD.sha,
-			routeId,
-			error: summary,
-		};
+		const report = createApplicationErrorReport(error, source, resource);
 		// keepalive allows a small report to outlive the automatic page refresh.
 		// Never retry a failed diagnostic request or report its own failure.
-		fetch(WEB_APPLICATION_ERROR_PATH, {
-			method: "POST",
-			credentials: "omit",
-			keepalive: true,
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(report),
-		}).catch(() => undefined);
+		sendApplicationErrorReport(report).catch(() => undefined);
 	} catch {
 		// Telemetry must not replace the original application outcome.
 	}
+}
+
+function createApplicationErrorReport(
+	error: unknown,
+	source: WebApplicationErrorSource,
+	resource?: string
+): WebApplicationErrorReport {
+	return {
+		version: 1,
+		id: crypto.randomUUID(),
+		source,
+		buildId: WEB_ERROR_BUILD.id,
+		sourceSha: WEB_ERROR_BUILD.sha,
+		routeId: readRouteId(),
+		error: summarizeApplicationError(error, resource),
+	};
+}
+
+function sendApplicationErrorReport(report: WebApplicationErrorReport) {
+	return fetch(WEB_APPLICATION_ERROR_PATH, {
+		method: "POST",
+		credentials: "omit",
+		keepalive: true,
+		signal: AbortSignal.timeout(10_000),
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(report),
+	});
+}
+
+/** Explicit submissions bypass automatic deduplication and confirm intake. */
+export async function submitApplicationErrorReport(
+	error: unknown
+): Promise<string> {
+	const report = createApplicationErrorReport(error, "route");
+	report.submission = "user";
+	const response = await sendApplicationErrorReport(report);
+	if (response.status !== 204) {
+		throw new Error("The error report was not accepted.");
+	}
+	return report.id;
 }
 
 export function installApplicationErrorReporting(): () => void {

@@ -55,7 +55,14 @@ function Table({
     if (!container) {
       return;
     }
-    const handleMouseMove = (event: MouseEvent) => handlers.onMouseMove(event);
+    const handleMouseMove = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element && target.closest("tbody"))) {
+        handlers.onMouseLeave();
+        return;
+      }
+      handlers.onMouseMove(event);
+    };
     container.addEventListener("mouseenter", handlers.onMouseEnter);
     container.addEventListener("mouseleave", handlers.onMouseLeave);
     container.addEventListener("mousemove", handleMouseMove);
@@ -132,7 +139,7 @@ function Table({
 function TableHeader({ className, ...props }: ComponentProps<"thead">) {
   return (
     <thead
-      className={cn("[&_tr]:border-b", className)}
+      className={cn("[&_tr:hover]:bg-transparent [&_tr]:border-b", className)}
       data-slot="table-header"
       {...props}
     />

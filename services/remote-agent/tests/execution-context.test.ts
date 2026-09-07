@@ -11,6 +11,8 @@ import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "../flue-adapter/ca
 import {
   getRemoteAgentExecutionSubmissionId,
   REMOTE_AGENT_EXECUTION_INSTRUMENTATION,
+  registerRemoteAgentExecutionPreparation,
+  requireRemoteAgentExecutionResources,
   resolveRemoteAgentExecutionCallbackContext,
   runWithRemoteAgentSubmissionExecution,
 } from "../flue-adapter/execution-context";
@@ -289,6 +291,55 @@ describe("Remote Agent submission execution context", () => {
           })
       )
     ).rejects.toThrow("exact durable callback context is unavailable");
+  });
+
+  it("prepares each concurrent submission once and preserves its resources through nested agent operations", async () => {
+    const prepared: string[] = [];
+    const dispose = registerRemoteAgentExecutionPreparation(async () => {
+      const submissionId = getRemoteAgentExecutionSubmissionId();
+      if (!submissionId) {
+        throw new Error("Missing preparation owner.");
+      }
+      prepared.push(submissionId);
+      await Promise.resolve();
+      return { authorizedFor: submissionId };
+    });
+    try {
+      const results = await Promise.all(
+        ["a", "b"].map((submissionId) =>
+          REMOTE_AGENT_EXECUTION_INSTRUMENTATION.interceptor(
+            {
+              operationId: submissionId,
+              operationKind: "prompt",
+              type: "agent",
+            },
+            { submissionId },
+            async () => {
+              await Promise.resolve();
+              return await REMOTE_AGENT_EXECUTION_INSTRUMENTATION.interceptor(
+                {
+                  operationId: "nested",
+                  operationKind: "prompt",
+                  type: "agent",
+                },
+                { submissionId },
+                async () =>
+                  requireRemoteAgentExecutionResources<{
+                    authorizedFor: string;
+                  }>()
+              );
+            }
+          )
+        )
+      );
+      expect(results).toEqual([{ authorizedFor: "a" }, { authorizedFor: "b" }]);
+      expect(prepared.sort()).toEqual(["a", "b"]);
+      expect(() => requireRemoteAgentExecutionResources()).toThrow(
+        "prepared execution resources"
+      );
+    } finally {
+      dispose();
+    }
   });
 
   it("propagates the immutable submission id through Flue agent execution", async () => {

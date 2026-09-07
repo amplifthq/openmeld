@@ -435,6 +435,39 @@ leave, lifecycle, and metadata mutation, and excludes it from ordinary Space
 lists. Clients hide every rejected mutation surface as well as relying on
 server enforcement.
 
+### Center Agent session foundation (Flue 2 candidate)
+
+Each private Center Agent session reuses this stricter DM Space specialization;
+the Space ID is its session identity. Multiple sessions retain the same real
+Human/Center Agent pair key. Creating a session uses a dedicated operation with
+an idempotency key scoped to the authenticated Organization and pair. A retry
+reuses that session; a different creation key creates another session. The
+ordinary DM open-or-reuse operation keeps its existing behavior.
+
+Selecting a session checks the exact Space against the caller's current
+Organization, Human Profile and designated Center Agent. An unavailable or
+foreign selection never substitutes another conversation. Message and file
+access still use Space-owned authorization. The session shares the Agent
+Profile's Computer, with its own Space working directory; a directory is not a
+separate Computer or a privacy sandbox.
+
+The existing Center DM parent restrictions apply to every session: hide and
+reject member addition/invitation, conversion, removal/leave, and generic
+metadata, lifecycle, visibility, access and deletion mutations. Keep the
+existing message, file, thread, stream and read-only information surfaces.
+Session management must not unlock those generic mutations as a shortcut.
+
+The candidate provides idempotent creation, authorized paginated listing and
+exact Web route selection through New chat and Chats. Listing filters active,
+unconverted private conversations by the current Organization and real pair;
+the cursor is a pagination boundary, never access authority. Selection still
+checks the owning Space. Dedicated rename, archive and deletion remain future
+session operations. Browser acceptance, explicit execution steering and release
+continuity remain incomplete release gates. Task retirement is deferred; its
+existing product and tools remain available during this upgrade.
+
+### Ordinary Direct Message opening
+
 Opening a Direct Message is idempotent within a generation. OpenMeld first
 looks for an unconverted DM-origin Space for the same organization and pair key
 whose active member count is at most two. If found, it reuses that Space. If

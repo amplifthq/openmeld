@@ -239,7 +239,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		renderMessageDetailsPanel();
 
 		const scrollArea = screen.getByTestId("message-details-scroll-area");
-		expect(scrollArea.className).toContain("select-text");
+		expect(scrollArea.querySelector(".select-text")).not.toBeNull();
 		expect(scrollArea.hasAttribute("data-vaul-no-drag")).toBe(true);
 
 		const technicalDetails = openTechnicalDetails();
@@ -588,7 +588,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const reasonSection = getActivityRegion("OpenMeld");
 		expect(
 			within(reasonSection).getByText(
-				"This agent could not complete this Wake."
+				"Runner couldn't reply: OpenMeld did not receive a message it could post in this space."
 			)
 		).toBeTruthy();
 		expect(within(reasonSection).queryByRole("link")).toBeNull();
@@ -599,7 +599,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(screen.queryByRole("heading", { name: "Replies" })).toBeNull();
 	});
 
-	it("keeps a past-tense failure reason and uses the current confirmed recovery action", () => {
+	it("keeps the recorded failure reason and uses only the current confirmed recovery action", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -629,10 +629,8 @@ describe("SpaceMessageDetailsDrawer", () => {
 		});
 
 		const reasonSection = getActivityRegion("Runner");
-		expect(
-			within(reasonSection).getByText("Runner could not start this Wake.")
-		).toBeTruthy();
-		expect(within(reasonSection).queryByText(persistedNoticeText)).toBeNull();
+		expect(within(reasonSection).getByText("Recorded outcome")).toBeTruthy();
+		expect(within(reasonSection).getByText(persistedNoticeText)).toBeTruthy();
 		const recoveryLink = within(reasonSection).getByRole("link", {
 			name: "Choose local agent",
 		});
@@ -641,7 +639,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 	});
 
-	it("replaces an unmapped old setup notice with a safe past-tense outcome", () => {
+	it("labels an unmapped old notice as recorded history without inventing a current action", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -666,9 +664,9 @@ describe("SpaceMessageDetailsDrawer", () => {
 
 		const reasonSection = getActivityRegion("Runner");
 		expect(
-			within(reasonSection).getByText("Runner could not complete this Wake.")
+			within(reasonSection).getByText("Runner needs setup before it can reply.")
 		).toBeTruthy();
-		expect(reasonSection.textContent).not.toContain("needs setup");
+		expect(within(reasonSection).getByText("Recorded outcome")).toBeTruthy();
 		expect(reasonSection.textContent).not.toContain("Review setup");
 	});
 
@@ -787,7 +785,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 
 		const reasonSection = getActivityRegion("Center Agent");
 		const failureReason = within(reasonSection).getByText(
-			"Center Agent could not complete this Wake."
+			"OpenMeld ran into a system problem before Center Agent could reply. Try again. If it keeps happening, open diagnostics."
 		);
 		expect(failureReason.closest("p")?.className).toContain("text-destructive");
 		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
@@ -847,9 +845,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 			targetProfileDisplayNamesByProfileId: new Map([["agt_cursor", "Cursor"]]),
 		});
 
-		expect(
-			screen.getByText("Cursor could not complete this Wake.")
-		).toBeTruthy();
+		expect(screen.getByText("Cursor could not reply.")).toBeTruthy();
 		expect(
 			screen.queryByRole("link", { name: "Reconnect Computer" })
 		).toBeNull();
@@ -914,7 +910,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const reasonSection = getActivityRegion("Cursor");
 		expect(
 			within(reasonSection).getByText(
-				"Cursor answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted."
+				"Cursor finished, but OpenMeld couldn't post its reply."
 			)
 		).toBeTruthy();
 		await within(reasonSection).findByRole("button", {
@@ -1353,7 +1349,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 
 		expect(
 			screen.getByText(
-				"Runner could not complete this Wake because its computer was not connected to OpenMeld at the time."
+				"Runner could not reply because its computer disconnected."
 			)
 		).toBeTruthy();
 		expect(
@@ -1388,7 +1384,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const failureSection = getActivityRegion("OpenMeld");
 		const statusBadge = within(failureSection).getByText("Failed");
 		const failureReason = within(failureSection).getByText(
-			"This agent could not start this Wake because its Agent Profile belonged to a different workspace."
+			"Runner belongs to a different workspace."
 		);
 		expect(statusBadge.className).toContain("text-destructive");
 		expect(failureReason).toBeTruthy();
@@ -1425,7 +1421,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 			"text-destructive"
 		);
 		expect(
-			within(failureSection).getByText("Runner could not start this Wake.")
+			within(failureSection).getByText("Runner could not reply.")
 		).toBeTruthy();
 		expect(screen.queryByText("Wake failed")).toBeNull();
 		expect(

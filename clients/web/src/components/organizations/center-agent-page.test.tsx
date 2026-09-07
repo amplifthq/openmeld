@@ -126,6 +126,46 @@ describe("CenterAgentPage", () => {
 		vi.clearAllMocks();
 	});
 
+	it("keeps the selected chat when changing views or retrying an unavailable chat", async () => {
+		const rendered = renderWithQueryClient(
+			<CenterAgentPage
+				directMessageRouteData={readyRouteData({ spaceId: "session-2" })}
+				sessionId="session-2"
+			/>
+		);
+		spaceLandingSpy.mock.lastCall?.[0].onSpaceViewCommitted("files");
+		expect(navigateSpy).toHaveBeenLastCalledWith({
+			replace: true,
+			to: "/o/acme?session=session-2&view=files",
+		});
+		rendered.rerender(
+			<CenterAgentPage
+				directMessageRouteData={errorRouteData()}
+				sessionId="session-2"
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() =>
+			expect(
+				readCenterAgentDirectMessageSpaceProjectionMock
+			).toHaveBeenCalledWith(expect.objectContaining({ spaceId: "session-2" }))
+		);
+		expect(openCenterAgentDirectMessageSpaceMock).not.toHaveBeenCalled();
+	});
+
+	it("pins the resolved chat when navigating from an unselected home entry", () => {
+		renderWithQueryClient(
+			<CenterAgentPage
+				directMessageRouteData={readyRouteData({ spaceId: "resolved-chat" })}
+			/>
+		);
+		spaceLandingSpy.mock.lastCall?.[0].onSpaceViewCommitted("files");
+		expect(navigateSpy).toHaveBeenLastCalledWith({
+			replace: true,
+			to: "/o/acme?session=resolved-chat&view=files",
+		});
+	});
+
 	it.each([
 		true,
 		false,

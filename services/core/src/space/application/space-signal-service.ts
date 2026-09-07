@@ -25,6 +25,7 @@ export const SPACE_FINAL_OUTCOME_STOPPED_ERROR_CODE =
   "space.final_outcome_stopped" as const;
 export class SpaceSignalAuthoringError extends Error {
   readonly code:
+    | "space.execution_input.invalid"
     | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
     | typeof SPACE_WAKE_TARGET_INVALID_ERROR_CODE
     | typeof SPACE_WAKE_HANDOFF_SEED_FAILED_ERROR_CODE
@@ -36,6 +37,7 @@ export class SpaceSignalAuthoringError extends Error {
 
   constructor(input: {
     code:
+      | "space.execution_input.invalid"
       | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
       | typeof SPACE_WAKE_TARGET_INVALID_ERROR_CODE
       | typeof SPACE_WAKE_HANDOFF_SEED_FAILED_ERROR_CODE

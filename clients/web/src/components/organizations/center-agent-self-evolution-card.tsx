@@ -36,13 +36,13 @@ import {
 	resolveCenterAgentRoutineErrorMessage,
 } from "#/lib/organizations/center-agent-routines";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
-import { organizationAppConnectionCatalogQueryOptions } from "#/query/organizations/app-connections";
 import {
 	invalidateCenterAgentRoutineFacts,
 	prepareCenterAgentRoutineTargetSpaces,
 } from "#/query/organizations/center-agent-routines";
 import { messageChannelListQueryOptions } from "#/query/organizations/message-channels";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
+import { organizationPluginConnectionCatalogQueryOptions } from "#/query/organizations/plugin-connections";
 import { projectsQueryOptions } from "#/query/organizations/projects";
 import {
 	CenterAgentRoutineTargetSpaceField,
@@ -86,7 +86,7 @@ export function CenterAgentSelfEvolutionCard(input: {
 }) {
 	const queryClient = useQueryClient();
 	const appConnectionsQuery = useQuery(
-		organizationAppConnectionCatalogQueryOptions({
+		organizationPluginConnectionCatalogQueryOptions({
 			organizationId: input.organizationId,
 			queryClient,
 		})
@@ -504,9 +504,9 @@ function SelfEvolutionSetupDialog(input: {
 							Sources
 						</legend>
 						<p className="text-muted-foreground text-xs leading-5">
-							Your selection guides the learning scope. Existing App and Channel
-							permissions still control access. Self-Evolution never writes back
-							to a selected source.
+							Your selection guides the learning scope. Existing Plugin and
+							Channel permissions still control access. Self-Evolution never
+							writes back to a selected source.
 						</p>
 						<p className="text-muted-foreground text-xs leading-5">
 							A selected Slack Channel can use only the channel, member, and

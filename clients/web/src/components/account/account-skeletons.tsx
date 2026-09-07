@@ -8,6 +8,7 @@ import {
 	CardTitle,
 } from "@openmeld/ui/components/card";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { Surface } from "@openmeld/ui/fluid/surface";
 import {
 	CalendarBlankIcon,
 	EnvelopeIcon,
@@ -88,8 +89,8 @@ export function ProvidersManagementCardSkeleton() {
 			</CardHeader>
 			<CardContent className="space-y-3">
 				{Array.from({ length: 5 }).map((_, index) => (
-					<div
-						className="flex items-center justify-between gap-3 border border-border p-3"
+					<Surface
+						className="flex items-center justify-between gap-3 p-3"
 						key={String(index)}
 					>
 						<div className="space-y-1">
@@ -97,7 +98,7 @@ export function ProvidersManagementCardSkeleton() {
 							<Skeleton className="h-3 w-36" />
 						</div>
 						<Skeleton className="h-7 w-20" />
-					</div>
+					</Surface>
 				))}
 			</CardContent>
 		</Card>
@@ -132,8 +133,8 @@ export function SessionsManagementCardSkeleton() {
 			</CardHeader>
 			<CardContent className="space-y-3">
 				{Array.from({ length: 3 }).map((_, index) => (
-					<div
-						className="flex items-center justify-between gap-3 border border-border p-3"
+					<Surface
+						className="flex items-center justify-between gap-3 p-3"
 						key={String(index)}
 					>
 						<div className="flex items-center gap-2">
@@ -144,7 +145,7 @@ export function SessionsManagementCardSkeleton() {
 							</div>
 						</div>
 						<Skeleton className="h-7 w-20" />
-					</div>
+					</Surface>
 				))}
 			</CardContent>
 		</Card>

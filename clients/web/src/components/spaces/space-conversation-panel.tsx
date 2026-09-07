@@ -12,18 +12,7 @@ import type {
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
-import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
-import {
-	MagnifyingDock,
-	MagnifyingDockItem,
-} from "@openmeld/ui/components/magnifying-dock";
-import { OpenMeldLetterLogoStrong } from "@openmeld/ui/components/openmeld-letter-logo-strong";
 import { ProgressiveBlur } from "@openmeld/ui/components/progressive-blur";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowUpIcon,
@@ -54,9 +43,7 @@ import {
 	useState,
 } from "react";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
-import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
-import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildActiveWakeConversationItems,
 	hasActiveWakeReplyForSource,
@@ -92,11 +79,10 @@ import {
 	type SpaceWakeStopRequestStatus,
 } from "#/lib/spaces/wake-stop-target";
 import {
-	CenterAgentComputerSetupCard,
 	type CenterAgentComputerSetupContext,
 	resolveLatestComputerSetupActionSignalId,
 } from "./center-agent-computer-setup-card";
-import { CenterAgentStarterActions } from "./center-agent-starter-actions";
+import { CenterAgentDirectMessageIntro } from "./center-agent-direct-message-intro";
 import type { OnboardingSetupPresentation } from "./onboarding-setup-presentation";
 import { Bubble, BubbleContent, BubbleGroup } from "./primitives/bubble";
 import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
@@ -109,7 +95,6 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
-import { SpaceActiveWakeSource } from "./space-active-wake-source";
 import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
 import {
 	SpaceAgentInteractionCard,
@@ -147,7 +132,6 @@ import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
 import { SpaceConversationSendScrollController } from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
-import { SpaceEntryRecoveryNotice } from "./space-entry-recovery-notice";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	type SpaceExecutionRecoveryHandler,
@@ -164,7 +148,10 @@ import {
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 } from "./space-message-bubble-style";
-import { copySpaceTimelineItemWithFeedback } from "./space-message-copy";
+import {
+	copySpaceTimelineItemWithFeedback,
+	isSpaceMessageCopyPending,
+} from "./space-message-copy";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
 import {
@@ -194,6 +181,7 @@ import {
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
+import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
@@ -297,6 +285,7 @@ type SpaceConversationPanelResolvedProps = {
 	pendingActionSurface?: ReactNode;
 	readOnly?: boolean;
 	readOnlyComposerPlaceholder?: string;
+	allowSendWhileAccessSettles?: boolean;
 	renderSetupGuidance?: (
 		presentation: OnboardingSetupPresentation
 	) => ReactNode;
@@ -387,44 +376,6 @@ function resolveSpaceSetupGuidanceSlots(input: {
 	};
 }
 
-function hasCurrentUserAuthoredSpaceMessage(input: {
-	items: readonly SpaceTimelineItem[];
-	selfProfileId: string;
-}): boolean {
-	return input.items.some(
-		(item) =>
-			item.actorProfileId === input.selfProfileId &&
-			item.actorProfileKind === "human" &&
-			item.signalType === "signal.text"
-	);
-}
-
-function hasSpaceComposerDraft(input: {
-	files: readonly SpaceComposerFile[];
-	replyToSignalId: string | null;
-	text: string;
-}): boolean {
-	return (
-		input.text.trim().length > 0 ||
-		input.files.length > 0 ||
-		input.replyToSignalId !== null
-	);
-}
-
-function shouldShowCenterAgentStarterActions(input: {
-	canSendMessage: boolean;
-	hasComposerDraft: boolean;
-	hasCurrentUserAuthoredMessage: boolean;
-	isCenterAgentDirectMessage: boolean;
-}): boolean {
-	return (
-		input.isCenterAgentDirectMessage &&
-		input.canSendMessage &&
-		!input.hasComposerDraft &&
-		!input.hasCurrentUserAuthoredMessage
-	);
-}
-
 function resolveWritableSpaceAction<T>(
 	isReadOnly: boolean,
 	action: T | undefined
@@ -482,6 +433,7 @@ function SpaceConversationPanelContent(
 	const presentation = useSpaceConversationPresentationController(input);
 	const {
 		canSendMessage,
+		canUploadFiles,
 		composerContext,
 		composerSendBlocked,
 		composerTargetName,
@@ -540,6 +492,7 @@ function SpaceConversationPanelContent(
 		conversationAutoScroll,
 		conversationDefaultScrollPosition,
 		conversationScrollElement,
+		followLatest,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
 		onConversationScroll,
@@ -621,6 +574,7 @@ function SpaceConversationPanelContent(
 					>
 						<SpaceConversationSendScrollController
 							isSendingMessage={input.isSendingMessage}
+							onSendStart={followLatest}
 						/>
 						<MessageScroller className="relative min-h-0 flex-1">
 							<ConversationLatestObserver
@@ -716,9 +670,9 @@ function SpaceConversationPanelContent(
 			{showComposer ? (
 				<>
 					{input.pendingActionSurface}
-					<SpaceEntryRecoveryNotice />
 					<SpaceComposerSection
 						canSendMessage={canSendMessage}
+						canUploadFiles={canUploadFiles}
 						composerContext={composerContext}
 						composerSendBlocked={composerSendBlocked}
 						composerTargetName={composerTargetName}
@@ -868,6 +822,10 @@ function useSpaceConversationPresentationController(
 ) {
 	const isReadOnly = input.readOnly === true;
 	const canSendMessage =
+		!isReadOnly &&
+		(input.allowedActions.includes("post_message") ||
+			input.allowSendWhileAccessSettles === true);
+	const canUploadFiles =
 		!isReadOnly && input.allowedActions.includes("post_message");
 	const composerSendBlocked = resolveSpaceComposerSendBlocked({
 		files: input.composerFiles,
@@ -940,25 +898,12 @@ function useSpaceConversationPresentationController(
 	);
 	const mainTimelineItems =
 		messageStateTuningPreviewItems ?? activeConversationItems;
-	const hasCurrentUserAuthoredMessage = hasCurrentUserAuthoredSpaceMessage({
-		items: input.timelineItems,
-		selfProfileId: input.selfProfileId,
-	});
-	const hasComposerDraft = hasSpaceComposerDraft({
-		files: input.composerFiles,
-		replyToSignalId: input.composerReplyToSignalId,
-		text: input.composerText,
-	});
 	const messageStateTuningVisibility = resolveSpaceMessageStateTuningVisibility(
 		{
 			isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
 			previewItems: messageStateTuningPreviewItems,
-			showCenterAgentStarterActions: shouldShowCenterAgentStarterActions({
-				canSendMessage,
-				hasComposerDraft,
-				hasCurrentUserAuthoredMessage,
-				isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
-			}),
+			showCenterAgentStarterActions:
+				input.isCenterAgentDirectMessage && canSendMessage,
 		}
 	);
 	const wakeOutcomeIndex = useMemo(
@@ -1101,6 +1046,7 @@ function useSpaceConversationPresentationController(
 	return {
 		anchoredOutcomeNoticesBySourceSignalId,
 		canSendMessage,
+		canUploadFiles,
 		composerContext,
 		composerSendBlocked,
 		composerTargetName,
@@ -1485,6 +1431,7 @@ function useSpaceConversationNavigationController(input: {
 		conversationAutoScroll,
 		conversationDefaultScrollPosition,
 		conversationScrollElement,
+		followLatest: conversationPosition.followLatest,
 		highlightedSignalId,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
@@ -1695,9 +1642,9 @@ function ConversationJumpButton(input: {
 		<MessageScrollerButton
 			aria-label="Jump to latest message"
 			behavior={shouldReduceMotion ? "auto" : "smooth"}
-			className="z-20 min-h-11 min-w-11 gap-1.5 rounded-full border border-border bg-background/95 px-3 text-foreground shadow-md backdrop-blur-sm hover:bg-muted"
+			className="z-20 rounded-full border border-border bg-popover/60 p-0 text-foreground shadow-xs backdrop-blur-sm hover:bg-popover/80 dark:bg-popover/60 dark:hover:bg-popover/80"
 			direction="end"
-			size="icon-lg"
+			size="icon"
 			type="button"
 			variant="secondary"
 		>
@@ -1927,6 +1874,7 @@ function SpaceConversationTopOverlay(input: {
 }
 
 function SpaceComposerSection(input: {
+	canUploadFiles: boolean;
 	canSendMessage: boolean;
 	composerContext: SpaceComposerConversationKind;
 	composerSendBlocked: boolean;
@@ -1951,6 +1899,7 @@ function SpaceComposerSection(input: {
 						onSubmit: input.submitComposer,
 					}}
 					availability={{
+						canUploadFiles: input.canUploadFiles,
 						canSendMessage: input.canSendMessage,
 						fileLimitReached: panel.composerFileLimitReached,
 						isSendingMessage: panel.isSendingMessage,
@@ -1976,6 +1925,9 @@ function SpaceComposerSection(input: {
 					}}
 					presentation={{ errorClassName: "mt-3" }}
 					slots={{
+						beforePrimaryAction: (
+							<SpaceComposerActiveWakes placement="conversation" />
+						),
 						beforeInput: (
 							<ComposerReplyBanner
 								onClear={panel.onClearComposerReplyTo}
@@ -2398,104 +2350,6 @@ function resolveConversationEntryKey(entry: SpaceConversationEntry): string {
 	return entry.kind === "conversation_compaction" ? entry.id : entry.run.id;
 }
 
-function CenterAgentDirectMessageIntro(input: {
-	computerSetupContext?: CenterAgentComputerSetupContext;
-	disabled: boolean;
-	isPersonalContext: boolean;
-	onSelectStarterAction: (prompt: string) => Promise<void>;
-	onStartComputerSetup: () => void;
-	showStarterActions: boolean;
-	showStarterComputerSetup: boolean;
-}) {
-	const organization = useOptionalAppOrganization()?.currentOrganization;
-	const organizationHeading = organization
-		? `What should we work on in ${organization.name}?`
-		: "What should we work on?";
-	let starterContent: ReactNode = null;
-	if (input.showStarterComputerSetup && input.computerSetupContext) {
-		starterContent = (
-			<CenterAgentComputerSetupCard
-				context={input.computerSetupContext}
-				target={{ kind: "computer_setup", mode: "setup" }}
-			/>
-		);
-	} else if (input.showStarterActions) {
-		starterContent = (
-			<CenterAgentStarterActions
-				disabled={input.disabled}
-				onConnectComputer={input.onStartComputerSetup}
-				onSelect={input.onSelectStarterAction}
-				showAgentLogos={!input.isPersonalContext}
-			/>
-		);
-	}
-
-	return (
-		<div
-			className="mx-auto flex min-h-80 w-full max-w-3xl flex-col items-center justify-center py-12"
-			data-center-agent-direct-message-intro=""
-		>
-			<div className="flex w-full flex-col items-center gap-4">
-				<div className="flex h-20 items-center justify-center text-foreground">
-					<OpenMeldLetterLogoStrong
-						ariaLabel="OpenMeld O logo"
-						pointerTracking="viewport"
-						size={10}
-					/>
-				</div>
-				<h2 className="flex flex-wrap items-center justify-center gap-x-2 gap-y-3 text-center font-medium text-2xl text-foreground leading-relaxed">
-					{input.isPersonalContext ? (
-						<>
-							<span>How should we work with your</span>
-							<MagnifyingDock
-								aria-label="Codex, Claude Code, Grok Build, OpenCode, and Cursor"
-								className="items-center gap-0 -space-x-3 px-1"
-								magnification={1.3}
-								role="group"
-							>
-								{[
-									"codex",
-									"claude-code",
-									"grok-build",
-									"opencode",
-									"cursor",
-								].map((agentId, index) => (
-									<MagnifyingDockItem
-										className="h-9 min-h-9 w-9 min-w-9 justify-center"
-										key={agentId}
-										style={{ zIndex: 5 - index }}
-										visualClassName="origin-center"
-									>
-										<Tooltip>
-											<TooltipTrigger
-												aria-label={formatLocalAgentDisplayName(agentId)}
-												className="flex size-9 items-center justify-center rounded-sm p-0 leading-none outline-none focus-visible:ring-2 focus-visible:ring-ring"
-											>
-												<LocalAgentLogo
-													agentId={agentId}
-													className="size-9 rounded-sm"
-													variant="tile"
-												/>
-											</TooltipTrigger>
-											<TooltipContent>
-												{formatLocalAgentDisplayName(agentId)}
-											</TooltipContent>
-										</Tooltip>
-									</MagnifyingDockItem>
-								))}
-							</MagnifyingDock>
-							<span>?</span>
-						</>
-					) : (
-						organizationHeading
-					)}
-				</h2>
-				<div className="mt-4 w-full">{starterContent}</div>
-			</div>
-		</div>
-	);
-}
-
 type ConversationBubbleRunInput = {
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
@@ -2704,7 +2558,15 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 				const isLastGroupedRow = index === input.run.items.length - 1;
 
 				return (
-					<MessageScrollerItem key={item.id} messageId={item.id}>
+					<MessageScrollerItem
+						className={
+							item.activeWakeProgress
+								? "[content-visibility:visible]"
+								: undefined
+						}
+						key={item.id}
+						messageId={item.id}
+					>
 						<Message
 							align={messageAlign}
 							className={resolveSpaceMessageRunLayoutClassName({
@@ -2880,10 +2742,6 @@ function ConversationBubbleContent(input: {
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
 			{input.answerProgressStatus}
-			<SpaceActiveWakeSource
-				item={input.item}
-				onJumpToMessage={parent.onJumpToMessage}
-			/>
 			<SpaceMessageInteractionSource
 				source={input.item.centerAgentInteractionSource}
 			/>
@@ -3266,6 +3124,7 @@ function renderConversationMessageFooter(input: {
 		<SpaceMessageFooter
 			addressingTargets={addressingTargets}
 			align={input.messageAlign}
+			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={
 				messageDetailsItem
 					? {

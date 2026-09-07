@@ -102,6 +102,11 @@
         "FlueCenterAgentAgent",
         "AgentComputer"
       ]
+    },
+    {
+      "tag": "v2_flue_sessions",
+      "deleted_classes": ["FlueRegistry", "FlueCenterAgentAgent"],
+      "new_sqlite_classes": ["FlueCenterAgentV2Agent"]
     }
   ],
   "env": {
@@ -252,7 +257,7 @@
       ],
       "vars": {
         "OPENMELD_WORKER_ENVIRONMENT": "stg",
-        "OPENMELD_CONNECTORS_BASE_URL": "",
+        "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.staging.openmeld.ai",
         "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID": "e74a33891b4c7a16b1fe853c41011f52",
         "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID": "openmeld-remote-agent-prod",
         "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS": "openrouter",

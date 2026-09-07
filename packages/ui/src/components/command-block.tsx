@@ -3,6 +3,7 @@
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import type * as React from "react";
 import { useCallback, useEffect, useState } from "react";
+import { ScrollArea } from "#fluid/scroll-area";
 import { resolveStatusToneStrongTextClassName } from "#lib/status-tone";
 import { cn } from "#lib/utils";
 
@@ -77,12 +78,14 @@ function CommandBlock({
         onClick={handleCopy}
         type="button"
       >
-        <code
-          className="min-w-0 overflow-x-auto whitespace-nowrap font-mono text-foreground text-sm leading-6"
-          data-slot="command-block-code"
-        >
-          {command}
-        </code>
+        <ScrollArea className="min-w-0" orientation="horizontal">
+          <code
+            className="whitespace-nowrap font-mono text-foreground text-sm leading-6"
+            data-slot="command-block-code"
+          >
+            {command}
+          </code>
+        </ScrollArea>
         <span
           aria-hidden="true"
           className={cn(

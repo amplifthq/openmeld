@@ -8,9 +8,9 @@ import { IDBKeyRange, indexedDB } from "fake-indexeddb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { computerFileAccessQueryKeys } from "#/query/connect/computer-file-access";
 import { createCurrentComputerToolbarDisplaySnapshot } from "#/query/connect/current-computer-toolbar-display-snapshot";
-import { organizationAppConnectionQueryKeys } from "#/query/organizations/app-connections";
 import { centerAgentQueryKeys } from "#/query/organizations/center-agent";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { organizationPluginConnectionQueryKeys } from "#/query/organizations/plugin-connections";
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-snapshot";
 import { spaceQueryKeys } from "#/query/spaces/status";
@@ -633,7 +633,7 @@ describe("BrowserQueryPersistenceController", () => {
 			queryClient: sourceQueryClient,
 		});
 
-		const profile = createProfileFixture("profile-a", "Felix");
+		const profile = createProfileFixture("profile-a", "Félix 🎉");
 		const organizationSpaces = createOrganizationSpacesFixture(
 			"organization-a",
 			[{ name: "Launch", spaceId: "space-a" }],
@@ -678,14 +678,14 @@ describe("BrowserQueryPersistenceController", () => {
 			organizationSpaces
 		);
 		sourceQueryClient.setQueryData(
-			organizationAppConnectionQueryKeys.statusSummary("organization-a"),
+			organizationPluginConnectionQueryKeys.statusSummary("organization-a"),
 			{
 				connectedServices: ["github", "linear"],
 				organizationId: "organization-a",
 			}
 		);
 		sourceQueryClient.setQueryData(
-			organizationAppConnectionQueryKeys.catalog("organization-a"),
+			organizationPluginConnectionQueryKeys.catalog("organization-a"),
 			{
 				connections: [{ ownerDisplayName: "Must Not Persist" }],
 				currentUserId: "private-user-id",
@@ -738,7 +738,7 @@ describe("BrowserQueryPersistenceController", () => {
 					scopeId: "organization-a",
 					scopeKind: "organization",
 				}),
-				organizationAppConnectionQueryKeys.statusSummary("organization-a")
+				organizationPluginConnectionQueryKeys.statusSummary("organization-a")
 			),
 		]);
 		const accountPayload = await store
@@ -761,6 +761,7 @@ describe("BrowserQueryPersistenceController", () => {
 		expect(organizationPayload).not.toContain("Must Not Persist");
 		expect(organizationPayload).not.toContain("private-user-id");
 		sourceController.deactivate();
+		diagnostics.length = 0;
 
 		const restoredQueryClient = createQueryClient();
 		const restoredController = createBrowserQueryPersistenceController({
@@ -775,6 +776,18 @@ describe("BrowserQueryPersistenceController", () => {
 			ownerAccountId: "account-a",
 			queryClient: restoredQueryClient,
 		});
+		for (const [scopeKind, payload] of [
+			["account", accountPayload],
+			["organization", organizationPayload],
+		] as const) {
+			expect(diagnostics).toContainEqual(
+				expect.objectContaining({
+					event: "restore_hit",
+					scopeKind,
+					sizeBytes: new TextEncoder().encode(payload ?? "").byteLength,
+				})
+			);
+		}
 
 		expect(
 			restoredQueryClient.getQueryData(
@@ -803,7 +816,7 @@ describe("BrowserQueryPersistenceController", () => {
 		).toBeUndefined();
 		expect(
 			restoredQueryClient.getQueryData(
-				organizationAppConnectionQueryKeys.statusSummary("organization-a")
+				organizationPluginConnectionQueryKeys.statusSummary("organization-a")
 			)
 		).toEqual({
 			connectedServices: ["github", "linear"],
@@ -811,12 +824,12 @@ describe("BrowserQueryPersistenceController", () => {
 		});
 		expect(
 			restoredQueryClient.getQueryState(
-				organizationAppConnectionQueryKeys.statusSummary("organization-a")
+				organizationPluginConnectionQueryKeys.statusSummary("organization-a")
 			)?.isInvalidated
 		).toBe(true);
 		expect(
 			restoredQueryClient.getQueryData(
-				organizationAppConnectionQueryKeys.catalog("organization-a")
+				organizationPluginConnectionQueryKeys.catalog("organization-a")
 			)
 		).toBeUndefined();
 		expect(

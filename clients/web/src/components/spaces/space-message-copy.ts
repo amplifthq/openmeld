@@ -142,6 +142,9 @@ export async function copySpaceTimelineItem(input: {
 	openMeldProfileId?: string;
 	organizationSlug?: string;
 }): Promise<SpaceMessageCopyResult> {
+	if (isSpaceMessageCopyPending(input.item)) {
+		return "unavailable";
+	}
 	const api = input.organizationSlug
 		? createOrganizationScopedWebSpaceApi({
 				openMeldProfileId: input.openMeldProfileId,
@@ -174,6 +177,13 @@ export async function copySpaceTimelineItem(input: {
 			}),
 		text: input.item.text,
 	});
+}
+
+export function isSpaceMessageCopyPending(item: SpaceTimelineItem): boolean {
+	return (
+		item.text.trim().length === 0 &&
+		Boolean(item.files?.some((file) => file.isLocal))
+	);
 }
 
 export function copySpaceTimelineItemWithFeedback(input: {

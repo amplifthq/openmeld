@@ -165,7 +165,7 @@ export function resolveRemoteAgentRoutineExternalWriteBlock(
     status: ROUTINE_EXTERNAL_WRITE_UNSUPPORTED_REASON_CODE,
     unsupported: {
       requiredMessage:
-        "This Routine skipped the external write because it is configured to use connected Apps and Channels as read-only sources.",
+        "This Routine skipped the external write because it is configured to use connected Plugins and Channels as read-only sources.",
     },
   };
 }

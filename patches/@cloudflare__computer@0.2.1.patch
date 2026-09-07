@@ -1,0 +1,185 @@
+diff --git a/dist/index.js b/dist/index.js
+index 68b728218a7a86764d78c96c0f72cdb02b249204..0e7b8ed34f2d92e59645c17228373b2571c6da36 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1,5 +1,5 @@
+ import { n as runArtifactsCLI, r as ArtifactError, t as createArtifact } from "./shared-D5E8i96P.js";
+-import { t as WorkspaceRuntime } from "./shared-kgWICmfl.js";
++import { t as WorkspaceRuntime, decodeCommandEvents } from "./shared-kgWICmfl.js";
+ import { i as isWorkspaceTransportFailure, n as WorkspaceTransportError, r as isWorkspacePreDispatchTransportFailure, t as WorkspacePreDispatchTransportError } from "./shared-D6R1zh4N.js";
+ import { n as WORKSPACE_EGRESS_URL_HEADER, t as WORKSPACE_EGRESS_TOKEN_HEADER } from "./shared-Bzxmpfrh.js";
+ import { createHash } from "node:crypto";
+@@ -3300,7 +3300,7 @@ function decodeFrame(frame) {
+ function decodeRuntimeEvents(source) {
+ 	const decoder = new TextDecoder();
+ 	let buffered = "";
+-	return source.pipeThrough(new TransformStream({
++	return decodeCommandEvents(source, {
+ 		transform(chunk, controller) {
+ 			buffered += decoder.decode(chunk, { stream: true });
+ 			const lines = buffered.split("\n");
+@@ -3311,7 +3311,7 @@ function decodeRuntimeEvents(source) {
+ 			buffered += decoder.decode();
+ 			if (buffered.trim()) controller.enqueue(decodeFrame(JSON.parse(buffered)));
+ 		}
+-	}));
++	});
+ }
+ //#endregion
+ //#region src/sh.ts
+@@ -3959,6 +3959,8 @@ function resumeToAfter(resume) {
+ }
+ function withPostPull(source, sync, runtimeId) {
+ 	const reader = source.getReader();
++	let sourceDone = false;
++	let cancelled = false;
+ 	let resolveOutcome;
+ 	const outcome = new Promise((resolve) => {
+ 		resolveOutcome = resolve;
+@@ -3968,12 +3970,15 @@ function withPostPull(source, sync, runtimeId) {
+ 			async pull(controller) {
+ 				try {
+ 					const next = await reader.read();
++					if (cancelled) return;
+ 					if (!next.done) {
+ 						controller.enqueue(next.value);
+ 						return;
+ 					}
++					sourceDone = true;
+ 					reader.releaseLock();
+ 					const pulled = await runPostPull(sync, runtimeId);
++					if (cancelled) return;
+ 					resolveOutcome(pulled);
+ 					controller.close();
+ 				} catch (error) {
+@@ -3994,8 +3999,9 @@ function withPostPull(source, sync, runtimeId) {
+ 				}
+ 			},
+ 			async cancel(reason) {
++				cancelled = true;
+ 				try {
+-					await reader.cancel(reason);
++					if (!sourceDone) await reader.cancel(reason);
+ 				} finally {
+ 					reader.releaseLock();
+ 					resolveOutcome({
+@@ -5246,6 +5252,9 @@ async function rebuildExecHandle(remote, known = {}) {
+ 	let claimed;
+ 	let resultPromise;
+ 	let reader;
++	let readerPromise;
++	let cancelled = false;
++	const openReader = () => readerPromise ??= Promise.resolve(remote.stream()).then((source) => reader = decodeRuntimeEvents(source).getReader());
+ 	const stream = new ReadableStream({
+ 		pull: async (controller) => {
+ 			if (claimed === "result") {
+@@ -5254,12 +5263,14 @@ async function rebuildExecHandle(remote, known = {}) {
+ 			}
+ 			if (reader === void 0) {
+ 				claimed = "stream";
+-				reader = decodeRuntimeEvents(await remote.stream()).getReader();
++				await openReader();
+ 			}
++			if (cancelled) return;
+ 			try {
+ 				const activeReader = reader;
+ 				if (!activeReader) throw new Error("runtime stream reader was not initialized");
+ 				const { value, done } = await activeReader.read();
++				if (cancelled) return;
+ 				if (done) {
+ 					activeReader.releaseLock();
+ 					reader = void 0;
+@@ -5268,22 +5279,21 @@ async function rebuildExecHandle(remote, known = {}) {
+ 				}
+ 				controller.enqueue(value);
+ 			} catch (error) {
++				if (cancelled) return;
+ 				reader?.releaseLock();
+ 				reader = void 0;
+ 				controller.error(error);
+ 			}
+ 		},
+ 		cancel: async (reason) => {
+-			const activeReader = reader;
+-			reader = void 0;
+-			if (!activeReader) {
+-				dispose();
+-				return;
+-			}
++			cancelled = true;
++			let activeReader;
+ 			try {
++				activeReader = await openReader();
+ 				await activeReader.cancel(reason);
+ 			} finally {
+-				activeReader.releaseLock();
++				reader = void 0;
++				activeReader?.releaseLock();
+ 				dispose();
+ 			}
+ 		}
+diff --git a/dist/shared-kgWICmfl.js b/dist/shared-kgWICmfl.js
+index 03cabafe5fc18a37f0963aae4f7456b4d48ae958..63bbf57eb32559480fc0421c628513c930483ca4 100644
+--- a/dist/shared-kgWICmfl.js
++++ b/dist/shared-kgWICmfl.js
+@@ -84,11 +84,12 @@ function wrapModuleHandle(runtime, backend, id, source, encoding, resultMayUseSo
+ 		},
+ 		async cancel(reason) {
+ 			sourceCancelled = true;
+-			if (reader) try {
+-				await reader.cancel(reason);
++			const activeReader = reader;
++			reader = void 0;
++			if (activeReader) try {
++				await activeReader.cancel(reason);
+ 			} finally {
+-				reader.releaseLock();
+-				reader = void 0;
++				activeReader.releaseLock();
+ 			}
+ 			else await source.cancel(reason);
+ 		}
+@@ -169,7 +170,7 @@ function transformModuleEvents(source, encoding) {
+ 		stdoutMeta = void 0;
+ 		stderrMeta = void 0;
+ 	};
+-	return source.pipeThrough(new TransformStream({
++	return decodeCommandEvents(source, {
+ 		transform(event, controller) {
+ 			if (event.name === "stdout" || event.name === "stderr") {
+ 				if (event.name === "stdout") stdoutMeta = {
+@@ -190,7 +191,33 @@ function transformModuleEvents(source, encoding) {
+ 			}
+ 		},
+ 		flush: flushPending
+-	}));
++	});
++}
++export function decodeCommandEvents(source, decoder) {
++	const reader = source.getReader();
++	let cancelled = false;
++	return new ReadableStream({
++		async pull(controller) {
++			try {
++				const next = await reader.read();
++				if (cancelled) return;
++				if (next.done) {
++					decoder.flush(controller);
++					reader.releaseLock();
++					controller.close();
++				} else decoder.transform(next.value, controller);
++			} catch (error) {
++				if (cancelled) return;
++				reader.releaseLock();
++				controller.error(error);
++			}
++		},
++		async cancel(reason) {
++			cancelled = true;
++			try { await reader.cancel(reason); }
++			finally { reader.releaseLock(); }
++		}
++	}, { highWaterMark: 0 });
+ }
+ async function drainModuleResult(events, encoding, setReader, sync) {
+ 	const stdout = [];

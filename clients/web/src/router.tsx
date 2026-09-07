@@ -11,6 +11,7 @@ import {
 	reportClientApplicationError,
 	setApplicationErrorRouteReader,
 } from "./lib/observability/application-error-client";
+import { installPerformanceReporting } from "./lib/observability/performance-client";
 import { resolveAppQueryPersistenceController } from "./query/persistence/app-query-persistence";
 import { routeTree } from "./routeTree.gen";
 
@@ -41,6 +42,7 @@ export function getRouter(options?: { isServer?: boolean }) {
 	});
 
 	if (typeof window !== "undefined" && options?.isServer !== true) {
+		installPerformanceReporting(router);
 		setApplicationErrorRouteReader(
 			() => router.state.matches.at(-1)?.routeId ?? null
 		);

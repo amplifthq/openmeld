@@ -11,12 +11,12 @@ import {
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import {
-	APPS,
-	LARK_CHANNEL_IDENTITY,
-	SLACK_CHANNEL_IDENTITY,
-} from "#/components/organizations/app-catalog";
 import { AppLogo } from "#/components/organizations/app-logo";
+import {
+	LARK_CHANNEL_IDENTITY,
+	PLUGINS,
+	SLACK_CHANNEL_IDENTITY,
+} from "#/components/organizations/plugin-catalog";
 import type { CompleteOnboardingState } from "./complete-onboarding-state";
 import { OnboardingDemoLayout, OpenMeldMark } from "./onboarding-demo-layout";
 
@@ -37,7 +37,7 @@ export function CompleteOnboardingDemo(input: {
 	const appLabel =
 		input.state.appNames.length > 0
 			? formatDemoNames(input.state.appNames)
-			: "Apps";
+			: "Plugins";
 	const localAgentLabel =
 		input.state.localAgentNames.length > 0
 			? formatDemoNames(input.state.localAgentNames)
@@ -211,7 +211,7 @@ function ChannelIcon(input: { name: string | undefined }) {
 }
 
 function ConnectedAppIcon(input: { name: string | undefined }) {
-	const app = APPS.find((candidate) => candidate.name === input.name);
+	const app = PLUGINS.find((candidate) => candidate.name === input.name);
 	if (app) {
 		return <AppLogo app={app} size="sm" />;
 	}
