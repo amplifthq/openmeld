@@ -46,7 +46,8 @@ const commandSchema = variant("action", [
   strictObject({
     action: literal("poll"),
     key: pipe(string(), minLength(1)),
-    after: optional(pipe(number(), integer(), minValue(0))),
+    // Computer may emit a fractional cursor when flushing partial UTF-8.
+    after: optional(pipe(number(), minValue(0))),
     waitSeconds: optional(pipe(number(), integer(), minValue(0), maxValue(20))),
   }),
   strictObject({ action: literal("stop"), key: pipe(string(), minLength(1)) }),
@@ -62,7 +63,7 @@ const commandToolSchema = strictObject({
   timeoutSeconds: optional(
     pipe(number(), integer(), minValue(1), maxValue(3600))
   ),
-  after: optional(pipe(number(), integer(), minValue(0))),
+  after: optional(pipe(number(), minValue(0))),
   waitSeconds: optional(pipe(number(), integer(), minValue(0), maxValue(20))),
 });
 
@@ -370,6 +371,7 @@ export async function readCommandSlice(
   };
   let timer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
+  let exitSequence: number | undefined;
   const deadline = new Promise<null>((resolve, reject) => {
     timer = setTimeout(() => resolve(null), waitMs);
     if (signal) {
@@ -383,10 +385,8 @@ export async function readCommandSlice(
   });
   try {
     for (;;) {
-      const next =
-        result.exitCode === null
-          ? await Promise.race([reader.read(), deadline])
-          : await reader.read();
+      const next = await Promise.race([reader.read(), deadline]);
+      signal?.throwIfAborted();
       if (next === null) {
         break;
       }
@@ -397,17 +397,20 @@ export async function readCommandSlice(
           );
         }
         result.status = "completed";
+        result.after = exitSequence ?? result.after;
         break;
       }
-      result.after = next.value.seq;
       if (next.value.name === "stdout" || next.value.name === "stderr") {
+        result.after = next.value.seq;
         const name = next.value.name;
         result[name] = (result[name] + next.value.value).slice(
           -MAX_OUTPUT_CHARS
         );
       } else if (next.value.name === "exit") {
         result.exitCode = next.value.code;
-        // Drain through close so the SDK completes its post-command file sync.
+        exitSequence = next.value.seq;
+        // Close confirms post-command file sync. Until then, keep the cursor
+        // before exit so a bounded poll can replay that receipt and retry sync.
       }
     }
     return result;
@@ -416,9 +419,12 @@ export async function readCommandSlice(
     if (onAbort) {
       signal?.removeEventListener("abort", onAbort);
     }
-    await reader.cancel();
-    reader.releaseLock();
-    handle[Symbol.dispose]();
+    try {
+      await reader.cancel();
+    } finally {
+      reader.releaseLock();
+      handle[Symbol.dispose]();
+    }
   }
 }
 
