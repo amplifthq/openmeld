@@ -6791,50 +6791,6 @@ describe("OpenMeld Core", () => {
     observer.close(1000, "done");
   });
 
-  it("does not let an ordinary user forge durable Center Agent Task references", async () => {
-    const spaceId = await createSpace();
-    const text = "I created a Task that does not exist.";
-    const postResponse = await fetchWithOpenMeldAuth(
-      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "signal.text",
-          data: {
-            text,
-            meta: {
-              centerAgentTaskReferences: [{ taskId: "forged-task-1" }],
-            },
-          },
-        }),
-      }
-    );
-
-    expect(postResponse.status).toBe(200);
-    const posted = parseEnvelope(await postResponse.json());
-    if (!isTextSignalEnvelope(posted)) {
-      throw new Error("Expected signal.text envelope from POST /signals");
-    }
-    expect(posted.data.meta?.centerAgentTaskReferences).toBeUndefined();
-
-    const historyResponse = await fetchWithOpenMeldAuth(
-      `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`
-    );
-    expect(historyResponse.status).toBe(200);
-    const history = (await historyResponse.json()) as {
-      signals?: SignalEnvelope[];
-    };
-    const persisted = history.signals?.find(
-      (signal) => signal.type === "signal.text" && signal.data.text === text
-    );
-    expect(
-      persisted?.type === "signal.text"
-        ? persisted.data.meta?.centerAgentTaskReferences
-        : undefined
-    ).toBeUndefined();
-  });
-
   it("preserves signal replyTo across HTTP post, websocket live, and stored history", async () => {
     const spaceId = await createSpace();
     const observer = await openSpaceSocket(spaceId, {
@@ -8191,42 +8147,18 @@ describe("OpenMeld Core", () => {
     expect(posted.profile?.profileId).toBe(
       rpcContext.actorContext.openMeldProfileId
     );
-    expect(posted.data?.meta?.centerAgentTaskReferences).toEqual([
-      { taskId: "task-direct-rpc-1" },
-    ]);
 
     const listed = await stub.rpcListSignals({
       spaceId,
       context: rpcContext,
     });
-    expect(
-      listed.signals.some(
-        (signal) =>
-          signal.type === "signal.text" &&
-          signal.data?.text === "hello from direct do rpc" &&
-          signal.data.meta?.centerAgentTaskReferences?.[0]?.taskId ===
-            "task-direct-rpc-1"
-      )
-    ).toBe(true);
     expect(listed.nextCursor).toBeNull();
 
     const historyResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`
     );
     expect(historyResponse.status).toBe(200);
-    const history = (await historyResponse.json()) as {
-      signals?: SignalEnvelope[];
-    };
-    const persistedTaskReply = history.signals?.find(
-      (signal) =>
-        signal.type === "signal.text" &&
-        signal.data.text === "hello from direct do rpc"
-    );
-    expect(
-      persistedTaskReply?.type === "signal.text"
-        ? persistedTaskReply.data.meta?.centerAgentTaskReferences
-        : undefined
-    ).toEqual([{ taskId: "task-direct-rpc-1" }]);
+    expect(await historyResponse.json()).toHaveProperty("signals");
 
     const patchedCursor = await stub.rpcPatchCursor({
       spaceId,

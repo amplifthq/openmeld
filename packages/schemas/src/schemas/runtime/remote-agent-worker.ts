@@ -21,10 +21,6 @@ import {
   openMeldRuntimeProfileIdSchema,
 } from "../protocol/profile";
 import {
-  CENTER_AGENT_TASK_REFERENCE_MAX_COUNT,
-  centerAgentTaskReferenceSchema,
-} from "../protocol/signal";
-import {
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   spaceMessageAttachmentSchema,
   spaceMessageAttachmentsSchema,
@@ -90,11 +86,6 @@ export const remoteAgentConversationContinuityEntrySourceSchema =
       kind: z.literal("message_channel_message"),
       messageId: nonEmptyStringSchema.max(256),
       provider: z.enum(["feishu", "lark", "slack"]),
-    }),
-    z.strictObject({
-      eventId: nonEmptyStringSchema.max(256),
-      kind: z.literal("center_agent_task_event"),
-      taskId: nonEmptyStringSchema.max(256),
     }),
   ]);
 
@@ -181,15 +172,6 @@ export const remoteAgentRuntimeConversationSchema = z.strictObject({
   generation: z.number().int().nonnegative(),
   id: nonEmptyStringSchema.max(REMOTE_AGENT_RUNTIME_CONVERSATION_ID_MAX_CHARS),
 });
-
-export const REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX =
-  "center-agent-task:";
-
-export function buildRemoteAgentCenterAgentTaskConversationId(
-  taskId: string
-): string {
-  return `${REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX}${nonEmptyStringSchema.parse(taskId)}`;
-}
 
 export const REMOTE_AGENT_STREAM_DELTA_MAX_CHARS = 1024 as const;
 
@@ -284,7 +266,6 @@ export const remoteAgentWorkerAdmissionRejectionCodeSchema = z.enum([
   "remote_agent.conversation_history_limit_exceeded",
   "remote_agent.routine_identity_mismatch",
   "remote_agent.member_research_identity_mismatch",
-  "remote_agent.center_agent_task_identity_mismatch",
   "remote_agent.turn_envelope_identity_mismatch",
 ]);
 
@@ -400,23 +381,6 @@ export const remoteAgentWorkerSubmitTurnRequestV2Schema = z.strictObject({
   modelRoute: centerAgentModelRouteSchema,
 });
 
-export const remoteAgentWorkerConversationIdentitySchema = z.discriminatedUnion(
-  "kind",
-  [
-    z.strictObject({
-      kind: z.literal("center_agent_task"),
-      taskId: nonEmptyStringSchema,
-    }),
-  ]
-);
-
-export const remoteAgentWorkerSubmitTurnRequestV3Schema = z.strictObject({
-  v: z.literal(3),
-  ...remoteAgentWorkerSubmitTurnRequestShape,
-  conversationIdentity: remoteAgentWorkerConversationIdentitySchema,
-  modelRoute: centerAgentModelRouteSchema,
-});
-
 export const remoteAgentWorkerSubmitTurnRequestV4Schema = z
   .strictObject({
     v: z.literal(4),
@@ -424,8 +388,6 @@ export const remoteAgentWorkerSubmitTurnRequestV4Schema = z
     conversationId: nonEmptyStringSchema.max(
       REMOTE_AGENT_LOGICAL_CONVERSATION_ID_MAX_CHARS
     ),
-    conversationIdentity:
-      remoteAgentWorkerConversationIdentitySchema.optional(),
     continuityContext:
       remoteAgentConversationContinuityContextSchema.optional(),
     modelRoute: centerAgentModelRouteSchema,
@@ -478,7 +440,6 @@ export const remoteAgentWorkerSubmitTurnRequestSchema = z.discriminatedUnion(
   [
     remoteAgentWorkerSubmitTurnRequestV1Schema,
     remoteAgentWorkerSubmitTurnRequestV2Schema,
-    remoteAgentWorkerSubmitTurnRequestV3Schema,
     remoteAgentWorkerSubmitTurnRequestV4Schema,
   ]
 );
@@ -881,10 +842,6 @@ export const remoteAgentStreamDeltaCallbackResponseSchema = z.union([
 export const remoteAgentCoreCallbackBodySchema = z.union([
   z.strictObject({
     ...remoteAgentCoreCallbackIdentitySchema,
-    centerAgentTaskReferences: z
-      .array(centerAgentTaskReferenceSchema)
-      .max(CENTER_AGENT_TASK_REFERENCE_MAX_COUNT)
-      .optional(),
     conversationCompaction: conversationCompactionMarkerSchema.optional(),
     navigationTarget: openMeldNavigationTargetSchema.optional(),
     status: z.literal("completed").optional(),
@@ -927,10 +884,6 @@ export const routineWorkflowContinuationEventPayloadSchema =
 
 export const remoteAgentCoreCompletedCallbackBodySchema = z.strictObject({
   ...remoteAgentCoreCallbackIdentitySchema,
-  centerAgentTaskReferences: z
-    .array(centerAgentTaskReferenceSchema)
-    .max(CENTER_AGENT_TASK_REFERENCE_MAX_COUNT)
-    .optional(),
   conversationCompaction: conversationCompactionMarkerSchema.optional(),
   navigationTarget: openMeldNavigationTargetSchema.optional(),
   status: z.literal("completed"),

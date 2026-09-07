@@ -302,7 +302,6 @@ function InboxKindIcon(input: { item: InboxItem }): ReactNode {
 			return <ChatCircleTextIcon aria-hidden="true" className="size-4" />;
 		case "agent_reply":
 		case "agent_interaction":
-		case "center_agent_task":
 		case "center_agent_update":
 			return <RobotIcon aria-hidden="true" className="size-4" />;
 		case "document_review":

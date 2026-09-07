@@ -163,7 +163,7 @@ describe("remote agent system prompt", () => {
       "state the exact observation time and what remains unknown"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "A historical OpenMeld Task record never proves current repository, deployment, or external-system state"
+      "Historical records do not prove current external-system state"
     );
   });
 
@@ -328,21 +328,6 @@ describe("remote agent system prompt", () => {
     );
     expect(prompt).toContain(
       "Coordination may observe one exact task in another Space while the eventual Center Agent continuation returns through the originating conversation's native delivery destination."
-    );
-  });
-
-  it("treats an explicit Task request as a binding work-surface choice", () => {
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "An explicit request for a new or dedicated Task is a binding work-surface requirement"
-    );
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "create that Task before doing the requested work"
-    );
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "Never complete the requested work inline or substitute Chat or a Space"
-    );
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "Web, an OpenMeld Space, Slack, the OpenMeld CLI, or another Message Channel"
     );
   });
 

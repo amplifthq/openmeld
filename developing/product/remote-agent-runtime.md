@@ -6,7 +6,7 @@
   the two runtime families, the Remote Agent (OpenMeld-operated Center Agent
   runtime) MVP on the Flue harness, the native delivery contract, the
   capability tiers, Space reply streaming, Center Agent memory integration,
-  Center Agent Task and Routine execution, and the expansion path — so agents
+  Center Agent session and Routine execution, and the expansion path — so agents
   can evolve the Remote Agent without re-deriving strategy or breaking the
   execution architecture.
 - Read this when: You are implementing or reviewing the Remote Agent (native
@@ -18,8 +18,6 @@
   reversals in `developing/decisions.md` in the same PR.
 - Do not use this for: Center Agent identity/designation/permission semantics
   (`developing/product/organizations-and-center-agent.md` owns them),
-  Center Agent Task product semantics
-  (`developing/product/center-agent-tasks.md` owns them),
   Routine product semantics or scheduling
   (`developing/product/center-agent-routines.md` owns them),
   Direct Message Space semantics (`developing/product/space-collaboration.md`
@@ -1211,7 +1209,7 @@ execution, capability discovery, and Code Mode. Whenever that catalog includes
 progressive discovery and Code Mode, every tool-capable primary model receives
 the same stable provider bootstrap: `codemode`, the always-direct capability
 search and describe tools, the three generic Connected App tools, and the
-bounded read-only member and Center Agent Task list/detail tools, plus the
+bounded read-only member tools, plus the
 authorized foundational Computer tools (`read`, `write`, `edit`, `bash`, `grep`,
 `glob`, and `computer_command`). Computer operations remain directly usable in
 a fresh chat without first requiring a discovery call; the provider filter
@@ -1393,13 +1391,10 @@ empty new generation and never turns Core into a second transcript owner.
 For a Space turn, the Space owner resolves the exact dispatch's frozen main or
 thread placement and returns only bounded text Signals before that dispatch's
 source Signal; the generic main-timeline reader is not a continuity source for
-a thread. For a Center Agent Task turn, the Task owner returns the bounded typed
-event projection before the trigger event and owns the canonical actor mapping;
-Remote Agent must not query the private Task event table or reinterpret Task
-actors itself.
+a thread.
 Concurrent callers converge on the same active generation. Runtime generations
 are invisible implementation details: the member remains in the same DM,
-Space, provider conversation, or Task and is never asked to start a new one.
+Space, or provider conversation and is never asked to start a new one.
 
 Dispatch diagnostics resolve the exact runtime conversation from the native
 delivery's frozen worker request. They never address a Durable Object from the
@@ -1563,7 +1558,7 @@ surface adopts official features where they are free**:
     active for that turn inside an isolated Dynamic Worker. Every tool-capable
     primary model receives the same direct bootstrap: capability search,
     describe, the three generic Connected App tools, the bounded read-only
-    member and Center Agent Task list/detail tools, and `codemode`. The model
+    member tools, and `codemode`. The model
     chooses whether to use those foundational reads or what else to search and
     load; the worker does not select business tools by matching the user's
     wording or by applying a model-specific tool-count rule. Every other
@@ -1592,10 +1587,8 @@ surface adopts official features where they are free**:
     future second hosted agent gets its own computer. The computer does not
     mount an OpenMeld host or user workstation. Files persist across
     conversations, Durable Object restarts, and deploys under the fixed layout
-    `/computer/{org,projects,spaces,tasks,routines,home}`. Ordinary Space turns
-    work under `/computer/spaces/<spaceId>`, each Center Agent Task keeps one
-    working set under `/computer/tasks/<taskId>` across attempts and
-    continuations, and each Routine keeps one working set under
+    `/computer/{org,projects,spaces,routines,home}`. Ordinary Space turns
+    work under `/computer/spaces/<spaceId>`, and each Routine keeps one working set under
     `/computer/routines/<routineId>` across runs. The isolation boundary is the
     Organization, not the Space: cross-Space continuity on one computer is the
     point, and disclosure control lives on the output side (which Space the
@@ -2219,27 +2212,6 @@ native thread and root/reply identifiers separately when the provider exposes
 both; the adapter chooses the provider-supported reply target and never assumes
 that a thread id is interchangeable with a root message id.
 
-For a first-class Center Agent Task conversation, the instance key is derived
-from the canonical Organization and Task id, never from the mutable browser URL,
-display title, originating provider thread, or one linked execution handle. Core
-admits the exact Task id and `contextRevision`. The Task event stream remains the
-durable user-facing conversation record; the Flue session is the private runtime
-context carrier and must not become a second Task transcript or status writer.
-
-A Task turn may originate from Web, Space, Slack, Lark, or Feishu. Core freezes
-the exact authorized Task event and, when native provider publication is
-required, one typed destination locator. The worker produces one result for the
-canonical Task event. Core records that result once and the provider adapter may
-deliver that same event through one fenced publication operation. Opening the
-Task in Web never reruns the model or reconstructs a second result.
-
-Turns inside one Task are serialized by the Task conversation instance.
-Independent Tasks and the ordinary Center Agent Chat conversation may run in
-parallel. A newer Stop, superseding instruction, access change, or Task revision
-fences a stale callback before publication or further side effects. Detailed
-Task context, access, conflict, Stop, Retry, and Recovery semantics are owned by
-`developing/product/center-agent-tasks.md`.
-
 Turns within one conversation are serialized by that conversation's instance;
 conversations across Spaces and external provider threads run in parallel.
 Conversational context lives in the instance's Flue session (DO SQLite).
@@ -2819,10 +2791,6 @@ posture, in force from day one:
 - Routine Web, CLI, and interactive Center Agent surfaces are owned by
   `developing/product/center-agent-routines.md`; this document owns only their
   Remote Agent execution and tool-runtime boundary.
-- Task Chat, board, detail, compact-window, and Inbox semantics are owned by
-  `developing/product/center-agent-tasks.md`; this document owns the Task turn's
-  Remote Agent session, native execution, callback, cancellation, and provider
-  publication boundary.
 
 ## Expansion Path
 

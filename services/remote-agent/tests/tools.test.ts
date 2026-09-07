@@ -37,7 +37,6 @@ import {
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
-  createSubmitTurnRequestV2,
   TEST_CENTER_AGENT_MODEL_ROUTE,
   TEST_NOW_MS,
   TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
@@ -60,7 +59,6 @@ const AGENT_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 const FALLBACK_AGENT_PROFILE_ID = "agt_44444444-4444-4444-8444-444444444444";
 const CREATED_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/u;
-const ISO_INSTANT_PREFIX_PATTERN = /^\d{4}-\d{2}-\d{2}T/u;
 const oldCoreAgentProfileCreationConfigurationSchema = strictObject({
   agentControllerCollaborationMode: nullable(string()),
   agentControllerPermissionMode: nullable(string()),
@@ -312,53 +310,9 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(tools.map((tool) => tool.name)).toEqual([
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
     ]);
-    expect(tools.map((tool) => tool.name)).toContain("openmeld_create_task");
-  });
-
-  it("keeps an explicit Task request authoritative even for quick work", () => {
-    const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: {},
-      storage: new InMemoryDurableObjectStorage(),
-    });
-    const createTaskTool = tools.find(
-      (tool) => tool.name === "openmeld_create_task"
+    expect(tools.map((tool) => tool.name)).not.toContain(
+      "openmeld_create_task"
     );
-
-    expect(createTaskTool?.description).toContain(
-      "An explicit Task request is binding even when the work is quick"
-    );
-    expect(createTaskTool?.description).toContain(
-      "Only keep a quick action in the current conversation when the requester did not choose a Task"
-    );
-  });
-
-  it("rejects nested Task creation from a Center Agent Task conversation", async () => {
-    const v2Request = createSubmitTurnRequestV2();
-    const request: RemoteAgentWorkerSubmitTurnRequest = {
-      ...v2Request,
-      conversationId: "center-agent-task:task-one",
-      conversationIdentity: {
-        kind: "center_agent_task",
-        taskId: "task-one",
-      },
-      v: 3,
-    };
-    const centerAgentCreateTask = vi.fn();
-    const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentCreateTask },
-      storage: await createStorageWithPendingContext(request),
-    });
-
-    await expect(
-      executeTool(tools, "openmeld_create_task", {
-        goal: "Create another Task.",
-        operationId: "nested-task",
-        title: "Nested Task",
-      })
-    ).rejects.toThrow(
-      "A Center Agent Task cannot create another Task. Complete the current Task directly."
-    );
-    expect(centerAgentCreateTask).not.toHaveBeenCalled();
   });
 
   it("rechecks an anonymous member's exact provider delivery before every allowed tool", async () => {
@@ -860,43 +814,6 @@ describe("remote agent OpenMeld tool catalog", () => {
     await expect(
       executeTool(tools, "openmeld_read_slack_workspace_directory", {})
     ).resolves.toEqual(unavailable);
-  });
-
-  it("allows a verified Lark-created Task to request attention in its canonical Task conversation", async () => {
-    const baseRequest = createSubmitTurnRequest();
-    const request = createSubmitTurnRequest({
-      conversationId: "center-agent-task:task-one",
-      turnEnvelope: {
-        ...baseRequest.turnEnvelope,
-        trigger: {
-          connectionId: "lark-connection-one",
-          conversationId: "lark:lark-connection-one:chat-one:message-one",
-          provider: "lark",
-          source: "message_channel",
-        },
-      },
-    });
-    const response = {
-      importance: "normal" as const,
-      instruction:
-        "This request is now in Needs action. Tell the member exactly what response is needed, and do not describe it as urgent.",
-      organizationId: "org_123",
-      requestId: ACK.submissionId,
-    };
-    const centerAgentRequestMemberAttention = vi.fn(async () => response);
-    const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentRequestMemberAttention },
-      storage: await createStorageWithPendingContext(request),
-    });
-
-    await expect(
-      executeTool(tools, "openmeld_request_member_attention", {
-        impact: "response_needed",
-        prompt: "Choose whether we should ship today or tomorrow.",
-        title: "Release timing needed",
-      })
-    ).resolves.toEqual(response);
-    expect(centerAgentRequestMemberAttention).toHaveBeenCalledOnce();
   });
 
   it("rejects private-detail flags before reading a member's Service state", async () => {
@@ -3488,61 +3405,6 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
-  it("reads canonical Center Agent Tasks separately from local controller tasks", async () => {
-    const request = createSubmitTurnRequest();
-    const task = centerAgentTask();
-    const centerAgentListTasks = vi.fn(async () => ({
-      nextCursor: null,
-      organizationId: request.organizationId,
-      tasks: [task],
-    }));
-    const centerAgentGetTask = vi.fn(async () => ({
-      attempts: [],
-      events: [],
-      task,
-    }));
-    const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentGetTask, centerAgentListTasks },
-      storage: await createStorageWithPendingContext(request),
-    });
-
-    await expect(
-      executeTool(tools, "openmeld_list_center_agent_tasks", {
-        limit: 10,
-        status: "queued",
-      })
-    ).resolves.toMatchObject({
-      observedAt: expect.stringMatching(ISO_INSTANT_PREFIX_PATTERN),
-      tasks: [{ id: "task-1" }],
-    });
-    expect(centerAgentListTasks).toHaveBeenCalledWith({
-      context: expectedHostedCenterAgentContext(
-        request,
-        "openmeld_list_center_agent_tasks"
-      ),
-      limit: 10,
-      speakerMember: { memberId: "member_123", userId: "user_1" },
-      status: "queued",
-    });
-
-    await expect(
-      executeTool(tools, "openmeld_get_center_agent_task", {
-        taskId: "task-1",
-      })
-    ).resolves.toMatchObject({
-      observedAt: expect.stringMatching(ISO_INSTANT_PREFIX_PATTERN),
-      task: { id: "task-1" },
-    });
-    expect(centerAgentGetTask).toHaveBeenCalledWith({
-      context: expectedHostedCenterAgentContext(
-        request,
-        "openmeld_get_center_agent_task"
-      ),
-      speakerMember: { memberId: "member_123", userId: "user_1" },
-      taskId: "task-1",
-    });
-  });
-
   it("registers an exact task watch without polling or reducing it to an Agent Profile", async () => {
     const request = createSubmitTurnRequest();
     const centerAgentWatchAgentTask = vi.fn(async () => ({
@@ -5681,38 +5543,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
 
   return [
     {
-      expectedPayload: {
-        goal: "Compare competitor onboarding and summarize the findings.",
-        idempotencyKey: "competitor-onboarding-research",
-        speakerMember: { memberId: "member_123", userId: "user_1" },
-        submissionId: ACK.submissionId,
-        title: "Research competitor onboarding",
-      },
-      input: {
-        goal: "Compare competitor onboarding and summarize the findings.",
-        operationId: "competitor-onboarding-research",
-        title: "Research competitor onboarding",
-      },
-      response: {
-        task: {
-          activeAttemptGeneration: 1,
-          createdAt: ISO_NOW,
-          finishedAt: null,
-          goal: "Compare competitor onboarding and summarize the findings.",
-          id: "task-1",
-          organizationId: "org_123",
-          origin: { kind: "open_meld" },
-          requesterUserId: "user_1",
-          status: "running",
-          title: "Research competitor onboarding",
-          updatedAt: ISO_NOW,
-          version: 1,
-        },
-      },
-      rpcName: "centerAgentCreateTask",
-      toolName: "openmeld_create_task",
-    },
-    {
       expectedPayload: { includeMemberLastActiveAt: true },
       input: {},
       response: organizationDirectoryResponse(),
@@ -6660,26 +6490,6 @@ function organizationMemberListResponse() {
     nextCursor: "next-page",
     organizationId: "org_123",
     totalMembers: 2,
-  };
-}
-
-function centerAgentTask() {
-  return {
-    activeAttemptGeneration: null,
-    createdAt: ISO_NOW,
-    finishedAt: null,
-    goal: "Review the launch blocker.",
-    id: "task-1",
-    organizationId: "org_123",
-    origin: { kind: "open_meld" as const },
-    outcome: null,
-    phase: "queued" as const,
-    requesterUserId: "user_1",
-    state: "active" as const,
-    status: "queued" as const,
-    title: "Review launch blocker",
-    updatedAt: ISO_NOW,
-    version: 1,
   };
 }
 

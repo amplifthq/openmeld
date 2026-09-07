@@ -2,7 +2,6 @@ import type { InboxItem } from "@openmeld/schemas/types";
 import {
 	buildOrganizationAgentCreationRequestsPath,
 	buildOrganizationCenterAgentChatPath,
-	buildOrganizationCenterAgentTaskPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationComputersPath,
 	buildOrganizationDocumentPath,
@@ -81,14 +80,6 @@ export function buildInboxItemSourceNavigation(input: {
 			return {
 				href: buildOrganizationCenterAgentChatPath(input.orgSlug, {
 					focusSignalId: target.signalId,
-				}),
-				openInNewTab: false,
-			};
-		case "center_agent_task":
-			return {
-				href: buildOrganizationCenterAgentTaskPath({
-					orgSlug: input.orgSlug,
-					taskId: target.taskId,
 				}),
 				openInNewTab: false,
 			};

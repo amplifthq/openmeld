@@ -8,79 +8,41 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox service", () => {
-  it("reads Task items from the Task-owned access projection instead of source metadata", async () => {
+  it("excludes retired Task rows from reads and counts without deleting other Inbox items", async () => {
     const harness = createInboxHarness();
     try {
-      const item = await ensureInboxItem({
-        candidate: {
-          attention: "update",
-          contextLabel: "Center Agent Task",
-          importance: "normal",
-          kind: "center_agent_task",
-          occurredAtMs: 1000,
-          organizationId: "org_one",
-          preview: "The research is complete.",
-          recipientUserId: "user_one",
-          sourceKey: "task_one:event_one",
-          sourceKind: "center_agent_task_event",
-          sourceTarget: {
-            kind: "center_agent_task",
-            taskId: "task_one",
-          },
-          title: "Research onboarding",
-        },
-        db: harness.db,
-        nowMs: 2000,
+      const retired = await seedItem(harness.db, {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+        sourceKey: "retired",
       });
-      harness.run({
-        params: ["task_one", "org_one", "user_one"],
-        sql: `
-          INSERT INTO center_agent_tasks (
-            id,
-            organization_id,
-            requester_user_id,
-            idempotency_key,
-            title,
-            goal,
-            origin_kind,
-            status,
-            active_attempt_generation,
-            version,
-            created_at_ms,
-            updated_at_ms,
-            finished_at_ms
-          ) VALUES (?, ?, ?, 'create:task_one', 'Research onboarding',
-            'Research onboarding', 'open_meld', 'queued', NULL, 1, 1000, 1000, NULL)
-        `,
+      const current = await seedItem(harness.db, {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+        sourceKey: "current",
       });
-      harness.run({
-        params: ["task_one", "org_one", "user_one"],
-        sql: `
-          INSERT INTO center_agent_task_authorized_readers (
-            task_id,
-            organization_id,
-            user_id,
-            access_scope,
-            updated_at_ms
-          ) VALUES (?, ?, ?, 'requester_private', 2000)
-        `,
-      });
-
+      await harness.db
+        .prepare(
+          "UPDATE inbox_items SET kind = 'center_agent_task', source_kind = 'center_agent_task_event', source_target_json = ? WHERE id = ?"
+        )
+        .bind(
+          JSON.stringify({ kind: "center_agent_task", taskId: "retired" }),
+          retired.itemId
+        )
+        .run();
+      const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
       await expect(
-        createInboxService({ db: harness.db }).list({
-          organizationId: "org_one",
-          recipientUserId: "user_one",
-        })
-      ).resolves.toMatchObject({
-        items: [
-          {
-            id: item.itemId,
-            sourceTarget: {
-              kind: "center_agent_task",
-              taskId: "task_one",
-            },
-          },
-        ],
+        service.get({ ...identity, itemId: retired.itemId })
+      ).rejects.toMatchObject({ code: "inbox.item_not_found" });
+      const response = await service.list({ ...identity, view: "all" });
+      expect(response.items.map((item) => item.id)).toEqual([current.itemId]);
+      await expect(service.summary(identity)).resolves.toMatchObject({
+        totalUnreadCount: 1,
+        unresolvedActionCount: 1,
       });
     } finally {
       harness.close();
