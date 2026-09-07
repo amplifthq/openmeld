@@ -9,13 +9,14 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
-import type { ReactNode } from "react";
+import { type ReactNode, useContext } from "react";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	CenterAgentComputerSetupCard,
 	type CenterAgentComputerSetupContext,
 } from "./center-agent-computer-setup-card";
+import { CenterAgentIntroContext } from "./center-agent-intro-context";
 import { CenterAgentStarterActions } from "./center-agent-starter-actions";
 import { PersonalHomeOrganizationHint } from "./personal-home-organization-hint";
 
@@ -30,6 +31,25 @@ export function CenterAgentDirectMessageIntro(input: {
 	showStarterComputerSetup: boolean;
 }) {
 	const organization = useOptionalAppOrganization()?.currentOrganization;
+	const presentation = useContext(CenterAgentIntroContext);
+	if (presentation === "home") {
+		return input.showStarterActions ? (
+			<div
+				className="mx-auto w-full max-w-3xl space-y-4 py-5"
+				data-center-agent-direct-message-intro=""
+			>
+				<h2 className="text-center font-medium text-lg">
+					What would you like to work on?
+				</h2>
+				<CenterAgentStarterActions
+					disabled={input.disabled}
+					onConnectComputer={input.onStartComputerSetup}
+					onSelect={input.onSelectStarterAction}
+					showComputerSetup={false}
+				/>
+			</div>
+		) : null;
+	}
 	const organizationHeading = organization
 		? `What should we work on in ${organization.name}?`
 		: "What should we work on?";

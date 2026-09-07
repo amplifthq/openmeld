@@ -43,6 +43,7 @@ import {
 } from "react";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { WorkspaceCanvas } from "#/components/canvas/workspace-canvas";
+import { CenterAgentIntroContext } from "#/components/spaces/center-agent-intro-context";
 import { resolveSpaceActiveWakePresentation } from "#/components/spaces/space-active-wake-presentation";
 import { SpaceReadTrackingContext } from "#/components/spaces/space-read-tracking-context";
 import type { SpaceView } from "#/components/spaces/space-view";
@@ -284,7 +285,7 @@ function HomeWorkspace() {
 					(right, item) => Math.max(right, item.x + item.width + 32),
 					0
 				),
-				y: 0,
+				y: 280,
 				width: kind === "space" ? 760 : 620,
 				height: kind === "welcome" ? 240 : 640,
 			};
@@ -396,250 +397,259 @@ function HomeWorkspace() {
 					Your layout couldn’t be saved in this browser.
 				</p>
 			)}
-			<HomeContext value={context}>
-				<section
-					aria-label="Home workspace"
-					className="relative min-h-0 flex-1"
-					data-home-canvas
-					ref={canvasRegion}
-				>
-					{restored && (
-						<WorkspaceCanvas<HomeNode>
-							controls={
-								<Panel position="bottom-left">
-									<div className="flex items-center gap-1 rounded-md border bg-background p-1">
-										<Button
-											aria-label="Zoom out"
-											onClick={() => instance.current?.zoomOut()}
-											size="icon-sm"
-											variant="ghost"
-										>
-											<MinusIcon />
-										</Button>
-										<Button
-											aria-label="Zoom in"
-											onClick={() => instance.current?.zoomIn()}
-											size="icon-sm"
-											variant="ghost"
-										>
-											<PlusIcon />
-										</Button>
-										<Button
-											onClick={() =>
-												instance.current?.fitView({
-													maxZoom: 0.8,
-													padding: 0.12,
-												})
-											}
-											size="sm"
-											variant="ghost"
-										>
-											<CornersOutIcon />
-											Reset view
-										</Button>
-									</div>
-								</Panel>
-							}
-							defaultViewport={layout.viewport ?? { x: 40, y: 24, zoom: 0.72 }}
-							edges={NO_EDGES}
-							nodes={nodes}
-							nodeTypes={nodeTypes}
-							onInit={(value) => {
-								instance.current = value;
-								if (!layout.viewport && canvasRegion.current) {
-									const bounds = canvasRegion.current.getBoundingClientRect();
-									const right = Math.max(
-										620,
-										...layout.cards.map((card) => card.x + card.width)
-									);
-									const bottom = Math.max(
-										640,
-										...layout.cards.map((card) => card.y + card.height)
-									);
-									const zoom = Math.max(
-										0.2,
-										Math.min(
-											0.8,
-											(bounds.width - 64) / right,
-											(bounds.height - 80) / bottom
-										)
-									);
-									value
-										.setViewport({
-											x: (bounds.width - right * zoom) / 2,
-											y: 24,
-											zoom,
-										})
-										.catch(console.error);
-								}
-							}}
-							onlyRenderVisibleElements={false}
-							onMoveEnd={(_event, viewport: Viewport) => saveViewport(viewport)}
-							onNodeDragStop={saveGeometry}
-							onNodesChange={(changes) => {
-								setNodes((current) => applyNodeChanges(changes, current));
-								if (
-									changes.some(
-										(change) =>
-											change.type === "dimensions" && change.resizing === false
-									)
-								) {
-									requestAnimationFrame(saveGeometry);
-								}
-							}}
-							zoomOnDoubleClick={false}
-						/>
-					)}
-					<Button
-						aria-label="Add widget"
-						className="absolute right-5 bottom-5 size-12 rounded-full shadow-sm"
-						onClick={() => setAdding(true)}
+			<CenterAgentIntroContext value="home">
+				<HomeContext value={context}>
+					<section
+						aria-label="Home workspace"
+						className="relative min-h-0 flex-1"
+						data-home-canvas
+						ref={canvasRegion}
 					>
-						<PlusIcon className="size-6" />
-					</Button>
-					{restored && !layout.cards.length && (
-						<div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-							<Button
-								className="pointer-events-auto"
-								onClick={() => setAdding(true)}
-							>
-								Add your first card
-							</Button>
-						</div>
-					)}
-				</section>
-				<Dialog onOpenChange={setAdding} open={adding}>
-					<DialogContent className="h-[min(760px,85dvh)] grid-rows-[auto_auto_minmax(0,1fr)] sm:max-w-5xl">
-						<DialogTitle>Add a widget</DialogTitle>
-						<DialogDescription>
-							Keep a conversation on your Home. Preview it here, then add it to
-							your desk.
-						</DialogDescription>
-						<div className="grid min-h-0 grid-cols-[160px_minmax(0,1fr)] gap-4 sm:grid-cols-[220px_minmax(0,1fr)]">
-							<div className="flex min-h-0 flex-col gap-2">
-								<Button
-									className="justify-start"
-									onClick={() => setPreviewId("center-agent")}
-									variant={previewId === "center-agent" ? "secondary" : "ghost"}
-								>
-									<ChatCircleTextIcon />
-									Center Agent
-								</Button>
-								<Input
-									aria-label="Find a Space"
-									onChange={(event) => setCardSearch(event.target.value)}
-									placeholder="Find a Space"
-									value={cardSearch}
-								/>
-								<ScrollArea className="min-h-0 flex-1">
-									{spaces
-										.filter(
-											(space) =>
-												!space.directMessageProfileIds &&
-												space.spaceName
-													.toLowerCase()
-													.includes(cardSearch.trim().toLowerCase())
-										)
-										.map((space) => (
+						{restored && (
+							<WorkspaceCanvas<HomeNode>
+								controls={
+									<Panel position="bottom-left">
+										<div className="flex items-center gap-1 rounded-md border bg-background p-1">
 											<Button
-												className="w-full justify-start"
-												key={space.spaceId}
-												onClick={() => setPreviewId(space.spaceId)}
-												variant={
-													previewId === space.spaceId ? "secondary" : "ghost"
-												}
+												aria-label="Zoom out"
+												onClick={() => instance.current?.zoomOut()}
+												size="icon-sm"
+												variant="ghost"
 											>
-												<HashIcon />
-												<span className="truncate">{space.spaceName}</span>
+												<MinusIcon />
 											</Button>
-										))}
-								</ScrollArea>
-								<Button
-									onClick={() => {
-										setAdding(false);
-										setCreatingSpace(true);
-									}}
-									variant="outline"
-								>
-									<PlusIcon />
-									Create a Space
-								</Button>
-							</div>
-							<div className="flex min-h-0 flex-col gap-3">
-								<SpaceReadTrackingContext value={false}>
-									<div
-										className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border"
-										inert
-									>
-										{previewId === "center-agent" ? (
-											<Suspense
-												fallback={<p className="p-4">Loading preview…</p>}
+											<Button
+												aria-label="Zoom in"
+												onClick={() => instance.current?.zoomIn()}
+												size="icon-sm"
+												variant="ghost"
 											>
-												<CenterAgentConversation
-													organizationId={currentOrganization.id}
-												/>
-											</Suspense>
-										) : (
-											(() => {
-												const space = spaces.find(
-													(item) => item.spaceId === previewId
-												);
-												return space ? (
-													<HomeConversation
-														accountProfiles={profilesQuery.data ?? []}
-														key={space.spaceId}
-														orgSlug={currentOrganization.slug}
-														profileId={space.openProfileId}
-														spaceId={space.spaceId}
-													/>
-												) : (
-													<p className="p-4">
-														Choose a Space to preview its conversation.
-													</p>
-												);
-											})()
-										)}
-									</div>
-								</SpaceReadTrackingContext>
-								<Button
-									onClick={() =>
-										previewId === "center-agent"
-											? add("center-agent")
-											: openSpace(previewId)
+												<PlusIcon />
+											</Button>
+											<Button
+												onClick={() =>
+													instance.current?.fitView({
+														maxZoom: 0.8,
+														padding: 0.12,
+													})
+												}
+												size="sm"
+												variant="ghost"
+											>
+												<CornersOutIcon />
+												Reset view
+											</Button>
+										</div>
+									</Panel>
+								}
+								defaultViewport={
+									layout.viewport ?? { x: 40, y: 24, zoom: 0.72 }
+								}
+								edges={NO_EDGES}
+								nodes={nodes}
+								nodeTypes={nodeTypes}
+								onInit={(value) => {
+									instance.current = value;
+									if (!layout.viewport && canvasRegion.current) {
+										const bounds = canvasRegion.current.getBoundingClientRect();
+										const right = Math.max(
+											620,
+											...layout.cards.map((card) => card.x + card.width)
+										);
+										const bottom = Math.max(
+											640,
+											...layout.cards.map((card) => card.y + card.height)
+										);
+										const zoom = Math.max(
+											0.2,
+											Math.min(
+												0.8,
+												(bounds.width - 64) / right,
+												(bounds.height - 80) / bottom
+											)
+										);
+										value
+											.setViewport({
+												x: (bounds.width - right * zoom) / 2,
+												y: 24,
+												zoom,
+											})
+											.catch(console.error);
 									}
+								}}
+								onlyRenderVisibleElements={false}
+								onMoveEnd={(_event, viewport: Viewport) =>
+									saveViewport(viewport)
+								}
+								onNodeDragStop={saveGeometry}
+								onNodesChange={(changes) => {
+									setNodes((current) => applyNodeChanges(changes, current));
+									if (
+										changes.some(
+											(change) =>
+												change.type === "dimensions" &&
+												change.resizing === false
+										)
+									) {
+										requestAnimationFrame(saveGeometry);
+									}
+								}}
+								zoomOnDoubleClick={false}
+							/>
+						)}
+						<Button
+							aria-label="Add widget"
+							className="absolute right-5 bottom-5 size-12 rounded-full shadow-sm"
+							onClick={() => setAdding(true)}
+						>
+							<PlusIcon className="size-6" />
+						</Button>
+						{restored && !layout.cards.length && (
+							<div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+								<Button
+									className="pointer-events-auto"
+									onClick={() => setAdding(true)}
 								>
-									<PlusIcon />
-									{layout.cards.some(
-										(card) =>
-											card.id ===
-											(previewId === "center-agent"
-												? previewId
-												: `space:${previewId}`)
-									)
-										? "Show on Home"
-										: "Add to Home"}
+									Add your first card
 								</Button>
 							</div>
-						</div>
-					</DialogContent>
-				</Dialog>
-				<Dialog onOpenChange={setCreatingSpace} open={creatingSpace}>
-					<DialogContent className="max-h-[85dvh] overflow-auto sm:max-w-2xl">
-						<DialogTitle className="sr-only">Create a Space</DialogTitle>
-						<Suspense fallback={<p>Loading…</p>}>
-							<WelcomeFirstRun
-								initialMode="create"
-								offerComputerSetup={false}
-								onOpenSpace={(spaceId) => {
-									setCreatingSpace(false);
-									openSpace(spaceId);
-								}}
-								showBack={false}
-							/>
-						</Suspense>
-					</DialogContent>
-				</Dialog>
-			</HomeContext>
+						)}
+					</section>
+					<Dialog onOpenChange={setAdding} open={adding}>
+						<DialogContent className="h-[min(760px,85dvh)] grid-rows-[auto_auto_minmax(0,1fr)] sm:max-w-5xl">
+							<DialogTitle>Add a widget</DialogTitle>
+							<DialogDescription>
+								Keep a conversation on your Home. Preview it here, then add it
+								to your desk.
+							</DialogDescription>
+							<div className="grid min-h-0 grid-cols-[160px_minmax(0,1fr)] gap-4 sm:grid-cols-[220px_minmax(0,1fr)]">
+								<div className="flex min-h-0 flex-col gap-2">
+									<Button
+										className="justify-start"
+										onClick={() => setPreviewId("center-agent")}
+										variant={
+											previewId === "center-agent" ? "secondary" : "ghost"
+										}
+									>
+										<ChatCircleTextIcon />
+										Center Agent
+									</Button>
+									<Input
+										aria-label="Find a Space"
+										onChange={(event) => setCardSearch(event.target.value)}
+										placeholder="Find a Space"
+										value={cardSearch}
+									/>
+									<ScrollArea className="min-h-0 flex-1">
+										{spaces
+											.filter(
+												(space) =>
+													!space.directMessageProfileIds &&
+													space.spaceName
+														.toLowerCase()
+														.includes(cardSearch.trim().toLowerCase())
+											)
+											.map((space) => (
+												<Button
+													className="w-full justify-start"
+													key={space.spaceId}
+													onClick={() => setPreviewId(space.spaceId)}
+													variant={
+														previewId === space.spaceId ? "secondary" : "ghost"
+													}
+												>
+													<HashIcon />
+													<span className="truncate">{space.spaceName}</span>
+												</Button>
+											))}
+									</ScrollArea>
+									<Button
+										onClick={() => {
+											setAdding(false);
+											setCreatingSpace(true);
+										}}
+										variant="outline"
+									>
+										<PlusIcon />
+										Create a Space
+									</Button>
+								</div>
+								<div className="flex min-h-0 flex-col gap-3">
+									<SpaceReadTrackingContext value={false}>
+										<div
+											className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border"
+											inert
+										>
+											{previewId === "center-agent" ? (
+												<Suspense
+													fallback={<p className="p-4">Loading preview…</p>}
+												>
+													<CenterAgentConversation
+														organizationId={currentOrganization.id}
+													/>
+												</Suspense>
+											) : (
+												(() => {
+													const space = spaces.find(
+														(item) => item.spaceId === previewId
+													);
+													return space ? (
+														<HomeConversation
+															accountProfiles={profilesQuery.data ?? []}
+															key={space.spaceId}
+															orgSlug={currentOrganization.slug}
+															profileId={space.openProfileId}
+															spaceId={space.spaceId}
+														/>
+													) : (
+														<p className="p-4">
+															Choose a Space to preview its conversation.
+														</p>
+													);
+												})()
+											)}
+										</div>
+									</SpaceReadTrackingContext>
+									<Button
+										onClick={() =>
+											previewId === "center-agent"
+												? add("center-agent")
+												: openSpace(previewId)
+										}
+									>
+										<PlusIcon />
+										{layout.cards.some(
+											(card) =>
+												card.id ===
+												(previewId === "center-agent"
+													? previewId
+													: `space:${previewId}`)
+										)
+											? "Show on Home"
+											: "Add to Home"}
+									</Button>
+								</div>
+							</div>
+						</DialogContent>
+					</Dialog>
+					<Dialog onOpenChange={setCreatingSpace} open={creatingSpace}>
+						<DialogContent className="max-h-[85dvh] overflow-auto sm:max-w-2xl">
+							<DialogTitle className="sr-only">Create a Space</DialogTitle>
+							<Suspense fallback={<p>Loading…</p>}>
+								<WelcomeFirstRun
+									initialMode="create"
+									offerComputerSetup={false}
+									onOpenSpace={(spaceId) => {
+										setCreatingSpace(false);
+										openSpace(spaceId);
+									}}
+									showBack={false}
+								/>
+							</Suspense>
+						</DialogContent>
+					</Dialog>
+				</HomeContext>
+			</CenterAgentIntroContext>
 		</AppFullWidthLayout>
 	);
 }
@@ -858,7 +868,7 @@ function HomeWelcome() {
 				.
 			</h2>
 			<p className="max-w-lg text-base text-muted-foreground">
-				Your team’s work, together on one desk.
+				Your work, together in one place.
 				<br />
 				Ask Center Agent for help, or chat with people and Agents in a Space.
 			</p>
