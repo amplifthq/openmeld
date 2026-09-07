@@ -44,6 +44,7 @@ import { SidebarRowAction } from "../app/sidebar-row-action";
 export const AgentProfileSidebarItem = memo(AgentProfileSidebarItemComponent);
 
 export function AgentProfileSidebarItemComponent(input: {
+	variant?: "sidebar" | "card";
 	agentControllerRef: string | null;
 	currentUserId: string;
 	index: number;
@@ -92,6 +93,7 @@ export function AgentProfileSidebarItemComponent(input: {
 				: resolveAvailabilityClassName(presentation.availabilityCategory);
 	}
 	const isOwner = input.profile.ownerUserId === input.currentUserId;
+	const cardStyle = resolveAgentCardStyle(input.variant);
 	const hasReducedProminence =
 		presentation.availabilityCategory === "offline" ||
 		presentation.availabilityCategory === "unavailable";
@@ -100,10 +102,10 @@ export function AgentProfileSidebarItemComponent(input: {
 		hasReducedProminence ? "text-muted-foreground" : null
 	);
 	const availabilityDescriptionId = `agent-profile-availability-${input.profile.openMeldProfileId}`;
-	const hasActions = Boolean(input.onToggleStar || input.onChat);
+	const hasActions = Boolean(input.onToggleStar ?? input.onChat);
 	return (
 		<FluidNavMenuItem
-			className="relative"
+			className={cn("relative", cardStyle.frame)}
 			index={input.index}
 			ref={input.drag?.ref}
 			style={input.drag?.style}
@@ -120,7 +122,8 @@ export function AgentProfileSidebarItemComponent(input: {
 					"h-auto min-w-0 items-start gap-1.5 py-1 text-left outline-none",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
-					input.isActive ? "text-sidebar-accent-foreground" : null
+					input.isActive ? "text-sidebar-accent-foreground" : null,
+					cardStyle.button
 				)}
 				data-profile-id={input.profile.openMeldProfileId}
 				onClick={() => {
@@ -136,7 +139,7 @@ export function AgentProfileSidebarItemComponent(input: {
 						hasReducedProminence ? "opacity-55 grayscale" : null
 					)}
 					profileId={input.profile.openMeldProfileId}
-					size={20}
+					size={cardStyle.avatarSize}
 				/>
 				<span className="flex min-w-0 flex-1 flex-col overflow-hidden">
 					<span
@@ -337,4 +340,14 @@ function resolveAvailabilityClassName(
 		default:
 			return "text-muted-foreground";
 	}
+}
+
+function resolveAgentCardStyle(variant: "sidebar" | "card" | undefined) {
+	return variant === "card"
+		? {
+				frame: "rounded-lg border border-border p-2",
+				button: "min-h-16 gap-3 p-2",
+				avatarSize: 28,
+			}
+		: { frame: "", button: "", avatarSize: 20 };
 }

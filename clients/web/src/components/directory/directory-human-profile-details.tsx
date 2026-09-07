@@ -94,6 +94,7 @@ export function DirectoryHumanProfileDetails(
 			) : null}
 
 			<DirectoryAgentProfilesSummary
+				manage={input.member.isCurrentUser}
 				modelCatalog={input.modelCatalog}
 				ownerName={input.member.name}
 				path={input.member.agentProfilesPath}

@@ -15,11 +15,11 @@ import type { AppShellAccount } from "#/components/app/app-shell-account";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
-	buildOrganizationAgentsPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationComputerPath,
 	buildOrganizationComputersPath,
 	buildOrganizationDocumentPath,
+	buildOrganizationPersonAgentsPath,
 } from "#/lib/organizations/organization-routes";
 import { buildAgentProfilePath } from "#/lib/profile-routes";
 import { buildSlackIdentityStartPath } from "#/lib/slack-oauth-start";
@@ -159,7 +159,7 @@ export function buildOrganizationHumanProfileRows(input: {
 			return {
 				agentProfiles,
 				agentProfilesPath: resolveAgentProfilesPath({
-					agentProfiles,
+					personId: humanProfile?.profileId ?? `member:${member.memberId}`,
 					orgSlug: input.orgSlug,
 				}),
 				avatarImageUrl: member.user.image,
@@ -242,7 +242,7 @@ export function buildPersonalHumanProfileRows(input: {
 			{
 				agentProfiles,
 				agentProfilesPath: resolveAgentProfilesPath({
-					agentProfiles,
+					personId: `member:${input.subjectUserId}`,
 					orgSlug: input.orgSlug,
 				}),
 				avatarImageUrl: null,
@@ -280,7 +280,7 @@ export function buildPersonalHumanProfileRows(input: {
 		{
 			agentProfiles,
 			agentProfilesPath: resolveAgentProfilesPath({
-				agentProfiles,
+				personId: profile.openMeldProfileId,
 				orgSlug: input.orgSlug,
 			}),
 			avatarImageUrl: profile.avatarUrl ?? null,
@@ -456,16 +456,10 @@ function sortAgentProfileSummaries(
 }
 
 function resolveAgentProfilesPath(input: {
-	agentProfiles: readonly DirectoryAgentProfileSummary[];
+	personId: string;
 	orgSlug: string;
 }): string {
-	const firstProfile = input.agentProfiles[0];
-	return firstProfile
-		? buildAgentProfilePath({
-				orgSlug: input.orgSlug,
-				profileId: firstProfile.id,
-			})
-		: buildOrganizationAgentsPath(input.orgSlug);
+	return buildOrganizationPersonAgentsPath(input);
 }
 
 export function resolveMissingPersonalHumanProfileMessage(

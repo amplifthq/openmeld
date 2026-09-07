@@ -180,9 +180,11 @@ export function DirectoryAgentProfilesSummary(input: {
 	profiles: readonly DirectoryAgentProfileSummary[];
 	status?: DirectoryProjectionStatus;
 	variant?: "detail" | "popover";
+	manage?: boolean;
 }) {
 	const status = input.status ?? "ready";
 	const isPopover = input.variant === "popover";
+	const detailLinkLabel = input.manage ? "Manage Agents" : "All Agents";
 	if (isPopover && (status !== "ready" || input.profiles.length === 0)) {
 		return null;
 	}
@@ -207,7 +209,7 @@ export function DirectoryAgentProfilesSummary(input: {
 				</div>
 				{showViewAll && input.path ? (
 					<DirectoryAgentsViewAllLink
-						label={isPopover ? "View all" : undefined}
+						label={isPopover ? "View all" : detailLinkLabel}
 						ownerName={input.ownerName}
 						path={input.path}
 					/>

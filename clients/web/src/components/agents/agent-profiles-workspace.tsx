@@ -7,26 +7,25 @@ import type {
 	ModelCatalog,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { ArrowLeftIcon, PlusIcon, RobotIcon } from "@phosphor-icons/react";
-import { type ReactNode, useState } from "react";
-import {
-	type AgentProfileSidebarGroup,
-	resolveAgentProfileSidebarGroups,
-} from "#/components/agents/agent-profile-sidebar-groups";
+import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
-import { ManagedAgentSidebar } from "./managed-agent-sidebar";
+import { AgentProfileSidebarItem } from "./agent-profile-sidebar-item";
 
 const AGENT_REQUESTS_DESCRIPTION =
 	"Approve requests for Agents you’re being asked to own, and track requests you sent.";
 
 export type AgentProfilesWorkspaceProps = {
+	canCreateAgent?: boolean;
+	person?: { id: string; name: string; path: string; agentsPath: string };
 	activeView: "agents" | "requests";
 	agentControllerRefByProfileId?: ReadonlyMap<string, string | null>;
 	currentUserId: string;
 	isOrganizationContext?: boolean;
 	filterControl?: ReactNode;
-	groupFilterIds?: readonly string[];
 	filterBadges?: ReactNode;
 	hasAnyProfiles?: boolean;
 	isSearchActive?: boolean;
@@ -55,87 +54,19 @@ export type AgentProfilesWorkspaceProps = {
 };
 
 export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
-	const groups = resolveAgentProfileSidebarGroups({
-		currentUserId: input.currentUserId,
-		operationalContextByProfileId: input.operationalContextByProfileId,
-		profiles: input.profiles,
-	});
-	if (input.profilesStatus === "ready") {
-		return (
-			<ReadyAgentProfilesWorkspace
-				groups={groups}
-				input={input}
-				key={input.profiles.length > 0 ? "has-profiles" : "no-profiles"}
-			/>
-		);
-	}
-	return (
-		<AgentProfilesWorkspaceFrame
-			groups={groups}
-			implicitSelectedProfileId={null}
-			input={input}
-		/>
-	);
-}
-
-function ReadyAgentProfilesWorkspace(input: {
-	groups: readonly AgentProfileSidebarGroup[];
-	input: AgentProfilesWorkspaceProps;
-}) {
-	const [implicitSelectedProfileId] = useState(
-		() =>
-			input.groups.flatMap((group) => group.profiles)[0]?.openMeldProfileId ??
-			null
-	);
-	return (
-		<AgentProfilesWorkspaceFrame
-			groups={input.groups}
-			implicitSelectedProfileId={implicitSelectedProfileId}
-			input={input.input}
-		/>
-	);
-}
-
-function AgentProfilesWorkspaceFrame(input: {
-	groups: readonly AgentProfileSidebarGroup[];
-	implicitSelectedProfileId: string | null;
-	input: AgentProfilesWorkspaceProps;
-}) {
-	const workspaceInput = input.input;
-	const orderedProfiles = input.groups.flatMap((group) => group.profiles);
-	const retainedImplicitProfileId = orderedProfiles.some(
-		(profile) => profile.openMeldProfileId === input.implicitSelectedProfileId
-	)
-		? input.implicitSelectedProfileId
-		: (orderedProfiles[0]?.openMeldProfileId ?? null);
-	const requestedProfileId =
-		workspaceInput.selectedProfileId ?? retainedImplicitProfileId;
-	const selectedProfile = requestedProfileId
-		? (orderedProfiles.find(
-				(profile) => profile.openMeldProfileId === requestedProfileId
-			) ?? null)
-		: (orderedProfiles[0] ?? null);
+	const workspaceInput = input;
+	const selectedProfile =
+		input.profiles.find(
+			(profile) => profile.openMeldProfileId === input.selectedProfileId
+		) ?? null;
 	const selectionMissing =
 		workspaceInput.selectedProfileId !== null && selectedProfile === null;
-	const activeProfileId =
-		workspaceInput.activeView === "agents"
-			? (selectedProfile?.openMeldProfileId ?? null)
-			: null;
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
 			initialOuterSidebarState={workspaceInput.initialSidebarStates?.outer}
-			mainSidebarContent={
-				<ManagedAgentSidebar
-					activeProfileId={activeProfileId}
-					groups={input.groups}
-					input={workspaceInput}
-				/>
-			}
-			showMainHeader={
-				orderedProfiles.length > 0 || workspaceInput.activeView === "requests"
-			}
 		>
+			<AgentWorkspaceHeader {...input} />
 			<AgentProfilesWorkspaceContent
 				input={workspaceInput}
 				selectedProfile={selectedProfile}
@@ -197,10 +128,61 @@ function AgentProfilesWorkspaceContent(input: {
 		return input.input.renderProfileDetail(input.selectedProfile);
 	}
 	return (
-		<>
+		<div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5 sm:px-6 lg:px-8">
 			{profilesController}
-			<AgentProfilesWorkspaceEmptyState input={input.input} />
-		</>
+			<div className="flex items-center gap-2">
+				<div className="max-w-sm flex-1">{input.input.searchControl}</div>
+				{input.input.filterControl}
+			</div>
+			{input.input.filterBadges}
+			{input.input.profiles.length > 0 ? (
+				<FluidNavMenu
+					activeValue={null}
+					aria-label="Agents"
+					className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:sm:grid-cols-2"
+				>
+					{input.input.profiles.map((profile, index) => (
+						<AgentProfileSidebarItem
+							agentControllerRef={
+								input.input.agentControllerRefByProfileId?.get(
+									profile.openMeldProfileId
+								) ?? null
+							}
+							currentUserId={input.input.currentUserId}
+							index={index}
+							isActive={false}
+							key={profile.openMeldProfileId}
+							modelCatalog={input.input.modelCatalog ?? null}
+							onSelectProfile={input.input.onSelectProfile}
+							operationalContext={
+								input.input.operationalContextByProfileId?.get(
+									profile.openMeldProfileId
+								) ?? null
+							}
+							profile={profile}
+							readiness={
+								input.input.readinessByProfileId.get(
+									profile.openMeldProfileId
+								) ?? null
+							}
+							readinessErrorMessage={
+								input.input.readinessErrorByProfileId?.get(
+									profile.openMeldProfileId
+								) ?? null
+							}
+							readinessIsPending={
+								input.input.readinessPendingProfileIds?.has(
+									profile.openMeldProfileId
+								) ?? false
+							}
+							variant="card"
+						/>
+					))}
+				</FluidNavMenu>
+			) : (
+				<AgentProfilesWorkspaceEmptyState input={input.input} />
+			)}
+		</div>
 	);
 }
 
@@ -222,7 +204,7 @@ function AgentRequestsWorkspace(input: { input: AgentProfilesWorkspaceProps }) {
 						variant="outline"
 					>
 						<ArrowLeftIcon aria-hidden="true" data-icon="inline-start" />
-						Back to Agents
+						Back to Team
 					</Button>
 				</div>
 			</header>
@@ -237,6 +219,13 @@ function AgentProfilesWorkspaceEmptyState(input: {
 	const isFiltered = input.input.hasAnyProfiles === true;
 	const isSearchActive = input.input.isSearchActive === true;
 	if (!(isSearchActive || isFiltered)) {
+		if (input.input.canCreateAgent === false) {
+			return (
+				<div className="py-12 text-center text-muted-foreground text-sm">
+					No Agents yet.
+				</div>
+			);
+		}
 		return (
 			<div className="grid min-h-full flex-1 place-items-center px-6 py-12 sm:px-10">
 				<div className="flex w-full max-w-md flex-col items-center text-center">
@@ -275,7 +264,7 @@ function AgentProfilesWorkspaceEmptyState(input: {
 		"Choose another Wake availability filter to see more Agents.";
 	if (isSearchActive) {
 		title = "No Agents found";
-		description = "Try another name, owner, Controller, or model.";
+		description = "Try another name, Controller, or model.";
 	}
 	return (
 		<div className="grid min-h-full place-items-center px-6 py-12 text-center">
@@ -284,5 +273,55 @@ function AgentProfilesWorkspaceEmptyState(input: {
 				<p className="text-muted-foreground text-sm">{description}</p>
 			</div>
 		</div>
+	);
+}
+
+function AgentWorkspaceHeader(input: AgentProfilesWorkspaceProps) {
+	return (
+		<>
+			{input.person ? (
+				<div className="mx-auto w-full max-w-5xl px-4 pt-5 sm:px-6 lg:px-8">
+					<Link
+						className="inline-flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground"
+						to={
+							input.selectedProfileId
+								? input.person.agentsPath
+								: input.person.path
+						}
+					>
+						<ArrowLeftIcon aria-hidden="true" />
+						{input.selectedProfileId
+							? `${input.person.name}’s Agents`
+							: input.person.name}
+					</Link>
+					{!input.selectedProfileId && input.activeView === "agents" ? (
+						<header className="mt-5 flex flex-wrap items-center justify-between gap-3">
+							<h1 className="font-medium text-xl">
+								{input.person.name}’s Agents
+							</h1>
+							<div className="flex items-center gap-2">
+								{input.isOrganizationContext ? (
+									<Button
+										onClick={() => input.onViewChange("requests")}
+										variant="ghost"
+									>
+										Agent requests
+										{input.pendingRequestCount > 0
+											? ` (${input.pendingRequestCount})`
+											: ""}
+									</Button>
+								) : null}
+								{input.canCreateAgent !== false && input.hasAnyProfiles ? (
+									<Button onClick={input.onCreateAgent} size="sm">
+										<PlusIcon aria-hidden="true" />
+										Create Agent
+									</Button>
+								) : null}
+							</div>
+						</header>
+					) : null}
+				</div>
+			) : null}
+		</>
 	);
 }

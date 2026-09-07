@@ -1,6 +1,7 @@
 import {
 	buildOrganizationAgentsPath,
 	buildOrganizationPeoplePath,
+	buildOrganizationPersonPath,
 } from "./organizations/organization-routes";
 
 export function buildProfileHomeRoutes(orgSlug: string) {
@@ -26,8 +27,10 @@ export function buildHumanProfilePath(input: {
 	orgSlug: string;
 	profileId: string;
 }): string {
-	const params = new URLSearchParams({ profileId: input.profileId });
-	return `${buildOrganizationPeoplePath(input.orgSlug)}?${params.toString()}`;
+	return buildOrganizationPersonPath({
+		orgSlug: input.orgSlug,
+		personId: input.profileId,
+	});
 }
 
 export function buildProfilePath(input: {

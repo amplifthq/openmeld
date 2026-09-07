@@ -1,6 +1,5 @@
 import {
 	buildOrganizationAgentActivityPath,
-	buildOrganizationAgentsPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationDocumentsPath,
 	buildOrganizationInboxPath,
@@ -43,14 +42,9 @@ export function resolveAppNavigationItems(input: {
 			to: buildOrganizationDirectMessagesPath(input.orgSlug),
 		},
 		{
-			label: "People",
+			label: "Team",
 			section: "people",
 			to: buildOrganizationPeoplePath(input.orgSlug),
-		},
-		{
-			label: "Agents",
-			section: "agents",
-			to: buildOrganizationAgentsPath(input.orgSlug),
 		},
 		{
 			label: "Agent Activity",

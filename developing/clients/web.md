@@ -324,10 +324,9 @@ authorization.
 The rail places the current workspace switcher at the top and has no separate
 OpenMeld brand row or outer-rail account entry. Account management stays nested
 inside the workspace switcher. Its first four entries are flat, fixed
-primary actions and destinations; the remaining two product destinations stay
-in one user-collapsible group:
+primary actions and destinations in a flat list:
 
-- **New Agent** — opens `/o/{orgSlug}/agents/new`, a standalone creation page
+- **New Agent** — opens `/o/{orgSlug}/new-agent`, a standalone creation page
   with the primary rail and no Agent-list secondary sidebar. It reuses the
   existing creation flow without loading the organization-wide Agent status
   overview. Success opens the new Agent's detail; Cancel returns to Agents.
@@ -336,24 +335,18 @@ in one user-collapsible group:
 - **Home** — the current Organization's adaptive overview and product entry.
 - **Spaces** and **Direct Messages** — first-level destinations directly below
   Home.
-- **Team** — **People**, **Agents**.
+- **Team** — opens the people directory. Each person's profile owns their Agent list.
 
 **Projects**, **Documents**, and **Agent Activity** keep their canonical routes,
 pages, and contextual entry points but are temporarily absent from the primary
 rail while their future placement is redesigned. This interim navigation
 change does not retire, redirect, combine, or relocate those products.
 
-In the full rail, the **Team** group uses its heading as an accessible
-disclosure trigger and restores the browser's collapsed groups from the same
-browser-wide layout preference as the rail width and tier. **New Agent**,
-**Home**, **Spaces**, **Direct Messages**, and the bottom utility area never
-collapse. Compact and icon-only tiers keep every
-destination visible because those tiers do not render group headings or a
-disclosure trigger; returning to the full tier restores the remembered group
-state.
+Team is a single link in every rail tier, with no disclosure trigger or nested
+People/Agents children. Old saved Team collapse preferences do not hide it.
 
 The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
-**Direct Messages**, **People**, **Agents**. The product destinations are:
+**Direct Messages**, **Team**. The product destinations are:
 
 1. **Home** — the current Organization's concise overview. It leads with the
    designated Center Agent, then composes existing Agent Activity, Inbox, Tasks,
@@ -362,15 +355,11 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    canonical compact Center Agent conversation, and every other item links to
    its existing product home.
 2. **Spaces** — the current workspace's Space collaboration surface.
-   Spaces, Direct Messages, People, and Agents place their contextual lists
+   Spaces, Direct Messages, and People place their contextual lists
    below the fixed destinations in the Main Sidebar. Only these contextual
    lists scroll within one Fluid scrolling area; the header, primary entries,
-   and Team menu remain fixed. Team uses a collapsible parent menu button with
-   People and Agents as indented children, distinct from the content groups
-   below. When collapsed on People or Agents, the Team button shows a separator
-   followed by the selected child's icon and name. These pages do not
-   reset Team's expansion: it shares the Main Sidebar's persisted group
-   preference across route changes and browser reloads. These pages do not
+   and Team link remain fixed. People groups stay inside Team's contextual
+   region; a person's Agent list and detail use full-width content. These pages do not
    mount a secondary sidebar or a second mobile drawer.
    Existing list grouping, pinning, unread indicators, identities, and status
    projections are preserved. The former secondary headers and creation/invite
@@ -706,16 +695,16 @@ placeholder and return Artifacts to navigation only when it has real product
 content and passes the Use vs. Configure test.
 
 The product destinations that own a secondary sidebar are **Spaces**, **Direct
-Messages**, **People**, **Agents**, and **Agent Activity**. The Settings utility
+Messages**, **Team**, and **Agent Activity**. The Settings utility
 owns its own secondary sidebar. People uses its sidebar to find, organize and select a Human
 Profile or open a Direct Message; the selected Human Profile's complete detail is the canonical main
-content, including that person's Computers. Agents uses the same two-pane
-topology for owner-grouped selection and the selected Agent's complete detail.
+content, including that person's Computers. Each person's Agent list and Agent
+details use full-width content under that person's route, without an Agent sidebar.
 Center Agent is
 a full-width home: its primary work lives in the shared header and its lower-frequency
 capabilities and configuration live in one header menu.
 
-Each of those six route families owns one independent browser-persisted
+Each sidebar-owning route family owns one independent browser-persisted
 secondary-sidebar width. Child routes and selected records within a family
 share that width, as do different Organizations. The preference boundary is the
 stable route family, never the full pathname or a specific Organization, Space,
@@ -1247,7 +1236,7 @@ preference or onboarding surface.
 ### Retired and relocated surfaces
 
 **Directory** is retired as a user-facing container. Its People and Agent
-Profile leaves move to the first-level **People** and **Agents** homes. The
+Profile leaves live under **Team**, with Agents nested under their owners. The
 former `/o/{orgSlug}/directory`, `/directory/people`, `/directory/members`, and
 `/directory/agents` routes are redirect-only compatibility entries. They must
 not render a Directory header, Directory sidebar, or a second mutation surface.
@@ -1849,12 +1838,13 @@ opening a right drawer. The route preserves the selected `profileId`, so reload,
 back, and forward navigation return to the same person. The persistent detail
 hero presents the member email and join time as one muted metadata line, while
 the Organization role remains in the badge beside the member name. The detail
-owns an **Agents** section whose header keeps **All Agents** at the trailing
+owns an **Agents** section whose header keeps **Manage Agents** for the signed-in
+member and **All Agents** for other people at the trailing
 edge. Every ordinary Agent appears as a compact card with its avatar, name, and
 permission-scoped Controller and model summary when known. Cards stay in one
 horizontal row and the row scrolls inline when it overflows; selecting a card
-opens that exact Agent, while **All Agents** opens the first Agent in the
-member's owner group. The detail also owns Computers, Connected Channels,
+opens that exact Agent, while the section header link opens that person's full
+Agent list. The detail also owns Computers, Connected Channels,
 shared Profile details, and the permitted Profile Report, Learn about,
 **Chat with {member}**, inline edit, connect, or manage actions. **Chat with
 {member}** is the primary action and keeps the same compact button height as
@@ -1955,20 +1945,32 @@ not consume permanent main-content space. Personal workspaces keep the button's
 position but show the existing Organization guidance instead of pretending an
 invitation is available.
 
-Agents is a two-pane workspace that shares People’s shell geometry, responsive
-sidebar behavior, selection treatment, and content spacing. The secondary
-sidebar keeps **Create Agent** as its primary entry and, in an Organization,
-keeps one fixed **Agent requests** entry above the Agent groups. Its explanatory
+Team is one flat primary destination opening the People directory. Person details
+use `/o/:orgSlug/people/:personId`; their Agent list lives at
+`/o/:orgSlug/people/:personId/agents`, and a selected Agent lives at its
+`:agentId` child route. Both Agent pages retain Team as the selected destination.
+The list shows only that person's Agents, reuses the existing Agent card, and has
+an explicit back link to the person. Agent details reuse the existing detail
+surface and return to the person's list. Unknown or mismatched Agent IDs never
+select a different Agent. The list keeps search and availability filtering;
+owner grouping and the standalone Agent sidebar are removed.
+The list header exposes **Create Agent** for the signed-in member and
+**Agent requests** in Organization contexts. Its explanatory
 copy is **Approve requests for Agents you’re being asked to own, and track
 requests you sent.** A pending badge counts only the existing Core-owned Agent
 Profile Creation Request projection; Web never creates a parallel request
 state.
 
-**Create Agent** opens the route-backed create view in the right pane so reload,
+**Create Agent** opens the full-width `/o/:orgSlug/new-agent` view so reload,
 back, and forward preserve the user's location. Space, People, and other compact
 entry points use the dialog composition. Both surfaces use the same creation
-controller and generator components: local-Agent selection is the first
-decision, lower-frequency configuration stays under an inline **Advanced**
+controller and generator components: **Local Agent** is available, and
+**Remote Agent** is disabled with **Coming soon**. Local setup offers a connected
+computer's Agent or **Connect Computer**. A concrete local Agent and computer
+are required before continuation or creation; there is no **Choose later** path.
+Core rejects new Web creation requests without that target before creating an
+identity. Existing request retries and intentional CLI manual profiles retain
+their contracts. Lower-frequency configuration stays under an inline **Advanced**
 disclosure, and the editable generated name appears only in the final review.
 The standalone page uses the current step as its main heading rather than
 repeating a generic creation title. While local agents are loading, the heading
@@ -1997,15 +1999,10 @@ to the new `profileId`. The existing page stays in its checking state while the
 independent runtime overview catches up; it must not flash **Agent not found**
 or reuse a stale unavailable verdict for the new identity.
 
-The sidebar groups ordinary Agents by owner name. The signed-in member’s group
-is always first. Remaining owner groups put current work first, then interrupted
-or waiting work, then sort by the most recent Agent activity in that group.
-Within each group, working Agents come first, interrupted or waiting Agents
-follow, and the remaining Agents sort by the newer of `lastUsedAt` and
-`createdAt`. This keeps a just-created Agent at the top until it has real work
-activity. Missing or invalid recency sorts last; owner name, Agent name, and
-stable IDs break ties. Checking
-readiness and Wakeability never count as work activity. Each row shows the
+Legacy `/agents`, `/agents?profileId=...`, and `/agents/new` links redirect to
+the owner's list, the exact Agent child page, and the new creation page.
+Agent request links resolve to `/people/agent-requests`.
+Checking readiness and Wakeability never count as work activity. Each card shows the
 Agent avatar, name, a compact Controller and friendly model summary when known,
 and the existing Core-owned Wakeability projection. The summary resolves
 Controller defaults through the shared Model Catalog and never substitutes a
@@ -2059,11 +2056,10 @@ Web must not maintain a separate About-versus-Edit presentation or mutation
 path. Disruptive Controller and working-folder changes keep the account-wide
 execution lock and Core writer guard described below.
 
-Below `md`, Agents uses the shared modal secondary-sidebar drawer with the
-**Agents** title and dismisses it after selection. At `md` and wider, the same
-sidebar stays inline and uses the Agents route-family’s persisted width and
-collapsed state. Loading, failure, filtered-empty, and true-empty states remain
-distinct and keep **Create Agent** reachable.
+The person's Agent list uses one column on narrow screens and two columns when
+space permits. It has no secondary-sidebar drawer. Loading, failure,
+filtered-empty, and true-empty states remain distinct; the owner's empty state
+keeps **Create Agent** reachable and another person's empty state stays read-only.
 
 ### Projects
 
@@ -2782,8 +2778,8 @@ Loading or failed capability reads fail closed for Human creation. UI gating is
 presentation only; Auth still rejects direct or stale-client Human creation
 requests.
 
-The Organization **Agents** home has one fixed **Agent requests** entry in its
-secondary sidebar. It lists
+Person Agent lists have an **Agent requests** header entry in Organization
+contexts. The dedicated Team request page lists
 the current member's incoming and outgoing Agent Profile Creation Requests,
 shows their source and current status, and exposes only the actions the member
 may perform: approve or decline as target owner, cancel as requester, retry a

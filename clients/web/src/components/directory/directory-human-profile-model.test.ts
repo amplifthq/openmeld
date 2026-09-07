@@ -386,7 +386,7 @@ describe("directory Human Profile model", () => {
 			},
 		]);
 		expect(rows.find((row) => row.userId === "user-a")?.agentProfilesPath).toBe(
-			"/o/acme/agents?profileId=agent-claude"
+			"/o/acme/people/11111111-1111-4111-8111-111111111111/agents"
 		);
 		expect(rows.find((row) => row.userId === "user-b")?.agentProfiles).toEqual([
 			{
@@ -511,7 +511,9 @@ describe("directory Human Profile model", () => {
 				path: "/o/ari/agents?profileId=agent-ari",
 			},
 		]);
-		expect(member?.agentProfilesPath).toBe("/o/ari/agents?profileId=agent-ari");
+		expect(member?.agentProfilesPath).toBe(
+			`/o/ari/people/${member?.id}/agents`
+		);
 	});
 });
 
