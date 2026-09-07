@@ -117,6 +117,7 @@ export function SelectedComputerPanel(input: {
 					>
 						<SelectTrigger
 							aria-label="Computer environment"
+							displayValue={computerEnvironmentLabel(target, environments)}
 							placeholder="Choose an environment"
 						/>
 						<SelectContent>
@@ -235,9 +236,12 @@ function selectComputerEnvironment(
 }
 
 function computerEnvironmentLabel(
-	target: PeopleComputerTarget,
+	target: PeopleComputerTarget | null,
 	environments: readonly PeopleComputerTarget[]
 ) {
+	if (!target) {
+		return undefined;
+	}
 	const label = formatRuntimeLane(target.runtimeLane);
 	return environments.filter(
 		(entry) => entry.runtimeLane === target.runtimeLane
