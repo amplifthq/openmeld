@@ -261,6 +261,7 @@ export { resolveConversationPolicyFromModelSelection } from "./model-selection";
 export {
   peopleComputerCliCommand,
   peopleComputerContainsDevice,
+  projectPeopleComputersToLegacyLocalRuntimes,
 } from "./people-computer";
 export {
   type AllRunnableCapabilitiesPreparedStatus,

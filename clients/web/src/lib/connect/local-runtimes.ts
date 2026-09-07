@@ -1,3 +1,4 @@
+import { projectPeopleComputersToLegacyLocalRuntimes } from "@openmeld/agent-runtime";
 import {
 	createCurrentDeviceApi,
 	toStructuredApiClientFailure,
@@ -36,21 +37,7 @@ export async function readLocalRuntimes(): Promise<PeopleComputerInventory> {
 		// All live connection facts remain in the Core PeopleComputers snapshot.
 		return {
 			peopleComputers,
-			currentDeviceId: target?.deviceId ?? null,
-			currentRuntimeLane: target?.runtimeLane ?? null,
-			localRuntimes: peopleComputers.computers.map((computer) => ({
-				...computer,
-				isCurrent:
-					target !== null &&
-					(computer.deviceId === target.deviceId ||
-						computer.legacyDeviceIds?.includes(target.deviceId) === true),
-				executionTargets: computer.executionTargets.map((entry) => ({
-					...entry,
-					isCurrent:
-						entry.deviceId === target?.deviceId &&
-						entry.runtimeLane === target?.runtimeLane,
-				})),
-			})),
+			...projectPeopleComputersToLegacyLocalRuntimes(peopleComputers, target),
 		};
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);

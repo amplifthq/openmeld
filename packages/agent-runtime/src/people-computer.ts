@@ -1,4 +1,40 @@
-import type { DaemonServiceLane } from "@openmeld/schemas/types";
+import type {
+  DaemonServiceLane,
+  LocalRuntimesResponse,
+  PeopleComputersResponse,
+  PeopleComputerTarget,
+} from "@openmeld/schemas/types";
+
+// Compatibility projection for consumers of the legacy local-agent inventory.
+// The caller supplies its selected target: CLI device proof or Web routing
+// preference. These flags never establish physical identity or connection.
+export function projectPeopleComputersToLegacyLocalRuntimes(
+  inventory: PeopleComputersResponse,
+  target: PeopleComputerTarget | null
+): LocalRuntimesResponse {
+  return {
+    currentDeviceId: target?.deviceId ?? null,
+    currentRuntimeLane: target?.runtimeLane ?? null,
+    localRuntimes: inventory.computers.map(
+      ({
+        identityStatus: _identity,
+        connection: _connection,
+        ...computer
+      }) => ({
+        ...computer,
+        isCurrent:
+          target !== null &&
+          peopleComputerContainsDevice(computer, target.deviceId),
+        executionTargets: computer.executionTargets.map((entry) => ({
+          ...entry,
+          isCurrent:
+            entry.deviceId === target?.deviceId &&
+            entry.runtimeLane === target?.runtimeLane,
+        })),
+      })
+    ),
+  };
+}
 
 export function peopleComputerContainsDevice(
   computer: {

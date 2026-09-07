@@ -1,4 +1,7 @@
-import { peopleComputerContainsDevice as computerContainsDevice } from "@openmeld/agent-runtime";
+import {
+  peopleComputerContainsDevice as computerContainsDevice,
+  projectPeopleComputersToLegacyLocalRuntimes,
+} from "@openmeld/agent-runtime";
 import {
   type CreateCurrentDeviceApi,
   createComputerFileAccessApi,
@@ -124,25 +127,14 @@ export async function runComputerCurrent(
   const apiClient = createCliApiClientFoundation(gatewayUrl);
   const currentDeviceApi = createCurrentDeviceApi(apiClient);
 
-  const inventory = await currentDeviceApi.listLocalRuntimes({
+  const inventory = await currentDeviceApi.listPeopleComputers({
     includeUsageLimits: "true",
   });
   const target = { deviceId, runtimeLane: resolveOpenMeldEnvPreset() };
-  const response: LocalRuntimesResponse = {
-    ...inventory,
-    currentDeviceId: deviceId,
-    currentRuntimeLane: target.runtimeLane,
-    localRuntimes: inventory.localRuntimes.map((computer) => ({
-      ...computer,
-      isCurrent: computerContainsDevice(computer, deviceId),
-      executionTargets: computer.executionTargets.map((entry) => ({
-        ...entry,
-        isCurrent:
-          entry.deviceId === deviceId &&
-          entry.runtimeLane === target.runtimeLane,
-      })),
-    })),
-  };
+  const response = projectPeopleComputersToLegacyLocalRuntimes(
+    inventory,
+    target
+  );
   const currentComputer = findLocalRuntime(response, deviceId);
 
   if (input.brief) {
@@ -166,7 +158,6 @@ export async function runComputerCurrent(
   if (presenter.view === "agent") {
     const diagnostics = await readCurrentComputerDiagnostics({
       apiClient,
-      currentComputer,
       currentDeviceApi,
       target,
       localRuntimes: response,
@@ -240,7 +231,6 @@ function buildCurrentComputerBrief(input: {
 async function readCurrentComputerDiagnostics(input: {
   target: import("@openmeld/schemas/types").PeopleComputerTarget;
   apiClient: ReturnType<typeof createCliApiClientFoundation>;
-  currentComputer: LocalRuntimeComputer;
   currentDeviceApi: CurrentDeviceApi;
   localRuntimes: LocalRuntimesResponse;
 }): Promise<OwnerComputerDiagnostics> {
@@ -249,7 +239,7 @@ async function readCurrentComputerDiagnostics(input: {
       input.currentDeviceApi.getPeopleComputerReplyReadiness(input.target),
       readCurrentComputerFileAccessSummary({
         apiClient: input.apiClient,
-        currentComputer: input.currentComputer,
+        target: input.target,
       }),
     ]);
   return ownerComputerDiagnosticsSchema.parse({
@@ -261,16 +251,12 @@ async function readCurrentComputerDiagnostics(input: {
 
 async function readCurrentComputerFileAccessSummary(input: {
   apiClient: ReturnType<typeof createCliApiClientFoundation>;
-  currentComputer: LocalRuntimeComputer;
+  target: import("@openmeld/schemas/types").PeopleComputerTarget;
 }): Promise<OwnerComputerDiagnostics["currentComputerFileAccess"]> {
-  if (input.currentComputer.computerFileAccess?.readPolicy !== true) {
-    return { status: "unsupported" };
-  }
-
   try {
     const response = await createComputerFileAccessApi(
       input.apiClient
-    ).readPolicy({ expectedDeviceId: input.currentComputer.deviceId });
+    ).readPeopleComputerPolicy(input.target);
     return summarizeComputerFileAccessPolicy(response);
   } catch (error) {
     const failure = toStructuredApiClientFailure(error);
