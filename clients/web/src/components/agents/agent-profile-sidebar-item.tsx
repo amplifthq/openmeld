@@ -47,7 +47,6 @@ export function AgentProfileSidebarItemComponent(input: {
 	variant?: "sidebar" | "card";
 	avatarSize?: number;
 	agentControllerRef: string | null;
-	currentUserId: string;
 	index: number;
 	isActive: boolean;
 	modelCatalog: ModelCatalog | null;

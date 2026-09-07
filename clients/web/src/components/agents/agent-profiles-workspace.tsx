@@ -149,7 +149,6 @@ function AgentProfilesWorkspaceContent(input: {
 								) ?? null
 							}
 							avatarSize={40}
-							currentUserId={input.input.currentUserId}
 							index={index}
 							isActive={false}
 							key={profile.openMeldProfileId}
