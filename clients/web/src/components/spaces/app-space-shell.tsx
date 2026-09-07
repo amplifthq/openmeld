@@ -5,8 +5,8 @@ import { AppGlobalControls } from "#/components/app/app-global-controls";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import { AppDirectMessagesSidebar } from "#/components/spaces/app-direct-messages-sidebar";
 import { AppSpacesSidebar } from "#/components/spaces/app-spaces-sidebar";
+import { ChatsSidebar } from "#/components/spaces/chats-sidebar";
 import { SpaceWakeProgressVisibleProjectionProvider } from "#/components/spaces/space-wake-progress-visible-projection";
 import type {
 	InnerSidebarPreferenceKey,
@@ -115,13 +115,13 @@ export function AppDirectMessageShell(input: {
 			initialOuterSidebarState={input.initialOuterSidebarState}
 			initialSidebarState={input.initialSidebarState}
 			sidebar={
-				<AppDirectMessagesSidebar
+				<ChatsSidebar
 					currentProfileId={input.currentProfileId}
 					currentSpaceId={input.currentSpaceId}
 				/>
 			}
 			sidebarPreferenceKey="direct-messages"
-			sidebarSeparatorLabel="Resize the Direct Messages sidebar"
+			sidebarSeparatorLabel="Resize the Chats sidebar"
 		>
 			{input.children}
 		</SpaceWindowShell>

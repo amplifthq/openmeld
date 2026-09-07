@@ -12,7 +12,7 @@ import {
 	resolveClientSidebarInitialState,
 	type SidebarPersistedState,
 } from "#/lib/sidebar-width-cookie";
-import { CenterAgentChatSidebar } from "./center-agent-chat-sidebar";
+import { ChatsSidebar } from "../spaces/chats-sidebar";
 
 export function CenterAgentLayout(input: {
 	children: ReactNode;
@@ -29,7 +29,7 @@ export function CenterAgentLayout(input: {
 			outerRail={
 				<AppOuterRail
 					account={account}
-					contextualNavigation={<CenterAgentChatSidebar />}
+					contextualNavigation={<ChatsSidebar />}
 					initialState={input.initialOuterSidebarState}
 				/>
 			}

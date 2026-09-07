@@ -41,7 +41,7 @@ export function buildOrganizationSpacesPath(orgSlug: string): string {
 }
 
 export function buildOrganizationDirectMessagesPath(orgSlug: string): string {
-	return `${buildOrganizationRootPath(orgSlug)}/direct-messages`;
+	return `${buildOrganizationRootPath(orgSlug)}/chats`;
 }
 
 export function buildOrganizationDirectMessagePath(input: {
@@ -275,7 +275,7 @@ export function buildOrganizationCenterAgentChatPath(
 		view?: "files" | "graph" | "messages";
 	}
 ): string {
-	const path = buildOrganizationDefaultPath(orgSlug);
+	const path = `${buildOrganizationRootPath(orgSlug)}/chats/center-agent`;
 	if (
 		!(search?.focusSignalId || search?.view || search?.session || search?.draft)
 	) {
@@ -446,7 +446,10 @@ export function resolveOrganizationSwitchPath(input: {
 		return buildOrganizationSpacesPath(input.nextOrgSlug);
 	}
 
-	if (section === "direct-messages") {
+	if (section === "direct-messages" || section === "chats") {
+		if (section === "chats" && subsection === "center-agent") {
+			return buildOrganizationCenterAgentChatPath(input.nextOrgSlug);
+		}
 		return buildOrganizationDirectMessagesPath(input.nextOrgSlug);
 	}
 

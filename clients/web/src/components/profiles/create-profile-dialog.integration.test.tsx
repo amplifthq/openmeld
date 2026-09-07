@@ -41,7 +41,7 @@ const DEFAULT_GPT_55_MODEL_PATTERN = /GPT-5.5 \(default\)/;
 const AUTHORIZE_PATTERN = /authorize/i;
 const USE_CONTROLLER_DEFAULT_PATTERN = /use controller default/i;
 const CURRENT_CODEX_RADIO_PATTERN = /^Codex$/i;
-const CUSTOMIZE_AGENT_BUTTON_PATTERN = /^Customize this Agent/i;
+const CUSTOMIZE_AGENT_BUTTON_PATTERN = /^Advanced Agent Settings/i;
 const WAKE_ACCESS_PATTERN = /Wake access/i;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a personal profile to this account before bringing profiles into this Space.";
@@ -821,7 +821,6 @@ describe("CreateProfileDialog", () => {
 			screen.queryByRole("option", { name: USE_CONTROLLER_DEFAULT_PATTERN })
 		).toBeNull();
 		fireEvent.click(modelSelect);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
 		const nameInput = (await screen.findByLabelText(
 			"Agent name"
@@ -830,10 +829,6 @@ describe("CreateProfileDialog", () => {
 			expect(nameInput.value).toBe("Felix Codex GPT-5.5 High");
 		});
 		fireEvent.change(nameInput, { target: { value: "My persistent Agent" } });
-		fireEvent.click(screen.getByRole("button", { name: "Back" }));
-		await waitFor(() => {
-			expect(screen.queryByLabelText("Agent name")).toBeNull();
-		});
 		if (!screen.queryByRole("combobox", { name: "Model" })) {
 			fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
 		}
@@ -844,7 +839,6 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			await screen.findByRole("option", { name: "GPT-5.4 Mini" })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
 		await waitFor(() => {
 			expect(
@@ -2291,7 +2285,19 @@ describe("CreateProfileDialog", () => {
 		).toMatchObject({ authorizeForOrganization: true });
 	});
 
-	it("uses the managed Project folder when a bound agent is created without a custom folder", async () => {
+	it("creates with an OpenMeld-chosen folder when remembered Project connectivity is unconfirmed", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		getAgentProfileCreationDefaultsMock.mockResolvedValue({
+			agentControllerCollaborationMode: null,
+			agentControllerPermissionMode: null,
+			agentControllerRef: "builtin:codex",
+			defaultProjectId: "project-1",
+			modelId: null,
+			openCodePermission: null,
+			organizationId: "organization-123",
+			reasoningLevel: null,
+			updatedAt: "2026-09-07T00:00:00.000Z",
+		});
 		renderCreateProfileDialog({
 			recovery: buildFakeRecovery([
 				buildCatalogEntry({
@@ -2565,8 +2571,8 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", { name: "Reasoning effort" }).textContent
 			).toContain("High");
 			expect(
-				screen.getByRole("combobox", { name: "Project" }).textContent
-			).toContain("OpenMeld");
+				screen.getByRole("combobox", { name: "Folder source" }).textContent
+			).toContain("Let OpenMeld choose");
 		});
 
 		fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }));

@@ -36,6 +36,7 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
+import { AgentChatBadge } from "../spaces/agent-chat-badge";
 import {
 	CenterAgentHeaderMenu,
 	CenterAgentHeaderTabs,
@@ -287,16 +288,19 @@ export function CenterAgentNewChat({
 						secondaryContentClassName="overflow-x-auto"
 						title={titleDraft.content.text || "New chat"}
 						titleAdornment={
-							<ChatTitleEditor
-								disabled={send.isPending}
-								onSave={(title) => {
-									titleDraft.setContent((current) => ({
-										...current,
-										text: title,
-									}));
-								}}
-								title={titleDraft.content.text || "New chat"}
-							/>
+							<>
+								<ChatTitleEditor
+									disabled={send.isPending}
+									onSave={(title) => {
+										titleDraft.setContent((current) => ({
+											...current,
+											text: title,
+										}));
+									}}
+									title={titleDraft.content.text || "New chat"}
+								/>
+								<AgentChatBadge kind="center" />
+							</>
 						}
 					/>
 				}

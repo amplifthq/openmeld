@@ -81,11 +81,11 @@ export function buildAppRailGroups(input: {
 				},
 				{
 					id: "home",
-					label: "Home",
+					label: "Center Agent",
 					onIntentPrefetch: input.prefetchCenterAgentConversation,
+					unreadCount: input.centerAgentUnreadCount,
 					to: buildOrganizationRootPath(input.orgSlug),
 					icon: <HouseIcon aria-hidden="true" className="size-4" />,
-					unreadCount: input.centerAgentUnreadCount,
 				},
 				{
 					id: "spaces",
@@ -102,7 +102,9 @@ export function buildAppRailGroups(input: {
 				},
 				{
 					id: "directMessages",
-					label: "Messages",
+					label: "Chats",
+					onIntentPrefetch: input.prefetchCenterAgentConversation,
+					unreadCount: input.centerAgentUnreadCount,
 					to: buildOrganizationDirectMessagesPath(input.orgSlug),
 					icon: <ChatCircleTextIcon aria-hidden="true" className="size-4" />,
 				},
@@ -257,11 +259,15 @@ export function AppRailLink(input: {
 				</MenuButton>
 			)}
 			{!isIcon &&
-				(input.destination.id === "home" ||
+				(input.destination.id === "directMessages" ||
+					input.destination.id === "home" ||
 					input.destination.id === "people" ||
 					input.destination.id === "spaces" ||
 					input.destination.id === "agents") && (
-					<SidebarDestinationActionSlot destination={input.destination.id} />
+					<SidebarDestinationActionSlot
+						active={input.active}
+						destination={input.destination.id}
+					/>
 				)}
 		</Item>
 	);
