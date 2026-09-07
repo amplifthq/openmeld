@@ -20,7 +20,7 @@ import {
 	useReducedMotion,
 	type Variants,
 } from "framer-motion";
-import { useId, useState } from "react";
+import { type FormEvent, useId, useState } from "react";
 import { SpinnerButton } from "#/components/spinner-button";
 import {
 	formatAgentProfileReasoningLevel,
@@ -38,7 +38,9 @@ import {
 	type CreateProfileFormProps,
 } from "./create-profile-form";
 import {
+	type AgentProfileConfigurationSection,
 	resolveAgentProfileConfigurationSummaries,
+	resolveCreateProfileSubmitBlock,
 	resolveCreateProfileSubmitBlockReason,
 } from "./create-profile-form-logic";
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
@@ -86,6 +88,8 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 	const reduceMotion = useReducedMotion() === true;
 	const [allowWithoutLocalAgent, setAllowWithoutLocalAgent] = useState(false);
 	const [configurationExpanded, setConfigurationExpanded] = useState(false);
+	const [openSection, setOpenSection] =
+		useState<AgentProfileConfigurationSection | null>(null);
 	const [step, setStep] = useState<GeneratorStep>("configure");
 	const [stepDirection, setStepDirection] = useState<GeneratorStepDirection>(1);
 	const submitBlockReasonId = useId();
@@ -113,6 +117,21 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 		setStepDirection(nextStep === "review" ? 1 : -1);
 		setStep(nextStep);
 	};
+	const handleReviewSetting = (section: AgentProfileConfigurationSection) => {
+		setConfigurationExpanded(true);
+		setOpenSection(section);
+		handleStepChange("configure");
+	};
+	const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+		if (step === "configure") {
+			event.preventDefault();
+			if (canContinue && !form.isSubmitting) {
+				handleStepChange("review");
+			}
+			return;
+		}
+		form.onSubmit(event);
+	};
 
 	return (
 		<LazyMotion features={domAnimation}>
@@ -122,7 +141,7 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 					input.surface === "page" && "mx-auto max-w-3xl"
 				)}
 				data-testid="create-profile-panel"
-				onSubmit={form.onSubmit}
+				onSubmit={handleSubmit}
 			>
 				<div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
 					<AnimatePresence
@@ -152,6 +171,8 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 									form={form}
 									onAllowWithoutLocalAgentChange={setAllowWithoutLocalAgent}
 									onConfigurationExpandedChange={setConfigurationExpanded}
+									onOpenSectionChange={setOpenSection}
+									openSection={openSection}
 									selectedBinding={selectedBinding ?? null}
 									selectedBindingValue={selectedBindingValue}
 									step={step}
@@ -162,6 +183,7 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 								canContinue={canContinue}
 								form={form}
 								onCancel={input.onCancel}
+								onReviewSetting={handleReviewSetting}
 								onStepChange={handleStepChange}
 								step={step}
 								submitBlockReasonId={submitBlockReasonId}
@@ -178,6 +200,10 @@ function GeneratorStepContent(input: {
 	allowWithoutLocalAgent: boolean;
 	bindingChoices: readonly AgentProfileBindingChoice[];
 	configurationExpanded: boolean;
+	openSection: AgentProfileConfigurationSection | null;
+	onOpenSectionChange: (
+		section: AgentProfileConfigurationSection | null
+	) => void;
 	form: CreateProfileFormProps;
 	onAllowWithoutLocalAgentChange: (allowed: boolean) => void;
 	onConfigurationExpandedChange: (expanded: boolean) => void;
@@ -210,6 +236,8 @@ function GeneratorStepContent(input: {
 				form={input.form}
 				onAllowWithoutLocalAgentChange={input.onAllowWithoutLocalAgentChange}
 				onExpandedChange={input.onConfigurationExpandedChange}
+				onOpenSectionChange={input.onOpenSectionChange}
+				openSection={input.openSection}
 			/>
 		</div>
 	) : (
@@ -227,6 +255,7 @@ function GeneratorStepContent(input: {
 }
 
 function GeneratorActions(input: {
+	onReviewSetting: (section: AgentProfileConfigurationSection) => void;
 	canContinue: boolean;
 	form: CreateProfileFormProps;
 	onCancel?: () => void;
@@ -265,7 +294,7 @@ function GeneratorConfigureActions(input: {
 			)}
 			<div className="grid justify-items-stretch gap-1.5 sm:justify-items-end">
 				<Button
-					disabled={!input.canContinue || input.form.isResolvingLocalAgents}
+					disabled={!input.canContinue || input.form.isSubmitting}
 					onClick={() => input.onStepChange("review")}
 					type="button"
 				>
@@ -282,11 +311,13 @@ function GeneratorConfigureActions(input: {
 }
 
 function GeneratorReviewActions(input: {
+	onReviewSetting: (section: AgentProfileConfigurationSection) => void;
 	form: CreateProfileFormProps;
 	onStepChange: (step: GeneratorStep) => void;
 	submitBlockReasonId: string;
 }) {
-	const submitBlockReason = resolveCreateProfileSubmitBlockReason(input.form);
+	const submitBlock = resolveCreateProfileSubmitBlock(input.form);
+	const submitBlockReason = submitBlock?.message;
 	return (
 		<div className="flex flex-col-reverse items-stretch justify-between gap-3 sm:flex-row sm:items-end">
 			<Button
@@ -301,19 +332,48 @@ function GeneratorReviewActions(input: {
 			</Button>
 			<div className="grid justify-items-stretch gap-2 sm:justify-items-end">
 				{submitBlockReason ? (
-					<p
+					<output
 						className="max-w-md text-right text-muted-foreground text-xs"
 						id={input.submitBlockReasonId}
 					>
 						{submitBlockReason}
-					</p>
+					</output>
+				) : null}
+				{submitBlock?.action ? (
+					<div className="flex flex-wrap justify-end gap-2">
+						{submitBlock.action.section === "working-folder" &&
+						input.form.onUseManagedWorkingFolder ? (
+							<Button
+								disabled={input.form.isSubmitting}
+								onClick={input.form.onUseManagedWorkingFolder}
+								size="sm"
+								type="button"
+								variant="outline"
+							>
+								Use OpenMeld managed folder
+							</Button>
+						) : null}
+						<Button
+							disabled={input.form.isSubmitting}
+							onClick={() => {
+								if (submitBlock.action) {
+									input.onReviewSetting(submitBlock.action.section);
+								}
+							}}
+							size="sm"
+							type="button"
+							variant="outline"
+						>
+							{submitBlock.action.label}
+						</Button>
+					</div>
 				) : null}
 				<SpinnerButton
 					aria-describedby={
 						submitBlockReason ? input.submitBlockReasonId : undefined
 					}
 					buttonState={input.form.isSubmitting ? "loading" : "idle"}
-					disabled={submitBlockReason !== null}
+					disabled={submitBlock !== null}
 					loadingLabel={input.form.submittingLabel ?? "Creating Agent…"}
 					type="submit"
 				>
@@ -325,6 +385,10 @@ function GeneratorReviewActions(input: {
 }
 
 function AdvancedSetup(input: {
+	openSection: AgentProfileConfigurationSection | null;
+	onOpenSectionChange: (
+		section: AgentProfileConfigurationSection | null
+	) => void;
 	allowWithoutLocalAgent: boolean;
 	expanded: boolean;
 	form: CreateProfileFormProps;
@@ -334,6 +398,13 @@ function AdvancedSetup(input: {
 	if (!input.form.boundAgentId) {
 		return (
 			<section className="grid min-w-0 gap-3 pt-1">
+				{input.openSection ? (
+					<AgentProfileConfigurationCards
+						input={input.form}
+						onOpenSectionChange={input.onOpenSectionChange}
+						openSection={input.openSection}
+					/>
+				) : null}
 				<AgentConfigurationGrid className="sm:grid-cols-1">
 					<AgentConfigurationCard
 						description="Connect a controller later from this Agent's details."
@@ -407,7 +478,11 @@ function AdvancedSetup(input: {
 			</Collapsible.Trigger>
 			<Collapsible.Panel className="overflow-hidden transition-[height,opacity] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)] data-[ending-style]:h-0 data-[starting-style]:h-0 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-[opacity] data-[open]:[height:var(--collapsible-panel-height)]">
 				<div className="pt-3">
-					<AgentProfileConfigurationCards input={input.form} />
+					<AgentProfileConfigurationCards
+						input={input.form}
+						onOpenSectionChange={input.onOpenSectionChange}
+						openSection={input.openSection}
+					/>
 				</div>
 			</Collapsible.Panel>
 		</Collapsible.Root>

@@ -1564,7 +1564,7 @@ describe("CreateProfileDialog", () => {
 		expect(screen.getByTestId("create-profile-actions")).not.toBeNull();
 	});
 
-	it("keeps the Working folder state and create action clear while Projects load", async () => {
+	it("keeps managed-folder creation available while Projects load", async () => {
 		listProjectsMock.mockImplementation(() => new Promise(() => undefined));
 		renderCreateProfileDialog({
 			recovery: buildFakeRecovery([
@@ -1591,10 +1591,19 @@ describe("CreateProfileDialog", () => {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
 		}) as HTMLButtonElement;
 		expect(actions.contains(submitButton)).toBe(true);
-		expect(submitButton.disabled).toBe(true);
+		expect(submitButton.disabled).toBe(false);
 		expect(
 			screen.getByText("Loading your Projects and saved working folder.")
 		).toBeTruthy();
+		await waitFor(() => expect(submitButton.disabled).toBe(false));
+		fireEvent.click(submitButton);
+		await waitFor(() =>
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({ defaultProjectId: null }),
+				})
+			)
+		);
 	});
 
 	it("creates a self-owned Agent through the shared creation request", async () => {
@@ -2449,7 +2458,7 @@ describe("CreateProfileDialog", () => {
 				agentControllerCollaborationMode:
 					agentControllerRef === "builtin:codex" ? "codex:plan" : null,
 				agentControllerPermissionMode:
-					agentControllerRef === "builtin:codex" ? "codex:approveForMe" : null,
+					agentControllerRef === "builtin:codex" ? "codex:fullAccess" : null,
 				agentControllerRef,
 				defaultProjectId:
 					agentControllerRef === "builtin:codex" ? "project-1" : null,
@@ -2490,7 +2499,7 @@ describe("CreateProfileDialog", () => {
 			expect(
 				screen.getByRole("combobox", { name: "Codex permissions mode" })
 					.textContent
-			).toContain("Approve for me");
+			).toContain("Full access");
 			expect(
 				screen.getByRole("combobox", { name: "Model" }).textContent
 			).toContain("GPT-5.4 Mini");
@@ -2501,6 +2510,29 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", { name: "Working folder" }).textContent
 			).toContain("OpenMeld");
 		});
+
+		expect(
+			(
+				screen.getByRole("checkbox", {
+					name: "I understand this permissions mode can run with dangerous full access.",
+				}) as HTMLInputElement
+			).checked
+		).toBe(true);
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Remembered Agent" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Use OpenMeld managed folder" })
+		);
+		await waitFor(() =>
+			expect(
+				(
+					screen.getByRole("button", {
+						name: CREATE_PROFILE_BUTTON_PATTERN,
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(false)
+		);
 
 		fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }));
 		await waitFor(() => {
@@ -2516,6 +2548,127 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", { name: "Working folder" }).textContent
 			).toContain("Let OpenMeld choose");
 		});
+	});
+
+	it.each([
+		"codex:fullAccess",
+		"codex:approveForMe",
+	] as const)("restores draft consent only when it matches saved %s", async (savedMode) => {
+		window.localStorage.setItem(
+			"openmeld:agent-profile-creation-journey:organization-123:user-123",
+			JSON.stringify({
+				version: 1,
+				agentId: "codex",
+				agentControllerCollaborationMode: null,
+				agentControllerPermissionMode: "codex:fullAccess",
+				modelId: "",
+				openCodePermission: null,
+				reasoningLevel: "",
+				selectedProjectId: "",
+			})
+		);
+		getAgentProfileCreationDefaultsMock.mockImplementation(
+			({ agentControllerRef, organizationId }) => ({
+				agentControllerRef,
+				organizationId,
+				userId: "user-123",
+				agentControllerPermissionMode: savedMode,
+				agentControllerCollaborationMode: null,
+				modelId: null,
+				reasoningLevel: null,
+				openCodePermission: null,
+				defaultProjectId: null,
+				updatedAt: "2026-09-07T00:00:00.000Z",
+			})
+		);
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+		await waitFor(() =>
+			expect(getAgentProfileCreationDefaultsMock).toHaveBeenCalled()
+		);
+		fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+		const create = (await screen.findByRole("button", {
+			name: "Create Agent",
+		})) as HTMLButtonElement;
+		await waitFor(() =>
+			expect(create.disabled).toBe(savedMode !== "codex:fullAccess")
+		);
+		if (savedMode !== "codex:fullAccess") {
+			fireEvent.click(
+				screen.getByRole("button", { name: "Review permissions" })
+			);
+			fireEvent.click(
+				await screen.findByRole("checkbox", {
+					name: "I understand this permissions mode can run with dangerous full access.",
+				})
+			);
+			fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+			await waitFor(() =>
+				expect(
+					(
+						screen.getByRole("button", {
+							name: "Create Agent",
+						}) as HTMLButtonElement
+					).disabled
+				).toBe(false)
+			);
+		}
+	});
+
+	it("keeps the restored Agent selection when using managed-folder recovery from review", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		window.localStorage.setItem(
+			"openmeld:agent-profile-creation-journey:organization-123:user-123",
+			JSON.stringify({
+				version: 1,
+				agentId: "codex",
+				agentControllerCollaborationMode: null,
+				agentControllerPermissionMode: "codex:askForApproval",
+				modelId: "",
+				openCodePermission: null,
+				reasoningLevel: "",
+				selectedProjectId: "project-1",
+			})
+		);
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+		await waitFor(() =>
+			expect(getAgentProfileCreationDefaultsMock).toHaveBeenCalled()
+		);
+		fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Use OpenMeld managed folder" })
+		);
+		const submitButton = screen.getByRole("button", {
+			name: "Create Agent",
+		}) as HTMLButtonElement;
+		await waitFor(() => expect(submitButton.disabled).toBe(false));
+		fireEvent.click(submitButton);
+		await waitFor(() =>
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						agentControllerRef: "builtin:codex",
+						defaultProjectId: null,
+						agentControllerPermissionMode: "codex:askForApproval",
+					}),
+				})
+			)
+		);
 	});
 
 	it("does not render Agent Controller Permission Mode for unsupported local controllers", async () => {
@@ -2730,6 +2883,8 @@ describe("CreateProfileDialog", () => {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
 		}) as HTMLButtonElement;
 		expect(submitButton.disabled).toBe(true);
+		fireEvent.submit(screen.getByTestId("create-profile-panel"));
+		expect(createAgentProfileCreationRequestMock).not.toHaveBeenCalled();
 		fireEvent.click(
 			screen.getByLabelText(
 				"I understand this permissions mode can run with dangerous full access."

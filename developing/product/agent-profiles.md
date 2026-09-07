@@ -674,8 +674,20 @@ Project list and current Agent Controller catalog. Missing or archived Projects,
 removed models, unsupported reasoning levels, and unsupported permission modes
 fall back to current defaults rather than leaking stale configuration or a
 different Agent Controller's choices. Failed or cancelled creation does not
-replace the remembered values, and dangerous permission confirmations are
-never remembered as approved.
+replace the remembered values. Restoring a valid permission mode from the
+same user's Core-owned successful-creation defaults also restores consent for
+that mode; creating another Agent must not ask for the same consent again.
+A newly selected dangerous permission mode still needs explicit confirmation.
+An unfinished browser draft alone never establishes consent.
+
+With a local Agent selected, the default creation journey allows Continue
+without opening customization. Required account or working-folder reads have
+visible loading explanations. Invalid explicit selections remain blocked with
+a concrete reason and a direct action to open the relevant configuration
+editor. Permission review opens customization and the Permissions editor,
+focusing the confirmation control. Working-folder blockers offer a one-click
+OpenMeld-managed folder action that clears the Project selection and prevents
+late defaults from overwriting that explicit choice.
 
 Web may also keep an unfinished creation journey as a browser-local draft so a
 member can leave the flow and return without rebuilding ordinary selections.

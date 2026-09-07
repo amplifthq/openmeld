@@ -385,6 +385,21 @@ export function AgentProfileProjectSelector(input: {
 				</div>
 			)}
 
+			{input.projectId && input.onUseManagedWorkspace ? (
+				<Button
+					className="justify-self-start"
+					disabled={input.disabled}
+					onClick={() => {
+						input.onProjectChange("");
+						input.onUseManagedWorkspace?.();
+					}}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					Use OpenMeld managed folder
+				</Button>
+			) : null}
 			{input.projectId && view ? (
 				<ProjectSelectionDetails
 					branch={branch}

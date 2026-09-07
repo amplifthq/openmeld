@@ -127,6 +127,7 @@ import {
 	type AgentProfileModelCompatibilityContext,
 	CreateProfileForm,
 } from "./create-profile-form";
+import { resolveCreateProfileSubmitBlockReason } from "./create-profile-form-logic";
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 import { isOpenCodeAgentId } from "./open-code-permissions-field";
 import { RequestedAgentProjectField } from "./requested-agent-project-field";
@@ -202,7 +203,10 @@ function reduceCreateProfileDialogFormState(
 				action.draft.agentControllerCollaborationMode,
 			boundAgentControllerPermissionMode:
 				action.draft.agentControllerPermissionMode,
-			boundAgentControllerPermissionModeConfirmed: false,
+			boundAgentControllerPermissionModeConfirmed:
+				state.boundAgentControllerPermissionModeConfirmed &&
+				state.boundAgentControllerPermissionMode ===
+					action.draft.agentControllerPermissionMode,
 			boundAgentId: action.draft.agentId,
 			boundModelId: action.draft.modelId,
 			boundOpenCodePermission: action.draft.openCodePermission,
@@ -471,7 +475,6 @@ function useCreateProfileDialogController(
 		boundAgentControllerCollaborationMode:
 			rawBoundAgentControllerCollaborationMode,
 		boundAgentControllerPermissionMode: rawBoundAgentControllerPermissionMode,
-		boundAgentControllerPermissionModeConfirmed,
 		boundAgentId: rawBoundAgentId,
 		boundModelId: rawBoundModelId,
 		boundOpenCodePermission: rawBoundOpenCodePermission,
@@ -482,7 +485,6 @@ function useCreateProfileDialogController(
 		profileName,
 		profileNameEdited,
 		projectFolderPath,
-		projectWorkspaceFallback,
 		selectedProjectBindingGeneration,
 		selectedProjectId: rawSelectedProjectId,
 		sessionMode,
@@ -678,10 +680,12 @@ function useCreateProfileDialogController(
 	const {
 		boundAgentControllerCollaborationMode,
 		boundAgentControllerPermissionMode,
+		boundAgentControllerPermissionModeConfirmed,
 		boundAgentId,
 		boundModelId,
 		boundOpenCodePermission,
 		boundReasoningLevel,
+		projectWorkspaceFallback,
 		selectedProjectId,
 	} = effectiveFormState;
 	const agentControllerRef = resolveAgentControllerRef(boundAgentId);
@@ -807,7 +811,9 @@ function useCreateProfileDialogController(
 			setBoundAgentControllerPermissionMode(
 				remembered.agentControllerPermissionMode
 			);
-			setBoundAgentControllerPermissionModeConfirmed(false);
+			setBoundAgentControllerPermissionModeConfirmed(
+				remembered.agentControllerPermissionModeConfirmed
+			);
 			setBoundModelId(remembered.modelId ?? "");
 			setBoundOpenCodePermission(remembered.openCodePermission);
 			setBoundReasoningLevel(remembered.reasoningLevel ?? "");
@@ -927,7 +933,22 @@ function useCreateProfileDialogController(
 			selectedProjectId,
 			sessionPreset,
 		});
+	const handleUseManagedWorkingFolder = () => {
+		creationDefaultsEditedRef.current = true;
+		dispatchForm({
+			type: "patch",
+			patch: {
+				...effectiveFormState,
+				selectedProjectId: "",
+				selectedProjectBindingGeneration: null,
+				projectFolderPath: "",
+				projectWorkspaceFallback: "managed",
+				errorState: null,
+			},
+		});
+	};
 	const projectSelectionSlot = renderProjectSelectionSlot({
+		onUseManagedWorkingFolder: handleUseManagedWorkingFolder,
 		creationDefaultsEditedRef,
 		disabled:
 			createProfileMutation.isPending ||
@@ -1064,9 +1085,15 @@ function useCreateProfileDialogController(
 		sessionPresetBindingBlockReason,
 	});
 
-	const formProps = {
+	const formProps: ComponentProps<typeof CreateProfileForm> = {
 		additionalHumanProfileCreationEnabled,
 		additionalSubmitBlockReason,
+		additionalSubmitBlockSection:
+			sessionPresetBindingBlockReason ||
+			(sessionMode !== "new" && !sessionPreset)
+				? ("session" as const)
+				: ("owner" as const),
+		onUseManagedWorkingFolder: handleUseManagedWorkingFolder,
 		agentBindingChoices: resolveOwnerBindingChoices({
 			ownerMode,
 			teammateBindingChoices,
@@ -1155,8 +1182,16 @@ function useCreateProfileDialogController(
 			);
 			setErrorState(null);
 		},
-		onChangeBoundAgentControllerPermissionModeConfirmed:
-			setBoundAgentControllerPermissionModeConfirmed,
+		onChangeBoundAgentControllerPermissionModeConfirmed: (
+			confirmed: boolean
+		) => {
+			if (confirmed) {
+				setBoundAgentControllerPermissionMode(
+					boundAgentControllerPermissionMode
+				);
+			}
+			setBoundAgentControllerPermissionModeConfirmed(confirmed);
+		},
 		onChangeBoundAgentId: (nextAgentId: string) => {
 			journeyDraftRestorationDismissedRef.current = true;
 			appliedCreationDefaultsKeyRef.current = null;
@@ -1230,6 +1265,10 @@ function useCreateProfileDialogController(
 			});
 		},
 		onSubmit: (event: FormEvent<HTMLFormElement>) => {
+			if (resolveCreateProfileSubmitBlockReason(formProps) !== null) {
+				event.preventDefault();
+				return;
+			}
 			handleCreateProfileSubmit({
 				creationIntentRef,
 				event,
@@ -1271,7 +1310,7 @@ function useCreateProfileDialogController(
 		}),
 		recoveryActionHref,
 		...resolveCreateProfileSubmitLabels(ownerMode),
-	} satisfies ComponentProps<typeof CreateProfileForm>;
+	};
 
 	return {
 		description: resolveCreateProfileDialogDescription({
@@ -2202,6 +2241,7 @@ function useRememberedCreationDefaults(input: {
 }
 
 function renderProjectSelectionSlot(input: {
+	onUseManagedWorkingFolder: () => void;
 	creationDefaultsEditedRef: { current: boolean };
 	disabled: boolean;
 	onErrorClear: () => void;
@@ -2283,13 +2323,7 @@ function renderProjectSelectionSlot(input: {
 				input.setProjectWorkspaceFallback("advanced");
 				input.onErrorClear();
 			}}
-			onUseManagedWorkspace={() => {
-				input.creationDefaultsEditedRef.current = true;
-				input.setSelectedProjectBindingGeneration(null);
-				input.setProjectFolderPath("");
-				input.setProjectWorkspaceFallback("managed");
-				input.onErrorClear();
-			}}
+			onUseManagedWorkspace={input.onUseManagedWorkingFolder}
 			organizationId={input.organizationId}
 			projectId={input.selectedProjectId}
 			projects={input.projects?.projects ?? []}
@@ -2541,7 +2575,11 @@ function resolveOwnerProjectSelectionBlockReason(input: {
 	if (input.ownerMode !== "self") {
 		return null;
 	}
-	if (input.boundAgentId && input.projectsPending) {
+	if (
+		input.boundAgentId &&
+		input.projectsPending &&
+		input.projectWorkspaceFallback !== "managed"
+	) {
 		return "Loading working folder choices.";
 	}
 	return resolveProjectSelectionBlockReason(input);
