@@ -17,6 +17,24 @@ function operation(
 }
 
 describe("setup service update truth", () => {
+  it("keeps the historical failure but accepts a verified current replacement", () => {
+    expect(
+      resolveSetupServiceUpdateTruth({
+        currentCliVersion: "0.8.0",
+        installedServiceVersion: "0.8.0",
+        operation: operation("needs_help"),
+        currentServiceVerified: true,
+      })
+    ).toEqual({ status: "ready" });
+    expect(
+      resolveSetupServiceUpdateTruth({
+        currentCliVersion: "0.8.0",
+        installedServiceVersion: "0.7.99",
+        operation: operation("needs_help"),
+        currentServiceVerified: true,
+      })
+    ).toMatchObject({ status: "failed" });
+  });
   it.each([
     "waiting_for_work",
     "updating",

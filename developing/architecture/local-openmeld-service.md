@@ -958,6 +958,17 @@ that decision.
   candidate. OpenMeld Service uses the committed Computer session when it starts
   at login. The handoff must not be used to add an
   agent-selection step to Web.
+  A missing or unreadable old bearer token does not veto a freshly authorized
+  handoff when the committed account metadata is intact. Metadata is used only
+  for account-switch consent and the locked identity comparison, never to
+  authorize execution. Rollback preserves the original payload, but does not
+  restart a Service with an unreadable credential. Recovery must not reread an
+  already revoked candidate token merely to finish local cleanup.
+  If the committed account cannot be identified, setup remains blocked with
+  an explicit local sign-out action. Explicit logout preserves malformed
+  session JSON in a uniquely named file in the same auth directory before
+  removing it from the active session path; it does not guess Keychain items
+  from damaged metadata or clear unrelated application data.
   A candidate Service may run from its prepared stable carrier before the OS
   service definition is committed. Setup repair and rollback must still drain
   and stop that process; an absent definition means there is no autostart state
@@ -1959,6 +1970,12 @@ retain that exact operation and verify both CLI and Service at its target before
 presenting **Up to date** or allowing Setup or Prepare to report completion.
 Same-operation observations are ordered by `updatedAt` and phase, so a stale
 projection cannot move visible progress backward.
+An explicit later repair may establish a fresh running, anomaly-free Service at
+the current CLI version. Setup may use that verified replacement to recover
+from a completed historical failed update at that version or older; it must
+retain the historical failure and must not apply this exception to an in-flight
+update or merely installed artifacts. Account alignment remains independently
+required by the participation gate.
 Because runtime capability payloads are strict, rollout deploys the accepting
 Schemas and Core before publishing a Service that emits `updateOperation`.
 New Core accepts older Services that omit it; rollback removes the new local

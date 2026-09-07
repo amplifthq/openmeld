@@ -144,6 +144,11 @@ async function stopCurrentLaneDaemonServiceAfterToolsUpdate(input: {
       currentOperationId: readOpenMeldToolsUpdateContextFromEnv()?.operationId,
     });
     if (externalUpdate) {
+      if (externalUpdate.phase === "waiting_for_work") {
+        // Waiting for accepted work is not a switching lock. A failed stop
+        // needs its own recovery guidance, not a tight retry loop.
+        break;
+      }
       await waitForOpenMeldToolsUpdateBeforeComputerHandoff(input);
     } else if (retriedAfterUpdateDisappeared) {
       break;
@@ -165,6 +170,7 @@ export async function waitForOpenMeldToolsUpdateBeforeComputerHandoff(input: {
 }): Promise<void> {
   const currentUpdate = readOpenMeldToolsUpdateContextFromEnv();
   await waitForExternalOpenMeldToolsUpdate({
+    allowRecoveryWhileWaitingForWork: true,
     currentOperationId: currentUpdate?.operationId,
     onWaiting: (operation) => {
       input.presenter.line({

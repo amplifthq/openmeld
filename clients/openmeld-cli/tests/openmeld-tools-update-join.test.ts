@@ -26,6 +26,21 @@ const attempt: OpenMeldToolsUpdateAttempt = {
 };
 
 describe("OpenMeld Tools update join", () => {
+  it("allows recovery while an update waits for work without discarding the update", async () => {
+    await withTempHome(async () => {
+      const waiting = {
+        ...attempt,
+        operation: { ...attempt.operation, phase: "waiting_for_work" as const },
+      };
+      await persistOpenMeldToolsUpdateAttempt(waiting);
+      await waitForExternalOpenMeldToolsUpdate({
+        allowRecoveryWhileWaitingForWork: true,
+      });
+      expect(await resolveExternalOpenMeldToolsUpdate()).toEqual(
+        waiting.operation
+      );
+    });
+  });
   it("finds a pending update but excludes the process that owns it", async () => {
     await withTempHome(async () => {
       await persistOpenMeldToolsUpdateAttempt(attempt);
@@ -50,6 +65,7 @@ describe("OpenMeld Tools update join", () => {
 
       await expect(
         waitForExternalOpenMeldToolsUpdate({
+          allowRecoveryWhileWaitingForWork: true,
           onWaiting,
           pollIntervalMs: 1,
         })

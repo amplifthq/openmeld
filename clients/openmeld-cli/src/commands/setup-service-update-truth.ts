@@ -15,6 +15,7 @@ export function resolveSetupServiceUpdateTruth(input: {
   currentCliVersion: string;
   installedServiceVersion: string | null;
   operation: OpenMeldToolsUpdateOperation | null;
+  currentServiceVerified?: boolean;
 }): SetupServiceUpdateTruth {
   const operation = input.operation;
   if (!operation) {
@@ -24,6 +25,13 @@ export function resolveSetupServiceUpdateTruth(input: {
     return { status: "ready" };
   }
   if (operation.phase === "restored" || operation.phase === "needs_help") {
+    if (
+      input.currentServiceVerified &&
+      input.installedServiceVersion === input.currentCliVersion &&
+      compareSemver(input.currentCliVersion, operation.targetVersion) >= 0
+    ) {
+      return { status: "ready" };
+    }
     return {
       message: "OpenMeld Service update failed. Run `openmeld service update`.",
       status: "failed",
@@ -66,6 +74,9 @@ export async function assertSetupServiceUpdateComplete(): Promise<void> {
     installedServiceVersion:
       inventory.installStatus.state?.daemonVersion ?? null,
     operation,
+    currentServiceVerified:
+      inventory.anomalies.length === 0 &&
+      inventory.runtimeStatus.status === "running",
   });
   if (truth.status !== "ready") {
     throw new Error(truth.message);

@@ -50,6 +50,16 @@ type PresentableWakeProgress = Pick<
 export function resolveWakeProgressStatus(
 	item: PresentableWakeProgress
 ): WakeProgressStatusPresentation | null {
+	// A final outcome takes precedence over interaction/queue evidence retained
+	// on the snapshot. That earlier evidence must never revive an ended Wake.
+	if (
+		item.phase === "failed" ||
+		item.phase === "publication_unknown" ||
+		item.phase === "replied" ||
+		item.phase === "stopped"
+	) {
+		return null;
+	}
 	const targetName = formatWakeTargetName(item.targetLabel);
 	if (item.pendingInteraction) {
 		return item.pendingInteraction.canRespond
@@ -104,9 +114,10 @@ export function resolveWakeProgressStatus(
 			};
 		case "connecting":
 			return {
-				description: "OpenMeld is opening the Agent’s runtime.",
+				description:
+					"Your message is saved. OpenMeld is preparing the Agent to run it.",
 				kind: "connecting",
-				label: `Connecting to ${targetName}…`,
+				label: `Preparing ${targetName}…`,
 				status: "active",
 			};
 		case "running":
@@ -127,7 +138,7 @@ export function resolveWakeProgressStatus(
 			return {
 				description: "The Agent finished and OpenMeld is posting the reply.",
 				kind: "posting",
-				label: `Posting reply from ${targetName}…`,
+				label: `${targetName} · Posting reply…`,
 				status: "active",
 			};
 		case "retrying":
@@ -137,11 +148,6 @@ export function resolveWakeProgressStatus(
 				label: `Trying to reach ${targetName}…`,
 				status: "active",
 			};
-		case "failed":
-		case "publication_unknown":
-		case "replied":
-		case "stopped":
-			return null;
 		default: {
 			const _exhaustive: never = item.phase;
 			return _exhaustive;

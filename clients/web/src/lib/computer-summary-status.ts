@@ -110,13 +110,6 @@ const UPDATE_REQUIRED_STATUS = {
 	label: "Update required",
 	reason: "openmeld_tools_update",
 	showLabel: true,
-	tone: "danger",
-} as const satisfies ComputerSummaryStatus;
-
-const ORGANIZATION_UPDATE_STATUS = {
-	label: "Update required",
-	reason: "openmeld_tools_update",
-	showLabel: true,
 	tone: "warning",
 } as const satisfies ComputerSummaryStatus;
 
@@ -265,7 +258,7 @@ export function resolveOrganizationComputerSummaryStatus(
 		case "connected":
 			return { ...READY_STATUS, label: "Connected" };
 		case "needs_attention":
-			return ORGANIZATION_UPDATE_STATUS;
+			return UPDATE_REQUIRED_STATUS;
 		case "not_connected":
 			return SERVICE_NOT_CONNECTED_STATUS;
 		default:

@@ -3624,7 +3624,7 @@ describe("SpaceLanding", () => {
 				"space-wake-thinking-indicator"
 			);
 			expect(thinkingIndicator.textContent).toContain(
-				"Posting reply from runner…"
+				"runner · Posting reply…"
 			);
 		});
 	});

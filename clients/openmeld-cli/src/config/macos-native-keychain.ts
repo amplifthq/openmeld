@@ -12,6 +12,7 @@ import { isBinaryDistribution } from "../runtime/distribution";
 
 const MAC_OS_KEYCHAIN_HELPER_ARG = "__openmeld_macos_keychain_helper";
 const HELPER_OUTPUT_MAX_BYTES = 128 * 1024;
+const OS_STATUS_PATTERN = /OSStatus (-?\d+)/u;
 export const MAC_OS_KEYCHAIN_HELPER_TIMEOUT_MS = 5000;
 
 type MacOsKeychainAddon = {
@@ -50,6 +51,9 @@ type MacOsKeychainHelperMutationRequestInput = Exclude<
 
 let loadedAddon: MacOsKeychainAddon | null = null;
 let unresponsiveKeychainError: Error | null = null;
+let keychainRetryAt = 0;
+let lastKeychainFailureCode: string | null = null;
+export const MAC_OS_KEYCHAIN_RETRY_DELAY_MS = 30_000;
 
 export async function storeMacOsNativeKeychainToken(
   input: KeychainAddress & { accessToken: string }
@@ -256,20 +260,59 @@ async function runBoundedMacOsNativeKeychainRequest(
 async function runBoundedMacOsNativeKeychainRequest(
   input: MacOsKeychainHelperRequestInput
 ): Promise<string | null | undefined> {
-  if (unresponsiveKeychainError) {
+  if (unresponsiveKeychainError && Date.now() < keychainRetryAt) {
     throw unresponsiveKeychainError;
   }
   try {
     if (input.operation === "read") {
-      return await runMacOsNativeKeychainRequestInChild(input);
+      const result = await runMacOsNativeKeychainRequestInChild(input);
+      noteKeychainRecovery();
+      return result;
     }
     await runMacOsNativeKeychainRequestInChild(input);
+    noteKeychainRecovery();
   } catch (error) {
+    const timedOut = error instanceof MacOsNativeKeychainTimeoutError;
     if (error instanceof MacOsNativeKeychainTimeoutError) {
       unresponsiveKeychainError = error;
+      keychainRetryAt = Date.now() + MAC_OS_KEYCHAIN_RETRY_DELAY_MS;
+    }
+    const osStatus = OS_STATUS_PATTERN.exec(toErrorMessage(error))?.[1];
+    let reasonCode = osStatus ? "keychain_os_error" : "keychain_helper_failed";
+    if (timedOut) {
+      reasonCode = "keychain_helper_timeout";
+    }
+    const failureCode = `${reasonCode}:${osStatus ?? "none"}`;
+    if (lastKeychainFailureCode !== failureCode) {
+      lastKeychainFailureCode = failureCode;
+      console.warn(
+        JSON.stringify({
+          event: "cli.keychain.readiness_failed",
+          observedAt: new Date().toISOString(),
+          reasonCode,
+          ...(osStatus ? { osStatus: Number(osStatus) } : {}),
+          operation: input.operation,
+          timeoutMs: MAC_OS_KEYCHAIN_HELPER_TIMEOUT_MS,
+          ...(timedOut ? { retryAfterMs: MAC_OS_KEYCHAIN_RETRY_DELAY_MS } : {}),
+        })
+      );
     }
     throw error;
   }
+}
+
+function noteKeychainRecovery(): void {
+  if (lastKeychainFailureCode) {
+    console.warn(
+      JSON.stringify({
+        event: "cli.keychain.readiness_recovered",
+        observedAt: new Date().toISOString(),
+      })
+    );
+  }
+  unresponsiveKeychainError = null;
+  keychainRetryAt = 0;
+  lastKeychainFailureCode = null;
 }
 
 function parseMacOsKeychainHelperResult(input: {
