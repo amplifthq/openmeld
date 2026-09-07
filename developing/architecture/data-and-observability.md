@@ -2348,6 +2348,17 @@ unrepairable App. Retry projections retain the latest bounded failure reason so
 clients can explain continued automatic verification without creating a second
 retry authority.
 
+Before configuring an unconnected App, the live configuration-claim owner
+replaces only callback secrets exceeding the provider's 32-character limit.
+The encrypted replacement and clearing both URL-verification proofs are one
+guarded D1 batch. A lost or expired claim, changed credentials, or a connected
+App prevents replacement and provider configuration. The App Secret and valid
+callback secret values are preserved. This also repairs legacy credentials
+when an existing App re-enters configuration through Repair; it is not a bulk
+credential migration. URL-verification writes compare the encrypted token used
+to authenticate the challenge with the current credential row, so an in-flight
+challenge authenticated before replacement cannot restore obsolete proof.
+
 The App Secret, Webhook verification token, and event encryption key live in a
 separate encrypted credential row. The connection and credential write is one
 D1 batch, so failed encryption or persistence cannot produce a connected
@@ -2355,6 +2366,12 @@ projection. Tenant access tokens are minted and cached only within their
 provider lifetime inside one Worker isolate and are never stored in D1.
 
 Webhook readiness is connection-owned evidence, not a generic provider flag.
+The provider's encrypted URL-verification challenge may omit all three
+signature headers. Core may decrypt that envelope only into a URL-verification
+challenge and must match its verification token before recording reachability.
+Partial or invalid signature headers are rejected. Ordinary encrypted events
+still require a valid signature; this exception never admits an event or starts
+a Center Agent turn.
 Core records the Event Subscription URL challenge and Message Card Request URL
 challenge separately. A Webhook connection becomes `connected` only after its
 application configuration has supplied the bot identity and both surfaces have

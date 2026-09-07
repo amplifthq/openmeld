@@ -2476,6 +2476,26 @@ The provider set is `slack | lark | feishu`. The transport set is
 one internal Lark-platform implementation serves both brands. `connector` is
 not a Message Channel domain term.
 
+Channel permission read-back requires the complete tenant Channel bundle and
+rejects denied, duplicate, user-token, or unrelated business scopes. The one
+explicitly granted tenant scope `application:application:patch` may additionally
+be present for application configuration. It is setup authority only and never
+becomes a Center Agent tool grant or an App connection. The default registration
+bundle does not request it automatically; an operator must explicitly consent
+before it is granted.
+
+Provider configuration refusal `99991672` becomes the bounded reason
+`<provider>.application_config_permission_required`, including when delivered
+with HTTP 403. Web explains the explicit setup grant and links to the selected
+provider's Developer Console; the existing Core-owned retry remains active.
+This uses the existing string reason field without changing a shared payload,
+CLI/Service protocol, database schema, or local-component artifact. Old Web
+can still read the reason with generic retry copy; new Web accepts old Core.
+Deploy Web before Core for actionable guidance throughout rollout. Old and new
+CLI, Service, Skills, and Gateway remain compatible through setup, Wake, Space
+actions, and diagnostics; no contract-version bump or local-component stamp is
+required.
+
 The additive setup-request HTTP contract accepts one provider and returns its
 Organization, stable request id, recipient count, and `created` or
 `already_requested` result. It never returns credentials or grants Channel

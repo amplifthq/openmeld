@@ -180,6 +180,13 @@ describe("Remote Agent Message Channel repositories", () => {
       });
       await expect(
         recordRemoteAgentLarkPlatformWebhookReachability({
+          encryptedVerificationToken:
+            (
+              await readRemoteAgentLarkPlatformChannelCredentials({
+                connectionId: "connection_lark_1",
+                db: harness.db,
+              })
+            )?.encryptedVerificationToken ?? null,
           connectionId: "connection_lark_1",
           db: harness.db,
           organizationId: "org_1",
@@ -194,6 +201,13 @@ describe("Remote Agent Message Channel repositories", () => {
       });
       await expect(
         recordRemoteAgentLarkPlatformWebhookReachability({
+          encryptedVerificationToken:
+            (
+              await readRemoteAgentLarkPlatformChannelCredentials({
+                connectionId: "connection_lark_1",
+                db: harness.db,
+              })
+            )?.encryptedVerificationToken ?? null,
           connectionId: "connection_lark_1",
           db: harness.db,
           organizationId: "org_1",
@@ -260,6 +274,13 @@ describe("Remote Agent Message Channel repositories", () => {
         nowMs: 2700,
       });
       await recordRemoteAgentLarkPlatformWebhookReachability({
+        encryptedVerificationToken:
+          (
+            await readRemoteAgentLarkPlatformChannelCredentials({
+              connectionId: "connection_lark_1",
+              db: harness.db,
+            })
+          )?.encryptedVerificationToken ?? null,
         connectionId: "connection_lark_1",
         db: harness.db,
         organizationId: "org_1",
@@ -269,6 +290,13 @@ describe("Remote Agent Message Channel repositories", () => {
       });
       await expect(
         recordRemoteAgentLarkPlatformWebhookReachability({
+          encryptedVerificationToken:
+            (
+              await readRemoteAgentLarkPlatformChannelCredentials({
+                connectionId: "connection_lark_1",
+                db: harness.db,
+              })
+            )?.encryptedVerificationToken ?? null,
           connectionId: "connection_lark_1",
           db: harness.db,
           organizationId: "org_1",
@@ -1534,6 +1562,13 @@ describe("Remote Agent Message Channel repositories", () => {
       });
 
       await recordRemoteAgentLarkPlatformWebhookReachability({
+        encryptedVerificationToken:
+          (
+            await readRemoteAgentLarkPlatformChannelCredentials({
+              connectionId: "connection_lark_1",
+              db: harness.db,
+            })
+          )?.encryptedVerificationToken ?? null,
         connectionId: "connection_lark_1",
         db: harness.db,
         organizationId: "org_1",
@@ -1543,6 +1578,13 @@ describe("Remote Agent Message Channel repositories", () => {
       });
       await expect(
         recordRemoteAgentLarkPlatformWebhookReachability({
+          encryptedVerificationToken:
+            (
+              await readRemoteAgentLarkPlatformChannelCredentials({
+                connectionId: "connection_lark_1",
+                db: harness.db,
+              })
+            )?.encryptedVerificationToken ?? null,
           connectionId: "connection_lark_1",
           db: harness.db,
           organizationId: "org_1",
@@ -1651,6 +1693,13 @@ async function seedConnectedRegistration(
 ): Promise<void> {
   await seedConfiguringRegistration(harness);
   await recordRemoteAgentLarkPlatformWebhookReachability({
+    encryptedVerificationToken:
+      (
+        await readRemoteAgentLarkPlatformChannelCredentials({
+          connectionId: "connection_lark_1",
+          db: harness.db,
+        })
+      )?.encryptedVerificationToken ?? null,
     connectionId: "connection_lark_1",
     db: harness.db,
     organizationId: "org_1",
@@ -1659,6 +1708,13 @@ async function seedConnectedRegistration(
     verifiedAtMs: 2650,
   });
   await recordRemoteAgentLarkPlatformWebhookReachability({
+    encryptedVerificationToken:
+      (
+        await readRemoteAgentLarkPlatformChannelCredentials({
+          connectionId: "connection_lark_1",
+          db: harness.db,
+        })
+      )?.encryptedVerificationToken ?? null,
     connectionId: "connection_lark_1",
     db: harness.db,
     organizationId: "org_1",
