@@ -233,14 +233,20 @@ describe("local service inventory", () => {
     });
   });
 
-  it("still detects multiple active owners from an external manager when OPENMELD_HOME is explicitly overridden", async () => {
-    await withTempHome(async () => {
+  it("does not count another installation's manager as an owner of an explicitly isolated home", async () => {
+    await withTempHome(async (home) => {
+      const definitionPath = join(home, "external-service.plist");
+      await writeFile(
+        definitionPath,
+        "<plist><string>/tmp/other-installation/runtime/daemon/launcher.mjs</string></plist>\n"
+      );
       const inventory = await inspectDaemonServiceInventory({
         expectedVersion: "0.2.2",
         readDaemonStatus: async () => INSTALLED_STATUS,
         resolveServiceManager: async () =>
           createServiceManager({
             ...EXTERNAL_MANAGER_STATUS,
+            definitionPath,
             running: true,
           }),
         listOwnedProcesses: async () => [
@@ -260,11 +266,41 @@ describe("local service inventory", () => {
         inventory.anomalies.find(
           (anomaly) => anomaly.code === "multiple_active_owners"
         )
-      ).toEqual({
-        code: "multiple_active_owners",
-        message:
-          "Multiple OpenMeld Service owners are active on this device: Direct CLI + System service.",
+      ).toBeUndefined();
+    });
+  });
+
+  it("still detects a same-home manager and direct process with an explicit home override", async () => {
+    await withTempHome(async (home) => {
+      const definitionPath = join(home, "current-service.plist");
+      await writeFile(
+        definitionPath,
+        `<plist><string>${daemonServiceExecutableWrapperPath()}</string></plist>\n`
+      );
+      const inventory = await inspectDaemonServiceInventory({
+        expectedVersion: "0.2.2",
+        readDaemonStatus: async () => INSTALLED_STATUS,
+        resolveServiceManager: async () =>
+          createServiceManager({
+            ...EXTERNAL_MANAGER_STATUS,
+            definitionPath,
+            running: true,
+          }),
+        listOwnedProcesses: async () => [
+          {
+            pid: 222,
+            parentPid: 1,
+            command:
+              "node /tmp/current-cli/dist/openmeld.js service run --mode foreground",
+            mode: "foreground",
+            ownership: "cli_direct",
+          },
+        ],
       });
+      expect(inventory.serviceManagerStatus?.running).toBe(true);
+      expect(inventory.anomalies.map((anomaly) => anomaly.code)).toContain(
+        "multiple_active_owners"
+      );
     });
   });
 

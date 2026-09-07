@@ -75,6 +75,12 @@ Lifecycle-owner diagnostics are scoped to one lane. A production system service
 and a dev-local system service may run on the same computer without becoming
 multiple owners. `multiple_owners` means that more than one lifecycle mechanism
 is controlling the same lane, such as launchd plus a direct CLI process.
+For a foreground Service with an explicit `OPENMELD_HOME`, the existing
+installation-root check also scopes manager ownership: a registration belonging
+to another installation is not a second owner of this isolated Service.
+Inventory anomalies and effective runtime status must use that same scoped
+manager observation. This does not permit changing another installation's
+registration or suppress multiple owners within the current installation.
 
 OpenMeld Service does not own:
 

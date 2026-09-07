@@ -236,8 +236,6 @@ export async function inspectDaemonServiceInventory(input: {
       runtimeState: runtimeStatus,
       serviceManagerStatus: scopedServiceManager.serviceManagerStatus,
     }),
-    unscopedServiceManager: observedServiceManager,
-    unscopedServiceManagerStatus: observedServiceManagerStatus,
     serviceContract,
     serviceManager: scopedServiceManager.serviceManager,
     serviceManagerStatus: scopedServiceManager.serviceManagerStatus,
@@ -351,8 +349,6 @@ function buildDaemonServiceAnomalies(input: {
   runtimeCommandPathExists: boolean | null;
   runtimeContractCompatibility: DaemonRuntimeContractCompatibility;
   resolvedArtifact: ReturnType<typeof resolveDaemonServiceArtifact>;
-  unscopedServiceManager: DaemonServiceManager | null;
-  unscopedServiceManagerStatus: DaemonServiceManagerRuntimeStatus | null;
   serviceManager: DaemonServiceManager | null;
   serviceManagerStatus: DaemonServiceManagerRuntimeStatus | null;
   serviceManagerDefinitionMatchesCurrentRoot: boolean | null;
@@ -453,8 +449,6 @@ function buildRuntimeHealthAnomalies(input: {
   runtimeCommandEntryPath: string | null;
   runtimeCommandPathExists: boolean | null;
   runtimeContractCompatibility: DaemonRuntimeContractCompatibility;
-  unscopedServiceManager: DaemonServiceManager | null;
-  unscopedServiceManagerStatus: DaemonServiceManagerRuntimeStatus | null;
   serviceManager: DaemonServiceManager | null;
   serviceManagerStatus: DaemonServiceManagerRuntimeStatus | null;
   serviceManagerDefinitionMatchesCurrentRoot: boolean | null;
@@ -464,8 +458,8 @@ function buildRuntimeHealthAnomalies(input: {
   const anomalies: DaemonServiceAnomaly[] = [];
   const ownerSnapshot = buildDaemonOwnerSnapshotFromObservedState({
     runtimeStatus: input.runtimeStatus,
-    serviceManager: input.unscopedServiceManager,
-    serviceManagerStatus: input.unscopedServiceManagerStatus,
+    serviceManager: input.serviceManager,
+    serviceManagerStatus: input.serviceManagerStatus,
     effectiveRuntimeStatus: input.effectiveRuntimeStatus,
     ownedProcesses: input.ownedProcesses,
   });

@@ -102,6 +102,21 @@ integration tests pass afterward. This changes no wire contract, enrollment,
 execution epoch or running-task authority. The new packaged staging CLI still
 needs to prove restart on the preserved failing fixture before production.
 
+Staging's isolated foreground Service also exposed owner diagnostics counting
+the unrelated Canary OS registration pointing at localhost. Runtime status
+already scoped that registration by installation root; anomaly calculation now
+uses the same observation rather than the discarded unscoped manager. A
+red-before-fix regression and a same-root collision regression cover this
+boundary. No registration, process, wire schema, execution epoch or stored
+state is changed by this correction. Existing binaries retain the diagnostic
+bug until updated; cloud receivers require no compatibility change.
+
+The downloaded binary launched directly from the task checkout did not provide
+process-path proof of its isolated installation. Restarting only the idle test
+Service through its installed versioned executable cleared the observed
+`runtime_bundle_mismatch` without weakening process identity checks. The
+remaining external-owner diagnostic still requires the corrected staging CLI.
+
 Staging browser acceptance exposed inherited production cookies masking the
 staging session when both environments used Better Auth's default cookie names.
 Staging Auth now explicitly uses `openmeld-staging`; production names remain
