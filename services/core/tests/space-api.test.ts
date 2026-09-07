@@ -1392,9 +1392,8 @@ describe("OpenMeld Core", () => {
       joinerProfile
     );
 
-    const space = env.OPENMELD_SPACES.get(
-      env.OPENMELD_SPACES.idFromString(spaceId)
-    );
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const space = namespace.get(namespace.idFromString(spaceId));
     await space.rpcRecordMemberWebActivity({
       organizationId: DEFAULT_TEST_ORGANIZATION_ID,
       profileId: THIRD_HUMAN_PROFILE_ID,
