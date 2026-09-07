@@ -21,9 +21,6 @@ export function resolveSetupServiceUpdateTruth(input: {
   if (!operation) {
     return { status: "ready" };
   }
-  if (compareSemver(input.currentCliVersion, operation.targetVersion) > 0) {
-    return { status: "ready" };
-  }
   if (operation.phase === "restored" || operation.phase === "needs_help") {
     if (
       input.currentServiceVerified &&
@@ -46,6 +43,13 @@ export function resolveSetupServiceUpdateTruth(input: {
         "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes.",
       status: "updating",
     };
+  }
+  if (
+    input.currentServiceVerified &&
+    input.installedServiceVersion === input.currentCliVersion &&
+    compareSemver(input.currentCliVersion, operation.targetVersion) > 0
+  ) {
+    return { status: "ready" };
   }
   if (
     input.currentCliVersion === operation.targetVersion &&
@@ -72,7 +76,9 @@ export async function assertSetupServiceUpdateComplete(): Promise<void> {
   const truth = resolveSetupServiceUpdateTruth({
     currentCliVersion: OPENMELD_VERSION,
     installedServiceVersion:
-      inventory.installStatus.state?.daemonVersion ?? null,
+      inventory.serviceContract?.daemonVersion ??
+      inventory.installStatus.state?.daemonVersion ??
+      null,
     operation,
     currentServiceVerified:
       inventory.anomalies.length === 0 &&

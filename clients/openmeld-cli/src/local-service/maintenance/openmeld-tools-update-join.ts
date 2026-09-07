@@ -43,22 +43,12 @@ export async function waitForExternalOpenMeldToolsUpdate(
       operation: OpenMeldToolsUpdateOperation
     ) => Promise<void> | void;
     pollIntervalMs?: number;
-    allowRecoveryWhileWaitingForWork?: boolean;
   } = {}
 ): Promise<void> {
   let reportedOperationId: string | null = null;
   while (true) {
     const operation = await resolveExternalOpenMeldToolsUpdate(input);
     if (!operation) {
-      return;
-    }
-    // Reconnect may be what lets the existing Service report safe-to-switch.
-    // Actual switching still serializes through the lifecycle lock; never
-    // cancel the update or infer safety from an unavailable Service.
-    if (
-      input.allowRecoveryWhileWaitingForWork &&
-      operation.phase === "waiting_for_work"
-    ) {
       return;
     }
     if (reportedOperationId !== operation.operationId) {

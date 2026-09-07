@@ -1952,6 +1952,13 @@ coordinator. The initiating browser or Terminal is not a lifecycle owner: it
 may close immediately after the durable handoff, and the OS worker must resume
 the same job after its own crash, sign-in, or computer restart.
 
+When the control endpoint is absent, the update worker delegates to the existing
+locked lifecycle checks rather than waiting forever for an absent Service to
+answer readiness. This does not authorize force-killing a live Service: controlled
+drain or verified runtime absence remains required. Setup joins pending updates;
+a newer Setup advances an older waiting job through that same coordinator before
+joining it, so an old worker cannot replace a newly connected Service afterward.
+
 That update job is the single operation truth. Its safe projection reports one
 of `waiting_for_work`, `updating`, `updated`, `restored`, or `needs_help` plus
 the opaque operation id, request source, target version, urgency, and

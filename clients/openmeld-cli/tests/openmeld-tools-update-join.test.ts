@@ -26,19 +26,24 @@ const attempt: OpenMeldToolsUpdateAttempt = {
 };
 
 describe("OpenMeld Tools update join", () => {
-  it("allows recovery while an update waits for work without discarding the update", async () => {
+  it("joins an update waiting for work instead of racing its worker", async () => {
     await withTempHome(async () => {
       const waiting = {
         ...attempt,
         operation: { ...attempt.operation, phase: "waiting_for_work" as const },
       };
       await persistOpenMeldToolsUpdateAttempt(waiting);
-      await waitForExternalOpenMeldToolsUpdate({
-        allowRecoveryWhileWaitingForWork: true,
+      const onWaiting = vi.fn(async () => {
+        expect(await resolveExternalOpenMeldToolsUpdate()).toEqual(
+          waiting.operation
+        );
+        await discardPendingOpenMeldToolsUpdateAttempt();
       });
-      expect(await resolveExternalOpenMeldToolsUpdate()).toEqual(
-        waiting.operation
-      );
+      await waitForExternalOpenMeldToolsUpdate({
+        onWaiting,
+        pollIntervalMs: 1,
+      });
+      expect(onWaiting).toHaveBeenCalledOnce();
     });
   });
   it("finds a pending update but excludes the process that owns it", async () => {
@@ -65,7 +70,6 @@ describe("OpenMeld Tools update join", () => {
 
       await expect(
         waitForExternalOpenMeldToolsUpdate({
-          allowRecoveryWhileWaitingForWork: true,
           onWaiting,
           pollIntervalMs: 1,
         })

@@ -23,6 +23,8 @@ const {
   connectPrepareSessionStreamMock,
   reportPrepareHandoffStoppedMock,
   waitForExternalOpenMeldToolsUpdateMock,
+  readPendingDaemonServiceUpdateMock,
+  scheduleDaemonServiceUpdateMock,
 } = vi.hoisted(() => ({
   beginAuthSessionTransitionMock: vi.fn(),
   bestEffortStopCurrentLaneDaemonServiceMock: vi.fn(),
@@ -44,7 +46,19 @@ const {
   connectPrepareSessionStreamMock: vi.fn(async () => ({ close: vi.fn() })),
   reportPrepareHandoffStoppedMock: vi.fn(),
   waitForExternalOpenMeldToolsUpdateMock: vi.fn(),
+  readPendingDaemonServiceUpdateMock: vi.fn(),
+  scheduleDaemonServiceUpdateMock: vi.fn(),
 }));
+
+vi.mock("../src/local-service/lifecycle/daemon-service-update-state", () => ({
+  readPendingDaemonServiceUpdate: readPendingDaemonServiceUpdateMock,
+}));
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-update-coordinator",
+  () => ({
+    scheduleDaemonServiceUpdate: scheduleDaemonServiceUpdateMock,
+  })
+);
 
 vi.mock("../src/ui/confirm", () => ({
   promptConfirm: promptConfirmMock,
@@ -105,8 +119,12 @@ import {
   runComputerAuthorizationHandoff,
   runOneTimeTokenComputerHandoff,
 } from "../src/commands/computer-auth-handoff";
-import { recoverInterruptedComputerAuthHandoff } from "../src/commands/computer-auth-handoff-recovery";
+import {
+  recoverInterruptedComputerAuthHandoff,
+  waitForOpenMeldToolsUpdateBeforeComputerHandoff,
+} from "../src/commands/computer-auth-handoff-recovery";
 import { AuthSessionChangedBeforeTransitionError } from "../src/config/auth-session";
+import { OPENMELD_VERSION } from "../src/runtime/version";
 
 const candidateSession = {
   accessToken: "candidate-token",
@@ -146,12 +164,32 @@ const presenter = {
 } satisfies Presenter;
 
 describe("Computer authorization handoff", () => {
+  it("advances an older waiting update before joining it, never racing it", async () => {
+    readPendingDaemonServiceUpdateMock.mockResolvedValue({
+      jobId: "older-pending-update",
+      phase: "waiting_for_work",
+      targetVersion: "0.0.1",
+      urgency: "available",
+    });
+    await waitForOpenMeldToolsUpdateBeforeComputerHandoff({ presenter });
+    expect(scheduleDaemonServiceUpdateMock).toHaveBeenCalledWith({
+      targetVersion: OPENMELD_VERSION,
+      urgency: "available",
+      requestSource: "cli",
+    });
+    expect(
+      scheduleDaemonServiceUpdateMock.mock.invocationCallOrder[0]
+    ).toBeLessThan(
+      waitForExternalOpenMeldToolsUpdateMock.mock.invocationCallOrder[0] ?? 0
+    );
+  });
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    readPendingDaemonServiceUpdateMock.mockResolvedValue(null);
     getAuthSessionMetadataMock.mockResolvedValue(null);
     resolveBaseUrlMock.mockResolvedValue("https://gateway.openmeld.test");
     resolveExternalOpenMeldToolsUpdateMock.mockResolvedValue(null);

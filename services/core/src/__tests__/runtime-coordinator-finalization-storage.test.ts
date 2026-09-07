@@ -1,11 +1,20 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import type { CoreBindings } from "../lib/bindings";
 import type { RuntimeCoordinatorFinalizationRetryEntry } from "../runtime-transport/application/runtime-coordinator-authority";
 import {
   readRuntimeCoordinatorFinalizationRetriesFromStorage,
   removeRuntimeCoordinatorFinalizationRetryFromStorage,
   upsertRuntimeCoordinatorFinalizationRetryEntryInStorage,
 } from "../runtime-transport/application/runtime-coordinator-storage";
+
+function createTransportStub() {
+  const transport = (env as unknown as CoreBindings).OPENMELD_RUNTIME_TRANSPORT;
+  if (!transport) {
+    throw new Error("Test runtime transport binding is required");
+  }
+  return transport.get(transport.newUniqueId());
+}
 
 function retry(id: string): RuntimeCoordinatorFinalizationRetryEntry {
   return {
@@ -25,9 +34,7 @@ function retry(id: string): RuntimeCoordinatorFinalizationRetryEntry {
 
 describe("finalization retry storage concurrency", () => {
   it("retains both replies when publication retries are registered concurrently", async () => {
-    const stub = env.OPENMELD_RUNTIME_TRANSPORT.get(
-      env.OPENMELD_RUNTIME_TRANSPORT.newUniqueId()
-    );
+    const stub = createTransportStub();
     await runInDurableObject(stub, async (_instance, state) => {
       await Promise.all([
         upsertRuntimeCoordinatorFinalizationRetryEntryInStorage(
@@ -48,9 +55,7 @@ describe("finalization retry storage concurrency", () => {
   });
 
   it("does not erase another reply retry while removing a delivered reply", async () => {
-    const stub = env.OPENMELD_RUNTIME_TRANSPORT.get(
-      env.OPENMELD_RUNTIME_TRANSPORT.newUniqueId()
-    );
+    const stub = createTransportStub();
     await runInDurableObject(stub, async (_instance, state) => {
       await upsertRuntimeCoordinatorFinalizationRetryEntryInStorage(
         state.storage,
