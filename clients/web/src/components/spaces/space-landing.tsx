@@ -396,7 +396,7 @@ type SpaceLandingInput = {
 	onInitialPendingMessageConsumed?: () => void;
 	onSpaceViewCommitted?: (view: SpaceView) => void;
 	orgSlug: string;
-	presentation?: "compact" | "full";
+	presentation?: "canvas" | "compact" | "full";
 	spaceId: string;
 	profileId: string;
 };
@@ -559,15 +559,21 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			profileId: input.profileId,
 			spaceId: input.spaceId,
 		});
-	const isDesktopMembersPanel = useMediaQuery(SPACE_MEMBERS_SIDE_PANEL_QUERY);
+	const supportsDesktopMembersPanel = useMediaQuery(
+		SPACE_MEMBERS_SIDE_PANEL_QUERY
+	);
+	const isDesktopMembersPanel =
+		supportsDesktopMembersPanel && input.presentation !== "canvas";
 	const [membersPanelOpenOverrides, setMembersPanelOpenOverrides] = useState<
 		ReadonlyMap<string, boolean>
 	>(() => new Map());
 	const membersOpen =
 		membersPanelOpenOverrides.get(input.spaceId) ??
-		resolveInitialMembersPanelOpen({
-			spaceId: input.spaceId,
-		});
+		(input.presentation === "canvas"
+			? false
+			: resolveInitialMembersPanelOpen({
+					spaceId: input.spaceId,
+				}));
 	const setMembersOpen = useCallback(
 		(open: boolean) => {
 			setMembersPanelOpenOverrides((current) => {
@@ -1254,12 +1260,14 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	const handleMembersOpenChange = useCallback(
 		(open: boolean) => {
 			setMembersOpen(open);
-			writeSpaceMembersPanelOpen({
-				open,
-				spaceId: input.spaceId,
-			});
+			if (input.presentation !== "canvas") {
+				writeSpaceMembersPanelOpen({
+					open,
+					spaceId: input.spaceId,
+				});
+			}
 		},
-		[input.spaceId, setMembersOpen]
+		[input.spaceId, input.presentation, setMembersOpen]
 	);
 	// Get-set-up panel recall + Add-agents highlight wiring (drives the header
 	// recall action and the Add-members card flash).
@@ -1587,7 +1595,8 @@ function SpaceLandingReady({
 		session: "fresh",
 		spaceId: controller.spaceId,
 	});
-	const isCompactPresentation = input.presentation === "compact";
+	const isCompactPresentation =
+		input.presentation === "compact" || input.presentation === "canvas";
 	const { agentProfileEditContext, pendingAgentActions } =
 		useSpaceLandingPendingAgentActions({
 			controller,
@@ -1597,7 +1606,7 @@ function SpaceLandingReady({
 		string | undefined
 	>();
 	const activeActionThreadId =
-		!isCompactPresentation && controller.isCurrentAccessConfirmed
+		input.presentation !== "compact" && controller.isCurrentAccessConfirmed
 			? (controller.activeThread?.threadId ?? null)
 			: null;
 	const pendingActionsByPanel = partitionSpacePendingAgentActions(
@@ -1732,7 +1741,7 @@ function SpaceLandingReady({
 							}
 						/>
 					}
-					showHeader={!isCompactPresentation}
+					showHeader={input.presentation !== "compact"}
 				>
 					<div
 						className="flex min-h-0 flex-1 overflow-hidden"
@@ -1770,7 +1779,7 @@ function SpaceLandingReady({
 							prepareSetupHref={prepareSetupHref}
 							state={state}
 						/>
-						{isCompactPresentation ||
+						{input.presentation === "compact" ||
 						!controller.isCurrentAccessConfirmed ? null : (
 							<SpaceLandingSecondaryPanels
 								agentDirectConversationKind={agentDirectConversationKind}
@@ -2089,7 +2098,8 @@ function SpaceLandingConversation({
 			profileControl={composerProfileControl}
 			readOnlyComposerPlaceholder={readOnlyComposerPlaceholder}
 			renderSetupGuidance={(presentation) =>
-				controller.isCurrentAccessConfirmed ? (
+				controller.isCurrentAccessConfirmed &&
+				input.presentation !== "canvas" ? (
 					<SpaceConversationRecoveryBanner
 						accountProfiles={accountProfiles}
 						actingProfileId={input.profileId}
@@ -2643,7 +2653,7 @@ function SpaceLandingSecondaryPanels({
 }
 
 function resolveSpaceLandingBodySlotName(
-	presentation: "compact" | "full" | undefined
+	presentation: "canvas" | "compact" | "full" | undefined
 ) {
 	return presentation === "compact"
 		? "center-agent-compact-conversation"

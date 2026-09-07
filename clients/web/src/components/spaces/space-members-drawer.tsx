@@ -56,7 +56,7 @@ import {
 	MotionConfig,
 	m,
 } from "motion/react";
-import type { CSSProperties, ReactNode, RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import {
 	useDeferredValue,
 	useEffect,
@@ -66,7 +66,6 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
-import { Drawer } from "vaul";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { resolveDirectoryHumanProfileActivityLabel } from "#/components/directory/directory-human-profile-format";
@@ -331,116 +330,100 @@ export function SpaceMembersDrawer(
 	const model = useSpaceMembersModel(input);
 
 	return (
-		<Drawer.Root
-			direction="right"
-			onOpenChange={input.onOpenChange}
-			open={input.open}
-		>
-			<Drawer.Portal>
-				<Drawer.Overlay className="fixed inset-0 z-40 bg-background/60" />
-				<Drawer.Content
-					className="fixed top-0 right-0 bottom-0 z-50 flex border-border border-l bg-background outline-none"
-					id="space-members-drawer"
-					style={
-						{
-							"--initial-transform": "calc(100% + 1px)",
-							width: "min(24rem, calc(100vw - 1rem))",
-						} as CSSProperties
-					}
-				>
-					<div className="flex min-h-0 w-full flex-col">
-						<div className="shrink-0 border-border border-b px-4 py-3">
-							<div className="flex items-center justify-between gap-2">
-								<div className="flex min-w-0 items-baseline gap-2">
-									<Drawer.Title className="font-medium text-base">
-										Members
-									</Drawer.Title>
-									<span
-										aria-hidden="true"
-										className="truncate text-muted-foreground text-xs tabular-nums"
-									>
-										{model.membersCountLabel}
-									</span>
-									<Drawer.Description className="sr-only">
-										{model.membersCountDescription}
-									</Drawer.Description>
-								</div>
-								<div className="flex shrink-0 items-center gap-1">
-									<SpaceMembersSearchHeaderButton
-										onToggle={() => model.setIsSearchOpen(!model.isSearchOpen)}
-										open={model.isSearchOpen}
+		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
+			<DialogContent
+				className="top-0 right-0 bottom-0 left-auto flex h-dvh max-h-none w-[min(24rem,calc(100vw-1rem))] max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-l p-0 motion-reduce:animate-none sm:max-w-none"
+				id="space-members-drawer"
+				showCloseButton={false}
+			>
+				<div className="flex min-h-0 w-full flex-col">
+					<div className="shrink-0 border-border border-b px-4 py-3">
+						<div className="flex items-center justify-between gap-2">
+							<div className="flex min-w-0 items-baseline gap-2">
+								<DialogTitle className="font-medium text-base">
+									Members
+								</DialogTitle>
+								<span
+									aria-hidden="true"
+									className="truncate text-muted-foreground text-xs tabular-nums"
+								>
+									{model.membersCountLabel}
+								</span>
+								<DialogDescription className="sr-only">
+									{model.membersCountDescription}
+								</DialogDescription>
+							</div>
+							<div className="flex shrink-0 items-center gap-1">
+								<SpaceMembersSearchHeaderButton
+									onToggle={() => model.setIsSearchOpen(!model.isSearchOpen)}
+									open={model.isSearchOpen}
+								/>
+								{input.onAddProfiles ||
+								input.onAddOrganizationDirectoryProfiles ? (
+									<SpaceAddMembersHeaderButton
+										controlsId={model.addMembersDialogId}
+										onOpen={model.openAddMembers}
+										open={model.isAddMembersOpen}
 									/>
-									{input.onAddProfiles ||
-									input.onAddOrganizationDirectoryProfiles ? (
-										<SpaceAddMembersHeaderButton
-											controlsId={model.addMembersDialogId}
-											onOpen={model.openAddMembers}
-											open={model.isAddMembersOpen}
-										/>
-									) : null}
-									<SpaceMembersCloseButton
-										onClose={() => input.onOpenChange(false)}
-									/>
-								</div>
+								) : null}
+								<SpaceMembersCloseButton
+									onClose={() => input.onOpenChange(false)}
+								/>
 							</div>
 						</div>
-
-						<SpaceMembersBody
-							accountProfiles={input.accountProfiles ?? []}
-							activeWakeDisplayTargetProfileIds={
-								input.activeWakeDisplayTargetProfileIds
-							}
-							activeWakeWaitingTargetProfileIds={
-								input.activeWakeWaitingTargetProfileIds
-							}
-							addMembersDialogId={model.addMembersDialogId}
-							addMembersTriggerRef={model.addMembersTriggerRef}
-							agentProfileEditContext={input.agentProfileEditContext}
-							agentRecoveryPlansByProfileId={
-								input.agentRecoveryPlansByProfileId
-							}
-							autoRefreshExhaustedProfileIds={
-								input.autoRefreshExhaustedProfileIds
-							}
-							centerAgentProfileId={input.centerAgentProfileId ?? null}
-							currentOwnerUserId={input.currentOwnerUserId}
-							currentProfileId={input.currentProfileId}
-							displayWakeOverrideByProfileId={
-								input.displayWakeOverrideByProfileId
-							}
-							filteredDirectory={model.filteredDirectory}
-							membersError={input.membersError}
-							modelCatalog={input.modelCatalog ?? null}
-							onAddMembersOpen={model.openAddMembers}
-							onAddMembersOpenChange={model.setIsAddMembersOpen}
-							onAddOrganizationDirectoryProfiles={
-								input.onAddOrganizationDirectoryProfiles
-							}
-							onAddProfiles={input.onAddProfiles}
-							onAgentRecoveryAction={input.onAgentRecoveryAction}
-							onConvertDirectMessageToSpace={
-								input.onConvertDirectMessageToSpace
-							}
-							onQueryChange={model.setQuery}
-							onRefresh={input.onRefresh}
-							onRemoveMember={input.onRemoveMember}
-							orgSlug={input.orgSlug}
-							prepareSetupHref={input.prepareSetupHref}
-							query={model.query}
-							searchOpen={model.isSearchOpen}
-							snapshot={input.snapshot}
-							spaceId={input.spaceId}
-							spaceName={input.spaceName}
-							viewState={{
-								isAddMembersOpen: model.isAddMembersOpen,
-								isAgentRecoveryPending: input.isAgentRecoveryPending,
-								isLoading: input.isLoading,
-							}}
-						/>
 					</div>
-				</Drawer.Content>
-			</Drawer.Portal>
-		</Drawer.Root>
+
+					<SpaceMembersBody
+						accountProfiles={input.accountProfiles ?? []}
+						activeWakeDisplayTargetProfileIds={
+							input.activeWakeDisplayTargetProfileIds
+						}
+						activeWakeWaitingTargetProfileIds={
+							input.activeWakeWaitingTargetProfileIds
+						}
+						addMembersDialogId={model.addMembersDialogId}
+						addMembersTriggerRef={model.addMembersTriggerRef}
+						agentProfileEditContext={input.agentProfileEditContext}
+						agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
+						autoRefreshExhaustedProfileIds={
+							input.autoRefreshExhaustedProfileIds
+						}
+						centerAgentProfileId={input.centerAgentProfileId ?? null}
+						currentOwnerUserId={input.currentOwnerUserId}
+						currentProfileId={input.currentProfileId}
+						displayWakeOverrideByProfileId={
+							input.displayWakeOverrideByProfileId
+						}
+						filteredDirectory={model.filteredDirectory}
+						membersError={input.membersError}
+						modelCatalog={input.modelCatalog ?? null}
+						onAddMembersOpen={model.openAddMembers}
+						onAddMembersOpenChange={model.setIsAddMembersOpen}
+						onAddOrganizationDirectoryProfiles={
+							input.onAddOrganizationDirectoryProfiles
+						}
+						onAddProfiles={input.onAddProfiles}
+						onAgentRecoveryAction={input.onAgentRecoveryAction}
+						onConvertDirectMessageToSpace={input.onConvertDirectMessageToSpace}
+						onQueryChange={model.setQuery}
+						onRefresh={input.onRefresh}
+						onRemoveMember={input.onRemoveMember}
+						orgSlug={input.orgSlug}
+						prepareSetupHref={input.prepareSetupHref}
+						query={model.query}
+						searchOpen={model.isSearchOpen}
+						snapshot={input.snapshot}
+						spaceId={input.spaceId}
+						spaceName={input.spaceName}
+						viewState={{
+							isAddMembersOpen: model.isAddMembersOpen,
+							isAgentRecoveryPending: input.isAgentRecoveryPending,
+							isLoading: input.isLoading,
+						}}
+					/>
+				</div>
+			</DialogContent>
+		</Dialog>
 	);
 }
 

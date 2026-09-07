@@ -8,6 +8,7 @@ import { CurrentComputerToolbarLauncher } from "./current-computer-toolbar-launc
 export type AppGlobalPanel = "center_agent" | "inbox";
 
 export type AppGlobalControlsProps = {
+	hideCenterAgent?: boolean;
 	currentPathname?: string;
 	onOpenPanelChange?: (panel: AppGlobalPanel | null) => void;
 	openPanel?: AppGlobalPanel | null;

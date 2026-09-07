@@ -131,6 +131,9 @@ html[data-space-conversation-layout="centered"]
 }
 
 html[data-space-conversation-layout="centered"]
+  [data-space-conversation-presentation="canvas"]
+  [data-space-conversation-content-width],
+html[data-space-conversation-layout="centered"]
   [data-space-conversation-presentation="compact"]
   [data-space-conversation-content-width] {
   max-width: min(var(--space-conversation-centered-max-width), 100%);

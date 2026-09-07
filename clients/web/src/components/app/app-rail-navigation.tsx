@@ -81,9 +81,7 @@ export function buildAppRailGroups(input: {
 				},
 				{
 					id: "home",
-					label: "Center Agent",
-					onIntentPrefetch: input.prefetchCenterAgentConversation,
-					unreadCount: input.centerAgentUnreadCount,
+					label: "Home",
 					to: buildOrganizationRootPath(input.orgSlug),
 					icon: <HouseIcon aria-hidden="true" className="size-4" />,
 				},
