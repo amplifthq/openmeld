@@ -2476,6 +2476,26 @@ The provider set is `slack | lark | feishu`. The transport set is
 one internal Lark-platform implementation serves both brands. `connector` is
 not a Message Channel domain term.
 
+Channel permission read-back requires the complete tenant Channel bundle and
+rejects denied, duplicate, user-token, or unrelated business scopes. The one
+explicitly granted tenant scope `application:application:patch` may additionally
+be present for application configuration. It is setup authority only and never
+becomes a Center Agent tool grant or an App connection. The default registration
+bundle does not request it automatically; an operator must explicitly consent
+before it is granted.
+
+Provider configuration refusal `99991672` becomes the bounded reason
+`<provider>.application_config_permission_required`, including when delivered
+with HTTP 403. Web explains the explicit setup grant and links to the selected
+provider's Developer Console; the existing Core-owned retry remains active.
+This uses the existing string reason field without changing a shared payload,
+CLI/Service protocol, database schema, or local-component artifact. Old Web
+can still read the reason with generic retry copy; new Web accepts old Core.
+Deploy Web before Core for actionable guidance throughout rollout. Old and new
+CLI, Service, Skills, and Gateway remain compatible through setup, Wake, Space
+actions, and diagnostics; no contract-version bump or local-component stamp is
+required.
+
 The additive setup-request HTTP contract accepts one provider and returns its
 Organization, stable request id, recipient count, and `created` or
 `already_requested` result. It never returns credentials or grants Channel
@@ -4859,6 +4879,32 @@ They must not hand-write a parallel setup-plan shape, mint client-only action
 ids, or reinterpret `readOnly` as permission to mutate local state.
 
 ## Space Member Contracts
+
+Auth owns current Profile names. Space member names are persisted display
+snapshots, not a second identity authority. Historical Signals and existing
+sessions must never rename an existing member, even when their names are
+nonempty. They can initialize a missing member's historical snapshot only.
+Agent publication, including WebSocket writes, resolves the matching Profile
+through Auth's `resolveProfileById` contract and rejects caller-reported names.
+New Signals freeze the name resolved at publication; existing Signals are never
+rewritten by a Profile rename. Authorized member-directory and active-Wake reads
+refresh active-member names through the Space-owned writer and existing Space
+Index projection outbox. Account working summaries resolve each distinct active
+Agent through Auth, without making the cross-Space index a membership writer.
+Refresh preserves membership, ownership, removal and aliases. It re-reads the
+member after the Auth call so a concurrent removal or changed name wins. Failed
+or mismatched identity reads do not write names: the last known snapshot remains
+available so a display-name lookup outage does not block reply publication.
+Active work prefers the refreshed name over the dispatch's historical label.
+Name enrichment has a 500 ms wait budget per publication or read refresh, shared
+across all batches in a member or account summary read. Timeout preserves the
+last known name and emits diagnostics; it does not cancel or fail Agent
+execution. An RPC may still finish remotely, but its late result cannot write
+a snapshot after the caller has timed out. Name-only index delivery runs in the
+background using the existing durable dirty mark and projection outbox, rather
+than delaying the reply or status response.
+Web treats old ID-valued progress labels as unnamed Agents during rollout.
+These corrections change no HTTP/RPC schema or local-component contract.
 
 `getSpaceStatusResponseSchema` may expose the Organization's current
 `centerAgentProfileId` as an optional presentation identity. This lets public

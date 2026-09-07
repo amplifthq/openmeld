@@ -35,6 +35,9 @@ patchedDependencies:
   '@flue/runtime@2.0.3':
     hash: 2af016a413c955dd981242765b00945562a3fe7c93d32d9b39d70eee0f7bee49
     path: patches/@flue__runtime@2.0.3.patch
+  thinking-orbs@0.3.1:
+    hash: 1d2410bd054a0bbf76633d101f3ad9e0e088bed08e1470176fc51bdb7e45d9c3
+    path: patches/thinking-orbs@0.3.1.patch
 
 importers:
 
@@ -526,7 +529,7 @@ importers:
         version: 4.1.18
       thinking-orbs:
         specifier: 0.3.1
-        version: 0.3.1(react@19.2.4)
+        version: 0.3.1(patch_hash=1d2410bd054a0bbf76633d101f3ad9e0e088bed08e1470176fc51bdb7e45d9c3)(react@19.2.4)
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -25017,7 +25020,7 @@ snapshots:
       mkdirp: 0.5.6
       rimraf: 2.6.3
 
-  thinking-orbs@0.3.1(react@19.2.4):
+  thinking-orbs@0.3.1(patch_hash=1d2410bd054a0bbf76633d101f3ad9e0e088bed08e1470176fc51bdb7e45d9c3)(react@19.2.4):
     dependencies:
       react: 19.2.4
 

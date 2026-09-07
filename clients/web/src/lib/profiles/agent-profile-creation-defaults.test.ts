@@ -18,6 +18,7 @@ describe("remembered Agent Profile creation defaults", () => {
 		).toEqual({
 			agentControllerCollaborationMode: "codex:plan",
 			agentControllerPermissionMode: "codex:fullAccess",
+			agentControllerPermissionModeConfirmed: true,
 			defaultProjectId: "project-1",
 			modelId: "gpt-5.6-sol",
 			openCodePermission: null,
@@ -36,11 +37,23 @@ describe("remembered Agent Profile creation defaults", () => {
 		).toEqual({
 			agentControllerCollaborationMode: null,
 			agentControllerPermissionMode: "claude-code:default",
+			agentControllerPermissionModeConfirmed: false,
 			defaultProjectId: null,
 			modelId: null,
 			openCodePermission: null,
 			reasoningLevel: null,
 		});
+	});
+
+	it("does not infer consent from unsaved defaults", () => {
+		expect(
+			resolveRememberedAgentProfileCreationDefaults({
+				agentId: "codex",
+				defaults: { ...defaults(), updatedAt: null },
+				modelCatalog: modelCatalog(),
+				projects: [],
+			}).agentControllerPermissionModeConfirmed
+		).toBe(false);
 	});
 });
 

@@ -64,6 +64,7 @@ export function AgentConfigurationCard(input: {
 	inlineContent?: ReactNode;
 	onClick?: () => void;
 	onOpenChange?: (open: boolean) => void;
+	initialFocus?: () => HTMLElement | boolean | null;
 	open?: boolean;
 	readOnly?: boolean;
 	status?: "idle" | "saving" | "saved";
@@ -185,6 +186,7 @@ export function AgentConfigurationCard(input: {
 					<Popover.Popup
 						className="w-[min(25rem,calc(100vw-1.5rem))] origin-[var(--transform-origin)] rounded-2xl border border-border/75 bg-popover p-4 text-popover-foreground shadow-xl outline-none transition-[opacity,transform] duration-180 ease-[cubic-bezier(0.19,1,0.22,1)] data-[starting-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 data-[ending-style]:duration-100 motion-reduce:transform-none motion-reduce:transition-opacity"
 						finalFocus={false}
+						initialFocus={input.initialFocus}
 					>
 						<div className="mb-4 flex items-start gap-3">
 							<span className="grid size-8 shrink-0 place-items-center rounded-lg border border-border/60 bg-background/75 text-muted-foreground [&_svg]:size-4">

@@ -1,0 +1,16 @@
+{
+  "code": 99992402,
+  "msg": "field validation failed",
+  "error": {
+    "field_violations": [
+      {
+        "description": "the max len is 32",
+        "field": "event_and_callback_encrypt_strategy.encryption_key"
+      },
+      {
+        "field": "event_and_callback_encrypt_strategy.verification_token",
+        "description": "the max len is 32"
+      }
+    ]
+  }
+}
