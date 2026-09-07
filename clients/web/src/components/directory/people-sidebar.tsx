@@ -218,7 +218,11 @@ export function PeopleSidebar(input: {
 					section.members.length > 0)
 		)
 		.map((section, sectionIndex) => {
-			const members = sortSidebarPeople(section.members, section.settings);
+			const members = sortSidebarPeople(
+				section.members,
+				section.settings,
+				section.id === "starred"
+			);
 			visible.set(
 				section.id,
 				members.map((m) => m.id)

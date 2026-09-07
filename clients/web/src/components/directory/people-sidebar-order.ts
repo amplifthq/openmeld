@@ -67,8 +67,18 @@ export function peopleConnectionFilter(
 }
 export function sortSidebarPeople(
 	items: readonly DirectoryHumanProfileRow[],
-	section: PeopleSidebarPreferences["people"]
+	section: PeopleSidebarPreferences["people"],
+	selfFirst = false
 ) {
+	if (selfFirst) {
+		return [
+			...items.filter((item) => item.isCurrentUser),
+			...sortSidebarPeople(
+				items.filter((item) => !item.isCurrentUser),
+				section
+			),
+		];
+	}
 	if (section.sort === "manual") {
 		return sortSidebarManual(items, section.itemIds, (item) => item.id);
 	}

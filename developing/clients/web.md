@@ -1830,7 +1830,9 @@ formatted from `lastSeenAt` against the current clock, never a cached label.
 The sidebar places the designated **Center Agent** in its own first group,
 linking its actual profile name to Center Agent Home. Starred and user-defined
 groups follow, then **Computer online** and **Computer offline**. The signed-in
-member defaults to Starred only when no personal placement exists. Explicit
+member defaults to Starred only when no personal placement exists. While starred,
+the signed-in member always appears first, regardless of sort or manual order;
+the remaining members retain the selected ordering. Explicit
 unstar and custom placement persist; deleting a group returns its members to
 ordinary placement. Computer online requires the existing connected Computer
 projection, not registration or recent Human activity. Other resolved states go

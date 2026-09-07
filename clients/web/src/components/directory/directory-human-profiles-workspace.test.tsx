@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
 import { DirectoryHumanProfilesWorkspace } from "./directory-human-profiles-workspace";
+import { sortSidebarPeople } from "./people-sidebar-order";
 
 const ENABLED_LOCAL_AGENT_SUMMARY_PATTERN =
 	/Claude Code enabled, Codex enabled, Cursor enabled/;
@@ -208,6 +209,34 @@ vi.mock("./center-agent-sidebar-item", () => ({
 }));
 
 describe("DirectoryHumanProfilesWorkspace", () => {
+	it.each([
+		"priority",
+		"name",
+		"manual",
+		"recent",
+	] as const)("keeps self first in Starred with %s sorting", (sort) => {
+		const self = {
+			...buildMember({ current: true }),
+			name: "Zoe",
+			lastActiveAt: null,
+			joinedAt: "2020-01-01T00:00:00.000Z",
+		};
+		const other = {
+			...buildMember({ current: false }),
+			name: "Alice",
+			lastActiveAt: "2026-09-07T00:00:00.000Z",
+			joinedAt: "2026-09-07T00:00:00.000Z",
+		};
+		const settings = { sort, itemIds: [other.id, self.id] };
+		expect(
+			sortSidebarPeople([other, self], settings, true).map(
+				(person) => person.id
+			)
+		).toEqual([self.id, other.id]);
+		expect(
+			sortSidebarPeople([other, self], settings).map((person) => person.id)
+		).toEqual([other.id, self.id]);
+	});
 	it("places Center Agent first and defaults you to Starred", () => {
 		const self = buildMember({ current: true });
 		const offline = buildMember({ current: false });
