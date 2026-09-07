@@ -280,7 +280,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				.getAllByRole("region")
 				.map((group) => group.getAttribute("aria-label"))
 		).toEqual([
-			"Center Agent",
+			"Shared Center Agent",
 			"Starred",
 			"Computer online",
 			"Computer offline",
@@ -406,7 +406,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			within(sidebar)
 				.getAllByRole("region")
 				.map((group) => group.getAttribute("aria-label"))
-		).toEqual(["Center Agent", "Starred", "Computer online"]);
+		).toEqual(["Shared Center Agent", "Starred", "Computer online"]);
 	});
 
 	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {
