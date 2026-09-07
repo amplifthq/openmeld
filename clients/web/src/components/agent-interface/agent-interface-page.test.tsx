@@ -100,6 +100,7 @@ describe("AgentInterfacePage", () => {
 
 	afterEach(() => {
 		cleanup();
+		vi.restoreAllMocks();
 	});
 
 	it("keeps the public Skill visible before sign-in", () => {
@@ -258,6 +259,8 @@ describe("AgentInterfacePage", () => {
 	});
 
 	it("refreshes expired credentials before copying the prompt again", async () => {
+		const initialNow = Date.now();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(initialNow);
 		createPrepareSessionMock
 			.mockResolvedValueOnce({
 				opaqueToken: "preptok_expired",
@@ -294,6 +297,7 @@ describe("AgentInterfacePage", () => {
 		const copyAgainButton = await screen.findByRole("button", {
 			name: "Copy again",
 		});
+		clock.mockReturnValue(initialNow + 1000);
 		await waitFor(
 			() => {
 				expect(
@@ -325,6 +329,8 @@ describe("AgentInterfacePage", () => {
 	});
 
 	it("starts the clipboard write in the click that refreshes an expired prompt", async () => {
+		const initialNow = Date.now();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(initialNow);
 		const refreshPrepareSession = createDeferred<{
 			opaqueToken: string;
 			opaqueTokenExpiresAt: string;
@@ -353,6 +359,7 @@ describe("AgentInterfacePage", () => {
 
 		fireEvent.click(screen.getByRole("tab", { name: "Generate agent prompt" }));
 		await screen.findByRole("button", { name: "Copy again" });
+		clock.mockReturnValue(initialNow + 1000);
 		await waitFor(
 			() => {
 				expect(
@@ -397,6 +404,8 @@ describe("AgentInterfacePage", () => {
 	});
 
 	it("deduplicates repeated clicks while refreshing an expired prompt", async () => {
+		const initialNow = Date.now();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(initialNow);
 		const refreshPrepareSession = createDeferred<{
 			opaqueToken: string;
 			opaqueTokenExpiresAt: string;
@@ -416,6 +425,7 @@ describe("AgentInterfacePage", () => {
 		});
 		fireEvent.click(screen.getByRole("tab", { name: "Generate agent prompt" }));
 		await screen.findByRole("button", { name: "Copy again" });
+		clock.mockReturnValue(initialNow + 1000);
 		await waitFor(
 			() => {
 				expect(
@@ -466,6 +476,8 @@ describe("AgentInterfacePage", () => {
 	});
 
 	it("keeps the expired prompt fenced when refresh fails and retries safely", async () => {
+		const initialNow = Date.now();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(initialNow);
 		createPrepareSessionMock
 			.mockResolvedValueOnce({
 				opaqueToken: "preptok_expired",
@@ -500,6 +512,7 @@ describe("AgentInterfacePage", () => {
 		});
 		fireEvent.click(screen.getByRole("tab", { name: "Generate agent prompt" }));
 		await screen.findByRole("button", { name: "Copy again" });
+		clock.mockReturnValue(initialNow + 1000);
 		await waitFor(
 			() => {
 				expect(
