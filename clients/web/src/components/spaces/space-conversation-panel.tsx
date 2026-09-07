@@ -131,6 +131,7 @@ import { resolveLocalDateKey } from "./space-conversation-date";
 import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
 import { SpaceConversationSendScrollController } from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
+import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
@@ -2125,16 +2126,12 @@ function renderConversationBody(input: {
 
 	if (input.historyIsPending) {
 		return (
-			<>
-				{Array.from({ length: 4 }).map((_, index) => (
-					<MessageScrollerItem
-						key={`space-conversation-loading-${String(index)}`}
-						messageId={`space-conversation-loading-${String(index)}`}
-					>
-						<div className="h-20 border border-border bg-muted" />
-					</MessageScrollerItem>
-				))}
-			</>
+			<MessageScrollerItem
+				className="py-5"
+				messageId="space-conversation-loading"
+			>
+				<SpaceConversationSkeleton />
+			</MessageScrollerItem>
 		);
 	}
 
