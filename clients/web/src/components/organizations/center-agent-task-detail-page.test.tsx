@@ -438,7 +438,7 @@ describe("CenterAgentTaskDetailPage", () => {
 		const action = await screen.findByRole("link", {
 			name: "Start a new Task",
 		});
-		expect(action.getAttribute("href")).toBe("/o/amplift");
+		expect(action.getAttribute("href")).toBe("/o/amplift/chats/center-agent");
 		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 		expect(retryCurrentCenterAgentTaskMock).not.toHaveBeenCalled();
 	});

@@ -45,10 +45,8 @@ vi.mock("#/components/spaces/app-spaces-sidebar", () => ({
 	AppSpacesSidebar: () => <nav data-testid="spaces-sidebar">Spaces</nav>,
 }));
 
-vi.mock("#/components/spaces/app-direct-messages-sidebar", () => ({
-	AppDirectMessagesSidebar: () => (
-		<nav data-testid="direct-messages-sidebar">Direct Messages</nav>
-	),
+vi.mock("#/components/spaces/chats-sidebar", () => ({
+	ChatsSidebar: () => <nav data-testid="direct-messages-sidebar">Chats</nav>,
 }));
 
 const RUNNING_WAKE_PROGRESS_ITEMS = [
@@ -157,7 +155,7 @@ describe("AppSpaceShell", () => {
 });
 
 describe("AppDirectMessageShell", () => {
-	it("pairs the Direct Messages sidebar with the shared conversation content", () => {
+	it("pairs the Chats sidebar with the shared conversation content", () => {
 		appInnerSidebarSpy.mockReset();
 		render(
 			<AppDirectMessageShell

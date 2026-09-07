@@ -24,8 +24,8 @@ vi.mock("./space-share-dialog", () => ({
 	),
 }));
 
-describe("SpaceHeader Direct Message label", () => {
-	it("shows the Direct Message label only while the origin Space is in current DM state", () => {
+describe("SpaceHeader Direct Message identity", () => {
+	it("shows the local Agent badge only while the origin Space is a two-member chat", () => {
 		const { container, rerender } = render(
 			createSpaceHeader({
 				memberCount: 2,
@@ -33,7 +33,7 @@ describe("SpaceHeader Direct Message label", () => {
 			})
 		);
 
-		expect(screen.getByText("Direct Message")).toBeTruthy();
+		expect(screen.getByText("Local Agent")).toBeTruthy();
 		expect(
 			container.querySelector('[data-space-header-icon="direct-message"]')
 		).toBeTruthy();
@@ -45,7 +45,7 @@ describe("SpaceHeader Direct Message label", () => {
 			})
 		);
 
-		expect(screen.queryByText("Direct Message")).toBeNull();
+		expect(screen.queryByText("Local Agent")).toBeNull();
 		expect(
 			container.querySelector('[data-space-header-icon="channel"]')
 		).toBeTruthy();

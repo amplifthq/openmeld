@@ -660,7 +660,7 @@ describe("SpaceMemberRow", () => {
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
 	});
 
-	it("treats the Center Agent as the canonical Home chat, not an editable Agent Profile", () => {
+	it("treats the Center Agent as the canonical Center Agent chat, not an editable Agent Profile", () => {
 		renderSpaceMemberRow({
 			centerAgentProfileId: "agt-1",
 			entry: buildAgentEntry({ profileName: "Amplift Center Agent" }),
@@ -677,7 +677,7 @@ describe("SpaceMemberRow", () => {
 			dialog
 				.getByRole("link", { name: "Chat with Amplift Center Agent" })
 				.getAttribute("href")
-		).toBe("/o/acme");
+		).toBe("/o/acme/chats/center-agent");
 		expect(
 			dialog.queryByRole("link", { name: "Edit Amplift Center Agent" })
 		).toBeNull();
@@ -778,7 +778,7 @@ describe("SpaceMemberRow", () => {
 			dialog
 				.getByRole("link", { name: "View Felix profile" })
 				.getAttribute("href")
-		).toBe("/o/acme/people?profileId=human-1");
+		).toBe("/o/acme/people/human-1");
 	});
 
 	it("links another person to their People detail page", () => {
@@ -803,7 +803,7 @@ describe("SpaceMemberRow", () => {
 			dialog
 				.getByRole("link", { name: "View Monica Cheng profile" })
 				.getAttribute("href")
-		).toBe("/o/acme/people?profileId=human-monica");
+		).toBe("/o/acme/people/human-monica");
 		expect(dialog.queryByText("You")).toBeNull();
 	});
 
