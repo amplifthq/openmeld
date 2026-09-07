@@ -46,7 +46,6 @@ import {
   centerAgentInviteSlackTeammatesRpcResponseSchema,
   centerAgentListAgentProfileCreationDefaultsResponseSchema,
   centerAgentListAgentTasksResponseSchema,
-  centerAgentListComputersResponseSchema,
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
   centerAgentListLocalAgentInstallationsResponseSchema,
   centerAgentListOpportunitiesToolResponseSchema,
@@ -72,6 +71,7 @@ import {
   centerAgentReadOrganizationDocumentsResponseSchema,
   centerAgentReadOrganizationSkillsResponseSchema,
   centerAgentReadOrganizationSkillsRpcInputSchema,
+  centerAgentReadPeopleComputersResponseSchema,
   centerAgentReadSlackChannelHistoryBodySchema,
   centerAgentReadSlackChannelHistoryResponseSchema,
   centerAgentReadSlackChannelMembersBodySchema,
@@ -106,6 +106,7 @@ import {
   createAgentProfileCreationRequestResponseSchema,
   createCenterAgentRoutineResponseSchema,
   createCenterAgentTaskResponseSchema,
+  daemonServiceLaneSchema,
   deleteCenterAgentRoutineResponseSchema,
   executeExecutionRecoveryBodySchema,
   executeExecutionRecoveryResponseSchema,
@@ -148,6 +149,7 @@ import {
   organizationSpaceDirectoryResponseSchema,
   PROJECT_NAME_MAX_CHARS,
   pauseCenterAgentRoutineResponseSchema,
+  peopleComputerTargetSchema,
   REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
   recordCenterAgentMemberResearchComputerFileResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
@@ -266,6 +268,10 @@ import {
 import type { RemoteAgentToolDefinition } from "./tool-definition";
 
 const nonEmptyStringSchema = pipe(string(), minLength(1));
+const peopleComputerTargetToolInputSchema = object({
+  deviceId: nonEmptyStringSchema,
+  runtimeLane: picklist(daemonServiceLaneSchema.options),
+});
 const optionalNonEmptyStringSchema = optional(nonEmptyStringSchema);
 const trimmedNonEmptyStringSchema = pipe(string(), trim(), minLength(1));
 const changelogFilterListInputSchema = pipe(
@@ -4584,9 +4590,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_computers",
       description:
-        "Read the verified requester's own Computer information, including every connected Computer, OpenMeld Tools versions and updates, local agent status and versions, current reply diagnostics, and a path-free File Access summary. Use this before offering computer setup, recovery, or deciding whether a local agent is usable. This is private owner-level data and requires a verified requester. It does not make current-computer diagnostics the authority for any Agent Profile's readiness. When setup is required, OpenMeld automatically attaches the exact recommended navigation action to this result; do not request a second computer navigation action.",
-      input: object({}),
-      execute: async () => {
+        "Read the verified requester's Computer inventory, exact connection environments, and dated local agent reports. No Computer is identified as the browser's physical computer. Supply an exact target from this inventory to read its OpenMeld Tools status and path-free File Access summary. Never treat a saved report as a live connection, or one Computer's status as an Agent Profile's Wakeability. Requires a private conversation with the verified requester. This read does not start setup or change any Computer.",
+      input: object({ target: optional(peopleComputerTargetToolInputSchema) }),
+      execute: async (payload) => {
+        const target =
+          payload.target === undefined
+            ? undefined
+            : peopleComputerTargetSchema.parse(payload.target);
         const toolContext =
           await buildRequesterPrivateVerifiedMemberToolContext({
             missingSpeakerMessage:
@@ -4598,14 +4608,14 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             toolName: "openmeld_list_computers",
           });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentListComputers,
-          "centerAgentListComputers"
+          input.coreWorker.centerAgentReadPeopleComputers,
+          "centerAgentReadPeopleComputers"
         );
-        return centerAgentListComputersResponseSchema.parse(
+        return centerAgentReadPeopleComputersResponseSchema.parse(
           await rpc({
             ...toolContext,
-            includeDiagnostics: true,
             includeUsageLimits: "true",
+            ...(target ? { target } : {}),
           })
         );
       },
@@ -4613,9 +4623,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_update_openmeld_tools",
       description:
-        "Update OpenMeld Tools on the verified requester's current Computer. Use only when the requester asks to update now. OpenMeld handles the update in the background.",
-      input: object({}),
-      execute: async () => {
+        "Update OpenMeld Tools on an explicitly selected Computer and environment owned by the verified requester. Use only when the requester asks to update now. Copy the exact target from Computer facts; never infer this browser's computer from an account default. OpenMeld handles the update in the background.",
+      input: object({ target: peopleComputerTargetToolInputSchema }),
+      execute: async (payload) => {
+        const target = peopleComputerTargetSchema.parse(payload.target);
         const toolContext =
           await buildRequesterPrivateVerifiedMemberToolContext({
             missingSpeakerMessage:
@@ -4627,20 +4638,24 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             toolName: "openmeld_update_openmeld_tools",
           });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentRequestOpenMeldToolsUpdate,
-          "centerAgentRequestOpenMeldToolsUpdate"
+          input.coreWorker.centerAgentRequestPeopleComputerToolsUpdate,
+          "centerAgentRequestPeopleComputerToolsUpdate"
         );
         return centerAgentRequestOpenMeldToolsUpdateResponseSchema.parse(
-          await rpc(toolContext)
+          await rpc({ ...toolContext, target })
         );
       },
     }),
     toolDefinition({
       name: "openmeld_set_openmeld_tools_updates",
       description:
-        "Turn automatic OpenMeld Tools updates on or off for the verified requester's current Computer. Use only when the requester asks to change this setting.",
-      input: object({ enabled: boolean() }),
+        "Turn automatic OpenMeld Tools updates on or off for the verified requester's explicitly selected Computer and environment. Copy the exact target from Computer facts. Use only when the requester asks to change this setting.",
+      input: object({
+        enabled: boolean(),
+        target: peopleComputerTargetToolInputSchema,
+      }),
       execute: async (payload) => {
+        const target = peopleComputerTargetSchema.parse(payload.target);
         const toolContext =
           await buildRequesterPrivateVerifiedMemberToolContext({
             missingSpeakerMessage:
@@ -4652,13 +4667,14 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             toolName: "openmeld_set_openmeld_tools_updates",
           });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentSetOpenMeldToolsMaintenance,
-          "centerAgentSetOpenMeldToolsMaintenance"
+          input.coreWorker.centerAgentSetPeopleComputerToolsMaintenance,
+          "centerAgentSetPeopleComputerToolsMaintenance"
         );
         return centerAgentSetOpenMeldToolsMaintenanceResponseSchema.parse(
           await rpc({
             ...toolContext,
             automaticUpdatesEnabled: payload.enabled,
+            target,
           })
         );
       },
@@ -4666,9 +4682,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_local_agent_installations",
       description:
-        "List working installations of one local agent on the verified requester's current Computer. Use this before asking the requester to switch installations.",
-      input: object({ agentId: nonEmptyStringSchema }),
+        "List working installations of one local agent on the verified requester's explicitly selected Computer and environment. Copy the exact target from Computer facts. Use this before asking the requester to switch installations.",
+      input: object({
+        agentId: nonEmptyStringSchema,
+        target: peopleComputerTargetToolInputSchema,
+      }),
       execute: async (payload) => {
+        const target = peopleComputerTargetSchema.parse(payload.target);
         const toolContext =
           await buildRequesterPrivateVerifiedMemberToolContext({
             missingSpeakerMessage:
@@ -4680,27 +4700,29 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             toolName: "openmeld_list_local_agent_installations",
           });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentListLocalAgentInstallations,
-          "centerAgentListLocalAgentInstallations"
+          input.coreWorker.centerAgentListPeopleComputerLocalAgentInstallations,
+          "centerAgentListPeopleComputerLocalAgentInstallations"
         );
         return centerAgentListLocalAgentInstallationsResponseSchema.parse(
-          await rpc({ ...toolContext, agentId: payload.agentId })
+          await rpc({ ...toolContext, agentId: payload.agentId, target })
         );
       },
     }),
     toolDefinition({
       name: "openmeld_select_local_agent_installation",
       description:
-        "Switch one local agent installation on the verified requester's current Computer. First list installations, name the exact choice, and ask for confirmation. Call this only after the requester confirms.",
+        "Switch one local agent installation on the verified requester's explicitly selected Computer and environment. First list installations on that same target, name the exact choice, and ask for confirmation. Call this only after the requester confirms.",
       input: object({
         agentId: nonEmptyStringSchema,
         confirmed: literal(true),
         installationId: nonEmptyStringSchema,
+        target: peopleComputerTargetToolInputSchema,
       }),
       execute: async (payload) => {
         if (payload.confirmed !== true) {
           throw new Error("Confirm the installation first.");
         }
+        const target = peopleComputerTargetSchema.parse(payload.target);
         const toolContext =
           await buildRequesterPrivateVerifiedMemberToolContext({
             missingSpeakerMessage:
@@ -4712,8 +4734,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             toolName: "openmeld_select_local_agent_installation",
           });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentSelectLocalAgentInstallation,
-          "centerAgentSelectLocalAgentInstallation"
+          input.coreWorker
+            .centerAgentSelectPeopleComputerLocalAgentInstallation,
+          "centerAgentSelectPeopleComputerLocalAgentInstallation"
         );
         return centerAgentSelectLocalAgentInstallationResponseSchema.parse(
           await rpc({
@@ -4721,6 +4744,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             agentId: payload.agentId,
             confirmed: payload.confirmed,
             installationId: payload.installationId,
+            target,
           })
         );
       },
@@ -4728,20 +4752,34 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_local_agent_connection_candidates",
       description:
-        "List ready and blocked local agent connection candidates for the current OpenMeld account, including computer name, local agent name, freshness, and candidateId. Use this before connecting an Agent Profile to a local agent.",
-      input: object({}),
-      execute: async () => {
-        const context = await buildOpenMeldToolRequestContext({
+        "List local agent connection candidates for the requesting member, or an explicitly selected Organization memberUserId from the directory. Includes current connection evidence and candidateId. Listing another member's candidates does not authorize connecting or creating their Agent; use the creation request and approval flow.",
+      input: object({ memberUserId: optionalNonEmptyStringSchema }),
+      execute: async (payload) => {
+        const toolContext = await buildOpenMeldToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_list_local_agent_connection_candidates",
         });
+        const speakerMember = resolveVerifiedTurnEnvelopeSpeaker(
+          toolContext.turnEnvelope
+        );
+        if (!speakerMember) {
+          throw new Error(
+            "Connect your OpenMeld account before selecting a local agent."
+          );
+        }
         const rpc = requireCoreRpc(
           input.coreWorker.centerAgentListLocalAgentConnectionCandidates,
           "centerAgentListLocalAgentConnectionCandidates"
         );
         return centerAgentListLocalAgentConnectionCandidatesResponseSchema.parse(
-          await rpc({ context })
+          await rpc({
+            context: toolContext.context,
+            speakerMember,
+            ...(payload.memberUserId
+              ? { memberUserId: payload.memberUserId }
+              : {}),
+          })
         );
       },
     }),

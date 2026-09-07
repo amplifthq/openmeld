@@ -177,7 +177,7 @@ describe("BrowserQueryPersistenceController", () => {
 
 		queryClient.setQueryData(["unrelated", "query"], { value: true });
 		queryClient.setQueryData(
-			computerFileAccessQueryKeys.policy("account-a", "device-a"),
+			computerFileAccessQueryKeys.policy("account-a", "device-a", "dev-local"),
 			{
 				deviceId: "device-a",
 				policy: {

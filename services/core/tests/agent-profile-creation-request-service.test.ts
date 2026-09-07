@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION } from "@openmeld/schemas";
 import type {
   AgentProfileCreationApprovalPolicy,
   CreateAgentProfileCreationRequestBody,
@@ -52,6 +53,36 @@ describe("Agent Profile creation request service", () => {
     });
     expect(projectApprovalInbox).toHaveBeenCalledWith(result.request);
     expect(createAgentProfile).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Web request without a run target before creating any identity or request", async () => {
+    const service = createService();
+    await expect(
+      service.create({
+        actorProfileId: "human-requester",
+        body: requestBody({ configuration: undefined }),
+        organizationId: "org-1",
+        requesterUserId: "user-requester",
+      })
+    ).rejects.toThrow("Choose a local agent on a connected computer");
+    expect(await repository.listForParticipant()).toHaveLength(0);
+    expect(createAgentProfile).not.toHaveBeenCalled();
+    expect(projectApprovalInbox).not.toHaveBeenCalled();
+  });
+
+  it("preserves intentional CLI manual profiles without a local binding", async () => {
+    const result = await createService().create({
+      actorProfileId: "human-requester",
+      body: requestBody({
+        configuration: undefined,
+        source: "cli",
+        targetOwnerUserId: "user-requester",
+      }),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+    expect(result.request.status).toBe("completed");
+    expect(createAgentProfile).toHaveBeenCalledOnce();
   });
 
   it("creates the target owner's Profile immediately when they allow new-session requests", async () => {
@@ -640,6 +671,11 @@ function requestBody(
   overrides: Partial<CreateAgentProfileCreationRequestBody> = {}
 ): CreateAgentProfileCreationRequestBody {
   return {
+    configuration: {
+      ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+      agentControllerRef: "builtin:codex",
+      targetComputerId: "device-1",
+    },
     idempotencyKey: "request-1",
     profileName: "Release Reviewer",
     sessionStrategy: "new",

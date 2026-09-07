@@ -21,12 +21,23 @@ export function localPeopleSidebarFixtures(input: {
 	}
 	const fixtures = new Map(manifest.people.map((p) => [p.profileId, p.state]));
 	const ownerStates = new Map<string, string>();
+	const ownerLocalAgents = new Map<string, string[]>();
 	const members = input.members.map((member) => {
 		const fixture = fixtures.get(member.id);
 		if (!fixture || member.isCurrentUser) {
 			return member;
 		}
 		ownerStates.set(member.userId, fixture);
+		const fixtureIndex = manifest.people.findIndex(
+			(person) => person.profileId === member.id
+		);
+		ownerLocalAgents.set(
+			member.userId,
+			["claude-code", "codex", "cursor", "opencode", "grok-build"].slice(
+				0,
+				fixtureIndex % 3 === 0 ? 5 : (fixtureIndex % 3) + 1
+			)
+		);
 		const state =
 			fixture === "connected" ||
 			fixture === "needs_attention" ||
@@ -42,7 +53,27 @@ export function localPeopleSidebarFixtures(input: {
 		};
 		return {
 			...member,
-			notice: "Local preview: computer connection states are simulated.",
+			notice:
+				"Local preview: computer status, local agents, and Slack connections are simulated.",
+			identityAccounts:
+				fixtureIndex % 2 === 0
+					? [
+							...member.identityAccounts.filter(
+								(account) => account.provider !== "slack"
+							),
+							{
+								provider: "slack",
+								providerLabel: "Slack",
+								id: `local-preview-slack-${member.id}`,
+								accountName: `${member.name} (preview)`,
+								accountEmail: `${member.name.toLowerCase().replaceAll(" ", ".")}@example.invalid`,
+								state: "connected",
+								action: null,
+								canDisconnect: false,
+								channelsPath: null,
+							},
+						]
+					: member.identityAccounts,
 			computer: {
 				...member.computer,
 				state,
@@ -69,6 +100,16 @@ export function localPeopleSidebarFixtures(input: {
 				computers: group.computers.map((computer) => ({
 					...computer,
 					serviceState,
+					localAgents: (ownerLocalAgents.get(group.ownerUserId) ?? []).map(
+						(agentId) => ({
+							agentControllerRef: `builtin:${agentId}`,
+							enabled: true,
+							status:
+								fixture === "connected"
+									? ("ready" as const)
+									: ("stale" as const),
+						})
+					),
 				})),
 			};
 		});

@@ -142,6 +142,7 @@ export function HumanProfileSidebarItem(input: {
 							</span>
 						) : null}
 					</span>
+					<SidebarComputerLabel member={input.member} />
 					{mappedAccounts.length > 0 ? (
 						<span
 							className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap"
@@ -249,6 +250,30 @@ export function HumanProfileSidebarItem(input: {
 }
 
 type LocalAgentIdentity = { agentId: string; displayName: string };
+
+function SidebarComputerLabel({
+	member,
+}: {
+	member: DirectoryHumanProfileRow;
+}) {
+	let label: string | null = null;
+	if (
+		member.computer.state === "not_connected" &&
+		member.computer.count === 0
+	) {
+		label = "No computer";
+	} else if (["unknown", "needs_attention"].includes(member.computer.state)) {
+		label = member.computer.label;
+	} else if (member.isCurrentUser) {
+		label =
+			member.computer.state === "connected"
+				? "Computer online"
+				: "Computer offline";
+	}
+	return label ? (
+		<span className="text-muted-foreground text-xs">{label}</span>
+	) : null;
+}
 
 function resolveEnabledLocalAgents(
 	group: OrganizationComputerGroup | null

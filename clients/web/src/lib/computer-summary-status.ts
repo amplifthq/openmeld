@@ -25,6 +25,7 @@ export type ComputerSummaryStatusReason =
 	| "agent_sign_in_needed"
 	| "local_agents_off"
 	| "service_not_connected"
+	| "connection_error"
 	| "openmeld_tools_update"
 	| "status_unavailable";
 
@@ -47,14 +48,14 @@ type OrganizationComputerServiceState =
 	| null;
 
 const READY_STATUS = {
-	label: "OpenMeld Tools are ready",
+	label: "Connected",
 	reason: "ready",
 	showLabel: false,
 	tone: "ready",
 } as const satisfies ComputerSummaryStatus;
 
 const CHECKING_STATUS = {
-	label: "Checking OpenMeld Tools status",
+	label: "Checking OpenMeld status",
 	reason: "checking",
 	showLabel: true,
 	tone: "checking",
@@ -113,14 +114,14 @@ const UPDATE_REQUIRED_STATUS = {
 } as const satisfies ComputerSummaryStatus;
 
 const ORGANIZATION_UPDATE_STATUS = {
-	label: "OpenMeld Tools need an update",
+	label: "Update required",
 	reason: "openmeld_tools_update",
 	showLabel: true,
 	tone: "warning",
 } as const satisfies ComputerSummaryStatus;
 
 const STATUS_UNAVAILABLE = {
-	label: "OpenMeld Tools status unavailable",
+	label: "OpenMeld status unavailable",
 	reason: "status_unavailable",
 	showLabel: true,
 	tone: "muted",
@@ -134,6 +135,16 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 	const readiness = input.readiness;
 	if (!readiness) {
 		return input.isReconcilingStatus ? CHECKING_STATUS : null;
+	}
+	if (
+		readiness.service.reasonCodes.includes("daemon.session.reject_conflict")
+	) {
+		return {
+			label: "Connection needs attention",
+			reason: "connection_error",
+			showLabel: true,
+			tone: "warning",
+		};
 	}
 	if (isCurrentLocalRuntimeServiceDisconnected(readiness)) {
 		return SERVICE_NOT_CONNECTED_STATUS;
@@ -252,7 +263,7 @@ export function resolveOrganizationComputerSummaryStatus(
 ): ComputerSummaryStatus {
 	switch (serviceState) {
 		case "connected":
-			return READY_STATUS;
+			return { ...READY_STATUS, label: "Connected" };
 		case "needs_attention":
 			return ORGANIZATION_UPDATE_STATUS;
 		case "not_connected":
@@ -306,8 +317,16 @@ export function isCurrentLocalRuntimeServiceDisconnected(
 	readiness: CurrentLocalRuntimeReplyReadinessResponse
 ): boolean {
 	return (
-		readiness.service.connected !== true ||
-		readiness.primaryBlocker === "service_not_connected"
+		readiness.service.connected === false &&
+		readiness.service.reasonCodes.some((reason) =>
+			[
+				"daemon.session.not_found",
+				"daemon.session.stale_lease",
+				"daemon.profile.offline",
+				"service.current_runtime_session_missing",
+				"service.not_connected",
+			].includes(reason)
+		)
 	);
 }
 

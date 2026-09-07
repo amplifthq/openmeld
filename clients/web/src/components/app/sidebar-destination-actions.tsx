@@ -7,13 +7,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-type Destination = "people" | "agents" | "spaces" | "home";
+type Destination = "people" | "agents" | "spaces" | "home" | "directMessages";
 const ActionSlots = createContext<{
 	slots: Record<Destination, HTMLDivElement | null>;
 	setPeople: (node: HTMLDivElement | null) => void;
 	setAgents: (node: HTMLDivElement | null) => void;
 	setSpaces: (node: HTMLDivElement | null) => void;
 	setHome: (node: HTMLDivElement | null) => void;
+	setDirectMessages: (node: HTMLDivElement | null) => void;
 } | null>(null);
 
 export function SidebarDestinationActionsProvider({
@@ -25,34 +26,42 @@ export function SidebarDestinationActionsProvider({
 	const [agents, setAgents] = useState<HTMLDivElement | null>(null);
 	const [spaces, setSpaces] = useState<HTMLDivElement | null>(null);
 	const [home, setHome] = useState<HTMLDivElement | null>(null);
+	const [directMessages, setDirectMessages] = useState<HTMLDivElement | null>(
+		null
+	);
 	const value = useMemo(
 		() => ({
-			slots: { people, agents, spaces, home },
+			slots: { people, agents, spaces, home, directMessages },
 			setHome,
+			setDirectMessages,
 			setPeople,
 			setAgents,
 			setSpaces,
 		}),
-		[people, agents, spaces, home]
+		[people, agents, spaces, home, directMessages]
 	);
 	return <ActionSlots.Provider value={value}>{children}</ActionSlots.Provider>;
 }
 
 export function SidebarDestinationActionSlot({
 	destination,
+	active = false,
 }: {
 	destination: Destination;
+	active?: boolean;
 }) {
 	const context = useContext(ActionSlots);
 	const setters = {
 		home: context?.setHome,
+		directMessages: context?.setDirectMessages,
 		people: context?.setPeople,
 		agents: context?.setAgents,
 		spaces: context?.setSpaces,
 	};
 	return (
 		<div
-			className="pointer-events-none absolute top-1/2 right-1 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 group-focus-within/destination:pointer-events-auto group-focus-within/destination:opacity-100 group-hover/destination:pointer-events-auto group-hover/destination:opacity-100 [&:has([aria-expanded=true])]:pointer-events-auto [&:has([aria-expanded=true])]:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+			className="pointer-events-none absolute top-1/2 right-1 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 group-focus-within/destination:pointer-events-auto group-focus-within/destination:opacity-100 group-hover/destination:pointer-events-auto group-hover/destination:opacity-100 data-[active]:pointer-events-auto data-[active]:opacity-100 [&:has([aria-expanded=true])]:pointer-events-auto [&:has([aria-expanded=true])]:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+			data-active={active || undefined}
 			data-slot="sidebar-destination-actions"
 			ref={setters[destination]}
 		/>

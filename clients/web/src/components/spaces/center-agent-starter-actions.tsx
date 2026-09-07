@@ -1,4 +1,3 @@
-import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
 	CompassIcon,
@@ -6,7 +5,7 @@ import {
 	PlusCircleIcon,
 } from "@phosphor-icons/react";
 import type { ComponentType } from "react";
-import { useState } from "react";
+import { LocalAgentLogoStack } from "#/components/profiles/local-agent-logo-stack";
 
 type StarterActionIcon = ComponentType<{
 	"aria-hidden"?: boolean | "true" | "false";
@@ -43,26 +42,12 @@ const CENTER_AGENT_STARTER_ACTIONS = [
 	},
 ] as const;
 
-async function sendStarterPrompt(input: {
-	onSelect: (prompt: string) => Promise<void>;
-	prompt: string;
-}): Promise<void> {
-	try {
-		await input.onSelect(input.prompt);
-	} catch (error) {
-		console.error("Failed to send a Center Agent starter prompt.", error);
-	}
-}
-
 export function CenterAgentStarterActions(input: {
 	disabled: boolean;
 	showAgentLogos?: boolean;
 	onConnectComputer: () => void;
-	onSelect: (prompt: string) => Promise<void>;
+	onSelect: (prompt: string) => void;
 }) {
-	const [pendingActionId, setPendingActionId] = useState<string | null>(null);
-	const actionPending = pendingActionId !== null;
-
 	return (
 		<FluidCardGroup
 			aria-label="Suggested starting points"
@@ -78,20 +63,14 @@ export function CenterAgentStarterActions(input: {
 						key={action.id}
 					>
 						<button
-							aria-busy={pendingActionId === action.id || undefined}
 							className="flex h-full min-h-20 w-full items-start gap-3 rounded-md p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-32 sm:flex-col sm:justify-between sm:gap-5"
-							disabled={input.disabled || actionPending}
-							onClick={async () => {
+							disabled={input.disabled}
+							onClick={() => {
 								if (action.kind === "computer_setup") {
 									input.onConnectComputer();
 									return;
 								}
-								setPendingActionId(action.id);
-								await sendStarterPrompt({
-									onSelect: input.onSelect,
-									prompt: action.prompt,
-								});
-								setPendingActionId(null);
+								input.onSelect(action.prompt);
 							}}
 							type="button"
 						>
@@ -107,29 +86,7 @@ export function CenterAgentStarterActions(input: {
 										<>
 											<span className="sr-only">{action.description}</span>
 											<span aria-hidden="true">
-												Bring your{" "}
-												<span className="isolate inline-flex items-center -space-x-1.5 align-middle">
-													{[
-														"codex",
-														"claude-code",
-														"grok-build",
-														"opencode",
-														"cursor",
-													].map((agentId, index) => (
-														<span
-															className="relative inline-flex"
-															key={agentId}
-															style={{ zIndex: 5 - index }}
-														>
-															<LocalAgentLogo
-																agentId={agentId}
-																className="size-6 rounded-sm"
-																variant="tile"
-															/>
-														</span>
-													))}
-												</span>{" "}
-												into OpenMeld.
+												Bring your <LocalAgentLogoStack /> into OpenMeld.
 											</span>
 										</>
 									) : (

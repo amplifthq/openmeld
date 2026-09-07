@@ -23,6 +23,8 @@ import {
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
 const INDEPENDENT_SKILL_BRIDGE_ERROR_RE = /independent Skill bridge/u;
 const SPACE_INVITATION_ORDER_ERROR = /Space invitation/u;
+const PEOPLE_COMPUTERS_ORDER_ERROR =
+  /PeopleComputers receiver order conflicts/u;
 const CURRENT_WORKER_VERSION_RE =
   /11111111-1111-1111-1111-111111111111 \(100%\)/u;
 const COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE = /requires the Remote Agent scope/u;
@@ -1183,6 +1185,61 @@ test("deploys the Context Scope Plan receiver before Core and keeps the CLI last
     "--release-sha",
     REMOTE_SOURCE_SHA,
   ]);
+});
+
+test("deploys computer receivers before callers and preserves the stable CLI during staged Core delivery", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/http/people-computers.ts",
+    "services/core/src/people-computers/projection.ts",
+    "services/gateway/src/routes/rpc-http.people-computers.ts",
+  ];
+  const input = {
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths,
+    sourceSha: REMOTE_SOURCE_SHA,
+  };
+  const plan = buildProductionReleasePlan({
+    ...input,
+    scope: "core,gateway,web,remote-agent,cli",
+  });
+  assert.equal(plan.deployOrderProfile, "people-computers-receivers-first");
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Deploy Core with the current published CLI projection",
+      "Verify Core deployment is visible",
+      "Deploy Gateway Worker",
+      "Verify Gateway Worker health",
+      "Deploy Web",
+      "Verify Web health",
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
+      "Publish CLI and deploy its Core release projection",
+      "Verify final R2/npm/Core alignment",
+    ]
+  );
+  const staged = buildProductionReleasePlan({ ...input, scope: "core" });
+  assert.equal(
+    staged.deploySteps[0].args[0],
+    "scripts/release/deploy-core-current-cli-projection.mjs"
+  );
+  assert.deepEqual(
+    buildProductionPreflightStepSpecs({ scopes: ["core"], changedPaths }),
+    buildCoreCurrentCliProjectionPreflightStepSpecs(changedPaths)
+  );
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        ...input,
+        changedPaths: [
+          ...changedPaths,
+          "services/remote-agent/.flue/cloudflare.ts",
+        ],
+        scope: "cloud",
+      }),
+    PEOPLE_COMPUTERS_ORDER_ERROR
+  );
 });
 
 test("routes a local Core release through startup admission at the exact source SHA", () => {

@@ -256,6 +256,13 @@ describe("AppSpacesSidebar", () => {
 	});
 
 	beforeEach(() => {
+		// Row-action tests exercise a user's explicitly expanded sidebar.
+		for (const organization of ["org-acme", "org-personal"]) {
+			localStorage.setItem(
+				`openmeld:space-sidebar-disclosure:human-1:${organization}`,
+				JSON.stringify({ pinned: true, spaces: true })
+			);
+		}
 		appOrganizationMock.activeOrganization = {
 			id: "org-acme",
 			isPersonal: false,
@@ -1812,6 +1819,8 @@ describe("AppSpacesSidebar", () => {
 				.getByRole("button", { name: "Unpin Idle" })
 				.classList.contains("pointer-events-none")
 		).toBe(false);
+		fireEvent.click(screen.getByRole("button", { name: "Pinned" }));
+		expect(await screen.findByText("2 unread")).toBeTruthy();
 	});
 
 	it("reserves the pinned action gutter only when revealed", async () => {

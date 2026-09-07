@@ -733,6 +733,40 @@ describe("PeopleAndAgentsPage", () => {
 		vi.clearAllMocks();
 	});
 
+	it("scopes a person's Agent list and detail selection to that owner", () => {
+		const ownAgent = organizationDirectoryFixture.agentProfiles[0];
+		if (!ownAgent) {
+			throw new Error("Expected an Agent fixture.");
+		}
+		const otherAgent = {
+			...ownAgent,
+			ownerUserId: "user-other",
+			profileId: "agt_22222222-2222-4222-8222-222222222222",
+			profileName: "Other Agent",
+		};
+		organizationDirectoryFixture.agentProfiles = [ownAgent, otherAgent];
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={otherAgent.profileId}
+				personId="11111111-1111-4111-8111-111111111111"
+			/>
+		);
+		const workspace = agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0];
+		expect(
+			workspace.profiles.map(
+				(profile: AuthProfileView) => profile.openMeldProfileId
+			)
+		).toEqual([ownAgent.profileId]);
+		expect(workspace.selectedProfileId).toBe(otherAgent.profileId);
+		expect(
+			workspace.profiles.some(
+				(profile: AuthProfileView) =>
+					profile.openMeldProfileId === workspace.selectedProfileId
+			)
+		).toBe(false);
+	});
+
 	it("keeps saved Project preferences when projecting the Organization directory", () => {
 		const profileId = "agt_11111111-1111-4111-8111-111111111111";
 		const ownedProfile = {
@@ -1092,10 +1126,7 @@ describe("PeopleAndAgentsPage", () => {
 			.onSelectProfile("agt_11111111-1111-4111-8111-111111111111");
 
 		expect(navigateMock).toHaveBeenCalledWith({
-			search: {
-				profileId: "agt_11111111-1111-4111-8111-111111111111",
-			},
-			to: "/o/acme/agents",
+			to: "/o/acme/agents?profileId=agt_11111111-1111-4111-8111-111111111111",
 		});
 	});
 
@@ -1385,7 +1416,7 @@ describe("PeopleAndAgentsPage", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 
-		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/personal/agents/new" });
+		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/personal/new-agent" });
 		expect(screen.queryByRole("button", { name: "Agent requests" })).toBeNull();
 	});
 
@@ -1458,7 +1489,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
-		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/acme/agents/new" });
+		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/acme/new-agent" });
 		expect(createAgentProfilePageSpy).not.toHaveBeenCalled();
 	});
 
@@ -1483,9 +1514,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: FILTER_AGENTS_NAME }));
-		expect(
-			await screen.findByRole("menuitem", { name: ANY_OWNER_NAME })
-		).toBeTruthy();
+		expect(screen.queryByRole("menuitem", { name: ANY_OWNER_NAME })).toBeNull();
 		const checkingOption = await screen.findByRole("menuitem", {
 			name: "Checking, 0 Agents",
 		});
@@ -1571,10 +1600,7 @@ describe("PeopleAndAgentsPage", () => {
 		});
 
 		render(
-			<PeopleAndAgentsPage
-				activeSectionId="agents"
-				focusProfileId={firstAgent.profileId}
-			/>
+			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
 		);
 
 		const search = screen.getByRole("searchbox", { name: "Search Agents" });
@@ -1630,7 +1656,7 @@ describe("PeopleAndAgentsPage", () => {
 			);
 			expect(
 				agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].selectedProfileId
-			).toBe(firstAgent.profileId);
+			).toBeNull();
 		});
 	});
 

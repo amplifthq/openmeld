@@ -8,12 +8,18 @@ import {
 import { SidebarRowAction } from "./sidebar-row-action";
 
 export function SidebarSearchInput(input: {
+	open?: boolean;
+	onOpenChange?: (open: boolean) => void;
 	label: string;
-	destination?: "people" | "agents" | "spaces" | "home";
+	destination?: "people" | "agents" | "spaces" | "home" | "directMessages";
 	value: string;
 	onValueChange: (value: string) => void;
 }) {
-	const [open, setOpen] = useState(() => input.value.length > 0);
+	const [internalOpen, setInternalOpen] = useState(
+		() => input.value.length > 0
+	);
+	const open = input.open ?? internalOpen;
+	const setOpen = input.onOpenChange ?? setInternalOpen;
 	const slot = useSidebarDestinationActionSlot(input.destination);
 	const trigger = useRef<HTMLSpanElement>(null);
 	const searchInput = useRef<HTMLInputElement | null>(null);
@@ -34,7 +40,7 @@ export function SidebarSearchInput(input: {
 	const revealed = !input.destination || slot === undefined || open;
 	return (
 		<>
-			{input.destination && (
+			{input.destination && input.open === undefined && (
 				<SidebarDestinationAction destination={input.destination}>
 					<span ref={trigger}>
 						<SidebarRowAction

@@ -38,7 +38,9 @@ describe("CenterAgentHeaderTabs", () => {
 			to: "/o/acme/center-agent/skills?draft=new",
 		});
 		fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
-		expect(navigateSpy).toHaveBeenLastCalledWith({ to: "/o/acme?draft=new" });
+		expect(navigateSpy).toHaveBeenLastCalledWith({
+			to: "/o/acme/chats/center-agent?draft=new",
+		});
 	});
 	it("keeps primary work in the requested header order", () => {
 		render(
@@ -107,13 +109,13 @@ describe("CenterAgentHeaderTabs", () => {
 		fireEvent.click(screen.getByRole("tab", { name: "Files" }));
 
 		expect(navigateSpy).toHaveBeenCalledWith({
-			to: "/o/acme?view=files",
+			to: "/o/acme/chats/center-agent?view=files",
 		});
 
 		fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
 
 		expect(navigateSpy).toHaveBeenLastCalledWith({
-			to: "/o/acme",
+			to: "/o/acme/chats/center-agent",
 		});
 	});
 });

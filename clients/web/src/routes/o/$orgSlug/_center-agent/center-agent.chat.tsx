@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { buildOrganizationDefaultPath } from "#/lib/organizations/organization-routes";
+import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 
 export const Route = createFileRoute(
 	"/o/$orgSlug/_center-agent/center-agent/chat"
@@ -8,7 +8,7 @@ export const Route = createFileRoute(
 		throw redirect({
 			replace: true,
 			search,
-			to: buildOrganizationDefaultPath(params.orgSlug),
+			to: buildOrganizationCenterAgentChatPath(params.orgSlug),
 		});
 	},
 });

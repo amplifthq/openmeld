@@ -260,7 +260,6 @@ type AgentScenario = Omit<
 >;
 function agent(name: string, index: number): AgentScenario {
 	return {
-		currentUserId: "viewer",
 		modelCatalog: null,
 		readiness,
 		readinessErrorMessage: null,

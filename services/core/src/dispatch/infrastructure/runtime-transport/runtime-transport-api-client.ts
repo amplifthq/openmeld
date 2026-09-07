@@ -104,11 +104,7 @@ const resolveRuntimeTransportApiFallbackResponse = (input: {
   path: RuntimeTransportApiPath;
   status: number;
 }): unknown | null => {
-  if (
-    (input.path === "/lookup-route" ||
-      input.path === "/lookup-owner-service") &&
-    input.status === 404
-  ) {
+  if (input.path === "/lookup-route" && input.status === 404) {
     return {
       online: false,
       reasonCode: "daemon.session.not_found",

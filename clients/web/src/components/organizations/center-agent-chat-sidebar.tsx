@@ -12,27 +12,26 @@ import {
 } from "@openmeld/ui/components/dialog";
 import {
 	DropdownMenu,
-	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import {
 	SidebarMenuActions,
 	SidebarMenuButton,
 } from "@openmeld/ui/fluid/sidebar-menu";
-import {
-	ChatCircleIcon,
-	DotsThreeIcon,
-	FunnelSimpleIcon,
-} from "@phosphor-icons/react";
+import { CloudIcon, DotsThreeIcon, PushPinIcon } from "@phosphor-icons/react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout";
-import { SidebarDestinationAction } from "#/components/app/sidebar-destination-actions";
 import {
 	SidebarDrag,
 	SidebarDropSection,
@@ -40,12 +39,12 @@ import {
 } from "#/components/app/sidebar-drag";
 import { moveSidebarGroup } from "#/components/app/sidebar-drop-target";
 import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
-import { useSidebarGroupFilter } from "#/components/app/sidebar-group-filter";
+import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import {
 	moveSidebarItemIds,
 	sortSidebarManual,
 } from "#/components/app/sidebar-order";
-import { SidebarSearchInput } from "#/components/app/sidebar-search-input";
+import { SidebarRowAction } from "#/components/app/sidebar-row-action";
 import { SidebarSectionActions } from "#/components/app/sidebar-section-actions";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { useSpaceMessagePreview } from "#/components/spaces/direct-message-preview";
@@ -65,11 +64,24 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
+import { CenterAgentChatAvatar } from "./center-agent-chat-avatar";
 
 type Preferences = NonNullable<AccountSidebarPreferences["chats"]>;
 type Chat = { spaceId: string; name: string | null; createdAt: string | null };
 
-export function CenterAgentChatSidebar() {
+export function CenterAgentChatSidebar({
+	search = "",
+	onFirstChatChange,
+	embedded = false,
+	showArchived,
+	pinFilter,
+}: {
+	pinFilter?: "pinned" | "unpinned";
+	search?: string;
+	embedded?: boolean;
+	showArchived?: boolean;
+	onFirstChatChange?: (path: string | null | undefined) => void;
+} = {}) {
 	const { currentOrganization: org } = useAppOrganization();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const profileId = defaultHumanProfile?.openMeldProfileId ?? "";
@@ -77,8 +89,8 @@ export function CenterAgentChatSidebar() {
 	const preferences = store.preferences?.chats ?? EMPTY_CHAT_PREFERENCES;
 	const [renaming, setRenaming] = useState<Chat | null>(null);
 	const [name, setName] = useState("");
-	const [search, setSearch] = useState("");
-	const [archived, setArchived] = useState(false);
+	const [internalArchived, setArchived] = useState(false);
+	const archived = showArchived ?? internalArchived;
 	const navigate = useNavigate();
 	const selected = useRouterState({
 		select: (state) =>
@@ -129,11 +141,8 @@ export function CenterAgentChatSidebar() {
 	const sections = [
 		{ id: "pinned", name: "Pinned", ...preferences.pinned },
 		...preferences.groups,
-		{ id: "chats", name: "Chats", ...preferences.spaces },
+		{ id: "chats", name: "Agents", ...preferences.spaces },
 	];
-	const filter = useSidebarGroupFilter(
-		sections.map((s) => ({ id: s.id, label: s.name }))
-	);
 	const title = (chat: Chat) =>
 		preferences.titles[chat.spaceId] ?? chat.name ?? "New chat";
 	const owner = (id: string) =>
@@ -223,10 +232,26 @@ export function CenterAgentChatSidebar() {
 	};
 	const visibleSections = sections.filter(
 		(section) =>
-			filter.includes(section.id) &&
+			(!pinFilter || (section.id === "pinned") === (pinFilter === "pinned")) &&
 			((section.id !== "pinned" && section.id !== "chats") ||
 				rows(section.id).length > 0)
 	);
+	const firstChat = visibleSections.flatMap((section) => rows(section.id))[0];
+	const firstChatPath = firstChat
+		? buildOrganizationCenterAgentChatPath(org.slug, {
+				session: firstChat.spaceId,
+			})
+		: null;
+	const firstChatReady = !(
+		sessions.isPending ||
+		sessions.hasNextPage ||
+		sessions.isError ||
+		store.isPending ||
+		store.isError
+	);
+	useEffect(() => {
+		onFirstChatChange?.(firstChatReady ? firstChatPath : undefined);
+	}, [onFirstChatChange, firstChatReady, firstChatPath]);
 	const addGroup = (name: string) =>
 		save({
 			...preferences,
@@ -253,6 +278,8 @@ export function CenterAgentChatSidebar() {
 					ariaLabel="Center Agent chats"
 					groups={visibleSections.map((section) => ({
 						id: section.id,
+						contentOnly:
+							embedded && (section.id === "chats" || section.id === "pinned"),
 						label: section.name,
 						ariaLabel: section.name,
 						onRename:
@@ -390,7 +417,7 @@ export function CenterAgentChatSidebar() {
 					}))}
 					leadingContent={
 						<>
-							{visibleSections.length === 0 && (
+							{!embedded && visibleSections.length === 0 && (
 								<div className="group/sidebar-group-root flex items-center justify-between px-1">
 									<Button onClick={() => newChat()} variant="ghost">
 										New chat
@@ -412,38 +439,6 @@ export function CenterAgentChatSidebar() {
 									/>
 								</div>
 							)}
-							<SidebarSearchInput
-								destination="home"
-								label="Search chats"
-								onValueChange={setSearch}
-								value={search}
-							/>
-							<SidebarDestinationAction destination="home">
-								<DropdownMenu>
-									<DropdownMenuTrigger
-										render={
-											<Button
-												aria-label="Filter chats"
-												className="size-6"
-												size="icon-sm"
-												variant="ghost"
-											/>
-										}
-									>
-										<FunnelSimpleIcon />
-									</DropdownMenuTrigger>
-									<DropdownMenuContent align="end">
-										{filter.menu}
-										<DropdownMenuCheckboxItem
-											checked={archived}
-											onCheckedChange={setArchived}
-										>
-											Archived chats
-										</DropdownMenuCheckboxItem>
-									</DropdownMenuContent>
-								</DropdownMenu>
-							</SidebarDestinationAction>
-							{filter.badges}
 							{archived && (
 								<div className="px-1 pt-1">
 									<SidebarFilterBadge
@@ -466,9 +461,11 @@ export function CenterAgentChatSidebar() {
 								</Button>
 							)}
 							{sessions.isPending && (
-								<p className="px-2 text-muted-foreground text-sm">
-									Loading chats…
-								</p>
+								<SidebarListSkeleton
+									label="Loading Center Agent chats"
+									rowCount={2}
+									showPreview
+								/>
 							)}
 							{sessions.isError && (
 								<Button onClick={() => sessions.refetch()} variant="ghost">
@@ -586,7 +583,12 @@ function ChatRow(input: {
 			style={drag.style}
 			value={input.chat.spaceId}
 		>
-			<SidebarMenuButton asChild className="h-auto" isActive={input.selected}>
+			<SidebarMenuButton
+				actionLayout="heading"
+				asChild
+				className="h-auto"
+				isActive={input.selected}
+			>
 				<Link
 					{...drag.rowProps}
 					aria-current={input.selected ? "page" : undefined}
@@ -600,9 +602,12 @@ function ChatRow(input: {
 					className={`flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-sm outline-none ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
 					to={input.url}
 				>
-					<ChatCircleIcon className="size-4 shrink-0" />
+					<CenterAgentChatAvatar />
 					<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-						<span className="flex min-w-0 items-center gap-2">
+						<span
+							className="flex min-w-0 items-center gap-2"
+							data-sidebar="menu-heading"
+						>
 							<span className="flex min-w-0 flex-1 items-center gap-1.5">
 								<span
 									className={`truncate ${hasUnread ? "font-semibold text-sidebar-foreground" : ""}`}
@@ -618,6 +623,20 @@ function ChatRow(input: {
 									</span>
 								)}
 							</span>
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<span
+											aria-label="Center Agent chat"
+											className="inline-flex shrink-0 text-muted-foreground"
+											role="img"
+										/>
+									}
+								>
+									<CloudIcon aria-hidden="true" className="size-3" />
+								</TooltipTrigger>
+								<TooltipContent>Center Agent chat</TooltipContent>
+							</Tooltip>
 							{timestamp !== null && (
 								<SidebarConversationTime
 									now={new Date(nowMs)}
@@ -632,13 +651,26 @@ function ChatRow(input: {
 								/>
 							)}
 						</span>
-						<span className="truncate pr-6 font-normal text-muted-foreground text-xs leading-4">
+						<span className="truncate font-normal text-muted-foreground text-xs leading-4">
 							{needsInput && presentation ? presentation.label : previewText}
 						</span>
 					</span>
 				</Link>
 			</SidebarMenuButton>
-			<SidebarMenuActions className="top-auto bottom-0.5" showOnHover>
+			<SidebarMenuActions showOnHover>
+				<SidebarRowAction
+					disabled={input.disabled}
+					label={`${input.section === "pinned" ? "Unpin" : "Pin"} ${input.title}`}
+					onClick={() =>
+						input.section === "pinned"
+							? input.onUnpin()
+							: input.onMove("pinned")
+					}
+				>
+					<PushPinIcon
+						weight={input.section === "pinned" ? "fill" : "regular"}
+					/>
+				</SidebarRowAction>
 				<DropdownMenu>
 					<DropdownMenuTrigger
 						render={
