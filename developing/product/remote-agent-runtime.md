@@ -177,6 +177,40 @@ existing wake system.
 
 ## Implementation Base: Flue Harness (updated 2026-09-06)
 
+### Personal native Agents
+
+`hosted:remote-agent` identifies an ordinary member-owned native Agent;
+`hosted:center-agent` retains the designated Organization coordinator contract.
+Both use the same Flue execution service and Core delivery ledger. A personal
+Binding uses `hosted_remote_agent` and carries its own model selection, without
+a local Service or a native conversation ID on the Binding.
+
+Core constructs personal logical conversation IDs from Organization, Agent
+Profile, and Space. Version 4 submissions carry the explicit `personal_agent`
+identity, runtime generation, and trusted Space dispatch context. Stop,
+reconciliation, and recovery resolve the persisted exact runtime conversation.
+They must not substitute the Space ID or Center Agent identity.
+
+Personal Agents receive only current-conversation message reading, member
+discovery, and explicit same-Space Agent Wake tools. Message reading reuses the
+existing text-context projection, with at most 30 recent messages and an 8192
+estimated-token budget; attachments and private session locators are omitted.
+Core derives the caller and destination from the
+accepted delivery, revalidates the owner and requesting member's Organization
+membership, current Space membership, Binding, and target Wake permission.
+The model cannot supply an alternate Organization, owner, or destination Space.
+An Agent can explicitly ask another Agent owned by the same user and receive a
+return request; normal final replies do not trigger another Agent. A personal
+Agent stops initiating handoffs at six relay steps in the existing dispatch
+chain. Existing Organization daily admission limits also apply.
+
+The initial personal runtime does not materialize Computer workspaces,
+Organization documents, Skills, Apps, or Center Agent memory. Completion must
+not write personal conversation content into Center Agent memory. Shared
+infrastructure does not confer the Center Agent's responsibilities or tools.
+
+### Shared continuity checks
+
 Native-delivery cancellation, execution reconciliation, and runtime diagnostics
 resolve the persisted runtime conversation through the same Core owner. Both
 the original worker request and the recovery request must match the ledger's

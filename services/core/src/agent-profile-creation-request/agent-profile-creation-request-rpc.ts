@@ -9,6 +9,7 @@ import {
   daemonServiceLaneSchema,
   decideAgentProfileCreationRequestBodySchema,
   getAgentProfileCreationApprovalPreferenceResponseSchema,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   listAgentProfileCreationRequestsResponseSchema,
   openMeldRequestContextSchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
@@ -41,6 +42,7 @@ import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/curre
 import { readModelCatalog } from "../config/model-catalog";
 import { forkRuntimeTransportAgentSession } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import { type CoreBindings, identityDb } from "../lib/bindings";
+import { createPersonalRemoteAgentBinding } from "../remote-agent/application/personal-remote-agent-binding";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   type CenterAgentCreateConfiguredAgentProfileInput,
@@ -734,6 +736,17 @@ async function completeRequestedAgentProfileSetup(input: {
   }
 
   const agentControllerRef = input.request.configuration.agentControllerRef;
+  if (agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
+    await createPersonalRemoteAgentBinding({
+      agentProfileId: input.agentProfileId,
+      createdByProfileId: input.request.actorProfileId,
+      db: requireDb(input.env),
+      modelId: input.request.configuration.modelId,
+      organizationId: input.request.organizationId,
+      ownerUserId: input.request.targetOwnerUserId,
+    });
+    return;
+  }
   if (input.localAgentConnection && agentControllerRef) {
     await connectRequestedAgentProfile({
       ...input,

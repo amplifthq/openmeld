@@ -5,6 +5,7 @@ import {
   buildMessageChannelConversationId,
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
+  buildPersonalRemoteAgentConversationId,
   buildRemoteAgentCenterAgentTaskConversationId,
   buildSlackIdentityLinkNavigationAction,
   CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
@@ -272,6 +273,7 @@ import {
 import { buildRemoteAgentFinalPublicationMetadata } from "./native-delivery-final-publication-identity";
 import { resolveRemoteAgentNativeDeliveryIdentityMismatch } from "./native-delivery-identity";
 import { projectLinkedSlackNativeDeliveryInboxItem } from "./native-delivery-inbox-producer";
+import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 import { attachCenterAgentMemoryToTurnEnvelope as attachCenterAgentMemoryToTurnEnvelopeImpl } from "./remote-agent-memory-context";
@@ -382,6 +384,7 @@ type RemoteAgentCompletedCallbackBody = Extract<
 
 type NativeDeliveryBindingSnapshot = {
   bindingId: string;
+  personalAgent?: boolean;
   controllerNormalization?: {
     bindingUpdatedAtMs: number;
     storedAgentControllerRef: string | null;
@@ -430,6 +433,7 @@ type NativeDeliveryPublishRecord = Pick<
   | "triggerMessageId"
   | "triggerText"
 > & {
+  workerSubmitRequest?: RemoteAgentNativeDeliveryRecord["workerSubmitRequest"];
   routineNameSnapshot?: string | null;
   routineRunId?: string | null;
 };
@@ -1424,7 +1428,15 @@ export async function submitRemoteAgentNativeDelivery(
     });
     return { shouldAck: true, status: "failed" };
   }
-  if (designation?.agentProfileId !== input.message.targetProfileId) {
+  if (input.binding.personalAgent) {
+    await requirePersonalRemoteAgentBinding({
+      bindingId: input.binding.bindingId,
+      agentProfileId: input.message.targetProfileId,
+      db: designationDb,
+      organizationId: input.binding.organizationId,
+      ownerUserId: input.binding.ownerUserId,
+    });
+  } else if (designation?.agentProfileId !== input.message.targetProfileId) {
     await rejectNativeDeliveryWithSpaceFailure({
       ...input,
       failureCode: "remote_agent.center_agent_not_designated",
@@ -1481,18 +1493,20 @@ export async function submitRemoteAgentNativeDelivery(
 
   const preparation = startRemoteAgentTurnContextAndSkills({
     readOrganizationSkills: () =>
-      measureRemoteAgentAdmissionStage(
-        input,
-        {
-          description: "Read enabled Organization Skill releases",
-          name: "openmeld_remote_admission_skill_selection",
-        },
-        () =>
-          readEnabledOrganizationSkillReleaseSelection({
-            db: input.db,
-            organizationId: input.binding.organizationId,
-          })
-      ),
+      input.binding.personalAgent
+        ? Promise.resolve([])
+        : measureRemoteAgentAdmissionStage(
+            input,
+            {
+              description: "Read enabled Organization Skill releases",
+              name: "openmeld_remote_admission_skill_selection",
+            },
+            () =>
+              readEnabledOrganizationSkillReleaseSelection({
+                db: input.db,
+                organizationId: input.binding.organizationId,
+              })
+          ),
     resolveTurnContext: async () => {
       const baseTurnEnvelope = await measureRemoteAgentAdmissionStage(
         input,
@@ -1503,7 +1517,7 @@ export async function submitRemoteAgentNativeDelivery(
         () =>
           resolveRemoteAgentTurnEnvelope({
             author,
-            centerAgentProfileId: designation.agentProfileId,
+            centerAgentProfileId: input.message.targetProfileId,
             db: input.db,
             message: input.message,
             organizationId: input.binding.organizationId,
@@ -1527,16 +1541,18 @@ export async function submitRemoteAgentNativeDelivery(
                   name: "openmeld_remote_admission_memory",
                 },
                 () =>
-                  attachCenterAgentMemoryToTurnEnvelope({
-                    env: input.env,
-                    memoryService:
-                      input.memoryService === undefined
-                        ? createCoreCenterAgentMemoryService(input.env)
-                        : input.memoryService,
-                    organizationId: input.binding.organizationId,
-                    query: sourceText,
-                    turnEnvelope: baseTurnEnvelope,
-                  })
+                  input.binding.personalAgent
+                    ? Promise.resolve(baseTurnEnvelope)
+                    : attachCenterAgentMemoryToTurnEnvelope({
+                        env: input.env,
+                        memoryService:
+                          input.memoryService === undefined
+                            ? createCoreCenterAgentMemoryService(input.env)
+                            : input.memoryService,
+                        organizationId: input.binding.organizationId,
+                        query: sourceText,
+                        turnEnvelope: baseTurnEnvelope,
+                      })
               ),
               baseTurnEnvelope.trigger.source === "space_wake"
                 ? measureRemoteAgentAdmissionStage(
@@ -1611,7 +1627,7 @@ export async function submitRemoteAgentNativeDelivery(
   const organizationSkillReleases = organizationSkillPreparation.value;
   const representedMember =
     resolveRemoteAgentTurnEnvelopeRepresentedMember(turnEnvelope);
-  if (representedMember) {
+  if (representedMember && !input.binding.personalAgent) {
     await recordRemoteAgentNativeDeliveryRepresentedMember({
       db: input.db,
       displayName: representedMember.displayName,
@@ -1629,7 +1645,7 @@ export async function submitRemoteAgentNativeDelivery(
     });
     if (turnEnvelope.centerAgentInteractionSource) {
       await recordCenterAgentLocalAgentRequest({
-        actorProfileId: designation.agentProfileId,
+        actorProfileId: input.message.targetProfileId,
         db: designationDb,
         deliveryId: admittedDelivery.deliveryId,
         nowMs: input.nowMs,
@@ -1642,7 +1658,30 @@ export async function submitRemoteAgentNativeDelivery(
 
   const candidateWorkerRequest = remoteAgentWorkerSubmitTurnRequestSchema.parse(
     {
-      v: 2,
+      ...(input.binding.personalAgent
+        ? (() => {
+            const conversationId = buildPersonalRemoteAgentConversationId({
+              organizationId: input.binding.organizationId,
+              agentProfileId: input.message.targetProfileId,
+              spaceId: input.message.spaceId,
+            });
+            return {
+              v: 4,
+              conversationId,
+              conversationIdentity: {
+                kind: "personal_agent",
+                agentProfileId: input.message.targetProfileId,
+              },
+              runtimeConversation: { generation: 0, id: conversationId },
+              spaceDispatchContext: {
+                dispatchChainId: input.message.dispatchChainId,
+                autoRelayDepth: input.message.autoRelayDepth,
+                visitedProfileIds: input.message.visitedProfileIds,
+                visitedProfileIdsHash: input.message.visitedProfileIdsHash,
+              },
+            };
+          })()
+        : { v: 2 }),
       organizationId: input.binding.organizationId,
       spaceId: input.message.spaceId,
       agentProfileId: input.message.targetProfileId,
@@ -7001,7 +7040,14 @@ function scheduleCenterAgentMemoryRemember(input: {
   memoryService?: CenterAgentMemoryService | null;
   waitUntil?: (promise: Promise<unknown>) => void;
 }): void {
-  if (input.delivery.routineRunId) {
+  const request =
+    input.delivery.executionRecoverySubmitRequest ??
+    input.delivery.workerSubmitRequest;
+  if (
+    input.delivery.routineRunId ||
+    (request?.v === 4 &&
+      request.conversationIdentity?.kind === "personal_agent")
+  ) {
     return;
   }
   const memoryService =

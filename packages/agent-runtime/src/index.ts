@@ -44,6 +44,7 @@ export {
   buildAgentControllerRef,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_CONTROLLER_REF_ID,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   hasRuntimeAdapterCapabilityForRef,
   parseAgentControllerRef,
   type RuntimeAdapterCapabilityIdentity,

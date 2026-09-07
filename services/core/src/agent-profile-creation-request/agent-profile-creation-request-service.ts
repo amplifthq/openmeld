@@ -2,6 +2,7 @@ import {
   agentProfileCreationRequestSchema,
   createAgentProfileCreationRequestBodySchema,
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   setAgentProfileCreationApprovalPreferenceBodySchema,
 } from "@openmeld/schemas";
 import type {
@@ -484,6 +485,11 @@ export function createAgentProfileCreationRequestService(input: {
       }
 
       requireWebAgentRunTarget(body.source, configuration);
+      requirePersonalRemoteAgentSelfOwnership(
+        configuration.agentControllerRef,
+        request.requesterUserId,
+        body.targetOwnerUserId
+      );
 
       const preference = await input.repository.getPreference({
         organizationId: request.organizationId,
@@ -797,12 +803,28 @@ function readFailureMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function requirePersonalRemoteAgentSelfOwnership(
+  controllerRef: string | null,
+  requesterUserId: string,
+  ownerUserId: string
+): void {
+  if (
+    controllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF &&
+    requesterUserId !== ownerUserId
+  ) {
+    throw new AgentProfileCreationRequestForbiddenError(
+      "Create Remote Agents for your own account."
+    );
+  }
+}
+
 function requireWebAgentRunTarget(
   source: AgentProfileCreationRequestSource,
   configuration: AgentProfileCreationConfiguration
 ) {
   if (
     source === "web" &&
+    configuration.agentControllerRef !== HOSTED_REMOTE_AGENT_CONTROLLER_REF &&
     !(configuration.agentControllerRef && configuration.targetComputerId)
   ) {
     throw new AgentProfileCreationRequestStateError(

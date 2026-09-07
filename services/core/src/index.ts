@@ -507,6 +507,7 @@ import {
 import { verifyLarkPlatformWebhook } from "./remote-agent/application/lark-platform-webhook-service";
 import { createConfiguredMessageChannelProviderRegistry } from "./remote-agent/application/message-channel-provider-runtime";
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
+import { runPersonalRemoteAgentSpaceTool } from "./remote-agent/application/personal-remote-agent-space-tools";
 import { processRemoteAgentSlackEvent } from "./remote-agent/application/slack-signal-service";
 import {
   handleCenterAgentSlackTeammateInvitations,
@@ -3216,6 +3217,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     );
   }
 
+  personalRemoteAgentSpaceTool(input: unknown) {
+    return runPersonalRemoteAgentSpaceTool(this.env, input);
+  }
+
   centerAgentListAgentTasks(
     input: CenterAgentListAgentTasksInput
   ): Promise<CenterAgentListAgentTasksResponse> {
@@ -4962,6 +4967,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentWakeAgentProfilesInSpaceInput
   ): Promise<CenterAgentWakeAgentProfilesInSpaceResponse> {
     return super.centerAgentWakeAgentProfilesInSpace(input);
+  }
+
+  personalRemoteAgentSpaceTool(input: unknown) {
+    return super.personalRemoteAgentSpaceTool(input);
   }
 
   centerAgentListAgentTasks(

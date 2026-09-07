@@ -836,8 +836,13 @@ function assertRemoteAgentCallbackContextMatchesAdmission(input: {
   const conversationIdentityMatches = requestConversationIdentity
     ? input.context.conversationIdentity?.kind ===
         requestConversationIdentity.kind &&
-      input.context.conversationIdentity.taskId ===
-        requestConversationIdentity.taskId
+      (requestConversationIdentity.kind === "center_agent_task"
+        ? input.context.conversationIdentity?.kind === "center_agent_task" &&
+          input.context.conversationIdentity.taskId ===
+            requestConversationIdentity.taskId
+        : input.context.conversationIdentity?.kind === "personal_agent" &&
+          input.context.conversationIdentity.agentProfileId ===
+            requestConversationIdentity.agentProfileId)
     : input.context.conversationIdentity === undefined;
   if (
     input.context.submissionId !== input.submissionId ||

@@ -46,7 +46,7 @@ function formatAgentExecutionStatus(
   switch (projection.displayState) {
     case "ready":
       return isNativeRuntimeProjection(projection)
-        ? "Available for Wake · Center Agent can answer now."
+        ? "Available for Wake · This Agent can answer now."
         : "Available for Wake · This agent can reply from this computer.";
     case "blocked":
       return `Blocked · ${formatBlockingReason(projection)}`;

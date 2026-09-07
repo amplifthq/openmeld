@@ -22,6 +22,7 @@ import {
 } from "./create-profile-form-logic";
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 import { LocalAgentSelector } from "./local-agent-selector";
+import { PersonalRemoteAgentForm } from "./personal-remote-agent-form";
 
 export type AgentProfileGeneratorProps = {
 	form: CreateProfileFormProps;
@@ -37,6 +38,7 @@ export function AgentProfileGenerator(input: AgentProfileGeneratorProps) {
 }
 
 function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
+	const [remote, setRemote] = useState(false);
 	const [configurationExpanded, setConfigurationExpanded] = useState(false);
 	const [openSection, setOpenSection] =
 		useState<AgentProfileConfigurationSection | null>(null);
@@ -50,6 +52,15 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 	const form = input.form;
 	const submitBlock = resolveCreateProfileSubmitBlock(form);
 	const submitBlockReason = submitBlock?.message;
+	if (remote && form.remoteAgentCreation) {
+		return (
+			<PersonalRemoteAgentForm
+				form={form}
+				onChooseLocal={() => setRemote(false)}
+				onSubmit={form.remoteAgentCreation.onSubmit}
+			/>
+		);
+	}
 	return (
 		<form
 			className="-mx-3 flex min-h-0 min-w-0 flex-1 flex-col"
@@ -71,6 +82,9 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 						locked={form.lockLocalAgentSelection}
 						onChange={
 							form.onChangeAgentBindingValue ?? form.onChangeBoundAgentId
+						}
+						onChooseRemote={
+							form.remoteAgentCreation ? () => setRemote(true) : undefined
 						}
 						surface={input.surface}
 						value={form.agentBindingValue ?? form.boundAgentId}

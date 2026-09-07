@@ -537,6 +537,7 @@ export type RemoteAgentCoreWorkerBinding = {
   ): Promise<unknown>;
   centerAgentUpdateSpaceSettings?(input: unknown): Promise<unknown>;
   centerAgentWakeAgentProfilesInSpace?(input: unknown): Promise<unknown>;
+  personalRemoteAgentSpaceTool?(input: unknown): Promise<unknown>;
   centerAgentListAgentTasks?(input: unknown): Promise<unknown>;
   centerAgentWatchAgentTask?(input: unknown): Promise<unknown>;
   inspectExecutionRecovery?(input: unknown): Promise<unknown>;

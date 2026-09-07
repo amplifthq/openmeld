@@ -1,5 +1,14 @@
 # Settled Decisions
 
+2026-09-08: Ordinary members may create personal Remote Agents with per-Agent
+model selection. They reuse Agent Profile identity, ordinary DM/Space
+membership, and the native execution service; they do not inherit Center Agent
+designation, memory, or administration. Same-owner Agents may explicitly Wake
+each other in one Space. Advanced session binding, fork, migration, and personal
+Routines are outside the first release. This supersedes the former deferral of
+ordinary native Agent creation; the hosted-workstation R2 freeze is unchanged.
+See [Remote Agent Runtime](product/remote-agent-runtime.md#personal-native-agents).
+
 ## Agent Context
 
 - Purpose: Index the decisions Felix has already made so agents do not

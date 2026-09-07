@@ -411,8 +411,8 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     },
     {
       availabilityBadgeLabel: "Available",
-      availabilitySummary: "Center Agent can answer now.",
-      availabilityTooltip: "Center Agent available",
+      availabilitySummary: "This Agent can answer now.",
+      availabilityTooltip: "Agent available",
       patterns: ["=remote_agent.available"],
     },
     {

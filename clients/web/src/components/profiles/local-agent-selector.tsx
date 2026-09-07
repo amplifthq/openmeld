@@ -21,6 +21,7 @@ import type { AgentProfileLocalAgentEmptyState } from "./create-profile-form";
 import { LocalAgentLogoStack } from "./local-agent-logo-stack";
 
 export type LocalAgentSelectorProps = {
+	onChooseRemote?: () => void;
 	choices: readonly AgentProfileBindingChoice[];
 	computerSlot?: ReactNode;
 	disabled: boolean;
@@ -96,14 +97,17 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 				</div>
 				<button
 					className="flex items-start gap-3 rounded-lg border border-border p-3 text-left text-muted-foreground"
-					disabled
+					disabled={input.disabled || !input.onChooseRemote}
+					onClick={input.onChooseRemote}
 					type="button"
 				>
 					<CloudIcon aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
 					<span className="space-y-1">
 						<span className="flex flex-wrap items-center gap-2 text-sm">
 							<span className="font-medium">Remote Agent</span>
-							<span className="text-xs">Coming soon</span>
+							{input.onChooseRemote ? null : (
+								<span className="text-xs">Coming soon</span>
+							)}
 						</span>
 						<span className="block text-xs">
 							Runs in the cloud without a connected computer.

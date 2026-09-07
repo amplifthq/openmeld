@@ -129,7 +129,7 @@ export function AppDirectMessagesSidebar(input: {
 
 	return (
 		<nav
-			aria-label="People and local agent chats"
+			aria-label="People and agent chats"
 			className="flex w-full min-w-0 flex-col text-sidebar-foreground"
 			data-slot="app-direct-messages-sidebar"
 		>

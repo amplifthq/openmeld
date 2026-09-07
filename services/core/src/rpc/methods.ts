@@ -205,6 +205,7 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  isHostedAgentControllerRef,
   isSpaceFileTextEditable,
   type ListCenterAgentSessionsQuery,
   type ListCenterAgentSessionsResponse,
@@ -5808,6 +5809,20 @@ export async function rpcDisableAgentProfilePrimaryBinding(
       agentProfileId: request.agentProfileId,
       disabled: false,
       reasonCodes: ["agent_profile_binding.owner_mismatch"],
+      status: "unavailable",
+    });
+  }
+
+  const currentBinding = await readPrimaryAgentProfileBindingRecord({
+    db,
+    agentProfileId: request.agentProfileId,
+    owner: request.owner,
+  });
+  if (isHostedAgentControllerRef(currentBinding?.agentControllerRef)) {
+    return buildDisableAgentProfilePrimaryBindingResponse({
+      agentProfileId: request.agentProfileId,
+      disabled: false,
+      reasonCodes: ["agent_profile_binding.primary_conflict"],
       status: "unavailable",
     });
   }
@@ -24163,7 +24178,7 @@ function resolveTeamSafeOrganizationDirectoryDisplayState(
 function resolveHttpAgentWakeAvailability(
   readiness: CoreAgentExecutionReadiness
 ): GetAgentExecutionReadinessResponse["agentWakeAvailability"] {
-  if (readiness.agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF) {
+  if (isHostedAgentControllerRef(readiness.agentControllerRef)) {
     return resolveHostedAgentWakeAvailability({
       readiness: readiness.agentExecutionReadiness,
     });

@@ -1114,7 +1114,7 @@ describe("public agent failure reason mapping", () => {
       "center_agent.designation_required",
       "Connect the Center Agent before waking it from this Space.",
     ],
-    ["remote_agent.available", "Center Agent can answer now."],
+    ["remote_agent.available", "This Agent can answer now."],
     [
       "remote_agent.budget_resting",
       "Center Agent is resting until the next budget window.",

@@ -2538,14 +2538,25 @@ and a concrete next step; it does not manufacture a Working profile or
 Observed activity from identity facts and missing-source notices. Invalid or
 incomplete evidence packets are rejected before they enter document review.
 
-### User-profile remote agents (explicitly deferred)
+### Personal Remote Agents
 
-Once the remote controller type exists, any Agent Profile could technically
-bind to a remote runtime. Product-wise this is **not exposed in MVP**:
-offering it means operating a hosted-compute product (sandboxing, workspace
-persistence, secrets, billing). Keep the schema and controller abstraction
-free of "Center-Agent-only" hardcoding so this later becomes an opening, not a
-rework — but build no product entry now.
+Members may create their own ordinary Remote Agent Profiles in their current
+Organization, with a name and a per-Agent model selected at creation. They use
+the existing Agent directory, Direct Messages, Space membership, and native
+delivery. They do not require a Computer or a personal Center Agent designation.
+The Organization's Center Agent remains its one designated coordinator.
+
+The initial personal Remote Agent can converse and explicitly ask another
+eligible Agent in its current Space for work, including another Agent owned by
+the same member. It has no Center Agent administration, member memory, Apps,
+Organization document, Computer, or filesystem tools. Conversation state is
+isolated by Organization, Agent Profile, and Space. Existing owner-observer DM
+visibility remains visible to participants.
+
+Creation is self-owned only. Local session attachment, Local/Remote rebinding,
+forking, personal Channels, and personal Routines are outside this release.
+Native runtime authority and collaboration limits are owned by
+`remote-agent-runtime.md`.
 
 ## Agent Activity
 

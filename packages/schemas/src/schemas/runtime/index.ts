@@ -49,7 +49,11 @@ export {
 export {
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
+  hostedAgentRuntimeIdentitySchema,
   hostedCenterAgentRuntimeIdentitySchema,
+  hostedRemoteAgentRuntimeIdentitySchema,
+  isHostedAgentRuntimeKind,
 } from "./hosted-runtime";
 export {
   localAgentCatalogEntrySchema,
@@ -101,6 +105,10 @@ export {
   openConnectorRuntimeActionSuccessEnvelopeSchema,
 } from "./openconnector-runtime";
 export {
+  personalRemoteAgentSpaceToolRequestSchema,
+  personalRemoteAgentSpaceToolResponseSchema,
+} from "./personal-remote-agent";
+export {
   remoteAgentWorkerExecutionInputQuerySchema,
   remoteAgentWorkerExecutionInputReceiptSchema,
   remoteAgentWorkerExecutionInputRequestSchema,
@@ -141,6 +149,7 @@ export {
   remoteAgentWorkLoopContinuationSchema,
 } from "./remote-agent-turn-envelope";
 export {
+  buildPersonalRemoteAgentConversationId,
   buildRemoteAgentCenterAgentTaskConversationId,
   buildRemoteAgentRuntimeConversationId,
   REMOTE_AGENT_ADMISSION_STAGE_OPERATIONS,

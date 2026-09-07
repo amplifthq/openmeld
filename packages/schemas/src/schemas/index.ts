@@ -137,7 +137,9 @@ export {
   canonicalizeBuiltinAgentControllerRef,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_CONTROLLER_REF_ID,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   isExplicitBuiltinAgentControllerRef,
+  isHostedAgentControllerRef,
   isHostedCenterAgentControllerRef,
   normalizeBuiltinAgentControllerId,
   normalizeKnownBuiltinAgentControllerId,
@@ -2665,6 +2667,7 @@ export {
   areAgentTaskTerminalOutcomesEqual,
   buildAgentTaskKey,
   buildMessageChannelConversationId,
+  buildPersonalRemoteAgentConversationId,
   buildRemoteAgentCenterAgentTaskConversationId,
   buildRemoteAgentRuntimeConversationId,
   CHANNEL_CONTEXT_MAX_MESSAGES,
@@ -2683,7 +2686,11 @@ export {
   controllerAgentTaskHandleSchema,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
+  hostedAgentRuntimeIdentitySchema,
   hostedCenterAgentRuntimeIdentitySchema,
+  hostedRemoteAgentRuntimeIdentitySchema,
+  isHostedAgentRuntimeKind,
   localAgentCatalogEntrySchema,
   localAgentCatalogEntryWithLifecycleSchema,
   localAgentCatalogLaunchStatusSchema,
@@ -2806,6 +2813,10 @@ export {
   workingLanguageGuidanceSchema,
   workingLanguageTagSchema,
 } from "./runtime/index";
+export {
+  personalRemoteAgentSpaceToolRequestSchema,
+  personalRemoteAgentSpaceToolResponseSchema,
+} from "./runtime/personal-remote-agent";
 export {
   remoteAgentWorkerExecutionInputQuerySchema,
   remoteAgentWorkerExecutionInputReceiptSchema,
