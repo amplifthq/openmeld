@@ -286,6 +286,8 @@ describe("Remote Agent worker contracts", () => {
       )
     ).toEqual([
       "cancelExecution",
+      "receiveExecutionInput",
+      "readExecutionInput",
       "readExecutionState",
       "reconcileExecution",
       "readRuntimeDiagnostics",

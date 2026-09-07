@@ -1048,7 +1048,8 @@ function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
       updated_at_ms INTEGER NOT NULL
     )`,
     `CREATE TABLE organization_join_links (
-      organization_id TEXT PRIMARY KEY, token TEXT NOT NULL, revoked_at INTEGER
+      organization_id TEXT PRIMARY KEY, token TEXT NOT NULL, revoked_at INTEGER,
+      space_id TEXT
     )`,
     `CREATE TABLE slack_teammate_invitation_deliveries (
       interaction_id TEXT NOT NULL, slack_team_id TEXT NOT NULL,
@@ -1087,6 +1088,6 @@ function seedActiveJoinLink(
 ): void {
   harness.run({
     sql: `INSERT INTO organization_join_links
-      VALUES ('org-1', 'join-token-1', NULL)`,
+      VALUES ('org-1', 'join-token-1', NULL, NULL)`,
   });
 }

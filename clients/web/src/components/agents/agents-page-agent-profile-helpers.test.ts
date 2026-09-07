@@ -200,8 +200,8 @@ describe("Agent Profile availability presentation", () => {
 			"builtin:codex",
 			"builtin:claude-code",
 			"builtin:grok-build",
-			"builtin:cursor",
 			"builtin:opencode",
+			"builtin:cursor",
 			"custom:custom-acp",
 		]);
 	});

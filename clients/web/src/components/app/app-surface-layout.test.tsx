@@ -55,13 +55,13 @@ describe("AppSurfaceLayout", () => {
 		expect(surface?.contains(globalControls)).toBe(false);
 		expect(surface?.className).toContain("lg:mt-2");
 		expect(surface?.className).toContain("lg:mr-2");
-		expect(surface?.className).toContain("lg:mb-9");
-		expect(surface?.className).not.toContain("m-2");
-		expect(surface?.className).not.toContain("ml-2");
-		expect(surface?.className).not.toContain("my-2");
+		expect(surface?.className).toContain("lg:mb-[var(--app-toolbar-height)]");
+		expect(surface?.classList.contains("m-2")).toBe(false);
+		expect(surface?.classList.contains("ml-2")).toBe(false);
+		expect(surface?.classList.contains("my-2")).toBe(false);
 		expect(surface?.className).toContain("min-w-0");
 		expect(surface?.className).toContain("overflow-hidden");
-		expect(surface?.className).toContain("lg:border-[0.5px]");
+		expect(surface?.className).toContain("lg:shadow-surface-2");
 	});
 
 	it("supports full-width app routes without inventing an empty inner sidebar", () => {

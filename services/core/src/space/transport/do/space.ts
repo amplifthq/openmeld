@@ -9826,11 +9826,18 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
 
+    const sourceSignal =
+      input.body.target.by === "source_signal"
+        ? this.readSourceTextSignalById(input.lookupMatch.sourceSignalId)
+        : null;
+    const storedClientMessageId = sourceSignal
+      ? resolveDispatchSourceClientMessageId(sourceSignal)
+      : null;
     const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
       clientMessageId:
         input.body.target.by === "client_message"
           ? input.body.target.clientMessageId
-          : null,
+          : storedClientMessageId,
       dispatchId: input.lookupMatch.dispatchId,
       sourceSignalId: input.lookupMatch.sourceSignalId,
       spaceId: this.spaceId,

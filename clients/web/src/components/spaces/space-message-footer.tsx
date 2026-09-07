@@ -94,6 +94,7 @@ export function SpaceMessageFooter(input: {
 	details?: SpaceMessageFooterDetailsAction;
 	failureSummary?: string | null;
 	onCopy: () => void;
+	copyDisabled?: boolean;
 	reply?: SpaceMessageFooterAction;
 	thread?: SpaceMessageFooterAction;
 	timestamp: string;
@@ -134,6 +135,7 @@ export function SpaceMessageFooter(input: {
 				/>
 				{persistent ? null : (
 					<MessageFooterIconAction
+						disabled={input.copyDisabled}
 						icon={<CopyIcon aria-hidden="true" />}
 						label="Copy message"
 						onSelect={input.onCopy}
@@ -168,7 +170,9 @@ export function SpaceMessageFooter(input: {
 					<MessageFooterMoreMenu
 						addressingTargets={input.addressingTargets}
 						alwaysVisible={persistent}
-						onCopy={persistent ? input.onCopy : undefined}
+						onCopy={
+							persistent && !input.copyDisabled ? input.onCopy : undefined
+						}
 						reply={input.reply}
 						thread={input.thread}
 					/>

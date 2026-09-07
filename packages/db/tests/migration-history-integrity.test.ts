@@ -906,6 +906,7 @@ describe("shared drizzle migration history integrity", () => {
         "created_by",
         "created_at",
         "revoked_at",
+        "space_id",
       ]);
       expect(listTableIndexes(database, "organization_join_links")).toEqual(
         expect.arrayContaining([
@@ -1023,6 +1024,7 @@ describe("shared drizzle migration history integrity", () => {
         "created_at_ms",
         "updated_at_ms",
         "archived_at_ms",
+        "creation_request_signature",
       ]);
       expect(listTableIndexes(database, "projects")).toEqual(
         expect.arrayContaining([
@@ -2347,6 +2349,9 @@ describe("shared drizzle migration history integrity", () => {
         "active_human_count",
         "active_agent_count",
         "direct_message_converted_at_ms",
+        "message_preview_json",
+        "message_preview_revision",
+        "message_preview_attempted_at_ms",
       ]);
       expect(
         listTableColumns(database, "organization_binding_authorizations")

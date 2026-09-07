@@ -287,6 +287,19 @@ export function useProximityHover<T extends HTMLElement>(
     };
   }, [containerRef, scheduleMeasureItems]);
 
+  // Moving keyed rows does not resize them or reattach their refs. Refresh
+  // cached offsets after structural changes so hit testing and the overlay
+  // continue to refer to the same element after a drag reorder.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof MutationObserver === "undefined") {
+      return;
+    }
+    const observer = new MutationObserver(scheduleMeasureItems);
+    observer.observe(container, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [containerRef, scheduleMeasureItems]);
+
   const handleMouseMove = useCallback(
     (event: PointerPositionEvent) => {
       const mousePosition = axis === "x" ? event.clientX : event.clientY;

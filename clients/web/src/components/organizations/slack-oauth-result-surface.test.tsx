@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { resolveVisibleChannelsSlackOAuthResult } from "#/lib/organizations/slack-oauth-result";
 import { SlackOAuthResultSurface } from "./slack-oauth-result-surface";
@@ -18,7 +18,7 @@ describe("SlackOAuthResultSurface", () => {
 		expect(screen.getByText("Slack connected")).toBeTruthy();
 	});
 
-	it("keeps the informed move confirmation and restarts OAuth", () => {
+	it("keeps the informed move confirmation and restarts OAuth", async () => {
 		render(
 			<SlackOAuthResultSurface
 				canManage
@@ -39,7 +39,9 @@ describe("SlackOAuthResultSurface", () => {
 			"/slack/oauth/start?organization_slug=new-org&move_from=org-existing"
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-		expect(screen.queryByText("Move Slack workspace?")).toBeNull();
+		await waitFor(() =>
+			expect(screen.queryByText("Move Slack workspace?")).toBeNull()
+		);
 	});
 
 	it("does not trust a success query until Core reports Slack connected", () => {
