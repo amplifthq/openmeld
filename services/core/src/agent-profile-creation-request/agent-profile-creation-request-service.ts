@@ -483,6 +483,8 @@ export function createAgentProfileCreationRequestService(input: {
         );
       }
 
+      requireWebAgentRunTarget(body.source, configuration);
+
       const preference = await input.repository.getPreference({
         organizationId: request.organizationId,
         userId: body.targetOwnerUserId,
@@ -793,4 +795,18 @@ function normalizeFailureMessage(
 
 function readFailureMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function requireWebAgentRunTarget(
+  source: AgentProfileCreationRequestSource,
+  configuration: AgentProfileCreationConfiguration
+) {
+  if (
+    source === "web" &&
+    !(configuration.agentControllerRef && configuration.targetComputerId)
+  ) {
+    throw new AgentProfileCreationRequestStateError(
+      "Choose a local agent on a connected computer to continue."
+    );
+  }
 }

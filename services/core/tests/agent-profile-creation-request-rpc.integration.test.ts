@@ -45,7 +45,7 @@ describe("Agent Profile creation request RPC", () => {
         profileName: "Release Reviewer",
         requestedSpaceId: `space-${fixture.suffix}`,
         sessionStrategy: "new",
-        source: "web",
+        source: "cli",
         targetOwnerUserId: fixture.requesterUserId,
       });
 
@@ -260,7 +260,7 @@ describe("Agent Profile creation request RPC", () => {
       organizationId: fixture.organizationId,
       profileName: "Release Reviewer",
       sessionStrategy: "new",
-      source: "web",
+      source: "cli",
       targetOwnerUserId: fixture.targetUserId,
     });
 
@@ -307,7 +307,7 @@ describe("Agent Profile creation request RPC", () => {
       organizationId: fixture.organizationId,
       ownerUserId: fixture.targetUserId,
       profileName: "Release Reviewer",
-      source: "web_create",
+      source: "cli_create",
     });
     await expect(
       rpcListAgentProfileCreationRequests(bindings, {

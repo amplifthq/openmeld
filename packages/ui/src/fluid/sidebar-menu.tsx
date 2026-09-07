@@ -207,7 +207,10 @@ function useMenuScope(
     sessionRef,
     handlers,
     registerItem,
-  } = useProximityHover(containerRef, { isItemDisabled: rowHidden });
+  } = useProximityHover(containerRef, {
+    axis: "both",
+    isItemDisabled: rowHidden,
+  });
   const activeIndexRef = useRef(activeIndex);
   activeIndexRef.current = activeIndex;
   const [hoverStore] = useState(createRowHoverStore);

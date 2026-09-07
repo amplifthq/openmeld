@@ -266,6 +266,13 @@ be presented as wakeable. A wakeable local Agent Profile needs a Binding to a
 local OpenMeld Service Runtime and Agent Controller before a Space Wake can run it
 automatically.
 
+Web creation requires choosing a local Agent Controller on a connected computer
+before a new Agent Profile is requested. It does not expose manual unbound
+creation or a choose-later option. Core rejects a new `source: web` creation
+request without a Controller and target computer before writing any identity.
+This Web entry contract does not remove intentional CLI manual profiles, existing
+unbound profiles, recovery actions, or replay of an existing creation request.
+
 When the Center Agent creates and connects an ordinary workstation Agent
 Profile for an Organization task, the new Profile is created in that
 Organization and may be added only to Spaces in that Organization. Delegated

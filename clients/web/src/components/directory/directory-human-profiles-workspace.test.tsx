@@ -375,7 +375,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		);
 		expect([...(slackLogo.parentElement?.classList ?? [])]).toEqual(
 			expect.arrayContaining([
-				"size-3.5",
+				"size-3",
 				"border-0",
 				"bg-transparent",
 				"p-0",
@@ -619,7 +619,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		});
 
 		expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "All Agents" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Manage Agents" })).toBeTruthy();
 		const agentStrip = screen.getByLabelText("Felix's Agents");
 		expect(agentStrip.className).toContain("overflow-x-auto");
 		expect(agentStrip.className).toContain("flex");

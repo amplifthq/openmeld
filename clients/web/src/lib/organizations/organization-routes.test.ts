@@ -110,7 +110,7 @@ describe("primary organization routes", () => {
 		expect(buildOrganizationPeoplePath("acme")).toBe("/o/acme/people");
 		expect(buildOrganizationAgentsPath("acme")).toBe("/o/acme/agents");
 		expect(buildOrganizationAgentCreationPath("acme")).toBe(
-			"/o/acme/agents/new"
+			"/o/acme/new-agent"
 		);
 		expect(buildOrganizationComputersPath("acme")).toBe("/o/acme/computers");
 		expect(
