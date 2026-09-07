@@ -166,6 +166,34 @@ describe("SpaceWakeStopControl", () => {
 		expect(onStopWake).toHaveBeenNthCalledWith(2, codexTarget);
 	});
 
+	it("excludes unauthorized targets from the multi-target stop selection", async () => {
+		const allowed = createWakeStopTarget({
+			targetProfileId: "agt_owned",
+			targetLabel: "Owned agent",
+		});
+		const denied = createWakeStopTarget({
+			targetProfileId: "agt_other",
+			targetLabel: "Other agent",
+			canStop: false,
+			status: "not_stoppable",
+		});
+		const onStopWake = vi.fn().mockResolvedValue(createWakeStopResponse());
+		render(
+			<SpaceWakeStopControl
+				onStopWake={onStopWake}
+				targets={[allowed, denied]}
+			/>
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Stop Wake for Owned agent" })
+		);
+		const dialog = within(screen.getByRole("dialog"));
+		expect(dialog.queryByRole("button", { name: "Stop All" })).toBeNull();
+		fireEvent.click(dialog.getByRole("button", { name: "Stop Wake" }));
+		await waitFor(() => expect(onStopWake).toHaveBeenCalledWith(allowed));
+		expect(onStopWake).not.toHaveBeenCalledWith(denied);
+	});
+
 	it("keeps an open multi-target picker stable after one target stops", async () => {
 		const claudeTarget = createWakeStopTarget({
 			targetLabel: "Claude Agent",
