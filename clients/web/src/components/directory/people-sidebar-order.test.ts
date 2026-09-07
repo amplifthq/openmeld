@@ -5,20 +5,20 @@ import {
 	moveSidebarPerson,
 	peopleConnectionFilter,
 	removeSidebarPeopleGroup,
-	resolvePeopleSidebarDefaults,
 } from "./people-sidebar-order";
 
 describe("personal People organization", () => {
-	it("defaults self to Starred and preserves an explicit unstar after persistence", () => {
-		const initial = resolvePeopleSidebarDefaults(EMPTY_PEOPLE_SIDEBAR, "self");
-		expect(initial.starred.itemIds).toEqual(["self"]);
-		const unstarred = moveSidebarPerson(initial, "people", "self", []);
-		const restored = peopleSidebarPreferencesSchema.parse(
-			JSON.parse(JSON.stringify(unstarred))
+	it("does not create default stars and preserves saved stars", () => {
+		expect(EMPTY_PEOPLE_SIDEBAR.starred.itemIds).toEqual([]);
+		const starred = moveSidebarPerson(
+			EMPTY_PEOPLE_SIDEBAR,
+			"starred",
+			"self",
+			[]
 		);
 		expect(
-			resolvePeopleSidebarDefaults(restored, "self").starred.itemIds
-		).toEqual([]);
+			peopleSidebarPreferencesSchema.parse(starred).starred.itemIds
+		).toEqual(["self"]);
 	});
 	it("preserves custom placement and returns deleted group members to the directory", () => {
 		const grouped = {
@@ -32,14 +32,10 @@ describe("personal People organization", () => {
 				},
 			],
 		};
-		expect(
-			resolvePeopleSidebarDefaults(grouped, "self").starred.itemIds
-		).toEqual([]);
+		expect(grouped.starred.itemIds).toEqual([]);
 		const removed = removeSidebarPeopleGroup(grouped, "design");
 		expect(removed.people.itemIds).toEqual(["self"]);
-		expect(
-			resolvePeopleSidebarDefaults(removed, "self").starred.itemIds
-		).toEqual([]);
+		expect(removed.starred.itemIds).toEqual([]);
 	});
 	it("moves between groups, stars and the directory without duplicating or losing hidden members", () => {
 		const groupId = "0c1cc2f8-cb19-400f-99af-894dcdeca851";

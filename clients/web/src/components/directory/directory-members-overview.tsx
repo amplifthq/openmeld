@@ -505,10 +505,7 @@ function useDirectoryMembersOverviewModel(
 		profilesArePending,
 		researchIsPending: researchMutation.isPending,
 	});
-	const selectedProfileId = resolveSelectedProfileId({
-		members: memberRows,
-		requestedProfileId: input.focusProfileId,
-	});
+	const selectedProfileId = input.focusProfileId;
 	const workspaceProps: ComponentProps<typeof DirectoryHumanProfilesWorkspace> =
 		{
 			activeBatch: activeResearchBatch,
@@ -586,7 +583,14 @@ function DirectoryMembersOverviewView(input: {
 }) {
 	return (
 		<>
-			<DirectoryHumanProfilesWorkspace {...input.model.workspaceProps} />
+			<DirectoryHumanProfilesWorkspace
+				{...input.model.workspaceProps}
+				onInviteMembers={
+					input.model.invitationAccess.kind === "allowed"
+						? () => input.model.onInviteDialogOpenChange(true)
+						: undefined
+				}
+			/>
 			<DirectoryInviteDialog
 				access={input.model.invitationAccess}
 				isOpen={input.model.isInviteDialogOpen}
@@ -646,19 +650,6 @@ function resolveDirectoryInvitationAccess(input: {
 		return { kind: "unavailable" };
 	}
 	return { kind: input.canInvite ? "allowed" : "forbidden" };
-}
-
-function resolveSelectedProfileId(input: {
-	members: readonly { id: string; isCurrentUser: boolean }[];
-	requestedProfileId: string | null;
-}): string | null {
-	return (
-		input.members.find((member) => member.id === input.requestedProfileId)
-			?.id ??
-		input.members.find((member) => member.isCurrentUser)?.id ??
-		input.members[0]?.id ??
-		null
-	);
 }
 
 function resolveDirectoryProjectionStatus(input: {
