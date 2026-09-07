@@ -1,5 +1,18 @@
 # Personal Remote Agent Contract Impact Audit
 
+## Agent Context
+
+- Purpose: Record compatibility, rollout and acceptance for personal Remote Agents.
+- Read this when: Reviewing or releasing this feature.
+- Update this when: The candidate's compatibility or acceptance evidence changes.
+- Do not use this for: Replacing the durable product or architecture owners.
+- Source of truth: The linked owner documents and implementation define behavior;
+  this document records the scoped release audit.
+
+Status: Implemented and staging-validated; awaiting final checks and release.
+Remove this document after the feature is released and its evidence is
+preserved in the merged PR.
+
 ## Changed boundaries
 
 Ordinary Agent creation accepts `hosted:remote-agent` through the existing
