@@ -1076,6 +1076,14 @@ Project-control request itself fails, its authoritative error distinguishes
 Service offline, Service update required, and a retryable discovery failure;
 clients must not collapse every failure into Service unavailable.
 
+PeopleComputers Project discovery instead names the selected device and lane.
+Its eligibility comes from that exact session's shared `localProjectControl`
+control projection, not Binding preference, Agent reports, or Wakeability.
+Core reuses the Project authorization and canonical-reference preparation path;
+only target resolution changes. An unknown inventory or failed query remains a
+retryable checking failure, not evidence that the selected Service disconnected.
+Legacy current-target Project operations remain available to existing clients.
+
 An operation response may contain an absolute local path only for immediate
 forwarding through Core and Gateway to the authenticated owner who initiated
 that request. Immediate forwarding is not storage. Local paths must never be

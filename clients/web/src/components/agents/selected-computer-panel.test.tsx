@@ -119,6 +119,7 @@ function buildRecoveryStub(
 									controls: {
 										computerFileAccess: computer.computerFileAccess,
 										localFolderPicker: computer.localFolderPicker,
+										localProjectControl: { discoverProjects: true },
 									},
 								})),
 							},
@@ -240,7 +241,7 @@ describe("SelectedComputerPanel detail composition", () => {
 				deviceId: "device-office",
 				runtimeLane: "prod",
 				canChooseFolders: true,
-				canChooseProjects: false,
+				canChooseProjects: true,
 			})
 		);
 	});

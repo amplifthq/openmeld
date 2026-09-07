@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 
 type CoreRpcMock = {
+  discoverPeopleComputerProjects: ReturnType<typeof vi.fn>;
   selectPeopleComputerFolders: ReturnType<typeof vi.fn>;
   readPeopleComputerFileAccessPolicy: ReturnType<typeof vi.fn>;
   updatePeopleComputerFileAccessPolicy: ReturnType<typeof vi.fn>;
@@ -44,6 +45,7 @@ function makeEnv(input?: {
   authOverrides?: Partial<AuthRpcMock>;
 }) {
   const coreRpc: CoreRpcMock = {
+    discoverPeopleComputerProjects: vi.fn(),
     selectPeopleComputerFolders: vi.fn(),
     readPeopleComputerFileAccessPolicy: vi.fn(),
     updatePeopleComputerFileAccessPolicy: vi.fn(),
@@ -171,6 +173,12 @@ function makeEnv(input?: {
 
 describe("current device target routes", () => {
   it.each([
+    [
+      "POST",
+      "projects/discover",
+      "discoverPeopleComputerProjects",
+      { expectedOrganizationId: "organization-1", clientGeneration: 1 },
+    ],
     [
       "POST",
       "folders/select",

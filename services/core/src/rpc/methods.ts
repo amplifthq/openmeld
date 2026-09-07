@@ -248,6 +248,7 @@ import {
   peopleComputerFileAccessReadRpcInputSchema,
   peopleComputerFileAccessUpdateRpcInputSchema,
   peopleComputerFolderPickerRpcInputSchema,
+  peopleComputerProjectDiscoveryRpcInputSchema,
   peopleComputersResponseSchema,
   peopleComputerTargetSchema,
   postSpaceWakeStopInputSchema,
@@ -588,6 +589,7 @@ import type {
   PeopleComputerFileAccessReadRpcInput,
   PeopleComputerFileAccessUpdateRpcInput,
   PeopleComputerFolderPickerRpcInput,
+  PeopleComputerProjectDiscoveryRpcInput,
   PeopleComputersResponse,
   PeopleComputerTarget,
   PostSpaceMembersResponse,
@@ -1348,6 +1350,49 @@ export async function rpcUpdateAgentProfileDefaultProject(
 const localProjectControlRpc = createLocalProjectControlRpc({
   resolveCurrentTarget: resolveCurrentLocalProjectControlTarget,
 });
+
+export function rpcDiscoverPeopleComputerProjects(
+  env: CoreBindings,
+  input: PeopleComputerProjectDiscoveryRpcInput
+) {
+  const parsed = peopleComputerProjectDiscoveryRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer Project discovery request.",
+    });
+  }
+  const { deviceId, runtimeLane, ...request } = parsed.data;
+  const target = { deviceId, runtimeLane };
+  return createLocalProjectControlRpc({
+    resolveCurrentTarget: async ({ env: targetEnv, userId }) => {
+      const { localRuntimes, ownerService } =
+        await resolveCurrentLocalServiceContext({
+          env: targetEnv,
+          userId,
+          target,
+        });
+      const session = requirePeopleComputerControlSession({
+        target,
+        inventory: localRuntimes,
+        ownerService,
+      });
+      if (
+        !projectPeopleComputerControls(session).localProjectControl
+          .discoverProjects
+      ) {
+        throw createCoreRpcHttpError({
+          status: 409,
+          code: "service_update_required",
+          reason:
+            "Update OpenMeld Service in this environment before checking Project folders.",
+        });
+      }
+      return target;
+    },
+  }).discoverProjects(env, request);
+}
 
 function buildComputerFileAccessRpc(target?: PeopleComputerTarget) {
   return createComputerFileAccessRpc({

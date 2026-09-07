@@ -11,6 +11,11 @@ export function projectPeopleComputerControls(session: Session) {
   const agents = session.capabilities.localAgentControl;
   const tools = session.capabilities.openMeldToolsControl;
   return {
+    localProjectControl: {
+      discoverProjects:
+        compatible &&
+        session.capabilities.localProjectControl?.discoverProjects === true,
+    },
     localFolderPicker: {
       selectFolders:
         compatible &&

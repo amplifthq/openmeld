@@ -3,6 +3,7 @@ import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
   ComputerFileAccessPolicyResponse,
   LocalFolderPickerResult,
+  LocalProjectControlDiscoverProjectsResponse,
   OpenMeldRequestContext,
   RuntimeTransportLookupOwnerServiceResponse,
   RuntimeTransportOpenMeldToolsControlResponse,
@@ -10,6 +11,7 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
+  rpcDiscoverPeopleComputerProjects,
   rpcReadPeopleComputerFileAccessPolicy,
   rpcRequestPeopleComputerOpenMeldToolsUpdate,
   rpcSelectPeopleComputerFolders,
@@ -17,6 +19,66 @@ import {
 } from "../src/rpc/methods";
 
 describe("PeopleComputer explicit control RPC", () => {
+  it("discovers Projects only for the authenticated member's exact Computer and Organization", async () => {
+    const f = await fixture();
+    const organizationId = crypto.randomUUID();
+    const now = Date.now();
+    await env.OPENMELD_DB.batch([
+      env.OPENMELD_DB.prepare(
+        "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Project target test', ?, ?)"
+      ).bind(organizationId, `project-${organizationId}`, now),
+      env.OPENMELD_DB.prepare(
+        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, 'Project member', ?, 1, ?, ?)"
+      ).bind(f.userId, `${f.userId}@example.com`, now, now),
+      env.OPENMELD_DB.prepare(
+        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
+      ).bind(crypto.randomUUID(), organizationId, f.userId, now),
+      env.OPENMELD_DB.prepare(
+        "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES (?, 'Project member', ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', ?, ?)"
+      ).bind(
+        f.context.actorContext.openMeldProfileId,
+        `member-${organizationId}`,
+        f.userId,
+        f.userId,
+        now,
+        now
+      ),
+    ]);
+    const request = {
+      ...f.target,
+      context: { ...f.context, activeOrganizationId: organizationId },
+      expectedOrganizationId: organizationId,
+      clientGeneration: 1,
+    };
+    await expect(
+      rpcDiscoverPeopleComputerProjects(f.coreEnv, {
+        ...request,
+        deviceId: "foreign-device",
+      })
+    ).rejects.toThrow("not available on your account");
+    await expect(
+      rpcDiscoverPeopleComputerProjects(f.coreEnv, {
+        ...request,
+        expectedOrganizationId: "another-organization",
+      })
+    ).rejects.toThrow();
+    expect(f.commands).toEqual([]);
+    await expect(
+      rpcDiscoverPeopleComputerProjects(f.coreEnv, request)
+    ).resolves.toMatchObject({ deviceId: f.target.deviceId, projects: [] });
+    expect(f.commands).toEqual([
+      expect.objectContaining({
+        deviceId: f.target.deviceId,
+        lane: "canary",
+        ownerUserId: f.userId,
+        request: {
+          expectedOrganizationId: organizationId,
+          clientGeneration: 1,
+          projects: [],
+        },
+      }),
+    ]);
+  });
   it("opens a folder picker only on the exact owned environment and preserves cancellation", async () => {
     const f = await fixture();
     const request = {
@@ -240,6 +302,7 @@ async function fixture() {
           openMeldToolsControl: { requestUpdate: true },
           computerFileAccess: { readPolicy: true, updatePolicy: true },
           localFolderPicker: { selectFolders: true },
+          localProjectControl: { discoverProjects: true },
         },
         executionCompatibility: {
           status: "compatible",
@@ -272,6 +335,18 @@ async function fixture() {
     if (path === "/local-folder-picker/select-folders") {
       commands.push(JSON.parse(String(init.body)));
       const result: LocalFolderPickerResult = { deviceId, status: "cancelled" };
+      return Promise.resolve(Response.json(result));
+    }
+    if (path === "/local-project-control/discover-projects") {
+      commands.push(JSON.parse(String(init.body)));
+      const result: LocalProjectControlDiscoverProjectsResponse = {
+        deviceId,
+        projects: [],
+        checkedAtMs: now,
+        clientGeneration: 1,
+        gitStatus: "available",
+        requestId: "project-discovery",
+      };
       return Promise.resolve(Response.json(result));
     }
     if (

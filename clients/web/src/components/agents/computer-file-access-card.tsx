@@ -328,6 +328,7 @@ function FileAccessEditor(input: {
 				}}
 				onOpenChange={setProjectPickerOpen}
 				open={projectPickerOpen}
+				target={{ deviceId: input.deviceId, runtimeLane: input.runtimeLane }}
 			/>
 		</>
 	);

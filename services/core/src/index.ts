@@ -827,6 +827,7 @@ import {
   rpcDisconnectCenterAgentSlackWorkspace,
   rpcDisconnectLarkPlatformRegistration,
   rpcDisconnectMessageChannelIdentityLink,
+  rpcDiscoverPeopleComputerProjects,
   rpcDiscoverProjects,
   rpcEnrollLocalRuntime,
   rpcEnsureAgentProfilePrimaryBinding,
@@ -1267,6 +1268,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   discoverProjects(input: DiscoverProjectsInput) {
     return rpcDiscoverProjects(this.env, input);
+  }
+  discoverPeopleComputerProjects(
+    input: Parameters<typeof rpcDiscoverPeopleComputerProjects>[1]
+  ) {
+    return rpcDiscoverPeopleComputerProjects(this.env, input);
   }
 
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {
@@ -3426,6 +3432,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   discoverProjects(input: DiscoverProjectsInput) {
     return super.discoverProjects(input);
+  }
+  discoverPeopleComputerProjects(
+    input: Parameters<typeof rpcDiscoverPeopleComputerProjects>[1]
+  ) {
+    return super.discoverPeopleComputerProjects(input);
   }
 
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {

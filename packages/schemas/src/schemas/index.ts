@@ -1822,6 +1822,7 @@ export {
   peopleComputerFileAccessUpdateRpcInputSchema,
   peopleComputerFolderPickerBodySchema,
   peopleComputerFolderPickerRpcInputSchema,
+  peopleComputerProjectDiscoveryRpcInputSchema,
   peopleComputerSchema,
   peopleComputersResponseSchema,
   peopleComputerTargetSchema,

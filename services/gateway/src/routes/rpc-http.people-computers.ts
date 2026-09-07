@@ -3,6 +3,8 @@ import {
   currentLocalAgentInstallationsResponseSchema,
   currentLocalAgentInstallationsRouteParamsSchema,
   localFolderPickerResultSchema,
+  localProjectControlDiscoverProjectsRequestSchema,
+  localProjectControlDiscoverProjectsResponseSchema,
   peopleComputerFileAccessUpdateBodySchema,
   peopleComputerFolderPickerBodySchema,
   peopleComputerTargetSchema,
@@ -28,6 +30,57 @@ import { readJsonRequestBody } from "./rpc-http.parsers";
 export function registerPeopleComputerControlRoutes(
   app: Hono<HonoBindings>
 ): void {
+  const projectDiscoveryRoute =
+    "/v1/people-computers/:deviceId/lanes/:runtimeLane/projects/discover";
+  app.post(projectDiscoveryRoute, async (c) => {
+    const target = peopleComputerTargetSchema.safeParse({
+      deviceId: c.req.param("deviceId"),
+      runtimeLane: c.req.param("runtimeLane"),
+    });
+    if (!target.success) {
+      return respondBadRequest({
+        c,
+        route: projectDiscoveryRoute,
+        method: "POST",
+        code: "invalid_payload",
+        message: "Invalid computer target.",
+      });
+    }
+    const body = await readJsonRequestBody(c.req.raw);
+    if (!body.ok) {
+      return respondBadRequest({
+        c,
+        route: projectDiscoveryRoute,
+        method: "POST",
+        code: "invalid_json",
+        message: "Invalid Project discovery request.",
+      });
+    }
+    const parsed = localProjectControlDiscoverProjectsRequestSchema.safeParse(
+      body.value
+    );
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: projectDiscoveryRoute,
+        method: "POST",
+        code: "invalid_payload",
+        message: "Invalid Project discovery request.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: projectDiscoveryRoute,
+      method: "POST",
+      responseSchema: localProjectControlDiscoverProjectsResponseSchema,
+      execute: () =>
+        c.var.coreRpc.discoverPeopleComputerProjects({
+          ...target.data,
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
   const folderPickerRoute =
     "/v1/people-computers/:deviceId/lanes/:runtimeLane/folders/select";
   app.post(folderPickerRoute, async (c) => {

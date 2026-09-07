@@ -102,12 +102,6 @@ export function SelectedComputerPanel(input: {
 	const canManageComputerFileAccess =
 		selectedSession?.controls?.computerFileAccess?.readPolicy === true &&
 		selectedSession.controls.computerFileAccess.updatePolicy === true;
-	// Project discovery compatibility APIs still resolve the
-	// account routing target. Never offer those helpers for a different lane.
-	const canUseCurrentTargetHelpers = matchesCurrentRoutingTarget(
-		target,
-		input.recovery.currentDeviceTargetQuery.data
-	);
 	return (
 		<div className="flex flex-col gap-4">
 			{environments.length > 1 ? (
@@ -189,7 +183,10 @@ export function SelectedComputerPanel(input: {
 					canChooseFolders={
 						selectedSession?.controls?.localFolderPicker?.selectFolders === true
 					}
-					canChooseProjects={canUseCurrentTargetHelpers}
+					canChooseProjects={
+						selectedSession?.controls?.localProjectControl?.discoverProjects ===
+						true
+					}
 					deviceId={target.deviceId}
 					focusFileAccess={input.focusFileAccess}
 					key={`file-access/${computerEnvironmentKey(target)}`}
@@ -228,18 +225,6 @@ function computerEnvironmentLabel(
 	).length > 1
 		? `${label} · ${target.deviceId.slice(-8)}`
 		: label;
-}
-
-function matchesCurrentRoutingTarget(
-	target: PeopleComputerTarget | null,
-	current: LocalAgentRecoveryController["currentDeviceTargetQuery"]["data"]
-): boolean {
-	return (
-		target !== null &&
-		current?.availability === "resolved" &&
-		current.deviceId === target.deviceId &&
-		current.runtimeLane === target.runtimeLane
-	);
 }
 
 type SetupCompleteRefreshStatus = "idle" | "pending" | "ready" | "error";
