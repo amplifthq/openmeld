@@ -62,6 +62,7 @@ function Preview() {
 							{
 								title: "Center Agent",
 								label: "Loading Center Agent chats",
+								rowCount: 2,
 								showPreview: true,
 							},
 							{
