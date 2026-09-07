@@ -45,6 +45,7 @@ export const AgentProfileSidebarItem = memo(AgentProfileSidebarItemComponent);
 
 export function AgentProfileSidebarItemComponent(input: {
 	variant?: "sidebar" | "card";
+	avatarSize?: number;
 	agentControllerRef: string | null;
 	currentUserId: string;
 	index: number;
@@ -93,7 +94,7 @@ export function AgentProfileSidebarItemComponent(input: {
 				: resolveAvailabilityClassName(presentation.availabilityCategory);
 	}
 	const isOwner = input.profile.ownerUserId === input.currentUserId;
-	const cardStyle = resolveAgentCardStyle(input.variant);
+	const cardStyle = resolveAgentCardStyle(input.variant, input.avatarSize);
 	const hasReducedProminence =
 		presentation.availabilityCategory === "offline" ||
 		presentation.availabilityCategory === "unavailable";
@@ -342,12 +343,15 @@ function resolveAvailabilityClassName(
 	}
 }
 
-function resolveAgentCardStyle(variant: "sidebar" | "card" | undefined) {
+function resolveAgentCardStyle(
+	variant: "sidebar" | "card" | undefined,
+	avatarSize?: number
+) {
 	return variant === "card"
 		? {
 				frame: "rounded-lg border border-border p-2",
 				button: "min-h-16 gap-3 p-2",
-				avatarSize: 28,
+				avatarSize: avatarSize ?? 28,
 			}
-		: { frame: "", button: "", avatarSize: 20 };
+		: { frame: "", button: "", avatarSize: avatarSize ?? 20 };
 }
