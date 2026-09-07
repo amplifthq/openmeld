@@ -4,15 +4,12 @@ import type {
 } from "@openmeld/schemas/types";
 import type { ComputerReplyReadiness } from "@openmeld/start";
 import { useEffect, useState } from "react";
-import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
-import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
 import {
 	formatDeviceType,
 	formatPlatform,
 	formatRuntimeLane,
 } from "./agents-page-formatters";
 
-type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 type DeviceAgentCatalogEntry =
 	LocalRuntimeExecutionTarget["localAgentCatalog"]["entries"][number];
 
@@ -81,47 +78,6 @@ export function resolveSelectedComputerIndex(input: {
 		(device) => device.deviceId === input.selectedDeviceId
 	);
 	return selectedIndex === -1 ? 0 : selectedIndex;
-}
-
-export function isSelectedCurrentComputer(input: {
-	computer: LocalRuntimeComputer;
-	recovery: AgentsPageController;
-}): boolean {
-	// Legacy current-target mutations still resolve the account's Binding.
-	// Never enable them for a different browser-selected computer.
-	const target = input.recovery.currentDeviceTargetQuery.data;
-	if (target?.availability !== "resolved") {
-		return false;
-	}
-	return (
-		input.computer.deviceId === target.deviceId ||
-		input.computer.legacyDeviceIds?.includes(target.deviceId) === true
-	);
-}
-
-export function resolveSelectedComputerReplyReadiness(input: {
-	computer: LocalRuntimeComputer;
-	isCurrentComputer: boolean;
-	recovery: AgentsPageController;
-}): ComputerReplyReadiness | null {
-	if (!input.isCurrentComputer) {
-		return null;
-	}
-	if (
-		!(
-			input.recovery.currentLocalRuntimeReplyReadinessQuery.isPending ||
-			input.recovery.currentLocalRuntimeReplyReadinessQuery.data
-		)
-	) {
-		return null;
-	}
-
-	return mapCurrentLocalRuntimeReplyReadinessQueryState({
-		isFetching:
-			input.recovery.currentLocalRuntimeReplyReadinessQuery.isFetching,
-		isPending: input.recovery.currentLocalRuntimeReplyReadinessQuery.isPending,
-		readiness: input.recovery.currentLocalRuntimeReplyReadinessQuery.data,
-	});
 }
 
 export function resolveCurrentExecutionTarget(

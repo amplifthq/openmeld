@@ -11,6 +11,14 @@ export function projectPeopleComputerControls(session: Session) {
   const agents = session.capabilities.localAgentControl;
   const tools = session.capabilities.openMeldToolsControl;
   return {
+    computerFileAccess: {
+      readPolicy:
+        compatible &&
+        session.capabilities.computerFileAccess?.readPolicy === true,
+      updatePolicy:
+        compatible &&
+        session.capabilities.computerFileAccess?.updatePolicy === true,
+    },
     localAgentControl: {
       refreshCatalog: compatible && agents?.refreshCatalog === true,
       setEnabled: compatible && agents?.setEnabled === true,

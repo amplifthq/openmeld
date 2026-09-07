@@ -245,6 +245,8 @@ import {
   patchSpaceContractBodySchema,
   patchSpaceMetaBodySchema,
   pendingGitHubAppInstallationSchema,
+  peopleComputerFileAccessReadRpcInputSchema,
+  peopleComputerFileAccessUpdateRpcInputSchema,
   peopleComputersResponseSchema,
   peopleComputerTargetSchema,
   postSpaceWakeStopInputSchema,
@@ -582,6 +584,8 @@ import type {
   OwnerComputerDiagnostics,
   PatchSpaceContractBody,
   PendingGitHubAppInstallation,
+  PeopleComputerFileAccessReadRpcInput,
+  PeopleComputerFileAccessUpdateRpcInput,
   PeopleComputersResponse,
   PeopleComputerTarget,
   PostSpaceMembersResponse,
@@ -1343,25 +1347,89 @@ const localProjectControlRpc = createLocalProjectControlRpc({
   resolveCurrentTarget: resolveCurrentLocalProjectControlTarget,
 });
 
-const computerFileAccessRpc = createComputerFileAccessRpc({
-  readPolicy: readRuntimeTransportComputerFileAccessPolicy,
-  requireOwnerUserId: requireAuthenticatedOwnerUserId,
-  resolveCurrentTarget: async ({ env, userId }) => {
-    const { bindingTarget, localRuntimes, ownerService } =
-      await resolveCurrentLocalServiceContext({ env, userId });
-    return requireCurrentLocalRuntimeServiceTarget({
-      bindingTarget,
-      inventory: localRuntimes,
-      ownerService,
-      offlineError: {
-        code: "computer.file_access.service_offline",
-        reason: "This computer isn't reachable for OpenMeld right now.",
-        status: 503,
-      },
+function buildComputerFileAccessRpc(target?: PeopleComputerTarget) {
+  return createComputerFileAccessRpc({
+    readPolicy: readRuntimeTransportComputerFileAccessPolicy,
+    requireOwnerUserId: requireAuthenticatedOwnerUserId,
+    resolveCurrentTarget: async ({ env, userId }) => {
+      const { bindingTarget, localRuntimes, ownerService } =
+        await resolveCurrentLocalServiceContext({ env, userId, target });
+      if (target) {
+        const session = requirePeopleComputerControlSession({
+          target,
+          inventory: localRuntimes,
+          ownerService,
+        });
+        if (
+          !(
+            projectPeopleComputerControls(session).computerFileAccess
+              .readPolicy &&
+            projectPeopleComputerControls(session).computerFileAccess
+              .updatePolicy
+          )
+        ) {
+          throw createCoreRpcHttpError({
+            status: 409,
+            code: "computer.file_access.unsupported",
+            reason:
+              "This environment does not support managing file access. Update OpenMeld Service and try again.",
+          });
+        }
+        return target;
+      }
+      return requireCurrentLocalRuntimeServiceTarget({
+        bindingTarget,
+        inventory: localRuntimes,
+        ownerService,
+        offlineError: {
+          code: "computer.file_access.service_offline",
+          reason: "This computer isn't reachable for OpenMeld right now.",
+          status: 503,
+        },
+      });
+    },
+    updatePolicy: updateRuntimeTransportComputerFileAccessPolicy,
+  });
+}
+const computerFileAccessRpc = buildComputerFileAccessRpc();
+
+export function rpcReadPeopleComputerFileAccessPolicy(
+  env: CoreBindings,
+  input: PeopleComputerFileAccessReadRpcInput
+) {
+  const parsed = peopleComputerFileAccessReadRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer file access target.",
     });
-  },
-  updatePolicy: updateRuntimeTransportComputerFileAccessPolicy,
-});
+  }
+  const { context, deviceId, runtimeLane } = parsed.data;
+  return buildComputerFileAccessRpc({ deviceId, runtimeLane }).readPolicy(env, {
+    context,
+    expectedDeviceId: deviceId,
+  });
+}
+
+export function rpcUpdatePeopleComputerFileAccessPolicy(
+  env: CoreBindings,
+  input: PeopleComputerFileAccessUpdateRpcInput
+) {
+  const parsed = peopleComputerFileAccessUpdateRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer file access request.",
+    });
+  }
+  const { deviceId, runtimeLane, ...request } = parsed.data;
+  return buildComputerFileAccessRpc({ deviceId, runtimeLane }).updatePolicy(
+    env,
+    { ...request, expectedDeviceId: deviceId }
+  );
+}
 
 const localFolderPickerRpc = createLocalFolderPickerRpc({
   requireOwnerUserId: requireAuthenticatedOwnerUserId,

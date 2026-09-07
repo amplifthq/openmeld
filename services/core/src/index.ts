@@ -931,6 +931,7 @@ import {
   rpcReadOrganizationInformationProtectionPolicy,
   rpcReadOrganizationUsageOverview,
   rpcReadPendingGitHubAppInstallation,
+  rpcReadPeopleComputerFileAccessPolicy,
   rpcReadSpaceFileContent,
   rpcReconcileCurrentOrganizationConnectorConnections,
   rpcRecordCenterAgentAudit,
@@ -982,6 +983,7 @@ import {
   rpcUpdateCenterAgentOperatingState,
   rpcUpdateCenterAgentProfile,
   rpcUpdateComputerFileAccessPolicy,
+  rpcUpdatePeopleComputerFileAccessPolicy,
   rpcUpdateProject,
   rpcUpdateRoutine,
   rpcUpdateSpaceCursor,
@@ -1268,6 +1270,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {
     return rpcReadComputerFileAccessPolicy(this.env, input);
+  }
+
+  readPeopleComputerFileAccessPolicy(
+    input: Parameters<typeof rpcReadPeopleComputerFileAccessPolicy>[1]
+  ) {
+    return rpcReadPeopleComputerFileAccessPolicy(this.env, input);
+  }
+
+  updatePeopleComputerFileAccessPolicy(
+    input: Parameters<typeof rpcUpdatePeopleComputerFileAccessPolicy>[1]
+  ) {
+    return rpcUpdatePeopleComputerFileAccessPolicy(this.env, input);
   }
 
   selectLocalFolders(input: SelectLocalFoldersInput) {
@@ -3410,6 +3424,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {
     return super.readComputerFileAccessPolicy(input);
+  }
+
+  readPeopleComputerFileAccessPolicy(
+    input: Parameters<typeof rpcReadPeopleComputerFileAccessPolicy>[1]
+  ) {
+    return super.readPeopleComputerFileAccessPolicy(input);
+  }
+
+  updatePeopleComputerFileAccessPolicy(
+    input: Parameters<typeof rpcUpdatePeopleComputerFileAccessPolicy>[1]
+  ) {
+    return super.updatePeopleComputerFileAccessPolicy(input);
   }
 
   selectLocalFolders(input: SelectLocalFoldersInput) {

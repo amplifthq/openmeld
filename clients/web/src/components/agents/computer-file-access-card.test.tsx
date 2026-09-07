@@ -226,7 +226,8 @@ describe("ComputerFileAccessCard", () => {
 
 		await waitFor(() =>
 			expect(updateComputerFileAccessPolicy).toHaveBeenCalledWith({
-				expectedDeviceId: "device-office",
+				deviceId: "device-office",
+				runtimeLane: "dev-local",
 				expectedRevision: 1,
 				idempotencyKey: expect.any(String),
 				policy: {
@@ -265,7 +266,8 @@ describe("ComputerFileAccessCard", () => {
 
 		await waitFor(() =>
 			expect(updateComputerFileAccessPolicy).toHaveBeenCalledWith({
-				expectedDeviceId: "device-office",
+				deviceId: "device-office",
+				runtimeLane: "dev-local",
 				expectedRevision: 1,
 				idempotencyKey: expect.any(String),
 				policy: {
@@ -358,7 +360,8 @@ describe("ComputerFileAccessCard", () => {
 
 		await waitFor(() =>
 			expect(updateComputerFileAccessPolicy).toHaveBeenCalledWith({
-				expectedDeviceId: "device-office",
+				deviceId: "device-office",
+				runtimeLane: "dev-local",
 				expectedRevision: 1,
 				idempotencyKey: expect.any(String),
 				policy: {
@@ -403,9 +406,11 @@ function renderCard(
 		<TestQueryClientProvider>
 			<ComputerFileAccessCard
 				canChooseFolders
+				canChooseProjects
 				deviceId="device-office"
 				focusFileAccess={input.focusFileAccess ?? false}
 				onFocusConsumed={input.onFocusConsumed}
+				runtimeLane="dev-local"
 				storageScope="owner-user-1"
 			/>
 		</TestQueryClientProvider>

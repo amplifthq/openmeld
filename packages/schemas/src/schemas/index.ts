@@ -1817,6 +1817,9 @@ export {
 } from "./http/owner-computer-diagnostics";
 export {
   peopleComputerConnectionSchema,
+  peopleComputerFileAccessReadRpcInputSchema,
+  peopleComputerFileAccessUpdateBodySchema,
+  peopleComputerFileAccessUpdateRpcInputSchema,
   peopleComputerSchema,
   peopleComputersResponseSchema,
   peopleComputerTargetSchema,

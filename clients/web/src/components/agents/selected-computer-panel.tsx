@@ -17,7 +17,6 @@ import type { useLocalAgentRecoveryController } from "#/components/agents/use-lo
 import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
 import { currentLocalRuntimeReplyReadinessQueryOptions } from "#/query/connect/local-runtimes";
-import { isSelectedCurrentComputer } from "./agents-page-computer";
 import { formatRuntimeLane } from "./agents-page-formatters";
 import { LocalAgentsCard } from "./agents-page-local-agents";
 import { OpenMeldServiceCard } from "./agents-page-openmeld-service";
@@ -42,10 +41,6 @@ export function SelectedComputerPanel(input: {
 	const [checkingComputerId, setCheckingComputerId] = useState<string | null>(
 		null
 	);
-	const isCurrentComputer = isSelectedCurrentComputer({
-		computer: input.computer,
-		recovery: input.recovery,
-	});
 	const computerFacts =
 		input.recovery.localRuntimesQuery.data?.peopleComputers.computers.find(
 			(computer) => computer.deviceId === input.computer.deviceId
@@ -64,12 +59,10 @@ export function SelectedComputerPanel(input: {
 			])
 		).values(),
 	];
-	const target =
-		environments.find(
-			(entry) => computerEnvironmentKey(entry) === selectedEnvironmentKey
-		) ??
-		(environments.length === 1 ? environments[0] : null) ??
-		null;
+	const target = selectComputerEnvironment(
+		environments,
+		selectedEnvironmentKey
+	);
 	const reportedTarget =
 		input.computer.executionTargets.find(
 			(entry) =>
@@ -107,8 +100,14 @@ export function SelectedComputerPanel(input: {
 		? null
 		: (selectedReadinessQuery.data ?? null);
 	const canManageComputerFileAccess =
-		input.computer.computerFileAccess?.readPolicy === true &&
-		input.computer.computerFileAccess.updatePolicy === true;
+		selectedSession?.controls?.computerFileAccess?.readPolicy === true &&
+		selectedSession.controls.computerFileAccess.updatePolicy === true;
+	// Project discovery and folder-picker compatibility APIs still resolve the
+	// account routing target. Never offer those helpers for a different lane.
+	const canUseCurrentTargetHelpers = matchesCurrentRoutingTarget(
+		target,
+		input.recovery.currentDeviceTargetQuery.data
+	);
 	return (
 		<div className="flex flex-col gap-4">
 			{environments.length > 1 ? (
@@ -129,12 +128,7 @@ export function SelectedComputerPanel(input: {
 									key={computerEnvironmentKey(entry)}
 									value={computerEnvironmentKey(entry)}
 								>
-									{formatRuntimeLane(entry.runtimeLane)}
-									{environments.filter(
-										(other) => other.runtimeLane === entry.runtimeLane
-									).length > 1
-										? ` · ${entry.deviceId.slice(-8)}`
-										: ""}
+									{computerEnvironmentLabel(entry, environments)}
 								</SelectItem>
 							))}
 						</SelectContent>
@@ -190,14 +184,18 @@ export function SelectedComputerPanel(input: {
 				recovery={selectedRecovery}
 				replyReadiness={effectiveReplyReadiness}
 			/>
-			{isCurrentComputer && canManageComputerFileAccess ? (
+			{target && canManageComputerFileAccess ? (
 				<ComputerFileAccessCard
 					canChooseFolders={
+						canUseCurrentTargetHelpers &&
 						input.computer.localFolderPicker?.selectFolders === true
 					}
-					deviceId={input.computer.deviceId}
+					canChooseProjects={canUseCurrentTargetHelpers}
+					deviceId={target.deviceId}
 					focusFileAccess={input.focusFileAccess}
+					key={`file-access/${computerEnvironmentKey(target)}`}
 					onFocusConsumed={input.onFocusConsumed}
+					runtimeLane={target.runtimeLane}
 					storageScope={input.recovery.storageScope}
 				/>
 			) : null}
@@ -207,6 +205,42 @@ export function SelectedComputerPanel(input: {
 
 function computerEnvironmentKey(target: PeopleComputerTarget) {
 	return `${target.deviceId}/${target.runtimeLane}`;
+}
+
+function selectComputerEnvironment(
+	environments: readonly PeopleComputerTarget[],
+	selectedKey: string | null
+): PeopleComputerTarget | null {
+	const selected = environments.find(
+		(entry) => computerEnvironmentKey(entry) === selectedKey
+	);
+	return (
+		selected ?? (environments.length === 1 ? environments[0] : null) ?? null
+	);
+}
+
+function computerEnvironmentLabel(
+	target: PeopleComputerTarget,
+	environments: readonly PeopleComputerTarget[]
+) {
+	const label = formatRuntimeLane(target.runtimeLane);
+	return environments.filter(
+		(entry) => entry.runtimeLane === target.runtimeLane
+	).length > 1
+		? `${label} · ${target.deviceId.slice(-8)}`
+		: label;
+}
+
+function matchesCurrentRoutingTarget(
+	target: PeopleComputerTarget | null,
+	current: LocalAgentRecoveryController["currentDeviceTargetQuery"]["data"]
+): boolean {
+	return (
+		target !== null &&
+		current?.availability === "resolved" &&
+		current.deviceId === target.deviceId &&
+		current.runtimeLane === target.runtimeLane
+	);
 }
 
 type SetupCompleteRefreshStatus = "idle" | "pending" | "ready" | "error";

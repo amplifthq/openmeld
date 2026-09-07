@@ -110,7 +110,15 @@ function buildRecoveryStub(
 						{
 							...computer,
 							identityStatus: "unconfirmed",
-							connection: { status: "unknown", reasonCodes: [], sessions: [] },
+							connection: {
+								status: "connected",
+								reasonCodes: [],
+								sessions: computer.executionTargets.map((target) => ({
+									deviceId: target.deviceId,
+									runtimeLane: target.runtimeLane,
+									controls: { computerFileAccess: computer.computerFileAccess },
+								})),
+							},
 						},
 					],
 				},
@@ -179,7 +187,9 @@ describe("SelectedComputerPanel detail composition", () => {
 		expect(localAgentsCardSpy).toHaveBeenCalled();
 		expect(computerFileAccessCardSpy).toHaveBeenCalledWith({
 			canChooseFolders: true,
+			canChooseProjects: true,
 			deviceId: "device-office",
+			runtimeLane: "dev-local",
 			focusFileAccess: false,
 			onFocusConsumed: undefined,
 			storageScope: expect.any(String),
@@ -198,6 +208,7 @@ describe("SelectedComputerPanel detail composition", () => {
 			isCurrent: true,
 		};
 		renderPanel({ computer: buildComputer([development, production]) });
+		expect(screen.queryByTestId("computer-file-access-card")).toBeNull();
 		expect(readPeopleComputerReadinessSpy).not.toHaveBeenCalled();
 		expect(localAgentsCardSpy).toHaveBeenLastCalledWith(
 			expect.objectContaining({
@@ -221,6 +232,14 @@ describe("SelectedComputerPanel detail composition", () => {
 				controlTarget: { deviceId: "device-office", runtimeLane: "prod" },
 			})
 		);
+		expect(computerFileAccessCardSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				deviceId: "device-office",
+				runtimeLane: "prod",
+				canChooseFolders: false,
+				canChooseProjects: false,
+			})
+		);
 	});
 
 	it("forwards a Settings deep-link focus to file access", () => {
@@ -242,7 +261,9 @@ describe("SelectedComputerPanel detail composition", () => {
 
 		expect(computerFileAccessCardSpy).toHaveBeenCalledWith({
 			canChooseFolders: true,
+			canChooseProjects: true,
 			deviceId: "device-office",
+			runtimeLane: "dev-local",
 			focusFileAccess: true,
 			onFocusConsumed,
 			storageScope: "owner-user-1",

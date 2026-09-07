@@ -1,3 +1,4 @@
+import type { ComputerFileAccessPolicyResponse } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
   createComputerFileAccessApi,
@@ -8,6 +9,54 @@ import {
 const FULL_FOLDER_PATH_PATTERN = /full folder path/i;
 
 describe("api-client Computer file access API", () => {
+  it("keeps explicit device and lane in read and write routes without current-target fallback", async () => {
+    const response: ComputerFileAccessPolicyResponse = {
+      deviceId: "device-1",
+      policy: { mode: "local_agent_settings", revision: 1, updatedAtMs: 0 },
+    };
+    const transport = vi.fn<OpenMeldApiClientTransport>(() =>
+      Promise.resolve(Response.json(response))
+    );
+    const api = createComputerFileAccessApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    await api.readPeopleComputerPolicy({
+      deviceId: "device-1",
+      runtimeLane: "canary",
+    });
+    await api.updatePeopleComputerPolicy({
+      deviceId: "device-1",
+      runtimeLane: "canary",
+      expectedRevision: 1,
+      idempotencyKey: "save-exact",
+      policy: { mode: "local_agent_settings" },
+    });
+    expect(
+      transport.mock.calls.map(([call]) => ({
+        method: call.init?.method,
+        url: call.url,
+        body: call.init?.body,
+      }))
+    ).toEqual([
+      {
+        method: "GET",
+        url: "https://gateway.openmeld.invalid/v1/people-computers/device-1/lanes/canary/file-access",
+        body: undefined,
+      },
+      {
+        method: "PUT",
+        url: "https://gateway.openmeld.invalid/v1/people-computers/device-1/lanes/canary/file-access",
+        body: JSON.stringify({
+          expectedRevision: 1,
+          idempotencyKey: "save-exact",
+          policy: { mode: "local_agent_settings" },
+        }),
+      },
+    ]);
+  });
   it("uses owner-current read and update routes without organization scope", async () => {
     const transport = vi.fn<OpenMeldApiClientTransport>(() =>
       Promise.resolve(

@@ -1,4 +1,6 @@
 import * as z from "../../lazy-zod";
+import { computerFileAccessUpdateRequestSchema } from "../daemon/computer-file-access";
+import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { daemonExecutionCompatibilitySchema } from "../daemon/runtime-transport";
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
 import { START_BOUNDED_ID_SCHEMA } from "../start/shared";
@@ -10,6 +12,17 @@ export const peopleComputerTargetSchema = z.strictObject({
   deviceId: START_BOUNDED_ID_SCHEMA,
   runtimeLane: daemonServiceLaneSchema,
 });
+
+export const peopleComputerFileAccessReadRpcInputSchema =
+  peopleComputerTargetSchema.extend({
+    context: openMeldRequestContextSchema,
+  });
+export const peopleComputerFileAccessUpdateBodySchema =
+  computerFileAccessUpdateRequestSchema.omit({ expectedDeviceId: true });
+export const peopleComputerFileAccessUpdateRpcInputSchema =
+  peopleComputerFileAccessReadRpcInputSchema.extend(
+    peopleComputerFileAccessUpdateBodySchema.shape
+  );
 
 export const peopleComputerConnectionSchema = z.strictObject({
   status: z.enum(["connected", "disconnected", "unknown"]),
@@ -32,6 +45,12 @@ export const peopleComputerConnectionSchema = z.strictObject({
             requestUpdate: z.boolean(),
             setAutomaticUpdates: z.boolean(),
           }),
+          computerFileAccess: z
+            .strictObject({
+              readPolicy: z.boolean(),
+              updatePolicy: z.boolean(),
+            })
+            .optional(),
         })
         .optional(),
       serviceUpdate: z.strictObject({

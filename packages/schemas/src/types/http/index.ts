@@ -809,6 +809,9 @@ export type {
 export type {
   PeopleComputer,
   PeopleComputerConnection,
+  PeopleComputerFileAccessReadRpcInput,
+  PeopleComputerFileAccessUpdateBody,
+  PeopleComputerFileAccessUpdateRpcInput,
   PeopleComputersResponse,
   PeopleComputerTarget,
 } from "./people-computers";

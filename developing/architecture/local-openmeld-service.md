@@ -533,8 +533,13 @@ intersects with the Agent Profile's controller-native permission mode; neither
 layer may widen the other. Profile, Project, Organization, and Space surfaces
 must not add overrides or duplicate this policy.
 
-Owner policy reads and writes target the current Computer's exact device and
-lane plus its live owner Service session. They do not require a registered or
+Owner policy reads and writes target the explicitly selected Computer's exact
+device and lane plus its live owner Service session. PeopleComputers routes
+revalidate that target and never fall back to an account Binding or another
+environment. The older current-Computer endpoints remain compatibility
+adapters for supported clients. Web policy caches include account, device and
+lane, and changing the selected environment remounts the editor so a draft
+cannot cross targets. They do not require a registered or
 enabled local Agent execution target: execution-target inventory governs Agent
 operations, while this Computer-wide policy remains manageable whenever the
 exact current Service is connected and advertises the negotiated capability.

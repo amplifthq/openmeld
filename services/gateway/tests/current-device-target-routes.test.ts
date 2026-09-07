@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 
 type CoreRpcMock = {
+  readPeopleComputerFileAccessPolicy: ReturnType<typeof vi.fn>;
+  updatePeopleComputerFileAccessPolicy: ReturnType<typeof vi.fn>;
   setPeopleComputerLocalAgentEnabled: ReturnType<typeof vi.fn>;
   getPeopleComputerLocalAgentInstallations: ReturnType<typeof vi.fn>;
   selectPeopleComputerLocalAgentInstallation: ReturnType<typeof vi.fn>;
@@ -41,6 +43,8 @@ function makeEnv(input?: {
   authOverrides?: Partial<AuthRpcMock>;
 }) {
   const coreRpc: CoreRpcMock = {
+    readPeopleComputerFileAccessPolicy: vi.fn(),
+    updatePeopleComputerFileAccessPolicy: vi.fn(),
     setPeopleComputerLocalAgentEnabled: vi.fn(),
     getPeopleComputerLocalAgentInstallations: vi.fn(),
     selectPeopleComputerLocalAgentInstallation: vi.fn(),
@@ -165,6 +169,17 @@ function makeEnv(input?: {
 
 describe("current device target routes", () => {
   it.each([
+    ["GET", "file-access", "readPeopleComputerFileAccessPolicy", undefined],
+    [
+      "PUT",
+      "file-access",
+      "updatePeopleComputerFileAccessPolicy",
+      {
+        expectedRevision: 1,
+        idempotencyKey: "save-policy",
+        policy: { mode: "local_agent_settings" },
+      },
+    ],
     [
       "PUT",
       "local-agents/codex/enabled",

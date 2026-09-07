@@ -1,6 +1,8 @@
 import {
+  computerFileAccessPolicyResponseSchema,
   currentLocalAgentInstallationsResponseSchema,
   currentLocalAgentInstallationsRouteParamsSchema,
+  peopleComputerFileAccessUpdateBodySchema,
   peopleComputerTargetSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
   requestCurrentOpenMeldToolsUpdateResponseSchema,
@@ -24,6 +26,83 @@ import { readJsonRequestBody } from "./rpc-http.parsers";
 export function registerPeopleComputerControlRoutes(
   app: Hono<HonoBindings>
 ): void {
+  const fileAccessRoute =
+    "/v1/people-computers/:deviceId/lanes/:runtimeLane/file-access";
+  app.get(fileAccessRoute, (c) => {
+    const target = peopleComputerTargetSchema.safeParse({
+      deviceId: c.req.param("deviceId"),
+      runtimeLane: c.req.param("runtimeLane"),
+    });
+    if (!target.success) {
+      return respondBadRequest({
+        c,
+        route: fileAccessRoute,
+        method: "GET",
+        code: "invalid_payload",
+        message: "Invalid computer target.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: fileAccessRoute,
+      method: "GET",
+      responseSchema: computerFileAccessPolicyResponseSchema,
+      execute: () =>
+        c.var.coreRpc.readPeopleComputerFileAccessPolicy({
+          ...target.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+  app.put(fileAccessRoute, async (c) => {
+    const target = peopleComputerTargetSchema.safeParse({
+      deviceId: c.req.param("deviceId"),
+      runtimeLane: c.req.param("runtimeLane"),
+    });
+    if (!target.success) {
+      return respondBadRequest({
+        c,
+        route: fileAccessRoute,
+        method: "PUT",
+        code: "invalid_payload",
+        message: "Invalid computer target.",
+      });
+    }
+    const body = await readJsonRequestBody(c.req.raw);
+    if (!body.ok) {
+      return respondBadRequest({
+        c,
+        route: fileAccessRoute,
+        method: "PUT",
+        code: "invalid_json",
+        message: "Invalid file access request.",
+      });
+    }
+    const parsed = peopleComputerFileAccessUpdateBodySchema.safeParse(
+      body.value
+    );
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: fileAccessRoute,
+        method: "PUT",
+        code: "invalid_payload",
+        message: "Invalid file access request.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: fileAccessRoute,
+      method: "PUT",
+      responseSchema: computerFileAccessPolicyResponseSchema,
+      execute: () =>
+        c.var.coreRpc.updatePeopleComputerFileAccessPolicy({
+          ...target.data,
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
   app.put(
     "/v1/people-computers/:deviceId/lanes/:runtimeLane/local-agents/:agentId/enabled",
     async (c) => {
