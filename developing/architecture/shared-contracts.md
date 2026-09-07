@@ -2476,6 +2476,14 @@ The provider set is `slack | lark | feishu`. The transport set is
 one internal Lark-platform implementation serves both brands. `connector` is
 not a Message Channel domain term.
 
+Channel permission read-back requires the complete tenant Channel bundle and
+rejects denied, duplicate, user-token, or unrelated business scopes. The one
+explicitly granted tenant scope `application:application:patch` may additionally
+be present for application configuration. It is setup authority only and never
+becomes a Center Agent tool grant or an App connection. The default registration
+bundle does not request it automatically; an operator must explicitly consent
+before it is granted.
+
 The additive setup-request HTTP contract accepts one provider and returns its
 Organization, stable request id, recipient count, and `created` or
 `already_requested` result. It never returns credentials or grants Channel

@@ -537,9 +537,10 @@ function createClaimDeadlineFetch(input: {
   fetchImpl: typeof fetch;
   timeoutMs: number;
 }): typeof fetch {
+  const fetchImpl = input.fetchImpl;
   const deadline = AbortSignal.timeout(input.timeoutMs);
   return ((resource: RequestInfo | URL, init?: RequestInit) =>
-    input.fetchImpl(resource, {
+    fetchImpl(resource, {
       ...init,
       signal: init?.signal
         ? AbortSignal.any([init.signal, deadline])
@@ -1067,7 +1068,8 @@ function normalizeFailureReasonCode(
 }
 
 function createOpaqueSecret(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  // 24 random bytes encode to 32 base64url characters, the provider's limit.
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
   let binary = "";
   for (const byte of bytes) {
     binary += String.fromCharCode(byte);

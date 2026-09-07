@@ -2355,6 +2355,12 @@ projection. Tenant access tokens are minted and cached only within their
 provider lifetime inside one Worker isolate and are never stored in D1.
 
 Webhook readiness is connection-owned evidence, not a generic provider flag.
+The provider's encrypted URL-verification challenge may omit all three
+signature headers. Core may decrypt that envelope only into a URL-verification
+challenge and must match its verification token before recording reachability.
+Partial or invalid signature headers are rejected. Ordinary encrypted events
+still require a valid signature; this exception never admits an event or starts
+a Center Agent turn.
 Core records the Event Subscription URL challenge and Message Card Request URL
 challenge separately. A Webhook connection becomes `connected` only after its
 application configuration has supplied the bot identity and both surfaces have

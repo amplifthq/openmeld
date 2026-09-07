@@ -54,10 +54,10 @@ but living natively inside the organization.
 Now state: **a user opens the organization's managed Center Agent and can
 immediately talk to it in a Space DM; Slack app mentions and human App Home
 direct messages are shipped external signals. Slack is the first supported
-external signal, while Lark Channel setup is available to every production
-Organization but still fails closed until its connection-specific transport
-checks pass, Feishu remains behind its independent provider gate and feature
-flag, and organization-owned Routines are the unattended native-delivery
+external signal, while Lark and Feishu Channel setup is enabled in local and
+production configuration for every Organization but still fails closed until
+each connection's transport checks pass. Setup availability does not prove
+live provider delivery. Organization-owned Routines are the unattended native-delivery
 entry.** The original MVP is judged on
 exactly one quality:
 **high availability of the conversation loop** — an authorized member asks
@@ -478,8 +478,11 @@ the connected provider API.
    Agents or Computers, role authority, destructive confirmation, and other
    identity-owned actions use the same provider-bound setup and exact-request
    continuation contract. Card presentation may differ from Slack, but the
-   product boundary cannot. Their Personal Agent credential is Channel-only and
-   never becomes a model-visible business-action credential.
+   product boundary cannot. Their Personal Agent credential grants Channel
+   capabilities to the runtime and never becomes a model-visible business-action
+   credential. An explicitly consented tenant `application:application:patch`
+   scope may additionally support application setup; it does not add a runtime
+   tool or an App connection and is not requested by the default Channel bundle.
    Core freezes a Lark/Feishu locator containing provider, connection, chat,
    root message, and optional native thread identity before admission. Only the
    provider adapter may interpret that locator, and every normal result returns

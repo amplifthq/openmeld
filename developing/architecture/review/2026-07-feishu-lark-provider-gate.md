@@ -15,12 +15,18 @@
   product and architecture owner documents own durable behavior.
 
 Date: 2026-07-18; production availability decision updated 2026-07-20;
-registration creation recovery revalidated 2026-07-21
+registration creation recovery revalidated 2026-07-21;
+Feishu setup availability decision updated 2026-09-07
 
-Status: PARTIAL PASS — Lark registration and Channel permission passed. Lark
+Status: PARTIAL PASS — Lark registration and Channel permission passed. Feishu
+registration, configuration, and both URL challenges also passed in a local
+development lane on 2026-09-07 with explicit app-configuration consent. One real
+Feishu message/reply also passed; card-action delivery remains unverified. Lark
 setup is now available in production by explicit product decision, without a
 claim of live delivery proof; application configuration and Webhook evidence
-remain pending. Feishu remains disabled. Remove this file when every open gate
+remain pending. The 2026-09-07 product decision enables Feishu setup in local
+and production configuration for every Organization; it does not establish
+deployment or live Feishu delivery evidence. Remove this file when every open gate
 is either closed or rejected and the final evidence is distilled into the owner
 documents.
 
@@ -163,9 +169,9 @@ truth boundary:
 
 ## Feishu result
 
-Feishu did not pass Gate 0. The currently available account lacks the required
-Feishu API qualification and no qualified mainland tenant/network test lane
-was available. Therefore none of the following is claimed:
+At the 2026-07-18 gate, Feishu did not pass Gate 0. The available account lacked
+the required Feishu API qualification and no qualified mainland tenant/network
+test lane was available. The following remained unverified at that gate:
 
 - Feishu Personal Agent credential completion;
 - Feishu `preset: false` permission read-back;
@@ -174,10 +180,54 @@ was available. Therefore none of the following is claimed:
   test windows;
 - mainland delivery, acknowledgement, retry, or callback SLO measurements.
 
-`OPENMELD_FEISHU_CHANNEL_ENABLED` must remain disabled and
-`OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS` must remain empty. This blocked
-brand does not block dormant shared contracts or the independently gated Lark
-implementation.
+The 2026-09-07 product decision supersedes the earlier requirement to keep
+`OPENMELD_FEISHU_CHANNEL_ENABLED` disabled and
+`OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS` empty. Local and production
+configuration now selects `true` and `*`; staging remains disabled. This opens
+setup to every Organization without claiming any of the pending provider
+evidence above. Each connection must still pass brand validation, application
+configuration, and separate Event Subscription URL and Message Card Request
+URL verification before Core reports `connected`. WebSocket is not an
+automatic fallback. Production deployment remains a separate delivery step.
+
+### 2026-09-07 local development revalidation
+
+A user-created Feishu Personal Agent app completed registration through local
+OpenMeld Web. Core received credentials and detected the Feishu brand. Runtime
+testing reproduced and corrected an invalid native-fetch receiver in polling.
+The real configuration API also rejected 43-character callback keys and tokens
+with code `99992402`; new values use 24 random bytes encoded as 32 base64url
+characters. The redacted error is captured in
+`scripts/lark-platform/fixtures/application-config-key-length.feishu.json`.
+
+Automatic configuration required explicit tenant scope
+`application:application:patch`, returning `99991672` before consent. The user
+granted that scope to the test app. Read-back returned the ten Channel scopes
+plus this setup scope, all granted tenant permissions; see
+`scripts/lark-platform/fixtures/application-scopes-with-setup.feishu.json`.
+The default registration bundle remains unchanged. Core now distinguishes this
+specific setup grant from runtime Channel grants while rejecting other extras.
+
+Feishu sent encrypted URL-verification challenges with no signature, timestamp,
+or nonce headers. Their decrypted type was `url_verification` and their token
+matched the stored value. Core now accepts that narrowly authenticated challenge
+shape; unsigned ordinary events, partial signatures, invalid signatures, and
+wrong challenge tokens remain rejected. Both callback routes returned HTTP 200,
+the configuration API returned code 0, and local Web displayed `Connected`.
+
+The test app's updated event-subscription configuration was then published as
+version 1.0.1 for its existing single test member, with external access disabled.
+This was a Feishu test-app release, not an OpenMeld production deployment.
+One real Feishu message arrived at the local Gateway at 19:29:32 Beijing;
+Native Delivery completed and published its reply at 19:29:43. The ingress and
+final publication each recorded one attempt without a failure. Feishu's message
+API confirmed the reply in the same chat with its parent and root pointing to
+the original message. The user confirmed that the Feishu client displayed the
+expected `FEISHU_E2E_OK` reply. The API's default interactive-card content was
+compatibility text, so rendered-content confirmation comes from the user.
+
+Live card-action delivery, mainland SLOs, and a fresh registration without
+diagnostic fixture repair remain separate acceptance gates.
 
 ## Worker SDK compatibility result
 

@@ -218,6 +218,8 @@ async function verifyChannelOnlyPermissionBundle(input: {
     actualScopeNames.add(scopeName);
   }
   const expectedScopes = LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.scopes;
+  // Explicit app-configuration consent is setup authority, not a Channel tool grant.
+  actualScopeNames.delete("application:application:patch");
   if (
     actualScopeNames.size !== expectedScopes.length ||
     expectedScopes.some((scopeName) => !actualScopeNames.has(scopeName))

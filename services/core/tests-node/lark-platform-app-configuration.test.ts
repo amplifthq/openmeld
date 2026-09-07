@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import capturedSetupScopes from "../../../scripts/lark-platform/fixtures/application-scopes-with-setup.feishu.json";
 import {
   configureAndVerifyLarkPlatformWebhookApp,
   LarkPlatformAppConfigurationError,
@@ -186,6 +187,29 @@ describe("Lark-platform app configuration", () => {
     );
   });
 
+  it("accepts the explicitly granted app-configuration scope alongside Channel scopes", async () => {
+    const fetchImpl = configuredAppFetch(
+      capturedSetupScopes.data.scopes
+    ).mockResolvedValueOnce(
+      Response.json({
+        bot: { app_name: "OpenMeld Center Agent", open_id: "ou_bot" },
+        code: 0,
+      })
+    );
+    await expect(
+      configureAndVerifyLarkPlatformWebhookApp({
+        appId: "cli_test",
+        appSecret: "app-secret",
+        connectionId: "connection-1",
+        eventEncryptKey: "event-encrypt-key",
+        fetchImpl,
+        gatewayOrigin: "https://gateway-dev.openmeld.ai",
+        provider: "feishu",
+        verificationToken: "verification-token",
+      })
+    ).resolves.toMatchObject({ botOpenId: "ou_bot", transport: "webhook" });
+  });
+
   it("rejects missing, denied, user, or unexpected grants", async () => {
     for (const scopes of [
       EXPECTED_SCOPES.slice(1),
@@ -201,6 +225,22 @@ describe("Lark-platform app configuration", () => {
           grant_status: 1,
           scope_name: "calendar:calendar",
           scope_type: "tenant",
+        },
+      ],
+      [
+        ...capturedSetupScopes.data.scopes,
+        {
+          grant_status: 1,
+          scope_name: "calendar:calendar",
+          scope_type: "tenant",
+        },
+      ],
+      [
+        ...EXPECTED_SCOPES,
+        {
+          grant_status: 1,
+          scope_name: "application:application:patch",
+          scope_type: "user",
         },
       ],
     ]) {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import capturedBegin from "../../../scripts/lark-platform/fixtures/registration-begin.lark.json";
 import capturedPending from "../../../scripts/lark-platform/fixtures/registration-pending.lark.json";
 import capturedSuccess from "../../../scripts/lark-platform/fixtures/registration-success.lark.json";
+import { decryptLarkPlatformCredential } from "../src/remote-agent/application/lark-platform-credential-crypto";
 import { LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE } from "../src/remote-agent/application/lark-platform-permission-bundles";
 import { runLarkPlatformRegistrationTick } from "../src/remote-agent/application/lark-platform-registration-scheduler";
 import {
@@ -408,6 +409,8 @@ describe("Lark-platform registration service", () => {
         pollClaimId: null,
       });
       expect(timeout).toHaveBeenCalledWith(1);
+      // Workers' native fetch rejects an object receiver before sending a request.
+      expect(fetchImpl.mock.contexts[0]).toBeUndefined();
     } finally {
       timeout.mockRestore();
       harness.close();
@@ -464,6 +467,49 @@ describe("Lark-platform registration service", () => {
       expect(randomUuid).toHaveBeenCalledTimes(2);
     } finally {
       randomUuid.mockRestore();
+      harness.close();
+    }
+  });
+
+  it("generates callback credentials within the provider's 32-character limit", async () => {
+    const harness = createRegistrationHarness();
+    try {
+      const started = await beginRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        db: harness.db,
+        env: ENV,
+        fetchImpl: jsonFetch(capturedBegin),
+        nowMs: 1000,
+        provider: "lark",
+      });
+      const poll = (nowMs: number) =>
+        pollRemoteAgentLarkPlatformRegistration({
+          actor: ACTOR,
+          attemptId: started.attempt.id,
+          db: harness.db,
+          env: ENV,
+          fetchImpl: jsonFetch(capturedSuccess),
+          nowMs,
+          provider: "lark",
+        });
+      await poll(1100);
+      const registered = await poll(1200);
+      const credentials = await readRemoteAgentLarkPlatformChannelCredentials({
+        connectionId: registered.connection?.id ?? "",
+        db: harness.db,
+      });
+      for (const encryptedCredential of [
+        credentials?.encryptedVerificationToken,
+        credentials?.encryptedEventEncryptKey,
+      ]) {
+        const secret = await decryptLarkPlatformCredential({
+          credentialName: "test callback secret",
+          cryptoKey: ENV.LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY,
+          encryptedCredential: encryptedCredential ?? "",
+        });
+        expect(secret).toHaveLength(32);
+      }
+    } finally {
       harness.close();
     }
   });
