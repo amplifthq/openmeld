@@ -239,7 +239,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		renderMessageDetailsPanel();
 
 		const scrollArea = screen.getByTestId("message-details-scroll-area");
-		expect(scrollArea.className).toContain("select-text");
+		expect(scrollArea.querySelector(".select-text")).not.toBeNull();
 		expect(scrollArea.hasAttribute("data-vaul-no-drag")).toBe(true);
 
 		const technicalDetails = openTechnicalDetails();
