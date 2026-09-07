@@ -812,6 +812,8 @@ export type {
   PeopleComputerFileAccessReadRpcInput,
   PeopleComputerFileAccessUpdateBody,
   PeopleComputerFileAccessUpdateRpcInput,
+  PeopleComputerFolderPickerBody,
+  PeopleComputerFolderPickerRpcInput,
   PeopleComputersResponse,
   PeopleComputerTarget,
 } from "./people-computers";

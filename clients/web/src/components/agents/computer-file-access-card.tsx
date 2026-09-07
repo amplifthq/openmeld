@@ -278,6 +278,7 @@ function FileAccessEditor(input: {
 							resetFeedback();
 						}}
 						onChooseProjects={() => setProjectPickerOpen(true)}
+						runtimeLane={input.runtimeLane}
 					/>
 				)}
 
@@ -336,6 +337,7 @@ function FolderEditor(input: {
 	canChooseFolders: boolean;
 	canChooseProjects: boolean;
 	deviceId: string;
+	runtimeLane: DaemonServiceLane;
 	disabled: boolean;
 	folders: readonly FolderDraft[];
 	onChange: (folders: FolderDraft[]) => void;
@@ -408,6 +410,7 @@ function FolderEditor(input: {
 							input.onChange(mergeUniqueFolderDrafts(input.folders, paths))
 						}
 						purpose="computer_file_access"
+						runtimeLane={input.runtimeLane}
 					/>
 				) : null}
 				{input.canChooseProjects ? (

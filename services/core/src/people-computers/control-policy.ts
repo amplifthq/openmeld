@@ -11,6 +11,11 @@ export function projectPeopleComputerControls(session: Session) {
   const agents = session.capabilities.localAgentControl;
   const tools = session.capabilities.openMeldToolsControl;
   return {
+    localFolderPicker: {
+      selectFolders:
+        compatible &&
+        session.capabilities.localFolderPicker?.selectFolders === true,
+    },
     computerFileAccess: {
       readPolicy:
         compatible &&

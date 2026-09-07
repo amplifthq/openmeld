@@ -102,7 +102,7 @@ export function SelectedComputerPanel(input: {
 	const canManageComputerFileAccess =
 		selectedSession?.controls?.computerFileAccess?.readPolicy === true &&
 		selectedSession.controls.computerFileAccess.updatePolicy === true;
-	// Project discovery and folder-picker compatibility APIs still resolve the
+	// Project discovery compatibility APIs still resolve the
 	// account routing target. Never offer those helpers for a different lane.
 	const canUseCurrentTargetHelpers = matchesCurrentRoutingTarget(
 		target,
@@ -187,8 +187,7 @@ export function SelectedComputerPanel(input: {
 			{target && canManageComputerFileAccess ? (
 				<ComputerFileAccessCard
 					canChooseFolders={
-						canUseCurrentTargetHelpers &&
-						input.computer.localFolderPicker?.selectFolders === true
+						selectedSession?.controls?.localFolderPicker?.selectFolders === true
 					}
 					canChooseProjects={canUseCurrentTargetHelpers}
 					deviceId={target.deviceId}

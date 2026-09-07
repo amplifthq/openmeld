@@ -116,7 +116,10 @@ function buildRecoveryStub(
 								sessions: computer.executionTargets.map((target) => ({
 									deviceId: target.deviceId,
 									runtimeLane: target.runtimeLane,
-									controls: { computerFileAccess: computer.computerFileAccess },
+									controls: {
+										computerFileAccess: computer.computerFileAccess,
+										localFolderPicker: computer.localFolderPicker,
+									},
 								})),
 							},
 						},
@@ -236,7 +239,7 @@ describe("SelectedComputerPanel detail composition", () => {
 			expect.objectContaining({
 				deviceId: "device-office",
 				runtimeLane: "prod",
-				canChooseFolders: false,
+				canChooseFolders: true,
 				canChooseProjects: false,
 			})
 		);

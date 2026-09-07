@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
   ComputerFileAccessPolicyResponse,
+  LocalFolderPickerResult,
   OpenMeldRequestContext,
   RuntimeTransportLookupOwnerServiceResponse,
   RuntimeTransportOpenMeldToolsControlResponse,
@@ -11,10 +12,48 @@ import type { CoreBindings } from "../src/lib/bindings";
 import {
   rpcReadPeopleComputerFileAccessPolicy,
   rpcRequestPeopleComputerOpenMeldToolsUpdate,
+  rpcSelectPeopleComputerFolders,
   rpcUpdatePeopleComputerFileAccessPolicy,
 } from "../src/rpc/methods";
 
 describe("PeopleComputer explicit control RPC", () => {
+  it("opens a folder picker only on the exact owned environment and preserves cancellation", async () => {
+    const f = await fixture();
+    const request = {
+      ...f.target,
+      context: f.context,
+      allowMultiple: true,
+      purpose: "computer_file_access" as const,
+    };
+    await expect(
+      rpcSelectPeopleComputerFolders(f.coreEnv, {
+        ...request,
+        deviceId: "foreign-device",
+      })
+    ).rejects.toThrow("not available on your account");
+    await expect(
+      rpcSelectPeopleComputerFolders(f.coreEnv, {
+        ...request,
+        runtimeLane: "prod",
+      })
+    ).rejects.toThrow("disconnected in this environment");
+    expect(f.commands).toEqual([]);
+    await expect(
+      rpcSelectPeopleComputerFolders(f.coreEnv, request)
+    ).resolves.toEqual({ deviceId: f.target.deviceId, status: "cancelled" });
+    expect(f.commands).toEqual([
+      expect.objectContaining({
+        deviceId: f.target.deviceId,
+        lane: "canary",
+        ownerUserId: f.userId,
+        request: {
+          expectedDeviceId: f.target.deviceId,
+          allowMultiple: true,
+          purpose: "computer_file_access",
+        },
+      }),
+    ]);
+  });
   it("reads and updates file access on the requested environment without a Binding", async () => {
     const f = await fixture();
     await rpcReadPeopleComputerFileAccessPolicy(f.coreEnv, {
@@ -200,6 +239,7 @@ async function fixture() {
         capabilities: {
           openMeldToolsControl: { requestUpdate: true },
           computerFileAccess: { readPolicy: true, updatePolicy: true },
+          localFolderPicker: { selectFolders: true },
         },
         executionCompatibility: {
           status: "compatible",
@@ -227,6 +267,11 @@ async function fixture() {
           result: { status: "current", currentVersion: "0.3.164" },
         },
       };
+      return Promise.resolve(Response.json(result));
+    }
+    if (path === "/local-folder-picker/select-folders") {
+      commands.push(JSON.parse(String(init.body)));
+      const result: LocalFolderPickerResult = { deviceId, status: "cancelled" };
       return Promise.resolve(Response.json(result));
     }
     if (

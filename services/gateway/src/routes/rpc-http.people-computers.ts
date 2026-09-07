@@ -2,7 +2,9 @@ import {
   computerFileAccessPolicyResponseSchema,
   currentLocalAgentInstallationsResponseSchema,
   currentLocalAgentInstallationsRouteParamsSchema,
+  localFolderPickerResultSchema,
   peopleComputerFileAccessUpdateBodySchema,
+  peopleComputerFolderPickerBodySchema,
   peopleComputerTargetSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
   requestCurrentOpenMeldToolsUpdateResponseSchema,
@@ -26,6 +28,55 @@ import { readJsonRequestBody } from "./rpc-http.parsers";
 export function registerPeopleComputerControlRoutes(
   app: Hono<HonoBindings>
 ): void {
+  const folderPickerRoute =
+    "/v1/people-computers/:deviceId/lanes/:runtimeLane/folders/select";
+  app.post(folderPickerRoute, async (c) => {
+    const target = peopleComputerTargetSchema.safeParse({
+      deviceId: c.req.param("deviceId"),
+      runtimeLane: c.req.param("runtimeLane"),
+    });
+    if (!target.success) {
+      return respondBadRequest({
+        c,
+        route: folderPickerRoute,
+        method: "POST",
+        code: "invalid_payload",
+        message: "Invalid computer target.",
+      });
+    }
+    const body = await readJsonRequestBody(c.req.raw);
+    if (!body.ok) {
+      return respondBadRequest({
+        c,
+        route: folderPickerRoute,
+        method: "POST",
+        code: "invalid_json",
+        message: "Invalid folder picker request.",
+      });
+    }
+    const parsed = peopleComputerFolderPickerBodySchema.safeParse(body.value);
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: folderPickerRoute,
+        method: "POST",
+        code: "invalid_payload",
+        message: "Invalid folder picker request.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: folderPickerRoute,
+      method: "POST",
+      responseSchema: localFolderPickerResultSchema,
+      execute: () =>
+        c.var.coreRpc.selectPeopleComputerFolders({
+          ...target.data,
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
   const fileAccessRoute =
     "/v1/people-computers/:deviceId/lanes/:runtimeLane/file-access";
   app.get(fileAccessRoute, (c) => {

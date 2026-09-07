@@ -247,6 +247,7 @@ import {
   pendingGitHubAppInstallationSchema,
   peopleComputerFileAccessReadRpcInputSchema,
   peopleComputerFileAccessUpdateRpcInputSchema,
+  peopleComputerFolderPickerRpcInputSchema,
   peopleComputersResponseSchema,
   peopleComputerTargetSchema,
   postSpaceWakeStopInputSchema,
@@ -586,6 +587,7 @@ import type {
   PendingGitHubAppInstallation,
   PeopleComputerFileAccessReadRpcInput,
   PeopleComputerFileAccessUpdateRpcInput,
+  PeopleComputerFolderPickerRpcInput,
   PeopleComputersResponse,
   PeopleComputerTarget,
   PostSpaceMembersResponse,
@@ -1431,24 +1433,65 @@ export function rpcUpdatePeopleComputerFileAccessPolicy(
   );
 }
 
-const localFolderPickerRpc = createLocalFolderPickerRpc({
-  requireOwnerUserId: requireAuthenticatedOwnerUserId,
-  resolveCurrentTarget: async ({ env, userId }) => {
-    const { bindingTarget, localRuntimes, ownerService } =
-      await resolveCurrentLocalServiceContext({ env, userId });
-    return requireCurrentLocalRuntimeServiceTarget({
-      bindingTarget,
-      inventory: localRuntimes,
-      ownerService,
-      offlineError: {
-        code: "local.folder_picker.service_offline",
-        reason: "This computer isn't reachable for OpenMeld right now.",
-        status: 503,
-      },
+function buildLocalFolderPickerRpc(target?: PeopleComputerTarget) {
+  return createLocalFolderPickerRpc({
+    requireOwnerUserId: requireAuthenticatedOwnerUserId,
+    resolveCurrentTarget: async ({ env, userId }) => {
+      const { bindingTarget, localRuntimes, ownerService } =
+        await resolveCurrentLocalServiceContext({ env, userId, target });
+      if (target) {
+        const session = requirePeopleComputerControlSession({
+          target,
+          inventory: localRuntimes,
+          ownerService,
+        });
+        if (
+          !projectPeopleComputerControls(session).localFolderPicker
+            .selectFolders
+        ) {
+          throw createCoreRpcHttpError({
+            status: 409,
+            code: "local.folder_picker.service_update_required",
+            reason:
+              "This environment does not support choosing folders. Update OpenMeld Service or enter a path manually.",
+          });
+        }
+        return target;
+      }
+      return requireCurrentLocalRuntimeServiceTarget({
+        bindingTarget,
+        inventory: localRuntimes,
+        ownerService,
+        offlineError: {
+          code: "local.folder_picker.service_offline",
+          reason: "This computer isn't reachable for OpenMeld right now.",
+          status: 503,
+        },
+      });
+    },
+    selectFolders: selectRuntimeTransportLocalFolders,
+  });
+}
+const localFolderPickerRpc = buildLocalFolderPickerRpc();
+
+export function rpcSelectPeopleComputerFolders(
+  env: CoreBindings,
+  input: PeopleComputerFolderPickerRpcInput
+) {
+  const parsed = peopleComputerFolderPickerRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer folder picker request.",
     });
-  },
-  selectFolders: selectRuntimeTransportLocalFolders,
-});
+  }
+  const { deviceId, runtimeLane, ...request } = parsed.data;
+  return buildLocalFolderPickerRpc({ deviceId, runtimeLane }).selectFolders(
+    env,
+    { ...request, expectedDeviceId: deviceId }
+  );
+}
 
 export function rpcReadComputerFileAccessPolicy(
   env: CoreBindings,

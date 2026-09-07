@@ -1124,11 +1124,17 @@ facts without asking the person to reconnect or rebuild the Profile.
 
 ## Local Folder Picker
 
-Local Folder Picker is a current-Computer, owner-self interaction capability.
+Local Folder Picker is an owner-self Computer interaction capability.
 It lets an authenticated Web action ask the exact live OpenMeld Service to open
 the operating system's folder chooser on that computer. It is a sibling of
 `computerFileAccess`, `localProjectControl`, and `localAgentControl`; none of
 those product contracts owns it.
+
+PeopleComputers folder selection names the exact device and environment and
+revalidates the current owner Service session; it never falls back to the
+account's routing preference. The existing current-Computer endpoint remains
+for supported clients. A browser draft discards late picker results after
+either the selected device or environment changes, or the editor unmounts.
 
 The picker returns only folders the person selected. It does not inspect folder
 contents, discover Projects, validate repositories, update Computer file access,

@@ -1,4 +1,10 @@
 import type { z } from "zod/v4";
+export type PeopleComputerFolderPickerRpcInput = z.infer<
+  typeof import("../../schemas/http/people-computers").peopleComputerFolderPickerRpcInputSchema
+>;
+export type PeopleComputerFolderPickerBody = z.infer<
+  typeof import("../../schemas/http/people-computers").peopleComputerFolderPickerBodySchema
+>;
 
 export type PeopleComputerFileAccessReadRpcInput = z.infer<
   typeof import("../../schemas/http/people-computers").peopleComputerFileAccessReadRpcInputSchema

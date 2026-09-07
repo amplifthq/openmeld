@@ -953,6 +953,7 @@ import {
   rpcResumeRoutine,
   rpcSelectCurrentLocalAgentInstallation,
   rpcSelectLocalFolders,
+  rpcSelectPeopleComputerFolders,
   rpcSelectPeopleComputerLocalAgentInstallation,
   rpcSetAgentProfileCreationDefaults,
   rpcSetCenterAgentOrganizationMemoryPolicy,
@@ -1286,6 +1287,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   selectLocalFolders(input: SelectLocalFoldersInput) {
     return rpcSelectLocalFolders(this.env, input);
+  }
+  selectPeopleComputerFolders(
+    input: Parameters<typeof rpcSelectPeopleComputerFolders>[1]
+  ) {
+    return rpcSelectPeopleComputerFolders(this.env, input);
   }
 
   updateComputerFileAccessPolicy(input: UpdateComputerFileAccessPolicyInput) {
@@ -3440,6 +3446,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   selectLocalFolders(input: SelectLocalFoldersInput) {
     return super.selectLocalFolders(input);
+  }
+  selectPeopleComputerFolders(
+    input: Parameters<typeof rpcSelectPeopleComputerFolders>[1]
+  ) {
+    return super.selectPeopleComputerFolders(input);
   }
 
   updateComputerFileAccessPolicy(input: UpdateComputerFileAccessPolicyInput) {

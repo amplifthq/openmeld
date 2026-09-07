@@ -1,5 +1,6 @@
 import * as z from "../../lazy-zod";
 import { computerFileAccessUpdateRequestSchema } from "../daemon/computer-file-access";
+import { localFolderPickerRequestSchema } from "../daemon/local-folder-picker";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { daemonExecutionCompatibilitySchema } from "../daemon/runtime-transport";
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
@@ -16,6 +17,13 @@ export const peopleComputerTargetSchema = z.strictObject({
 export const peopleComputerFileAccessReadRpcInputSchema =
   peopleComputerTargetSchema.extend({
     context: openMeldRequestContextSchema,
+  });
+export const peopleComputerFolderPickerBodySchema =
+  localFolderPickerRequestSchema.omit({ expectedDeviceId: true });
+export const peopleComputerFolderPickerRpcInputSchema =
+  peopleComputerTargetSchema.extend({
+    context: openMeldRequestContextSchema,
+    ...peopleComputerFolderPickerBodySchema.shape,
   });
 export const peopleComputerFileAccessUpdateBodySchema =
   computerFileAccessUpdateRequestSchema.omit({ expectedDeviceId: true });
@@ -50,6 +58,9 @@ export const peopleComputerConnectionSchema = z.strictObject({
               readPolicy: z.boolean(),
               updatePolicy: z.boolean(),
             })
+            .optional(),
+          localFolderPicker: z
+            .strictObject({ selectFolders: z.boolean() })
             .optional(),
         })
         .optional(),

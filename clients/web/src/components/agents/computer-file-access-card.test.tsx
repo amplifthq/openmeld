@@ -11,7 +11,7 @@ import {
 	readComputerFileAccessPolicy,
 	updateComputerFileAccessPolicy,
 } from "#/lib/connect/computer-file-access";
-import { selectLocalFolders } from "#/lib/connect/local-folder-picker";
+import { selectPeopleComputerFolders } from "#/lib/connect/local-folder-picker";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { ComputerFileAccessCard } from "./computer-file-access-card";
 
@@ -27,7 +27,7 @@ vi.mock("#/lib/connect/computer-file-access", () => ({
 }));
 
 vi.mock("#/lib/connect/local-folder-picker", () => ({
-	selectLocalFolders: vi.fn(),
+	selectPeopleComputerFolders: vi.fn(),
 }));
 
 vi.mock("#/components/app/start-flow-state", () => ({
@@ -132,7 +132,7 @@ describe("ComputerFileAccessCard", () => {
 	});
 
 	it("uses the Computer picker as the easiest way to add folder paths", async () => {
-		vi.mocked(selectLocalFolders).mockResolvedValue({
+		vi.mocked(selectPeopleComputerFolders).mockResolvedValue({
 			deviceId: "device-office",
 			paths: ["/Users/felix/Design Work"],
 			status: "selected",

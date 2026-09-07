@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 
 type CoreRpcMock = {
+  selectPeopleComputerFolders: ReturnType<typeof vi.fn>;
   readPeopleComputerFileAccessPolicy: ReturnType<typeof vi.fn>;
   updatePeopleComputerFileAccessPolicy: ReturnType<typeof vi.fn>;
   setPeopleComputerLocalAgentEnabled: ReturnType<typeof vi.fn>;
@@ -43,6 +44,7 @@ function makeEnv(input?: {
   authOverrides?: Partial<AuthRpcMock>;
 }) {
   const coreRpc: CoreRpcMock = {
+    selectPeopleComputerFolders: vi.fn(),
     readPeopleComputerFileAccessPolicy: vi.fn(),
     updatePeopleComputerFileAccessPolicy: vi.fn(),
     setPeopleComputerLocalAgentEnabled: vi.fn(),
@@ -169,6 +171,12 @@ function makeEnv(input?: {
 
 describe("current device target routes", () => {
   it.each([
+    [
+      "POST",
+      "folders/select",
+      "selectPeopleComputerFolders",
+      { allowMultiple: true, purpose: "computer_file_access" },
+    ],
     ["GET", "file-access", "readPeopleComputerFileAccessPolicy", undefined],
     [
       "PUT",
