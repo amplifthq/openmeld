@@ -1,8 +1,20 @@
 "use client";
 
+import "./setup-instructions.css";
+
 import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
-import { CheckIcon } from "@phosphor-icons/react";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
+import {
+	CheckIcon,
+	CopyIcon,
+	ListChecksIcon,
+	TerminalIcon,
+} from "@phosphor-icons/react";
 import { TextShimmer } from "#/components/motion-primitives/text-shimmer";
 import type { WebSetupCommandPlatform } from "#/lib/cli-entry-command";
 
@@ -81,7 +93,7 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 				) : null}
 				<div className="grid gap-2">
 					<button
-						className="w-full touch-manipulation select-all overflow-x-auto whitespace-nowrap rounded-md border border-border bg-muted/10 px-3 py-2 text-left font-mono text-xs transition-colors [scrollbar-width:none] hover:bg-muted/30 max-lg:min-h-11 lg:max-w-[50vw] [&::-webkit-scrollbar]:hidden"
+						className="w-full min-w-0 touch-manipulation select-all overflow-x-auto whitespace-nowrap rounded-md border border-border bg-muted/10 px-3 py-2 text-left font-mono text-xs transition-colors [scrollbar-width:none] hover:bg-muted/30 max-lg:min-h-11 [&::-webkit-scrollbar]:hidden"
 						onClick={input.onCopyCommand}
 						type="button"
 					>
@@ -113,11 +125,41 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 						</Button>
 					</div>
 				</div>
-				<p className="text-muted-foreground text-xs">
-					Copy the command, paste it into{" "}
-					{input.commandPlatform === "windows" ? "PowerShell" : "Terminal"}, and
-					keep it open while OpenMeld finishes setup.
-				</p>
+				<ol className="grid gap-2 text-xs sm:grid-cols-3">
+					<li className="rounded-md border p-3">
+						<CopyIcon
+							aria-hidden="true"
+							className="setup-instruction-icon mb-2 size-5 text-muted-foreground"
+						/>
+						<span className="font-medium">1. Copy the command</span>
+						<p className="mt-1 text-muted-foreground">
+							Use the copy button above.
+						</p>
+					</li>
+					<li className="rounded-md border p-3">
+						<TerminalIcon
+							aria-hidden="true"
+							className="setup-instruction-icon mb-2 size-5 text-muted-foreground"
+						/>
+						<span className="font-medium">
+							2. Open{" "}
+							{input.commandPlatform === "windows" ? "PowerShell" : "Terminal"}
+						</span>
+						<p className="mt-1 text-muted-foreground">
+							Paste the command and press Return.
+						</p>
+					</li>
+					<li className="rounded-md border p-3">
+						<ListChecksIcon
+							aria-hidden="true"
+							className="setup-instruction-icon mb-2 size-5 text-muted-foreground"
+						/>
+						<span className="font-medium">3. Follow the prompts</span>
+						<p className="mt-1 text-muted-foreground">
+							Keep it open. This page updates as you connect.
+						</p>
+					</li>
+				</ol>
 				<StartSetupCommandExpiry
 					expiresInLabel={input.expiresInLabel}
 					expiresInState={input.expiresInState}
@@ -170,15 +212,28 @@ function SetupCommandPlatformSwitch(input: {
 			>
 				macOS / Linux
 			</Button>
-			<Button
-				aria-pressed={input.value === "windows"}
-				onClick={() => input.onChange("windows")}
-				size="sm"
-				type="button"
-				variant={input.value === "windows" ? "default" : "outline"}
-			>
-				Windows PowerShell
-			</Button>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<Button
+							aria-label="Windows PowerShell"
+							aria-pressed={input.value === "windows"}
+							onClick={() => input.onChange("windows")}
+							size="sm"
+							type="button"
+							variant={input.value === "windows" ? "default" : "outline"}
+						>
+							Windows PowerShell
+							<span className="rounded border px-1 font-normal text-[10px] opacity-70">
+								Beta
+							</span>
+						</Button>
+					}
+				/>
+				<TooltipContent className="max-w-64 whitespace-normal">
+					Windows setup is in beta. Some steps may need manual troubleshooting.
+				</TooltipContent>
+			</Tooltip>
 		</fieldset>
 	);
 }

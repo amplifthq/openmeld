@@ -41,7 +41,7 @@ export function buildOrganizationSpacesPath(orgSlug: string): string {
 }
 
 export function buildOrganizationDirectMessagesPath(orgSlug: string): string {
-	return `${buildOrganizationRootPath(orgSlug)}/direct-messages`;
+	return `${buildOrganizationRootPath(orgSlug)}/chats`;
 }
 
 export function buildOrganizationDirectMessagePath(input: {
@@ -97,12 +97,34 @@ export function buildOrganizationPeoplePath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/people`;
 }
 
+export function buildOrganizationPersonPath(input: {
+	orgSlug: string;
+	personId: string;
+}): string {
+	return `${buildOrganizationPeoplePath(input.orgSlug)}/${encodePathSegment(input.personId)}`;
+}
+
+export function buildOrganizationPersonAgentsPath(input: {
+	orgSlug: string;
+	personId: string;
+}): string {
+	return `${buildOrganizationPersonPath(input)}/agents`;
+}
+
+export function buildOrganizationPersonAgentPath(input: {
+	orgSlug: string;
+	personId: string;
+	agentId: string;
+}): string {
+	return `${buildOrganizationPersonAgentsPath(input)}/${encodePathSegment(input.agentId)}`;
+}
+
 export function buildOrganizationAgentsPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/agents`;
 }
 
 export function buildOrganizationAgentCreationPath(orgSlug: string): string {
-	return `${buildOrganizationAgentsPath(orgSlug)}/new`;
+	return `${buildOrganizationRootPath(orgSlug)}/new-agent`;
 }
 
 export function buildOrganizationAgentCreationRequestsPath(input: {
@@ -110,10 +132,9 @@ export function buildOrganizationAgentCreationRequestsPath(input: {
 	requestId?: string | null;
 }): string {
 	const url = new URL(
-		buildOrganizationAgentsPath(input.orgSlug),
+		`${buildOrganizationPeoplePath(input.orgSlug)}/agent-requests`,
 		"http://localhost"
 	);
-	url.searchParams.set("view", "requests");
 	if (input.requestId) {
 		url.searchParams.set("requestId", input.requestId);
 	}
@@ -254,7 +275,7 @@ export function buildOrganizationCenterAgentChatPath(
 		view?: "files" | "graph" | "messages";
 	}
 ): string {
-	const path = buildOrganizationDefaultPath(orgSlug);
+	const path = `${buildOrganizationRootPath(orgSlug)}/chats/center-agent`;
 	if (
 		!(search?.focusSignalId || search?.view || search?.session || search?.draft)
 	) {
@@ -425,7 +446,10 @@ export function resolveOrganizationSwitchPath(input: {
 		return buildOrganizationSpacesPath(input.nextOrgSlug);
 	}
 
-	if (section === "direct-messages") {
+	if (section === "direct-messages" || section === "chats") {
+		if (section === "chats" && subsection === "center-agent") {
+			return buildOrganizationCenterAgentChatPath(input.nextOrgSlug);
+		}
 		return buildOrganizationDirectMessagesPath(input.nextOrgSlug);
 	}
 

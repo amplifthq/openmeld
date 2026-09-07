@@ -1328,6 +1328,15 @@ reported capability status and usage-limit evidence. It does not fetch File
 Access diagnostics or unrelated Computer detail. Missing usage-limit evidence
 means unavailable evidence, not zero capacity.
 
+Both inventory commands read Core's PeopleComputers projection without updating
+device registration or metadata. `computer list` exposes explicit connection
+evidence and `isThisComputer` from local device proof. `computer current` selects
+that local device and the active CLI environment, never the account's preferred
+Binding. Its legacy-shaped diagnostic inventory uses the shared
+`projectPeopleComputersToLegacyLocalRuntimes` adapter; Web uses the same adapter
+with its explicitly named routing preference instead of claiming browser-local
+device proof. File Access diagnostics address the exact local device and lane.
+
 `computer current --view agent` composes the complete current inventory with
 the existing current-computer reply diagnostics, OpenMeld Tools
 versions and update state, and a File Access summary. The summary reports mode,

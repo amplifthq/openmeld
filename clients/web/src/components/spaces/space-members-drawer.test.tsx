@@ -685,7 +685,7 @@ describe("SpaceMembersSidePanel", () => {
 			});
 		});
 		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/acme/direct-messages/space-direct-message?profileId=agt_22222222-2222-4222-8222-222222222222",
+			to: "/o/acme/chats/space-direct-message?profileId=agt_22222222-2222-4222-8222-222222222222",
 		});
 	});
 

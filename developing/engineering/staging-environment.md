@@ -38,6 +38,13 @@ production D1, KV, R2, Queues, Worker identities, Durable Object namespaces, or
 runtime containers. A staging deploy must not publish the production CLI,
 change a production Worker, or touch `~/.openmeld`.
 
+Staging Auth uses `AUTH_COOKIE_PREFIX=openmeld-staging`. Production keeps its
+existing Better Auth cookie names. Domain scoping alone cannot isolate staging
+from cookies inherited from `.openmeld.ai`; distinct names prevent a production
+session from masking the staging session. Existing staging browser users sign
+in once after this prefix change. Do not delete production cookies or migrate
+session rows. Bearer-token CLI sessions are unchanged.
+
 Remote Agent model traffic is the narrow exception to resource isolation.
 Staging uses the operator-managed `openmeld-remote-agent-prod` AI Gateway and
 its `openrouter` Provider Key because Provider Keys are gateway-scoped and the

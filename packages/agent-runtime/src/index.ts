@@ -257,7 +257,13 @@ export {
   type LocalAgentCatalogProjection,
   projectLocalAgentCatalogFromCapabilities,
 } from "./local-agent-catalog";
+export { buildLocalAgentConnectionCandidateId } from "./local-agent-connection-candidate";
 export { resolveConversationPolicyFromModelSelection } from "./model-selection";
+export {
+  peopleComputerCliCommand,
+  peopleComputerContainsDevice,
+  projectPeopleComputersToLegacyLocalRuntimes,
+} from "./people-computer";
 export {
   type AllRunnableCapabilitiesPreparedStatus,
   assertPrepareOutputHasNoBindingWriteAction,

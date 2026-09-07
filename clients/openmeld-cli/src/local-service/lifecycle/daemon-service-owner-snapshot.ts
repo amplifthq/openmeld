@@ -258,11 +258,19 @@ function resolveActiveOwnerKinds(input: {
   ownedProcesses: DaemonOwnedProcess[];
 }): DaemonLifecycleOwnerKind[] {
   const owners = new Set<DaemonLifecycleOwnerKind>();
+  const verifiedDirectRuntimePid =
+    input.runtimeStatus.status === "running" &&
+    !input.runtimeStatus.managedBySystemService &&
+    input.runtimeStatus.serviceController === "unknown"
+      ? input.runtimeStatus.pid
+      : null;
 
   if (
     input.serviceManagerStatus?.running === true ||
     input.ownedProcesses.some(
-      (processInfo) => processInfo.ownership === "stable_launcher"
+      (processInfo) =>
+        processInfo.ownership === "stable_launcher" &&
+        processInfo.pid !== verifiedDirectRuntimePid
     ) ||
     (input.runtimeStatus.managedBySystemService &&
       input.effectiveRuntimeStatus === "running")

@@ -1,35 +1,25 @@
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Navigate, redirect } from "@tanstack/react-router";
 import { z } from "zod/v4";
-import { AgentsRoutePendingPage } from "#/components/agents/agents-route-pending";
+import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
-import { PeopleAndAgentsPage } from "#/components/profiles/people-and-agents-page";
-import {
-	APP_ROUTE_PENDING_DELAY_MS,
-	APP_ROUTE_PENDING_MIN_DURATION_MS,
-} from "#/lib/app-route-loading";
-import { prefetchAgentsRouteIdentityData } from "#/lib/organizations/app-route-prefetch";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAgentCreationPath,
-	buildOrganizationAgentsPath,
+	buildOrganizationAgentCreationRequestsPath,
+	buildOrganizationPeoplePath,
+	buildOrganizationPersonAgentPath,
+	buildOrganizationPersonAgentsPath,
 } from "#/lib/organizations/organization-routes";
-import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
-
-const agentsRouteSearchSchema = z.object({
-	activityPreview: z.literal(1).optional(),
-	profileId: z.string().trim().min(1).optional(),
-	requestId: z.string().trim().min(1).optional(),
-	view: z.enum(["agents", "create", "requests"]).optional(),
-});
+import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 
 export const Route = createFileRoute("/o/$orgSlug/agents")({
-	staticData: appShellStaticData.agents,
-	validateSearch: (search) => {
-		const parsed = agentsRouteSearchSchema.safeParse(search);
-		return parsed.success ? parsed.data : {};
-	},
-	pendingComponent: AgentsRoutePendingPage,
-	pendingMinMs: APP_ROUTE_PENDING_MIN_DURATION_MS,
-	pendingMs: APP_ROUTE_PENDING_DELAY_MS,
+	staticData: appShellStaticData.people,
+	validateSearch: z.object({
+		profileId: z.string().optional(),
+		requestId: z.string().optional(),
+		view: z.enum(["agents", "create", "requests"]).optional(),
+	}),
 	beforeLoad: ({ params, search }) => {
 		if (search.view === "create") {
 			throw redirect({
@@ -37,72 +27,70 @@ export const Route = createFileRoute("/o/$orgSlug/agents")({
 				replace: true,
 			});
 		}
+		if (search.view === "requests") {
+			throw redirect({
+				to: buildOrganizationAgentCreationRequestsPath({
+					orgSlug: params.orgSlug,
+					requestId: search.requestId,
+				}),
+				replace: true,
+			});
+		}
 	},
-	loader: async ({ context, location, params }) => {
-		const [sidebarStates] = await Promise.all([
-			getAppSidebarStatesForRoute("agents"),
-			prefetchAgentsRouteIdentityData({
-				organizationSlug: params.orgSlug,
-				queryClient: context.queryClient,
-				queryPersistence: context.queryPersistence,
-				routeFamily: location.href,
-			}).catch((error: unknown) => {
-				console.error(
-					"Failed to prefetch the Agents identity directory.",
-					error
-				);
-			}),
-		]);
-		return { sidebarStates };
-	},
-	component: AgentsRoute,
+	component: LegacyAgentsRoute,
 });
 
-function AgentsRoute() {
-	const { sidebarStates } = Route.useLoaderData();
-	const { orgSlug } = Route.useParams();
-	const search = Route.useSearch();
-	const navigate = useNavigate();
-
+function LegacyAgentsRoute() {
+	const { profileId } = Route.useSearch();
+	const { currentOrganization, currentUserId } = useAppOrganization();
+	const directory = useQuery(
+		organizationProfileDirectoryQueryOptions({
+			enabled: true,
+			organizationId: currentOrganization.id,
+		})
+	);
+	if (directory.isPending || directory.isError) {
+		return (
+			<AppFullWidthLayout>
+				<p role={directory.isError ? "alert" : "status"}>
+					{directory.isError
+						? "Couldn’t load this Agent. Try again."
+						: "Loading Agent…"}
+				</p>
+			</AppFullWidthLayout>
+		);
+	}
+	const profile = directory.data.agentProfiles.find(
+		(agent) => agent.profileId === profileId
+	);
+	if (profileId && !profile) {
+		return (
+			<AppFullWidthLayout>
+				<p>Agent not found in this workspace.</p>
+			</AppFullWidthLayout>
+		);
+	}
+	const member = directory.data.members.find(
+		(person) => person.userId === (profile?.ownerUserId ?? currentUserId)
+	);
+	const orgSlug = currentOrganization.slug;
+	if (!member) {
+		return <Navigate replace to={buildOrganizationPeoplePath(orgSlug)} />;
+	}
+	const personId =
+		member.humanProfile?.profileId ?? `member:${member.memberId}`;
 	return (
-		<PeopleAndAgentsPage
-			activeAgentView={search.view === "requests" ? "requests" : "agents"}
-			activeSectionId="agents"
-			activityPreview={search.activityPreview === 1}
-			focusProfileId={search.profileId ?? null}
-			focusRequestId={search.requestId ?? null}
-			initialSidebarStates={sidebarStates}
-			onAgentViewChange={(view, profileId) => {
-				const selectedProfileId = profileId ?? search.profileId;
-				navigate({
-					search: resolveAgentsRouteSearch({
-						activityPreview: search.activityPreview,
-						profileId: selectedProfileId,
-						view,
-					}),
-					to: buildOrganizationAgentsPath(orgSlug),
-				}).catch((error: unknown) => {
-					console.error("Failed to change the Agents view.", error);
-				});
-			}}
+		<Navigate
+			replace
+			to={
+				profile
+					? buildOrganizationPersonAgentPath({
+							orgSlug,
+							personId,
+							agentId: profile.profileId,
+						})
+					: buildOrganizationPersonAgentsPath({ orgSlug, personId })
+			}
 		/>
 	);
-}
-
-function resolveAgentsRouteSearch(input: {
-	activityPreview: 1 | undefined;
-	profileId: string | undefined;
-	view: "agents" | "requests";
-}) {
-	if (input.view === "agents") {
-		return {
-			activityPreview: input.activityPreview,
-			profileId: input.profileId,
-		};
-	}
-	return {
-		activityPreview: input.activityPreview,
-		profileId: input.profileId,
-		view: input.view,
-	};
 }

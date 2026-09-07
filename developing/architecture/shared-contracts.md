@@ -28,6 +28,46 @@
 
 ## Boundary
 
+### PeopleComputers
+
+`peopleComputersResponseSchema` is the owner inventory and connection-evidence
+contract. `PeopleComputerTarget` always names a device and Service lane; Core
+checks the authenticated owner and exact current transport session. Saved
+Binding preference is not connection evidence. CLI-local device proof belongs
+only to `peopleComputerCliInventorySchema`, never to a browser-derived claim.
+The shared legacy inventory adapter accepts an explicitly supplied target and
+does not recompute connection or readiness.
+
+Center Agent reads the same inventory through `centerAgentReadPeopleComputers`.
+This model-facing projection omits full capability and local-agent catalogs
+from execution targets: those include large model and installation reports
+that can exceed the tool-result safety limit. Identity, connection evidence,
+and dated target metadata remain unchanged; focused candidate and installation
+tools provide their own details. This is payload selection, not another
+readiness calculation, and does not raise the tool-result safety limit.
+The verified requesting member owns the read; the hosted Profile owner does
+not select its account. Without an explicit device/lane target, the response
+contains no selected-computer diagnostics and makes no browser identity claim.
+Selected diagnostics retain Core readiness and path-free File Access summaries.
+Tools updates, maintenance, and local-installation selection use distinct
+PeopleComputer RPC methods requiring an exact target. New producers never fall
+back to old current-target methods: an old receiver could otherwise ignore the
+target and operate on another computer. Deploy Core before Remote Agent.
+
+`buildLocalAgentConnectionCandidateId` in `packages/agent-runtime` identifies
+one controller on an exact device, lane, and reported Service runtime. Web
+creation and Core candidate projections share this encoding. The identifier
+is selection evidence, not authorization; Core revalidates the owner inventory
+and current candidate before binding. A missing selected catalog never permits
+falling back to another computer.
+
+PeopleComputers HTTP/RPC endpoints coexist with supported current-target
+endpoints. New clients must deploy after their receivers. Shared optional fields
+are not assumed safe for an old strict parser: the new inventory has a separate
+endpoint, and the CLI output change has a new command contract. See the
+[PeopleComputers audit](review/2026-09-07-people-computers-contract-impact-audit.md)
+for mixed-version direction, required CLI policy and evidence limits.
+
 ### Center Agent Session Creation, Listing And Selection
 
 The Flue 2 candidate adds `POST /v1/organizations/current/center-agent/sessions`

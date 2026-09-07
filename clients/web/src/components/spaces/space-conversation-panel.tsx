@@ -784,7 +784,19 @@ function renderPanelConversationBody(input: {
 			? undefined
 			: panel.onRecoverExecution,
 		onSendStarterPrompt: panel.onSendStarterPrompt,
+		onDraftStarterPrompt: (prompt: string) => {
+			const text = panel.composerText
+				? `${panel.composerText}\n\n${prompt}`
+				: prompt;
+			panel.onComposerEditorChange({
+				text,
+				authoredMentions: [...(panel.composerAuthoredMentions ?? [])],
+				selection: { start: text.length, end: text.length },
+			});
+			panel.textareaRef.current?.focus();
+		},
 		onStartComputerSetup: () => presentation.setStarterComputerSetupOpen(true),
+		onCloseComputerSetup: () => presentation.setStarterComputerSetupOpen(false),
 		onWakeStopRequest: panel.onWakeStopRequest
 			? presentation.onWakeStopRequest
 			: undefined,
@@ -2046,6 +2058,8 @@ function renderConversationBody(input: {
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
 	onStartComputerSetup: () => void;
+	onCloseComputerSetup: () => void;
+	onDraftStarterPrompt: (prompt: string) => void;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	orgSlug?: string;
 	prepareSetupHref?: string;
@@ -2100,7 +2114,8 @@ function renderConversationBody(input: {
 				computerSetupContext={input.computerSetupContext}
 				disabled={input.isSendingMessage}
 				isPersonalContext={input.isPersonalContext}
-				onSelectStarterAction={input.onSendStarterPrompt}
+				onCloseComputerSetup={input.onCloseComputerSetup}
+				onSelectStarterAction={input.onDraftStarterPrompt}
 				onStartComputerSetup={input.onStartComputerSetup}
 				showStarterActions={input.showCenterAgentStarterActions}
 				showStarterComputerSetup={input.showStarterComputerSetup}

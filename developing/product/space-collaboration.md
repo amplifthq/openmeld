@@ -435,6 +435,10 @@ leave, lifecycle, and metadata mutation, and excludes it from ordinary Space
 lists. Clients hide every rejected mutation surface as well as relying on
 server enforcement.
 
+Center Agent chats reuse the ordinary Members panel for viewing the Human and
+Center Agent profiles. This read-only entry does not expose addition,
+conversion, removal, or invitation actions.
+
 ### Center Agent session foundation (Flue 2 candidate)
 
 Each private Center Agent session reuses this stricter DM Space specialization;

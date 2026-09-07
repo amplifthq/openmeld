@@ -18,6 +18,19 @@ it("detaches a live poll through the complete native Workspace stack", async () 
     });
     expect(result.subscribedAfterStartCancel).toBe(false);
     expect(result.subscribedAfterPoll).toBe(false);
+    expect(result.syncPending).toMatchObject({
+      status: "running",
+      after: 4.5,
+      exitCode: 0,
+    });
+    expect(result.stopError).toBe("User stopped execution");
+    expect(result.resumedSync).toMatchObject({
+      status: "completed",
+      after: 5,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
     expect(result.slice).toMatchObject({
       status: "running",
       stdout: "START\n",

@@ -53,11 +53,15 @@ export function CurrentComputerToolbarLauncher() {
 }
 
 function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
-	const { storageScope } = useStartFlowState();
+	const { state, storageScope } = useStartFlowState();
 	const displaySnapshotQuery = useQuery(
 		currentComputerToolbarDisplaySnapshotQueryOptions({ storageScope })
 	);
-	const runtimeQueries = useLocalRuntimeQueries({ storageScope });
+	const runtimeQueries = useLocalRuntimeQueries({
+		storageScope,
+		selection: "browser",
+		selectedHumanProfileId: state.selectedHumanProfileId,
+	});
 
 	const readinessQuery = runtimeQueries.currentLocalRuntimeReplyReadinessQuery;
 	const inventory = runtimeQueries.localRuntimesQuery.data;

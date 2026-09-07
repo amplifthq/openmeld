@@ -3,6 +3,42 @@ import { readModelCatalog } from "../src/config/model-catalog";
 import { listOrganizationComputers } from "../src/organizations/organization-computers-service";
 
 describe("organization computers service", () => {
+  it("groups only enrolled identities and observes every incarnation of the same computer", async () => {
+    const response = await listOrganizationComputers({
+      generatedAt: "2026-09-07T00:00:00.000Z",
+      memberUserIds: ["member"],
+      organizationId: "org",
+      modelCatalog: readModelCatalog(),
+      lookupMemberComputerInventory: async () => ({
+        devices: ["old", "new", "unrelated"].map((deviceId, index) => ({
+          deviceId,
+          connectedComputerId:
+            deviceId === "unrelated" ? null : "one-physical-computer",
+          ownerUserId: "member",
+          firstSeenAtMs: 1,
+          lastObservedAtMs: index + 1,
+          updatedAtMs: index + 1,
+          userDisplayName: null,
+          observedDisplayName: "Same name",
+          osVersion: null,
+          deviceType: "laptop",
+          platformFamily: "macOS",
+        })),
+        executionTargets: [],
+        liveSessions: null,
+      }),
+    });
+    expect(response.computers).toHaveLength(2);
+    expect(response.computers.map((computer) => computer.computerId)).toEqual([
+      "new",
+      "unrelated",
+    ]);
+    expect(
+      response.computers.every(
+        (computer) => computer.serviceState === "unknown"
+      )
+    ).toBe(true);
+  });
   it("shows a teammate computer even when it has no Agent Profile", async () => {
     const response = await listOrganizationComputers({
       generatedAt: "2026-08-18T05:00:00.000Z",

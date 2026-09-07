@@ -33,6 +33,7 @@ export type AppContextualNavItem<ItemId extends string = string> = {
 };
 
 type AppContextualNavGroupBase = {
+	contentOnly?: boolean;
 	onRename?: (name: string) => void;
 	ariaLabel: string;
 	id: string;
@@ -123,6 +124,7 @@ export function AppContextualSidebarNav<ItemId extends string>(
 						contentAriaLabel={
 							group.content === undefined ? undefined : group.ariaLabel
 						}
+						contentOnly={group.contentOnly}
 						contentRole={group.content === undefined ? undefined : "region"}
 						groupClassName={cn(
 							APP_NAV_GROUP_CLASS_NAME,

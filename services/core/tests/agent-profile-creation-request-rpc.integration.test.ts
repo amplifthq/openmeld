@@ -1,4 +1,6 @@
 import { env } from "cloudflare:test";
+import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
+import type { RuntimeTransportLookupOwnerServiceResponse } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
   rpcCenterAgentCreateAgentProfileCreationRequest,
@@ -45,7 +47,7 @@ describe("Agent Profile creation request RPC", () => {
         profileName: "Release Reviewer",
         requestedSpaceId: `space-${fixture.suffix}`,
         sessionStrategy: "new",
-        source: "web",
+        source: "cli",
         targetOwnerUserId: fixture.requesterUserId,
       });
 
@@ -149,9 +151,43 @@ describe("Agent Profile creation request RPC", () => {
     const listLocalRuntimes = vi
       .spyOn(currentDeviceTargetService, "listLocalRuntimesUseCase")
       .mockResolvedValue(createModelGuardLocalRuntimes());
+    // Model validation requires a live, compatible target, not merely a saved
+    // ready report. This transport fixture follows the shared wire contract.
+    const ownerService: RuntimeTransportLookupOwnerServiceResponse = {
+      online: true,
+      sessions: [
+        {
+          daemonSessionId: "model-guard-session",
+          capabilities: {},
+          deviceId: "device-model-guard",
+          lane: "dev-local",
+          connectionGeneration: 1,
+          lastHeartbeatMs: Date.now(),
+          serviceVersion: "0.3.164",
+          executionCompatibility: {
+            status: "compatible",
+            expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+            observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+            reasonCode: "daemon.runtime_contract.compatible",
+          },
+        },
+      ],
+    };
     const bindings = {
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
       OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_RUNTIME_TRANSPORT: {
+        idFromName: (name: string) => {
+          expect(name).toBe(fixture.requesterUserId);
+          return name;
+        },
+        get: () => ({
+          fetch: (url: string) => {
+            expect(new URL(url).pathname).toBe("/lookup-owner-service");
+            return Promise.resolve(Response.json(ownerService));
+          },
+        }),
+      },
     } as unknown as CoreBindings;
 
     try {
@@ -260,7 +296,7 @@ describe("Agent Profile creation request RPC", () => {
       organizationId: fixture.organizationId,
       profileName: "Release Reviewer",
       sessionStrategy: "new",
-      source: "web",
+      source: "cli",
       targetOwnerUserId: fixture.targetUserId,
     });
 
@@ -307,7 +343,7 @@ describe("Agent Profile creation request RPC", () => {
       organizationId: fixture.organizationId,
       ownerUserId: fixture.targetUserId,
       profileName: "Release Reviewer",
-      source: "web_create",
+      source: "cli_create",
     });
     await expect(
       rpcListAgentProfileCreationRequests(bindings, {

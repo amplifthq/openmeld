@@ -42,15 +42,17 @@ import {
 } from "./organization-routes";
 
 describe("organization default route", () => {
-	it("uses the Center Agent conversation for Home and organization entry", () => {
+	it("keeps Home separate from the Center Agent chat destination", () => {
 		expect(buildOrganizationDefaultPath("acme")).toBe("/o/acme");
-		expect(buildOrganizationCenterAgentChatPath("acme")).toBe("/o/acme");
+		expect(buildOrganizationCenterAgentChatPath("acme")).toBe(
+			"/o/acme/chats/center-agent"
+		);
 		expect(
 			buildOrganizationCenterAgentChatPath("acme", {
 				focusSignalId: "signal-123",
 				view: "graph",
 			})
-		).toBe("/o/acme?focusSignalId=signal-123&view=graph");
+		).toBe("/o/acme/chats/center-agent?focusSignalId=signal-123&view=graph");
 	});
 
 	it("builds an encoded Inbox item deep link", () => {
@@ -110,7 +112,7 @@ describe("primary organization routes", () => {
 		expect(buildOrganizationPeoplePath("acme")).toBe("/o/acme/people");
 		expect(buildOrganizationAgentsPath("acme")).toBe("/o/acme/agents");
 		expect(buildOrganizationAgentCreationPath("acme")).toBe(
-			"/o/acme/agents/new"
+			"/o/acme/new-agent"
 		);
 		expect(buildOrganizationComputersPath("acme")).toBe("/o/acme/computers");
 		expect(
@@ -140,16 +142,14 @@ describe("primary organization routes", () => {
 	});
 
 	it("keeps Direct Messages explicit and readable", () => {
-		expect(buildOrganizationDirectMessagesPath("acme")).toBe(
-			"/o/acme/direct-messages"
-		);
+		expect(buildOrganizationDirectMessagesPath("acme")).toBe("/o/acme/chats");
 		expect(
 			buildOrganizationDirectMessagePath({
 				orgSlug: "acme",
 				search: { profileId: "human/one" },
 				spaceId: "space/one",
 			})
-		).toBe("/o/acme/direct-messages/space%2Fone?profileId=human%2Fone");
+		).toBe("/o/acme/chats/space%2Fone?profileId=human%2Fone");
 	});
 
 	it("keeps Agent Activity outside the Organization section", () => {
@@ -215,7 +215,11 @@ describe("resolveOrganizationSwitchPath", () => {
 	it.each([
 		["Inbox", "/o/acme/inbox", "/o/beta/inbox"],
 		["Home", "/o/acme", "/o/beta"],
-		["Legacy Center Agent Chat", "/o/acme/center-agent/chat", "/o/beta"],
+		[
+			"Legacy Center Agent Chat",
+			"/o/acme/center-agent/chat",
+			"/o/beta/chats/center-agent",
+		],
 		[
 			"Center Agent Routines",
 			"/o/acme/center-agent/routines",
@@ -243,12 +247,8 @@ describe("resolveOrganizationSwitchPath", () => {
 		],
 		["Spaces", "/o/acme/spaces", "/o/beta/spaces"],
 		["Space detail", "/o/acme/spaces/space-acme", "/o/beta/spaces"],
-		["Direct Messages", "/o/acme/direct-messages", "/o/beta/direct-messages"],
-		[
-			"Direct Message detail",
-			"/o/acme/direct-messages/space-acme",
-			"/o/beta/direct-messages",
-		],
+		["Direct Messages", "/o/acme/chats", "/o/beta/chats"],
+		["Direct Message detail", "/o/acme/chats/space-acme", "/o/beta/chats"],
 		["People", "/o/acme/people", "/o/beta/people"],
 		["Agents", "/o/acme/agents", "/o/beta/agents"],
 		["Computers", "/o/acme/computers", "/o/beta/computers"],

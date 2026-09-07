@@ -2,11 +2,14 @@ import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	CurrentLocalRuntimeReplyReadinessResponse,
 	LocalRuntimesResponse,
+	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
 import {
+	type PeopleComputerInventory,
 	readCurrentLocalRuntimeReplyReadiness,
 	readLocalRuntimes,
+	readPeopleComputerReplyReadiness,
 } from "#/lib/connect/local-runtimes";
 import { baseQueryOptions } from "#/query/query-config";
 import { startQueryKeys } from "#/query/query-keys";
@@ -101,7 +104,7 @@ export function localRuntimesQueryOptions(input: {
 	enabled: boolean;
 	storageScope: string;
 }) {
-	return queryOptions<LocalRuntimesResponse, StructuredApiClientFailure>({
+	return queryOptions<PeopleComputerInventory, StructuredApiClientFailure>({
 		queryKey: startQueryKeys.localRuntimes(input.storageScope),
 		queryFn: readLocalRuntimes,
 		enabled: input.enabled,
@@ -182,17 +185,24 @@ export function resolveLocalRuntimeCatalogReadyReconcileKey(
 
 export function currentLocalRuntimeReplyReadinessQueryOptions(input: {
 	enabled: boolean;
+	target?: PeopleComputerTarget | null;
 	refetchIntervalMs?: false | number;
 	storageScope: string;
 }) {
+	const target = input.target;
 	return queryOptions<
 		CurrentLocalRuntimeReplyReadinessResponse,
 		StructuredApiClientFailure
 	>({
-		queryKey: startQueryKeys.currentLocalRuntimeReplyReadiness(
-			input.storageScope
-		),
-		queryFn: readCurrentLocalRuntimeReplyReadiness,
+		queryKey: [
+			...startQueryKeys.currentLocalRuntimeReplyReadiness(input.storageScope),
+			...(input.target
+				? [input.target.deviceId, input.target.runtimeLane]
+				: []),
+		],
+		queryFn: target
+			? () => readPeopleComputerReplyReadiness(target)
+			: readCurrentLocalRuntimeReplyReadiness,
 		enabled: input.enabled,
 		gcTime: baseQueryOptions.gcTime,
 		retry: baseQueryOptions.retry,

@@ -19,7 +19,7 @@ export const startQueryKeys = {
 			normalizeQueryScope(storageScope),
 		] as const,
 	localRuntimes: (storageScope: string) =>
-		["start", "local-runtimes", normalizeQueryScope(storageScope)] as const,
+		["start", "people-computers", normalizeQueryScope(storageScope)] as const,
 	currentLocalRuntimeReplyReadiness: (storageScope: string) =>
 		[
 			"start",

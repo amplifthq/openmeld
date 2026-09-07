@@ -5,6 +5,10 @@ import type {
   OrganizationComputerRecord,
   OrganizationComputersResponse,
 } from "@openmeld/schemas/types";
+import {
+  groupPeopleComputerDevices,
+  selectPeopleComputerDisplayDevice,
+} from "../people-computers/identity";
 import type { OwnedDeviceExecutionTargetRecord } from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
 import type { OwnedDeviceRegistryRecord } from "../start/application/owned-device-registry-service";
 import { resolveOrganizationMemberOpenMeldServiceState } from "./organization-member-openmeld-service-status";
@@ -93,9 +97,11 @@ function projectMemberComputers(input: {
     targetsByDeviceId.set(target.deviceId, targets);
   }
 
-  return input.devices.map((device) => {
+  return groupPeopleComputerDevices(input.devices).map((devices) => {
+    const device = selectPeopleComputerDisplayDevice(devices);
+    const deviceIds = devices.map((entry) => entry.deviceId);
     const openMeldTools = resolveComputerOpenMeldTools({
-      deviceId: device.deviceId,
+      deviceIds,
       liveSessions: input.liveSessions,
     });
     return {
@@ -105,7 +111,7 @@ function projectMemberComputers(input: {
       deviceType: device.deviceType ?? "unknown",
       lastSeenAtMs: device.lastObservedAtMs,
       localAgents: projectTeamSafeLocalAgents(
-        targetsByDeviceId.get(device.deviceId) ?? [],
+        deviceIds.flatMap((deviceId) => targetsByDeviceId.get(deviceId) ?? []),
         input.includeUsageLimits,
         input.publicModelIdsByAgentControllerRef
       ),
@@ -114,7 +120,7 @@ function projectMemberComputers(input: {
       ownerUserId: input.ownerUserId,
       platformFamily: device.platformFamily ?? "Unknown",
       serviceState: resolveComputerServiceState({
-        deviceId: device.deviceId,
+        deviceIds,
         liveSessions: input.liveSessions,
       }),
     };
@@ -122,14 +128,14 @@ function projectMemberComputers(input: {
 }
 
 function resolveComputerServiceState(input: {
-  deviceId: string;
+  deviceIds: readonly string[];
   liveSessions: readonly OrganizationComputerLiveSession[] | null;
 }): OrganizationComputerRecord["serviceState"] {
   if (input.liveSessions === null) {
     return "unknown";
   }
-  const matchingSessions = input.liveSessions.filter(
-    (session) => session.deviceId === input.deviceId
+  const matchingSessions = input.liveSessions.filter((session) =>
+    input.deviceIds.includes(session.deviceId)
   );
   return resolveOrganizationMemberOpenMeldServiceState({
     sessions: matchingSessions,
@@ -137,12 +143,13 @@ function resolveComputerServiceState(input: {
 }
 
 function resolveComputerOpenMeldTools(input: {
-  deviceId: string;
+  deviceIds: readonly string[];
   liveSessions: readonly OrganizationComputerLiveSession[] | null;
 }): OrganizationComputerRecord["openMeldTools"] {
   return input.liveSessions?.find(
     (session) =>
-      session.deviceId === input.deviceId && session.openMeldTools != null
+      input.deviceIds.includes(session.deviceId) &&
+      session.openMeldTools != null
   )?.openMeldTools;
 }
 
