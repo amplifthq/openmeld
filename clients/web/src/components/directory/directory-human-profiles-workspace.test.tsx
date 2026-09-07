@@ -204,75 +204,97 @@ vi.mock("#/components/computers/computers-picker", () => ({
 }));
 
 describe("DirectoryHumanProfilesWorkspace", () => {
-	it("groups people by Computer connection with novice-friendly tooltips", () => {
-		renderWorkspace();
-
-		const connectedGroup = screen.getByRole("region", {
-			name: "Connected",
-		});
-		expect(within(connectedGroup).getByText("Computer connected")).toBeTruthy();
+	it("pins you above the computer groups and explains the compact labels", () => {
+		const self = buildMember({ current: true });
+		const offline = buildMember({ current: false });
+		const online = {
+			...offline,
+			id: "online-person",
+			name: "Online teammate",
+			computer: { ...self.computer },
+		};
+		renderWorkspace({ members: [offline, online, self] });
+		const sidebar = screen.getByRole("navigation", { name: "People" });
+		const buttons = within(sidebar)
+			.getAllByRole("button")
+			.filter((button) =>
+				button.getAttribute("aria-label")?.startsWith("Open ")
+			);
+		expect(buttons[0]?.getAttribute("aria-label")).toBe("Open Felix's profile");
 		expect(
-			within(connectedGroup).getByRole("button", {
-				name: "Open Felix's profile",
-			})
+			within(screen.getByRole("region", { name: "Online" })).getByRole(
+				"button",
+				{ name: "Open Online teammate's profile" }
+			)
 		).toBeTruthy();
 		expect(
-			within(connectedGroup).queryByRole("button", {
-				name: "Open Grace Hopper's profile",
-			})
+			within(screen.getByRole("region", { name: "Online" })).getByText(
+				"Computer online"
+			)
+		).toBeTruthy();
+		expect(
+			within(screen.getByRole("region", { name: "Offline" })).getByText(
+				"Computer offline"
+			)
+		).toBeTruthy();
+		expect(
+			within(screen.getByRole("region", { name: "Offline" })).getByText(
+				"No computer"
+			)
+		).toBeTruthy();
+		expect(
+			within(sidebar)
+				.getAllByRole("region")
+				.map((group) => group.getAttribute("aria-label"))
+		).toEqual(["Online", "Offline"]);
+	});
+
+	it("keeps unknown and attention states in Offline with their explanation", () => {
+		const teammate = buildMember({ current: false });
+		renderWorkspace({
+			members: [
+				{
+					...teammate,
+					id: "attention",
+					name: "Attention",
+					computer: {
+						count: 1,
+						label: "Computer needs attention",
+						path: null,
+						state: "needs_attention",
+					},
+				},
+				{
+					...teammate,
+					id: "unknown",
+					name: "Unknown",
+					computer: {
+						count: 1,
+						label: "Computer status unavailable",
+						path: null,
+						state: "unknown",
+					},
+				},
+			],
+		});
+		const offline = screen.getByRole("region", { name: "Offline" });
+		expect(
+			within(offline).getByRole("button", { name: "Open Attention's profile" })
+				.textContent
+		).toContain("Computer needs attention");
+		expect(
+			within(offline).getByRole("button", { name: "Open Unknown's profile" })
+				.textContent
+		).toContain("Computer status unavailable");
+		expect(
+			screen.queryByRole("region", { name: "Status needs checking" })
 		).toBeNull();
-
-		const notConnectedGroup = screen.getByRole("region", {
-			name: "Not connected",
-		});
-		expect(
-			within(notConnectedGroup).getByText("No computer connected")
-		).toBeTruthy();
-		expect(
-			within(notConnectedGroup).getByRole("button", {
-				name: "Open Grace Hopper's profile",
-			})
-		).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Human Profiles" })).toBeNull();
+		expect(screen.queryByRole("region", { name: "Online" })).toBeNull();
 	});
 
-	it("keeps unresolved and attention states separate from connected computers", () => {
-		const needsAttentionMember = {
-			...buildMember({ current: true }),
-			computer: {
-				count: 1,
-				label: "Computer needs attention",
-				path: null,
-				state: "needs_attention" as const,
-			},
-		};
-		const unknownMember = {
-			...buildMember({ current: false }),
-			computer: {
-				count: 1,
-				label: "Computer status unavailable",
-				path: null,
-				state: "unknown" as const,
-			},
-		};
-		renderWorkspace({ members: [needsAttentionMember, unknownMember] });
-
-		expect(
-			within(
-				screen.getByRole("region", { name: "Status needs checking" })
-			).getByRole("button", { name: "Open Felix's profile" })
-		).toBeTruthy();
-		expect(
-			within(
-				screen.getByRole("region", { name: "Status needs checking" })
-			).getByRole("button", { name: "Open Grace Hopper's profile" })
-		).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Connected" })).toBeNull();
-	});
-
-	it("shows the loading state while computer checks are pending and restores connection groups afterward", () => {
-		const currentMember = buildMember({ current: true });
-		const checkingMember = {
+	it("keeps pending checks out of Offline until loading finishes", () => {
+		const self = buildMember({ current: true });
+		const teammate = {
 			...buildMember({ current: false }),
 			computer: {
 				count: 0,
@@ -281,43 +303,45 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				state: "checking" as const,
 			},
 		};
-		renderWorkspace({ members: [currentMember, checkingMember] });
+		renderWorkspace({ members: [self, teammate] });
 		expect(screen.getByText("Loading people")).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Connected" })).toBeNull();
+		expect(screen.queryByRole("region", { name: "Offline" })).toBeNull();
 		cleanup();
 		renderWorkspace({
 			members: [
-				currentMember,
+				self,
 				{
-					...checkingMember,
-					computer: { ...checkingMember.computer, state: "unknown" },
+					...teammate,
+					computer: {
+						...teammate.computer,
+						state: "unknown",
+						label: "Computer status unavailable",
+					},
 				},
 			],
 		});
 		expect(
-			within(screen.getByRole("region", { name: "Connected" })).getByRole(
-				"button",
-				{ name: "Open Felix's profile" }
-			)
+			screen.getByRole("button", { name: "Open Felix's profile" })
 		).toBeTruthy();
 		expect(
-			within(
-				screen.getByRole("region", { name: "Status needs checking" })
-			).getByRole("button", { name: "Open Grace Hopper's profile" })
+			within(screen.getByRole("region", { name: "Offline" })).getByRole(
+				"button",
+				{ name: "Open Grace Hopper's profile" }
+			)
 		).toBeTruthy();
 	});
 
-	it("keeps connection sections in a stable order", () => {
-		const currentMember = {
+	it("keeps an offline self above online teammates", () => {
+		const self = {
 			...buildMember({ current: true }),
 			computer: {
 				count: 0,
-				label: "Connect a computer",
+				label: "No computer connected",
 				path: null,
 				state: "not_connected" as const,
 			},
 		};
-		const connectedTeammate = {
+		const teammate = {
 			...buildMember({ current: false }),
 			computer: {
 				count: 1,
@@ -326,14 +350,22 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				state: "connected" as const,
 			},
 		};
-		renderWorkspace({ members: [currentMember, connectedTeammate] });
-
-		const groupNames = within(
-			screen.getByRole("navigation", { name: "People" })
-		)
-			.getAllByRole("region")
-			.map((group) => group.getAttribute("aria-label"));
-		expect(groupNames).toEqual(["Connected", "Not connected"]);
+		renderWorkspace({ members: [teammate, self] });
+		const sidebar = screen.getByRole("navigation", { name: "People" });
+		const buttons = within(sidebar)
+			.getAllByRole("button")
+			.filter((button) =>
+				button.getAttribute("aria-label")?.startsWith("Open ")
+			);
+		expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+			"Open Felix's profile",
+			"Open Grace Hopper's profile",
+		]);
+		expect(
+			within(sidebar)
+				.getAllByRole("region")
+				.map((group) => group.getAttribute("aria-label"))
+		).toEqual(["Online"]);
 	});
 
 	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {

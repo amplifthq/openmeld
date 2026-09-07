@@ -389,8 +389,10 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    workspace. Its Main Sidebar contextual list shows Human Profiles with search,
    computer-connection filters, personal Starred and named groups. Registered
    Computers alone do not qualify as Connected: use the existing service-state
-   projection. Offline and never-connected Computers remain distinguishable in
-   filters; unknown and attention states are not relabeled offline. Human
+   projection. The default Online group contains confirmed connected Computers;
+   Offline contains the other members, preserving unknown and attention details
+   on their rows. Offline and never-connected Computers remain distinguishable in
+   filters. Human
    `lastActiveAt` is recent authored activity, not online presence.
    A row's Chat action reuses the existing Direct Message entry point and is
    available only for another active Human Profile.
@@ -1825,13 +1827,15 @@ socket reconnects do not count as visits. Directory reads refresh on foreground
 return and every five visible minutes; Space member elapsed-time labels are
 formatted from `lastSeenAt` against the current clock, never a cached label.
 
-The sidebar groups members with one or more registered Computers under
-**Connected** and members without a Computer under **Not Connected**. Hovering
-or focusing those labels explains **Computer connected** and **Computer not
-connected**. The signed-in member's group appears first and the signed-in member
-remains first inside it. Everyone else sorts within their group by descending
-last-seen time; missing activity sorts last, then name and user ID provide stable
-tie breakers.
+The sidebar pins the signed-in member above all groups, without duplicating that
+person in Starred or a named group. Search and Computer filters still apply to
+this row. Starred and user-defined groups follow, then **Online** and **Offline**
+in that fixed order. Hovering or focusing the default labels explains **Computer
+online** and **Computer offline**. Online requires the existing connected Computer
+projection, not registration or recent Human activity. Other resolved states go
+under Offline; **No computer** and unknown/attention explanations remain visible
+on the row. Pending checks retain the loading state. Sorting and drag placement
+remain personal preferences; dragging cannot change Computer connection state.
 
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,
