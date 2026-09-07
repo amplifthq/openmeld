@@ -1,6 +1,8 @@
 import {
   localFolderPickerRequestSchema,
   localFolderPickerResultSchema,
+  peopleComputerFolderPickerBodySchema,
+  peopleComputerTargetSchema,
 } from "@openmeld/schemas";
 import { buildLocalFolderPickerPath } from "./routes";
 import type {
@@ -11,6 +13,29 @@ import type {
 export const createLocalFolderPickerApi: CreateLocalFolderPickerApi = (
   client
 ) => ({
+  selectPeopleComputerFolders: async (input) => {
+    const target = peopleComputerTargetSchema.safeParse({
+      deviceId: input.deviceId,
+      runtimeLane: input.runtimeLane,
+    });
+    const body = peopleComputerFolderPickerBodySchema.safeParse({
+      allowMultiple: input.allowMultiple,
+      purpose: input.purpose,
+    });
+    if (!(target.success && body.success)) {
+      throw new Error("Invalid computer folder picker request.");
+    }
+    return await client.requestJson({
+      ...requestOptions(input),
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body.data),
+      operation: "people-computer.select-folders",
+      schema: localFolderPickerResultSchema,
+      invalidMessage: "Invalid Local Folder Picker response.",
+      url: `/v1/people-computers/${encodeURIComponent(target.data.deviceId)}/lanes/${encodeURIComponent(target.data.runtimeLane)}/folders/select`,
+    });
+  },
   selectFolders: async (input) => {
     const parsed = localFolderPickerRequestSchema.safeParse({
       allowMultiple: input.allowMultiple,

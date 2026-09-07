@@ -33,7 +33,7 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 ## 1. Goal and current owner
 
 Current Web uses the fixed
-**Home / Spaces / Direct Messages / People / Agents** product rail, with
+**New Agent / Home / Spaces / Direct Messages / Team** product rail, with
 **Settings** as a separated utility. **Projects**, **Documents**, and **Agent
 Activity** retain their routes and product surfaces but are temporarily hidden
 from this rail. The bottom toolbar puts
@@ -54,16 +54,15 @@ ownership remain in the existing Web hooks and router.
 One shell and one Settings framework let Web and the Electron GUI reuse shared
 pieces without forcing two clients to keep an obsolete route map. Current Web:
 
-- keeps **Home / Spaces / Direct Messages / People / Agents** as the fixed
+- keeps **New Agent / Home / Spaces / Direct Messages / Team** as the fixed
   visible product destinations, temporarily omits **Projects / Documents /
   Agent Activity** without relocating them, separates Settings as a utility,
   and opens the current Computer, Center Agent, and Inbox from the app canvas's
   global toolbar;
 - uses one Settings destination with stable **Personal** and dynamically named
   current Organization groups;
-- gives Human teammates and ordinary Agent Profiles the parallel first-level
-  **People / Agents** homes, with each person's Computers inside their Human
-  Profile detail;
+- makes Team the people directory, with each person's Computers and Agent list
+  reached through their Human Profile detail;
 - keeps Service preferences capability-gated for hosts that can own local-service
   controls; Service is not a Web top-level sidebar item;
 - gives every active app view one persistent outer app rail and content
@@ -168,9 +167,9 @@ mental verbs:
    are folded IN as
    properties of that machine — not peer cards. (This is where today's
    `agents-page.tsx` Computer-tab state machine belongs.)
-3. **People / Agents** — **People** owns Human Profiles and member invitation
-   entry, while **Agents** owns ordinary Agent Profile identity (name / model /
-   reasoning). `Directory` remains an internal data-domain term, not a
+3. **Team** — the people directory owns Human Profiles and member invitation
+   entry. Each person's Agent list leads to ordinary Agent Profile identity
+   (name / model / reasoning). `Directory` remains an internal data-domain term, not a
    user-facing navigation container. The Agent readiness badge
    (`Available / …`) lives on the Agent — not on a Computer card.
 4. **Service preferences** — local app behavior (service autostart,
@@ -236,7 +235,8 @@ The Web shell is a stable two-layer composition built from the shared
   Messages, People, Agents, Projects, Documents, Agent Activity, and
   Settings. The selected workspace switcher is its top identity surface. Home
   starts with a flat **New Agent** action followed by **Home**, **Spaces**, and
-  **Direct Messages**; **People** and **Agents** remain grouped under **Team**.
+  **Direct Messages**, and one flat **Team** destination. Team opens People;
+  Agents are reached through each person's profile and nested Agent routes.
   Projects, Documents, and Agent Activity routes
   render the same rail without a matching primary destination while their
   future placement remains unsettled. Settings remains a bottom
@@ -264,7 +264,7 @@ The Web shell is a stable two-layer composition built from the shared
   placeholder or dead action.
 - **Inner contextual sidebar** — optional, rendered inside the inset app
   surface, and owned only by route families that need contextual navigation.
-  Center Agent does not own one. Spaces, Direct Messages, People, and Agents
+  Center Agent does not own one. Spaces, Direct Messages, and People
   render their contextual lists in the Main Sidebar below the fixed primary
   navigation. Only that contextual region scrolls. Space groups appear between
   Pinned and Spaces; their section actions create Spaces/groups and select
@@ -309,9 +309,12 @@ The Web shell is a stable two-layer composition built from the shared
   People reuses the Web-owned section actions, drag mechanics, manual ordering
   and revision-checked preference hook. Starred and named People groups are
   personal to the account and Organization. Moving a person changes only this
-  sidebar arrangement; deleting a group returns its members to their connection section.
-  Connection sections are projections, not editable membership. Their ordering
-  preference is shared across connection sections; named groups and Starred each
+  sidebar arrangement; deleting a group returns its members to Computer online or
+  Computer offline. Center Agent occupies the first group, before Starred and
+  custom groups. The signed-in member defaults to Starred; explicit unstar or
+  custom placement is preserved. Connection labels describe computers, not people.
+  These sections are projections, not editable membership. Their ordering
+  preference is shared across both sections; named groups and Starred each
   have their own sort. Spaces use a fixed 20px member-avatar slot: one avatar,
   a diagonal pair, or the first three active members in a triangle. Row tooltips
   include the full active-member count. Member identity comes from the opt-in
@@ -320,7 +323,7 @@ The Web shell is a stable two-layer composition built from the shared
   Profile sidebar avatars are 20px, row action icons are
   14px inside 24px targets, and contextual group
   labels have an 8px gap before their content.
-  People and Agents contextual controls render into their Team navigation row's
+  People contextual controls render into the Team navigation row's
   action slot, preserving local ownership of search and filter state. Actions
   reveal on hover, focus, open menus, and touch. Search starts collapsed unless
   a query is already active, opens with focus, and closes by clearing the query

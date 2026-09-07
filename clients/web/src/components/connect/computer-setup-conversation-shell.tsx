@@ -8,10 +8,10 @@ export function ComputerSetupConversationShell(input: {
 	return (
 		<section
 			aria-label="Computer setup"
-			className="my-2 flex w-full max-w-2xl flex-col gap-5 border border-border bg-background p-4 text-left shadow-sm"
+			className="my-2 flex w-full min-w-0 flex-col gap-5 rounded-lg border border-border bg-background p-4 text-left shadow-sm"
 			data-slot="computer-setup-flow"
 		>
-			<header className="flex min-w-0 flex-col gap-1">
+			<header className="flex min-w-0 flex-col gap-1 pr-8">
 				<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
 					<span className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
 						Computer setup

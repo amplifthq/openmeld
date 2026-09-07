@@ -4,7 +4,7 @@ import type {
   WorkspaceRuntimeExecHandle,
 } from "@cloudflare/computer";
 import { defineTool } from "@flue/runtime";
-import type { GenericSchema } from "valibot";
+import { type GenericSchema, parse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import { createRemoteAgentCallbackContext } from "../agent-core/callback-context";
 import {
@@ -328,6 +328,51 @@ describe("retained Computer commands", () => {
     expect(run.kill).not.toHaveBeenCalled();
   });
 
+  it("accepts the SDK's fractional output cursor through both tool validators", async () => {
+    const f = fixture();
+    const tool = f.tool();
+    f.exec.mockImplementationOnce((_source, options) =>
+      Promise.resolve(
+        handle(options.id, [
+          { id: options.id, seq: 4.5, name: "stderr", value: "�" },
+          { id: options.id, seq: 5, name: "exit", code: 0 },
+        ])
+      )
+    );
+    const started = (await tool.execute({
+      action: "start",
+      key: "utf8",
+      command: "example",
+    })) as { id: string; after: number };
+    expect(started.after).toBe(4.5);
+    f.getExec.mockResolvedValueOnce(
+      handle(
+        started.id,
+        [{ id: started.id, seq: 5, name: "exit", code: 0 }],
+        true
+      )
+    );
+    const input = parse(
+      tool.input as GenericSchema<
+        Record<string, unknown>,
+        Record<string, unknown>
+      >,
+      {
+        action: "poll",
+        key: "utf8",
+        after: started.after,
+      }
+    );
+    await expect(tool.execute(input)).resolves.toMatchObject({
+      status: "completed",
+      after: 5,
+    });
+    expect(f.getExec).toHaveBeenCalledWith(
+      started.id,
+      expect.objectContaining({ resume: 4.5 })
+    );
+  });
+
   it("requires an exit receipt and drains file sync before reporting completion", async () => {
     const run = handle(
       "run",
@@ -347,4 +392,48 @@ describe("retained Computer commands", () => {
       readCommandSlice(handle("missing", [], true), "report", 0, 10)
     ).rejects.toThrow("without an exit receipt");
   });
+
+  it("bounds pending file sync and leaves the exit receipt available to the next poll", async () => {
+    const events: WorkspaceRuntimeEvent<"utf8">[] = [
+      { id: "run", seq: 2, name: "stdout", value: "DONE\n" },
+      { id: "run", seq: 3, name: "exit", code: 0 },
+    ];
+    const run = handle("run", events);
+    const slice = await readCommandSlice(run, "report", 1, 10);
+    expect(slice).toMatchObject({
+      status: "running",
+      after: 2,
+      stdout: "DONE\n",
+    });
+    expect(run.locked).toBe(false);
+    expect(run[Symbol.dispose]).toHaveBeenCalled();
+    expect(run.kill).not.toHaveBeenCalled();
+    // The vendor resumes strictly after the supplied sequence. Only the exit
+    // should replay; output already delivered to the model must not repeat.
+    const resumed = handle(
+      "run",
+      events.filter((event) => event.seq > slice.after),
+      true
+    );
+    expect(
+      await readCommandSlice(resumed, "report", slice.after, 10)
+    ).toMatchObject({
+      status: "completed",
+      exitCode: 0,
+      after: 3,
+      stdout: "",
+    });
+  }, 500);
+
+  it("honors Stop after exit while file sync is pending", async () => {
+    const run = handle("run", [{ id: "run", seq: 1, name: "exit", code: 0 }]);
+    const controller = new AbortController();
+    const reading = readCommandSlice(run, "report", 0, 1000, controller.signal);
+    const rejected = expect(reading).rejects.toThrow("User stopped execution");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort(new Error("User stopped execution"));
+    await rejected;
+    expect(run.locked).toBe(false);
+    expect(run[Symbol.dispose]).toHaveBeenCalled();
+  }, 500);
 });

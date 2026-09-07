@@ -3,9 +3,22 @@ import type {
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
 } from "@openmeld/schemas/types";
-import { cleanup, render, screen } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SelectedComputerPanel } from "./selected-computer-panel";
+
+const readPeopleComputerReadinessSpy = vi.hoisted(() => vi.fn());
+vi.mock("#/lib/connect/local-runtimes", async (importOriginal) => ({
+	...(await importOriginal<typeof import("#/lib/connect/local-runtimes")>()),
+	readPeopleComputerReplyReadiness: readPeopleComputerReadinessSpy,
+}));
 
 // Renders the REAL `SelectedComputerPanel` (NOT the recorder stub that
 // `computers-section.test.tsx` uses) to genuinely verify the detail
@@ -91,6 +104,28 @@ function buildRecoveryStub(
 		expectedServiceVersion: null,
 		localRuntimesQuery: {
 			data: {
+				peopleComputers: {
+					generatedAt: "2026-09-07T00:00:00.000Z",
+					computers: [
+						{
+							...computer,
+							identityStatus: "unconfirmed",
+							connection: {
+								status: "connected",
+								reasonCodes: [],
+								sessions: computer.executionTargets.map((target) => ({
+									deviceId: target.deviceId,
+									runtimeLane: target.runtimeLane,
+									controls: {
+										computerFileAccess: computer.computerFileAccess,
+										localFolderPicker: computer.localFolderPicker,
+										localProjectControl: { discoverProjects: true },
+									},
+								})),
+							},
+						},
+					],
+				},
 				currentDeviceId: computer.deviceId,
 				currentRuntimeLane: "dev-local",
 				localRuntimes: [computer],
@@ -101,10 +136,9 @@ function buildRecoveryStub(
 	} as unknown as Parameters<typeof SelectedComputerPanel>[0]["recovery"];
 }
 
-const queryClientStub = {
-	fetchQuery: vi.fn(),
-	invalidateQueries: vi.fn(),
-} as unknown as Parameters<typeof SelectedComputerPanel>[0]["queryClient"];
+const queryClientStub = new QueryClient({
+	defaultOptions: { queries: { retry: false } },
+});
 
 function renderPanel(
 	input: {
@@ -131,6 +165,15 @@ function renderPanel(
 
 describe("SelectedComputerPanel detail composition", () => {
 	beforeEach(() => {
+		queryClientStub.clear();
+		readPeopleComputerReadinessSpy.mockReset();
+		readPeopleComputerReadinessSpy.mockImplementation(
+			(target: { deviceId: string; runtimeLane: string }) =>
+				Promise.resolve({
+					...buildConnectedReadiness(target.deviceId),
+					currentTarget: { availability: "resolved", ...target },
+				})
+		);
 		openMeldServiceCardSpy.mockReset();
 		localAgentsCardSpy.mockReset();
 		computerFileAccessCardSpy.mockReset();
@@ -148,7 +191,9 @@ describe("SelectedComputerPanel detail composition", () => {
 		expect(localAgentsCardSpy).toHaveBeenCalled();
 		expect(computerFileAccessCardSpy).toHaveBeenCalledWith({
 			canChooseFolders: true,
+			canChooseProjects: true,
 			deviceId: "device-office",
+			runtimeLane: "dev-local",
 			focusFileAccess: false,
 			onFocusConsumed: undefined,
 			storageScope: expect.any(String),
@@ -157,6 +202,74 @@ describe("SelectedComputerPanel detail composition", () => {
 			screen.getByTestId("computer-file-access-card")
 		);
 		expect(screen.queryByText("Available for Wake")).toBeNull();
+	});
+
+	it("requires an environment choice instead of using the default Binding when two environments exist", async () => {
+		const development = buildExecutionTarget("ready");
+		const production = {
+			...development,
+			runtimeLane: "prod" as const,
+			isCurrent: true,
+		};
+		renderPanel({ computer: buildComputer([development, production]) });
+		expect(screen.queryByTestId("computer-file-access-card")).toBeNull();
+		expect(readPeopleComputerReadinessSpy).not.toHaveBeenCalled();
+		expect(localAgentsCardSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				hasSelectedEnvironment: false,
+				controlTarget: null,
+			})
+		);
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Computer environment" })
+		);
+		fireEvent.click(await screen.findByRole("option", { name: "Production" }));
+		await waitFor(() =>
+			expect(readPeopleComputerReadinessSpy).toHaveBeenCalledWith({
+				deviceId: "device-office",
+				runtimeLane: "prod",
+			})
+		);
+		expect(localAgentsCardSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				hasSelectedEnvironment: true,
+				controlTarget: { deviceId: "device-office", runtimeLane: "prod" },
+			})
+		);
+		expect(computerFileAccessCardSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				deviceId: "device-office",
+				runtimeLane: "prod",
+				canChooseFolders: true,
+				canChooseProjects: true,
+			})
+		);
+	});
+
+	it("automatically selects the only live connection instead of making old reports compete with it", async () => {
+		const live = buildExecutionTarget("ready");
+		const historical = {
+			...live,
+			deviceId: "old-device",
+			isCurrent: false,
+			status: "stale" as const,
+		};
+		renderPanel({
+			computer: buildComputer([historical, live]),
+			recovery: buildRecoveryStub({ computer: buildComputer([live]) }),
+		});
+		await waitFor(() =>
+			expect(readPeopleComputerReadinessSpy).toHaveBeenCalledWith({
+				deviceId: "device-office",
+				runtimeLane: "dev-local",
+			})
+		);
+		expect(localAgentsCardSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				hasSelectedEnvironment: true,
+				controlTarget: { deviceId: "device-office", runtimeLane: "dev-local" },
+			})
+		);
 	});
 
 	it("forwards a Settings deep-link focus to file access", () => {
@@ -178,7 +291,9 @@ describe("SelectedComputerPanel detail composition", () => {
 
 		expect(computerFileAccessCardSpy).toHaveBeenCalledWith({
 			canChooseFolders: true,
+			canChooseProjects: true,
 			deviceId: "device-office",
+			runtimeLane: "dev-local",
 			focusFileAccess: true,
 			onFocusConsumed,
 			storageScope: "owner-user-1",

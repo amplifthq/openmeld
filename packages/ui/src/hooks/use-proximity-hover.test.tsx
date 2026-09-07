@@ -7,6 +7,49 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("keeps grid padding and gaps with the nearest card in both dimensions", () => {
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (frame: FrameRequestCallback) =>
+    frames.push(frame)
+  );
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  const container = document.createElement("div");
+  const { result } = renderHook(() =>
+    useProximityHover({ current: container }, { axis: "both" })
+  );
+  act(() => {
+    for (let index = 0; index < 10; index++) {
+      const row = document.createElement("button");
+      container.append(row);
+      Object.defineProperties(row, {
+        offsetTop: { value: Math.floor(index / 2) * 100 + 8 },
+        offsetLeft: { value: (index % 2) * 220 + 8 },
+        offsetHeight: { value: 64 },
+        offsetWidth: { value: 200 },
+      });
+      result.current.registerItem(index, row);
+    }
+    result.current.measureItems();
+  });
+  for (const [clientX, clientY, expected] of [
+    [4, 330, 6],
+    [224, 330, 7],
+    [210, 330, 6],
+    [226, 303, 7],
+    [100, 204, 4],
+  ] as const) {
+    act(() => {
+      result.current.handlers.onMouseMove({
+        clientX,
+        clientY,
+        target: container,
+      });
+      frames.pop()?.(0);
+    });
+    expect(result.current.activeIndex).toBe(expected);
+  }
+});
+
 it("remeasures moved rows without requiring a resize or new registration", async () => {
   const frames: FrameRequestCallback[] = [];
   vi.stubGlobal("requestAnimationFrame", (frame: FrameRequestCallback) =>

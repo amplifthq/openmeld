@@ -629,6 +629,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
     AUTH_BRAND_NAME: env.AUTH_BRAND_NAME,
     WEB_APP_URL: env.WEB_APP_URL,
     AUTH_COOKIE_DOMAIN: env.AUTH_COOKIE_DOMAIN,
+    AUTH_COOKIE_PREFIX: env.AUTH_COOKIE_PREFIX,
     PASSKEY_RP_ID: env.PASSKEY_RP_ID,
     GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID:
       env.GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID,
@@ -1106,6 +1107,9 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       joins: true,
     },
     advanced: {
+      ...(validated.AUTH_COOKIE_PREFIX
+        ? { cookiePrefix: validated.AUTH_COOKIE_PREFIX }
+        : {}),
       database: {
         generateId: "uuid",
       },

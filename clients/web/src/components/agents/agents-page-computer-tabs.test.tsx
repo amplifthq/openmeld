@@ -2,8 +2,8 @@ import type {
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
 } from "@openmeld/schemas/types";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { formatComputerTabLocalAgents } from "./agents-page-computer";
 import { ComputerSummaryCardContent } from "./agents-page-computer-tabs";
 
@@ -11,6 +11,34 @@ type DeviceAgentCatalogEntry =
 	LocalRuntimeExecutionTarget["localAgentCatalog"]["entries"][number];
 
 describe("ComputerSummaryCardContent", () => {
+	afterEach(cleanup);
+	it("keeps detected agents visible but muted after their computer disconnects", () => {
+		const target = buildExecutionTarget({
+			entries: [
+				buildCatalogEntry({
+					agentId: "codex",
+					displayName: "Codex",
+					lifecycleStatus: "active",
+				}),
+			],
+		});
+		target.status = "stale";
+		render(
+			<ComputerSummaryCardContent
+				device={buildComputer(target)}
+				recordState={{ kind: "normal" }}
+				status={{
+					label: "Disconnected",
+					reason: "service_not_connected",
+					showLabel: true,
+					tone: "muted",
+				}}
+			/>
+		);
+		expect(screen.getByTestId("local-agent-logo-codex").className).toContain(
+			"grayscale"
+		);
+	});
 	it("keeps suspended local agents out of the computer summary icons", () => {
 		render(
 			<ComputerSummaryCardContent

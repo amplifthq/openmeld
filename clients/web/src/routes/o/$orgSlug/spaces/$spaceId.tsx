@@ -1163,9 +1163,9 @@ function DirectMessagesLoadFailureState(input: {
 
 function resolveAppSpaceEntryRouteTo(
 	navigationSurface: AppSpaceNavigationSurface
-): "/o/$orgSlug/direct-messages/$spaceId" | "/o/$orgSlug/spaces/$spaceId" {
+): "/o/$orgSlug/chats/$spaceId" | "/o/$orgSlug/spaces/$spaceId" {
 	return navigationSurface === "directMessages"
-		? "/o/$orgSlug/direct-messages/$spaceId"
+		? "/o/$orgSlug/chats/$spaceId"
 		: "/o/$orgSlug/spaces/$spaceId";
 }
 

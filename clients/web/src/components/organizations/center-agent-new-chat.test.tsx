@@ -128,7 +128,7 @@ it("reuses the creation identity after an uncertain failure and submits only on 
 	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 	await waitFor(() =>
 		expect(navigate).toHaveBeenCalledWith({
-			to: "/o/acme?session=chat-1",
+			to: "/o/acme/chats/center-agent?session=chat-1",
 			replace: true,
 		})
 	);
@@ -166,7 +166,7 @@ it("starts a conversation from the shared starter card", async () => {
 	fireEvent.click(screen.getByRole("button", { name: SHOW_AROUND }));
 	await waitFor(() =>
 		expect(navigate).toHaveBeenCalledWith({
-			to: "/o/acme?session=chat-1",
+			to: "/o/acme/chats/center-agent?session=chat-1",
 			replace: true,
 		})
 	);

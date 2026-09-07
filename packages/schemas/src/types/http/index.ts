@@ -239,6 +239,8 @@ export type {
   CenterAgentReadDispatchHistoryResponse,
   CenterAgentReadMemberComputersBody,
   CenterAgentReadMemberComputersResponse,
+  CenterAgentReadPeopleComputersBody,
+  CenterAgentReadPeopleComputersResponse,
   CenterAgentReadSpaceContextBody,
   CenterAgentReadSpaceContextResponse,
   CenterAgentRecordConnectorActionAuditBody,
@@ -806,6 +808,19 @@ export type {
   ComputerFileAccessSummary,
   OwnerComputerDiagnostics,
 } from "./owner-computer-diagnostics";
+export type {
+  PeopleComputer,
+  PeopleComputerCliInventory,
+  PeopleComputerConnection,
+  PeopleComputerFileAccessReadRpcInput,
+  PeopleComputerFileAccessUpdateBody,
+  PeopleComputerFileAccessUpdateRpcInput,
+  PeopleComputerFolderPickerBody,
+  PeopleComputerFolderPickerRpcInput,
+  PeopleComputerProjectDiscoveryRpcInput,
+  PeopleComputersResponse,
+  PeopleComputerTarget,
+} from "./people-computers";
 export type {
   GetPrepareReadinessQuery,
   GetPrepareReadinessResponse,

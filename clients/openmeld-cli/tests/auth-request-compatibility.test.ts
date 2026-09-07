@@ -22,6 +22,34 @@ function sessionWithAuthBaseUrl(authBaseUrl: string): StoredAuthSession {
 // only), or the preset default (https://auth.openmeld.invalid for prod,
 // http://localhost:8788 for dev-local/canary).
 describe("resolveAuthRequestCompatibility for the daemon stream URL", () => {
+  it.each([
+    "http",
+    "ws",
+  ])("accepts %s requests within one isolated worktree hostname", (protocol) => {
+    const result = resolveAuthRequestCompatibility({
+      session: sessionWithAuthBaseUrl("http://wt-example.localhost:31394"),
+      requestUrl: `${protocol}://wt-example.localhost:31393/v1/daemon/stream`,
+    });
+    expect(result.compatible).toBe(true);
+    expect(result.reason).toBe("loopback");
+  });
+
+  it.each([
+    "http://wt-other.localhost:31393",
+    "https://wt-other.localhost:31393",
+    "http://localhost:31393",
+    "http://127.0.0.1:31393",
+    "http://wt-example.localhost.evil.invalid:31393",
+    DAEMON_STREAM_URL,
+  ])("does not send isolated-worktree credentials to %s", (requestUrl) => {
+    expect(
+      resolveAuthRequestCompatibility({
+        session: sessionWithAuthBaseUrl("http://wt-example.localhost:31394"),
+        requestUrl,
+      }).compatible
+    ).toBe(false);
+  });
+
   it("accepts the prod default auth base URL as a gateway sibling", () => {
     const result = resolveAuthRequestCompatibility({
       session: sessionWithAuthBaseUrl("https://auth.openmeld.invalid"),

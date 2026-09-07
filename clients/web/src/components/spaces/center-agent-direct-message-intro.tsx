@@ -23,8 +23,9 @@ export function CenterAgentDirectMessageIntro(input: {
 	computerSetupContext?: CenterAgentComputerSetupContext;
 	disabled: boolean;
 	isPersonalContext: boolean;
-	onSelectStarterAction: (prompt: string) => Promise<void>;
+	onSelectStarterAction: (prompt: string) => void;
 	onStartComputerSetup: () => void;
+	onCloseComputerSetup?: () => void;
 	showStarterActions: boolean;
 	showStarterComputerSetup: boolean;
 }) {
@@ -37,6 +38,7 @@ export function CenterAgentDirectMessageIntro(input: {
 		starterContent = (
 			<CenterAgentComputerSetupCard
 				context={input.computerSetupContext}
+				onDismiss={input.onCloseComputerSetup}
 				target={{ kind: "computer_setup", mode: "setup" }}
 			/>
 		);

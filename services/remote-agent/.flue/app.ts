@@ -1,5 +1,6 @@
 import { waitUntil } from "cloudflare:workers";
-import { observe } from "@flue/runtime";
+import { instrument, observe } from "@flue/runtime";
+import { createCloudflareTracing } from "@flue/runtime/cloudflare";
 import { Hono } from "hono";
 import { installRemoteAgentExecutionInstrumentation } from "../flue-adapter/execution-context";
 import { createCenterAgentObservationDispatcher } from "../flue-adapter/observation-dispatcher";
@@ -8,6 +9,9 @@ import { remoteAgentStreamPublisher } from "../flue-adapter/stream-publisher-ins
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
 
+// Module-scope registration precedes Flue's generated default tracer. Keep
+// operational spans, but never export conversation or tool content to traces.
+instrument(createCloudflareTracing({ content: false }));
 installRemoteAgentExecutionInstrumentation();
 const dispatchCenterAgentObservation = createCenterAgentObservationDispatcher({
   handle: async (event) =>

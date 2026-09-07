@@ -14,6 +14,8 @@ import {
   localRuntimeEnrollmentResponseSchema,
   localRuntimesQuerySchema,
   localRuntimesResponseSchema,
+  peopleComputersResponseSchema,
+  peopleComputerTargetSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
   requestCurrentOpenMeldToolsUpdateResponseSchema,
   selectCurrentLocalAgentInstallationBodySchema,
@@ -40,6 +42,7 @@ import {
   respondBadRequest,
 } from "./rpc-http.helpers";
 import { readJsonRequestBody } from "./rpc-http.parsers";
+import { registerPeopleComputerControlRoutes } from "./rpc-http.people-computers";
 
 const CURRENT_DEVICE_ROUTE = "/v1/devices/current";
 const FORGET_CURRENT_COMPUTER_ROUTE = "/v1/devices/current/forget";
@@ -77,6 +80,52 @@ const START_SESSION_RETIRED_MESSAGE =
 export function registerCurrentDeviceTargetRoutes(
   app: Hono<HonoBindings>
 ): void {
+  registerPeopleComputerControlRoutes(app);
+  app.get("/v1/people-computers", (c) =>
+    executeRpcRoute({
+      c,
+      route: "/v1/people-computers",
+      method: "GET",
+      responseSchema: peopleComputersResponseSchema,
+      execute: async () =>
+        c.var.coreRpc.listPeopleComputers({
+          context: buildCoreRpcContext(c),
+          ...(c.req.query("includeUsageLimits") === "true"
+            ? { includeUsageLimits: "true" as const }
+            : {}),
+        }),
+    })
+  );
+
+  app.get(
+    "/v1/people-computers/:deviceId/lanes/:runtimeLane/reply-readiness",
+    (c) => {
+      const route =
+        "/v1/people-computers/:deviceId/lanes/:runtimeLane/reply-readiness";
+      const parsed = peopleComputerTargetSchema.safeParse(c.req.param());
+      if (!parsed.success) {
+        return respondBadRequest({
+          c,
+          route,
+          method: "GET",
+          code: "invalid_payload",
+          message: "Invalid computer target.",
+        });
+      }
+      return executeRpcRoute({
+        c,
+        route,
+        method: "GET",
+        responseSchema: currentLocalRuntimeReplyReadinessResponseSchema,
+        execute: async () =>
+          c.var.coreRpc.getPeopleComputerReplyReadiness({
+            ...parsed.data,
+            context: buildCoreRpcContext(c),
+          }),
+      });
+    }
+  );
+
   app.get(LOCAL_RUNTIMES_ROUTE, (c) => {
     const parsedQuery = localRuntimesQuerySchema.safeParse({
       connectionIdentityAdoption: c.req.query("connectionIdentityAdoption"),

@@ -42,6 +42,9 @@ function createCredentialedOpenMeldFetch(
 	} = {}
 ): typeof fetch {
 	return async (resource, init) => {
+		if (import.meta.env.DEV) {
+			rejectComputerPreviewRequest(resource, init);
+		}
 		const headers = new Headers(init?.headers);
 		if (
 			input.openMeldProfileId &&
@@ -85,6 +88,21 @@ function createCredentialedOpenMeldFetch(
 			credentials: "include",
 		});
 	};
+}
+
+// These browser-memory fixtures never authorize real API calls, including
+// setup and Agent creation after navigating away from the preview surface.
+function rejectComputerPreviewRequest(
+	resource: RequestInfo | URL,
+	init?: RequestInit
+) {
+	const url = resource instanceof Request ? resource.url : String(resource);
+	const body = typeof init?.body === "string" ? init.body : "";
+	if (`${url} ${body}`.includes("local-computer-preview-")) {
+		throw new Error(
+			"This computer is a local UI preview. No real computer was changed."
+		);
+	}
 }
 
 export function createOrganizationScopedWebOpenMeldApiFoundation(
