@@ -1,4 +1,8 @@
-import { getWorkspace, Workspace } from "@cloudflare/computer";
+import {
+  getWorkspace,
+  Workspace,
+  type WorkspaceRuntimeEvent,
+} from "@cloudflare/computer";
 import { readCommandSlice } from "../../flue-adapter/computer-command";
 
 export async function verifyRetainedCommandPolling(
@@ -9,7 +13,7 @@ export async function verifyRetainedCommandPolling(
   let pauseSync = false;
   const pullStarted = Promise.withResolvers<void>();
   const finishPull = Promise.withResolvers<void>();
-  const attach = (id: string) => {
+  const attach = (id: string, after?: number | "tail") => {
     if (subscribed) {
       throw new Error("EEXEC_BUSY");
     }
@@ -18,7 +22,14 @@ export async function verifyRetainedCommandPolling(
       id,
       events: new ReadableStream({
         start(controller) {
-          controller.enqueue({
+          // Native Shell.getExec filters retained events strictly after the
+          // requested cursor; the Workspace client does not filter them again.
+          const enqueue = (event: WorkspaceRuntimeEvent) => {
+            if (after !== "tail" && event.seq > (after ?? 0)) {
+              controller.enqueue(event);
+            }
+          };
+          enqueue({
             id,
             seq: 1,
             name: "stdout",
@@ -26,26 +37,26 @@ export async function verifyRetainedCommandPolling(
           });
           if (completed) {
             // A UTF-8 character split across chunks must survive decoding.
-            controller.enqueue({
+            enqueue({
               id,
               seq: 2,
               name: "stdout",
               value: new Uint8Array([0xe2, 0x82]),
             });
-            controller.enqueue({
+            enqueue({
               id,
               seq: 3,
               name: "stdout",
               value: new Uint8Array([0xac]),
             });
             // A truncated stderr character must flush before the exit receipt.
-            controller.enqueue({
+            enqueue({
               id,
               seq: 4,
               name: "stderr",
               value: new Uint8Array([0xe2]),
             });
-            controller.enqueue({ id, seq: 5, name: "exit", code: 0 });
+            enqueue({ id, seq: 5, name: "exit", code: 0 });
             subscribed = false;
             controller.close();
           }
@@ -78,8 +89,8 @@ export async function verifyRetainedCommandPolling(
                   }
                   return Promise.resolve(attach(input.id));
                 },
-                getExec: (input: { id: string }) =>
-                  Promise.resolve(attach(input.id)),
+                getExec: (input: { id: string; after?: number | "tail" }) =>
+                  Promise.resolve(attach(input.id, input.after)),
                 killExec: () =>
                   Promise.reject(new Error("Polling must not kill")),
                 disposeExec: () =>
@@ -142,24 +153,49 @@ export async function verifyRetainedCommandPolling(
       backend: "container",
       encoding: "utf8",
     });
-    const syncReader = syncing.getReader();
-    for (;;) {
-      const event = await syncReader.read();
-      if (event.done || event.value.name === "exit") {
-        break;
-      }
-    }
-    const close = syncReader.read();
+    const pendingSlice = readCommandSlice(syncing, "long", 0, 50);
     await pullStarted.promise;
+    let syncPending: Awaited<ReturnType<typeof readCommandSlice>>;
+    let stopError: string;
     try {
-      await syncReader.cancel();
-      await close;
+      syncPending = await pendingSlice;
+      const stopping = await workspace.runtime.getExec(started.id, {
+        backend: "container",
+        encoding: "utf8",
+        resume: syncPending.after,
+      });
+      const controller = new AbortController();
+      const stopped = readCommandSlice(
+        stopping,
+        "long",
+        syncPending.after,
+        1000,
+        controller.signal
+      ).then(
+        () => "unexpected completion",
+        (error: Error) => error.message
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      controller.abort(new Error("User stopped execution"));
+      stopError = await stopped;
     } finally {
       finishPull.resolve();
-      syncReader.releaseLock();
-      syncing[Symbol.dispose]();
     }
+    const synced = await workspace.runtime.getExec(started.id, {
+      backend: "container",
+      encoding: "utf8",
+      resume: syncPending.after,
+    });
+    const resumedSync = await readCommandSlice(
+      synced,
+      "long",
+      syncPending.after,
+      100
+    );
     return {
+      syncPending,
+      stopError,
+      resumedSync,
       subscribedAfterStartCancel,
       subscribedAfterPoll,
       slice,
