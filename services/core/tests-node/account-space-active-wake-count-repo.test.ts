@@ -259,6 +259,16 @@ describe("account space active wake count repos", () => {
           spaceId: "space-1",
         },
       ]);
+      harness.run({
+        sql: "UPDATE space_index_memberships SET profile_name_snapshot = profile_id WHERE profile_id = ?",
+        params: ["agt_deleted"],
+      });
+      await expect(
+        listSpaceIndexTargetProfileNameSnapshots({
+          db: harness.db,
+          targets: [{ profileId: "agt_deleted", spaceId: "space-1" }],
+        })
+      ).resolves.toEqual([]);
     } finally {
       harness.close();
     }
