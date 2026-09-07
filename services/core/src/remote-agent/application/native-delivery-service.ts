@@ -273,7 +273,7 @@ import { buildRemoteAgentFinalPublicationMetadata } from "./native-delivery-fina
 import { resolveRemoteAgentNativeDeliveryIdentityMismatch } from "./native-delivery-identity";
 import { projectLinkedSlackNativeDeliveryInboxItem } from "./native-delivery-inbox-producer";
 import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
-import { resolveRemoteAgentRuntimeConversationId } from "./remote-agent-conversation-continuity";
+import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 import { attachCenterAgentMemoryToTurnEnvelope as attachCenterAgentMemoryToTurnEnvelopeImpl } from "./remote-agent-memory-context";
 import { resolveRemoteAgentRuntimeAvailability } from "./remote-agent-runtime-policy";
 import { truncateRemoteAgentTriggerText } from "./remote-agent-trigger-text";
@@ -9275,16 +9275,7 @@ async function requestRemoteAgentWorkerCancellation(input: {
   }
   try {
     const conversationId =
-      (input.delivery.workerSubmitRequest
-        ? resolveRemoteAgentRuntimeConversationId(
-            input.delivery.workerSubmitRequest
-          )
-        : undefined) ??
-      (input.delivery.executionRecoverySubmitRequest
-        ? resolveRemoteAgentRuntimeConversationId(
-            input.delivery.executionRecoverySubmitRequest
-          )
-        : undefined);
+      resolveRemoteAgentNativeDeliveryRuntimeConversationId(input.delivery);
     const response = remoteAgentWorkerCancellationResponseSchema.parse(
       await worker.cancelExecution({
         ...(conversationId ? { conversationId } : {}),
@@ -10135,21 +10126,12 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
     env: input.env,
   });
   const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
-  const conversationId =
-    (leasedDelivery.workerSubmitRequest
-      ? resolveRemoteAgentRuntimeConversationId(
-          leasedDelivery.workerSubmitRequest
-        )
-      : undefined) ??
-    (leasedDelivery.executionRecoverySubmitRequest
-      ? resolveRemoteAgentRuntimeConversationId(
-          leasedDelivery.executionRecoverySubmitRequest
-        )
-      : undefined);
   let reconciliation: ReturnType<
     typeof remoteAgentWorkerExecutionQueryResponseSchema.parse
   >;
   try {
+    const conversationId =
+      resolveRemoteAgentNativeDeliveryRuntimeConversationId(leasedDelivery);
     if (!worker) {
       throw new Error("Remote Agent worker binding is unavailable.");
     }

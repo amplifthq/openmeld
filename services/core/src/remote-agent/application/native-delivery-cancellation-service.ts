@@ -10,7 +10,7 @@ import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
 } from "../infrastructure/d1/native-delivery-ledger-repo";
-import { resolveRemoteAgentRuntimeConversationId } from "./remote-agent-conversation-continuity";
+import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 import { closeRemoteAgentStreamProjection } from "./stream-delta-service";
 
 export async function requestRemoteAgentNativeDeliveryStop(input: {
@@ -185,14 +185,7 @@ function resolveRemoteAgentCancellationConversationIdentity(
   delivery: RemoteAgentNativeDeliveryRecord
 ): { conversationId?: string } {
   const conversationId =
-    (delivery.workerSubmitRequest
-      ? resolveRemoteAgentRuntimeConversationId(delivery.workerSubmitRequest)
-      : undefined) ??
-    (delivery.executionRecoverySubmitRequest
-      ? resolveRemoteAgentRuntimeConversationId(
-          delivery.executionRecoverySubmitRequest
-        )
-      : undefined);
+    resolveRemoteAgentNativeDeliveryRuntimeConversationId(delivery);
   return conversationId ? { conversationId } : {};
 }
 
