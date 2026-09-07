@@ -64,6 +64,7 @@ class DiscoveryDeadlineExceededError extends Error {
 
 export async function discoverLocalProjects(
   input: {
+    includeCandidates?: boolean;
     checkedAtMs?: number;
     clientGeneration: number;
     deviceId: string;
@@ -80,12 +81,6 @@ export async function discoverLocalProjects(
   }
   const now = dependencies.now ?? Date.now;
   const deadlineMs = now() + (dependencies.budgetMs ?? DISCOVERY_BUDGET_MS);
-  const verifier = (dependencies.createVerifier ?? createGitRepositoryVerifier)(
-    {
-      deadlineMs,
-      now,
-    }
-  );
   const localState = await readLocalDiscoveryState({
     deadlineMs,
     expectedOrganizationId: input.expectedOrganizationId,
@@ -106,6 +101,21 @@ export async function discoverLocalProjects(
     });
   }
   const { bindings, connectionsByProject } = localState;
+  if (input.includeCandidates === false) {
+    return buildDiscoveryResponse({
+      candidates: [],
+      checkedAtMs: input.checkedAtMs ?? now(),
+      clientGeneration: input.clientGeneration,
+      connectionsByProject,
+      deviceId: input.deviceId,
+      gitStatus: "not_checked",
+      projects: input.projects,
+      requestId: input.requestId,
+    });
+  }
+  const verifier = (dependencies.createVerifier ?? createGitRepositoryVerifier)(
+    { deadlineMs, now }
+  );
   let gitStatus = await runWithinDeadline(
     () => verifier.checkAvailability(),
     deadlineMs,
@@ -657,7 +667,10 @@ function buildProjectDiscovery(input: {
       candidates: [],
       connections: [],
       projectId: input.project.projectId,
-      status: "verification_unavailable",
+      status:
+        input.gitStatus === "not_checked"
+          ? "not_connected"
+          : "verification_unavailable",
     };
   }
   if (candidates.length > 0) {

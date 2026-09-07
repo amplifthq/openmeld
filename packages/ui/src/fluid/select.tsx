@@ -35,6 +35,7 @@ type SelectContextValue = {
   labelMap: MutableRefObject<Map<string, string>>;
   listboxId: string;
   onChange: (value: string) => void;
+  restoreFocus: () => void;
   open: boolean;
   setOpen: (open: boolean) => void;
   triggerRef: RefObject<HTMLButtonElement | null>;
@@ -53,6 +54,7 @@ type SelectProps = {
   disabled?: boolean;
   name?: string;
   onValueChange?: (value: string) => void;
+  onCloseAutoFocus?: (event: Event) => void;
   required?: boolean;
   value?: string;
 };
@@ -152,6 +154,7 @@ function Select({
   disabled = false,
   name,
   onValueChange,
+  onCloseAutoFocus,
   required,
   value,
 }: SelectProps) {
@@ -161,6 +164,13 @@ function Select({
   const listboxId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const labelMap = useRef(new Map<string, string>());
+  const restoreFocus = useCallback(() => {
+    const event = new Event("closeAutoFocus", { cancelable: true });
+    onCloseAutoFocus?.(event);
+    if (!event.defaultPrevented) {
+      triggerRef.current?.focus();
+    }
+  }, [onCloseAutoFocus]);
 
   const handleChange = useCallback(
     (nextValue: string) => {
@@ -170,9 +180,9 @@ function Select({
 
       onValueChange?.(nextValue);
       setOpen(false);
-      requestAnimationFrame(() => triggerRef.current?.focus());
+      requestAnimationFrame(restoreFocus);
     },
-    [onValueChange, value]
+    [onValueChange, value, restoreFocus]
   );
 
   useEffect(() => {
@@ -188,6 +198,7 @@ function Select({
         labelMap,
         listboxId,
         onChange: handleChange,
+        restoreFocus,
         open,
         setOpen,
         triggerRef,
@@ -323,7 +334,8 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
     { align = "start", children, className, matchTriggerWidth = false, side },
     ref
   ) => {
-    const { listboxId, open, setOpen, triggerRef, value } = useSelectContext();
+    const { listboxId, open, setOpen, triggerRef, value, restoreFocus } =
+      useSelectContext();
     const containerRef = useRef<HTMLDivElement>(null);
     const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
     const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
@@ -390,7 +402,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
         }
 
         setOpen(false);
-        triggerRef.current?.focus();
+        restoreFocus();
       };
 
       document.addEventListener("keydown", handleKeyDown);
@@ -398,7 +410,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
       return () => {
         document.removeEventListener("keydown", handleKeyDown);
       };
-    }, [open, setOpen, triggerRef]);
+    }, [open, setOpen, restoreFocus]);
 
     useEffect(() => {
       if (!open) {
@@ -492,8 +504,6 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
       checkedIndex === undefined ? null : itemRects[checkedIndex];
     const focusRect =
       focusedIndex === null ? null : (itemRects[focusedIndex] ?? null);
-    const isHoveringOther =
-      activeIndex !== null && activeIndex !== checkedIndex;
     const triggerElementId = triggerRef.current?.id || undefined;
     const contentPlacement = resolveSelectContentPlacement({
       align,
@@ -586,11 +596,11 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                     animate={{
                       height: checkedRect.height,
                       left: checkedRect.left,
-                      opacity: isHoveringOther ? 0.82 : 1,
+                      opacity: 1,
                       top: checkedRect.top,
                       width: checkedRect.width,
                     }}
-                    className="pointer-events-none absolute rounded-md border border-border bg-muted"
+                    className="pointer-events-none absolute rounded-md border border-transparent bg-interaction-active"
                     exit={{ opacity: 0, transition: { duration: 0.12 } }}
                     initial={false}
                     transition={{
@@ -611,7 +621,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                       top: activeRect.top,
                       width: activeRect.width,
                     }}
-                    className="pointer-events-none absolute rounded-md border border-border/80 bg-muted/70"
+                    className="pointer-events-none absolute rounded-md border border-transparent bg-interaction-hover"
                     exit={{ opacity: 0, transition: { duration: 0.06 } }}
                     initial={{
                       height: checkedRect?.height ?? activeRect.height,
@@ -786,6 +796,7 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
     return (
       <div
         {...props}
+        aria-disabled={isDisabled || undefined}
         aria-label={
           ariaLabel ?? (typeof children === "string" ? children : undefined)
         }

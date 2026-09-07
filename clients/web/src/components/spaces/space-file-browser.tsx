@@ -16,6 +16,7 @@ import {
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowClockwiseIcon,
@@ -245,7 +246,11 @@ export function SpaceFileBrowser(input: {
 					</Button>
 				</div>
 			) : null}
-			<div className="min-h-0 flex-1 overflow-y-auto p-5">
+			<ScrollArea
+				className="min-h-0 flex-1"
+				contentClassName="p-5"
+				orientation="vertical"
+			>
 				<SpaceFileBrowserContent
 					api={input.api}
 					canWrite={input.canWrite}
@@ -261,7 +266,7 @@ export function SpaceFileBrowser(input: {
 					spaceId={input.spaceId}
 					view={input.view}
 				/>
-			</div>
+			</ScrollArea>
 		</section>
 	);
 }

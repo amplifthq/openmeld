@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -90,7 +91,29 @@ test("starts Auth and Core on the isolated lane with shared persistence", () => 
     "BETTER_AUTH_URL:http://localhost:31002",
     "--var",
     "WEB_APP_URL:http://localhost:31000",
+    "--var",
+    "PASSKEY_RP_ID:localhost",
   ]);
+});
+
+test("scopes isolated passkeys to the Web hostname instead of shared localhost", () => {
+  const plan = resolveIsolatedWorkerDevPlan({
+    coreConfigPath: "/repo/services/core/.wrangler-isolated.json",
+    env: {
+      ...ISOLATED_ENV,
+      BETTER_AUTH_URL: "http://wt-example.localhost:31002",
+      WEB_APP_URL: "http://wt-example.localhost:31000",
+      PASSKEY_RP_ID: "localhost",
+    },
+    service: "auth",
+  });
+  assert.ok(plan.args.includes("PASSKEY_RP_ID:wt-example.localhost"));
+  assert.ok(
+    plan.args.includes("BETTER_AUTH_URL:http://wt-example.localhost:31002")
+  );
+  assert.ok(
+    plan.args.includes("WEB_APP_URL:http://wt-example.localhost:31000")
+  );
 });
 
 test("starts Gateway and Remote Agent on their isolated public and inspector ports", () => {
@@ -152,6 +175,51 @@ test("lets Slack smoke override the ephemeral local OAuth callback", () => {
     "--var",
     "OPENMELD_SLACK_OAUTH_REDIRECT_URL:https://openmeld-smoke.loca.lt/slack/oauth/callback",
   ]);
+});
+
+test("uses an explicit public Core callback origin without changing local routing", () => {
+  const turboConfig = JSON.parse(
+    readFileSync(new URL("../../turbo.json", import.meta.url), "utf8")
+  );
+  assert.ok(
+    turboConfig.tasks["dev:isolated"].passThroughEnv.includes(
+      "OPENMELD_DEV_PUBLIC_GATEWAY_ORIGIN"
+    )
+  );
+  const sourceConfig = {
+    vars: { OPENMELD_GATEWAY_URL: "http://localhost:8080" },
+  };
+  const config = buildIsolatedCoreWranglerConfig({
+    env: {
+      ...ISOLATED_ENV,
+      OPENMELD_DEV_PUBLIC_GATEWAY_ORIGIN: "https://callback.example.com",
+    },
+    sourceConfig,
+  });
+  assert.equal(
+    config.vars.OPENMELD_GATEWAY_URL,
+    "https://callback.example.com"
+  );
+  assert.equal(config.vars.CORS_ORIGINS, ISOLATED_ENV.OPENMELD_GATEWAY_URL);
+  assert.equal(sourceConfig.vars.OPENMELD_GATEWAY_URL, "http://localhost:8080");
+  const authPlan = resolveIsolatedWorkerDevPlan({
+    coreConfigPath: "/repo/services/core/.wrangler-isolated.json",
+    env: {
+      ...ISOLATED_ENV,
+      OPENMELD_DEV_PUBLIC_GATEWAY_ORIGIN: "https://callback.example.com",
+    },
+    service: "auth",
+  });
+  assert.equal(
+    authPlan.env.OPENMELD_GATEWAY_URL,
+    "https://callback.example.com"
+  );
+  assert.equal(authPlan.env.WEB_APP_URL, ISOLATED_ENV.WEB_APP_URL);
+  assert.equal(
+    buildIsolatedCoreWranglerConfig({ env: ISOLATED_ENV, sourceConfig }).vars
+      .OPENMELD_GATEWAY_URL,
+    "http://localhost:8080"
+  );
 });
 
 test("keeps the no-Sandbox Remote Agent on shared isolated persistence", () => {

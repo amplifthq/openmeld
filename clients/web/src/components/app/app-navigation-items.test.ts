@@ -6,18 +6,20 @@ import {
 } from "./shell-layout";
 
 describe("resolveAppNavigationItems", () => {
-	it("uses Home as the only primary Center Agent conversation entry", () => {
+	it("labels the existing Organization root as Center Agent", () => {
 		const items = resolveAppNavigationItems({
 			includeSpaces: true,
 			orgSlug: "acme",
 		});
 
 		expect(items[0]).toEqual({
-			label: "Home",
+			label: "Center Agent",
 			section: "home",
 			to: "/o/acme",
 		});
-		expect(items.some((item) => item.label === "Center Agent")).toBe(false);
+		expect(items.filter((item) => item.label === "Center Agent")).toHaveLength(
+			1
+		);
 	});
 
 	it("keeps Computers out of shared product navigation", () => {

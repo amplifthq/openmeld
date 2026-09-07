@@ -57,7 +57,53 @@ semantics for listing, addressing, Wake, removal, and degraded Direct Message
 behavior. This does not create another Space kind or apply the locked Center
 Agent Direct Message mutation rules to an ordinary Space.
 
+## Email Invitations Into A Space
+
+An Organization owner or admin who is an active member of an ordinary team
+Space can invite a person by email from **Add People or Agents > Invite**.
+Personal Organizations and unconverted Direct Messages do not support this
+action. Existing directory additions remain a separate, immediate operation.
+
+Ordinary Space members can submit an email invitation request or share an
+approval-required link from the same dialog. Core records the Space sponsor;
+an Organization owner/admin reviews Organization entry without needing to join
+the private Space. Approval and acceptance recheck the sponsor's current Space
+and Organization membership. This is one Organization invitation-request flow,
+not a separate Space approval engine. Only direct invitation management requires
+the Organization invitation-create permission.
+
+An invitation is bound to one verified account email and one Space. Opening
+the link never accepts it. The recipient reviews the sender, Organization,
+Space, and ordinary Organization-member role, then explicitly accepts. Login
+and verification preserve the destination; successful acceptance uses shared
+Space entry. Wrong-account, expired, revoked, and unavailable invitations fail
+visibly. An invitation is not a guest role or a computer connection request.
+
+Better Auth remains the Organization invitation and membership writer. Core
+owns the Space invitation intent and policy; the Space owns the membership
+grant and an atomic accepted-or-revoked receipt. D1 status projects that receipt.
+Acceptance can retry after Organization joining or an acknowledgement failure;
+it cannot use an old accepted invitation to re-add a removed Space member.
+Acceptance rechecks the sender's current authority. Revoke never removes an
+already accepted membership. It cancels an unused native Organization invite
+only when this workflow created it and no other live Space invite needs it.
+
+Pending invites stay separate from members. Senders can resend or revoke them;
+the initial expiry matches Better Auth's 48-hour invitation lifetime. A recipient
+can find pending invitations at account-level `/invitations`, without already
+belonging to the Organization. This is not Organization Inbox membership.
+Web and CLI use the same authenticated `POST /api/auth/space-invitations`
+contract in `packages/schemas`; clients do not derive authorization from UI.
+
 ## Agent Owner Participation
+
+The Add People or Agents picker shows the effective membership selection:
+selecting an ordinary Agent also checks its owner. The count and checkmarks
+agree before submission. Deselecting the last Agent removes an implicitly
+selected owner; an explicitly selected owner remains selected. Deselecting an
+owner also clears their selected Agents. Search filtering must not erase the
+effective selection. Core still resolves the authoritative owner at mutation
+time; these checkmarks are not permission facts.
 
 An ordinary human-owned Agent Profile participates in an ordinary Space with
 its owner. When a caller adds such an Agent, Core resolves the Agent's current
@@ -388,6 +434,43 @@ rejects conversion as well as every additional membership, member removal,
 leave, lifecycle, and metadata mutation, and excludes it from ordinary Space
 lists. Clients hide every rejected mutation surface as well as relying on
 server enforcement.
+
+Center Agent chats reuse the ordinary Members panel for viewing the Human and
+Center Agent profiles. This read-only entry does not expose addition,
+conversion, removal, or invitation actions.
+
+### Center Agent session foundation (Flue 2 candidate)
+
+Each private Center Agent session reuses this stricter DM Space specialization;
+the Space ID is its session identity. Multiple sessions retain the same real
+Human/Center Agent pair key. Creating a session uses a dedicated operation with
+an idempotency key scoped to the authenticated Organization and pair. A retry
+reuses that session; a different creation key creates another session. The
+ordinary DM open-or-reuse operation keeps its existing behavior.
+
+Selecting a session checks the exact Space against the caller's current
+Organization, Human Profile and designated Center Agent. An unavailable or
+foreign selection never substitutes another conversation. Message and file
+access still use Space-owned authorization. The session shares the Agent
+Profile's Computer, with its own Space working directory; a directory is not a
+separate Computer or a privacy sandbox.
+
+The existing Center DM parent restrictions apply to every session: hide and
+reject member addition/invitation, conversion, removal/leave, and generic
+metadata, lifecycle, visibility, access and deletion mutations. Keep the
+existing message, file, thread, stream and read-only information surfaces.
+Session management must not unlock those generic mutations as a shortcut.
+
+The candidate provides idempotent creation, authorized paginated listing and
+exact Web route selection through New chat and Chats. Listing filters active,
+unconverted private conversations by the current Organization and real pair;
+the cursor is a pagination boundary, never access authority. Selection still
+checks the owning Space. Dedicated rename, archive and deletion remain future
+session operations. Browser acceptance, explicit execution steering and release
+continuity remain incomplete release gates. Task retirement is deferred; its
+existing product and tools remain available during this upgrade.
+
+### Ordinary Direct Message opening
 
 Opening a Direct Message is idempotent within a generation. OpenMeld first
 looks for an unconverted DM-origin Space for the same organization and pair key

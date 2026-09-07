@@ -22,6 +22,11 @@ import {
 	useState,
 } from "react";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import {
+	buildActiveWakeConversationItems,
+	hasActiveWakeReplyForSource,
+	resolveActiveWakeSourceItem,
+} from "#/lib/spaces/active-wake-conversation";
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
@@ -48,6 +53,7 @@ import {
 	buildSpaceWakeOutcomeIndex,
 	resolveSpaceMessageWakeStopTarget,
 	resolveSpaceMessageWakeStopTargets,
+	resolveWakeStopTargetForProgressItem,
 	type SpaceWakeOutcomeIndex,
 	type SpaceWakeStopRequestStatus,
 	type SpaceWakeStopTargetResolution,
@@ -69,7 +75,6 @@ import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
 import {
 	SpaceAgentInteractionCard,
 	type SpaceAgentInteractionResponseHandler,
-	type SpaceAgentProfileEditHandler,
 } from "./space-agent-interaction-card";
 import {
 	resolveSpaceAgentInteractionPlacement,
@@ -97,6 +102,10 @@ import type {
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
+import {
+	resolveAnchoredSpaceExecutionRecoveryRequest,
+	type SpaceExecutionRecoveryHandler,
+} from "./space-execution-recovery-actions";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
 import type { SpaceAgentProfileTriggerRenderer } from "./space-message-agent-mention";
 import { SpaceMessageBody } from "./space-message-body";
@@ -109,7 +118,10 @@ import {
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 } from "./space-message-bubble-style";
-import { copySpaceTimelineItemWithFeedback } from "./space-message-copy";
+import {
+	copySpaceTimelineItemWithFeedback,
+	isSpaceMessageCopyPending,
+} from "./space-message-copy";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
 import {
@@ -129,16 +141,11 @@ import {
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
-import {
-	resolveAnchoredSpaceExecutionRecoveryRequest,
-	resolveAnchoredSpaceWakeRetryRequest,
-	type SpaceExecutionRecoveryHandler,
-	type SpaceWakeRetryAttempt,
-	type SpaceWakeRetryHandler,
-} from "./space-wake-retry";
+import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
+	SpaceWakeStopScope,
 	shouldRenderSpaceWakeStopControl,
 } from "./space-wake-stop-control";
 import type {
@@ -237,7 +244,6 @@ type SpaceThreadPanelProps = {
 	pendingActionSurface?: ReactNode;
 	profileControl?: ReactNode;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
-	editableAgentProfileIds?: ReadonlySet<string>;
 	wakeFailureTargetContextsByProfileId: ReadonlyMap<
 		string,
 		WakeFailureTargetContext
@@ -259,14 +265,12 @@ type SpaceThreadPanelProps = {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onRemoveComposerFile: (localId: string) => void;
 	onMentionButtonClick: () => void;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onSendText?: (text: string) => Promise<void>;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	onSend: () => Promise<void>;
@@ -292,8 +296,20 @@ type SpaceThreadPanelProps = {
 };
 
 export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
+	return (
+		<SpaceWakeStopScope
+			key={input.activeThread?.threadId}
+			progressItems={input.ephemeralActivityItems}
+			stopRequestStatusBySelectorKey={input.wakeStopRequestStatusBySelectorKey}
+		>
+			<SpaceThreadPanelContent {...input} />
+		</SpaceWakeStopScope>
+	);
+}
+
+function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 	const panelWidth = useSpacePanelWidth({ panel: "thread" });
-	const registerMessageElement = useThreadInitialFocus({
+	const { registerMessageElement, jumpToMessage } = useThreadInitialFocus({
 		activeThread: input.activeThread,
 		initialFocusSignalId: input.initialFocusSignalId,
 		initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
@@ -333,9 +349,49 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 			input.filePreviewUrlsById,
 		]
 	);
+	const profileEntriesById = useMemo(
+		() => buildSpaceMemberDirectoryEntryByProfileId(input.membersSnapshot),
+		[input.membersSnapshot]
+	);
+	const scopedActivityItems = useMemo(
+		() =>
+			input.ephemeralActivityItems.filter((progress) =>
+				progress.sourceContext
+					? progress.sourceContext.threadId === activeThreadId
+					: rawThreadTimelineItems.some(
+							(item) =>
+								item.id !== activeThreadRootSignalId &&
+								(item.id === progress.sourceSignalId ||
+									(progress.clientMessageId &&
+										(item.clientMessageId === progress.clientMessageId ||
+											item.wakeClientMessageId === progress.clientMessageId)))
+						)
+			),
+		[
+			input.ephemeralActivityItems,
+			activeThreadId,
+			activeThreadRootSignalId,
+			rawThreadTimelineItems,
+		]
+	);
 	const threadTimelineItems = useMemo(
-		() => orderSpaceTimelineItemsForConversation(rawThreadTimelineItems),
-		[rawThreadTimelineItems]
+		() =>
+			orderSpaceTimelineItemsForConversation(
+				buildActiveWakeConversationItems({
+					activityItems: scopedActivityItems,
+					profileEntriesById,
+					spaceId: input.activeThread?.spaceId,
+					threadId: activeThreadId,
+					timelineItems: rawThreadTimelineItems,
+				})
+			),
+		[
+			rawThreadTimelineItems,
+			scopedActivityItems,
+			profileEntriesById,
+			input.activeThread?.spaceId,
+			activeThreadId,
+		]
 	);
 	const activeUnreadTargets = useMemo(
 		() =>
@@ -345,7 +401,8 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 		[activeThreadRootSignalId, input.unreadTargets]
 	);
 	const firstUnreadSignalId = activeUnreadTargets[0]?.signalId ?? null;
-	const latestThreadOccurredAtMs = threadTimelineItems.at(-1)?.createdAtMs ?? 0;
+	const latestThreadOccurredAtMs =
+		rawThreadTimelineItems.at(-1)?.createdAtMs ?? 0;
 	const focusStatusMessage = resolveThreadFocusStatusMessage({
 		activeThread: input.activeThread,
 		hasTargetSignal: rawThreadTimelineItems.some(
@@ -379,10 +436,6 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 			buildAnchoredSpaceOutcomeNoticesBySourceSignalId(rawThreadTimelineItems),
 		[rawThreadTimelineItems]
 	);
-	const profileEntriesById = useMemo(
-		() => buildSpaceMemberDirectoryEntryByProfileId(input.membersSnapshot),
-		[input.membersSnapshot]
-	);
 	const wakeStopTargetLabelsByProfileId = useMemo(
 		() => buildWakeStopTargetLabelsByProfileId(profileEntriesById),
 		[profileEntriesById]
@@ -413,7 +466,7 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 	} = useThreadMessageDetailsController({
 		activeThread: input.activeThread,
 		agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
-		ephemeralActivityItems: input.ephemeralActivityItems,
+		ephemeralActivityItems: scopedActivityItems,
 		isPersonalContext: input.isPersonalContext === true,
 		rawThreadTimelineItems,
 		wakeFailureTargetContextsByProfileId:
@@ -426,26 +479,6 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 	const onWakeStopRequest = useLatestCallback(
 		input.onWakeStopRequest ?? UNAVAILABLE_SPACE_WAKE_STOP_REQUEST
 	);
-	const retryWakeTargetInThread = useCallback(
-		async (request: SpaceWakeRetryAttempt) => {
-			const thread = input.activeThread;
-			if (!(thread && input.onRetryWakeTarget)) {
-				throw new Error("The originating thread is no longer open.");
-			}
-			await input.onRetryWakeTarget({
-				...request,
-				threadContext: {
-					rootSignalId: thread.rootSignalId,
-					threadId: thread.threadId,
-				},
-			});
-		},
-		[input.activeThread, input.onRetryWakeTarget]
-	);
-	const onThreadRetryWakeTarget =
-		input.activeThread && input.onRetryWakeTarget
-			? retryWakeTargetInThread
-			: undefined;
 	return (
 		<SpaceInlineSidePanel
 			ariaLabel="Thread"
@@ -465,15 +498,14 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 					input.actionableAgentInteractionPlacement
 				)}
 				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
-				allItems={rawThreadTimelineItems}
+				allItems={threadTimelineItems}
 				anchoredOutcomeNoticesBySourceSignalId={
 					anchoredOutcomeNoticesBySourceSignalId
 				}
 				centerAgentProfileId={input.centerAgentProfileId ?? null}
 				computerSetupActionSignalId={computerSetupActionSignalId}
 				computerSetupContext={computerSetupContext}
-				editableAgentProfileIds={input.editableAgentProfileIds}
-				ephemeralActivityItems={input.ephemeralActivityItems}
+				ephemeralActivityItems={scopedActivityItems}
 				errorMessage={input.signalsErrorMessage}
 				firstUnreadSignalId={firstUnreadSignalId}
 				isLoading={input.signalsIsLoading}
@@ -481,11 +513,10 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 				items={threadTimelineItems}
 				latestThreadOccurredAtMs={latestThreadOccurredAtMs}
 				onAgentInteractionResponse={input.onAgentInteractionResponse}
-				onEditAgentProfile={input.onEditAgentProfile}
+				onJumpToMessage={jumpToMessage}
 				onOpenMessageDetails={onOpenMessageDetails}
 				onOpenSpaceFile={input.onOpenSpaceFile}
 				onRecoverExecution={messageDetailsItem ? undefined : onRecoverExecution}
-				onRetryWakeTarget={onThreadRetryWakeTarget}
 				onViewedThroughTs={input.onViewedThroughTs}
 				onWakeStopRequest={
 					input.onWakeStopRequest ? onWakeStopRequest : undefined
@@ -518,7 +549,6 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 				messageDetailsItem={messageDetailsItem}
 				onClose={closeMessageDetails}
 				onRecoverExecution={onRecoverExecution}
-				onRetryWakeTarget={onThreadRetryWakeTarget}
 				onWakeStopRequest={onWakeStopRequest}
 				panelInput={input}
 				profilePresentationsById={profilePresentationsById}
@@ -536,7 +566,6 @@ function ThreadSelectedMessageDetails(input: {
 	messageDetailsItem: SpaceTimelineItem | null;
 	onClose: () => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onWakeStopRequest: SpaceWakeStopRequestHandler;
 	panelInput: SpaceThreadPanelProps;
 	profilePresentationsById: ReadonlyMap<
@@ -577,7 +606,6 @@ function ThreadSelectedMessageDetails(input: {
 			}}
 			onRecoverExecution={input.onRecoverExecution}
 			onReportMessage={panelInput.onReportMessage}
-			onRetryWakeTarget={input.onRetryWakeTarget}
 			onWakeStopRequest={
 				panelInput.onWakeStopRequest ? input.onWakeStopRequest : undefined
 			}
@@ -694,6 +722,7 @@ function useThreadInitialFocus(input: {
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 }) {
+	const messageElements = useRef(new Map<string, HTMLElement>());
 	const initialFocusElementRef = useRef<{
 		element: HTMLElement;
 		signalId: string;
@@ -703,6 +732,11 @@ function useThreadInitialFocus(input: {
 	const appliedInitialFocusRef = useRef<string | null>(null);
 	const registerMessageElement = useCallback(
 		(signalId: string, element: HTMLElement | null) => {
+			if (element) {
+				messageElements.current.set(signalId, element);
+			} else {
+				messageElements.current.delete(signalId);
+			}
 			if (element) {
 				if (signalId === input.initialFocusSignalId) {
 					initialFocusElementRef.current = { element, signalId };
@@ -771,7 +805,12 @@ function useThreadInitialFocus(input: {
 		[]
 	);
 
-	return registerMessageElement;
+	const jumpToMessage = useCallback((signalId: string) => {
+		const element = messageElements.current.get(signalId);
+		element?.scrollIntoView({ block: "center" });
+		element?.focus({ preventScroll: true });
+	}, []);
+	return { registerMessageElement, jumpToMessage };
 }
 
 function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
@@ -973,7 +1012,6 @@ function ThreadTimeline(input: {
 	errorMessage: string | null;
 	firstUnreadSignalId: string | null;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
-	editableAgentProfileIds?: ReadonlySet<string>;
 	centerAgentProfileId: string | null;
 	computerSetupActionSignalId: string | null;
 	computerSetupContext?: CenterAgentComputerSetupContext;
@@ -988,9 +1026,7 @@ function ThreadTimeline(input: {
 	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	orgSlug?: string;
 	prepareSetupHref?: string;
@@ -999,6 +1035,7 @@ function ThreadTimeline(input: {
 		SpaceCollaborationProfilePresentation
 	>;
 	readOnly: boolean;
+	onJumpToMessage: (signalId: string) => void;
 	registerMessageElement: (
 		signalId: string,
 		element: HTMLElement | null
@@ -1122,7 +1159,6 @@ function ThreadTimeline(input: {
 											input.computerSetupActionSignalId
 										}
 										computerSetupContext={input.computerSetupContext}
-										editableAgentProfileIds={input.editableAgentProfileIds}
 										ephemeralActivityItems={input.ephemeralActivityItems}
 										isFirstInGroup={messageGroupPosition.isFirstInGroup}
 										isLastInGroup={messageGroupPosition.isLastInGroup}
@@ -1131,12 +1167,11 @@ function ThreadTimeline(input: {
 										onAgentInteractionResponse={
 											input.onAgentInteractionResponse
 										}
-										onEditAgentProfile={input.onEditAgentProfile}
+										onJumpToMessage={input.onJumpToMessage}
 										onOpenAgentProfile={input.onOpenAgentProfile}
 										onOpenMessageDetails={input.onOpenMessageDetails}
 										onOpenSpaceFile={input.onOpenSpaceFile}
 										onRecoverExecution={input.onRecoverExecution}
-										onRetryWakeTarget={input.onRetryWakeTarget}
 										onWakeStopRequest={input.onWakeStopRequest}
 										orgSlug={input.orgSlug}
 										profilePresentationsById={input.profilePresentationsById}
@@ -1247,7 +1282,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 		readonly SpaceTimelineItem[]
 	>;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
-	editableAgentProfileIds?: ReadonlySet<string>;
 	isFirstInGroup: boolean;
 	isLastInGroup: boolean;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
@@ -1258,9 +1292,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	renderAgentProfileTrigger: SpaceAgentProfileTriggerRenderer;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	orgSlug?: string;
 	profilePresentationsById: ReadonlyMap<
@@ -1268,6 +1300,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 		SpaceCollaborationProfilePresentation
 	>;
 	readOnly: boolean;
+	onJumpToMessage: (signalId: string) => void;
 	registerMessageElement: (
 		signalId: string,
 		element: HTMLElement | null
@@ -1299,31 +1332,45 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 		item: input.item,
 		profilePresentationsById: input.profilePresentationsById,
 	});
+	const wakePresentationItem = resolveActiveWakeSourceItem({
+		item: input.item,
+		timelineItems: input.allItems,
+	});
 	const wakeProgressState = resolveSpaceMessageWakeProgressState({
 		agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
 		isPersonalContext: input.isPersonalContext,
-		item: input.item,
+		item: wakePresentationItem,
 		items: input.ephemeralActivityItems,
 		timelineItems: input.allItems,
 		wakeOutcomeIndex: input.wakeOutcomeIndex,
 		wakeFailureTargetContextsByProfileId:
 			input.wakeFailureTargetContextsByProfileId,
 	});
-	const wakeStopTargets = resolveSpaceMessageWakeStopTargets({
-		item: input.item,
-		stopRequestStatusBySelectorKey: input.wakeStopRequestStatusBySelectorKey,
-		targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
-		timelineItems: input.allItems,
-		wakeOutcomeIndex: input.wakeOutcomeIndex,
-		wakeProgressItems: input.ephemeralActivityItems,
-	});
+	const wakeStopTargets = input.item.activeWakeProgress
+		? [
+				resolveWakeStopTargetForProgressItem({
+					item: input.item.activeWakeProgress,
+					stopRequestStatusBySelectorKey:
+						input.wakeStopRequestStatusBySelectorKey,
+				}),
+			]
+		: resolveSpaceMessageWakeStopTargets({
+				item: wakePresentationItem,
+				stopRequestStatusBySelectorKey:
+					input.wakeStopRequestStatusBySelectorKey,
+				targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
+				timelineItems: input.allItems,
+				wakeOutcomeIndex: input.wakeOutcomeIndex,
+				wakeProgressItems: input.ephemeralActivityItems,
+			});
 	const agentInteractionItems = resolveSpaceMessageAgentInteractionItems({
 		sourceItem: input.item,
 		wakeProgressItems: input.ephemeralActivityItems,
 	});
 	const wakeStopControl = renderThreadWakeStopControl({
 		onWakeStopRequest: input.onWakeStopRequest,
-		readOnly: input.readOnly,
+		readOnly:
+			input.readOnly || wakePresentationItem.deliveryState === "pending",
 		wakeStopTargets,
 	});
 	const wakeThinkingEntries =
@@ -1363,16 +1410,28 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 		context: input.computerSetupContext,
 		itemId: input.item.id,
 	});
-	const progressStatus = renderThreadMessageProgressStatus({
-		align: messageAlign,
-		control: wakeStopControl,
-		entries: wakeThinkingEntries,
+	const progressStatus = hasActiveWakeReplyForSource({
 		item: input.item,
-		messageDetailsItem,
-		onOpenMessageDetails: input.onOpenMessageDetails,
-	});
+		timelineItems: input.allItems,
+	})
+		? null
+		: renderThreadMessageProgressStatus({
+				align: messageAlign,
+				control: wakeStopControl,
+				entries: wakeThinkingEntries,
+				item: input.item,
+				messageDetailsItem,
+				onOpenMessageDetails: input.onOpenMessageDetails,
+			});
 	return (
-		<MessageScrollerItem messageId={input.item.id}>
+		<MessageScrollerItem
+			className={
+				input.item.activeWakeProgress
+					? "[content-visibility:visible]"
+					: undefined
+			}
+			messageId={input.item.id}
+		>
 			<Message
 				align={messageAlign}
 				className={cn(
@@ -1465,13 +1524,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										key={resolveSpacePendingAgentActionIdentity(
 											interactionItem
 										)}
-										onEditAgentProfile={
-											input.editableAgentProfileIds?.has(
-												interactionItem.targetProfileId
-											)
-												? input.onEditAgentProfile
-												: undefined
-										}
 										onRespond={
 											input.readOnly
 												? undefined
@@ -1496,7 +1548,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								notices: anchoredOutcomeNotices,
 								onOpenMessageDetails: input.onOpenMessageDetails,
 								onRecoverExecution: input.onRecoverExecution,
-								onRetryWakeTarget: input.onRetryWakeTarget,
 								readOnly: input.readOnly,
 								sourceItem: input.item,
 								spaceReferencesById: input.spaceReferencesById,
@@ -1505,6 +1556,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							{showProgressInAnswerArea ? progressStatus : null}
 						</BubbleContent>
 					</Bubble>
+					{showProgressInAnswerArea ? null : progressStatus}
 					<ThreadTimelineMessageFooter
 						addressingTargets={addressingTargets}
 						align={messageAlign}
@@ -1516,7 +1568,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						openMeldProfileId={input.selfProfileId}
 						organizationSlug={input.orgSlug}
 					/>
-					{showProgressInAnswerArea ? null : progressStatus}
 				</MessageContent>
 			</Message>
 		</MessageScrollerItem>
@@ -1536,7 +1587,10 @@ function ThreadTimelineMessageFooter(input: {
 	openMeldProfileId: string;
 	organizationSlug?: string;
 }) {
-	if (input.item.transientActivityPurpose !== null) {
+	if (
+		input.item.transientActivityPurpose !== null ||
+		input.item.activeWakeProgress
+	) {
 		return null;
 	}
 	const details = input.messageDetailsItem
@@ -1552,6 +1606,7 @@ function ThreadTimelineMessageFooter(input: {
 		<SpaceMessageFooter
 			addressingTargets={input.addressingTargets}
 			align={input.align}
+			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={details}
 			failureSummary={input.failureSummary}
 			onCopy={() =>
@@ -1741,6 +1796,7 @@ function ThreadComposer(input: {
 				maxHeight: 180,
 			}}
 			slots={{
+				beforePrimaryAction: <SpaceComposerActiveWakes placement="thread" />,
 				error: input.composerErrorMessage ? (
 					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
 						<p>{input.composerErrorMessage}</p>
@@ -1778,7 +1834,6 @@ function renderAnchoredThreadOutcomeRows(input: {
 	notices: readonly SpaceTimelineItem[];
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	readOnly: boolean;
 	sourceItem: SpaceTimelineItem;
 	spaceReferencesById?: SpaceMessageReferencesById;
@@ -1809,13 +1864,6 @@ function renderAnchoredThreadOutcomeRows(input: {
 							outcomeNotice,
 						})
 					: null;
-				const retryRequest = outcomeNotice
-					? resolveAnchoredSpaceWakeRetryRequest({
-							notices: input.notices,
-							outcomeNotice,
-							sourceItem: input.sourceItem,
-						})
-					: null;
 				return (
 					<SpaceOutcomeRow
 						align={input.align}
@@ -1828,11 +1876,7 @@ function renderAnchoredThreadOutcomeRows(input: {
 						onRecoverExecution={
 							input.readOnly ? undefined : input.onRecoverExecution
 						}
-						onRetryWakeTarget={
-							input.readOnly ? undefined : input.onRetryWakeTarget
-						}
 						recoveryRequest={recoveryRequest}
-						retryRequest={retryRequest}
 						spaceReferencesById={input.spaceReferencesById}
 						text={resolveGroupedOutcomeRowText({
 							notices: group.notices,

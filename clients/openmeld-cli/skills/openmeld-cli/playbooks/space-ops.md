@@ -131,6 +131,47 @@ If `add-me --agent-profile <id>` times out while reading that exact Agent
 Profile Binding, no Space membership was written before that step completed.
 Run `openmeld service status`, then retry the same command.
 
+## Email Invitations
+
+Ordinary members request invitations through
+`openmeld org invitation-requests create --space <space-id> --email <email> --view agent`.
+Use `org invitation-requests link --space <space-id> --view agent` to share an
+approval-required link. Owners/admins review with `approve --request <id>` or
+`reject --request <id>`. Both paths use the same request owner as Web; neither
+request creation nor approval adds a member. See `references/commands.md` for
+status, cancellation, and received-link commands.
+
+Use the current signed-in account, not a speaking Profile. No local Service or
+computer connection is required. Switch to the target Organization before
+sending or listing; only an Organization owner/admin who belongs to the Space
+can manage invitations.
+
+```bash
+openmeld org switch <organization-slug> --view agent
+openmeld space invitations create --space <space-id> --email <recipient-email> --view agent
+openmeld space invitations list --space <space-id> --view agent
+openmeld space invitations resend --invitation <invitation-id> --view agent
+openmeld space invitations revoke --invitation <invitation-id> --view agent
+openmeld space invitations pending --view agent
+openmeld space invitations preview --invitation <invitation-id> --view agent
+openmeld space invitations accept --invitation <invitation-id> --view agent
+```
+
+`pending` is account-wide and works before joining an Organization. Preview is
+read-only; accept is an explicit membership mutation requiring user intent.
+Accept joins the Organization as an ordinary member if needed, then the named
+Space. It does not connect a computer. Read the returned `spaceId` using
+`openmeld space access <space-id> --view agent` after acceptance.
+
+Agent View returns structured invitation IDs, destinations, lifecycle status,
+and `space.invitation.*` error codes with a nonzero exit status. For
+`account_mismatch`, sign in with the recipient account; for
+`email_verification_required`, verify that account email. An inactive invite
+needs a new invitation from the sender. Retry interrupted acceptance with the
+same ID; an accepted invitation never restores subsequently removed membership.
+For `revoke_incomplete`, repeat revoke with the same ID to finish cancelling
+the unused Organization invitation. Do not infer membership from email delivery.
+
 ## Send Messages
 
 Send one line:

@@ -75,6 +75,16 @@ Lifecycle-owner diagnostics are scoped to one lane. A production system service
 and a dev-local system service may run on the same computer without becoming
 multiple owners. `multiple_owners` means that more than one lifecycle mechanism
 is controlling the same lane, such as launchd plus a direct CLI process.
+For a foreground Service with an explicit `OPENMELD_HOME`, the existing
+installation-root check also scopes manager ownership: a registration belonging
+to another installation is not a second owner of this isolated Service.
+Inventory anomalies and effective runtime status must use that same scoped
+manager observation. This does not permit changing another installation's
+registration or suppress multiple owners within the current installation.
+A fresh running lease identifying a directly started process takes precedence
+over that same PID's managed executable path when classifying lifecycle owners.
+Using an installed binary does not itself mean the OS service manager started
+it. Other PIDs and an actually running manager remain independent evidence.
 
 OpenMeld Service does not own:
 
@@ -406,12 +416,17 @@ actions. It includes only a bounded excerpt of the preceding output. This
 repair turn does not publish by itself, create a second dispatch, or change the
 Binding's controller-native permission intent.
 
-Immediately before that one repair turn, the Service may restore the bundled
-`openmeld-cli` Skill for only the active controller when its managed copy is
+Before a dispatch and immediately before that one repair turn, the Service may
+restore the locally selected `openmeld-cli` Skill for only the active controller when its managed copy is
 missing or outdated. The Service must use the active lane, hold the normal
 skills lock, and leave any user-owned conflicting file untouched. Skill repair
 is guidance recovery, not execution authority; a failure remains diagnostic
 and must not bypass the dispatch-scoped action checks.
+
+The same local content selection is maintained independently by the existing
+maintenance worker; see [Official CLI Skill delivery](../engineering/official-cli-skill.md).
+Dispatch startup performs no remote download and supplies the installed entry
+path plus the public Markdown fallback. Skill content does not restart Service.
 
 Codex resume may use the smaller per-turn input only when the `thread/resume`
 response proves that `thread.threadSource` matches the exact current
@@ -528,8 +543,13 @@ intersects with the Agent Profile's controller-native permission mode; neither
 layer may widen the other. Profile, Project, Organization, and Space surfaces
 must not add overrides or duplicate this policy.
 
-Owner policy reads and writes target the current Computer's exact device and
-lane plus its live owner Service session. They do not require a registered or
+Owner policy reads and writes target the explicitly selected Computer's exact
+device and lane plus its live owner Service session. PeopleComputers routes
+revalidate that target and never fall back to an account Binding or another
+environment. The older current-Computer endpoints remain compatibility
+adapters for supported clients. Web policy caches include account, device and
+lane, and changing the selected environment remounts the editor so a draft
+cannot cross targets. They do not require a registered or
 enabled local Agent execution target: execution-target inventory governs Agent
 operations, while this Computer-wide policy remains manageable whenever the
 exact current Service is connected and advertises the negotiated capability.
@@ -948,6 +968,15 @@ that decision.
   "connect this computer" as one atomic decision and never models setup
   internals.
 
+Setup connects its existing Terminal transport before exchanging computer
+authorization and asking for account-switch consent. Canceling the switch or
+failing authorization reports a blocked `connect_terminal` outcome through that
+same connection and waits for the Core snapshot before closing. It does not
+start a local account transition. Normal setup reuses the connection; connection
+epochs still reject an outcome from a replaced Terminal. Web removes an unusable
+command and offers an explicit fresh attempt. Device authorization stays
+single-use, and an unused candidate session is still revoked on cancellation.
+
 Web may offer an enable/disable control for an already reported local Agent
 Controller only as a current-service command. That command must target the
 current connected device/runtime lane through Core and RuntimeTransportHub,
@@ -984,6 +1013,18 @@ turn that controller back on. Only an explicit current-service enable command
 or an explicit CLI agent enable command may reverse it.
 
 ## Current-Device Project Operations
+
+Project controls expose an additive `readConnections` capability. A
+`discover_projects` request with `includeCandidates: false` reads the
+existing owner/device/lane-local connection store and checks path availability
+without Git or inventory discovery. Its `gitStatus: not_checked` and
+`not_connected` project status describe an unsearched Project, not a failed
+search. This read does not rotate candidate-discovery epochs. Saved local
+connections remain the sole durable path authority; this optimization does
+not relax execution-time validation or Core-owned Wakeability.
+RuntimeTransportHub strips `includeCandidates` for a Service without this
+capability. Public local-runtimes responses remain unchanged so existing strict
+client readers can continue to use the new Core.
 
 Project discovery and folder connection are local-machine decisions because
 only the current computer can inspect and validate its filesystem. Web may
@@ -1045,6 +1086,14 @@ Project-control request itself fails, its authoritative error distinguishes
 Service offline, Service update required, and a retryable discovery failure;
 clients must not collapse every failure into Service unavailable.
 
+PeopleComputers Project discovery instead names the selected device and lane.
+Its eligibility comes from that exact session's shared `localProjectControl`
+control projection, not Binding preference, Agent reports, or Wakeability.
+Core reuses the Project authorization and canonical-reference preparation path;
+only target resolution changes. An unknown inventory or failed query remains a
+retryable checking failure, not evidence that the selected Service disconnected.
+Legacy current-target Project operations remain available to existing clients.
+
 An operation response may contain an absolute local path only for immediate
 forwarding through Core and Gateway to the authenticated owner who initiated
 that request. Immediate forwarding is not storage. Local paths must never be
@@ -1093,11 +1142,17 @@ facts without asking the person to reconnect or rebuild the Profile.
 
 ## Local Folder Picker
 
-Local Folder Picker is a current-Computer, owner-self interaction capability.
+Local Folder Picker is an owner-self Computer interaction capability.
 It lets an authenticated Web action ask the exact live OpenMeld Service to open
 the operating system's folder chooser on that computer. It is a sibling of
 `computerFileAccess`, `localProjectControl`, and `localAgentControl`; none of
 those product contracts owns it.
+
+PeopleComputers folder selection names the exact device and environment and
+revalidates the current owner Service session; it never falls back to the
+account's routing preference. The existing current-Computer endpoint remains
+for supported clients. A browser draft discards late picker results after
+either the selected device or environment changes, or the editor unmounts.
 
 The picker returns only folders the person selected. It does not inspect folder
 contents, discover Projects, validate repositories, update Computer file access,
@@ -1543,6 +1598,16 @@ must never be promoted into Agent Profile readiness or Wakeability.
 
 ## Service Freshness And Compatibility
 
+Computer-level local-agent availability is an existential capability summary,
+not an all-controllers health check. With a current, compatible Service session,
+one enabled, ready local controller is sufficient for the computer to offer local
+execution. An unrelated controller's failed check or missing sign-in remains
+visible on that controller but must not block a ready controller. A partial
+catalog remains partial; do not erase its individual failures to make the summary
+available. This summary does not authorize a Wake: Core's Agent Profile
+Wakeability must still validate the selected controller, Binding, permissions,
+and task requirements. It must not overwrite an individual execution's outcome.
+
 Service freshness and execution compatibility are separate diagnostic concepts.
 Freshness says whether a newer Service bundle exists. Compatibility says whether
 the current Service is still eligible to receive new Wake work.
@@ -1566,6 +1631,26 @@ running, that it starts automatically when the user signs in, and that
 `openmeld service autostart disable` disables sign-in autostart. It must also state
 that `openmeld service stop` stops OpenMeld Service and local agents cannot be activated
 until OpenMeld Service starts again.
+
+On Windows, native Task Scheduler tasks run with the current user's interactive
+token and ordinary privileges. They start at that user's sign-in, run on battery,
+do not require network availability, have no total execution deadline, and restart
+after process failure. The maintenance task also has an hourly trigger. Task names
+include the user's SID and lane; passwords and administrator privileges are not
+required for new installs. Logging out ends local availability, as does logging out
+of the macOS LaunchAgent session. Locking the screen does not mean logging out.
+Task registration is process supervision, not Service readiness: startup still
+requires the current Service lease, account/lane alignment, and Core connection.
+
+The Windows adapter retains the serialized `windows-service` controller identifier
+for supported local-state and wire readers; that identifier does not imply SCM.
+New installations do not register batch files as SCM executables. A legacy SCM
+registration is migrated only after it stops and only when its executable matches
+this lane's exact legacy script. A different installation or insufficient migration
+permissions fails visibly. The replacement task stays disabled until the old
+registration is removed, so migration cannot create two execution owners. Task
+Scheduler's registered action is the source for command and environment diagnostics;
+new installs do not maintain a parallel batch-file configuration.
 
 On macOS, the managed LaunchAgent uses `RunAtLoad=true` and `KeepAlive=true`.
 The npm distribution invokes its generated OpenMeld-owned wrapper through
@@ -1880,12 +1965,46 @@ New Core accepts older Services that omit it; rollback removes the new local
 Service before rolling Core back.
 
 OpenMeld Tools maintenance uses the same operation identity across both stages:
-the running Service first records the CLI download/install attempt, then the
-new CLI hands that operation to the Service update job above. The Service job
+the CLI or running Service records a durable download/install request and wakes
+the OS-owned maintenance worker. That worker alone executes the attempt; the
+new CLI hands the same operation to the Service update job above. The Service job
 becomes the projection owner as soon as the handoff exists. A computer with no
 saved preference enables automatic OpenMeld Tools updates; an invalid preference
 fails closed and reports maintenance attention. Automatic requests obey that
 preference, while an explicit user request still runs when automation is off.
+Maintenance reads only the owning device preferences file (or the supported
+legacy preference before migration). Broken Skills or controller state cannot
+disable that read. Local configuration mutations hold the existing configuration
+lock and modify only their owned fields and files, preserving unrelated fields.
+Unknown file versions and malformed owned files cannot be overwritten by a
+setter. Legacy migration fills missing split files, never replaces an existing
+split file, and removes its source only after all split files are supported.
+Empty owned files remain explicit so an interrupted migration cannot resurrect
+deleted settings. The filesystem layout marker likewise rejects a newer version
+without modifying it. This release continues writing v1; it adds no new local
+format or minimum-version requirement.
+
+Maintenance is installed alongside the Service, rather than only after the first
+update request. Its separate CLI entry does not initialize the business command
+graph, filesystem-layout migration, account selection, or Skills inventory.
+Sign-in and hourly OS triggers can discover a release even when business startup
+fails and no update request exists. The Service no longer owns a parallel hourly
+update loop. The persisted background/stopped intent and automatic-update
+preference remain authoritative; maintenance does not override an explicit stop.
+One cross-process request lock preserves the operation identity across CLI, Web,
+and scheduled requests; a separate worker execution lock prevents concurrent
+installers without holding the request lock throughout downloads or active work.
+Maintenance verifies the OS registration belongs to its installation before
+downloading, then rechecks under the lifecycle lock before switching the Service.
+A worker left behind after another installation claims the same lane must stop
+without changing that installation. Windows ownership comes from the registered
+task action and its environment, not from an obsolete batch file.
+
+Local runtime metadata uses a pinned disk-format epoch, independent of the
+Runtime Transport epoch. A protocol change alone must not erase runtime data.
+Supported v1 legacy repair remains available; a future incompatible local format
+requires versioned readers before new writers. Newer metadata versions and actual
+read errors stop migration without changing the data.
 For a Service that supports release-triggered maintenance, Core uses the
 existing Runtime Transport connection to request one automatic recheck when
 Core's stable-channel release manifest first becomes actionable for that
@@ -1966,16 +2085,19 @@ not create a process that appears healthy locally but is known to be rejected
 by Core.
 
 The binary update worker runs from a stable lane-owned carrier, not from a
-version directory. A self-contained npm update worker runs from the prepared
-bundle named by its OS registration. Bundle cleanup treats both that
-registration and the durable pending job as recovery references, so neither the
+version directory. A self-contained npm update worker uses a stable lane-owned
+launcher that imports one verified bundle. Successful Service verification may
+atomically replace the carrier or launcher; the running worker must never unload
+its own OS registration as part of that replacement. Bundle cleanup treats the
+launcher, OS registration, and durable pending job as recovery references, so neither the
 registered carrier nor the replacement target can be removed while the handoff
 is recoverable. Migration may likewise protect a legacy worker's pinned managed
 version in addition to the current and rollback versions.
 
-The update transaction must copy and verify the stable binary worker and
-rewrite and verify the OS registration before publishing the initial pending
-job. When replacing a pending target, every resource referenced by the current
+An installation without independent maintenance must copy and verify its worker
+and establish the OS registration before publishing the initial pending job.
+An existing independent worker stays in place until the target Service is verified.
+When replacing a pending target, every resource referenced by the current
 durable job remains recoverable until the replacement job is atomically
 committed; replacement must not disruptively re-register the already-owned OS
 worker before that commit. Preparing the stable binary worker carrier and
@@ -2079,6 +2201,13 @@ repair and update fail closed and explain the deliberate force command together
 with its no-active-work precondition. They must not infer that a missing control
 endpoint means no local Agent work is running or force-stop the process
 automatically.
+
+An exited process has no live command path to inspect. When its lease is stale
+because the process is gone and the owned-process scan finds no matching
+process, that absence is not a runtime bundle mismatch and must not request
+system-registration repair. Preserve the stale-lease diagnostic and the normal
+restart path. A live or observed process still requires the existing bundle and
+command-path checks; independent bundle corruption remains blocking.
 
 One narrow crash-loop recovery is deterministic rather than destructive: when
 the local control endpoint is missing, runtime state is not running, and process

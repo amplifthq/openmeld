@@ -10,6 +10,7 @@ import {
 	serializeStartFlowState,
 } from "#/components/app/start-flow-state";
 import { resolveLastUsedHumanProfileStorageKey } from "#/lib/spaces/last-used-profile";
+import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { startQueryKeys } from "#/query/query-keys";
 import { createSpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
 import { spaceQueryKeys } from "#/query/spaces/status";
@@ -123,6 +124,7 @@ vi.mock("#/components/spaces/space-profile-required-state", () => ({
 
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
+		storageScope: "user-123",
 		activeOrganization: null,
 		currentOrganization: {
 			id: "org-acme",
@@ -162,6 +164,10 @@ import { AppSpaceEntryContent } from "./$spaceId";
 
 describe("app space entry route", () => {
 	beforeEach(() => {
+		vi.spyOn(
+			resolveAppQueryPersistenceController(),
+			"clearSpaceConversation"
+		).mockResolvedValue(undefined);
 		window.sessionStorage.clear();
 		window.localStorage.clear();
 		appDirectMessageShellMock.mockClear();
@@ -205,6 +211,49 @@ describe("app space entry route", () => {
 		window.sessionStorage.clear();
 		window.localStorage.clear();
 		vi.restoreAllMocks();
+	});
+
+	it("restores a saved conversation on browser mount without waiting for the entry resolver or a client loader", async () => {
+		const queryClient = createTestQueryClient();
+		resolveSpaceEntryMock.mockImplementation(
+			() => new Promise(() => undefined)
+		);
+		const controller = resolveAppQueryPersistenceController();
+		const restore = vi
+			.spyOn(controller, "activateSpaceConversation")
+			.mockImplementation(() => {
+				queryClient.setQueryData(
+					spaceQueryKeys.displaySnapshot("space-123", "profile-123"),
+					createSpaceConversationDisplaySnapshot(
+						createSpaceStatus({
+							spaceId: "space-123",
+							spacePurpose: "collaboration",
+						})
+					)
+				);
+				queryClient.setQueryData(
+					spaceQueryKeys.history("space-123", "profile-123"),
+					{ envelopes: [], nextCursor: null }
+				);
+				return Promise.resolve();
+			});
+		renderAppSpaceEntry({
+			spaceId: "space-123",
+			profileId: "profile-123",
+			queryClient,
+		});
+		await waitFor(() =>
+			expect(screen.getByTestId("space-landing")).toBeTruthy()
+		);
+		expect(restore).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ownerAccountId: "user-123",
+				organizationId: "org-acme",
+				spaceId: "space-123",
+				openMeldProfileId: "profile-123",
+			})
+		);
+		expect(screen.queryByText("Checking Space access")).toBeNull();
 	});
 
 	it("redirects to the default human profile when profileId is missing", async () => {

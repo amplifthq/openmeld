@@ -31,7 +31,7 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
-import { PaperPlaneTiltIcon, PlusIcon } from "@phosphor-icons/react";
+import { PaperPlaneTiltIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -83,7 +83,7 @@ import { canManageOrganizationArea } from "#/lib/organizations/organization-perm
 import {
 	buildOrganizationDirectMessagePath,
 	buildOrganizationNewOrganizationPath,
-	buildOrganizationPeoplePath,
+	buildOrganizationPersonPath,
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
@@ -548,8 +548,10 @@ function useDirectoryMembersOverviewModel(
 					return;
 				}
 				navigate({
-					search: { profileId },
-					to: buildOrganizationPeoplePath(input.currentOrganization.slug),
+					to: buildOrganizationPersonPath({
+						orgSlug: input.currentOrganization.slug,
+						personId: profileId,
+					}),
 				}).catch((error: unknown) => {
 					console.error("Failed to open the selected Human Profile.", error);
 				});
@@ -563,34 +565,6 @@ function useDirectoryMembersOverviewModel(
 			recovery: input.recovery,
 			researchErrorMessage: researchErrors.section,
 			selectedProfileId,
-			sidebarLeadingContent: (
-				<Button
-					aria-label="Invite Members"
-					className="w-full min-w-0 justify-start overflow-hidden"
-					onClick={() => setIsInviteDialogOpen(true)}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					<PlusIcon
-						aria-hidden="true"
-						className="shrink-0"
-						data-icon="inline-start"
-					/>
-					<span
-						aria-hidden="true"
-						className="@[12rem]/contextual-sidebar:inline hidden truncate"
-					>
-						Invite Members
-					</span>
-					<span
-						aria-hidden="true"
-						className="@[12rem]/contextual-sidebar:hidden truncate"
-					>
-						Invite
-					</span>
-				</Button>
-			),
 			state: profilesViewState,
 		};
 	return {
@@ -886,17 +860,17 @@ function resolveDirectoryDocumentsStatus(input: {
 
 function resolveCurrentUserComputersStatus(input: {
 	computersStatus: DirectoryProjectionStatus;
-	hasFreshReadiness: boolean;
+	hasReadinessSnapshot: boolean;
 	inventoryStatus: DirectoryProjectionStatus;
 	readinessNeedsReconciliation: boolean;
 }): DirectoryProjectionStatus {
 	if (input.inventoryStatus !== "ready") {
 		return input.inventoryStatus;
 	}
-	if (input.readinessNeedsReconciliation) {
+	if (input.readinessNeedsReconciliation && !input.hasReadinessSnapshot) {
 		return "loading";
 	}
-	return input.hasFreshReadiness ? "ready" : input.computersStatus;
+	return input.hasReadinessSnapshot ? "ready" : input.computersStatus;
 }
 
 function resolveCurrentComputerServiceProjection(input: {
@@ -913,9 +887,7 @@ function resolveCurrentComputerServiceProjection(input: {
 		: false;
 	const deviceId = resolveCurrentLocalRuntimeSubjectDeviceId(readiness);
 	const serviceState =
-		readiness &&
-		deviceId &&
-		(!input.readinessQuery.isFetching || serviceDisconnected)
+		readiness && deviceId
 			? {
 					deviceId,
 					state: serviceDisconnected
@@ -927,7 +899,7 @@ function resolveCurrentComputerServiceProjection(input: {
 		serviceState,
 		status: resolveCurrentUserComputersStatus({
 			computersStatus: input.computersStatus,
-			hasFreshReadiness: serviceState !== null,
+			hasReadinessSnapshot: serviceState !== null,
 			inventoryStatus: input.inventoryStatus,
 			readinessNeedsReconciliation:
 				input.readinessQuery.isFetching && !serviceDisconnected,

@@ -128,6 +128,7 @@ export async function verifyLarkPlatformWebhook(input: {
     const verifiedConnection =
       await recordRemoteAgentLarkPlatformWebhookReachability({
         connectionId: connection.connectionId,
+        encryptedVerificationToken: secrets.encryptedVerificationToken,
         db: input.db,
         organizationId: connection.organizationId,
         provider: connection.provider,
@@ -190,6 +191,7 @@ async function readConnectionWebhookSecrets(input: {
 }): Promise<
   | {
       eventEncryptKey: string | null;
+      encryptedVerificationToken: string;
       status: "ready";
       verificationToken: string;
     }
@@ -226,7 +228,12 @@ async function readConnectionWebhookSecrets(input: {
           })
         : Promise.resolve(null),
     ]);
-    return { eventEncryptKey, status: "ready", verificationToken };
+    return {
+      eventEncryptKey,
+      encryptedVerificationToken: credentials.encryptedVerificationToken,
+      status: "ready",
+      verificationToken,
+    };
   } catch (error) {
     console.error(
       "[core.message_channel.webhook_credential_decryption_failed]",
@@ -266,12 +273,20 @@ async function verifyAndDecryptPayload(input: {
       status: "rejected",
     };
   }
-  const signatureValid = await verifyWebhookSignature({
-    eventEncryptKey: input.eventEncryptKey,
-    headers: input.headers,
-    rawBody: input.rawBody,
-  });
-  if (!signatureValid) {
+  const signatureHeadersAbsent =
+    input.headers.nonce === null &&
+    input.headers.signature === null &&
+    input.headers.timestamp === null;
+  if (
+    !(
+      signatureHeadersAbsent ||
+      (await verifyWebhookSignature({
+        eventEncryptKey: input.eventEncryptKey,
+        headers: input.headers,
+        rawBody: input.rawBody,
+      }))
+    )
+  ) {
     return {
       reasonCode: "message_channel.webhook_signature_invalid",
       status: "rejected",
@@ -281,6 +296,17 @@ async function verifyAndDecryptPayload(input: {
     encryptedPayload,
     eventEncryptKey: input.eventEncryptKey,
   });
+  // URL verification omits signature headers; the caller still checks its token.
+  if (
+    signatureHeadersAbsent &&
+    decryptedPayload &&
+    readString(decryptedPayload, "type") !== "url_verification"
+  ) {
+    return {
+      reasonCode: "message_channel.webhook_signature_invalid",
+      status: "rejected",
+    };
+  }
   return decryptedPayload
     ? { payload: decryptedPayload, status: "verified" }
     : {

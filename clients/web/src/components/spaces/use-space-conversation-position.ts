@@ -14,51 +14,49 @@ import {
 	writeSpaceConversationPosition,
 } from "#/lib/space-conversation-position";
 
-const LATEST_THRESHOLD_PX = 12;
 const TOP_OVERLAY_HEIGHT_PROPERTY = "--space-conversation-top-overlay-height";
 
-function isScrolledToLatest(viewport: HTMLDivElement): boolean {
-	return (
-		viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <=
-		LATEST_THRESHOLD_PX
-	);
-}
-
 function getVisibleTop(viewport: HTMLDivElement): number {
-	const overlayHeight = Number.parseFloat(
+	const height = Number.parseFloat(
 		window
 			.getComputedStyle(viewport)
 			.getPropertyValue(TOP_OVERLAY_HEIGHT_PROPERTY)
 	);
 	return (
 		viewport.getBoundingClientRect().top +
-		(Number.isFinite(overlayHeight) ? overlayHeight : 0)
+		(Number.isFinite(height) ? height : 0)
 	);
 }
 
-function resolvePosition(input: {
-	messageElements: ReadonlyMap<string, HTMLElement>;
-	viewport: HTMLDivElement;
-}): SpaceConversationPosition | null {
-	const viewportBounds = input.viewport.getBoundingClientRect();
-	const visibleTop = getVisibleTop(input.viewport);
-	for (const [anchorSignalId, messageElement] of input.messageElements) {
-		const messageBounds = messageElement.getBoundingClientRect();
+function resolvePosition(
+	viewport: HTMLDivElement,
+	elements: ReadonlyMap<string, HTMLElement>
+): SpaceConversationPosition | null {
+	const top = getVisibleTop(viewport);
+	const bottom = viewport.getBoundingClientRect().bottom;
+	// Ref registration order is not timeline order after older pages are prepended.
+	let first: SpaceConversationPosition | null = null;
+	for (const [anchorSignalId, element] of elements) {
+		const bounds = element.getBoundingClientRect();
 		if (
-			messageBounds.bottom > visibleTop &&
-			messageBounds.top < viewportBounds.bottom
+			bounds.bottom > top &&
+			bounds.top < bottom &&
+			(!first || bounds.top - top < first.offsetFromVisibleTop)
 		) {
-			return {
-				anchorSignalId,
-				offsetFromVisibleTop: messageBounds.top - visibleTop,
-			};
+			first = { anchorSignalId, offsetFromVisibleTop: bounds.top - top };
 		}
 	}
-	return null;
+	return first;
 }
 
 export function useSpaceConversationPosition(input: {
 	historyIsPending: boolean;
+	hasEarlierHistory: boolean;
+	isLoadingEarlierHistory: boolean;
+	historyVersion: unknown;
+	onLoadEarlierHistory: () => Promise<void>;
+	historyError: string | null;
+	hasExplicitFocus: boolean;
 	messageElementsRef: RefObject<Map<string, HTMLElement>>;
 	restorationId: string;
 	selfProfileId: string;
@@ -69,109 +67,209 @@ export function useSpaceConversationPosition(input: {
 		id: input.restorationId,
 	});
 	const positionKey = `${input.selfProfileId}:${input.restorationId}`;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: A remounted viewport must read the position saved by its previous instance.
 	const rememberedPosition = useMemo(
 		() => readSpaceConversationPosition(positionKey),
-		[positionKey]
+		[positionKey, input.viewport]
 	);
-	const appliedPositionKeyRef = useRef<string | null>(null);
-	const [restoredState, setRestoredState] = useState<{
-		followLatest: boolean;
-		id: string;
-	} | null>(null);
-	const autoScroll =
-		restoredState?.id === input.restorationId
-			? restoredState.followLatest
-			: !rememberedPosition && routerEntry === undefined;
+	const shouldRestore =
+		!input.hasExplicitFocus && Boolean(rememberedPosition || routerEntry);
+	const saveRef = useRef<() => void>(() => undefined);
+	const releaseRef = useRef<() => void>(() => undefined);
+	const loadingRef = useRef(false);
+	const releasedKeyRef = useRef<string | null>(null);
+	const viewportRef = useRef<HTMLDivElement | null>(null);
+	const [followingViewport, setFollowingViewport] =
+		useState<HTMLDivElement | null>(null);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: New history mounts new message elements which must be measured and observed.
 	useLayoutEffect(() => {
-		if (!input.viewport || appliedPositionKeyRef.current === positionKey) {
+		const viewport = input.viewport;
+		if (!viewport) {
 			return;
 		}
-		const viewport = input.viewport;
-
+		if (viewportRef.current !== viewport) {
+			viewportRef.current = viewport;
+			releasedKeyRef.current = null;
+		}
+		let disposed = false;
+		let frame = 0;
+		let ready = false;
+		let protectedAnchor =
+			shouldRestore && releasedKeyRef.current !== positionKey;
+		const save = () => {
+			if (!ready || input.historyIsPending || protectedAnchor) {
+				return;
+			}
+			const position = resolvePosition(
+				viewport,
+				input.messageElementsRef.current
+			);
+			if (position) {
+				writeSpaceConversationPosition(positionKey, position);
+			}
+		};
+		saveRef.current = save;
+		const requestEarlierHistory = () => {
+			if (
+				input.isLoadingEarlierHistory ||
+				loadingRef.current ||
+				input.historyError
+			) {
+				return;
+			}
+			loadingRef.current = true;
+			input
+				.onLoadEarlierHistory()
+				.catch((error: unknown) => {
+					console.error(
+						"Failed to load the saved Space reading position.",
+						error
+					);
+				})
+				.finally(() => {
+					loadingRef.current = false;
+				});
+		};
 		const restore = () => {
-			const anchorElement = rememberedPosition
+			if (disposed || input.historyIsPending) {
+				return;
+			}
+			if (!protectedAnchor) {
+				ready = true;
+				return;
+			}
+			const anchor = rememberedPosition
 				? input.messageElementsRef.current.get(
 						rememberedPosition.anchorSignalId
 					)
 				: undefined;
-			if (rememberedPosition && !anchorElement && input.historyIsPending) {
-				return false;
-			}
-			if (anchorElement && rememberedPosition) {
-				const currentOffset =
-					anchorElement.getBoundingClientRect().top - getVisibleTop(viewport);
-				viewport.scrollTop +=
-					currentOffset - rememberedPosition.offsetFromVisibleTop;
-			} else if (routerEntry) {
-				viewport.scrollLeft = routerEntry.scrollX;
-				viewport.scrollTop = Math.min(
-					routerEntry.scrollY,
-					Math.max(0, viewport.scrollHeight - viewport.clientHeight)
-				);
-			}
-			return true;
-		};
-		let settleFrame: number | null = null;
-		const restoreFrame = window.requestAnimationFrame(() => {
-			if (!restore()) {
+			const waitingForAnchor = Boolean(rememberedPosition && !anchor);
+			const canLoadAnchor =
+				input.hasEarlierHistory || input.isLoadingEarlierHistory;
+			if (waitingForAnchor && canLoadAnchor) {
+				requestEarlierHistory();
 				return;
 			}
-			settleFrame = window.requestAnimationFrame(() => {
-				if (!restore()) {
-					return;
-				}
-				appliedPositionKeyRef.current = positionKey;
-				setRestoredState({
-					followLatest: isScrolledToLatest(viewport),
-					id: input.restorationId,
-				});
-			});
-		});
-		return () => {
-			window.cancelAnimationFrame(restoreFrame);
-			if (settleFrame !== null) {
-				window.cancelAnimationFrame(settleFrame);
+			alignReadingPosition(
+				viewport,
+				anchor,
+				rememberedPosition,
+				ready ? undefined : routerEntry?.scrollY
+			);
+			ready = true;
+		};
+		const schedule = () => {
+			window.cancelAnimationFrame(frame);
+			frame = window.requestAnimationFrame(restore);
+		};
+		const release = () => {
+			protectedAnchor = false;
+			releasedKeyRef.current = positionKey;
+			ready = !input.historyIsPending;
+		};
+		releaseRef.current = release;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (
+				[
+					"ArrowUp",
+					"ArrowDown",
+					"PageUp",
+					"PageDown",
+					"Home",
+					"End",
+					" ",
+				].includes(event.key)
+			) {
+				release();
 			}
 		};
+		const observer = new ResizeObserver(schedule);
+		observer.observe(viewport);
+		for (const element of input.messageElementsRef.current.values()) {
+			observer.observe(element);
+		}
+		viewport.addEventListener("wheel", release, { passive: true });
+		viewport.addEventListener("touchstart", release, { passive: true });
+		const controls = viewport.parentElement ?? viewport;
+		controls.addEventListener("pointerdown", release);
+		viewport.addEventListener("keydown", onKeyDown);
+		window.addEventListener("pagehide", save);
+		schedule();
+		return () => {
+			save();
+			disposed = true;
+			window.cancelAnimationFrame(frame);
+			observer.disconnect();
+			viewport.removeEventListener("wheel", release);
+			viewport.removeEventListener("touchstart", release);
+			controls.removeEventListener("pointerdown", release);
+			viewport.removeEventListener("keydown", onKeyDown);
+			window.removeEventListener("pagehide", save);
+			saveRef.current = () => undefined;
+			releaseRef.current = () => undefined;
+		};
 	}, [
-		input.historyIsPending,
-		input.messageElementsRef,
-		input.restorationId,
 		input.viewport,
+		input.historyIsPending,
+		input.hasEarlierHistory,
+		input.isLoadingEarlierHistory,
+		input.historyVersion,
+		input.onLoadEarlierHistory,
+		input.historyError,
+		input.messageElementsRef,
 		positionKey,
 		rememberedPosition,
 		routerEntry,
+		shouldRestore,
 	]);
 
-	const onScroll = useCallback(
+	const save = useCallback(
 		(viewport: HTMLDivElement) => {
+			saveRef.current();
 			if (
-				(rememberedPosition === null && routerEntry === undefined) ||
-				autoScroll ||
-				!isScrolledToLatest(viewport)
+				releasedKeyRef.current === positionKey &&
+				viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 12
 			) {
-				return;
-			}
-			setRestoredState({ followLatest: true, id: input.restorationId });
-		},
-		[autoScroll, input.restorationId, rememberedPosition, routerEntry]
-	);
-	const onScrollEnd = useCallback(
-		(viewport: HTMLDivElement) => {
-			if (appliedPositionKeyRef.current !== positionKey) {
-				return;
-			}
-			const position = resolvePosition({
-				messageElements: input.messageElementsRef.current,
-				viewport,
-			});
-			if (position) {
-				writeSpaceConversationPosition(positionKey, position);
+				setFollowingViewport(viewport);
 			}
 		},
-		[input.messageElementsRef, positionKey]
+		[positionKey]
 	);
+	const followLatest = useCallback(() => {
+		releaseRef.current();
+		setFollowingViewport(input.viewport);
+	}, [input.viewport]);
+	return {
+		followLatest,
+		autoScroll:
+			!shouldRestore ||
+			(input.viewport !== null && followingViewport === input.viewport),
+		defaultScrollPosition: shouldRestore
+			? ("start" as const)
+			: ("end" as const),
+		onScroll: save,
+		onScrollEnd: save,
+	};
+}
 
-	return { autoScroll, onScroll, onScrollEnd };
+function alignReadingPosition(
+	viewport: HTMLDivElement,
+	anchor: HTMLElement | undefined,
+	position: SpaceConversationPosition | null,
+	scrollY: number | undefined
+) {
+	if (anchor && position) {
+		viewport.scrollTop +=
+			anchor.getBoundingClientRect().top -
+			getVisibleTop(viewport) -
+			position.offsetFromVisibleTop;
+		return;
+	}
+	if (scrollY !== undefined) {
+		viewport.scrollTop = Math.min(
+			scrollY,
+			Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+		);
+	}
 }

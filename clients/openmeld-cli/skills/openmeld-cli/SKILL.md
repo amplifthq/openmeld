@@ -27,7 +27,7 @@ explicit opt-in.
 ## Choose One Topic
 
 - Read or diagnose a Space: `playbooks/space-reads.md`
-- Create, join, send, add members, use Files, Wake, Stop, or reply from a Wake:
+- Create, join, invite people, add members, send, use Files, Wake, Stop, or reply from a Wake:
   `playbooks/space-ops.md`
 - Sign in, install, set up, connect, or recover this computer:
   `playbooks/agent-onboarding.md`
@@ -193,12 +193,3 @@ outside the action is not a Space reply.
   a last resort for the current computer.
 - Verify the Space itself received a reply. A successful trace or action receipt
   alone is not visible-publication proof.
-
-## References
-
-- Agent setup and recovery: `playbooks/agent-onboarding.md`
-- Fast, read-only Space work: `playbooks/space-reads.md`
-- Space writes, Wake, Actions, and recovery: `playbooks/space-ops.md`
-- Exact command syntax: `references/commands.md`
-- View, Profile, URL, and saved-state behavior:
-  `references/runtime-resolution.md`

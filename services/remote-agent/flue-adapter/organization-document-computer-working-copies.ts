@@ -1,12 +1,12 @@
 import type { WorkspaceClient } from "@cloudflare/computer";
-import type { OrganizationDocumentsComputerProjection } from "./organization-document-computer-projection";
+import type { OrganizationDocumentsComputerSnapshot } from "./organization-document-computer-snapshot";
 
 const WORKING_COPY_DIRECTORY_NAME = "documents";
 const SAFE_VERSION_CHARACTER_PATTERN = /[^A-Za-z0-9]/gu;
 const TRAILING_SLASHES_PATTERN = /\/+$/u;
 
 type ProjectedDocument =
-  OrganizationDocumentsComputerProjection["documents"][number];
+  OrganizationDocumentsComputerSnapshot["documents"][number];
 
 export type OrganizationDocumentComputerWorkingCopyStore = {
   checkout(documentId: string): Promise<{
@@ -26,7 +26,7 @@ export type OrganizationDocumentComputerWorkingCopyStore = {
 };
 
 export function createOrganizationDocumentComputerWorkingCopyStore(input: {
-  projection: OrganizationDocumentsComputerProjection;
+  projection: OrganizationDocumentsComputerSnapshot;
   workingDirectory: string;
   workspace: Pick<WorkspaceClient, "fs">;
 }): OrganizationDocumentComputerWorkingCopyStore {
@@ -78,7 +78,7 @@ export function createOrganizationDocumentComputerWorkingCopyStore(input: {
 }
 
 function requireProjectedDocument(
-  projection: OrganizationDocumentsComputerProjection,
+  projection: OrganizationDocumentsComputerSnapshot,
   documentId: string
 ): ProjectedDocument {
   const document = projection.documents.find((item) => item.id === documentId);
@@ -94,7 +94,7 @@ function buildWorkingCopyPath(
   workingCopyRoot: string,
   document: ProjectedDocument
 ): string {
-  const sourceFileName = document.path.split("/").at(-1);
+  const sourceFileName = document.fileName;
   if (!sourceFileName?.endsWith(".md")) {
     throw new Error(
       `Organization Document ${document.id} has an invalid Computer path.`

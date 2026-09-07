@@ -14,21 +14,30 @@ export function spaceActiveWakeProgressSummaryQueryOptions(input: {
 	enabled: boolean;
 	spaceId: string;
 	openMeldProfileId: string;
+	sourceProfileId?: string;
 }) {
 	return queryOptions<
 		GetActiveSpaceWakeProgressResponse,
 		StructuredApiClientFailure
 	>({
-		queryKey: spaceQueryKeys.activeWakeProgressSummary(
-			input.spaceId,
-			input.openMeldProfileId
-		),
+		queryKey: [
+			...spaceQueryKeys.activeWakeProgressSummary(
+				input.spaceId,
+				input.openMeldProfileId
+			),
+			...(input.sourceProfileId ? [input.sourceProfileId] : []),
+		],
 		queryFn: async () => {
 			try {
 				return await createUnscopedWebSpaceApi({
 					openMeldProfileId: input.openMeldProfileId,
 				}).getActiveWakeProgress({
+					...(input.sourceProfileId
+						? { sourceProfileId: input.sourceProfileId }
+						: {}),
+					includePageInfo: true,
 					includePreviewText: true,
+					includeSourceContext: true,
 					includeTiming: true,
 					includeWaitReason: true,
 					includeWakeStopEligibility: true,

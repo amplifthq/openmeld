@@ -1,11 +1,11 @@
 "use client";
 
 import { CheckIcon, GitPullRequestIcon } from "@phosphor-icons/react";
-import {
-	GITHUB_APP,
-	SLACK_CHANNEL_IDENTITY,
-} from "#/components/organizations/app-catalog";
 import { AppLogo } from "#/components/organizations/app-logo";
+import {
+	GITHUB_PLUGIN,
+	SLACK_CHANNEL_IDENTITY,
+} from "#/components/organizations/plugin-catalog";
 import {
 	CenterAgentMark,
 	OnboardingDemoLayout,
@@ -102,7 +102,7 @@ export function ChannelsOnboardingDemo() {
 			<div className="absolute top-7 right-7 z-20 w-[40%] min-w-52 max-w-60 rounded-md border border-white/10 bg-[#111318]/95 p-4 shadow-[0_22px_60px_rgba(0,0,0,0.42)]">
 				<div className="flex items-center justify-between">
 					<div className="flex items-center gap-2.5">
-						<AppLogo app={GITHUB_APP} size="sm" />
+						<AppLogo app={GITHUB_PLUGIN} size="sm" />
 						<p className="font-medium text-white/80 text-xs">Release review</p>
 					</div>
 					<GitPullRequestIcon className="size-4 text-white/30" />

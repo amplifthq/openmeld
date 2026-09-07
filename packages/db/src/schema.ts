@@ -9,6 +9,7 @@ export const schema = {
 } as const;
 
 export const {
+  accountSidebarPreferences,
   accounts,
   accountsRelations,
   deviceCodes,
@@ -38,6 +39,8 @@ export const {
 
 export const {
   inboxCenterAgentReadWatermarks,
+  spaceInvitations,
+  organizationJoinRequests,
   inboxEmailDeliveries,
   inboxItems,
   inboxNotificationPreferences,

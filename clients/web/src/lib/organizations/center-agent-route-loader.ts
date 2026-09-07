@@ -27,6 +27,7 @@ export type CenterAgentDirectMessageRouteData =
 	  };
 
 export async function loadCenterAgentRouteData(input: {
+	sessionId?: string;
 	organizationSlug: string;
 	queryClient: QueryClient;
 	routeFamily: string;
@@ -47,16 +48,41 @@ export async function loadCenterAgentRouteData(input: {
 	}
 
 	return await loadCenterAgentDirectMessageRouteData({
+		...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
 		organizationId: scope.currentOrganization.id,
 		queryClient: input.queryClient,
 	});
 }
 
 export async function loadCenterAgentDirectMessageRouteData(input: {
+	sessionId?: string;
 	organizationId: string;
 	queryClient: QueryClient;
 }): Promise<CenterAgentDirectMessageRouteData> {
 	try {
+		if (input.sessionId !== undefined) {
+			const projectionResponse = await input.queryClient.fetchQuery(
+				centerAgentDirectMessageSpaceProjectionQueryOptions({
+					enabled: true,
+					organizationId: input.organizationId,
+					spaceId: input.sessionId,
+				})
+			);
+			if (!projectionResponse.projection) {
+				throw new Error(
+					"This chat is unavailable. Open a chat you can access."
+				);
+			}
+			if (projectionResponse.projection.spaceId !== input.sessionId) {
+				return buildCenterAgentDirectMessageIdentityMismatch();
+			}
+			return (
+				resolveCenterAgentProjectionRouteData({
+					organizationId: input.organizationId,
+					projectionResponse,
+				}) ?? buildCenterAgentDirectMessageIdentityMismatch()
+			);
+		}
 		const cachedRouteData = readCachedCenterAgentDirectMessageRouteData(input);
 		if (cachedRouteData) {
 			// Stable DM identity can render immediately. The current Space status

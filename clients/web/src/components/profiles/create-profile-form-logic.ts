@@ -171,6 +171,12 @@ export function resolveCreateProfileSubmitBlock(
 				: undefined,
 		};
 	}
+	if (input.profileKind === "agent" && !input.boundAgentId) {
+		return {
+			message:
+				"Choose a local agent to continue. Connect a computer if none are available.",
+		};
+	}
 	if (input.projectSelectionBlockReason) {
 		return {
 			message: input.projectSelectionBlockReason,

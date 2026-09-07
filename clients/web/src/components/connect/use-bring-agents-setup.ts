@@ -8,7 +8,9 @@ import {
 export function useBringAgentsSetup(
 	routeIntent: ConnectRouteIntent = DEFAULT_CONNECT_ROUTE_INTENT
 ) {
-	const recovery = useLocalAgentRecoveryController();
+	const recovery = useLocalAgentRecoveryController({
+		computerSelection: "setup",
+	});
 	const selectedHumanProfileId = resolveSelectedHumanProfileIdForBringAgents({
 		recoverySelectedHumanProfileId: recovery.selectedHumanProfileId,
 		routeIntent,

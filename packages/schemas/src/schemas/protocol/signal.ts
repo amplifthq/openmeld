@@ -115,6 +115,14 @@ const signalTextMetaSchema = z.object({
     .max(CENTER_AGENT_TASK_REFERENCE_MAX_COUNT)
     .optional(),
   clientMessageId: clientMessageIdSchema.optional(),
+  centerAgentExecutionInput: z
+    .strictObject({
+      dispatchId: z.string().min(1).max(200),
+      targetProfileId: openMeldRuntimeProfileIdSchema,
+    })
+    .optional(),
+  // Confirms only this authored message, never a conversation read position.
+  authorHasRead: z.literal(true).optional(),
   centerAgentInteractionSource: centerAgentInteractionSourceSchema.optional(),
   conversationCompaction: conversationCompactionMarkerSchema.optional(),
   sourceEventId: z

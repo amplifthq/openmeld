@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useProjectDiscovery } from "./use-project-discovery";
 
 const api = vi.hoisted(() => ({
+	discoverPeopleComputerProjects: vi.fn(),
 	discoverCurrentComputerProjects: vi.fn(),
 	readCurrentLocalRuntimeReplyReadiness: vi.fn(),
 	readLocalRuntimes: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock(
 			typeof import("#/lib/organizations/local-project-control")
 		>()),
 		discoverCurrentComputerProjects: api.discoverCurrentComputerProjects,
+		discoverPeopleComputerProjects: api.discoverPeopleComputerProjects,
 	})
 );
 
@@ -42,6 +44,67 @@ afterEach(() => {
 });
 
 describe("useProjectDiscovery", () => {
+	it("uses the explicitly selected Service even without an Agent report and never asks the account-current API", async () => {
+		const inventory = localRuntimes();
+		const computer = inventory.localRuntimes[0];
+		if (!computer) {
+			throw new Error("Expected test Computer");
+		}
+		api.readLocalRuntimes.mockResolvedValue({
+			...inventory,
+			currentDeviceId: "different-routing-preference",
+			localRuntimes: [{ ...computer, executionTargets: [] }],
+			peopleComputers: {
+				generatedAt: "2026-09-07T00:00:00.000Z",
+				computers: [
+					{
+						...computer,
+						connection: {
+							status: "connected",
+							sessions: [
+								{
+									deviceId: computer.deviceId,
+									runtimeLane: "canary",
+									controls: { localProjectControl: { discoverProjects: true } },
+								},
+							],
+							reasonCodes: [],
+						},
+					},
+				],
+			},
+		});
+		api.discoverPeopleComputerProjects.mockResolvedValue({
+			projects: [],
+			clientGeneration: 1,
+		});
+		const queryClient = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const { result } = renderHook(
+			() =>
+				useProjectDiscovery({
+					organizationId: "org-1",
+					projects: [projectRef("project-1")],
+					target: { deviceId: computer.deviceId, runtimeLane: "canary" },
+				}),
+			{ wrapper: createWrapper(queryClient) }
+		);
+		await waitFor(() =>
+			expect(api.discoverPeopleComputerProjects).toHaveBeenCalledOnce()
+		);
+		expect(api.discoverPeopleComputerProjects).toHaveBeenCalledWith(
+			expect.objectContaining({
+				deviceId: computer.deviceId,
+				runtimeLane: "canary",
+				expectedOrganizationId: "org-1",
+				projectIds: ["project-1"],
+			})
+		);
+		expect(api.discoverCurrentComputerProjects).not.toHaveBeenCalled();
+		expect(result.current.serviceState).toBe("connected");
+		expect(result.current.computer?.deviceId).toBe(computer.deviceId);
+	});
 	it("uses a live ServiceRuntime target when no Binding names the current computer", async () => {
 		api.readLocalRuntimes.mockResolvedValue(localRuntimes());
 		api.readCurrentLocalRuntimeReplyReadiness.mockRejectedValue(
@@ -79,7 +142,7 @@ describe("useProjectDiscovery", () => {
 		});
 	});
 
-	it("reuses one current-computer check across Project screens", async () => {
+	it("reuses saved connections across screens", async () => {
 		api.readLocalRuntimes.mockResolvedValue(localRuntimes({ bound: true }));
 		api.discoverCurrentComputerProjects.mockImplementation(async (input) =>
 			discoveryResponse(input.clientGeneration)
@@ -90,6 +153,7 @@ describe("useProjectDiscovery", () => {
 		const first = renderHook(
 			() =>
 				useProjectDiscovery({
+					includeCandidates: false,
 					organizationId: "org-1",
 					projects: [projectRef("project-1")],
 				}),
@@ -103,6 +167,7 @@ describe("useProjectDiscovery", () => {
 		const second = renderHook(
 			() =>
 				useProjectDiscovery({
+					includeCandidates: false,
 					organizationId: "org-1",
 					projects: [projectRef("project-1")],
 				}),
@@ -111,6 +176,8 @@ describe("useProjectDiscovery", () => {
 
 		expect(second.result.current.projectView("project-1").status).toBe("ready");
 		expect(api.discoverCurrentComputerProjects).toHaveBeenCalledTimes(1);
+		const request = api.discoverCurrentComputerProjects.mock.calls[0]?.[0];
+		expect(request.includeCandidates).toBe(false);
 	});
 
 	it("keeps the last result visible while Check again forces a new check", async () => {

@@ -1,6 +1,7 @@
 import { remoteAgentWorkerRuntimeDiagnosticsResponseSchema } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import { readRemoteAgentRuntimeDiagnostics } from "../flue-adapter/runtime-diagnostics";
+import { createCloudflareSqlHarness } from "./helpers/cloudflare-sql-harness.test-support";
 
 type QueryFixture = {
   match: string;
@@ -35,6 +36,48 @@ class FakeSqlStorage {
 }
 
 describe("Remote Agent runtime diagnostics", () => {
+  it("reads the actual pinned Flue submission schema without legacy tables", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "flue-diagnostics-"));
+    const path = join(directory, "flue.sqlite");
+    const adapter = sqlite(path);
+    await adapter.migrate?.();
+    const stores = await adapter.connect();
+    await stores.submissionStore.admitDispatch({
+      submissionId: "diagnostic-submission",
+      agent: "center-agent-v2",
+      id: "diagnostic-session",
+      acceptedAt: "2026-09-06T00:00:00.000Z",
+      message: {
+        kind: "user",
+        body: "Private input must not appear in diagnostics.",
+      },
+    });
+    const database = new DatabaseSync(path);
+    const realSql = createCloudflareSqlHarness(database);
+    try {
+      const result = await readRemoteAgentRuntimeDiagnostics({
+        getAlarmAtMs: async () => null,
+        spaceId: "space-1",
+        sql: {
+          exec: (query, ...bindings) =>
+            query.includes("flue_agent_")
+              ? realSql.exec(query, ...bindings)
+              : { toArray: () => [] },
+        },
+      });
+      expect(result.submissions).toHaveLength(1);
+      expect(result.submissions[0]).toMatchObject({
+        submissionId: "diagnostic-submission",
+        status: "queued",
+        maxAttempts: 10,
+      });
+      expect(JSON.stringify(result)).not.toContain("Private input");
+    } finally {
+      database.close();
+      await adapter.close?.();
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
   it("projects bounded persisted queue, attempt, fiber, and schedule facts without sensitive payloads", async () => {
     const sql = new FakeSqlStorage([
       {
@@ -49,25 +92,15 @@ describe("Remote Agent runtime diagnostics", () => {
             input_applied_at: 120,
             kind: "dispatch",
             lease_expires_at: 500,
-            max_retry: 10,
+            max_attempts: 10,
             owner_id: "owner-1",
-            recovery_requested_at: null,
+            joined_into: null,
             sequence: 7,
             settled_at: null,
             started_at: 115,
             status: "running",
             submission_id: "dispatch-1",
             timeout_at: 1000,
-          },
-        ],
-      },
-      {
-        match: "FROM flue_agent_attempt_markers",
-        rows: [
-          {
-            attempt_id: "attempt-1",
-            created_at: 116,
-            submission_id: "dispatch-1",
           },
         ],
       },
@@ -178,13 +211,6 @@ describe("Remote Agent runtime diagnostics", () => {
       remoteAgentWorkerRuntimeDiagnosticsResponseSchema.parse(result)
     ).toEqual({
       activeRuns: [{ createdAtMs: 115, id: "run-1", name: "flue:dispatch" }],
-      attemptMarkers: [
-        {
-          attemptId: "attempt-1",
-          createdAtMs: 116,
-          submissionId: "dispatch-1",
-        },
-      ],
       callbackContexts: [
         {
           callbackAttempts: 1,
@@ -237,9 +263,9 @@ describe("Remote Agent runtime diagnostics", () => {
           inputAppliedAtMs: 120,
           kind: "dispatch",
           leaseExpiresAtMs: 500,
-          maxRetry: 10,
+          maxAttempts: 10,
           ownerId: "owner-1",
-          recoveryRequestedAtMs: null,
+          joinedInto: null,
           sequence: 7,
           settledAtMs: null,
           startedAtMs: 115,
@@ -276,7 +302,7 @@ describe("Remote Agent runtime diagnostics", () => {
           updatedAtMs: 150,
         },
       ],
-      v: 1,
+      v: 2,
     });
 
     const statements = sql.statements.join("\n").toLowerCase();
@@ -288,3 +314,9 @@ describe("Remote Agent runtime diagnostics", () => {
     expect(JSON.stringify(result)).not.toContain("Sensitive failure detail");
   });
 });
+
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { sqlite } from "@flue/runtime/node";

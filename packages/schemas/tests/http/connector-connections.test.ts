@@ -12,7 +12,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 describe("connector service registry", () => {
-  it("supports Notion as a Center Agent App", () => {
+  it("supports Notion as a Center Agent Plugin", () => {
     expect(CENTER_AGENT_APP_CONNECTOR_SERVICES).toContain("notion");
     expect(connectorServiceSchema.safeParse("notion")).toMatchObject({
       success: true,
@@ -113,7 +113,7 @@ describe("connector service registry", () => {
     ).toMatchObject({ success: true });
   });
 
-  it("builds one locale-independent identity for connector App requests", () => {
+  it("builds one locale-independent identity for connector Plugin requests", () => {
     expect(
       buildConnectorAppRequestProviderKey({
         providerId: "IDENTITY",

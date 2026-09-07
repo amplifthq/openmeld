@@ -1477,7 +1477,7 @@ describe("remote agent submission", () => {
     );
     expect(prompt).toContain("[Connected Message Channel member boundary]");
     expect(prompt).toContain(
-      "You may use Organization information, shared Apps, and tools available to every member"
+      "You may use Organization information, shared Plugins, and tools available to every member"
     );
     expect(prompt).toContain(
       "Use the available non-personal tools proactively when they help answer the request"

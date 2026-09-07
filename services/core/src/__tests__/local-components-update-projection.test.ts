@@ -6,6 +6,73 @@ import { describe, expect, it } from "vitest";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
 
 describe("local component update projection", () => {
+  it("does not describe unknown installed versions as up to date and preserves the command lane", () => {
+    const result = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-09-07T00:00:00.000Z",
+      runtimeLane: "canary",
+      releaseManifest: createReleaseManifest({}),
+      serviceConnected: false,
+      serviceVersion: null,
+    });
+    expect(result.setupActionLabel).toBe("Update status unavailable");
+    expect(result.humanSetupCommand).toBe(
+      "openmeld-canary upgrade && openmeld-canary setup"
+    );
+    expect(result.agentSetupCommand).not.toContain("npm");
+  });
+  it("accepts compatible independently maintained Skill content without asking for another CLI upgrade", () => {
+    const status = createLocalComponentsStatus({
+      skillsBundleHash: "c".repeat(64),
+    });
+    status.skills.expectedBundleHash = "c".repeat(64);
+    status.skills.contentRelease = {
+      revision: 1,
+      minimumCliVersion: "0.3.159",
+    };
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-09-05T00:00:00.000Z",
+      localComponentsStatus: status,
+      releaseManifest: createReleaseManifest({
+        skillsUpdatePolicy: "required",
+      }),
+      serviceConnected: true,
+      serviceVersion: "0.7.28",
+    });
+    expect(projection.skills).toMatchObject({
+      status: "current",
+      expectedBundleHash: "c".repeat(64),
+      reasonCodes: [],
+    });
+  });
+
+  it("still rejects missing files, incompatible CLI commands, and mismatched Skill contracts", () => {
+    for (const fault of ["missing", "cli", "contract"] as const) {
+      const status = createLocalComponentsStatus({
+        skillsBundleHash: "c".repeat(64),
+      });
+      status.skills.expectedBundleHash = "c".repeat(64);
+      status.skills.contentRelease = {
+        revision: 1,
+        minimumCliVersion: fault === "cli" ? "99.0.0" : "0.3.159",
+      };
+      if (fault === "missing") {
+        status.skills.status = "update_required";
+      }
+      if (fault === "contract") {
+        status.skills.skillContractVersion = "unsupported";
+      }
+      const projection = resolveLocalComponentUpdateProjection({
+        generatedAt: "2026-09-05T00:00:00.000Z",
+        localComponentsStatus: status,
+        releaseManifest: createReleaseManifest({
+          skillsUpdatePolicy: "required",
+        }),
+        serviceConnected: true,
+        serviceVersion: "0.7.28",
+      });
+      expect(projection.skills.status).toBe("update_required");
+    }
+  });
   it("keeps advisory Service updates from blocking Wake work", () => {
     const projection = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
@@ -18,8 +85,8 @@ describe("local component update projection", () => {
 
     expect(projection).toMatchObject({
       agentSetupCommand:
-        "npm install -g openmeld@latest && openmeld setup --view agent",
-      humanSetupCommand: "npm install -g openmeld@latest && openmeld setup",
+        "openmeld upgrade --view agent && openmeld setup --view agent",
+      humanSetupCommand: "openmeld upgrade && openmeld setup",
       setupAction: "none",
       service: {
         installedVersion: "0.7.27",

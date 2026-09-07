@@ -4,29 +4,30 @@ import {
 } from "@openmeld/api-client";
 import type {
 	ComputerFileAccessPolicyResponse,
-	ComputerFileAccessUpdateRequest,
+	PeopleComputerFileAccessUpdateBody,
+	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
-export async function readComputerFileAccessPolicy(input: {
-	expectedDeviceId: string;
-}): Promise<ComputerFileAccessPolicyResponse> {
+export async function readComputerFileAccessPolicy(
+	input: PeopleComputerTarget
+): Promise<ComputerFileAccessPolicyResponse> {
 	try {
 		return await createComputerFileAccessApi(
 			createUnscopedWebOpenMeldApiFoundation()
-		).readPolicy(input);
+		).readPeopleComputerPolicy(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}
 }
 
 export async function updateComputerFileAccessPolicy(
-	input: ComputerFileAccessUpdateRequest
+	input: PeopleComputerTarget & PeopleComputerFileAccessUpdateBody
 ): Promise<ComputerFileAccessPolicyResponse> {
 	try {
 		return await createComputerFileAccessApi(
 			createUnscopedWebOpenMeldApiFoundation()
-		).updatePolicy(input);
+		).updatePeopleComputerPolicy(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}

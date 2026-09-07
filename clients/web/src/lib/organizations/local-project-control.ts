@@ -16,6 +16,7 @@ import type {
 	LocalProjectControlRemoveConnectionResponse,
 	LocalProjectControlRemoveMissingConnectionsResponse,
 	LocalProjectControlSetDefaultConnectionResponse,
+	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
@@ -62,6 +63,18 @@ export async function discoverCurrentComputerProjects(
 		return await createWebLocalProjectControlApi(
 			input.expectedOrganizationId
 		).discoverProjects(input);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function discoverPeopleComputerProjects(
+	input: DiscoverLocalProjectsInput & PeopleComputerTarget
+): Promise<LocalProjectControlDiscoverProjectsResponse> {
+	try {
+		return await createWebLocalProjectControlApi(
+			input.expectedOrganizationId
+		).discoverPeopleComputerProjects(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}

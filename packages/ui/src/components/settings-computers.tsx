@@ -36,7 +36,6 @@ import { FluidCardGroup, FluidCardItem } from "#fluid/card";
 import {
   resolveStatusToneAdvisoryBadgeClassName,
   resolveStatusToneIndicatorClassName,
-  resolveStatusToneRingIndicatorClassName,
   resolveStatusToneSoftTextClassName,
   resolveStatusToneStrongTextClassName,
 } from "#lib/status-tone";
@@ -45,6 +44,7 @@ import { cn } from "#lib/utils";
 export type SettingsComputerLocalAgentIcon = {
   agentId: string;
   displayName: string;
+  muted?: boolean;
 };
 
 export type SettingsComputerSummaryStatus = {
@@ -111,8 +111,8 @@ export function SettingsComputerSummaryCardContent({
                   <span
                     aria-hidden="true"
                     className={cn(
-                      "h-2 w-2 rounded-full ring-2",
-                      resolveStatusToneRingIndicatorClassName(status.tone)
+                      "status-dot",
+                      resolveStatusToneIndicatorClassName(status.tone, "quiet")
                     )}
                     data-testid={statusIndicatorTestId}
                   />
@@ -227,7 +227,11 @@ function SettingsComputerLocalAgentSummary({
           <TooltipTrigger
             render={
               <span className="inline-flex size-5 items-center justify-center opacity-90 transition-opacity hover:opacity-100">
-                <LocalAgentLogo agentId={icon.agentId} size="sm" />
+                <LocalAgentLogo
+                  agentId={icon.agentId}
+                  className={icon.muted ? "opacity-50 grayscale" : undefined}
+                  size="sm"
+                />
               </span>
             }
           />
@@ -289,10 +293,7 @@ export function SettingsComputerStatusCard({
             >
               <span
                 aria-hidden="true"
-                className={cn(
-                  "h-2 w-2 shrink-0 rounded-full",
-                  resolveStatusDotClassName(tone)
-                )}
+                className={cn("status-dot", resolveStatusDotClassName(tone))}
               />
               {statusLabel}
             </p>
@@ -1486,7 +1487,7 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
             <span
               aria-hidden="true"
               className={cn(
-                "h-2 w-2 shrink-0 rounded-full",
+                "status-dot",
                 resolveStatusToneIndicatorClassName(status.tone ?? "muted")
               )}
               data-testid={`settings-local-agent-status-dot-${row.id}`}
@@ -1596,7 +1597,7 @@ function SettingsLocalAgentDetailsDialog({
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "h-2 w-2 shrink-0 rounded-full",
+                    "status-dot",
                     resolveStatusToneIndicatorClassName(status.tone ?? "muted")
                   )}
                 />

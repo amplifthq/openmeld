@@ -45,9 +45,10 @@ describe("app shell layout", () => {
 	});
 
 	it.each([
+		[appShellStaticData.newAgent, "newAgent"],
 		[appShellStaticData.agentActivity, "agentActivity"],
 		[appShellStaticData.agents, "agents"],
-		[appShellStaticData.centerAgent, "home"],
+		[appShellStaticData.centerAgent, "directMessages"],
 		[appShellStaticData.computers, "people"],
 		[appShellStaticData.connect, "spaces"],
 		[appShellStaticData.directMessages, "directMessages"],

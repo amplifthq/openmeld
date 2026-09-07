@@ -98,13 +98,6 @@ function buildAgentProfileBindingChoices(input: {
 		];
 	}
 	return [
-		{
-			agentId: null,
-			description:
-				"Create this profile now and choose the controlling local agent later.",
-			label: "Choose later",
-			value: "",
-		},
 		...input.availableLocalAgentIds.map((agentId) => {
 			const label = formatLocalAgentDisplayName(agentId);
 			return {

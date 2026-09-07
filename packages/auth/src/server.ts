@@ -28,6 +28,7 @@ export {
   AccountOrganizationMembershipRequiredError,
   createAccountOrganizationPreferenceService,
 } from "./account/account-organization-preference-service";
+export { createAccountSidebarRepository } from "./account/account-sidebar-repository";
 export type { AuthConfigEnv } from "./configs/auth.config";
 export { createAuthConfig } from "./configs/auth.config";
 export {
@@ -196,6 +197,7 @@ export {
 } from "./utils/cookie-domain";
 export type { CloudflareEmailSender, SendEmailOptions } from "./utils/email";
 export { sendCloudflareEmail } from "./utils/email";
+export { buildSpaceInvitationEmailContent } from "./utils/email-templates";
 export type { ResolveTrustedOriginsInput } from "./utils/trusted-origins";
 export { resolveTrustedOrigins } from "./utils/trusted-origins";
 export type {

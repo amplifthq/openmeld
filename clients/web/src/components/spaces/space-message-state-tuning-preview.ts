@@ -129,19 +129,6 @@ function createStandalonePreviewAgent(
 	};
 }
 
-export function resolveSpaceMessageStateTuningTimelineItems(input: {
-	baseItems: readonly SpaceTimelineItem[];
-	optimisticItem: SpaceTimelineItem | null;
-	previewItems: readonly SpaceTimelineItem[] | null;
-}): readonly SpaceTimelineItem[] {
-	if (input.previewItems) {
-		return input.previewItems;
-	}
-	return input.optimisticItem
-		? [...input.baseItems, input.optimisticItem]
-		: input.baseItems;
-}
-
 export function resolveSpaceMessageStateTuningVisibility(input: {
 	isCenterAgentDirectMessage: boolean;
 	previewItems: readonly SpaceTimelineItem[] | null;
@@ -243,7 +230,7 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 			""
 		),
 		deliveryState: "pending" as const,
-		optimisticAgentReplyProgress: createPreviewWakeProgressItem(
+		activeWakeProgress: createPreviewWakeProgressItem(
 			input.agent,
 			preview.phase,
 			preview.key,
@@ -402,6 +389,47 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 			"dev:message-state-preview:long-answer",
 			`${Array.from({ length: 32 }, () => PREVIEW_LONG_REPLY_PARAGRAPH).join(" ")}\n\n[Response truncated by OpenMeld]`
 		),
+		{
+			...humanItem(
+				28,
+				"dev:message-state-preview:failed-wake",
+				"Check this request with the local agent."
+			),
+			wakeTargetProfileIds: [input.agent.profileId],
+		},
+		{
+			...agentItem(
+				29,
+				"dev:message-state-preview:failure-outcome",
+				"The model provider rejected this request."
+			),
+			signalType: "signal.system_notice",
+			systemNoticeType: "terminal_failure",
+			systemNoticeFailureStage: "execution",
+			systemNoticeTargetProfileId: input.agent.profileId,
+			systemNoticeDispatchId: "dev-failed-wake",
+			replyToSignalId: "dev:message-state-preview:failed-wake",
+		},
+		{
+			...humanItem(
+				30,
+				"dev:message-state-preview:stopped-wake",
+				"Stop this preview request."
+			),
+			wakeTargetProfileIds: [input.agent.profileId],
+		},
+		{
+			...agentItem(
+				31,
+				"dev:message-state-preview:stop-outcome",
+				"Wake stopped."
+			),
+			signalType: "signal.system_notice",
+			systemNoticeType: "wake_stopped",
+			systemNoticeTargetProfileId: input.agent.profileId,
+			systemNoticeDispatchId: "dev-stopped-wake",
+			replyToSignalId: "dev:message-state-preview:stopped-wake",
+		},
 	];
 }
 

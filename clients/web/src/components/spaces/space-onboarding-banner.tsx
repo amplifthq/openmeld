@@ -1,11 +1,8 @@
-import type {
-	OnboardingPlan,
-	SpaceMembersSnapshot,
-} from "@openmeld/schemas/types";
+import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { SparkleIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import {
 	OnboardingSetupBanner,
@@ -16,6 +13,7 @@ import {
 	resolveDeviceStatus,
 	resolveOnboardingSetupActionVisibility,
 } from "#/components/spaces/onboarding-setup-presentation";
+import { useSpaceSetupDismissals } from "#/components/spaces/use-space-setup-dismissals";
 import { useAuthSession } from "#/hooks/auth.hooks";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { deriveSpaceOnboardingPlan } from "#/lib/onboarding/space-onboarding-plan";
@@ -27,7 +25,6 @@ type AccountProfileLike = {
 	status: string;
 };
 
-type SetupDecisionId = OnboardingPlan["decisions"][number]["id"];
 type LocalAgentRecoveryController = Pick<
 	ReturnType<typeof useLocalAgentRecoveryController>,
 	"currentLocalRuntimeReplyReadinessQuery" | "localRuntimesQuery"
@@ -89,12 +86,16 @@ export function SetupRecallButton(input: { onClick: () => void }) {
 
 function SpaceOnboardingBanner(props: SpaceOnboardingBannerProps) {
 	const authSession = useAuthSession();
-	// Per-row dismissal is presentation-only and session-scoped: a dismissed CTA
-	// hides until a refresh recomputes the plan or the header "Get set up" action
-	// recalls it. Never persisted (Invariant 4/6).
-	const [dismissedIds, setDismissedIds] = useState<
-		ReadonlySet<SetupDecisionId>
-	>(() => new Set());
+	const {
+		dismissedIds,
+		dismiss: handleDismiss,
+		recall,
+		isReady,
+	} = useSpaceSetupDismissals({
+		userId: authSession.data?.user?.id ?? null,
+		orgSlug: props.orgSlug,
+		spaceId: props.spaceId,
+	});
 
 	const navigate = useNavigate();
 	const spaceId = props.spaceId;
@@ -107,14 +108,6 @@ function SpaceOnboardingBanner(props: SpaceOnboardingBannerProps) {
 			}),
 		}).catch(() => undefined);
 	}, [navigate, props.orgSlug, spaceId]);
-
-	const handleDismiss = useCallback((id: SetupDecisionId) => {
-		setDismissedIds((prev) => {
-			const next = new Set(prev);
-			next.add(id);
-			return next;
-		});
-	}, []);
 
 	const plan = deriveSpaceOnboardingPlan({
 		accountProfiles: props.accountProfiles,
@@ -154,13 +147,21 @@ function SpaceOnboardingBanner(props: SpaceOnboardingBannerProps) {
 
 	// Recall (header chip) clears every dismissal so the panel reappears. Guarded
 	// by a ref so it only fires on an actual recall, not on mount.
-	const lastRecallNonceRef = useRef(recallNonce);
+	const recallScope = JSON.stringify([
+		authSession.data?.user?.id,
+		props.orgSlug,
+		props.spaceId,
+	]);
+	const lastRecallNonceRef = useRef({ scope: recallScope, nonce: recallNonce });
 	useEffect(() => {
-		if (recallNonce !== lastRecallNonceRef.current) {
-			lastRecallNonceRef.current = recallNonce;
-			setDismissedIds(new Set());
+		if (
+			recallScope === lastRecallNonceRef.current.scope &&
+			recallNonce !== lastRecallNonceRef.current.nonce
+		) {
+			recall();
 		}
-	}, [recallNonce]);
+		lastRecallNonceRef.current = { scope: recallScope, nonce: recallNonce };
+	}, [recallNonce, recall, recallScope]);
 
 	if (props.presentation === "empty-state") {
 		return (
@@ -172,7 +173,7 @@ function SpaceOnboardingBanner(props: SpaceOnboardingBannerProps) {
 		);
 	}
 
-	return (
+	return isReady ? (
 		<OnboardingSetupBanner
 			dismissedIds={dismissedIds}
 			onAddAgents={props.onAddAgents}
@@ -183,7 +184,7 @@ function SpaceOnboardingBanner(props: SpaceOnboardingBannerProps) {
 			spaceId={props.spaceId}
 			spaceName={props.spaceName}
 		/>
-	);
+	) : null;
 }
 
 export type SpaceConversationRecoveryBannerProps = {

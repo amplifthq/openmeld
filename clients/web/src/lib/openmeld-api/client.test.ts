@@ -15,6 +15,21 @@ const CLIENT_SOURCE = fs.readFileSync(
 );
 
 describe("web OpenMeld API foundation", () => {
+	it("never sends a local computer preview target to the server", async () => {
+		const fetchMock = vi.fn<typeof fetch>();
+		const foundation = createUnscopedWebOpenMeldApiFoundation({
+			fetchImpl: fetchMock,
+		});
+		await expect(
+			foundation.requestJson({
+				url: "/v1/people-computers/local-computer-preview-current/lanes/dev-local/reply-readiness",
+				operation: "preview safety",
+				schema: currentDeviceTargetResponseSchema,
+				invalidMessage: "Invalid preview response",
+			})
+		).rejects.toBeDefined();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
 	afterEach(() => {
 		window.history.replaceState(null, "", "/");
 	});
@@ -96,7 +111,7 @@ describe("web OpenMeld API foundation", () => {
 		window.history.replaceState(
 			null,
 			"",
-			"/o/amplift/center-agent/apps/github"
+			"/o/amplift/center-agent/plugins/github"
 		);
 		const fetchMock = vi.fn<typeof fetch>(() => {
 			return Promise.resolve(
@@ -134,7 +149,7 @@ describe("web OpenMeld API foundation", () => {
 		window.history.replaceState(
 			null,
 			"",
-			"/o/amplift/center-agent/apps/github"
+			"/o/amplift/center-agent/plugins/github"
 		);
 		const fetchMock = vi.fn<typeof fetch>(() =>
 			Promise.resolve(

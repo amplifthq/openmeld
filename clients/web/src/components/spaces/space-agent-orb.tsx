@@ -10,6 +10,7 @@ export function SpaceAgentOrb(input: {
 	className?: string;
 	prominent?: boolean;
 	state?: SpaceAgentOrbState;
+	paused?: boolean;
 	"data-testid"?: string;
 }) {
 	const state = input.state ?? DEFAULT_SPACE_AGENT_ORB_STATE;
@@ -32,7 +33,7 @@ export function SpaceAgentOrb(input: {
 				)}
 				data-space-agent-orb-state={state}
 				data-testid={input["data-testid"]}
-				paused={shouldReduceMotion}
+				paused={shouldReduceMotion || input.paused}
 				size={input.prominent ? 64 : 20}
 				state={state}
 			/>

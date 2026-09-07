@@ -100,6 +100,8 @@ export const postSpaceThreadSignalBodySchema = z
     files: signalTextSchema.shape.data.shape.files.optional(),
     messageEnvelope: messageEnvelopeSchema.optional(),
     clientMessageId: clientMessageIdSchema,
+    authorHasRead:
+      signalTextSchema.shape.data.shape.meta.unwrap().shape.authorHasRead,
   })
   .superRefine((value, ctx) => {
     const parsed = signalTextSchema.shape.data.safeParse({

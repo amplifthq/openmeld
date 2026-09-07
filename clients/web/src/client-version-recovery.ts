@@ -7,7 +7,7 @@ export function installClientVersionRecovery(input: {
 	reload: () => void;
 	window: Window;
 }): () => void {
-	const onPreloadError = (event: Event) => {
+	const onPreloadError = () => {
 		const now = input.now();
 		let previousAttempt: number;
 		try {
@@ -50,7 +50,9 @@ export function installClientVersionRecovery(input: {
 		console.warn("[openmeld.web.client_version_recovery_reload]", {
 			reason: "vite_preload_error",
 		});
-		event.preventDefault();
+		// Keep Vite's original rejection while navigation is pending. Canceling
+		// the event resolves a failed import with undefined, which makes lazy
+		// route components throw a second error when reading their export.
 		input.reload();
 	};
 

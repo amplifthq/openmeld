@@ -3,6 +3,8 @@ import type {
   ComputerFileAccessReadRequest,
   ComputerFileAccessUpdateRequest,
   OpenMeldRequestContext,
+  PeopleComputerFileAccessUpdateBody,
+  PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
 
@@ -18,6 +20,14 @@ export type UpdateComputerFileAccessPolicyInput =
   ComputerFileAccessRequestInput & ComputerFileAccessUpdateRequest;
 
 export type ComputerFileAccessApi = {
+  readPeopleComputerPolicy: (
+    input: ComputerFileAccessRequestInput & PeopleComputerTarget
+  ) => Promise<ComputerFileAccessPolicyResponse>;
+  updatePeopleComputerPolicy: (
+    input: ComputerFileAccessRequestInput &
+      PeopleComputerTarget &
+      PeopleComputerFileAccessUpdateBody
+  ) => Promise<ComputerFileAccessPolicyResponse>;
   readPolicy: (
     input: ReadComputerFileAccessPolicyInput
   ) => Promise<ComputerFileAccessPolicyResponse>;

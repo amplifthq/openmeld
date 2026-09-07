@@ -103,26 +103,31 @@ export function useAccountSpacePinMutation(input: {
 		},
 	});
 
+	const setPinned = async (item: AccountSpaceItem, pinned: boolean) => {
+		if (hasPendingAccountSpacePinMutation({ mutationKey, queryClient })) {
+			return false;
+		}
+		if ((item.pinnedAt !== null) === pinned) {
+			return true;
+		}
+		try {
+			await pinMutation.mutateAsync({
+				item,
+				pinnedAt: pinned ? new Date().toISOString() : null,
+				profileIds: pinned
+					? [input.currentProfileId]
+					: resolvePinnedProfileIds(item),
+			});
+			return true;
+		} catch {
+			// The mutation owns rollback and user-visible failure reporting.
+			return false;
+		}
+	};
 	return {
 		arePinActionsPending: hasPendingMutation,
-		toggle: (item: AccountSpaceItem) => {
-			if (
-				hasPendingAccountSpacePinMutation({
-					mutationKey,
-					queryClient,
-				})
-			) {
-				return;
-			}
-			const isPinned = item.pinnedAt !== null;
-			pinMutation.mutate({
-				item,
-				pinnedAt: isPinned ? null : new Date().toISOString(),
-				profileIds: isPinned
-					? resolvePinnedProfileIds(item)
-					: [input.currentProfileId],
-			});
-		},
+		setPinned,
+		toggle: (item: AccountSpaceItem) => setPinned(item, item.pinnedAt === null),
 	};
 }
 

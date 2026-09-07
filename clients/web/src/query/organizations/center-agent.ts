@@ -32,11 +32,12 @@ export const centerAgentQueryKeys = {
 		[...centerAgentQueryKeys.all, organizationId, "operating-state"] as const,
 	model: (organizationId: string) =>
 		[...centerAgentQueryKeys.all, organizationId, "model"] as const,
-	directMessageSpaceProjection: (organizationId: string) =>
+	directMessageSpaceProjection: (organizationId: string, spaceId?: string) =>
 		[
 			...centerAgentQueryKeys.all,
 			organizationId,
 			"dm-space-projection",
+			...(spaceId === undefined ? [] : ["session", spaceId]),
 		] as const,
 	directMessageSpaceOpen: (organizationId: string) =>
 		[...centerAgentQueryKeys.all, organizationId, "dm-space-open"] as const,
@@ -139,6 +140,7 @@ export function centerAgentModelQueryOptions(input: {
 }
 
 export function centerAgentDirectMessageSpaceProjectionQueryOptions(input: {
+	spaceId?: string;
 	enabled: boolean;
 	organizationId: string;
 }) {
@@ -150,11 +152,13 @@ export function centerAgentDirectMessageSpaceProjectionQueryOptions(input: {
 		gcTime: ROUTE_REVISIT_GC_TIME_MS,
 		queryFn: async ({ signal }) =>
 			await readCurrentCenterAgentDirectMessageSpaceProjection({
+				...(input.spaceId === undefined ? {} : { spaceId: input.spaceId }),
 				organizationId: input.organizationId,
 				signal,
 			}),
 		queryKey: centerAgentQueryKeys.directMessageSpaceProjection(
-			input.organizationId
+			input.organizationId,
+			input.spaceId
 		),
 		refetchOnWindowFocus: false,
 		retry: baseQueryOptions.retry,

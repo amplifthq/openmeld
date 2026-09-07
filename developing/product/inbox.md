@@ -158,7 +158,9 @@ or tombstone.
 
 The first release creates items for these explicit user-visible events:
 
-1. A visible Space message from another member, with a targeted reply or
+1. A visible Space message, including a Human member's own messages published
+   through CLI or automation without an explicit author read confirmation,
+   with a targeted reply or
    structured Human Mention receiving the more specific source kind.
 2. An Agent or Center Agent reply intended for the member who initiated the
    interaction, a current human member explicitly mentioned by the reply, or
@@ -202,6 +204,12 @@ The first release creates items for these explicit user-visible events:
     set up one Message Channel provider. The Message Channel setup-request
     record owns deduplication and resolution; Inbox projects the request to each
     current owner or admin and links to the Organization Channels page.
+12. An invitation request uses the existing `organization_member_request` source
+    category with an `invitation:<requestId>` key and an
+    `organization_join_request` target. It opens the authorized request detail.
+    Inbox contains no recipient email; reviewers see recipient and target access
+    only after the request owner checks current permission. Decline/cancel resolves
+    the action. Approval resolves it only after invitation delivery is confirmed.
 
 Agent Profile Creation Requests persist their current Inbox projection intent
 with the source request mutation. A failed projection remains retryable and is
@@ -303,6 +311,18 @@ recent updates. It may say **All caught up** only when there are no unresolved
 actions and no unread items.
 
 ### Space message unread behavior
+
+Authorship does not establish reading. Web composer sends confirm only their
+exact authored message with `authorHasRead: true`; Core omits that author's
+Inbox candidate while preserving all other recipients. The confirmation is
+persisted with the message and its projection intent, so delayed projection
+and idempotent retries cannot recreate a self reminder. It never advances a
+main or thread read-through watermark. CLI sends omit the confirmation by
+default. Unconfirmed self messages use ordinary `space_message` updates even
+when they mention the author or reply to the author's thread; they do not
+escalate to browser delivery or urgent email. Existing historical projections
+are not backfilled. Account ownership and current membership remain the
+recipient authority.
 
 Every Inbox message projection backed by a Space carries its canonical source
 Space id and Signal occurrence time. Web reads one Core summary of at most 500
@@ -440,6 +460,11 @@ two optional delivery channels:
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe
   content.
+- **Invitation review email** is transactional, normal-importance mail to current
+  owners/admins. It reuses the same durable delivery ledger with an explicit
+  `invitation_review` purpose and does not depend on the urgent-email preference.
+  Auth rechecks current reviewer role before sending. It links to the same
+  recipient-authorized Inbox item; the email itself never approves the request.
 
 Browser permission and the OpenMeld sound preference are device/browser state.
 The email preference is durable account state. Phase 1 does not provide

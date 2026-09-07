@@ -1,5 +1,7 @@
 import { createCurrentDeviceApi } from "@openmeld/api-client";
 import type { CurrentLocalRuntimeReplyReadinessResponse } from "@openmeld/schemas/types";
+import { resolveOpenMeldEnvPreset } from "../config/paths";
+import { readCurrentLocalDeviceId } from "../local-service/state/current-device-identity";
 import { createCliApiClientFoundation } from "../space/api-client-foundation";
 
 export type CurrentLocalRuntimeIdentity = {
@@ -10,9 +12,18 @@ export type CurrentLocalRuntimeIdentity = {
 export async function readCurrentLocalRuntimeReplyReadiness(input: {
   gatewayUrl: string;
 }): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
+  const deviceId = await readCurrentLocalDeviceId();
+  if (!deviceId) {
+    throw new Error(
+      "This installation has no computer identity. Run openmeld setup to connect it."
+    );
+  }
   return await createCurrentDeviceApi(
     createCliApiClientFoundation(input.gatewayUrl)
-  ).getCurrentLocalRuntimeReplyReadiness();
+  ).getPeopleComputerReplyReadiness({
+    deviceId,
+    runtimeLane: resolveOpenMeldEnvPreset(),
+  });
 }
 
 export async function assertCurrentLocalRuntimeCanReceiveWake(input: {

@@ -8,6 +8,7 @@ import {
 } from "@openmeld/ui/components/card";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { Surface } from "@openmeld/ui/fluid/surface";
 import { cn } from "@openmeld/ui/lib/utils";
 import { EyeIcon, EyeSlashIcon, KeyIcon } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -208,7 +209,7 @@ export function PasswordChangeCard() {
 			</CardHeader>
 			<CardContent className="space-y-4">
 				{isFormOpen ? (
-					<div className="space-y-4 border border-border p-3">
+					<Surface className="space-y-4 p-3">
 						{hasPassword ? (
 							<PasswordField
 								disabled={isPending}
@@ -261,9 +262,9 @@ export function PasswordChangeCard() {
 								{passwordButtonLabel(isPending, hasPassword)}
 							</Button>
 						</div>
-					</div>
+					</Surface>
 				) : (
-					<div className="flex items-center justify-between gap-3 border border-border p-3">
+					<Surface className="flex items-center justify-between gap-3 p-3">
 						<div>
 							<p className="font-medium text-sm">{summaryTitle(hasPassword)}</p>
 							<p className="text-muted-foreground text-xs">
@@ -278,7 +279,7 @@ export function PasswordChangeCard() {
 						>
 							{hasPassword ? "Change" : "Set"}
 						</Button>
-					</div>
+					</Surface>
 				)}
 
 				{statusMessage ? (

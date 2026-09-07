@@ -3,7 +3,7 @@
 import { Popover } from "@base-ui/react/popover";
 import {
 	formatProfileKind,
-	formatSpaceMemberActivityTime,
+	type ProfileDetailsSpaceMemberInput,
 } from "@openmeld/agent-profile";
 import type {
 	AuthProfileView,
@@ -53,6 +53,7 @@ import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profil
 import { resolveSpaceMemberInlineStatusTextClassName } from "#/components/spaces/space-member-status-tone";
 import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
 import { copyTextToClipboard } from "#/lib/clipboard";
+import { useMemberActivityTime } from "#/lib/spaces/use-member-activity-time";
 import {
 	organizationAgentRuntimeOverviewQueryOptions,
 	organizationComputersQueryOptions,
@@ -331,9 +332,7 @@ export function HumanProfileDetailsPopover(input: {
 	profileHref?: string;
 	trigger: ReactElement;
 }) {
-	const activityTime = input.entry.liveNow
-		? "Now"
-		: formatSpaceMemberActivityTime(input.entry.lastSeenLabel);
+	const activityTime = useMemberActivityTime(input.entry);
 	const canLoadCollaborationDetails = Boolean(
 		input.organizationId && input.orgSlug && input.entry.ownerUserId
 	);
@@ -388,8 +387,14 @@ export function HumanProfileDetailsPopover(input: {
 	);
 }
 
-export function ProfileDetailsPopover(input: {
-	details: ProfileDetailsSnapshot;
+export function HistoricalProfilePopover(input: {
+	entry: Pick<
+		ProfileDetailsSpaceMemberInput,
+		"profileId" | "profileKind" | "profileName" | "agentControllerRef"
+	>;
+	isSelf: boolean;
+	isCenterAgent: boolean;
+	chatHref?: string;
 	trigger: ReactElement;
 }) {
 	return (
@@ -409,17 +414,41 @@ export function ProfileDetailsPopover(input: {
 					sideOffset={8}
 				>
 					<Popover.Popup
-						aria-label={`${input.details.profileName} Profile`}
+						aria-label={`${input.entry.profileName} Profile`}
 						className={cn(
 							PROFILE_DETAILS_POPOVER_CLASS_NAME,
 							"max-h-[var(--available-height)] overflow-hidden"
 						)}
 						role="dialog"
 					>
-						<div className="max-h-[min(34rem,calc(var(--available-height)-1.5rem))] overflow-y-auto pr-1">
-							<h2 className="font-semibold text-base">Check this Profile</h2>
-							<ProfileDetailsContent className="mt-3" details={input.details} />
+						<div className="flex min-w-0 items-start gap-3">
+							<SpaceProfileIcon
+								agentControllerRef={input.entry.agentControllerRef}
+								isCenterAgent={input.isCenterAgent}
+								profileId={input.entry.profileId}
+								profileKind={input.entry.profileKind}
+								profileName={input.entry.profileName}
+								size="md"
+							/>
+							<div className="min-w-0 flex-1 pt-0.5">
+								<h2 className="break-words font-semibold text-base">
+									{input.entry.profileName}
+									{input.isSelf ? (
+										<span className="font-normal text-muted-foreground text-sm">
+											{" "}
+											· You
+										</span>
+									) : null}
+								</h2>
+							</div>
 						</div>
+						{input.chatHref ? (
+							<AgentProfileDirectMessageAction
+								href={input.chatHref}
+								isPending={false}
+								profileName={input.entry.profileName}
+							/>
+						) : null}
 					</Popover.Popup>
 				</Popover.Positioner>
 			</Popover.Portal>
@@ -459,6 +488,7 @@ function HumanProfileDetailsPopoverWithCollaboration(input: {
 	);
 	const agentProfiles = profileDirectoryQuery.data
 		? (buildDirectoryAgentProfilesByOwner({
+				members: profileDirectoryQuery.data.members,
 				agentProfiles: profileDirectoryQuery.data.agentProfiles,
 				orgSlug: input.orgSlug,
 				runtimeOverview: runtimeOverviewQuery.data,

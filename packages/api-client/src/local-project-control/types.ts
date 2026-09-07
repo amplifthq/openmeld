@@ -11,6 +11,7 @@ import type {
   LocalProjectControlSetDefaultConnectionRequest,
   LocalProjectControlSetDefaultConnectionResponse,
   OpenMeldRequestContext,
+  PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
 
@@ -37,6 +38,9 @@ export type RemoveMissingLocalProjectConnectionsInput =
     LocalProjectControlRemoveMissingConnectionsRequest;
 
 export type LocalProjectControlApi = {
+  discoverPeopleComputerProjects: (
+    input: DiscoverLocalProjectsInput & PeopleComputerTarget
+  ) => Promise<LocalProjectControlDiscoverProjectsResponse>;
   connectCandidate: (
     input: ConnectLocalProjectCandidateInput
   ) => Promise<LocalProjectControlConnectOutcome>;

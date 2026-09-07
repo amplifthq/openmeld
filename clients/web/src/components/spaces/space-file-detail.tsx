@@ -20,6 +20,7 @@ import {
 } from "@openmeld/ui/components/dropdown-menu";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { Textarea } from "@openmeld/ui/components/textarea";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowClockwiseIcon,
@@ -728,7 +729,11 @@ function SpaceFileImagePreview(input: {
 		);
 	}
 	return (
-		<div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-md border border-border/70 bg-muted/15 p-4">
+		<ScrollArea
+			className="min-h-0 flex-1 rounded-md border border-border/70 bg-muted/15"
+			contentClassName="flex items-center justify-center p-4"
+			orientation="both"
+		>
 			<img
 				alt={input.fileName}
 				className="max-h-full max-w-full object-contain"
@@ -736,7 +741,7 @@ function SpaceFileImagePreview(input: {
 				src={input.previewUrl}
 				width={1600}
 			/>
-		</div>
+		</ScrollArea>
 	);
 }
 
@@ -791,12 +796,14 @@ function SpaceFileHistoryDrawer(input: {
 								</Button>
 							</Drawer.Close>
 						</header>
-						<div
-							className="min-h-0 flex-1 overflow-y-auto px-5 py-5"
+						<ScrollArea
+							className="min-h-0 flex-1"
+							contentClassName="px-5 py-5"
 							data-vaul-no-drag
+							orientation="vertical"
 						>
 							{renderVersionHistory(input)}
-						</div>
+						</ScrollArea>
 					</div>
 				</Drawer.Content>
 			</Drawer.Portal>

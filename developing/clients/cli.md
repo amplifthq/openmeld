@@ -103,6 +103,12 @@ Startup, reconnect, and hourly channel checks remain the fallback; the release
 signal does not create a new polling loop. A disconnected request fails
 immediately so a replacement Service can retry.
 
+The `dev-local` managed binary also uses this maintenance path when setup
+explicitly configures an HTTP(S) loopback binary manifest. Source/npm development
+installs, missing manifests, and remote manifests do not opt the local lane into
+automatic updates. This keeps localhost upgrade verification isolated from the
+production release channel.
+
 `openmeld skills` is the canonical Organization Skills command group. Phase 1
 provides `list`, `show`, and `load` with Human View, Agent View, and strict JSON
 contracts. `load` resolves one enabled exact release from the authenticated
@@ -142,6 +148,16 @@ isolation, and CI/release workflow belong in
 `developing/engineering/development-workflow.md`.
 
 ## Command Model
+
+`openmeld org invitation-requests` uses the signed-in account and the same Auth
+contract as Web. `create --email ... [--space ...]` proposes an invitation;
+`link [--space ...]` ensures an approval-required share link; `request --token ...`
+submits the verified account behind a received link. `list`, `get --request ...`,
+`approve`, `reject`, and `cancel` expose current owner decisions. Agent View
+returns request IDs, status, delivery evidence, and next-action guidance; errors
+retain server codes and exit nonzero. No local Service or speaking Profile is
+required. Approval is not membership. Native email invitation acceptance remains
+the membership boundary.
 
 Keep the command model stable across terminal use, Web handoff, and docs.
 
@@ -192,6 +208,12 @@ opaque cursor requests older visible messages. The CLI does not list Space
 Signals itself, read Flue storage, infer authorization from a conversation or
 session id, or construct its own summary. Each page is independently
 authorized, source-linked, and audited.
+
+`--conversation <space-id>` selects one exact Center Agent session. This is
+separate from `--session`, which only overrides the Local Agent source locator.
+An unavailable selected conversation fails instead of reading a different
+chat. Omitting `--conversation` retains the default conversation behavior;
+session-aware callers must pass their selection on each context page.
 
 Token-budget pages are contiguous. Core never advances the cursor past a
 visible message that cannot be materialized inside the requested budget. If
@@ -508,6 +530,12 @@ compatibility, claim eligibility, and RuntimeCoordinator evidence.
 of local component alignment because they are the instructions agents use after
 setup. In the current hard-cut phase, stale OpenMeld-managed skills are treated as a
 required update, not an advisory update.
+
+The offline baseline and independently maintained official guide have separate
+release lifecycles. Installation, prompt reads, and local readiness use the
+same compatible content selection. See
+[Official CLI Skill delivery](../engineering/official-cli-skill.md) for
+publication, automatic maintenance, discovery, and bridge rollout ordering.
 
 During the one-window compatibility period, the deprecated
 `openmeld skills ensure --all --view agent` alias remains a diagnostic and
@@ -1299,6 +1327,15 @@ next action, the unified CLI/Service/Skill update state, and each local Agent's
 reported capability status and usage-limit evidence. It does not fetch File
 Access diagnostics or unrelated Computer detail. Missing usage-limit evidence
 means unavailable evidence, not zero capacity.
+
+Both inventory commands read Core's PeopleComputers projection without updating
+device registration or metadata. `computer list` exposes explicit connection
+evidence and `isThisComputer` from local device proof. `computer current` selects
+that local device and the active CLI environment, never the account's preferred
+Binding. Its legacy-shaped diagnostic inventory uses the shared
+`projectPeopleComputersToLegacyLocalRuntimes` adapter; Web uses the same adapter
+with its explicitly named routing preference instead of claiming browser-local
+device proof. File Access diagnostics address the exact local device and lane.
 
 `computer current --view agent` composes the complete current inventory with
 the existing current-computer reply diagnostics, OpenMeld Tools

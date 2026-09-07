@@ -33,6 +33,8 @@ type OpenCenterAgentDirectMessageSpaceInput = {
 	organizationId: string;
 	signal?: AbortSignal;
 };
+type ReadCenterAgentConversationInput =
+	OpenCenterAgentDirectMessageSpaceInput & { spaceId?: string };
 
 const openCurrentCenterAgentDirectMessageSpaceImpl = createIsomorphicFn()
 	.client(
@@ -65,22 +67,26 @@ const readCurrentCenterAgentDirectMessageSpaceProjectionImpl =
 	createIsomorphicFn()
 		.client(
 			async (
-				input: OpenCenterAgentDirectMessageSpaceInput
-			): Promise<GetCenterAgentDirectMessageSpaceProjectionResponse> =>
-				await createWebCenterAgentApi(
-					input.organizationId
-				).getDirectMessageSpaceProjection({
-					...(input.signal === undefined ? {} : { signal: input.signal }),
-				})
+				input: ReadCenterAgentConversationInput
+			): Promise<GetCenterAgentDirectMessageSpaceProjectionResponse> => {
+				const api = createWebCenterAgentApi(input.organizationId);
+				return input.spaceId === undefined
+					? await api.getDirectMessageSpaceProjection({ signal: input.signal })
+					: await api.getSession({
+							spaceId: input.spaceId,
+							signal: input.signal,
+						});
+			}
 		)
 		.server(
 			async (
-				input: OpenCenterAgentDirectMessageSpaceInput
+				input: ReadCenterAgentConversationInput
 			): Promise<GetCenterAgentDirectMessageSpaceProjectionResponse> => {
 				const { readCenterAgentDirectMessageSpaceProjectionFromRequest } =
 					await import("./center-agent-direct-message.server");
 
 				return await readCenterAgentDirectMessageSpaceProjectionFromRequest({
+					...(input.spaceId === undefined ? {} : { spaceId: input.spaceId }),
 					...(input.signal === undefined ? {} : { signal: input.signal }),
 					organizationId: input.organizationId,
 					webAppUrl: getRequiredServerEnv("WEB_APP_URL"),
@@ -286,7 +292,7 @@ export async function openCurrentCenterAgentDirectMessageSpace(
 }
 
 export async function readCurrentCenterAgentDirectMessageSpaceProjection(
-	input: OpenCenterAgentDirectMessageSpaceInput
+	input: ReadCenterAgentConversationInput
 ): Promise<GetCenterAgentDirectMessageSpaceProjectionResponse> {
 	try {
 		return await readCurrentCenterAgentDirectMessageSpaceProjectionImpl(input);

@@ -83,6 +83,7 @@ import {
 	resolveConnectCompletionTarget,
 } from "#/lib/connect/connect-route";
 import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
+import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
 import { createComputerAuthorizationGrant } from "#/query/auth-query";
 import {
 	createPrepareSession,
@@ -171,12 +172,68 @@ export function StartBringAgentsSetupPage(
 
 export function ComputerSetupFlow(input: ComputerSetupFlowProps) {
 	const bringAgentsSetup = useBringAgentsSetupContext();
+	if (input.presentation === "conversation") {
+		return (
+			<ConversationComputerConnectionGate
+				input={input}
+				setup={bringAgentsSetup}
+			/>
+		);
+	}
 	if (input.preferExistingConnection) {
 		return (
 			<ExistingComputerConnectionGate
 				bringAgentsSetup={bringAgentsSetup}
 				input={input}
 			/>
+		);
+	}
+	return <ComputerSetupSessionFlow {...input} />;
+}
+
+function ConversationComputerConnectionGate({
+	setup,
+	input,
+}: {
+	setup: ReturnType<typeof useBringAgentsSetupContext>;
+	input: ComputerSetupFlowProps;
+}) {
+	const [connectRequested, setConnectRequested] = useState(false);
+	const query = setup.localRuntimesQuery;
+	// A named account computer is not proof of the browser's physical identity.
+	const hasConnectedComputer = query.data?.peopleComputers.computers.some(
+		(computer) => computer.connection.status === "connected"
+	);
+	if (
+		connectRequested ||
+		setup.routeIntent.serviceAction === "update_service" ||
+		setup.routeIntent.resetThisComputer ||
+		setup.routeIntent.connectedComputerId !== undefined ||
+		(setup.routeIntent.kind === "space_recovery" &&
+			setup.routeIntent.agentProfileIds.length > 0)
+	) {
+		return <ComputerSetupSessionFlow {...input} />;
+	}
+	if (query.isPending) {
+		return (
+			<p className="text-muted-foreground text-sm">
+				Checking connected computers…
+			</p>
+		);
+	}
+	if (!query.isError && hasConnectedComputer && input.orgSlug) {
+		return (
+			<div className="grid gap-3 rounded-lg border bg-background p-4 pr-12">
+				<ConnectedComputersSummary orgSlug={input.orgSlug} setup={setup} />
+				<Button
+					className="justify-self-start"
+					onClick={() => setConnectRequested(true)}
+					size="sm"
+					variant="outline"
+				>
+					Connect a computer
+				</Button>
+			</div>
 		);
 	}
 	return <ComputerSetupSessionFlow {...input} />;
@@ -276,10 +333,11 @@ function ExistingComputerConnectionGate(input: {
 					<p className="font-medium text-sm">Computer connected</p>
 					<p className="mt-1 truncate text-muted-foreground text-xs">
 						{connectionState.readiness.runtime.deviceDisplayName ??
-							"This computer"}
+							"Connected computer"}
 					</p>
 					<p className="mt-2 text-muted-foreground text-xs leading-5">
-						OpenMeld can already use the local agents enabled on this computer.
+						OpenMeld Service is connected. Agent availability is checked
+						separately.
 					</p>
 				</div>
 				<Button
@@ -316,9 +374,7 @@ function resolveExistingComputerConnectionState(
 	const currentDeviceTargetQuery = setup.currentDeviceTargetQuery;
 	const localRuntimesQuery = setup.localRuntimesQuery;
 	const readinessQuery = setup.currentLocalRuntimeReplyReadinessQuery;
-	const hasComputer =
-		currentDeviceTargetQuery.data?.availability === "resolved" ||
-		(localRuntimesQuery.data?.localRuntimes.length ?? 0) > 0;
+	const hasComputer = setup.deviceId !== null && setup.runtimeLane !== null;
 	const inventoryResolved =
 		currentDeviceTargetQuery.isSuccess &&
 		!currentDeviceTargetQuery.isFetching &&
@@ -511,7 +567,14 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 
 	const snapshot = currentPrepareSessionSnapshot;
 	const setupContent = (
-		<div className="grid w-full gap-6" data-testid="prepare-computer-card">
+		<div
+			className="grid w-full max-w-4xl gap-6"
+			data-testid="prepare-computer-card"
+		>
+			<ConnectedComputersSummary
+				orgSlug={input.orgSlug}
+				setup={bringAgentsSetup}
+			/>
 			{snapshot ? (
 				<PrepareSessionTimeline
 					command={prepareSession.command}
@@ -537,9 +600,8 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 			)}
 			{bringAgentsSetup.blockingErrorMessage ? (
 				<p className="text-muted-foreground text-sm">
-					Some existing computer status could not refresh yet. You can still run
-					the command below; OpenMeld will update this setup when Terminal
-					connects.
+					Could not check existing computers. You can still connect a computer
+					using this command.
 				</p>
 			) : null}
 			{prepareSession.error ? (
@@ -583,6 +645,48 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 		>
 			<div className="md:col-span-2">{setupContent}</div>
 		</StartChoicePage>
+	);
+}
+
+function ConnectedComputersSummary(input: {
+	setup: ReturnType<typeof useBringAgentsSetupContext>;
+	orgSlug?: string;
+}) {
+	const query = input.setup.localRuntimesQuery;
+	const orgSlug = input.orgSlug;
+	if (!orgSlug || query.isError) {
+		return null;
+	}
+	const computers =
+		query.data?.peopleComputers.computers.filter(
+			(computer) => computer.connection.status === "connected"
+		) ?? [];
+	if (computers.length === 0) {
+		return null;
+	}
+	return (
+		<div className="grid divide-y rounded-md border text-sm">
+			{computers.map((computer) => (
+				<div
+					className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+					key={computer.deviceId}
+				>
+					<p>
+						<span className="font-medium">{computer.deviceDisplayName}</span>
+						<span className="text-muted-foreground"> is connected</span>
+					</p>
+					<Link
+						className="font-medium underline-offset-4 hover:underline"
+						to={buildOrganizationComputerPath({
+							deviceId: computer.deviceId,
+							orgSlug,
+						})}
+					>
+						Manage computer
+					</Link>
+				</div>
+			))}
+		</div>
 	);
 }
 
@@ -715,6 +819,30 @@ function PrepareSessionTimeline(input: {
 		setupCopy: input.setupCopy,
 		snapshot: input.snapshot,
 	});
+	const handoffBlockers = input.snapshot.blockers.filter(
+		isHandoffStoppedBlocker
+	);
+	if (handoffBlockers.length > 0) {
+		const canceled = handoffBlockers.some(
+			(blocker) => blocker.reasonCode === "prepare.account_switch_cancelled"
+		);
+		return (
+			<SetupTimeline>
+				<SetupTimelineStep
+					state="pending"
+					summary=""
+					title={
+						canceled ? "Account switch canceled" : "Setup needs a new command"
+					}
+				>
+					<PrepareBlockers
+						blockers={handoffBlockers}
+						onStartOver={input.onStartOver}
+					/>
+				</SetupTimelineStep>
+			</SetupTimeline>
+		);
+	}
 
 	return (
 		<SetupTimeline>
@@ -852,7 +980,9 @@ function resolveReadyPrimaryActionLabel(
 	routeIntent: ReturnType<typeof useBringAgentsSetupContext>["routeIntent"]
 ) {
 	if (routeIntent.kind === "account_computer_setup") {
-		return "Back to Computers";
+		return routeIntent.returnTo === "agent_creation"
+			? "Continue creating Agent"
+			: "Back to Computers";
 	}
 	if (routeIntent.kind === "space_recovery") {
 		return "Back to Space";
@@ -874,6 +1004,12 @@ function resolveReadyActionDescription(input: {
 	}
 	if (input.completionReadiness.kind === "error") {
 		return input.setupCopy.readyDefaultActionSummary;
+	}
+	if (
+		input.routeIntent.kind === "account_computer_setup" &&
+		input.routeIntent.returnTo === "agent_creation"
+	) {
+		return "Return to Agent creation to choose a local agent and finish your profile.";
 	}
 	if (input.completionReadiness.kind === "no_selected_local_agents") {
 		return input.presentation === "conversation"
@@ -1573,6 +1709,7 @@ function PrepareBlockers(input: {
 		isLocalMachinePrepareBlocker
 	);
 	const hasTerminalAuthBlocker = input.blockers.some(isTerminalAuthBlocker);
+	const handoffStopped = input.blockers.some(isHandoffStoppedBlocker);
 	const followUp = resolvePrepareBlockerFollowUp({
 		hasForgottenComputerBlocker,
 		hasLocalMachineBlocker,
@@ -1580,12 +1717,24 @@ function PrepareBlockers(input: {
 	});
 
 	return (
-		<div className="grid gap-2 border border-destructive/20 p-4">
+		<div
+			className={
+				handoffStopped
+					? "grid gap-2 rounded-lg border p-4"
+					: "grid gap-2 border border-destructive/20 p-4"
+			}
+		>
 			{input.blockers.map((blocker) => {
 				const display = resolvePrepareBlockerDisplay(blocker);
 				return (
 					<div className="grid gap-1" key={blocker.blockerId}>
-						<p className="font-medium text-destructive text-sm">
+						<p
+							className={
+								handoffStopped
+									? "font-medium text-sm"
+									: "font-medium text-destructive text-sm"
+							}
+						>
 							{display.message}
 						</p>
 						<p className="text-muted-foreground text-xs">
@@ -1594,7 +1743,7 @@ function PrepareBlockers(input: {
 					</div>
 				);
 			})}
-			{followUp.nextStepText ? (
+			{!handoffStopped && followUp.nextStepText ? (
 				<p className="text-muted-foreground text-sm">{followUp.nextStepText}</p>
 			) : null}
 			<div className="pt-2">
@@ -1608,7 +1757,7 @@ function PrepareBlockers(input: {
 					type="button"
 					variant="outline"
 				>
-					{followUp.actionLabel}
+					{handoffStopped ? "Get a new setup command" : followUp.actionLabel}
 				</Button>
 			</div>
 		</div>
@@ -1641,6 +1790,13 @@ function isForgottenComputerBlocker(blocker: PrepareBlocker): boolean {
 
 function isTerminalAuthBlocker(blocker: PrepareBlocker): boolean {
 	return blocker.reasonCode.startsWith("prepare.auth.");
+}
+
+function isHandoffStoppedBlocker(blocker: PrepareBlocker): boolean {
+	return (
+		blocker.reasonCode === "prepare.account_switch_cancelled" ||
+		blocker.reasonCode === "prepare.authorization_failed"
+	);
 }
 
 function PrepareLoadingState() {
@@ -1876,7 +2032,8 @@ function usePrepareSession(input: {
 	useEffect(() => {
 		const shouldBuildCommand =
 			state.opaqueToken !== null &&
-			state.snapshot?.lifecycleStatus !== "completed";
+			state.snapshot?.lifecycleStatus !== "completed" &&
+			!state.snapshot?.blockers.some(isHandoffStoppedBlocker);
 		if (!shouldBuildCommand) {
 			commandGenerationKeyRef.current = null;
 			setCommand(null);
@@ -1923,6 +2080,7 @@ function usePrepareSession(input: {
 		state.opaqueToken,
 		state.opaqueTokenExpiresAt,
 		state.snapshot?.lifecycleStatus,
+		state.snapshot?.blockers,
 	]);
 
 	useEffect(() => {
@@ -2990,9 +3148,6 @@ function resolveTerminalSecondaryStatus(input: {
 	if (input.snapshot.phase === "waiting_for_agent_selection") {
 		return "Choose local agents in Terminal to continue.";
 	}
-	if (input.webSocketStatus === "connected") {
-		return "OpenMeld Web is receiving live setup updates.";
-	}
 	return null;
 }
 
@@ -3000,7 +3155,10 @@ function shouldShowConnectTerminalCard(
 	step: PrepareStepSnapshot,
 	snapshot: PrepareSessionSnapshot
 ) {
-	if (snapshot.lifecycleStatus === "completed") {
+	if (
+		snapshot.lifecycleStatus === "completed" ||
+		snapshot.blockers.some(isHandoffStoppedBlocker)
+	) {
 		return false;
 	}
 	return (

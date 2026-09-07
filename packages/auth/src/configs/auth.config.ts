@@ -1,4 +1,5 @@
 import { passkey } from "@better-auth/passkey";
+import { ORGANIZATION_INVITATION_LIFETIME_SECONDS } from "@openmeld/schemas";
 import { APIError, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import {
@@ -72,7 +73,8 @@ import {
 export type AuthConfigEnv = AuthConfigInput & {
   AUTH_EMAIL?: CloudflareEmailSender;
   OPENMELD_CORE_WORKER?: AgentActivitySessionInventoryLifecycleWorker &
-    CenterAgentMemoryLifecycleWorker;
+    CenterAgentMemoryLifecycleWorker &
+    import("@openmeld/schemas").SpaceInvitationWorker;
   OPENMELD_DB?: D1Database;
 };
 
@@ -627,6 +629,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
     AUTH_BRAND_NAME: env.AUTH_BRAND_NAME,
     WEB_APP_URL: env.WEB_APP_URL,
     AUTH_COOKIE_DOMAIN: env.AUTH_COOKIE_DOMAIN,
+    AUTH_COOKIE_PREFIX: env.AUTH_COOKIE_PREFIX,
     PASSKEY_RP_ID: env.PASSKEY_RP_ID,
     GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID:
       env.GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID,
@@ -808,10 +811,40 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
           organizationId: organization.id,
         }),
     },
+    invitationExpiresIn: ORGANIZATION_INVITATION_LIFETIME_SECONDS,
     requireEmailVerificationOnInvitation: true,
     roles: organizationRoles,
-    sendInvitationEmail: async (data) => {
+    sendInvitationEmail: async (data, request) => {
       try {
+        const spaceInvitationId = request?.headers.get(
+          "x-openmeld-space-invitation-id"
+        );
+        if (spaceInvitationId) {
+          const core = env.OPENMELD_CORE_WORKER;
+          if (!core) {
+            throw new Error("Core is required for a Space invitation");
+          }
+          const bound = await core.spaceInvitation({
+            userId: data.inviter.user.id,
+            email: data.inviter.user.email,
+            emailVerified: data.inviter.user.emailVerified,
+            request: {
+              action: "bind",
+              invitationId: spaceInvitationId,
+              organizationInvitationId: data.id,
+              organizationInvitationOwned:
+                request?.headers.get(
+                  "x-openmeld-space-invitation-owns-organization"
+                ) === "true",
+            },
+          });
+          if (!bound.result.ok) {
+            throw new Error(bound.result.message);
+          }
+          // The Auth-managed Space invitation route sends the single targeted
+          // email after this native Organization prerequisite succeeds.
+          return;
+        }
         const organizationName = readRequiredString(
           data.organization.name,
           "Organization name"
@@ -1074,6 +1107,9 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       joins: true,
     },
     advanced: {
+      ...(validated.AUTH_COOKIE_PREFIX
+        ? { cookiePrefix: validated.AUTH_COOKIE_PREFIX }
+        : {}),
       database: {
         generateId: "uuid",
       },

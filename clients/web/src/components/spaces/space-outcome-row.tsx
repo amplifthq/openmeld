@@ -7,12 +7,12 @@ import {
 	type WakeFailureDisplay,
 	type WakeFailureTargetContext,
 } from "#/lib/spaces/wake-failure-display";
+import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
 import {
-	Marker,
-	MarkerContent,
-	MarkerIcon,
-	SPACE_SYSTEM_DIVIDER_CLASS_NAME,
-} from "./primitives/marker";
+	SpaceExecutionRecoveryButton,
+	type SpaceExecutionRecoveryHandler,
+	type SpaceExecutionRecoveryRequest,
+} from "./space-execution-recovery-actions";
 import {
 	EMPTY_SPACE_MESSAGE_REFERENCES,
 	type SpaceMessageReferencesById,
@@ -22,21 +22,11 @@ import {
 	resolveSpaceOutcomeRowTone,
 	type SpaceOutcomeRowTone,
 } from "./space-outcome-tone";
-import {
-	SpaceExecutionRecoveryButton,
-	type SpaceExecutionRecoveryHandler,
-	type SpaceExecutionRecoveryRequest,
-	SpaceWakeRetryButton,
-	type SpaceWakeRetryHandler,
-	type SpaceWakeRetryRequest,
-} from "./space-wake-retry";
 
 // A request-level Wake outcome (terminal_failure or wake_stopped) is a compact,
-// always-visible one-line summary. A single terminal execution failure may add
-// one inline Retry action when OpenMeld can safely create a fresh Wake from the
-// original source text and exact target. Full reason and diagnostics remain in
-// Message details; grouped, stopped, publication, and incomplete outcomes never
-// guess at a retry target.
+// always-visible one-line summary. Only Core-authorized recovery may add an
+// execution action; starting another Wake belongs to the ordinary composer.
+// Full reason and diagnostics remain in Message details.
 /**
  * Resolves the outcome row's optional recovery action from the notice's
  * `reasonCode`, reusing the same shared public-failure-recovery mapping the
@@ -70,9 +60,7 @@ export function resolveSpaceOutcomeRowRecoveryDisplay(input: {
 
 function renderSpaceOutcomeAction(input: {
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	recoveryRequest?: SpaceExecutionRecoveryRequest | null;
-	retryRequest?: SpaceWakeRetryRequest | null;
 }) {
 	if (input.recoveryRequest && input.onRecoverExecution) {
 		return (
@@ -84,15 +72,6 @@ function renderSpaceOutcomeAction(input: {
 			/>
 		);
 	}
-	if (input.retryRequest && input.onRetryWakeTarget) {
-		return (
-			<SpaceWakeRetryButton
-				className="h-7 shrink-0 px-2.5"
-				onRetryWakeTarget={input.onRetryWakeTarget}
-				request={input.retryRequest}
-			/>
-		);
-	}
 	return null;
 }
 
@@ -101,9 +80,7 @@ export function SpaceOutcomeRow(input: {
 	className?: string;
 	onOpenDetails: (() => void) | null;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	recoveryRequest?: SpaceExecutionRecoveryRequest | null;
-	retryRequest?: SpaceWakeRetryRequest | null;
 	spaceReferencesById?: SpaceMessageReferencesById;
 	text: string;
 	tone: SpaceOutcomeRowTone;
@@ -126,10 +103,9 @@ export function SpaceOutcomeRow(input: {
 		>
 			<div
 				className={cn(
-					"flex w-full min-w-0 items-center gap-2",
-					SPACE_SYSTEM_DIVIDER_CLASS_NAME
+					"flex min-w-0 max-w-full items-center gap-2",
+					isEndAligned ? "justify-end" : "justify-start"
 				)}
-				data-slot="space-system-divider"
 			>
 				<Marker
 					aria-label={isClickable ? "Open message details" : undefined}

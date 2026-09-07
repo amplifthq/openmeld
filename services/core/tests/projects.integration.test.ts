@@ -74,6 +74,63 @@ afterEach(async () => {
 });
 
 describe("Core Projects", () => {
+  it("replays concurrent creation retries and rejects changed input after later edits", async () => {
+    const organizationId = await seedOrganization();
+    const service = createProjectService({ db: env.OPENMELD_DB });
+    const owner = authority({
+      organizationId,
+      role: "owner",
+      userId: "owner-1",
+    });
+    const request = { name: "Launch", operationId: "create-launch" };
+    const [first, retry] = await Promise.all([
+      service.create(owner, request),
+      service.create(owner, request),
+    ]);
+    expect(first.id).toBe(retry.id);
+    expect((await service.list(owner)).projects).toHaveLength(1);
+    await service.update(owner, first.id, { name: "Launch planning" });
+    expect((await service.create(owner, request)).id).toBe(first.id);
+    await expect(
+      service.create(owner, { ...request, name: "Different project" })
+    ).rejects.toThrow("project.operation_conflict");
+  });
+
+  it("prevents contextual creation from duplicating a repository across members", async () => {
+    const organizationId = await seedOrganization();
+    const service = createProjectService({ db: env.OPENMELD_DB });
+    const owner = authority({
+      organizationId,
+      role: "owner",
+      userId: "owner-1",
+    });
+    const member = authority({
+      organizationId,
+      role: "member",
+      userId: "member-1",
+    });
+    const repositoryUrl = "https://github.com/acme/product";
+    const results = await Promise.allSettled([
+      service.create(owner, {
+        name: "Product",
+        repositoryUrl,
+        operationId: "owner-create",
+      }),
+      service.create(member, {
+        name: "Product team",
+        repositoryUrl,
+        operationId: "member-create",
+      }),
+    ]);
+    expect(
+      results.filter((result) => result.status === "fulfilled")
+    ).toHaveLength(1);
+    expect((await service.list(owner)).projects).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(
+      rejected?.status === "rejected" && String(rejected.reason)
+    ).toContain("project.repository_exists");
+  });
   it("stores one safe repository URL with its matching fingerprint", async () => {
     const organizationId = await seedOrganization();
     const service = createProjectService({

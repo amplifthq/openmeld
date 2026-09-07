@@ -23,8 +23,10 @@ export function AppFullWidthLayout(input: {
 	initialInnerSidebarState?: SidebarPersistedState;
 	initialOuterSidebarState?: SidebarPersistedState;
 	mainHeader?: ReactNode;
+	mainSidebarContent?: ReactNode;
 	mobileSidebarTitle?: string;
 	showMainHeader?: boolean;
+	scroll?: boolean;
 	sidebar?: ReactNode;
 	sidebarPreferenceKey?: InnerSidebarPreferenceKey;
 	sidebarSeparatorLabel?: string;
@@ -43,6 +45,7 @@ export function AppFullWidthLayout(input: {
 			outerRail={
 				<AppOuterRail
 					account={account}
+					contextualNavigation={input.mainSidebarContent}
 					initialState={input.initialOuterSidebarState}
 				/>
 			}
@@ -59,16 +62,20 @@ export function AppFullWidthLayout(input: {
 			}
 		>
 			<AppMainContent
+				bodyClassName={
+					input.contentLayout === "flush" ? "flex flex-col" : undefined
+				}
 				bodySlotName="app-full-width-content-scroll"
 				header={input.mainHeader}
-				scroll
+				scroll={input.scroll ?? true}
 				showHeader={input.showMainHeader ?? false}
 			>
 				<div
 					className={cn(
 						"flex w-full flex-col",
+						input.scroll === false && "h-full min-h-0",
 						input.contentLayout === "flush"
-							? "min-h-full"
+							? "min-h-full flex-1"
 							: "mx-auto max-w-7xl gap-4 px-4 pt-8 pb-6 sm:px-6 lg:px-8"
 					)}
 					data-slot="app-full-width-content"

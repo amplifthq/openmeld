@@ -1,9 +1,13 @@
 import type {
 	LocalProjectControlConnection,
 	LocalProjectControlDiscoverProjectsResponse,
+	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
-import { discoverCurrentComputerProjects } from "#/lib/organizations/local-project-control";
+import {
+	discoverCurrentComputerProjects,
+	discoverPeopleComputerProjects,
+} from "#/lib/organizations/local-project-control";
 
 const PROJECT_DISCOVERY_STALE_TIME_MS = 30_000;
 const PROJECT_DISCOVERY_GC_TIME_MS = 5 * 60_000;
@@ -36,6 +40,7 @@ export const projectDiscoveryQueryKeys = {
 			input.runtimeLane,
 		] as const,
 	catalog: (input: {
+		includeCandidates?: boolean;
 		organizationId: string;
 		projects: readonly ProjectDiscoveryProjectRef[];
 		storageScope: string;
@@ -49,10 +54,13 @@ export const projectDiscoveryQueryKeys = {
 				storageScope: input.storageScope,
 			}),
 			...buildProjectCatalog(input.projects),
+			...(input.includeCandidates === false ? ["connections"] : []),
 		] as const,
 };
 
 export function projectDiscoveryQueryOptions(input: {
+	explicitTarget?: PeopleComputerTarget;
+	includeCandidates?: boolean;
 	enabled: boolean;
 	organizationId: string;
 	projects: readonly ProjectDiscoveryProjectRef[];
@@ -70,13 +78,26 @@ export function projectDiscoveryQueryOptions(input: {
 	return queryOptions<LocalProjectControlDiscoverProjectsResponse, unknown>({
 		enabled: input.enabled && projectIds.length > 0,
 		gcTime: PROJECT_DISCOVERY_GC_TIME_MS,
-		queryFn: async () =>
-			await discoverCurrentComputerProjects({
+		queryFn: async () => {
+			const request = {
+				...(input.includeCandidates === false
+					? { includeCandidates: false }
+					: {}),
 				clientGeneration: claimProjectDiscoveryGeneration(scope),
 				expectedOrganizationId: input.organizationId,
 				projectIds,
-			}),
-		queryKey: projectDiscoveryQueryKeys.catalog(input),
+			};
+			return input.explicitTarget
+				? await discoverPeopleComputerProjects({
+						...request,
+						...input.explicitTarget,
+					})
+				: await discoverCurrentComputerProjects(request);
+		},
+		queryKey: [
+			...projectDiscoveryQueryKeys.catalog(input),
+			...(input.explicitTarget ? ["people-computer"] : []),
+		],
 		refetchOnWindowFocus: false,
 		retry: false,
 		staleTime: PROJECT_DISCOVERY_STALE_TIME_MS,

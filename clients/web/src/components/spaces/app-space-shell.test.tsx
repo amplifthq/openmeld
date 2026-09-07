@@ -23,9 +23,9 @@ vi.mock("#/components/app/app-inner-sidebar", () => ({
 }));
 
 vi.mock("#/components/app/app-outer-rail", () => ({
-	AppOuterRail: (props: unknown) => {
+	AppOuterRail: (props: { contextualNavigation?: ReactNode }) => {
 		appOuterRailSpy(props);
-		return <aside data-testid="outer-rail" />;
+		return <aside data-testid="outer-rail">{props.contextualNavigation}</aside>;
 	},
 }));
 
@@ -133,16 +133,14 @@ describe("AppSpaceShell", () => {
 		expect(screen.getByTestId("space-window-frame")).toBeTruthy();
 	});
 
-	it("owns the Spaces inner-sidebar width preference", () => {
+	it("places Spaces navigation in the main sidebar", () => {
 		render(
 			<AppSpaceShell currentProfileId="human-1" currentSpaceId="space-1">
 				<div>Main content</div>
 			</AppSpaceShell>
 		);
 
-		expect(appInnerSidebarSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ preferenceKey: "spaces" })
-		);
+		expect(appInnerSidebarSpy).not.toHaveBeenCalled();
 	});
 
 	it("owns the visible Wake progress projection shared by the conversation and sidebar", () => {
@@ -173,8 +171,6 @@ describe("AppDirectMessageShell", () => {
 		expect(screen.getByTestId("direct-messages-sidebar")).toBeTruthy();
 		expect(screen.queryByTestId("spaces-sidebar")).toBeNull();
 		expect(screen.getByText("Messages")).toBeTruthy();
-		expect(appInnerSidebarSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ preferenceKey: "direct-messages" })
-		);
+		expect(appInnerSidebarSpy).not.toHaveBeenCalled();
 	});
 });

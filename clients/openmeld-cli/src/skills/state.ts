@@ -1,5 +1,6 @@
 import { lstat, readlink } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { computeDirectoryContentHash } from "./content-hash";
 import type { SkillsInstallTarget } from "./installer";
 import {
   type LocalSkill,
@@ -42,6 +43,7 @@ type TargetSnapshot =
       isSymlink: boolean;
       marker: OpenMeldSkillMarker | null;
       symlinkTargetPath: string;
+      destinationExists: boolean;
     };
 
 export async function resolveSkillsInstallStates(input: {
@@ -101,6 +103,34 @@ export async function resolveSkillInstallStateForTarget(input: {
       reason:
         "existing non-OpenMeld skill detected; skipped to avoid overwrite",
     });
+  }
+
+  if (!target.isSymlink && target.marker.contentHash) {
+    const entry = await lstat(join(base.skillDir, "SKILL.md")).catch(
+      () => null
+    );
+    if (!entry?.isFile()) {
+      return createStateResult({
+        base,
+        source,
+        state: "outdated",
+        targetMarker: target.marker,
+        reason: "OpenMeld Skill entry is missing",
+      });
+    }
+    const actualHash = await computeDirectoryContentHash({
+      rootDir: base.skillDir,
+      ignoredNames: [".openmeld-skill.json"],
+    });
+    if (actualHash !== target.marker.contentHash) {
+      return createStateResult({
+        base,
+        source,
+        state: "external_conflict",
+        targetMarker: target.marker,
+        reason: "OpenMeld Skill files were modified locally; kept your changes",
+      });
+    }
   }
 
   const upToDate = isUpToDate({
@@ -181,6 +211,9 @@ async function resolveTargetSnapshot(
     isSymlink: stats.isSymbolicLink(),
     marker,
     symlinkTargetPath,
+    destinationExists: symlinkTargetPath
+      ? Boolean(await lstat(symlinkTargetPath).catch(() => null))
+      : true,
   };
 }
 
@@ -188,7 +221,10 @@ function isLegacyOpenMeldSkillSymlink(input: {
   skillId: string;
   target: Extract<TargetSnapshot, { exists: true }>;
 }): boolean {
-  if (!(input.target.isSymlink && input.target.symlinkTargetPath)) {
+  if (
+    !(input.target.isSymlink && input.target.symlinkTargetPath) ||
+    input.target.destinationExists
+  ) {
     return false;
   }
 

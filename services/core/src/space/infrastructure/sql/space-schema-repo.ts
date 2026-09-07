@@ -1,5 +1,7 @@
-export const SPACE_SQL_SCHEMA_VERSION = 29;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v29";
+import { ensureSpaceExecutionInputOutbox } from "./space-execution-input-repo";
+
+export const SPACE_SQL_SCHEMA_VERSION = 33;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v33";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -20,6 +22,12 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   if (hasCurrentSpaceSqlSchema(sql)) {
     return;
   }
+  ensureSpaceExecutionInputOutbox(sql);
+  sql.exec(`CREATE TABLE IF NOT EXISTS space_invitation_receipts (
+    invitation_id TEXT PRIMARY KEY,
+    profile_id TEXT,
+    status TEXT NOT NULL CHECK (status IN ('accepted', 'revoked'))
+  )`);
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_meta (
       space_id TEXT PRIMARY KEY,
@@ -60,6 +68,13 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceCursorsMentionAliasColumn(sql);
 
   sql.exec(`
+    CREATE TABLE IF NOT EXISTS space_member_web_activity (
+      profile_id TEXT PRIMARY KEY,
+      last_active_at INTEGER NOT NULL
+    )
+  `);
+
+  sql.exec(`
     CREATE TABLE IF NOT EXISTS space_signals (
       id TEXT PRIMARY KEY,
       ts INTEGER NOT NULL,
@@ -71,6 +86,12 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     )
   `);
   ensureSpaceSignalsClientMessageIdColumn(sql);
+  sql.exec(`
+    CREATE TABLE IF NOT EXISTS space_message_preview_revision (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      revision INTEGER NOT NULL
+    )
+  `);
 
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_client_message_rejections (

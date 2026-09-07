@@ -7,6 +7,7 @@ import type {
 	LocalCliComponentUpdateProjection,
 	LocalRuntimesResponse,
 	LocalServiceComponentUpdateProjection,
+	PeopleComputersResponse,
 	PrepareSessionSnapshot,
 	PrepareSetupBootstrapResult,
 } from "@openmeld/schemas/types";
@@ -43,6 +44,8 @@ const ACTIVE_PREPARE_TOKEN_PATTERN = /preptok_active/u;
 const COMPLETED_PREPARE_TOKEN_PATTERN = /preptok_completed/u;
 const REFRESHED_PREPARE_TOKEN_PATTERN = /preptok_refreshed/u;
 const SETUP_COMMAND_COPY = /setup command/i;
+const UNUSABLE_COMMAND_PATTERN = /preptok_unusable/u;
+const NEW_ATTEMPT_COMMAND_PATTERN = /preptok_new_attempt/u;
 
 type PrepareLocalAgentCatalogEntry = NonNullable<
 	PrepareSessionSnapshot["localAgentCatalog"]
@@ -151,6 +154,66 @@ class ControlledMockWebSocket extends MockWebSocket {
 }
 
 describe("StartBringAgentsSetupPage completion actions", () => {
+	it("does not replace targeted Agent recovery with management of another online computer", async () => {
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{
+					kind: "space_recovery",
+					resetThisComputer: false,
+					spaceId: "space-target",
+					agentProfileIds: ["agent-needing-recovery"],
+				},
+				{ peopleComputers: connectedComputerInventory() }
+			)
+		);
+		render(
+			<TestQueryClientProvider>
+				<StartFlowStateProvider>
+					<ComputerSetupFlow orgSlug="acme" presentation="conversation" />
+				</StartFlowStateProvider>
+			</TestQueryClientProvider>
+		);
+		await waitFor(() => expect(createPrepareSessionMock).toHaveBeenCalled());
+		expect(createPrepareSessionMock.mock.calls[0]?.[0]).toMatchObject({
+			targetSpaceId: "space-target",
+		});
+	});
+	it("keeps standalone setup available alongside a named connected computer", async () => {
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{ kind: "account_computer_setup", resetThisComputer: false },
+				{ peopleComputers: connectedComputerInventory() }
+			)
+		);
+		renderPreparePage();
+		await waitFor(() =>
+			expect(screen.getByRole("link", { name: "Manage computer" })).toBeTruthy()
+		);
+		expect(screen.getByText("Office Mac")).toBeTruthy();
+		expect(createPrepareSessionMock).toHaveBeenCalled();
+	});
+
+	it("offers management in chat without creating a setup until requested", async () => {
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{ kind: "account_computer_setup", resetThisComputer: false },
+				{ peopleComputers: connectedComputerInventory() }
+			)
+		);
+		render(
+			<TestQueryClientProvider>
+				<StartFlowStateProvider>
+					<ComputerSetupFlow orgSlug="acme" presentation="conversation" />
+				</StartFlowStateProvider>
+			</TestQueryClientProvider>
+		);
+		expect(
+			screen.getByRole("link", { name: "Manage computer" }).getAttribute("href")
+		).toContain("/computers/office-mac");
+		expect(createPrepareSessionMock).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Connect a computer" }));
+		await waitFor(() => expect(createPrepareSessionMock).toHaveBeenCalled());
+	});
 	beforeEach(() => {
 		ControlledMockWebSocket.latest = null;
 		navigateMock.mockReset().mockResolvedValue(undefined);
@@ -205,6 +268,52 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		window.sessionStorage.clear();
 		vi.unstubAllGlobals();
 		vi.clearAllMocks();
+	});
+
+	it.each([
+		"prepare.account_switch_cancelled",
+		"prepare.authorization_failed",
+	])("replaces the unusable command with a retry after %s", async (reasonCode) => {
+		const snapshot = createTerminalDisconnectedSnapshot();
+		snapshot.targetSpaceId = null;
+		snapshot.phase = "blocked";
+		snapshot.blockers = [
+			{
+				blockerId: "handoff-stopped",
+				stepId: "connect_terminal",
+				reasonCode,
+				message: "The current computer connection was not changed.",
+				severity: "user_action_required",
+				retryAction: "refresh",
+				createdAt: snapshot.updatedAt,
+			},
+		];
+		snapshot.steps = snapshot.steps.map((step) =>
+			step.id === "connect_terminal"
+				? { ...step, state: "blocked", blockerReasonCode: reasonCode }
+				: step
+		);
+		createPrepareSessionMock.mockResolvedValueOnce({
+			snapshot,
+			opaqueToken: "preptok_unusable",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+		});
+		renderPreparePage();
+		const retry = await screen.findByRole("button", {
+			name: "Get a new setup command",
+		});
+		expect(screen.queryByText(UNUSABLE_COMMAND_PATTERN)).toBeNull();
+		expect(copyCliEntryCommandMock).not.toHaveBeenCalled();
+		const next = createTerminalDisconnectedSnapshot();
+		next.targetSpaceId = null;
+		next.prepareSessionId = "prepare-new-attempt";
+		createPrepareSessionMock.mockResolvedValueOnce({
+			snapshot: next,
+			opaqueToken: "preptok_new_attempt",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+		});
+		fireEvent.click(retry);
+		await screen.findByText(NEW_ATTEMPT_COMMAND_PATTERN);
 	});
 
 	it("returns direct computer setup back to Computers", async () => {
@@ -382,7 +491,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		});
 	});
 
-	it("keeps standalone App Connect completion visible until the user returns", async () => {
+	it("keeps standalone Plugin Connect completion visible until the user returns", async () => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
 		useBringAgentsSetupContextMock.mockReturnValue(
 			createSetupContext(
@@ -1224,7 +1333,10 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		expect(createPrepareSessionMock).not.toHaveBeenCalled();
 	});
 
-	it("shows Terminal setup when embedded onboarding has no existing computer to check", async () => {
+	it.each([
+		false,
+		true,
+	])("shows Terminal setup without a browser handoff even with account routing: %s", async (hasAccountComputer) => {
 		createPrepareSessionMock.mockResolvedValueOnce({
 			opaqueToken: "preptok_active",
 			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
@@ -1241,6 +1353,17 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 					resetThisComputer: false,
 				},
 				{
+					...(hasAccountComputer
+						? {
+								currentDeviceTargetQuery: {
+									data: {
+										availability: "resolved" as const,
+										deviceId: "another-computer",
+										runtimeLane: "prod" as const,
+									},
+								},
+							}
+						: {}),
 					currentLocalRuntimeReplyReadinessQuery: {
 						data: undefined,
 						isError: false,
@@ -1261,6 +1384,11 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		).toBeTruthy();
 		expect(screen.queryByText("Checking this computer…")).toBeNull();
 		expect(createPrepareSessionMock).toHaveBeenCalledOnce();
+		expect(
+			screen.queryByText(
+				"OpenMeld Service is connected. Agent availability is checked separately."
+			)
+		).toBeNull();
 	});
 
 	it("hands a replayed automatic setup action back to the explicit Continue gate", async () => {
@@ -2789,6 +2917,47 @@ function createEmbeddedOnboardingComputerSetupElement() {
 	);
 }
 
+// Sanitized connection contract from the staging computer.list capture on
+// 2026-09-07. No local-agent catalog is needed to prove Service connectivity.
+function connectedComputerInventory(): PeopleComputersResponse {
+	return {
+		generatedAt: "2026-05-08T10:00:00.000Z",
+		computers: [
+			{
+				deviceId: "office-mac",
+				deviceDisplayName: "Office Mac",
+				deviceDisplayNameSource: "observed",
+				platformFamily: "macOS",
+				osVersion: "25.6.0",
+				deviceType: "laptop",
+				firstSeenAtMs: 1_778_234_400_000,
+				lastObservedAtMs: 1_778_234_400_000,
+				identityStatus: "enrolled",
+				executionTargets: [],
+				connection: {
+					status: "connected",
+					reasonCodes: [],
+					sessions: [
+						{
+							deviceId: "office-mac",
+							runtimeLane: "dev-local",
+							lastHeartbeatMs: 1_778_234_400_000,
+							serviceVersion: "0.3.165",
+							executionCompatibility: {
+								status: "compatible",
+								expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+								observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+								reasonCode: "daemon.runtime_contract.compatible",
+							},
+							serviceUpdate: { wakeBlocked: false, reasonCodes: [] },
+						},
+					],
+				},
+			},
+		],
+	};
+}
+
 function createSetupContext(
 	routeIntent: ConnectRouteIntent,
 	overrides: Partial<{
@@ -2824,6 +2993,7 @@ function createSetupContext(
 		};
 		refreshAll: ReturnType<typeof vi.fn>;
 		runtimeLane: string | null;
+		peopleComputers: PeopleComputersResponse;
 		sessionExpiredState: SessionExpiredState | null;
 	}> = {}
 ) {
@@ -2851,6 +3021,10 @@ function createSetupContext(
 		currentRuntimeLane: inventoryRuntimeLane,
 		localRuntimes: [],
 	} satisfies LocalRuntimesResponse;
+	const inventory =
+		overrides.localRuntimesQuery === undefined
+			? defaultLocalRuntimes
+			: overrides.localRuntimesQuery.data;
 	return {
 		agentExecutionReadinessByProfileId:
 			overrides.agentExecutionReadinessByProfileId ?? new Map(),
@@ -2886,10 +3060,15 @@ function createSetupContext(
 		deviceId,
 		loadGatewayUrl: vi.fn().mockResolvedValue("http://localhost:8080"),
 		localRuntimesQuery: {
-			data:
-				overrides.localRuntimesQuery === undefined
-					? defaultLocalRuntimes
-					: overrides.localRuntimesQuery.data,
+			data: inventory
+				? {
+						...inventory,
+						peopleComputers: overrides.peopleComputers ?? {
+							generatedAt: "2026-05-08T10:00:00.000Z",
+							computers: [],
+						},
+					}
+				: undefined,
 			isError: overrides.localRuntimesQuery?.isError ?? false,
 			isFetching: overrides.localRuntimesQuery?.isFetching ?? false,
 			isPending: overrides.localRuntimesQuery?.isPending ?? false,

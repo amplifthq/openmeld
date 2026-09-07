@@ -69,9 +69,9 @@ const CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER = [
   "db",
   "auth",
   "core",
-  "remote-agent",
   "gateway",
   "web",
+  "remote-agent",
   "cli",
 ];
 const INBOX_SOURCE_TARGET_RECEIVER_FIRST_SCOPE_ORDER = [
@@ -130,6 +130,17 @@ const CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER 
 const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
   CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
+  "people-computers-receivers-first":
+    CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
+  "space-invitation-receivers-first": [
+    "db",
+    "core",
+    "auth",
+    "gateway",
+    "web",
+    "remote-agent",
+    "cli",
+  ],
   "center-agent-cli-receiver-first":
     CENTER_AGENT_CLI_RECEIVER_FIRST_SCOPE_ORDER,
   "connect-computer-cli-receiver-first":
@@ -339,6 +350,16 @@ export function expandRequestedReleaseScopes(scope) {
 
 export function resolveAutomaticReleaseScopes(input) {
   const scopes = new Set();
+  if (
+    input.changedPaths.some((path) =>
+      path.startsWith("release/openmeld-cli-skill/")
+    )
+  ) {
+    scopes.add("web");
+  }
+  if (input.changedPaths.includes("release/vendor-models.json")) {
+    scopes.add("core");
+  }
   for (const packageName of input.affectedPackages) {
     const scope = PACKAGE_SCOPE.get(packageName);
     if (scope) {
@@ -412,7 +433,11 @@ export function buildProductionVerifyStepSpecs(input) {
     if (!spec) {
       continue;
     }
-    if (scope === "core" && !input.scopes.includes("cli")) {
+    if (
+      scope === "core" &&
+      !input.scopes.includes("cli") &&
+      !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
+    ) {
       steps.push(coreCliChannelCompatibilityStep());
     }
     steps.push({
@@ -441,7 +466,12 @@ export function buildProductionPreflightStepSpecs(input) {
   if (input.scopes.some((scope) => scope === "cli" || scope === "core")) {
     steps.push(productionQueueVerificationStep("core"));
   }
-  if (input.scopes.includes("core") && !input.scopes.includes("cli")) {
+  if (
+    input.scopes.includes("core") &&
+    !input.scopes.includes("cli") &&
+    !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
+    !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
+  ) {
     steps.push(coreCliChannelCompatibilityStep());
   }
   return steps;
@@ -531,6 +561,15 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths);
   assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
+  if (
+    deployOrderProfile === "space-invitation-receivers-first" &&
+    (selected.has("auth") || selected.has("cli")) &&
+    !(selected.has("core") && selected.has("auth"))
+  ) {
+    throw new Error(
+      "Space invitation release requires Core and Auth receivers before publishing its CLI caller."
+    );
+  }
   const orderedScopes = resolveProductionDeployScopeOrder(scopes, changedPaths);
   assertWakeProgressOptInDeployOrder(orderedScopes, changedPaths);
   assertSpaceHistoryQueryDeployOrder(orderedScopes, changedPaths);
@@ -602,7 +641,11 @@ function appendProductionDeployScopeSteps(input) {
     return;
   }
   if (input.scope === "core") {
-    if (input.selected.has("cli")) {
+    if (
+      input.selected.has("cli") ||
+      input.deployOrderProfile === "people-computers-receivers-first" ||
+      input.deployOrderProfile === "space-invitation-receivers-first"
+    ) {
       if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
         input.steps.push(
           {
@@ -682,6 +725,54 @@ function resolveProductionDeployScopeOrder(scopes, changedPaths) {
 }
 
 function resolveProductionDeployOrderProfile(changedPaths) {
+  const profile = resolveExistingProductionDeployOrderProfile(changedPaths);
+  if (isPeopleComputersReceiverFirstDiff(changedPaths)) {
+    if (
+      profile !== "default-auth-receiver-first" &&
+      profile !== "core-worker-response-reader-first"
+    ) {
+      throw new Error(
+        `PeopleComputers receiver order conflicts with ${profile}; split the release.`
+      );
+    }
+    if (isSpaceInvitationReceiverFirstDiff(changedPaths)) {
+      throw new Error(
+        "PeopleComputers and invitation receiver orders require separate releases."
+      );
+    }
+    return "people-computers-receivers-first";
+  }
+  if (!isSpaceInvitationReceiverFirstDiff(changedPaths)) {
+    return profile;
+  }
+  if (
+    profile !== "default-auth-receiver-first" &&
+    profile !== "local-service-runtime-receiver-first"
+  ) {
+    throw new Error(
+      `Space invitation receiver order must be reviewed together with ${profile}; split incompatible receiver-first releases.`
+    );
+  }
+  return "space-invitation-receivers-first";
+}
+
+function isSpaceInvitationReceiverFirstDiff(changedPaths) {
+  return [
+    "packages/schemas/src/space-invitation.ts",
+    "services/core/src/organizations/space-invitations.ts",
+    "services/auth/src/lib/hono/space-invitation-routes.ts",
+  ].every((path) => changedPaths.includes(path));
+}
+
+function isPeopleComputersReceiverFirstDiff(changedPaths) {
+  return [
+    "packages/schemas/src/schemas/http/people-computers.ts",
+    "services/core/src/people-computers/projection.ts",
+    "services/gateway/src/routes/rpc-http.people-computers.ts",
+  ].every((file) => changedPaths.includes(file));
+}
+
+function resolveExistingProductionDeployOrderProfile(changedPaths) {
   const isConnectComputerReceiverFirst =
     isConnectComputerCliReceiverFirstDiff(changedPaths);
   const isInboxReceiverFirst =
@@ -858,12 +949,25 @@ function assertConnectComputerReleaseScopes(scopes, changedPaths) {
 
 function isLocalServiceRuntimeReceiverFirstDiff(changedPaths) {
   return (
-    changedPaths.includes(LOCAL_SERVICE_RUNTIME_TRANSPORT_SCHEMA_PATH) &&
-    changedPaths.some((path) =>
-      path.startsWith(LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX)
+    isIndependentSkillBridgeDiff(changedPaths) ||
+    (changedPaths.includes(LOCAL_SERVICE_RUNTIME_TRANSPORT_SCHEMA_PATH) &&
+      changedPaths.some((path) =>
+        path.startsWith(LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX)
+      ) &&
+      changedPaths.some((path) =>
+        path.startsWith(LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX)
+      ))
+  );
+}
+
+function isIndependentSkillBridgeDiff(changedPaths) {
+  return (
+    changedPaths.includes("packages/schemas/src/schemas/local-components.ts") &&
+    changedPaths.includes(
+      "clients/openmeld-cli/src/local-components/manifest.ts"
     ) &&
-    changedPaths.some((path) =>
-      path.startsWith(LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX)
+    changedPaths.includes(
+      "services/core/src/local-components/update-projection.ts"
     )
   );
 }
@@ -952,6 +1056,15 @@ function assertWakeProgressOptInDeployOrder(scopes, changedPaths) {
 }
 
 function assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths) {
+  if (
+    isIndependentSkillBridgeDiff(changedPaths) &&
+    scopes.includes("cli") &&
+    !["core", "gateway", "web"].every((scope) => scopes.includes(scope))
+  ) {
+    throw new Error(
+      "The independent Skill bridge requires Core, Gateway, and Web before CLI/Service publication."
+    );
+  }
   if (
     !(
       isLocalServiceRuntimeReceiverFirstDiff(changedPaths) &&

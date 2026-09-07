@@ -13,7 +13,8 @@ import { AgentProfileGenerator } from "./agent-profile-generator";
 import type { CreateProfileFormProps } from "./create-profile-form";
 
 const CODEX_RADIO_NAME = /^codex$/i;
-const CUSTOMIZE_AGENT_BUTTON_NAME = /Customize this Agent/i;
+const REMOTE_AGENT_NAME = /Remote Agent/;
+const CUSTOMIZE_AGENT_BUTTON_NAME = /Advanced Agent Settings/i;
 const TEST_MODEL_CATALOG = {
 	agentControllers: {
 		codex: {
@@ -46,25 +47,20 @@ describe("AgentProfileGenerator", () => {
 				}}
 			/>
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Edit Runs on" }));
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Create and connect later" })
-		);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Choose owner" })
 		);
 		expect(await screen.findByText("Owner choice")).toBeTruthy();
 	});
 
-	it("treats keyboard submission on configuration as Continue", async () => {
+	it("submits directly from the single-page form with the keyboard", async () => {
 		const onSubmit = vi.fn();
 		render(<GeneratorHarness initialAgentId="codex" onSubmit={onSubmit} />);
 		fireEvent.submit(screen.getByTestId("create-profile-panel"));
 		expect(await screen.findByLabelText("Agent name")).toBeTruthy();
-		expect(onSubmit).not.toHaveBeenCalled();
+		expect(onSubmit).toHaveBeenCalledOnce();
 	});
-	it("lets the selected local agent continue while background discovery refreshes", () => {
+	it("keeps creation available while selected local agent discovery refreshes", () => {
 		render(
 			<GeneratorHarness
 				initialAgentId="codex"
@@ -72,8 +68,11 @@ describe("AgentProfileGenerator", () => {
 			/>
 		);
 		expect(
-			(screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement)
-				.disabled
+			(
+				screen.getByRole("button", {
+					name: "Create Agent",
+				}) as HTMLButtonElement
+			).disabled
 		).toBe(false);
 	});
 
@@ -87,7 +86,6 @@ describe("AgentProfileGenerator", () => {
 				permissionConfirmed={false}
 			/>
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 		expect(
 			(
 				(await screen.findByRole("button", {
@@ -106,7 +104,6 @@ describe("AgentProfileGenerator", () => {
 				.getAttribute("aria-expanded")
 		).toBe("true");
 		fireEvent.click(confirmation);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 		expect(
 			(
 				(await screen.findByRole("button", {
@@ -123,7 +120,6 @@ describe("AgentProfileGenerator", () => {
 				overrides={{ boundAgentControllerPermissionMode: "codex:fullAccess" }}
 			/>
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 		expect(
 			(
 				(await screen.findByRole("button", {
@@ -138,7 +134,6 @@ describe("AgentProfileGenerator", () => {
 
 	it("keeps an explicitly cleared name blocked with a visible reason", async () => {
 		render(<GeneratorHarness initialAgentId="codex" />);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 		fireEvent.change(await screen.findByLabelText("Agent name"), {
 			target: { value: "" },
 		});
@@ -155,22 +150,21 @@ describe("AgentProfileGenerator", () => {
 	});
 
 	it("offers working-folder recovery directly beside the blocked action", async () => {
-		const onUseManagedWorkingFolder = vi.fn();
+		const onUseManagedWorkspace = vi.fn();
 		render(
 			<GeneratorHarness
 				initialAgentId="codex"
 				overrides={{
 					projectSelectionBlockReason:
 						"Waiting for a connected working folder.",
-					onUseManagedWorkingFolder,
+					onUseManagedWorkspace,
 				}}
 			/>
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Use OpenMeld managed folder" })
 		);
-		expect(onUseManagedWorkingFolder).toHaveBeenCalledOnce();
+		expect(onUseManagedWorkspace).toHaveBeenCalledOnce();
 		fireEvent.click(
 			screen.getByRole("button", { name: "Choose working folder" })
 		);
@@ -182,7 +176,6 @@ describe("AgentProfileGenerator", () => {
 
 		expect(screen.queryByLabelText("Agent name")).toBeNull();
 		fireEvent.click(screen.getByRole("radio", { name: CODEX_RADIO_NAME }));
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
 		expect(
 			((await screen.findByLabelText("Agent name")) as HTMLInputElement).value
@@ -193,17 +186,14 @@ describe("AgentProfileGenerator", () => {
 	it.each([
 		"dialog",
 		"page",
-	] as const)("starts customization collapsed on the %s surface and opens only the selected editor", async (surface) => {
+	] as const)("starts advanced settings collapsed on the %s surface and opens only the selected editor", async (surface) => {
 		render(<GeneratorHarness initialAgentId="codex" surface={surface} />);
 
 		const customizeTrigger = screen.getByRole("button", {
 			name: CUSTOMIZE_AGENT_BUTTON_NAME,
 		});
 		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("false");
-		expect(screen.queryByRole("button", { name: "Edit Owner" })).toBeNull();
-
 		fireEvent.click(customizeTrigger);
-		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("true");
 		fireEvent.click(screen.getByRole("button", { name: "Edit Owner" }));
 
 		expect(await screen.findByText("Owner choice")).toBeTruthy();
@@ -211,20 +201,14 @@ describe("AgentProfileGenerator", () => {
 		expect(screen.queryByText("Project choice")).toBeNull();
 	});
 
-	it("keeps customization expanded when returning from review", async () => {
+	it("shows the editable name and direct submit without a review step", () => {
 		render(<GeneratorHarness initialAgentId="codex" />);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
-		);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-		fireEvent.click(await screen.findByRole("button", { name: "Back" }));
-
-		const customizeTrigger = await screen.findByRole("button", {
-			name: CUSTOMIZE_AGENT_BUTTON_NAME,
-		});
-		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("true");
-		expect(screen.getByRole("button", { name: "Edit Owner" })).toBeTruthy();
+		const name = screen.getByLabelText("Agent name") as HTMLInputElement;
+		fireEvent.change(name, { target: { value: "My Agent" } });
+		expect(name.value).toBe("My Agent");
+		expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+		expect(screen.queryByText("Ready to create")).toBeNull();
+		expect(screen.getByRole("button", { name: "Create Agent" })).toBeTruthy();
 	});
 
 	it("summarizes the effective setup without opening an editor", () => {
@@ -242,27 +226,38 @@ describe("AgentProfileGenerator", () => {
 		).toContain(
 			"New session · openmeld · GPT-5.6 Sol (default) · Model default · Ask for approval"
 		);
-		fireEvent.click(
-			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
-		);
-		expect(
-			screen.getByText("GPT-5.6 Sol (default) · Model default")
-		).toBeTruthy();
-		expect(screen.getByText("openmeld")).toBeTruthy();
-		expect(screen.getByText("Ask for approval")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Edit Model" })).toBeNull();
 	});
 
-	it("allows an explicit unbound Agent without inventing an available local agent", async () => {
-		render(<GeneratorHarness availableLocalAgentIds={[]} initialAgentId="" />);
+	it("blocks creation until a local agent is selected and keeps Remote Agent unavailable", () => {
+		const onSubmit = vi.fn();
+		render(
+			<GeneratorHarness
+				availableLocalAgentIds={[]}
+				initialAgentId=""
+				onSubmit={onSubmit}
+			/>
+		);
 
 		expect(screen.getByText("Set up local agents")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Edit Runs on" }));
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Create and connect later" })
-		);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-		expect(await screen.findByText("Connect a local agent later")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Edit Runs on" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Connect later" })).toBeNull();
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Create Agent",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: REMOTE_AGENT_NAME,
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+		expect(onSubmit).not.toHaveBeenCalled();
 	});
 
 	it("submits through the existing creation contract", () => {
@@ -271,7 +266,6 @@ describe("AgentProfileGenerator", () => {
 		});
 		render(<GeneratorHarness initialAgentId="codex" onSubmit={onSubmit} />);
 
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 
 		expect(onSubmit).toHaveBeenCalledOnce();

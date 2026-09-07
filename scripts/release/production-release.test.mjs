@@ -21,6 +21,10 @@ import {
 } from "./production-release.mjs";
 
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
+const INDEPENDENT_SKILL_BRIDGE_ERROR_RE = /independent Skill bridge/u;
+const SPACE_INVITATION_ORDER_ERROR = /Space invitation/u;
+const PEOPLE_COMPUTERS_ORDER_ERROR =
+  /PeopleComputers receiver order conflicts/u;
 const CURRENT_WORKER_VERSION_RE =
   /11111111-1111-1111-1111-111111111111 \(100%\)/u;
 const COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE = /requires the Remote Agent scope/u;
@@ -592,7 +596,7 @@ test("treats local component product changes as a CLI release", () => {
   );
 });
 
-test("treats embedded CLI data changes as a CLI release without package changes", () => {
+test("releases the live model catalog through Core without a CLI release", () => {
   assert.deepEqual(
     resolveAutomaticReleaseScopes({
       affectedPackages: [],
@@ -602,7 +606,7 @@ test("treats embedded CLI data changes as a CLI release without package changes"
         "release/vendor-models.json",
       ],
     }),
-    ["cli"]
+    ["core"]
   );
 });
 
@@ -1000,6 +1004,97 @@ test("rejects a Connect Computer Web deploy without its CLI receiver", () => {
   );
 });
 
+test("stages Space invitation receivers before publishing the CLI caller", () => {
+  const changedPaths = [
+    "packages/schemas/src/space-invitation.ts",
+    "services/core/src/organizations/space-invitations.ts",
+    "services/auth/src/lib/hono/space-invitation-routes.ts",
+    "clients/openmeld-cli/src/space/invitations-command.ts",
+  ];
+  for (const scopes of [
+    ["db", "core", "auth"],
+    ["db", "core", "auth", "cli"],
+  ]) {
+    const labels = buildProductionDeployStepSpecs(scopes, { changedPaths }).map(
+      (step) => step.label
+    );
+    assert.deepEqual(labels.slice(0, 5), [
+      "Synchronize production database",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core deployment is visible",
+      "Deploy Auth Worker",
+      "Verify Auth Worker health",
+    ]);
+    if (scopes.includes("cli")) {
+      assert.equal(
+        labels[5],
+        "Publish CLI and deploy its Core release projection"
+      );
+    }
+  }
+  assert.throws(
+    () => buildProductionDeployStepSpecs(["cli"], { changedPaths }),
+    SPACE_INVITATION_ORDER_ERROR
+  );
+  assert.throws(
+    () => buildProductionDeployStepSpecs(["auth"], { changedPaths }),
+    SPACE_INVITATION_ORDER_ERROR
+  );
+});
+
+test("combines invitation and Service receivers while keeping conflicting writers blocked", () => {
+  const invitations = [
+    "packages/schemas/src/space-invitation.ts",
+    "services/core/src/organizations/space-invitations.ts",
+    "services/auth/src/lib/hono/space-invitation-routes.ts",
+  ];
+  const changedPaths = [
+    ...invitations,
+    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+    "services/core/src/runtime-transport/application/runtime-transport-dispatch-service.ts",
+    "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+    "packages/schemas/src/schemas/local-components.ts",
+    "clients/openmeld-cli/src/local-components/manifest.ts",
+    "services/core/src/local-components/update-projection.ts",
+  ];
+  const labels = buildProductionDeployStepSpecs(
+    ["db", "core", "auth", "gateway", "web", "cli"],
+    { changedPaths }
+  ).map((step) => step.label);
+  assert.deepEqual(labels, [
+    "Synchronize production database",
+    "Deploy Core with the current published CLI projection",
+    "Verify Core deployment is visible",
+    "Deploy Auth Worker",
+    "Verify Auth Worker health",
+    "Deploy Gateway Worker",
+    "Verify Gateway Worker health",
+    "Deploy Web",
+    "Verify Web health",
+    "Publish CLI and deploy its Core release projection",
+    "Verify final R2/npm/Core alignment",
+  ]);
+  assert.throws(
+    () =>
+      buildProductionDeployStepSpecs(["core", "auth", "cli"], { changedPaths }),
+    INDEPENDENT_SKILL_BRIDGE_ERROR_RE
+  );
+  assert.throws(
+    () =>
+      buildProductionDeployStepSpecs(
+        ["web", "gateway", "core", "auth", "cli"],
+        {
+          changedPaths: [
+            ...changedPaths,
+            "packages/schemas/src/schemas/http/inbox.ts",
+            "services/core/src/remote-agent/application/native-delivery-inbox-producer.ts",
+          ],
+        }
+      ),
+    SPACE_INVITATION_ORDER_ERROR
+  );
+});
+
 test("locks database, CLI channel, and Worker deploys into release order", () => {
   const steps = buildProductionDeployStepSpecs([
     "remote-agent",
@@ -1092,6 +1187,61 @@ test("deploys the Context Scope Plan receiver before Core and keeps the CLI last
   ]);
 });
 
+test("deploys computer receivers before callers and preserves the stable CLI during staged Core delivery", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/http/people-computers.ts",
+    "services/core/src/people-computers/projection.ts",
+    "services/gateway/src/routes/rpc-http.people-computers.ts",
+  ];
+  const input = {
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths,
+    sourceSha: REMOTE_SOURCE_SHA,
+  };
+  const plan = buildProductionReleasePlan({
+    ...input,
+    scope: "core,gateway,web,remote-agent,cli",
+  });
+  assert.equal(plan.deployOrderProfile, "people-computers-receivers-first");
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Deploy Core with the current published CLI projection",
+      "Verify Core deployment is visible",
+      "Deploy Gateway Worker",
+      "Verify Gateway Worker health",
+      "Deploy Web",
+      "Verify Web health",
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
+      "Publish CLI and deploy its Core release projection",
+      "Verify final R2/npm/Core alignment",
+    ]
+  );
+  const staged = buildProductionReleasePlan({ ...input, scope: "core" });
+  assert.equal(
+    staged.deploySteps[0].args[0],
+    "scripts/release/deploy-core-current-cli-projection.mjs"
+  );
+  assert.deepEqual(
+    buildProductionPreflightStepSpecs({ scopes: ["core"], changedPaths }),
+    buildCoreCurrentCliProjectionPreflightStepSpecs(changedPaths)
+  );
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        ...input,
+        changedPaths: [
+          ...changedPaths,
+          "services/remote-agent/.flue/cloudflare.ts",
+        ],
+        scope: "cloud",
+      }),
+    PEOPLE_COMPUTERS_ORDER_ERROR
+  );
+});
+
 test("routes a local Core release through startup admission at the exact source SHA", () => {
   const plan = buildProductionReleasePlan({
     affectedPackages: [],
@@ -1149,6 +1299,45 @@ test("deploys a strict Local Service runtime receiver before publishing the CLI"
       "Publish CLI and deploy its Core release projection",
       "Verify final R2/npm/Core alignment",
     ]
+  );
+});
+
+test("publishes independent Skill report receivers and public content before the bridge CLI", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/local-components.ts",
+    "clients/openmeld-cli/src/local-components/manifest.ts",
+    "services/core/src/local-components/update-projection.ts",
+  ];
+  const input = {
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths,
+    sourceSha: REMOTE_SOURCE_SHA,
+  };
+  const plan = buildProductionReleasePlan({
+    ...input,
+    scope: "core,gateway,web,cli",
+  });
+  assert.equal(plan.deployOrderProfile, "local-service-runtime-receiver-first");
+  const labels = plan.deploySteps.map((step) => step.label);
+  assert.ok(
+    labels.indexOf("Deploy Gateway Worker") <
+      labels.indexOf("Publish CLI and deploy its Core release projection")
+  );
+  assert.ok(
+    labels.indexOf("Deploy Web") <
+      labels.indexOf("Publish CLI and deploy its Core release projection")
+  );
+  assert.throws(
+    () => buildProductionReleasePlan({ ...input, scope: "core,cli" }),
+    INDEPENDENT_SKILL_BRIDGE_ERROR_RE
+  );
+  assert.deepEqual(
+    resolveAutomaticReleaseScopes({
+      affectedPackages: [],
+      changedPaths: ["release/openmeld-cli-skill/SKILL.md"],
+    }),
+    ["web"]
   );
 });
 
@@ -1272,7 +1461,7 @@ test("does not infer the Remote Agent receiver-first profile from bidirectional 
   );
 });
 
-test("deploys Core's strict worker-response reader before PR 194's Remote Agent producer", () => {
+test("deploys worker-response and activity readers before the Remote Agent producer", () => {
   const plan = buildProductionReleasePlan({
     affectedPackages: [],
     base: "previous-release",
@@ -1282,6 +1471,7 @@ test("deploys Core's strict worker-response reader before PR 194's Remote Agent 
       "services/core/src/remote-agent/application/native-delivery-service.ts",
       "services/remote-agent/.flue/agents/center-agent.ts",
       "services/remote-agent/flue-adapter/conversation-footprint.ts",
+      "packages/schemas/src/schemas/protocol/agent-stream.ts",
     ],
     scope: "db,auth,core,gateway,web,remote-agent,cli",
     sourceSha: REMOTE_SOURCE_SHA,
@@ -1296,12 +1486,12 @@ test("deploys Core's strict worker-response reader before PR 194's Remote Agent 
       "Verify Auth Worker health",
       "Deploy Core with the current published CLI projection",
       "Verify Core deployment is visible",
-      "Deploy Remote Agent Worker",
-      "Verify Remote Agent deployment is visible",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Web",
       "Verify Web health",
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
       "Publish CLI and deploy its Core release projection",
       "Verify final R2/npm/Core alignment",
     ]

@@ -255,7 +255,7 @@ describe("Agent Activity pages", () => {
 
 		fireEvent.click(createProjectButton);
 		expect(await screen.findByRole("dialog")).toBeTruthy();
-		expect(screen.getByText("Add a Project")).toBeTruthy();
+		expect(screen.getByRole("textbox", { name: "Project name" })).toBeTruthy();
 	});
 
 	it("asks an administrator to create the first Project without exposing the action", async () => {

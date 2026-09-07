@@ -3,6 +3,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FluidActionList, FluidActionListItem } from "./action-list";
 
 describe("FluidActionList", () => {
+  it("keeps nested menu focus from highlighting an unrelated outer action", () => {
+    render(
+      <FluidActionList>
+        <FluidActionListItem index={0}>Outer action</FluidActionListItem>
+        <FluidActionList>
+          <FluidActionListItem index={0}>Inner action</FluidActionListItem>
+        </FluidActionList>
+      </FluidActionList>
+    );
+    fireEvent.focus(screen.getByRole("button", { name: "Inner action" }));
+    expect(
+      screen
+        .getByRole("button", { name: "Inner action" })
+        .getAttribute("data-hovered")
+    ).toBe("true");
+    expect(
+      screen
+        .getByRole("button", { name: "Outer action" })
+        .hasAttribute("data-hovered")
+    ).toBe(false);
+  });
   beforeEach(() => {
     vi.stubGlobal(
       "ResizeObserver",

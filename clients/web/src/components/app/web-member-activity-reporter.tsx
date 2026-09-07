@@ -12,6 +12,7 @@ const WEB_MEMBER_ACTIVITY_INTERVAL_MS = 5 * 60_000;
 export function WebMemberActivityReporter(input: {
 	currentUserId: string;
 	organizationId: string;
+	spaceId?: string;
 }) {
 	const queryClient = useQueryClient();
 	const lastSuccessfulReportAtRef = useRef<number | null>(null);
@@ -37,6 +38,7 @@ export function WebMemberActivityReporter(input: {
 			try {
 				const activity = await recordCurrentOrganizationWebActivity({
 					organizationId: input.organizationId,
+					...(input.spaceId ? { spaceId: input.spaceId } : {}),
 				});
 				if (
 					activity.organizationId !== input.organizationId ||
@@ -113,7 +115,7 @@ export function WebMemberActivityReporter(input: {
 			window.removeEventListener("focus", reportWhenVisible);
 			document.removeEventListener("visibilitychange", reportWhenVisible);
 		};
-	}, [input.currentUserId, input.organizationId, queryClient]);
+	}, [input.currentUserId, input.organizationId, input.spaceId, queryClient]);
 
 	return null;
 }

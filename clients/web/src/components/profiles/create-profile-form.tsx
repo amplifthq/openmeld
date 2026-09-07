@@ -15,6 +15,7 @@ import type {
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -27,7 +28,6 @@ import {
 	FolderOpenIcon,
 	HandIcon,
 	LockKeyIcon,
-	UserCircleIcon,
 	WaveformIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -41,6 +41,7 @@ import {
 } from "react";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
 import { SelectedLocalFolder } from "#/components/local-runtimes/selected-local-folder";
+import { ModelBadge } from "#/components/models/model-badge";
 import { SpinnerButton } from "#/components/spinner-button";
 import type {
 	NewProfileErrorState,
@@ -65,6 +66,7 @@ import {
 	resolveModelCompatibility,
 	resolveSelectedModelCompatibility,
 } from "./create-profile-form-logic";
+import { DitherProfileAvatar } from "./dither-profile-avatar";
 import {
 	isOpenCodeAgentId,
 	OpenCodePermissionsField,
@@ -100,8 +102,11 @@ export type AgentProfileLocalAgentEmptyState = {
 	kind:
 		| "connect_computer"
 		| "set_up_local_agents"
+		| "check_failed"
+		| "checking"
 		| "teammate_local_agents_unavailable";
 	primaryActionHref: string | null;
+	onRetry?: () => void;
 };
 
 // Presentational, route-free Create Profile form. All state lives in the
@@ -112,11 +117,13 @@ export type CreateProfileFormProps = {
 	additionalHumanProfileCreationEnabled: boolean;
 	additionalSubmitBlockReason?: string | null;
 	additionalSubmitBlockSection?: AgentProfileConfigurationSection;
-	onUseManagedWorkingFolder?: () => void;
 	agentBindingChoices?: readonly AgentProfileBindingChoice[];
 	agentBindingValue?: string;
 	agentOwnershipSlot?: ReactNode;
+	agentComputerSlot?: ReactNode;
+	agentComputerSummary?: string;
 	agentOwnershipSummary?: string;
+	agentOwnerAvatar?: { userId: string; imageUrl: string | null };
 	agentSessionSlot?: ReactNode;
 	agentSessionSummary?: string;
 	availableLocalAgentIds: readonly string[];
@@ -138,6 +145,7 @@ export type CreateProfileFormProps = {
 	localFolderPickerDeviceId: string | null;
 	localAgentEmptyState?: AgentProfileLocalAgentEmptyState;
 	projectSelectionBlockReason?: string | null;
+	onUseManagedWorkspace?: () => void;
 	projectSelectionSlot?: ReactNode;
 	projectSelectionSummary?: string;
 	projectFolderPath: string;
@@ -186,7 +194,11 @@ export function CreateProfileForm(input: CreateProfileFormProps) {
 			data-testid="create-profile-panel"
 			onSubmit={input.onSubmit}
 		>
-			<div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
+			<ScrollArea
+				className="min-h-0 min-w-0 flex-1"
+				contentClassName="pr-1"
+				orientation="vertical"
+			>
 				<div className="grid min-w-0 gap-4 pb-4">
 					{input.additionalHumanProfileCreationEnabled &&
 					input.allowProfileKindSelection !== false ? (
@@ -222,7 +234,7 @@ export function CreateProfileForm(input: CreateProfileFormProps) {
 						recoveryActionHref={input.recoveryActionHref}
 					/>
 				</div>
-			</div>
+			</ScrollArea>
 			<div
 				className="shrink-0 border-border border-t bg-background pt-4"
 				data-testid="create-profile-actions"
@@ -356,7 +368,15 @@ export function AgentProfileConfigurationCards(input: {
 			{form.agentOwnershipSlot ? (
 				<AgentConfigurationCard
 					description="Who owns and maintains this Agent."
-					icon={<UserCircleIcon aria-hidden="true" />}
+					icon={
+						<DitherProfileAvatar
+							avatarImageUrl={form.agentOwnerAvatar?.imageUrl}
+							profileId={form.agentOwnerAvatar?.userId ?? "owner"}
+							profileKind="human"
+							profileName={summaries.owner}
+							size={32}
+						/>
+					}
 					itemId="owner"
 					{...editorProps("owner")}
 					label="Owner"
@@ -364,6 +384,59 @@ export function AgentProfileConfigurationCards(input: {
 				>
 					{form.agentOwnershipSlot}
 				</AgentConfigurationCard>
+			) : null}
+			{form.boundAgentId ? (
+				<>
+					<AgentConfigurationCard
+						description="Choose the model and how deeply it reasons."
+						icon={<BrainIcon aria-hidden="true" />}
+						itemId="model"
+						{...editorProps("model")}
+						label="Model"
+						summary={summaries.model}
+					>
+						<AgentProfileModelSelectionFields
+							agentId={form.boundAgentId}
+							disabled={form.isSubmitting}
+							modelCatalog={form.modelCatalog}
+							modelCompatibilityContext={form.modelCompatibilityContext}
+							modelId={form.boundModelId}
+							onChangeModelId={form.onChangeBoundModelId}
+							onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
+							reasoningLevel={form.boundReasoningLevel}
+						/>
+					</AgentConfigurationCard>
+					<AgentConfigurationCard
+						description="What this Agent can do without asking."
+						icon={<LockKeyIcon aria-hidden="true" />}
+						itemId="permissions"
+						{...editorProps("permissions")}
+						initialFocus={() => permissionConfirmationRef.current ?? true}
+						label="Permissions"
+						summary={summaries.permission}
+					>
+						<div className="grid gap-4">
+							<AgentControllerPermissionModeFields
+								agentId={form.boundAgentId}
+								confirmationRef={permissionConfirmationRef}
+								confirmed={form.boundAgentControllerPermissionModeConfirmed}
+								disabled={form.isSubmitting}
+								onChange={form.onChangeBoundAgentControllerPermissionMode}
+								onConfirmChange={
+									form.onChangeBoundAgentControllerPermissionModeConfirmed
+								}
+								value={form.boundAgentControllerPermissionMode}
+							/>
+							{isOpenCodeAgentId(form.boundAgentId) ? (
+								<OpenCodePermissionsField
+									disabled={form.isSubmitting}
+									onChange={form.onChangeBoundOpenCodePermission}
+									value={form.boundOpenCodePermission}
+								/>
+							) : null}
+						</div>
+					</AgentConfigurationCard>
+				</>
 			) : null}
 			{form.agentSessionSlot ? (
 				<AgentConfigurationCard
@@ -396,25 +469,6 @@ export function AgentProfileConfigurationCards(input: {
 							/>
 						)}
 					</AgentConfigurationCard>
-					<AgentConfigurationCard
-						description="Choose the model and how deeply it reasons."
-						icon={<BrainIcon aria-hidden="true" />}
-						itemId="model"
-						{...editorProps("model")}
-						label="Model"
-						summary={summaries.model}
-					>
-						<AgentProfileModelSelectionFields
-							agentId={form.boundAgentId}
-							disabled={form.isSubmitting}
-							modelCatalog={form.modelCatalog}
-							modelCompatibilityContext={form.modelCompatibilityContext}
-							modelId={form.boundModelId}
-							onChangeModelId={form.onChangeBoundModelId}
-							onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
-							reasoningLevel={form.boundReasoningLevel}
-						/>
-					</AgentConfigurationCard>
 					{summaries.collaboration ? (
 						<AgentConfigurationCard
 							description="How Codex works with you during a task."
@@ -431,36 +485,6 @@ export function AgentProfileConfigurationCards(input: {
 							/>
 						</AgentConfigurationCard>
 					) : null}
-					<AgentConfigurationCard
-						description="What this Agent can do without asking."
-						icon={<LockKeyIcon aria-hidden="true" />}
-						itemId="permissions"
-						{...editorProps("permissions")}
-						initialFocus={() => permissionConfirmationRef.current ?? true}
-						label="Permissions"
-						summary={summaries.permission}
-					>
-						<div className="grid gap-4">
-							<AgentControllerPermissionModeFields
-								agentId={form.boundAgentId}
-								confirmationRef={permissionConfirmationRef}
-								confirmed={form.boundAgentControllerPermissionModeConfirmed}
-								disabled={form.isSubmitting}
-								onChange={form.onChangeBoundAgentControllerPermissionMode}
-								onConfirmChange={
-									form.onChangeBoundAgentControllerPermissionModeConfirmed
-								}
-								value={form.boundAgentControllerPermissionMode}
-							/>
-							{isOpenCodeAgentId(form.boundAgentId) ? (
-								<OpenCodePermissionsField
-									disabled={form.isSubmitting}
-									onChange={form.onChangeBoundOpenCodePermission}
-									value={form.boundOpenCodePermission}
-								/>
-							) : null}
-						</div>
-					</AgentConfigurationCard>
 				</>
 			) : null}
 		</AgentConfigurationGrid>
@@ -622,9 +646,9 @@ function resolveAgentBindingHelpText(input: {
 		return "Checking local agents on this computer.";
 	}
 	if (input.availableLocalAgentCount === 0) {
-		return "No available local agents were detected on this computer, so you can choose one later.";
+		return "No local agents are available. Connect a computer to continue.";
 	}
-	return "Choose a local agent now, or choose later if you only need the profile name today.";
+	return "Choose the local agent that will run this Agent.";
 }
 
 export function AgentControllerPermissionModeFields(input: {
@@ -747,7 +771,12 @@ export function AgentProfileModelSelectionFields(
 					<SelectTrigger
 						aria-label="Model"
 						className="h-10 w-full px-3 text-sm"
-						displayValue={state.modelDisplayValue}
+						displayValue={
+							<ModelOptionPresentation
+								badgeLabel={state.selectedModel?.badgeLabel}
+								label={state.modelDisplayValue}
+							/>
+						}
 						id={modelSelectId}
 						placeholder="Select a model"
 					/>
@@ -758,9 +787,12 @@ export function AgentProfileModelSelectionFields(
 								index={0}
 								value={state.currentUnavailableModel.id}
 							>
-								{formatUnavailableModelOptionLabel(
-									state.currentUnavailableModel
-								)}
+								<ModelOptionPresentation
+									badgeLabel={state.currentUnavailableModel.badgeLabel}
+									label={formatUnavailableModelOptionLabel(
+										state.currentUnavailableModel
+									)}
+								/>
 							</SelectItem>
 						) : null}
 						{renderCompatibleModelOptions({
@@ -1010,14 +1042,32 @@ function renderCompatibleModelOptions(input: {
 				key={model.id}
 				value={model.id}
 			>
-				{formatCompatibleModelOptionLabel({
-					compatibility,
-					defaultModelId: input.controller.defaultModelId,
-					model,
-				})}
+				<ModelOptionPresentation
+					badgeLabel={model.badgeLabel}
+					label={formatCompatibleModelOptionLabel({
+						compatibility,
+						defaultModelId: input.controller.defaultModelId,
+						model,
+					})}
+				/>
 			</SelectItem>
 		);
 	});
+}
+
+function ModelOptionPresentation({
+	label,
+	badgeLabel,
+}: {
+	label: string | undefined;
+	badgeLabel?: string;
+}) {
+	return (
+		<span className="flex min-w-0 items-center gap-2">
+			<span className="min-w-0 truncate">{label}</span>
+			{badgeLabel ? <ModelBadge label={badgeLabel} /> : null}
+		</span>
+	);
 }
 
 function ModelCompatibilityNotice(input: {

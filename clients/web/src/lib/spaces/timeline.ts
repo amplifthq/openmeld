@@ -1,6 +1,7 @@
 import {
 	AGENT_REPLY_FINAL_PURPOSE,
 	type NavigationAction,
+	REMOTE_AGENT_FAILURE_PURPOSE,
 } from "@openmeld/schemas";
 import type {
 	AgentStreamToolPart,
@@ -71,8 +72,8 @@ export type SpaceTimelineItem = {
 	isAgentFinalReply?: boolean;
 	newMessagesDuringComposition: number | null;
 	navigationAction?: NavigationAction | null;
-	optimisticAgentReplySourceItemId?: string;
-	optimisticAgentReplyProgress?: WakeProgressItem;
+	activeWakeSourceItemId?: string;
+	activeWakeProgress?: WakeProgressItem;
 	replyPreviewText: string | null;
 	replyToProfileName: string | null;
 	replyToSignalId: string | null;
@@ -112,6 +113,7 @@ export type SpaceTimelineAttachment = SpaceMessageAttachment & {
 };
 
 export type SpaceTimelineFile = SpaceMessageFileReference & {
+	isLocal?: boolean;
 	localPreviewUrl: string | null;
 };
 
@@ -121,7 +123,7 @@ export function resolveRecordedSpaceMessageDetailsItem(input: {
 }): SpaceTimelineItem | null {
 	const recordedItemId = input.item.agentStreamState
 		? input.item.replyToSignalId
-		: (input.item.optimisticAgentReplySourceItemId ?? input.item.id);
+		: (input.item.activeWakeSourceItemId ?? input.item.id);
 	if (!recordedItemId) {
 		return null;
 	}
@@ -134,7 +136,7 @@ export function resolveRecordedSpaceMessageDetailsItem(input: {
 	if (
 		recordedItem?.deliveryState !== "sent" ||
 		recordedItem.agentStreamState !== undefined ||
-		recordedItem.optimisticAgentReplyProgress !== undefined
+		recordedItem.activeWakeProgress !== undefined
 	) {
 		return null;
 	}
@@ -457,6 +459,9 @@ function readTimelineFiles(input: {
 	const isPending = input.signal.id.startsWith("pending:");
 	return (input.signal.data.files ?? []).map((file) => ({
 		...file,
+		isLocal:
+			file.fileId.startsWith("composer-file:") &&
+			(isPending || input.signal.id.startsWith("failed:")),
 		localPreviewUrl: isPending
 			? (input.pendingFilePreviewUrlsById?.get(file.fileId) ?? null)
 			: null,
@@ -742,11 +747,13 @@ function isAgentFinalReplySignal(
 }
 
 function readFinalizedAgentStreamId(signal: SignalEnvelope): string | null {
+	if (signal.type !== "signal.text" || signal.profile.kind !== "agent") {
+		return null;
+	}
+	const purpose = normalizeOptionalText(signal.data.meta?.purpose);
 	if (
-		signal.type !== "signal.text" ||
-		signal.profile.kind !== "agent" ||
-		normalizeOptionalText(signal.data.meta?.purpose) !==
-			AGENT_REPLY_FINAL_PURPOSE
+		purpose !== AGENT_REPLY_FINAL_PURPOSE &&
+		purpose !== REMOTE_AGENT_FAILURE_PURPOSE
 	) {
 		return null;
 	}

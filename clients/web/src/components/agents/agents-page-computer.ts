@@ -4,16 +4,12 @@ import type {
 } from "@openmeld/schemas/types";
 import type { ComputerReplyReadiness } from "@openmeld/start";
 import { useEffect, useState } from "react";
-import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
-import { resolveConnectedLocalRuntime } from "#/lib/connect/connected-runtime";
-import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
 import {
 	formatDeviceType,
 	formatPlatform,
 	formatRuntimeLane,
 } from "./agents-page-formatters";
 
-type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 type DeviceAgentCatalogEntry =
 	LocalRuntimeExecutionTarget["localAgentCatalog"]["entries"][number];
 
@@ -84,113 +80,6 @@ export function resolveSelectedComputerIndex(input: {
 	return selectedIndex === -1 ? 0 : selectedIndex;
 }
 
-export function isSelectedCurrentComputer(input: {
-	computer: LocalRuntimeComputer;
-	recovery: AgentsPageController;
-}): boolean {
-	// Whether this computer is the account's connected/current one is a
-	// ServiceRuntime liveness question, not a Binding one: a freshly connected
-	// computer with no Agent Profile bound yet must still render the rich
-	// "Connected" OpenMeld Service view. The resolved Computer groups rotated
-	// device identities behind one stable connectedComputerId.
-	const connectedComputer = resolveConnectedLocalRuntime(input.recovery);
-	if (connectedComputer === null) {
-		return false;
-	}
-	if (
-		connectedComputer.connectedComputerId &&
-		input.computer.connectedComputerId
-	) {
-		return (
-			connectedComputer.connectedComputerId ===
-			input.computer.connectedComputerId
-		);
-	}
-	return connectedComputer.deviceId === input.computer.deviceId;
-}
-
-export function resolveSelectedComputerReplyReadiness(input: {
-	computer: LocalRuntimeComputer;
-	isCurrentComputer: boolean;
-	recovery: AgentsPageController;
-}): ComputerReplyReadiness | null {
-	if (!input.isCurrentComputer) {
-		return null;
-	}
-	if (
-		!(
-			input.recovery.currentLocalRuntimeReplyReadinessQuery.isPending ||
-			input.recovery.currentLocalRuntimeReplyReadinessQuery.data
-		)
-	) {
-		return null;
-	}
-
-	return mapCurrentLocalRuntimeReplyReadinessQueryState({
-		isFetching:
-			input.recovery.currentLocalRuntimeReplyReadinessQuery.isFetching,
-		isPending: input.recovery.currentLocalRuntimeReplyReadinessQuery.isPending,
-		readiness: input.recovery.currentLocalRuntimeReplyReadinessQuery.data,
-	});
-}
-
-export function resolveEffectiveSelectedComputerReplyReadiness(input: {
-	hasAvailableAgentProfile: boolean;
-	hasPendingAgentProfileReadiness: boolean;
-	replyReadiness: ComputerReplyReadiness | null;
-}): ComputerReplyReadiness | null {
-	if (input.replyReadiness === null) {
-		return null;
-	}
-
-	if (!isStaleServiceDisconnectReason(input.replyReadiness.reasonCode)) {
-		return input.replyReadiness;
-	}
-
-	if (input.hasAvailableAgentProfile) {
-		return {
-			...input.replyReadiness,
-			reasonCode: "ready",
-			status: "ready",
-		};
-	}
-
-	if (hasCurrentRuntimeSessionMissingEvidence(input.replyReadiness)) {
-		return input.replyReadiness;
-	}
-
-	if (!input.hasPendingAgentProfileReadiness) {
-		return input.replyReadiness;
-	}
-
-	return {
-		...input.replyReadiness,
-		reasonCode: "start_state.checking",
-		status: "checking",
-	};
-}
-
-function isStaleServiceDisconnectReason(
-	reasonCode: ComputerReplyReadiness["reasonCode"]
-): boolean {
-	return (
-		reasonCode === "background_helper.not_running" ||
-		reasonCode === "current_device.missing" ||
-		reasonCode === "device_projection.missing" ||
-		reasonCode === "device_reply_readiness.unknown"
-	);
-}
-
-function hasCurrentRuntimeSessionMissingEvidence(
-	replyReadiness: ComputerReplyReadiness
-): boolean {
-	return (
-		replyReadiness.detailReasonCode ===
-			"service.current_runtime_session_missing" ||
-		replyReadiness.detailReasonCode === "daemon.session.not_found"
-	);
-}
-
 export function resolveCurrentExecutionTarget(
 	computer: LocalRuntimeComputer
 ): LocalRuntimeExecutionTarget | null {
@@ -256,6 +145,14 @@ export function formatComputerTabLocalAgents(
 		return "Needs a fresh check";
 	}
 	if (executionTarget.status === "not_ready") {
+		if (
+			executionTarget.localAgentCatalog.entries.length > 0 &&
+			executionTarget.localAgentCatalog.entries.every(
+				(entry) => !entry.detected
+			)
+		) {
+			return "No agents detected";
+		}
 		return "Unavailable";
 	}
 	return "No local agents";

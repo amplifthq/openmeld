@@ -26,6 +26,14 @@
 
 ## Product Role
 
+The standalone Connect Computer page remains available even when the account has
+a connected computer. A compact, named computer summary links to management; it
+does not assert that the computer hosts the current browser. Chat setup entry
+points offer this management path before starting another setup, except for a
+targeted computer or Agent recovery, explicit reconnect, or Service update request. All hosts retain the same Prepare
+session workflow and source-specific completion actions. Instruction illustrations
+explain user actions, never simulate connection or Agent readiness.
+
 OpenMeld has two complementary onboarding layers:
 
 1. **Account Setup Studio** is the full-screen, low-friction first product
@@ -313,6 +321,15 @@ Studio version is redirected from the app shell to
 when the feature first ships; the migration is the absence of the new
 versioned local record.
 
+An explicit Space destination is the exception: opening a Space or a message
+link, including continuation after accepting a Space invitation, keeps that
+destination. Space access is still authorized normally; the in-Space setup
+guidance remains available. This does not mark Setup Studio complete or change
+membership. A later ordinary entry may still offer the account-level Studio.
+Email verification and magic-link sign-in preserve the invitation route before
+Space entry, so first-time recipients are not sent to workspace selection in
+the middle of accepting an invitation.
+
 Completion is account-scoped, not Organization-scoped. A person should not be
 forced through the entire Studio for every Organization. The selected
 Organization is stored only to preserve navigation intent. Every
@@ -412,6 +429,11 @@ teammates.`; `Skip setup` is never a substitute for choosing it.
      Service fact. If it is already connected, show that connected computer and
      do not create a new Prepare Session unless the user explicitly chooses
      `Set up again`.
+     This reuse requires the browser's completed, account-matching setup
+     handoff and a fresh read for that exact device and lane. An account routing
+     preference or its only connected Service is not a browser setup handoff.
+     A handoff identifies the connected computer, not physical co-location
+     with the browser; Service connection alone does not prove agent readiness.
    - The step is optional. The user may continue while setup runs or install a
      supported local agent later. Copy never asks about a generic "coding
      agent."
@@ -478,9 +500,9 @@ overlay and action rows have no opaque background or structural border, so the
 conversation remains visible behind the guidance. Controls still follow the
 shared interface-shape token. The overlay does not cover **Graph** controls;
 **Get set up** in the Space header returns the user to **Messages**. Dismissal
-is session-scoped and never persisted — a refresh recomputes the plan and the
-rows return; within a session the same header action brings them back (see
-Behavior).
+is a browser-local presentation preference scoped to the account, Organization,
+and Space. Refreshes and browser restarts retain it; the header action brings
+the rows back (see Behavior). Dismissal never stores or overrides setup facts.
 
 Two facts, two homes (Invariant 3 + the role rule, Invariant 8):
 
@@ -588,10 +610,12 @@ Behavior:
 - Empty Space: action cards are not dismissible and do not obscure the composer.
   Sending the first message replaces them with the conversation timeline and
   moves any remaining setup decision into the banner.
-- Dismiss/recall: each row's × hides just that row for the session; dismissing
-  the last visible row closes the panel. Dismissal is never persisted, so a
-  refresh re-derives the plan and the rows return (Invariant 4/6). Within a
-  session a **Get set up** action appears in the Space header's right-aligned
+- Dismiss/recall: each row's × hides just that row for this account and Space in
+  the current browser; dismissing the last visible row closes the panel.
+  Local storage retains these preferences across refreshes, tabs, and browser
+  restarts without storing readiness facts. Clearing browser storage resets
+  them; blocked storage still permits dismissal for the current page.
+  A **Get set up** action appears in the Space header's right-aligned
   action group immediately before **Members** whenever there is available setup
   but every row is hidden, or while **Graph** is active and the Messages-only
   overlay is not visible. It never joins the **Messages** / **Graph** view row.
@@ -989,7 +1013,9 @@ manual verification):
     same setup command and live timeline owner. The page stays a page; the
     Direct Message stays inline; both reach the same verified completion state.
 21. A human-only Space can dismiss all setup guidance to reach a clean
-    conversation and recall it during the same session.
+    conversation, retain the choice after refresh or browser restart, and
+    explicitly recall it from the header. Another account or Space does not
+    inherit that choice.
 22. Completed `bring_agents` copy states membership only. If the Members drawer
     reports an agent Offline, no onboarding surface claims that agent can be
     woken.

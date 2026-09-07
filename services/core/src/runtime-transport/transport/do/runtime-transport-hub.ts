@@ -877,6 +877,24 @@ type LocalProjectControlOperation = {
   resultSchema: RuntimeSchema<unknown>;
 };
 
+function projectControlRequestForSession(
+  operation: LocalProjectControlOperation,
+  request: unknown,
+  capabilities: RuntimeTransportSessionState["capabilities"]
+): unknown {
+  if (
+    operation.capability !== "discoverProjects" ||
+    capabilities.localProjectControl?.readConnections === true
+  ) {
+    return request;
+  }
+  // Older Services validate a strict request schema. Keep their established
+  // discovery behavior without exposing a new field to old public clients.
+  const legacyRequest = { ...(request as Record<string, unknown>) };
+  legacyRequest.includeCandidates = undefined;
+  return legacyRequest;
+}
+
 type RuntimeSchema<T> = {
   safeParse: (value: unknown) =>
     | { data: T; success: true }
@@ -18809,7 +18827,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           operation.resultSchema.safeParse(payload).success,
         payload: {
           requestId: input.requestId,
-          request: input.request,
+          request: projectControlRequestForSession(
+            operation,
+            input.request,
+            session.session.capabilities
+          ),
         },
         requestId: input.requestId,
         session: session.session,

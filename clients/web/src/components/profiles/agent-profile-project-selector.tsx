@@ -10,18 +10,15 @@ import type {
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-} from "@openmeld/ui/fluid/select";
 import { useEffect, useRef, useState } from "react";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
 import { SelectedLocalFolder } from "#/components/local-runtimes/selected-local-folder";
 import { FolderMoveConfirmationDialog } from "#/components/projects/folder-move-confirmation-dialog";
+import { ProjectDefaultFolderDialog } from "#/components/projects/project-default-folder-dialog";
+import { ProjectPickerActions } from "#/components/projects/project-picker-actions";
 import type { ProjectComputerView } from "#/components/projects/use-project-discovery";
 import { useProjectDiscovery } from "#/components/projects/use-project-discovery";
+import { WorkingFolderSelect } from "#/components/projects/working-folder-select";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
 import {
 	connectCurrentComputerProjectCandidate,
@@ -37,8 +34,6 @@ import {
 } from "./agent-profile-project-selector-state";
 
 const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[A-Za-z]:[\\/]/u;
-const OPENMELD_MANAGED_FOLDER_VALUE = "openmeld-managed";
-const CUSTOM_FOLDER_VALUE = "custom-folder";
 
 type PendingFolderMove =
 	| {
@@ -53,31 +48,42 @@ type PendingFolderMove =
 	  };
 
 export function AgentProfileProjectSelector(input: {
-	autoSelectSingleConnection?: boolean;
 	disabled: boolean;
 	manualPath: string;
-	onConnectionReady: (connection: LocalProjectControlConnection) => void;
+	onConnectionReady: (connection: LocalProjectControlConnection | null) => void;
 	onManualPathChange: (path: string) => void;
 	onProjectChange: (projectId: string) => void;
 	onUseAdvancedWorkspace?: () => void;
 	onUseManagedWorkspace?: () => void;
+	onUseProjectWorkspace?: () => void;
 	organizationId: string;
 	projectId: string;
 	projects: readonly Project[];
 	selectedBindingGeneration: string | null;
-	showWorkspaceFallbacks?: boolean;
-	showProjectSelector?: boolean;
-	workspaceFallbackMode?: "advanced" | "managed" | null;
+	workspaceFallbackMode?: "advanced" | "managed" | "project" | null;
 }) {
 	const controller = useProjectDiscovery({
+		includeCandidates: false,
 		organizationId: input.organizationId,
 		projects: input.projects,
 	});
-	const view = input.projectId ? controller.projectView(input.projectId) : null;
-	const projectOptions = input.projects.map((project) => ({
-		path: resolveProjectDefaultPath(controller.projectView(project.id)),
-		project,
-	}));
+	const savedView = input.projectId
+		? controller.projectView(input.projectId)
+		: null;
+	const search = useProjectDiscovery({
+		organizationId: input.organizationId,
+		projects: input.projects.filter(
+			(project) => project.id === input.projectId
+		),
+		enabled: Boolean(
+			savedView?.status === "ready" && savedView.connections.length === 0
+		),
+	});
+	const view =
+		savedView?.status === "ready" && savedView.connections.length === 0
+			? search.projectView(input.projectId)
+			: savedView;
+
 	const branch = view
 		? resolveAgentProfileProjectSelectorBranch(view)
 		: "no_candidate";
@@ -90,6 +96,9 @@ export function AgentProfileProjectSelector(input: {
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [pendingFolderMove, setPendingFolderMove] =
 		useState<PendingFolderMove | null>(null);
+	const [pendingDefaultConnection, setPendingDefaultConnection] =
+		useState<LocalProjectControlConnection | null>(null);
+	const source = resolveFolderSource(input);
 	const automaticSelectionKeyRef = useRef<string | null>(null);
 	const onConnectionReady = input.onConnectionReady;
 	const selectedProjectName =
@@ -98,34 +107,20 @@ export function AgentProfileProjectSelector(input: {
 	const pickerDeviceId = resolveLocalFolderPickerDeviceId(controller.computer);
 
 	useEffect(() => {
-		if (
-			input.autoSelectSingleConnection === false ||
-			!view ||
-			branch !== "connected" ||
-			input.selectedBindingGeneration
-		) {
-			return;
-		}
-		const connection = view.connections.find(
-			(candidate) => candidate.status === "available" && candidate.isDefault
-		);
-		if (!connection) {
-			return;
-		}
-		const key = `${input.projectId}:${connection.bindingGeneration}`;
+		const connection =
+			view?.status === "ready"
+				? (view.connections.find(
+						(candidate) =>
+							candidate.status === "available" && candidate.isDefault
+					) ?? null)
+				: null;
+		const key = `${input.projectId}:${connection?.bindingGeneration ?? "unavailable"}`;
 		if (automaticSelectionKeyRef.current === key) {
 			return;
 		}
 		automaticSelectionKeyRef.current = key;
 		onConnectionReady(connection);
-	}, [
-		branch,
-		input.autoSelectSingleConnection,
-		input.projectId,
-		input.selectedBindingGeneration,
-		onConnectionReady,
-		view,
-	]);
+	}, [input.projectId, onConnectionReady, view]);
 
 	const promoteConnectionToDefault = async (
 		connection: LocalProjectControlConnection,
@@ -149,9 +144,7 @@ export function AgentProfileProjectSelector(input: {
 		return selected;
 	};
 
-	const selectConnection = async (
-		connection: LocalProjectControlConnection
-	) => {
+	const selectConnection = (connection: LocalProjectControlConnection) => {
 		if (connection.status !== "available") {
 			return;
 		}
@@ -159,6 +152,11 @@ export function AgentProfileProjectSelector(input: {
 			input.onConnectionReady(connection);
 			return;
 		}
+		setPendingDefaultConnection(connection);
+	};
+	const confirmDefaultConnection = async (
+		connection: LocalProjectControlConnection
+	) => {
 		setPendingOperation(`default:${connection.bindingGeneration}`);
 		setErrorMessage(null);
 		try {
@@ -167,13 +165,14 @@ export function AgentProfileProjectSelector(input: {
 				"The selected Project folder is no longer connected."
 			);
 			input.onConnectionReady(selected);
+			setPendingDefaultConnection(null);
 		} catch (error) {
 			setErrorMessage(resolveLocalProjectControlErrorMessage(error));
 		}
 		setPendingOperation(null);
 	};
 
-	const selectConnectedPath = async (
+	const selectConnectedPath = (
 		response: LocalProjectControlConnectResponse
 	) => {
 		const connection: LocalProjectControlConnection = {
@@ -183,15 +182,24 @@ export function AgentProfileProjectSelector(input: {
 			status: "available",
 		};
 		if (connection.isDefault) {
-			controller.refresh();
+			controller.applyConnectionSnapshot(input.projectId, [
+				...(savedView?.connections ?? [])
+					.filter(
+						(item) => item.bindingGeneration !== connection.bindingGeneration
+					)
+					.map((item) => ({ ...item, isDefault: false })),
+				connection,
+			]);
 			input.onConnectionReady(connection);
 			return;
 		}
-		const selected = await promoteConnectionToDefault(
+		controller.applyConnectionSnapshot(input.projectId, [
+			...(savedView?.connections ?? []).filter(
+				(item) => item.bindingGeneration !== connection.bindingGeneration
+			),
 			connection,
-			"The connected Project folder is no longer available."
-		);
-		input.onConnectionReady(selected);
+		]);
+		setPendingDefaultConnection(connection);
 	};
 
 	const connectCandidate = async (candidateRequest?: {
@@ -231,7 +239,7 @@ export function AgentProfileProjectSelector(input: {
 					kind: "candidate",
 				});
 			} else {
-				await selectConnectedPath(response);
+				selectConnectedPath(response);
 				setPendingFolderMove(null);
 			}
 		} catch (error) {
@@ -278,7 +286,7 @@ export function AgentProfileProjectSelector(input: {
 					kind: "declared_path",
 				});
 			} else {
-				await selectConnectedPath(response);
+				selectConnectedPath(response);
 				setConfirmNonGit(false);
 				setDeclaredPath("");
 				setPendingFolderMove(null);
@@ -306,84 +314,34 @@ export function AgentProfileProjectSelector(input: {
 			className="grid min-w-0 gap-3"
 			data-testid="agent-profile-project-selector"
 		>
-			{input.showProjectSelector === false ? null : (
-				<div className="grid min-w-0 gap-2">
-					<Label htmlFor="agent-profile-project-select">Working folder</Label>
-					<Select
-						disabled={input.disabled}
-						onValueChange={(value) => {
-							if (value === OPENMELD_MANAGED_FOLDER_VALUE) {
-								input.onProjectChange("");
-								input.onUseManagedWorkspace?.();
-							} else if (value === CUSTOM_FOLDER_VALUE) {
-								input.onProjectChange("");
-								input.onUseAdvancedWorkspace?.();
-							} else {
-								input.onProjectChange(value ?? "");
-							}
-							setErrorMessage(null);
-							setDeclaredPath("");
-							setConfirmNonGit(false);
-							setPendingFolderMove(null);
-							setSelectedCandidateId(null);
-						}}
-						value={
-							input.projectId ||
-							(input.workspaceFallbackMode === "advanced"
-								? CUSTOM_FOLDER_VALUE
-								: OPENMELD_MANAGED_FOLDER_VALUE)
-						}
-					>
-						<SelectTrigger
-							className="h-10 w-full min-w-0 px-3 text-sm"
-							displayValue={
-								<span
-									className="block max-w-full overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
-									data-testid="working-folder-display-value"
-								>
-									{resolveWorkingFolderDisplayValue({
-										manualPath: input.manualPath,
-										projectId: input.projectId,
-										projectOptions,
-										workspaceFallbackMode: input.workspaceFallbackMode,
-									})}
-								</span>
-							}
-							id="agent-profile-project-select"
-						/>
-						<SelectContent className="overflow-x-hidden" matchTriggerWidth>
-							{projectOptions.map(({ path, project }, index) => (
-								<SelectItem index={index} key={project.id} value={project.id}>
-									<span className="flex min-w-0 flex-col gap-0.5">
-										<span>{project.name}</span>
-										{path ? (
-											<span className="max-w-full overflow-x-auto whitespace-nowrap text-muted-foreground [scrollbar-width:thin]">
-												{path}
-											</span>
-										) : null}
-									</span>
-								</SelectItem>
-							))}
-							<SelectItem
-								index={projectOptions.length}
-								value={OPENMELD_MANAGED_FOLDER_VALUE}
-							>
-								Let OpenMeld choose
-							</SelectItem>
-							<SelectItem
-								index={projectOptions.length + 1}
-								value={CUSTOM_FOLDER_VALUE}
-							>
-								Choose a folder on this computer…
-							</SelectItem>
-						</SelectContent>
-					</Select>
-					<p className="text-muted-foreground text-xs leading-5">
-						A Project keeps this Agent connected to the same work. You can also
-						let OpenMeld choose or use another folder on this computer.
-					</p>
-				</div>
-			)}
+			<ProjectSourceControls
+				{...input}
+				disabled={input.disabled || pendingOperation !== null}
+				onChangeProject={(value) => {
+					input.onProjectChange(value);
+					setErrorMessage(null);
+					setDeclaredPath("");
+					setConfirmNonGit(false);
+					setPendingFolderMove(null);
+					setPendingDefaultConnection(null);
+					setSelectedCandidateId(null);
+				}}
+				onChangeSource={(value) => {
+					input.onProjectChange("");
+					if (value === "custom") {
+						input.onUseAdvancedWorkspace?.();
+					}
+					if (value === "managed") {
+						input.onUseManagedWorkspace?.();
+					}
+					if (value === "project") {
+						input.onUseProjectWorkspace?.();
+					}
+					setErrorMessage(null);
+					setPendingDefaultConnection(null);
+				}}
+				source={source}
+			/>
 
 			{input.projectId && input.onUseManagedWorkspace ? (
 				<Button
@@ -409,6 +367,10 @@ export function AgentProfileProjectSelector(input: {
 					onConnectCandidate={connectCandidate}
 					onConnectPath={connectDeclaredPath}
 					onDeclaredPathChange={setDeclaredPath}
+					onRetry={() => {
+						controller.refresh();
+						search.refresh();
+					}}
 					onSelectConnection={selectConnection}
 					onSelectedCandidateChange={setSelectedCandidateId}
 					pendingOperation={pendingOperation}
@@ -421,6 +383,18 @@ export function AgentProfileProjectSelector(input: {
 			{input.projectId && view ? (
 				<MissingProjectConnections connections={view.connections} />
 			) : null}
+
+			<ProjectDefaultFolderDialog
+				connection={pendingDefaultConnection}
+				errorMessage={errorMessage}
+				onCancel={() => {
+					setPendingDefaultConnection(null);
+					setErrorMessage(null);
+				}}
+				onConfirm={confirmDefaultConnection}
+				pending={pendingOperation !== null}
+				projectName={selectedProjectName}
+			/>
 
 			<FolderMoveConfirmationDialog
 				conflict={pendingFolderMove?.conflict ?? null}
@@ -457,52 +431,93 @@ export function AgentProfileProjectSelector(input: {
 				manualPath={input.manualPath}
 				onManualPathChange={input.onManualPathChange}
 				pickerDeviceId={pickerDeviceId}
-				visible={
-					input.showWorkspaceFallbacks !== false &&
-					(!input.projectId || branch === "no_candidate")
-				}
+				visible={source === "custom"}
 				wasProjectSelected={Boolean(input.projectId)}
 				workspaceFallbackMode={input.workspaceFallbackMode}
 			/>
 
-			{errorMessage && !pendingFolderMove ? (
+			{errorMessage && !pendingFolderMove && !pendingDefaultConnection ? (
 				<p className="text-destructive text-xs leading-5">{errorMessage}</p>
 			) : null}
 		</section>
 	);
 }
 
-function resolveProjectDefaultPath(view: ProjectComputerView): string | null {
-	return (
-		view.connections.find(
-			(connection) => connection.status === "available" && connection.isDefault
-		)?.path ?? null
-	);
-}
-
-function resolveWorkingFolderDisplayValue(input: {
-	manualPath: string;
+function resolveFolderSource(input: {
 	projectId: string;
-	projectOptions: readonly {
-		path: string | null;
-		project: Project;
-	}[];
-	workspaceFallbackMode?: "advanced" | "managed" | null;
-}): string {
-	if (input.projectId) {
-		const selected = input.projectOptions.find(
-			(option) => option.project.id === input.projectId
-		);
-		if (selected) {
-			return selected.path
-				? `${selected.project.name} — ${selected.path}`
-				: selected.project.name;
-		}
+	workspaceFallbackMode?: "advanced" | "managed" | "project" | null;
+}) {
+	if (input.projectId || input.workspaceFallbackMode === "project") {
+		return "project";
 	}
 	if (input.workspaceFallbackMode === "advanced") {
-		return input.manualPath || "Folder on this computer";
+		return "custom";
 	}
-	return "Let OpenMeld choose";
+	return "managed";
+}
+
+const FOLDER_SOURCES = [
+	{ value: "custom", label: "On this computer" },
+	{ value: "project", label: "From a project" },
+	{ value: "managed", label: "Let OpenMeld choose" },
+];
+
+function ProjectSourceControls(input: {
+	disabled: boolean;
+	source: "project" | "custom" | "managed";
+	organizationId: string;
+	projectId: string;
+	projects: readonly Project[];
+	onChangeSource: (source: string) => void;
+	onChangeProject: (projectId: string) => void;
+}) {
+	return (
+		<>
+			<div className="grid gap-2">
+				<Label htmlFor="working-folder-source">Folder source</Label>
+				<WorkingFolderSelect
+					disabled={input.disabled}
+					id="working-folder-source"
+					items={FOLDER_SOURCES}
+					onChange={input.onChangeSource}
+					value={input.source}
+				/>
+			</div>
+			{input.source === "managed" ? (
+				<p className="text-muted-foreground text-sm">
+					OpenMeld will manage a working folder for this agent.
+				</p>
+			) : null}
+			{input.source === "project" ? (
+				<div className="grid gap-2">
+					<Label htmlFor="agent-profile-project-select">Project</Label>
+					<WorkingFolderSelect
+						disabled={input.disabled}
+						id="agent-profile-project-select"
+						items={input.projects.map((project) => ({
+							value: project.id,
+							label: project.name,
+						}))}
+						onChange={input.onChangeProject}
+						placeholder="Choose a project"
+						value={input.projectId}
+					/>
+					<ProjectPickerActions
+						disabled={input.disabled}
+						key={input.organizationId}
+						onProjectSelected={input.onChangeProject}
+						organizationId={input.organizationId}
+						projectId={input.projectId}
+						projects={input.projects}
+					/>
+					<p className="text-muted-foreground text-xs">
+						Projects are shared in this workspace. Each computer connects its
+						own folder.
+					</p>
+				</div>
+			) : null}
+		</>
+	);
 }
 
 function WorkspaceFallbackControls(input: {
@@ -512,7 +527,7 @@ function WorkspaceFallbackControls(input: {
 	pickerDeviceId: string | null;
 	visible: boolean;
 	wasProjectSelected: boolean;
-	workspaceFallbackMode?: "advanced" | "managed" | null;
+	workspaceFallbackMode?: "advanced" | "managed" | "project" | null;
 }) {
 	const [manualPathOpen, setManualPathOpen] = useState(false);
 	if (!input.visible) {
@@ -583,6 +598,7 @@ function WorkspaceFallbackControls(input: {
 }
 
 function ProjectSelectionDetails(input: {
+	onRetry: () => void;
 	branch: AgentProfileProjectSelectorBranch;
 	confirmNonGit: boolean;
 	declaredPath: string;
@@ -591,9 +607,7 @@ function ProjectSelectionDetails(input: {
 	onConnectPath: (confirm: boolean) => Promise<void>;
 	onDeclaredPathChange: (path: string) => void;
 	onSelectedCandidateChange: (candidateId: string) => void;
-	onSelectConnection: (
-		connection: LocalProjectControlConnection
-	) => Promise<void>;
+	onSelectConnection: (connection: LocalProjectControlConnection) => void;
 	pendingOperation: string | null;
 	pickerDeviceId: string | null;
 	selectedBindingGeneration: string | null;
@@ -605,52 +619,70 @@ function ProjectSelectionDetails(input: {
 	);
 	const candidates = input.view.discovery?.candidates ?? [];
 	if (input.branch === "connected" || input.branch === "multiple_connections") {
+		const defaultConnection = input.view.connections.find(
+			(connection) => connection.isDefault
+		);
 		return (
 			<div className="grid min-w-0 gap-2 pt-1">
-				<p className="font-medium text-sm">
-					{input.branch === "multiple_connections"
-						? "Choose the working folder"
-						: "Default working folder"}
-				</p>
-				{availableConnections.map((connection) => (
-					<label
-						className="flex min-w-0 items-start gap-2 text-sm"
-						key={connection.bindingGeneration}
-					>
-						<input
-							checked={
-								input.selectedBindingGeneration ===
-									connection.bindingGeneration ||
-								(!input.selectedBindingGeneration && connection.isDefault)
-							}
-							disabled={input.disabled}
-							onChange={async () => {
-								await input.onSelectConnection(connection);
-							}}
-							type="radio"
-						/>
-						<span
-							className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
-							data-testid={
-								connection.isDefault ? "default-working-folder-path" : undefined
-							}
-						>
-							{connection.path}
-							{connection.isDefault ? " (current default)" : ""}
-						</span>
-					</label>
-				))}
+				<p className="font-medium text-sm">Folder on this computer</p>
+				{defaultConnection ? (
+					<SelectedLocalFolder path={defaultConnection.path} />
+				) : null}
+				{defaultConnection?.status === "missing" ? (
+					<p className="text-destructive text-sm" role="alert">
+						The default folder is unavailable. Choose another connected folder.
+					</p>
+				) : (
+					<p className="text-muted-foreground text-xs">
+						New sessions use this project’s default folder on this computer.
+					</p>
+				)}
+				{availableConnections.some((connection) => !connection.isDefault) ? (
+					<details>
+						<summary className="cursor-pointer text-sm">
+							Change default folder…
+						</summary>
+						<div className="mt-2 grid gap-2">
+							{availableConnections
+								.filter((connection) => !connection.isDefault)
+								.map((connection) => (
+									<div
+										className="grid gap-1 rounded-md border p-3"
+										key={connection.bindingGeneration}
+									>
+										<SelectedLocalFolder path={connection.path} />
+										<Button
+											className="justify-self-start"
+											disabled={input.disabled}
+											onClick={() => input.onSelectConnection(connection)}
+											size="sm"
+											variant="outline"
+										>
+											Use as default…
+										</Button>
+									</div>
+								))}
+						</div>
+					</details>
+				) : null}
 			</div>
 		);
 	}
 
 	return (
 		<div className="grid min-w-0 gap-3 pt-1">
-			{input.branch === "checking" ? (
-				<p className="text-sm">
-					OpenMeld is checking known repositories and worktrees on this
-					computer. You can connect a folder manually now.
+			{input.view.errorMessage ? (
+				<p className="text-sm" role="alert">
+					{input.view.errorMessage}{" "}
+					<Button onClick={input.onRetry} size="sm" variant="ghost">
+						Try again
+					</Button>
 				</p>
+			) : null}
+			{input.branch === "checking" ? (
+				<output className="text-muted-foreground text-sm">
+					Checking folders on this computer… You can also choose a folder below.
+				</output>
 			) : null}
 			{input.branch === "service_unavailable" ? (
 				<p className="text-sm">
@@ -669,6 +701,7 @@ function ProjectSelectionDetails(input: {
 				onConnectPath={input.onConnectPath}
 				onPathChange={input.onDeclaredPathChange}
 				path={input.declaredPath}
+				pending={input.pendingOperation === "path"}
 				pickerDeviceId={input.pickerDeviceId}
 			/>
 			{input.branch === "candidate" ? (
@@ -691,9 +724,11 @@ function ProjectConnectionDraft(input: {
 	onConnectPath: (confirm: boolean) => Promise<void>;
 	onPathChange: (path: string) => void;
 	path: string;
+	pending: boolean;
 	pickerDeviceId: string | null;
 }) {
 	const [manualPathOpen, setManualPathOpen] = useState(false);
+	const connectLabel = input.confirmNonGit ? "Connect anyway" : "Connect";
 	return (
 		<>
 			{input.pickerDeviceId ? (
@@ -751,7 +786,7 @@ function ProjectConnectionDraft(input: {
 					}}
 					type="button"
 				>
-					{input.confirmNonGit ? "Connect anyway" : "Connect"}
+					{input.pending ? "Connecting…" : connectLabel}
 				</Button>
 			) : null}
 		</>

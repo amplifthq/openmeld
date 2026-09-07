@@ -1,3 +1,4 @@
+import { ScrollArea } from "#fluid/scroll-area";
 import type { SettingsShellProps } from "#lib/settings-contract";
 import { cn } from "#lib/utils";
 
@@ -20,12 +21,14 @@ export function SettingsShell({ nav, children }: SettingsShellProps) {
       >
         {nav}
       </div>
-      <div
-        className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-background"
+      <ScrollArea
+        className="min-h-0 min-w-0 flex-1 bg-background"
+        contentClassName=""
         data-slot="settings-shell-panel"
+        orientation="vertical"
       >
         {children}
-      </div>
+      </ScrollArea>
     </div>
   );
 }

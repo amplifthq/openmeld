@@ -1,3 +1,4 @@
+import { accountSidebarPreferences } from "./account-sidebar.schema.ts";
 // biome-ignore lint/performance/noNamespaceImport: Better Auth generated schema has dynamic table exports; namespace merge keeps generation resilient.
 import * as authSchema from "./auth.schema.ts";
 import {
@@ -17,6 +18,7 @@ import { openMeldSpaceDeletionTombstones } from "./space-deletion-tombstone.sche
 import { openMeldWaitlistEmails } from "./waitlist-email.schema.ts";
 
 export const schema = {
+  accountSidebarPreferences,
   ...authSchema,
   organizationJoinLinks,
   organizationJoinLinksRelations,

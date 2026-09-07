@@ -45,6 +45,24 @@ describe("OnboardingEntryGate", () => {
 		cleanup();
 		vi.restoreAllMocks();
 	});
+	it("preserves an explicit Space destination without marking setup complete", async () => {
+		render(
+			<OnboardingEntryGate
+				currentOrganization={currentOrganization}
+				currentSection="space"
+				hasExplicitSpaceDestination
+				organizations={[currentOrganization]}
+				storageScope={storageScope}
+			>
+				Plugin content
+			</OnboardingEntryGate>
+		);
+		expect(await screen.findByText("Plugin content")).toBeTruthy();
+		expect(navigateMock).not.toHaveBeenCalled();
+		expect(
+			readOnboardingProgress({ storage: window.localStorage, storageScope })
+		).toBeNull();
+	});
 
 	it("opens onboarding even when browser storage cannot be read", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -55,7 +73,7 @@ describe("OnboardingEntryGate", () => {
 		renderGate();
 
 		await expectOnboardingRedirect();
-		expect(screen.queryByText("App content")).toBeNull();
+		expect(screen.queryByText("Plugin content")).toBeNull();
 	});
 
 	it("opens onboarding even when browser storage cannot be written", async () => {
@@ -67,7 +85,7 @@ describe("OnboardingEntryGate", () => {
 		renderGate();
 
 		await expectOnboardingRedirect();
-		expect(screen.queryByText("App content")).toBeNull();
+		expect(screen.queryByText("Plugin content")).toBeNull();
 	});
 
 	it("supports routers that schedule navigation synchronously", async () => {
@@ -76,7 +94,7 @@ describe("OnboardingEntryGate", () => {
 		renderGate();
 
 		await expectOnboardingRedirect();
-		expect(screen.queryByText("App content")).toBeNull();
+		expect(screen.queryByText("Plugin content")).toBeNull();
 	});
 
 	it("renders the product immediately after this onboarding version is complete", async () => {
@@ -91,7 +109,7 @@ describe("OnboardingEntryGate", () => {
 
 		renderGate();
 
-		expect(await screen.findByText("App content")).toBeTruthy();
+		expect(await screen.findByText("Plugin content")).toBeTruthy();
 		expect(navigateMock).not.toHaveBeenCalled();
 	});
 
@@ -114,7 +132,7 @@ describe("OnboardingEntryGate", () => {
 
 		renderGate();
 
-		expect(await screen.findByText("App content")).toBeTruthy();
+		expect(await screen.findByText("Plugin content")).toBeTruthy();
 		expect(navigateMock).not.toHaveBeenCalled();
 	});
 
@@ -124,7 +142,7 @@ describe("OnboardingEntryGate", () => {
 				current: createInitialOnboardingProgress({ nowMs: 1 }),
 				nowMs: 2,
 				selectedOrganizationId: selectedOrganization.id,
-				step: "apps",
+				step: "plugins",
 			}),
 			storage: window.localStorage,
 			storageScope,
@@ -143,7 +161,7 @@ describe("OnboardingEntryGate", () => {
 				current: createInitialOnboardingProgress({ nowMs: 1 }),
 				nowMs: 2,
 				selectedOrganizationId: "org-unavailable",
-				step: "apps",
+				step: "plugins",
 			}),
 			storage: window.localStorage,
 			storageScope,
@@ -169,7 +187,7 @@ describe("OnboardingEntryGate", () => {
 				current: createInitialOnboardingProgress({ nowMs: 1 }),
 				nowMs: 2,
 				selectedOrganizationId: selectedOrganization.id,
-				step: "apps",
+				step: "plugins",
 			}),
 			storage: window.localStorage,
 			storageScope,
@@ -181,7 +199,7 @@ describe("OnboardingEntryGate", () => {
 		});
 
 		await expectOnboardingRedirect("/o/beta/onboarding");
-		expect(screen.queryByText("App content")).toBeNull();
+		expect(screen.queryByText("Plugin content")).toBeNull();
 	});
 });
 
@@ -196,7 +214,7 @@ function renderGate(input?: {
 			organizations={input?.organizations ?? [currentOrganization]}
 			storageScope={storageScope}
 		>
-			<div>App content</div>
+			<div>Plugin content</div>
 		</OnboardingEntryGate>
 	);
 }

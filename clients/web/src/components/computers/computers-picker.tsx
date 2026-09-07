@@ -27,6 +27,7 @@ import {
 	resolveCurrentLocalRuntimeComputerSummaryStatus,
 	resolveCurrentLocalRuntimeComputerSummaryStatusDeviceId,
 	resolveCurrentLocalRuntimeSubjectDeviceId,
+	resolveOrganizationComputerSummaryStatus,
 } from "#/lib/computer-summary-status";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveConnectedLocalRuntime } from "#/lib/connect/connected-runtime";
@@ -124,7 +125,9 @@ export function ComputersPicker(input: {
 							status={
 								device.deviceId === currentComputerStatusDeviceId
 									? currentComputerStatus
-									: null
+									: resolveOrganizationComputerSummaryStatus(
+											computer.serviceState
+										)
 							}
 						/>
 					</DirectoryCardItem>

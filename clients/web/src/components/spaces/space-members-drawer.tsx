@@ -33,6 +33,7 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { springs } from "@openmeld/ui/lib/springs";
 import {
 	resolveStatusToneIconClassName,
@@ -40,7 +41,6 @@ import {
 } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
-	ArrowsClockwiseIcon,
 	CaretDownIcon,
 	CaretRightIcon,
 	MagnifyingGlassIcon,
@@ -69,7 +69,7 @@ import { toast } from "sonner";
 import { Drawer } from "vaul";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import { resolveDirectoryHumanProfileActivityLabel } from "#/components/directory/directory-human-profile-format";
-import { SpaceCreateProfileButton } from "#/components/profiles/space-create-profile-button";
+import { SpacePickerCreateAgent } from "#/components/profiles/space-picker-create-agent";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
 import {
@@ -85,6 +85,7 @@ import { DirectMessageConversionDialog } from "./direct-message-conversion-dialo
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import { buildSpaceMemberDirectoryEntryByProfileId } from "./space-collaboration-profile";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
+import { SpaceInvitationsSection } from "./space-invitations-section";
 import { isSameOwnerUserId } from "./space-member-ownership";
 import { SpaceMemberRow } from "./space-member-row";
 import {
@@ -265,9 +266,6 @@ export function SpaceMembersSidePanel(
 								open={model.isAddMembersOpen}
 							/>
 						) : null}
-						<SpaceMembersRefreshButton
-							onRefresh={() => input.onRefresh({ forceNetwork: true })}
-						/>
 						<SpaceMembersCloseButton
 							onClose={() => input.onOpenChange(false)}
 						/>
@@ -379,9 +377,6 @@ export function SpaceMembersDrawer(
 											open={model.isAddMembersOpen}
 										/>
 									) : null}
-									<SpaceMembersRefreshButton
-										onRefresh={() => input.onRefresh({ forceNetwork: true })}
-									/>
 									<SpaceMembersCloseButton
 										onClose={() => input.onOpenChange(false)}
 									/>
@@ -513,44 +508,6 @@ function SpaceAddMembersHeaderButton(input: {
 				</Tooltip>
 			</MotionConfig>
 		</LazyMotion>
-	);
-}
-
-function SpaceMembersRefreshButton(input: { onRefresh: () => Promise<void> }) {
-	const [isManualRefreshPending, setIsManualRefreshPending] = useState(false);
-
-	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<Button
-						aria-label="Refresh members"
-						disabled={isManualRefreshPending}
-						onClick={() => {
-							if (isManualRefreshPending) {
-								return;
-							}
-							setIsManualRefreshPending(true);
-							input
-								.onRefresh()
-								.catch((error) => {
-									console.error("Failed to refresh members.", error);
-									toast.error(SPACE_MEMBERS_REFRESH_ERROR_MESSAGE);
-								})
-								.finally(() => {
-									setIsManualRefreshPending(false);
-								});
-						}}
-						size="icon-sm"
-						type="button"
-						variant="ghost"
-					>
-						<ArrowsClockwiseIcon />
-					</Button>
-				}
-			/>
-			<TooltipContent>Refresh members</TooltipContent>
-		</Tooltip>
 	);
 }
 
@@ -735,7 +692,11 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 	return (
 		<LazyMotion features={domAnimation} strict>
 			<MotionConfig reducedMotion="user">
-				<div className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-3">
+				<ScrollArea
+					className="min-h-0 flex-1"
+					contentClassName="px-3 pt-2 pb-3"
+					orientation="vertical"
+				>
 					<div className="flex flex-col gap-3">
 						<SpaceAddProfilesSection
 							accountProfiles={input.accountProfiles}
@@ -822,7 +783,7 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 							snapshot={input.snapshot}
 						/>
 					</div>
-				</div>
+				</ScrollArea>
 			</MotionConfig>
 		</LazyMotion>
 	);
@@ -1001,10 +962,11 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			? selectedProfileIds
 			: activeSelection;
 	}, [selectableProfileIds, selectedProfileIds]);
-	const selectedCount = resolveEffectiveAddMemberCount({
+	const effectiveSelectedProfileIds = resolveEffectiveAddMemberProfileIds({
 		candidateGroups,
 		selectedProfileIds: activeSelectedProfileIds,
 	});
+	const selectedCount = effectiveSelectedProfileIds.size;
 	const canRunAddMutation = usesOrganizationDirectory
 		? Boolean(input.onAddOrganizationDirectoryProfiles)
 		: Boolean(input.onAddProfiles);
@@ -1032,7 +994,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		if (input.onConvertDirectMessageToSpace) {
 			const selectedNames: string[] = [];
 			for (const candidate of allCandidates) {
-				if (activeSelectedProfileIds.has(candidate.profileId)) {
+				if (effectiveSelectedProfileIds.has(candidate.profileId)) {
 					selectedNames.push(candidate.profileName);
 				}
 			}
@@ -1120,7 +1082,17 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 					selectableProfileIds.has(selectedId)
 				)
 			);
-			if (next.has(profileId)) {
+			const personGroup = candidateGroups.personGroups.find(
+				(group) => group.humanCandidate?.profileId === profileId
+			);
+			if (personGroup && effectiveSelectedProfileIds.has(profileId)) {
+				next.delete(profileId);
+				for (const agent of personGroup.agentCandidates) {
+					if (agent.ownerHumanProfileId === profileId) {
+						next.delete(agent.profileId);
+					}
+				}
+			} else if (next.has(profileId)) {
 				next.delete(profileId);
 			} else {
 				next.add(profileId);
@@ -1131,6 +1103,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 
 	return {
 		activeSelectedProfileIds,
+		effectiveSelectedProfileIds,
 		addQuery,
 		allCandidates,
 		canSubmit,
@@ -1186,13 +1159,25 @@ function SpaceAddProfilesSectionView({
 				finalFocus={input.finalFocus}
 				isSubmitting={model.isSubmitting}
 				onAddQueryChange={model.setAddQuery}
-				onAddSuccess={() => model.handleOpenChange(false)}
 				onClear={() => {
 					model.setSelectedProfileIds(new Set());
 					model.clearMessages();
 				}}
+				onCreated={async (profileId) => {
+					try {
+						await model.directoryQuery.refetch({ throwOnError: true });
+						await input.onRefresh({ agentProfileIds: [profileId] });
+						model.setAddQuery("");
+						model.setSelectedProfileIds(
+							(current) => new Set([...current, profileId])
+						);
+					} catch (error) {
+						model.setErrorMessage(
+							`Agent created, but the member list could not refresh. Reopen this picker to select it. ${formatAddProfilesError(error)}`
+						);
+					}
+				}}
 				onOpenChange={model.handleOpenChange}
-				onRefresh={input.onRefresh}
 				onRetryDirectory={() => {
 					model.directoryQuery.refetch().catch((error) => {
 						console.error(
@@ -1210,7 +1195,7 @@ function SpaceAddProfilesSectionView({
 				organizationName={model.organization?.name ?? "Organization"}
 				orgSlug={input.orgSlug}
 				selectedCount={model.selectedCount}
-				selectedProfileIds={model.activeSelectedProfileIds}
+				selectedProfileIds={model.effectiveSelectedProfileIds}
 				snapshot={input.snapshot}
 				spaceId={input.spaceId}
 				spaceName={input.spaceName}
@@ -1304,6 +1289,7 @@ async function executeSpaceAddProfilesMutation(input: {
 }
 
 type SpaceAddProfilesDialogProps = {
+	onCreated: (profileId: string) => Promise<void>;
 	addQuery: string;
 	canSubmit: boolean;
 	candidateGroups: SpaceAddMembersCandidateGroups;
@@ -1316,10 +1302,8 @@ type SpaceAddProfilesDialogProps = {
 	finalFocus: RefObject<HTMLElement | null>;
 	isSubmitting: boolean;
 	onAddQueryChange: (query: string) => void;
-	onAddSuccess: () => void;
 	onClear: () => void;
 	onOpenChange: (open: boolean) => void;
-	onRefresh: (input?: SpaceMembersRefreshInput) => Promise<void>;
 	onRetryDirectory: () => void;
 	onSubmit: () => Promise<void>;
 	onSubmitError: (error: unknown) => void;
@@ -1337,14 +1321,38 @@ type SpaceAddProfilesDialogProps = {
 };
 
 function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
+	const [creating, setCreating] = useState(false);
+	const [busy, setBusy] = useState(false);
 	return (
-		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
+		<Dialog
+			onOpenChange={(open) => {
+				if (busy) {
+					return;
+				}
+				if (!open) {
+					setCreating(false);
+				}
+				input.onOpenChange(open);
+			}}
+			open={input.open}
+		>
 			<DialogContent
-				className="@container sm:max-w-2xl"
+				className="@container flex max-h-[min(46rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-2xl"
 				finalFocus={input.finalFocus}
 				id={input.dialogId}
 			>
-				<SpaceAddProfilesDialogContent input={input} />
+				{creating ? (
+					<SpacePickerCreateAgent
+						onBack={() => setCreating(false)}
+						onBusyChange={setBusy}
+						onCreated={input.onCreated}
+					/>
+				) : (
+					<SpaceAddProfilesDialogContent
+						input={input}
+						onCreate={() => setCreating(true)}
+					/>
+				)}
 			</DialogContent>
 		</Dialog>
 	);
@@ -1352,8 +1360,10 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 
 function SpaceAddProfilesDialogContent({
 	input,
+	onCreate,
 }: {
 	input: SpaceAddProfilesDialogProps;
+	onCreate: () => void;
 }) {
 	const searchLabel = "Search people and agents";
 	const description = input.usesOrganizationDirectory
@@ -1370,22 +1380,14 @@ function SpaceAddProfilesDialogContent({
 			<SpaceAddProfilesDialogHeader />
 			<DialogDescription>{description}</DialogDescription>
 			{input.spaceId ? (
-				<div>
-					<SpaceCreateProfileButton
-						label="New Agent"
-						onAfterJoin={async (profile) => {
-							input.onAddSuccess();
-							await input.onRefresh(
-								profile.profileKind === "agent"
-									? { agentProfileIds: [profile.openMeldProfileId] }
-									: undefined
-							);
-						}}
-						orgSlug={input.orgSlug}
-						primary={true}
-						spaceId={input.spaceId}
-						spaceName={input.spaceName ?? null}
-					/>
+				<div className="flex flex-wrap items-center gap-2">
+					<Button onClick={onCreate} size="xs">
+						<PlusIcon aria-hidden="true" />
+						New Agent
+					</Button>
+					{input.usesOrganizationDirectory ? (
+						<SpaceInvitationsSection spaceId={input.spaceId} />
+					) : null}
 				</div>
 			) : null}
 			<div className="relative">
@@ -2174,10 +2176,10 @@ function filterAddMemberGroups(
 	};
 }
 
-function resolveEffectiveAddMemberCount(input: {
+function resolveEffectiveAddMemberProfileIds(input: {
 	candidateGroups: SpaceAddMembersCandidateGroups;
 	selectedProfileIds: ReadonlySet<string>;
-}): number {
+}): ReadonlySet<string> {
 	const effectiveIds = new Set(input.selectedProfileIds);
 	for (const group of input.candidateGroups.personGroups) {
 		if (
@@ -2191,7 +2193,7 @@ function resolveEffectiveAddMemberCount(input: {
 			effectiveIds.add(group.humanCandidate.profileId);
 		}
 	}
-	return effectiveIds.size;
+	return effectiveIds;
 }
 
 function resolvePersonActivityLabel(
@@ -2422,37 +2424,47 @@ function SpaceMembersList(input: {
 	const shouldShowBlockingError = Boolean(
 		input.membersError && !input.snapshot
 	);
-	const shouldShowRefreshError = Boolean(input.membersError && input.snapshot);
-
+	const membersErrorNotice = input.membersError ? (
+		<div
+			className={cn(
+				"flex flex-col items-start gap-3 rounded-md border p-3 text-sm",
+				shouldShowBlockingError
+					? "border-destructive bg-destructive/10 text-destructive"
+					: resolveStatusToneWarningNoticeClassName()
+			)}
+		>
+			<p>
+				{shouldShowBlockingError
+					? SPACE_MEMBERS_LOAD_ERROR_MESSAGE
+					: SPACE_MEMBERS_REFRESH_ERROR_MESSAGE}
+			</p>
+			<Button
+				disabled={isRetryPending}
+				onClick={() => {
+					if (isRetryPending) {
+						return;
+					}
+					setIsRetryPending(true);
+					input
+						.onRefresh({ forceNetwork: true })
+						.catch((error) => {
+							console.error("Failed to retry member loading.", error);
+							toast.error(SPACE_MEMBERS_REFRESH_ERROR_MESSAGE);
+						})
+						.finally(() => {
+							setIsRetryPending(false);
+						});
+				}}
+				size="sm"
+				type="button"
+				variant="outline"
+			>
+				Retry
+			</Button>
+		</div>
+	) : null;
 	if (shouldShowBlockingError) {
-		return (
-			<div className="flex flex-col gap-3 rounded-md border border-destructive bg-destructive/10 p-3 text-destructive text-sm">
-				<p>{SPACE_MEMBERS_LOAD_ERROR_MESSAGE}</p>
-				<Button
-					disabled={isRetryPending}
-					onClick={() => {
-						if (isRetryPending) {
-							return;
-						}
-						setIsRetryPending(true);
-						input
-							.onRefresh({ forceNetwork: true })
-							.catch((error) => {
-								console.error("Failed to retry member loading.", error);
-								toast.error(SPACE_MEMBERS_REFRESH_ERROR_MESSAGE);
-							})
-							.finally(() => {
-								setIsRetryPending(false);
-							});
-					}}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					Retry
-				</Button>
-			</div>
-		);
+		return membersErrorNotice;
 	}
 
 	if (
@@ -2462,16 +2474,7 @@ function SpaceMembersList(input: {
 	) {
 		return (
 			<div className="flex flex-col gap-3">
-				{shouldShowRefreshError ? (
-					<div
-						className={cn(
-							"rounded-md border p-3 text-sm",
-							resolveStatusToneWarningNoticeClassName()
-						)}
-					>
-						{SPACE_MEMBERS_REFRESH_ERROR_MESSAGE}
-					</div>
-				) : null}
+				{membersErrorNotice}
 				{roster.organizationEntries.length > 0 ? (
 					<section className="flex flex-col gap-1">
 						<h2 className="font-medium text-muted-foreground text-xs">
@@ -2547,10 +2550,13 @@ function SpaceMembersList(input: {
 	}
 
 	return (
-		<div className="border border-border px-3 py-6 text-center text-muted-foreground text-sm">
-			{input.query.trim().length > 0
-				? "No matching members found."
-				: "No members are visible in this space yet."}
+		<div className="flex flex-col gap-3">
+			{membersErrorNotice}
+			<div className="border border-border px-3 py-6 text-center text-muted-foreground text-sm">
+				{input.query.trim().length > 0
+					? "No matching members found."
+					: "No members are visible in this space yet."}
+			</div>
 		</div>
 	);
 }

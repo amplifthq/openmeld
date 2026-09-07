@@ -30,6 +30,7 @@ export type InboxUrgentEmailFailure = {
 };
 
 export function buildInboxItemUrl(input: {
+  invitationRequestId?: string;
   itemId: string;
   organizationSlug: string;
   webAppUrl: string | undefined;
@@ -48,10 +49,15 @@ export function buildInboxItemUrl(input: {
       return null;
     }
     const itemUrl = new URL(
-      `/o/${encodeURIComponent(organizationSlug)}/inbox`,
+      input.invitationRequestId
+        ? `/o/${encodeURIComponent(organizationSlug)}/settings/invitations`
+        : `/o/${encodeURIComponent(organizationSlug)}/inbox`,
       baseUrl
     );
-    itemUrl.searchParams.set("item", input.itemId);
+    itemUrl.searchParams.set(
+      input.invitationRequestId ? "requestId" : "item",
+      input.invitationRequestId ?? input.itemId
+    );
     return itemUrl.toString();
   } catch {
     return null;
@@ -59,6 +65,7 @@ export function buildInboxItemUrl(input: {
 }
 
 export function buildInboxUrgentEmail(input: {
+  purpose?: "invitation_review";
   from: string;
   inboxUrl: string;
   preview: string;
@@ -68,6 +75,15 @@ export function buildInboxUrgentEmail(input: {
   const escapedTitle = escapeHtml(title);
   const escapedPreview = escapeHtml(input.preview);
   const escapedInboxUrl = escapeHtml(input.inboxUrl);
+
+  if (input.purpose === "invitation_review") {
+    return {
+      from: input.from,
+      subject: title,
+      text: `${title}\n\n${input.preview}\n\nReview request: ${input.inboxUrl}\n\nYou received this because you can approve invitations for this organization.`,
+      html: `<!doctype html><html lang="en"><body><h1>${escapedTitle}</h1><p>${escapedPreview}</p><p><a href="${escapedInboxUrl}">Review request</a></p><p>You received this because you can approve invitations for this organization.</p></body></html>`,
+    };
+  }
 
   return {
     from: input.from,

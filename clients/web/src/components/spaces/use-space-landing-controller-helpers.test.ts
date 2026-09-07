@@ -231,6 +231,37 @@ describe("mergeWakeProgressItemState", () => {
 });
 
 describe("mergeActiveWakeProgressPresentation", () => {
+	it("keeps the authoritative source context when detailed polling advances an item's phase", () => {
+		const summary = createWakeProgressItem({
+			clientMessageId: "message-qa",
+			dispatchId: "dispatch-qa",
+			sourceSignalId: "signal-qa",
+			targetProfileId: AGENT_PROFILE_ID,
+			targetLabel: "Runner",
+			phase: "request_sent",
+			updatedAtMs: Date.now(),
+			sourceContext: {
+				profileId: HUMAN_PROFILE_ID,
+				profileKind: "human",
+				profileName: "Mira",
+				messagePreview: "Review this",
+				threadId: "thread-qa",
+			},
+		});
+		const detailed = {
+			...summary,
+			sourceContext: undefined,
+			phase: "running" as const,
+			updatedAtMs: summary.updatedAtMs + 1,
+		};
+		expect(
+			mergeActiveWakeProgressPresentation({
+				summaryItems: [summary],
+				detailedItems: [detailed],
+				signals: [],
+			})
+		).toEqual([{ ...detailed, sourceContext: summary.sourceContext }]);
+	});
 	it("keeps equal-revision Stop enrichment when the summary is merged", () => {
 		const nowMs = Date.now();
 		const summary = createWakeProgressItem({
@@ -507,6 +538,7 @@ describe("pollWakeProgress", () => {
 			clientMessageId: "client-message-1",
 			includePreviewText: true,
 			includeTiming: true,
+			includeSourceContext: true,
 			includeWaitReason: true,
 			includeWakeStopEligibility: true,
 			spaceId: "space-123",

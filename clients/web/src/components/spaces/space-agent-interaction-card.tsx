@@ -11,14 +11,14 @@ import { Input } from "@openmeld/ui/components/input";
 import { Textarea } from "@openmeld/ui/components/textarea";
 import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import { type ReactNode, useId, useState } from "react";
+import { MessageResponse } from "#/components/ai/message-response";
 
 export type SpaceAgentInteractionResponseHandler = (
 	input: RespondToSpaceAgentInteractionBody
 ) => Promise<void>;
-
-export type SpaceAgentProfileEditHandler = (profileId: string) => void;
 
 export type SpaceAgentPermissionModeShortcut = {
 	description: string;
@@ -45,7 +45,6 @@ const EMPTY_QUESTION_DRAFT: QuestionDraft = {
 
 export function SpaceAgentInteractionCard(input: {
 	item: WakeProgressItem;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onPermissionModeUpdate?: SpaceAgentPermissionModeUpdateHandler;
 	onRespond?: SpaceAgentInteractionResponseHandler;
 	permissionModeShortcut?: SpaceAgentPermissionModeShortcut;
@@ -115,7 +114,7 @@ export function SpaceAgentInteractionCard(input: {
 				title="Response sent"
 			>
 				<p aria-live="polite" className="text-muted-foreground text-sm">
-					{input.item.targetLabel} is resuming this Wake.
+					Waiting for {input.item.targetLabel} to continue.
 				</p>
 			</InteractionShell>
 		);
@@ -152,11 +151,6 @@ export function SpaceAgentInteractionCard(input: {
 			{request.kind === "permission" ? (
 				<PermissionInteraction
 					disabled={isSubmitting}
-					onEditAgentProfile={
-						input.onEditAgentProfile
-							? () => input.onEditAgentProfile?.(input.item.targetProfileId)
-							: undefined
-					}
 					onRespond={respond}
 					permissionModeShortcut={input.permissionModeShortcut}
 					request={request}
@@ -208,7 +202,7 @@ function InteractionShell(input: {
 				"flex w-full max-w-2xl flex-col gap-4 bg-background text-left",
 				input.presentation === "surface"
 					? "p-0"
-					: "my-2 border border-border p-4 shadow-sm"
+					: "my-2 rounded-lg border border-border p-4"
 			)}
 			data-agent-interaction-kind={input.kind}
 		>
@@ -235,7 +229,6 @@ function InteractionShell(input: {
 
 function PermissionInteraction(input: {
 	disabled: boolean;
-	onEditAgentProfile?: () => void;
 	onRespond: (
 		response: AgentInteractionResponse,
 		permissionMode?: AgentControllerPermissionMode
@@ -286,25 +279,6 @@ function PermissionInteraction(input: {
 					/>
 				</CheckboxGroup>
 			) : null}
-			{input.onEditAgentProfile ? (
-				<div className="grid gap-2 border-border border-t pt-3">
-					<p className="text-muted-foreground text-xs leading-5">
-						New permission settings can affect later tool requests in this Wake
-						when the local agent supports live updates. This request was already
-						waiting, so respond to it separately.
-					</p>
-					<div>
-						<Button
-							disabled={input.disabled}
-							onClick={input.onEditAgentProfile}
-							type="button"
-							variant="outline"
-						>
-							Edit Agent Profile
-						</Button>
-					</div>
-				</div>
-			) : null}
 			<div className="flex justify-end">
 				<Button
 					disabled={input.disabled || !selectedOptionId}
@@ -343,11 +317,13 @@ function PermissionSubject(input: {
 	}
 
 	return (
-		<div className="grid gap-2 border border-border bg-muted/40 p-3 text-sm">
+		<div className="grid gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
 			{subject.command ? (
-				<pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5">
-					<code>{subject.command}</code>
-				</pre>
+				<ScrollArea className="max-h-48" orientation="both">
+					<pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5">
+						<code>{subject.command}</code>
+					</pre>
+				</ScrollArea>
 			) : null}
 			{subject.cwd ? (
 				<SubjectFact label="Working directory" value={subject.cwd} />
@@ -696,9 +672,15 @@ function PlanReviewInteraction(input: {
 
 	return (
 		<>
-			<pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words border border-border bg-muted/40 p-3 font-mono text-xs leading-6">
-				<code>{input.request.plan}</code>
-			</pre>
+			<ScrollArea
+				className="max-h-80 rounded-md border border-border bg-muted/40"
+				contentClassName="p-3"
+				orientation="both"
+			>
+				<MessageResponse variant="space-message">
+					{input.request.plan}
+				</MessageResponse>
+			</ScrollArea>
 			{showFeedback ? (
 				<label className="grid gap-2 text-sm" htmlFor={feedbackId}>
 					<span className="font-medium text-foreground">

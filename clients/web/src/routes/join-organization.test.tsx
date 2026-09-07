@@ -7,338 +7,127 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { organizationQueryKeys } from "#/query/organizations/organization-directory";
-import {
-	createTestQueryClient,
-	TestQueryClientProvider,
-} from "#/test-support/query-client";
+import { TestQueryClientProvider } from "#/test-support/query-client";
 
-const acceptOrganizationJoinLinkMock = vi.hoisted(() => vi.fn());
-const navigateMock = vi.hoisted(() => vi.fn());
-const previewOrganizationJoinLinkMock = vi.hoisted(() => vi.fn());
-let sessionQuery = vi.hoisted(() => ({
-	data: { user: { email: "member@example.com", id: "user-1" } } as {
-		user: { email: string; id: string };
+const preview = vi.hoisted(() => vi.fn());
+const request = vi.hoisted(() => vi.fn());
+const organizations = vi.hoisted(() => vi.fn());
+let session = vi.hoisted(() => ({
+	data: { user: { id: "user-1", email: "alex@example.com" } } as {
+		user: { id: string; email: string };
 	} | null,
 	isPending: false,
 }));
-
 vi.mock("@tanstack/react-router", () => ({
-	createFileRoute: () => (config: unknown) => ({
-		...(config as Record<string, unknown>),
-		useSearch: () => ({}),
-	}),
+	createFileRoute: () => (config: unknown) => config,
+	useLocation: () => ({ href: "/join-organization" }),
 	Link: ({
 		children,
-		search,
 		to,
+		search,
 	}: {
 		children: ReactNode;
-		search?: { redirect?: unknown };
 		to: string;
+		search?: { redirect?: string };
 	}) => (
 		<a data-redirect={search?.redirect} href={to}>
 			{children}
 		</a>
 	),
-	useLocation: () => ({ href: "/join-organization" }),
-	useNavigate: () => navigateMock,
 }));
-
 vi.mock("#/components/auth/auth-page-shell", () => ({
 	AuthPageShell: ({ children }: { children: ReactNode }) => (
 		<div>{children}</div>
 	),
 }));
-
-vi.mock("#/hooks/auth.hooks", () => ({
-	useAuthSession: () => sessionQuery,
-}));
-
+vi.mock("#/hooks/auth.hooks", () => ({ useAuthSession: () => session }));
 vi.mock("#/lib/organizations/auth-organizations", () => ({
-	acceptOrganizationJoinLink: acceptOrganizationJoinLinkMock,
-	previewOrganizationJoinLink: previewOrganizationJoinLinkMock,
+	previewOrganizationJoinLink: preview,
+	listOrganizations: organizations,
+}));
+vi.mock("#/lib/organizations/organization-join-requests", () => ({
+	requestOrganizationJoinRequests: request,
 }));
 
-import { JoinOrganizationPage, Route } from "./join-organization";
+import { JoinOrganizationPage } from "./join-organization";
 
-const TOKEN = `joinlink_${"a".repeat(64)}`;
-const FULL_HREF = `https://app.openmeld.ai/join-organization?token=${TOKEN}`;
-const FULL_HREF_WITH_AUTH = `${FULL_HREF}&via=auth`;
-const ENCODED_TOKEN = "joinlink_a+b/c=";
-const ENCODED_TOKEN_HREF =
-	"https://app.openmeld.ai/join-organization?token=joinlink_a%2Bb%2Fc%3D";
-
-function activePreview() {
-	return {
-		active: true as const,
-		ok: true as const,
-		organizationName: "Acme Research",
-		organizationSlug: "acme-research",
-	};
-}
-
-function acceptedJoinLink(alreadyMember = false) {
-	return {
-		alreadyMember,
-		ok: true as const,
-		organizationId: "org-acme",
-		organizationName: "Acme Research",
-		organizationSlug: "acme-research",
-		role: "member" as const,
-	};
-}
-
-function renderPage(
-	token: string | null = TOKEN,
-	queryClient = createTestQueryClient(),
-	options?: {
-		locationHref?: string;
-	}
-) {
-	const pageProps = {
-		locationHref: options?.locationHref ?? FULL_HREF,
-		token,
-	} as Parameters<typeof JoinOrganizationPage>[0];
-	return render(
-		<TestQueryClientProvider queryClient={queryClient}>
-			<JoinOrganizationPage {...pageProps} />
+const token = `joinlink_${"a".repeat(64)}`;
+const href = `/join-organization?token=${token}`;
+const submittedText = /Your request was submitted/;
+const inactiveText = /no longer active/;
+function page() {
+	render(
+		<TestQueryClientProvider>
+			<JoinOrganizationPage locationHref={href} token={token} />
 		</TestQueryClientProvider>
 	);
 }
-
-describe("join organization search", () => {
-	const validateSearch = (
-		Route as unknown as {
-			validateSearch: (search: unknown) => {
-				token?: string;
-			};
-		}
-	).validateSearch;
-
-	it("ignores caller-controlled markers without dropping a valid token", () => {
-		expect(validateSearch({ token: TOKEN, via: "auth" })).toEqual({
-			token: TOKEN,
-		});
-		expect(validateSearch({ token: TOKEN, via: "unexpected" })).toEqual({
-			token: TOKEN,
-		});
-	});
-});
-
-describe("JoinOrganizationPage", () => {
+describe("approval-required link entry", () => {
 	beforeEach(() => {
-		acceptOrganizationJoinLinkMock
+		preview.mockReset().mockResolvedValue({
+			ok: true,
+			active: true,
+			organizationName: "Harbor Design",
+			organizationSlug: "harbor",
+		});
+		organizations.mockReset().mockResolvedValue([]);
+		request
 			.mockReset()
-			.mockResolvedValue(acceptedJoinLink());
-		navigateMock.mockReset().mockResolvedValue(undefined);
-		previewOrganizationJoinLinkMock
-			.mockReset()
-			.mockResolvedValue(activePreview());
-		sessionQuery = {
-			data: { user: { email: "member@example.com", id: "user-1" } },
+			.mockResolvedValue([{ id: "request-1", status: "pending" }]);
+		session = {
+			data: { user: { id: "user-1", email: "alex@example.com" } },
 			isPending: false,
 		};
 	});
-
 	afterEach(cleanup);
-
-	it("fails closed without accepting when the token is missing", () => {
-		renderPage(null);
-
+	it("preserves the destination across sign-in without submitting a request", async () => {
+		session.data = null;
+		page();
 		expect(
-			screen.getByText("This invite link is missing its token.")
-		).toBeTruthy();
-		expect(previewOrganizationJoinLinkMock).not.toHaveBeenCalled();
-		expect(acceptOrganizationJoinLinkMock).not.toHaveBeenCalled();
+			(
+				await screen.findByRole("link", {
+					name: "Sign in to request an invitation",
+				})
+			).getAttribute("data-redirect")
+		).toBe(href);
+		expect(request).not.toHaveBeenCalled();
 	});
-
-	it("explains an inactive link without accepting it", async () => {
-		previewOrganizationJoinLinkMock.mockResolvedValue({
-			active: false,
-			ok: true,
+	it("requires an explicit request and does not turn submission into membership navigation", async () => {
+		page();
+		const button = await screen.findByRole("button", {
+			name: "Request invitation",
 		});
-
-		renderPage();
-
+		await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+		expect(request).not.toHaveBeenCalled();
+		fireEvent.click(button);
+		await screen.findByText(submittedText);
+		expect(request).toHaveBeenCalledWith({ token });
 		expect(
-			await screen.findByText(
-				"This invite link is no longer active. Ask an OpenMeld admin for a new one."
-			)
-		).toBeTruthy();
-		expect(screen.queryByRole("button")).toBeNull();
-		expect(screen.queryByRole("link", { name: "Sign in to join" })).toBeNull();
-		expect(acceptOrganizationJoinLinkMock).not.toHaveBeenCalled();
-	});
-
-	it("sends signed-out visitors to login with the intact token", async () => {
-		sessionQuery = { data: null, isPending: false };
-
-		renderPage(TOKEN, undefined, { locationHref: ENCODED_TOKEN_HREF });
-
-		const signInLink = await screen.findByRole("link", {
-			name: "Sign in to join",
-		});
-		expect(signInLink.getAttribute("href")).toBe("/login");
-		expect(typeof signInLink.getAttribute("data-redirect")).toBe("string");
-		expect(signInLink.getAttribute("data-redirect")).toBe(ENCODED_TOKEN_HREF);
+			screen.getByRole("link", { name: "View request" }).getAttribute("href")
+		).toBe("/invitation-requests?requestId=request-1");
 		expect(
-			new URL(signInLink.getAttribute("data-redirect") ?? "").searchParams.get(
-				"token"
-			)
-		).toBe(ENCODED_TOKEN);
-		expect(acceptOrganizationJoinLinkMock).not.toHaveBeenCalled();
+			screen.queryByRole("link", { name: "Open organization" })
+		).toBeNull();
 	});
-
-	it("requires explicit confirmation for a caller-controlled auth marker", async () => {
-		renderPage(TOKEN, undefined, { locationHref: FULL_HREF_WITH_AUTH });
-
+	it("offers existing members their organization without creating an invitation", async () => {
+		organizations.mockResolvedValue([
+			{ id: "org-1", name: "Harbor Design", slug: "harbor" },
+		]);
+		page();
 		expect(
-			await screen.findByRole("button", { name: "Join Acme Research" })
-		).toBeTruthy();
-		expect(acceptOrganizationJoinLinkMock).not.toHaveBeenCalled();
-		expect(navigateMock).not.toHaveBeenCalled();
+			(
+				await screen.findByRole("link", { name: "Open organization" })
+			).getAttribute("href")
+		).toBe("/o/harbor");
+		expect(request).not.toHaveBeenCalled();
 	});
-
-	it("accepts and opens the URL organization for a signed-in user", async () => {
-		const queryClient = createTestQueryClient();
-		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
-		renderPage(TOKEN, queryClient);
-
-		const joinButton = await screen.findByRole("button", {
-			name: "Join Acme Research",
-		});
-		expect(acceptOrganizationJoinLinkMock).not.toHaveBeenCalled();
-		fireEvent.click(joinButton);
-
-		await waitFor(() => {
-			expect(acceptOrganizationJoinLinkMock).toHaveBeenCalledWith({
-				token: TOKEN,
-			});
-		});
-		expect(invalidateQueriesSpy).toHaveBeenCalledWith({
-			queryKey: organizationQueryKeys.all,
-		});
-		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/acme-research",
-		});
+	it("does not offer an action for a revoked link", async () => {
+		preview.mockResolvedValue({ ok: true, active: false });
+		page();
+		await screen.findByText(inactiveText);
 		expect(
-			acceptOrganizationJoinLinkMock.mock.invocationCallOrder[0]
-		).toBeLessThan(navigateMock.mock.invocationCallOrder[0] ?? 0);
-	});
-
-	it("treats an already-member response as success", async () => {
-		acceptOrganizationJoinLinkMock.mockResolvedValue(acceptedJoinLink(true));
-
-		renderPage();
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Join Acme Research" })
-		);
-
-		await waitFor(() => {
-			expect(navigateMock).toHaveBeenCalledWith({
-				to: "/o/acme-research",
-			});
-		});
-	});
-
-	it("keeps a successful join and retries only opening the organization", async () => {
-		navigateMock
-			.mockRejectedValueOnce(new Error("route transition failed"))
-			.mockResolvedValueOnce(undefined);
-
-		renderPage();
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Join Acme Research" })
-		);
-
-		expect(
-			await screen.findByText(
-				"You joined Acme Research, but OpenMeld could not open it."
-			)
-		).toBeTruthy();
-		expect(acceptOrganizationJoinLinkMock).toHaveBeenCalledTimes(1);
-
-		fireEvent.click(screen.getByRole("button", { name: "Open Acme Research" }));
-
-		await waitFor(() => {
-			expect(navigateMock).toHaveBeenCalledTimes(2);
-		});
-		expect(acceptOrganizationJoinLinkMock).toHaveBeenCalledTimes(1);
-	});
-
-	it("offers a manual retry when acceptance fails", async () => {
-		acceptOrganizationJoinLinkMock.mockRejectedValueOnce(
-			new Error("OpenMeld could not join this organization.")
-		);
-
-		renderPage();
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Join Acme Research" })
-		);
-
-		expect(
-			await screen.findByText("OpenMeld could not join this organization.")
-		).toBeTruthy();
-		expect(acceptOrganizationJoinLinkMock).toHaveBeenCalledTimes(1);
-
-		acceptOrganizationJoinLinkMock.mockResolvedValue(acceptedJoinLink());
-		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-
-		await waitFor(() => {
-			expect(acceptOrganizationJoinLinkMock).toHaveBeenCalledTimes(2);
-			expect(navigateMock).toHaveBeenCalledWith({
-				to: "/o/acme-research",
-			});
-		});
-	});
-
-	it("returns to explicit confirmation after magic-link verification", async () => {
-		acceptOrganizationJoinLinkMock.mockRejectedValue(
-			Object.assign(new Error("Verify your email to join this organization."), {
-				code: "organization.join_link.email_verification_required",
-			})
-		);
-
-		renderPage();
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Join Acme Research" })
-		);
-
-		expect(
-			await screen.findByText(
-				"Your email address is not verified yet. Sign in once with a magic link to verify it, then you can join Acme Research."
-			)
-		).toBeTruthy();
-		const magicLink = screen.getByRole("link", {
-			name: "Continue with a magic link",
-		});
-		expect(magicLink.getAttribute("href")).toBe("/login");
-		expect(magicLink.getAttribute("data-redirect")).toBe(FULL_HREF);
-		expect(acceptOrganizationJoinLinkMock).toHaveBeenCalledTimes(1);
-		expect(navigateMock).not.toHaveBeenCalled();
-	});
-
-	it("shows a clear retry state when join acceptance is rate limited", async () => {
-		acceptOrganizationJoinLinkMock.mockRejectedValue(
-			Object.assign(
-				new Error("Too many join attempts. Try again in a minute."),
-				{
-					code: "organization.join_link.accept.rate_limited",
-					status: 429,
-				}
-			)
-		);
-
-		renderPage();
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Join Acme Research" })
-		);
-
-		expect(
-			await screen.findByText("Too many join attempts. Try again in a minute.")
-		).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
-		expect(navigateMock).not.toHaveBeenCalled();
+			screen.queryByRole("button", { name: "Request invitation" })
+		).toBeNull();
+		expect(request).not.toHaveBeenCalled();
 	});
 });

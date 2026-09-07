@@ -1,3 +1,4 @@
+import { peopleComputerCliCommand } from "@openmeld/agent-runtime";
 import {
   formatLocalSetupActionDescription,
   formatLocalSetupActionLabel,
@@ -5,6 +6,7 @@ import {
   localComponentsReleaseManifestSchema,
 } from "@openmeld/schemas";
 import type {
+  DaemonServiceLane,
   LocalCliComponentUpdateProjection,
   LocalComponentsReleaseManifest,
   LocalComponentsStatus,
@@ -25,9 +27,8 @@ declare const OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON:
   | string
   | undefined;
 
-const HUMAN_SETUP_COMMAND = "npm install -g openmeld@latest && openmeld setup";
-const AGENT_SETUP_COMMAND =
-  "npm install -g openmeld@latest && openmeld setup --view agent";
+// The installed CLI owns distribution-aware upgrades (managed binary or npm).
+// Cloud status cannot assume Node/npm exists on the selected computer.
 const SEMVER_RE =
   /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u;
 const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
@@ -48,6 +49,7 @@ type ServiceUpdateDecision = {
 
 export function resolveLocalComponentUpdateProjection(input: {
   generatedAt: string;
+  runtimeLane?: DaemonServiceLane;
   localComponentsStatus?: LocalComponentsStatus | null;
   releaseManifest?: LocalComponentsReleaseManifest | null;
   serviceConnected: boolean;
@@ -89,6 +91,7 @@ export function resolveLocalComponentUpdateProjection(input: {
       updatePolicy: "required",
     });
     return buildProjection({
+      runtimeLane: input.runtimeLane,
       cli,
       generatedAt: input.generatedAt,
       service,
@@ -106,6 +109,7 @@ export function resolveLocalComponentUpdateProjection(input: {
     status: input.localComponentsStatus?.cli ?? null,
   });
   const skills = resolveSkillsUpdateProjection({
+    cliVersion: input.localComponentsStatus?.cli.packageVersion ?? null,
     policy: skillsPolicy,
     status: input.localComponentsStatus?.skills ?? null,
   });
@@ -123,6 +127,7 @@ export function resolveLocalComponentUpdateProjection(input: {
       wakeBlocked: false,
     });
     return buildProjection({
+      runtimeLane: input.runtimeLane,
       cli,
       generatedAt: input.generatedAt,
       service,
@@ -168,6 +173,7 @@ export function resolveLocalComponentUpdateProjection(input: {
     wakeBlocked: decision.wakeBlocked,
   });
   return buildProjection({
+    runtimeLane: input.runtimeLane,
     cli,
     generatedAt: input.generatedAt,
     service,
@@ -401,10 +407,21 @@ function resolveCliUpdateProjection(input: {
 }
 
 function resolveSkillsUpdateProjection(input: {
+  cliVersion: string | null;
   policy: LocalComponentsReleaseManifest["components"]["skills"];
   status: LocalComponentsStatus["skills"] | null;
 }): LocalSkillsComponentUpdateProjection {
-  const expectedBundleHash = input.policy.bundleHash;
+  const compatibleContentRelease =
+    input.status?.contentRelease &&
+    input.cliVersion !== null &&
+    isLocalComponentVersionAtLeast(
+      input.cliVersion,
+      input.status.contentRelease.minimumCliVersion
+    ) &&
+    input.status.skillContractVersion === input.policy.skillContractVersion;
+  const expectedBundleHash = compatibleContentRelease
+    ? (input.status?.expectedBundleHash ?? null)
+    : input.policy.bundleHash;
   const expectedTargetCount = input.policy.skillIds.length;
   if (!input.status) {
     return buildSkillsUpdateProjection({
@@ -424,6 +441,10 @@ function resolveSkillsUpdateProjection(input: {
 
   const reasonCodes = [...input.status.reasonCodes];
   let updateNeeded = input.status.status === "update_required";
+  if (input.status.contentRelease && !compatibleContentRelease) {
+    updateNeeded = true;
+    reasonCodes.push("skills.content_release_incompatible");
+  }
   if (
     input.status.skillContractVersion !== input.policy.skillContractVersion &&
     !reasonCodes.includes("skills.skill_contract_mismatch")
@@ -432,8 +453,9 @@ function resolveSkillsUpdateProjection(input: {
     reasonCodes.push("skills.skill_contract_mismatch");
   }
   if (
-    expectedBundleHash !== null &&
-    input.status.installedBundleHash !== expectedBundleHash &&
+    ((compatibleContentRelease && expectedBundleHash === null) ||
+      (expectedBundleHash !== null &&
+        input.status.installedBundleHash !== expectedBundleHash)) &&
     !reasonCodes.includes("skills.bundle_mismatch")
   ) {
     updateNeeded = true;
@@ -532,6 +554,7 @@ function buildSkillsUpdateProjection(input: {
 }
 
 function buildProjection(input: {
+  runtimeLane?: DaemonServiceLane;
   cli: LocalCliComponentUpdateProjection;
   generatedAt: string;
   maintenance: OpenMeldToolsMaintenanceProjection | null;
@@ -540,15 +563,33 @@ function buildProjection(input: {
   updateOperation: OpenMeldToolsUpdateOperation | null;
 }): LocalComponentUpdateProjection {
   const setupAction = resolveProjectionSetupAction(input);
+  const command = peopleComputerCliCommand(input.runtimeLane ?? "prod");
   const updateOperation = resolveVisibleUpdateOperation(input);
+  const unknown = [input.cli, input.service, input.skills].some(
+    (component) => component.status === "unknown"
+  );
+  const updateAvailable = [input.cli, input.service, input.skills].some(
+    (component) => component.status === "update_available"
+  );
+  let setupActionLabel = formatLocalSetupActionLabel(setupAction);
+  let setupActionDescription = formatLocalSetupActionDescription(setupAction);
+  if (setupAction === "none" && unknown) {
+    setupActionLabel = "Update status unavailable";
+    setupActionDescription =
+      "OpenMeld could not confirm the installed versions. Check this computer's status before updating.";
+  } else if (setupAction === "none" && updateAvailable) {
+    setupActionLabel = "Update available";
+    setupActionDescription =
+      "An update is available. The current version can continue working.";
+  }
   return {
     schemaVersion: LOCAL_COMPONENTS_SCHEMA_VERSION,
     generatedAt: input.generatedAt,
     setupAction,
-    setupActionLabel: formatLocalSetupActionLabel(setupAction),
-    setupActionDescription: formatLocalSetupActionDescription(setupAction),
-    humanSetupCommand: HUMAN_SETUP_COMMAND,
-    agentSetupCommand: AGENT_SETUP_COMMAND,
+    setupActionLabel,
+    setupActionDescription,
+    humanSetupCommand: `${command} upgrade && ${command} setup`,
+    agentSetupCommand: `${command} upgrade --view agent && ${command} setup --view agent`,
     ...(input.maintenance ? { maintenance: input.maintenance } : {}),
     ...(updateOperation ? { updateOperation } : {}),
     cli: input.cli,

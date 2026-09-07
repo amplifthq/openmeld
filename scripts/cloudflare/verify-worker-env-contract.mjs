@@ -342,8 +342,7 @@ const workerPackages = [
       "OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID",
     ],
     expectedGeneratedBindings: [
-      "FLUE_CENTER_AGENT_AGENT",
-      "FLUE_REGISTRY",
+      "FLUE_CENTER_AGENT_V2_AGENT",
       "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
       "OPENMELD_CORE_WORKER",
       "OPENMELD_CENTER_AGENT_PERFORMANCE",
@@ -592,17 +591,56 @@ ensure(
   "OpenConnector production must declare the exact upstream runtime secret contract."
 );
 ensure(
-  readText("scripts/cloudflare/deploy-openconnector-production.mjs").includes(
+  readText("scripts/cloudflare/deploy-openconnector.mjs").includes(
     '"--secrets-file", "/dev/stdin"'
   ),
   "OpenConnector production deploy must deliver new-Worker secrets through stdin without writing them to disk."
 );
 ensure(
-  readText("scripts/cloudflare/deploy-openconnector-production.mjs").includes(
+  readText("scripts/cloudflare/deploy-openconnector.mjs").includes(
     '"secret", "list", "--config", temporaryConfigName'
   ),
   "OpenConnector production deploy must verify the deployed secret contract before preserving existing Cloudflare secrets."
 );
+
+if (verifiesStaging) {
+  const stagingConnector = parseJsoncObject(
+    "config/openconnector/wrangler.staging.jsonc"
+  );
+  ensure(
+    stagingConnector.name === "openmeld-open-connector-stg" &&
+      stagingConnector.vars?.OOMOL_CONNECT_ORIGIN ===
+        "https://connectors.staging.openmeld.ai" &&
+      stagingConnector.routes?.length === 1 &&
+      stagingConnector.routes[0]?.pattern ===
+        "connectors.staging.openmeld.ai" &&
+      stagingConnector.routes[0]?.custom_domain === true &&
+      stagingConnector.workers_dev === false &&
+      stagingConnector.preview_urls === false,
+    "OpenConnector staging must expose only its dedicated staging custom domain."
+  );
+  ensure(
+    stagingConnector.d1_databases?.length === 1 &&
+      stagingConnector.d1_databases[0]?.database_name ===
+        "openmeld-open-connector-db-stg" &&
+      stagingConnector.d1_databases[0]?.database_id ===
+        "79e940f3-e607-4c3a-bf5a-32bea2794763" &&
+      stagingConnector.r2_buckets?.length === 1 &&
+      stagingConnector.r2_buckets[0]?.bucket_name ===
+        "openmeld-open-connector-transit-files-stg",
+    "OpenConnector staging must use its separately provisioned D1 and R2 resources."
+  );
+  ensure(
+    JSON.stringify(stagingConnector.secrets) ===
+      JSON.stringify(openConnectorWrangler.secrets) &&
+      stagingConnector.vars?.OOMOL_CONNECT_ALLOWED_ACTIONS ===
+        openConnectorWrangler.vars?.OOMOL_CONNECT_ALLOWED_ACTIONS &&
+      stagingConnector.vars?.OOMOL_CONNECT_BLOCKED_ACTIONS ===
+        openConnectorWrangler.vars?.OOMOL_CONNECT_BLOCKED_ACTIONS &&
+      stagingConnector.vars?.OOMOL_CONNECT_BLOCKED_PROXIES === "*",
+    "OpenConnector staging must preserve the reviewed production capability and credential contracts."
+  );
+}
 
 for (const workerPackage of workerPackages) {
   const packageJson = JSON.parse(readText(workerPackage.packageJsonPath));

@@ -2,6 +2,233 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "simpler-computer-connection-guidance",
+      "title": "Clearer computer connection guidance",
+      "kind": "improved",
+      "areas": [
+        "computers",
+        "onboarding",
+        "center-agent"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-07",
+      "release": "v0.3.165",
+      "evidence": [
+        "pr:716",
+        "pr:717",
+        "commit:943ea1dd9732a70115497def08095df30509743c",
+        "workflow:34114975948",
+        "https://github.com/amplifthq/openmeld/pull/716#issuecomment-5570106116"
+      ],
+      "body": "Computer setup shows short instructions for copying the command, opening Terminal,\nand following the prompts. Connected computers have a direct management link,\nwhile the standalone connection page remains available for adding a computer.\nCenter Agent chat offers management before starting another connection flow.\n\nCreate a Space and Show me around now add a suggestion to the composer without\nreplacing your draft or sending a message. You decide when to send. The computer\nsetup panel also has a close button and follows the surrounding card layout.\n\nComputer Connection keeps automatic updates in its options menu and hides the\nsetting when its value cannot be read. Agent creation lists computers rather than\ntheir historical connections; a single computer does not require a computer choice.\nTechnical connection selection remains available in advanced details when needed.\n\nOptional computer details that fail to upload no longer undo a successful\nregistration. Registration alone still does not mean an Agent is ready to run."
+    },
+    {
+      "id": "people-computers-identity-and-controls",
+      "title": "Clearer computer status and precise computer controls",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "agents",
+        "center-agent",
+        "cli"
+      ],
+      "audiences": [
+        "users",
+        "developers"
+      ],
+      "publishedAt": "2026-09-07",
+      "release": "v0.3.165",
+      "evidence": [
+        "pr:716",
+        "pr:717",
+        "commit:943ea1dd9732a70115497def08095df30509743c",
+        "workflow:34114975948",
+        "https://github.com/amplifthq/openmeld/pull/716#issuecomment-5570106116"
+      ],
+      "body": "Computer status distinguishes a live connection, a normal disconnection, and a\nstatus that could not be checked. Saved computer records no longer count as proof\nthat a local agent can run.\n\nComputer settings and CLI diagnostics target the selected computer and\nenvironment. The Center Agent looks up the requesting teammate's local agents\ninstead of assuming the Organization owner's computer is the target.\n\nCLI integrations must update for the new `computer list --view agent` payload:\n`computers` includes explicit connection evidence and `isThisComputer` identifies\nthe local installation. This replaces the old routing-preference interpretation."
+    },
+    {
+      "id": "existing-spaces-message-preview-upgrade",
+      "title": "Keep existing chats writable after the preview upgrade",
+      "kind": "fixed",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-07",
+      "release": "v0.3.164",
+      "evidence": [
+        "pr:697",
+        "workflow:34048141546",
+        "signal:2ee4894f-6463-4bdc-9abf-4acd6bf76384"
+      ],
+      "body": "Existing chats now create the message preview counter during their database\nupgrade. Sending a message no longer fails because the chat already completed\nan earlier database version. Existing messages and preview ordering are preserved."
+    },
+    {
+      "id": "center-agent-reconnect-and-directory-pages",
+      "title": "More reliable command reconnection and directory reads",
+      "kind": "fixed",
+      "areas": [
+        "center-agent"
+      ],
+      "audiences": [
+        "members",
+        "contributors"
+      ],
+      "publishedAt": "2026-09-07",
+      "release": "v0.3.164",
+      "evidence": [
+        "pr:697",
+        "workflow:34048148581",
+        "signal:6f67a276-764a-4687-a9ac-9216455094c6"
+      ],
+      "body": "Center Agent can detach from a command while its output connection is still\nopening without trying to open that connection twice. Detaching does not stop\nor restart the command.\n\nLarge organization directories can be read in bounded pages, preserving member\nand Agent details with explicit totals and continuation cursors. The Agent must\nfinish the pages before treating a roster or identity match as complete."
+    },
+    {
+      "id": "retire-remote-agent-core-rollout-fallbacks",
+      "title": "Retire completed Remote Agent rollout fallbacks",
+      "kind": "improved",
+      "areas": [
+        "center-agent",
+        "operations"
+      ],
+      "audiences": [
+        "operators",
+        "contributors"
+      ],
+      "publishedAt": "2026-09-07",
+      "release": "v0.3.164",
+      "evidence": [
+        "pr:697",
+        "workflow:34048141546",
+        "workflow:34048148581"
+      ],
+      "body": "Remote Agent now requires the current Core contracts for Slack results,\nMessage Channel account linking, and connected App progress. It no longer\ndowngrades requests or progress metadata for older Core versions. Keep Core\ncurrent before deploying this worker; roll back Remote Agent first when\nreverting those Core contracts. Existing local clients and saved conversation\nformats are unchanged."
+    },
+    {
+      "id": "connect-cloudflare-r2-with-an-api-token",
+      "title": "Connect Cloudflare R2 with an API token",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "plugins"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-09-06",
+      "evidence": [
+        "pr:689",
+        "pr:693",
+        "commit:5bffe90ba001eec03f043797a61940fc922d9e06"
+      ],
+      "body": "Connect Cloudflare R2 using an API token and account ID from its Plugin page.\nThe token option is available for both personal and organization access."
+    },
+    {
+      "id": "slack-agent-connection-permission",
+      "title": "Connect Slack with Agent status support",
+      "kind": "improved",
+      "areas": [
+        "channels",
+        "center-agent"
+      ],
+      "audiences": [
+        "admins",
+        "members"
+      ],
+      "publishedAt": "2026-09-06",
+      "evidence": [
+        "pr:689",
+        "pr:693",
+        "commit:5bffe90ba001eec03f043797a61940fc922d9e06"
+      ],
+      "body": "Connecting Slack now requests the permission needed to show the Center Agent's\nworking status in threads. Existing Slack apps can enable the Agent experience\nand grant the added permission without creating a replacement app."
+    },
+    {
+      "id": "distinguish-confirmation-from-completed-actions",
+      "title": "Distinguish confirmation requests from completed actions",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "plugins"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-06",
+      "evidence": [
+        "pr:689",
+        "pr:693",
+        "commit:5bffe90ba001eec03f043797a61940fc922d9e06"
+      ],
+      "body": "Center Agent work summaries identify actions that are waiting for confirmation\ninstead of describing them as already executed. Confirmation requests remain\nseparate from completed actions when similar steps are grouped together."
+    },
+    {
+      "id": "reliable-center-agent-command-stops",
+      "title": "Stop Center Agent commands and continue chatting",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "computer",
+        "spaces",
+        "diagnostics"
+      ],
+      "audiences": [
+        "members",
+        "operators"
+      ],
+      "publishedAt": "2026-09-06",
+      "evidence": [
+        "pr:689",
+        "pr:693",
+        "commit:5bffe90ba001eec03f043797a61940fc922d9e06"
+      ],
+      "body": "Stopping a Center Agent request now stops its long-running Computer commands\nwithout stopping commands from another chat. The stopped outcome replaces\ntemporary progress or failure messages, and you can continue the conversation\nafterward.\n\nTemporary callback failures retry until the outcome can be delivered. Stopped\nrequests remain available in diagnostics instead of appearing to be missing.\n\nWhen a Computer runtime is replaced, the Agent receives an explicit command\nloss and can inspect saved files before continuing. Lost commands are not\nsilently relaunched, and cleanup does not turn recovered work into a failure."
+    },
+    {
+      "id": "update-center-agent-while-it-works",
+      "title": "Update your Center Agent while it works",
+      "kind": "improved",
+      "areas": [
+        "center-agent",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-06",
+      "evidence": [
+        "pr:689",
+        "pr:693",
+        "commit:5bffe90ba001eec03f043797a61940fc922d9e06"
+      ],
+      "body": "Send a text update in your Center Agent chat while it is working to add a\ncorrection or missing detail to that response. Updates stay attached to the\noriginal response, including during network retries. If an update cannot be\nconfirmed before the response ends, the chat tells you so you can review the\nresult and send it again."
+    },
+    {
+      "id": "separate-center-agent-chats",
+      "title": "Work in separate Center Agent chats",
+      "kind": "new",
+      "areas": [
+        "center-agent",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-06",
+      "evidence": [
+        "pr:689",
+        "pr:693",
+        "commit:5bffe90ba001eec03f043797a61940fc922d9e06"
+      ],
+      "body": "Use New chat to start a separate conversation with your Center Agent, then\nswitch between conversations from Chats. Each chat keeps its own history,\ndraft, and files view, so you can work on several requests at once without\ncombining their conversation context. The chats share your Center Agent's\ncloud Computer."
+    },
+    {
       "id": "clearer-space-profile-popovers",
       "title": "Check Space members without leaving the conversation",
       "kind": "improved",
@@ -25,6 +252,133 @@
       "body": "Space member names now open a compact profile card with useful, local context:\npeople show when they were last active in that Space, ordinary Agents link to\ntheir proper editor, and Center Agent chat opens Home instead of a Direct\nMessage."
     },
     {
+      "id": "space-profile-recency-scope",
+      "title": "Clarify Space activity times and historical profiles",
+      "kind": "fixed",
+      "areas": [
+        "people",
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-05",
+      "evidence": [
+        "pr:668",
+        "commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f",
+        "workflow:33953073945"
+      ],
+      "body": "Space member lists and profile popovers now say \"Here 2d ago\" to distinguish\nactivity in that Space from activity elsewhere in the app. Live status is\nunchanged.\n\nProfiles opened from older messages stay compact when current member details\nare unavailable, without falling back to a table of technical IDs or implying\nan online status."
+    },
+    {
+      "id": "wake-status-orbs-and-response-feedback",
+      "title": "Clearer Agent progress and response feedback",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "agents",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.158",
+      "evidence": [
+        "pr:652",
+        "pr:658",
+        "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
+      ],
+      "body": "Agent progress uses consistent status orbs for connecting, waiting, working,\nreplying, and requests that need your response. Space sidebar indicators give\nrequests needing your input priority over ongoing work.\n\nProgress stays next to the message, above its actions. Pending requests remain\nabove the Composer, and sending a response no longer implies that the Agent\nhas already resumed. Plan reviews render formatted Markdown."
+    },
+    {
+      "id": "computer-connection-recovery",
+      "title": "Clearer computer status and setup retries",
+      "kind": "fixed",
+      "areas": [
+        "web",
+        "cli"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.160",
+      "evidence": [
+        "pr:681",
+        "pr:682",
+        "commit:36167456e3b8808331ef5d41c0807a3fd45c8b8d",
+        "workflow:33972709677",
+        "https://github.com/amplifthq/openmeld/pull/681#issuecomment-5553165264"
+      ],
+      "body": "Disconnected computers no longer make every local Agent look broken. Agent\ncards show when the computer is disconnected or its status is being checked,\nwhile preserving your saved on/off settings.\n\nCanceling an account switch leaves the existing computer account unchanged and\nupdates the setup page. If computer authorization fails, the CLI explains how\nto get a new command, and Web offers a fresh attempt without a page reload."
+    },
+    {
+      "id": "local-model-discoveries-and-new-badges",
+      "title": "Find new models when configuring local Agents",
+      "kind": "improved",
+      "areas": [
+        "agent-profiles"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.160",
+      "evidence": [
+        "pr:681",
+        "pr:682",
+        "commit:36167456e3b8808331ef5d41c0807a3fd45c8b8d",
+        "workflow:33972709677",
+        "https://github.com/amplifthq/openmeld/pull/681#issuecomment-5553165264"
+      ],
+      "body": "Local Agent model selectors show a small New badge beside newly added options,\nincluding GPT-6 Astra, Claude Fable 5.1 and supported Cursor and OpenCode models.\nThe badge also appears on the selected model when creating or editing a Profile.\n\nCodex keeps GPT-5.6 Sol with High reasoning as its new-Profile recommendation.\nClaude recommends Opus 5 with model-default reasoning. Existing explicit model\nselections and remembered creation preferences are preserved; Claude Profiles\nthat rely on the runtime default use Opus 5 instead of Opus 4.8."
+    },
+    {
+      "id": "agent-sidebar-status-in-creation",
+      "title": "Give Agent creation its own page and reduce status reads",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.158",
+      "evidence": [
+        "pr:654",
+        "pr:658",
+        "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
+      ],
+      "body": "Create Agent now opens its own page without the Agent-list sidebar. Existing\ncreation links redirect there, and creating an Agent opens its details.\n\nAgent requests now loads sidebar status instead of leaving every Agent on\nChecking. Organization status reads also avoid repeated Runtime and Controller\nlookups within the same request, while each new request still reads fresh facts."
+    },
+    {
+      "id": "invite-people-into-a-space",
+      "title": "Invite someone directly into a Space",
+      "kind": "new",
+      "areas": [
+        "spaces",
+        "organizations",
+        "cli"
+      ],
+      "audiences": [
+        "users",
+        "admins",
+        "agents"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.158",
+      "evidence": [
+        "pr:655",
+        "pr:658",
+        "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
+      ],
+      "body": "Organization owners and admins can invite someone by email from a Space.\nRecipients review the invitation, join the organization if needed, and land\ndirectly in that Space. Pending invitations can be reviewed, resent, or\nrevoked, with matching commands for local agents using the CLI.\n\nThe member picker also checks an Agent's owner when that person will join with\nthe selected Agent, so the selection matches who is actually being added."
+    },
+    {
       "id": "focused-agent-status-updates",
       "title": "Keep Agent status updates focused",
       "kind": "fixed",
@@ -46,6 +400,68 @@
         "smoke:chrome:focused-agent-status-20260905"
       ],
       "body": "Agent availability refreshes now stay on the affected Agent, keep names and\nstable status labels still, and point missing working folders to one clear\nrecovery action. Computers also keep an available OpenMeld Tools update visible\nwhen a local agent needs sign-in."
+    },
+    {
+      "id": "web-application-error-diagnostics",
+      "title": "Keep diagnostic records for Web application errors",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "observability"
+      ],
+      "audiences": [
+        "operators"
+      ],
+      "publishedAt": "2026-09-05",
+      "evidence": [
+        "pr:667",
+        "commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f",
+        "workflow:33953073945"
+      ],
+      "body": "Web application errors now produce searchable Cloudflare logs with build\nidentifiers, error categories, and code locations. Browser reports omit private\npage content and credentials. Hosted Web releases retain private browser source\nmaps to help operators investigate errors after an update."
+    },
+    {
+      "id": "remove-agent-logo-from-tools-status",
+      "title": "Keep OpenMeld Tools status clear",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "evidence": [
+        "pr:648",
+        "commit:7f2b736fd110f08f12c9562e0a7a181a4283fcff",
+        "worker-version:516fec14-7e67-45b4-90c2-eedaf6e9840d",
+        "smoke:chrome:openmeld-tools-status-20260905"
+      ],
+      "body": "The OpenMeld Tools status no longer displays a local agent's logo. Each agent's\nreadiness and sign-in status remain in the Local agents section."
+    },
+    {
+      "id": "independent-cli-skill-updates",
+      "title": "Keep the OpenMeld guide current without another CLI upgrade",
+      "kind": "improved",
+      "areas": [
+        "cli",
+        "service"
+      ],
+      "audiences": [
+        "users",
+        "developers"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.160",
+      "evidence": [
+        "pr:681",
+        "pr:682",
+        "commit:36167456e3b8808331ef5d41c0807a3fd45c8b8d",
+        "workflow:33972709677",
+        "https://github.com/amplifthq/openmeld/pull/681#issuecomment-5553165264"
+      ],
+      "body": "OpenMeld can maintain its local Agent guide independently of the CLI, keeping\nthe last working copy when a download or installation fails. Before a local\ntask, Service checks the selected Agent's guide and supplies a public reading\nlink when the installed copy is unavailable.\n\nThe public guide starts with a short entry and loads detailed topics only as\nneeded. New instructions are installed only when the local CLI supports them.\nExisting installations need the bridge CLI/Service update once to enable this\nmaintenance path."
     },
     {
       "id": "link-directly-to-space-messages",
@@ -72,6 +488,26 @@
       "body": "Space members can copy a direct message or thread-message link from Message\nDetails without adding another inline message action. Local agents can build\nthe same destination through the CLI and carry it through the shared Space\naccess check."
     },
     {
+      "id": "accurate-human-visits-and-space-reading-position",
+      "title": "More accurate activity times and reliable Space reading positions",
+      "kind": "fixed",
+      "areas": [
+        "people",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.158",
+      "evidence": [
+        "pr:651",
+        "pr:658",
+        "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
+      ],
+      "body": "People shows a person's latest activity across the app, while each Space shows\ntheir latest visit or message there. Background reconnections no longer make\nsomeone appear recently active, and elapsed times stay current.\n\nReturning to a Space restores the message you were reading instead of jumping\nto the bottom, including when earlier history or images finish loading."
+    },
+    {
       "id": "faster-space-and-message-entry",
       "title": "Open Spaces and messages without waiting on identity",
       "kind": "improved",
@@ -93,6 +529,44 @@
         "smoke:chrome:space-and-direct-message-entry-20260905"
       ],
       "body": "Returning to a Space now restores its recent conversation and exact reading\nposition sooner. Member controls, profile details, Direct Message avatars, and\nPeople connection states also remain useful and honest while current data is\nstill loading, and repeated Space image previews reuse the same downloaded\ncontent."
+    },
+    {
+      "id": "model-catalog-update-handoffs",
+      "title": "Prepare model updates for review automatically",
+      "kind": "improved",
+      "areas": [
+        "agent-profiles",
+        "developer-workflow"
+      ],
+      "audiences": [
+        "contributors"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.158",
+      "evidence": [
+        "pr:656",
+        "pr:658",
+        "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
+      ],
+      "body": "A twice-daily collector prepares model-update pull requests with official source\nevidence and clear decisions for the reviewing coding agent. Confirmed Codex\ncatalog additions are prepared automatically; account access and product defaults\nremain explicit review decisions.\n\nNew Agent Profile recommendations can be configured independently of runtime\ndefaults, while preserving existing selections and remembered preferences."
+    },
+    {
+      "id": "preserve-page-loading-errors",
+      "title": "Preserve page loading errors during refresh",
+      "kind": "fixed",
+      "areas": [
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-05",
+      "evidence": [
+        "pr:667",
+        "commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f",
+        "workflow:33953073945"
+      ],
+      "body": "When an older page cannot load a component after an update, automatic refresh\npreserves the original loading error instead of replacing it with a misleading\nmissing-component error while the refresh is pending."
     },
     {
       "id": "shared-space-wake-progress",
@@ -123,6 +597,26 @@
         "smoke:56d33584-554f-4abc-9ea9-f715c455d360"
       ],
       "body": "Space, CLI, and the Center Agent now present the same authoritative Wake state.\nSpace distinguishes a sent request, a real queue, runtime connection, active\nwork, reply writing, posting, retries, and required Human input instead of\nfolding them into one generic working label. Live state changes refresh the Web\nconversation immediately, while reconnect and low-frequency recovery checks\nkeep the view accurate after a browser sleeps or misses an update.\n\nMembers and agents can also inspect who requested the Wake, its public\nsource-message preview and thread, the working Agent, and the current phase."
+    },
+    {
+      "id": "terminal-wake-recovery-only",
+      "title": "Start a new Wake from the composer",
+      "kind": "removed",
+      "areas": [
+        "spaces",
+        "center-agent"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.158",
+      "evidence": [
+        "pr:650",
+        "pr:658",
+        "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
+      ],
+      "body": "Historical Wake failures no longer offer a shortcut that reruns the original\nrequest. To run it again, send a new message from the Space composer. Message\ndetails still provides diagnostics and recovery for an existing result when\navailable. The Center Agent no longer exposes the retired execution-retry tool."
     },
     {
       "id": "verified-service-update-outcomes",

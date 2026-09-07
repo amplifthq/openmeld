@@ -46,7 +46,6 @@ import {
   centerAgentInviteSlackTeammatesRpcResponseSchema,
   centerAgentListAgentProfileCreationDefaultsResponseSchema,
   centerAgentListAgentTasksResponseSchema,
-  centerAgentListComputersResponseSchema,
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
   centerAgentListLocalAgentInstallationsResponseSchema,
   centerAgentListOpportunitiesToolResponseSchema,
@@ -72,6 +71,7 @@ import {
   centerAgentReadOrganizationDocumentsResponseSchema,
   centerAgentReadOrganizationSkillsResponseSchema,
   centerAgentReadOrganizationSkillsRpcInputSchema,
+  centerAgentReadPeopleComputersResponseSchema,
   centerAgentReadSlackChannelHistoryBodySchema,
   centerAgentReadSlackChannelHistoryResponseSchema,
   centerAgentReadSlackChannelMembersBodySchema,
@@ -106,6 +106,7 @@ import {
   createAgentProfileCreationRequestResponseSchema,
   createCenterAgentRoutineResponseSchema,
   createCenterAgentTaskResponseSchema,
+  daemonServiceLaneSchema,
   deleteCenterAgentRoutineResponseSchema,
   executeExecutionRecoveryBodySchema,
   executeExecutionRecoveryResponseSchema,
@@ -148,6 +149,7 @@ import {
   organizationSpaceDirectoryResponseSchema,
   PROJECT_NAME_MAX_CHARS,
   pauseCenterAgentRoutineResponseSchema,
+  peopleComputerTargetSchema,
   REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
   recordCenterAgentMemberResearchComputerFileResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
@@ -204,7 +206,6 @@ import {
   union,
   unknown as unknownSchema,
 } from "valibot";
-import * as z from "zod/v4";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentReadableStorage,
@@ -252,6 +253,7 @@ import {
   type RemoteAgentImagePreparer,
   understandRemoteAgentImages,
 } from "./image-understanding";
+import { pageOrganizationDirectory } from "./organization-directory-page";
 import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "./slack-member-research-state";
 import {
   extractSlackSearchThreadPublicationTargetKeys,
@@ -266,6 +268,10 @@ import {
 import type { RemoteAgentToolDefinition } from "./tool-definition";
 
 const nonEmptyStringSchema = pipe(string(), minLength(1));
+const peopleComputerTargetToolInputSchema = object({
+  deviceId: nonEmptyStringSchema,
+  runtimeLane: picklist(daemonServiceLaneSchema.options),
+});
 const optionalNonEmptyStringSchema = optional(nonEmptyStringSchema);
 const trimmedNonEmptyStringSchema = pipe(string(), trim(), minLength(1));
 const changelogFilterListInputSchema = pipe(
@@ -675,7 +681,7 @@ const centerAgentTaskListToolInputSchema = strictObject({
 const centerAgentTaskGetToolInputSchema = strictObject({
   taskId: pipe(string(), trim(), minLength(1), maxLength(256)),
 });
-const organizationMembersListToolInputSchema = strictObject({
+const organizationReadPageToolInputSchema = strictObject({
   cursor: optional(pipe(string(), trim(), minLength(1), maxLength(1024))),
   limit: optional(pipe(number(), integer(), minValue(1), maxValue(100))),
 });
@@ -723,13 +729,6 @@ const SLACK_MEMBER_RESEARCH_CHANNEL_ELIGIBILITY_KEY_PREFIX = `${REMOTE_AGENT_SLA
 const SLACK_MEMBER_RESEARCH_HISTORY_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}history:`;
 const SLACK_MEMBER_RESEARCH_SUBJECT_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}subject:`;
 const SLACK_MEMBER_RESEARCH_MAX_CHANNELS = 5;
-const legacyCenterAgentSlackSearchResponseSchema = z.strictObject({
-  organizationId: z.string().trim().min(1),
-  status: z.literal("presented"),
-});
-const legacyCenterAgentSlackTeammateInvitationResponseSchema = z.strictObject({
-  handled: z.literal(true),
-});
 const SLACK_USER_MENTION_TOKEN_PATTERN = /<@[A-Z0-9]+>/u;
 const slackChannelNameSchema = pipe(
   string(),
@@ -1268,44 +1267,28 @@ async function executeMessageChannelIdentityNavigationAction(input: {
     }
     requestedAction = callbackContext.anonymousIdentityBoundary.requestedAction;
   }
-  const authorization =
-    await authorizeMessageChannelIdentityLinkAtCoreWithLegacyFallback({
-      context: input.toolContext.context,
-      coreWorker: input.coreWorker,
-      speakerMember,
-    });
-  const providerNeutralSupport =
-    authorization.messageChannelIdentityLinkSupported;
-  const legacySlackSupport =
-    speakerMember.messageChannelIdentity.provider === "slack" &&
-    authorization.slackIdentityLinkSupported;
-  if (!(providerNeutralSupport || legacySlackSupport)) {
+  const authorization = await authorizeAnonymousMemberToolAtCore({
+    ...(connectToUserId ? { connectToUserId } : {}),
+    context: input.toolContext.context,
+    coreWorker: input.coreWorker,
+    messageChannelIdentityLinkCapabilityVersion: 2,
+    speakerMember,
+    toolName: "openmeld_get_navigation_action",
+  });
+  if (
+    !(
+      authorization.messageChannelIdentityLinkSupported &&
+      authorization.messageChannelAccountTargetSupported
+    )
+  ) {
     throw new Error(
       "Message Channel identity linking is not available until Core supports this action."
     );
   }
-  if (authorization.messageChannelAccountTargetSupported) {
-    await authorizeAnonymousMemberToolAtCore({
-      ...(connectToUserId ? { connectToUserId } : {}),
-      context: input.toolContext.context,
-      coreWorker: input.coreWorker,
-      messageChannelIdentityLinkCapabilityVersion: 2,
-      speakerMember,
-      toolName: "openmeld_get_navigation_action",
-    });
-  }
-  // During a receiver-first rollout, an older Core can still issue a generic
-  // account connection action. It must never receive or persist unverified
-  // account targeting or guidance details.
-  const authorizedTarget = authorization.messageChannelAccountTargetSupported
-    ? {
-        ...target,
-        ...(requestedAction ? { requestedAction } : {}),
-      }
-    : {
-        kind: target.kind,
-        purpose: target.purpose,
-      };
+  const authorizedTarget = {
+    ...target,
+    ...(requestedAction ? { requestedAction } : {}),
+  };
   await recordRemoteAgentNavigationTarget({
     storage: input.storage,
     submissionId: input.submissionId,
@@ -1390,7 +1373,6 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
   "openmeld_resume_controller_conversation",
-  "openmeld_retry_as_new_execution",
   "openmeld_create_space",
   "openmeld_read_agent_profile_creation_defaults",
   "openmeld_create_agent_profile_request",
@@ -1493,7 +1475,6 @@ export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
   "openmeld_resume_controller_conversation",
-  "openmeld_retry_as_new_execution",
   "openmeld_set_organization_working_language",
   "openmeld_manage_agent_profile_creation_request",
   "openmeld_set_agent_profile_creation_approval_preferences",
@@ -1803,9 +1784,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_organization_directory",
       description:
-        "Read the current OpenMeld Organization directory, including members, Human and Agent Profiles, roles, and the latest accepted Human activity that the Center Agent is allowed to see. Missing lastActiveAt means OpenMeld has no authoritative Organization activity for that member; Computer, session, and Agent Activity timestamps are never substitutes.",
-      input: object({}),
-      execute: async () => {
+        "Read one bounded page of the current OpenMeld Organization directory, including members, Human and Agent Profiles, roles, and the latest accepted Human activity that the Center Agent is allowed to see. Pass nextCursor back as cursor until it is null when you need the full directory or must establish that someone is absent or uniquely matched. A page may contain only members or only Agent Profiles; join ownership by exact ownerUserId across pages. totalMembers and totalAgentProfiles count the whole directory. limit caps the combined records (default 20, maximum 100); a byte limit may shorten a page without dropping any fields. Missing lastActiveAt means OpenMeld has no authoritative Organization activity for that member; Computer, session, and Agent Activity timestamps are never substitutes.",
+      input: organizationReadPageToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          organizationReadPageToolInputSchema,
+          payload
+        );
         const toolContext =
           await buildAnonymousCompatibleOrganizationReadToolContext({
             storage: input.storage,
@@ -1816,11 +1801,14 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           input.coreWorker.centerAgentGetOrganizationDirectory,
           "centerAgentGetOrganizationDirectory"
         );
-        const response = organizationDirectoryResponseSchema.parse(
-          await rpc({
-            ...toolContext,
-            includeMemberLastActiveAt: true,
-          })
+        const response = pageOrganizationDirectory(
+          organizationDirectoryResponseSchema.parse(
+            await rpc({
+              ...toolContext,
+              includeMemberLastActiveAt: true,
+            })
+          ),
+          request
         );
         await rememberOrganizationDirectoryMembers({
           memberUserIds: response.members.map((member) => member.userId),
@@ -1834,10 +1822,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       name: "openmeld_list_organization_members",
       description:
         "List one bounded page of the current Organization's human members (name, role, email, Human Profile) for counting or finding people. Returns totalMembers plus a nextCursor; pass nextCursor back as cursor to page through everyone. This read-only listing never includes Agent Profiles, readiness, invitations, or setup actions.",
-      input: organizationMembersListToolInputSchema,
+      input: organizationReadPageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
-          organizationMembersListToolInputSchema,
+          organizationReadPageToolInputSchema,
           payload
         );
         const toolContext =
@@ -2048,15 +2036,16 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           speakerMember,
           targetSlackUserIds,
         });
-        const invitationResponse = parseSlackTeammateInvitationResponse(
-          await callCoreRpc(
-            input.coreWorker,
-            "centerAgentInviteSlackTeammates",
-            rpcInput,
-            (binding, interaction) =>
-              binding.centerAgentInviteSlackTeammates?.(interaction)
-          )
-        );
+        const invitationResponse =
+          centerAgentInviteSlackTeammatesRpcResponseSchema.parse(
+            await callCoreRpc(
+              input.coreWorker,
+              "centerAgentInviteSlackTeammates",
+              rpcInput,
+              (binding, interaction) =>
+                binding.centerAgentInviteSlackTeammates?.(interaction)
+            )
+          );
         return interactionEnvironment === "organization_shared"
           ? protectSharedSlackInvitationResult(invitationResponse)
           : invitationResponse;
@@ -2220,7 +2209,8 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           (binding, rpcInput) =>
             binding.centerAgentSearchSlackMessages?.(rpcInput)
         );
-        const parsedResponse = parseSlackSearchResponse(response);
+        const parsedResponse =
+          centerAgentSearchSlackMessagesResponseSchema.parse(response);
         await rememberSlackThreadPublicationEvidence({
           response: parsedResponse,
           storage: input.storage,
@@ -4365,40 +4355,6 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       },
     }),
     toolDefinition({
-      name: "openmeld_retry_as_new_execution",
-      description:
-        "Start a new execution through OpenMeld's idempotent recovery control plane. Use only when openmeld_inspect_execution_recovery recommends retry_as_new_execution, copy its exact identity and destination, and tell the user that the task and external side effects may run again. Never use this when the outcome is unknown.",
-      input: strictObject({
-        destination: executionRecoveryDestinationInputSchema,
-        expectedIdentity: executionRecoveryIdentityInputSchema,
-        operationId: executionRecoveryIdentifierInputSchema,
-      }),
-      execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
-          storage: input.storage,
-          submissionId: input.submissionId,
-          toolName: "openmeld_retry_as_new_execution",
-        });
-        const rpc = requireCoreRpc(
-          input.coreWorker.executeExecutionRecovery,
-          "executeExecutionRecovery"
-        );
-        const body = executeExecutionRecoveryBodySchema.parse({
-          action: "retry_as_new_execution",
-          destination: payload.destination,
-          expectedIdentity: payload.expectedIdentity,
-          operationId: payload.operationId,
-        });
-        return executeExecutionRecoveryResponseSchema.parse(
-          await rpc({
-            body,
-            context,
-            spaceId: body.expectedIdentity.spaceId,
-          })
-        );
-      },
-    }),
-    toolDefinition({
       name: "openmeld_create_space",
       description:
         "Create an OpenMeld Space in the current Organization with optional name, purpose, guide, and access settings. The guide is only for durable room context and stable working rules that future collaborators should keep following. Do not put one-time checklists, tasks, status updates, or messages in the guide; after creation, use openmeld_post_space_message for that conversation content. When a verified requester explicitly asks for a new or dedicated Space as the work surface, call this before adding participants or starting work; never substitute the current Space, a Task, or a plain message. The returned replyHandoff describes how a human can continue with an Agent in this ordinary Space; when sending the user there for a reply or action, include its exact userGuidance instead of merely saying to reply there. Private, members-only access is the default, so omit access unless the requester explicitly asks for a different access policy. Expose a Space publicly only when the requester explicitly asks; set both access.accessMode and access.visibility to public. Never invent or generate a Space password. Use password-gated access only when the requester supplied the exact password; otherwise ask for it. Treat the returned meta as canonical: never claim the Space is private or public unless meta confirms its visibility and accessMode.",
@@ -4634,9 +4590,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_computers",
       description:
-        "Read the verified requester's own Computer information, including every connected Computer, OpenMeld Tools versions and updates, local agent status and versions, current reply diagnostics, and a path-free File Access summary. Use this before offering computer setup, recovery, or deciding whether a local agent is usable. This is private owner-level data and requires a verified requester. It does not make current-computer diagnostics the authority for any Agent Profile's readiness. When setup is required, OpenMeld automatically attaches the exact recommended navigation action to this result; do not request a second computer navigation action.",
-      input: object({}),
-      execute: async () => {
+        "Read the verified requester's Computer inventory, exact connection environments, and dated local agent reports. No Computer is identified as the browser's physical computer. Supply an exact target from this inventory to read its OpenMeld Tools status and path-free File Access summary. Never treat a saved report as a live connection, or one Computer's status as an Agent Profile's Wakeability. Requires a private conversation with the verified requester. This read does not start setup or change any Computer.",
+      input: object({ target: optional(peopleComputerTargetToolInputSchema) }),
+      execute: async (payload) => {
+        const target =
+          payload.target === undefined
+            ? undefined
+            : peopleComputerTargetSchema.parse(payload.target);
         const toolContext =
           await buildRequesterPrivateVerifiedMemberToolContext({
             missingSpeakerMessage:
@@ -4648,14 +4608,14 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             toolName: "openmeld_list_computers",
           });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentListComputers,
-          "centerAgentListComputers"
+          input.coreWorker.centerAgentReadPeopleComputers,
+          "centerAgentReadPeopleComputers"
         );
-        return centerAgentListComputersResponseSchema.parse(
+        return centerAgentReadPeopleComputersResponseSchema.parse(
           await rpc({
             ...toolContext,
-            includeDiagnostics: true,
             includeUsageLimits: "true",
+            ...(target ? { target } : {}),
           })
         );
       },
@@ -4663,9 +4623,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_update_openmeld_tools",
       description:
-        "Update OpenMeld Tools on the verified requester's current Computer. Use only when the requester asks to update now. OpenMeld handles the update in the background.",
-      input: object({}),
-      execute: async () => {
+        "Update OpenMeld Tools on an explicitly selected Computer and environment owned by the verified requester. Use only when the requester asks to update now. Copy the exact target from Computer facts; never infer this browser's computer from an account default. OpenMeld handles the update in the background.",
+      input: object({ target: peopleComputerTargetToolInputSchema }),
+      execute: async (payload) => {
+        const target = peopleComputerTargetSchema.parse(payload.target);
         const toolContext =
           await buildRequesterPrivateVerifiedMemberToolContext({
             missingSpeakerMessage:
@@ -4677,20 +4638,24 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             toolName: "openmeld_update_openmeld_tools",
           });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentRequestOpenMeldToolsUpdate,
-          "centerAgentRequestOpenMeldToolsUpdate"
+          input.coreWorker.centerAgentRequestPeopleComputerToolsUpdate,
+          "centerAgentRequestPeopleComputerToolsUpdate"
         );
         return centerAgentRequestOpenMeldToolsUpdateResponseSchema.parse(
-          await rpc(toolContext)
+          await rpc({ ...toolContext, target })
         );
       },
     }),
     toolDefinition({
       name: "openmeld_set_openmeld_tools_updates",
       description:
-        "Turn automatic OpenMeld Tools updates on or off for the verified requester's current Computer. Use only when the requester asks to change this setting.",
-      input: object({ enabled: boolean() }),
+        "Turn automatic OpenMeld Tools updates on or off for the verified requester's explicitly selected Computer and environment. Copy the exact target from Computer facts. Use only when the requester asks to change this setting.",
+      input: object({
+        enabled: boolean(),
+        target: peopleComputerTargetToolInputSchema,
+      }),
       execute: async (payload) => {
+        const target = peopleComputerTargetSchema.parse(payload.target);
         const toolContext =
           await buildRequesterPrivateVerifiedMemberToolContext({
             missingSpeakerMessage:
@@ -4702,13 +4667,14 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             toolName: "openmeld_set_openmeld_tools_updates",
           });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentSetOpenMeldToolsMaintenance,
-          "centerAgentSetOpenMeldToolsMaintenance"
+          input.coreWorker.centerAgentSetPeopleComputerToolsMaintenance,
+          "centerAgentSetPeopleComputerToolsMaintenance"
         );
         return centerAgentSetOpenMeldToolsMaintenanceResponseSchema.parse(
           await rpc({
             ...toolContext,
             automaticUpdatesEnabled: payload.enabled,
+            target,
           })
         );
       },
@@ -4716,9 +4682,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_local_agent_installations",
       description:
-        "List working installations of one local agent on the verified requester's current Computer. Use this before asking the requester to switch installations.",
-      input: object({ agentId: nonEmptyStringSchema }),
+        "List working installations of one local agent on the verified requester's explicitly selected Computer and environment. Copy the exact target from Computer facts. Use this before asking the requester to switch installations.",
+      input: object({
+        agentId: nonEmptyStringSchema,
+        target: peopleComputerTargetToolInputSchema,
+      }),
       execute: async (payload) => {
+        const target = peopleComputerTargetSchema.parse(payload.target);
         const toolContext =
           await buildRequesterPrivateVerifiedMemberToolContext({
             missingSpeakerMessage:
@@ -4730,27 +4700,29 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             toolName: "openmeld_list_local_agent_installations",
           });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentListLocalAgentInstallations,
-          "centerAgentListLocalAgentInstallations"
+          input.coreWorker.centerAgentListPeopleComputerLocalAgentInstallations,
+          "centerAgentListPeopleComputerLocalAgentInstallations"
         );
         return centerAgentListLocalAgentInstallationsResponseSchema.parse(
-          await rpc({ ...toolContext, agentId: payload.agentId })
+          await rpc({ ...toolContext, agentId: payload.agentId, target })
         );
       },
     }),
     toolDefinition({
       name: "openmeld_select_local_agent_installation",
       description:
-        "Switch one local agent installation on the verified requester's current Computer. First list installations, name the exact choice, and ask for confirmation. Call this only after the requester confirms.",
+        "Switch one local agent installation on the verified requester's explicitly selected Computer and environment. First list installations on that same target, name the exact choice, and ask for confirmation. Call this only after the requester confirms.",
       input: object({
         agentId: nonEmptyStringSchema,
         confirmed: literal(true),
         installationId: nonEmptyStringSchema,
+        target: peopleComputerTargetToolInputSchema,
       }),
       execute: async (payload) => {
         if (payload.confirmed !== true) {
           throw new Error("Confirm the installation first.");
         }
+        const target = peopleComputerTargetSchema.parse(payload.target);
         const toolContext =
           await buildRequesterPrivateVerifiedMemberToolContext({
             missingSpeakerMessage:
@@ -4762,8 +4734,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             toolName: "openmeld_select_local_agent_installation",
           });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentSelectLocalAgentInstallation,
-          "centerAgentSelectLocalAgentInstallation"
+          input.coreWorker
+            .centerAgentSelectPeopleComputerLocalAgentInstallation,
+          "centerAgentSelectPeopleComputerLocalAgentInstallation"
         );
         return centerAgentSelectLocalAgentInstallationResponseSchema.parse(
           await rpc({
@@ -4771,6 +4744,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             agentId: payload.agentId,
             confirmed: payload.confirmed,
             installationId: payload.installationId,
+            target,
           })
         );
       },
@@ -4778,20 +4752,34 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_local_agent_connection_candidates",
       description:
-        "List ready and blocked local agent connection candidates for the current OpenMeld account, including computer name, local agent name, freshness, and candidateId. Use this before connecting an Agent Profile to a local agent.",
-      input: object({}),
-      execute: async () => {
-        const context = await buildOpenMeldToolRequestContext({
+        "List local agent connection candidates for the requesting member, or an explicitly selected Organization memberUserId from the directory. Includes current connection evidence and candidateId. Listing another member's candidates does not authorize connecting or creating their Agent; use the creation request and approval flow.",
+      input: object({ memberUserId: optionalNonEmptyStringSchema }),
+      execute: async (payload) => {
+        const toolContext = await buildOpenMeldToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_list_local_agent_connection_candidates",
         });
+        const speakerMember = resolveVerifiedTurnEnvelopeSpeaker(
+          toolContext.turnEnvelope
+        );
+        if (!speakerMember) {
+          throw new Error(
+            "Connect your OpenMeld account before selecting a local agent."
+          );
+        }
         const rpc = requireCoreRpc(
           input.coreWorker.centerAgentListLocalAgentConnectionCandidates,
           "centerAgentListLocalAgentConnectionCandidates"
         );
         return centerAgentListLocalAgentConnectionCandidatesResponseSchema.parse(
-          await rpc({ context })
+          await rpc({
+            context: toolContext.context,
+            speakerMember,
+            ...(payload.memberUserId
+              ? { memberUserId: payload.memberUserId }
+              : {}),
+          })
         );
       },
     }),
@@ -5120,7 +5108,7 @@ async function authorizeAnonymousMemberToolAtCore(input: {
   connectToUserId?: string;
   context: OpenMeldRequestContext;
   coreWorker: RemoteAgentCoreWorkerBinding;
-  messageChannelIdentityLinkCapabilityVersion?: 1 | 2;
+  messageChannelIdentityLinkCapabilityVersion?: 2;
   speakerMember: CenterAgentAnonymousMemberToolSpeaker;
   toolName: string;
 }) {
@@ -5146,71 +5134,6 @@ async function authorizeAnonymousMemberToolAtCore(input: {
       binding.centerAgentAuthorizeAnonymousMemberTool?.(request)
   );
   return centerAgentAuthorizeAnonymousMemberToolResponseSchema.parse(response);
-}
-
-async function authorizeMessageChannelIdentityLinkAtCoreWithLegacyFallback(input: {
-  context: OpenMeldRequestContext;
-  coreWorker: RemoteAgentCoreWorkerBinding;
-  speakerMember: CenterAgentAnonymousMemberToolSpeaker;
-}) {
-  try {
-    return await authorizeAnonymousMemberToolAtCore({
-      context: input.context,
-      coreWorker: input.coreWorker,
-      messageChannelIdentityLinkCapabilityVersion: 1,
-      speakerMember: input.speakerMember,
-      toolName: "openmeld_get_navigation_action",
-    });
-  } catch (error) {
-    if (!isInvalidPayloadCoreRpcError(error)) {
-      throw error;
-    }
-  }
-
-  // Old Core uses a strict request schema that predates both capability
-  // negotiation and provider email. Retry its exact legacy shape once so a
-  // current Remote Agent can still request Slack's generic connection action.
-  const identity = input.speakerMember.messageChannelIdentity;
-  return await authorizeAnonymousMemberToolAtCore({
-    context: input.context,
-    coreWorker: input.coreWorker,
-    speakerMember: {
-      ...input.speakerMember,
-      messageChannelIdentity: {
-        connectionId: identity.connectionId,
-        provider: identity.provider,
-        providerUserId: identity.providerUserId,
-      },
-    },
-    toolName: "openmeld_get_navigation_action",
-  });
-}
-
-function isInvalidPayloadCoreRpcError(error: unknown): boolean {
-  const visited = new Set<unknown>();
-  let current: unknown = error;
-  for (let depth = 0; depth < 4 && current; depth += 1) {
-    if (visited.has(current)) {
-      return false;
-    }
-    visited.add(current);
-    if (typeof current !== "object") {
-      return false;
-    }
-    const record = current as Record<string, unknown>;
-    if (record.code === "invalid_payload") {
-      return true;
-    }
-    if (
-      typeof record.message === "string" &&
-      record.message.startsWith("HTTP 400:") &&
-      record.message.includes('"code":"invalid_payload"')
-    ) {
-      return true;
-    }
-    current = record.cause;
-  }
-  return false;
 }
 
 function enforceAnonymousMemberToolPolicyAtExecution(input: {
@@ -5887,37 +5810,6 @@ function parseCoreToolResponse<T>(
   return parsed.data;
 }
 
-function parseSlackSearchResponse(response: unknown): unknown {
-  const current =
-    centerAgentSearchSlackMessagesResponseSchema.safeParse(response);
-  if (current.success) {
-    return current.data;
-  }
-  const legacy = legacyCenterAgentSlackSearchResponseSchema.safeParse(response);
-  if (legacy.success) {
-    return {
-      organizationId: legacy.data.organizationId,
-      status: "legacy_core_presented" as const,
-    };
-  }
-  return centerAgentSearchSlackMessagesResponseSchema.parse(response);
-}
-
-function parseSlackTeammateInvitationResponse(response: unknown): unknown {
-  const current =
-    centerAgentInviteSlackTeammatesRpcResponseSchema.safeParse(response);
-  if (current.success) {
-    return current.data;
-  }
-  if (
-    legacyCenterAgentSlackTeammateInvitationResponseSchema.safeParse(response)
-      .success
-  ) {
-    return { status: "legacy_core_handled" as const };
-  }
-  return centerAgentInviteSlackTeammatesRpcResponseSchema.parse(response);
-}
-
 function protectSharedSlackInvitationResult(response: unknown): unknown {
   const parsed =
     centerAgentInviteSlackTeammatesRpcResponseSchema.safeParse(response);
@@ -6258,9 +6150,11 @@ async function rememberOrganizationDirectoryMembers(input: {
   storage: RemoteAgentStorage;
   submissionId: string;
 }): Promise<void> {
+  const key = `${ORGANIZATION_DIRECTORY_MEMBER_KEY_PREFIX}${input.submissionId}`;
+  const previous = (await input.storage.get<string[]>(key)) ?? [];
   await input.storage.putExpiring(
-    `${ORGANIZATION_DIRECTORY_MEMBER_KEY_PREFIX}${input.submissionId}`,
-    [...new Set(input.memberUserIds)],
+    key,
+    [...new Set([...previous, ...input.memberUserIds])],
     Date.now() + ORGANIZATION_DIRECTORY_MEMBER_RETENTION_MS
   );
 }

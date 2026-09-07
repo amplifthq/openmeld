@@ -2,10 +2,6 @@ import type { ConnectorService } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
 import { findActiveProfileById } from "#/lib/profiles/profiles";
 import { applySpaceBootstrapSnapshotToCache } from "#/lib/spaces/member-cache";
-import {
-	organizationAppConnectionCatalogQueryOptions,
-	organizationAppServiceConnectionsQueryOptions,
-} from "#/query/organizations/app-connections";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import {
 	organizationProfileDirectoryQueryOptions,
@@ -15,9 +11,14 @@ import {
 	organizationScopeQueryKeys,
 	organizationScopeQueryOptions,
 } from "#/query/organizations/organization-scope";
+import {
+	organizationPluginConnectionCatalogQueryOptions,
+	organizationPluginServiceConnectionsQueryOptions,
+} from "#/query/organizations/plugin-connections";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
+import { spaceQueryKeys } from "#/query/spaces/status";
 import type {
 	OrganizationScopeAuthorized,
 	OrganizationScopeResolution,
@@ -30,7 +31,7 @@ type OrganizationRoutePrefetchInput = {
 	routeFamily: string;
 };
 
-export async function prefetchAppCatalogRouteData(
+export async function prefetchPluginCatalogRouteData(
 	input: OrganizationRoutePrefetchInput
 ): Promise<void> {
 	const scope = await resolveAuthorizedPrefetchScope(input);
@@ -39,7 +40,7 @@ export async function prefetchAppCatalogRouteData(
 	}
 
 	await input.queryClient.prefetchQuery(
-		organizationAppConnectionCatalogQueryOptions({
+		organizationPluginConnectionCatalogQueryOptions({
 			organizationId: scope.currentOrganization.id,
 			queryClient: input.queryClient,
 		})
@@ -55,7 +56,7 @@ export async function prefetchAppDetailRouteData(
 	}
 
 	await input.queryClient.prefetchQuery(
-		organizationAppServiceConnectionsQueryOptions({
+		organizationPluginServiceConnectionsQueryOptions({
 			organizationId: scope.currentOrganization.id,
 			queryClient: input.queryClient,
 			service: input.service,
@@ -236,6 +237,18 @@ export async function prefetchKnownSpaceConversationData(input: {
 		spaceId: input.spaceId,
 		openMeldProfileId: input.openMeldProfileId,
 	});
+	// A returning conversation captures the saved tail on mount and reconciles
+	// from it. Do not replace that anchor with a newer bootstrap before mount.
+	if (
+		input.queryClient.getQueryData(
+			spaceQueryKeys.history(input.spaceId, input.openMeldProfileId)
+		) &&
+		input.queryClient.getQueryData(
+			spaceQueryKeys.displaySnapshot(input.spaceId, input.openMeldProfileId)
+		)
+	) {
+		return;
+	}
 	const bootstrap = await input.queryClient.fetchQuery(
 		spaceBootstrapQueryOptions({
 			enabled: true,

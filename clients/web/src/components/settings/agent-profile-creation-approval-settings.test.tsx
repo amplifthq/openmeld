@@ -38,13 +38,13 @@ describe("AgentProfileCreationApprovalSettings", () => {
 		renderSettings();
 
 		const newSessions = await screen.findByRole("combobox", {
-			name: "New sessions approval policy",
+			name: "Start new conversations approval policy",
 		});
 		const existingSessions = await screen.findByRole("combobox", {
-			name: "Existing sessions approval policy",
+			name: "Continue or copy existing conversations approval policy",
 		});
-		expect(newSessions.textContent).toContain("Ask every time");
-		expect(existingSessions.textContent).toContain("Ask every time");
+		expect(newSessions.textContent).toContain("Ask me each time");
+		expect(existingSessions.textContent).toContain("Ask me each time");
 		expect(setPreferenceMock).not.toHaveBeenCalled();
 	});
 });

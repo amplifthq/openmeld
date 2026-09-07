@@ -19,6 +19,8 @@ const {
   revokePreparedAuthSessionMock,
   runDaemonServiceParticipationGateMock,
   runPrepareSessionExecutorMock,
+  connectPrepareSessionStreamMock,
+  reportPrepareHandoffStoppedMock,
   waitForExternalOpenMeldToolsUpdateMock,
 } = vi.hoisted(() => ({
   beginAuthSessionTransitionMock: vi.fn(),
@@ -37,6 +39,8 @@ const {
   revokePreparedAuthSessionMock: vi.fn(),
   runDaemonServiceParticipationGateMock: vi.fn(),
   runPrepareSessionExecutorMock: vi.fn(),
+  connectPrepareSessionStreamMock: vi.fn(async () => ({ close: vi.fn() })),
+  reportPrepareHandoffStoppedMock: vi.fn(),
   waitForExternalOpenMeldToolsUpdateMock: vi.fn(),
 }));
 
@@ -74,6 +78,8 @@ vi.mock("../src/commands/one-time-token-auth-session", () => ({
 vi.mock("../src/commands/prepare-session-executor", () => ({
   resolvePrepareSessionForHandoff: resolvePrepareSessionForHandoffMock,
   runPrepareSessionExecutor: runPrepareSessionExecutorMock,
+  connectPrepareSessionStream: connectPrepareSessionStreamMock,
+  reportPrepareHandoffStopped: reportPrepareHandoffStoppedMock,
 }));
 
 vi.mock("../src/system/local-service-participation-gate", () => ({
@@ -179,6 +185,18 @@ describe("Computer authorization handoff", () => {
       status: "stopped",
     });
     promptConfirmMock.mockResolvedValue("confirmed");
+  });
+
+  it("reports a rejected authorization to Web without changing the current account", async () => {
+    exchangeComputerAuthorizationGrantMock.mockRejectedValueOnce(
+      new Error("Invalid device code")
+    );
+    await expect(runAgentHandoff()).rejects.toThrow("Invalid device code");
+    expect(reportPrepareHandoffStoppedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ reasonCode: "prepare.authorization_failed" })
+    );
+    expect(beginAuthSessionTransitionMock).not.toHaveBeenCalled();
+    expect(runPrepareSessionExecutorMock).not.toHaveBeenCalled();
   });
 
   it("validates Prepare before exchanging the grant and restores the previous Computer after failure", async () => {
@@ -720,6 +738,12 @@ describe("Computer authorization handoff", () => {
       reason: "user_cancelled",
       status: "not_completed",
     });
+
+    expect(reportPrepareHandoffStoppedMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reasonCode: "prepare.account_switch_cancelled",
+      })
+    );
 
     expect(revokePreparedAuthSessionMock).toHaveBeenCalledWith(
       candidateSession

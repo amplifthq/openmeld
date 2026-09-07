@@ -122,7 +122,7 @@ export function AgentConfigurationCard(input: {
 	if (input.readOnly || !(input.children || input.onClick)) {
 		return (
 			<FluidCardItem
-				className="w-full rounded-2xl bg-card/45"
+				className="w-full rounded-2xl bg-card"
 				indicatorClassName="rounded-2xl bg-muted/35"
 				itemId={input.itemId}
 			>
@@ -133,7 +133,7 @@ export function AgentConfigurationCard(input: {
 	if (!input.children && input.onClick) {
 		return (
 			<FluidCardItem
-				className="w-full rounded-2xl bg-card/45"
+				className="w-full rounded-2xl bg-card"
 				indicatorClassName="rounded-2xl bg-muted/35"
 				itemId={input.itemId}
 			>
@@ -153,7 +153,7 @@ export function AgentConfigurationCard(input: {
 	return (
 		<Popover.Root onOpenChange={input.onOpenChange} open={input.open}>
 			<FluidCardItem
-				className="w-full rounded-2xl bg-card/45"
+				className="w-full rounded-2xl bg-card"
 				indicatorClassName="rounded-2xl bg-muted/35"
 				itemId={input.itemId}
 			>

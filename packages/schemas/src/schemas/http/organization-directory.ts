@@ -8,6 +8,14 @@ import { authProfileManagedRoleSchema } from "./profiles";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
+
+// Trusted Core-to-Space write, never accepted as a browser-selected identity/time.
+export const spaceMemberWebActivityWriteSchema = z.strictObject({
+  organizationId: trimmedNonEmptyStringSchema,
+  userId: trimmedNonEmptyStringSchema,
+  profileId: uuidProfileIdSchema,
+  lastActiveAt: ISO_DATE_TIME_SCHEMA,
+});
 const nullableTrimmedStringSchema = z.union([
   trimmedNonEmptyStringSchema,
   z.null(),
@@ -134,6 +142,15 @@ export const organizationDirectoryResponseSchema = z.strictObject({
   members: z.array(organizationDirectoryMemberSchema),
   agentProfiles: z.array(organizationDirectoryAgentProfileSchema),
 });
+
+// Model-facing page of the authorized Core directory, without changing the
+// full Web/CLI/RPC response or dropping fields from individual records.
+export const centerAgentOrganizationDirectoryPageSchema =
+  organizationDirectoryResponseSchema.extend({
+    nextCursor: z.string().min(1).max(1024).nullable(),
+    totalMembers: z.number().int().nonnegative(),
+    totalAgentProfiles: z.number().int().nonnegative(),
+  });
 
 export const organizationMemberWebActivityResponseSchema = z.strictObject({
   lastActiveAt: ISO_DATE_TIME_SCHEMA,

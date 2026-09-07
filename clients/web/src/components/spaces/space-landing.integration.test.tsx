@@ -2,7 +2,6 @@ import { resolveAgentWakeAvailability } from "@openmeld/agent-runtime";
 import {
 	createFetchTransport,
 	OpenMeldApiClientHttpError,
-	type SpaceApi,
 } from "@openmeld/api-client";
 import { SPACE_STREAM_KEEPALIVE_PING } from "@openmeld/protocol";
 import {
@@ -20,6 +19,7 @@ import type {
 	AuthProfileView,
 	CreateAgentProfileCreationRequestResponse,
 	GetSpaceStatusResponse,
+	OrganizationDirectoryResponse,
 	SignalEnvelope,
 	SpaceAgentStreamSnapshot,
 	SpaceMemberAgentSnapshot,
@@ -47,6 +47,7 @@ import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import type { OrganizationSpaceProfileCandidates } from "#/query/organizations/organization-directory";
 import { createSpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
 import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
+import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
 import {
 	SPACE_LIVE_RECONNECTING_LABEL,
 	SPACE_LIVE_STALE_LABEL,
@@ -263,15 +264,20 @@ vi.mock("@tanstack/react-query", async () => {
 		Array.isArray(queryKey) &&
 		queryKey[0] === "spaces" &&
 		queryKey[1] === "wake-progress-presentation";
+	// File previews must exercise the real enabled/queryFn contract against the
+	// mocked download API, including the optimistic local-preview phase.
+	const usesRealQuery = (queryKey: unknown) =>
+		isWakeProgressPresentationQuery(queryKey) ||
+		(Array.isArray(queryKey) &&
+			queryKey[0] === "space-files" &&
+			queryKey[2] === "content");
 
 	return {
 		...actual,
 		useQuery: (options: { queryKey?: readonly unknown[] }) => {
-			const isPresentationQuery = isWakeProgressPresentationQuery(
-				options.queryKey
-			);
+			const useActualQuery = usesRealQuery(options.queryKey);
 			const actualQuery = actual.useQuery(
-				(isPresentationQuery
+				(useActualQuery
 					? options
 					: {
 							enabled: false,
@@ -280,7 +286,7 @@ vi.mock("@tanstack/react-query", async () => {
 						}) as Parameters<typeof actual.useQuery>[0]
 			);
 			const queryMock = useQueryMock;
-			return isPresentationQuery ? actualQuery : queryMock(options);
+			return useActualQuery ? actualQuery : queryMock(options);
 		},
 		useQueryClient: () => {
 			const actualQueryClient = actual.useQueryClient();
@@ -326,6 +332,7 @@ vi.mock("@tanstack/react-router", () => ({
 		<a href={to}>{children}</a>
 	),
 	useBlocker: () => ({ status: "unblocked" as const }),
+	useElementScrollRestoration: () => undefined,
 	useNavigate: () => useNavigateMock,
 	useRouterState: (input: {
 		select?: (state: { location: { pathname: string } }) => unknown;
@@ -541,7 +548,7 @@ const ACTIVE_WAKE_SERVICE_WAITING_NOTE_PATTERN =
 const READY_WORD_PATTERN = /\bReady\b/u;
 const WAITING_FOR_OPENMELD_SERVICE_PATTERN = /Waiting for OpenMeld Service/;
 const SHOW_ME_AROUND_BUTTON_NAME_PATTERN = /Show me around/;
-const START_SOMETHING_NEW_BUTTON_NAME_PATTERN = /Start something new/;
+const CREATE_SPACE_BUTTON_NAME_PATTERN = /Create a Space/;
 const ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN = /^Add people or agents/;
 const CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN = /^Connect this computer/;
 const CAN_VIEW_TEXT_PATTERN = /can view$/;
@@ -570,6 +577,7 @@ function renderSpaceLanding(
 		initialFocusSignalId?: string;
 		initialFocusThreadRootSignalId?: string;
 		initialPendingMessage?: {
+			files?: readonly File[];
 			clientMessageId: string;
 			createdAtMs: number;
 			text: string;
@@ -582,6 +590,8 @@ function renderSpaceLanding(
 		queryClient?: QueryClient;
 		spaceId?: string;
 		observeVisibleWakeProgress?: boolean;
+		entryConfirmed?: boolean;
+		ensureEntryConfirmed?: () => Promise<boolean>;
 	} = {}
 ) {
 	// SpaceLanding's Slack-discovery header state always mounts two real
@@ -603,7 +613,14 @@ function renderSpaceLanding(
 					<WakeProgressVisibleProjectionProbe />
 				) : null}
 				<AppOrganizationProvider scope={organizationScope}>
-					{ui}
+					<SpaceEntryConfirmationContext
+						value={{
+							confirmed: input.entryConfirmed ?? true,
+							ensureConfirmed: input.ensureEntryConfirmed ?? (async () => true),
+						}}
+					>
+						{ui}
+					</SpaceEntryConfirmationContext>
 				</AppOrganizationProvider>
 			</SpaceWakeProgressVisibleProjectionProvider>
 		</TestQueryClientProvider>
@@ -739,6 +756,14 @@ function buildLocalRuntimeCacheInvalidations(
 
 describe("SpaceLanding", () => {
 	beforeEach(() => {
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				observe = vi.fn();
+				unobserve = vi.fn();
+				disconnect = vi.fn();
+			}
+		);
 		clearSpaceConversationCacheMock.mockClear();
 		useQueryMock.mockReset();
 		useAccountAvatarMock.mockReset().mockReturnValue({
@@ -999,7 +1024,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "Continue from the compact conversation.",
 				timeoutMs: 30_000,
@@ -1686,8 +1711,63 @@ describe("SpaceLanding", () => {
 		}
 	});
 
-	it("keeps refreshing a newly created Space agent without repeating the Core membership write", async () => {
+	it("adds a newly created Space agent only after confirmation without repeating the Core membership write", async () => {
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
+		const queryClient = createTestQueryClient();
+		vi.spyOn(queryClient, "invalidateQueries").mockImplementation(
+			invalidateQueriesMock
+		);
+		const directory = createOrganizationDirectoryFixture({
+			centerAgentProfileId: SECOND_AGENT_PROFILE_ID,
+			humanProfileId: DEFAULT_SPACE_PROFILE_ID,
+		});
+		const [createdAgent] = directory.agentProfiles;
+		if (!createdAgent) {
+			throw new Error("Expected an Agent directory fixture");
+		}
+		createdAgent.isCenterAgent = false;
+		createdAgent.profileName = "Scout";
+		createdAgent.profileHandle = "scout";
+		const [owner] = directory.members;
+		if (!owner) {
+			throw new Error("Expected an owner directory fixture");
+		}
+		owner.userId = "user-mira";
+		owner.memberName = "Mira";
+		const rawDirectory: OrganizationDirectoryResponse = {
+			organizationId: "org-acme",
+			generatedAt: "2026-07-16T00:00:00.000Z",
+			agentProfiles: [],
+			members: [
+				{
+					memberId: "member-mira",
+					organizationId: "org-acme",
+					userId: "user-mira",
+					role: "owner",
+					joinedAt: "2026-07-16T00:00:00.000Z",
+					humanProfile: owner.humanProfile,
+					user: {
+						id: "user-mira",
+						name: "Mira",
+						email: "mira@example.test",
+						image: null,
+					},
+				},
+			],
+		};
+		directory.agentProfiles = [];
+		const directoryQuery: Record<string, unknown> = createQueryResult({
+			isSuccess: true,
+			data: directory,
+		});
+		createAgentProfileCreationRequestMock.mockImplementation(
+			(request: WebCreateAgentProfileCreationRequestInput) => {
+				directoryQuery.data = { ...directory, agentProfiles: [createdAgent] };
+				return Promise.resolve(
+					buildCompletedAgentProfileCreationRequest(request)
+				);
+			}
+		);
 		const statusRefetchMock = vi.fn().mockResolvedValue(undefined);
 		const newAgentOfflineSnapshot = createMembersSnapshot({
 			defaultAgentOwnerUserId: "user-mira",
@@ -1703,21 +1783,6 @@ describe("SpaceLanding", () => {
 				},
 			],
 		});
-		const newAgentReadySnapshot = createMembersSnapshot({
-			defaultAgentOwnerUserId: "user-mira",
-			extraAgents: [
-				{
-					agentExecutionReadiness: createReadyAgentExecutionReadiness(
-						SECOND_AGENT_PROFILE_ID
-					),
-					liveNow: true,
-					mentionAlias: "scout",
-					profileId: SECOND_AGENT_PROFILE_ID,
-					profileName: "Scout",
-					runtimeDeviceDisplayName: "Felix's MacBook Pro",
-				},
-			],
-		});
 		const membersQuery = createQueryResult({
 			isSuccess: true,
 			data: createMembersSnapshot({
@@ -1727,15 +1792,12 @@ describe("SpaceLanding", () => {
 			data: ReturnType<typeof createMembersSnapshot>;
 			refetch: ReturnType<typeof vi.fn>;
 		};
-		let membersRefetchCount = 0;
 		const membersRefetchMock = vi.fn().mockImplementation(() => {
-			const nextSnapshot =
-				membersRefetchCount < 2
-					? newAgentOfflineSnapshot
-					: newAgentReadySnapshot;
-			membersRefetchCount += 1;
-			membersQuery.data = nextSnapshot;
-			return Promise.resolve({ data: nextSnapshot });
+			if (!addOrganizationDirectoryProfilesToSpaceMock.mock.calls.length) {
+				return Promise.resolve({ data: membersQuery.data });
+			}
+			membersQuery.data = newAgentOfflineSnapshot;
+			return Promise.resolve({ data: newAgentOfflineSnapshot });
 		});
 		membersQuery.refetch = membersRefetchMock;
 		const addMembersMock = vi.fn().mockResolvedValue({
@@ -1743,12 +1805,18 @@ describe("SpaceLanding", () => {
 			alreadyMemberIds: [],
 			items: [],
 		});
-		useQueryClientMock.mockReturnValue({
-			invalidateQueries: invalidateQueriesMock,
-			setQueryData: vi.fn(),
-		});
+		const addOrganizationDirectoryProfilesToSpaceMock = vi
+			.fn()
+			.mockResolvedValue({
+				addedMemberIds: [SECOND_AGENT_PROFILE_ID],
+				alreadyMemberIds: [],
+				items: [],
+			});
+		useQueryClientMock.mockReturnValue(queryClient);
 		createWebSpaceApiMock.mockReturnValue({
 			addMembers: addMembersMock,
+			addOrganizationDirectoryProfilesToSpace:
+				addOrganizationDirectoryProfilesToSpaceMock,
 			deleteSpace: vi.fn().mockResolvedValue({
 				deleted: true,
 				spaceId: "space-123",
@@ -1772,6 +1840,8 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		mockSpaceQueries({
+			organizationDirectoryQuery: directoryQuery,
+			organizationDirectoryResponse: rawDirectory,
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
@@ -1809,14 +1879,8 @@ describe("SpaceLanding", () => {
 			name: "Create a new Agent",
 		});
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Edit Runs on" })
+			within(dialog).getByRole("button", { name: "Connect later" })
 		);
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Create and connect later",
-			})
-		);
-		fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
 		fireEvent.change(await within(dialog).findByLabelText("Agent name"), {
 			target: { value: "Scout" },
 		});
@@ -1829,12 +1893,7 @@ describe("SpaceLanding", () => {
 		vi.useFakeTimers();
 		fireEvent.click(submitButton);
 		await flushPromiseQueue();
-		expect(
-			screen
-				.getByRole("button", { name: "Add People or Agents" })
-				.getAttribute("aria-expanded")
-		).toBe("false");
-		expect(membersRefetchMock).toHaveBeenCalledTimes(2);
+		expect(screen.getByRole("button", { name: "Add 1 member" })).toBeTruthy();
 		expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				configuration: expect.objectContaining({
@@ -1845,11 +1904,26 @@ describe("SpaceLanding", () => {
 				idempotencyKey: expect.any(String),
 				organizationId: "org-acme",
 				profileName: "Scout",
-				requestedSpaceId: "space-123",
 				targetOwnerUserId: "user-mira",
 			})
 		);
 		expect(addMembersMock).not.toHaveBeenCalled();
+		expect(
+			createAgentProfileCreationRequestMock.mock.calls[0]?.[0].requestedSpaceId
+		).toBeNull();
+		expect(addOrganizationDirectoryProfilesToSpaceMock).not.toHaveBeenCalled();
+		const refreshesBeforeAdd = membersRefetchMock.mock.calls.length;
+		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
+		await flushPromiseQueue();
+		expect(
+			addOrganizationDirectoryProfilesToSpaceMock
+		).toHaveBeenCalledExactlyOnceWith({
+			directoryProfileIds: [SECOND_AGENT_PROFILE_ID],
+			spaceId: "space-123",
+		});
+		expect(membersRefetchMock.mock.calls.length).toBeGreaterThan(
+			refreshesBeforeAdd
+		);
 		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 			agentProfileIds: [SECOND_AGENT_PROFILE_ID],
 			organizationId: "org-acme",
@@ -1867,7 +1941,10 @@ describe("SpaceLanding", () => {
 			await vi.advanceTimersByTimeAsync(2000);
 		});
 
-		expect(membersRefetchMock).toHaveBeenCalledTimes(3);
+		expect(addOrganizationDirectoryProfilesToSpaceMock).toHaveBeenCalledTimes(
+			1
+		);
+		expect(addMembersMock).not.toHaveBeenCalled();
 	});
 
 	it("hides the Get-set-up Add agents row when an account agent is already a Space member even if owner metadata lags", () => {
@@ -2075,8 +2152,23 @@ describe("SpaceLanding", () => {
 		).toBe(false);
 	});
 
-	it("keeps restored conversation authoring available while current access is confirming", async () => {
-		const postNormalMessageMock = vi.fn();
+	it.each([
+		false,
+		true,
+	])("keeps saved authoring natural and confirms access on Send (status already succeeded: %s)", async (statusConfirmed) => {
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "signal-sent-after-access-confirmation",
+				text: "Draft while access settles",
+				ts: 2,
+			})
+		);
+		const currentStatus = createSpaceStatus();
+		const statusRefetch = vi.fn().mockResolvedValue({
+			data: currentStatus,
+			error: null,
+		});
+		const ensureEntryConfirmed = vi.fn().mockResolvedValue(true);
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
 		});
@@ -2092,7 +2184,10 @@ describe("SpaceLanding", () => {
 			status: createQueryResult({
 				isFetchedAfterMount: false,
 				isFetching: true,
-				isPending: true,
+				isPending: !statusConfirmed,
+				isSuccess: statusConfirmed,
+				data: statusConfirmed ? currentStatus : undefined,
+				refetch: statusRefetch,
 			}),
 			members: createQueryResult({
 				isSuccess: true,
@@ -2113,7 +2208,10 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding();
+		renderSpaceLanding({
+			entryConfirmed: false,
+			ensureEntryConfirmed,
+		});
 
 		expect(screen.getByText("Private launch numbers")).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Design Room" })).toBeTruthy();
@@ -2122,28 +2220,106 @@ describe("SpaceLanding", () => {
 		});
 		expect(composer.getAttribute("contenteditable")).toBe("true");
 		expect(composer.getAttribute("aria-placeholder")).toBe(
-			"Write a message while OpenMeld checks access…"
+			"To wake an agent, type @, then pick the agent."
 		);
-		await setComposerValue(composer, "Draft while access is checked");
-		expect(readComposerValue(composer)).toBe("Draft while access is checked");
+		await setComposerValue(composer, "Draft while access settles");
+		expect(readComposerValue(composer)).toBe("Draft while access settles");
+		const mentionButton = screen.getByRole("button", {
+			name: "Mention a member",
+		});
+		expect((mentionButton as HTMLButtonElement).disabled).toBe(false);
+		fireEvent.click(mentionButton);
+		const mentionSearch = await screen.findByRole("combobox", {
+			name: "Find a member to mention",
+		});
+		fireEvent.keyDown(mentionSearch, { key: "Escape" });
+		fireEvent.click(screen.getByRole("button", { name: "Add to message" }));
+		const filesItem = await screen.findByRole("menuitem", { name: "Files" });
+		expect(filesItem.getAttribute("aria-disabled")).toBe("true");
+		expect(
+			(screen.getByLabelText("Choose files to send") as HTMLInputElement)
+				.disabled
+		).toBe(true);
+		fireEvent.keyDown(filesItem, { key: "Escape" });
 		expect(
 			(
 				screen.getByRole("button", {
 					name: "Send message",
 				}) as HTMLButtonElement
 			).disabled
-		).toBe(true);
+		).toBe(false);
 		const membersButton = screen.getByRole("button", { name: "Members" });
 		expect(membersButton.textContent).toBe("");
 		fireEvent.click(membersButton);
 		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
-		expect(screen.queryByText("Runner")).toBeNull();
-		fireEvent.keyDown(composer, { key: "Enter" });
-		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(await screen.findByText("Runner")).toBeTruthy();
+		fireEvent.click(membersButton);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		await waitFor(() => expect(ensureEntryConfirmed).toHaveBeenCalledTimes(1));
+		expect(statusRefetch).toHaveBeenCalled();
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
+		expect(
+			screen.queryByText(
+				"Checking access before you can send. Your draft stays here."
+			)
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
 		expect(screen.queryByRole("button", { name: "Leave space" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Delete space" })).toBeNull();
 		expect(screen.queryByText("Couldn't Load This Space")).toBeNull();
+	});
+
+	it("keeps the draft and reports not sent when access confirmation cannot finish", async () => {
+		const postNormalMessageMock = vi.fn();
+		const ensureEntryConfirmed = vi
+			.fn()
+			.mockRejectedValue(new Error("Network unavailable"));
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			bootstrap: createQueryResult({
+				isFetching: true,
+				isPending: true,
+			}),
+			displaySnapshot: createQueryResult({
+				isSuccess: true,
+				data: createSpaceConversationDisplaySnapshot(createSpaceStatus()),
+			}),
+			status: createQueryResult({
+				isFetching: true,
+				isPending: true,
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding({
+			entryConfirmed: false,
+			ensureEntryConfirmed,
+		});
+		const composer = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await setComposerValue(composer, "Keep this draft");
+		fireEvent.keyDown(composer, { key: "Enter" });
+
+		await waitFor(() =>
+			expect(
+				screen.getByText(
+					"Message not sent. Check your connection and try again."
+				)
+			).toBeTruthy()
+		);
+		expect(readComposerValue(composer)).toBe("Keep this draft");
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
 	});
 
 	it("hides cached private history when the current Space status denies access", async () => {
@@ -2959,15 +3135,12 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) status check")
 			.closest("[data-signal-id]");
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
-		const thinkingIndicator = within(
-			sourceMessageGroup as HTMLElement
-		).getByTestId("space-wake-thinking-indicator");
+		const thinkingIndicator = screen.getByTestId(
+			"space-wake-thinking-indicator"
+		);
 		expect(thinkingIndicator.textContent).toContain("Wake sent to runner");
 		expect(thinkingIndicator.textContent).not.toContain("Wake is queued");
 		expect(screen.queryByText("Starting Wake for @runner...")).toBeNull();
@@ -3042,6 +3215,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3053,16 +3227,13 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) status check")
 			.closest("[data-signal-id]");
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
 		await waitFor(() => {
-			const thinkingIndicator = within(
-				sourceMessageGroup as HTMLElement
-			).getByTestId("space-wake-thinking-indicator");
+			const thinkingIndicator = screen.getByTestId(
+				"space-wake-thinking-indicator"
+			);
 			expect(thinkingIndicator.textContent).toContain("runner is working");
 		});
 	});
@@ -3153,6 +3324,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getActiveWakeProgressMock).toHaveBeenCalledWith({
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3164,15 +3336,12 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) status check")
 			.closest("[data-signal-id]");
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
-		const thinkingIndicator = within(
-			sourceMessageGroup as HTMLElement
-		).getByTestId("space-wake-thinking-indicator");
+		const thinkingIndicator = screen.getByTestId(
+			"space-wake-thinking-indicator"
+		);
 		expect(thinkingIndicator.textContent).toContain("runner is working");
 
 		await act(async () => {
@@ -3185,6 +3354,93 @@ describe("SpaceLanding", () => {
 			});
 			await detailedWakeProgress;
 		});
+	});
+
+	it("sends a Center Agent correction to the visible running response when the initial summary is empty", async () => {
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				observe = vi.fn();
+				unobserve = vi.fn();
+				disconnect = vi.fn();
+			}
+		);
+		const queryClient = createTestQueryClient();
+		const item = createWakeProgressItem({
+			clientMessageId: "original-message",
+			dispatchId: "original-dispatch",
+			phase: "running",
+			sourceSignalId: "original-signal",
+			targetLabel: "Center Agent",
+			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+			updatedAtMs: RECENT_ACTIVITY_TS + 10,
+		});
+		queryClient.setQueryData(
+			spaceQueryKeys.wakeProgressPresentation(
+				"space-123",
+				DEFAULT_SPACE_PROFILE_ID
+			),
+			[item]
+		);
+		useQueryClientMock.mockReturnValue(queryClient);
+		const postNormalMessage = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "correction-signal",
+				text: "Only North America.",
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage,
+			getActiveWakeProgress: vi.fn().mockResolvedValue({
+				items: [item],
+				query: { spaceId: "space-123", targetProfileId: null },
+			}),
+			getWakeProgress: vi.fn().mockResolvedValue({
+				items: [item],
+				query: { spaceId: "space-123", targetProfileId: null },
+			}),
+			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+		});
+		mockSpaceQueries({
+			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: {
+					envelopes: [
+						createTextSignal({
+							id: "original-signal",
+							text: "Analyze customers.",
+							ts: RECENT_ACTIVITY_TS,
+						}),
+					],
+					nextCursor: null,
+				},
+			}),
+		});
+		renderSpaceLanding({ queryClient, isCenterAgentDirectMessage: true });
+		await setComposerValue(
+			screen.getByRole("textbox", { name: "Message Center Agent" }),
+			"Only North America."
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		await waitFor(() =>
+			expect(postNormalMessage).toHaveBeenCalledWith(
+				expect.objectContaining({
+					meta: expect.objectContaining({
+						centerAgentExecutionInput: {
+							dispatchId: "original-dispatch",
+							targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+						},
+					}),
+					messageEnvelope: expect.objectContaining({ activationTargets: [] }),
+				})
+			)
+		);
 	});
 
 	it("clears a cached Sending to agent row when Core confirms that no Wake is active", async () => {
@@ -3348,6 +3604,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3359,16 +3616,13 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) status check")
 			.closest("[data-signal-id]");
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
 		await waitFor(() => {
-			const thinkingIndicator = within(
-				sourceMessageGroup as HTMLElement
-			).getByTestId("space-wake-thinking-indicator");
+			const thinkingIndicator = screen.getByTestId(
+				"space-wake-thinking-indicator"
+			);
 			expect(thinkingIndicator.textContent).toContain(
 				"Posting reply from runner…"
 			);
@@ -3470,6 +3724,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3561,6 +3816,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3671,6 +3927,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3682,16 +3939,13 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) old status check")
 			.closest("[data-signal-id]");
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
 		await waitFor(() => {
-			const thinkingIndicator = within(
-				sourceMessageGroup as HTMLElement
-			).getByTestId("space-wake-thinking-indicator");
+			const thinkingIndicator = screen.getByTestId(
+				"space-wake-thinking-indicator"
+			);
 			expect(thinkingIndicator.textContent).toContain("runner is working");
 		});
 	});
@@ -3992,6 +4246,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -4102,6 +4357,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -5776,10 +6032,8 @@ describe("SpaceLanding", () => {
 			within(membersPanel).queryByText("Refreshing setup status...")
 		).toBeNull();
 		expect(
-			within(membersPanel)
-				.getByRole("button", { name: "Refresh members" })
-				.hasAttribute("disabled")
-		).toBe(false);
+			within(membersPanel).queryByRole("button", { name: "Refresh members" })
+		).toBeNull();
 		expect(
 			within(membersPanel).queryByRole("link", {
 				name: "Review this computer",
@@ -7209,7 +7463,27 @@ describe("SpaceLanding", () => {
 		expect(membersRefetchMock).not.toHaveBeenCalled();
 	});
 
-	it("force-refreshes members, status, and readiness from the Members refresh button", async () => {
+	it("force-refreshes members, status, and readiness when checking an offline member", async () => {
+		const members = createMembersSnapshot();
+		const offlineMembers = {
+			...members,
+			agents: members.agents.map((agent) => ({
+				...agent,
+				agentWakeAvailability: resolveAgentWakeAvailability({
+					readiness: createReadyAgentExecutionReadiness(agent.profileId),
+					wakeRouteStatus: { status: "offline" },
+					agentWakeRouteRegistration: {
+						status: "expired",
+						reasonCode: "wake_route.registration_expired",
+						reportedAtMs: null,
+						daemonSessionId: null,
+						deviceId: null,
+						lane: null,
+						serviceVersion: null,
+					},
+				}),
+			})),
+		};
 		vi.stubGlobal(
 			"matchMedia",
 			createMatchMediaMock({ desktopMembersPanel: true })
@@ -7251,7 +7525,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot(),
+				data: offlineMembers,
 				refetch: membersRefetchMock,
 			}),
 			history: createQueryResult({
@@ -7266,14 +7540,15 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding();
 
 		const panel = openDesktopMembersPanel();
-		fireEvent.click(
-			within(panel).getByRole("button", { name: "Refresh members" })
-		);
+		fireEvent.click(within(panel).getByRole("button", { name: "Check again" }));
 
 		await waitFor(() => {
 			expect(fetchQueryMock).toHaveBeenCalledTimes(2);
 		});
-		expect(notifyAgentExecutionReadinessRefreshMock).not.toHaveBeenCalled();
+		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
+			agentProfileIds: [DEFAULT_AGENT_PROFILE_ID],
+			organizationId: "org-acme",
+		});
 		for (const invalidation of buildSharedReadinessCacheInvalidations()) {
 			expect(invalidateQueriesMock).toHaveBeenCalledWith(
 				expect.objectContaining(invalidation)
@@ -7780,6 +8055,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -8867,7 +9143,7 @@ describe("SpaceLanding", () => {
 		const relation = within(token).getByRole("combobox", {
 			name: "Change relation for Runner",
 		});
-		expect(relation).toHaveProperty("value", "wake");
+		expect(relation.textContent).toBe("Wake");
 		expect(screen.queryByText("Waking 1 agent")).toBeNull();
 	});
 
@@ -8986,7 +9262,8 @@ describe("SpaceLanding", () => {
 		const relationControl = screen.getByRole("combobox", {
 			name: "Change relation for Runner",
 		});
-		fireEvent.change(relationControl, { target: { value: "reference" } });
+		fireEvent.click(relationControl);
+		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
 		const sendButton = screen.getByRole("button", { name: "Send message" });
 		await waitFor(() => {
 			expect((sendButton as HTMLButtonElement).disabled).toBe(false);
@@ -9001,7 +9278,7 @@ describe("SpaceLanding", () => {
 					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
 					text: "@Runner please reply",
 				},
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "@Runner please reply",
 				timeoutMs: 30_000,
@@ -9098,8 +9375,8 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByRole("combobox", {
 				name: "Change relation for Runner",
-			})
-		).toHaveProperty("value", "wake");
+			}).textContent
+		).toBe("Wake");
 		expect(screen.getAllByTestId("space-composer-profile-token")).toHaveLength(
 			1
 		);
@@ -9180,12 +9457,10 @@ describe("SpaceLanding", () => {
 		const relationControl = screen.getByRole("combobox", {
 			name: "Change relation for Runner",
 		});
-		if (!(relationControl instanceof HTMLSelectElement)) {
-			throw new Error("Expected the Runner relation control to be a select");
-		}
-		fireEvent.change(relationControl, { target: { value: "reference" } });
+		fireEvent.click(relationControl);
+		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
 		await waitFor(() => {
-			expect(relationControl.value).toBe("reference");
+			expect(relationControl.textContent).toBe("Reference");
 		});
 		await appendComposerText(textarea, "for context", "@Runner for context");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -9200,6 +9475,7 @@ describe("SpaceLanding", () => {
 				},
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "@Runner for context",
@@ -9238,12 +9514,12 @@ describe("SpaceLanding", () => {
 			name: "Message this space",
 		});
 		await insertComposerMember(RUNNER_OPTION_NAME);
-		fireEvent.change(
+		fireEvent.click(
 			screen.getByRole("combobox", {
 				name: "Change relation for Runner",
-			}),
-			{ target: { value: "reference" } }
+			})
 		);
+		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
 		await appendComposerText(
 			textarea,
 			"for context, then ",
@@ -9275,7 +9551,7 @@ describe("SpaceLanding", () => {
 					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
 					text: "@Runner for context, then @Runner again",
 				},
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "@Runner for context, then @Runner again",
 				timeoutMs: 30_000,
@@ -9355,6 +9631,7 @@ describe("SpaceLanding", () => {
 				},
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "@Runner @Reviewer please compare",
@@ -9554,7 +9831,7 @@ describe("SpaceLanding", () => {
 					});
 				}
 				if (
-					queryKey ===
+					JSON.stringify(options.queryKey.slice(0, 4)) ===
 					JSON.stringify([
 						"spaces",
 						"active-wake-progress-summary",
@@ -12497,6 +12774,10 @@ describe("SpaceLanding", () => {
 				text: "First hello",
 			})
 		);
+		statusRefetchMock.mockResolvedValue({
+			data: createSpaceStatus(),
+			error: null,
+		});
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
 		});
@@ -12536,13 +12817,14 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "First hello",
 				timeoutMs: 30_000,
 			});
 			expect(membersRefetchMock).toHaveBeenCalledTimes(1);
-			expect(statusRefetchMock).toHaveBeenCalledTimes(1);
+			expect(statusRefetchMock).toHaveBeenCalledTimes(2);
 			expect(screen.getAllByText("First hello").length).toBeGreaterThan(0);
 			expect(readComposerValue(textarea)).toBe("");
 		});
@@ -12556,7 +12838,15 @@ describe("SpaceLanding", () => {
 		queryClient.clear();
 	});
 
-	it("shows an outgoing normal message in the timeline before the server responds", async () => {
+	it("shows an outgoing normal message before the access refresh or post responds", async () => {
+		let releaseStatus: (() => void) | undefined;
+		const statusRefetch = vi.fn().mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					releaseStatus = () =>
+						resolve({ data: createSpaceStatus(), error: null });
+				})
+		);
 		let resolvePost:
 			| ((signal: ReturnType<typeof createTextSignal>) => void)
 			| null = null;
@@ -12573,6 +12863,7 @@ describe("SpaceLanding", () => {
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
+				refetch: statusRefetch,
 			}),
 			members: createQueryResult({
 				isSuccess: true,
@@ -12594,6 +12885,15 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(textarea, "Optimistic hello");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		expect(readComposerValue(textarea)).toBe("");
+		expect(
+			within(
+				screen.getByRole("log", { name: "Conversation history" })
+			).getByText("Optimistic hello")
+		).toBeTruthy();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await waitFor(() => expect(statusRefetch).toHaveBeenCalled());
+		await act(async () => releaseStatus?.());
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalled();
@@ -12619,6 +12919,11 @@ describe("SpaceLanding", () => {
 				within(conversationLog).getAllByText("Optimistic hello")
 			).toHaveLength(1);
 		});
+		await setComposerValue(textarea, "Next message while projections refresh");
+		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
+			"disabled",
+			false
+		);
 	});
 
 	it("stages a selected image and publishes it as a Space File only on Send", async () => {
@@ -12711,6 +13016,7 @@ describe("SpaceLanding", () => {
 				files: [messageFile],
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "Photos from the picnic",
@@ -12812,7 +13118,8 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("sends a Space File without requiring a text note", async () => {
+	it("shows a file-only message before file publication completes", async () => {
+		let releasePublication: (() => void) | undefined;
 		const descriptor = createSpaceFileDescriptor({
 			mimeType: "application/pdf",
 			name: "brief.pdf",
@@ -12837,7 +13144,12 @@ describe("SpaceLanding", () => {
 		createWebSpaceApiMock.mockReturnValue({
 			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			postNormalMessage: postNormalMessageMock,
-			publishComposerUpload: vi.fn().mockResolvedValue(descriptor),
+			publishComposerUpload: vi.fn().mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						releasePublication = () => resolve(descriptor);
+					})
+			),
 			stageComposerUpload: stageComposerUploadMock,
 		});
 		mockSpaceQueries({
@@ -12869,10 +13181,20 @@ describe("SpaceLanding", () => {
 			false
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		const log = screen.getByRole("log", { name: "Conversation history" });
+		expect(within(log).getByText("brief.pdf")).toBeTruthy();
+		expect(within(log).queryByText("Open in Files")).toBeNull();
+		expect(
+			within(log).getByRole("button", { name: "Copy message" })
+		).toHaveProperty("disabled", true);
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await waitFor(() => expect(releasePublication).toBeDefined());
+		await act(async () => releasePublication?.());
+
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [createSpaceMessageFileReference(descriptor)],
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "",
 				timeoutMs: 30_000,
@@ -12966,7 +13288,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [messageFile],
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "Text can still be sent",
 				timeoutMs: 30_000,
@@ -13066,7 +13388,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [messageFile],
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "Text can still be sent",
 				timeoutMs: 30_000,
@@ -13159,7 +13481,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [messageFile],
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "Send this with the file",
 				timeoutMs: 30_000,
@@ -13245,6 +13567,9 @@ describe("SpaceLanding", () => {
 	});
 
 	it("checks current Wakeability before publishing selected files", async () => {
+		let finishAdmission: (snapshot: SpaceMembersSnapshot) => void = () => {
+			throw new Error("Admission read has not started.");
+		};
 		const postNormalMessageMock = vi.fn();
 		const publishComposerUploadMock = vi.fn();
 		const currentMembersSnapshot = createMembersSnapshot({
@@ -13260,7 +13585,12 @@ describe("SpaceLanding", () => {
 				"Expected current Core Wakeability reason in the fixture."
 			);
 		}
-		readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		readSpaceMembersMock.mockImplementation(
+			() =>
+				new Promise<SpaceMembersSnapshot>((resolve) => {
+					finishAdmission = resolve;
+				})
+		);
 		createWebSpaceApiMock.mockReturnValue({
 			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			postNormalMessage: postNormalMessageMock,
@@ -13312,6 +13642,18 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+		});
+		expect(
+			document.querySelector('[data-signal-id^="pending:"]')?.textContent
+		).toContain("review these notes");
+		expect(readComposerValue(textarea)).toBe("");
+		expect(publishComposerUploadMock).not.toHaveBeenCalled();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await act(async () => {
+			finishAdmission(currentMembersSnapshot);
+			await Promise.resolve();
+		});
+		await waitFor(() => {
 			expect(screen.getByText(currentBlockedReason)).toBeTruthy();
 		});
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
@@ -13442,8 +13784,65 @@ describe("SpaceLanding", () => {
 		});
 		expect(
 			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", true);
+		).toHaveProperty("disabled", false);
 		expect(screen.getByText("You can add up to 10 files.")).toBeTruthy();
+	});
+
+	it.each([
+		"Review this file",
+		"",
+	])("uploads first-chat draft files before sending once (text: %s)", async (text) => {
+		const descriptor = createSpaceFileDescriptor();
+		const messageFile = createSpaceMessageFileReference(descriptor);
+		const postNormalMessage = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "first-file-message",
+				text,
+				files: [messageFile],
+			})
+		);
+		const stageComposerUpload = vi.fn().mockImplementation((input) =>
+			Promise.resolve(
+				createSpaceComposerUpload({
+					id: input.uploadId,
+					mimeType: input.mimeType,
+					name: input.name,
+					sizeBytes: input.bytes.size,
+				})
+			)
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage,
+			stageComposerUpload,
+			publishComposerUpload: vi.fn().mockResolvedValue(descriptor),
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+		renderSpaceLanding({
+			initialPendingMessage: {
+				clientMessageId: "first-files",
+				createdAtMs: 1_751_000_000_000,
+				text,
+				files: [new File(["launch"], "launch.txt", { type: "text/plain" })],
+			},
+		});
+		await waitFor(() =>
+			expect(postNormalMessage).toHaveBeenCalledWith(
+				expect.objectContaining({ files: [messageFile], text })
+			)
+		);
+		expect(stageComposerUpload).toHaveBeenCalledTimes(1);
+		expect(postNormalMessage).toHaveBeenCalledTimes(1);
 	});
 
 	it("automatically sends a Center Agent message queued before Space bootstrap", async () => {
@@ -13485,6 +13884,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: "client-center-agent-first-message",
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "Start the launch plan",
@@ -13533,7 +13933,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: starterPrompt,
 				timeoutMs: 30_000,
@@ -13542,7 +13942,7 @@ describe("SpaceLanding", () => {
 		expect(screen.getByText(starterPrompt)).toBeTruthy();
 		expect(
 			screen.queryByRole("group", { name: "Suggested starting points" })
-		).toBeNull();
+		).toBeTruthy();
 
 		await act(async () => {
 			resolvePost?.(
@@ -13557,7 +13957,7 @@ describe("SpaceLanding", () => {
 
 	it("restores a failed Center Agent starter prompt to the composer", async () => {
 		const starterPrompt =
-			"I want to start something new. Ask me what I'm trying to accomplish, then help me set up the right Space, people, and agents.";
+			"I want to create a Space. Ask me what I'm trying to accomplish, then help me set up the right Space, people, and agents.";
 		const postNormalMessageMock = vi
 			.fn()
 			.mockRejectedValue(new Error("The starter message could not be sent."));
@@ -13582,7 +13982,7 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding({ isCenterAgentDirectMessage: true });
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: START_SOMETHING_NEW_BUTTON_NAME_PATTERN,
+				name: CREATE_SPACE_BUTTON_NAME_PATTERN,
 			})
 		);
 
@@ -13598,7 +13998,7 @@ describe("SpaceLanding", () => {
 		).toBe(starterPrompt);
 		expect(
 			screen.queryByRole("group", { name: "Suggested starting points" })
-		).toBeNull();
+		).toBeTruthy();
 	});
 
 	it("automatically sends a Center Agent message queued while Space bootstrap is still settling", async () => {
@@ -13646,6 +14046,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: "client-center-agent-late-first-message",
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "Continue from the loading shell",
@@ -13774,6 +14175,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "DM hello",
@@ -13784,15 +14186,12 @@ describe("SpaceLanding", () => {
 			.getByText("DM hello")
 			.closest("[data-signal-id]");
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
-		const wakeThinkingIndicator = within(
-			sourceMessageGroup as HTMLElement
-		).getByTestId("space-wake-thinking-indicator");
+		const wakeThinkingIndicator = screen.getByTestId(
+			"space-wake-thinking-indicator"
+		);
 		expect(wakeThinkingIndicator.textContent).toContain(
 			"Starting Wake for runner…"
 		);
@@ -14273,7 +14672,9 @@ describe("SpaceLanding", () => {
 	});
 
 	it("sends plain text without a message envelope", async () => {
-		const statusRefetchMock = vi.fn().mockResolvedValue(undefined);
+		const statusRefetchMock = vi
+			.fn()
+			.mockResolvedValue({ data: createSpaceStatus(), error: null });
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
 				id: "sig-plain",
@@ -14315,12 +14716,13 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "Plain text message",
 				timeoutMs: 30_000,
 			});
-			expect(statusRefetchMock).toHaveBeenCalledTimes(1);
+			expect(statusRefetchMock).toHaveBeenCalledTimes(2);
 		});
 	});
 
@@ -14364,6 +14766,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "@unknown-token stays plain text",
@@ -14453,6 +14856,7 @@ describe("SpaceLanding", () => {
 				},
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "@Watcher hello there",
@@ -14474,15 +14878,12 @@ describe("SpaceLanding", () => {
 			'[data-signal-id="sig-mention"]'
 		);
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
-		const wakeThinkingIndicator = within(
-			sourceMessageGroup as HTMLElement
-		).getByTestId("space-wake-thinking-indicator");
+		const wakeThinkingIndicator = screen.getByTestId(
+			"space-wake-thinking-indicator"
+		);
 		expect(wakeThinkingIndicator.textContent).toContain("Wake sent to watcher");
 		fireEvent.click(wakeThinkingIndicator);
 		expect(
@@ -15624,493 +16025,22 @@ describe("SpaceLanding", () => {
 	});
 
 	it.each([
-		"blocked",
-		"network failure",
-	] as const)("blocks a main Wake Retry before publication when current Wakeability is %s", async (failureKind) => {
+		false,
+		true,
+	])("keeps historical Wake failures diagnostic-only (thread: %s)", async (thread) => {
 		const postNormalMessageMock = vi.fn();
-		const stageComposerUploadMock = vi.fn();
-		const currentMembersSnapshot = createMembersSnapshot({
-			defaultAgentExecutionReadiness:
-				createServiceNotConnectedAgentExecutionReadiness(
-					DEFAULT_AGENT_PROFILE_ID
-				),
-		}) as SpaceMembersSnapshot;
-		if (failureKind === "blocked") {
-			readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
-		} else {
-			readSpaceMembersMock.mockRejectedValue(new Error("network unavailable"));
-		}
-		const messageDetailsDialog = await openFailedWakeRetry({
-			postNormalMessageMock,
-			stageComposerUploadMock,
-			thread: false,
-		});
-
-		fireEvent.click(
-			within(messageDetailsDialog).getByRole("button", {
-				name: "Retry as new execution",
-			})
-		);
-
-		await waitFor(() => {
-			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
-			expect(
-				within(messageDetailsDialog).getByRole("button", {
-					name: "New execution failed. Try again",
-				})
-			).toBeTruthy();
-		});
-		expect(postNormalMessageMock).not.toHaveBeenCalled();
-		expect(stageComposerUploadMock).not.toHaveBeenCalled();
-		expect(screen.getByText("@Runner check the release build")).toBeTruthy();
-	});
-
-	it.each([
-		"blocked",
-		"network failure",
-	] as const)("blocks a thread Wake Retry before publication when current Wakeability is %s", async (failureKind) => {
 		const postThreadSignalMock = vi.fn();
-		const stageComposerUploadMock = vi.fn();
-		const currentMembersSnapshot = createMembersSnapshot({
-			defaultAgentExecutionReadiness:
-				createServiceNotConnectedAgentExecutionReadiness(
-					DEFAULT_AGENT_PROFILE_ID
-				),
-		}) as SpaceMembersSnapshot;
-		if (failureKind === "blocked") {
-			readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
-		} else {
-			readSpaceMembersMock.mockRejectedValue(new Error("network unavailable"));
-		}
-		const messageDetailsDialog = await openFailedWakeRetry({
+		const dialog = await openHistoricalWakeFailure({
+			postNormalMessageMock,
 			postThreadSignalMock,
-			stageComposerUploadMock,
-			thread: true,
+			stageComposerUploadMock: vi.fn(),
+			thread,
 		});
-
-		fireEvent.click(
-			within(messageDetailsDialog).getByRole("button", {
-				name: "Retry as new execution",
-			})
-		);
-
-		await waitFor(() => {
-			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
-			expect(
-				within(messageDetailsDialog).getByRole("button", {
-					name: "New execution failed. Try again",
-				})
-			).toBeTruthy();
-		});
+		expect(
+			within(dialog).queryByRole("button", { name: "Retry as new execution" })
+		).toBeNull();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		expect(postThreadSignalMock).not.toHaveBeenCalled();
-		expect(stageComposerUploadMock).not.toHaveBeenCalled();
-		expect(
-			screen
-				.getByLabelText("Thread")
-				.querySelector('[data-signal-id="sig-blocked-retry-source"]')
-		).not.toBeNull();
-	});
-
-	it("retries a single-target anchored execution failure as a new Wake", async () => {
-		const sourceText = "@Scout check the release build";
-		const membersSnapshot = createMembersSnapshot({
-			extraAgents: [
-				{
-					mentionAlias: "scout",
-					profileId: SECOND_AGENT_PROFILE_ID,
-					profileName: "Scout",
-				},
-			],
-		}) as SpaceMembersSnapshot;
-		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
-		const postNormalMessageMock = vi.fn().mockResolvedValue(
-			createTextSignal({
-				id: "sig-retried-wake",
-				messageEnvelope: {
-					activationTargets: [SECOND_AGENT_PROFILE_ID],
-					referenceTargets: [],
-					text: sourceText,
-				},
-				text: sourceText,
-			})
-		);
-		createWebSpaceApiMock.mockReturnValue({
-			getWakeProgress: vi.fn().mockResolvedValue({
-				items: [],
-				query: {
-					clientMessageId: "client-message-original",
-					spaceId: "space-123",
-					targetProfileId: null,
-				},
-			}),
-			postNormalMessage: postNormalMessageMock,
-		});
-		mockSpaceQueries({
-			status: createQueryResult({
-				isSuccess: true,
-				data: createSpaceStatus(),
-			}),
-			members: createQueryResult({
-				isSuccess: true,
-				data: membersSnapshot,
-			}),
-			history: createQueryResult({
-				isSuccess: true,
-				data: {
-					envelopes: [
-						createTextSignal({
-							id: "sig-source-wake",
-							messageEnvelope: {
-								activationTargets: [SECOND_AGENT_PROFILE_ID],
-								referenceTargets: [],
-								text: sourceText,
-							},
-							meta: { clientMessageId: "client-message-original" },
-							text: sourceText,
-						}),
-						createTerminalFailureNoticeSignal({
-							actorProfileId: SECOND_AGENT_PROFILE_ID,
-							dispatchId: null,
-							failureStage: "execution",
-							id: "sig-scout-failure",
-							replyToSignalId: "sig-source-wake",
-							text: "Scout could not complete this Wake.",
-						}),
-					],
-					nextCursor: null,
-				},
-			}),
-			messageDetailsBySignalId: {
-				"sig-source-wake": createMessageDetailsQueryResult({
-					signalId: "sig-source-wake",
-				}),
-			},
-		});
-
-		renderSpaceLanding();
-
-		const sourceMessage = document.querySelector(
-			'[data-signal-id="sig-source-wake"]'
-		);
-		const sourceRow = sourceMessage?.closest("[data-message-row-id]");
-		if (!sourceRow) {
-			throw new Error("Expected the failed Wake source message row.");
-		}
-		fireEvent.click(
-			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
-			})
-		);
-		const messageDetailsDialog = await screen.findByRole("dialog", {
-			name: "Message details",
-		});
-		fireEvent.click(
-			within(messageDetailsDialog).getByRole("button", {
-				name: "Retry as new execution",
-			})
-		);
-
-		await waitFor(() => {
-			expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
-		});
-		const postInput = postNormalMessageMock.mock.calls[0]?.[0];
-		expect(postInput).toEqual({
-			messageEnvelope: {
-				activationTargets: [SECOND_AGENT_PROFILE_ID],
-				referenceTargets: [],
-				text: sourceText,
-			},
-			meta: {
-				clientMessageId: expect.any(String),
-			},
-			spaceId: "space-123",
-			text: sourceText,
-			timeoutMs: 30_000,
-		});
-		expect(postInput.meta.clientMessageId).not.toBe("client-message-original");
-		await waitFor(() => {
-			expect(
-				document.querySelector('[data-signal-id="sig-retried-wake"]')
-			).not.toBeNull();
-			expect(toastMock.success).toHaveBeenCalledWith("Retried");
-			expect(
-				screen.queryByRole("heading", { name: "Message details" })
-			).toBeNull();
-		});
-	});
-
-	it("keeps an independent new Wake behind normal Core Wakeability admission", async () => {
-		const sourceText = "@Scout check the release build";
-		const membersSnapshot = createMembersSnapshot({
-			extraAgents: [
-				{
-					mentionAlias: "scout",
-					profileId: SECOND_AGENT_PROFILE_ID,
-					profileName: "Scout",
-				},
-			],
-		}) as SpaceMembersSnapshot;
-		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
-		const consoleError = vi
-			.spyOn(console, "error")
-			.mockImplementation(() => undefined);
-		const postNormalMessageMock = vi.fn().mockRejectedValue(
-			new OpenMeldApiClientHttpError({
-				code: "space.wake.target_invalid",
-				message: "Scout cannot be woken right now.",
-				rawBody: "",
-				requestId: "request-fresh-wake-blocked",
-				status: 409,
-			})
-		);
-		createWebSpaceApiMock.mockReturnValue({
-			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
-			getWakeProgress: vi.fn().mockResolvedValue({
-				items: [],
-				query: {
-					clientMessageId: "client-message-original",
-					spaceId: "space-123",
-					targetProfileId: null,
-				},
-			}),
-			postNormalMessage: postNormalMessageMock,
-		});
-		mockSpaceQueries({
-			status: createQueryResult({
-				isSuccess: true,
-				data: createSpaceStatus(),
-			}),
-			members: createQueryResult({
-				isSuccess: true,
-				data: membersSnapshot,
-			}),
-			history: createQueryResult({
-				isSuccess: true,
-				data: {
-					envelopes: [
-						createTextSignal({
-							id: "sig-source-wake-blocked-retry",
-							messageEnvelope: {
-								activationTargets: [SECOND_AGENT_PROFILE_ID],
-								referenceTargets: [],
-								text: sourceText,
-							},
-							meta: { clientMessageId: "client-message-original" },
-							text: sourceText,
-						}),
-						createTerminalFailureNoticeSignal({
-							actorProfileId: SECOND_AGENT_PROFILE_ID,
-							dispatchId: null,
-							failureStage: "execution",
-							id: "sig-scout-failure-blocked-retry",
-							replyToSignalId: "sig-source-wake-blocked-retry",
-							text: "Scout could not complete this Wake.",
-						}),
-					],
-					nextCursor: null,
-				},
-			}),
-			messageDetailsBySignalId: {
-				"sig-source-wake-blocked-retry": createMessageDetailsQueryResult({
-					signalId: "sig-source-wake-blocked-retry",
-				}),
-			},
-		});
-
-		renderSpaceLanding();
-
-		const sourceMessage = document.querySelector(
-			'[data-signal-id="sig-source-wake-blocked-retry"]'
-		);
-		const sourceRow = sourceMessage?.closest("[data-message-row-id]");
-		if (!sourceRow) {
-			throw new Error("Expected the failed Wake source message row.");
-		}
-		fireEvent.click(
-			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
-			})
-		);
-		const messageDetailsDialog = await screen.findByRole("dialog", {
-			name: "Message details",
-		});
-		fireEvent.click(
-			within(messageDetailsDialog).getByRole("button", {
-				name: "Retry as new execution",
-			})
-		);
-
-		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledOnce());
-		expect(postNormalMessageMock).toHaveBeenCalledWith(
-			expect.objectContaining({
-				messageEnvelope: expect.objectContaining({
-					activationTargets: [SECOND_AGENT_PROFILE_ID],
-				}),
-			})
-		);
-		expect(
-			await within(messageDetailsDialog).findByRole("button", {
-				name: "New execution failed. Try again",
-			})
-		).toBeTruthy();
-		expect(toastMock.error).toHaveBeenCalledWith(
-			"Couldn't retry this Wake. Scout cannot be woken right now."
-		);
-		expect(consoleError).toHaveBeenCalledWith(
-			"Failed to retry the Wake.",
-			expect.any(OpenMeldApiClientHttpError)
-		);
-	});
-
-	it("keeps an outcome-unknown Wake Retry under one client message identity", async () => {
-		const sourceText = "@Scout check the release build";
-		const membersSnapshot = createMembersSnapshot({
-			extraAgents: [
-				{
-					mentionAlias: "scout",
-					profileId: SECOND_AGENT_PROFILE_ID,
-					profileName: "Scout",
-				},
-			],
-		}) as SpaceMembersSnapshot;
-		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
-		const hangingRequest = createHangingFetchRequest();
-		const postNormalMessageMock = vi.fn(
-			async (input: Parameters<SpaceApi["postNormalMessage"]>[0]) =>
-				await hangingRequest.request({
-					operation: "space.retry-wake",
-					timeoutMs: input.timeoutMs,
-				})
-		);
-		createWebSpaceApiMock.mockReturnValue({
-			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
-			getWakeProgress: vi.fn().mockResolvedValue({
-				items: [],
-				query: {
-					clientMessageId: "client-message-original",
-					spaceId: "space-123",
-					targetProfileId: null,
-				},
-			}),
-			postNormalMessage: postNormalMessageMock,
-		});
-		mockSpaceQueries({
-			status: createQueryResult({
-				isSuccess: true,
-				data: createSpaceStatus(),
-			}),
-			members: createQueryResult({
-				isSuccess: true,
-				data: membersSnapshot,
-			}),
-			history: createQueryResult({
-				isSuccess: true,
-				data: {
-					envelopes: [
-						createTextSignal({
-							id: "sig-source-wake",
-							messageEnvelope: {
-								activationTargets: [SECOND_AGENT_PROFILE_ID],
-								referenceTargets: [],
-								text: sourceText,
-							},
-							meta: { clientMessageId: "client-message-original" },
-							text: sourceText,
-						}),
-						createTerminalFailureNoticeSignal({
-							actorProfileId: SECOND_AGENT_PROFILE_ID,
-							dispatchId: null,
-							failureStage: "execution",
-							id: "sig-scout-failure",
-							replyToSignalId: "sig-source-wake",
-							text: "Scout could not complete this Wake.",
-						}),
-					],
-					nextCursor: null,
-				},
-			}),
-			messageDetailsBySignalId: {
-				"sig-source-wake": createMessageDetailsQueryResult({
-					signalId: "sig-source-wake",
-				}),
-			},
-		});
-
-		renderSpaceLanding();
-
-		const sourceMessage = document.querySelector(
-			'[data-signal-id="sig-source-wake"]'
-		);
-		const sourceRow = sourceMessage?.closest("[data-message-row-id]");
-		if (!sourceRow) {
-			throw new Error("Expected the failed Wake source message row.");
-		}
-		fireEvent.click(
-			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
-			})
-		);
-		const messageDetailsDialog = await screen.findByRole("dialog", {
-			name: "Message details",
-		});
-		fireEvent.click(
-			within(messageDetailsDialog).getByRole("button", {
-				name: "Retry as new execution",
-			})
-		);
-
-		await waitFor(() => {
-			expect(hangingRequest.fetchMock).toHaveBeenCalledTimes(1);
-		});
-		await act(async () => {
-			hangingRequest.abortForTimeout();
-			await Promise.resolve();
-		});
-		await waitFor(() => {
-			expect(hangingRequest.fetchMock).toHaveBeenCalledTimes(2);
-		});
-		await act(async () => {
-			hangingRequest.abortForTimeout();
-			await Promise.resolve();
-		});
-
-		const unconfirmedRetryButton = await within(
-			messageDetailsDialog
-		).findByRole("button", {
-			name: "New execution not confirmed. Try again",
-		});
-		expect(toastMock.warning).toHaveBeenCalledWith(
-			"OpenMeld couldn't confirm this message yet. It may still appear in the Space, so wait a moment before sending it again."
-		);
-		expect(toastMock.error).not.toHaveBeenCalled();
-		expect(postNormalMessageMock.mock.calls[1]?.[0]).toEqual(
-			postNormalMessageMock.mock.calls[0]?.[0]
-		);
-		const retryClientMessageId =
-			postNormalMessageMock.mock.calls[0]?.[0].meta?.clientMessageId;
-		expect(retryClientMessageId).toEqual(expect.any(String));
-
-		fireEvent.click(unconfirmedRetryButton);
-		await waitFor(() => {
-			expect(hangingRequest.fetchMock).toHaveBeenCalledTimes(3);
-		});
-		expect(postNormalMessageMock.mock.calls[2]?.[0].meta?.clientMessageId).toBe(
-			retryClientMessageId
-		);
-		await act(async () => {
-			hangingRequest.abortForTimeout();
-			await Promise.resolve();
-		});
-		await waitFor(() => {
-			expect(hangingRequest.fetchMock).toHaveBeenCalledTimes(4);
-		});
-		expect(postNormalMessageMock.mock.calls[3]?.[0].meta?.clientMessageId).toBe(
-			retryClientMessageId
-		);
-		await act(async () => {
-			hangingRequest.abortForTimeout();
-			await Promise.resolve();
-		});
 	});
 
 	it.each([
@@ -16232,149 +16162,6 @@ describe("SpaceLanding", () => {
 				within(threadComposer as HTMLElement).queryByRole("link")
 			).toBeNull();
 		}
-	});
-
-	it("retries a failed Wake inside its originating thread", async () => {
-		const sourceText = "@runner(wake) continue the thread review";
-		const postNormalMessageMock = vi.fn();
-		const postThreadSignalMock = vi.fn().mockResolvedValue({
-			placement: {
-				createdAt: "2026-04-11T00:00:00.000Z",
-				placement: "thread",
-				signalId: "sig-thread-retried-wake",
-				threadId: "thread-1",
-			},
-			signal: createTextSignal({
-				id: "sig-thread-retried-wake",
-				messageEnvelope: {
-					activationTargets: [DEFAULT_AGENT_PROFILE_ID],
-					referenceTargets: [],
-					text: sourceText,
-				},
-				text: sourceText,
-			}),
-		});
-		createWebSpaceApiMock.mockReturnValue({
-			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
-			getWakeProgress: vi.fn().mockResolvedValue({
-				items: [],
-				query: {
-					clientMessageId: "client-message-original",
-					spaceId: "space-123",
-					targetProfileId: null,
-				},
-			}),
-			postNormalMessage: postNormalMessageMock,
-			postThreadSignal: postThreadSignalMock,
-		});
-		const threadWakeSource = createTextSignal({
-			id: "sig-thread-wake-source",
-			messageEnvelope: {
-				activationTargets: [DEFAULT_AGENT_PROFILE_ID],
-				referenceTargets: [],
-				text: sourceText,
-			},
-			meta: { clientMessageId: "client-message-original" },
-			text: sourceText,
-		});
-		const threadFailure = createTerminalFailureNoticeSignal({
-			actorProfileId: DEFAULT_AGENT_PROFILE_ID,
-			dispatchId: null,
-			failureStage: "execution",
-			id: "sig-thread-wake-failure",
-			replyToSignalId: threadWakeSource.id,
-			text: "Runner could not complete this Wake.",
-		});
-		mockSpaceQueries({
-			status: createQueryResult({
-				isSuccess: true,
-				data: createSpaceStatus(),
-			}),
-			members: createQueryResult({
-				isSuccess: true,
-				data: createMembersSnapshot(),
-			}),
-			history: createQueryResult({
-				isSuccess: true,
-				data: { envelopes: [threadWakeSource], nextCursor: null },
-			}),
-			threadSignals: createQueryResult({
-				isSuccess: true,
-				data: { signals: [threadWakeSource, threadFailure] },
-			}),
-			threads: createQueryResult({
-				isSuccess: true,
-				data: {
-					threads: [
-						{
-							createdAt: "2026-04-11T00:00:00.000Z",
-							createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
-							rootSignalId: threadWakeSource.id,
-							spaceId: "space-123",
-							threadId: "thread-1",
-							updatedAt: "2026-04-11T00:00:00.000Z",
-						},
-					],
-				},
-			}),
-		});
-
-		renderSpaceLanding();
-
-		const rootMessage = screen
-			.getByText(sourceText)
-			.closest("[data-signal-id]");
-		expect(rootMessage).not.toBeNull();
-		fireEvent.mouseEnter(rootMessage as HTMLElement);
-		fireEvent.click(
-			within(rootMessage as HTMLElement).getAllByRole("button", {
-				name: "Open thread",
-			})[0] as HTMLElement
-		);
-		const threadPanel = screen.getByLabelText("Thread");
-		const threadSourceMessage = threadPanel.querySelector(
-			'[data-signal-id="sig-thread-wake-source"]'
-		);
-		const threadSourceRow = threadSourceMessage?.closest(
-			"[data-message-row-id]"
-		);
-		if (!threadSourceRow) {
-			throw new Error("Expected the failed Wake source row in the thread.");
-		}
-		fireEvent.click(
-			within(threadSourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
-			})
-		);
-		const messageDetailsDialog = await screen.findByRole("dialog", {
-			name: "Message details",
-		});
-		fireEvent.click(
-			await within(messageDetailsDialog).findByRole("button", {
-				name: "Retry as new execution",
-			})
-		);
-
-		await waitFor(() => {
-			expect(postThreadSignalMock).toHaveBeenCalledTimes(1);
-		});
-		const postInput = postThreadSignalMock.mock.calls[0]?.[0];
-		expect(postInput).toEqual({
-			body: {
-				clientMessageId: expect.any(String),
-				messageEnvelope: {
-					activationTargets: [DEFAULT_AGENT_PROFILE_ID],
-					referenceTargets: [],
-					text: sourceText,
-				},
-				text: sourceText,
-			},
-			spaceId: "space-123",
-			threadId: "thread-1",
-			timeoutMs: 30_000,
-		});
-		expect(postInput.body.clientMessageId).not.toBe("client-message-original");
-		expect(postNormalMessageMock).not.toHaveBeenCalled();
 	});
 
 	it("submits Diagnostic Reports from thread messages", async () => {
@@ -16534,7 +16321,20 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows an outgoing thread reply before the server responds", async () => {
+	it.each([
+		false,
+		true,
+	])("shows a thread reply before admission or publication responds (Wake: %s)", async (wake) => {
+		let releaseAdmission: (() => void) | undefined;
+		readSpaceMembersMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					releaseAdmission = () => resolve(createMembersSnapshot());
+				})
+		);
+		const outgoingText = wake
+			? "@runner(wake) Optimistic thread reply"
+			: "Optimistic thread reply";
 		const postThreadSignalMock = vi.fn().mockImplementation(
 			() =>
 				new Promise(() => {
@@ -16623,17 +16423,27 @@ describe("SpaceLanding", () => {
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
-		await setComposerValue(threadComposer, "Optimistic thread reply");
+		await setComposerValue(threadComposer, outgoingText);
 		fireEvent.click(
 			within(threadPanel).getByRole("button", { name: "Send reply" })
 		);
+
+		if (wake) {
+			await waitFor(() => expect(readSpaceMembersMock).toHaveBeenCalled());
+			expect(readComposerValue(threadComposer)).toBe("");
+			expect(
+				within(threadPanel).getByText(outgoingText, { selector: "p" })
+			).toBeTruthy();
+			expect(postThreadSignalMock).not.toHaveBeenCalled();
+			await act(async () => releaseAdmission?.());
+		}
 
 		await waitFor(() => {
 			expect(postThreadSignalMock).toHaveBeenCalled();
 		});
 		expect(readComposerValue(threadComposer)).toBe("");
 		expect(
-			within(threadPanel).getByText("Optimistic thread reply", {
+			within(threadPanel).getByText(outgoingText, {
 				selector: "p",
 			})
 		).toBeTruthy();
@@ -17212,6 +17022,7 @@ describe("SpaceLanding", () => {
 			expect(postThreadSignalMock).toHaveBeenCalledWith({
 				body: expect.objectContaining({
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 					messageEnvelope: expect.objectContaining({
 						activationTargets: [DEFAULT_AGENT_PROFILE_ID],
 					}),
@@ -17463,7 +17274,7 @@ describe("SpaceLanding", () => {
 	});
 });
 
-async function openFailedWakeRetry(input: {
+async function openHistoricalWakeFailure(input: {
 	postNormalMessageMock?: ReturnType<typeof vi.fn>;
 	postThreadSignalMock?: ReturnType<typeof vi.fn>;
 	stageComposerUploadMock: ReturnType<typeof vi.fn>;
@@ -17696,7 +17507,7 @@ function expectSpaceAgentAvailabilityIndicator(
 	if (
 		!(
 			indicatorClassName.includes("inline-flex") &&
-			indicatorClassName.includes("size-3") &&
+			indicatorClassName.includes("items-center") &&
 			indicatorClassName.includes("shrink-0")
 		)
 	) {
@@ -17873,6 +17684,8 @@ function mockSpaceQueries(input: {
 	members: Record<string, unknown>;
 	history: Record<string, unknown>;
 	organizationDirectory?: OrganizationSpaceProfileCandidates;
+	organizationDirectoryQuery?: Record<string, unknown>;
+	organizationDirectoryResponse?: OrganizationDirectoryResponse;
 	messageDetailsBySignalId?: Record<string, Record<string, unknown>>;
 	threads?: Record<string, unknown>;
 	threadSignals?: Record<string, unknown>;
@@ -17906,8 +17719,14 @@ function mockSpaceQueries(input: {
 			},
 		});
 	useQueryMock.mockImplementation(
-		(options: { queryKey: readonly unknown[] }) => {
+		(options: { queryKey: readonly unknown[]; select?: unknown }) => {
 			const queryKey = JSON.stringify(options.queryKey);
+			if (
+				options.queryKey[0] === "space-invitations" &&
+				spaceIds.has(String(options.queryKey[3]))
+			) {
+				return createQueryResult({ isSuccess: true, data: [] });
+			}
 			const querySpaceId = options.queryKey[2];
 			const isExpectedSpace =
 				typeof querySpaceId === "string" && spaceIds.has(querySpaceId);
@@ -18173,15 +17992,24 @@ function mockSpaceQueries(input: {
 				options.queryKey[0] === "organizations" &&
 				options.queryKey[2] === "directory"
 			) {
-				return createQueryResult({
-					isSuccess: true,
-					data: input.organizationDirectory ?? {
-						agentProfiles: [],
-						generatedAt: "2026-07-16T00:00:00.000Z",
-						members: [],
-						organizationId: "org-acme",
-					},
-				});
+				if (!options.select && input.organizationDirectoryResponse) {
+					return createQueryResult({
+						isSuccess: true,
+						data: input.organizationDirectoryResponse,
+					});
+				}
+				return (
+					input.organizationDirectoryQuery ??
+					createQueryResult({
+						isSuccess: true,
+						data: input.organizationDirectory ?? {
+							agentProfiles: [],
+							generatedAt: "2026-07-16T00:00:00.000Z",
+							members: [],
+							organizationId: "org-acme",
+						},
+					})
+				);
 			}
 			if (
 				Array.isArray(options.queryKey) &&
@@ -18410,7 +18238,7 @@ function normalizeSpaceBootstrapThreads(value: unknown) {
 }
 
 function createQueryResult(overrides: Record<string, unknown>) {
-	return {
+	const result = {
 		isPending: false,
 		isFetching: false,
 		isFetchedAfterMount: true,
@@ -18418,8 +18246,13 @@ function createQueryResult(overrides: Record<string, unknown>) {
 		isSuccess: false,
 		error: null,
 		data: undefined,
-		refetch: vi.fn().mockResolvedValue(undefined),
 		...overrides,
+	};
+	return {
+		...result,
+		refetch:
+			overrides.refetch ??
+			vi.fn().mockResolvedValue({ data: result.data, error: result.error }),
 	};
 }
 

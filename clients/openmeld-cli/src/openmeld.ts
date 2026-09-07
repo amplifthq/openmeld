@@ -221,6 +221,7 @@ import {
   runOrgList,
   runOrgSwitch,
 } from "./org/command";
+import { runOrganizationInvitationRequests } from "./org/invitation-requests-command";
 import {
   runOrganizationSkillsList,
   runOrganizationSkillsLoad,
@@ -335,6 +336,7 @@ import {
   runSpaceGuideRead,
   runSpaceGuideSet,
 } from "./space/guide-command";
+import { runSpaceInvitations } from "./space/invitations-command";
 import { runSpaceLink } from "./space/link-command";
 import { registerSpaceMemberSelectionOptions } from "./space/member-selection-contract";
 import { runSpaceMembers } from "./space/members-command";
@@ -834,6 +836,27 @@ const orgCmd = program
   .description("Manage OpenMeld organizations.");
 
 orgCmd
+  .command("invitation-requests")
+  .description(
+    "Request invitations, share approval-required links, and review requests."
+  )
+  .argument(
+    "<action>",
+    "create | list | get | approve | reject | cancel | link | request"
+  )
+  .option("--email <email>", "Recipient email for create")
+  .option("--space <id>", "Optional target Space for create or link")
+  .option("--request <id>", "Request ID for get, approve, reject, or cancel")
+  .option("--token <token>", "Shared link token for request")
+  .action(async (action, opts) =>
+    runOrganizationInvitationRequests({
+      action,
+      ...opts,
+      view: getGlobalViewOption(),
+    })
+  );
+
+orgCmd
   .command("list")
   .description("List your OpenMeld organizations.")
   .action(async () => {
@@ -1061,6 +1084,7 @@ const centerAgentContextCmd = centerAgentCmd
     "Read a bounded, source-linked projection of your Center Agent Chat for a Local Agent."
   )
   .option("--cursor <cursor>", "Continue with older visible messages")
+  .option("--conversation <space-id>", "Read this Center Agent session")
   .option("--limit <count>", "Maximum visible messages (default: 20; max: 50)")
   .option(
     "--max-tokens <count>",
@@ -1081,6 +1105,7 @@ const centerAgentContextCmd = centerAgentCmd
   .option("--json", "Print machine-readable JSON.", false)
   .action(
     async (opts: {
+      conversation?: string;
       cursor?: string;
       json?: boolean;
       limit?: string;
@@ -1095,6 +1120,7 @@ const centerAgentContextCmd = centerAgentCmd
         view,
         run: async () => {
           await runCenterAgentContext({
+            spaceId: opts.conversation,
             cursor: opts.cursor,
             limit: parseNonNegativeIntegerOption(opts.limit, "--limit"),
             maxContextTokens: parseNonNegativeIntegerOption(
@@ -2680,6 +2706,31 @@ spaceCmd
   });
 
 registerSpaceFilesCommands(spaceCmd);
+
+spaceCmd
+  .command("invitations")
+  .description(
+    "Send and manage email-bound Space invitations, or accept invitations for your account."
+  )
+  .argument(
+    "<action>",
+    "create | list | pending | preview | accept | resend | revoke"
+  )
+  .option("--space <id>", "Target Space ID for create or list")
+  .option("--email <email>", "Recipient email for create")
+  .option(
+    "--invitation <id>",
+    "Invitation ID for preview, accept, resend, or revoke"
+  )
+  .action(async (action, opts) => {
+    await runSpaceInvitations({
+      action,
+      space: opts.space,
+      email: opts.email,
+      invitationId: opts.invitation,
+      view: getGlobalViewOption(),
+    });
+  });
 
 spaceCmd
   .command("link")

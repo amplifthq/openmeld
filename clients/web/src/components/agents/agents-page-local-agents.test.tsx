@@ -56,8 +56,9 @@ vi.mock("#/lib/connect/local-runtimes", async () => {
 	>("#/lib/connect/local-runtimes");
 	return {
 		...actual,
-		readCurrentLocalAgentInstallations: readCurrentLocalAgentInstallationsMock,
-		selectCurrentLocalAgentInstallation:
+		readPeopleComputerLocalAgentInstallations:
+			readCurrentLocalAgentInstallationsMock,
+		selectPeopleComputerLocalAgentInstallation:
 			selectCurrentLocalAgentInstallationMock,
 	};
 });
@@ -159,8 +160,8 @@ describe("LocalAgentsCard", () => {
 			"settings-local-agent-row-codex",
 			"settings-local-agent-row-claude-code",
 			"settings-local-agent-row-grok-build",
-			"settings-local-agent-row-cursor",
 			"settings-local-agent-row-opencode",
+			"settings-local-agent-row-cursor",
 		];
 		renderLocalAgentsCard({
 			localAgentCatalogEntries,
@@ -349,6 +350,8 @@ describe("LocalAgentsCard", () => {
 		await waitFor(() => {
 			expect(setLocalAgentEnabled).toHaveBeenCalledWith({
 				agentId: "codex",
+				deviceId: "device-macbook-pro",
+				runtimeLane: "dev-local",
 				enabled: false,
 			});
 		});
@@ -381,6 +384,8 @@ describe("LocalAgentsCard", () => {
 		await waitFor(() => {
 			expect(setLocalAgentEnabled).toHaveBeenCalledWith({
 				agentId: "codex",
+				deviceId: "device-macbook-pro",
+				runtimeLane: "dev-local",
 				enabled: true,
 			});
 		});
@@ -521,6 +526,8 @@ describe("LocalAgentsCard", () => {
 		await waitFor(() => {
 			expect(selectCurrentLocalAgentInstallationMock).toHaveBeenCalledWith({
 				agentId: "codex",
+				deviceId: "device-macbook-pro",
+				runtimeLane: "dev-local",
 				installationId: "install-chatgpt",
 			});
 			expect(refreshAll).toHaveBeenCalledTimes(1);
@@ -841,7 +848,7 @@ describe("LocalAgentsCard", () => {
 		).toBeTruthy();
 	});
 
-	it("keeps the connect banner when this computer reports no usable local agents", () => {
+	it("uses the empty state without a duplicate connect banner when no local agents are reported", () => {
 		renderLocalAgentsCard({
 			localAgentCatalogEntries: [],
 			replyReadiness: UNKNOWN_TARGET_REPLY_READINESS,
@@ -849,11 +856,17 @@ describe("LocalAgentsCard", () => {
 			targetStatus: "unknown",
 		});
 
-		expect(screen.getByText("Connect local agent")).toBeTruthy();
+		expect(screen.queryByText("Connect local agent")).toBeNull();
 		expect(
-			screen.getByText(
+			screen.queryByText(
 				"Connect a local agent so OpenMeld can refresh the local agents on this computer."
 			)
+		).toBeNull();
+		expect(screen.getByTestId("local-agent-catalog-empty")).toBeTruthy();
+		expect(screen.queryByText("No supported agents detected")).toBeNull();
+		expect(screen.queryByLabelText("Supported agents")).toBeNull();
+		expect(
+			screen.getByRole("link", { name: "See the install guide" })
 		).toBeTruthy();
 	});
 
@@ -881,13 +894,14 @@ describe("LocalAgentsCard", () => {
 		const row = screen.getByTestId("settings-local-agent-row-codex");
 		expect(row.getAttribute("data-muted")).toBe("true");
 		expect(row.querySelector("p")?.textContent).toBe("Codex");
-		// A disconnected service keeps the agent content full-color: the switch
-		// stays on and the stale snapshot is announced by the note, not by
-		// graying the card out like a disabled state.
-		expect(row.querySelector("p")?.className).toContain("text-foreground");
+		// Keep the saved preference, but do not present old agent facts as live.
+		expect(within(row).getByText("Waiting for computer update")).toBeTruthy();
+		expect(row.querySelector("p")?.className).toContain(
+			"text-muted-foreground"
+		);
 		expect(
 			within(row).getByTestId("local-agent-logo-codex").parentElement?.className
-		).not.toContain("opacity-50");
+		).toContain("opacity-50");
 	});
 
 	it("shows service reconnect dependency as a quiet Local agents note", () => {
@@ -914,10 +928,66 @@ describe("LocalAgentsCard", () => {
 		const row = screen.getByTestId("settings-local-agent-row-codex");
 		expect(row.getAttribute("data-muted")).toBe("true");
 		expect(row.querySelector("p")?.textContent).toBe("Codex");
-		expect(row.querySelector("p")?.className).toContain("text-foreground");
+		expect(within(row).getByText("Disconnected")).toBeTruthy();
+		expect(within(row).queryByText("Can’t start")).toBeNull();
+		expect(row.querySelector("p")?.className).toContain(
+			"text-muted-foreground"
+		);
 		expect(
 			within(row).getByTestId("local-agent-logo-codex").parentElement?.className
-		).not.toContain("opacity-50");
+		).toContain("opacity-50");
+	});
+
+	it("does not show historical agent readiness as live on a non-current computer", () => {
+		renderLocalAgentsCard({
+			hasSelectedEnvironment: false,
+			setEnabledSupported: true,
+		});
+		const row = screen.getByTestId("settings-local-agent-row-codex");
+		expect(within(row).getByText("Status unavailable")).toBeTruthy();
+		expect(within(row).queryByText("Ready")).toBeNull();
+		expect(row.getAttribute("data-muted")).toBe("true");
+		expect(
+			screen
+				.getByRole("switch", { name: "Codex local agent" })
+				.hasAttribute("data-disabled")
+		).toBe(true);
+	});
+
+	it("does not reuse a ready agent report when the current connection query fails", () => {
+		renderLocalAgentsCard({
+			setEnabledSupported: true,
+			replyReadiness: {
+				status: "unknown",
+				reasonCode: "device_reply_readiness.unknown",
+				detailReasonCode: null,
+				executionTargetStatus: null,
+				service: null,
+			},
+		});
+		const row = screen.getByTestId("settings-local-agent-row-codex");
+		expect(within(row).getByText("Status unavailable")).toBeTruthy();
+		expect(within(row).queryByText("Ready")).toBeNull();
+		expect(within(row).queryByText("Disconnected")).toBeNull();
+		expect(
+			screen
+				.getByRole("switch", { name: "Codex local agent" })
+				.hasAttribute("data-disabled")
+		).toBe(true);
+	});
+
+	it("shows checking instead of old failures while computer status is reconciling", () => {
+		renderLocalAgentsCard({
+			isReconcilingStatus: true,
+			setEnabledSupported: true,
+			replyReadiness: SERVICE_NOT_CONNECTED_REPLY_READINESS,
+		});
+		const row = screen.getByTestId("settings-local-agent-row-codex");
+		expect(within(row).getByText("Checking")).toBeTruthy();
+		expect(within(row).queryByText("Can’t start")).toBeNull();
+		expect(
+			screen.queryByRole("link", { name: "Reconnect Computer" })
+		).toBeNull();
 	});
 
 	it("lets users manually check local agents", async () => {
@@ -1079,6 +1149,11 @@ describe("LocalAgentsCard", () => {
 			],
 			setEnabledSupported: true,
 		});
+		expect(screen.getByText("No supported agents detected")).toBeTruthy();
+		expect(screen.getByLabelText("Supported agents")).toBeTruthy();
+		expect(
+			screen.queryByText("Connect this computer to check", { exact: false })
+		).toBeNull();
 
 		expect(
 			screen
@@ -1576,6 +1651,8 @@ describe("isLocalAgentControlStillRunningError", () => {
 });
 
 function renderLocalAgentsCard(input: {
+	hasSelectedEnvironment?: boolean;
+	isReconcilingStatus?: boolean;
 	agentControllerAuth?: AgentControllerInterfaceSnapshot["auth"];
 	agentControllerCheck?: AgentControllerInterfaceSnapshot["check"];
 	agentControllerMessage?: string | null;
@@ -1636,7 +1713,8 @@ function renderLocalAgentsCard(input: {
 			<QueryClientProvider client={queryClient}>
 				<LocalAgentsCard
 					computer={buildComputer(executionTarget)}
-					isCurrentComputer={true}
+					hasSelectedEnvironment={input.hasSelectedEnvironment ?? true}
+					isReconcilingStatus={input.isReconcilingStatus}
 					recovery={
 						{
 							agentProfiles: [],

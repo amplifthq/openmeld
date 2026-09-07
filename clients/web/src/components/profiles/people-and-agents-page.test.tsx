@@ -1,3 +1,5 @@
+const ANY_OWNER_NAME = /Owner: Anyone/;
+
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
@@ -42,6 +44,10 @@ let organizationDirectoryFixture: OrganizationDirectoryResponse;
 const FILTER_AGENTS_NAME = /Filter Agents/;
 const CHECKING_AGENTS_FILTER_NAME = /Current filter: Checking, 0 Agents/;
 const PERSONAL_ALL_AGENTS_FILTER_NAME = /Current filter: All, 1 Agent/;
+
+vi.mock("../app/use-sidebar-preferences", () => ({
+	useSidebarPreferences: () => ({ preferences: undefined }),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -223,13 +229,12 @@ vi.mock("#/components/agents/agent-profile-creation-requests-panel", () => ({
 
 vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 	AgentProfilesWorkspace: (props: {
-		activeView: "agents" | "create" | "requests";
-		createPanel?: ReactNode;
+		activeView: "agents" | "requests";
 		filterControl?: ReactNode;
 		isSearchActive?: boolean;
 		onCreateAgent: () => void;
 		onSelectProfile: (profileId: string) => void;
-		onViewChange: (view: "agents" | "create" | "requests") => void;
+		onViewChange: (view: "agents" | "requests") => void;
 		pendingRequestCount: number;
 		profiles: readonly AuthProfileView[];
 		renderProfilesController: () => ReactNode;
@@ -250,8 +255,6 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 			: props.renderProfilesController();
 		if (props.activeView === "requests") {
 			content = props.requestPanel;
-		} else if (props.activeView === "create") {
-			content = props.createPanel;
 		}
 		return (
 			<section>
@@ -730,6 +733,76 @@ describe("PeopleAndAgentsPage", () => {
 		vi.clearAllMocks();
 	});
 
+	it("scopes a person's Agent list and detail selection to that owner", () => {
+		const ownAgent = organizationDirectoryFixture.agentProfiles[0];
+		if (!ownAgent) {
+			throw new Error("Expected an Agent fixture.");
+		}
+		const otherAgent = {
+			...ownAgent,
+			ownerUserId: "user-other",
+			profileId: "agt_22222222-2222-4222-8222-222222222222",
+			profileName: "Other Agent",
+		};
+		organizationDirectoryFixture.agentProfiles = [ownAgent, otherAgent];
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={otherAgent.profileId}
+				personId="11111111-1111-4111-8111-111111111111"
+			/>
+		);
+		const workspace = agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0];
+		expect(
+			workspace.profiles.map(
+				(profile: AuthProfileView) => profile.openMeldProfileId
+			)
+		).toEqual([ownAgent.profileId]);
+		expect(workspace.selectedProfileId).toBe(otherAgent.profileId);
+		expect(
+			workspace.profiles.some(
+				(profile: AuthProfileView) =>
+					profile.openMeldProfileId === workspace.selectedProfileId
+			)
+		).toBe(false);
+	});
+
+	it("keeps saved Project preferences when projecting the Organization directory", () => {
+		const profileId = "agt_11111111-1111-4111-8111-111111111111";
+		const ownedProfile = {
+			...buildAgentProfile(profileId, "Scout"),
+			defaultProjectId: "project-portal",
+		};
+		useLocalAgentRecoveryControllerMock.mockReturnValue({
+			...buildRecoveryStub(),
+			agentProfiles: [ownedProfile],
+		});
+		const view = render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={profileId}
+			/>
+		);
+		expect(
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].agentProfiles[0]
+				.defaultProjectId
+		).toBe("project-portal");
+		useLocalAgentRecoveryControllerMock.mockReturnValue({
+			...buildRecoveryStub(),
+			agentProfiles: [{ ...ownedProfile, defaultProjectId: null }],
+		});
+		view.rerender(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={profileId}
+			/>
+		);
+		expect(
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].agentProfiles[0]
+				.defaultProjectId
+		).toBeNull();
+	});
+
 	it("renders Agents with a secondary sidebar and selected detail", () => {
 		render(
 			<PeopleAndAgentsPage
@@ -782,6 +855,23 @@ describe("PeopleAndAgentsPage", () => {
 				ownerUserId: "another-user",
 			})
 		).toBe(false);
+	});
+
+	it.each([
+		"agents",
+		"requests",
+	] as const)("loads status for the visible Agent sidebar in the %s view", (activeAgentView) => {
+		render(
+			<PeopleAndAgentsPage
+				activeAgentView={activeAgentView}
+				activeSectionId="agents"
+				focusProfileId={null}
+			/>
+		);
+		const runtimeQueryOptions = useQueryMock.mock.calls.find(([options]) =>
+			options.queryKey?.includes("agent-runtime-overview")
+		)?.[0];
+		expect(runtimeQueryOptions?.enabled).toBe(true);
 	});
 
 	it("loads Agent runtime display data independently on People", () => {
@@ -1036,10 +1126,7 @@ describe("PeopleAndAgentsPage", () => {
 			.onSelectProfile("agt_11111111-1111-4111-8111-111111111111");
 
 		expect(navigateMock).toHaveBeenCalledWith({
-			search: {
-				profileId: "agt_11111111-1111-4111-8111-111111111111",
-			},
-			to: "/o/acme/agents",
+			to: "/o/acme/agents?profileId=agt_11111111-1111-4111-8111-111111111111",
 		});
 	});
 
@@ -1273,9 +1360,9 @@ describe("PeopleAndAgentsPage", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("combobox", { name: FILTER_AGENTS_NAME }));
+		fireEvent.click(screen.getByRole("button", { name: FILTER_AGENTS_NAME }));
 		fireEvent.click(
-			await screen.findByRole("option", { name: "Checking, 0 Agents" })
+			await screen.findByRole("menuitem", { name: "Checking, 0 Agents" })
 		);
 
 		await waitFor(() => {
@@ -1329,7 +1416,7 @@ describe("PeopleAndAgentsPage", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 
-		expect(onAgentViewChange).toHaveBeenCalledWith("create");
+		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/personal/new-agent" });
 		expect(screen.queryByRole("button", { name: "Agent requests" })).toBeNull();
 	});
 
@@ -1374,7 +1461,10 @@ describe("PeopleAndAgentsPage", () => {
 		);
 
 		expect(useLocalAgentRecoveryControllerMock).toHaveBeenCalledWith(
-			expect.objectContaining({ loadAgentProfiles: false })
+			expect.objectContaining({
+				loadAgentProfiles: true,
+				loadAgentExecutionReadiness: false,
+			})
 		);
 		expect(
 			agentProfilesWorkspaceSpy.mock.calls
@@ -1387,27 +1477,20 @@ describe("PeopleAndAgentsPage", () => {
 				.agentProfiles.map((profile: AuthProfileView) => profile.profileName)
 		).toEqual(["Personal Scout"]);
 		expect(
-			screen.getByRole("combobox", {
+			screen.getByRole("button", {
 				name: PERSONAL_ALL_AGENTS_FILTER_NAME,
 			})
 		).toBeTruthy();
 	});
 
-	it("creates organization Agents directly in the active workspace", () => {
+	it("opens Agent creation in its own route in the active workspace", () => {
 		render(
-			<PeopleAndAgentsPage
-				activeAgentView="create"
-				activeSectionId="agents"
-				focusProfileId={null}
-			/>
+			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
 		);
 
-		expect(createAgentProfilePageSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ organizationId: "org-123" })
-		);
-		expect(
-			screen.getByRole("button", { name: "Create agent profile" })
-		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/acme/new-agent" });
+		expect(createAgentProfilePageSpy).not.toHaveBeenCalled();
 	});
 
 	it("creates Human Profiles directly in the active workspace", () => {
@@ -1430,14 +1513,9 @@ describe("PeopleAndAgentsPage", () => {
 			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
 		);
 
-		fireEvent.click(screen.getByRole("combobox", { name: FILTER_AGENTS_NAME }));
-		const organizationMembersOption = await screen.findByRole("option", {
-			name: "Organization members, 1 Agent",
-		});
-		expect(
-			within(organizationMembersOption).getByText("Organization members")
-		).toBeTruthy();
-		const checkingOption = await screen.findByRole("option", {
+		fireEvent.click(screen.getByRole("button", { name: FILTER_AGENTS_NAME }));
+		expect(screen.queryByRole("menuitem", { name: ANY_OWNER_NAME })).toBeNull();
+		const checkingOption = await screen.findByRole("menuitem", {
 			name: "Checking, 0 Agents",
 		});
 		expect(within(checkingOption).getByText("Checking")).toBeTruthy();
@@ -1446,7 +1524,7 @@ describe("PeopleAndAgentsPage", () => {
 
 		await waitFor(() => {
 			expect(
-				screen.getByRole("combobox", {
+				screen.getByRole("button", {
 					name: CHECKING_AGENTS_FILTER_NAME,
 				})
 			).toBeTruthy();
@@ -1522,10 +1600,7 @@ describe("PeopleAndAgentsPage", () => {
 		});
 
 		render(
-			<PeopleAndAgentsPage
-				activeSectionId="agents"
-				focusProfileId={firstAgent.profileId}
-			/>
+			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
 		);
 
 		const search = screen.getByRole("searchbox", { name: "Search Agents" });
@@ -1581,7 +1656,7 @@ describe("PeopleAndAgentsPage", () => {
 			);
 			expect(
 				agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].selectedProfileId
-			).toBe(firstAgent.profileId);
+			).toBeNull();
 		});
 	});
 
@@ -1632,27 +1707,5 @@ describe("PeopleAndAgentsPage", () => {
 				storageScope: "user-123",
 			})
 		);
-	});
-
-	it("opens the created Agent on the Agents home", () => {
-		render(
-			<PeopleAndAgentsPage
-				activeAgentView="create"
-				activeSectionId="agents"
-				focusProfileId={null}
-			/>
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "Create agent profile" })
-		);
-
-		expect(invalidateQueriesMock).toHaveBeenCalledWith({
-			queryKey: ["start", "profiles", "user-123"],
-		});
-		expect(navigateMock).toHaveBeenCalledWith({
-			search: { profileId: "agent-new" },
-			to: "/o/acme/agents",
-		});
 	});
 });

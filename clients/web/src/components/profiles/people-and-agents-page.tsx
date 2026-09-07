@@ -12,14 +12,17 @@ import type {
 	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
+import { Button } from "@openmeld/ui/components/button";
+import {
+	DropdownMenu,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-} from "@openmeld/ui/fluid/select";
-import { FunnelSimpleIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
+import { FunnelSimpleIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -36,15 +39,24 @@ import {
 } from "#/components/agents/agents-page-agent-profile-helpers";
 import { AgentProfilesCard } from "#/components/agents/agents-page-agent-profiles-card";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { DirectoryMembersOverview } from "#/components/directory/directory-members-overview";
-import {
-	CreateAgentProfilePage,
-	CreateProfileDialog,
-} from "#/components/profiles/create-profile-dialog";
+import { CreateProfileDialog } from "#/components/profiles/create-profile-dialog";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
+import {
+	localAgentSidebarState,
+	useAgentSidebarPreviewReady,
+} from "#/lib/dev/agent-sidebar-fixtures";
+import { isLocalWebOrigin } from "#/lib/local-web-origin";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import {
+	buildOrganizationAgentCreationPath,
+	buildOrganizationPersonAgentPath,
+	buildOrganizationPersonAgentsPath,
+	buildOrganizationPersonPath,
+} from "#/lib/organizations/organization-routes";
 import { buildProfileHomeRoutes } from "#/lib/profile-routes";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
@@ -55,9 +67,10 @@ import {
 } from "#/query/organizations/organization-directory";
 import { agentProfileCreationRequestsQueryOptions } from "#/query/profiles/agent-profile-creation-requests";
 import { startQueryKeys } from "#/query/query-keys";
+import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 
 export type ProfileHomeId = "agents" | "people";
-type AgentWorkspaceView = "agents" | "create" | "requests";
+type AgentWorkspaceView = "agents" | "requests";
 
 type AgentProfileListFilter =
 	| AgentProfileAvailabilityFilter
@@ -72,13 +85,6 @@ const AGENT_PROFILE_FILTER_OPTIONS = [
 	label: string;
 	value: AgentProfileAvailabilityFilter;
 }[];
-const ORGANIZATION_MEMBER_AGENT_PROFILE_FILTER_OPTION = {
-	label: "Organization members",
-	value: "organization_members",
-} as const satisfies {
-	label: string;
-	value: AgentProfileListFilter;
-};
 const EMPTY_AGENT_PROFILE_READINESS_ERROR_BY_PROFILE_ID: ReadonlyMap<
 	string,
 	string
@@ -87,6 +93,7 @@ const EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS: ReadonlySet<string> =
 	new Set();
 
 export function PeopleAndAgentsPage(input: {
+	personId?: string;
 	activityPreview?: boolean;
 	activeAgentView?: AgentWorkspaceView;
 	activeSectionId: ProfileHomeId;
@@ -96,6 +103,7 @@ export function PeopleAndAgentsPage(input: {
 	onAgentViewChange?: (view: AgentWorkspaceView, profileId?: string) => void;
 }) {
 	const account = useAppShellAccount();
+	const previewReady = useAgentSidebarPreviewReady();
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
 	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);
@@ -107,10 +115,7 @@ export function PeopleAndAgentsPage(input: {
 	const [agentProfileSearchQuery, setAgentProfileSearchQuery] = useState("");
 	const [activityPreview, setActivityPreview] = useState(false);
 	useEffect(() => {
-		const isLocalHost =
-			window.location.hostname === "localhost" ||
-			window.location.hostname === "127.0.0.1" ||
-			window.location.hostname === "::1";
+		const isLocalHost = isLocalWebOrigin(window.location.origin);
 		const isPreviewRequested =
 			input.activityPreview === true ||
 			new URLSearchParams(window.location.search).get("activityPreview") ===
@@ -127,7 +132,8 @@ export function PeopleAndAgentsPage(input: {
 		(account.name ?? account.email ?? "This member").trim() || "This member";
 	const recovery = useLocalAgentRecoveryController({
 		agentExecutionReadinessScope: "bound_runtime",
-		loadAgentProfiles: false,
+		loadAgentProfiles: input.activeSectionId === "agents",
+		loadAgentExecutionReadiness: false,
 		loadSetupState: false,
 	});
 	const organizationProfileDirectoryQuery = useQuery(
@@ -138,17 +144,27 @@ export function PeopleAndAgentsPage(input: {
 	);
 	const organizationAgentRuntimeOverviewQuery = useQuery(
 		organizationAgentRuntimeOverviewQueryOptions({
-			enabled:
-				input.activeSectionId === "people" || activeAgentView === "agents",
+			enabled: true,
 			organizationId: currentOrganization.id,
 		})
 	);
+	const person = organizationProfileDirectoryQuery.data?.members.find(
+		(member) =>
+			(member.humanProfile?.profileId ?? `member:${member.memberId}`) ===
+			input.personId
+	);
+	const scopedOwnerId = person?.userId ?? null;
 	const modelCatalogQuery = useQuery(modelCatalogQueryOptions());
 	const agentProfileFilterCounts = useMemo(() => {
 		return summarizeOrganizationAgentProfileAvailabilityFilters({
+			previewReady,
 			profiles: (
 				organizationProfileDirectoryQuery.data?.agentProfiles ?? []
-			).filter((profile) => profile.managedRole !== "center_agent"),
+			).filter(
+				(profile) =>
+					profile.managedRole !== "center_agent" &&
+					(!scopedOwnerId || profile.ownerUserId === scopedOwnerId)
+			),
 			runtimeOverview: organizationAgentRuntimeOverviewQuery.data,
 			runtimeOverviewFailed:
 				organizationAgentRuntimeOverviewQuery.isError &&
@@ -162,6 +178,8 @@ export function PeopleAndAgentsPage(input: {
 		organizationAgentRuntimeOverviewQuery.isError,
 		organizationAgentRuntimeOverviewQuery.isPending,
 		organizationProfileDirectoryQuery.data?.agentProfiles,
+		previewReady,
+		scopedOwnerId,
 	]);
 	const handleProfileCreated = (profile: AuthProfileView) => {
 		Promise.all([
@@ -193,7 +211,6 @@ export function PeopleAndAgentsPage(input: {
 				: profileHomeRoutes.people;
 		navigate({
 			search: {
-				activityPreview: activityPreview ? 1 : undefined,
 				profileId: profile.openMeldProfileId,
 			},
 			to: targetRoute,
@@ -205,7 +222,6 @@ export function PeopleAndAgentsPage(input: {
 		if (request.createdAgentProfileId) {
 			navigate({
 				search: {
-					activityPreview: activityPreview ? 1 : undefined,
 					profileId: request.createdAgentProfileId,
 				},
 				to: profileHomeRoutes.agents,
@@ -248,6 +264,14 @@ export function PeopleAndAgentsPage(input: {
 			</>
 		);
 	}
+	if (input.personId && !person) {
+		return (
+			<MissingPersonPage
+				initialSidebarStates={input.initialSidebarStates}
+				query={organizationProfileDirectoryQuery}
+			/>
+		);
+	}
 	return (
 		<>
 			<AgentsWorkspaceHome
@@ -257,25 +281,17 @@ export function PeopleAndAgentsPage(input: {
 				availabilityFilter={resolveAgentProfileAvailabilityFilter(
 					agentProfileFilter
 				)}
-				createPanel={
-					activeAgentView === "create" ? (
-						<CreateAgentProfilePage
-							allowTeammateRequests={isOrganizationContext}
-							currentUserId={currentUserId}
-							onAgentRequestCreated={handleAgentRequestCreated}
-							onCancel={() => input.onAgentViewChange?.("agents")}
-							onProfileCreated={handleProfileCreated}
-							organizationId={currentOrganization.id}
-							recovery={recovery}
-						/>
-					) : null
-				}
 				currentUserId={currentUserId}
 				fallbackOwnerLabel={fallbackOwnerLabel}
+				filterBadges={
+					<AgentListFilterBadges
+						onClear={() => setAgentProfileFilter("all")}
+						value={agentProfileFilter}
+					/>
+				}
 				filterControl={
 					<AgentProfileFilterSelect
 						counts={agentProfileFilterCounts}
-						includeOrganizationMemberFilter={isOrganizationContext}
 						onValueChange={setAgentProfileFilter}
 						value={agentProfileFilter}
 					/>
@@ -284,14 +300,22 @@ export function PeopleAndAgentsPage(input: {
 				initialSidebarStates={input.initialSidebarStates}
 				isOrganizationContext={isOrganizationContext}
 				modelCatalog={modelCatalogQuery.data ?? null}
-				onCreateAgent={() => input.onAgentViewChange?.("create")}
+				onCreateAgent={() => {
+					navigate({ to: buildOrganizationAgentCreationPath(orgSlug) }).catch(
+						(error: unknown) => {
+							console.error("Failed to open Create Agent.", error);
+						}
+					);
+				}}
 				onSelectProfile={(profileId) => {
 					navigate({
-						search: {
-							activityPreview: activityPreview ? 1 : undefined,
-							profileId,
-						},
-						to: profileHomeRoutes.agents,
+						to: input.personId
+							? buildOrganizationPersonAgentPath({
+									orgSlug,
+									personId: input.personId,
+									agentId: profileId,
+								})
+							: `${profileHomeRoutes.agents}?profileId=${encodeURIComponent(profileId)}`,
 					}).catch((error: unknown) => {
 						console.error("Failed to open the selected Agent.", error);
 					});
@@ -301,12 +325,32 @@ export function PeopleAndAgentsPage(input: {
 				}
 				organizationId={currentOrganization.id}
 				orgSlug={orgSlug}
+				ownerId={scopedOwnerId}
+				person={
+					person && input.personId
+						? {
+								id: input.personId,
+								name: person.user.name,
+								path: buildOrganizationPersonPath({
+									orgSlug,
+									personId: input.personId,
+								}),
+								agentsPath: buildOrganizationPersonAgentsPath({
+									orgSlug,
+									personId: input.personId,
+								}),
+							}
+						: undefined
+				}
 				profileDirectoryQuery={organizationProfileDirectoryQuery}
 				recovery={recovery}
 				runtimeOverviewQuery={organizationAgentRuntimeOverviewQuery}
 				searchControl={
-					<AgentProfileSearchInput
-						onValueChange={setAgentProfileSearchQuery}
+					<Input
+						aria-label="Search Agents"
+						onChange={(event) => setAgentProfileSearchQuery(event.target.value)}
+						placeholder="Search Agents"
+						type="search"
 						value={agentProfileSearchQuery}
 					/>
 				}
@@ -317,17 +361,48 @@ export function PeopleAndAgentsPage(input: {
 	);
 }
 
+function MissingPersonPage(input: {
+	query: OrganizationProfileDirectoryQueryState;
+	initialSidebarStates?: AppSidebarPersistedStates;
+}) {
+	let message = "Member not found in this workspace.";
+	if (input.query.isPending) {
+		message = "Loading member…";
+	} else if (input.query.isError) {
+		message = "Couldn’t load this member. Try again.";
+	}
+	return (
+		<AppFullWidthLayout
+			initialOuterSidebarState={input.initialSidebarStates?.outer}
+		>
+			<p role={input.query.isError ? "alert" : "status"}>{message}</p>
+		</AppFullWidthLayout>
+	);
+}
+function AgentListFilterBadges(input: {
+	value: AgentProfileListFilter;
+	onClear: () => void;
+}) {
+	if (input.value === "all") {
+		return null;
+	}
+	return (
+		<SidebarFilterBadge
+			label={
+				AGENT_PROFILE_FILTER_OPTIONS.find(
+					(option) => option.value === input.value
+				)?.label ?? input.value
+			}
+			onRemove={input.onClear}
+		/>
+	);
+}
+
 function resolveActiveAgentView(input: {
 	activeAgentView: AgentWorkspaceView | undefined;
 	activeSectionId: ProfileHomeId;
 	isOrganizationContext: boolean;
 }): AgentWorkspaceView {
-	if (
-		input.activeSectionId === "agents" &&
-		input.activeAgentView === "create"
-	) {
-		return "create";
-	}
 	return input.activeSectionId === "agents" &&
 		input.activeAgentView === "requests" &&
 		input.isOrganizationContext
@@ -337,10 +412,14 @@ function resolveActiveAgentView(input: {
 
 function buildOrganizationAgentProjection(input: {
 	currentUserId: string;
+	ownedProfiles: readonly AuthProfileView[];
 	profileDirectory: OrganizationProfileDirectoryResponse | undefined;
 	runtimeOverview: OrganizationAgentRuntimeOverviewResponse | undefined;
 }) {
 	const profiles: AuthProfileView[] = [];
+	const ownedProfilesById = new Map(
+		input.ownedProfiles.map((profile) => [profile.openMeldProfileId, profile])
+	);
 	const profileById = new Map<
 		string,
 		OrganizationProfileDirectoryResponse["agentProfiles"][number]
@@ -367,7 +446,15 @@ function buildOrganizationAgentProjection(input: {
 			profile.profileId,
 			profile.agentControllerRef
 		);
-		profiles.push(buildAuthProfileViewFromOrganizationAgentProfile(profile));
+		const ownedProfile = ownedProfilesById.get(profile.profileId);
+		profiles.push({
+			...buildAuthProfileViewFromOrganizationAgentProfile(profile),
+			// The directory owns shared identity; the owner's Auth profile owns
+			// saved configuration, which the directory intentionally does not expose.
+			...(profile.ownerUserId === input.currentUserId && ownedProfile
+				? { defaultProjectId: ownedProfile.defaultProjectId }
+				: {}),
+		});
 	}
 	for (const runtime of input.runtimeOverview?.agentProfiles ?? []) {
 		readinessByProfileId.set(runtime.profileId, runtime.readiness);
@@ -392,16 +479,18 @@ function buildOrganizationAgentProjection(input: {
 }
 
 function AgentsWorkspaceHome(input: {
+	person?: { id: string; name: string; path: string; agentsPath: string };
 	activeView: AgentWorkspaceView;
 	activityPreview: boolean;
 	availabilityFilter: AgentProfileAvailabilityFilter;
+	ownerId: string | null;
 	agentProfileSearchQuery: string;
 	currentUserId: string;
-	createPanel: ReactNode;
 	runtimeOverviewQuery: OrganizationAgentRuntimeOverviewQueryState;
 	profileDirectoryQuery: OrganizationProfileDirectoryQueryState;
 	fallbackOwnerLabel: string;
 	filterControl: ReactNode;
+	filterBadges: ReactNode;
 	focusRequestId: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
 	isOrganizationContext: boolean;
@@ -416,6 +505,7 @@ function AgentsWorkspaceHome(input: {
 	selectedProfileId: string | null;
 }) {
 	const queryClient = useQueryClient();
+	const previewReady = useAgentSidebarPreviewReady();
 	const accountComputerSetupPath = buildConnectComputerPath({
 		orgSlug: input.orgSlug,
 	});
@@ -428,16 +518,24 @@ function AgentsWorkspaceHome(input: {
 		() =>
 			buildOrganizationAgentProjection({
 				currentUserId: input.currentUserId,
+				ownedProfiles: input.recovery.agentProfiles,
 				profileDirectory: input.profileDirectoryQuery.data,
 				runtimeOverview: input.runtimeOverviewQuery.data,
 			}),
 		[
 			input.currentUserId,
+			input.recovery.agentProfiles,
 			input.profileDirectoryQuery.data,
 			input.runtimeOverviewQuery.data,
 		]
 	);
-	const agentProfiles = organizationAgentProjection.profiles;
+	const agentProfiles = useMemo(
+		() =>
+			organizationAgentProjection.profiles.filter(
+				(profile) => !input.ownerId || profile.ownerUserId === input.ownerId
+			),
+		[organizationAgentProjection.profiles, input.ownerId]
+	);
 	const readinessByProfileId = useMemo(() => {
 		if (!input.activityPreview) {
 			return organizationAgentProjection.readinessByProfileId;
@@ -543,18 +641,22 @@ function AgentsWorkspaceHome(input: {
 				readinessByProfileId,
 			}).filter(
 				(profile) =>
-					input.availabilityFilter === "all" ||
-					resolveOrganizationAgentProfileAvailabilityState({
-						errorByProfileId,
-						pendingProfileIds,
-						profileId: profile.openMeldProfileId,
-						readinessByProfileId,
-					}) === input.availabilityFilter
+					(!input.ownerId || profile.ownerUserId === input.ownerId) &&
+					(input.availabilityFilter === "all" ||
+						resolveOrganizationAgentProfileAvailabilityState({
+							previewReady,
+							errorByProfileId,
+							pendingProfileIds,
+							profileId: profile.openMeldProfileId,
+							readinessByProfileId,
+						}) === input.availabilityFilter)
 			),
 		[
 			agentProfiles,
 			errorByProfileId,
 			input.availabilityFilter,
+			input.ownerId,
+			previewReady,
 			pendingProfileIds,
 			readinessByProfileId,
 		]
@@ -585,6 +687,7 @@ function AgentsWorkspaceHome(input: {
 			(profile) => profile.openMeldProfileId === input.selectedProfileId
 		);
 		if (
+			input.ownerId !== null ||
 			normalizedSearchQuery.length > 0 ||
 			!selectedProfile ||
 			visibleAgentProfiles.some(
@@ -597,18 +700,12 @@ function AgentsWorkspaceHome(input: {
 		return [selectedProfile, ...visibleAgentProfiles];
 	}, [
 		agentProfiles,
+		input.ownerId,
 		input.selectedProfileId,
 		normalizedSearchQuery,
 		visibleAgentProfiles,
 	]);
-	const sidebarSelectedProfileId =
-		normalizedSearchQuery.length > 0 &&
-		input.selectedProfileId !== null &&
-		!sidebarAgentProfiles.some(
-			(profile) => profile.openMeldProfileId === input.selectedProfileId
-		)
-			? null
-			: input.selectedProfileId;
+	const sidebarSelectedProfileId = input.selectedProfileId;
 	const requestsQuery = useQuery(
 		agentProfileCreationRequestsQueryOptions({
 			enabled: input.isOrganizationContext,
@@ -722,11 +819,15 @@ function AgentsWorkspaceHomeView(input: {
 		<AgentProfilesWorkspace
 			activeView={workspace.activeView}
 			agentControllerRefByProfileId={input.agentControllerRefByProfileId}
-			createPanel={workspace.createPanel}
+			canCreateAgent={
+				!workspace.ownerId || workspace.ownerId === workspace.currentUserId
+			}
 			currentUserId={workspace.currentUserId}
+			filterBadges={workspace.filterBadges}
 			filterControl={workspace.filterControl}
 			hasAnyProfiles={input.agentProfiles.length > 0}
 			initialSidebarStates={workspace.initialSidebarStates}
+			isOrganizationContext={workspace.isOrganizationContext}
 			isSearchActive={input.normalizedSearchQuery.length > 0}
 			modelCatalog={workspace.modelCatalog}
 			onCreateAgent={workspace.onCreateAgent}
@@ -734,6 +835,7 @@ function AgentsWorkspaceHomeView(input: {
 			onViewChange={workspace.onViewChange}
 			operationalContextByProfileId={input.operationalContextByProfileId}
 			pendingRequestCount={input.pendingRequestCount}
+			person={workspace.person}
 			profiles={input.sidebarAgentProfiles}
 			profilesErrorMessage={input.profilesErrorMessage}
 			profilesStatus={input.profilesStatus}
@@ -825,31 +927,6 @@ function useMinuteNowMs(): number {
 	return nowMs;
 }
 
-function AgentProfileSearchInput(input: {
-	onValueChange: (value: string) => void;
-	value: string;
-}) {
-	return (
-		<div className="relative min-w-0 flex-1">
-			<MagnifyingGlassIcon
-				aria-hidden="true"
-				className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
-			/>
-			<Input
-				aria-label="Search Agents"
-				autoComplete="off"
-				className="pl-7"
-				name="agent-search"
-				onChange={(event) => input.onValueChange(event.target.value)}
-				placeholder="Search Agents"
-				spellCheck={false}
-				type="search"
-				value={input.value}
-			/>
-		</div>
-	);
-}
-
 function matchesAgentProfileSearch(input: {
 	profile: AuthProfileView;
 	query: string;
@@ -899,70 +976,51 @@ function resolveAgentProfilesStatus(input: {
 
 function AgentProfileFilterSelect(input: {
 	counts: AgentProfileAvailabilityFilterCounts;
-	includeOrganizationMemberFilter: boolean;
 	onValueChange: (value: AgentProfileListFilter) => void;
 	value: AgentProfileListFilter;
 }) {
-	const options = input.includeOrganizationMemberFilter
-		? [
-				AGENT_PROFILE_FILTER_OPTIONS[0],
-				ORGANIZATION_MEMBER_AGENT_PROFILE_FILTER_OPTION,
-				...AGENT_PROFILE_FILTER_OPTIONS.slice(1),
-			]
-		: AGENT_PROFILE_FILTER_OPTIONS;
-	const currentOption =
-		options.find((option) => option.value === input.value) ??
-		AGENT_PROFILE_FILTER_OPTIONS[0];
-	const displayValue = formatAgentProfileFilterOptionName({
-		count: resolveAgentProfileListFilterCount({
-			counts: input.counts,
-			value: currentOption.value,
-		}),
-		label: currentOption.label,
-	});
-
+	const displayValue =
+		AGENT_PROFILE_FILTER_OPTIONS.find((o) => o.value === input.value)?.label ??
+		"All";
 	return (
-		<Select
-			onValueChange={(value) => {
-				input.onValueChange(value as AgentProfileListFilter);
-			}}
-			value={input.value}
-		>
-			<SelectTrigger
-				aria-label={`Filter Agents. Current filter: ${displayValue}.`}
-				className="size-8 min-w-0 justify-center px-0 text-muted-foreground hover:text-foreground [&>span>span]:sr-only [&>span]:flex-none [&>svg]:hidden"
-				displayValue={displayValue}
-				icon={FunnelSimpleIcon}
-				variant="borderless"
-			/>
-			<SelectContent className="w-44 -translate-x-[calc(100%-2rem)]">
-				{options.map((option, index) => (
-					<SelectItem index={index} key={option.value} value={option.value}>
-						<span className="sr-only">
-							{formatAgentProfileFilterOptionName({
-								count: resolveAgentProfileListFilterCount({
-									counts: input.counts,
-									value: option.value,
-								}),
-								label: option.label,
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={
+					<Button
+						aria-label={`Filter Agents. Current filter: ${displayValue}, ${resolveAgentProfileListFilterCount({ counts: input.counts, value: input.value })} ${resolveAgentProfileListFilterCount({ counts: input.counts, value: input.value }) === 1 ? "Agent" : "Agents"}.`}
+						className="size-6 [&_svg]:size-3.5"
+						size="icon"
+						variant="ghost"
+					/>
+				}
+			>
+				<FunnelSimpleIcon />
+			</DropdownMenuTrigger>
+			<FluidDropdownMenuContent
+				align="end"
+				className="w-60 max-w-[calc(100vw-2rem)]"
+			>
+				{AGENT_PROFILE_FILTER_OPTIONS.map((option, index) => (
+					<FluidDropdownMenuItem
+						aria-label={`${option.label}, ${resolveAgentProfileListFilterCount({ counts: input.counts, value: option.value })} ${resolveAgentProfileListFilterCount({ counts: input.counts, value: option.value }) === 1 ? "Agent" : "Agents"}`}
+						index={index}
+						key={option.value}
+						onClick={() => input.onValueChange(option.value)}
+					>
+						<span className="w-4">
+							{input.value === option.value ? "✓" : ""}
+						</span>
+						<span className="min-w-0 flex-1 text-left">{option.label}</span>
+						<span className="text-muted-foreground">
+							{resolveAgentProfileListFilterCount({
+								counts: input.counts,
+								value: option.value,
 							})}
 						</span>
-						<span
-							aria-hidden="true"
-							className="flex min-w-0 flex-1 items-center justify-between gap-6"
-						>
-							<span className="min-w-0 truncate">{option.label}</span>
-							<span className="shrink-0 text-right font-mono text-[11px] text-muted-foreground tabular-nums">
-								{resolveAgentProfileListFilterCount({
-									counts: input.counts,
-									value: option.value,
-								})}
-							</span>
-						</span>
-					</SelectItem>
+					</FluidDropdownMenuItem>
 				))}
-			</SelectContent>
-		</Select>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
@@ -981,14 +1039,6 @@ function resolveAgentProfileListFilterCount(input: {
 		: input.counts[input.value];
 }
 
-function formatAgentProfileFilterOptionName(input: {
-	count: number;
-	label: string;
-}) {
-	const profileLabel = input.count === 1 ? "Agent" : "Agents";
-	return `${input.label}, ${input.count} ${profileLabel}`;
-}
-
 type OrganizationProfileDirectoryQueryState = {
 	data?: OrganizationProfileDirectoryResponse;
 	error: { message?: string } | null;
@@ -1005,6 +1055,7 @@ type OrganizationAgentRuntimeOverviewQueryState = {
 };
 
 function summarizeOrganizationAgentProfileAvailabilityFilters(input: {
+	previewReady?: boolean;
 	profiles: readonly OrganizationProfileDirectoryResponse["agentProfiles"][number][];
 	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 	runtimeOverviewFailed: boolean;
@@ -1033,6 +1084,7 @@ function summarizeOrganizationAgentProfileAvailabilityFilters(input: {
 		: EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS;
 	for (const profile of input.profiles) {
 		const category = resolveOrganizationAgentProfileAvailabilityState({
+			previewReady: input.previewReady,
 			errorByProfileId,
 			pendingProfileIds,
 			profileId: profile.profileId,
@@ -1044,6 +1096,7 @@ function summarizeOrganizationAgentProfileAvailabilityFilters(input: {
 }
 
 function resolveOrganizationAgentProfileAvailabilityState(input: {
+	previewReady?: boolean;
 	errorByProfileId: ReadonlyMap<string, string>;
 	pendingProfileIds: ReadonlySet<string>;
 	profileId: string;
@@ -1052,6 +1105,10 @@ function resolveOrganizationAgentProfileAvailabilityState(input: {
 		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
 	>;
 }): Exclude<AgentProfileAvailabilityFilter, "all"> {
+	const preview = localAgentSidebarState(input.profileId, input.previewReady);
+	if (preview) {
+		return preview === "connect" ? "unavailable" : preview;
+	}
 	const readiness = input.readinessByProfileId.get(input.profileId);
 	if (readiness) {
 		return resolveAgentWakeAvailabilityDisplayCategory(

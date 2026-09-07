@@ -1,0 +1,287 @@
+{
+  "organizationId": "be3cbc2c-7b65-4ce8-ba9d-c1031ebfcffb",
+  "organizationSlug": "northstar-product-studio-eddhvg",
+  "profileId": "0d95a4a4-8323-44de-8ce4-3d64189474e5",
+  "spaces": [
+    {
+      "spaceId": "9846707b8757a3631cad02b9458d57680328eb4c44435c05196af773188c8c41",
+      "profileId": "agt_20b774b9-823e-52eb-8eda-c9ffc8a576e1",
+      "profileName": "Frontend accessibility review",
+      "needsInput": false
+    },
+    {
+      "spaceId": "a80d930f295679b3950afbd58b53dd02ced43efb0a3ef9a4569db23bf8354c84",
+      "profileId": "agt_a348bae5-0ae1-5214-89a5-699d65a3c7d4",
+      "profileName": "Release notes and documentation",
+      "needsInput": false
+    },
+    {
+      "spaceId": "d6f49380dfe0c96847d784956d4f1d5752cf490ecfbf7a778110296adfbfbcd2",
+      "profileId": "agt_8cb16a90-ea91-5a74-9fe5-647dded01efc",
+      "profileName": "Search relevance experiments",
+      "needsInput": true
+    },
+    {
+      "spaceId": "2bea27506e4485bc8741521d0bb5015654c8922d4a0dc243040947d492ad1392",
+      "profileId": "agt_275913dd-668b-51d7-a47b-33da3c6c120e",
+      "profileName": "Release notes and documentation",
+      "needsInput": false
+    },
+    {
+      "spaceId": "06abecfbfc79a5b2a7a8ddcd5480dae1de46887dca92921cb40c640d179c02f3",
+      "profileId": "agt_c0406801-a68a-5e3b-9bb8-8587bebcc031",
+      "profileName": "Search relevance experiments",
+      "needsInput": false
+    },
+    {
+      "spaceId": "c1c57b73ada6705854d13cb9c947ae1131836b3f7a7c13aa4b25ce42d722388e",
+      "profileId": "agt_99d641ed-6765-5353-9efd-2ad0d221a4f9",
+      "profileName": "Payments API integration and regression checks",
+      "needsInput": true
+    }
+  ],
+  "agents": [
+    {
+      "profileId": "agt_035c17b9-a82b-590d-b308-1add200ce7e2",
+      "state": "available"
+    },
+    {
+      "profileId": "agt_20b774b9-823e-52eb-8eda-c9ffc8a576e1",
+      "state": "checking"
+    },
+    {
+      "profileId": "agt_a348bae5-0ae1-5214-89a5-699d65a3c7d4",
+      "state": "offline"
+    },
+    {
+      "profileId": "agt_8cb16a90-ea91-5a74-9fe5-647dded01efc",
+      "state": "connect"
+    },
+    {
+      "profileId": "agt_76cfaf46-64bb-52af-8393-537620f05668",
+      "state": "unavailable"
+    },
+    {
+      "profileId": "agt_cf371c2e-0aa9-5c47-a471-77dd805fe39a",
+      "state": "available"
+    },
+    {
+      "profileId": "agt_df45c984-fe08-5649-b6e8-bfc99d49d9f2",
+      "state": "checking"
+    },
+    {
+      "profileId": "agt_402645ec-eb58-51f7-a095-237f4f08c0d0",
+      "state": "offline"
+    },
+    {
+      "profileId": "agt_275913dd-668b-51d7-a47b-33da3c6c120e",
+      "state": "connect"
+    },
+    {
+      "profileId": "agt_c0406801-a68a-5e3b-9bb8-8587bebcc031",
+      "state": "unavailable"
+    },
+    {
+      "profileId": "agt_99d641ed-6765-5353-9efd-2ad0d221a4f9",
+      "state": "available"
+    },
+    {
+      "profileId": "agt_be0a5d50-95f9-5413-9c55-0f0cb6abceaf",
+      "state": "checking"
+    },
+    {
+      "profileId": "agt_0865cfeb-dcc8-5d42-a917-aa27523a335f",
+      "state": "offline"
+    },
+    {
+      "profileId": "agt_42a64360-1ff0-5f7b-87e8-0bb81c53e9ac",
+      "state": "connect"
+    },
+    {
+      "profileId": "agt_13af3500-183b-5cd7-b9eb-545d15ee9c61",
+      "state": "unavailable"
+    },
+    {
+      "profileId": "agt_a19f8e83-b450-510a-a789-d07cda3d8a23",
+      "state": "available"
+    },
+    {
+      "profileId": "agt_8e03d778-423b-57ae-a886-d10195736efe",
+      "state": "checking"
+    },
+    {
+      "profileId": "agt_238ec505-78c1-506f-a431-abdda6d904b9",
+      "state": "offline"
+    },
+    {
+      "profileId": "agt_f384bb11-2885-564e-95e2-0b281f23fd59",
+      "state": "connect"
+    },
+    {
+      "profileId": "agt_a329b665-5a81-5eb6-a806-41d4a136707f",
+      "state": "unavailable"
+    },
+    {
+      "profileId": "agt_6beaae82-4e7e-5324-b21c-4171ade9628a",
+      "state": "available"
+    },
+    {
+      "profileId": "agt_e084eaad-1582-5e92-a3ea-676c72debeff",
+      "state": "checking"
+    },
+    {
+      "profileId": "agt_e456fc58-5699-5f9b-a038-f75d93fa8f7a",
+      "state": "offline"
+    },
+    {
+      "profileId": "agt_40279a92-ac72-5420-9b2e-847f432aa4ae",
+      "state": "connect"
+    },
+    {
+      "profileId": "agt_2227a11a-b7ad-5cab-8e50-b2eeeef4d1b0",
+      "state": "unavailable"
+    },
+    {
+      "profileId": "agt_17cd1c00-cca5-559f-8bf2-a93d039ef4d8",
+      "state": "available"
+    },
+    {
+      "profileId": "agt_fbe63068-2b7c-5949-ae46-37ce48c141f2",
+      "state": "checking"
+    },
+    {
+      "profileId": "agt_cc2be69f-8438-5e49-aa70-b1ebeec16741",
+      "state": "offline"
+    },
+    {
+      "profileId": "agt_b2aecea3-449a-5377-b257-41b383a3b507",
+      "state": "connect"
+    },
+    {
+      "profileId": "agt_b713e119-2c82-53b0-a501-37f1791b2fc6",
+      "state": "unavailable"
+    },
+    {
+      "profileId": "agt_a0db2b4d-b1a2-52a7-a958-7b6d97763936",
+      "state": "available"
+    },
+    {
+      "profileId": "agt_01e7db6e-f575-5dfb-9549-6c991c00a13e",
+      "state": "checking"
+    },
+    {
+      "profileId": "agt_0de53f42-b411-566d-959f-510e70ae68f7",
+      "state": "offline"
+    },
+    {
+      "profileId": "agt_e26edc73-875c-57b7-a25e-401f7621ece5",
+      "state": "connect"
+    },
+    {
+      "profileId": "agt_022ce2c7-7250-5890-a95f-bc34c3c8a906",
+      "state": "unavailable"
+    },
+    {
+      "profileId": "agt_00c26564-b3ae-57fb-a679-53ab63e7ce23",
+      "state": "available"
+    },
+    {
+      "profileId": "agt_1351a77e-d10c-5b44-859b-3fc32073c156",
+      "state": "checking"
+    },
+    {
+      "profileId": "agt_e59365c7-dda5-505f-b7b3-bb3798094927",
+      "state": "offline"
+    },
+    {
+      "profileId": "agt_978dd081-2871-51b3-b97d-2b3f28f02f0f",
+      "state": "connect"
+    },
+    {
+      "profileId": "agt_d3a11319-52ef-591f-8317-79b95d189e5d",
+      "state": "unavailable"
+    },
+    {
+      "profileId": "agt_b2644ce4-f4e0-58db-a11d-c2dc21d1a2e5",
+      "state": "available"
+    },
+    {
+      "profileId": "agt_c68b4064-30fd-57f9-b805-73ddc4e35f53",
+      "state": "checking"
+    }
+  ],
+  "people": [
+    {
+      "profileId": "8413547d-7897-5c78-a3eb-23c7ad409d5c",
+      "state": "connected"
+    },
+    {
+      "profileId": "b55e902a-0d11-5e9a-b7f6-e0d92ea8ffeb",
+      "state": "offline"
+    },
+    {
+      "profileId": "cf78424c-2a43-51ab-9856-cc25d64c788d",
+      "state": "unconnected"
+    },
+    {
+      "profileId": "a1e10b66-df55-593f-bf77-f38a8a6e7a3a",
+      "state": "needs_attention"
+    },
+    {
+      "profileId": "3e32a212-a54a-5dd6-8228-955e895fa0e2",
+      "state": "unknown"
+    },
+    {
+      "profileId": "568ffbab-82a3-5d40-b231-bb304e4ca0fc",
+      "state": "connected"
+    },
+    {
+      "profileId": "2e217ebe-0139-532d-81a0-6af2a1d132aa",
+      "state": "offline"
+    },
+    {
+      "profileId": "0abab629-c8d2-5552-b2e6-5c6f17cc65dc",
+      "state": "unconnected"
+    },
+    {
+      "profileId": "6cb6e02d-8e5c-52ce-835f-40e5cae8e7cd",
+      "state": "needs_attention"
+    },
+    {
+      "profileId": "30611642-724c-5718-b35d-b0635c038659",
+      "state": "unknown"
+    },
+    {
+      "profileId": "01c192c2-68d2-50ba-9794-232bc31cf61d",
+      "state": "connected"
+    },
+    {
+      "profileId": "366f10c6-def7-521d-9e95-8aacc479498e",
+      "state": "offline"
+    },
+    {
+      "profileId": "e485feb5-704a-52be-aa45-4bf0efc4bce4",
+      "state": "unconnected"
+    },
+    {
+      "profileId": "818bf289-55c8-5631-a93e-740fe1bfe793",
+      "state": "needs_attention"
+    },
+    {
+      "profileId": "7eebe6ff-d9c4-50bb-9375-f5ead4eb5b5f",
+      "state": "unknown"
+    },
+    {
+      "profileId": "a2694e00-9e72-5b0e-ad7e-c18108d2b2c2",
+      "state": "connected"
+    },
+    {
+      "profileId": "11252c4d-6eae-54c3-a7e1-5c88559c757b",
+      "state": "offline"
+    },
+    {
+      "profileId": "6e99070a-30c6-574f-8122-a307ebb1e546",
+      "state": "unconnected"
+    }
+  ]
+}

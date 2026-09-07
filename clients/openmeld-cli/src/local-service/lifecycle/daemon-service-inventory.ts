@@ -211,6 +211,7 @@ export async function inspectDaemonServiceInventory(input: {
         ? await matchesExpectedDaemonServiceManagerDefinition({
             controller: observedServiceManager.controller,
             definitionPath: observedServiceManagerStatus.definitionPath,
+            commandSpec: observedServiceManagerStatus.commandSpec,
           }).catch(() => false)
         : null,
   });
@@ -235,8 +236,6 @@ export async function inspectDaemonServiceInventory(input: {
       runtimeState: runtimeStatus,
       serviceManagerStatus: scopedServiceManager.serviceManagerStatus,
     }),
-    unscopedServiceManager: observedServiceManager,
-    unscopedServiceManagerStatus: observedServiceManagerStatus,
     serviceContract,
     serviceManager: scopedServiceManager.serviceManager,
     serviceManagerStatus: scopedServiceManager.serviceManagerStatus,
@@ -350,8 +349,6 @@ function buildDaemonServiceAnomalies(input: {
   runtimeCommandPathExists: boolean | null;
   runtimeContractCompatibility: DaemonRuntimeContractCompatibility;
   resolvedArtifact: ReturnType<typeof resolveDaemonServiceArtifact>;
-  unscopedServiceManager: DaemonServiceManager | null;
-  unscopedServiceManagerStatus: DaemonServiceManagerRuntimeStatus | null;
   serviceManager: DaemonServiceManager | null;
   serviceManagerStatus: DaemonServiceManagerRuntimeStatus | null;
   serviceManagerDefinitionMatchesCurrentRoot: boolean | null;
@@ -452,8 +449,6 @@ function buildRuntimeHealthAnomalies(input: {
   runtimeCommandEntryPath: string | null;
   runtimeCommandPathExists: boolean | null;
   runtimeContractCompatibility: DaemonRuntimeContractCompatibility;
-  unscopedServiceManager: DaemonServiceManager | null;
-  unscopedServiceManagerStatus: DaemonServiceManagerRuntimeStatus | null;
   serviceManager: DaemonServiceManager | null;
   serviceManagerStatus: DaemonServiceManagerRuntimeStatus | null;
   serviceManagerDefinitionMatchesCurrentRoot: boolean | null;
@@ -463,8 +458,8 @@ function buildRuntimeHealthAnomalies(input: {
   const anomalies: DaemonServiceAnomaly[] = [];
   const ownerSnapshot = buildDaemonOwnerSnapshotFromObservedState({
     runtimeStatus: input.runtimeStatus,
-    serviceManager: input.unscopedServiceManager,
-    serviceManagerStatus: input.unscopedServiceManagerStatus,
+    serviceManager: input.serviceManager,
+    serviceManagerStatus: input.serviceManagerStatus,
     effectiveRuntimeStatus: input.effectiveRuntimeStatus,
     ownedProcesses: input.ownedProcesses,
   });
@@ -514,6 +509,12 @@ function buildRuntimeHealthAnomalies(input: {
   if (
     (input.runtimeStatus.status === "running" ||
       input.runtimeStatus.status === "stale") &&
+    // An exited process has no live command to compare. Its stale lease is
+    // restart evidence, not evidence that service files or registration broke.
+    (input.runtimeStatus.reason !== "process_not_alive" ||
+      input.ownedProcesses.some(
+        (processInfo) => processInfo.pid === input.runtimeStatus.pid
+      )) &&
     hasRuntimeBundleMismatch({
       activeBundleEntryPath: input.activeBundleEntryPath,
       activeBundleSourceEntryPath: input.activeBundleSourceEntryPath,

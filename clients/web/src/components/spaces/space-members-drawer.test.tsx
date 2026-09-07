@@ -685,7 +685,7 @@ describe("SpaceMembersSidePanel", () => {
 			});
 		});
 		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/acme/direct-messages/space-direct-message?profileId=agt_22222222-2222-4222-8222-222222222222",
+			to: "/o/acme/chats/space-direct-message?profileId=agt_22222222-2222-4222-8222-222222222222",
 		});
 	});
 
@@ -773,7 +773,7 @@ describe("SpaceMembersSidePanel", () => {
 		});
 	});
 
-	it("shows a visible error when the manual members refresh fails", async () => {
+	it("keeps retry available after a refresh error without a permanent refresh button", async () => {
 		const refreshError = new Error("network unavailable");
 		const consoleErrorSpy = vi
 			.spyOn(console, "error")
@@ -788,7 +788,7 @@ describe("SpaceMembersSidePanel", () => {
 				currentProfileId="11111111-1111-4111-8111-111111111111"
 				isAgentRecoveryPending={() => false}
 				isLoading={false}
-				membersError={null}
+				membersError="network unavailable"
 				onAgentRecoveryAction={async () => undefined}
 				onOpenChange={vi.fn()}
 				onRefresh={onRefresh}
@@ -805,7 +805,10 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Refresh members" }));
+		expect(
+			screen.queryByRole("button", { name: "Refresh members" })
+		).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
 		await waitFor(() => {
 			expect(onRefresh).toHaveBeenCalledWith({ forceNetwork: true });
@@ -814,7 +817,7 @@ describe("SpaceMembersSidePanel", () => {
 			SPACE_MEMBERS_REFRESH_ERROR_MESSAGE
 		);
 		expect(consoleErrorSpy).toHaveBeenCalledWith(
-			"Failed to refresh members.",
+			"Failed to retry member loading.",
 			refreshError
 		);
 	});
@@ -1036,6 +1039,7 @@ describe("SpaceMembersSidePanel", () => {
 					humans: [
 						createSpaceMemberHumanSnapshot({
 							lastSeenLabel: "12 minutes ago",
+							lastSeenAt: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
 							ownerUserId: "user_mira",
 							profileId: "22222222-2222-4222-8222-222222222222",
 							profileName: "Mira",
@@ -1066,7 +1070,7 @@ describe("SpaceMembersSidePanel", () => {
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
 		expect(within(organization).getByText("Acme Center Agent")).toBeTruthy();
-		expect(within(people).getByText("12m ago")).toBeTruthy();
+		expect(within(people).getByText("Here 12m ago")).toBeTruthy();
 		expect(within(people).getByText("Mira Research")).toBeTruthy();
 		expect(
 			within(people).getByRole("button", {
@@ -1349,8 +1353,25 @@ describe("SpaceMembersSidePanel", () => {
 		expect(screen.queryByText("Available to add")).toBeNull();
 		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
 		expect(screen.getByText("Joins with selected Agent")).toBeTruthy();
+		expect(
+			screen
+				.getByRole("checkbox", { name: "Mira" })
+				.getAttribute("aria-checked")
+		).toBe("true");
 		expect(screen.getByRole("button", { name: "Add 2 members" })).toBeTruthy();
 		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
+		expect(
+			screen
+				.getByRole("checkbox", { name: "Mira" })
+				.getAttribute("aria-checked")
+		).toBe("false");
+		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
+		fireEvent.click(screen.getByRole("checkbox", { name: "Mira" }));
+		expect(
+			screen
+				.getByRole("checkbox", { name: "Research Agent" })
+				.getAttribute("aria-checked")
+		).toBe("false");
 
 		fireEvent.click(screen.getByRole("checkbox", { name: "Mira" }));
 		fireEvent.click(screen.getByRole("checkbox", { name: "Center Agent" }));
@@ -1532,6 +1553,52 @@ describe("SpaceMembersSidePanel", () => {
 		});
 	});
 
+	it("names an implicitly selected Agent owner in the Direct Message conversion warning", () => {
+		renderWithOrganizationQueryClient(
+			<SpaceMembersSidePanel
+				activeWakeWaitingTargetProfileIds={new Set()}
+				agentRecoveryPlansByProfileId={new Map()}
+				autoRefreshExhaustedProfileIds={new Set()}
+				currentOwnerUserId="user_felix"
+				currentProfileId="11111111-1111-4111-8111-111111111111"
+				isAgentRecoveryPending={() => false}
+				isLoading={false}
+				membersError={null}
+				onAddOrganizationDirectoryProfiles={vi.fn()}
+				onAgentRecoveryAction={async () => undefined}
+				onConvertDirectMessageToSpace={vi.fn()}
+				onOpenChange={vi.fn()}
+				onRefresh={async () => undefined}
+				open={true}
+				orgSlug="acme"
+				snapshot={createSpaceMembersSnapshot({
+					humans: [
+						createSpaceMemberHumanSnapshot({
+							ownerUserId: "user_felix",
+							profileId: "11111111-1111-4111-8111-111111111111",
+							profileName: "Felix",
+						}),
+					],
+				})}
+			/>,
+			buildOrganizationDirectory({
+				centerAgentProfileId: "agt_44444444-4444-4444-8444-444444444444",
+				humanProfileId: "22222222-2222-4222-8222-222222222222",
+			})
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
+		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add 2 members" }));
+		const confirmation = screen.getByRole("dialog", {
+			name: "Turn this Direct Message into a Space?",
+		});
+		expect(confirmation.textContent).toContain(
+			"Adding Mira and Research Agent will move this conversation to Spaces."
+		);
+	});
+
 	it("requires explicit confirmation before adding a third profile to a Direct Message", async () => {
 		const onAddProfiles = vi.fn(async () => ({
 			addedCount: 1,
@@ -1612,11 +1679,13 @@ describe("SpaceMembersSidePanel", () => {
 		expect(onConvertDirectMessageToSpace).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-		expect(
-			screen.queryByRole("heading", {
-				name: "Turn this Direct Message into a Space?",
-			})
-		).toBeNull();
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("heading", {
+					name: "Turn this Direct Message into a Space?",
+				})
+			).toBeNull()
+		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 		fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), {

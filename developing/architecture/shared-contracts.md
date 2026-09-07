@@ -28,6 +28,131 @@
 
 ## Boundary
 
+### PeopleComputers
+
+`peopleComputersResponseSchema` is the owner inventory and connection-evidence
+contract. `PeopleComputerTarget` always names a device and Service lane; Core
+checks the authenticated owner and exact current transport session. Saved
+Binding preference is not connection evidence. CLI-local device proof belongs
+only to `peopleComputerCliInventorySchema`, never to a browser-derived claim.
+The shared legacy inventory adapter accepts an explicitly supplied target and
+does not recompute connection or readiness.
+
+Center Agent reads the same inventory through `centerAgentReadPeopleComputers`.
+This model-facing projection omits full capability and local-agent catalogs
+from execution targets: those include large model and installation reports
+that can exceed the tool-result safety limit. Identity, connection evidence,
+and dated target metadata remain unchanged; focused candidate and installation
+tools provide their own details. This is payload selection, not another
+readiness calculation, and does not raise the tool-result safety limit.
+The verified requesting member owns the read; the hosted Profile owner does
+not select its account. Without an explicit device/lane target, the response
+contains no selected-computer diagnostics and makes no browser identity claim.
+Selected diagnostics retain Core readiness and path-free File Access summaries.
+Tools updates, maintenance, and local-installation selection use distinct
+PeopleComputer RPC methods requiring an exact target. New producers never fall
+back to old current-target methods: an old receiver could otherwise ignore the
+target and operate on another computer. Deploy Core before Remote Agent.
+
+`buildLocalAgentConnectionCandidateId` in `packages/agent-runtime` identifies
+one controller on an exact device, lane, and reported Service runtime. Web
+creation and Core candidate projections share this encoding. The identifier
+is selection evidence, not authorization; Core revalidates the owner inventory
+and current candidate before binding. A missing selected catalog never permits
+falling back to another computer.
+
+PeopleComputers HTTP/RPC endpoints coexist with supported current-target
+endpoints. New clients must deploy after their receivers. Shared optional fields
+are not assumed safe for an old strict parser: the new inventory has a separate
+endpoint, and the CLI output change has a new command contract. See the
+[PeopleComputers audit](review/2026-09-07-people-computers-contract-impact-audit.md)
+for mixed-version direction, required CLI policy and evidence limits.
+
+### Center Agent Session Creation, Listing And Selection
+
+The Flue 2 candidate adds `POST /v1/organizations/current/center-agent/sessions`
+with the strict shared `{ creationId: UUID }` body. Core resolves Organization
+membership and the actual Human/Center Agent pair. The resulting private DM
+Space ID is deterministic for that pair, Organization and creation key;
+independent keys cannot collapse through the old open-or-reuse path. No caller
+supplies a member identity or Computer identity. Retrying membership setup
+converges in the existing Space owner after metadata initialization.
+
+`GET /v1/organizations/current/center-agent/sessions` uses the shared bounded
+`limit` and opaque `cursor` query schema. Core resolves current membership and
+designation, then reads the Space index for the exact Organization and pair.
+Keyset pagination orders creation time and Space ID descending. The cursor
+must match that Organization and pair; it grants no authority and the query
+always repeats those filters. Responses preserve a missing creation time as
+null. The shared response includes `sessions` and a nullable `nextCursor`.
+
+`GET /v1/organizations/current/center-agent/sessions/:spaceId` returns the
+existing Center DM projection only for that exact current-member pair and
+Organization; unavailable selections return a null projection. There is no
+fallback to another chat. The SDK exposes `createSession` and `getSession`.
+Existing `/dm-space` consumers retain the default open/read behavior.
+
+Context Manifest requests may supply `spaceId` using the same shared selector.
+Core verifies the pair before reading Signals or recording a manifest. A
+foreign or missing selected conversation returns the existing unavailable
+conversation error; it never reads the default chat. Older callers that omit
+the selector retain the existing default behavior. New session consumers must
+pass their exact selection. The Local Agent `source.sessionId` remains
+attribution only and is not this selector. Deploy Core/Gateway receivers before
+clients use these additive routes and fields. None of these projections owns
+runtime history, execution authority, or Computer isolation.
+
+### Flue 2 Runtime Diagnostics
+
+Text-message metadata may name `centerAgentExecutionInput` with the original
+dispatch and Center Agent Profile. The authenticated Space owner accepts this
+only for the same verified Human Profile's private Center Agent execution.
+It never creates a second Wake. The shared `receiveExecutionInput` and
+`readExecutionInput` RPC contracts carry an exact execution target and stable
+input ID. Runtime receipts distinguish durable receipt, canonical application,
+and unconfirmed application when the execution has ended. Neither receipt nor
+message metadata grants new tool or member authority. Deploy Remote Agent's
+receiver before Core's sender, then Web's metadata producer. Older clients
+continue the ordinary message path; do not remove the receiver while a Space
+has undelivered inputs. This additive contract does not change workstation
+RuntimeCoordinator or installed Service contracts.
+
+Remote Agent emits runtime diagnostics version 2 against Flue 2's actual
+submission store: `maxAttempts` counts total attempts, `joinedInto` identifies
+an absorbed delivery, and joining/joined are explicit lifecycle states.
+The removed beta recovery-request field and attempt-marker table are not
+reported as fabricated empty evidence. Core accepts versions 1 and 2 during
+the beta cutover; deploy that receiver before the Flue 2 producer. Version 1
+remains readable only for the still-deployed beta runtime. These bounded
+diagnostics are observations, never proof that an entire deployment target is
+drained or that pending callbacks and delegated work have finished.
+
+The dispatch-trace HTTP response can embed this diagnostic contract when the
+caller explicitly requests runtime diagnostics. Dispatch-trace response
+contract 4 admits both runtime diagnostic versions. Gateway requires version 4
+for the opt-in path; older clients receive an explicit update instruction and
+can still request ordinary traces. Contracts 2 and 3 retain their existing
+ordinary-trace projections; an omitted version retains the legacy projection.
+Core transports all three negotiated versions without dropping the selector.
+
+Roll out the Core receiver and Gateway negotiation first, then the CLI that
+requests contract 4, then the Flue 2 producer. The new CLI cannot request version
+4 from an old Gateway; do not publish it ahead of that receiver. During rollback,
+restore the beta producer before removing its v2 diagnostic receiver. Keep the
+Gateway negotiation receiver while published clients request version 4.
+Ordinary traces without runtime diagnostics do not carry the changed payload.
+Do not discard the diagnostic error or invent beta fields to make an old
+validator accept new evidence. This ordering is a release gate, not deployment
+evidence.
+
+Official CLI Skill content uses the signed Markdown channel contract in
+`packages/schemas/src/official-cli-skill.ts`, separately from Organization
+Skills. The optional local component `skills.contentRelease` reports the
+selected independent revision and minimum CLI version. Core retains required
+Skill contract checks and local installation errors while accepting aligned
+independent hashes. Deploy strict report receivers before bridge producers;
+see [Official CLI Skill delivery](../engineering/official-cli-skill.md).
+
 Shared contracts prevent semantic drift across OpenMeld clients, services, packages,
 and processes.
 
@@ -42,6 +167,18 @@ This document does not make shared policy an execution authority. Shared schemas
 and shared policy define common language and eligibility projections. They do
 not reserve leases, start execution, accept results, publish replies, or decide
 final Wake outcomes.
+
+### Model Catalog Creation Policy
+
+`packages/schemas` owns the authored catalog and Git-backed update-evidence
+schemas. The optional local-controller `creationDefaults` is Core-owned
+creation policy, not runtime selection or availability evidence. Core's
+`readAuthoredModelCatalog` reads it for first-use creation preferences;
+`readModelCatalog` omits it from all public/catalog projections so existing
+strict clients continue to read the version-1 response. The existing resolved
+creation-preferences response remains unchanged. Remembered user choices take
+precedence, including explicit model-default reasoning. No Binding, Wake,
+Service lifecycle, or dispatch contract changes.
 
 ### Organization Working Language Contracts
 
@@ -130,6 +267,26 @@ belongs to the active Organization. It never accepts caller-supplied owner
 identity, grants mutation authority, or replaces the Session inventory.
 
 ## Contract Rule
+
+### Space author read confirmation
+
+The optional literal `authorHasRead: true` in authored text metadata and thread
+send requests confirms only the current Human author's exact message. Web
+composers supply it; CLI and automation omit it by default. Core resolves the
+author's current Human ownership and suppresses only that recipient's Inbox
+candidate in the message's durable publication transaction. This is not an
+authorization claim or a conversation read-through position. Unconfirmed own
+messages remain ordinary updates, including self mentions and self thread
+replies. Inbox remains the only unread owner.
+
+Contract impact: existing CLI, Service, Skills, setup, Wake, and diagnostic
+contracts remain supported; no local component floor or stamp changes. Older
+clients omit the optional confirmation and receive normal read-through
+behavior. Older signal readers may discard the additive metadata. Deploy Core
+and Gateway receivers before the new Web producer because an older strict
+thread request parser rejects the new optional request field. Roll back Web
+before those receivers. No database migration or historical unread backfill is
+required.
 
 Any payload that crosses a service, package, process, HTTP boundary, RPC
 boundary, WebSocket boundary, CLI JSON boundary, or diagnostics boundary needs a
@@ -237,6 +394,24 @@ exactly or admission fails. A plan is disclosure policy, not member authority,
 tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
+
+Organization invitation requests use `organizationJoinRequestInputSchema` for
+Web and CLI and a separate trusted RPC envelope for Auth-proven account identity,
+link sponsorship, and successful-delivery acknowledgement. Client payloads cannot
+set reviewers, approval status, or membership. The Inbox request target carries
+only a request ID; its owner checks current authority on every review.
+
+The invitation-approval rollout adds Auth HTTP/Core RPC actions, a scoped link
+field, an Inbox target, and an optional transactional-email purpose. It does not
+change setup, Wake, Service status, trace, or self-rescue contracts. Existing local
+components remain safe: the legacy link acceptance endpoint fails closed with
+`organization.join_link.approval_required` instead of enrolling someone. CLI and
+managed Skills updates are advisory (`available` at release); no runtime contract
+epoch changes are needed. New clients require the new receivers. Use the existing
+`space-invitation-receivers-first` coordinated release: additive Database
+migrations, Core, Auth, then Web and CLI. Keep the receiver/client transition short;
+old Web cannot operate the new Inbox request target. Rolling clients back must
+not restore bearer-link enrollment or remove the additive request data.
 
 `packages/schemas` owns Inbox item, counts, list-filter, direct item read,
 read/unread and Dismiss mutations, delivery preference, structured source
@@ -802,6 +977,19 @@ Changelog contracts, and RuntimeCoordinator contracts are unchanged.
 
 ### Organization Directory Contracts
 
+Center Agent's `openmeld_read_organization_directory` projects the authorized
+Core response into `centerAgentOrganizationDirectoryPageSchema`. Pages preserve
+complete records, expose total member/Agent counts and an Organization-bound
+`nextCursor`, and stop at a combined record or serialized-byte budget. Follow
+pages until `nextCursor` is null before asserting absence or a unique identity
+match. Each page rechecks current Core authorization; cursors grant no access.
+Returned member IDs accumulate only within the exact submission for subsequent
+member diagnostics, whose Core authorization still applies. This is output
+pagination, not database pagination or a second identity/readiness store: the
+existing full Core RPC and Web/CLI directory contracts remain unchanged.
+Directory changes between calls are not an immutable snapshot; a removed cursor
+record requires restarting the read.
+
 Auth owns the private Organization Directory identity projections.
 `resolveOrganizationDirectoryMembers` returns current membership, account
 identity, and the account-scoped default Human Profile.
@@ -843,6 +1031,13 @@ per-Profile readiness work. Splitting transport does not split authority: Auth,
 Core Wakeability, Binding, and RuntimeCoordinator remain the same owners, and
 the browser never derives or writes either projection.
 
+Within one overview request, Core shares in-flight Runtime Registry and
+Controller-report reads for identical database and Runtime/Controller keys.
+Missing results and failures are shared only for that request; the next request
+reads fresh facts. Profile-specific Binding, organization eligibility, provider
+evidence, route evidence, and final Wakeability still use their owning checks.
+No cross-request readiness cache or client-derived verdict is introduced.
+
 Organization Directory readiness is permission-scoped before serialization.
 The Agent owner receives the normal owner projection. Another active member
 receives the public four-state Wakeability status with private readiness facts
@@ -861,6 +1056,30 @@ authenticated request context and Core returns only the validated
 before the Web caller. Older Web clients and every CLI, OpenMeld Service, Skills,
 RuntimeCoordinator, and Space contract remain unchanged because they do not
 call this route.
+
+`POST /v1/spaces/:spaceId/member-activity/web` uses the same authenticated Web
+activity writer and response. The browser supplies only the destination Space;
+Core derives the active Human identity and server timestamp, advances the
+Organization projection, then records that same timestamp in the owning Space.
+The Space verifies its Organization and active Human membership/owner before
+writing `space_member_web_activity`. A failed Space write remains an error; the
+already recorded app visit is still valid. Hidden tabs do not report activity.
+
+Human Space `lastSeenAt` is the latest explicit Web visit or persisted Human
+text Signal. Socket entries, background reconnects, system notices, and message
+read cursors are not substitutes. Historical socket-derived `lastEnteredAt` is
+not migrated into visit history; without trustworthy evidence, the time is
+omitted. Human `liveNow` additionally requires a live connection and a foreground
+report within six minutes (Web reports every five minutes). Agent availability
+contracts are unchanged. Space SQL v30 adds the visit table without rewriting
+members, messages, or cursors.
+
+Deploy Core, then Gateway, then Web for this additive route. Existing callers,
+responses, CLI, Service, and Skills remain compatible; old Web tabs do not gain
+foreground reporting until refreshed. The shared schema is included in the
+packaged Service, so release it through the normal compatible CLI/Service patch
+lane before Gateway and Web. Runtime compatibility does not exempt packaged
+shared files from the local-component version and bundle-hash release rules.
 
 `organization-computers.ts` owns the strict team-safe Organization Computer
 projection. Core authorizes the active Organization, resolves its current
@@ -1829,9 +2048,9 @@ App producer builds its subject from the allowlisted App display name and, for
 execution, a normalized safe catalog action id. The protocol temporarily
 accepts the same work keys without a subject so a new Core can receive an older
 Remote Agent payload, but Core and Web keep that compatibility form out of
-every visible summary. When a current Remote Agent reaches an older Core that
-rejects the new `connected_app` subject kind, it retries the same sequence once
-without the entire presentation-only `work` object. Missing, unsafe, or
+every visible summary. Current Remote Agent requires the Core receiver that
+accepts `connected_app` subjects. A rejected part stops that preview without
+stripping its work metadata or resubmitting a degraded part. Missing, unsafe, or
 compatibility-only values therefore never create generic Connected App copy.
 The legacy final-reply field omits Connected App steps because its deployed
 schema cannot represent their required concrete subject; the complete
@@ -2256,6 +2475,26 @@ The provider set is `slack | lark | feishu`. The transport set is
 `webhook | websocket`. Lark and Feishu are separate provider values even though
 one internal Lark-platform implementation serves both brands. `connector` is
 not a Message Channel domain term.
+
+Channel permission read-back requires the complete tenant Channel bundle and
+rejects denied, duplicate, user-token, or unrelated business scopes. The one
+explicitly granted tenant scope `application:application:patch` may additionally
+be present for application configuration. It is setup authority only and never
+becomes a Center Agent tool grant or an App connection. The default registration
+bundle does not request it automatically; an operator must explicitly consent
+before it is granted.
+
+Provider configuration refusal `99991672` becomes the bounded reason
+`<provider>.application_config_permission_required`, including when delivered
+with HTTP 403. Web explains the explicit setup grant and links to the selected
+provider's Developer Console; the existing Core-owned retry remains active.
+This uses the existing string reason field without changing a shared payload,
+CLI/Service protocol, database schema, or local-component artifact. Old Web
+can still read the reason with generic retry copy; new Web accepts old Core.
+Deploy Web before Core for actionable guidance throughout rollout. Old and new
+CLI, Service, Skills, and Gateway remain compatible through setup, Wake, Space
+actions, and diagnostics; no contract-version bump or local-component stamp is
+required.
 
 The additive setup-request HTTP contract accepts one provider and returns its
 Organization, stable request id, recipient count, and `created` or
@@ -2786,13 +3025,12 @@ event idempotency key. Core skips metadata history lookup on a first delivery.
 Only a Queue or Slack retry reconciles the exact top-level or thread message;
 if found, it returns `replied` without another model call or publication.
 
-Roll out the Remote Agent consumer before Core returns the new evidence shape,
-then deploy Core ingress with the trusted event grant. During that short window
-the new consumer accepts only the exact old `{organizationId, status:
-"presented"}` acknowledgement and labels it `legacy_core_presented`; arbitrary
-extra text or fields still fail closed. Core no longer calls or exposes the
-removed transient resolver. Rollback stops the Core producer first, then rolls
-back the Remote Agent consumer. This hosted runtime contract does not change
+The evidence-shape rollout is complete. Current Remote Agent requires the
+shared search result rather than accepting a presentation acknowledgement.
+Core no longer calls or exposes the removed transient resolver. Keep Core's
+current search and invitation receivers in place before deploying Remote Agent;
+roll back Remote Agent before reverting those receiver contracts. This hosted
+runtime contract does not change
 CLI, OpenMeld Service, daemon, Prepare, RuntimeCoordinator, or local-component
 versions.
 
@@ -3103,6 +3341,19 @@ Remote Agent first. Old Remote Agent never calls the new RPC, and the existing
 strict local-agent candidate response remains byte-for-byte unchanged for
 mixed-version compatibility.
 
+### Agent Work confirmation outcomes
+
+Agent Work may carry the optional `outcome: confirmation_required` projection.
+It means the tool returned a confirmation proposal, not that its external action
+executed. The tool result remains the execution owner's fact; this field grants
+no permission and carries no confirmation token or raw result. Runtime preserves
+the original tool-call identity and safe subject while attaching the terminal
+outcome, including Code Mode inner calls. Web labels it as a confirmation request.
+
+Deploy Core/Gateway/Web readers before Runtime emits the optional field because
+older stream readers use strict schemas. Refresh existing Web tabs before the
+producer rollout. Rollback removes the Runtime producer before old readers.
+
 ### Organization Document Contracts
 
 `packages/schemas/src/schemas/http/organization-documents.ts` owns the strict
@@ -3399,7 +3650,7 @@ delivery fails closed. Successful audited reads store
 without creating a second member record.
 
 The connected-member contract includes public research and bounded
-Organization reads plus Organization-shared Apps. Dedicated GitHub reads accept
+Organization reads plus Organization-shared Plugins. Dedicated GitHub reads accept
 only `githubActor = organization` and resolve only the Organization's GitHub App
 installation. Generic App catalog reads resolve only `scope = shared`; execution
 must read the provider action metadata before deciding whether the action is an
@@ -3462,7 +3713,7 @@ receiver-first rollout:
    provider-delivery attribution;
 3. deploy Remote Agent so connected-member turns begin exposing GitHub
    Organization reads and ordinary writes plus shared generic App capabilities;
-4. for non-GitHub Apps, treat the action owner's registered `write` effect as
+4. for non-GitHub Plugins, treat the action owner's registered `write` effect as
    the ordinary-member policy already used for verified members. Unknown and
    destructive effects remain identity-gated. GitHub requires
    `githubActor = organization`; file deletion, pull-request merge, requester-
@@ -3678,11 +3929,11 @@ This extension is consumer-first because the service bindings and Web responses
 use strict schemas. Deploy migrations through `0090`, then Web and Gateway
 consumers, then Auth, then Core, with Remote Agent prompt behavior deployable
 after Core.
-The new Remote Agent accepts an old Core authorization response that omits
-`slackIdentityLinkSupported` and refuses to record the target until Core
-advertises support. It also accepts the directory's additive
-`matchedBy = "identity_link"` value before Core may emit it. After Remote Agent
-is current, Core may emit both additions and accept the callback target.
+Current Remote Agent authorizes identity links once using capability version 2,
+including any selected account. It requires both provider-neutral identity-link
+and account-target support before recording the target. It does not retry a
+Slack-only request or discard an unverified selected account to produce a
+generic action. The directory supports `matchedBy = "identity_link"`.
 Rollback stops Core production before removing Gateway or Web consumers; the
 additive D1 columns may remain.
 
@@ -3833,7 +4084,7 @@ connection or `shared` for the Organization-controlled connection; it must
 return no connection instead of lending another member's connection.
 
 The shared preference vocabulary is `automatic | requester | shared`.
-Ordinary non-GitHub Apps may use `automatic` for requester-first,
+Ordinary non-GitHub Plugins may use `automatic` for requester-first,
 shared-second selection. Every dedicated GitHub tool instead exposes required
 `githubActor = requester | organization`; Remote Agent maps it to
 `requester | shared`, and Core rejects `automatic` for GitHub. Missing exact

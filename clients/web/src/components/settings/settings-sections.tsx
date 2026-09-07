@@ -3,8 +3,10 @@ import type { ReactNode } from "react";
 import { APP_CONTEXTUAL_MAIN_TEXT_BASE_START_CLASS_NAME } from "#/components/app/app-contextual-layout-style";
 import { CenterAgentPrivacyPage } from "#/components/organizations/center-agent-privacy-page";
 import { OrganizationSettingsPage } from "#/components/organizations/organization-settings-page";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildSettingsRoutes } from "#/lib/settings-routes";
 import { AccountSection } from "./account-section";
+import { AgentProfileCreationApprovalSettings } from "./agent-profile-creation-approval-settings";
 import { AppearanceSection } from "./appearance-section";
 import { NotificationsSection } from "./notifications-section";
 import { SettingsPlaceholderSection } from "./settings-placeholder-section";
@@ -83,6 +85,7 @@ export function buildSettingsSections(
 			render: () => (
 				<SettingsLeafLayout>
 					<CenterAgentPrivacyPage />
+					<PersonalAgentPermissions />
 				</SettingsLeafLayout>
 			),
 		},
@@ -97,7 +100,32 @@ export function buildSettingsSections(
 				</SettingsLeafLayout>
 			),
 		},
+		...(["members", "invitations", "security"] as const).map((section) => ({
+			id: section,
+			title: {
+				members: "Members",
+				invitations: "Invitations",
+				security: "Security",
+			}[section],
+			to: settingsRoutes[section],
+			requires: ["CLOUD_ACCOUNT"] as const,
+			render: () => (
+				<SettingsLeafLayout>
+					<OrganizationSettingsPage section={section} />
+				</SettingsLeafLayout>
+			),
+		})),
 	] as const;
+}
+
+function PersonalAgentPermissions() {
+	const { currentOrganization } = useAppOrganization();
+	return currentOrganization.isPersonal ? null : (
+		<AgentProfileCreationApprovalSettings
+			organizationId={currentOrganization.id}
+			organizationName={currentOrganization.name}
+		/>
+	);
 }
 
 function SettingsLeafLayout(input: { children: ReactNode }) {

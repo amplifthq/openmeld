@@ -20,6 +20,39 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Space message previews and slow Web experiences
+
+Space owns message preview truth. Message publication and retention capture a
+bounded text preview and a monotonically increasing Space-local revision into
+the existing durable Space index outbox. Core projects this into
+`space_index_spaces`; delayed retries cannot overwrite a newer revision.
+AccountSpaces attaches previews only to its already-authorized result set, in
+bounded D1 batches, when `includeMessagePreviews=true`. Older strict clients
+receive the unchanged shape. A null preview means no retained text message;
+an omitted preview has not been projected. Existing Spaces are repaired ten at
+a time after the minute scheduler's delivery work, with delayed retries.
+Space SQL schema v33 creates the preview revision table for existing v32
+Spaces before message publication or backfill. Fresh-table initialization alone
+does not upgrade a Space that already has the previous migration marker.
+
+Web reports threshold-crossing experiences to its same-origin
+`/v1/observability/performance` receiver. Search Worker logs for
+`web.openmeld.slow_experience`. Reports contain build identity, an ephemeral
+page-session ID, route templates, navigation lifecycle duration, request-category
+counts/durations and long-task summaries. They exclude message text, profile
+identity, concrete URLs, query strings, and resource names. They do not prove
+that independently fetched conversation content has finished rendering.
+
+Tune `clients/web/src/lib/observability/performance-policy.ts`: navigation
+defaults to 1500 ms, interactions to 250 ms, and reporting to twenty events per
+page session per hour. A pending navigation produces an observation after at
+least five seconds. Hidden-page navigation is excluded. Policy changes ship
+with Web; existing clients refresh policy on navigation after five minutes.
+The receiver validates payload size/shape and applies the current threshold
+and a best-effort per-isolate volume cap. These diagnostics are sampled failure
+evidence, not a complete traffic or latency distribution. Worker log retention
+governs how far back an investigation can look.
+
 ## Boundary
 
 OpenMeld data and observability exist to support the main product chain:
@@ -66,6 +99,17 @@ host and must fail closed. It gives Auth no write authority over Center Agent or
 Agent Profile state; Core remains the only owner and writer of those facts.
 
 ## Durable Data Domains
+
+The Space execution-input outbox owns reliable forwarding of already-authorized
+human corrections to one native Center Agent execution. The Space is its only
+writer. It atomically retains the human Signal and exact request, including
+the original Signal ID for idempotent retries. It cannot rebuild an unsent
+request from a chat summary or retarget it to the next execution. Its runtime
+receipt is a projection, not execution truth. The Remote Agent intake owns
+durable receipt; Flue owns canonical conversation application and acknowledges
+it only after the input is recorded there. Core retries pending forwarding
+through the existing Space alarm and retains terminal receipts for replay.
+Deleting the Space removes its input outbox with the rest of Space data.
 
 OpenMeld separates durable truth from query projections.
 
@@ -122,6 +166,14 @@ The long-term data domains are:
 Auth also owns the account's last-selected Organization entry preference. Auth
 is its only writer and accepts a selection only while the account has a current
 membership in that Organization.
+
+Auth also owns `account_sidebar_preferences`, keyed by account user ID and
+Organization ID. It stores personal group names, opaque Space IDs, section sort
+modes, and manual ordering. Membership gates reads and writes; revision-checked
+updates reject stale devices instead of overwriting newer preferences. These
+preferences never grant Space access, write pins, or change Space membership.
+The Web renders only Spaces returned by the existing authorized Space Index.
+Deleting a personal group removes its presentation association only.
 
 | Domain                             | Product role                                                                                                                                                                                        | Ownership rule                                                                                                                                                                                                                                                                                                                                                         |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -754,6 +806,15 @@ Examples:
   Gateway-scoped candidate Space ids in the same pin, join, name, and id order
   as the Account Space Index list. They must not run a separate unordered limit
   that can inspect a different subset of the member's Spaces.
+- Account Space member previews are opt-in (`includeMemberPreviews=true`).
+  Enrich only the authorized candidate list from active membership projections,
+  selecting at most three profiles by added time and profile id. The existing
+  active-member count remains the total; the preview is not another membership
+  authority. Batch reads stay under D1's parameter limit and do not contact each
+  Space Durable Object. Legacy callers receive no new response field.
+  Rollout requires Core and Gateway support before Web enables this opt-in query.
+  CLI, Service, Skills, setup, Wake dispatch, Space publication, and diagnostics
+  contracts are unchanged; no local-component contract bump is required.
 - The Space-owned Direct Message conversion timestamp projects to
   `space_index_spaces.direct_message_converted_at_ms`. It is an irreversible
   classification fact, not a client hint: reusable-DM lookup excludes converted
@@ -2287,6 +2348,17 @@ unrepairable App. Retry projections retain the latest bounded failure reason so
 clients can explain continued automatic verification without creating a second
 retry authority.
 
+Before configuring an unconnected App, the live configuration-claim owner
+replaces only callback secrets exceeding the provider's 32-character limit.
+The encrypted replacement and clearing both URL-verification proofs are one
+guarded D1 batch. A lost or expired claim, changed credentials, or a connected
+App prevents replacement and provider configuration. The App Secret and valid
+callback secret values are preserved. This also repairs legacy credentials
+when an existing App re-enters configuration through Repair; it is not a bulk
+credential migration. URL-verification writes compare the encrypted token used
+to authenticate the challenge with the current credential row, so an in-flight
+challenge authenticated before replacement cannot restore obsolete proof.
+
 The App Secret, Webhook verification token, and event encryption key live in a
 separate encrypted credential row. The connection and credential write is one
 D1 batch, so failed encryption or persistence cannot produce a connected
@@ -2294,6 +2366,12 @@ projection. Tenant access tokens are minted and cached only within their
 provider lifetime inside one Worker isolate and are never stored in D1.
 
 Webhook readiness is connection-owned evidence, not a generic provider flag.
+The provider's encrypted URL-verification challenge may omit all three
+signature headers. Core may decrypt that envelope only into a URL-verification
+challenge and must match its verification token before recording reachability.
+Partial or invalid signature headers are rejected. Ordinary encrypted events
+still require a valid signature; this exception never admits an event or starts
+a Center Agent turn.
 Core records the Event Subscription URL challenge and Message Card Request URL
 challenge separately. A Webhook connection becomes `connected` only after its
 application configuration has supplied the bot identity and both surfaces have
@@ -2855,6 +2933,9 @@ CLI trace, operator trace shortcuts, dispatch trace reads, Web Wake waterfall,
 Diagnostic Reports, and claim execution diagnostics all read or derive from the
 same Wake correlation model. They must not invent separate selector rules,
 separate field priority rules, or separate observability schemas.
+Dispatch and attempt status validation uses the shared trace schemas directly.
+A legitimate cancelled dispatch or profile-queue wait must not disappear from
+diagnostics because a reader maintains an older private status list.
 
 For Remote Agent dispatches, runtime diagnostics use the exact runtime
 conversation identity frozen in that dispatch's native-delivery request. The
@@ -3022,6 +3103,18 @@ with the Core projection backed by the Remote Agent Durable Object record.
 point and derives its physical field order from the shared schema.
 
 ## Structured Log Events
+
+Web application errors use `web.openmeld.application_error` in Workers Logs.
+Web is the sole intake/log owner; `packages/schemas` owns the additive browser
+report contract. Browser reports are untrusted diagnostic evidence. The intake
+accepts only bounded same-origin JSON, validates and minimizes fields, and caps
+log volume. Raw exception text, full stacks, actual page URLs, user content,
+credentials, and local paths must not enter this report. Error categories,
+code-template route IDs, build asset positions, build IDs, source SHAs, and
+Cloudflare request correlation support diagnosis without product payloads.
+This does not create another product audit or execution ledger. Coverage,
+retention, source-map handling, and manual queries are documented in
+`docs/web-application-errors.md`.
 
 Structured logs at service and runtime boundaries must stay searchable and
 correlation-friendly:

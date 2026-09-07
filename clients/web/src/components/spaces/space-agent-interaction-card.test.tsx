@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SpaceAgentInteractionCard } from "./space-agent-interaction-card";
 
 const SECRET_COMMAND_PATTERN = /git push/i;
-const PLAN_CONTENT_PATTERN = /1\. Update the contract/;
+const PLAN_CONTENT_PATTERN = /Update the contract/;
 
 describe("SpaceAgentInteractionCard", () => {
 	afterEach(() => {
@@ -77,48 +77,8 @@ describe("SpaceAgentInteractionCard", () => {
 			});
 		});
 		expect(
-			await screen.findByText("@runner is resuming this Wake.")
+			await screen.findByText("Waiting for @runner to continue.")
 		).toBeTruthy();
-	});
-
-	it("lets the owner edit future Agent permissions without resolving the current request", () => {
-		const onEditAgentProfile = vi.fn();
-		const onRespond = vi.fn().mockResolvedValue(undefined);
-		render(
-			<SpaceAgentInteractionCard
-				item={createWakeProgressItem({
-					canRespond: true,
-					request: {
-						expiresAtMs: Date.UTC(2026, 6, 29),
-						interactionId: "interaction-permission-settings",
-						kind: "permission",
-						options: [
-							{
-								intent: "allow_once",
-								label: "Allow once",
-								optionId: "allow-once",
-							},
-						],
-						requestedAtMs: Date.UTC(2026, 6, 28),
-						subject: { type: "tool" },
-						title: "Use this tool?",
-						v: 1,
-					},
-				})}
-				onEditAgentProfile={onEditAgentProfile}
-				onRespond={onRespond}
-			/>
-		);
-
-		expect(
-			screen.getByText(
-				"New permission settings can affect later tool requests in this Wake when the local agent supports live updates. This request was already waiting, so respond to it separately."
-			)
-		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Edit Agent Profile" }));
-
-		expect(onEditAgentProfile).toHaveBeenCalledWith("agent-runner");
-		expect(onRespond).not.toHaveBeenCalled();
 	});
 
 	it("supports multi-select answers with an Other value", async () => {

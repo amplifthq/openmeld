@@ -728,10 +728,9 @@ async function deliverRemoteAgentStreamPart(input: {
   for (let attempt = 1; attempt <= STREAM_CALLBACK_MAX_ATTEMPTS; attempt += 1) {
     let retryDelayMs = STREAM_CALLBACK_RETRY_DELAY_MS;
     try {
-      const response = await submitRemoteAgentStreamPartWithCompatibility({
-        body: input.body,
-        submit,
-      });
+      const response = remoteAgentStreamDeltaCallbackResponseSchema.parse(
+        await submit(input.body)
+      );
       if (response.status !== "retryable") {
         return response;
       }
@@ -750,54 +749,6 @@ async function deliverRemoteAgentStreamPart(input: {
     await input.sleep(retryDelayMs);
   }
   return null;
-}
-
-async function submitRemoteAgentStreamPartWithCompatibility(input: {
-  body: RemoteAgentStreamPartCallbackBody;
-  submit: NonNullable<
-    RemoteAgentCoreWorkerBinding["submitRemoteAgentStreamPart"]
-  >;
-}): Promise<RemoteAgentStreamDeltaCallbackResponse> {
-  const response = remoteAgentStreamDeltaCallbackResponseSchema.parse(
-    await input.submit(input.body)
-  );
-  if (
-    response.status !== "rejected" ||
-    response.reasonCode !== "agent_stream.invalid"
-  ) {
-    return response;
-  }
-  const compatibilityBody = buildOlderCoreCompatibleStreamPartBody(input.body);
-  return compatibilityBody
-    ? remoteAgentStreamDeltaCallbackResponseSchema.parse(
-        await input.submit(compatibilityBody)
-      )
-    : response;
-}
-
-function buildOlderCoreCompatibleStreamPartBody(
-  body: RemoteAgentStreamPartCallbackBody
-): RemoteAgentStreamPartCallbackBody | null {
-  const work = body.part.work;
-  if (
-    !work?.subject ||
-    work.subject.kind !== "connected_app" ||
-    !(
-      work.key === "connected_app.action.execute" ||
-      work.key === "connected_app.actions.read"
-    )
-  ) {
-    return null;
-  }
-  return remoteAgentStreamPartCallbackBodySchema.parse({
-    ...body,
-    part: {
-      type: body.part.type,
-      toolCallId: body.part.toolCallId,
-      toolName: body.part.toolName,
-      state: body.part.state,
-    },
-  });
 }
 
 async function readRemoteAgentStreamState(

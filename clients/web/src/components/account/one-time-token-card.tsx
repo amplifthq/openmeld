@@ -6,11 +6,13 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { env } from "#/env";
 import { useGenerateOneTimeToken } from "#/hooks/account.hooks";
 import { getAuthErrorMessage } from "#/lib/auth-errors";
+import { isLocalWebOrigin } from "#/lib/local-web-origin";
 import { DEFAULT_ONE_TIME_TOKEN_EXPIRES_IN_SECONDS } from "#/lib/one-time-token-expiry";
 
 const DEFAULT_DEV_AUTH_URL = "http://localhost:8788";
@@ -43,20 +45,6 @@ function tokenStatusText(remainingSeconds: number | null): string {
 	}
 
 	return `Token expires in ${formatCountdown(remainingSeconds)}.`;
-}
-
-function isLocalWebOrigin(origin: string): boolean {
-	try {
-		const url = new URL(origin);
-		return (
-			url.hostname === "localhost" ||
-			url.hostname === "127.0.0.1" ||
-			url.hostname === "::1" ||
-			url.hostname === "[::1]"
-		);
-	} catch {
-		return false;
-	}
 }
 
 export function buildOneTimeTokenCommandDisplay(
@@ -218,7 +206,7 @@ export function OneTimeTokenCard() {
 				<div className="space-y-1">
 					<p className="text-muted-foreground text-xs">One-time token</p>
 					<button
-						className={`block w-full cursor-pointer touch-manipulation break-all border border-border p-2 text-left text-xs transition-colors hover:bg-muted/30 max-lg:min-h-11 ${oneTimeToken ? "" : "text-muted-foreground/60"}`}
+						className={`block w-full cursor-pointer touch-manipulation break-all rounded-md border border-border bg-surface-2 p-2 text-left text-xs shadow-surface-1 transition-colors hover:bg-muted/30 max-lg:min-h-11 ${oneTimeToken ? "" : "text-muted-foreground/60"}`}
 						onClick={handleCopyTokenClick}
 						type="button"
 					>
@@ -248,7 +236,7 @@ export function OneTimeTokenCard() {
 				<div className="space-y-1">
 					<p className="text-muted-foreground text-xs">CLI command</p>
 					<button
-						className="block w-full cursor-pointer overflow-x-auto border border-border p-2 text-left text-xs transition-colors hover:bg-muted/30"
+						className="block w-full cursor-pointer overflow-x-auto rounded-md border border-border bg-surface-2 p-2 text-left text-xs shadow-surface-1 transition-colors hover:bg-muted/30"
 						onClick={handleCopyCommandClick}
 						type="button"
 					>
@@ -260,9 +248,13 @@ export function OneTimeTokenCard() {
 					{commandDisplay.alternateCommand ? (
 						<div className="space-y-1">
 							<p className="text-muted-foreground text-xs">Alternate command</p>
-							<div className="overflow-x-auto border border-border/70 p-2 text-muted-foreground text-xs">
+							<ScrollArea
+								className="rounded-md border border-border bg-surface-2 shadow-surface-1"
+								contentClassName="p-2 text-muted-foreground text-xs"
+								orientation="horizontal"
+							>
 								{commandDisplay.alternateCommand}
-							</div>
+							</ScrollArea>
 						</div>
 					) : null}
 				</div>

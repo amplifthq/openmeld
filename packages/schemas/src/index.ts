@@ -71,8 +71,8 @@ export {
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
-  buildOrganizationAppPath,
-  buildOrganizationAppsPath,
+  buildOrganizationPluginPath,
+  buildOrganizationPluginsPath,
   buildOrganizationRootPath,
   buildOrganizationSpacePath,
   buildSlackIdentityLinkNavigationAction,
@@ -82,6 +82,27 @@ export {
   openMeldNavigationTargetSchema,
   openMeldWebUrlSchema,
 } from "./navigation-action";
+export {
+  OFFICIAL_CLI_SKILL_CONTRACT,
+  OFFICIAL_CLI_SKILL_MAX_BYTES,
+  OFFICIAL_CLI_SKILL_PUBLIC_KEY,
+  OFFICIAL_CLI_SKILL_URL,
+  type OfficialCliSkillPayload,
+  type OfficialCliSkillRelease,
+  officialCliSkillChannelSchema,
+  officialCliSkillPayloadSchema,
+  officialCliSkillReleaseSchema,
+} from "./official-cli-skill";
+export {
+  type OrganizationJoinRequest,
+  type OrganizationJoinRequestInput,
+  type OrganizationJoinRequestResponse,
+  type OrganizationJoinRequestRpcInput,
+  organizationJoinRequestInputSchema,
+  organizationJoinRequestResponseSchema,
+  organizationJoinRequestRpcInputSchema,
+  organizationJoinRequestSchema,
+} from "./organization-join-request";
 export { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "./organization-request-context";
 export {
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
@@ -123,5 +144,53 @@ export {
   RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
 } from "./runtime-coordinator-reason-code";
+export {
+  type AccountSidebarPreferences,
+  type AccountSidebarSnapshot,
+  accountSidebarErrorResponseSchema,
+  accountSidebarPreferencesSchema,
+  accountSidebarResponseSchema,
+  accountSidebarSnapshotSchema,
+  type PeopleSidebarPreferences,
+  peopleSidebarPreferencesSchema,
+  saveAccountSidebarBodySchema,
+  sidebarSortSchema,
+} from "./schemas/account-sidebar";
 export * from "./schemas/index";
+export {
+  ORGANIZATION_INVITATION_LIFETIME_SECONDS,
+  type SpaceInvitation,
+  type SpaceInvitationAccessInput,
+  type SpaceInvitationGrantInput,
+  type SpaceInvitationRequest,
+  type SpaceInvitationResponse,
+  type SpaceInvitationRevokeInput,
+  type SpaceInvitationRpcInput,
+  type SpaceInvitationRpcResult,
+  type SpaceInvitationWorker,
+  spaceInvitationAccessInputSchema,
+  spaceInvitationGrantInputSchema,
+  spaceInvitationRequestSchema,
+  spaceInvitationResponseSchema,
+  spaceInvitationRevokeInputSchema,
+  spaceInvitationRpcInputSchema,
+  spaceInvitationRpcResultSchema,
+  spaceInvitationSchema,
+} from "./space-invitation";
 export type * from "./types/index";
+export {
+  WEB_APPLICATION_ERROR_MAX_BYTES,
+  WEB_APPLICATION_ERROR_PATH,
+  type WebApplicationErrorReport,
+  type WebApplicationErrorSource,
+  webApplicationErrorReportSchema,
+  webApplicationErrorSourceSchema,
+  webApplicationErrorSummarySchema,
+} from "./web-application-error";
+export {
+  WEB_PERFORMANCE_PATH,
+  type WebPerformancePolicy,
+  type WebPerformanceReport,
+  webPerformancePolicySchema,
+  webPerformanceReportSchema,
+} from "./web-performance";

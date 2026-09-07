@@ -14,6 +14,7 @@ import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import { hasLiveSpaceAgentToolActivity } from "./space-agent-tool-activity-state";
 import { SpaceMessageDeliveryStatus } from "./space-message-delivery-status";
 import { SpaceMessageWakeThinkingIndicator } from "./space-message-wake-thinking-indicator";
+import { SpaceWakeBookmarkAnchor } from "./space-wake-bookmarks";
 
 export function SpaceMessageProgressStatus(input: {
 	align?: "start" | "end";
@@ -46,7 +47,8 @@ export function SpaceMessageProgressStatus(input: {
 				item={input.item}
 				onOpenMessageDetails={input.onOpenMessageDetails}
 			/>,
-			input.containerClassName
+			input.containerClassName,
+			input.item.activeWakeProgress
 		);
 	}
 
@@ -68,7 +70,8 @@ export function SpaceMessageProgressStatus(input: {
 				/>
 			) : null}
 		</>,
-		input.containerClassName
+		input.containerClassName,
+		input.item.activeWakeProgress
 	);
 }
 
@@ -81,20 +84,38 @@ type SpaceMessageProgressContent =
 			showAgentWorkingState: boolean;
 	  };
 
+function resolveActiveWakeEntries(item: SpaceTimelineItem) {
+	if (!item.activeWakeProgress) {
+		return [];
+	}
+	return resolveWakeProgressThinkingEntry({
+		item: item.agentStreamState
+			? { ...item.activeWakeProgress, previewText: undefined }
+			: item.activeWakeProgress,
+		showElapsedTime: true,
+	});
+}
+
 function resolveSpaceMessageProgressContent(input: {
 	deliveryPresentation: SpaceMessageDeliveryPresentation | null;
 	entries: readonly SpaceMessageWakeThinkingEntry[];
 	hasControl: boolean;
 	item: SpaceTimelineItem;
 }): SpaceMessageProgressContent | null {
-	const optimisticEntries = input.item.optimisticAgentReplyProgress
-		? resolveWakeProgressThinkingEntry({
-				item: input.item.optimisticAgentReplyProgress,
-				showElapsedTime: true,
-			})
-		: [];
+	if (
+		input.item.activeWakeProgress?.phase === "sending" &&
+		input.deliveryPresentation === "sending_delayed"
+	) {
+		return {
+			deliveryPresentation: input.deliveryPresentation,
+			entries: [],
+			kind: "status",
+			showAgentWorkingState: false,
+		};
+	}
+	const activeEntries = resolveActiveWakeEntries(input.item);
 	const presentedEntries =
-		optimisticEntries.length > 0 ? optimisticEntries : input.entries;
+		activeEntries.length > 0 ? activeEntries : input.entries;
 	if (presentedEntries.some((entry) => entry.step.status === "pending")) {
 		return {
 			deliveryPresentation: null,
@@ -106,10 +127,10 @@ function resolveSpaceMessageProgressContent(input: {
 	if (hasLiveSpaceAgentToolActivity(input.item)) {
 		return { kind: "tool" };
 	}
-	if (optimisticEntries.length > 0) {
+	if (activeEntries.length > 0) {
 		return {
 			deliveryPresentation: null,
-			entries: optimisticEntries,
+			entries: activeEntries,
 			kind: "status",
 			showAgentWorkingState: false,
 		};
@@ -159,17 +180,23 @@ function resolveSpaceMessageProgressContent(input: {
 
 function wrapProgressStatus(
 	content: ReactNode,
-	containerClassName: string | undefined
+	containerClassName: string | undefined,
+	progress?: SpaceTimelineItem["activeWakeProgress"]
 ) {
+	const anchoredContent = progress ? (
+		<SpaceWakeBookmarkAnchor item={progress}>{content}</SpaceWakeBookmarkAnchor>
+	) : (
+		content
+	);
 	if (!containerClassName) {
-		return content;
+		return anchoredContent;
 	}
 	return (
 		<div
 			className={containerClassName}
 			data-slot="space-message-row-progress-inset"
 		>
-			{content}
+			{anchoredContent}
 		</div>
 	);
 }

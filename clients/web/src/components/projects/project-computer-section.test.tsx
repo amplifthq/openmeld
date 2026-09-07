@@ -843,6 +843,10 @@ describe("ProjectComputerSection", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Make default" }));
+		expect(setDefaultConnection).not.toHaveBeenCalled();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change default folder" })
+		);
 
 		await waitFor(() =>
 			expect(discoveryController.applyConnectionSnapshot).toHaveBeenCalledWith(
@@ -850,7 +854,7 @@ describe("ProjectComputerSection", () => {
 				responseConnections
 			)
 		);
-		expect(discoveryController.refresh).toHaveBeenCalledTimes(1);
+		expect(discoveryController.refresh).not.toHaveBeenCalled();
 	});
 
 	it("requires and submits an atomic replacement when removing the default", async () => {

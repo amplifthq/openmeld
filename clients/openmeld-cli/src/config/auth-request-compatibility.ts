@@ -50,8 +50,14 @@ export function resolveAuthRequestCompatibility(input: {
   const authHost = authBaseUrl.host;
 
   if (
-    isLoopbackHostname(requestUrl.hostname) &&
-    isLoopbackHostname(authBaseUrl.hostname)
+    (isLoopbackHostname(requestUrl.hostname) &&
+      isLoopbackHostname(authBaseUrl.hostname)) ||
+    // Isolated worktrees share a hostname across Auth and Gateway ports.
+    // Never treat different named localhost lanes as interchangeable.
+    (requestUrl.hostname.endsWith(".localhost") &&
+      requestUrl.hostname === authBaseUrl.hostname &&
+      isHttpTransportProtocol(authBaseUrl.protocol) &&
+      ["http:", "https:", "ws:", "wss:"].includes(requestUrl.protocol))
   ) {
     return {
       compatible: true,

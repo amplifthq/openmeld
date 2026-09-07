@@ -3,10 +3,26 @@ import type {
 	AgentWorkActivity,
 } from "@openmeld/schemas/types";
 import type { ThinkingOrbProps } from "thinking-orbs";
+import type { WakeProgressStatusKind } from "#/lib/spaces/wake-progress-status";
 
 export type SpaceAgentOrbState = NonNullable<ThinkingOrbProps["state"]>;
 
 export const DEFAULT_SPACE_AGENT_ORB_STATE: SpaceAgentOrbState = "solving";
+
+/** Appearance only: the shared Wake presenter owns status and wording. */
+export const WAKE_STATUS_ORB_STATE = {
+	starting: "connecting",
+	sent: "connecting",
+	connecting: "connecting",
+	retrying: "connecting",
+	queued: "breathing",
+	waiting_for_controller: "breathing",
+	waiting_for_owner: "listening",
+	needs_input: "listening",
+	working: "solving",
+	replying: "composing",
+	posting: "weaving",
+} as const satisfies Record<WakeProgressStatusKind, SpaceAgentOrbState>;
 
 const SEARCH_WORK_KEYS = new Set<AgentWorkActivity["key"]>([
 	"github.code.search",

@@ -2,9 +2,15 @@ import { isDirectMessageSpace } from "@openmeld/space";
 import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
 import { Card, CardContent, CardHeader } from "@openmeld/ui/components/card";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { type ComponentProps, type ReactNode, useEffect, useMemo } from "react";
+import {
+	type ComponentProps,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+} from "react";
 import { z } from "zod/v4";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { appShellStaticData } from "#/components/app/shell-layout";
@@ -38,15 +44,18 @@ import {
 	type AppSidebarPersistedStates,
 	getAppSidebarStatesForRoute,
 } from "#/lib/sidebar-width-cookie";
+import { clearSpaceConversationPositions } from "#/lib/space-conversation-position";
 import { resolveAppSpacesProfile } from "#/lib/spaces/app-spaces-profile";
 import {
 	readLastUsedHumanProfileId,
 	writeLastUsedHumanProfileId,
 } from "#/lib/spaces/last-used-profile";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
+import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { isQueryCancellationError } from "#/query/query-cancellation";
 import { spaceConversationDisplaySnapshotQueryOptions } from "#/query/spaces/display-snapshot";
+import { spaceHistoryQueryOptions } from "#/query/spaces/history";
 import { spaceStatusQueryOptions } from "#/query/spaces/status";
 
 const appSpaceRouteSearchSchema = z.object({
@@ -536,6 +545,71 @@ function AppSpaceAccessGate(
 		spaceId: string;
 	} & Pick<AppSpaceFocusSearch, "focusSignalId" | "focusThreadRootSignalId">
 ) {
+	const organization = useAppOrganization();
+	const queryClient = useQueryClient();
+	// SSR loader hydration does not rerun the route loader in the browser.
+	// Activate here too, after the account, Organization, and Profile checks.
+	useEffect(() => {
+		resolveAppQueryPersistenceController()
+			.activateSpaceConversation({
+				organizationId: organization.currentOrganization.id,
+				organizationSlug: organization.currentOrganization.slug,
+				ownerAccountId: organization.storageScope,
+				queryClient,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.profileId,
+			})
+			.catch((error: unknown) =>
+				console.error("Failed to restore saved Space messages.", error)
+			);
+	}, [
+		organization.currentOrganization.id,
+		organization.currentOrganization.slug,
+		organization.storageScope,
+		queryClient,
+		input.spaceId,
+		input.profileId,
+	]);
+	const display = useQuery(
+		spaceConversationDisplaySnapshotQueryOptions({
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+		})
+	);
+	const history = useQuery(
+		spaceHistoryQueryOptions({
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+			enabled: false,
+		})
+	);
+	const onAccessRejected = useCallback(() => {
+		clearSpaceConversationPositions(
+			`${input.profileId}:space-conversation:${input.spaceId}`
+		);
+		resolveAppQueryPersistenceController()
+			.clearSpaceConversation({
+				organizationId: organization.currentOrganization.id,
+				organizationSlug: organization.currentOrganization.slug,
+				ownerAccountId: organization.storageScope,
+				queryClient,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.profileId,
+			})
+			.catch((error: unknown) =>
+				console.error(
+					"Failed to clear an inaccessible saved Space view.",
+					error
+				)
+			);
+	}, [
+		organization.currentOrganization.id,
+		organization.currentOrganization.slug,
+		organization.storageScope,
+		queryClient,
+		input.spaceId,
+		input.profileId,
+	]);
 	const appTarget = buildOrganizationSpacePath({
 		orgSlug: input.orgSlug,
 		search: buildAppSpaceRouteSearch({
@@ -548,6 +622,7 @@ function AppSpaceAccessGate(
 	return (
 		<SpaceEntryGate
 			backHref={buildOrganizationSpacesPath(input.orgSlug)}
+			onAccessRejected={onAccessRejected}
 			openMeldProfileId={input.profileId}
 			renderFrame={(content) => (
 				<AppSpaceEntryShell
@@ -559,6 +634,9 @@ function AppSpaceAccessGate(
 					{content}
 				</AppSpaceEntryShell>
 			)}
+			restoredContent={
+				display.data && history.data ? input.children : undefined
+			}
 			signalId={input.focusSignalId}
 			signInHref={`/login?redirect=${encodeURIComponent(appTarget)}`}
 			spaceId={input.spaceId}
@@ -1085,9 +1163,9 @@ function DirectMessagesLoadFailureState(input: {
 
 function resolveAppSpaceEntryRouteTo(
 	navigationSurface: AppSpaceNavigationSurface
-): "/o/$orgSlug/direct-messages/$spaceId" | "/o/$orgSlug/spaces/$spaceId" {
+): "/o/$orgSlug/chats/$spaceId" | "/o/$orgSlug/spaces/$spaceId" {
 	return navigationSurface === "directMessages"
-		? "/o/$orgSlug/direct-messages/$spaceId"
+		? "/o/$orgSlug/chats/$spaceId"
 		: "/o/$orgSlug/spaces/$spaceId";
 }
 

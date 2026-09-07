@@ -71,7 +71,8 @@ export async function prepareEnsureInboxItemStatements(input: {
     candidate.sourceKey,
   ]);
   const deliveryId =
-    candidate.importance === "urgent"
+    candidate.importance === "urgent" ||
+    candidate.sourceTarget.kind === "organization_join_request"
       ? await buildStableId("inbox_email", [itemId])
       : null;
   const resolutionStatus =
@@ -202,7 +203,7 @@ export async function prepareEnsureInboxItemStatements(input: {
             SELECT ?, id, 'pending', 0, ?, ?, ?
             FROM inbox_items
             WHERE id = ?
-              AND importance = 'urgent'
+              AND (importance = 'urgent' OR json_extract(source_target_json, '$.kind') = 'organization_join_request')
             ON CONFLICT(inbox_item_id) DO NOTHING
           `
         )
@@ -228,6 +229,7 @@ function readInboxTargetScope(
     case "agent_interaction":
     case "agent_profile":
     case "agent_profile_creation_request":
+    case "organization_join_request":
     case "center_agent_task":
     case "message_channel":
     case "organization_document":

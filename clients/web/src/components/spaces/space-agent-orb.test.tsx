@@ -9,7 +9,7 @@ import {
 afterEach(cleanup);
 
 describe("SpaceAgentOrb", () => {
-	it("renders the solving orb at a 16 pixel visual footprint", () => {
+	it("renders the working orb at a 16 pixel visual footprint", () => {
 		const { container } = render(<SpaceAgentOrb />);
 		const orb = container.querySelector<HTMLCanvasElement>("canvas");
 		const orbSlot = container.querySelector<HTMLElement>(
@@ -67,7 +67,7 @@ describe("SpaceAgentOrb", () => {
 		).toBe("shaping");
 	});
 
-	it("returns to solving after specialized work settles", () => {
+	it("returns to working after specialized work settles", () => {
 		expect(
 			resolveSpaceAgentWorkOrbState({
 				state: "output-available",

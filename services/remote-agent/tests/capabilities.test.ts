@@ -81,6 +81,21 @@ async function createCapabilityInventoryStorage(
   return storage;
 }
 
+async function runFlueTool(
+  tool: Awaited<ReturnType<typeof buildRemoteAgentFlueTools>>[number],
+  context: { input: Record<string, unknown> }
+) {
+  const result = await tool.run({
+    data: context.input,
+    log: console,
+    toolCallId: "capability-test-call",
+  } as never);
+  if (!result || typeof result !== "object") {
+    throw new Error("Expected a Flue tool output envelope.");
+  }
+  return result.output;
+}
+
 describe("remote agent Flue capability inventory", () => {
   it("exposes the complete first-phase explicit tool surface in an organization-shared turn", async () => {
     const turnEnvelope = createOrganizationSharedTurnEnvelope();
@@ -127,9 +142,9 @@ describe("remote agent Flue capability inventory", () => {
     }[] = [];
 
     for (let index = 0; index < executableNames.length; index += 8) {
-      const result = (await describeTool.run({
+      const result = (await runFlueTool(describeTool, {
         input: { names: executableNames.slice(index, index + 8) },
-      } as never)) as {
+      })) as {
         capabilities: { name: string; namespace: string }[];
         unknownNames: string[];
       };
@@ -172,9 +187,9 @@ describe("remote agent Flue capability inventory", () => {
     }
 
     await expect(
-      searchTool.run({
+      runFlueTool(searchTool, {
         input: { query: "检查我的电脑和 OpenMeld 工具状态" },
-      } as never)
+      })
     ).resolves.toMatchObject({
       capabilities: expect.arrayContaining([
         expect.objectContaining({
@@ -198,7 +213,7 @@ describe("remote agent Flue capability inventory", () => {
     }
 
     await expect(
-      searchTool.run({ input: { query: "帮我更新 OpenMeld 工具" } } as never)
+      runFlueTool(searchTool, { input: { query: "帮我更新 OpenMeld 工具" } })
     ).resolves.toMatchObject({
       capabilities: expect.arrayContaining([
         expect.objectContaining({
@@ -222,9 +237,9 @@ describe("remote agent Flue capability inventory", () => {
     }
 
     await expect(
-      searchTool.run({
+      runFlueTool(searchTool, {
         input: { query: "调查 Center Agent 为什么失败，给我准确执行状态" },
-      } as never)
+      })
     ).resolves.toMatchObject({
       capabilities: expect.arrayContaining([
         expect.objectContaining({
@@ -373,14 +388,14 @@ describe("remote agent Flue capability inventory", () => {
     });
 
     await expect(
-      wakeTool.run({
+      runFlueTool(wakeTool, {
         input: {
           agentProfileIds: ["agt_33333333-3333-4333-8333-333333333333"],
           completionMode: "child_reports_directly",
           spaceId: "space_123",
           text: "Please review this.",
         },
-      } as never)
+      })
     ).rejects.toThrow("mentionProfileIds");
     expect(centerAgentWakeAgentProfilesInSpace).not.toHaveBeenCalled();
   });

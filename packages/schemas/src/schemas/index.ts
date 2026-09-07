@@ -685,6 +685,12 @@ export {
   openMeldDaemonTaskResultTelemetrySchema,
 } from "./daemon/task-result";
 export {
+  type WindowsUserTaskRequest,
+  windowsUserTaskActionSchema,
+  windowsUserTaskRequestSchema,
+  windowsUserTaskStatusSchema,
+} from "./daemon/windows-user-task";
+export {
   DB_FACT_SCHEMA_VERSION,
   dbCommandFactSummarySchema,
   dbDebtRegistryItemSchema,
@@ -1013,6 +1019,8 @@ export {
   centerAgentReadinessBlockerSchema,
   centerAgentReadMemberComputersBodySchema,
   centerAgentReadMemberComputersResponseSchema,
+  centerAgentReadPeopleComputersBodySchema,
+  centerAgentReadPeopleComputersResponseSchema,
   centerAgentReadSpaceContextBodySchema,
   centerAgentReadSpaceContextResponseSchema,
   centerAgentRecordConnectorActionAuditBodySchema,
@@ -1092,10 +1100,20 @@ export {
   createCenterAgentContextManifestResponseSchema,
 } from "./http/center-agent-context-manifest";
 export {
+  type CenterAgentSessionSelector,
+  type CreateCenterAgentSessionBody,
   centerAgentDirectMessageSpaceProjectionSchema,
+  centerAgentSessionListCursorSchema,
+  centerAgentSessionListItemSchema,
+  centerAgentSessionSelectorSchema,
+  createCenterAgentSessionBodySchema,
   deriveCenterAgentDirectMessageSpaceProjection,
   getCenterAgentDirectMessageSpaceProjectionResponseSchema,
   isCenterAgentDirectMessageSpaceProjection,
+  type ListCenterAgentSessionsQuery,
+  type ListCenterAgentSessionsResponse,
+  listCenterAgentSessionsQuerySchema,
+  listCenterAgentSessionsResponseSchema,
 } from "./http/center-agent-direct-message-space";
 export {
   CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES,
@@ -1574,6 +1592,7 @@ export {
   centerAgentListOrganizationMembersBodySchema,
   centerAgentListOrganizationMembersResponseSchema,
   centerAgentListOrganizationMembersToolRpcInputSchema,
+  centerAgentOrganizationDirectoryPageSchema,
   organizationAgentRuntimeOverviewItemSchema,
   organizationAgentRuntimeOverviewResponseSchema,
   organizationDirectoryAgentProfileIdentitySchema,
@@ -1586,6 +1605,7 @@ export {
   organizationMemberWebActivityResponseSchema,
   organizationProfileDirectoryAgentProfileSchema,
   organizationProfileDirectoryResponseSchema,
+  spaceMemberWebActivityWriteSchema,
 } from "./http/organization-directory";
 export {
   approveOrganizationDocumentDraftBodySchema,
@@ -1797,6 +1817,19 @@ export {
   projectOwnerComputerLocalRuntimes,
   summarizeComputerFileAccessPolicy,
 } from "./http/owner-computer-diagnostics";
+export {
+  peopleComputerCliInventorySchema,
+  peopleComputerConnectionSchema,
+  peopleComputerFileAccessReadRpcInputSchema,
+  peopleComputerFileAccessUpdateBodySchema,
+  peopleComputerFileAccessUpdateRpcInputSchema,
+  peopleComputerFolderPickerBodySchema,
+  peopleComputerFolderPickerRpcInputSchema,
+  peopleComputerProjectDiscoveryRpcInputSchema,
+  peopleComputerSchema,
+  peopleComputersResponseSchema,
+  peopleComputerTargetSchema,
+} from "./http/people-computers";
 export {
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,
@@ -2773,6 +2806,12 @@ export {
   workingLanguageGuidanceSchema,
   workingLanguageTagSchema,
 } from "./runtime/index";
+export {
+  remoteAgentWorkerExecutionInputQuerySchema,
+  remoteAgentWorkerExecutionInputReceiptSchema,
+  remoteAgentWorkerExecutionInputRequestSchema,
+  remoteAgentWorkerExecutionInputResponseSchema,
+} from "./runtime/remote-agent-execution-input";
 export { spaceAuthorityOrderSchema } from "./space-mesh/authority-order";
 export { continuitySchema } from "./space-mesh/continuity";
 export { dispatchBriefSchema } from "./space-mesh/dispatch-brief";

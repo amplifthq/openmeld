@@ -19,9 +19,10 @@
 
 ## Product Promise
 
-Projects is a first-class OpenMeld destination for managing the code Projects
-shared by the current workspace and the local connections to those Projects on
-the current user's computer.
+Projects are shared work contexts within an Organization. Their first
+onboarding surface is choosing a Working folder while creating or editing a
+local Agent Profile. People can select, create, and edit a Project there
+without learning a separate top-level destination.
 
 It answers four user questions:
 
@@ -44,7 +45,7 @@ CRUD, or reinterpret existing Activity evidence.
 
 ### Project
 
-A Project is the Organization-scoped cloud identity for one code project. It
+A Project is the Organization-scoped cloud identity for a shared body of work. It
 may carry a safe canonical Repository URL and its stable repository
 fingerprint, but it never contains an absolute local path.
 
@@ -100,11 +101,13 @@ identity.
 
 ## Navigation And Product Home
 
-Projects keeps its canonical product home but is temporarily absent from the
-primary rail. Existing direct and contextual links remain available. This
-interim change does not relocate Projects or decide its future placement; the
-complete primary-rail grouping and order belong to
-`developing/clients/web.md`.
+Projects has no primary-rail entry. Working folder controls are its initial
+product entry: “From a project” exposes the Organization's Projects, “Create
+project”, and contextual “Project details”. Existing canonical routes remain
+available for detailed management and existing links. A future Files or
+Documents design may consume Project identity; it must not create another
+Project model or grant document, repository, or computer access merely from
+Project membership. This change adds no Files, Documents, or Skills lifecycle.
 
 Project content follows the selected Organization. Personal workspaces and
 multi-member Organizations both have Projects, and switching workspaces keeps
@@ -427,6 +430,60 @@ is missing; dispatch preflight revalidates the default connection before every
 unattended Wake and is the final authority.
 
 ## Current-Computer Discovery And Connection
+
+Computer settings use explicit PeopleComputers discovery for the selected
+device and environment. This read does not follow the account's current Binding
+or require an Agent report. Core verifies the requesting Human's Organization
+access and the exact owned Service session before forwarding canonical Project
+references. File-access folder suggestions do not create Project connections.
+The existing current-computer Project connection and mutation APIs retain their
+current-target contract; explicit discovery does not retarget those mutations.
+
+Saved connections and candidate discovery have different costs. Web first sends
+`discoverProjects` with `includeCandidates: false`. The Service reads the
+canonical local connection store and checks directory availability without
+Git, session inventory, or worktree enumeration. It returns `not_checked`
+for Git and `not_connected` for a Project without a saved folder. Neither
+means discovery found no matching repository. Only a selected Project without
+saved connections starts candidate discovery. RuntimeTransportHub checks the
+selected Service's advertised `readConnections` capability and strips the flag
+for older Services, retaining their existing discovery behavior. This negotiation
+adds no field to the strict public local-runtimes response consumed by old clients.
+
+Connection-only reads do not begin or replace candidate-discovery epochs.
+Successful mutations update every current-account, Organization, device, and
+lane-scoped in-memory connection projection; a cold cache reads the Service
+snapshot back. The browser cache is a performance aid, not the durable
+connection store or launch authority. Reopening a control must not rediscover
+a previously connected repository before allowing selection. Launch still
+validates the current local connection, ownership, and directory.
+
+### Working Folder Control
+
+Creation and editing reuse one control with three mutually exclusive sources:
+`On this computer`, `From a project`, and `Let OpenMeld choose`.
+Only the selected source's controls appear. A Project selector never contains
+managed or custom-folder options. Managed mode has no Project path.
+An empty Project selection or custom path cannot silently save as managed.
+The native folder picker is primary; entering an absolute path remains available.
+
+A saved available default Project folder is selected immediately. Selecting
+another connected folder explicitly confirms that new sessions for every Agent
+using that Project on this computer will use the new default. Current sessions
+remain unchanged. Selecting a Project stores its ID, never a duplicate custom
+path preference. Loading, failed reads, and missing folders have visible states.
+
+Contextual creation accepts a name and optional repository URL. Local matching
+of a private repository uses local Git metadata and does not require a GitHub
+App connection. A URL does not authorize remote reads, clone, import, or access
+to private content. GitHub repository browsing must use an explicitly
+authorized connection; this surface does not borrow Center Agent credentials.
+Existing active Projects for the same normalized repository are offered for
+reuse. Contextual create requests carry a stable `operationId` for retries:
+Core scopes it to Organization and creator, rejects changed request content,
+and atomically prevents duplicate repository creation by competing requests.
+Legacy API clients without the optional key retain their existing contract.
+Archived Projects are not silently restored by a retry.
 
 Web never reads the local filesystem. Project operations use a sibling
 `localProjectControl` capability over RuntimeTransportHub's authenticated

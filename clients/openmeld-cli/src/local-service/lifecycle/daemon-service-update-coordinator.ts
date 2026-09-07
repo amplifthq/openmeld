@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { OpenMeldToolsUpdateRequestSource } from "@openmeld/schemas/types";
 import { sleep, toErrorMessage } from "@openmeld/utils";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
+import { hasIndependentMaintenanceRegistration } from "../../config/daemon-service-update-worker-registration";
 import { withDaemonServiceReconcileLock } from "../../config/daemon-state";
 import { compareSemver } from "../../config/version-state";
 import { withManagedInstallTransaction } from "../../local-components/managed-install";
@@ -16,6 +17,7 @@ import type {
   DaemonServiceLifecycleRecoveryStatus,
 } from "./daemon-service-lifecycle";
 import { runDaemonServiceLifecycle } from "./daemon-service-lifecycle";
+import { assertDaemonMaintenanceInstallationOwnership } from "./daemon-service-manager-command-match";
 import { readCurrentObservedDaemonRuntimeStatus } from "./daemon-service-runtime";
 import {
   completePendingDaemonServiceUpdate,
@@ -384,26 +386,39 @@ async function runPreparedPendingUpdate(
   }
 }
 
+function resolveWorkerInstallation(useDefaultLock: boolean) {
+  const noOperation = async () => undefined;
+  if (!useDefaultLock) {
+    return { install: installDaemonServiceUpdateWorker, prepare: noOperation };
+  }
+  return {
+    install: async (job: DaemonServiceUpdateJob) => {
+      if (!(await hasIndependentMaintenanceRegistration())) {
+        await registerDaemonServiceUpdateWorker(job);
+      }
+    },
+    prepare: async (job: DaemonServiceUpdateJob) => {
+      if (!(await hasIndependentMaintenanceRegistration())) {
+        await prepareDaemonServiceUpdateWorkerCarrier(job);
+      }
+    },
+  };
+}
+
 function resolveScheduleDependencies(
   overrides: Partial<ScheduleDaemonServiceUpdateDependencies>,
   options: { useDefaultLock: boolean }
 ): ScheduleDaemonServiceUpdateDependencies {
+  const workerInstall = resolveWorkerInstallation(options.useDefaultLock);
   return {
     createJobId: overrides.createJobId ?? randomUUID,
-    installWorker:
-      overrides.installWorker ??
-      (options.useDefaultLock
-        ? registerDaemonServiceUpdateWorker
-        : installDaemonServiceUpdateWorker),
+    installWorker: overrides.installWorker ?? workerInstall.install,
     now: overrides.now ?? (() => new Date().toISOString()),
     persistPendingJob:
       overrides.persistPendingJob ?? persistPendingDaemonServiceUpdate,
     prepareBundle: overrides.prepareBundle ?? prepareDaemonServiceBundle,
     prepareWorkerCarrier:
-      overrides.prepareWorkerCarrier ??
-      (options.useDefaultLock
-        ? prepareDaemonServiceUpdateWorkerCarrier
-        : async () => undefined),
+      overrides.prepareWorkerCarrier ?? workerInstall.prepare,
     pruneWorkerVersions:
       overrides.pruneWorkerVersions ??
       pruneDaemonServiceUpdateWorkerManagedVersions,
@@ -435,7 +450,14 @@ function resolveRunDependencies(
     persistPendingJob:
       overrides.persistPendingJob ?? persistPendingDaemonServiceUpdate,
     readPendingJob: overrides.readPendingJob ?? readPendingDaemonServiceUpdate,
-    runLifecycle: overrides.runLifecycle ?? runDaemonServiceLifecycle,
+    runLifecycle:
+      overrides.runLifecycle ??
+      (async (input) => {
+        // Recheck under the lifecycle lock: another setup may have claimed the
+        // lane while this worker was downloading or waiting for active work.
+        await assertDaemonMaintenanceInstallationOwnership();
+        return await runDaemonServiceLifecycle(input);
+      }),
     waitUntilSafeToSwitch:
       overrides.waitUntilSafeToSwitch ?? waitUntilDaemonServiceSafeSwitch,
     withReconcileLock:

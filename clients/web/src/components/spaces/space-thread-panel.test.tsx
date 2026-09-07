@@ -21,8 +21,8 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSpaceTimelineItems } from "#/lib/spaces/timeline";
+import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
 import { SpaceThreadPanel } from "./space-thread-panel";
-import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
 
 const FAILED_TEXT_PATTERN = /failed/i;
 const REFERENCED_SPACE_ID = "c".repeat(64);
@@ -125,6 +125,43 @@ describe("SpaceThreadPanel", () => {
 		expect(composer?.className).not.toContain("border-border");
 	});
 
+	it("restores only this Thread's active Wakes without importing the root message's main-conversation controls", () => {
+		const context = {
+			messagePreview: "Review the launch",
+			profileId: "human-profile-1",
+			profileKind: "human" as const,
+			profileName: "Teammate",
+			threadId: "thread-1",
+		};
+		renderThreadPanel({
+			onWakeStopRequest: vi.fn(),
+			ephemeralActivityItems: [
+				{
+					...createWakeProgressItem(),
+					sourceContext: context,
+					targetLabel: "Thread Agent",
+				},
+				{
+					...createWakeProgressItem(),
+					sourceContext: { ...context, threadId: null },
+					sourceSignalId: "sig-root",
+					targetProfileId: SECOND_TARGET_PROFILE_ID,
+					targetLabel: "Main Agent",
+				},
+			],
+			signals: [createTextSignal()],
+		});
+		expect(
+			screen.getByRole("button", { name: "Stop Wake for Thread Agent" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Stop Wake for Main Agent" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Stop Wake for 2 agents" })
+		).toBeNull();
+	});
+
 	it("places the current Space pending actions above the visible thread composer", () => {
 		renderThreadPanel({
 			pendingActionSurface: (
@@ -220,10 +257,10 @@ describe("SpaceThreadPanel", () => {
 
 		expect(
 			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", true);
+		).toHaveProperty("disabled", false);
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
-		).toHaveProperty("disabled", true);
+		).toHaveProperty("disabled", false);
 	});
 
 	it("hides redundant mention guidance in an Agent DM thread", () => {
@@ -1163,57 +1200,6 @@ describe("SpaceThreadPanel", () => {
 				.getByRole("radio", { name: "Allow once" })
 				.getAttribute("aria-checked")
 		).toBe("false");
-	});
-
-	it("opens future permission settings from a permission request in a thread", () => {
-		const onEditAgentProfile = vi.fn();
-		renderThreadPanel({
-			editableAgentProfileIds: new Set([TARGET_PROFILE_ID]),
-			ephemeralActivityItems: [
-				{
-					...createWakeProgressItem(),
-					pendingInteraction: {
-						canRespond: true,
-						expiresAtMs: Date.UTC(2026, 6, 29),
-						interactionId: "interaction-thread-permission",
-						kind: "permission",
-						request: {
-							expiresAtMs: Date.UTC(2026, 6, 29),
-							interactionId: "interaction-thread-permission",
-							kind: "permission",
-							options: [
-								{
-									intent: "allow_once",
-									label: "Allow once",
-									optionId: "allow-once",
-								},
-							],
-							requestedAtMs: Date.UTC(2026, 6, 28),
-							subject: { type: "tool" },
-							title: "Use this tool?",
-							v: 1,
-						},
-						requestedAtMs: Date.UTC(2026, 6, 28),
-					},
-					runtimeCoordinatorExecutionId: "rce_thread_permission",
-				},
-			],
-			onAgentInteractionResponse: vi.fn().mockResolvedValue(undefined),
-			onEditAgentProfile,
-			signals: [createWakeTextSignal()],
-		});
-
-		const sourceMessage = screen
-			.getByText("@runner please triage this")
-			.closest("[data-signal-id='sig-thread-wake']");
-		expect(sourceMessage).not.toBeNull();
-		fireEvent.click(
-			within(sourceMessage as HTMLElement).getByRole("button", {
-				name: "Edit Agent Profile",
-			})
-		);
-
-		expect(onEditAgentProfile).toHaveBeenCalledWith(TARGET_PROFILE_ID);
 	});
 
 	it("opens the exact structured Wake target from an inline Agent mention", () => {

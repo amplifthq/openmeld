@@ -3,22 +3,18 @@
 import type {
 	AuthProfileView,
 	LocalProjectControlConnection,
-	Project,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
-	DialogClose,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
-import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
-import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { useReducer } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { clearPendingAgentProfileCreationLocalSetupForProfile } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { updateAgentProfileDefaultProject } from "#/lib/profiles/update-default-project";
@@ -30,26 +26,7 @@ import {
 	shouldShowAgentProfileProjectSettings,
 } from "./agent-profile-project-settings";
 
-type ProjectSelectionMode = "managed" | "project" | "workspace" | null;
-
-type ProjectSettingsDialogState = {
-	errorMessage: string | null;
-	pendingAction: string | null;
-	selectedBindingGeneration: string | null;
-	selectedConnection: LocalProjectControlConnection | null;
-	selectedProjectId: string;
-	selectionMode: ProjectSelectionMode;
-	workspacePath: string;
-};
-
-function reduceProjectSettingsDialogState(
-	state: ProjectSettingsDialogState,
-	patch: Partial<ProjectSettingsDialogState>
-): ProjectSettingsDialogState {
-	return { ...state, ...patch };
-}
-
-export function AgentProfileProjectSettingsDialog(input: {
+type SettingsInput = {
 	actorProfileId: string | null;
 	agentControllerRef: string | null;
 	executionTargetChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
@@ -59,7 +36,9 @@ export function AgentProfileProjectSettingsDialog(input: {
 	open: boolean;
 	organizationId: string;
 	profile: AuthProfileView;
-}) {
+};
+
+export function AgentProfileProjectSettingsDialog(input: SettingsInput) {
 	if (
 		!shouldShowAgentProfileProjectSettings({
 			agentControllerRef: input.agentControllerRef,
@@ -71,394 +50,189 @@ export function AgentProfileProjectSettingsDialog(input: {
 	return (
 		<LocalAgentProfileProjectSettingsDialog
 			{...input}
-			key={`${input.profile.openMeldProfileId}:${input.open}:${input.profile.defaultProjectId ?? "managed"}:${input.currentWorkingFolder ?? "unknown"}`}
+			key={`${input.organizationId}:${input.profile.openMeldProfileId}:${input.open}:${input.profile.defaultProjectId === undefined}`}
 		/>
 	);
 }
 
-function LocalAgentProfileProjectSettingsDialog(input: {
-	actorProfileId: string | null;
-	agentControllerRef: string | null;
-	executionTargetChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
-	currentWorkingFolder: string | null;
-	onOpenChange: (open: boolean) => void;
-	onProfileUpdated: (profile: AuthProfileView) => void;
-	open: boolean;
-	organizationId: string;
-	profile: AuthProfileView;
-}) {
+function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 	const projectsQuery = useQuery(
-		projectsQueryOptions({ organizationId: input.organizationId })
+		projectsQueryOptions({
+			organizationId: input.organizationId,
+			enabled: input.open,
+		})
 	);
-	const projects = projectsQuery.data?.projects ?? [];
-	const defaultProjectId = input.profile.defaultProjectId ?? null;
-	const defaultProject = projects.find(
-		(project) => project.id === defaultProjectId
+	const initialProjectId = input.profile.defaultProjectId ?? "";
+	const initialPath = resolveInitialCustomPath(
+		initialProjectId,
+		input.currentWorkingFolder
 	);
-	const currentMode = resolveCurrentMode({
-		currentWorkingFolder: input.currentWorkingFolder,
-		defaultProjectId,
+	const initialFallback = initialPath ? "advanced" : "managed";
+	const [projectId, setProjectId] = useState(initialProjectId);
+	const [fallback, setFallback] = useState<
+		"advanced" | "managed" | "project" | null
+	>(initialProjectId ? null : initialFallback);
+	const [path, setPath] = useState(initialPath);
+	const [connection, setConnection] =
+		useState<LocalProjectControlConnection | null>(null);
+	const [pending, setPending] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const disabled =
+		pending ||
+		input.profile.defaultProjectId === undefined ||
+		input.executionTargetChangeEligibilityStatus !== "allowed";
+	const changed =
+		projectId !== initialProjectId ||
+		(!projectId &&
+			(fallback !== initialFallback ||
+				(fallback === "advanced" && path.trim() !== initialPath)));
+	const valid = isWorkingFolderDraftValid({
+		projectId,
+		connection,
+		fallback,
+		path,
 	});
-	const [state, updateState] = useReducer(reduceProjectSettingsDialogState, {
-		errorMessage: null,
-		pendingAction: null,
-		selectedBindingGeneration: null,
-		selectedConnection: null,
-		selectedProjectId: defaultProjectId ?? "",
-		selectionMode: null,
-		workspacePath:
-			currentMode === "workspace" ? (input.currentWorkingFolder ?? "") : "",
-	});
-	const {
-		errorMessage,
-		pendingAction,
-		selectedBindingGeneration,
-		selectedConnection,
-		selectedProjectId,
-		selectionMode,
-		workspacePath,
-	} = state;
-	const setSelectionMode = (selectionMode: ProjectSelectionMode) =>
-		updateState({ selectionMode });
-	const setSelectedProjectId = (selectedProjectId: string) =>
-		updateState({ selectedProjectId });
-	const setSelectedBindingGeneration = (
-		selectedBindingGeneration: string | null
-	) => updateState({ selectedBindingGeneration });
-	const setSelectedConnection = (
-		selectedConnection: LocalProjectControlConnection | null
-	) => updateState({ selectedConnection });
-	const setWorkspacePath = (workspacePath: string) =>
-		updateState({ workspacePath });
-	const setPendingAction = (pendingAction: string | null) =>
-		updateState({ pendingAction });
-	const setErrorMessage = (errorMessage: string | null) =>
-		updateState({ errorMessage });
-	const closeDialog = () => {
-		setSelectionMode(null);
-		setSelectedProjectId(defaultProjectId ?? "");
-		setSelectedBindingGeneration(null);
-		setSelectedConnection(null);
-		setWorkspacePath(
-			currentMode === "workspace" ? (input.currentWorkingFolder ?? "") : ""
-		);
-		setErrorMessage(null);
-		input.onOpenChange(false);
-	};
-	const applyConnection = async (connection: LocalProjectControlConnection) => {
-		setPendingAction("connection");
-		setErrorMessage(null);
-		try {
-			await updateAgentProfileWorkspace({
-				actorProfileId: input.actorProfileId,
-				organizationId: input.organizationId,
-				profileId: input.profile.openMeldProfileId,
-				workspaceMode: "custom",
-				workspacePath: connection.path,
-			});
-			clearPendingAgentProfileCreationLocalSetupForProfile(
-				input.profile.openMeldProfileId
-			);
-			const updatedProfile = await updateAgentProfileDefaultProject({
-				actorProfileId: input.actorProfileId,
-				defaultProjectId: selectedProjectId,
-				organizationId: input.organizationId,
-				profileId: input.profile.openMeldProfileId,
-			});
-			input.onProfileUpdated(updatedProfile);
-			toast.success("Default Project and working folder updated.");
-			closeDialog();
-		} catch (error) {
-			setErrorMessage(formatProjectSettingsError(error));
-		} finally {
-			setPendingAction(null);
-		}
-	};
-	const selectManagedWorkspace = async () => {
-		setPendingAction("managed");
-		setErrorMessage(null);
-		try {
-			await updateAgentProfileWorkspace({
-				actorProfileId: input.actorProfileId,
-				organizationId: input.organizationId,
-				profileId: input.profile.openMeldProfileId,
-				workspaceMode: "openmeld_managed",
-			});
-			clearPendingAgentProfileCreationLocalSetupForProfile(
-				input.profile.openMeldProfileId
-			);
-			const updatedProfile = await updateAgentProfileDefaultProject({
-				actorProfileId: input.actorProfileId,
-				defaultProjectId: null,
-				organizationId: input.organizationId,
-				profileId: input.profile.openMeldProfileId,
-			});
-			input.onProfileUpdated(updatedProfile);
-			toast.success("OpenMeld will choose the working folder.");
-			closeDialog();
-		} catch (error) {
-			setErrorMessage(formatProjectSettingsError(error));
-		} finally {
-			setPendingAction(null);
-		}
-	};
-	const saveCustomWorkspace = async () => {
-		if (workspacePath.trim().length === 0) {
-			setErrorMessage("Enter the full working folder path on this computer.");
+	const save = async () => {
+		if (disabled || !changed || !valid) {
 			return;
 		}
-		setPendingAction("custom-workspace");
-		setErrorMessage(null);
+		setPending(true);
+		setError(null);
+		const context = {
+			actorProfileId: input.actorProfileId,
+			organizationId: input.organizationId,
+			profileId: input.profile.openMeldProfileId,
+		};
 		try {
-			await updateAgentProfileWorkspace({
-				actorProfileId: input.actorProfileId,
-				organizationId: input.organizationId,
-				profileId: input.profile.openMeldProfileId,
-				workspaceMode: "custom",
-				workspacePath,
+			// Project intent is resolved by the Service's canonical connection. Do not
+			// copy its path into a second custom-folder preference.
+			if (!projectId) {
+				await updateAgentProfileWorkspace({
+					...context,
+					workspaceMode:
+						fallback === "advanced" ? "custom" : "openmeld_managed",
+					...(fallback === "advanced" ? { workspacePath: path } : {}),
+				});
+			}
+			const updated = await updateAgentProfileDefaultProject({
+				...context,
+				defaultProjectId: projectId || null,
 			});
 			clearPendingAgentProfileCreationLocalSetupForProfile(
 				input.profile.openMeldProfileId
 			);
-			const updatedProfile = await updateAgentProfileDefaultProject({
-				actorProfileId: input.actorProfileId,
-				defaultProjectId: null,
-				organizationId: input.organizationId,
-				profileId: input.profile.openMeldProfileId,
-			});
-			input.onProfileUpdated(updatedProfile);
+			input.onProfileUpdated(updated);
 			toast.success("Working folder updated.");
-			closeDialog();
-		} catch (error) {
-			setErrorMessage(formatProjectSettingsError(error));
+			input.onOpenChange(false);
+		} catch (failure) {
+			setError(
+				failure instanceof Error
+					? failure.message
+					: "Couldn’t save the working folder. Try again."
+			);
 		} finally {
-			setPendingAction(null);
+			setPending(false);
 		}
 	};
-	const isPending = pendingAction !== null;
-	const workspaceChangeDisabled =
-		isPending || input.executionTargetChangeEligibilityStatus !== "allowed";
-	const selectedMode = selectionMode ?? currentMode;
-	const selectedIndex = ["workspace", "project", "managed"].indexOf(
-		selectedMode
-	);
-	const saveDisabled =
-		workspaceChangeDisabled ||
-		selectionMode === null ||
-		(selectionMode === "project" && selectedConnection === null) ||
-		(selectionMode === "workspace" && workspacePath.trim().length === 0);
-	const saveSelection = async () => {
-		if (selectionMode === "managed") {
-			await selectManagedWorkspace();
-			return;
-		}
-		if (selectionMode === "workspace") {
-			await saveCustomWorkspace();
-			return;
-		}
-		if (selectionMode === "project" && selectedConnection) {
-			await applyConnection(selectedConnection);
-		}
-	};
-	return (
-		<LocalAgentProfileProjectSettingsDialogView
-			closeDialog={closeDialog}
-			currentMode={currentMode}
-			defaultProjectId={defaultProjectId}
-			defaultProjectName={defaultProject?.name ?? null}
-			errorMessage={errorMessage}
-			input={input}
-			isPending={isPending}
-			projects={projects}
-			projectsError={projectsQuery.isError}
-			projectsPending={projectsQuery.isPending}
-			saveDisabled={saveDisabled}
-			saveSelection={saveSelection}
-			selectedBindingGeneration={selectedBindingGeneration}
-			selectedIndex={selectedIndex}
-			selectedProjectId={selectedProjectId}
-			selectionMode={selectionMode}
-			setErrorMessage={setErrorMessage}
-			setSelectedBindingGeneration={setSelectedBindingGeneration}
-			setSelectedConnection={setSelectedConnection}
-			setSelectedProjectId={setSelectedProjectId}
-			setSelectionMode={setSelectionMode}
-			setWorkspacePath={setWorkspacePath}
-			workspaceChangeDisabled={workspaceChangeDisabled}
-			workspacePath={workspacePath}
-		/>
-	);
-}
-
-function LocalAgentProfileProjectSettingsDialogView(input: {
-	closeDialog: () => void;
-	currentMode: Exclude<ProjectSelectionMode, null>;
-	defaultProjectId: string | null;
-	defaultProjectName: string | null;
-	errorMessage: string | null;
-	input: Parameters<typeof LocalAgentProfileProjectSettingsDialog>[0];
-	isPending: boolean;
-	projects: readonly Project[];
-	projectsError: boolean;
-	projectsPending: boolean;
-	saveDisabled: boolean;
-	saveSelection: () => Promise<void>;
-	selectedBindingGeneration: string | null;
-	selectedIndex: number;
-	selectedProjectId: string;
-	selectionMode: ProjectSelectionMode;
-	setErrorMessage: (message: string | null) => void;
-	setSelectedBindingGeneration: (generation: string | null) => void;
-	setSelectedConnection: (
-		connection: LocalProjectControlConnection | null
-	) => void;
-	setSelectedProjectId: (projectId: string) => void;
-	setSelectionMode: (mode: ProjectSelectionMode) => void;
-	setWorkspacePath: (path: string) => void;
-	workspaceChangeDisabled: boolean;
-	workspacePath: string;
-}) {
-	const dialog = input.input;
 	return (
 		<Dialog
 			onOpenChange={(open) => {
-				if (!(open || input.isPending)) {
-					input.closeDialog();
+				if (!pending) {
+					input.onOpenChange(open);
 				}
 			}}
-			open={dialog.open}
+			open={input.open}
 		>
-			<DialogContent className="sm:max-w-xl">
+			<DialogContent className="sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle>Working folder</DialogTitle>
 					<DialogDescription>
-						Choose where {dialog.profile.profileName} starts new work on this
-						computer.
+						Choose where {input.profile.profileName} starts new work.
 					</DialogDescription>
 				</DialogHeader>
 				<div className="grid gap-4">
-					<RadioGroup
-						aria-disabled={input.workspaceChangeDisabled || undefined}
-						aria-label="Starting location"
-						className={cn(
-							"w-full gap-1",
-							input.workspaceChangeDisabled && "pointer-events-none opacity-70"
-						)}
-						selectedIndex={input.selectedIndex}
-					>
-						<RadioItem
-							className="px-3 py-2.5"
-							description="Use one specific folder on this computer."
-							index={0}
-							label="A folder on this computer"
-							onSelect={() => {
-								input.setSelectionMode("workspace");
-								input.setWorkspacePath(
-									input.currentMode === "workspace"
-										? (dialog.currentWorkingFolder ?? "")
-										: ""
-								);
-								input.setSelectedConnection(null);
-								input.setErrorMessage(null);
-							}}
-						/>
-						<RadioItem
-							className="px-3 py-2.5"
-							description={
-								input.defaultProjectName
-									? `${input.defaultProjectName} is the current Project.`
-									: "Use a Project’s connected folder across computers."
-							}
-							index={1}
-							label="A Project folder"
-							onSelect={() => {
-								input.setSelectionMode("project");
-								input.setSelectedProjectId(input.defaultProjectId ?? "");
-								input.setSelectedBindingGeneration(null);
-								input.setSelectedConnection(null);
-								input.setErrorMessage(null);
-							}}
-						/>
-						<RadioItem
-							className="px-3 py-2.5"
-							description="Let OpenMeld choose a folder for each new Session."
-							index={2}
-							label="OpenMeld managed"
-							onSelect={() => {
-								input.setSelectionMode("managed");
-								input.setSelectedConnection(null);
-								input.setErrorMessage(null);
-							}}
-						/>
-					</RadioGroup>
-					<p className="text-muted-foreground text-xs leading-5">
+					{input.profile.defaultProjectId === undefined ? (
+						<output className="text-muted-foreground text-sm">
+							Loading the saved working folder…
+						</output>
+					) : null}
+					<AgentProfileProjectSelector
+						disabled={disabled}
+						manualPath={path}
+						onConnectionReady={setConnection}
+						onManualPathChange={(value) => {
+							setPath(value);
+							setError(null);
+						}}
+						onProjectChange={(value) => {
+							setProjectId(value);
+							setConnection(null);
+							setFallback(null);
+							setError(null);
+						}}
+						onUseAdvancedWorkspace={() => {
+							setFallback("advanced");
+							setPath(initialPath);
+						}}
+						onUseManagedWorkspace={() => {
+							setFallback("managed");
+							setPath("");
+						}}
+						onUseProjectWorkspace={() => setFallback("project")}
+						organizationId={input.organizationId}
+						projectId={projectId}
+						projects={projectsQuery.data?.projects ?? []}
+						selectedBindingGeneration={connection?.bindingGeneration ?? null}
+						workspaceFallbackMode={fallback}
+					/>
+					{projectsQuery.isPending ? (
+						<output className="text-muted-foreground text-sm">
+							Loading projects…
+						</output>
+					) : null}
+					{projectsQuery.isError ? (
+						<p className="text-destructive text-sm" role="alert">
+							Couldn’t load projects.{" "}
+							<button
+								className="underline"
+								onClick={() => projectsQuery.refetch()}
+								type="button"
+							>
+								Try again
+							</button>
+						</p>
+					) : null}
+					<p className="text-muted-foreground text-xs">
 						{FUTURE_WAKES_PROJECT_SETTINGS_NOTICE}
 					</p>
-					{dialog.executionTargetChangeEligibilityStatus === "blocked" ? (
-						<p className="text-muted-foreground text-xs leading-5">
+					{input.executionTargetChangeEligibilityStatus === "blocked" ? (
+						<p className="text-muted-foreground text-sm">
 							Working folder changes are unavailable while this Agent is working
 							because changing folders would interrupt the current Wake.
 						</p>
 					) : null}
-					{dialog.executionTargetChangeEligibilityStatus === "unavailable" ? (
-						<p className="text-muted-foreground text-xs leading-5">
-							OpenMeld couldn’t confirm whether this Agent is working, so
-							working folder changes are temporarily unavailable. Try again.
+					{input.executionTargetChangeEligibilityStatus === "unavailable" ? (
+						<p className="text-muted-foreground text-sm">
+							OpenMeld couldn’t confirm whether this Agent is working. Try
+							again.
 						</p>
 					) : null}
-					<ProjectSettingsSelectionControls
-						disabled={input.workspaceChangeDisabled}
-						isProjectsPending={input.projectsPending}
-						mode={input.selectionMode}
-						onConnectionReady={(connection) => {
-							input.setSelectedBindingGeneration(connection.bindingGeneration);
-							input.setSelectedConnection(connection);
-						}}
-						onManualPathChange={(path) => {
-							input.setWorkspacePath(path);
-							input.setErrorMessage(null);
-						}}
-						onProjectChange={(projectId) => {
-							input.setSelectedProjectId(projectId);
-							input.setSelectedBindingGeneration(null);
-						}}
-						organizationId={dialog.organizationId}
-						projectId={input.selectedProjectId}
-						projects={input.projects}
-						selectedBindingGeneration={input.selectedBindingGeneration}
-						workspacePath={input.workspacePath}
-					/>
-					{input.projectsError ? (
-						<p className="text-destructive text-sm">
-							OpenMeld couldn’t load Projects for this organization.
+					{error ? (
+						<p className="text-destructive text-sm" role="alert">
+							{error}
 						</p>
-					) : null}
-					{input.errorMessage ? (
-						<p className="text-destructive text-sm">{input.errorMessage}</p>
 					) : null}
 				</div>
 				<DialogFooter>
-					<DialogClose
-						render={
-							<Button
-								disabled={input.isPending}
-								type="button"
-								variant="ghost"
-							/>
-						}
+					<Button
+						disabled={pending}
+						onClick={() => input.onOpenChange(false)}
+						variant="ghost"
 					>
 						Cancel
-					</DialogClose>
-					<Button
-						disabled={input.saveDisabled}
-						onClick={() => {
-							input.saveSelection().catch((error) => {
-								console.error("Failed to update working folder.", error);
-							});
-						}}
-						type="button"
-					>
-						{input.isPending ? "Saving…" : "Save changes"}
+					</Button>
+					<Button disabled={disabled || !changed || !valid} onClick={save}>
+						{pending ? "Saving…" : "Save changes"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>
@@ -466,74 +240,27 @@ function LocalAgentProfileProjectSettingsDialogView(input: {
 	);
 }
 
-function ProjectSettingsSelectionControls(input: {
-	disabled: boolean;
-	isProjectsPending: boolean;
-	mode: ProjectSelectionMode;
-	onConnectionReady: (connection: LocalProjectControlConnection) => void;
-	onManualPathChange: (path: string) => void;
-	onProjectChange: (projectId: string) => void;
-	organizationId: string;
+function resolveInitialCustomPath(
+	projectId: string,
+	path: string | null
+): string {
+	if (projectId || path === "OpenMeld managed") {
+		return "";
+	}
+	return path ?? "";
+}
+
+function isWorkingFolderDraftValid(input: {
 	projectId: string;
-	projects: readonly Project[];
-	selectedBindingGeneration: string | null;
-	workspacePath: string;
-}) {
-	if (input.mode === "workspace") {
-		return (
-			<AgentProfileProjectSelector
-				disabled={input.disabled}
-				manualPath={input.workspacePath}
-				onConnectionReady={() => undefined}
-				onManualPathChange={input.onManualPathChange}
-				onProjectChange={() => undefined}
-				organizationId={input.organizationId}
-				projectId=""
-				projects={input.projects}
-				selectedBindingGeneration={null}
-				showProjectSelector={false}
-				workspaceFallbackMode="advanced"
-			/>
-		);
+	connection: LocalProjectControlConnection | null;
+	fallback: "project" | "advanced" | "managed" | null;
+	path: string;
+}): boolean {
+	if (input.projectId) {
+		return input.connection !== null;
 	}
-	if (!(input.mode && !input.isProjectsPending)) {
-		return null;
+	if (input.fallback === "managed") {
+		return true;
 	}
-	return (
-		<AgentProfileProjectSelector
-			autoSelectSingleConnection={false}
-			disabled={input.disabled}
-			manualPath=""
-			onConnectionReady={input.onConnectionReady}
-			onManualPathChange={() => undefined}
-			onProjectChange={input.onProjectChange}
-			organizationId={input.organizationId}
-			projectId={input.projectId}
-			projects={input.projects}
-			selectedBindingGeneration={input.selectedBindingGeneration}
-			showWorkspaceFallbacks={false}
-		/>
-	);
-}
-
-function resolveCurrentMode(input: {
-	currentWorkingFolder: string | null;
-	defaultProjectId: string | null;
-}): Exclude<ProjectSelectionMode, null> {
-	if (input.defaultProjectId) {
-		return "project";
-	}
-	if (
-		input.currentWorkingFolder &&
-		input.currentWorkingFolder !== "OpenMeld managed"
-	) {
-		return "workspace";
-	}
-	return "managed";
-}
-
-function formatProjectSettingsError(error: unknown): string {
-	return error instanceof Error
-		? error.message
-		: "OpenMeld couldn’t update the Default Project on this computer.";
+	return input.fallback === "advanced" && input.path.trim().length > 0;
 }

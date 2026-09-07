@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T03:27:01.529Z",
+  "updatedAt": "2026-09-07T10:26:37.137Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.157",
-      "updatePolicy": "available",
-      "reason": "The new space link command is additive, and existing commands remain compatible with both cloud versions."
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
+      "packageVersion": "0.3.165",
+      "updatePolicy": "required",
+      "reason": "The new computer command output uses command contract v2; update the CLI before new clients rely on owner-scoped computer controls."
     },
     "service": {
-      "bundleHash": "2b12ace38d81f19d310192b97df4364688e3df3d45bb6044b832535483edfff8",
-      "bundleVersion": "0.3.157",
+      "bundleHash": "6e40615e9590d38a3f14f948776355b49962be517dbbda1e758f077d072b05f8",
+      "bundleVersion": "0.3.165",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Only additive optional shared schema fields changed the packaged bundle; existing Services keep current Wake, setup, trace, and recovery behavior."
+      "reason": "The Service wire contract is unchanged; existing Services remain safe while this release improves inventory and optional setup reporting."
     },
     "skills": {
-      "bundleHash": "95260cd703b998dcca9b9baba9e170ef8a2dc340cb116cacda27875fe03b2475",
+      "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The managed Skill adds optional space link guidance, while existing installed commands and workflows remain valid."
+      "reason": "Signed compatible guide revisions update independently, retain the offline baseline, and do not require retiring existing Skills."
     }
   }
 }

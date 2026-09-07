@@ -11,12 +11,12 @@ import {
 	readComputerFileAccessPolicy,
 	updateComputerFileAccessPolicy,
 } from "#/lib/connect/computer-file-access";
-import { selectLocalFolders } from "#/lib/connect/local-folder-picker";
+import { selectPeopleComputerFolders } from "#/lib/connect/local-folder-picker";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { ComputerFileAccessCard } from "./computer-file-access-card";
 
 const projectApi = vi.hoisted(() => ({
-	discoverCurrentComputerProjects: vi.fn(),
+	discoverPeopleComputerProjects: vi.fn(),
 	listCurrentProjects: vi.fn(),
 	readLocalRuntimes: vi.fn(),
 }));
@@ -27,7 +27,7 @@ vi.mock("#/lib/connect/computer-file-access", () => ({
 }));
 
 vi.mock("#/lib/connect/local-folder-picker", () => ({
-	selectLocalFolders: vi.fn(),
+	selectPeopleComputerFolders: vi.fn(),
 }));
 
 vi.mock("#/components/app/start-flow-state", () => ({
@@ -45,7 +45,7 @@ vi.mock(
 		...(await importOriginal<
 			typeof import("#/lib/organizations/local-project-control")
 		>()),
-		discoverCurrentComputerProjects: projectApi.discoverCurrentComputerProjects,
+		discoverPeopleComputerProjects: projectApi.discoverPeopleComputerProjects,
 	})
 );
 
@@ -132,7 +132,7 @@ describe("ComputerFileAccessCard", () => {
 	});
 
 	it("uses the Computer picker as the easiest way to add folder paths", async () => {
-		vi.mocked(selectLocalFolders).mockResolvedValue({
+		vi.mocked(selectPeopleComputerFolders).mockResolvedValue({
 			deviceId: "device-office",
 			paths: ["/Users/felix/Design Work"],
 			status: "selected",
@@ -226,7 +226,8 @@ describe("ComputerFileAccessCard", () => {
 
 		await waitFor(() =>
 			expect(updateComputerFileAccessPolicy).toHaveBeenCalledWith({
-				expectedDeviceId: "device-office",
+				deviceId: "device-office",
+				runtimeLane: "dev-local",
 				expectedRevision: 1,
 				idempotencyKey: expect.any(String),
 				policy: {
@@ -265,7 +266,8 @@ describe("ComputerFileAccessCard", () => {
 
 		await waitFor(() =>
 			expect(updateComputerFileAccessPolicy).toHaveBeenCalledWith({
-				expectedDeviceId: "device-office",
+				deviceId: "device-office",
+				runtimeLane: "dev-local",
 				expectedRevision: 1,
 				idempotencyKey: expect.any(String),
 				policy: {
@@ -284,7 +286,7 @@ describe("ComputerFileAccessCard", () => {
 				project("project-reply", "Reply"),
 			],
 		});
-		projectApi.discoverCurrentComputerProjects.mockResolvedValueOnce({
+		projectApi.discoverPeopleComputerProjects.mockResolvedValueOnce({
 			checkedAtMs: 1_700_000_000_000,
 			clientGeneration: 1,
 			deviceId: "device-office",
@@ -338,7 +340,7 @@ describe("ComputerFileAccessCard", () => {
 
 		expect(projectApi.listCurrentProjects).not.toHaveBeenCalled();
 		expect(projectApi.readLocalRuntimes).not.toHaveBeenCalled();
-		expect(projectApi.discoverCurrentComputerProjects).not.toHaveBeenCalled();
+		expect(projectApi.discoverPeopleComputerProjects).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("button", { name: "Add from Projects" }));
 		expect(
 			await screen.findByRole("dialog", { name: "Add folders from Projects" })
@@ -358,7 +360,8 @@ describe("ComputerFileAccessCard", () => {
 
 		await waitFor(() =>
 			expect(updateComputerFileAccessPolicy).toHaveBeenCalledWith({
-				expectedDeviceId: "device-office",
+				deviceId: "device-office",
+				runtimeLane: "dev-local",
 				expectedRevision: 1,
 				idempotencyKey: expect.any(String),
 				policy: {
@@ -403,9 +406,11 @@ function renderCard(
 		<TestQueryClientProvider>
 			<ComputerFileAccessCard
 				canChooseFolders
+				canChooseProjects
 				deviceId="device-office"
 				focusFileAccess={input.focusFileAccess ?? false}
 				onFocusConsumed={input.onFocusConsumed}
+				runtimeLane="dev-local"
 				storageScope="owner-user-1"
 			/>
 		</TestQueryClientProvider>
@@ -414,6 +419,25 @@ function renderCard(
 
 function currentLocalRuntimes() {
 	return {
+		peopleComputers: {
+			generatedAt: "2026-09-07T00:00:00.000Z",
+			computers: [
+				{
+					deviceId: "device-office",
+					connection: {
+						status: "connected",
+						reasonCodes: [],
+						sessions: [
+							{
+								deviceId: "device-office",
+								runtimeLane: "dev-local",
+								controls: { localProjectControl: { discoverProjects: true } },
+							},
+						],
+					},
+				},
+			],
+		},
 		currentDeviceId: "device-office",
 		currentRuntimeLane: "dev-local",
 		localRuntimes: [

@@ -1,69 +1,38 @@
 "use client";
 
 import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
-import {
-	parseAgentControllerRef,
-	resolveAgentWakeAvailabilityDisplayCategory,
-} from "@openmeld/agent-runtime";
 import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
 	ModelCatalog,
 } from "@openmeld/schemas/types";
-import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
-import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@openmeld/ui/components/tooltip";
-import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
-import { ADD_CARD_PICKER_CLASS_NAME } from "@openmeld/ui/lib/card-picker-contract";
-import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
-import { cn } from "@openmeld/ui/lib/utils";
-import {
-	ArrowLeftIcon,
-	ClipboardTextIcon,
-	PlusIcon,
-} from "@phosphor-icons/react";
-import { memo, type ReactNode, useState } from "react";
-import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
-import { AgentProfileOperationalStatusIndicator } from "#/components/agents/agent-profile-operational-status";
-import {
-	type AgentProfileSidebarGroup,
-	resolveAgentProfileSidebarGroups,
-} from "#/components/agents/agent-profile-sidebar-groups";
-import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout";
+import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
+import { ArrowLeftIcon, PlusIcon, RobotIcon } from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
-import {
-	APP_NAV_ITEM_TONE_CLASS_NAME,
-	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
-} from "#/components/app/app-nav-item-style";
-import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
-import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
-import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
+import { AgentProfileSidebarItem } from "./agent-profile-sidebar-item";
 
 const AGENT_REQUESTS_DESCRIPTION =
 	"Approve requests for Agents you’re being asked to own, and track requests you sent.";
-const EMPTY_AGENT_PROFILE_OPERATIONAL_CONTEXT_BY_PROFILE_ID: ReadonlyMap<
-	string,
-	AgentProfileOperationalContextInput
-> = new Map();
 
 export type AgentProfilesWorkspaceProps = {
-	activeView: "agents" | "create" | "requests";
+	canCreateAgent?: boolean;
+	person?: { id: string; name: string; path: string; agentsPath: string };
+	activeView: "agents" | "requests";
 	agentControllerRefByProfileId?: ReadonlyMap<string, string | null>;
-	createPanel?: ReactNode;
 	currentUserId: string;
+	isOrganizationContext?: boolean;
 	filterControl?: ReactNode;
+	filterBadges?: ReactNode;
 	hasAnyProfiles?: boolean;
 	isSearchActive?: boolean;
 	initialSidebarStates?: AppSidebarPersistedStates;
 	onCreateAgent: () => void;
 	onSelectProfile: (profileId: string) => void;
-	onViewChange: (view: "agents" | "create" | "requests") => void;
+	onViewChange: (view: "agents" | "requests") => void;
 	pendingRequestCount: number;
 	profiles: readonly AuthProfileView[];
 	profilesErrorMessage?: string;
@@ -85,89 +54,19 @@ export type AgentProfilesWorkspaceProps = {
 };
 
 export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
-	const groups = resolveAgentProfileSidebarGroups({
-		currentUserId: input.currentUserId,
-		operationalContextByProfileId: input.operationalContextByProfileId,
-		profiles: input.profiles,
-	});
-	if (input.profilesStatus === "ready") {
-		return (
-			<ReadyAgentProfilesWorkspace
-				groups={groups}
-				input={input}
-				key={input.profiles.length > 0 ? "has-profiles" : "no-profiles"}
-			/>
-		);
-	}
-	return (
-		<AgentProfilesWorkspaceFrame
-			groups={groups}
-			implicitSelectedProfileId={null}
-			input={input}
-		/>
-	);
-}
-
-function ReadyAgentProfilesWorkspace(input: {
-	groups: readonly AgentProfileSidebarGroup[];
-	input: AgentProfilesWorkspaceProps;
-}) {
-	const [implicitSelectedProfileId] = useState(
-		() =>
-			input.groups.flatMap((group) => group.profiles)[0]?.openMeldProfileId ??
-			null
-	);
-	return (
-		<AgentProfilesWorkspaceFrame
-			groups={input.groups}
-			implicitSelectedProfileId={implicitSelectedProfileId}
-			input={input.input}
-		/>
-	);
-}
-
-function AgentProfilesWorkspaceFrame(input: {
-	groups: readonly AgentProfileSidebarGroup[];
-	implicitSelectedProfileId: string | null;
-	input: AgentProfilesWorkspaceProps;
-}) {
-	const workspaceInput = input.input;
-	const orderedProfiles = input.groups.flatMap((group) => group.profiles);
-	const retainedImplicitProfileId = orderedProfiles.some(
-		(profile) => profile.openMeldProfileId === input.implicitSelectedProfileId
-	)
-		? input.implicitSelectedProfileId
-		: (orderedProfiles[0]?.openMeldProfileId ?? null);
-	const requestedProfileId =
-		workspaceInput.selectedProfileId ?? retainedImplicitProfileId;
-	const selectedProfile = requestedProfileId
-		? (orderedProfiles.find(
-				(profile) => profile.openMeldProfileId === requestedProfileId
-			) ?? null)
-		: (orderedProfiles[0] ?? null);
+	const workspaceInput = input;
+	const selectedProfile =
+		input.profiles.find(
+			(profile) => profile.openMeldProfileId === input.selectedProfileId
+		) ?? null;
 	const selectionMissing =
 		workspaceInput.selectedProfileId !== null && selectedProfile === null;
-	const activeProfileId =
-		workspaceInput.activeView === "agents"
-			? (selectedProfile?.openMeldProfileId ?? null)
-			: null;
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
-			initialInnerSidebarState={workspaceInput.initialSidebarStates?.inner}
 			initialOuterSidebarState={workspaceInput.initialSidebarStates?.outer}
-			mobileSidebarTitle="Agents"
-			showMainHeader
-			sidebar={
-				<AgentProfilesWorkspaceSidebar
-					activeProfileId={activeProfileId}
-					groups={input.groups}
-					input={workspaceInput}
-				/>
-			}
-			sidebarPreferenceKey="agents"
-			sidebarSeparatorLabel="Resize the Agents sidebar"
 		>
+			<AgentWorkspaceHeader {...input} />
 			<AgentProfilesWorkspaceContent
 				input={workspaceInput}
 				selectedProfile={selectedProfile}
@@ -177,110 +76,11 @@ function AgentProfilesWorkspaceFrame(input: {
 	);
 }
 
-function AgentProfilesWorkspaceSidebar(input: {
-	activeProfileId: string | null;
-	groups: readonly AgentProfileSidebarGroup[];
-	input: AgentProfilesWorkspaceProps;
-}) {
-	return (
-		<AppContextualSidebarNav
-			activeItemId={input.activeProfileId}
-			ariaLabel="Agents"
-			groups={input.groups.map((group) => ({
-				ariaLabel: `${group.label} Agents`,
-				content: (
-					<AgentProfileSidebarList
-						activeProfileId={input.activeProfileId}
-						agentControllerRefByProfileId={
-							input.input.agentControllerRefByProfileId ?? new Map()
-						}
-						currentUserId={input.input.currentUserId}
-						modelCatalog={input.input.modelCatalog ?? null}
-						onSelectProfile={input.input.onSelectProfile}
-						operationalContextByProfileId={
-							input.input.operationalContextByProfileId ??
-							EMPTY_AGENT_PROFILE_OPERATIONAL_CONTEXT_BY_PROFILE_ID
-						}
-						profiles={group.profiles}
-						readinessByProfileId={input.input.readinessByProfileId}
-						readinessErrorByProfileId={
-							input.input.readinessErrorByProfileId ?? new Map()
-						}
-						readinessPendingProfileIds={
-							input.input.readinessPendingProfileIds ?? new Set()
-						}
-					/>
-				),
-				id: group.id,
-				label: group.label,
-			}))}
-			leadingContent={
-				<div className="space-y-1">
-					<Button
-						className={cn(
-							"w-full min-w-0 justify-start overflow-hidden",
-							input.input.activeView === "create" && "bg-sidebar-accent"
-						)}
-						onClick={input.input.onCreateAgent}
-						size="sm"
-						type="button"
-						variant="ghost"
-					>
-						<PlusIcon aria-hidden="true" className="shrink-0" />
-						<span className="truncate">Create Agent</span>
-					</Button>
-					{input.input.showAgentRequests === false ? null : (
-						<Button
-							aria-description={AGENT_REQUESTS_DESCRIPTION}
-							aria-label={
-								input.input.pendingRequestCount > 0
-									? `Agent requests, ${input.input.pendingRequestCount} pending`
-									: "Agent requests"
-							}
-							className={cn(
-								"w-full min-w-0 justify-start overflow-hidden",
-								input.input.activeView === "requests"
-									? "bg-sidebar-accent"
-									: null
-							)}
-							onClick={() => input.input.onViewChange("requests")}
-							size="sm"
-							type="button"
-							variant="ghost"
-						>
-							<ClipboardTextIcon aria-hidden="true" className="shrink-0" />
-							<span className="min-w-0 flex-1 truncate text-left">
-								Agent requests
-							</span>
-							{input.input.pendingRequestCount > 0 ? (
-								<Badge className="shrink-0" variant="secondary">
-									{input.input.pendingRequestCount}
-								</Badge>
-							) : null}
-						</Button>
-					)}
-					{input.input.searchControl || input.input.filterControl ? (
-						<div className="flex min-w-0 items-center gap-1.5 px-1 pt-1">
-							{input.input.searchControl}
-							{input.input.filterControl}
-						</div>
-					) : null}
-				</div>
-			}
-			onActivate={input.input.onSelectProfile}
-			title="Agents"
-		/>
-	);
-}
-
 function AgentProfilesWorkspaceContent(input: {
 	input: AgentProfilesWorkspaceProps;
 	selectionMissing: boolean;
 	selectedProfile: AuthProfileView | null;
 }) {
-	if (input.input.activeView === "create") {
-		return input.input.createPanel ?? null;
-	}
 	if (input.input.activeView === "requests") {
 		return <AgentRequestsWorkspace input={input.input} />;
 	}
@@ -328,10 +128,61 @@ function AgentProfilesWorkspaceContent(input: {
 		return input.input.renderProfileDetail(input.selectedProfile);
 	}
 	return (
-		<>
+		<div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5 sm:px-6 lg:px-8">
 			{profilesController}
-			<AgentProfilesWorkspaceEmptyState input={input.input} />
-		</>
+			<div className="flex items-center gap-2">
+				<div className="max-w-sm flex-1">{input.input.searchControl}</div>
+				{input.input.filterControl}
+			</div>
+			{input.input.filterBadges}
+			{input.input.profiles.length > 0 ? (
+				<FluidNavMenu
+					activeValue={null}
+					aria-label="Agents"
+					className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:sm:grid-cols-2"
+				>
+					{input.input.profiles.map((profile, index) => (
+						<AgentProfileSidebarItem
+							agentControllerRef={
+								input.input.agentControllerRefByProfileId?.get(
+									profile.openMeldProfileId
+								) ?? null
+							}
+							avatarSize={40}
+							index={index}
+							isActive={false}
+							key={profile.openMeldProfileId}
+							modelCatalog={input.input.modelCatalog ?? null}
+							onSelectProfile={input.input.onSelectProfile}
+							operationalContext={
+								input.input.operationalContextByProfileId?.get(
+									profile.openMeldProfileId
+								) ?? null
+							}
+							profile={profile}
+							readiness={
+								input.input.readinessByProfileId.get(
+									profile.openMeldProfileId
+								) ?? null
+							}
+							readinessErrorMessage={
+								input.input.readinessErrorByProfileId?.get(
+									profile.openMeldProfileId
+								) ?? null
+							}
+							readinessIsPending={
+								input.input.readinessPendingProfileIds?.has(
+									profile.openMeldProfileId
+								) ?? false
+							}
+							variant="card"
+						/>
+					))}
+				</FluidNavMenu>
+			) : (
+				<AgentProfilesWorkspaceEmptyState input={input.input} />
+			)}
+		</div>
 	);
 }
 
@@ -353,7 +204,7 @@ function AgentRequestsWorkspace(input: { input: AgentProfilesWorkspaceProps }) {
 						variant="outline"
 					>
 						<ArrowLeftIcon aria-hidden="true" data-icon="inline-start" />
-						Back to Agents
+						Back to Team
 					</Button>
 				</div>
 			</header>
@@ -368,20 +219,42 @@ function AgentProfilesWorkspaceEmptyState(input: {
 	const isFiltered = input.input.hasAnyProfiles === true;
 	const isSearchActive = input.input.isSearchActive === true;
 	if (!(isSearchActive || isFiltered)) {
+		if (input.input.canCreateAgent === false) {
+			return (
+				<div className="py-12 text-center text-muted-foreground text-sm">
+					No Agents yet.
+				</div>
+			);
+		}
 		return (
 			<div className="grid min-h-full flex-1 place-items-center px-6 py-12 sm:px-10">
-				<button
-					className={cn(ADD_CARD_PICKER_CLASS_NAME, "h-auto w-full max-w-3xl")}
-					data-testid="create-agent-empty-state"
-					onClick={input.input.onCreateAgent}
-					type="button"
-				>
-					<SettingsAddComputerCardContent
-						description="Give your team an AI teammate that can work and reply in Spaces."
-						descriptionClassName="max-w-sm"
-						title="Create Agent"
+				<div className="flex w-full max-w-md flex-col items-center text-center">
+					<RobotIcon
+						aria-hidden="true"
+						className="mb-5 size-8 text-muted-foreground"
 					/>
-				</button>
+					<h1 className="font-medium text-xl">
+						{input.input.isOrganizationContext
+							? "Bring your AI to your team"
+							: "Bring your AI to your workspace"}
+					</h1>
+					<p className="mt-3 text-muted-foreground text-sm leading-6">
+						Create an Agent profile for Codex, Claude Code, or another AI
+						running on a computer.{" "}
+						{input.input.isOrganizationContext
+							? "Work with it alongside your teammates in Spaces, or chat with it directly."
+							: "Chat with it directly or give it work in Spaces."}
+					</p>
+					<Button
+						className="mt-6"
+						data-testid="create-agent-empty-state"
+						onClick={input.input.onCreateAgent}
+						type="button"
+					>
+						<PlusIcon aria-hidden="true" data-icon="inline-start" />
+						Create Agent
+					</Button>
+				</div>
 			</div>
 		);
 	}
@@ -391,7 +264,7 @@ function AgentProfilesWorkspaceEmptyState(input: {
 		"Choose another Wake availability filter to see more Agents.";
 	if (isSearchActive) {
 		title = "No Agents found";
-		description = "Try another name, owner, Controller, or model.";
+		description = "Try another name, Controller, or model.";
 	}
 	return (
 		<div className="grid min-h-full place-items-center px-6 py-12 text-center">
@@ -403,303 +276,52 @@ function AgentProfilesWorkspaceEmptyState(input: {
 	);
 }
 
-function AgentProfileSidebarList(input: {
-	activeProfileId: string | null;
-	agentControllerRefByProfileId: ReadonlyMap<string, string | null>;
-	currentUserId: string;
-	modelCatalog: ModelCatalog | null;
-	onSelectProfile: (profileId: string) => void;
-	operationalContextByProfileId: ReadonlyMap<
-		string,
-		AgentProfileOperationalContextInput
-	>;
-	profiles: readonly AuthProfileView[];
-	readinessByProfileId: ReadonlyMap<string, GetAgentExecutionReadinessResponse>;
-	readinessErrorByProfileId: ReadonlyMap<string, string>;
-	readinessPendingProfileIds: ReadonlySet<string>;
-}) {
+function AgentWorkspaceHeader(input: AgentProfilesWorkspaceProps) {
 	return (
-		<FluidNavMenu
-			activeIndicatorClassName="bg-sidebar-accent"
-			activeValue={input.activeProfileId}
-			aria-label="Agents by owner"
-			focusIndicatorClassName="border-sidebar-ring"
-			hoverIndicatorClassName="bg-sidebar-accent"
-		>
-			{input.profiles.map((profile, index) => (
-				<AgentProfileSidebarItem
-					agentControllerRef={
-						input.agentControllerRefByProfileId.get(
-							profile.openMeldProfileId
-						) ?? null
-					}
-					currentUserId={input.currentUserId}
-					index={index}
-					isActive={profile.openMeldProfileId === input.activeProfileId}
-					key={profile.openMeldProfileId}
-					modelCatalog={input.modelCatalog}
-					onSelectProfile={input.onSelectProfile}
-					operationalContext={
-						input.operationalContextByProfileId.get(
-							profile.openMeldProfileId
-						) ?? null
-					}
-					profile={profile}
-					readiness={
-						input.readinessByProfileId.get(profile.openMeldProfileId) ?? null
-					}
-					readinessErrorMessage={
-						input.readinessErrorByProfileId.get(profile.openMeldProfileId) ??
-						null
-					}
-					readinessIsPending={input.readinessPendingProfileIds.has(
-						profile.openMeldProfileId
-					)}
-				/>
-			))}
-		</FluidNavMenu>
-	);
-}
-
-const AgentProfileSidebarItem = memo(AgentProfileSidebarItemComponent);
-
-function AgentProfileSidebarItemComponent(input: {
-	agentControllerRef: string | null;
-	currentUserId: string;
-	index: number;
-	isActive: boolean;
-	modelCatalog: ModelCatalog | null;
-	onSelectProfile: (profileId: string) => void;
-	operationalContext: AgentProfileOperationalContextInput | null;
-	profile: AuthProfileView;
-	readiness: GetAgentExecutionReadinessResponse | null;
-	readinessErrorMessage: string | null;
-	readinessIsPending: boolean;
-}) {
-	const { dismiss } = useAppNavigationPresentation();
-	const agentControllerRef = resolveAgentProfileControllerRef(
-		input.readiness,
-		input.agentControllerRef
-	);
-	const presentation = resolveAgentProfileSidebarPresentation({
-		agentControllerRef,
-		errorMessage: input.readinessErrorMessage,
-		isPending: input.readinessIsPending,
-		modelCatalog: input.modelCatalog,
-		readiness: input.readiness,
-	});
-	const isOwner = input.profile.ownerUserId === input.currentUserId;
-	const hasReducedProminence =
-		presentation.availabilityCategory === "offline" ||
-		presentation.availabilityCategory === "unavailable";
-	const profileNameClassName = cn(
-		"min-w-0 truncate font-medium text-sm",
-		hasReducedProminence ? "text-muted-foreground" : null
-	);
-	const showAvailability = presentation.availabilityLabel.length > 0;
-	const availabilityDescriptionId = `agent-profile-availability-${input.profile.openMeldProfileId}`;
-	return (
-		<FluidNavMenuItem
-			index={input.index}
-			value={input.profile.openMeldProfileId}
-		>
-			<button
-				aria-current={input.isActive ? "page" : undefined}
-				aria-describedby={availabilityDescriptionId}
-				aria-label={`Open ${input.profile.profileName}`}
-				className={cn(
-					"flex w-full min-w-0 items-start gap-2 px-2 py-2 text-left outline-none",
-					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
-					APP_NAV_ITEM_TONE_CLASS_NAME,
-					input.isActive ? "text-sidebar-accent-foreground" : null
-				)}
-				data-profile-id={input.profile.openMeldProfileId}
-				onClick={() => {
-					input.onSelectProfile(input.profile.openMeldProfileId);
-					dismiss();
-				}}
-				type="button"
-			>
-				<AgentProfileControllerAvatar
-					agentControllerRef={agentControllerRef}
-					className={cn(
-						"shrink-0",
-						hasReducedProminence ? "opacity-55 grayscale" : null
-					)}
-					profileId={input.profile.openMeldProfileId}
-					size={32}
-				/>
-				<span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
-					<span className="flex min-w-0 items-center justify-between gap-2">
-						<span className={profileNameClassName}>
-							{input.profile.profileName}
-						</span>
-						<AgentProfileOperationalStatusIndicator
-							className="shrink-0"
-							operationalContext={input.operationalContext}
-						/>
-					</span>
-					{isOwner ? (
-						<span className="truncate text-muted-foreground text-xs">
-							{presentation.controllerModelSummary}
-						</span>
+		<>
+			{input.person ? (
+				<div className="mx-auto w-full max-w-5xl px-4 pt-5 sm:px-6 lg:px-8">
+					<Link
+						className="inline-flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground"
+						to={
+							input.selectedProfileId
+								? input.person.agentsPath
+								: input.person.path
+						}
+					>
+						<ArrowLeftIcon aria-hidden="true" />
+						{input.selectedProfileId
+							? `${input.person.name}’s Agents`
+							: input.person.name}
+					</Link>
+					{!input.selectedProfileId && input.activeView === "agents" ? (
+						<header className="mt-5 flex flex-wrap items-center justify-between gap-3">
+							<h1 className="font-medium text-xl">
+								{input.person.name}’s Agents
+							</h1>
+							<div className="flex items-center gap-2">
+								{input.isOrganizationContext ? (
+									<Button
+										onClick={() => input.onViewChange("requests")}
+										variant="ghost"
+									>
+										Agent requests
+										{input.pendingRequestCount > 0
+											? ` (${input.pendingRequestCount})`
+											: ""}
+									</Button>
+								) : null}
+								{input.canCreateAgent !== false && input.hasAnyProfiles ? (
+									<Button onClick={input.onCreateAgent} size="sm">
+										<PlusIcon aria-hidden="true" />
+										Create Agent
+									</Button>
+								) : null}
+							</div>
+						</header>
 					) : null}
-					{showAvailability ? (
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<span
-										className={cn(
-											"min-w-0 truncate font-medium text-xs",
-											presentation.availabilityClassName
-										)}
-										id={availabilityDescriptionId}
-										title={presentation.availabilityTooltip}
-									/>
-								}
-							>
-								{presentation.availabilityLabel}
-							</TooltipTrigger>
-							<TooltipContent side="top">
-								{presentation.availabilityTooltip}
-							</TooltipContent>
-						</Tooltip>
-					) : (
-						<span className="sr-only" id={availabilityDescriptionId}>
-							{presentation.availabilityAccessibilityLabel}
-						</span>
-					)}
-				</span>
-			</button>
-		</FluidNavMenuItem>
+				</div>
+			) : null}
+		</>
 	);
-}
-
-function resolveAgentProfileSidebarPresentation(input: {
-	agentControllerRef: string | null;
-	errorMessage: string | null;
-	isPending: boolean;
-	modelCatalog: ModelCatalog | null;
-	readiness: GetAgentExecutionReadinessResponse | null;
-}): {
-	availabilityAccessibilityLabel: string;
-	availabilityCategory: ReturnType<
-		typeof resolveAgentWakeAvailabilityDisplayCategory
-	> | null;
-	availabilityClassName: string;
-	availabilityLabel: string;
-	availabilityTooltip: string;
-	controllerModelSummary: string;
-} {
-	const parsedControllerRef = parseAgentControllerRef(input.agentControllerRef);
-	const controllerName = parsedControllerRef
-		? formatLocalAgentDisplayName(parsedControllerRef.id)
-		: "No Controller connected";
-	const controllerModelSummary =
-		resolveAgentProfileControllerModelDetail({
-			agentControllerRef: input.agentControllerRef,
-			controllerDisplayName: controllerName,
-			modelCatalog: input.modelCatalog,
-			modelSelection:
-				input.readiness?.primaryBinding?.modelSelection ??
-				input.readiness?.publicProfileConfiguration?.modelSelection ??
-				null,
-		}) ?? controllerName;
-	const wakeAvailability = input.readiness?.agentWakeAvailability ?? null;
-	if (!wakeAvailability) {
-		const availability = resolveMissingSidebarAvailability(input);
-		return {
-			availabilityAccessibilityLabel: availability.label,
-			availabilityCategory: availability.category,
-			availabilityClassName: availability.className,
-			availabilityLabel: availability.label,
-			availabilityTooltip: availability.tooltip,
-			controllerModelSummary,
-		};
-	}
-	const category =
-		resolveAgentWakeAvailabilityDisplayCategory(wakeAvailability);
-	return {
-		availabilityAccessibilityLabel: input.errorMessage
-			? `${wakeAvailability.badgeLabel}. Latest availability refresh was delayed.`
-			: wakeAvailability.badgeLabel,
-		availabilityCategory: category,
-		availabilityClassName: resolveAvailabilityClassName(category),
-		availabilityLabel: resolveSidebarAvailabilityLabel(wakeAvailability),
-		availabilityTooltip: wakeAvailability.tooltip,
-		controllerModelSummary,
-	};
-}
-
-function resolveSidebarAvailabilityLabel(
-	wakeAvailability: NonNullable<
-		GetAgentExecutionReadinessResponse["agentWakeAvailability"]
-	>
-): string {
-	const category =
-		resolveAgentWakeAvailabilityDisplayCategory(wakeAvailability);
-	if (category === "available") {
-		return "Available";
-	}
-	if (wakeAvailability.phase === "connect_local_agent") {
-		return "Connect";
-	}
-	return category === "checking" ? "" : "Unavailable";
-}
-
-function resolveAgentProfileControllerRef(
-	readiness: GetAgentExecutionReadinessResponse | null,
-	fallbackAgentControllerRef: string | null = null
-): string | null {
-	return (
-		readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
-		readiness?.publicProfileConfiguration?.agentControllerRef ??
-		readiness?.agentControllerRef ??
-		fallbackAgentControllerRef
-	);
-}
-
-function resolveMissingSidebarAvailability(input: {
-	errorMessage: string | null;
-	isPending: boolean;
-}) {
-	if (input.errorMessage) {
-		return {
-			category: null,
-			className: resolveStatusToneTextClassName("muted"),
-			label: "Couldn’t check availability.",
-			tooltip: input.errorMessage,
-		};
-	}
-	if (input.isPending) {
-		return {
-			category: "checking" as const,
-			className: resolveStatusToneTextClassName("checking"),
-			label: "Checking",
-			tooltip: "Checking Wake availability",
-		};
-	}
-	return {
-		category: null,
-		className: "text-muted-foreground",
-		label: "Not checked",
-		tooltip: "Wake availability has not been checked yet",
-	};
-}
-
-function resolveAvailabilityClassName(
-	category: ReturnType<typeof resolveAgentWakeAvailabilityDisplayCategory>
-): string {
-	switch (category) {
-		case "available":
-			return resolveStatusToneTextClassName("ready");
-		case "checking":
-			return resolveStatusToneTextClassName("checking");
-		case "unavailable":
-			return resolveStatusToneTextClassName("muted");
-		case "offline":
-			return resolveStatusToneTextClassName("muted");
-		default:
-			return "text-muted-foreground";
-	}
 }

@@ -54,6 +54,8 @@ export {
   buildCenterAgentDirectMessageSpacePath,
   buildCenterAgentOperatingStatePath,
   buildCenterAgentProfilePath,
+  buildCenterAgentSessionPath,
+  buildCenterAgentSessionsPath,
 } from "./center-agent/routes";
 export type {
   CenterAgentApi,

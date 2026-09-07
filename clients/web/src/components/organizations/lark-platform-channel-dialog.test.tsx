@@ -7,6 +7,54 @@ const CREATE_APP_COPY_PATTERN = /create a new Lark app/i;
 afterEach(cleanup);
 
 describe("LarkPlatformChannelDialog", () => {
+	it.each([
+		["lark", "Lark", "https://open.larksuite.com/app"],
+		["feishu", "Feishu", "https://open.feishu.cn/app"],
+	] as const)("shows the %s permission recovery action instead of indefinite verification", (provider, label, consoleUrl) => {
+		render(
+			<LarkPlatformChannelDialog
+				canManage
+				connection={null}
+				disconnectPending={false}
+				errorMessage={null}
+				onDisconnect={vi.fn()}
+				onOpenChange={vi.fn()}
+				onRepair={vi.fn()}
+				onRetryPoll={vi.fn()}
+				onStartOver={vi.fn()}
+				open
+				pollPending={false}
+				provider={provider}
+				registration={{
+					organizationId: "org_1",
+					connection: null,
+					attempt: {
+						id: "attempt_configuring",
+						provider,
+						status: "configuring",
+						reasonCode: `${provider}.application_config_permission_required`,
+						registrationUrl: null,
+						expiresAt: "2026-09-14T00:00:00.000Z",
+						nextPollAt: "2026-09-07T00:05:00.000Z",
+					},
+				}}
+				repairPending={false}
+				startOverPending={false}
+			/>
+		);
+		expect(
+			screen.getByText("Allow OpenMeld to configure the app")
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("link", { name: `Open ${label} Developer Console` })
+				.getAttribute("href")
+		).toBe(consoleUrl);
+		expect(
+			screen.queryByText("Verifying permissions and Webhook delivery")
+		).toBeNull();
+	});
+
 	it("hands the user to the official setup page and can start over", () => {
 		const onStartOver = vi.fn();
 		const props = {

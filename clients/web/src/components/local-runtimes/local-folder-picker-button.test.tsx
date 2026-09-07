@@ -7,15 +7,62 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { selectLocalFolders } from "#/lib/connect/local-folder-picker";
+import {
+	selectLocalFolders,
+	selectPeopleComputerFolders,
+} from "#/lib/connect/local-folder-picker";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { LocalFolderPickerButton } from "./local-folder-picker-button";
 
 vi.mock("#/lib/connect/local-folder-picker", () => ({
 	selectLocalFolders: vi.fn(),
+	selectPeopleComputerFolders: vi.fn(),
 }));
 
 describe("LocalFolderPickerButton", () => {
+	it("targets the selected environment and discards a late result after switching lanes on the same computer", async () => {
+		let complete:
+			| ((value: {
+					deviceId: string;
+					paths: string[];
+					status: "selected";
+			  }) => void)
+			| undefined;
+		vi.mocked(selectPeopleComputerFolders).mockReturnValue(
+			new Promise((resolve) => {
+				complete = resolve;
+			})
+		);
+		const onSelect = vi.fn();
+		const props = {
+			allowMultiple: true,
+			deviceId: "same-device",
+			label: "Choose folders",
+			onSelect,
+			purpose: "computer_file_access" as const,
+		};
+		const view = render(
+			<LocalFolderPickerButton {...props} runtimeLane="canary" />
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Choose folders" }));
+		expect(selectPeopleComputerFolders).toHaveBeenCalledWith({
+			allowMultiple: true,
+			deviceId: "same-device",
+			runtimeLane: "canary",
+			purpose: "computer_file_access",
+			timeoutMs: 610_000,
+		});
+		expect(selectLocalFolders).not.toHaveBeenCalled();
+		view.rerender(<LocalFolderPickerButton {...props} runtimeLane="prod" />);
+		await act(() => {
+			complete?.({
+				deviceId: "same-device",
+				status: "selected",
+				paths: ["/test/canary-only"],
+			});
+		});
+		expect(onSelect).not.toHaveBeenCalled();
+	});
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();

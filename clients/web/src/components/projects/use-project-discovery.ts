@@ -1,14 +1,17 @@
 "use client";
 
+import { peopleComputerContainsDevice } from "@openmeld/agent-runtime";
 import type {
 	LocalProjectControlConnection,
 	LocalProjectControlProjectDiscovery,
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
 	LocalRuntimesResponse,
+	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useStartFlowState } from "#/components/app/start-flow-state";
+import type { PeopleComputerInventory } from "#/lib/connect/local-runtimes";
 import {
 	LOCAL_PROJECT_CONTROL_UNREACHABLE_MESSAGE,
 	resolveLocalProjectControlFailureCode,
@@ -33,9 +36,50 @@ export type ProjectComputerView = {
 		| "service_unavailable"
 		| "update_required";
 };
+type ProjectControlServiceState =
+	| "checking"
+	| "connected"
+	| "service_unavailable"
+	| "update_required"
+	| "discovery_failed";
+
+function resolveExplicitProjectControlServiceState(input: {
+	target: PeopleComputerTarget;
+	query: {
+		isPending: boolean;
+		isError: boolean;
+		data?: PeopleComputerInventory;
+	};
+}): ProjectControlServiceState {
+	if (input.query.isPending) {
+		return "checking";
+	}
+	if (input.query.isError || !input.query.data) {
+		return "discovery_failed";
+	}
+	const computer = input.query.data.peopleComputers.computers.find((entry) =>
+		peopleComputerContainsDevice(entry, input.target.deviceId)
+	);
+	if (!computer || computer.connection.status === "unknown") {
+		return "discovery_failed";
+	}
+	const session = computer.connection.sessions.find(
+		(entry) =>
+			entry.deviceId === input.target.deviceId &&
+			entry.runtimeLane === input.target.runtimeLane
+	);
+	if (!session) {
+		return "service_unavailable";
+	}
+	return session.controls?.localProjectControl?.discoverProjects === true
+		? "connected"
+		: "update_required";
+}
 
 export function useProjectDiscovery(input: {
+	target?: PeopleComputerTarget;
 	enabled?: boolean;
+	includeCandidates?: boolean;
 	organizationId: string;
 	projects: readonly ProjectDiscoveryProjectRef[];
 }) {
@@ -45,20 +89,32 @@ export function useProjectDiscovery(input: {
 	const localRuntimesQuery = useQuery(
 		localRuntimesQueryOptions({ enabled, storageScope })
 	);
-	const selection = resolveProjectControlSelection(localRuntimesQuery.data);
+	const selection = input.target
+		? resolveExplicitProjectControlSelection(
+				localRuntimesQuery.data,
+				input.target
+			)
+		: resolveProjectControlSelection(localRuntimesQuery.data);
 	const computer = selection?.computer ?? null;
 	const target = selection?.target ?? null;
-	const serviceState = resolveProjectControlServiceState({
-		computer,
-		isError: localRuntimesQuery.isError,
-		isPending: localRuntimesQuery.isPending,
-		target,
-	});
-	const discoveryTarget = {
+	const serviceState = input.target
+		? resolveExplicitProjectControlServiceState({
+				target: input.target,
+				query: localRuntimesQuery,
+			})
+		: resolveProjectControlServiceState({
+				computer,
+				isError: localRuntimesQuery.isError,
+				isPending: localRuntimesQuery.isPending,
+				target,
+			});
+	const discoveryTarget = input.target ?? {
 		deviceId: target?.deviceId ?? "unavailable",
 		runtimeLane: target?.runtimeLane ?? "unavailable",
 	};
 	const discoveryOptions = projectDiscoveryQueryOptions({
+		explicitTarget: input.target,
+		includeCandidates: input.includeCandidates,
 		enabled: enabled && serviceState === "connected",
 		organizationId: input.organizationId,
 		projects: input.projects,
@@ -100,9 +156,34 @@ export function useProjectDiscovery(input: {
 		projectId: string,
 		connections: readonly LocalProjectControlConnection[]
 	) => {
-		queryClient.setQueryData(discoveryOptions.queryKey, (response) =>
-			applyProjectDiscoveryConnectionSnapshot(response, projectId, connections)
+		const hadResponse = Boolean(discoveryQuery.data);
+		queryClient.setQueriesData<
+			import("@openmeld/schemas/types").LocalProjectControlDiscoverProjectsResponse
+		>(
+			{
+				queryKey: projectDiscoveryQueryKeys.target({
+					deviceId: discoveryTarget.deviceId,
+					organizationId: input.organizationId,
+					runtimeLane: discoveryTarget.runtimeLane,
+					storageScope,
+				}),
+			},
+			(response) =>
+				applyProjectDiscoveryConnectionSnapshot(
+					response,
+					projectId,
+					connections
+				)
 		);
+		// A connection can be saved while the first read is pending. Read back
+		// the canonical snapshot instead of fabricating discovery metadata.
+		if (!hadResponse) {
+			discoveryQuery
+				.refetch({ cancelRefetch: true })
+				.catch((error: unknown) =>
+					console.error("Failed to read the saved Project connection.", error)
+				);
+		}
 	};
 
 	const refresh = () => {
@@ -157,15 +238,14 @@ export function useProjectDiscovery(input: {
 
 function resolveProjectDiscoveryErrorMessage(input: {
 	failureMessage: string | null;
-	serviceState:
-		| "checking"
-		| "connected"
-		| "service_unavailable"
-		| "update_required";
+	serviceState: ProjectControlServiceState;
 	status: ProjectComputerView["status"];
 }): string | null {
 	if (input.status === "ready") {
 		return null;
+	}
+	if (input.serviceState === "discovery_failed") {
+		return "OpenMeld couldn’t check this computer. Try again.";
 	}
 	if (input.serviceState === "update_required") {
 		return "Update OpenMeld on this computer before connecting Project folders from the Web.";
@@ -180,11 +260,7 @@ function resolveProjectDiscoveryStatus(input: {
 	hasResponse: boolean;
 	projectCount: number;
 	queryFailed: boolean;
-	serviceState:
-		| "checking"
-		| "connected"
-		| "service_unavailable"
-		| "update_required";
+	serviceState: ProjectControlServiceState;
 }): ProjectComputerView["status"] {
 	if (input.serviceState !== "connected") {
 		return input.serviceState;
@@ -195,11 +271,32 @@ function resolveProjectDiscoveryStatus(input: {
 	return input.queryFailed ? "discovery_failed" : "checking";
 }
 
+function resolveExplicitProjectControlSelection(
+	localRuntimes: LocalRuntimesResponse | undefined,
+	target: PeopleComputerTarget
+) {
+	const computer = localRuntimes?.localRuntimes.find((entry) =>
+		peopleComputerContainsDevice(entry, target.deviceId)
+	);
+	if (!computer) {
+		return null;
+	}
+	return {
+		computer,
+		target:
+			computer.executionTargets.find(
+				(entry) =>
+					entry.deviceId === target.deviceId &&
+					entry.runtimeLane === target.runtimeLane
+			) ?? null,
+	};
+}
+
 function resolveProjectControlSelection(
 	localRuntimes: LocalRuntimesResponse | undefined
 ): {
 	computer: LocalRuntimeComputer;
-	target: LocalRuntimeExecutionTarget;
+	target: LocalRuntimeExecutionTarget | null;
 } | null {
 	if (!localRuntimes) {
 		return null;
@@ -246,12 +343,7 @@ function resolveProjectControlServiceState(input: {
 		return "service_unavailable";
 	}
 	const capabilities = input.target.localProjectControl;
-	if (
-		!(
-			capabilities &&
-			Object.values(capabilities).every((available) => available)
-		)
-	) {
+	if (!(capabilities?.discoverProjects && capabilities.connectDeclaredPath)) {
 		return "update_required";
 	}
 	return "connected";
