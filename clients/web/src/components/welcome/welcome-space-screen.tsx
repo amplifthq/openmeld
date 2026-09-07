@@ -43,6 +43,7 @@ export type WelcomeJoinableSpace = {
 export type WelcomeJoinableStatus = "loading" | "error" | "ready";
 
 export type WelcomeSpaceScreenProps = {
+	presentation?: "page" | "dialog";
 	initialMode?: "choices" | "create";
 	contextKind?: "organization" | "personal";
 	computerSetupActions?: {
@@ -134,7 +135,8 @@ export function WelcomeSpaceScreen(props: WelcomeSpaceScreenProps) {
 
 	return (
 		<WelcomeLayout
-			onBack={handleBack}
+			onBack={props.presentation === "dialog" ? undefined : handleBack}
+			presentation={props.presentation}
 			subtitle={mode === "choices" ? SPACE_EXPLANATION : undefined}
 			title={resolveTitle(mode)}
 		>

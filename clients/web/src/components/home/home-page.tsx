@@ -429,8 +429,8 @@ function HomeWorkspace() {
 											<Button
 												onClick={() =>
 													instance.current?.fitView({
-														maxZoom: 0.8,
-														padding: 0.12,
+														maxZoom: 1,
+														padding: 0.04,
 													})
 												}
 												size="sm"
@@ -443,7 +443,7 @@ function HomeWorkspace() {
 									</Panel>
 								}
 								defaultViewport={
-									layout.viewport ?? { x: 40, y: 24, zoom: 0.72 }
+									layout.viewport ?? { x: 40, y: 24, zoom: 0.85 }
 								}
 								edges={NO_EDGES}
 								nodes={nodes}
@@ -463,7 +463,7 @@ function HomeWorkspace() {
 										const zoom = Math.max(
 											0.2,
 											Math.min(
-												0.8,
+												1,
 												(bounds.width - 64) / right,
 												(bounds.height - 80) / bottom
 											)
@@ -471,7 +471,7 @@ function HomeWorkspace() {
 										value
 											.setViewport({
 												x: (bounds.width - right * zoom) / 2,
-												y: 24,
+												y: 56,
 												zoom,
 											})
 											.catch(console.error);
@@ -496,6 +496,30 @@ function HomeWorkspace() {
 								}}
 								zoomOnDoubleClick={false}
 							/>
+						)}
+						{restored && !layout.hintsDismissed && (
+							<aside
+								aria-label="Canvas tips"
+								className="absolute top-3 left-3 flex max-w-[calc(100%-1.5rem)] items-center gap-3 rounded-md border bg-background px-3 py-2 text-sm"
+							>
+								<p>
+									Drag a window by its title to arrange your desk. Use ↗ to open
+									the full page.
+								</p>
+								<Button
+									aria-label="Dismiss canvas tips"
+									onClick={() =>
+										setLayout((current) => ({
+											...current,
+											hintsDismissed: true,
+										}))
+									}
+									size="icon-sm"
+									variant="ghost"
+								>
+									<XIcon />
+								</Button>
+							</aside>
 						)}
 						<Button
 							aria-label="Add widget"
@@ -633,7 +657,7 @@ function HomeWorkspace() {
 						</DialogContent>
 					</Dialog>
 					<Dialog onOpenChange={setCreatingSpace} open={creatingSpace}>
-						<DialogContent className="max-h-[85dvh] overflow-auto sm:max-w-2xl">
+						<DialogContent className="max-h-[85dvh] overflow-auto sm:max-w-3xl">
 							<DialogTitle className="sr-only">Create a Space</DialogTitle>
 							<Suspense fallback={<p>Loading…</p>}>
 								<WelcomeFirstRun
@@ -643,6 +667,7 @@ function HomeWorkspace() {
 										setCreatingSpace(false);
 										openSpace(spaceId);
 									}}
+									presentation="dialog"
 									showBack={false}
 								/>
 							</Suspense>
@@ -851,39 +876,25 @@ function HomeWelcome() {
 	const { selectedHumanProfile } = useSelectedHumanProfile({
 		selectDefaultWhenMissing: true,
 	});
-	const context = use(HomeContext);
 	return (
 		<section
 			aria-label="Welcome to Home"
 			className="home-card-handle flex h-full cursor-grab flex-col items-center justify-center gap-3 text-center active:cursor-grabbing"
 		>
-			<p className="text-muted-foreground text-sm">
+			<p className="text-base text-muted-foreground">
 				{currentOrganization.name} · Home
 			</p>
-			<h2 className="font-medium text-3xl">
+			<h2 className="font-medium text-4xl">
 				Hello
 				{selectedHumanProfile?.profileName
 					? `, ${selectedHumanProfile.profileName.split(" ")[0]}`
 					: ""}
 				.
 			</h2>
-			<p className="max-w-lg text-base text-muted-foreground">
+			<p className="max-w-2xl text-lg text-muted-foreground">
 				Your work, together in one place.
 				<br />
 				Ask Center Agent for help, or chat with people and Agents in a Space.
-			</p>
-			<Button
-				className="nodrag nopan"
-				onClick={context?.createSpace}
-				size="sm"
-				variant="outline"
-			>
-				<PlusIcon />
-				Create a Space
-			</Button>
-			<p className="text-muted-foreground text-xs">
-				Drag a window by its title to arrange your desk. Use ↗ to open the full
-				page.
 			</p>
 		</section>
 	);

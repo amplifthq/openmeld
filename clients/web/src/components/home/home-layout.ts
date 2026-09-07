@@ -11,6 +11,7 @@ const cardSchema = z.object({
 });
 export const homeLayoutSchema = z.object({
 	version: z.literal(2),
+	hintsDismissed: z.boolean().optional(),
 	cards: z.array(cardSchema),
 	viewport: z
 		.object({

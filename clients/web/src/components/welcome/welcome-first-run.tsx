@@ -98,6 +98,7 @@ function resolveWelcomeBackHandler(
 }
 
 function renderWelcomeSpaceStep(input: {
+	presentation?: "page" | "dialog";
 	initialMode?: "choices" | "create";
 	accountSpacesIsError: boolean;
 	accountSpacesIsSuccess: boolean;
@@ -146,6 +147,7 @@ function renderWelcomeSpaceStep(input: {
 			onCreate={input.createSpace.mutate}
 			onJoin={input.onJoin}
 			onRetryJoinable={input.onRetryJoinable}
+			presentation={input.presentation}
 		/>
 	);
 }
@@ -158,6 +160,7 @@ function renderWelcomeSpaceStep(input: {
  */
 export function WelcomeFirstRun(
 	input: {
+		presentation?: "page" | "dialog";
 		showBack?: boolean;
 		initialMode?: "choices" | "create";
 		offerComputerSetup?: boolean;
@@ -325,6 +328,7 @@ export function WelcomeFirstRun(
 
 	if (screen === "space") {
 		return renderWelcomeSpaceStep({
+			presentation: input.presentation,
 			initialMode: input.initialMode,
 			accountSpacesIsError:
 				accountSpacesIsError && accountSpaceSections === undefined,
