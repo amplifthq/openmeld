@@ -84,7 +84,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 					/>
 					<div className="space-y-1">
 						<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-							<p className="font-medium text-sm">Local Agent</p>
+							<p className="font-medium text-sm">Choose a Local Agent</p>
 							<LocalAgentLogoStack compact />
 						</div>
 						<p className="text-muted-foreground text-xs">

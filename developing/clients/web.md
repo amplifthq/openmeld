@@ -1969,18 +1969,18 @@ state.
 **Create Agent** opens the full-width `/o/:orgSlug/new-agent` view so reload,
 back, and forward preserve the user's location. Space, People, and other compact
 entry points use the dialog composition. Both surfaces use the same creation
-controller and generator components: **Local Agent** is available, and
+controller and generator components: **Choose a Local Agent** is available, and
 **Remote Agent** is disabled with **Coming soon**. Local setup offers a connected
 computer's Agent or **Connect Computer**. A concrete local Agent and computer
-are required before continuation or creation; there is no **Choose later** path.
+are required before creation; there is no **Choose later** path.
 Core rejects new Web creation requests without that target before creating an
 identity. Existing request retries and intentional CLI manual profiles retain
-their contracts. Lower-frequency configuration stays under an inline **Advanced**
-disclosure, and the editable generated name appears only in the final review.
-The standalone page uses the current step as its main heading rather than
-repeating a generic creation title. While local agents are loading, the heading
+their contracts. The single-page form places the editable generated Agent name
+after local agent selection, followed by **Advanced Agent Settings**, collapsed
+by default. It submits directly with **Create Agent**; there is no review step or
+duplicate selected-model summary card. While local agents are loading, the heading
 reports checking instead of prematurely asking the user to connect a computer.
-Both steps keep their actions separate through spacing without a footer divider.
+The form keeps its actions separate through spacing without a footer divider.
 An unfinished browser-local draft may prefill that first decision, but the first
 new local-Agent or execution-target choice dismisses restoration for the current
 open flow so later renders cannot reverse the user's click.
