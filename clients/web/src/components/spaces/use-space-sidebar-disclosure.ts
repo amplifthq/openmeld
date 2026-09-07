@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 
 const CHANGE_EVENT = "openmeld-space-sidebar-disclosure";
 const MAIN_SIDEBAR_PREFIX = /^Spaces:/;
@@ -24,7 +24,7 @@ export function resolveSpaceSidebarGroupOpen(
 	groupId: string,
 	activeGroupId: string | null
 ): boolean {
-	return choices[groupId] ?? groupId === activeGroupId;
+	return groupId === activeGroupId || (choices[groupId] ?? false);
 }
 
 function subscribe(listener: () => void) {
@@ -39,20 +39,36 @@ function subscribe(listener: () => void) {
 export function useSpaceSidebarDisclosure(
 	profileId: string,
 	organizationId: string,
-	activeGroupId: string | null
+	activeGroupId: string | null,
+	currentSpaceId: string = activeGroupId ?? ""
 ) {
 	const key = `openmeld:space-sidebar-disclosure:${encodeURIComponent(profileId)}:${encodeURIComponent(organizationId)}`;
+	const visitKey = `${key}:${currentSpaceId}`;
+	const [visit, setVisit] = useState<{
+		key: string;
+		choices: Record<string, boolean>;
+	}>({ key: visitKey, choices: {} });
+	if (visit.key !== visitKey) {
+		setVisit({ key: visitKey, choices: {} });
+	}
+	const visitChoices = visit.key === visitKey ? visit.choices : {};
 	const read = useCallback(() => window.localStorage.getItem(key), [key]);
 	const raw = useSyncExternalStore(subscribe, read, () => null);
 	const choices = useMemo(() => parseSpaceSidebarDisclosure(raw), [raw]);
 	return {
 		isOpen: (id: string) =>
+			visitChoices[id.replace(MAIN_SIDEBAR_PREFIX, "")] ??
 			resolveSpaceSidebarGroupOpen(
 				choices,
 				id.replace(MAIN_SIDEBAR_PREFIX, ""),
 				activeGroupId
 			),
 		setOpen: (id: string, open: boolean) => {
+			const groupId = id.replace(MAIN_SIDEBAR_PREFIX, "");
+			setVisit((current) => ({
+				key: visitKey,
+				choices: { ...current.choices, [groupId]: open },
+			}));
 			const current = parseSpaceSidebarDisclosure(read());
 			window.localStorage.setItem(
 				key,

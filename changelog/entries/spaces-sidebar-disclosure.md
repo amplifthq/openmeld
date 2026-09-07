@@ -7,6 +7,7 @@ audiences: ["users"]
 ---
 
 Space groups start collapsed on the Spaces page and open automatically when
-you enter a Space in that group. Once you expand or collapse a group yourself,
-OpenMeld remembers your choice in this browser across navigation and refresh.
+you enter a Space in that group. You can still collapse it while working there.
+Returning to the Spaces page restores your saved choices in this browser;
+entering a Space temporarily opens its group again without changing them.
 Collapsed groups still show their unread count.

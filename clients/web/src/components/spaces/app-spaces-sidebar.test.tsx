@@ -1819,9 +1819,7 @@ describe("AppSpacesSidebar", () => {
 				.getByRole("button", { name: "Unpin Idle" })
 				.classList.contains("pointer-events-none")
 		).toBe(false);
-		fireEvent.click(
-			screen.getByRole("button", { name: "Pinned", exact: true })
-		);
+		fireEvent.click(screen.getByRole("button", { name: "Pinned" }));
 		expect(await screen.findByText("2 unread")).toBeTruthy();
 	});
 

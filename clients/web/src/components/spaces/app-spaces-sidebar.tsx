@@ -214,7 +214,8 @@ export function AppSpacesSidebar(input: {
 	const disclosure = useSpaceSidebarDisclosure(
 		input.currentProfileId,
 		currentOrganizationId,
-		activeGroupId
+		activeGroupId,
+		input.currentSpaceId
 	);
 	const conversationItems = [
 		...sidebarSections.pinnedItems,

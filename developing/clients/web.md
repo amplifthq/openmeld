@@ -322,10 +322,11 @@ authorization.
 ### Fixed primary rail
 
 Spaces Sidebar groups default to collapsed on the Spaces directory. Inside a
-Space, its containing group defaults to expanded. An explicit per-group open or
-closed choice overrides both defaults across navigation and refresh. These
-browser-local choices are isolated by profile and Organization; automatic route
-defaults are never persisted as user choices. Collapsed group headers retain
+Space, its containing group temporarily expands even when the saved choice is
+closed. Manual toggles during that visit take precedence until another Space
+is entered. Returning to the directory restores saved choices. These browser-local
+choices are isolated by profile and Organization; automatic expansion is never
+persisted as a user choice. Collapsed group headers retain
 aggregate unread counts from the existing Inbox projection. Main-content group
 disclosure remains independent from Sidebar disclosure.
 
