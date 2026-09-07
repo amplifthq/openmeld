@@ -522,6 +522,9 @@ function createHarness() {
     sql: `
       CREATE TABLE space_index_spaces (
         space_id TEXT PRIMARY KEY,
+        creator_profile_id TEXT,
+        creator_profile_name TEXT,
+        space_name TEXT,
         organization_id TEXT,
         organization_visibility TEXT NOT NULL,
         status TEXT NOT NULL

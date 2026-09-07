@@ -499,6 +499,7 @@ function readDrizzleMigrationStatementsForTables(
       const temporaryTableName = `__new_${tableName}`;
       return (
         statement.includes(`\`${tableName}\``) ||
+        statement.includes(`DROP INDEX \`${tableName}_`) ||
         statement.includes(`\`${temporaryTableName}\``) ||
         statement.includes(`_${tableName}_`)
       );
