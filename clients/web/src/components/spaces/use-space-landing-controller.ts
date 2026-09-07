@@ -2461,6 +2461,9 @@ export function useSpaceLandingController(input: {
 			return;
 		}
 		const { messageSeed } = sendAttempt;
+		const isTextOnlyPendingMessage =
+			options?.pendingMessage !== undefined &&
+			!options.pendingMessage.files?.length;
 
 		composerSession.send.begin();
 
@@ -2507,14 +2510,9 @@ export function useSpaceLandingController(input: {
 				}),
 				readCurrentMembers: readCurrentMembersForWakeAdmission,
 			});
-			const publishedFiles =
-				options?.pendingMessage && !options.pendingMessage.files?.length
-					? {
-							messageFiles: [] as SpaceMessageFileReference[],
-							previewUrlsByFileId: new Map<string, string>(),
-							publishedLocalIds: [] as string[],
-						}
-					: await composerFilesController.publishReadyFiles();
+			const publishedFiles = await publishComposerFilesForSend(
+				isTextOnlyPendingMessage
+			);
 			hasPublishedFiles = publishedFiles.messageFiles.length > 0;
 			publishedLocalIds = publishedFiles.publishedLocalIds;
 			if (
@@ -2539,9 +2537,7 @@ export function useSpaceLandingController(input: {
 			mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
 			clearManualComposerFiles({
 				clearFiles: composerFilesController.clearFiles,
-				isPendingMessage:
-					options?.pendingMessage !== undefined &&
-					!options.pendingMessage.files?.length,
+				isPendingMessage: isTextOnlyPendingMessage,
 			});
 			setComposerBlockedWakeProfileId(null);
 			Promise.all([membersQuery.refetch(), statusQuery.refetch()]).catch(
@@ -2563,9 +2559,7 @@ export function useSpaceLandingController(input: {
 				clientMessageId: messageSeed.clientMessageId,
 				consumePublishedFiles: composerFilesController.consumePublishedFiles,
 				hasPublishedFiles,
-				isPendingMessage:
-					options?.pendingMessage !== undefined &&
-					!options.pendingMessage.files?.length,
+				isPendingMessage: isTextOnlyPendingMessage,
 				mentionAuthoring,
 				outcomeUnknown: sendError.outcomeUnknown,
 				pendingSubmission,
@@ -2604,6 +2598,16 @@ export function useSpaceLandingController(input: {
 		} finally {
 			composerSession.send.finish();
 		}
+	}
+
+	function publishComposerFilesForSend(isTextOnlyPendingMessage: boolean) {
+		return isTextOnlyPendingMessage
+			? {
+					messageFiles: [] as SpaceMessageFileReference[],
+					previewUrlsByFileId: new Map<string, string>(),
+					publishedLocalIds: [] as string[],
+				}
+			: composerFilesController.publishReadyFiles();
 	}
 
 	function removeRejectedWakeProgress(clientMessageId: string) {
