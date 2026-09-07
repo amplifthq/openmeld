@@ -11,10 +11,7 @@ export function buildProfileHomeRoutes(orgSlug: string) {
 	} as const;
 }
 
-export type ProfileHomeRoutePath = ReturnType<
-	typeof buildProfileHomeRoutes
->[keyof ReturnType<typeof buildProfileHomeRoutes>];
-
+/** ID-only entry for callers without an owner profile; resolves to the canonical person route. */
 export function buildAgentProfilePath(input: {
 	orgSlug: string;
 	profileId: string;

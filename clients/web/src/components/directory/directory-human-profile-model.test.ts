@@ -373,7 +373,7 @@ describe("directory Human Profile model", () => {
 				modelSelection: null,
 				modelSelectionIsKnown: true,
 				name: "Ari Claude",
-				path: "/o/acme/agents?profileId=agent-claude",
+				path: "/o/acme/people/11111111-1111-4111-8111-111111111111/agents/agent-claude",
 			},
 			{
 				agentControllerRef: "builtin:codex",
@@ -382,7 +382,7 @@ describe("directory Human Profile model", () => {
 				modelSelection: null,
 				modelSelectionIsKnown: true,
 				name: "Ari Codex",
-				path: "/o/acme/agents?profileId=agent-codex",
+				path: "/o/acme/people/11111111-1111-4111-8111-111111111111/agents/agent-codex",
 			},
 		]);
 		expect(rows.find((row) => row.userId === "user-a")?.agentProfilesPath).toBe(
@@ -396,7 +396,7 @@ describe("directory Human Profile model", () => {
 				modelSelection: null,
 				modelSelectionIsKnown: true,
 				name: "Builder",
-				path: "/o/acme/agents?profileId=agent-grok",
+				path: "/o/acme/people/22222222-2222-4222-8222-222222222222/agents/agent-grok",
 			},
 		]);
 	});
@@ -477,7 +477,7 @@ describe("directory Human Profile model", () => {
 				modelSelection: { modelId: "gpt-5.6-sol" },
 				modelSelectionIsKnown: true,
 				name: "Team Agent",
-				path: "/o/acme/agents?profileId=agent-team",
+				path: "/o/acme/people/22222222-2222-4222-8222-222222222222/agents/agent-team",
 			},
 		]);
 	});
@@ -508,7 +508,7 @@ describe("directory Human Profile model", () => {
 				modelSelection: null,
 				modelSelectionIsKnown: false,
 				name: "Ari Agent",
-				path: "/o/ari/agents?profileId=agent-ari",
+				path: "/o/ari/people/human-a/agents/agent-ari",
 			},
 		]);
 		expect(member?.agentProfilesPath).toBe(
