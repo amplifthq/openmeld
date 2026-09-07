@@ -50,9 +50,6 @@ describe("SpaceComposerEditor", () => {
 				createSpaceMemberAgentSnapshot({
 					profileId: AGENT_PROFILE_ID,
 					profileName,
-					primaryMentionLabel: AGENT_PROFILE_ID,
-					exactMentionLabels: [AGENT_PROFILE_ID],
-					labelSource: "profile_id",
 				}),
 			],
 		});
