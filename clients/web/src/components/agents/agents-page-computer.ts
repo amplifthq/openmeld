@@ -145,6 +145,14 @@ export function formatComputerTabLocalAgents(
 		return "Needs a fresh check";
 	}
 	if (executionTarget.status === "not_ready") {
+		if (
+			executionTarget.localAgentCatalog.entries.length > 0 &&
+			executionTarget.localAgentCatalog.entries.every(
+				(entry) => !entry.detected
+			)
+		) {
+			return "No agents detected";
+		}
 		return "Unavailable";
 	}
 	return "No local agents";

@@ -148,6 +148,34 @@ inputs on top of this capture; they do not prove real Agent execution.
 
 ## People connection previews
 
+### Owner Computer detail state matrix
+
+For a local account with an existing Computer report, an ignored
+`clients/web/scripts/sidebar-preview/computer-preview.generated.json` can opt in
+to the Computer detail matrix. Set `organizationSlug`, `anchorDeviceId`, and
+`anchorComputerId` to that isolated account's existing identities. No credentials
+belong in this file. Remove the file and reload to disable the matrix.
+
+The adapter first reads the authenticated inventory. Only an inventory containing
+the configured anchor receives seven additional, distinctly named `Preview`
+Computers: current software, ordinary disconnection, optional update, another
+account owning the connection, required update, failed status lookup, and no
+installed local agents. The catalog shape comes from the existing report;
+simulated fresh reports omit private account labels, paths, Skills, and Usage
+data. These are hypothetical protocol responses, not real connections or proof
+of Wake execution. The ordinary list and detail components render every case.
+
+Automatic-update preferences change only browser memory and reset on reload.
+The API foundation rejects preview target IDs before any network request, so
+update, reconnect, Agent creation, and other actions cannot turn these fixtures
+into real mutations. Real Computer records and the real routing preference are
+unchanged. This adapter is development-only, requires a loopback host and the
+configured Organization, and is excluded from production builds.
+
+Ordinary disconnection and an account-ownership conflict intentionally retain
+different protocol reason codes even if the current UI displays the same label.
+Do not alter fixtures to conceal a missing product distinction.
+
 The generated manifest also assigns the 42 fake Agents a mix of Available,
 Checking, Offline, Connect, and Unavailable sidebar states. These are loopback,
 development-only presentation fixtures for the seeded Organization and IDs.

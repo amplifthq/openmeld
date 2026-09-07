@@ -170,7 +170,7 @@ describe("computer summary status", () => {
 		});
 
 		expect(status).toEqual({
-			label: "OpenMeld Tools are ready",
+			label: "Connected",
 			reason: "ready",
 			showLabel: false,
 			tone: "ready",
@@ -598,10 +598,10 @@ describe("computer summary status", () => {
 	});
 
 	it.each([
-		["connected", "ready", "OpenMeld Tools are ready"],
-		["needs_attention", "warning", "OpenMeld Tools need an update"],
+		["connected", "ready", "Connected"],
+		["needs_attention", "warning", "Update required"],
 		["not_connected", "muted", "Disconnected"],
-		["unknown", "muted", "OpenMeld Tools status unavailable"],
+		["unknown", "muted", "OpenMeld status unavailable"],
 	] as const)("maps an Organization computer's %s projection to %s", (serviceState, tone, label) => {
 		expect(
 			resolveOrganizationComputerSummaryStatus(serviceState)

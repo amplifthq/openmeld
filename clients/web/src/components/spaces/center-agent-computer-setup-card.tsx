@@ -6,6 +6,7 @@ import type {
 } from "@openmeld/schemas";
 import { getSetupFlowCopy } from "@openmeld/start";
 import { Button } from "@openmeld/ui/components/button";
+import { XIcon } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { BringAgentsSetupProvider } from "#/components/connect/bring-agents-setup-context";
 import { ComputerSetupConversationShell } from "#/components/connect/computer-setup-conversation-shell";
@@ -29,6 +30,40 @@ const MAX_STORED_COMPUTER_SETUP_ACTIONS = 64;
 const fallbackStartedComputerSetupActions = new Set<string>();
 
 export function CenterAgentComputerSetupCard(input: {
+	context: CenterAgentComputerSetupContext;
+	sourceSignalId?: string;
+	target: ComputerSetupTarget;
+	onDismiss?: () => void;
+}) {
+	const [dismissed, setDismissed] = useState(false);
+	if (dismissed) {
+		return (
+			<Button onClick={() => setDismissed(false)} size="sm" variant="outline">
+				Open computer setup
+			</Button>
+		);
+	}
+	return (
+		<div className="relative w-full min-w-0">
+			<Button
+				aria-label="Close computer setup"
+				className="absolute top-2 right-2 z-10"
+				onClick={() => {
+					setDismissed(true);
+					input.onDismiss?.();
+				}}
+				size="icon-sm"
+				type="button"
+				variant="ghost"
+			>
+				<XIcon className="size-4" />
+			</Button>
+			<CenterAgentComputerSetupCardContent {...input} />
+		</div>
+	);
+}
+
+function CenterAgentComputerSetupCardContent(input: {
 	context: CenterAgentComputerSetupContext;
 	sourceSignalId?: string;
 	target: ComputerSetupTarget;

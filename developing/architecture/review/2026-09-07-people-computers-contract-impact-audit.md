@@ -1,8 +1,10 @@
 # PeopleComputers Contract Impact Audit
 
-Status: implementation and local evidence; staging acceptance and production
-publication are not yet complete. This audit defines rollout requirements, not
-deployment evidence.
+Status: staging evidence at `572142a0f` is preserved below. Subsequent local UI
+follow-ups are included in the delivery candidate. On September 7 the user
+explicitly authorized current-main integration, merge, release and production
+deployment. Production verification remains pending; earlier staging evidence
+does not certify the later candidate or its production rollout.
 
 ## Ownership and retained contracts
 
@@ -62,6 +64,39 @@ versioned release PR; this feature branch does not hand-edit release manifests.
 
 ## Evidence and remaining acceptance
 
+The guarded staging deployment completed for Auth, Core, Gateway, Web and
+Remote Agent. A transient Cloudflare 503 interrupted the Remote Agent portion;
+the guarded Remote-only retry completed, including staging health checks. No
+D1 migrations were applied. Staging CLI
+`0.3.166-staging.20260907071248176.572142a0` was published and installed only
+in the isolated acceptance root; no production CLI was published.
+
+Public staging CLI status now reports no owner anomalies and ready device
+evidence. A real Codex Wake in the private acceptance Space completed with
+`PEOPLE_COMPUTERS_STAGING_WAKE_OK`, visible in authenticated Chrome, and a
+public trace proving `visible_reply` and delivery. Its client message is
+`1d3dbaae-ed63-496c-8a62-882151184175`. This proves this exact configured
+target's execution, not every controller or a fresh physical-machine setup.
+
+The owner Center Agent acceptance `PC-COMPACT-1528` completed exactly two
+`openmeld_list_computers` calls without fallback or result-size failure. The
+targeted read preserved device `599c1650-1484-4844-aad2-0c8ce66188e4`, lane
+`canary`; the visible reply explicitly declined to identify the browser's
+physical computer.
+
+Non-owner acceptance `PC-MEMBER-1531` completed through public
+`center-agent ask` in the member's own conversation. Both
+`openmeld_list_computers` and
+`openmeld_list_local_agent_connection_candidates` were `output-available`,
+with no truncation or tool failure. The result identified the actual member
+and returned no computers or candidates; the same member's public
+`computer list` independently returned `computers: []`. It did not return
+the owner's nine records. The dispatch is
+`efa62ce5-c047-4f0b-a3f1-31d15dae68f1`. This verifies the empty-member versus
+populated-owner boundary; a non-owner with a real connected computer is not
+established by this test. Authentication used an isolated staging fixture and
+public CLI token exchange, not a new-computer onboarding walkthrough.
+
 Center Agent's canonical inventory read and four explicit control calls now use
 distinct Worker RPC method names. Existing current-target methods remain for
 old producers, with unchanged response shapes. A missing new receiver fails
@@ -70,8 +105,8 @@ target. No Service message or execution epoch changes. The canonical read omits
 implicit current-computer diagnostics; selected diagnostics require a target
 owned by the represented member. Focused real-D1 tests cover member inventory,
 absence of a browser-current claim, foreign-owner rejection and exact-lane
-update routing. Public Center Agent acceptance remains required after the
-receiver-first staging deployment.
+update routing. Public owner and empty-member Center Agent acceptance is
+recorded above; connected-member mutation acceptance remains separate.
 
 Real staging acceptance exposed a canonical inventory response exceeding the
 128 KiB model-tool result limit. The Center Agent projection now excludes full
@@ -79,9 +114,9 @@ capability and local-agent catalogs from each execution target, retaining the
 same identity, connection evidence and explicit selected diagnostics. Focused
 tools still own catalog and installation details. The safety limit is unchanged.
 This changes only the new Core-to-Remote Agent read projection; no installed
-CLI/Service contract or legacy response changes. Real staging revalidation of
-the compact response is still required; the earlier fallback answer is not
-acceptance evidence for exact-lane diagnostics.
+CLI/Service contract or legacy response changes. The successful compact
+staging revalidation is recorded above; the earlier fallback answer remains
+a historical failure, not acceptance evidence for exact-lane diagnostics.
 
 Web self-owned Agent creation now preserves the chosen device, lane, runtime
 and controller through the existing `localAgentConnectionCandidateId` field.
@@ -124,7 +159,8 @@ uses the verified direct lease for that same PID rather than counting its path
 again. A running manager or another managed PID remains independent evidence.
 This changes local owner diagnostics and stop-strategy classification, not the
 Service transport or execution contract. A regression fails on the former
-double count; real packaged staging acceptance is still required.
+double count; the installed staging binary now reports no owner anomalies,
+and the exact-target Wake succeeded as recorded above.
 
 Staging browser acceptance exposed inherited production cookies masking the
 staging session when both environments used Better Auth's default cookie names.

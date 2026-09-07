@@ -26,6 +26,14 @@
 
 ## Product Role
 
+The standalone Connect Computer page remains available even when the account has
+a connected computer. A compact, named computer summary links to management; it
+does not assert that the computer hosts the current browser. Chat setup entry
+points offer this management path before starting another setup, except for a
+targeted computer or Agent recovery, explicit reconnect, or Service update request. All hosts retain the same Prepare
+session workflow and source-specific completion actions. Instruction illustrations
+explain user actions, never simulate connection or Agent readiness.
+
 OpenMeld has two complementary onboarding layers:
 
 1. **Account Setup Studio** is the full-screen, low-friction first product

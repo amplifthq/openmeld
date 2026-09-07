@@ -48,14 +48,14 @@ type OrganizationComputerServiceState =
 	| null;
 
 const READY_STATUS = {
-	label: "OpenMeld Tools are ready",
+	label: "Connected",
 	reason: "ready",
 	showLabel: false,
 	tone: "ready",
 } as const satisfies ComputerSummaryStatus;
 
 const CHECKING_STATUS = {
-	label: "Checking OpenMeld Tools status",
+	label: "Checking OpenMeld status",
 	reason: "checking",
 	showLabel: true,
 	tone: "checking",
@@ -114,14 +114,14 @@ const UPDATE_REQUIRED_STATUS = {
 } as const satisfies ComputerSummaryStatus;
 
 const ORGANIZATION_UPDATE_STATUS = {
-	label: "OpenMeld Tools need an update",
+	label: "Update required",
 	reason: "openmeld_tools_update",
 	showLabel: true,
 	tone: "warning",
 } as const satisfies ComputerSummaryStatus;
 
 const STATUS_UNAVAILABLE = {
-	label: "OpenMeld Tools status unavailable",
+	label: "OpenMeld status unavailable",
 	reason: "status_unavailable",
 	showLabel: true,
 	tone: "muted",
@@ -263,7 +263,7 @@ export function resolveOrganizationComputerSummaryStatus(
 ): ComputerSummaryStatus {
 	switch (serviceState) {
 		case "connected":
-			return READY_STATUS;
+			return { ...READY_STATUS, label: "Connected" };
 		case "needs_attention":
 			return ORGANIZATION_UPDATE_STATUS;
 		case "not_connected":

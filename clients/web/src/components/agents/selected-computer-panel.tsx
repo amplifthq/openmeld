@@ -106,19 +106,22 @@ export function SelectedComputerPanel(input: {
 	return (
 		<div className="flex flex-col gap-4">
 			{environments.length > 1 ? (
-				<details className="max-w-sm space-y-3" open={target === null}>
+				<details
+					className="order-last space-y-3 rounded-md border p-4"
+					id="computer-connection-diagnostics"
+				>
 					<summary className="cursor-pointer text-muted-foreground text-sm">
-						{target ? "Connection details" : "Choose a connection"}
+						Advanced connection details
 					</summary>
-					<p className="font-medium text-sm">Environment</p>
+					<p className="font-medium text-sm">Service connection</p>
 					<Select
 						onValueChange={setSelectedEnvironmentKey}
 						value={target ? computerEnvironmentKey(target) : ""}
 					>
 						<SelectTrigger
-							aria-label="Computer environment"
+							aria-label="Service connection"
 							displayValue={computerEnvironmentLabel(target, environments)}
-							placeholder="Choose an environment"
+							placeholder="Choose a connection"
 						/>
 						<SelectContent>
 							{environments.map((entry, index) => (
@@ -133,7 +136,8 @@ export function SelectedComputerPanel(input: {
 						</SelectContent>
 					</Select>
 					<p className="text-muted-foreground text-xs">
-						Status and actions apply to the selected environment.
+						For troubleshooting: choose which Service connection to inspect on
+						this computer. This does not change an Agent’s computer.
 					</p>
 				</details>
 			) : null}

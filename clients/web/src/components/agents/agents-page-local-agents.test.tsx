@@ -848,7 +848,7 @@ describe("LocalAgentsCard", () => {
 		).toBeTruthy();
 	});
 
-	it("keeps the connect banner when this computer reports no usable local agents", () => {
+	it("uses the empty state without a duplicate connect banner when no local agents are reported", () => {
 		renderLocalAgentsCard({
 			localAgentCatalogEntries: [],
 			replyReadiness: UNKNOWN_TARGET_REPLY_READINESS,
@@ -856,11 +856,17 @@ describe("LocalAgentsCard", () => {
 			targetStatus: "unknown",
 		});
 
-		expect(screen.getByText("Connect local agent")).toBeTruthy();
+		expect(screen.queryByText("Connect local agent")).toBeNull();
 		expect(
-			screen.getByText(
+			screen.queryByText(
 				"Connect a local agent so OpenMeld can refresh the local agents on this computer."
 			)
+		).toBeNull();
+		expect(screen.getByTestId("local-agent-catalog-empty")).toBeTruthy();
+		expect(screen.queryByText("No supported agents detected")).toBeNull();
+		expect(screen.queryByLabelText("Supported agents")).toBeNull();
+		expect(
+			screen.getByRole("link", { name: "See the install guide" })
 		).toBeTruthy();
 	});
 
@@ -1143,6 +1149,11 @@ describe("LocalAgentsCard", () => {
 			],
 			setEnabledSupported: true,
 		});
+		expect(screen.getByText("No supported agents detected")).toBeTruthy();
+		expect(screen.getByLabelText("Supported agents")).toBeTruthy();
+		expect(
+			screen.queryByText("Connect this computer to check", { exact: false })
+		).toBeNull();
 
 		expect(
 			screen

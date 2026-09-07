@@ -38,6 +38,11 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import {
+	MagnifyingDock,
+	MagnifyingDockItem,
+} from "@openmeld/ui/components/magnifying-dock";
 import { SettingsActionMenu } from "@openmeld/ui/components/settings-action-menu";
 import {
 	SettingsLocalAgentAdvisoryBadge,
@@ -86,6 +91,7 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
+import { LOCAL_AGENT_EXAMPLE_IDS } from "#/components/profiles/local-agent-logo-stack";
 import { copyCliEntryCommand } from "#/lib/cli-entry-command";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
@@ -644,7 +650,6 @@ function resolveLocalAgentsCatalogState(input: {
 		replyReadiness: input.replyReadiness,
 		serviceDependency,
 		target,
-		usesCatalogRowsForLocalAgentSetup,
 	});
 	const resolvedPrimaryActionLabel =
 		input.hasSelectedEnvironment && input.replyReadiness
@@ -778,7 +783,6 @@ function resolveLocalAgentsCatalogNotice(input: {
 	replyReadiness: ComputerReplyReadiness | null;
 	serviceDependency: LocalAgentsServiceDependency;
 	target: LocalRuntimeExecutionTarget | null;
-	usesCatalogRowsForLocalAgentSetup: boolean;
 }): LocalAgentsCatalogNoticeModel | null {
 	if (!input.hasSelectedEnvironment) {
 		if (input.target === null) {
@@ -877,16 +881,8 @@ function resolveLocalAgentsCatalogNotice(input: {
 		};
 	}
 
-	if (input.usesCatalogRowsForLocalAgentSetup) {
-		return null;
-	}
-
-	return {
-		description:
-			"Connect a local agent so OpenMeld can refresh the local agents on this computer.",
-		title: formatLocalSetupActionLabel("connect_local_agent"),
-		tone: "warning",
-	};
+	// Agent rows or the empty state already explain the next step.
+	return null;
 }
 
 type LocalAgentsServiceDependency =
@@ -1073,22 +1069,64 @@ function LocalAgentCatalogList(input: {
 	};
 
 	if (input.entries.length === 0 || usableEntries.length === 0) {
+		const checkedWithoutAgents =
+			!(input.muted || input.connectionStatus || input.isCheckingAgents) &&
+			input.targetStatus !== "unknown" &&
+			input.targetStatus !== "stale" &&
+			input.entries.length > 0 &&
+			input.entries.every((entry) => !entry.detected);
 		return (
 			<div
-				className="flex items-start gap-3 rounded-md border border-border px-3 py-3"
+				className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-md border border-border/70 border-dashed bg-card/25 px-6 py-6 text-center"
 				data-testid="local-agent-catalog-empty"
 			>
-				<span className="grid h-8 w-8 shrink-0 place-items-center rounded-sm border border-border bg-muted/20 text-muted-foreground">
-					<RobotIcon aria-hidden="true" className="h-4 w-4" />
-				</span>
-				<div className="min-w-0 space-y-1">
+				{checkedWithoutAgents ? null : (
+					<span className="grid h-8 w-8 shrink-0 place-items-center rounded-sm border border-border bg-muted/20 text-muted-foreground">
+						<RobotIcon aria-hidden="true" className="h-4 w-4" />
+					</span>
+				)}
+				<div className="flex w-full min-w-0 flex-col items-center gap-2">
 					<p className="font-medium text-sm">
-						No supported local agents reported yet
+						{checkedWithoutAgents
+							? "No supported agents detected"
+							: "Local agents haven’t been checked yet"}
 					</p>
-					<p className="text-muted-foreground text-xs leading-5">
-						Connect this computer to check which supported local agents are
-						installed on this computer.
+					<p className="max-w-md text-muted-foreground text-xs leading-5">
+						{checkedWithoutAgents
+							? "Install an agent such as Codex or Claude Code on this computer to get started."
+							: "The list will appear after OpenMeld checks this computer."}
 					</p>
+					{checkedWithoutAgents ? (
+						<MagnifyingDock
+							aria-label="Supported agents"
+							className="max-w-full flex-wrap justify-center gap-x-3 gap-y-4 px-2 pt-3 pb-2"
+						>
+							{input.entries
+								.filter(
+									(entry) =>
+										entry.targetKind === "builtin" &&
+										LOCAL_AGENT_EXAMPLE_IDS.includes(entry.agentId)
+								)
+								.sort(
+									(a, b) =>
+										LOCAL_AGENT_EXAMPLE_IDS.indexOf(a.agentId) -
+										LOCAL_AGENT_EXAMPLE_IDS.indexOf(b.agentId)
+								)
+								.map((entry) => (
+									<MagnifyingDockItem
+										caption={entry.displayName}
+										captionClassName="max-w-none whitespace-nowrap"
+										key={entry.agentId}
+									>
+										<LocalAgentLogo
+											agentId={entry.agentId}
+											className="size-12"
+											variant="tile"
+										/>
+									</MagnifyingDockItem>
+								))}
+						</MagnifyingDock>
+					) : null}
 					{input.showInstallGuideLink ? <LocalAgentInstallGuideLink /> : null}
 				</div>
 			</div>
@@ -1562,7 +1600,7 @@ function getErrorCode(error: unknown): string | null {
 function LocalAgentInstallGuideLink() {
 	return (
 		<p className="text-muted-foreground text-xs leading-5">
-			No agent CLIs installed yet?{" "}
+			No agents installed yet?{" "}
 			<Link
 				className={cn(
 					APP_MOBILE_TOUCH_TARGET_CLASS_NAME,

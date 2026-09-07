@@ -30,14 +30,19 @@ export async function readLocalRuntimes(): Promise<PeopleComputerInventory> {
 			api.listPeopleComputers({ includeUsageLimits: "true" }),
 			api.getCurrentTarget(),
 		]);
+		const inventory = import.meta.env.DEV
+			? (
+					await import("#/lib/dev/computer-state-fixtures")
+				).withComputerStateFixtures(peopleComputers)
+			: peopleComputers;
 		const target =
 			routingPreference.availability === "resolved" ? routingPreference : null;
 		// Rendering adapter for the existing local-agent controls. isCurrent here
 		// means only the account's routing preference, never this browser's machine.
 		// All live connection facts remain in the Core PeopleComputers snapshot.
 		return {
-			peopleComputers,
-			...projectPeopleComputersToLegacyLocalRuntimes(peopleComputers, target),
+			peopleComputers: inventory,
+			...projectPeopleComputersToLegacyLocalRuntimes(inventory, target),
 		};
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
@@ -48,6 +53,22 @@ export async function readPeopleComputerReplyReadiness(
 	target: PeopleComputerTarget
 ): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
 	try {
+		if (import.meta.env.DEV) {
+			const fixtures = await import("#/lib/dev/computer-state-fixtures");
+			if (fixtures.isComputerStateFixture(target.deviceId)) {
+				const inventory = await readLocalRuntimes();
+				if (
+					!inventory.peopleComputers.computers.some(
+						(computer) => computer.deviceId === target.deviceId
+					)
+				) {
+					throw new Error(
+						"Computer preview is not available for this account."
+					);
+				}
+				return fixtures.computerStateFixtureReadiness(target.deviceId);
+			}
+		}
 		return await createCurrentDeviceApi(
 			createUnscopedWebOpenMeldApiFoundation()
 		).getPeopleComputerReplyReadiness(target);
@@ -141,6 +162,16 @@ export async function setPeopleComputerOpenMeldToolsMaintenance(
 	}
 ): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
 	try {
+		if (import.meta.env.DEV) {
+			const fixtures = await import("#/lib/dev/computer-state-fixtures");
+			if (fixtures.isComputerStateFixture(input.deviceId)) {
+				await readPeopleComputerReplyReadiness(input);
+				return fixtures.setComputerStateFixtureAutomaticUpdates(
+					input.deviceId,
+					input.automaticUpdatesEnabled
+				);
+			}
+		}
 		return await createCurrentDeviceApi(
 			createUnscopedWebOpenMeldApiFoundation()
 		).setPeopleComputerOpenMeldToolsMaintenance(input);

@@ -40,10 +40,19 @@ export async function syncLocalSetupCurrentDeviceTargetFromServiceContract(input
     serviceContract,
   });
 
-  await currentDeviceApi.writeObservedMetadata({
-    deviceId,
-    metadata: await collectObservedDeviceMetadata(),
-  });
+  // Enrollment and its local identity must succeed. Display-only observations
+  // cannot undo that identity or establish Service/Agent readiness.
+  try {
+    const metadata = await collectObservedDeviceMetadata();
+    await currentDeviceApi.writeObservedMetadata({ deviceId, metadata });
+  } catch (error) {
+    console.warn("[openmeld.setup.device_details_unavailable]", {
+      deviceId,
+      runtimeLane,
+      event: "cli.setup.device_details_unavailable",
+      errorType: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
 
   return {
     deviceId,

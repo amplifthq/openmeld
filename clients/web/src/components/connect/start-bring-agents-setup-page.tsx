@@ -83,6 +83,7 @@ import {
 	resolveConnectCompletionTarget,
 } from "#/lib/connect/connect-route";
 import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
+import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
 import { createComputerAuthorizationGrant } from "#/query/auth-query";
 import {
 	createPrepareSession,
@@ -171,12 +172,68 @@ export function StartBringAgentsSetupPage(
 
 export function ComputerSetupFlow(input: ComputerSetupFlowProps) {
 	const bringAgentsSetup = useBringAgentsSetupContext();
+	if (input.presentation === "conversation") {
+		return (
+			<ConversationComputerConnectionGate
+				input={input}
+				setup={bringAgentsSetup}
+			/>
+		);
+	}
 	if (input.preferExistingConnection) {
 		return (
 			<ExistingComputerConnectionGate
 				bringAgentsSetup={bringAgentsSetup}
 				input={input}
 			/>
+		);
+	}
+	return <ComputerSetupSessionFlow {...input} />;
+}
+
+function ConversationComputerConnectionGate({
+	setup,
+	input,
+}: {
+	setup: ReturnType<typeof useBringAgentsSetupContext>;
+	input: ComputerSetupFlowProps;
+}) {
+	const [connectRequested, setConnectRequested] = useState(false);
+	const query = setup.localRuntimesQuery;
+	// A named account computer is not proof of the browser's physical identity.
+	const hasConnectedComputer = query.data?.peopleComputers.computers.some(
+		(computer) => computer.connection.status === "connected"
+	);
+	if (
+		connectRequested ||
+		setup.routeIntent.serviceAction === "update_service" ||
+		setup.routeIntent.resetThisComputer ||
+		setup.routeIntent.connectedComputerId !== undefined ||
+		(setup.routeIntent.kind === "space_recovery" &&
+			setup.routeIntent.agentProfileIds.length > 0)
+	) {
+		return <ComputerSetupSessionFlow {...input} />;
+	}
+	if (query.isPending) {
+		return (
+			<p className="text-muted-foreground text-sm">
+				Checking connected computers…
+			</p>
+		);
+	}
+	if (!query.isError && hasConnectedComputer && input.orgSlug) {
+		return (
+			<div className="grid gap-3 rounded-lg border bg-background p-4 pr-12">
+				<ConnectedComputersSummary orgSlug={input.orgSlug} setup={setup} />
+				<Button
+					className="justify-self-start"
+					onClick={() => setConnectRequested(true)}
+					size="sm"
+					variant="outline"
+				>
+					Connect a computer
+				</Button>
+			</div>
 		);
 	}
 	return <ComputerSetupSessionFlow {...input} />;
@@ -510,7 +567,14 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 
 	const snapshot = currentPrepareSessionSnapshot;
 	const setupContent = (
-		<div className="grid w-full gap-6" data-testid="prepare-computer-card">
+		<div
+			className="grid w-full max-w-4xl gap-6"
+			data-testid="prepare-computer-card"
+		>
+			<ConnectedComputersSummary
+				orgSlug={input.orgSlug}
+				setup={bringAgentsSetup}
+			/>
 			{snapshot ? (
 				<PrepareSessionTimeline
 					command={prepareSession.command}
@@ -536,9 +600,8 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 			)}
 			{bringAgentsSetup.blockingErrorMessage ? (
 				<p className="text-muted-foreground text-sm">
-					Some existing computer status could not refresh yet. You can still run
-					the command below; OpenMeld will update this setup when Terminal
-					connects.
+					Could not check existing computers. You can still connect a computer
+					using this command.
 				</p>
 			) : null}
 			{prepareSession.error ? (
@@ -582,6 +645,48 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 		>
 			<div className="md:col-span-2">{setupContent}</div>
 		</StartChoicePage>
+	);
+}
+
+function ConnectedComputersSummary(input: {
+	setup: ReturnType<typeof useBringAgentsSetupContext>;
+	orgSlug?: string;
+}) {
+	const query = input.setup.localRuntimesQuery;
+	const orgSlug = input.orgSlug;
+	if (!orgSlug || query.isError) {
+		return null;
+	}
+	const computers =
+		query.data?.peopleComputers.computers.filter(
+			(computer) => computer.connection.status === "connected"
+		) ?? [];
+	if (computers.length === 0) {
+		return null;
+	}
+	return (
+		<div className="grid divide-y rounded-md border text-sm">
+			{computers.map((computer) => (
+				<div
+					className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+					key={computer.deviceId}
+				>
+					<p>
+						<span className="font-medium">{computer.deviceDisplayName}</span>
+						<span className="text-muted-foreground"> is connected</span>
+					</p>
+					<Link
+						className="font-medium underline-offset-4 hover:underline"
+						to={buildOrganizationComputerPath({
+							deviceId: computer.deviceId,
+							orgSlug,
+						})}
+					>
+						Manage computer
+					</Link>
+				</div>
+			))}
+		</div>
 	);
 }
 
@@ -3042,9 +3147,6 @@ function resolveTerminalSecondaryStatus(input: {
 }) {
 	if (input.snapshot.phase === "waiting_for_agent_selection") {
 		return "Choose local agents in Terminal to continue.";
-	}
-	if (input.webSocketStatus === "connected") {
-		return "OpenMeld Web is receiving live setup updates.";
 	}
 	return null;
 }

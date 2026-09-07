@@ -36,6 +36,12 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+} from "@openmeld/ui/fluid/select";
+import {
 	type QueryClient,
 	useMutation,
 	useQuery,
@@ -637,9 +643,8 @@ function useCreateProfileDialogController(
 	const recovery = input.recovery;
 	const {
 		choices: computerChoices,
-		label: computerChoiceLabel,
-		placeholder: computerChoicePlaceholder,
 		selectedChoice: selectedComputerChoice,
+		connectionChoices,
 	} = resolveCreationComputerChoices(recovery);
 	const spaceContext = input.spaceContext;
 	// The selected computer's catalog and the eventual Binding share one exact
@@ -1130,36 +1135,31 @@ function useCreateProfileDialogController(
 			? selectedComputerChoice?.label
 			: undefined,
 		agentComputerSlot:
-			canChooseComputer && computerChoices.length > 1 ? (
-				<label className="grid gap-2 text-sm">
-					{computerChoiceLabel}
-					<select
-						className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+			canChooseComputer &&
+			(computerChoices.length > 1 || connectionChoices.length > 0) ? (
+				<div className="grid gap-2 text-sm">
+					<CreationComputerSelector
+						choices={computerChoices}
 						disabled={createProfileMutation.isPending}
-						onChange={(event) => {
-							const choice = computerChoices.find(
-								(item) => item.value === event.target.value
-							);
-							if (!choice) {
-								return;
-							}
-							recovery.selectComputer(choice.target);
+						onSelect={(target) => {
+							recovery.selectComputer(target);
 							setBoundAgentId("");
 							setAgentBindingValue("");
 							setErrorState(null);
 						}}
-						value={selectedComputerChoice?.value ?? ""}
-					>
-						<option disabled value="">
-							{computerChoicePlaceholder}
-						</option>
-						{computerChoices.map((choice) => (
-							<option key={choice.value} value={choice.value}>
-								{choice.label}
-							</option>
-						))}
-					</select>
-				</label>
+						selectedChoice={selectedComputerChoice}
+					/>
+					<AdvancedCreationConnectionSelector
+						choices={connectionChoices}
+						disabled={createProfileMutation.isPending}
+						onSelect={(target) => {
+							recovery.selectComputer(target);
+							setBoundAgentId("");
+							setAgentBindingValue("");
+							setErrorState(null);
+						}}
+					/>
+				</div>
 			) : undefined,
 		additionalHumanProfileCreationEnabled,
 		additionalSubmitBlockReason,
@@ -2212,10 +2212,106 @@ function useCreationComputerReadiness(input: {
 	};
 }
 
+function CreationComputerSelector(input: {
+	choices: ReturnType<typeof resolveCreationComputerChoices>["choices"];
+	selectedChoice: ReturnType<
+		typeof resolveCreationComputerChoices
+	>["selectedChoice"];
+	disabled: boolean;
+	onSelect: RecoveryController["selectComputer"];
+}) {
+	if (input.choices.length <= 1) {
+		return null;
+	}
+	return (
+		<>
+			<p>Computer</p>
+			<Select
+				disabled={input.disabled}
+				onValueChange={(value) => {
+					const choice = input.choices.find((entry) => entry.value === value);
+					if (choice?.target) {
+						input.onSelect(choice.target);
+					}
+				}}
+				value={input.selectedChoice?.value ?? ""}
+			>
+				<SelectTrigger
+					aria-label="Computer"
+					displayValue={input.selectedChoice?.label}
+					placeholder="Choose a computer"
+				/>
+				<SelectContent>
+					{input.choices.map((choice, index) => (
+						<SelectItem
+							disabled={!choice.target}
+							index={index}
+							key={choice.value}
+							value={choice.value}
+						>
+							{choice.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</>
+	);
+}
+
+function AdvancedCreationConnectionSelector(input: {
+	choices: ReturnType<
+		typeof resolveCreationComputerChoices
+	>["connectionChoices"];
+	disabled: boolean;
+	onSelect: RecoveryController["selectComputer"];
+}) {
+	if (input.choices.length === 0) {
+		return null;
+	}
+	return (
+		<details className="rounded-md border p-3">
+			<summary className="cursor-pointer text-muted-foreground">
+				Advanced connection selection
+			</summary>
+			<p className="my-2 text-muted-foreground text-xs">
+				Multiple Service connections were found on a computer. Choose the
+				connection this Agent should use.
+			</p>
+			<Select
+				disabled={input.disabled}
+				onValueChange={(value) => {
+					const choice = input.choices.find((entry) => entry.value === value);
+					if (choice) {
+						input.onSelect(choice.target);
+					}
+				}}
+				value=""
+			>
+				<SelectTrigger
+					aria-label="Service connection"
+					placeholder="Choose a connection"
+				/>
+				<SelectContent>
+					{input.choices.map((choice, index) => (
+						<SelectItem index={index} key={choice.value} value={choice.value}>
+							{choice.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</details>
+	);
+}
+
 function resolveCreationComputerChoices(recovery: RecoveryController) {
 	const computers =
 		recovery.localRuntimesQuery.data?.peopleComputers.computers ?? [];
-	const choices = computers.flatMap((computer) => {
+	const connectionChoices: {
+		value: string;
+		label: string;
+		target: Parameters<RecoveryController["selectComputer"]>[0];
+	}[] = [];
+	const choices = computers.map((computer) => {
 		const targets = new Map(
 			[...computer.executionTargets, ...computer.connection.sessions].map(
 				(target) => [
@@ -2227,29 +2323,52 @@ function resolveCreationComputerChoices(recovery: RecoveryController) {
 				]
 			)
 		);
-		const needsDisambiguation =
-			targets.size > 1 ||
+		const selected = [...targets.values()].find(
+			(target) =>
+				target.deviceId === recovery.deviceId &&
+				target.runtimeLane === recovery.runtimeLane
+		);
+		let target = selected;
+		if (!target && computer.connection.sessions.length === 1) {
+			target = computer.connection.sessions[0];
+		}
+		if (!target && targets.size === 1) {
+			target = [...targets.values()][0];
+		}
+		if (!target) {
+			for (const [value, connection] of targets) {
+				connectionChoices.push({
+					value,
+					target: {
+						deviceId: connection.deviceId,
+						runtimeLane: connection.runtimeLane,
+					},
+					label: `${computer.deviceDisplayName} · ${connection.runtimeLane} · ${connection.deviceId.slice(-6)}`,
+				});
+			}
+		}
+		const sameName =
 			computers.filter(
 				(entry) => entry.deviceDisplayName === computer.deviceDisplayName
 			).length > 1;
-		return [...targets].map(([value, target]) => ({
-			value,
-			target: { deviceId: target.deviceId, runtimeLane: target.runtimeLane },
-			label: needsDisambiguation
-				? `${computer.deviceDisplayName} · ${target.runtimeLane} · ${target.deviceId.slice(-6)}`
+		return {
+			value: computer.deviceId,
+			target: target
+				? { deviceId: target.deviceId, runtimeLane: target.runtimeLane }
+				: null,
+			label: sameName
+				? `${computer.deviceDisplayName} · ${computer.deviceId.slice(-6)}`
 				: computer.deviceDisplayName,
-		}));
+		};
 	});
 	return {
 		choices,
+		connectionChoices,
 		selectedChoice: choices.find(
 			(choice) =>
-				choice.target.deviceId === recovery.deviceId &&
+				choice.target?.deviceId === recovery.deviceId &&
 				choice.target.runtimeLane === recovery.runtimeLane
 		),
-		label: computers.length === 1 ? "Environment" : "Computer",
-		placeholder:
-			computers.length === 1 ? "Choose an environment" : "Choose a computer",
 	};
 }
 

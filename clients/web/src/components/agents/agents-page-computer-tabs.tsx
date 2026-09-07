@@ -117,7 +117,12 @@ export function ComputerSummaryCardContent(input: {
 	status: ComputerSummaryStatus | null;
 }) {
 	const executionTarget = resolveCurrentExecutionTarget(input.device);
-	const localAgentIcons = resolveComputerTabLocalAgentIcons(executionTarget);
+	const localAgentIcons = resolveComputerTabLocalAgentIcons(
+		executionTarget
+	).map((icon) => ({
+		...icon,
+		muted: icon.muted || !input.status || input.status.tone !== "ready",
+	}));
 
 	return (
 		<SettingsComputerSummaryCardContent
@@ -143,12 +148,13 @@ export function ComputerSummaryCardContent(input: {
 type ComputerTabLocalAgentIcon = {
 	agentId: string;
 	displayName: string;
+	muted: boolean;
 };
 
 function resolveComputerTabLocalAgentIcons(
 	executionTarget: LocalRuntimeExecutionTarget | null
 ): readonly ComputerTabLocalAgentIcon[] {
-	if (executionTarget === null || executionTarget.status === "stale") {
+	if (executionTarget === null) {
 		return [];
 	}
 
@@ -158,6 +164,10 @@ function resolveComputerTabLocalAgentIcons(
 			icons.push({
 				agentId: entry.agentId,
 				displayName: entry.displayName,
+				muted:
+					executionTarget.status !== "ready" ||
+					!entry.enabled ||
+					!entry.selectable,
 			});
 		}
 	}
@@ -169,7 +179,6 @@ function isComputerTabLocalAgentIconEntry(
 ): boolean {
 	return (
 		entry.detected &&
-		entry.selectable &&
 		entry.lifecycleStatus !== "suspended" &&
 		hasLocalAgentLogo(entry.agentId)
 	);
