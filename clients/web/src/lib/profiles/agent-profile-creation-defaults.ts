@@ -62,6 +62,7 @@ export function resolveRememberedAgentProfileCreationDefaults(input: {
 }): {
 	agentControllerCollaborationMode: AgentControllerCollaborationMode | null;
 	agentControllerPermissionMode: AgentControllerPermissionMode;
+	agentControllerPermissionModeConfirmed: boolean;
 	defaultProjectId: string | null;
 	modelId: string | null;
 	openCodePermission: AgentProfileBindingOpenCodePermission | null;
@@ -91,6 +92,13 @@ export function resolveRememberedAgentProfileCreationDefaults(input: {
 	)
 		? input.defaults.defaultProjectId
 		: null;
+	const agentControllerPermissionMode =
+		resolveAgentControllerPermissionModeForController(
+			defaultsMatchController
+				? input.defaults.agentControllerPermissionMode
+				: null,
+			{ agentControllerRef: expectedAgentControllerRef }
+		);
 
 	return {
 		agentControllerCollaborationMode: defaultsMatchController
@@ -99,14 +107,13 @@ export function resolveRememberedAgentProfileCreationDefaults(input: {
 					{ agentControllerRef: expectedAgentControllerRef }
 				) ?? null)
 			: null,
-		agentControllerPermissionMode:
-			resolveAgentControllerPermissionModeForController(
-				defaultsMatchController
-					? input.defaults.agentControllerPermissionMode
-					: null,
-				{ agentControllerRef: `builtin:${input.agentId}` }
-			),
+		agentControllerPermissionMode,
 		defaultProjectId,
+		agentControllerPermissionModeConfirmed:
+			defaultsMatchController &&
+			input.defaults.updatedAt !== null &&
+			input.defaults.agentControllerPermissionMode ===
+				agentControllerPermissionMode,
 		modelId,
 		openCodePermission:
 			defaultsMatchController && input.agentId === "opencode"
