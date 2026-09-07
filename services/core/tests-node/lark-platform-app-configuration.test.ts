@@ -1,3 +1,4 @@
+import type { Client } from "@larksuiteoapi/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 import capturedSetupScopes from "../../../scripts/lark-platform/fixtures/application-scopes-with-setup.feishu.json";
 import {
@@ -15,6 +16,43 @@ const EXPECTED_SCOPES = LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.scopes.map(
 );
 
 describe("Lark-platform app configuration", () => {
+  it.each([
+    "lark",
+    "feishu",
+  ] as const)("preserves %s missing configuration permission as an actionable reason", async (provider) => {
+    // Provider response type plus code captured during the Feishu configuration probe.
+    const denial: Awaited<
+      ReturnType<Client["application"]["v7"]["applicationConfig"]["patch"]>
+    > = { code: 99_991_672 };
+    for (const status of [200, 403]) {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          Response.json({
+            code: 0,
+            expire: 7200,
+            tenant_access_token: "tenant-token",
+          })
+        )
+        .mockResolvedValueOnce(Response.json(denial, { status }));
+      await expect(
+        configureAndVerifyLarkPlatformWebhookApp({
+          appId: "cli_test",
+          appSecret: "app-secret",
+          connectionId: "connection-1",
+          eventEncryptKey: "event-encrypt-key",
+          fetchImpl,
+          gatewayOrigin: "https://gateway-dev.openmeld.ai",
+          provider,
+          verificationToken: "verification-token",
+        })
+      ).rejects.toMatchObject({
+        reasonCode: `${provider}.application_config_permission_required`,
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    }
+  });
+
   it("invokes every provider request without an object receiver", async () => {
     const fetchImpl = vi.fn<typeof fetch>(function (
       this: unknown,

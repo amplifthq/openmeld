@@ -29,6 +29,7 @@ import {
   readActiveRemoteAgentLarkPlatformRegistrationAttempt,
   readRemoteAgentLarkPlatformRegistrationAttempt,
   repairRemoteAgentLarkPlatformRegistrationAttempt,
+  replaceClaimedLarkPlatformCallbackCredentials,
   replacePendingRemoteAgentLarkPlatformRegistrationAttempt,
 } from "../infrastructure/d1/lark-platform-registration-attempt-repo";
 import { configureAndVerifyLarkPlatformWebhookApp } from "./lark-platform-app-configuration";
@@ -738,27 +739,77 @@ async function configurePersistedRegistration(input: {
   }
 
   try {
-    const [appSecret, verificationToken, eventEncryptKey] = await Promise.all([
-      decryptLarkPlatformCredential({
-        credentialName: "app secret",
-        cryptoKey: input.configuration.cryptoKey,
-        encryptedCredential: credentials.encryptedAppSecret,
-      }),
-      credentials.encryptedVerificationToken
-        ? decryptLarkPlatformCredential({
+    const [appSecret, savedVerificationToken, savedEventEncryptKey] =
+      await Promise.all([
+        decryptLarkPlatformCredential({
+          credentialName: "app secret",
+          cryptoKey: input.configuration.cryptoKey,
+          encryptedCredential: credentials.encryptedAppSecret,
+        }),
+        credentials.encryptedVerificationToken
+          ? decryptLarkPlatformCredential({
+              credentialName: "verification token",
+              cryptoKey: input.configuration.cryptoKey,
+              encryptedCredential: credentials.encryptedVerificationToken,
+            })
+          : Promise.reject(new Error("verification token is unavailable")),
+        credentials.encryptedEventEncryptKey
+          ? decryptLarkPlatformCredential({
+              credentialName: "event encrypt key",
+              cryptoKey: input.configuration.cryptoKey,
+              encryptedCredential: credentials.encryptedEventEncryptKey,
+            })
+          : Promise.reject(new Error("event encrypt key is unavailable")),
+      ]);
+    const verificationToken =
+      savedVerificationToken.length > 32
+        ? createOpaqueSecret()
+        : savedVerificationToken;
+    const eventEncryptKey =
+      savedEventEncryptKey.length > 32
+        ? createOpaqueSecret()
+        : savedEventEncryptKey;
+    if (
+      verificationToken !== savedVerificationToken ||
+      eventEncryptKey !== savedEventEncryptKey
+    ) {
+      const [encryptedVerificationToken, encryptedEventEncryptKey] =
+        await Promise.all([
+          encryptLarkPlatformCredential({
+            credential: verificationToken,
             credentialName: "verification token",
             cryptoKey: input.configuration.cryptoKey,
-            encryptedCredential: credentials.encryptedVerificationToken,
-          })
-        : Promise.reject(new Error("verification token is unavailable")),
-      credentials.encryptedEventEncryptKey
-        ? decryptLarkPlatformCredential({
+          }),
+          encryptLarkPlatformCredential({
+            credential: eventEncryptKey,
             credentialName: "event encrypt key",
             cryptoKey: input.configuration.cryptoKey,
-            encryptedCredential: credentials.encryptedEventEncryptKey,
-          })
-        : Promise.reject(new Error("event encrypt key is unavailable")),
-    ]);
+          }),
+        ]);
+      const replaced = await replaceClaimedLarkPlatformCallbackCredentials({
+        attemptId: input.attempt.attemptId,
+        claimId: input.claimId,
+        connectionId,
+        db: input.db,
+        encryptedEventEncryptKey,
+        encryptedVerificationToken,
+        previousEncryptedEventEncryptKey: credentials.encryptedEventEncryptKey,
+        previousEncryptedVerificationToken:
+          credentials.encryptedVerificationToken,
+        nowMs: input.clock(),
+      });
+      if (!replaced) {
+        const current = await readRemoteAgentLarkPlatformRegistrationAttempt({
+          attemptId: input.attempt.attemptId,
+          db: input.db,
+        });
+        return await projectRegistrationResponse({
+          attempt: current ?? input.attempt,
+          cryptoKey: input.configuration.cryptoKey,
+          db: input.db,
+        });
+      }
+    }
     const configured = await configureAndVerifyLarkPlatformWebhookApp({
       appId: connection.appId,
       appSecret,

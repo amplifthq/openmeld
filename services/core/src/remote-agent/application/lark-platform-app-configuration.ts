@@ -15,6 +15,7 @@ type JsonObject = Record<string, unknown>;
 
 type LarkPlatformAppConfigurationReason =
   | "application_config_failed"
+  | "application_config_permission_required"
   | "bot_identity_failed"
   | "callback_origin_invalid"
   | "configuration_input_invalid"
@@ -276,6 +277,16 @@ async function requestJson(input: {
     body = await response.json();
   } catch {
     throw configurationError(input.provider, input.reason);
+  }
+  if (
+    isJsonObject(body) &&
+    input.reason === "application_config_failed" &&
+    readProviderCode(body) === 99_991_672
+  ) {
+    throw configurationError(
+      input.provider,
+      "application_config_permission_required"
+    );
   }
   if (!(response.ok && isJsonObject(body))) {
     throw configurationError(input.provider, input.reason);

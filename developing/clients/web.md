@@ -1518,6 +1518,11 @@ already connected; it never tells the manager to disconnect a healthy App.
 While Core is retrying configuration, the dialog shows the latest bounded
 verification failure in plain language instead of presenting an unexplained
 spinner for the rest of the configuration window.
+When configuration requires additional setup permission, the dialog explicitly
+asks the manager to grant `application:application:patch` in the selected
+provider's Developer Console and provides that console link. It does not imply
+that waiting can grant permission. Core retains its existing bounded retries
+so setup can continue after the manager grants access.
 
 The Lark and Feishu cards are enabled in local and production configuration
 for every Organization. Staging keeps both providers disabled.

@@ -14,6 +14,10 @@ the app credentials and continue connection verification.
 New callback encryption keys and verification tokens also respect the
 provider's 32-character limit, preventing configuration requests from being
 rejected after registration succeeds.
+Existing apps with oversized callback secrets are repaired when configuration
+resumes, including through Repair, without creating another app. If setup
+needs additional permission, the connection dialog explains what to grant and
+links to the Lark or Feishu Developer Console.
 
 Encrypted URL-verification challenges can now complete without signature
 headers when their verification token matches. Ordinary message signatures

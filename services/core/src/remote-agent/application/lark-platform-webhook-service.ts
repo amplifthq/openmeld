@@ -128,6 +128,7 @@ export async function verifyLarkPlatformWebhook(input: {
     const verifiedConnection =
       await recordRemoteAgentLarkPlatformWebhookReachability({
         connectionId: connection.connectionId,
+        encryptedVerificationToken: secrets.encryptedVerificationToken,
         db: input.db,
         organizationId: connection.organizationId,
         provider: connection.provider,
@@ -190,6 +191,7 @@ async function readConnectionWebhookSecrets(input: {
 }): Promise<
   | {
       eventEncryptKey: string | null;
+      encryptedVerificationToken: string;
       status: "ready";
       verificationToken: string;
     }
@@ -226,7 +228,12 @@ async function readConnectionWebhookSecrets(input: {
           })
         : Promise.resolve(null),
     ]);
-    return { eventEncryptKey, status: "ready", verificationToken };
+    return {
+      eventEncryptKey,
+      encryptedVerificationToken: credentials.encryptedVerificationToken,
+      status: "ready",
+      verificationToken,
+    };
   } catch (error) {
     console.error(
       "[core.message_channel.webhook_credential_decryption_failed]",

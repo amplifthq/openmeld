@@ -229,6 +229,16 @@ compatibility text, so rendered-content confirmation comes from the user.
 Live card-action delivery, mainland SLOs, and a fresh registration without
 diagnostic fixture repair remain separate acceptance gates.
 
+The follow-up shared-code correction replaces oversized saved callback secrets
+under the active configuration claim and invalidates their URL proofs in one
+transaction. Both provider paths are covered by isolated regression tests,
+including stale claims, connected Apps, and stale URL-verification evidence.
+The SDK 1.71.1 `application.v7.applicationConfig.patch` response type and the
+captured `99991672` error code inform missing-permission handling; no new live
+provider response or Lark smoke is claimed from those tests. The Web dialog
+now guides explicit permission consent. Publishing the provider App's changed
+subscription version remains a provider-side step.
+
 ## Worker SDK compatibility result
 
 Wrangler `4.110.0` successfully bundled the exact official SDK with
