@@ -718,15 +718,16 @@ function useCreateProfileDialogController(
 		selectedProjectId,
 	} = effectiveFormState;
 	const agentControllerRef = resolveAgentControllerRef(boundAgentId);
+	const creationDefaultsEnabled = shouldReadCreationDefaults({
+		agentControllerRef,
+		open: input.open,
+		organizationId,
+		ownerMode,
+	});
 	const creationDefaultsQuery = useQuery(
 		agentProfileCreationDefaultsQueryOptions({
 			agentControllerRef,
-			enabled: shouldReadCreationDefaults({
-				agentControllerRef,
-				open: input.open,
-				organizationId,
-				ownerMode,
-			}),
+			enabled: creationDefaultsEnabled,
 			organizationId,
 		})
 	);
@@ -959,16 +960,18 @@ function useCreateProfileDialogController(
 		},
 	});
 	const projectSelectionBlockReason =
-		resolveAgentProfileProjectSelectionBlockReason({
-			boundAgentId,
-			ownerMode,
-			projectFolderPath,
-			projectsPending: projectsQuery.isPending,
-			projectWorkspaceFallback,
-			selectedProjectBindingGeneration,
-			selectedProjectId,
-			sessionPreset,
-		});
+		creationDefaultsEnabled && creationDefaultsQuery.isPending
+			? "Loading your saved Agent settings."
+			: resolveAgentProfileProjectSelectionBlockReason({
+					boundAgentId,
+					ownerMode,
+					projectFolderPath,
+					projectsPending: projectsQuery.isPending,
+					projectWorkspaceFallback,
+					selectedProjectBindingGeneration,
+					selectedProjectId,
+					sessionPreset,
+				});
 	const projectSelectionSlot = renderProjectSelectionSlot({
 		creationDefaultsEditedRef,
 		disabled:
@@ -2413,16 +2416,7 @@ function resolveTeammateBindingChoices(input: {
 	if (input.ownerMode !== "teammate") {
 		return undefined;
 	}
-	return [
-		{
-			agentId: null,
-			description:
-				"Create the Agent now and let its owner choose the controlling local agent later.",
-			label: "Let the owner choose",
-			value: "",
-		},
-		...input.options.map((option) => option.choice),
-	];
+	return [...input.options.map((option) => option.choice)];
 }
 
 function resolveCreateProfileOwnerChoice(input: {

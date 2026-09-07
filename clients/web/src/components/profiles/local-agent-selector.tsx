@@ -67,10 +67,8 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 						<h1 className="font-medium text-2xl tracking-tight">
 							Create Agent
 						</h1>
-						<h2 className="font-medium text-base">{heading}</h2>
 						<p className="font-normal text-muted-foreground text-sm">
-							Choose the local agent that will run your Agent profile, such as
-							Codex or Claude Code.
+							Choose where your Agent runs.
 						</p>
 					</div>
 				) : (

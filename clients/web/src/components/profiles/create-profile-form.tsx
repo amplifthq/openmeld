@@ -612,9 +612,9 @@ function resolveAgentBindingHelpText(input: {
 		return "Checking local agents on this computer.";
 	}
 	if (input.availableLocalAgentCount === 0) {
-		return "No available local agents were detected on this computer, so you can choose one later.";
+		return "No local agents are available. Connect a computer to continue.";
 	}
-	return "Choose a local agent now, or choose later if you only need the profile name today.";
+	return "Choose the local agent that will run this Agent.";
 }
 
 export function AgentControllerPermissionModeFields(input: {
