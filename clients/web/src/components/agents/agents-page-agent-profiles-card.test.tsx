@@ -1275,7 +1275,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		fireEvent.click(
 			within(confirmation).getByRole("button", { name: "Cancel" })
 		);
-		expect(screen.queryByRole("alertdialog")).toBeNull();
+		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 
 		fireEvent.click(
 			within(interruptedWork).getByRole("button", { name: "Skip" })
@@ -1628,7 +1628,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
-		expect(screen.queryByRole("textbox", { name: "Name" })).toBeNull();
+		await waitFor(() =>
+			expect(screen.queryByRole("textbox", { name: "Name" })).toBeNull()
+		);
 		expect(screen.getByText("How this Agent works")).toBeTruthy();
 		expect(renameOpenMeldProfileMock).not.toHaveBeenCalled();
 	});

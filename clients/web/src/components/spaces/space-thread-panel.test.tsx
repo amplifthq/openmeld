@@ -257,10 +257,10 @@ describe("SpaceThreadPanel", () => {
 
 		expect(
 			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", true);
+		).toHaveProperty("disabled", false);
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
-		).toHaveProperty("disabled", true);
+		).toHaveProperty("disabled", false);
 	});
 
 	it("hides redundant mention guidance in an Agent DM thread", () => {

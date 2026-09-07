@@ -261,7 +261,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
-		expect(screen.queryByRole("dialog")).toBeNull();
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 		expect(disconnectOrganizationGitHubConnectionMock).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "Disconnect GitHub" }));
@@ -428,7 +428,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 		const cancelButton = screen.getByRole("button", { name: "Cancel" });
 		expect(cancelButton.hasAttribute("disabled")).toBe(false);
 		fireEvent.click(cancelButton);
-		expect(screen.queryByRole("dialog")).toBeNull();
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 	});
 
 	it("keeps onboarding visible while GitHub authorization runs and supports cancel", async () => {
