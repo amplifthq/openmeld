@@ -32,6 +32,21 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
+  it("explains a resume timeout without claiming the Agent finished or failed to post", () => {
+    expect(
+      resolveMappedPublicAgentFailureReason("context.resume_timeout")
+    ).toBe(
+      "OpenMeld could not resume the Agent's conversation in time. Try waking the Agent again. If this keeps happening, open Diagnostics."
+    );
+  });
+  it.each([
+    "dispatch.agent_reply_observation.unavailable",
+    "dispatch.agent_reply_observation.no_progress",
+  ])("explains unreadable reply context for %s", (reasonCode) => {
+    expect(resolveMappedPublicAgentFailureReason(reasonCode)).toBe(
+      "OpenMeld could not read the latest Space messages to finish this reply. Open Diagnostics for details before trying again."
+    );
+  });
   it("canonicalizes mixed-version Center Agent callback failures before publication", () => {
     expect(
       resolveCenterAgentCallbackFailureMessage({
