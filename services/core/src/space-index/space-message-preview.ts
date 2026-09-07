@@ -1,5 +1,6 @@
 import { sanitizeSignalTextPreview } from "@openmeld/schemas";
 import type { AccountSpaceIndexItem } from "@openmeld/schemas/types";
+import { parseStoredSignal } from "../space/rules/parsers/stored-signal";
 
 export type SpaceMessagePreview = Exclude<
   AccountSpaceIndexItem["messagePreview"],
@@ -16,13 +17,14 @@ export function captureSpaceMessagePreview(sql: SqlStorage): {
       id: string;
       ts: number;
       profile_id: string;
-      text: string;
+      payload_json: string;
     }>(`
-    SELECT rowid AS storage_order, id, ts, profile_id, json_extract(payload_json, '$.data.text') AS text
+    SELECT rowid AS storage_order, id, ts, profile_id, payload_json
     FROM space_signals WHERE type = 'signal.text'
     ORDER BY ts DESC, id DESC LIMIT 1
   `)
     .toArray()[0];
+  const signal = row ? parseStoredSignal(row.payload_json) : null;
   // A durable counter also orders retention snapshots after their deleted messages.
   const revision = sql
     .exec<{ revision: number }>(
@@ -35,17 +37,17 @@ export function captureSpaceMessagePreview(sql: SqlStorage): {
   }
   return {
     revision,
-    preview: row
-      ? {
-          signalId: row.id,
-          profileId: row.profile_id,
-          timestamp: row.ts,
-          text: (sanitizeSignalTextPreview(row.text) ?? "Message").slice(
-            0,
-            240
-          ),
-        }
-      : null,
+    preview:
+      signal?.type === "signal.text"
+        ? {
+            signalId: signal.id,
+            profileId: signal.profile.profileId,
+            timestamp: signal.ts,
+            text: (
+              sanitizeSignalTextPreview(signal.data.text) ?? "Message"
+            ).slice(0, 240),
+          }
+        : null,
   };
 }
 

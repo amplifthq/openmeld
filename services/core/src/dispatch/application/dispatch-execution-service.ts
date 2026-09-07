@@ -21,6 +21,7 @@ import {
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   resolveBuiltinAgentControllerConversationKind,
   resolvePublicAgentAvailabilityCopy,
+  resolveSingleSpaceMentionLabels,
 } from "@openmeld/schemas";
 import type {
   AgentControllerConversationRef,
@@ -767,9 +768,11 @@ export const deliverDispatchMessageToDaemon = async (input: {
   const profileHandle = targetProfileIdentity.profileHandle;
   const targetProfileMentionLabel =
     targetProfileMentionLabelSnapshot ??
-    targetProfileNameSnapshot ??
-    targetProfileIdentity.profileName ??
-    input.message.targetProfileId;
+    resolveSingleSpaceMentionLabels({
+      profileId: input.message.targetProfileId,
+      profileName:
+        targetProfileNameSnapshot ?? targetProfileIdentity.profileName,
+    }).primaryMentionLabel;
   const targetProfileName =
     targetProfileNameSnapshot ?? targetProfileIdentity.profileName;
   const targetProfileIsCenterAgent = await measureDispatchTiming({
@@ -3130,10 +3133,15 @@ const resolveAwaitDispatchReplyTargetContext = async (input: {
     targetProfileMentionLabel:
       normalizeOptionalText(input.targetProfileMentionLabel) ??
       normalizeOptionalText(input.dispatchMessage.targetProfileMentionLabel) ??
-      normalizeOptionalText(input.targetProfileName) ??
-      normalizeOptionalText(input.dispatchMessage.targetProfileNameSnapshot) ??
-      fallbackTargetProfileIdentity.profileName ??
-      input.dispatchMessage.targetProfileId,
+      resolveSingleSpaceMentionLabels({
+        profileId: input.dispatchMessage.targetProfileId,
+        profileName:
+          normalizeOptionalText(input.targetProfileName) ??
+          normalizeOptionalText(
+            input.dispatchMessage.targetProfileNameSnapshot
+          ) ??
+          fallbackTargetProfileIdentity.profileName,
+      }).primaryMentionLabel,
     targetProfileName:
       normalizeOptionalText(input.targetProfileName) ??
       fallbackTargetProfileIdentity.profileName,

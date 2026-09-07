@@ -1429,6 +1429,41 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
   }
 });
 
+test("codex app-server resumes a cold conversation beyond the metadata timeout without starting a replacement", async () => {
+  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-cold-resume-"));
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+  try {
+    await invokeCodexAppServerTransport({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      codexTimeoutMs: null,
+      codexWorkdir: fixtureDir,
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_RESUME_RESPONSE_DELAY_MS: "16000",
+      },
+      prompt: "continue",
+      taskId: "task-cold-resume",
+      threadId: "thread-cold-resume",
+    });
+    const methods = await readFakeAppServerMethods(logPath);
+    assert.equal(
+      methods.filter((method) => method === "thread/resume").length,
+      1
+    );
+    assert.equal(
+      methods.filter((method) => method === "thread/start").length,
+      0
+    );
+    assert.equal(methods.filter((method) => method === "turn/start").length, 1);
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+  }
+});
+
 test("codex app-server does not start a turn when Stop lands during thread resume", async () => {
   const { invokeCodexAppServerTransport } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-stop-resume-"));
@@ -2584,7 +2619,7 @@ test("invokeCodexAppServer stops after one automatic startup retry", async () =>
   }
 });
 
-test("codex app-server admission budgets keep rollover fast without rejecting a cold fresh start", async () => {
+test("codex app-server admission budgets allow cold start and resume", async () => {
   const { resolveCodexAppServerControlRequestTimeoutMs } = await import(
     "../dist/transport/codex-app-server-admission.js"
   );
@@ -2593,7 +2628,7 @@ test("codex app-server admission budgets keep rollover fast without rejecting a 
     resolveCodexAppServerControlRequestTimeoutMs({
       operation: "thread/resume",
     }),
-    15_000
+    90_000
   );
   assert.equal(
     resolveCodexAppServerControlRequestTimeoutMs({
