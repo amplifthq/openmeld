@@ -62,6 +62,16 @@ versioned release PR; this feature branch does not hand-edit release manifests.
 
 ## Evidence and remaining acceptance
 
+Interrupted staging foreground execution exposed a local restart regression:
+an exited process's missing command path was diagnosed as bundle corruption,
+which suggested system-registration repair. Inventory now retains the stale
+lease without inferring a bundle mismatch when no matching process exists.
+Observed/live process validation and independent bundle-integrity checks stay
+unchanged. A real exited-child regression failed before the fix; all 23 inventory
+integration tests pass afterward. This changes no wire contract, enrollment,
+execution epoch or running-task authority. The new packaged staging CLI still
+needs to prove restart on the preserved failing fixture before production.
+
 Staging browser acceptance exposed inherited production cookies masking the
 staging session when both environments used Better Auth's default cookie names.
 Staging Auth now explicitly uses `openmeld-staging`; production names remain

@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -64,6 +65,26 @@ const EXTERNAL_MANAGER_STATUS: DaemonServiceManagerRuntimeStatus = {
 };
 
 describe("local service inventory process evidence", () => {
+  it("does not diagnose a missing live command as bundle corruption after the process exits", async () => {
+    await withTempHome(async () => {
+      const exited = spawnSync(process.execPath, ["-e", ""]);
+      expect(exited.status).toBe(0);
+      await writeRunningRuntimeLease(exited.pid);
+      const inventory = await inspectDaemonServiceInventory({
+        expectedVersion: "0.2.2",
+        readDaemonStatus: async () => INSTALLED_STATUS,
+        listOwnedProcesses: async () => [],
+        resolveServiceManager: async () => null,
+      });
+      expect(inventory.runtimeStatus.reason).toBe("process_not_alive");
+      expect(inventory.anomalies.map((item) => item.code)).toContain(
+        "runtime_stale"
+      );
+      expect(inventory.anomalies.map((item) => item.code)).not.toContain(
+        "runtime_bundle_mismatch"
+      );
+    });
+  });
   it("fails closed when the owned-process scan cannot run", async () => {
     await withTempHome(async () => {
       await expect(
@@ -1124,7 +1145,7 @@ describe("local service inventory", () => {
   });
 });
 
-async function writeRunningRuntimeLease(): Promise<void> {
+async function writeRunningRuntimeLease(pid = process.pid): Promise<void> {
   const runtimeLeaseFilePath = daemonRuntimeLeasePath();
   await mkdir(dirname(runtimeLeaseFilePath), { recursive: true });
   const now = new Date().toISOString();
@@ -1136,7 +1157,7 @@ async function writeRunningRuntimeLease(): Promise<void> {
         v: 1,
         generation: 10,
         bundleId: "service-bundle",
-        pid: process.pid,
+        pid,
         mode: "background",
         startedAt: now,
         updatedAt: now,

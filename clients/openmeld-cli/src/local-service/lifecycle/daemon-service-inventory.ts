@@ -515,6 +515,12 @@ function buildRuntimeHealthAnomalies(input: {
   if (
     (input.runtimeStatus.status === "running" ||
       input.runtimeStatus.status === "stale") &&
+    // An exited process has no live command to compare. Its stale lease is
+    // restart evidence, not evidence that service files or registration broke.
+    (input.runtimeStatus.reason !== "process_not_alive" ||
+      input.ownedProcesses.some(
+        (processInfo) => processInfo.pid === input.runtimeStatus.pid
+      )) &&
     hasRuntimeBundleMismatch({
       activeBundleEntryPath: input.activeBundleEntryPath,
       activeBundleSourceEntryPath: input.activeBundleSourceEntryPath,

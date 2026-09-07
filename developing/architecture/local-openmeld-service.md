@@ -2192,6 +2192,13 @@ with its no-active-work precondition. They must not infer that a missing control
 endpoint means no local Agent work is running or force-stop the process
 automatically.
 
+An exited process has no live command path to inspect. When its lease is stale
+because the process is gone and the owned-process scan finds no matching
+process, that absence is not a runtime bundle mismatch and must not request
+system-registration repair. Preserve the stale-lease diagnostic and the normal
+restart path. A live or observed process still requires the existing bundle and
+command-path checks; independent bundle corruption remains blocking.
+
 One narrow crash-loop recovery is deterministic rather than destructive: when
 the local control endpoint is missing, runtime state is not running, and process
 inventory finds no OpenMeld-owned Service process, a stale service-manager

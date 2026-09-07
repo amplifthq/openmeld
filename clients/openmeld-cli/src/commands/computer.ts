@@ -120,7 +120,7 @@ export async function runComputerCurrent(
 
   if (!deviceId) {
     throw new Error(
-      "OpenMeld could not identify this computer. Run `openmeld setup` or `openmeld service install`, then try again."
+      "OpenMeld could not identify this computer. Run `openmeld setup`, then try again."
     );
   }
 
@@ -361,7 +361,7 @@ function findLocalRuntime(
 
   if (!runtime) {
     throw new Error(
-      "OpenMeld could not find this computer in your account. Run `openmeld setup` or `openmeld service install`, then try again."
+      "OpenMeld could not find this computer in your account. Run `openmeld setup` to register it, then try again."
     );
   }
 
