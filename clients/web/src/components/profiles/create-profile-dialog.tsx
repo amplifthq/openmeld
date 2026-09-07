@@ -209,10 +209,10 @@ function reduceCreateProfileDialogFormState(
 			boundModelId: action.draft.modelId,
 			boundOpenCodePermission: action.draft.openCodePermission,
 			boundReasoningLevel: action.draft.reasoningLevel,
-			projectWorkspaceFallback: resolveJourneyDraftProjectWorkspaceFallback(
-				action.draft.selectedProjectId
-			),
-			selectedProjectId: action.draft.selectedProjectId,
+			projectWorkspaceFallback: "managed",
+			selectedProjectId: "",
+			selectedProjectBindingGeneration: null,
+			projectFolderPath: "",
 		};
 	}
 	return { ...state, ...action.patch };
@@ -854,12 +854,12 @@ function useCreateProfileDialogController(
 			setBoundModelId(remembered.modelId ?? "");
 			setBoundOpenCodePermission(remembered.openCodePermission);
 			setBoundReasoningLevel(remembered.reasoningLevel ?? "");
-			setSelectedProjectId(remembered.defaultProjectId ?? "");
+			// A saved Project identity does not prove a usable folder on this computer.
+			// New sessions start with the managed folder unless the user chooses one.
+			setSelectedProjectId("");
 			setSelectedProjectBindingGeneration(null);
 			setProjectFolderPath("");
-			setProjectWorkspaceFallback(
-				remembered.defaultProjectId ? null : "managed"
-			);
+			setProjectWorkspaceFallback("managed");
 		},
 		organizationId,
 		projects: projectsQuery.data,
@@ -1320,6 +1320,17 @@ function useCreateProfileDialogController(
 		profileName: effectiveProfileName,
 		projectFolderPath,
 		projectSelectionBlockReason,
+		onUseManagedWorkspace:
+			ownerMode === "self" && sessionMode === "new"
+				? () => {
+						creationDefaultsEditedRef.current = true;
+						setSelectedProjectId("");
+						setSelectedProjectBindingGeneration(null);
+						setProjectFolderPath("");
+						setProjectWorkspaceFallback("managed");
+						setErrorState(null);
+					}
+				: undefined,
 		projectSelectionSlot,
 		projectSelectionSummary: resolveProjectSelectionSummary({
 			projectFolderPath,
@@ -1614,12 +1625,6 @@ function shouldUseAgentProfileCreationJourneyDraft(input: {
 		Boolean(input.modelCatalog) &&
 		!input.projectsPending
 	);
-}
-
-function resolveJourneyDraftProjectWorkspaceFallback(
-	selectedProjectId: string
-): "managed" | null {
-	return selectedProjectId ? null : "managed";
 }
 
 function clearCreationJourneyDraft(key: string | null): void {
@@ -2364,6 +2369,7 @@ function renderProjectSelectionSlot(input: {
 			}}
 			onUseManagedWorkspace={() => {
 				input.creationDefaultsEditedRef.current = true;
+				input.setSelectedProjectId("");
 				input.setSelectedProjectBindingGeneration(null);
 				input.setProjectFolderPath("");
 				input.setProjectWorkspaceFallback("managed");
@@ -3102,7 +3108,7 @@ function resolveProjectSelectionBlockReason(input: {
 			? null
 			: "Enter the full workspace path.";
 	}
-	return "Waiting for a connected working folder. Choose another working folder to continue now.";
+	return "This Project's folder is not connected. Let OpenMeld choose a folder, or change it in Advanced Agent Settings.";
 }
 
 function resolveCreateAgentControllerPermissionMode(input: {

@@ -66,6 +66,7 @@ type DirectMessagesListState =
 	| "refresh-retrying";
 
 export function AppDirectMessagesSidebar(input: {
+	pinFilter?: "pinned" | "unpinned";
 	onFirstChatChange?: (item: AccountSpaceItem | null | undefined) => void;
 	embedded?: boolean;
 	category?: "all" | "people" | "local";
@@ -175,6 +176,7 @@ export function AppDirectMessagesSidebar(input: {
 					});
 				}}
 				organizationSlug={currentOrganization.slug}
+				pinFilter={input.pinFilter}
 				profileDirectory={profileDirectoryQuery.data}
 				state={listState}
 				unreadBySpaceId={unreadBySpaceId}
@@ -184,6 +186,7 @@ export function AppDirectMessagesSidebar(input: {
 }
 
 function DirectMessagesList(input: {
+	pinFilter?: "pinned" | "unpinned";
 	embedded?: boolean;
 	onFirstChatChange?: (item: AccountSpaceItem | null | undefined) => void;
 	centerAgentProfileId: string | null;
@@ -245,6 +248,7 @@ function DirectMessagesList(input: {
 			embedded={input.embedded}
 			items={input.items}
 			onFirstChatChange={input.onFirstChatChange}
+			pinFilter={input.pinFilter}
 			renderRow={(props) => (
 				<DirectMessageSidebarItem
 					{...props}

@@ -694,6 +694,13 @@ different Agent Controller's choices. Failed or cancelled creation does not
 replace the remembered values, and dangerous permission confirmations are
 never remembered as approved.
 
+For a new Web session, a remembered Project id alone is not enough to restore a
+working folder: it does not confirm a connection on the selected computer.
+The form starts with Let OpenMeld choose instead. An explicit Project or custom
+folder choice remains explicit and must be completed before submission; Resume
+and Fork retain their selected Session's Project. Switching back to Let OpenMeld
+choose clears the Project and folder selection together.
+
 The creation page keeps `Create Agent` as its task heading and explains that a
 local agent runs the Agent Profile. A saved execution target is configuration,
 not evidence of a current Service connection. Empty-state setup guidance must
@@ -711,7 +718,9 @@ model and reasoning choice, supported controller settings, and a cloud Project
 id. It never stores a custom absolute folder path or a dangerous-permission
 confirmation. Web restores the draft only after validating every value against
 the current local-agent catalog, model catalog, permission options, and Project
-list; otherwise it discards the stale draft and uses current defaults. A
+list; otherwise it discards the stale draft and uses current defaults. A restored
+new-session draft uses Let OpenMeld choose because the stored Project id cannot
+confirm a current local connection. A
 successful creation clears the journey draft. Restoring or abandoning this
 browser draft never writes or replaces the Core-owned remembered creation
 defaults. Once the member changes the selected local Agent or execution target,

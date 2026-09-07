@@ -97,6 +97,7 @@ export function AppSidebarGroupStateProvider({
 }
 
 export function AppSidebarGroup(input: {
+	keepMounted?: boolean;
 	reorderId?: string;
 	contentOnly?: boolean;
 	onRename?: (name: string) => void;
@@ -226,7 +227,7 @@ export function AppSidebarGroup(input: {
 							</span>
 						) : null}
 					</SidebarGroupLabel>
-					<Collapsible.Panel>
+					<Collapsible.Panel keepMounted={input.keepMounted}>
 						<SidebarGroupContent
 							aria-label={input.contentAriaLabel}
 							role={input.contentRole}

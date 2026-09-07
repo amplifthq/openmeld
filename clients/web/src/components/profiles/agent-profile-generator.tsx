@@ -118,6 +118,18 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 							{submitBlockReason}
 						</p>
 					) : null}
+					{form.projectSelectionBlockReason &&
+						submitBlockReason === form.projectSelectionBlockReason &&
+						form.onUseManagedWorkspace && (
+							<Button
+								disabled={form.isSubmitting}
+								onClick={form.onUseManagedWorkspace}
+								type="button"
+								variant="outline"
+							>
+								Let OpenMeld choose
+							</Button>
+						)}
 					<SpinnerButton
 						aria-describedby={
 							submitBlockReason ? submitBlockReasonId : undefined

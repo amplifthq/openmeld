@@ -74,7 +74,9 @@ export function CenterAgentChatSidebar({
 	onFirstChatChange,
 	embedded = false,
 	showArchived,
+	pinFilter,
 }: {
+	pinFilter?: "pinned" | "unpinned";
 	search?: string;
 	embedded?: boolean;
 	showArchived?: boolean;
@@ -230,8 +232,9 @@ export function CenterAgentChatSidebar({
 	};
 	const visibleSections = sections.filter(
 		(section) =>
-			(section.id !== "pinned" && section.id !== "chats") ||
-			rows(section.id).length > 0
+			(!pinFilter || (section.id === "pinned") === (pinFilter === "pinned")) &&
+			((section.id !== "pinned" && section.id !== "chats") ||
+				rows(section.id).length > 0)
 	);
 	const firstChat = visibleSections.flatMap((section) => rows(section.id))[0];
 	const firstChatPath = firstChat
@@ -275,7 +278,8 @@ export function CenterAgentChatSidebar({
 					ariaLabel="Center Agent chats"
 					groups={visibleSections.map((section) => ({
 						id: section.id,
-						contentOnly: embedded && section.id === "chats",
+						contentOnly:
+							embedded && (section.id === "chats" || section.id === "pinned"),
 						label: section.name,
 						ariaLabel: section.name,
 						onRename:
