@@ -421,6 +421,11 @@ teammates.`; `Skip setup` is never a substitute for choosing it.
      Service fact. If it is already connected, show that connected computer and
      do not create a new Prepare Session unless the user explicitly chooses
      `Set up again`.
+     This reuse requires the browser's completed, account-matching setup
+     handoff and a fresh read for that exact device and lane. An account routing
+     preference or its only connected Service is not a browser setup handoff.
+     A handoff identifies the connected computer, not physical co-location
+     with the browser; Service connection alone does not prove agent readiness.
    - The step is optional. The user may continue while setup runs or install a
      supported local agent later. Copy never asks about a generic "coding
      agent."

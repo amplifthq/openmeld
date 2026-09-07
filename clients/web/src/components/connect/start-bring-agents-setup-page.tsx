@@ -276,10 +276,11 @@ function ExistingComputerConnectionGate(input: {
 					<p className="font-medium text-sm">Computer connected</p>
 					<p className="mt-1 truncate text-muted-foreground text-xs">
 						{connectionState.readiness.runtime.deviceDisplayName ??
-							"This computer"}
+							"Connected computer"}
 					</p>
 					<p className="mt-2 text-muted-foreground text-xs leading-5">
-						OpenMeld can already use the local agents enabled on this computer.
+						OpenMeld Service is connected. Agent availability is checked
+						separately.
 					</p>
 				</div>
 				<Button
@@ -316,9 +317,7 @@ function resolveExistingComputerConnectionState(
 	const currentDeviceTargetQuery = setup.currentDeviceTargetQuery;
 	const localRuntimesQuery = setup.localRuntimesQuery;
 	const readinessQuery = setup.currentLocalRuntimeReplyReadinessQuery;
-	const hasComputer =
-		currentDeviceTargetQuery.data?.availability === "resolved" ||
-		(localRuntimesQuery.data?.localRuntimes.length ?? 0) > 0;
+	const hasComputer = setup.deviceId !== null && setup.runtimeLane !== null;
 	const inventoryResolved =
 		currentDeviceTargetQuery.isSuccess &&
 		!currentDeviceTargetQuery.isFetching &&

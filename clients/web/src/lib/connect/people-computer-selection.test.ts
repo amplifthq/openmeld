@@ -63,4 +63,23 @@ describe("browser Computer selection", () => {
 			selectPeopleComputerTarget({ inventory, completedSetup: null })
 		).toBeNull();
 	});
+	it("does not reuse account routing as proof of this browser's setup", () => {
+		expect(
+			selectPeopleComputerTarget({
+				...input,
+				completedSetup: null,
+				selection: "setup",
+			})
+		).toBeNull();
+		expect(
+			selectPeopleComputerTarget({ ...input, selection: "setup" })
+		).toEqual({ deviceId: "new", runtimeLane: "prod" });
+		expect(
+			selectPeopleComputerTarget({
+				...input,
+				selection: "setup",
+				selectedHumanProfileId: "different-human",
+			})
+		).toBeNull();
+	});
 });

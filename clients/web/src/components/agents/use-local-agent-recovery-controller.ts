@@ -86,6 +86,7 @@ type GatewayLoadState =
 	  };
 
 type LocalAgentRecoveryControllerOptions = {
+	computerSelection?: "routing" | "setup";
 	agentExecutionReadinessScope?: AgentExecutionReadinessScope;
 	currentLocalRuntimeReplyReadinessRefetchIntervalMs?: false | number;
 	loadAgentExecutionReadiness?: boolean;
@@ -151,6 +152,7 @@ export function useLocalAgentRecoveryController(
 		localRuntimesQuery,
 		runtimeLane,
 	} = useLocalRuntimeQueries({
+		selection: options.computerSelection,
 		selectedHumanProfileId,
 		currentLocalRuntimeReplyReadinessRefetchIntervalMs:
 			options.currentLocalRuntimeReplyReadinessRefetchIntervalMs,

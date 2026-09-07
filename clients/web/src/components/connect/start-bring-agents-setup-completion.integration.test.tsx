@@ -1272,7 +1272,10 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		expect(createPrepareSessionMock).not.toHaveBeenCalled();
 	});
 
-	it("shows Terminal setup when embedded onboarding has no existing computer to check", async () => {
+	it.each([
+		false,
+		true,
+	])("shows Terminal setup without a browser handoff even with account routing: %s", async (hasAccountComputer) => {
 		createPrepareSessionMock.mockResolvedValueOnce({
 			opaqueToken: "preptok_active",
 			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
@@ -1289,6 +1292,17 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 					resetThisComputer: false,
 				},
 				{
+					...(hasAccountComputer
+						? {
+								currentDeviceTargetQuery: {
+									data: {
+										availability: "resolved" as const,
+										deviceId: "another-computer",
+										runtimeLane: "prod" as const,
+									},
+								},
+							}
+						: {}),
 					currentLocalRuntimeReplyReadinessQuery: {
 						data: undefined,
 						isError: false,
@@ -1309,6 +1323,11 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		).toBeTruthy();
 		expect(screen.queryByText("Checking this computer…")).toBeNull();
 		expect(createPrepareSessionMock).toHaveBeenCalledOnce();
+		expect(
+			screen.queryByText(
+				"OpenMeld Service is connected. Agent availability is checked separately."
+			)
+		).toBeNull();
 	});
 
 	it("hands a replayed automatic setup action back to the explicit Continue gate", async () => {

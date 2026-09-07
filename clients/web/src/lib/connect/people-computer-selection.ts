@@ -15,7 +15,7 @@ export function selectPeopleComputerTarget(input: {
 		humanProfileId: string;
 	} | null;
 	selectedHumanProfileId?: string | null;
-	selection?: "browser" | "routing";
+	selection?: "browser" | "routing" | "setup";
 }): PeopleComputerTarget | null {
 	const computers = input.inventory?.computers ?? [];
 	const setup = peopleComputerTargetSchema.safeParse({
@@ -23,7 +23,7 @@ export function selectPeopleComputerTarget(input: {
 		runtimeLane: input.completedSetup?.runtimeLane,
 	});
 	if (
-		input.selection === "browser" &&
+		(input.selection === "browser" || input.selection === "setup") &&
 		setup.success &&
 		input.completedSetup?.humanProfileId === input.selectedHumanProfileId &&
 		computers.some((computer) =>
@@ -31,6 +31,10 @@ export function selectPeopleComputerTarget(input: {
 		)
 	) {
 		return setup.data;
+	}
+	// Account routing is not evidence that this browser completed a handoff.
+	if (input.selection === "setup") {
+		return null;
 	}
 	const preference = input.routingPreference;
 	if (

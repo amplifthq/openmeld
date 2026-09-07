@@ -1,9 +1,5 @@
 "use client";
 
-import type {
-	CurrentDeviceTargetResponse,
-	DaemonServiceLane,
-} from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { readCompletedPrepareSessionPointer } from "#/components/connect/prepare-session-pointer";
@@ -22,7 +18,7 @@ export function useLocalRuntimeQueries(input: {
 	currentLocalRuntimeReplyReadinessRefetchIntervalMs?: false | number;
 	storageScope: string;
 	selectedHumanProfileId?: string | null;
-	selection?: "browser" | "routing";
+	selection?: "browser" | "routing" | "setup";
 }) {
 	const queryClient = useQueryClient();
 	const lastReadyCatalogReconcileKeyRef = useRef<string | null>(null);
@@ -144,9 +140,8 @@ export function useLocalRuntimeQueries(input: {
 		localRuntimesQuery.data,
 		queryClient,
 	]);
-	const { deviceId, runtimeLane } = resolveCurrentDeviceTargetParts(
-		currentDeviceTargetQuery.data
-	);
+	const deviceId = selectedTarget?.deviceId ?? null;
+	const runtimeLane = selectedTarget?.runtimeLane ?? null;
 
 	return {
 		currentDeviceTargetQuery,
@@ -154,20 +149,5 @@ export function useLocalRuntimeQueries(input: {
 		deviceId,
 		localRuntimesQuery,
 		runtimeLane,
-	};
-}
-
-function resolveCurrentDeviceTargetParts(
-	currentDeviceTarget: CurrentDeviceTargetResponse | undefined
-): {
-	deviceId: string | null;
-	runtimeLane: DaemonServiceLane | null;
-} {
-	if (currentDeviceTarget?.availability !== "resolved") {
-		return { deviceId: null, runtimeLane: null };
-	}
-	return {
-		deviceId: currentDeviceTarget.deviceId,
-		runtimeLane: currentDeviceTarget.runtimeLane ?? null,
 	};
 }
