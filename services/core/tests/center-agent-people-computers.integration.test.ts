@@ -35,6 +35,13 @@ describe("Center Agent PeopleComputers authorization", () => {
     expect(JSON.stringify(result.inventory)).toContain(fixture.member.deviceId);
     expect(JSON.stringify(result)).not.toContain(fixture.owner.deviceId);
     expect(JSON.stringify(result)).not.toContain('"isCurrent"');
+    const reportedTarget = result.inventory.computers[0]?.executionTargets[0];
+    expect(reportedTarget).toMatchObject({
+      deviceId: fixture.member.deviceId,
+      runtimeLane: "prod",
+    });
+    expect(reportedTarget).not.toHaveProperty("localAgentCatalog");
+    expect(reportedTarget).not.toHaveProperty("capabilities");
     expect(result.selectedComputer).toBeNull();
     const transport = await import(
       "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"

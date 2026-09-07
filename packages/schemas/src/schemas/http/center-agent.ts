@@ -1142,7 +1142,20 @@ export const centerAgentReadPeopleComputersBodySchema = z.strictObject({
 });
 
 export const centerAgentReadPeopleComputersResponseSchema = z.strictObject({
-  inventory: peopleComputersResponseSchema,
+  inventory: peopleComputersResponseSchema.extend({
+    computers: z.array(
+      peopleComputersResponseSchema.shape.computers.element.extend({
+        executionTargets: z.array(
+          peopleComputersResponseSchema.shape.computers.element.shape.executionTargets.element.omit(
+            {
+              capabilities: true,
+              localAgentCatalog: true,
+            }
+          )
+        ),
+      })
+    ),
+  }),
   organizationId: trimmedNonEmptyStringSchema,
   selectedComputer: z
     .strictObject({

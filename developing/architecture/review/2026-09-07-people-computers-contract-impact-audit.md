@@ -73,6 +73,16 @@ absence of a browser-current claim, foreign-owner rejection and exact-lane
 update routing. Public Center Agent acceptance remains required after the
 receiver-first staging deployment.
 
+Real staging acceptance exposed a canonical inventory response exceeding the
+128 KiB model-tool result limit. The Center Agent projection now excludes full
+capability and local-agent catalogs from each execution target, retaining the
+same identity, connection evidence and explicit selected diagnostics. Focused
+tools still own catalog and installation details. The safety limit is unchanged.
+This changes only the new Core-to-Remote Agent read projection; no installed
+CLI/Service contract or legacy response changes. Real staging revalidation of
+the compact response is still required; the earlier fallback answer is not
+acceptance evidence for exact-lane diagnostics.
+
 Web self-owned Agent creation now preserves the chosen device, lane, runtime
 and controller through the existing `localAgentConnectionCandidateId` field.
 Its encoding moved unchanged to `packages/agent-runtime` for Core and Web reuse;

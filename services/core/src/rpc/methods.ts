@@ -11294,7 +11294,22 @@ export async function rpcCenterAgentReadPeopleComputers(
     };
   }
   return centerAgentReadPeopleComputersResponseSchema.parse({
-    inventory,
+    inventory: {
+      ...inventory,
+      computers: inventory.computers.map((computer) => ({
+        ...computer,
+        // Discovery catalogs contain model lists and detailed install reports.
+        // Keep their dated target facts here; local-agent candidate and
+        // installation tools own the corresponding focused reads.
+        executionTargets: computer.executionTargets.map(
+          ({
+            capabilities: _capabilities,
+            localAgentCatalog: _catalog,
+            ...target
+          }) => target
+        ),
+      })),
+    },
     organizationId: authorization.activeOrganization.organizationId,
     selectedComputer,
   });

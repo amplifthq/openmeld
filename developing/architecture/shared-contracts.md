@@ -39,6 +39,12 @@ The shared legacy inventory adapter accepts an explicitly supplied target and
 does not recompute connection or readiness.
 
 Center Agent reads the same inventory through `centerAgentReadPeopleComputers`.
+This model-facing projection omits full capability and local-agent catalogs
+from execution targets: those include large model and installation reports
+that can exceed the tool-result safety limit. Identity, connection evidence,
+and dated target metadata remain unchanged; focused candidate and installation
+tools provide their own details. This is payload selection, not another
+readiness calculation, and does not raise the tool-result safety limit.
 The verified requesting member owns the read; the hosted Profile owner does
 not select its account. Without an explicit device/lane target, the response
 contains no selected-computer diagnostics and makes no browser identity claim.
