@@ -1969,7 +1969,10 @@ back, and forward preserve the user's location. Space, People, and other compact
 entry points use the dialog composition. Both surfaces use the same creation
 controller and generator components: local-Agent selection is the first
 decision, lower-frequency configuration stays under an inline **Advanced**
-disclosure, and the editable generated name appears only in the final review.
+disclosure that starts collapsed, and the editable generated name appears only
+in the final review. Selecting a local Agent does not expand Advanced. A single
+available Computer target does not require a selector; genuine multiple
+environments remain explicit so creation cannot silently move to another target.
 The standalone page uses the current step as its main heading rather than
 repeating a generic creation title. While local agents are loading, the heading
 reports checking instead of prematurely asking the user to connect a computer.
@@ -4283,7 +4286,13 @@ Update OpenMeld Service
 ```
 
 The Computer detail **OpenMeld Tools** card is the aggregate local-component
-surface. It shows Service, CLI, and skill status as equal read-only details and
+surface. Current status and the next action stay visible; Service, CLI, and skill
+versions live under a collapsed **Versions and details** disclosure. Historical
+environment reports live under **Connection reports**, not repeated status cards,
+and are explicitly not evidence of a current connection. The Computer detail
+automatically selects its sole live connection when there is no explicit choice;
+multiple live connections still require a choice. An explicit selection that
+disappears must not silently switch to another connection. The card
 must expose at most one recommended action. When one or more of those components
 has an actionable update, the card-level action is:
 
@@ -4301,7 +4310,7 @@ updates; Web must not fall back to a command dialog when the installed Service
 can safely ask the coordinator to update OpenMeld Tools. An older Service that
 does not report managed update capability shows only **Update manually**; Web
 must never offer an action that the installed Service cannot perform. The same
-card shows one capability-gated **Keep OpenMeld Tools up to date** switch and
+card shows one capability-gated **Automatic updates** switch and
 reads its value from the Service-owned maintenance projection. It never keeps a
 browser preference. Required-update copy and the primary action name the
 current installable Service release supplied by Core; Web must not expose an

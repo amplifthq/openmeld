@@ -1204,7 +1204,7 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		const toggle = screen.getByRole("switch", {
-			name: "Keep OpenMeld Tools up to date",
+			name: "Automatic updates",
 		});
 		expect(toggle.getAttribute("aria-checked")).toBe("true");
 		expect(screen.getByText("Finishing…")).toBeTruthy();
@@ -1624,19 +1624,17 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: SERVICE_NOT_CONNECTED_REPLY_READINESS,
 		});
 
-		expect(screen.getAllByText("Needs a fresh check").length).toBeGreaterThan(
-			0
-		);
+		expect(screen.queryByText("Needs a fresh check")).toBeNull();
 		expect(
 			screen.getByText(
-				"Use setup on this computer to manage its OpenMeld tools."
+				"Connect this computer to view its tools and manage updates."
 			)
 		).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Set up again" })).toHaveProperty(
+		expect(screen.getByRole("link", { name: "Set up" })).toHaveProperty(
 			"pathname",
 			"/o/acme/connect"
 		);
-		expect(screen.getByRole("link", { name: "Set up again" })).toHaveProperty(
+		expect(screen.getByRole("link", { name: "Set up" })).toHaveProperty(
 			"search",
 			"?connectedComputerId=computer-macbook-pro&session=fresh"
 		);
@@ -1647,7 +1645,7 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.queryByText("Check status")).toBeNull();
 		expect(
-			screen.getAllByRole("link", { name: "Set up again" }).length
+			screen.getAllByRole("link", { name: "Set up" }).length
 		).toBeGreaterThan(0);
 	});
 });

@@ -46,13 +46,14 @@ describe("AgentProfileGenerator", () => {
 	it.each([
 		"dialog",
 		"page",
-	] as const)("starts customization expanded on the %s surface and opens only the selected editor", async (surface) => {
+	] as const)("starts customization collapsed on the %s surface and opens only the selected editor on request", async (surface) => {
 		render(<GeneratorHarness initialAgentId="codex" surface={surface} />);
 
 		const customizeTrigger = screen.getByRole("button", {
 			name: CUSTOMIZE_AGENT_BUTTON_NAME,
 		});
-		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("true");
+		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(customizeTrigger);
 		fireEvent.click(screen.getByRole("button", { name: "Edit Owner" }));
 
 		expect(await screen.findByText("Owner choice")).toBeTruthy();
@@ -60,7 +61,7 @@ describe("AgentProfileGenerator", () => {
 		expect(screen.queryByText("Project choice")).toBeNull();
 	});
 
-	it("keeps customization expanded when returning from review", async () => {
+	it("keeps customization collapsed when returning from review", async () => {
 		render(<GeneratorHarness initialAgentId="codex" />);
 
 		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -69,8 +70,8 @@ describe("AgentProfileGenerator", () => {
 		const customizeTrigger = await screen.findByRole("button", {
 			name: CUSTOMIZE_AGENT_BUTTON_NAME,
 		});
-		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("true");
-		expect(screen.getByRole("button", { name: "Edit Owner" })).toBeTruthy();
+		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("false");
+		expect(screen.queryByRole("button", { name: "Edit Owner" })).toBeNull();
 	});
 
 	it("summarizes the effective setup without opening an editor", () => {
@@ -88,11 +89,13 @@ describe("AgentProfileGenerator", () => {
 		).toContain(
 			"New session · openmeld · GPT-5.6 Sol (default) · Model default · Ask for approval"
 		);
+		expect(screen.queryByRole("button", { name: "Edit Model" })).toBeNull();
 		expect(
-			screen.getByText("GPT-5.6 Sol (default) · Model default")
-		).toBeTruthy();
-		expect(screen.getByText("openmeld")).toBeTruthy();
-		expect(screen.getByText("Ask for approval")).toBeTruthy();
+			screen.queryByRole("button", { name: "Edit Working folder" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Edit Permissions" })
+		).toBeNull();
 	});
 
 	it("allows an explicit unbound Agent without inventing an available local agent", async () => {

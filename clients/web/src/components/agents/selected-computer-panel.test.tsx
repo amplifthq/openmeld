@@ -246,6 +246,32 @@ describe("SelectedComputerPanel detail composition", () => {
 		);
 	});
 
+	it("automatically selects the only live connection instead of making old reports compete with it", async () => {
+		const live = buildExecutionTarget("ready");
+		const historical = {
+			...live,
+			deviceId: "old-device",
+			isCurrent: false,
+			status: "stale" as const,
+		};
+		renderPanel({
+			computer: buildComputer([historical, live]),
+			recovery: buildRecoveryStub({ computer: buildComputer([live]) }),
+		});
+		await waitFor(() =>
+			expect(readPeopleComputerReadinessSpy).toHaveBeenCalledWith({
+				deviceId: "device-office",
+				runtimeLane: "dev-local",
+			})
+		);
+		expect(localAgentsCardSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				hasSelectedEnvironment: true,
+				controlTarget: { deviceId: "device-office", runtimeLane: "dev-local" },
+			})
+		);
+	});
+
 	it("forwards a Settings deep-link focus to file access", () => {
 		const onFocusConsumed = vi.fn();
 		const computer = buildComputer();

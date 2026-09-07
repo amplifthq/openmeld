@@ -80,7 +80,7 @@ export function AgentProfileGenerator(input: AgentProfileGeneratorProps) {
 
 function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 	const reduceMotion = useReducedMotion() === true;
-	const [configurationExpanded, setConfigurationExpanded] = useState(true);
+	const [configurationExpanded, setConfigurationExpanded] = useState(false);
 	const [step, setStep] = useState<GeneratorStep>("configure");
 	const [stepDirection, setStepDirection] = useState<GeneratorStepDirection>(1);
 	const submitBlockReasonId = useId();
@@ -95,12 +95,6 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 		reduceMotion,
 	};
 	const handleStepChange = (nextStep: GeneratorStep) => {
-		if (
-			nextStep === "configure" &&
-			resolveCreateProfileSubmitBlockReason(form) !== null
-		) {
-			setConfigurationExpanded(true);
-		}
 		setStepDirection(nextStep === "review" ? 1 : -1);
 		setStep(nextStep);
 	};

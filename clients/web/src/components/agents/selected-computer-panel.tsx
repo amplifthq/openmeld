@@ -61,7 +61,8 @@ export function SelectedComputerPanel(input: {
 	];
 	const target = selectComputerEnvironment(
 		environments,
-		selectedEnvironmentKey
+		selectedEnvironmentKey,
+		computerFacts?.connection.sessions
 	);
 	const reportedTarget =
 		input.computer.executionTargets.find(
@@ -105,7 +106,10 @@ export function SelectedComputerPanel(input: {
 	return (
 		<div className="flex flex-col gap-4">
 			{environments.length > 1 ? (
-				<div className="max-w-sm space-y-2">
+				<details className="max-w-sm space-y-3" open={target === null}>
+					<summary className="cursor-pointer text-muted-foreground text-sm">
+						{target ? "Connection details" : "Choose a connection"}
+					</summary>
 					<p className="font-medium text-sm">Environment</p>
 					<Select
 						onValueChange={setSelectedEnvironmentKey}
@@ -130,7 +134,7 @@ export function SelectedComputerPanel(input: {
 					<p className="text-muted-foreground text-xs">
 						Status and actions apply to the selected environment.
 					</p>
-				</div>
+				</details>
 			) : null}
 			<OpenMeldServiceCard
 				computer={input.computer}
@@ -205,14 +209,29 @@ function computerEnvironmentKey(target: PeopleComputerTarget) {
 
 function selectComputerEnvironment(
 	environments: readonly PeopleComputerTarget[],
-	selectedKey: string | null
+	selectedKey: string | null,
+	liveConnections: readonly PeopleComputerTarget[] = []
 ): PeopleComputerTarget | null {
 	const selected = environments.find(
 		(entry) => computerEnvironmentKey(entry) === selectedKey
 	);
-	return (
-		selected ?? (environments.length === 1 ? environments[0] : null) ?? null
-	);
+	if (selectedKey !== null) {
+		return selected ?? null;
+	}
+	// One live connection is an unambiguous management target, even when old
+	// device registrations have left historical reports behind. Never use a
+	// Binding preference or a historical ready report as connection evidence.
+	if (liveConnections.length === 1) {
+		const live = liveConnections[0];
+		return (
+			environments.find(
+				(entry) =>
+					entry.deviceId === live?.deviceId &&
+					entry.runtimeLane === live.runtimeLane
+			) ?? null
+		);
+	}
+	return (environments.length === 1 ? environments[0] : null) ?? null;
 }
 
 function computerEnvironmentLabel(

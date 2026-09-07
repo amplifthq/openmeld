@@ -9,7 +9,6 @@ import type {
 	OrganizationComputerOpenMeldTools,
 } from "@openmeld/schemas/types";
 import type { ComputerReplyReadiness } from "@openmeld/start";
-import { Badge } from "@openmeld/ui/components/badge";
 import { Bars } from "@openmeld/ui/components/bars";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
@@ -46,7 +45,6 @@ import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowsClockwiseIcon,
 	CheckIcon,
-	CpuIcon,
 	DesktopTowerIcon,
 	DotsThreeIcon,
 	InfoIcon,
@@ -73,7 +71,6 @@ import {
 	resolveOrganizationComputerSummaryStatus,
 } from "#/lib/computer-summary-status";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
-import { buildExecutionTargetLabel } from "#/lib/connect/local-runtime-display";
 import {
 	requestPeopleComputerOpenMeldToolsUpdate,
 	setPeopleComputerOpenMeldToolsMaintenance,
@@ -87,13 +84,9 @@ import { useCurrentOrganizationSlug } from "#/lib/organizations/organization-con
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
 import { startQueryKeys } from "#/query/query-keys";
 import { resolveAgentsPageFocusedSurfaceClassName } from "./agents-page-agent-profile-helpers";
-import {
-	formatComputerReplyReadinessDescription,
-	resolveCurrentExecutionTarget,
-} from "./agents-page-computer";
+import { formatComputerReplyReadinessDescription } from "./agents-page-computer";
 import {
 	createExecutionTargetKey,
-	formatExecutionTargetStatus,
 	formatMutationError,
 	formatObservedAt,
 	formatRuntimeLane,
@@ -514,9 +507,8 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 	});
 
 	if (!input.hasSelectedEnvironment) {
-		const setupLabel = resolveNonCurrentOpenMeldServiceSetupLabel(
-			input.computer
-		);
+		const setupLabel = "Set up";
+		const needsSelection = input.computer.executionTargets.length > 1;
 		return (
 			<OpenMeldToolsCardFrame
 				action={
@@ -528,7 +520,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 						showCheckStatus={false}
 					/>
 				}
-				description={`OpenMeld tools on ${input.computer.deviceDisplayName}.`}
+				description="Connects this computer to OpenMeld and manages local tools."
 			>
 				<p className="text-muted-foreground text-sm">
 					{selectedComputerConnectionLabel(
@@ -537,7 +529,9 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 					)}
 				</p>
 				<p className="text-muted-foreground text-sm">
-					Use setup on this computer to manage its OpenMeld tools.
+					{needsSelection
+						? "Choose a connection above to view its status and manage its tools."
+						: "Connect this computer to view its tools and manage updates."}
 				</p>
 				{input.currentLocalRuntimeReplyReadiness?.primaryBlocker !== "none" &&
 				input.currentLocalRuntimeReplyReadiness ? (
@@ -545,13 +539,18 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 						{input.currentLocalRuntimeReplyReadiness.message}
 					</p>
 				) : null}
-				<Link
-					className={buttonVariants({ size: "sm", variant: "outline" })}
-					to={setupPath}
-				>
-					{setupLabel}
-				</Link>
-				<ReadOnlyRuntimeTargetList computer={input.computer} />
+				{needsSelection ? null : (
+					<Link
+						className={cn(
+							buttonVariants({ size: "sm", variant: "outline" }),
+							"w-fit"
+						)}
+						to={setupPath}
+					>
+						{setupLabel}
+					</Link>
+				)}
+				<ComputerReportDetails computer={input.computer} />
 			</OpenMeldToolsCardFrame>
 		);
 	}
@@ -585,7 +584,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 				currentLocalRuntimeReplyReadiness={
 					input.currentLocalRuntimeReplyReadiness
 				}
-				executionTarget={resolveCurrentExecutionTarget(input.computer)}
+				executionTarget={input.recovery.selectedExecutionTarget}
 				expectedServiceVersion={input.currentExpectedServiceVersion}
 				isCheckingStatus={isCheckingStatus}
 				isSavingAutomaticUpdates={isSavingAutomaticUpdates}
@@ -616,9 +615,10 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			className={cn(
 				resolveAgentsPageFocusedSurfaceClassName(isServiceHighlighted)
 			)}
-			description={`Keeps OpenMeld Service connected and local agent tools ready on ${input.computer.deviceDisplayName}.`}
+			description="Connects this computer to OpenMeld and manages local tools."
 		>
 			{serviceContent}
+			<ComputerReportDetails computer={input.computer} />
 		</OpenMeldToolsCardFrame>
 	);
 }
@@ -744,58 +744,41 @@ function selectedComputerConnectionLabel(
 	return "Connection status unavailable";
 }
 
-function resolveNonCurrentOpenMeldServiceSetupLabel(
-	computer: LocalRuntimeComputer
-): string {
-	return computer.executionTargets.some((target) => target.status === "stale")
-		? "Set up again"
-		: "Set up this computer";
-}
-
-function ReadOnlyRuntimeTargetList(input: {
-	compact?: boolean;
-	computer: LocalRuntimeComputer;
-}) {
-	if (input.computer.executionTargets.length === 0) {
-		return (
-			<p className="text-muted-foreground text-sm">
-				No OpenMeld Service targets have checked in from this computer yet.
-			</p>
-		);
+function ComputerReportDetails(input: { computer: LocalRuntimeComputer }) {
+	if (input.computer.executionTargets.length < 2) {
+		return null;
 	}
 
 	return (
-		<div
-			className="flex flex-col gap-3"
+		<details
+			className="border-t pt-3 text-sm"
 			data-testid="read-only-runtime-target-status"
 		>
-			{input.computer.executionTargets.map((target) => (
-				<div
-					className="flex flex-col gap-2 border border-border px-3 py-3"
-					key={createExecutionTargetKey(target)}
-				>
-					<div className="flex flex-wrap items-center justify-between gap-2">
-						<p className="flex items-center gap-2 font-medium text-sm">
-							<CpuIcon className="h-4 w-4 text-muted-foreground" />
-							{formatRuntimeLane(target.runtimeLane)}
+			<summary className="cursor-pointer text-muted-foreground">
+				Connection reports
+			</summary>
+			<p className="py-3 text-muted-foreground text-xs">
+				Saved reports are not proof of a current connection.
+			</p>
+			<div className="divide-y">
+				{input.computer.executionTargets.map((target) => (
+					<div
+						className="flex flex-wrap items-baseline justify-between gap-2 py-3"
+						key={createExecutionTargetKey(target)}
+					>
+						<p>
+							{formatRuntimeLane(target.runtimeLane)}{" "}
+							<span className="text-muted-foreground">
+								· {target.deviceId.slice(-8)}
+							</span>
 						</p>
-						<Badge
-							variant={target.status === "ready" ? "secondary" : "outline"}
-						>
-							{formatExecutionTargetStatus(target.status)}
-						</Badge>
-					</div>
-					<p className="text-muted-foreground text-xs">
-						{buildExecutionTargetLabel(target)}
-					</p>
-					{input.compact ? null : (
 						<p className="text-muted-foreground text-xs">
-							Last checked {formatObservedAt(target.lastObservedAtMs)}
+							{formatObservedAt(target.lastObservedAtMs)}
 						</p>
-					)}
-				</div>
-			))}
-		</div>
+					</div>
+				))}
+			</div>
+		</details>
 	);
 }
 
@@ -971,7 +954,14 @@ function CurrentLocalRuntimeServiceFacts(input: {
 			) : null}
 
 			{display.hideVersionDetails ? null : (
-				<OpenMeldToolsComponentDetails items={componentDetails} />
+				<details className="border-t pt-3">
+					<summary className="cursor-pointer text-muted-foreground text-sm">
+						Versions and details
+					</summary>
+					<div className="pt-3">
+						<OpenMeldToolsComponentDetails items={componentDetails} />
+					</div>
+				</details>
 			)}
 		</div>
 	);
@@ -1618,7 +1608,7 @@ function OpenMeldToolsMaintenanceControls(input: {
 	return (
 		<div className="flex flex-col gap-3 border-border/60 border-t py-4 sm:flex-row sm:items-center sm:justify-between">
 			<div className="min-w-0">
-				<p className="font-medium text-sm">Keep OpenMeld Tools up to date</p>
+				<p className="font-medium text-sm">Automatic updates</p>
 				{updateStatus ? (
 					<p
 						aria-atomic="true"
@@ -1630,7 +1620,7 @@ function OpenMeldToolsMaintenanceControls(input: {
 				) : null}
 			</div>
 			<Switch
-				aria-label="Keep OpenMeld Tools up to date"
+				aria-label="Automatic updates"
 				checked={input.automaticUpdatesEnabled}
 				disabled={input.disabled}
 				onCheckedChange={(enabled) => {

@@ -634,26 +634,11 @@ function useCreateProfileDialogController(
 	);
 	const availableProjects = resolveAvailableProjects(projectsQuery.data);
 	const recovery = input.recovery;
-	const computerChoices = (
-		recovery.localRuntimesQuery.data?.peopleComputers.computers ?? []
-	).flatMap((computer) => {
-		const targets = new Map(
-			[...computer.executionTargets, ...computer.connection.sessions].map(
-				(target) => [
-					JSON.stringify({
-						deviceId: target.deviceId,
-						runtimeLane: target.runtimeLane,
-					}),
-					target,
-				]
-			)
-		);
-		return [...targets].map(([value, target]) => ({
-			value,
-			target: { deviceId: target.deviceId, runtimeLane: target.runtimeLane },
-			label: `${computer.deviceDisplayName} · ${target.runtimeLane} · ${computer.deviceId.slice(-6)}`,
-		}));
-	});
+	const {
+		choices: computerChoices,
+		label: computerChoiceLabel,
+		placeholder: computerChoicePlaceholder,
+	} = resolveCreationComputerChoices(recovery);
 	const selectedComputerChoice = computerChoices.find(
 		(choice) =>
 			choice.target.deviceId === recovery.deviceId &&
@@ -1142,37 +1127,38 @@ function useCreateProfileDialogController(
 		agentComputerSummary: canChooseComputer
 			? selectedComputerChoice?.label
 			: undefined,
-		agentComputerSlot: canChooseComputer ? (
-			<label className="grid gap-2 text-sm">
-				Computer
-				<select
-					className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
-					disabled={createProfileMutation.isPending}
-					onChange={(event) => {
-						const choice = computerChoices.find(
-							(item) => item.value === event.target.value
-						);
-						if (!choice) {
-							return;
-						}
-						recovery.selectComputer(choice.target);
-						setBoundAgentId("");
-						setAgentBindingValue("");
-						setErrorState(null);
-					}}
-					value={selectedComputerChoice?.value ?? ""}
-				>
-					<option disabled value="">
-						Choose a computer
-					</option>
-					{computerChoices.map((choice) => (
-						<option key={choice.value} value={choice.value}>
-							{choice.label}
+		agentComputerSlot:
+			canChooseComputer && computerChoices.length > 1 ? (
+				<label className="grid gap-2 text-sm">
+					{computerChoiceLabel}
+					<select
+						className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+						disabled={createProfileMutation.isPending}
+						onChange={(event) => {
+							const choice = computerChoices.find(
+								(item) => item.value === event.target.value
+							);
+							if (!choice) {
+								return;
+							}
+							recovery.selectComputer(choice.target);
+							setBoundAgentId("");
+							setAgentBindingValue("");
+							setErrorState(null);
+						}}
+						value={selectedComputerChoice?.value ?? ""}
+					>
+						<option disabled value="">
+							{computerChoicePlaceholder}
 						</option>
-					))}
-				</select>
-			</label>
-		) : undefined,
+						{computerChoices.map((choice) => (
+							<option key={choice.value} value={choice.value}>
+								{choice.label}
+							</option>
+						))}
+					</select>
+				</label>
+			) : undefined,
 		additionalHumanProfileCreationEnabled,
 		additionalSubmitBlockReason,
 		agentBindingChoices: resolveOwnerBindingChoices({
@@ -2177,6 +2163,42 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 		customWorkingFolderIssue,
 		kind: "request" as const,
 		request: result.request,
+	};
+}
+
+function resolveCreationComputerChoices(recovery: RecoveryController) {
+	const computers =
+		recovery.localRuntimesQuery.data?.peopleComputers.computers ?? [];
+	const choices = computers.flatMap((computer) => {
+		const targets = new Map(
+			[...computer.executionTargets, ...computer.connection.sessions].map(
+				(target) => [
+					JSON.stringify({
+						deviceId: target.deviceId,
+						runtimeLane: target.runtimeLane,
+					}),
+					target,
+				]
+			)
+		);
+		const needsDisambiguation =
+			targets.size > 1 ||
+			computers.filter(
+				(entry) => entry.deviceDisplayName === computer.deviceDisplayName
+			).length > 1;
+		return [...targets].map(([value, target]) => ({
+			value,
+			target: { deviceId: target.deviceId, runtimeLane: target.runtimeLane },
+			label: needsDisambiguation
+				? `${computer.deviceDisplayName} · ${target.runtimeLane} · ${target.deviceId.slice(-6)}`
+				: computer.deviceDisplayName,
+		}));
+	});
+	return {
+		choices,
+		label: computers.length === 1 ? "Environment" : "Computer",
+		placeholder:
+			computers.length === 1 ? "Choose an environment" : "Choose a computer",
 	};
 }
 
