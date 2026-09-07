@@ -27,6 +27,7 @@ import {
 	ChatCircleIcon,
 	DotsThreeIcon,
 	FunnelSimpleIcon,
+	PushPinIcon,
 } from "@phosphor-icons/react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
@@ -45,6 +46,7 @@ import {
 	moveSidebarItemIds,
 	sortSidebarManual,
 } from "#/components/app/sidebar-order";
+import { SidebarRowAction } from "#/components/app/sidebar-row-action";
 import { SidebarSearchInput } from "#/components/app/sidebar-search-input";
 import { SidebarSectionActions } from "#/components/app/sidebar-section-actions";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
@@ -586,7 +588,12 @@ function ChatRow(input: {
 			style={drag.style}
 			value={input.chat.spaceId}
 		>
-			<SidebarMenuButton asChild className="h-auto" isActive={input.selected}>
+			<SidebarMenuButton
+				actionLayout="heading"
+				asChild
+				className="h-auto"
+				isActive={input.selected}
+			>
 				<Link
 					{...drag.rowProps}
 					aria-current={input.selected ? "page" : undefined}
@@ -602,7 +609,10 @@ function ChatRow(input: {
 				>
 					<ChatCircleIcon className="size-4 shrink-0" />
 					<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-						<span className="flex min-w-0 items-center gap-2">
+						<span
+							className="flex min-w-0 items-center gap-2"
+							data-sidebar="menu-heading"
+						>
 							<span className="flex min-w-0 flex-1 items-center gap-1.5">
 								<span
 									className={`truncate ${hasUnread ? "font-semibold text-sidebar-foreground" : ""}`}
@@ -632,13 +642,26 @@ function ChatRow(input: {
 								/>
 							)}
 						</span>
-						<span className="truncate pr-6 font-normal text-muted-foreground text-xs leading-4">
+						<span className="truncate font-normal text-muted-foreground text-xs leading-4">
 							{needsInput && presentation ? presentation.label : previewText}
 						</span>
 					</span>
 				</Link>
 			</SidebarMenuButton>
-			<SidebarMenuActions className="top-auto bottom-0.5" showOnHover>
+			<SidebarMenuActions showOnHover>
+				<SidebarRowAction
+					disabled={input.disabled}
+					label={`${input.section === "pinned" ? "Unpin" : "Pin"} ${input.title}`}
+					onClick={() =>
+						input.section === "pinned"
+							? input.onUnpin()
+							: input.onMove("pinned")
+					}
+				>
+					<PushPinIcon
+						weight={input.section === "pinned" ? "fill" : "regular"}
+					/>
+				</SidebarRowAction>
 				<DropdownMenu>
 					<DropdownMenuTrigger
 						render={
