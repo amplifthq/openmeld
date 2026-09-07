@@ -93,7 +93,6 @@ export function AgentProfileSidebarItemComponent(input: {
 				? resolveStatusToneTextClassName("warning")
 				: resolveAvailabilityClassName(presentation.availabilityCategory);
 	}
-	const isOwner = input.profile.ownerUserId === input.currentUserId;
 	const cardStyle = resolveAgentCardStyle(input.variant, input.avatarSize);
 	const hasReducedProminence =
 		presentation.availabilityCategory === "offline" ||
@@ -179,11 +178,9 @@ export function AgentProfileSidebarItemComponent(input: {
 							operationalContext={input.operationalContext}
 						/>
 					</span>
-					{isOwner ? (
-						<span className="truncate text-muted-foreground text-xs">
-							{presentation.controllerModelSummary}
-						</span>
-					) : null}
+					<span className="truncate text-muted-foreground text-xs">
+						{presentation.controllerModelSummary}
+					</span>
 				</span>
 			</SidebarMenuButton>
 			{hasActions && (

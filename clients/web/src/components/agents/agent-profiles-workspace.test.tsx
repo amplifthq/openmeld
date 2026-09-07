@@ -253,6 +253,35 @@ describe("AgentProfilesWorkspace", () => {
 		expect(appNavigationPresentationSpy).toHaveBeenCalledTimes(1);
 	});
 
+	it("shows another owner's public harness, model, and reasoning without a private Binding", () => {
+		renderWorkspace({
+			readinessByProfileId: new Map([
+				[
+					"agent-other",
+					{
+						...createReadiness(),
+						agentProfileId: "agent-other",
+						agentControllerRef: null,
+						primaryBinding: null,
+						publicProfileConfiguration: {
+							agentControllerRef: "builtin:codex",
+							agentControllerCollaborationMode: null,
+							agentControllerPermissionMode: null,
+							modelSelection: {
+								modelId: "gpt-5.6-sol",
+								reasoningLevel: "high",
+							},
+						},
+					},
+				],
+			]),
+		});
+		const item = screen.getByRole("button", { name: "Open Other Agent" });
+		expect(item.textContent).toContain("Codex");
+		expect(item.textContent).toContain("GPT-5.6 Sol");
+		expect(item.textContent).toContain("high");
+	});
+
 	it("shows the Controller default model when no model is explicitly selected", () => {
 		const readiness = createReadiness();
 		if (!readiness.primaryBinding) {
@@ -511,7 +540,7 @@ describe("AgentProfilesWorkspace", () => {
 		);
 		expect(observerAvatar.className).toContain("grayscale");
 		expect(observerAvatar.className).toContain("opacity-55");
-		expect(observerItem.textContent).not.toContain("No Controller connected");
+		expect(observerItem.textContent).toContain("No Controller connected");
 	});
 
 	it("switches the main content to Agent requests without creating another request state", () => {
