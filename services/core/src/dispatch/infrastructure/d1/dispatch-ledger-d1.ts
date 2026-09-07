@@ -1,3 +1,4 @@
+import { isAgentWakeAdmissionPreparationPendingReason } from "@openmeld/agent-runtime";
 import {
   buildMentionDispatchResultEnvelope,
   buildRuntimeCoordinatorExecutionId,
@@ -1345,7 +1346,7 @@ const resolveRuntimeCoordinatorQueueDecisionForClaim = (input: {
     return { kind: "allow" };
   }
   if (
-    shouldRetryRuntimeCoordinatorHeadAcceptAfterRetryableFailure({
+    shouldRetryPreExecutionAdmissionAfterRetryableFailure({
       claimDecision: input.claimDecision,
       latestAttempt: input.latestAttempt,
     })
@@ -1407,7 +1408,7 @@ const resolveRuntimeCoordinatorQueueDecisionTrigger = (
   }
 };
 
-const shouldRetryRuntimeCoordinatorHeadAcceptAfterRetryableFailure = (input: {
+const shouldRetryPreExecutionAdmissionAfterRetryableFailure = (input: {
   claimDecision: DispatchAttemptClaimDecision;
   latestAttempt: DispatchAttemptLedgerRow;
 }): boolean => {
@@ -1422,9 +1423,12 @@ const shouldRetryRuntimeCoordinatorHeadAcceptAfterRetryableFailure = (input: {
   return (
     input.latestAttempt?.status ===
       OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable &&
-    isRuntimeCoordinatorHeadLifecycleRetryableErrorCode(
+    (isRuntimeCoordinatorHeadLifecycleRetryableErrorCode(
       input.latestAttempt.errorCode
-    )
+    ) ||
+      isAgentWakeAdmissionPreparationPendingReason(
+        input.latestAttempt.errorCode ?? ""
+      ))
   );
 };
 

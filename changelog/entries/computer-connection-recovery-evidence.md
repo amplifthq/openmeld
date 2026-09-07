@@ -13,3 +13,7 @@ and attempt identifiers so support can investigate the right connection attempt.
 
 Local agent replies use the task-scoped publication path without unrelated CLI
 initialization, and repeated identical reply submissions remain idempotent.
+
+A first Wake now waits briefly for a newly created Agent's preparation evidence
+and continues automatically when ready. The original message is kept; users do
+not need to send it again. Authorization is checked again before execution.

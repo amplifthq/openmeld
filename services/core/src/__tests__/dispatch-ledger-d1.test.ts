@@ -1584,7 +1584,11 @@ describe("claimDispatchAttempt", () => {
     });
   });
 
-  it("retries RuntimeCoordinator head accept after a retryable head failure instead of deduping", async () => {
+  it.each([
+    "runtime_coordinator.head_accept_unavailable",
+    "agent_execution.readiness_unconfirmed",
+    "working_folder.observation_coverage_invalid",
+  ])("rechecks pre-execution admission after %s instead of requiring an existing execution", async (errorCode) => {
     const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-head-accept-retry-1",
@@ -1606,7 +1610,7 @@ describe("claimDispatchAttempt", () => {
       attemptId: first.attemptId,
       attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
       db,
-      errorCode: "runtime_coordinator.head_accept_unavailable",
+      errorCode,
       errorMessage:
         "RuntimeCoordinator head accept returned retry_later before execution creation",
       idempotencyKey: message.idempotencyKey,
@@ -1635,7 +1639,7 @@ describe("claimDispatchAttempt", () => {
       status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
     });
     expect(readAttempt(first.attemptId)).toMatchObject({
-      errorCode: "runtime_coordinator.head_accept_unavailable",
+      errorCode,
       status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
     });
     expect(readAttempt(retry.attemptId)).toMatchObject({
