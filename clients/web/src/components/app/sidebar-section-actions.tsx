@@ -44,6 +44,11 @@ export function SidebarSectionActions(input: {
 	onNewGroup?: (name: string) => void;
 	onDelete?: () => void;
 	sortOptions?: readonly (readonly [Sort, string])[];
+	filter?: {
+		label: string;
+		checked: boolean;
+		onCheckedChange: (checked: boolean) => void;
+	};
 }) {
 	const rename = useSidebarGroupRename();
 	const [addOpen, setAddOpen] = useState(false);
@@ -153,6 +158,27 @@ export function SidebarSectionActions(input: {
 							>
 								Delete group
 							</FluidDropdownMenuItem>
+						)}
+						{input.filter && (
+							<>
+								<p className="mt-1 border-border border-t px-2 pt-2 pb-1 text-muted-foreground text-xs">
+									Filter
+								</p>
+								<FluidDropdownMenuItem
+									aria-checked={input.filter.checked}
+									index={sorts.length + 2}
+									onClick={() =>
+										input.filter?.onCheckedChange(!input.filter.checked)
+									}
+									role="menuitemcheckbox"
+								>
+									<CheckIcon
+										aria-hidden="true"
+										className={input.filter.checked ? "" : "invisible"}
+									/>
+									{input.filter.label}
+								</FluidDropdownMenuItem>
+							</>
 						)}
 					</FluidDropdownMenuContent>
 				</DropdownMenu>

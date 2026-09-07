@@ -26,7 +26,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		const indicator = screen.getByTestId("space-wake-thinking-indicator");
 		expect(indicator.tagName).toBe("OUTPUT");
 		expect(indicator.textContent).toBe("Agent is working · 30s");
-		expect(resolveOrbState(indicator)).toBe("working");
+		expect(resolveOrbState(indicator)).toBe("solving");
 
 		view.rerender(
 			<SpaceMessageWakeThinkingIndicator

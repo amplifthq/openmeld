@@ -267,7 +267,7 @@ describe("organization access management pages", () => {
 		);
 
 		const status = screen.getByRole("status");
-		expect(status.textContent).toBe("Loading app access.");
+		expect(status.textContent).toBe("Loading plugin access.");
 		expect(status.classList.contains("sr-only")).toBe(true);
 	});
 

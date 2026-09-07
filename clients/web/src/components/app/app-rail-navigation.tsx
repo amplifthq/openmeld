@@ -355,7 +355,8 @@ export function AppRailLink(input: {
 				</MenuButton>
 			)}
 			{!isIcon &&
-				(input.destination.id === "people" ||
+				(input.destination.id === "home" ||
+					input.destination.id === "people" ||
 					input.destination.id === "spaces" ||
 					input.destination.id === "agents") && (
 					<SidebarDestinationActionSlot destination={input.destination.id} />

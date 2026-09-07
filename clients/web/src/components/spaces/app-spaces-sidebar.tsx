@@ -5,11 +5,10 @@ import {
 	DropdownMenu,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { FunnelSimpleIcon } from "@phosphor-icons/react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -18,6 +17,7 @@ import {
 	AppContextualSidebarNav,
 } from "#/components/app/app-contextual-layout";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
+import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationNewSpacePath,
@@ -43,7 +43,6 @@ import {
 	type SpaceUnreadById,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
-import { spaceMessagePreviewQueryOptions } from "./direct-message-preview";
 import { moveSidebarSpace, sortSidebarSpaces } from "./sidebar-space-order";
 import { SortableSpaceSidebarItem } from "./sortable-space-sidebar-item";
 import type { SpaceSidebarActiveWakeSummary } from "./space-active-wake-presentation";
@@ -200,19 +199,10 @@ export function AppSpacesSidebar(input: {
 		...sidebarSections.pinnedItems,
 		...sidebarSections.spaceItems,
 	];
-	const latestMessages = useQueries({
-		queries: conversationItems.map((item) =>
-			spaceMessagePreviewQueryOptions({
-				spaceId: item.spaceId,
-				viewerProfileId: item.openProfileId,
-				enabled: true,
-			})
-		),
-	});
 	const conversationActivity = new Map(
-		conversationItems.map((item, index) => [
+		conversationItems.map((item) => [
 			item.spaceId,
-			latestMessages[index]?.data?.timestamp ??
+			item.messagePreview?.timestamp ??
 				(Date.parse(item.spaceCreatedAt ?? "") || 0),
 		])
 	);
@@ -415,25 +405,12 @@ export function AppSpacesSidebar(input: {
 		writeShownDeletedSpaceNotices(new Set(items.map((item) => item.spaceId)));
 	}, [sections.recentlyDeletedItems]);
 
-	if (sidebar.isPending || latestMessages.some((query) => query.isPending)) {
-		return <Skeleton className="mx-2 h-32" />;
+	if (sidebar.isPending) {
+		return <SidebarListSkeleton label="Loading Spaces" />;
 	}
-	if (
-		(!preferences && sidebar.isError) ||
-		latestMessages.some((query) => query.isError && query.data === undefined)
-	) {
+	if (!preferences && sidebar.isError) {
 		return (
-			<Button
-				onClick={() =>
-					Promise.all([
-						sidebar.retry(),
-						...latestMessages
-							.filter((query) => query.isError)
-							.map((query) => query.refetch()),
-					])
-				}
-				variant="ghost"
-			>
+			<Button onClick={() => sidebar.retry()} variant="ghost">
 				Retry loading sidebar
 			</Button>
 		);
@@ -567,19 +544,7 @@ function SidebarSpacesList(input: {
 }) {
 	const { presentation } = useAppNavigationPresentation();
 	if (input.isPending) {
-		return (
-			<div className="flex flex-col gap-1">
-				{Array.from({ length: 6 }).map((_, index) => (
-					<div
-						className="flex h-10 items-center gap-2 px-2"
-						key={`space-sidebar-skeleton-${String(index)}`}
-					>
-						<Skeleton className="size-4" />
-						<Skeleton className="h-4 flex-1" />
-					</div>
-				))}
-			</div>
-		);
+		return <SidebarListSkeleton label="Loading Spaces" />;
 	}
 
 	if (input.isError) {

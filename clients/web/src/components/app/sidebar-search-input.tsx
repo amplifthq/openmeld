@@ -9,7 +9,7 @@ import { SidebarRowAction } from "./sidebar-row-action";
 
 export function SidebarSearchInput(input: {
 	label: string;
-	destination?: "people" | "agents" | "spaces";
+	destination?: "people" | "agents" | "spaces" | "home";
 	value: string;
 	onValueChange: (value: string) => void;
 }) {

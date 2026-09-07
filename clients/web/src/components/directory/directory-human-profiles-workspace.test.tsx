@@ -270,7 +270,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.queryByRole("region", { name: "Connected" })).toBeNull();
 	});
 
-	it("keeps checking members separate without hiding known connected members", () => {
+	it("shows the loading state while computer checks are pending and restores connection groups afterward", () => {
 		const currentMember = buildMember({ current: true });
 		const checkingMember = {
 			...buildMember({ current: false }),
@@ -282,6 +282,18 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			},
 		};
 		renderWorkspace({ members: [currentMember, checkingMember] });
+		expect(screen.getByText("Loading people")).toBeTruthy();
+		expect(screen.queryByRole("region", { name: "Connected" })).toBeNull();
+		cleanup();
+		renderWorkspace({
+			members: [
+				currentMember,
+				{
+					...checkingMember,
+					computer: { ...checkingMember.computer, state: "unknown" },
+				},
+			],
+		});
 		expect(
 			within(screen.getByRole("region", { name: "Connected" })).getByRole(
 				"button",

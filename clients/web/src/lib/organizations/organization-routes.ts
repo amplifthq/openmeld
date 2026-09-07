@@ -247,16 +247,26 @@ export function buildOrganizationCenterAgentRootPath(orgSlug: string): string {
 export function buildOrganizationCenterAgentChatPath(
 	orgSlug: string,
 	search?: {
+		draft?: "new";
+		group?: string;
 		session?: string;
 		focusSignalId?: string;
 		view?: "files" | "graph" | "messages";
 	}
 ): string {
 	const path = buildOrganizationDefaultPath(orgSlug);
-	if (!(search?.focusSignalId || search?.view || search?.session)) {
+	if (
+		!(search?.focusSignalId || search?.view || search?.session || search?.draft)
+	) {
 		return path;
 	}
 	const params = new URLSearchParams();
+	if (search.draft) {
+		params.set("draft", search.draft);
+	}
+	if (search.group) {
+		params.set("group", search.group);
+	}
 	if (search.session) {
 		params.set("session", search.session);
 	}

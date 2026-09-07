@@ -1362,7 +1362,7 @@ describe("OpenMeld Core", () => {
     expect(payload.agents).toEqual([]);
   });
 
-  it("includes directly joined profiles in the members snapshot and marks them live", async () => {
+  it("marks directly joined profiles live after foreground activity", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
       profileKind: "human",
@@ -1391,6 +1391,15 @@ describe("OpenMeld Core", () => {
       undefined,
       joinerProfile
     );
+
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const space = namespace.get(namespace.idFromString(spaceId));
+    await space.rpcRecordMemberWebActivity({
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      profileId: THIRD_HUMAN_PROFILE_ID,
+      userId: "owner-members-joiner-1",
+      lastActiveAt: new Date().toISOString(),
+    });
 
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,

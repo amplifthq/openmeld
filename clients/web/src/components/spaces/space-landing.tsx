@@ -377,6 +377,8 @@ function useActiveWakeTargetProfileIds(
 }
 
 type SpaceLandingInput = {
+	conversationTitle?: string;
+	conversationTitleAction?: (title: string) => ReactNode;
 	conversationControl?: ReactNode;
 	accountProfiles?: readonly AuthProfileView[];
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
@@ -1667,6 +1669,8 @@ function SpaceLandingReady({
 							accessModeErrorMessage={controller.accessModeErrorMessage}
 							canManageSpaceAccess={currentSpaceControls.canManageSpaceAccess}
 							canManageSpaceName={currentSpaceControls.canManageSpaceName}
+							conversationTitle={input.conversationTitle}
+							conversationTitleAction={input.conversationTitleAction}
 							currentProfileName={currentProfileName}
 							deleteSpaceErrorMessage={controller.deleteSpaceErrorMessage}
 							directMessageOwnerVisibilityLabel={agentOwnerVisibilityLabel}

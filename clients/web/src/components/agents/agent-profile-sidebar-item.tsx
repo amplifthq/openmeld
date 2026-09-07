@@ -110,6 +110,7 @@ export function AgentProfileSidebarItemComponent(input: {
 			value={input.profile.openMeldProfileId}
 		>
 			<SidebarMenuButton
+				actionLayout="heading"
 				isActive={input.isActive}
 				{...input.drag?.rowProps}
 				aria-current={input.isActive ? "page" : undefined}
@@ -138,7 +139,10 @@ export function AgentProfileSidebarItemComponent(input: {
 					size={20}
 				/>
 				<span className="flex min-w-0 flex-1 flex-col overflow-hidden">
-					<span className="flex min-w-0 items-center gap-1.5">
+					<span
+						className="flex min-w-0 items-center gap-1.5"
+						data-sidebar="menu-heading"
+					>
 						<span className={profileNameClassName}>
 							{input.profile.profileName}
 						</span>

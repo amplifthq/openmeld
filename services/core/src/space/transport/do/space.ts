@@ -376,6 +376,7 @@ import {
 import { CORE_LOG_EVENTS } from "../../../shared/observability/log-events";
 import { parseRpcErrorPayload } from "../../../shared/rpc/rpc-json";
 import { attemptSpaceIndexProjectionOutboxRecord } from "../../../space-index/space-index-projection-outbox-service";
+import { captureSpaceMessagePreview } from "../../../space-index/space-message-preview";
 import { SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS } from "../../../strategy-constants";
 import { buildAcceptedDispatchFinalizationQueueMessage } from "../../application/accepted-dispatch-finalization";
 import {
@@ -548,6 +549,7 @@ import {
 import {
   createActiveSpaceIndexProjectionOutboxRecord,
   createDeletedSpaceIndexProjectionOutboxRecord,
+  createSpaceIndexProjectionOutboxRecord,
   insertSpaceIndexProjectionOutboxRecord,
   listDueSpaceIndexProjectionOutboxRecords,
   readNextSpaceIndexProjectionOutboxAlarmAtMs,
@@ -9824,11 +9826,18 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
 
+    const sourceSignal =
+      input.body.target.by === "source_signal"
+        ? this.readSourceTextSignalById(input.lookupMatch.sourceSignalId)
+        : null;
+    const storedClientMessageId = sourceSignal
+      ? resolveDispatchSourceClientMessageId(sourceSignal)
+      : null;
     const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
       clientMessageId:
         input.body.target.by === "client_message"
           ? input.body.target.clientMessageId
-          : null,
+          : storedClientMessageId,
       dispatchId: input.lookupMatch.dispatchId,
       sourceSignalId: input.lookupMatch.sourceSignalId,
       spaceId: this.spaceId,
@@ -12761,6 +12770,12 @@ export class Space extends DurableObject<CoreBindings> {
     // The snapshot above already covers every member row, so any pending
     // dirty mark is satisfied by this projection.
     clearSpaceMemberProjectionDirty(this.ctx.storage.sql);
+    if (eventType === "space.created") {
+      await this.enqueueAndAttemptSpaceIndexProjection({
+        record: this.createCurrentMessagePreviewProjection(),
+        throwOnFailure: false,
+      });
+    }
   }
 
   private async enqueueAndAttemptSpaceIndexProjection(input: {
@@ -12784,7 +12799,10 @@ export class Space extends DurableObject<CoreBindings> {
         throw result.error;
       }
       return {
-        memberCount: input.record.snapshot.memberRecords.length,
+        memberCount:
+          input.record.snapshot.kind === "message_preview"
+            ? 0
+            : input.record.snapshot.memberRecords.length,
         projectionEventId: null,
         projectionOutboxId: input.record.projectionId,
         status: result.status,
@@ -12792,7 +12810,10 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     return {
-      memberCount: input.record.snapshot.memberRecords.length,
+      memberCount:
+        input.record.snapshot.kind === "message_preview"
+          ? 0
+          : input.record.snapshot.memberRecords.length,
       projectionEventId: result.projectionEventId,
       projectionOutboxId: input.record.projectionId,
       status: result.status,
@@ -12870,7 +12891,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
   }
 
-  private projectActiveSpaceIndexBackfillSnapshot(input: {
+  private async projectActiveSpaceIndexBackfillSnapshot(input: {
     memberRecords: readonly SpaceMemberRecord[];
     metaRecord: SpaceMetaRecord;
   }): Promise<{
@@ -12879,7 +12900,7 @@ export class Space extends DurableObject<CoreBindings> {
     projectionOutboxId: string;
     status: string;
   }> {
-    return this.enqueueAndAttemptSpaceIndexProjection({
+    const result = await this.enqueueAndAttemptSpaceIndexProjection({
       record: createActiveSpaceIndexProjectionOutboxRecord({
         eventType: "space.index_backfilled",
         memberRecords: input.memberRecords,
@@ -12887,6 +12908,11 @@ export class Space extends DurableObject<CoreBindings> {
       }),
       throwOnFailure: false,
     });
+    await this.enqueueAndAttemptSpaceIndexProjection({
+      record: this.createCurrentMessagePreviewProjection(),
+      throwOnFailure: true,
+    });
+    return result;
   }
 
   private async projectDeletedSpaceIndexSnapshot(input: {
@@ -13800,7 +13826,7 @@ export class Space extends DurableObject<CoreBindings> {
         });
       },
       deleteOldestSignalsBatch: (limit) => {
-        return deleteOldestSignalRows(this.ctx.storage.sql, limit);
+        return this.deleteOldestSignalsAndProjectPreview(limit);
       },
       readDatabaseSizeBytes: () => this.ctx.storage.sql.databaseSize,
       nowMs: persistNowMs,
@@ -13829,6 +13855,13 @@ export class Space extends DurableObject<CoreBindings> {
       finalDatabaseSizeBytes: retentionResult.finalDatabaseSizeBytes,
       nowMs: Date.now(),
     });
+    if (
+      persistedSignal &&
+      signal.type === "signal.text" &&
+      supportsDurableObjectAlarms(this.ctx?.storage)
+    ) {
+      this.ctx.waitUntil(this.flushPendingSpaceIndexProjectionOutbox());
+    }
     if (duplicateFinalReplyBlocked) {
       const finalReplyClaim = resolveSignalFinalReplyClaimForLog(signal);
       console.warn("[core.openmeld.space.final_reply_duplicate_blocked]", {
@@ -13923,7 +13956,7 @@ export class Space extends DurableObject<CoreBindings> {
         });
       },
       deleteOldestSignalsBatch: (limit) => {
-        return deleteOldestSignalRows(this.ctx.storage.sql, limit);
+        return this.deleteOldestSignalsAndProjectPreview(limit);
       },
       readDatabaseSizeBytes: () => this.ctx.storage.sql.databaseSize,
       nowMs: persistNowMs,
@@ -13953,6 +13986,12 @@ export class Space extends DurableObject<CoreBindings> {
       nowMs: persistNowMs,
     });
     if (persistedSignal) {
+      if (
+        signal.type === "signal.text" &&
+        supportsDurableObjectAlarms(this.ctx?.storage)
+      ) {
+        this.ctx.waitUntil(this.flushPendingSpaceIndexProjectionOutbox());
+      }
       this.ctx.waitUntil(
         persistPostPersistDispatchPlannerEvidenceBestEffort({
           db: wakeEvidenceDb(this.bindings),
@@ -14005,6 +14044,13 @@ export class Space extends DurableObject<CoreBindings> {
     if (!supportsDurableObjectAlarms(this.ctx?.storage)) {
       return;
     }
+    if (input.signal.type === "signal.text") {
+      // Stored in the same transaction as the signal, then redriven by the alarm.
+      insertSpaceIndexProjectionOutboxRecord(
+        this.ctx.storage.sql,
+        this.createCurrentMessagePreviewProjection()
+      );
+    }
     const metaRecord = readSpaceMetaRecordFromSql(
       this.ctx.storage.sql,
       this.spaceId
@@ -14034,6 +14080,37 @@ export class Space extends DurableObject<CoreBindings> {
     if (record) {
       insertSpaceInboxProjectionOutboxRecord(this.ctx.storage.sql, record);
     }
+  }
+
+  private createCurrentMessagePreviewProjection(): SpaceIndexProjectionOutboxRecord {
+    const { revision, preview } = captureSpaceMessagePreview(
+      this.ctx.storage.sql
+    );
+    return createSpaceIndexProjectionOutboxRecord({
+      eventType: "space.message_preview_updated",
+      nowMs: Date.now(),
+      sourceUpdatedAt: new Date().toISOString(),
+      spaceId: this.spaceId,
+      snapshot: {
+        kind: "message_preview",
+        eventType: "space.message_preview_updated",
+        revision,
+        preview,
+      },
+    });
+  }
+
+  private deleteOldestSignalsAndProjectPreview(limit: number): number {
+    return this.ctx.storage.transactionSync(() => {
+      const count = deleteOldestSignalRows(this.ctx.storage.sql, limit);
+      if (count > 0 && supportsDurableObjectAlarms(this.ctx.storage)) {
+        insertSpaceIndexProjectionOutboxRecord(
+          this.ctx.storage.sql,
+          this.createCurrentMessagePreviewProjection()
+        );
+      }
+      return count;
+    });
   }
 
   private resolveSpaceInboxThreadRootAuthorUserId(input: {

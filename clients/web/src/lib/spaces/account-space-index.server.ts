@@ -38,6 +38,7 @@ export async function readAccountSpaceIndex(input: {
 			// opts in to the recently-deleted payload (strict legacy clients do not).
 			includeRecentlyDeletedItems: true,
 			includeMemberPreviews: true,
+			includeMessagePreviews: true,
 			includePurposes: input.includePurposes === true,
 			...(input.limit === undefined ? {} : { limit: input.limit }),
 			scope: input.scope,

@@ -282,7 +282,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 		).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-		expect(screen.queryByRole("dialog")).toBeNull();
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
 		fireEvent.click(screen.getByRole("button", { name: "Disconnect Linear" }));
 		fireEvent.click(screen.getByRole("button", { name: "Disconnect Linear" }));
@@ -386,7 +386,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 		const cancelButton = screen.getByRole("button", { name: "Cancel" });
 		expect(cancelButton.hasAttribute("disabled")).toBe(false);
 		fireEvent.click(cancelButton);
-		expect(screen.queryByRole("dialog")).toBeNull();
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 	});
 
 	it("keeps cached status visible but disables actions after refresh fails", async () => {

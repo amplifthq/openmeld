@@ -67,7 +67,16 @@ vi.mock("@tanstack/react-router", () => ({
 			matches: readonly { staticData: { appShellSection?: AppShellSection } }[]
 		) => unknown;
 	}) =>
-		input?.select ? input.select(routerMatchesMock()) : routerMatchesMock(),
+		input?.select
+			? input.select(
+					routerMatchesMock().map(
+						(match: { staticData: { appShellSection?: AppShellSection } }) => ({
+							...match,
+							params: {},
+						})
+					)
+				)
+			: routerMatchesMock(),
 	useRouterState: (input: {
 		select: (state: { location: { pathname: string } }) => string;
 	}) => input.select({ location: { pathname: useRouterStateMock() } }),

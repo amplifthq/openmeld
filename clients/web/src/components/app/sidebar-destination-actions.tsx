@@ -7,12 +7,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-type Destination = "people" | "agents" | "spaces";
+type Destination = "people" | "agents" | "spaces" | "home";
 const ActionSlots = createContext<{
 	slots: Record<Destination, HTMLDivElement | null>;
 	setPeople: (node: HTMLDivElement | null) => void;
 	setAgents: (node: HTMLDivElement | null) => void;
 	setSpaces: (node: HTMLDivElement | null) => void;
+	setHome: (node: HTMLDivElement | null) => void;
 } | null>(null);
 
 export function SidebarDestinationActionsProvider({
@@ -23,14 +24,16 @@ export function SidebarDestinationActionsProvider({
 	const [people, setPeople] = useState<HTMLDivElement | null>(null);
 	const [agents, setAgents] = useState<HTMLDivElement | null>(null);
 	const [spaces, setSpaces] = useState<HTMLDivElement | null>(null);
+	const [home, setHome] = useState<HTMLDivElement | null>(null);
 	const value = useMemo(
 		() => ({
-			slots: { people, agents, spaces },
+			slots: { people, agents, spaces, home },
+			setHome,
 			setPeople,
 			setAgents,
 			setSpaces,
 		}),
-		[people, agents, spaces]
+		[people, agents, spaces, home]
 	);
 	return <ActionSlots.Provider value={value}>{children}</ActionSlots.Provider>;
 }
@@ -42,6 +45,7 @@ export function SidebarDestinationActionSlot({
 }) {
 	const context = useContext(ActionSlots);
 	const setters = {
+		home: context?.setHome,
 		people: context?.setPeople,
 		agents: context?.setAgents,
 		spaces: context?.setSpaces,

@@ -7,11 +7,13 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { useStartFlowState } from "#/components/app/start-flow-state";
+import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { SpaceLanding } from "#/components/spaces/space-landing";
 import type { SpaceView } from "#/components/spaces/space-view";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import { resolveCenterAgentErrorMessage } from "#/lib/organizations/center-agent";
+import { EMPTY_CHAT_PREFERENCES } from "#/lib/organizations/center-agent-chat-preferences";
 import {
 	activateCenterAgentPendingMessageScope,
 	clearCenterAgentPendingMessage,
@@ -29,9 +31,10 @@ import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentSettingsPath,
 } from "#/lib/organizations/organization-routes";
+import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
-import { CenterAgentSessionControls } from "./center-agent-session-controls";
+import { ChatTitleEditor } from "./chat-title-editor";
 
 export function CenterAgentPage(input: {
 	sessionId?: string;
@@ -139,6 +142,11 @@ function CenterAgentDirectMessageEntry(input: {
 		organizationId: input.organizationId,
 		organizationSlug: input.organizationSlug,
 	};
+	const { defaultHumanProfile } = useDefaultHumanProfile();
+	const sidebar = useSidebarPreferences(
+		defaultHumanProfile?.openMeldProfileId ?? "",
+		input.organizationId
+	);
 	const composerDraftScope = storageScope.trim()
 		? {
 				kind: "center_agent_pending" as const,
@@ -231,14 +239,28 @@ function CenterAgentDirectMessageEntry(input: {
 				composerDraftMigrationScopes={
 					composerDraftScope ? [composerDraftScope] : undefined
 				}
-				conversationControl={
-					<CenterAgentSessionControls
-						memberProfileId={directMessage.memberProfileId}
-						organizationId={input.organizationId}
-						organizationSlug={input.organizationSlug}
-						spaceId={directMessage.spaceId}
-					/>
+				conversationTitle={
+					sidebar.preferences?.chats?.titles[directMessage.spaceId]
 				}
+				conversationTitleAction={(currentTitle) => (
+					<ChatTitleEditor
+						disabled={sidebar.disabled}
+						onSave={async (title) => {
+							if (!sidebar.preferences) {
+								throw new Error("Chat settings are still loading.");
+							}
+							const chats = sidebar.preferences.chats ?? EMPTY_CHAT_PREFERENCES;
+							await sidebar.saveAsync({
+								...sidebar.preferences,
+								chats: {
+									...chats,
+									titles: { ...chats.titles, [directMessage.spaceId]: title },
+								},
+							});
+						}}
+						title={currentTitle}
+					/>
+				)}
 				currentUserAvatarImageUrl={input.currentUserAvatarImageUrl}
 				initialComposerDraft={composerDraft.record}
 				initialFocusSignalId={input.initialFocusSignalId}
