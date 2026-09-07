@@ -484,6 +484,15 @@ Important execution rules:
   become a second execution authority.
 - Caller authority, owner evidence, Binding evidence, and execution truth come
   from verified Gateway/Core context, not request-body trust.
+- Space owns user-requested Wake Stop authorization. After writable Space access,
+  only the authenticated source-message account or target Agent Profile owner
+  may stop the exact target Wake. Resolve the source from the Space's persisted
+  Signal and account ownership from Auth; caller selectors, member names, and
+  other signed-in accounts are not ownership evidence. Use the same policy for
+  viewer-scoped progress eligibility and the Stop mutation, before native or
+  workstation cancellation side effects. Missing ownership fails closed.
+  RuntimeCoordinator continues to own execution and the final stopped outcome;
+  internal deletion/recovery cancellation is not a user Stop permission grant.
 - Before RuntimeCoordinator links an execution, OpenMeld-owned pre-agent Stop may
   move the target Wake head lifecycle to `stopped_before_execution`. That is a
   stopped terminal outcome for the target Wake, not a failed execution and not a

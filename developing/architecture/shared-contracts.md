@@ -4141,7 +4141,15 @@ RuntimeCoordinator, RuntimeTransportHub, and the local OpenMeld Service.
 
 `packages/schemas/src/schemas/http/space-wake-progress.ts` owns the Wake
 progress read model, including the optional `startedAtMs` timing projection and
-the optional `wakeStopEligibility` projection. A caller may also opt into
+the optional `wakeStopEligibility` projection. This existing nullable field is
+a viewer-scoped projection of authorization and stopping capability. Null means
+no Stop control is available to this viewer; omission means it was not projected
+and must not grant authority. Core filters eligibility through the same policy
+that protects `POST /v1/spaces/:spaceId/wake-stop`. Unauthorized Stop requests use
+the existing HTTP 403 error envelope with `space.wake_stop.forbidden`. No new
+runtime payload or local-component contract is introduced.
+
+A caller may also opt into
 `sourceContext`, which contains only the Space-owned requester Profile ID, kind,
 display name, sanitized public source-message preview, and nullable thread ID.
 Active reads may filter by one `sourceProfileId`. New dispatch-ledger and native
