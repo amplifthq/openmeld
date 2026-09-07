@@ -2290,6 +2290,7 @@ describe("SpaceConversationPanel", () => {
 					},
 					profileId: "22222222-2222-4222-8222-222222222222",
 					profileName: "Felix",
+					primaryMentionLabel: "Felix",
 					relation: "mention",
 					wakeAvailability: {
 						reasonCodes: [],

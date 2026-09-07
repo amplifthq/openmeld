@@ -437,7 +437,7 @@ function SpaceComposerProfileToken(
 	const choices = target
 		? listSpaceMentionRelationChoices({
 				allowedRelations: target.allowedRelations,
-				primaryMentionLabel: target.profileName,
+				primaryMentionLabel: target.primaryMentionLabel,
 				wakeAvailability: target.wakeAvailability,
 			})
 		: [];
