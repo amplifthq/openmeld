@@ -768,7 +768,8 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
   return buildCurrentLocalRuntimeReplyReadiness({
     currentTarget,
     generatedAt,
-    message: "Local agents can reply from this computer in Spaces.",
+    message:
+      "This computer has local agents ready to run. Check the Agent's availability before starting a task.",
     nextAction: "none",
     primaryBlocker: "none",
     runtime: buildCurrentRuntimeEvidence({
@@ -939,7 +940,15 @@ function resolveExecutionTargetReplyBlocker(
       status: "blocked",
     };
   }
-  if (target.status === "ready") {
+  if (
+    target.status === "ready" ||
+    (target.status === "partial" &&
+      resolveEnabledExecutionTargetCapabilities(target.capabilities).some(
+        (capability) => capability.status === "ready"
+      ))
+  ) {
+    // Computer-level availability is not an all-controllers health check.
+    // Per-Agent Wakeability still validates its exact controller and Binding.
     return null;
   }
   if (target.status === "stale") {

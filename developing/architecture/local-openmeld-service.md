@@ -1569,6 +1569,16 @@ must never be promoted into Agent Profile readiness or Wakeability.
 
 ## Service Freshness And Compatibility
 
+Computer-level local-agent availability is an existential capability summary,
+not an all-controllers health check. With a current, compatible Service session,
+one enabled, ready local controller is sufficient for the computer to offer local
+execution. An unrelated controller's failed check or missing sign-in remains
+visible on that controller but must not block a ready controller. A partial
+catalog remains partial; do not erase its individual failures to make the summary
+available. This summary does not authorize a Wake: Core's Agent Profile
+Wakeability must still validate the selected controller, Binding, permissions,
+and task requirements. It must not overwrite an individual execution's outcome.
+
 Service freshness and execution compatibility are separate diagnostic concepts.
 Freshness says whether a newer Service bundle exists. Compatibility says whether
 the current Service is still eligible to receive new Wake work.

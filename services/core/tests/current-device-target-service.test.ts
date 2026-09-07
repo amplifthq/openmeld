@@ -1243,8 +1243,8 @@ describe("current device target service", () => {
   it.each([
     {
       description:
-        "keeps an incomplete local-agent check blocked without sending the member through setup",
-      expectedNextAction: "check_status" as const,
+        "keeps a ready local agent usable when another controller check failed",
+      expectedNextAction: "none" as const,
       expectedExecutionTargetStatus: "partial" as const,
       failedReasonCodes: ["controller.interface.check_failed"],
       includeReadyController: true,
@@ -1252,8 +1252,8 @@ describe("current device target service", () => {
     },
     {
       description:
-        "ignores diagnostic reason codes from ready local agents when another check is retryable",
-      expectedNextAction: "check_status" as const,
+        "does not let another retryable controller check block a ready controller",
+      expectedNextAction: "none" as const,
       expectedExecutionTargetStatus: "partial" as const,
       failedReasonCodes: ["controller.interface.check_failed"],
       includeReadyController: true,
@@ -1270,12 +1270,24 @@ describe("current device target service", () => {
     },
     {
       description:
-        "keeps setup guidance when an incomplete check also has real repair evidence",
-      expectedNextAction: "run_setup" as const,
+        "keeps real repair evidence without blocking a different ready controller",
+      expectedNextAction: "none" as const,
       expectedExecutionTargetStatus: "partial" as const,
       failedReasonCodes: [
         "controller.interface.check_failed",
         "controller.interface.error",
+      ],
+      includeReadyController: true,
+      readyReasonCodes: ["runtime.agent_controller_report.ready"],
+    },
+    {
+      description:
+        "does not require Claude sign-in to use a ready Codex controller",
+      expectedNextAction: "none" as const,
+      expectedExecutionTargetStatus: "partial" as const,
+      failedReasonCodes: [
+        "provider_account.access_required",
+        "controller.auth.unauthenticated",
       ],
       includeReadyController: true,
       readyReasonCodes: ["runtime.agent_controller_report.ready"],
@@ -1357,9 +1369,11 @@ describe("current device target service", () => {
         userId: "owner-1",
       })
     ).resolves.toMatchObject({
-      canReplyFromThisComputer: false,
+      canReplyFromThisComputer: includeReadyController,
       nextAction: expectedNextAction,
-      primaryBlocker: "agent_controller_report_not_ready",
+      primaryBlocker: includeReadyController
+        ? "none"
+        : "agent_controller_report_not_ready",
       runtime: {
         executionTargetStatus: expectedExecutionTargetStatus,
         reasonCodes: [
@@ -1367,7 +1381,7 @@ describe("current device target service", () => {
           ...failedReasonCodes,
         ],
       },
-      status: "blocked",
+      status: includeReadyController ? "ready" : "blocked",
     });
   });
 
