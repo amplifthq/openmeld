@@ -24,6 +24,22 @@ export const homeLayoutSchema = z.object({
 export type HomeCard = z.infer<typeof cardSchema>;
 export type HomeLayout = z.infer<typeof homeLayoutSchema>;
 
+/** Only a settled, successful account index may remove saved windows. */
+export function reconcileHomeSpaces(
+	layout: HomeLayout,
+	spaceIds: ReadonlySet<string> | null
+): HomeLayout {
+	if (!spaceIds) {
+		return layout;
+	}
+	const cards = layout.cards.filter(
+		(card) =>
+			card.kind !== "space" ||
+			(card.spaceId !== undefined && spaceIds.has(card.spaceId))
+	);
+	return cards.length === layout.cards.length ? layout : { ...layout, cards };
+}
+
 export function createHomeLayout(): HomeLayout {
 	return {
 		version: 2,

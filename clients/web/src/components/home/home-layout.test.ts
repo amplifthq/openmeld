@@ -3,9 +3,48 @@ import {
 	createHomeLayout,
 	homeLayoutStorageKey,
 	parseHomeLayout,
+	reconcileHomeSpaces,
 } from "./home-layout";
 
 describe("Home layout persistence", () => {
+	it("removes unavailable Space windows while preserving the rest of the desk", () => {
+		const layout = createHomeLayout();
+		layout.cards.push(
+			...["deleted", "available"].map((spaceId) => ({
+				id: spaceId,
+				kind: "space" as const,
+				spaceId,
+				x: 900,
+				y: 300,
+				width: 700,
+				height: 600,
+			}))
+		);
+		const result = reconcileHomeSpaces(layout, new Set(["available"]));
+		expect(result.cards.map((card) => card.id)).toEqual([
+			"welcome",
+			"center-agent",
+			"available",
+		]);
+		expect(parseHomeLayout(JSON.stringify(result))).toEqual(result);
+		expect(reconcileHomeSpaces(result, new Set(["available"]))).toBe(result);
+	});
+	it("keeps saved windows until a successful Space index is available", () => {
+		const layout = createHomeLayout();
+		layout.cards.push({
+			id: "space",
+			kind: "space",
+			spaceId: "space",
+			x: 900,
+			y: 300,
+			width: 700,
+			height: 600,
+		});
+		expect(reconcileHomeSpaces(layout, null)).toBe(layout);
+		expect(reconcileHomeSpaces(layout, new Set()).cards).toEqual(
+			createHomeLayout().cards
+		);
+	});
 	it("keeps a deliberately empty desk empty", () => {
 		expect(
 			parseHomeLayout(JSON.stringify({ version: 2, cards: [] }))?.cards

@@ -63,6 +63,7 @@ import {
 	type HomeLayout,
 	homeLayoutStorageKey,
 	parseHomeLayout,
+	reconcileHomeSpaces,
 } from "./home-layout";
 import { useHomeWheelZoom } from "./use-home-wheel-zoom";
 import { useHomeWindowVisibility } from "./use-home-window-visibility";
@@ -209,6 +210,27 @@ function HomeWorkspace() {
 		profilesQuery.isError,
 		spaces,
 		storageKey,
+	]);
+	useEffect(() => {
+		if (
+			!(restored && spacesQuery.isSuccess) ||
+			spacesQuery.isFetching ||
+			!spacesQuery.isFetchedAfterMount
+		) {
+			return;
+		}
+		setLayout((current) =>
+			reconcileHomeSpaces(
+				current,
+				new Set(spaces.map((space) => space.spaceId))
+			)
+		);
+	}, [
+		restored,
+		spaces,
+		spacesQuery.isSuccess,
+		spacesQuery.isFetching,
+		spacesQuery.isFetchedAfterMount,
 	]);
 	useEffect(() => {
 		setNodes((previous) =>
@@ -846,13 +868,7 @@ const HomeCardContent = memo(function HomeCardContent({
 				</div>
 			);
 		}
-		return (
-			<p className="p-4 text-muted-foreground text-sm">
-				{context.loading
-					? "Loading Space…"
-					: "This Space is no longer available. You can remove this card."}
-			</p>
-		);
+		return <p className="p-4 text-muted-foreground text-sm">Loading Space…</p>;
 	}
 	return (
 		<HomeConversation
