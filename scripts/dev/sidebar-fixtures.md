@@ -131,6 +131,12 @@ Space, People, and Agent row components as the application. It does not
 authenticate, call APIs, or write to the database. Pins and selections are
 in-memory and reset on reload. It is outside the production route tree.
 
+Add `?loading` to keep Center Agent, Chats, Spaces, and Team loading rows visible
+indefinitely. These reuse `SidebarListSkeleton` with each caller's layout on the
+actual app canvas color. Use the theme switch and width slider to inspect the
+pulse cycle; no requests are delayed and no application loading logic is changed.
+This is a component preview, not proof of route loading or backend behavior.
+
 | Surface | Cases |
 | --- | --- |
 | Spaces | Idle, pinned, unread, pinned/unread, every Wake presentation kind alone and combined with pin/unread, newly joined, pin pending, multiple Agents with additional tasks, active tasks without loaded names |
