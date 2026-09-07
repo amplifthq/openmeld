@@ -202,6 +202,26 @@ describe("account Space active Wake summary RPC", () => {
       expect(renamed.items[0]?.activeTargets?.[0]?.profileName).toBe(
         "Renamed Agent"
       );
+      const startedAt = Date.now();
+      const stalled = await rpcListAccountSpaceActiveWakeSummary(
+        {
+          ...env,
+          OPENMELD_AUTH_WORKER: {
+            resolveProfileById: () =>
+              new Promise(() => {
+                /* Simulate an Auth RPC that never settles. */
+              }),
+          },
+        } as unknown as CoreBindings,
+        {
+          ownerUserId: "owner-viewer",
+          selectedProfileId: "viewer-profile",
+        }
+      );
+      expect(Date.now() - startedAt).toBeLessThan(2000);
+      expect(stalled.items[0]?.activeTargets?.[0]?.profileName).toBe(
+        "Clico Codex"
+      );
     } finally {
       harness.close();
     }

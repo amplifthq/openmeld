@@ -4280,7 +4280,9 @@ export class Space extends DurableObject<CoreBindings> {
           profileName: name,
         })
       ) {
-        await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
+        this.ctx.waitUntil(
+          this.projectCurrentSpaceIndexSnapshot("space.members_updated")
+        );
       }
     }
     return mergePublishedOriginFactsIntoAuthorProfile(
@@ -4303,7 +4305,9 @@ export class Space extends DurableObject<CoreBindings> {
         env: this.bindings,
       })
     ) {
-      await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
+      this.ctx.waitUntil(
+        this.projectCurrentSpaceIndexSnapshot("space.members_updated")
+      );
     }
   }
 

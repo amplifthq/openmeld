@@ -1642,6 +1642,9 @@ export function refreshSpaceMemberNameSnapshot(input: {
   return true;
 }
 
+// Display enrichment must not hold reply publication or status polling open.
+export const SPACE_MEMBER_NAME_READ_BUDGET_MS = 500;
+
 export async function refreshSpaceMemberNamesFromAuth(input: {
   sql: SqlStorage;
   env: CoreBindings;
@@ -1654,14 +1657,19 @@ export async function refreshSpaceMemberNamesFromAuth(input: {
     status: "active",
   });
   let changed = false;
+  const deadlineAtMs = Date.now() + SPACE_MEMBER_NAME_READ_BUDGET_MS;
   // A nonempty snapshot can still predate an Auth rename.
   for (let offset = 0; offset < members.length; offset += 8) {
+    if (Date.now() >= deadlineAtMs) {
+      break;
+    }
     const refreshed = await Promise.all(
       members.slice(offset, offset + 8).map(async (member) => {
         const name = await readSpaceMemberNameFromAuth({
           env: input.env,
           profileId: member.profileId,
           profileKind: member.profileKindSnapshot,
+          deadlineAtMs,
         });
         if (!name) {
           return false;
@@ -1691,11 +1699,27 @@ export async function readSpaceMemberNameFromAuth(input: {
   env: CoreBindings;
   profileId: string;
   profileKind: "agent" | "human";
+  deadlineAtMs?: number;
 }): Promise<string | null> {
+  const remainingMs =
+    (input.deadlineAtMs ?? Date.now() + SPACE_MEMBER_NAME_READ_BUDGET_MS) -
+    Date.now();
+  if (remainingMs <= 0) {
+    return null;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const result = await input.env.OPENMELD_AUTH_WORKER?.resolveProfileById?.({
-      openMeldProfileId: input.profileId,
-    });
+    const result = await Promise.race([
+      input.env.OPENMELD_AUTH_WORKER?.resolveProfileById?.({
+        openMeldProfileId: input.profileId,
+      }),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Space member name lookup timed out")),
+          remainingMs
+        );
+      }),
+    ]);
     if (!result?.ok) {
       console.warn("[core.space.member_name_unavailable]", {
         profileId: input.profileId,
@@ -1719,6 +1743,10 @@ export async function readSpaceMemberNameFromAuth(input: {
       error: error instanceof Error ? error.message : String(error),
     });
     return null;
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
   }
 }
 

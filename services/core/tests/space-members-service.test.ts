@@ -1368,6 +1368,71 @@ describe("space-members-service", () => {
     ).toBe("Amplift Center Agent");
   });
 
+  it("bounds the whole name refresh and ignores late Auth results", async () => {
+    const sql = new MutableSqlStorage();
+    const lateReplies: Array<() => void> = [];
+    for (let index = 0; index < 17; index++) {
+      upsertJoinedSpaceMember({
+        sql: sql as unknown as SqlStorage,
+        spaceId: "name-deadline",
+        profile: {
+          kind: "agent",
+          profileId: `agt_deadline_${index}`,
+          profileName: "Known Agent",
+        },
+      });
+    }
+    const resolveProfileById = vi.fn(
+      ({ openMeldProfileId }: { openMeldProfileId: string }) =>
+        new Promise((resolve) => {
+          lateReplies.push(() =>
+            resolve({
+              ok: true,
+              profile: {
+                profileId: openMeldProfileId,
+                profileKind: "agent",
+                profileName: "Late Name",
+                profileHandle: "late-agent",
+                ownerUserId: "owner",
+                status: "active",
+              },
+            })
+          );
+        })
+    );
+    const startedAt = Date.now();
+    expect(
+      await refreshSpaceMemberNamesFromAuth({
+        sql: sql as unknown as SqlStorage,
+        env: {
+          OPENMELD_AUTH_WORKER: { resolveProfileById },
+        } as unknown as CoreBindings,
+      })
+    ).toBe(false);
+    expect(Date.now() - startedAt).toBeLessThan(2000);
+    expect(resolveProfileById.mock.calls.length).toBeLessThanOrEqual(8);
+    const member = readSpaceMemberRecord(
+      sql as unknown as SqlStorage,
+      "agt_deadline_0"
+    );
+    if (!member) {
+      throw new Error("Missing member");
+    }
+    upsertSpaceMemberRecord(sql as unknown as SqlStorage, {
+      ...member,
+      profileNameSnapshot: "Newer Name",
+    });
+    for (const reply of lateReplies) {
+      reply();
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(
+      readSpaceMemberRecord(sql as unknown as SqlStorage, member.profileId)
+        ?.profileNameSnapshot
+    ).toBe("Newer Name");
+  });
+
   it.each([
     "mismatch",
     "unavailable",

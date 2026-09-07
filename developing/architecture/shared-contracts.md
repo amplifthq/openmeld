@@ -4876,6 +4876,13 @@ member after the Auth call so a concurrent removal or changed name wins. Failed
 or mismatched identity reads do not write names: the last known snapshot remains
 available so a display-name lookup outage does not block reply publication.
 Active work prefers the refreshed name over the dispatch's historical label.
+Name enrichment has a 500 ms wait budget per publication or read refresh, shared
+across all batches in a member or account summary read. Timeout preserves the
+last known name and emits diagnostics; it does not cancel or fail Agent
+execution. An RPC may still finish remotely, but its late result cannot write
+a snapshot after the caller has timed out. Name-only index delivery runs in the
+background using the existing durable dirty mark and projection outbox, rather
+than delaying the reply or status response.
 Web treats old ID-valued progress labels as unnamed Agents during rollout.
 These corrections change no HTTP/RPC schema or local-component contract.
 

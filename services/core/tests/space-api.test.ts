@@ -10163,11 +10163,24 @@ describe("OpenMeld Core", () => {
         undefined,
         "Previous Center Agent",
         "agt_11111111-1111-4111-8111-111111111112",
-      ].map((profileName) => ({ surface, profileName }))
+      ]
+        .map((profileName) => ({
+          surface,
+          profileName,
+          failure: undefined as string | undefined,
+        }))
+        .concat(
+          ["unavailable", "stalled"].map((failure) => ({
+            surface,
+            profileName: "Previous Center Agent",
+            failure,
+          }))
+        )
     )
-  )("refreshes the Center Agent name through $surface from $profileName", async ({
+  )("refreshes the Center Agent name through $surface from $profileName with $failure", async ({
     surface,
     profileName,
+    failure,
   }) => {
     const spaceId = await createSpace({ name: "center-agent-name-repair" });
     const profileId = "agt_11111111-1111-4111-8111-111111111112";
@@ -10200,12 +10213,21 @@ describe("OpenMeld Core", () => {
         },
       });
     });
+    const startedAt = Date.now();
     const name = await runInDurableObject(stub, async (_instance, state) => {
       const repairedSpace = new Space(state, {
         ...(env as unknown as CoreBindings),
         OPENMELD_AUTH_WORKER: {
-          resolveProfileById: () =>
-            Promise.resolve({
+          resolveProfileById: () => {
+            if (failure === "stalled") {
+              return new Promise(() => {
+                /* Simulate an Auth RPC that never settles. */
+              });
+            }
+            if (failure === "unavailable") {
+              return Promise.reject(new Error("Auth unavailable"));
+            }
+            return Promise.resolve({
               ok: true,
               profile: {
                 profileId,
@@ -10215,7 +10237,8 @@ describe("OpenMeld Core", () => {
                 ownerUserId: "name-repair-owner",
                 status: "active",
               },
-            }),
+            });
+          },
         },
       } as unknown as CoreBindings);
       const context = createRpcContext({
@@ -10263,12 +10286,17 @@ describe("OpenMeld Core", () => {
       return signal.profile.profileName;
     });
     expect(name?.startsWith("@") ? name.slice(1) : name).toBe(
-      "Amplift Center Agent"
+      failure ? "Previous Center Agent" : "Amplift Center Agent"
     );
+    if (failure) {
+      expect(Date.now() - startedAt).toBeLessThan(2000);
+    }
     const member = await runInDurableObject(stub, (_instance, state) =>
       readSpaceMemberRecord(state.storage.sql, profileId)
     );
-    expect(member?.profileNameSnapshot).toBe("Amplift Center Agent");
+    expect(member?.profileNameSnapshot).toBe(
+      failure ? "Previous Center Agent" : "Amplift Center Agent"
+    );
     expect(member?.status).toBe("active");
   });
 
