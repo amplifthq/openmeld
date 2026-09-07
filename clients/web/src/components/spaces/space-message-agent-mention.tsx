@@ -10,6 +10,8 @@ import { SpaceMessageAgentMention } from "./space-message-agent-mention-view";
 
 const SPACE_MESSAGE_AGENT_MENTION_PATH_PREFIX =
 	"/__openmeld/message-agent-mentions/";
+const ID_MENTION_LEFT_CONTINUATION = /[\p{L}\p{N}_@.-]/u;
+const ID_MENTION_RIGHT_CONTINUATION = /[\p{L}\p{N}_-]/u;
 const MARKDOWN_MENTION_DESCENT_BLOCKLIST = new Set([
 	"code",
 	"inlineCode",
@@ -141,26 +143,39 @@ export function splitSpaceMessageAgentMentionText(
 	occurrenceCountByProfileId = new Map<string, number>()
 ): readonly SpaceMessageAgentMentionSegment<SpaceMessageAgentMentionPresentation>[] {
 	const candidates = [...profilesById.values()]
-		.flatMap((profile) => {
-			const mentionText = `@${profile.profileName}`;
-			const matches: Array<{
-				end: number;
-				mentionText: string;
-				profile: SpaceMessageAgentMentionPresentation;
-				start: number;
-			}> = [];
-			let start = text.indexOf(mentionText);
-			while (start >= 0) {
-				matches.push({
-					end: start + mentionText.length,
-					mentionText,
-					profile,
-					start,
-				});
-				start = text.indexOf(mentionText, start + mentionText.length);
-			}
-			return matches;
-		})
+		.flatMap((profile) =>
+			[...new Set([profile.profileName, profile.profileId])].flatMap(
+				(label) => {
+					const mentionText = `@${label}`;
+					const matches: Array<{
+						end: number;
+						mentionText: string;
+						profile: SpaceMessageAgentMentionPresentation;
+						start: number;
+					}> = [];
+					let start = text.indexOf(mentionText);
+					while (start >= 0) {
+						const end = start + mentionText.length;
+						if (
+							label === profile.profileId &&
+							(ID_MENTION_LEFT_CONTINUATION.test(text[start - 1] ?? "") ||
+								ID_MENTION_RIGHT_CONTINUATION.test(text[end] ?? ""))
+						) {
+							start = text.indexOf(mentionText, end);
+							continue;
+						}
+						matches.push({
+							end: start + mentionText.length,
+							mentionText,
+							profile,
+							start,
+						});
+						start = text.indexOf(mentionText, start + mentionText.length);
+					}
+					return matches;
+				}
+			)
+		)
 		.sort(
 			(left, right) =>
 				left.start - right.start ||

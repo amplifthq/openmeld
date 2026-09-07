@@ -41,6 +41,7 @@ import {
   insertSignalRecord,
   readFinalReplyClaimSignalId,
 } from "../space/infrastructure/sql/space-signal-repo";
+import { parseStoredSignal } from "../space/rules/parsers/stored-signal";
 import {
   handleWebSocketTextSignal,
   persistPostPersistDispatchPlannerEvidenceBestEffort,
@@ -1435,8 +1436,8 @@ async function readActiveWakeProgressForTest(input: {
         }),
       },
     },
-    // This fixture exercises progress evidence, not Auth member-name refresh.
-    refreshMemberNamesFromAuth: { value: vi.fn(async () => undefined) },
+    sessions: { value: new Map() },
+    readSpaceMetaRecord: { value: () => null },
     ctx: {
       value: {
         storage: {
@@ -1479,6 +1480,65 @@ async function readActiveWakeProgressForTest(input: {
 }
 
 describe("space signal service", () => {
+  it("rejects an unreadable final reply before reserving its publication claim", () => {
+    const sql = { exec: vi.fn() } as unknown as SqlStorage;
+    const signal = {
+      v: 1,
+      id: "invalid-final",
+      spaceId: "space-1",
+      ts: 100,
+      profile: {
+        kind: "agent",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
+      },
+      type: "signal.text",
+      data: {
+        text: "done",
+        meta: {
+          purpose: AGENT_REPLY_FINAL_PURPOSE,
+          dispatchId: "dispatch-1",
+          targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+          targetProfileName: "Codex (1)",
+          targetMentionLabel: "Codex (1)",
+        },
+      },
+    } satisfies SignalEnvelope;
+    expect(() => insertSignalRecord(sql, signal)).toThrow();
+    expect(sql.exec).not.toHaveBeenCalled();
+    const recovered = parseStoredSignal(JSON.stringify(signal));
+    expect(recovered?.id).toBe(signal.id);
+    expect(recovered?.data).toMatchObject({
+      text: "done",
+      meta: {
+        purpose: AGENT_REPLY_FINAL_PURPOSE,
+        dispatchId: "dispatch-1",
+        targetProfileName: "Codex (1)",
+      },
+    });
+    if (recovered?.type === "signal.text") {
+      expect(recovered.data.meta?.targetMentionLabel).toBeUndefined();
+    }
+    // Recovery must not turn a corrupt identity into an accepted reply.
+    expect(
+      parseStoredSignal(JSON.stringify({ ...signal, profile: {} }))
+    ).toBeNull();
+    expect(
+      parseStoredSignal(
+        JSON.stringify({
+          ...signal,
+          data: {
+            ...signal.data,
+            messageEnvelope: {
+              activationTargets: [],
+              referenceTargets: [],
+              text: "different",
+            },
+          },
+        })
+      )
+    ).toBeNull();
+  });
+
   it.each(
     createReplyingHintTerminalSignals()
   )("clears replying replay state when a $label is broadcast", ({ signal }) => {
@@ -1548,6 +1608,11 @@ describe("space signal service", () => {
       },
       buildSystemNoticeSignal: { value: vi.fn(() => signal) },
       publishSystemNoticeSignal: { value: publishSystemNoticeSignal },
+      ctx: {
+        value: {
+          storage: { sql: createActiveWakeProgressSql({ outboxRows: [] }) },
+        },
+      },
     });
     const threadContext = {
       threadId: "thr_11111111-1111-4111-8111-111111111111",
@@ -2195,6 +2260,11 @@ describe("space signal service", () => {
       persistSignalWithOptionalOutbox: {
         value: persistSignalWithOptionalOutbox,
       },
+      ctx: {
+        value: {
+          storage: { sql: createActiveWakeProgressSql({ outboxRows: [] }) },
+        },
+      },
     });
 
     await expect(
@@ -2246,6 +2316,11 @@ describe("space signal service", () => {
       buildSystemNoticeSignal: { value: vi.fn(() => signal) },
       persistSignalWithOptionalOutbox: {
         value: persistSignalWithOptionalOutbox,
+      },
+      ctx: {
+        value: {
+          storage: { sql: createActiveWakeProgressSql({ outboxRows: [] }) },
+        },
       },
     });
 
@@ -2546,7 +2621,11 @@ describe("space signal service", () => {
       },
       broadcastSignal: { value: broadcastSignal },
       buildStatusSignal: { value: vi.fn(() => signal) },
-      ctx: { value: { storage: {} } },
+      ctx: {
+        value: {
+          storage: { sql: createActiveWakeProgressSql({ outboxRows: [] }) },
+        },
+      },
       persistSignalWithOptionalOutbox: {
         value: persistSignalWithOptionalOutbox,
       },
