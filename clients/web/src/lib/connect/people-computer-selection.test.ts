@@ -42,6 +42,20 @@ describe("browser Computer selection", () => {
 			selectPeopleComputerTarget({ ...input, selection: "routing" })
 		).toEqual({ deviceId: "old", runtimeLane: "prod" });
 	});
+	it("keeps an explicit computer and lane instead of applying account routing", () => {
+		expect(
+			selectPeopleComputerTarget({
+				...input,
+				explicitTarget: { deviceId: "new", runtimeLane: "canary" },
+			})
+		).toEqual({ deviceId: "new", runtimeLane: "canary" });
+		expect(
+			selectPeopleComputerTarget({
+				...input,
+				explicitTarget: { deviceId: "not-owned", runtimeLane: "prod" },
+			})
+		).toBeNull();
+	});
 	it("does not reuse another identity's handoff or invent ownership from local storage", () => {
 		expect(
 			selectPeopleComputerTarget({

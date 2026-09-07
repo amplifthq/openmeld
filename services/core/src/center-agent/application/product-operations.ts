@@ -1,3 +1,4 @@
+import { buildLocalAgentConnectionCandidateId } from "@openmeld/agent-runtime";
 import type {
   AgentProfileCreationPreferenceSelection,
   CenterAgentCheckAgentProfileReadinessResponse,
@@ -119,7 +120,7 @@ export function projectCenterAgentLocalAgentConnectionCandidates(input: {
         const candidate = {
           agentControllerRef: capability.agentControllerRef,
           agentDisplayName,
-          candidateId: buildCenterAgentLocalAgentConnectionCandidateId({
+          candidateId: buildLocalAgentConnectionCandidateId({
             agentControllerRef: capability.agentControllerRef,
             deviceId: target.deviceId,
             runtimeLane: target.runtimeLane,
@@ -234,23 +235,6 @@ function isServiceUpdateReasonCode(reasonCode: string): boolean {
     reasonCode === "service.update_required" ||
     reasonCode === "background_helper.update_required"
   );
-}
-
-export function buildCenterAgentLocalAgentConnectionCandidateId(input: {
-  agentControllerRef: string;
-  deviceId: string;
-  runtimeLane: string;
-  openMeldServiceRuntimeId: string;
-}): string {
-  return [
-    "local-agent",
-    input.deviceId,
-    input.runtimeLane,
-    input.openMeldServiceRuntimeId,
-    input.agentControllerRef,
-  ]
-    .map(encodeURIComponent)
-    .join(":");
 }
 
 export async function listLocalAgentConnectionCandidatesOperation(input: {

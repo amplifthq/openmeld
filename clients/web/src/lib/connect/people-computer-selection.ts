@@ -16,8 +16,17 @@ export function selectPeopleComputerTarget(input: {
 	} | null;
 	selectedHumanProfileId?: string | null;
 	selection?: "browser" | "routing" | "setup";
+	explicitTarget?: PeopleComputerTarget;
 }): PeopleComputerTarget | null {
 	const computers = input.inventory?.computers ?? [];
+	const explicitTarget = input.explicitTarget;
+	if (explicitTarget) {
+		return computers.some((computer) =>
+			peopleComputerContainsDevice(computer, explicitTarget.deviceId)
+		)
+			? explicitTarget
+			: null;
+	}
 	const setup = peopleComputerTargetSchema.safeParse({
 		deviceId: input.completedSetup?.deviceId,
 		runtimeLane: input.completedSetup?.runtimeLane,

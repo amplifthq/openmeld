@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	buildLocalAgentConnectionCandidateId,
 	DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE,
 	listAgentControllerCollaborationModeOptions,
 	listAgentControllerPermissionModeOptions,
@@ -633,11 +634,34 @@ function useCreateProfileDialogController(
 	);
 	const availableProjects = resolveAvailableProjects(projectsQuery.data);
 	const recovery = input.recovery;
+	const computerChoices = (
+		recovery.localRuntimesQuery.data?.peopleComputers.computers ?? []
+	).flatMap((computer) => {
+		const targets = new Map(
+			[...computer.executionTargets, ...computer.connection.sessions].map(
+				(target) => [
+					JSON.stringify({
+						deviceId: target.deviceId,
+						runtimeLane: target.runtimeLane,
+					}),
+					target,
+				]
+			)
+		);
+		return [...targets].map(([value, target]) => ({
+			value,
+			target: { deviceId: target.deviceId, runtimeLane: target.runtimeLane },
+			label: `${computer.deviceDisplayName} · ${target.runtimeLane} · ${computer.deviceId.slice(-6)}`,
+		}));
+	});
+	const selectedComputerChoice = computerChoices.find(
+		(choice) =>
+			choice.target.deviceId === recovery.deviceId &&
+			choice.target.runtimeLane === recovery.runtimeLane
+	);
 	const spaceContext = input.spaceContext;
-	// Resolve the execution target once: it provides both the bindable local
-	// agent catalog AND the device/lane the bind must target. recovery.deviceId
-	// / recovery.runtimeLane are null when the current-device target is
-	// unresolved (no Agent Profile bound yet), so the bind must use this target.
+	// The selected computer's catalog and the eventual Binding share one exact
+	// target. A Session preset explicitly overrides the ordinary selection.
 	const bindingTarget = resolveProfileBindingCatalogExecutionTarget(
 		recovery,
 		resolveSessionPresetBindingTarget({
@@ -1096,17 +1120,59 @@ function useCreateProfileDialogController(
 		sessions: agentActivitySessionsQuery.data?.sessions ?? [],
 	});
 	const additionalSubmitBlockReason = resolveAgentProfileSubmitBlockReason({
-		ownerBlockReason: resolveOwnerSubmitBlockReason({
-			directoryPending: organizationDirectoryQuery.isPending,
-			ownerMode,
-			targetOwnerUserId,
-		}),
+		ownerBlockReason:
+			resolveOwnerSubmitBlockReason({
+				directoryPending: organizationDirectoryQuery.isPending,
+				ownerMode,
+				targetOwnerUserId,
+			}) ??
+			resolveSelectedLocalAgentSubmitBlockReason({
+				boundAgentId,
+				emptyState: localAgentEmptyState,
+				ownLocalAgentIds,
+				ownerMode,
+			}),
 		sessionMode,
 		sessionPreset,
 		sessionPresetBindingBlockReason,
 	});
 
+	const canChooseComputer = ownerMode === "self" && !sessionPreset;
 	const formProps = {
+		agentComputerSummary: canChooseComputer
+			? selectedComputerChoice?.label
+			: undefined,
+		agentComputerSlot: canChooseComputer ? (
+			<label className="grid gap-2 text-sm">
+				Computer
+				<select
+					className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+					disabled={createProfileMutation.isPending}
+					onChange={(event) => {
+						const choice = computerChoices.find(
+							(item) => item.value === event.target.value
+						);
+						if (!choice) {
+							return;
+						}
+						recovery.selectComputer(choice.target);
+						setBoundAgentId("");
+						setAgentBindingValue("");
+						setErrorState(null);
+					}}
+					value={selectedComputerChoice?.value ?? ""}
+				>
+					<option disabled value="">
+						Choose a computer
+					</option>
+					{computerChoices.map((choice) => (
+						<option key={choice.value} value={choice.value}>
+							{choice.label}
+						</option>
+					))}
+				</select>
+			</label>
+		) : undefined,
 		additionalHumanProfileCreationEnabled,
 		additionalSubmitBlockReason,
 		agentBindingChoices: resolveOwnerBindingChoices({
@@ -1850,6 +1916,29 @@ function resolveAgentProfileSubmitBlockReason(input: {
 	return input.ownerBlockReason;
 }
 
+function resolveSelectedLocalAgentSubmitBlockReason(input: {
+	boundAgentId: string;
+	emptyState: AgentProfileLocalAgentEmptyState;
+	ownLocalAgentIds: readonly string[];
+	ownerMode: AgentProfileOwnerMode;
+}): string | null {
+	if (input.ownerMode !== "self" || !input.boundAgentId) {
+		return null;
+	}
+	switch (input.emptyState.kind) {
+		case "checking":
+			return "Checking the selected computer. Wait for the check to finish.";
+		case "check_failed":
+			return "Couldn't check the selected computer. Refresh and try again.";
+		case "connect_computer":
+			return "Connect the selected computer before creating this Agent.";
+		default:
+			return input.ownLocalAgentIds.includes(input.boundAgentId)
+				? null
+				: "Set up the selected local agent on this computer before creating this Agent.";
+	}
+}
+
 type CreateProfileSubmissionInput = {
 	agentControllerConversationId: string | null;
 	agentControllerCollaborationMode: AgentControllerCollaborationMode | null;
@@ -2051,6 +2140,8 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 			agentControllerCollaborationMode: input.agentControllerCollaborationMode,
 			agentControllerPermissionMode: input.agentControllerPermissionMode,
 			agentControllerRef: connection.agentControllerRef,
+			localAgentConnectionCandidateId:
+				connection.localAgentConnectionCandidateId,
 			authorizeForOrganization: true,
 			defaultProjectId,
 			modelId:
@@ -2091,6 +2182,7 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 
 function resolveRequestedAgentConnection(input: CreateProfileSubmissionInput): {
 	agentControllerRef: string | null;
+	localAgentConnectionCandidateId: string | null;
 	targetComputerId: string | null;
 } {
 	const agentControllerRef =
@@ -2098,13 +2190,43 @@ function resolveRequestedAgentConnection(input: CreateProfileSubmissionInput): {
 			? input.agentControllerRef || null
 			: (input.selectedTeammateBinding?.agentControllerRef ?? null);
 	if (!agentControllerRef) {
-		return { agentControllerRef: null, targetComputerId: null };
+		return {
+			agentControllerRef: null,
+			localAgentConnectionCandidateId: null,
+			targetComputerId: null,
+		};
 	}
 	const targetComputerId =
 		input.ownerMode === "self"
 			? input.profileCreationExecutionTarget.deviceId
 			: (input.selectedTeammateBinding?.targetComputerId ?? null);
-	return { agentControllerRef, targetComputerId };
+	let localAgentConnectionCandidateId: string | null = null;
+	if (input.ownerMode === "self") {
+		const selection = input.profileCreationExecutionTarget;
+		const target = input.recovery.localRuntimesQuery.data?.localRuntimes
+			.flatMap((computer) => computer.executionTargets)
+			.find(
+				(item) =>
+					item.deviceId === selection.deviceId &&
+					item.runtimeLane === selection.runtimeLane
+			);
+		if (!target?.openMeldServiceRuntimeId) {
+			throw new Error(
+				"The selected computer's local agents are no longer available. Refresh and try again."
+			);
+		}
+		localAgentConnectionCandidateId = buildLocalAgentConnectionCandidateId({
+			agentControllerRef,
+			deviceId: target.deviceId,
+			runtimeLane: target.runtimeLane,
+			openMeldServiceRuntimeId: target.openMeldServiceRuntimeId.value,
+		});
+	}
+	return {
+		agentControllerRef,
+		localAgentConnectionCandidateId,
+		targetComputerId,
+	};
 }
 
 function resolveRequestedAgentOwnerUserId(

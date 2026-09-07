@@ -177,6 +177,7 @@ function GeneratorStepContent(input: {
 		<div className="grid min-w-0 gap-5 pb-2">
 			<LocalAgentSelector
 				choices={input.bindingChoices}
+				computerSlot={input.form.agentComputerSlot}
 				disabled={input.form.isSubmitting}
 				emptyState={input.form.localAgentEmptyState}
 				isResolving={input.form.isResolvingLocalAgents}
@@ -290,6 +291,16 @@ function GeneratorReviewActions(input: {
 						{submitBlockReason}
 					</p>
 				) : null}
+				{submitBlockReason &&
+				input.form.localAgentEmptyState?.kind === "connect_computer" &&
+				input.form.localAgentEmptyState.primaryActionHref ? (
+					<a
+						className="text-sm underline underline-offset-4"
+						href={input.form.localAgentEmptyState.primaryActionHref}
+					>
+						Connect computer
+					</a>
+				) : null}
 				<SpinnerButton
 					aria-describedby={
 						submitBlockReason ? input.submitBlockReasonId : undefined
@@ -374,11 +385,9 @@ function GeneratorReview(input: {
 		<div className="grid gap-5">
 			<div className="grid gap-1">
 				{input.surface === "page" ? (
-					<h1 className="font-medium text-2xl tracking-tight">
-						Ready to create
-					</h1>
+					<h1 className="font-medium text-2xl tracking-tight">Review Agent</h1>
 				) : (
-					<h2 className="font-medium text-lg">Ready to create</h2>
+					<h2 className="font-medium text-lg">Review Agent</h2>
 				)}
 				<p className="text-pretty text-muted-foreground text-sm leading-5">
 					Review the setup and change the suggested name if you want.
@@ -401,6 +410,11 @@ function GeneratorReview(input: {
 					)}
 				</span>
 				<div className="min-w-0 flex-1">
+					{input.form.agentComputerSummary ? (
+						<p className="text-muted-foreground text-xs">
+							{input.form.agentComputerSummary}
+						</p>
+					) : null}
 					<p className="truncate font-medium text-sm">
 						{input.selectedBinding?.label ?? "Connect a local agent later"}
 					</p>

@@ -38,7 +38,6 @@ import {
 	forgetCurrentComputer,
 	forgetComputer as forgetLocalRuntime,
 } from "#/lib/connect/current-device-target";
-import { resolveCurrentLocalRuntime } from "#/lib/connect/current-local-runtime";
 import {
 	refreshPeopleComputerLocalAgentCatalog,
 	setLocalRuntimeDisplayName,
@@ -142,6 +141,10 @@ export function useLocalAgentRecoveryController(
 			syncMissingSelectionToStartFlow: false,
 		});
 	const { gatewayLoadState, loadGatewayUrl } = useGatewayLoadController();
+	const [computerChoice, setComputerChoice] = useState<{
+		storageScope: string;
+		target: PeopleComputerTarget;
+	} | null>(null);
 	const [sessionExpiredError, setSessionExpiredError] = useState<
 		unknown | null
 	>(null);
@@ -152,6 +155,10 @@ export function useLocalAgentRecoveryController(
 		localRuntimesQuery,
 		runtimeLane,
 	} = useLocalRuntimeQueries({
+		explicitTarget:
+			computerChoice?.storageScope === storageScope
+				? computerChoice.target
+				: undefined,
 		selection: options.computerSelection,
 		selectedHumanProfileId,
 		currentLocalRuntimeReplyReadinessRefetchIntervalMs:
@@ -294,44 +301,32 @@ export function useLocalAgentRecoveryController(
 			prepareSessionQueryIsPending: prepareSessionQuery.isPending,
 		});
 
-	const currentComputer = useMemo(
-		() => resolveCurrentLocalRuntime(localRuntimesQuery.data),
-		[localRuntimesQuery.data]
-	);
-	const selectedTargetDevice = useMemo(() => {
-		const currentDeviceTarget = currentDeviceTargetQuery.data;
-		if (
-			currentDeviceTarget?.availability !== "resolved" ||
-			!localRuntimesQuery.data
-		) {
+	const currentComputer = useMemo(() => {
+		if (!(deviceId && localRuntimesQuery.data)) {
 			return null;
 		}
 
 		return (
 			localRuntimesQuery.data.localRuntimes.find(
-				(device) => device.deviceId === currentDeviceTarget.deviceId
+				(device) =>
+					device.deviceId === deviceId ||
+					device.legacyDeviceIds?.includes(deviceId)
 			) ?? null
 		);
-	}, [currentDeviceTargetQuery.data, localRuntimesQuery.data]);
+	}, [deviceId, localRuntimesQuery.data]);
+	const selectedTargetDevice = currentComputer;
 	const selectedExecutionTarget = useMemo(() => {
-		const currentDeviceTarget = currentDeviceTargetQuery.data;
-		if (
-			currentDeviceTarget?.availability !== "resolved" ||
-			selectedTargetDevice === null
-		) {
+		if (!(deviceId && runtimeLane) || selectedTargetDevice === null) {
 			return null;
 		}
 
-		const currentDeviceId = currentDeviceTarget.deviceId;
-		const currentRuntimeLane = currentDeviceTarget.runtimeLane;
 		return (
 			selectedTargetDevice.executionTargets.find(
 				(target) =>
-					target.deviceId === currentDeviceId &&
-					target.runtimeLane === currentRuntimeLane
+					target.deviceId === deviceId && target.runtimeLane === runtimeLane
 			) ?? null
 		);
-	}, [currentDeviceTargetQuery.data, selectedTargetDevice]);
+	}, [deviceId, runtimeLane, selectedTargetDevice]);
 	const shouldLoadProductionCliRelease =
 		selectedExecutionTarget?.userFacingCommand === "openmeld";
 	const openMeldCliLatestReleaseQuery = useQuery(
@@ -561,6 +556,8 @@ export function useLocalAgentRecoveryController(
 		currentDeviceTargetQuery,
 		currentLocalRuntimeReplyReadinessQuery,
 		deviceId,
+		selectComputer: (target: PeopleComputerTarget) =>
+			setComputerChoice({ storageScope, target }),
 		completedPrepareSessionLocalAgentCatalogEntries,
 		completedPrepareSessionSnapshot,
 		expectedServiceVersion,

@@ -38,6 +38,13 @@ only to `peopleComputerCliInventorySchema`, never to a browser-derived claim.
 The shared legacy inventory adapter accepts an explicitly supplied target and
 does not recompute connection or readiness.
 
+`buildLocalAgentConnectionCandidateId` in `packages/agent-runtime` identifies
+one controller on an exact device, lane, and reported Service runtime. Web
+creation and Core candidate projections share this encoding. The identifier
+is selection evidence, not authorization; Core revalidates the owner inventory
+and current candidate before binding. A missing selected catalog never permits
+falling back to another computer.
+
 PeopleComputers HTTP/RPC endpoints coexist with supported current-target
 endpoints. New clients must deploy after their receivers. Shared optional fields
 are not assumed safe for an old strict parser: the new inventory has a separate

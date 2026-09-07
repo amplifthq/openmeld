@@ -1,5 +1,6 @@
 import {
   type AgentWakeRouteRegistration,
+  buildLocalAgentConnectionCandidateId,
   createAgentProfileBindingDisplayProjection,
   resolveAgentExecutionStatus,
   resolveAgentWakeAvailability,
@@ -20,7 +21,6 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
-  buildCenterAgentLocalAgentConnectionCandidateId,
   buildCenterAgentReadinessResponse,
   connectAgentProfileToLocalAgentOperation,
   projectCenterAgentComputerSetupOptions,
@@ -92,7 +92,7 @@ describe("Center Agent product operations", () => {
         expect.objectContaining({
           agentControllerRef: "builtin:codex",
           agentDisplayName: "Codex",
-          candidateId: buildCenterAgentLocalAgentConnectionCandidateId({
+          candidateId: buildLocalAgentConnectionCandidateId({
             agentControllerRef: "builtin:codex",
             deviceId: "device_1",
             runtimeLane: "dev-local",

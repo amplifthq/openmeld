@@ -62,6 +62,15 @@ versioned release PR; this feature branch does not hand-edit release manifests.
 
 ## Evidence and remaining acceptance
 
+Web self-owned Agent creation now preserves the chosen device, lane, runtime
+and controller through the existing `localAgentConnectionCandidateId` field.
+Its encoding moved unchanged to `packages/agent-runtime` for Core and Web reuse;
+this adds no request field or transport contract. The recovery catalog does
+not substitute another computer when the selected target is absent. The review
+shows the selected computer and the selector is locked during submission.
+Teammate/session selection and real browser submission remain acceptance work,
+not claims established by the focused catalog tests.
+
 Interrupted staging foreground execution exposed a local restart regression:
 an exited process's missing command path was diagnosed as bundle corruption,
 which suggested system-registration repair. Inventory now retains the stale

@@ -1,5 +1,6 @@
 "use client";
 
+import type { PeopleComputerTarget } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { readCompletedPrepareSessionPointer } from "#/components/connect/prepare-session-pointer";
@@ -19,6 +20,7 @@ export function useLocalRuntimeQueries(input: {
 	storageScope: string;
 	selectedHumanProfileId?: string | null;
 	selection?: "browser" | "routing" | "setup";
+	explicitTarget?: PeopleComputerTarget;
 }) {
 	const queryClient = useQueryClient();
 	const lastReadyCatalogReconcileKeyRef = useRef<string | null>(null);
@@ -43,6 +45,7 @@ export function useLocalRuntimeQueries(input: {
 		completedSetup: readCompletedPrepareSessionPointer(),
 		selectedHumanProfileId: input.selectedHumanProfileId,
 		selection: input.selection,
+		explicitTarget: input.explicitTarget,
 	});
 	const isReplyReadinessEnabled = selectedTarget !== null;
 	const currentLocalRuntimeReplyReadinessQuery = useQuery(
