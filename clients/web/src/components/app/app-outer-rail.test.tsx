@@ -208,9 +208,9 @@ const THEME_TOGGLE_PATTERN = /Switch to .* mode/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
 const PRIMARY_RAIL_LABELS = [
 	"New Agent",
-	"Home",
+	"Center Agent",
 	"Spaces",
-	"Messages",
+	"Chats",
 	"Team",
 ] as const;
 
@@ -365,7 +365,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier: "expanded", width: "13.75rem" });
 
 		const homeLink = screen.getByRole("link", {
-			name: "Home",
+			name: "Center Agent",
 		});
 		expect(homeLink.className).toContain("h-7");
 		expect(homeLink.className).toContain("text-[13px]");
@@ -384,7 +384,7 @@ describe("AppOuterRail", () => {
 	it("warms the Center Agent conversation from primary navigation intent", () => {
 		renderRail();
 
-		fireEvent.pointerEnter(screen.getByRole("link", { name: "Home" }));
+		fireEvent.pointerEnter(screen.getByRole("link", { name: "Center Agent" }));
 
 		expect(prefetchCenterAgentConversationMock).toHaveBeenCalledOnce();
 	});
@@ -393,7 +393,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier: "expanded", width: "9rem" });
 
 		const directMessagesLink = screen.getByRole("link", {
-			name: "Messages",
+			name: "Chats",
 		});
 		const centerTruncatedLabel = directMessagesLink.querySelector<HTMLElement>(
 			'[data-slot="center-truncated-text"]'
@@ -404,12 +404,12 @@ describe("AppOuterRail", () => {
 			centerTruncatedLabel?.querySelector(
 				'[data-slot="center-truncated-text-start"]'
 			)?.textContent
-		).toBe("Mess");
+		).toBe("Cha");
 		expect(
 			centerTruncatedLabel?.querySelector(
 				'[data-slot="center-truncated-text-end"]'
 			)?.textContent
-		).toBe("ages");
+		).toBe("ts");
 		expect(directMessagesLink.querySelector("span.truncate")).toBeNull();
 	});
 
@@ -445,9 +445,9 @@ describe("AppOuterRail", () => {
 
 		for (const label of [
 			"New Agent",
-			"Home",
+			"Center Agent",
 			"Spaces",
-			"Messages",
+			"Chats",
 			"Team",
 			"Settings",
 		]) {
@@ -491,11 +491,9 @@ describe("AppOuterRail", () => {
 		renderRail();
 
 		const directMessagesLink = screen.getByRole("link", {
-			name: "Messages",
+			name: "Chats",
 		});
-		expect(directMessagesLink.getAttribute("href")).toBe(
-			"/o/acme/direct-messages"
-		);
+		expect(directMessagesLink.getAttribute("href")).toBe("/o/acme/chats");
 	});
 
 	it("keeps Team flat even with a saved collapsed Team preference", () => {
@@ -535,10 +533,10 @@ describe("AppOuterRail", () => {
 		});
 
 		expect(screen.getByRole("link", { name: "New Agent" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Home" })).toBeTruthy();
-		expect(screen.queryByRole("link", { name: "Center Agent" })).toBeNull();
+		expect(screen.getByRole("link", { name: "Center Agent" })).toBeTruthy();
+		expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Messages" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Chats" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
 	});
 
@@ -600,7 +598,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier });
 
 		const link = await screen.findByRole("link", {
-			name: "Home, 2 unread replies",
+			name: "Center Agent, 2 unread replies",
 		});
 		const indicator = link.querySelector(
 			'[data-app-rail-status-indicator="center-agent-unread"]'
@@ -1585,7 +1583,7 @@ describe("AppOuterRail", () => {
 
 		const rendered = renderRail();
 
-		const homeLink = screen.getByRole("link", { name: "Home" });
+		const homeLink = screen.getByRole("link", { name: "Center Agent" });
 		const spacesLink = screen.getByRole("link", { name: "Spaces" });
 
 		expect(homeLink.getAttribute("aria-current")).toBe("page");
@@ -1605,10 +1603,10 @@ describe("AppOuterRail", () => {
 		expect(spacesLink.getAttribute("aria-current")).toBe("page");
 
 		routerLocation = {
-			pathname: "/o/acme/center-agent/skills",
+			pathname: "/o/acme",
 			searchStr: "",
 		};
-		appShellSection = "centerAgent";
+		appShellSection = "home";
 		rendered.rerender(buildRailElement());
 
 		expect(homeLink.getAttribute("aria-current")).toBe("page");

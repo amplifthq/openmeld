@@ -11,7 +11,10 @@ import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationCenterAgentChatPath,
+	buildOrganizationDirectMessagePath,
+} from "#/lib/organizations/organization-routes";
 import {
 	openCurrentDirectMessageSpace,
 	resolveDirectMessageOpenErrorMessage,
@@ -74,7 +77,12 @@ export function NewDirectMessageDialog(input: {
 			: []
 	);
 	const agents = (directory.data?.agentProfiles ?? [])
-		.filter((p) => p.status === "active")
+		.filter(
+			(p) =>
+				p.status === "active" &&
+				!p.isCenterAgent &&
+				p.managedRole !== "center_agent"
+		)
 		.map((p) => ({
 			id: p.profileId,
 			name: p.profileName,
@@ -89,8 +97,22 @@ export function NewDirectMessageDialog(input: {
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
-					<DialogTitle>New conversation</DialogTitle>
+					<DialogTitle>New chat</DialogTitle>
 				</DialogHeader>
+				<Button
+					onClick={() => {
+						input.onOpenChange(false);
+						navigate({
+							to: buildOrganizationCenterAgentChatPath(
+								currentOrganization.slug,
+								{ draft: "new" }
+							),
+						});
+					}}
+					variant="outline"
+				>
+					Center Agent
+				</Button>
 				<SidebarSearchInput
 					label="Search People or Agents"
 					onValueChange={setSearch}
@@ -111,7 +133,7 @@ export function NewDirectMessageDialog(input: {
 						<>
 							{[
 								{ label: "People", items: people },
-								{ label: "Agents", items: agents },
+								{ label: "Local agents", items: agents },
 							].map((group) => {
 								const items = group.items.filter((p) =>
 									`${p.name} ${p.owner}`

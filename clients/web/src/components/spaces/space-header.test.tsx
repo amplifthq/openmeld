@@ -206,7 +206,7 @@ describe("SpaceHeader", () => {
 		);
 	});
 
-	it("labels current Direct Message Spaces beside the title", () => {
+	it("labels local Agent chats beside the live status", () => {
 		render(
 			createSpaceHeader({
 				memberCount: 2,
@@ -214,13 +214,14 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		const directMessageLabel = screen.getByText("Direct Message");
+		const directMessageLabel = screen.getByText("Local Agent");
 		const titleRow = directMessageLabel.closest(
 			'[data-slot="space-window-header-title"]'
 		);
 
 		expect(titleRow).not.toBeNull();
-		expect(titleRow?.textContent).toContain("Design RoomDirect Message");
+		expect(titleRow?.textContent).toContain("Local Agent");
+		expect(screen.queryByText("Direct Message")).toBeNull();
 		expect(screen.queryByText("2 members")).toBeNull();
 		expect(screen.queryByText("1 human live")).toBeNull();
 		expect(screen.queryByTestId("space-public-access-warning")).toBeNull();
@@ -438,7 +439,7 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		expect(screen.getByText("Direct Message")).toBeTruthy();
+		expect(screen.getByText("Local Agent")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
 		const dialog = screen.getByRole("dialog");
 

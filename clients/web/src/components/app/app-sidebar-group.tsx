@@ -43,6 +43,17 @@ export function useAppSidebarGroupState() {
 	return useContext(AppSidebarGroupStateContext);
 }
 
+export function ControlledSidebarGroupStateProvider(input: {
+	children: ReactNode;
+	value: AppSidebarGroupState;
+}) {
+	return (
+		<AppSidebarGroupStateContext.Provider value={input.value}>
+			{input.children}
+		</AppSidebarGroupStateContext.Provider>
+	);
+}
+
 const EMPTY_COLLAPSED_GROUP_IDS: readonly string[] = [];
 
 export function AppSidebarGroupStateProvider({
@@ -87,6 +98,7 @@ export function AppSidebarGroupStateProvider({
 
 export function AppSidebarGroup(input: {
 	reorderId?: string;
+	contentOnly?: boolean;
 	onRename?: (name: string) => void;
 	children: ReactNode;
 	contentAriaLabel?: string;
@@ -187,6 +199,9 @@ export function AppSidebarGroup(input: {
 		);
 	}
 
+	if (input.contentOnly) {
+		return <>{input.children}</>;
+	}
 	return (
 		<SidebarGroupRenameContext.Provider value={rename}>
 			<Collapsible.Root

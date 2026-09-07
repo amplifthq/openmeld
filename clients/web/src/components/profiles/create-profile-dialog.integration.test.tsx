@@ -41,7 +41,7 @@ const DEFAULT_GPT_55_MODEL_PATTERN = /GPT-5.5 \(default\)/;
 const AUTHORIZE_PATTERN = /authorize/i;
 const USE_CONTROLLER_DEFAULT_PATTERN = /use controller default/i;
 const CURRENT_CODEX_RADIO_PATTERN = /^Codex$/i;
-const CUSTOMIZE_AGENT_BUTTON_PATTERN = /^Customize this Agent/i;
+const CUSTOMIZE_AGENT_BUTTON_PATTERN = /^Advanced Agent Settings/i;
 const WAKE_ACCESS_PATTERN = /Wake access/i;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a personal profile to this account before bringing profiles into this Space.";
@@ -756,7 +756,10 @@ describe("CreateProfileDialog", () => {
 					name: CUSTOMIZE_AGENT_BUTTON_PATTERN,
 				})
 			).getAttribute("aria-expanded")
-		).toBe("true");
+		).toBe("false");
+		fireEvent.click(
+			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_PATTERN })
+		);
 		await waitFor(() => {
 			expect(
 				screen.getByRole("button", { name: "Edit Model" }).textContent
@@ -781,7 +784,6 @@ describe("CreateProfileDialog", () => {
 			screen.queryByRole("option", { name: USE_CONTROLLER_DEFAULT_PATTERN })
 		).toBeNull();
 		fireEvent.click(modelSelect);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
 		const nameInput = (await screen.findByLabelText(
 			"Agent name"
@@ -790,10 +792,6 @@ describe("CreateProfileDialog", () => {
 			expect(nameInput.value).toBe("Felix Codex GPT-5.5 High");
 		});
 		fireEvent.change(nameInput, { target: { value: "My persistent Agent" } });
-		fireEvent.click(screen.getByRole("button", { name: "Back" }));
-		await waitFor(() => {
-			expect(screen.queryByLabelText("Agent name")).toBeNull();
-		});
 		if (!screen.queryByRole("combobox", { name: "Model" })) {
 			fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
 		}
@@ -804,7 +802,6 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			await screen.findByRole("option", { name: "GPT-5.4 Mini" })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
 		await waitFor(() => {
 			expect(

@@ -43,8 +43,8 @@ The template uses plain spaces rather than possessives or decorative separators.
 If the proposed visible name already exists for that owner, the creation surface
 adds the first available numeric suffix such as `(1)` or `(2)`.
 
-The name field appears at the final review rather than blocking the first
-decision. While the name still matches the managed template, configuration
+The name field appears after local agent selection in the single-page creation
+form, before the collapsed Advanced Agent Settings. While the name still matches the managed template, configuration
 changes update it automatically. Once the user edits the name, later
 configuration changes must preserve the user's text. When the Center Agent or
 another assistant creates an Agent from an explicit work goal, it may instead

@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
 import { DirectoryHumanProfilesWorkspace } from "./directory-human-profiles-workspace";
+import { sortSidebarPeople } from "./people-sidebar-order";
 
 const ENABLED_LOCAL_AGENT_SUMMARY_PATTERN =
 	/Claude Code enabled, Codex enabled, Cursor enabled/;
@@ -203,76 +204,137 @@ vi.mock("#/components/computers/computers-picker", () => ({
 	),
 }));
 
+vi.mock("./center-agent-sidebar-item", () => ({
+	CenterAgentSidebarItem: () => <span>Workspace assistant</span>,
+}));
+
 describe("DirectoryHumanProfilesWorkspace", () => {
-	it("groups people by Computer connection with novice-friendly tooltips", () => {
-		renderWorkspace();
-
-		const connectedGroup = screen.getByRole("region", {
-			name: "Connected",
-		});
-		expect(within(connectedGroup).getByText("Computer connected")).toBeTruthy();
-		expect(
-			within(connectedGroup).getByRole("button", {
-				name: "Open Felix's profile",
-			})
-		).toBeTruthy();
-		expect(
-			within(connectedGroup).queryByRole("button", {
-				name: "Open Grace Hopper's profile",
-			})
-		).toBeNull();
-
-		const notConnectedGroup = screen.getByRole("region", {
-			name: "Not connected",
-		});
-		expect(
-			within(notConnectedGroup).getByText("No computer connected")
-		).toBeTruthy();
-		expect(
-			within(notConnectedGroup).getByRole("button", {
-				name: "Open Grace Hopper's profile",
-			})
-		).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Human Profiles" })).toBeNull();
-	});
-
-	it("keeps unresolved and attention states separate from connected computers", () => {
-		const needsAttentionMember = {
+	it.each([
+		"priority",
+		"name",
+		"manual",
+		"recent",
+	] as const)("keeps self first in Starred with %s sorting", (sort) => {
+		const self = {
 			...buildMember({ current: true }),
-			computer: {
-				count: 1,
-				label: "Computer needs attention",
-				path: null,
-				state: "needs_attention" as const,
-			},
+			name: "Zoe",
+			lastActiveAt: null,
+			joinedAt: "2020-01-01T00:00:00.000Z",
 		};
-		const unknownMember = {
+		const other = {
 			...buildMember({ current: false }),
-			computer: {
-				count: 1,
-				label: "Computer status unavailable",
-				path: null,
-				state: "unknown" as const,
-			},
+			name: "Alice",
+			lastActiveAt: "2026-09-07T00:00:00.000Z",
+			joinedAt: "2026-09-07T00:00:00.000Z",
 		};
-		renderWorkspace({ members: [needsAttentionMember, unknownMember] });
-
+		const settings = { sort, itemIds: [other.id, self.id] };
 		expect(
-			within(
-				screen.getByRole("region", { name: "Status needs checking" })
-			).getByRole("button", { name: "Open Felix's profile" })
+			sortSidebarPeople([other, self], settings, true).map(
+				(person) => person.id
+			)
+		).toEqual([self.id, other.id]);
+		expect(
+			sortSidebarPeople([other, self], settings).map((person) => person.id)
+		).toEqual([other.id, self.id]);
+	});
+	it("places Center Agent first and defaults you to Starred", () => {
+		const self = buildMember({ current: true });
+		const offline = buildMember({ current: false });
+		const online = {
+			...offline,
+			id: "online-person",
+			name: "Online teammate",
+			computer: { ...self.computer },
+		};
+		renderWorkspace({ members: [offline, online, self] });
+		const sidebar = screen.getByRole("navigation", { name: "People" });
+		const buttons = within(sidebar)
+			.getAllByRole("button")
+			.filter((button) =>
+				button.getAttribute("aria-label")?.startsWith("Open ")
+			);
+		expect(buttons[0]?.getAttribute("aria-label")).toBe("Open Felix's profile");
+		expect(
+			within(screen.getByRole("region", { name: "Computer online" })).getByRole(
+				"button",
+				{ name: "Open Online teammate's profile" }
+			)
+		).toBeTruthy();
+		expect(
+			within(screen.getByRole("region", { name: "Computer online" })).getByText(
+				"Computer online"
+			)
 		).toBeTruthy();
 		expect(
 			within(
-				screen.getByRole("region", { name: "Status needs checking" })
-			).getByRole("button", { name: "Open Grace Hopper's profile" })
+				screen.getByRole("region", { name: "Computer offline" })
+			).getByText("Computer offline")
 		).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Connected" })).toBeNull();
+		expect(
+			within(
+				screen.getByRole("region", { name: "Computer offline" })
+			).getByText("No computer")
+		).toBeTruthy();
+		expect(
+			within(sidebar)
+				.getAllByRole("region")
+				.map((group) => group.getAttribute("aria-label"))
+		).toEqual([
+			"Shared Center Agent",
+			"Starred",
+			"Computer online",
+			"Computer offline",
+		]);
 	});
 
-	it("shows the loading state while computer checks are pending and restores connection groups afterward", () => {
-		const currentMember = buildMember({ current: true });
-		const checkingMember = {
+	it("keeps unknown and attention states in Offline with their explanation", () => {
+		const teammate = buildMember({ current: false });
+		renderWorkspace({
+			members: [
+				{
+					...teammate,
+					id: "attention",
+					name: "Attention",
+					computer: {
+						count: 1,
+						label: "Computer needs attention",
+						path: null,
+						state: "needs_attention",
+					},
+				},
+				{
+					...teammate,
+					id: "unknown",
+					name: "Unknown",
+					computer: {
+						count: 1,
+						label: "Computer status unavailable",
+						path: null,
+						state: "unknown",
+					},
+				},
+			],
+		});
+		const offline = screen.getByRole("region", { name: "Computer offline" });
+		expect(
+			within(offline).getByRole("button", { name: "Open Attention's profile" })
+				.textContent
+		).toContain("Computer needs attention");
+		expect(
+			within(offline).getByRole("button", { name: "Open Unknown's profile" })
+				.textContent
+		).toContain("Computer status unavailable");
+		expect(
+			screen.queryByRole("region", { name: "Status needs checking" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("region", { name: "Computer online" })
+		).toBeNull();
+	});
+
+	it("keeps pending checks out of Offline until loading finishes", () => {
+		const self = buildMember({ current: true });
+		const teammate = {
 			...buildMember({ current: false }),
 			computer: {
 				count: 0,
@@ -281,43 +343,46 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				state: "checking" as const,
 			},
 		};
-		renderWorkspace({ members: [currentMember, checkingMember] });
+		renderWorkspace({ members: [self, teammate] });
 		expect(screen.getByText("Loading people")).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Connected" })).toBeNull();
+		expect(
+			screen.queryByRole("region", { name: "Computer offline" })
+		).toBeNull();
 		cleanup();
 		renderWorkspace({
 			members: [
-				currentMember,
+				self,
 				{
-					...checkingMember,
-					computer: { ...checkingMember.computer, state: "unknown" },
+					...teammate,
+					computer: {
+						...teammate.computer,
+						state: "unknown",
+						label: "Computer status unavailable",
+					},
 				},
 			],
 		});
 		expect(
-			within(screen.getByRole("region", { name: "Connected" })).getByRole(
-				"button",
-				{ name: "Open Felix's profile" }
-			)
+			screen.getByRole("button", { name: "Open Felix's profile" })
 		).toBeTruthy();
 		expect(
 			within(
-				screen.getByRole("region", { name: "Status needs checking" })
+				screen.getByRole("region", { name: "Computer offline" })
 			).getByRole("button", { name: "Open Grace Hopper's profile" })
 		).toBeTruthy();
 	});
 
-	it("keeps connection sections in a stable order", () => {
-		const currentMember = {
+	it("defaults an offline self to Starred", () => {
+		const self = {
 			...buildMember({ current: true }),
 			computer: {
 				count: 0,
-				label: "Connect a computer",
+				label: "No computer connected",
 				path: null,
 				state: "not_connected" as const,
 			},
 		};
-		const connectedTeammate = {
+		const teammate = {
 			...buildMember({ current: false }),
 			computer: {
 				count: 1,
@@ -326,14 +391,22 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				state: "connected" as const,
 			},
 		};
-		renderWorkspace({ members: [currentMember, connectedTeammate] });
-
-		const groupNames = within(
-			screen.getByRole("navigation", { name: "People" })
-		)
-			.getAllByRole("region")
-			.map((group) => group.getAttribute("aria-label"));
-		expect(groupNames).toEqual(["Connected", "Not connected"]);
+		renderWorkspace({ members: [teammate, self] });
+		const sidebar = screen.getByRole("navigation", { name: "People" });
+		const buttons = within(sidebar)
+			.getAllByRole("button")
+			.filter((button) =>
+				button.getAttribute("aria-label")?.startsWith("Open ")
+			);
+		expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+			"Open Felix's profile",
+			"Open Grace Hopper's profile",
+		]);
+		expect(
+			within(sidebar)
+				.getAllByRole("region")
+				.map((group) => group.getAttribute("aria-label"))
+		).toEqual(["Shared Center Agent", "Starred", "Computer online"]);
 	});
 
 	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {

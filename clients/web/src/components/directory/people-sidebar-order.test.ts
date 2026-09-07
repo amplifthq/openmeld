@@ -4,9 +4,43 @@ import {
 	EMPTY_PEOPLE_SIDEBAR,
 	moveSidebarPerson,
 	peopleConnectionFilter,
+	removeSidebarPeopleGroup,
+	resolvePeopleSidebarDefaults,
 } from "./people-sidebar-order";
 
 describe("personal People organization", () => {
+	it("defaults self to Starred and preserves an explicit unstar after persistence", () => {
+		const initial = resolvePeopleSidebarDefaults(EMPTY_PEOPLE_SIDEBAR, "self");
+		expect(initial.starred.itemIds).toEqual(["self"]);
+		const unstarred = moveSidebarPerson(initial, "people", "self", []);
+		const restored = peopleSidebarPreferencesSchema.parse(
+			JSON.parse(JSON.stringify(unstarred))
+		);
+		expect(
+			resolvePeopleSidebarDefaults(restored, "self").starred.itemIds
+		).toEqual([]);
+	});
+	it("preserves custom placement and returns deleted group members to the directory", () => {
+		const grouped = {
+			...EMPTY_PEOPLE_SIDEBAR,
+			groups: [
+				{
+					id: "design",
+					name: "Design",
+					sort: "manual" as const,
+					itemIds: ["self"],
+				},
+			],
+		};
+		expect(
+			resolvePeopleSidebarDefaults(grouped, "self").starred.itemIds
+		).toEqual([]);
+		const removed = removeSidebarPeopleGroup(grouped, "design");
+		expect(removed.people.itemIds).toEqual(["self"]);
+		expect(
+			resolvePeopleSidebarDefaults(removed, "self").starred.itemIds
+		).toEqual([]);
+	});
 	it("moves between groups, stars and the directory without duplicating or losing hidden members", () => {
 		const groupId = "0c1cc2f8-cb19-400f-99af-894dcdeca851";
 		const prefs = {
