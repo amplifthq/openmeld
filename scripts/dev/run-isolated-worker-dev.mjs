@@ -53,6 +53,14 @@ export function resolveIsolatedWorkerDevPlan(input) {
   switch (input.service) {
     case "auth":
       return {
+        ...(env.OPENMELD_DEV_PUBLIC_GATEWAY_ORIGIN
+          ? {
+              env: {
+                ...env,
+                OPENMELD_GATEWAY_URL: env.OPENMELD_DEV_PUBLIC_GATEWAY_ORIGIN,
+              },
+            }
+          : {}),
         args: [
           "exec",
           "wrangler",
@@ -188,6 +196,9 @@ export function buildIsolatedCoreWranglerConfig(input) {
     vars: {
       ...(sourceConfig.vars ?? {}),
       CORS_ORIGINS: requireEnvironmentValue(env, "OPENMELD_GATEWAY_URL"),
+      ...(env.OPENMELD_DEV_PUBLIC_GATEWAY_ORIGIN
+        ? { OPENMELD_GATEWAY_URL: env.OPENMELD_DEV_PUBLIC_GATEWAY_ORIGIN }
+        : {}),
       WEB_APP_URL: requireEnvironmentValue(env, "WEB_APP_URL"),
     },
   };
@@ -233,6 +244,7 @@ async function run(service) {
   }
 
   const exitCode = await runCommand(plan.command, plan.args, {
+    env: plan.env,
     forwardSignals: true,
   });
   process.exit(exitCode);
@@ -288,7 +300,7 @@ function runCommand(command, args, options = {}) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(executable, args, {
       cwd: process.cwd(),
-      env: process.env,
+      env: options.env ?? process.env,
       stdio: "inherit",
     });
     const forwardSigint = () => child.kill("SIGINT");
