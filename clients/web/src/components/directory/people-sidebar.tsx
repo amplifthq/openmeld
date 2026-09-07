@@ -79,8 +79,8 @@ function includeCenterAgent(
 	const result = [...groups];
 	result.unshift({
 		id: "center-agent",
-		label: "Center Agent",
-		ariaLabel: "Center Agent",
+		label: "Shared Center Agent",
+		ariaLabel: "Shared Center Agent",
 		content: <CenterAgentSidebarItem />,
 	});
 	return result;
@@ -116,7 +116,7 @@ export function PeopleSidebar(input: {
 	const groupFilter = useSidebarGroupFilter([
 		{ id: "starred", label: "Starred" },
 		...preferences.groups.map((g) => ({ id: g.id, label: g.name })),
-		{ id: "center-agent", label: "Center Agent" },
+		{ id: "center-agent", label: "Shared Center Agent" },
 		{ id: "online", label: "Computer online" },
 		{ id: "offline", label: "Computer offline" },
 	]);
