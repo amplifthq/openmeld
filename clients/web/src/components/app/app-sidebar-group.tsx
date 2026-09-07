@@ -98,6 +98,7 @@ export function AppSidebarGroupStateProvider({
 
 export function AppSidebarGroup(input: {
 	reorderId?: string;
+	contentOnly?: boolean;
 	onRename?: (name: string) => void;
 	children: ReactNode;
 	contentAriaLabel?: string;
@@ -198,6 +199,9 @@ export function AppSidebarGroup(input: {
 		);
 	}
 
+	if (input.contentOnly) {
+		return <>{input.children}</>;
+	}
 	return (
 		<SidebarGroupRenameContext.Provider value={rename}>
 			<Collapsible.Root

@@ -27,7 +27,7 @@
 
 ### Center Agent selected sessions (Flue 2 candidate)
 
-The Center Agent home accepts `?session=<space-id>`. This selects an exact
+The Center Agent chat at `/o/{orgSlug}/chats/center-agent` accepts `?session=<space-id>`. This selects an exact
 private Center Agent conversation through Core's session projection endpoint;
 the route does not reuse the default conversation cache or call the default
 open operation when the selected session is unavailable. A malformed selected
@@ -42,13 +42,13 @@ draft into the canonical Space composer. Switching sessions in one Organization
 preserves separate pending messages; organization switching retains the
 existing cleanup policy. A cache key or URL never grants message/file access.
 
-The unselected home is an entry point, not a separate permanent session
+The unselected Center Agent chat is an entry point, not a separate permanent session
 identity. It retains the existing pair-based open/reuse behavior. Once a
 conversation is displayed, view navigation pins its resolved Space ID in the
 URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
-Home places Center Agent chats in the Main Sidebar, reusing destination search
+Chats places Center Agent sessions in the Main Sidebar, reusing destination search
 and filters, collapsible groups, group actions and whole-row drag ordering.
 Pinned chats appear once; unpin restores their original group. Empty built-in
 sections are omitted. User-created groups remain visible with the same compact
@@ -81,7 +81,7 @@ The same personal title is rendered in the conversation header. These preference
 are presentation only: archive hides a chat from the normal list, Unarchive returns
 it, and neither changes membership, execution or history. Generic Space
 management remains restricted; permanent deletion is not exposed.
-Archived chats can be found through either Home's filter or a chat group's
+Archived chats can be found through the Agents group settings or a chat group's
 settings menu. Both controls share one filter state and the Archived badge.
 
 Contract impact: the shared account-sidebar payload adds an optional `chats`
@@ -341,8 +341,8 @@ primary actions and destinations in a flat list:
   overview. Success opens the new Agent's detail; Cancel returns to Agents.
   Pending teammate requests open Agent requests. Legacy `agents?view=create`
   links redirect to this route before loading the Agents directory.
-- **Home** — the current Organization's adaptive overview and product entry.
-- **Spaces** and **Direct Messages** — first-level destinations directly below
+- **Home** — directly opens the current Organization's default Center Agent chat.
+- **Spaces** and **Chats** — first-level destinations directly below
   Home.
 - **Team** — opens the people directory. Each person's profile owns their Agent list.
 
@@ -355,14 +355,14 @@ Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
 The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
-**Direct Messages**, **Team**. The product destinations are:
+**Chats**, **Team**. The product destinations are:
 
-1. **Home** — the current Organization's concise overview. It leads with the
-   designated Center Agent, then composes existing Agent Activity, Inbox, Tasks,
-   Spaces, People, Agents, Projects, Documents, and current-Computer projections. It
-   owns no parallel state or mutation path. Its Center Agent action opens the
-   canonical compact Center Agent conversation, and every other item links to
-   its existing product home.
+1. **Home** — directly renders the existing default Center Agent conversation,
+   keeping Home selected. It shares the complete conversation component,
+   loader, and underlying session with Chats, without an intermediate entry
+   screen or a new conversation. Existing Home session and view selectors
+   remain supported. The default follows the existing production open-or-reuse
+   behavior, rather than switching to the most recently active session.
 2. **Spaces** — the current workspace's Space collaboration surface.
    Spaces, Direct Messages, and People place their contextual lists
    below the fixed destinations in the Main Sidebar. Only these contextual
@@ -554,11 +554,11 @@ opening full Chat hides and unmounts the compact launcher. Maximize preserves
 the exact Task location. Multi-tab and reconnect behavior treats live frames
 only as refresh signals and re-reads Core.
 
-The Home outer-rail destination independently shows a static amber unread dot
+The Chats outer-rail destination independently shows a static amber unread dot
 for final replies in the current member's Center Agent Direct Message. Core
 excludes converted Direct Messages from this summary; their unread replies
 activate only the Spaces destination that now owns the conversation. Full rails
-place the Home dot immediately after the label; compact and collapsed rails
+place the Chats dot immediately after the label; compact and collapsed rails
 attach it to the icon corner. Web clears this projection only after the Center
 Agent conversation is visible and held at the latest message for the read
 debounce, then writes the Core-owned monotonic read-through watermark. Inbox
@@ -745,29 +745,48 @@ header keeps its five primary work tabs and one compact menu available without
 reintroducing a contextual drawer. Narrow layouts may horizontally scroll the
 tab row, but they must not hide Tasks, Routines, or any menu destination.
 
-### Home and Center Agent Chat
+### Home and Chats
 
-The authorized Organization root `/o/{orgSlug}` is canonical Home and renders
-the existing Center Agent conversation directly. Home is not an Organization
-dashboard and owns no parallel Inbox, Task, Space, Directory, Project,
-Document, or Agent Activity preview.
+The former Home destination is labeled **Center Agent** in navigation and the
+command palette while Home is redesigned. Its Organization-root URL and
+internal `home` section identity remain unchanged.
 
-The three Center Agent starting-point cards stay at the top of the conversation
-for members who can send messages, including while drafting and after sending.
-They scroll with the conversation and remain reachable by scrolling to the top.
-Opening computer setup adds its flow below the cards instead of replacing them.
+The authorized Organization root `/o/{orgSlug}` remains Home and directly
+renders the default Center Agent conversation using the existing production
+open-or-reuse loader. Home stays selected and does not redirect to Chats.
+`/o/{orgSlug}/chats/center-agent` exposes the same complete conversation UI
+inside Chats. Both routes support the existing `session`, `draft`, and view
+selectors and share the underlying conversation without copying history.
 
-The outer app rail keeps one **Home** destination and does not expose a separate
-Center Agent destination. Home owns the Center Agent conversation's unread
-indicator and intent preload. The Center Agent header continues to expose
-Messages, Graph, Files, Tasks, Routines, Skills, Plugins, Channels, and its compact menu;
-their explicit `/o/{orgSlug}/center-agent/*` routes remain stable and keep Home
-selected in the outer rail.
+Chats at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
+It opens the first conversation in sidebar section and sort order once the
+list is ready. An empty list offers New chat. New chat and participant filters
+live in the Chats destination action slot. Selected destinations keep their
+actions visible; Search manually inside filters reveals contextual search.
+Ordinary private conversations use `/chats/{spaceId}`. The old
+`/direct-messages` routes only redirect and preserve supported search fields.
+Team's Center Agent entry opens the canonical Center Agent chat.
 
-The legacy `/o/{orgSlug}/center-agent/chat` URL performs one history-replacing
-compatibility redirect to `/o/{orgSlug}` and preserves supported conversation
-search state such as `focusSignalId` and `view`. No current Web navigation emits
-the legacy URL.
+The shared Chats sidebar exposes Agents and People groups and filters. Agents
+comes first by default; dragging the category headings changes the order,
+saved in this browser per Organization and Human Profile. Center Agent sessions
+and local Agent conversations share Agents. Center Agent rows reuse the designated
+profile avatar; their conversation header adds a cloud-icon Center Agent badge
+after live status. Existing Center Agent
+session preferences and ordinary private-conversation preferences keep their
+existing owners and persisted groups, pinning, and sorting; this navigation
+change does not rewrite account preferences or introduce execution policy.
+Center Agent sessions are excluded from the ordinary conversation list.
+New chat uses the existing participant picker. Choosing Center Agent opens a
+local draft; first send continues to own session creation. Its group actions,
+archive filter, title editing, previews, and drag ordering remain available.
+
+The full Center Agent page, header, starter cards, composer, and all capability
+surfaces reuse their existing components. Messages, Graph, Files, Tasks,
+Routines, Skills, Plugins, Channels, Memory, settings, and conversation
+information remain available. Capability routes stay under `/center-agent/*`
+and highlight Chats. The starter cards continue scrolling with the conversation.
+No second conversation controller or message store is introduced.
 
 ### Inbox
 

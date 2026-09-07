@@ -110,6 +110,7 @@ export function PeopleSidebar(input: {
 		sidebar.isPending ||
 		input.members.some((member) => member.computer.state === "checking");
 	const [search, setSearch] = useState("");
+	const [searchOpen, setSearchOpen] = useState(false);
 	const [filter, setFilter] = useState<PeopleFilter>("all");
 	const [recentlyActive, setRecentlyActive] = useState(false);
 	const groupFilter = useSidebarGroupFilter([
@@ -402,7 +403,9 @@ export function PeopleSidebar(input: {
 							<SidebarSearchInput
 								destination="people"
 								label="Search people"
+								onOpenChange={setSearchOpen}
 								onValueChange={setSearch}
+								open={searchOpen}
 								value={search}
 							/>
 							<SidebarDestinationAction destination="people">
@@ -430,6 +433,14 @@ export function PeopleSidebar(input: {
 										aria-label="Filter people"
 										className="w-60 max-w-[calc(100vw-2rem)]"
 									>
+										<FluidDropdownMenuItem
+											index={-1}
+											onClick={() =>
+												requestAnimationFrame(() => setSearchOpen(true))
+											}
+										>
+											Search manually
+										</FluidDropdownMenuItem>
 										{FILTERS.map(([value, label], index) => (
 											<FluidDropdownMenuItem
 												index={index}

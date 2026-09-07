@@ -80,6 +80,8 @@ import { Route as OOrgSlugAgentActivityIndexRouteImport } from './routes/o/$orgS
 import { Route as OOrgSlugAgentActivityChangesRouteImport } from './routes/o/$orgSlug/agent-activity/changes'
 import { Route as OOrgSlugAgentActivitySessionsRouteImport } from './routes/o/$orgSlug/agent-activity/sessions'
 import { Route as OOrgSlugAgentsNewRouteImport } from './routes/o/$orgSlug/agents_.new'
+import { Route as OOrgSlugChatsIndexRouteImport } from './routes/o/$orgSlug/chats/index'
+import { Route as OOrgSlugChatsSpaceIdRouteImport } from './routes/o/$orgSlug/chats/$spaceId'
 import { Route as OOrgSlugComputersDeviceIdRouteImport } from './routes/o/$orgSlug/computers.$deviceId'
 import { Route as OOrgSlugDirectMessagesIndexRouteImport } from './routes/o/$orgSlug/direct-messages/index'
 import { Route as OOrgSlugDirectMessagesSpaceIdRouteImport } from './routes/o/$orgSlug/direct-messages/$spaceId'
@@ -120,6 +122,7 @@ import { Route as OOrgSlugCenterAgentCenterAgentRoutinesRouteImport } from './ro
 import { Route as OOrgSlugCenterAgentCenterAgentSettingsRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.settings'
 import { Route as OOrgSlugCenterAgentCenterAgentSkillsRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.skills'
 import { Route as OOrgSlugCenterAgentCenterAgentTasksRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.tasks'
+import { Route as OOrgSlugCenterAgentChatsCenterAgentRouteImport } from './routes/o/$orgSlug/_center-agent/chats.center-agent'
 import { Route as OOrgSlugPeoplePersonIdAgentsRouteImport } from './routes/o/$orgSlug/people_.$personId_.agents'
 import { Route as OOrgSlugSettingsComputersDeviceIdRouteImport } from './routes/o/$orgSlug/settings/computers.$deviceId'
 import { Route as V1PrepareSessionsPrepareSessionIdStreamRouteImport } from './routes/v1/prepare/sessions/$prepareSessionId/stream'
@@ -495,6 +498,16 @@ const OOrgSlugAgentsNewRoute = OOrgSlugAgentsNewRouteImport.update({
   path: '/agents/new',
   getParentRoute: () => OOrgSlugRoute,
 } as any)
+const OOrgSlugChatsIndexRoute = OOrgSlugChatsIndexRouteImport.update({
+  id: '/chats/',
+  path: '/chats/',
+  getParentRoute: () => OOrgSlugRoute,
+} as any)
+const OOrgSlugChatsSpaceIdRoute = OOrgSlugChatsSpaceIdRouteImport.update({
+  id: '/chats/$spaceId',
+  path: '/chats/$spaceId',
+  getParentRoute: () => OOrgSlugRoute,
+} as any)
 const OOrgSlugComputersDeviceIdRoute =
   OOrgSlugComputersDeviceIdRouteImport.update({
     id: '/$deviceId',
@@ -718,6 +731,12 @@ const OOrgSlugCenterAgentCenterAgentTasksRoute =
     path: '/tasks',
     getParentRoute: () => OOrgSlugCenterAgentCenterAgentRoute,
   } as any)
+const OOrgSlugCenterAgentChatsCenterAgentRoute =
+  OOrgSlugCenterAgentChatsCenterAgentRouteImport.update({
+    id: '/chats/center-agent',
+    path: '/chats/center-agent',
+    getParentRoute: () => OOrgSlugCenterAgentRoute,
+  } as any)
 const OOrgSlugPeoplePersonIdAgentsRoute =
   OOrgSlugPeoplePersonIdAgentsRouteImport.update({
     id: '/people_/$personId_/agents',
@@ -848,6 +867,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
   '/o/$orgSlug/agents/new': typeof OOrgSlugAgentsNewRoute
+  '/o/$orgSlug/chats/$spaceId': typeof OOrgSlugChatsSpaceIdRoute
   '/o/$orgSlug/computers/$deviceId': typeof OOrgSlugComputersDeviceIdRoute
   '/o/$orgSlug/direct-messages/$spaceId': typeof OOrgSlugDirectMessagesSpaceIdRoute
   '/o/$orgSlug/directory/agents': typeof OOrgSlugDirectoryAgentsRoute
@@ -873,6 +893,7 @@ export interface FileRoutesByFullPath {
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
   '/o/$orgSlug/': typeof OOrgSlugCenterAgentIndexRoute
   '/o/$orgSlug/agent-activity/': typeof OOrgSlugAgentActivityIndexRoute
+  '/o/$orgSlug/chats/': typeof OOrgSlugChatsIndexRoute
   '/o/$orgSlug/direct-messages/': typeof OOrgSlugDirectMessagesIndexRoute
   '/o/$orgSlug/directory/': typeof OOrgSlugDirectoryIndexRoute
   '/o/$orgSlug/documents/': typeof OOrgSlugDocumentsIndexRoute
@@ -889,6 +910,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/center-agent/settings': typeof OOrgSlugCenterAgentCenterAgentSettingsRoute
   '/o/$orgSlug/center-agent/skills': typeof OOrgSlugCenterAgentCenterAgentSkillsRouteWithChildren
   '/o/$orgSlug/center-agent/tasks': typeof OOrgSlugCenterAgentCenterAgentTasksRouteWithChildren
+  '/o/$orgSlug/chats/center-agent': typeof OOrgSlugCenterAgentChatsCenterAgentRoute
   '/o/$orgSlug/people/$personId/agents': typeof OOrgSlugPeoplePersonIdAgentsRoute
   '/o/$orgSlug/settings/computers/$deviceId': typeof OOrgSlugSettingsComputersDeviceIdRoute
   '/v1/prepare/sessions/$prepareSessionId/stream': typeof V1PrepareSessionsPrepareSessionIdStreamRoute
@@ -963,6 +985,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
   '/o/$orgSlug/agents/new': typeof OOrgSlugAgentsNewRoute
+  '/o/$orgSlug/chats/$spaceId': typeof OOrgSlugChatsSpaceIdRoute
   '/o/$orgSlug/computers/$deviceId': typeof OOrgSlugComputersDeviceIdRoute
   '/o/$orgSlug/direct-messages/$spaceId': typeof OOrgSlugDirectMessagesSpaceIdRoute
   '/o/$orgSlug/directory/agents': typeof OOrgSlugDirectoryAgentsRoute
@@ -987,6 +1010,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
   '/o/$orgSlug/agent-activity': typeof OOrgSlugAgentActivityIndexRoute
+  '/o/$orgSlug/chats': typeof OOrgSlugChatsIndexRoute
   '/o/$orgSlug/direct-messages': typeof OOrgSlugDirectMessagesIndexRoute
   '/o/$orgSlug/directory': typeof OOrgSlugDirectoryIndexRoute
   '/o/$orgSlug/documents': typeof OOrgSlugDocumentsIndexRoute
@@ -1001,6 +1025,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/center-agent/plugins': typeof OOrgSlugCenterAgentCenterAgentPluginsRouteWithChildren
   '/o/$orgSlug/center-agent/routines': typeof OOrgSlugCenterAgentCenterAgentRoutinesRoute
   '/o/$orgSlug/center-agent/settings': typeof OOrgSlugCenterAgentCenterAgentSettingsRoute
+  '/o/$orgSlug/chats/center-agent': typeof OOrgSlugCenterAgentChatsCenterAgentRoute
   '/o/$orgSlug/people/$personId/agents': typeof OOrgSlugPeoplePersonIdAgentsRoute
   '/o/$orgSlug/settings/computers/$deviceId': typeof OOrgSlugSettingsComputersDeviceIdRoute
   '/v1/prepare/sessions/$prepareSessionId/stream': typeof V1PrepareSessionsPrepareSessionIdStreamRoute
@@ -1084,6 +1109,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
   '/o/$orgSlug/agents_/new': typeof OOrgSlugAgentsNewRoute
+  '/o/$orgSlug/chats/$spaceId': typeof OOrgSlugChatsSpaceIdRoute
   '/o/$orgSlug/computers/$deviceId': typeof OOrgSlugComputersDeviceIdRoute
   '/o/$orgSlug/direct-messages/$spaceId': typeof OOrgSlugDirectMessagesSpaceIdRoute
   '/o/$orgSlug/directory/agents': typeof OOrgSlugDirectoryAgentsRoute
@@ -1109,6 +1135,7 @@ export interface FileRoutesById {
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
   '/o/$orgSlug/_center-agent/': typeof OOrgSlugCenterAgentIndexRoute
   '/o/$orgSlug/agent-activity/': typeof OOrgSlugAgentActivityIndexRoute
+  '/o/$orgSlug/chats/': typeof OOrgSlugChatsIndexRoute
   '/o/$orgSlug/direct-messages/': typeof OOrgSlugDirectMessagesIndexRoute
   '/o/$orgSlug/directory/': typeof OOrgSlugDirectoryIndexRoute
   '/o/$orgSlug/documents/': typeof OOrgSlugDocumentsIndexRoute
@@ -1125,6 +1152,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/_center-agent/center-agent/settings': typeof OOrgSlugCenterAgentCenterAgentSettingsRoute
   '/o/$orgSlug/_center-agent/center-agent/skills': typeof OOrgSlugCenterAgentCenterAgentSkillsRouteWithChildren
   '/o/$orgSlug/_center-agent/center-agent/tasks': typeof OOrgSlugCenterAgentCenterAgentTasksRouteWithChildren
+  '/o/$orgSlug/_center-agent/chats/center-agent': typeof OOrgSlugCenterAgentChatsCenterAgentRoute
   '/o/$orgSlug/people_/$personId_/agents': typeof OOrgSlugPeoplePersonIdAgentsRoute
   '/o/$orgSlug/settings/computers/$deviceId': typeof OOrgSlugSettingsComputersDeviceIdRoute
   '/v1/prepare/sessions/$prepareSessionId/stream': typeof V1PrepareSessionsPrepareSessionIdStreamRoute
@@ -1208,6 +1236,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
     | '/o/$orgSlug/agents/new'
+    | '/o/$orgSlug/chats/$spaceId'
     | '/o/$orgSlug/computers/$deviceId'
     | '/o/$orgSlug/direct-messages/$spaceId'
     | '/o/$orgSlug/directory/agents'
@@ -1233,6 +1262,7 @@ export interface FileRouteTypes {
     | '/v1/spaces/$spaceId/stream'
     | '/o/$orgSlug/'
     | '/o/$orgSlug/agent-activity/'
+    | '/o/$orgSlug/chats/'
     | '/o/$orgSlug/direct-messages/'
     | '/o/$orgSlug/directory/'
     | '/o/$orgSlug/documents/'
@@ -1249,6 +1279,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/center-agent/settings'
     | '/o/$orgSlug/center-agent/skills'
     | '/o/$orgSlug/center-agent/tasks'
+    | '/o/$orgSlug/chats/center-agent'
     | '/o/$orgSlug/people/$personId/agents'
     | '/o/$orgSlug/settings/computers/$deviceId'
     | '/v1/prepare/sessions/$prepareSessionId/stream'
@@ -1323,6 +1354,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
     | '/o/$orgSlug/agents/new'
+    | '/o/$orgSlug/chats/$spaceId'
     | '/o/$orgSlug/computers/$deviceId'
     | '/o/$orgSlug/direct-messages/$spaceId'
     | '/o/$orgSlug/directory/agents'
@@ -1347,6 +1379,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/spaces/$spaceId/stream'
     | '/o/$orgSlug/agent-activity'
+    | '/o/$orgSlug/chats'
     | '/o/$orgSlug/direct-messages'
     | '/o/$orgSlug/directory'
     | '/o/$orgSlug/documents'
@@ -1361,6 +1394,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/center-agent/plugins'
     | '/o/$orgSlug/center-agent/routines'
     | '/o/$orgSlug/center-agent/settings'
+    | '/o/$orgSlug/chats/center-agent'
     | '/o/$orgSlug/people/$personId/agents'
     | '/o/$orgSlug/settings/computers/$deviceId'
     | '/v1/prepare/sessions/$prepareSessionId/stream'
@@ -1443,6 +1477,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
     | '/o/$orgSlug/agents_/new'
+    | '/o/$orgSlug/chats/$spaceId'
     | '/o/$orgSlug/computers/$deviceId'
     | '/o/$orgSlug/direct-messages/$spaceId'
     | '/o/$orgSlug/directory/agents'
@@ -1468,6 +1503,7 @@ export interface FileRouteTypes {
     | '/v1/spaces/$spaceId/stream'
     | '/o/$orgSlug/_center-agent/'
     | '/o/$orgSlug/agent-activity/'
+    | '/o/$orgSlug/chats/'
     | '/o/$orgSlug/direct-messages/'
     | '/o/$orgSlug/directory/'
     | '/o/$orgSlug/documents/'
@@ -1484,6 +1520,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/_center-agent/center-agent/settings'
     | '/o/$orgSlug/_center-agent/center-agent/skills'
     | '/o/$orgSlug/_center-agent/center-agent/tasks'
+    | '/o/$orgSlug/_center-agent/chats/center-agent'
     | '/o/$orgSlug/people_/$personId_/agents'
     | '/o/$orgSlug/settings/computers/$deviceId'
     | '/v1/prepare/sessions/$prepareSessionId/stream'
@@ -2045,6 +2082,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugAgentsNewRouteImport
       parentRoute: typeof OOrgSlugRoute
     }
+    '/o/$orgSlug/chats/': {
+      id: '/o/$orgSlug/chats/'
+      path: '/chats'
+      fullPath: '/o/$orgSlug/chats/'
+      preLoaderRoute: typeof OOrgSlugChatsIndexRouteImport
+      parentRoute: typeof OOrgSlugRoute
+    }
+    '/o/$orgSlug/chats/$spaceId': {
+      id: '/o/$orgSlug/chats/$spaceId'
+      path: '/chats/$spaceId'
+      fullPath: '/o/$orgSlug/chats/$spaceId'
+      preLoaderRoute: typeof OOrgSlugChatsSpaceIdRouteImport
+      parentRoute: typeof OOrgSlugRoute
+    }
     '/o/$orgSlug/computers/$deviceId': {
       id: '/o/$orgSlug/computers/$deviceId'
       path: '/$deviceId'
@@ -2325,6 +2376,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentTasksRouteImport
       parentRoute: typeof OOrgSlugCenterAgentCenterAgentRoute
     }
+    '/o/$orgSlug/_center-agent/chats/center-agent': {
+      id: '/o/$orgSlug/_center-agent/chats/center-agent'
+      path: '/chats/center-agent'
+      fullPath: '/o/$orgSlug/chats/center-agent'
+      preLoaderRoute: typeof OOrgSlugCenterAgentChatsCenterAgentRouteImport
+      parentRoute: typeof OOrgSlugCenterAgentRoute
+    }
     '/o/$orgSlug/people_/$personId_/agents': {
       id: '/o/$orgSlug/people_/$personId_/agents'
       path: '/people/$personId/agents'
@@ -2556,12 +2614,15 @@ const OOrgSlugCenterAgentCenterAgentRouteWithChildren =
 interface OOrgSlugCenterAgentRouteChildren {
   OOrgSlugCenterAgentCenterAgentRoute: typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   OOrgSlugCenterAgentIndexRoute: typeof OOrgSlugCenterAgentIndexRoute
+  OOrgSlugCenterAgentChatsCenterAgentRoute: typeof OOrgSlugCenterAgentChatsCenterAgentRoute
 }
 
 const OOrgSlugCenterAgentRouteChildren: OOrgSlugCenterAgentRouteChildren = {
   OOrgSlugCenterAgentCenterAgentRoute:
     OOrgSlugCenterAgentCenterAgentRouteWithChildren,
   OOrgSlugCenterAgentIndexRoute: OOrgSlugCenterAgentIndexRoute,
+  OOrgSlugCenterAgentChatsCenterAgentRoute:
+    OOrgSlugCenterAgentChatsCenterAgentRoute,
 }
 
 const OOrgSlugCenterAgentRouteWithChildren =
@@ -2718,10 +2779,12 @@ interface OOrgSlugRouteChildren {
   OOrgSlugProjectsRoute: typeof OOrgSlugProjectsRouteWithChildren
   OOrgSlugSettingsRoute: typeof OOrgSlugSettingsRouteWithChildren
   OOrgSlugAgentsNewRoute: typeof OOrgSlugAgentsNewRoute
+  OOrgSlugChatsSpaceIdRoute: typeof OOrgSlugChatsSpaceIdRoute
   OOrgSlugDirectMessagesSpaceIdRoute: typeof OOrgSlugDirectMessagesSpaceIdRoute
   OOrgSlugPeoplePersonIdRoute: typeof OOrgSlugPeoplePersonIdRoute
   OOrgSlugPeopleAgentRequestsRoute: typeof OOrgSlugPeopleAgentRequestsRoute
   OOrgSlugSpacesSpaceIdRoute: typeof OOrgSlugSpacesSpaceIdRoute
+  OOrgSlugChatsIndexRoute: typeof OOrgSlugChatsIndexRoute
   OOrgSlugDirectMessagesIndexRoute: typeof OOrgSlugDirectMessagesIndexRoute
   OOrgSlugSpacesIndexRoute: typeof OOrgSlugSpacesIndexRoute
   OOrgSlugPeoplePersonIdAgentsRoute: typeof OOrgSlugPeoplePersonIdAgentsRoute
@@ -2746,10 +2809,12 @@ const OOrgSlugRouteChildren: OOrgSlugRouteChildren = {
   OOrgSlugProjectsRoute: OOrgSlugProjectsRouteWithChildren,
   OOrgSlugSettingsRoute: OOrgSlugSettingsRouteWithChildren,
   OOrgSlugAgentsNewRoute: OOrgSlugAgentsNewRoute,
+  OOrgSlugChatsSpaceIdRoute: OOrgSlugChatsSpaceIdRoute,
   OOrgSlugDirectMessagesSpaceIdRoute: OOrgSlugDirectMessagesSpaceIdRoute,
   OOrgSlugPeoplePersonIdRoute: OOrgSlugPeoplePersonIdRoute,
   OOrgSlugPeopleAgentRequestsRoute: OOrgSlugPeopleAgentRequestsRoute,
   OOrgSlugSpacesSpaceIdRoute: OOrgSlugSpacesSpaceIdRoute,
+  OOrgSlugChatsIndexRoute: OOrgSlugChatsIndexRoute,
   OOrgSlugDirectMessagesIndexRoute: OOrgSlugDirectMessagesIndexRoute,
   OOrgSlugSpacesIndexRoute: OOrgSlugSpacesIndexRoute,
   OOrgSlugPeoplePersonIdAgentsRoute: OOrgSlugPeoplePersonIdAgentsRoute,

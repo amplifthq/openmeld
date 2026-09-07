@@ -1,11 +1,14 @@
-"use client";
+("use client");
 
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { FunnelSimpleIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -100,6 +103,7 @@ export function AppSpacesSidebar(input: {
 }) {
 	const navigate = useNavigate();
 	const [search, setSearch] = useState("");
+	const [searchOpen, setSearchOpen] = useState(false);
 	const { currentOrganization } = useAppOrganization();
 	const currentOrganizationId = currentOrganization.id;
 	const profileDirectory = useQuery(
@@ -515,7 +519,9 @@ export function AppSpacesSidebar(input: {
 								<SidebarSearchInput
 									destination="spaces"
 									label="Search Spaces"
+									onOpenChange={setSearchOpen}
 									onValueChange={setSearch}
+									open={searchOpen}
 									value={search}
 								/>
 								<SidebarDestinationAction destination="spaces">
@@ -536,6 +542,14 @@ export function AppSpacesSidebar(input: {
 											align="end"
 											className="w-60 max-w-[calc(100vw-2rem)]"
 										>
+											<FluidDropdownMenuItem
+												index={-1}
+												onClick={() =>
+													requestAnimationFrame(() => setSearchOpen(true))
+												}
+											>
+												Search manually
+											</FluidDropdownMenuItem>
 											{groupFilter.menu}
 										</FluidDropdownMenuContent>
 									</DropdownMenu>

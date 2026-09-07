@@ -1518,9 +1518,6 @@ function SpaceLandingReady({
 	const historyErrorMessage = resolveSpaceHistoryErrorMessage(controller);
 	const membersControl = (
 		<SpaceLandingMembersControl
-			currentSpaceIsCenterAgentDirectMessage={
-				currentSpaceIsCenterAgentDirectMessage
-			}
 			isDesktopMembersPanel={isDesktopMembersPanel}
 			memberCount={
 				controller.isCurrentAccessConfirmed
@@ -1890,15 +1887,11 @@ function resolveSpaceHistoryErrorMessage(
 }
 
 function SpaceLandingMembersControl(input: {
-	currentSpaceIsCenterAgentDirectMessage: boolean;
 	isDesktopMembersPanel: boolean;
 	memberCount: number | null;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 }) {
-	if (input.currentSpaceIsCenterAgentDirectMessage) {
-		return null;
-	}
 	return (
 		<SpaceMembersToggleButton
 			controlsId={
@@ -2633,7 +2626,6 @@ function SpaceLandingSecondaryPanels({
 					onOpenChange: handleMembersOpenChange,
 					open: !isDesktopMembersPanel && membersOpen,
 				}}
-				hidden={currentSpaceIsCenterAgentDirectMessage}
 				sidePanelProps={{
 					...sharedMembersProps,
 					onOpenChange: handleMembersOpenChange,
@@ -2678,13 +2670,9 @@ function resolveSpaceReferenceInputs(
 }
 
 function SpaceLandingMembersChrome(input: {
-	hidden: boolean;
 	drawerProps: ComponentProps<typeof SpaceMembersDrawer>;
 	sidePanelProps: ComponentProps<typeof SpaceMembersSidePanel>;
 }) {
-	if (input.hidden) {
-		return null;
-	}
 	return (
 		<>
 			<SpaceMembersSidePanel {...input.sidePanelProps} />

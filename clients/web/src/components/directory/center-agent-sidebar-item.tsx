@@ -51,7 +51,7 @@ export function CenterAgentSidebarItem() {
 						className="flex min-w-0 items-center gap-1.5 py-1"
 						onClick={dismiss}
 						params={{ orgSlug: currentOrganization.slug }}
-						to="/o/$orgSlug"
+						to="/o/$orgSlug/chats/center-agent"
 					>
 						<DitherProfileAvatar
 							profileId={profile.profileId}
