@@ -406,11 +406,11 @@ function HomeWorkspace() {
 		>
 			<header className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:flex-nowrap">
 				<h1 className="w-full truncate font-medium text-base sm:w-auto">
-					Home <span aria-hidden="true" className="mx-2 border-l" />{" "}
+					Desk <span aria-hidden="true" className="mx-2 border-l" />{" "}
 					{currentOrganization.name}
 				</h1>
 				<nav
-					aria-label="Home widgets"
+					aria-label="Desk widgets"
 					className="flex min-w-0 items-center gap-1 overflow-x-auto"
 				>
 					{layout.cards
@@ -437,7 +437,7 @@ function HomeWorkspace() {
 			<CenterAgentIntroContext value="home">
 				<HomeContext value={context}>
 					<section
-						aria-label="Home workspace"
+						aria-label="Desk workspace"
 						className="relative min-h-0 flex-1"
 						data-home-canvas
 						ref={canvasRegion}
@@ -562,8 +562,7 @@ function HomeWorkspace() {
 						<DialogContent className="h-[min(760px,85dvh)] grid-rows-[auto_auto_minmax(0,1fr)] sm:max-w-5xl">
 							<DialogTitle>Add a widget</DialogTitle>
 							<DialogDescription>
-								Keep a conversation on your Home. Preview it here, then add it
-								to your desk.
+								Preview a conversation here, then add it to your Desk.
 							</DialogDescription>
 							<div className="grid min-h-0 grid-cols-[160px_minmax(0,1fr)] gap-4 sm:grid-cols-[220px_minmax(0,1fr)]">
 								<div className="flex min-h-0 flex-col gap-2">
@@ -668,8 +667,8 @@ function HomeWorkspace() {
 													? previewId
 													: `space:${previewId}`)
 										)
-											? "Show on Home"
-											: "Add to Home"}
+											? "Show on Desk"
+											: "Add to Desk"}
 									</Button>
 								</div>
 							</div>
@@ -799,7 +798,7 @@ function HomeCardNode({ data, selected }: NodeProps<HomeNode>) {
 						</Link>
 					)}
 					<Button
-						aria-label={`Remove ${title} from Home`}
+						aria-label={`Remove ${title} from Desk`}
 						className="nodrag nopan"
 						disabled={hasUnsavedFileChanges}
 						onClick={() => context.remove(card.id)}
@@ -913,7 +912,7 @@ function HomeWelcome() {
 	});
 	return (
 		<section
-			aria-label="Welcome to Home"
+			aria-label="Welcome to Desk"
 			className="home-card-handle flex h-full cursor-grab flex-col items-center justify-center gap-3 text-center active:cursor-grabbing"
 		>
 			<h2 className="font-medium text-4xl">

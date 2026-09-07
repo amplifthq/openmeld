@@ -298,7 +298,7 @@ function CommandCenterContents(input: {
 		});
 	}
 	for (const [label, to, destination] of [
-		["Center Agent", buildOrganizationDefaultPath(orgSlug), "home"],
+		["Desk", buildOrganizationDefaultPath(orgSlug), "home"],
 		["Spaces", buildOrganizationSpacesPath(orgSlug), "spaces"],
 		["Chats", buildOrganizationDirectMessagesPath(orgSlug), "messages"],
 		["People", buildOrganizationPeoplePath(orgSlug), "people"],

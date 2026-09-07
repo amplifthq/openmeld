@@ -81,7 +81,7 @@ export function buildAppRailGroups(input: {
 				},
 				{
 					id: "home",
-					label: "Home",
+					label: "Desk",
 					to: buildOrganizationRootPath(input.orgSlug),
 					icon: <HouseIcon aria-hidden="true" className="size-4" />,
 				},
