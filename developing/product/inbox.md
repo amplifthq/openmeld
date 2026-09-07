@@ -411,7 +411,7 @@ two optional delivery channels:
   visible conversation immediately before creating the notification. Clicking
   the notification opens that refreshed item's canonical source target -- the
   exact Space message or thread, Agent interaction, Center Agent conversation
-  or Task, Organization document, setting, or connected-channel message --
+  Organization document, setting, or connected-channel message --
   instead of routing through Inbox. A failed
   revalidation remains pending and retryable. Unmounting the authenticated
   listener invalidates that context, so a delivery waiting on a browser lock

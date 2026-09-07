@@ -586,7 +586,7 @@ describe("remote agent system prompt", () => {
       "Before offering to set up, reconnect, or update a computer, use openmeld_list_computers"
     );
     expect(prompt).toContain(
-      "use the matching OpenMeld tool instead of sending them to the CLI"
+      "use the matching OpenMeld tool with that exact target instead of sending them to the CLI"
     );
     expect(prompt).toContain(
       "call openmeld_select_local_agent_installation only after the requester confirms"
@@ -604,7 +604,7 @@ describe("remote agent system prompt", () => {
       "Other generic Message Channel navigation actions may not have a native control yet"
     );
     expect(prompt).toContain(
-      "call openmeld_list_computers, then return the exact recommended computer_setup navigation action"
+      "For a requested setup or reconnect handoff, use openmeld_get_navigation_action with computer_setup and the matching mode"
     );
     expect(prompt).toContain("Never substitute a Settings breadcrumb");
     expect(prompt).not.toContain("Settings → Connect this computer");

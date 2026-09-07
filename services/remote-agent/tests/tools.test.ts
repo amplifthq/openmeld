@@ -3377,6 +3377,12 @@ describe("remote agent OpenMeld tool catalog", () => {
       storage: await createStorageWithPendingContext(request),
     });
 
+    const toolNames = tools.map((tool) => tool.name);
+    expect(toolNames).toContain("openmeld_list_agent_tasks");
+    expect(toolNames).not.toContain("openmeld_create_task");
+    expect(toolNames).not.toContain("openmeld_list_center_agent_tasks");
+    expect(toolNames).not.toContain("openmeld_get_center_agent_task");
+
     await expect(
       executeTool(tools, "openmeld_list_agent_tasks", {
         agentControllerRef: "builtin:codex",
