@@ -43,6 +43,17 @@ export function useAppSidebarGroupState() {
 	return useContext(AppSidebarGroupStateContext);
 }
 
+export function ControlledSidebarGroupStateProvider(input: {
+	children: ReactNode;
+	value: AppSidebarGroupState;
+}) {
+	return (
+		<AppSidebarGroupStateContext.Provider value={input.value}>
+			{input.children}
+		</AppSidebarGroupStateContext.Provider>
+	);
+}
+
 const EMPTY_COLLAPSED_GROUP_IDS: readonly string[] = [];
 
 export function AppSidebarGroupStateProvider({

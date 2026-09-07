@@ -69,7 +69,7 @@ export function sortSidebarPeople(
 	items: readonly DirectoryHumanProfileRow[],
 	section: PeopleSidebarPreferences["people"],
 	selfFirst = false
-) {
+): DirectoryHumanProfileRow[] {
 	if (selfFirst) {
 		return [
 			...items.filter((item) => item.isCurrentUser),

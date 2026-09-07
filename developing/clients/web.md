@@ -321,6 +321,14 @@ authorization.
 
 ### Fixed primary rail
 
+Spaces Sidebar groups default to collapsed on the Spaces directory. Inside a
+Space, its containing group defaults to expanded. An explicit per-group open or
+closed choice overrides both defaults across navigation and refresh. These
+browser-local choices are isolated by profile and Organization; automatic route
+defaults are never persisted as user choices. Collapsed group headers retain
+aggregate unread counts from the existing Inbox projection. Main-content group
+disclosure remains independent from Sidebar disclosure.
+
 The rail places the current workspace switcher at the top and has no separate
 OpenMeld brand row or outer-rail account entry. Account management stays nested
 inside the workspace switcher. Its first four entries are flat, fixed
