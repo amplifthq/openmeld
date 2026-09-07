@@ -27,6 +27,7 @@ import { useNavigate } from "@tanstack/react-router";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import {
 	useCallback,
+	useContext,
 	useEffect,
 	useEffectEvent,
 	useId,
@@ -121,7 +122,7 @@ import { SpaceComposer } from "./space-composer";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import { SpaceFilesPanel } from "./space-files-panel";
-import { SpaceHeader, SpaceLiveStatusIndicator } from "./space-header";
+import { SpaceHeader } from "./space-header";
 import {
 	isSameOwnerUserId,
 	resolveCurrentSpaceProfileOwnerUserId,
@@ -149,6 +150,7 @@ import {
 } from "./space-pending-agent-action-model";
 import { SpacePendingAgentActions } from "./space-pending-agent-actions";
 import { SpaceProfileSwitcher } from "./space-profile-switcher";
+import { SpaceReadTrackingContext } from "./space-read-tracking-context";
 import { buildSpaceReferenceMessageTexts } from "./space-reference-message-texts";
 import {
 	SpaceLandingFailureSurface,
@@ -397,6 +399,8 @@ type SpaceLandingInput = {
 	onSpaceViewCommitted?: (view: SpaceView) => void;
 	orgSlug: string;
 	presentation?: "canvas" | "compact" | "full";
+	containerWidth?: number;
+	onUnsavedFileChangesChange?: (hasChanges: boolean) => void;
 	spaceId: string;
 	profileId: string;
 };
@@ -415,6 +419,7 @@ function resolveSpaceInboxUnreadDestination(input: {
 }
 
 function useSpaceLandingState(input: SpaceLandingInput) {
+	const readTrackingEnabled = useContext(SpaceReadTrackingContext);
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const generatedSpaceViewId = useId();
@@ -425,6 +430,14 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	);
 	const { changeSpaceView, openSpaceFile, spaceFileToOpen, spaceView } =
 		spaceFileNavigation;
+	useEffect(() => {
+		input.onUnsavedFileChangesChange?.(
+			spaceFileNavigation.hasUnsavedFileChanges
+		);
+	}, [
+		input.onUnsavedFileChangesChange,
+		spaceFileNavigation.hasUnsavedFileChanges,
+	]);
 	const accountProfiles = resolveSpaceLandingAccountProfiles(
 		input.accountProfiles
 	);
@@ -529,8 +542,10 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		centerAgentProfileId: currentSpaceIsCenterAgentDirectMessage
 			? centerAgentState.centerAgentProfileId
 			: null,
-		onViewedThroughTs: (throughOccurredAtMs) =>
-			spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
+		onViewedThroughTs: readTrackingEnabled
+			? (throughOccurredAtMs) =>
+					spaceInboxReadPosition.markReadThrough(throughOccurredAtMs)
+			: undefined,
 		unreadStateReady: spaceInboxReadPosition.isReady,
 		unreadTargets: spaceInboxReadPosition.targets,
 		onAgentReadinessInvalidated: refreshAgentReadinessInvalidated,
@@ -540,7 +555,9 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		organizationId,
 	});
 	usePublishInboxVisibleConversation(
-		controller.mode === "ready" && spaceView === "messages"
+		readTrackingEnabled &&
+			controller.mode === "ready" &&
+			spaceView === "messages"
 			? {
 					kind: "space",
 					spaceId: input.spaceId,
@@ -563,7 +580,9 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		SPACE_MEMBERS_SIDE_PANEL_QUERY
 	);
 	const isDesktopMembersPanel =
-		supportsDesktopMembersPanel && input.presentation !== "canvas";
+		input.presentation === "canvas"
+			? (input.containerWidth ?? 0) >= 720
+			: supportsDesktopMembersPanel;
 	const [membersPanelOpenOverrides, setMembersPanelOpenOverrides] = useState<
 		ReadonlyMap<string, boolean>
 	>(() => new Map());
@@ -1194,6 +1213,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	useEffect(() => {
 		if (
 			controller.mode !== "ready" ||
+			input.presentation === "canvas" ||
 			!isDesktopMembersPanel ||
 			!shouldOpenMembersPanelOnEntry
 		) {
@@ -1214,6 +1234,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		isDesktopMembersPanel,
 		setMembersOpen,
 		shouldOpenMembersPanelOnEntry,
+		input.presentation,
 	]);
 	const handleAgentRecoveryAction = useCallback(
 		async (plan: SpaceAgentProfileBindingRecoveryPlan) => {
@@ -1804,40 +1825,6 @@ function SpaceLandingReady({
 				{pendingAgentActions.profileEditDialog}
 			</SpaceWakeBookmarksProvider>
 		</SpaceAgentProfileEditProvider>
-	);
-}
-
-function SpaceCanvasHeader(input: {
-	controller: ReadySpaceLandingController;
-	controls: ReturnType<typeof resolveCurrentSpaceControls>;
-	ownerVisibilityLabel: string | null;
-	membersControl: ReactNode;
-}) {
-	return (
-		<div className="flex w-full items-center justify-end gap-2 px-2">
-			{input.ownerVisibilityLabel && (
-				<span className="mr-auto text-muted-foreground text-xs">
-					{input.ownerVisibilityLabel}
-				</span>
-			)}
-			<SpaceLiveStatusIndicator
-				liveErrorMessage={input.controller.liveErrorMessage}
-				liveState={input.controller.liveState}
-				onReconnectNow={input.controller.onReconnectLiveUpdates}
-			/>
-			{(input.controls.onAddProfiles ||
-				input.controls.onAddOrganizationDirectoryProfiles ||
-				input.controls.onConvertDirectMessageToSpace) && (
-				<Button
-					onClick={input.controls.onAddAgentsFromBanner}
-					size="sm"
-					variant="ghost"
-				>
-					Add people or Agents
-				</Button>
-			)}
-			{input.membersControl}
-		</div>
 	);
 }
 

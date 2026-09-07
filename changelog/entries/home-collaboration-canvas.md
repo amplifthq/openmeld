@@ -6,7 +6,8 @@ areas: ["web", "spaces", "center-agent"]
 audiences: ["users"]
 ---
 
-Arrange Spaces, people, Agents, and Center Agent on your Home canvas. Preview
-recent messages, send replies, and bring people and Agents into a Space without
-leaving Home. Your card positions and sizes are remembered in this browser for
-each workspace. View all or return to the start whenever you need to find a card.
+Start with a welcoming work desk and chat directly with Center Agent. Add a
+Space after previewing its actual window, then use messages, Graph, Files,
+members and sharing without leaving Home. Drag and resize windows to arrange
+your desk, find them through the header, or open their full pages. Positions
+and sizes are remembered in this browser for each workspace.

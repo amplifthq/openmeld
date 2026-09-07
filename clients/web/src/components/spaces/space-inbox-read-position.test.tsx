@@ -1,5 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { SpaceReadTrackingContext } from "./space-read-tracking-context";
 import { useSpaceInboxReadPosition } from "./use-space-inbox-read-position";
 
 const {
@@ -109,6 +110,37 @@ describe("useSpaceInboxReadPosition", () => {
 		await result.current.markReadThrough(42);
 		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
 		expect(invalidateInboxFactsMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps previews unread and starts tracking only after interaction", async () => {
+		let interacting = false;
+		const { result, rerender } = renderHook(
+			() =>
+				useSpaceInboxReadPosition({
+					destination: "ordinary-space",
+					organizationId: "org-acme",
+					spaceId: "space-project",
+				}),
+			{
+				wrapper: ({ children }) => (
+					<SpaceReadTrackingContext value={interacting}>
+						{children}
+					</SpaceReadTrackingContext>
+				),
+			}
+		);
+		await result.current.markReadThrough(42);
+		await result.current.markReadThrough(43, "thread-root");
+		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
+		expect(optimisticallyMarkSpaceInboxReadThroughMock).not.toHaveBeenCalled();
+		interacting = true;
+		rerender();
+		await result.current.markReadThrough(44);
+		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenCalledWith({
+			organizationId: "org-acme",
+			spaceId: "space-project",
+			throughOccurredAtMs: 44,
+		});
 	});
 
 	it("restores the optimistic projection when persistence fails", async () => {

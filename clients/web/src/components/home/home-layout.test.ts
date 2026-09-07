@@ -8,7 +8,7 @@ import {
 describe("Home layout persistence", () => {
 	it("keeps a deliberately empty desk empty", () => {
 		expect(
-			parseHomeLayout(JSON.stringify({ version: 1, cards: [] }))?.cards
+			parseHomeLayout(JSON.stringify({ version: 2, cards: [] }))?.cards
 		).toEqual([]);
 	});
 	it("separates accounts and organizations", () => {
@@ -24,7 +24,7 @@ describe("Home layout persistence", () => {
 		const layout = createHomeLayout();
 		expect(parseHomeLayout("broken")).toBeNull();
 		expect(
-			parseHomeLayout(JSON.stringify({ ...layout, version: 2 }))
+			parseHomeLayout(JSON.stringify({ ...layout, version: 99 }))
 		).toBeNull();
 		expect(
 			parseHomeLayout(

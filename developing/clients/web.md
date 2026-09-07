@@ -519,16 +519,39 @@ time.
 
 ### Home and Chats
 
-The former Home destination is labeled **Center Agent** in navigation and the
-command palette while Home is redesigned. Its Organization-root URL and
-internal `home` section identity remain unchanged.
+The authorized Organization root `/o/{orgSlug}` renders **Home**, an infinite
+work desk. Its initial view contains a movable greeting that identifies the
+Organization and explains where to start, a directly usable Center Agent
+conversation, and one existing ordinary Space when available. Home does not
+create a sample Space or require a Computer. Team and a separate Spaces browsing
+widget are deferred; their canonical destinations remain available.
 
-The authorized Organization root `/o/{orgSlug}` remains Home and directly
-renders the default Center Agent conversation using the existing production
-open-or-reuse loader. Home stays selected and does not redirect to Chats.
-`/o/{orgSlug}/chats/center-agent` exposes the same complete conversation UI
-inside Chats. Both routes support the existing `session`, `draft`, and view
-selectors and share the underlying conversation without copying history.
+Home and Space Graph share `WorkspaceCanvas`, with an independent React Flow
+provider for each canvas, including Graph inside a Home window. Header widget
+names focus their windows. Bottom-left controls provide zoom and one Reset view;
+the bottom-right add button opens a large picker with the actual conversation
+UI as an inert preview. Space windows reuse SpaceLanding's header, Messages,
+Graph, Files, sharing, information, members and thread operations. Members
+start closed and use the side panel when the window is wide enough. Maximize
+opens the canonical page and retains the current Space tab.
+
+Layout version 2 is stored separately in this browser per account and Organization.
+It remembers window geometry and the viewport; it is not a cross-device setting.
+The first view fits the initial desk at a modest zoom. Moving and resizing are
+presentation operations, not Space mutations. Modifier-wheel input batches
+viewport changes per animation frame and preserves the pointer anchor. Layout
+writes wait for viewport movement to settle.
+
+Only visible windows at a readable zoom mount full conversations. Far-out zoom
+uses a lightweight overview. A window with unsaved file edits remains mounted
+and cannot be removed until those edits are saved or discarded. Gallery previews
+and inactive windows do not publish the visible Inbox conversation or write read
+positions; direct interaction selects the read-tracking window. Permissions,
+history, drafts, membership and message sending retain their existing owners.
+
+`/o/{orgSlug}/chats/center-agent` remains the canonical full Center Agent page.
+Explicit legacy `session`, `draft`, focused-signal and view selectors on the
+Organization root redirect there, preserving their intent.
 
 Chats at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
 It opens the first conversation in sidebar section and sort order once the
@@ -2249,17 +2272,17 @@ a bounded, versioned entry read model is tracked in
 production behavior and does not authorize implementation before its trigger
 and consumer-inventory gates are satisfied.
 
-The Organization index renders the canonical Center Agent conversation as Home
-at `/o/{orgSlug}` after its route guard confirms current Organization access.
+The Organization index renders the Home work desk at `/o/{orgSlug}` after its
+route guard confirms current Organization access.
 Ordinary Organization selection, creation, invitation acceptance, and
 onboarding completion all use this same default path. An explicit intent, such
 as continuing Slack installation, may still enter its named destination
 directly.
 
-The Center Agent pathless layout branch owns both Home Chat and its explicit
-capability routes with outer app rail + full-width content and no secondary
-sidebar. That branch owns its pending component; the global router does not
-infer Center Agent pending UI from a pathname. The outer rail derives its
+The Center Agent pathless route branch renders Home without the Center Agent
+conversation layout. Explicit Center Agent capability routes retain their
+existing layout. That branch owns its pending component; the global router does
+not infer Center Agent pending UI from a pathname. The outer rail derives its
 selected destination from route matches instead of page props or
 navigation-intent state.
 

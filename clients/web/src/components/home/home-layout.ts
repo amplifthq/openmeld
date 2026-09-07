@@ -2,7 +2,7 @@ import { z } from "zod/v4";
 
 const cardSchema = z.object({
 	id: z.string().min(1),
-	kind: z.enum(["spaces", "team", "center-agent", "space"]),
+	kind: z.enum(["welcome", "center-agent", "space"]),
 	spaceId: z.string().optional(),
 	x: z.number().finite(),
 	y: z.number().finite(),
@@ -10,7 +10,7 @@ const cardSchema = z.object({
 	height: z.number().min(240).max(1600),
 });
 export const homeLayoutSchema = z.object({
-	version: z.literal(1),
+	version: z.literal(2),
 	cards: z.array(cardSchema),
 	viewport: z
 		.object({
@@ -25,17 +25,16 @@ export type HomeLayout = z.infer<typeof homeLayoutSchema>;
 
 export function createHomeLayout(): HomeLayout {
 	return {
-		version: 1,
+		version: 2,
 		cards: [
-			{ id: "spaces", kind: "spaces", x: 0, y: 0, width: 420, height: 500 },
-			{ id: "team", kind: "team", x: 452, y: 0, width: 320, height: 300 },
+			{ id: "welcome", kind: "welcome", x: 310, y: 0, width: 680, height: 240 },
 			{
 				id: "center-agent",
 				kind: "center-agent",
-				x: 452,
-				y: 332,
-				width: 320,
-				height: 300,
+				x: 0,
+				y: 280,
+				width: 620,
+				height: 640,
 			},
 		],
 	};
@@ -45,7 +44,7 @@ export function homeLayoutStorageKey(
 	accountId: string,
 	organizationId: string
 ) {
-	return `openmeld.home.v1:${encodeURIComponent(accountId)}:${encodeURIComponent(organizationId)}`;
+	return `openmeld.home.v2:${encodeURIComponent(accountId)}:${encodeURIComponent(organizationId)}`;
 }
 
 export function parseHomeLayout(value: string | null): HomeLayout | null {

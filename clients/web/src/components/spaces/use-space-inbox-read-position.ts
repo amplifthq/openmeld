@@ -1,6 +1,6 @@
 import type { SpaceInboxUnreadTarget } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useContext } from "react";
 import { markCurrentSpaceInboxReadThrough } from "#/lib/organizations/inbox";
 import {
 	inboxQueryKeys,
@@ -11,6 +11,7 @@ import {
 	optimisticallyMarkSpaceInboxReadThrough,
 	type SpaceInboxUnreadDestination,
 } from "#/query/organizations/inbox-read-through-cache";
+import { SpaceReadTrackingContext } from "./space-read-tracking-context";
 
 export type SpaceInboxReadPosition = {
 	isReady: boolean;
@@ -28,6 +29,7 @@ export function useSpaceInboxReadPosition(input: {
 	spaceId: string;
 }): SpaceInboxReadPosition {
 	const queryClient = useQueryClient();
+	const readTrackingEnabled = useContext(SpaceReadTrackingContext);
 	const unreadTargetsQuery = useQuery(
 		spaceInboxUnreadTargetsQueryOptions({
 			enabled: input.organizationId !== null,
@@ -37,7 +39,13 @@ export function useSpaceInboxReadPosition(input: {
 	);
 	const persist = useCallback(
 		async (throughOccurredAtMs: number, threadRootSignalId?: string) => {
-			if (!(input.organizationId && throughOccurredAtMs > 0)) {
+			if (
+				!(
+					readTrackingEnabled &&
+					input.organizationId &&
+					throughOccurredAtMs > 0
+				)
+			) {
 				return;
 			}
 			await queryClient.cancelQueries({
@@ -78,7 +86,13 @@ export function useSpaceInboxReadPosition(input: {
 				queryClient,
 			});
 		},
-		[input.destination, input.organizationId, input.spaceId, queryClient]
+		[
+			input.destination,
+			input.organizationId,
+			input.spaceId,
+			queryClient,
+			readTrackingEnabled,
+		]
 	);
 	return {
 		isReady: unreadTargetsQuery.isSuccess,
