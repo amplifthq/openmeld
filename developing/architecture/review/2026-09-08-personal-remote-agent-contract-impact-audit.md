@@ -75,13 +75,39 @@ Routines remain outside this batch.
 Local Web acceptance covered creation of two Agents with different models,
 DM replies, same-owner A-to-B-to-A Space handoff, cancellation with independent
 completion by the other Agent, and a subsequent reply from the stopped Agent.
-The stopped outcome was confirmed after reload; live publication without a
-development hot reload remains a staging acceptance item. A private DM marker
+The local stopped outcome was confirmed after reload. A private DM marker
 was not disclosed in the Space; separate backend tests cover binding and
 membership revocation and rejection of an alternate Space field.
 
 Focused schema, runtime, readiness, native stop, personal tool and migration
 tests accompany the change. Local-component release readiness uses the
 documented feature-branch deferred mode; the eventual release must stamp the
-new Service artifact. These development results do not claim a staging or
-production deployment.
+new Service artifact. No production deployment is claimed.
+
+## Staging acceptance
+
+On 2026-09-08, the guarded receiver-first deployment applied migration 0159
+and deployed Auth, Core, Gateway, Web and Remote from `a369b1127`. The full run
+stopped at Web's 3 GiB Node heap limit; the guarded Web-only retry succeeded
+with a 4 GiB heap and an 8 GiB aggregate process cap. No local Docker was
+started; the unchanged existing Computer container was retained explicitly.
+
+Remote version: `fefa7f9c-7a05-4f74-912a-db1e9cfa0f48`; Core:
+`77f5ed19-30a5-4897-97c1-6424a49b8c18`; Web:
+`285c3555-0bdf-4ab8-a4fa-1ccb1a528e66`. Guarded resource and public-entry checks
+passed. Real Web acceptance in the dedicated
+[Personal Remote Acceptance 908 Space](https://staging.openmeld.ai/o/work-coordinator-v2-staging/spaces/405834ca44225bbf67e1f57082c0f0db2bf5a0d2e02ee62c7a1810831e85f736)
+covered:
+
+- Creating GLM and DeepSeek Agents under one owner, with the persisted model
+  shown on each profile and both listed alongside existing Local Agents.
+- Initial DM response and private-marker recall after reopening that DM.
+- Actual A-to-B-to-A Wake handoff with the full review returned.
+- Stop confirmation appearing without refreshing the page, an independent
+  reply from the other Agent, and a subsequent reply from the stopped Agent.
+- The private DM marker remaining unavailable in the shared Space.
+- A separate Center Agent conversation returning the exact requested marker
+  against the updated backend.
+
+This does not claim a real Local Agent execution on the feature branch or
+Computer-container behavior beyond preserving the existing deployment.
