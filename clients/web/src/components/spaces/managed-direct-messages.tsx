@@ -40,6 +40,7 @@ export type ManagedDirectMessageRowProps = {
 };
 
 export function ManagedDirectMessages(input: {
+	pinFilter?: "pinned" | "unpinned";
 	embedded?: boolean;
 	items: readonly AccountSpaceItem[];
 	currentProfileId: string;
@@ -150,17 +151,23 @@ export function ManagedDirectMessages(input: {
 					(input.categoryForItem?.(item) ?? "Chats") === category
 			),
 		})),
-	].map((s) => ({
-		...s,
-		items: sortSidebarSpaces(
-			s.items,
-			s.settings,
-			attention,
-			unread,
-			indicators.activeWakeSpaceIds,
-			conversationActivity
-		),
-	}));
+	]
+		.filter(
+			(section) =>
+				!input.pinFilter ||
+				(section.id === "pinned") === (input.pinFilter === "pinned")
+		)
+		.map((s) => ({
+			...s,
+			items: sortSidebarSpaces(
+				s.items,
+				s.settings,
+				attention,
+				unread,
+				indicators.activeWakeSpaceIds,
+				conversationActivity
+			),
+		}));
 	const firstItem = sections.flatMap((section) => section.items)[0] ?? null;
 	const firstReady =
 		!(sidebar.isPending || sidebar.isError) &&
@@ -251,7 +258,10 @@ export function ManagedDirectMessages(input: {
 					.filter((section) => !input.embedded || section.items.length > 0)
 					.map((section, sectionIndex) => (
 						<AppSidebarGroup
-							contentOnly={input.embedded && section.id.startsWith("category:")}
+							contentOnly={
+								input.embedded &&
+								(section.id === "pinned" || section.id.startsWith("category:"))
+							}
 							groupClassName={cn(
 								APP_NAV_GROUP_CLASS_NAME,
 								sectionIndex > 0 && APP_NAV_GROUP_SPACING_CLASS_NAME

@@ -134,6 +134,7 @@ export type CreateProfileFormProps = {
 	localFolderPickerDeviceId: string | null;
 	localAgentEmptyState?: AgentProfileLocalAgentEmptyState;
 	projectSelectionBlockReason?: string | null;
+	onUseManagedWorkspace?: () => void;
 	projectSelectionSlot?: ReactNode;
 	projectSelectionSummary?: string;
 	projectFolderPath: string;

@@ -72,6 +72,8 @@ export function ChatsSidebar(input: {
 	const [firstPerson, setFirstPerson] = useState<string | null>();
 	const [firstRemote, setFirstRemote] = useState<string | null>();
 	const [firstOther, setFirstOther] = useState<string | null>();
+	const [firstPinnedRemote, setFirstPinnedRemote] = useState<string | null>();
+	const [firstPinnedOther, setFirstPinnedOther] = useState<string | null>();
 	const navigate = useNavigate();
 	const pathname = useRouterState({
 		select: (state) => state.location.pathname,
@@ -103,12 +105,21 @@ export function ChatsSidebar(input: {
 			setFirstPerson(pathForItem(item)),
 		[pathForItem]
 	);
+	const onFirstPinnedOther = useCallback(
+		(item: AccountSpaceItem | null | undefined) =>
+			setFirstPinnedOther(pathForItem(item)),
+		[pathForItem]
+	);
+	const pinnedRemote = category === "people" ? null : firstPinnedRemote;
+	const firstPinned = pinnedRemote === null ? firstPinnedOther : pinnedRemote;
+	const hasPinned = pinnedRemote !== null || firstPinnedOther !== null;
 	const firstAgent = firstRemote === null ? firstOther : firstRemote;
 	const firstCategory = category === "all" ? order[0] : category;
 	const firstPath = firstCategory === "agents" ? firstAgent : firstPerson;
 	const otherPath = firstCategory === "agents" ? firstPerson : firstAgent;
-	const entryPath =
+	const unpinnedEntryPath =
 		firstPath === null && category === "all" ? otherPath : firstPath;
+	const entryPath = firstPinned === null ? unpinnedEntryPath : firstPinned;
 	useEffect(() => {
 		if (
 			pathname.replace(TRAILING_SLASH, "") ===
@@ -180,6 +191,35 @@ export function ChatsSidebar(input: {
 					</DropdownMenuContent>
 				</DropdownMenu>
 			</SidebarDestinationAction>
+			<div hidden={!hasPinned}>
+				<AppSidebarGroup
+					groupClassName={APP_NAV_GROUP_CLASS_NAME}
+					groupId="chats:pinned"
+					keepMounted
+					label="Pinned"
+					labelClassName={APP_NAV_GROUP_LABEL_CLASS_NAME}
+					labelText="Pinned"
+				>
+					{category !== "people" && (
+						<CenterAgentChatSidebar
+							embedded
+							onFirstChatChange={setFirstPinnedRemote}
+							pinFilter="pinned"
+							search={search}
+							showArchived={archived}
+						/>
+					)}
+					<AppDirectMessagesSidebar
+						category={category === "agents" ? "local" : category}
+						currentProfileId={profileId}
+						currentSpaceId={input.currentSpaceId ?? ""}
+						embedded
+						onFirstChatChange={onFirstPinnedOther}
+						pinFilter="pinned"
+						search={search}
+					/>
+				</AppSidebarGroup>
+			</div>
 			<SidebarDrag
 				groupIds={order}
 				onMove={() => undefined}
@@ -200,8 +240,9 @@ export function ChatsSidebar(input: {
 					.filter((id) => category === "all" || category === id)
 					.map((id, index) => (
 						<AppSidebarGroup
-							groupClassName={`${APP_NAV_GROUP_CLASS_NAME} ${index > 0 ? APP_NAV_GROUP_SPACING_CLASS_NAME : ""}`}
+							groupClassName={`${APP_NAV_GROUP_CLASS_NAME} ${index > 0 || hasPinned ? APP_NAV_GROUP_SPACING_CLASS_NAME : ""}`}
 							groupId={`chats:${id}`}
+							keepMounted
 							key={id}
 							label={id === "agents" ? "Agents" : "People"}
 							labelAccessory={
@@ -299,6 +340,7 @@ export function ChatsSidebar(input: {
 									<CenterAgentChatSidebar
 										embedded
 										onFirstChatChange={setFirstRemote}
+										pinFilter="unpinned"
 										search={search}
 										showArchived={archived}
 									/>
@@ -308,6 +350,7 @@ export function ChatsSidebar(input: {
 										currentSpaceId={input.currentSpaceId ?? ""}
 										embedded
 										onFirstChatChange={onFirstOther}
+										pinFilter="unpinned"
 										search={search}
 									/>
 								</>
@@ -318,6 +361,7 @@ export function ChatsSidebar(input: {
 									currentSpaceId={input.currentSpaceId ?? ""}
 									embedded
 									onFirstChatChange={onFirstPerson}
+									pinFilter="unpinned"
 									search={search}
 								/>
 							)}

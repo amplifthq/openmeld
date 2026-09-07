@@ -2242,7 +2242,19 @@ describe("CreateProfileDialog", () => {
 		).toMatchObject({ authorizeForOrganization: true });
 	});
 
-	it("uses the managed Project folder when a bound agent is created without a custom folder", async () => {
+	it("creates with an OpenMeld-chosen folder when remembered Project connectivity is unconfirmed", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		getAgentProfileCreationDefaultsMock.mockResolvedValue({
+			agentControllerCollaborationMode: null,
+			agentControllerPermissionMode: null,
+			agentControllerRef: "builtin:codex",
+			defaultProjectId: "project-1",
+			modelId: null,
+			openCodePermission: null,
+			organizationId: "organization-123",
+			reasoningLevel: null,
+			updatedAt: "2026-09-07T00:00:00.000Z",
+		});
 		renderCreateProfileDialog({
 			recovery: buildFakeRecovery([
 				buildCatalogEntry({
@@ -2516,8 +2528,8 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", { name: "Reasoning effort" }).textContent
 			).toContain("High");
 			expect(
-				screen.getByRole("combobox", { name: "Project" }).textContent
-			).toContain("OpenMeld");
+				screen.getByRole("combobox", { name: "Folder source" }).textContent
+			).toContain("Let OpenMeld choose");
 		});
 
 		fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }));

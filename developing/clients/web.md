@@ -50,7 +50,10 @@ session links always select their exact identity, including after reload.
 
 Chats places Center Agent sessions in the Main Sidebar, reusing destination search
 and filters, collapsible groups, group actions and whole-row drag ordering.
-Pinned chats appear once; unpin restores their original group. Empty built-in
+Pinned chats share one top-level group above Agents and People, including human,
+local Agent, and Center Agent conversations. Pins appear once; unpin restores
+their original group. Collapsing Pinned leaves the separate Agents and People
+groups visible. Empty built-in
 sections are omitted. User-created groups remain visible with the same compact
 empty-state treatment as Spaces. A New chat entry remains available when no
 sections are visible. The old header New chat/Chats dropdown is removed.
