@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-06T16:52:31.018Z",
+  "updatedAt": "2026-09-07T07:03:33.406Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.164",
-      "updatePolicy": "available",
-      "reason": "Existing setup, Wake, and ordinary trace commands remain compatible; older detailed Flue diagnostics fail with explicit upgrade guidance."
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
+      "packageVersion": "0.3.165",
+      "updatePolicy": "required",
+      "reason": "PeopleComputers uses an explicit computer identity and connection evidence command contract."
     },
     "service": {
-      "bundleHash": "40c93a90e48061f024ae0f88a16a573679adeb487176a8402fa17c08feffdf88",
-      "bundleVersion": "0.3.164",
+      "bundleHash": "70f7a05bb7ac5814380337704a77716b15c8616434e82b32d3a284bbca73f0aa",
+      "bundleVersion": "0.3.165",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "The only bundled source change adds a separate model-facing directory page schema. Existing Service transport, setup, Wake, Space actions and diagnostics remain compatible with old and new cloud code; no user update is required."
+      "reason": "Correct isolated installation diagnostics and stopped-runtime recovery without changing execution contracts."
     },
     "skills": {
       "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",
