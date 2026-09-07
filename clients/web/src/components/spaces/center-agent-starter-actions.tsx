@@ -1,4 +1,3 @@
-import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
 	CompassIcon,
@@ -7,6 +6,7 @@ import {
 } from "@phosphor-icons/react";
 import type { ComponentType } from "react";
 import { useState } from "react";
+import { LocalAgentLogoStack } from "#/components/profiles/local-agent-logo-stack";
 
 type StarterActionIcon = ComponentType<{
 	"aria-hidden"?: boolean | "true" | "false";
@@ -107,29 +107,7 @@ export function CenterAgentStarterActions(input: {
 										<>
 											<span className="sr-only">{action.description}</span>
 											<span aria-hidden="true">
-												Bring your{" "}
-												<span className="isolate inline-flex items-center -space-x-1.5 align-middle">
-													{[
-														"codex",
-														"claude-code",
-														"grok-build",
-														"opencode",
-														"cursor",
-													].map((agentId, index) => (
-														<span
-															className="relative inline-flex"
-															key={agentId}
-															style={{ zIndex: 5 - index }}
-														>
-															<LocalAgentLogo
-																agentId={agentId}
-																className="size-6 rounded-sm"
-																variant="tile"
-															/>
-														</span>
-													))}
-												</span>{" "}
-												into OpenMeld.
+												Bring your <LocalAgentLogoStack /> into OpenMeld.
 											</span>
 										</>
 									) : (

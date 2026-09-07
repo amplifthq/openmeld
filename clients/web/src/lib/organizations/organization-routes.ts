@@ -97,12 +97,34 @@ export function buildOrganizationPeoplePath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/people`;
 }
 
+export function buildOrganizationPersonPath(input: {
+	orgSlug: string;
+	personId: string;
+}): string {
+	return `${buildOrganizationPeoplePath(input.orgSlug)}/${encodePathSegment(input.personId)}`;
+}
+
+export function buildOrganizationPersonAgentsPath(input: {
+	orgSlug: string;
+	personId: string;
+}): string {
+	return `${buildOrganizationPersonPath(input)}/agents`;
+}
+
+export function buildOrganizationPersonAgentPath(input: {
+	orgSlug: string;
+	personId: string;
+	agentId: string;
+}): string {
+	return `${buildOrganizationPersonAgentsPath(input)}/${encodePathSegment(input.agentId)}`;
+}
+
 export function buildOrganizationAgentsPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/agents`;
 }
 
 export function buildOrganizationAgentCreationPath(orgSlug: string): string {
-	return `${buildOrganizationAgentsPath(orgSlug)}/new`;
+	return `${buildOrganizationRootPath(orgSlug)}/new-agent`;
 }
 
 export function buildOrganizationAgentCreationRequestsPath(input: {
@@ -110,10 +132,9 @@ export function buildOrganizationAgentCreationRequestsPath(input: {
 	requestId?: string | null;
 }): string {
 	const url = new URL(
-		buildOrganizationAgentsPath(input.orgSlug),
+		`${buildOrganizationPeoplePath(input.orgSlug)}/agent-requests`,
 		"http://localhost"
 	);
-	url.searchParams.set("view", "requests");
 	if (input.requestId) {
 		url.searchParams.set("requestId", input.requestId);
 	}

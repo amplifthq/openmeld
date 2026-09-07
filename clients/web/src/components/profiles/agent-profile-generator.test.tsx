@@ -7,6 +7,7 @@ import { AgentProfileGenerator } from "./agent-profile-generator";
 import type { CreateProfileFormProps } from "./create-profile-form";
 
 const CODEX_RADIO_NAME = /^codex$/i;
+const REMOTE_AGENT_NAME = /Remote Agent/;
 const CUSTOMIZE_AGENT_BUTTON_NAME = /Customize this Agent/i;
 const TEST_MODEL_CATALOG = {
 	agentControllers: {
@@ -98,7 +99,7 @@ describe("AgentProfileGenerator", () => {
 		).toBeNull();
 	});
 
-	it("allows an explicit unbound Agent without inventing an available local agent", async () => {
+	it("blocks creation until a local agent is selected and keeps Remote Agent unavailable", () => {
 		const onSubmit = vi.fn();
 		render(
 			<GeneratorHarness
@@ -110,9 +111,20 @@ describe("AgentProfileGenerator", () => {
 
 		expect(screen.getByText("Set up local agents")).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Edit Runs on" })).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Connect later" }));
-
-		expect(await screen.findByText("Connect a local agent later")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Connect later" })).toBeNull();
+		expect(
+			(screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: REMOTE_AGENT_NAME,
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
 		expect(onSubmit).not.toHaveBeenCalled();
 	});
 

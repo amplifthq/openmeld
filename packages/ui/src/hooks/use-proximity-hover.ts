@@ -16,7 +16,7 @@ export type ItemRect = {
 };
 
 type UseProximityHoverOptions = {
-  axis?: "x" | "y";
+  axis?: "x" | "y" | "both";
   isItemDisabled?: (element: HTMLElement) => boolean;
   measureOnRegister?: "raf" | "sync";
 };
@@ -133,6 +133,36 @@ function resolveClosestIndex(input: {
   }
 
   return containingIndex ?? closestIndex;
+}
+
+function resolveClosestGridIndex(
+  container: HTMLElement,
+  pointer: PointerPositionEvent,
+  rects: readonly ItemRect[]
+): number | null {
+  const bounds = container.getBoundingClientRect();
+  const x =
+    pointer.clientX - bounds.left - container.clientLeft + container.scrollLeft;
+  const y =
+    pointer.clientY - bounds.top - container.clientTop + container.scrollTop;
+  let closestIndex: number | null = null;
+  let closestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < rects.length; index++) {
+    const rect = rects[index];
+    if (!rect) {
+      continue;
+    }
+    // Distance to the button box, so a card's padding stays with its own
+    // button even when neighboring cards share the same vertical position.
+    const dx = Math.max(rect.left - x, 0, x - rect.left - rect.width);
+    const dy = Math.max(rect.top - y, 0, y - rect.top - rect.height);
+    const distance = dx * dx + dy * dy;
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestIndex = index;
+    }
+  }
+  return closestIndex;
 }
 
 function areItemRectsEqual(
@@ -328,12 +358,14 @@ export function useProximityHover<T extends HTMLElement>(
         }
         setActiveIndex(
           hitIndex ??
-            resolveClosestIndex({
-              axis,
-              container,
-              mousePosition,
-              rects: itemRectsRef.current,
-            })
+            (axis === "both"
+              ? resolveClosestGridIndex(container, event, itemRectsRef.current)
+              : resolveClosestIndex({
+                  axis,
+                  container,
+                  mousePosition,
+                  rects: itemRectsRef.current,
+                }))
         );
       });
     },

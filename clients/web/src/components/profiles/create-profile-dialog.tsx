@@ -96,6 +96,7 @@ import {
 	refreshWebAgentReadinessSharedCaches,
 } from "#/query/agents/execution-readiness";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
+import { currentLocalRuntimeReplyReadinessQueryOptions } from "#/query/connect/local-runtimes";
 import { agentActivitySessionsQueryOptions } from "#/query/organizations/agent-activity";
 import {
 	organizationComputersQueryOptions,
@@ -638,12 +639,8 @@ function useCreateProfileDialogController(
 		choices: computerChoices,
 		label: computerChoiceLabel,
 		placeholder: computerChoicePlaceholder,
+		selectedChoice: selectedComputerChoice,
 	} = resolveCreationComputerChoices(recovery);
-	const selectedComputerChoice = computerChoices.find(
-		(choice) =>
-			choice.target.deviceId === recovery.deviceId &&
-			choice.target.runtimeLane === recovery.runtimeLane
-	);
 	const spaceContext = input.spaceContext;
 	// The selected computer's catalog and the eventual Binding share one exact
 	// target. A Session preset explicitly overrides the ordinary selection.
@@ -656,6 +653,11 @@ function useCreateProfileDialogController(
 		})
 	);
 	const ownLocalAgentIds = bindableLocalAgentIdsFromTarget(bindingTarget);
+	const creationComputerReadiness = useCreationComputerReadiness({
+		bindingTarget,
+		enabled: input.open,
+		recovery,
+	});
 	const teammateBindingOptions = useMemo(
 		() =>
 			resolveTeammateBindingOptions({
@@ -727,15 +729,16 @@ function useCreateProfileDialogController(
 		selectedProjectId,
 	} = effectiveFormState;
 	const agentControllerRef = resolveAgentControllerRef(boundAgentId);
+	const creationDefaultsEnabled = shouldReadCreationDefaults({
+		agentControllerRef,
+		open: input.open,
+		organizationId,
+		ownerMode,
+	});
 	const creationDefaultsQuery = useQuery(
 		agentProfileCreationDefaultsQueryOptions({
 			agentControllerRef,
-			enabled: shouldReadCreationDefaults({
-				agentControllerRef,
-				open: input.open,
-				organizationId,
-				ownerMode,
-			}),
+			enabled: creationDefaultsEnabled,
 			organizationId,
 		})
 	);
@@ -757,11 +760,8 @@ function useCreateProfileDialogController(
 			: null,
 		computerHref: recoveryActionHref,
 		guidance: resolveLocalAgentCreationGuidance({
-			queryFailed:
-				recovery.localRuntimesQuery.isError ||
-				recovery.currentDeviceTargetQuery.isError ||
-				recovery.currentLocalRuntimeReplyReadinessQuery.isError,
-			readiness: recovery.currentLocalRuntimeReplyReadinessQuery.data,
+			queryFailed: creationComputerReadiness.isError,
+			readiness: creationComputerReadiness.data,
 			target: bindingTarget,
 		}),
 		onRetry: () => {
@@ -968,16 +968,18 @@ function useCreateProfileDialogController(
 		},
 	});
 	const projectSelectionBlockReason =
-		resolveAgentProfileProjectSelectionBlockReason({
-			boundAgentId,
-			ownerMode,
-			projectFolderPath,
-			projectsPending: projectsQuery.isPending,
-			projectWorkspaceFallback,
-			selectedProjectBindingGeneration,
-			selectedProjectId,
-			sessionPreset,
-		});
+		creationDefaultsEnabled && creationDefaultsQuery.isPending
+			? "Loading your saved Agent settings."
+			: resolveAgentProfileProjectSelectionBlockReason({
+					boundAgentId,
+					ownerMode,
+					projectFolderPath,
+					projectsPending: projectsQuery.isPending,
+					projectWorkspaceFallback,
+					selectedProjectBindingGeneration,
+					selectedProjectId,
+					sessionPreset,
+				});
 	const projectSelectionSlot = renderProjectSelectionSlot({
 		creationDefaultsEditedRef,
 		disabled:
@@ -1122,7 +1124,7 @@ function useCreateProfileDialogController(
 		sessionPresetBindingBlockReason,
 	});
 
-	const canChooseComputer = ownerMode === "self" && !sessionPreset;
+	const canChooseComputer = canChooseCreationComputer(ownerMode, sessionPreset);
 	const formProps = {
 		agentComputerSummary: canChooseComputer
 			? selectedComputerChoice?.label
@@ -2121,6 +2123,11 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 	const defaultProjectId = input.selectedProjectId || null;
 	const connection = resolveRequestedAgentConnection(input);
+	if (!(connection.agentControllerRef && connection.targetComputerId)) {
+		throw new Error(
+			"Choose a local agent on a connected computer to continue."
+		);
+	}
 	const result = await createAgentProfileCreationRequest({
 		configuration: {
 			agentControllerCollaborationMode: input.agentControllerCollaborationMode,
@@ -2166,6 +2173,45 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 	};
 }
 
+function canChooseCreationComputer(
+	ownerMode: string,
+	sessionPreset: CreateProfileAgentActivitySessionPreset | undefined
+) {
+	// A Session already fixes its computer; teammate choices belong to the
+	// owner's candidate list rather than this user's Computer picker.
+	return ownerMode === "self" && !sessionPreset;
+}
+
+function useCreationComputerReadiness(input: {
+	bindingTarget: ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>;
+	enabled: boolean;
+	recovery: RecoveryController;
+}) {
+	const target = input.bindingTarget;
+	const needsSelectedRead = Boolean(
+		target &&
+			(target.deviceId !== input.recovery.deviceId ||
+				target.runtimeLane !== input.recovery.runtimeLane)
+	);
+	const selectedRead = useQuery(
+		currentLocalRuntimeReplyReadinessQueryOptions({
+			enabled: input.enabled && needsSelectedRead,
+			storageScope: input.recovery.storageScope,
+			target: target
+				? { deviceId: target.deviceId, runtimeLane: target.runtimeLane }
+				: null,
+		})
+	);
+	const readinessQuery = needsSelectedRead
+		? selectedRead
+		: input.recovery.currentLocalRuntimeReplyReadinessQuery;
+	return {
+		data: readinessQuery.data,
+		isError:
+			input.recovery.localRuntimesQuery.isError || readinessQuery.isError,
+	};
+}
+
 function resolveCreationComputerChoices(recovery: RecoveryController) {
 	const computers =
 		recovery.localRuntimesQuery.data?.peopleComputers.computers ?? [];
@@ -2196,6 +2242,11 @@ function resolveCreationComputerChoices(recovery: RecoveryController) {
 	});
 	return {
 		choices,
+		selectedChoice: choices.find(
+			(choice) =>
+				choice.target.deviceId === recovery.deviceId &&
+				choice.target.runtimeLane === recovery.runtimeLane
+		),
 		label: computers.length === 1 ? "Environment" : "Computer",
 		placeholder:
 			computers.length === 1 ? "Choose an environment" : "Choose a computer",
@@ -2552,16 +2603,7 @@ function resolveTeammateBindingChoices(input: {
 	if (input.ownerMode !== "teammate") {
 		return undefined;
 	}
-	return [
-		{
-			agentId: null,
-			description:
-				"Create the Agent now and let its owner choose the controlling local agent later.",
-			label: "Let the owner choose",
-			value: "",
-		},
-		...input.options.map((option) => option.choice),
-	];
+	return [...input.options.map((option) => option.choice)];
 }
 
 function resolveCreateProfileOwnerChoice(input: {

@@ -244,14 +244,14 @@ function GeneratorConfigureActions(input: {
 			<div className="grid justify-items-stretch gap-1.5 sm:justify-items-end">
 				<Button
 					disabled={
-						input.form.isSubmitting || input.form.isResolvingLocalAgents
+						input.form.isSubmitting ||
+						input.form.isResolvingLocalAgents ||
+						!input.form.boundAgentId
 					}
 					onClick={() => input.onStepChange("review")}
 					type="button"
 				>
-					{input.form.boundAgentId || input.form.lockLocalAgentSelection
-						? "Continue"
-						: "Connect later"}
+					Continue
 				</Button>
 			</div>
 		</div>

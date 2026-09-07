@@ -83,7 +83,7 @@ import { canManageOrganizationArea } from "#/lib/organizations/organization-perm
 import {
 	buildOrganizationDirectMessagePath,
 	buildOrganizationNewOrganizationPath,
-	buildOrganizationPeoplePath,
+	buildOrganizationPersonPath,
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
@@ -548,8 +548,10 @@ function useDirectoryMembersOverviewModel(
 					return;
 				}
 				navigate({
-					search: { profileId },
-					to: buildOrganizationPeoplePath(input.currentOrganization.slug),
+					to: buildOrganizationPersonPath({
+						orgSlug: input.currentOrganization.slug,
+						personId: profileId,
+					}),
 				}).catch((error: unknown) => {
 					console.error("Failed to open the selected Human Profile.", error);
 				});
