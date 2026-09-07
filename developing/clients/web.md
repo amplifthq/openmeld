@@ -2472,6 +2472,13 @@ resolves. Once a conversation has renderable Query data, a background
 `isFetching` transition must keep that conversation visible rather than return
 to the route or conversation skeleton.
 
+Space route shells, pending conversation history (including public Spaces), and
+Center Agent use the Web-owned `SpaceConversationSkeleton` for message
+placeholders. It reuses the shared Skeleton primitive with avatar and text-line
+geometry and respects reduced motion. Each caller retains its own header,
+composer, content rail, and loading truth; the skeleton owns no fetching,
+permissions, or message state. Do not add separate full-width block placeholders.
+
 Intent preload warms the same TanStack Query keys consumed by the target page:
 account Profiles plus the Organization Directory for Agent Profiles, account Profiles
 plus the Organization Space Directory for Spaces, and the current Space display
