@@ -177,6 +177,16 @@ existing wake system.
 
 ## Implementation Base: Flue Harness (updated 2026-09-06)
 
+Native-delivery cancellation, execution reconciliation, and runtime diagnostics
+resolve the persisted runtime conversation through the same Core owner. Both
+the original worker request and the recovery request must match the ledger's
+Organization, Agent Profile, Space, dispatch, and idempotency key. If both
+requests exist, their runtime routes must agree. A mismatch is an explicit
+identity failure; callers must not prefer one request and contact its runtime.
+This check preserves existing conversation names and generation-zero sessions.
+It does not enable personal Remote Agent creation or grant Center Agent duties
+to an ordinary Profile.
+
 The prelaunch Flue 2 cutover is complete. Current Remote Agent Slack search and
 invitation tools accept only the shared Core result schemas; an acknowledgement
 without the requested result is not success. Message Channel identity actions
