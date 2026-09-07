@@ -164,7 +164,7 @@ describe("/o/$orgSlug/connect route", () => {
 			screen
 				.getByRole("link", { name: "Back to creating Agent" })
 				.getAttribute("href")
-		).toBe("/o/acme/agents/new");
+		).toBe("/o/acme/new-agent");
 		expect(startBringAgentsSetupPageMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				autoReturnOnCompletion: false,
@@ -214,7 +214,7 @@ describe("/o/$orgSlug/connect route", () => {
 
 		expect(
 			screen.getByRole("link", { name: "Back" }).getAttribute("href")
-		).toBe("/o/acme/people?profileId=human-1");
+		).toBe("/o/acme/people/human-1");
 		const providerProps = bringAgentsSetupProviderMock.mock.calls[0][0];
 		expect(providerProps.routeIntent).toMatchObject({
 			kind: "account_computer_setup",

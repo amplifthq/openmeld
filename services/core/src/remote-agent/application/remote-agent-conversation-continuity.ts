@@ -19,6 +19,7 @@ import { readCenterAgentTaskConversationContinuity } from "../../center-agent-ta
 import type { CoreBindings } from "../../lib/bindings";
 import type { ListSignalsInput, ListSignalsResult } from "../../rpc/methods";
 import { resolveSpaceStub } from "../../rpc/space-ref";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
 
 const CONTINUITY_CONTEXT_TOKEN_BUDGET = 8000;
 const TEXT_ENCODER = new TextEncoder();
@@ -67,10 +68,33 @@ function resolvePersistedRemoteAgentRuntimeConversationId(
   return resolveRemoteAgentRuntimeConversationId(request) ?? request.spaceId;
 }
 
-export function resolveRemoteAgentNativeDeliveryRuntimeConversationId(input: {
-  executionRecoverySubmitRequest: RemoteAgentWorkerSubmitTurnRequest | null;
-  workerSubmitRequest: RemoteAgentWorkerSubmitTurnRequest | null;
-}): string | undefined {
+export function resolveRemoteAgentNativeDeliveryRuntimeConversationId(
+  input: Pick<
+    RemoteAgentNativeDeliveryRecord,
+    | "organizationId"
+    | "profileId"
+    | "spaceId"
+    | "dispatchId"
+    | "idempotencyKey"
+    | "executionRecoverySubmitRequest"
+    | "workerSubmitRequest"
+  >
+): string | undefined {
+  for (const request of [
+    input.workerSubmitRequest,
+    input.executionRecoverySubmitRequest,
+  ]) {
+    if (
+      request &&
+      (request.organizationId !== input.organizationId ||
+        request.agentProfileId !== input.profileId ||
+        request.spaceId !== input.spaceId ||
+        request.dispatchId !== input.dispatchId ||
+        request.idempotencyKey !== input.idempotencyKey)
+    ) {
+      throw new Error("remote_agent.native_delivery_identity_mismatch");
+    }
+  }
   const workerRuntimeConversationId =
     resolvePersistedRemoteAgentRuntimeConversationId(input.workerSubmitRequest);
   const recoveryRuntimeConversationId =

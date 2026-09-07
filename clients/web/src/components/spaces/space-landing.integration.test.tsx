@@ -1712,6 +1712,48 @@ describe("SpaceLanding", () => {
 	});
 
 	it("adds a newly created Space agent only after confirmation without repeating the Core membership write", async () => {
+		const executionTarget = {
+			deviceId: "device-office",
+			runtimeLane: "dev-local",
+			openMeldServiceRuntimeId: "runtime-office",
+			isCurrent: true,
+			capabilities: [],
+			localAgentControl: {
+				refreshCatalog: true,
+				setEnabled: true,
+				setProfileWorkspace: true,
+			},
+			localAgentCatalog:
+				createStartStateWithCodexCatalog().state.readModel.device.value
+					.deviceAgentCatalog,
+		};
+		const computer = {
+			deviceId: "device-office",
+			deviceDisplayName: "Office Mac mini",
+			connection: { status: "connected", sessions: [], reasonCodes: [] },
+			isCurrent: true,
+			executionTargets: [executionTarget],
+		};
+		useLocalAgentRecoveryControllerMock.mockReturnValue({
+			deviceId: "device-office",
+			runtimeLane: "dev-local",
+			currentComputer: computer,
+			selectedExecutionTarget: executionTarget,
+			currentLocalRuntimeReplyReadinessQuery: {
+				data: createCurrentLocalRuntimeReplyReadiness({
+					canReplyFromThisComputer: true,
+					primaryBlocker: "none",
+					serviceConnected: true,
+					status: "ready",
+				}),
+			},
+			localRuntimesQuery: {
+				data: {
+					localRuntimes: [computer],
+					peopleComputers: { computers: [computer] },
+				},
+			},
+		});
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
 		const queryClient = createTestQueryClient();
 		vi.spyOn(queryClient, "invalidateQueries").mockImplementation(
@@ -1879,7 +1921,7 @@ describe("SpaceLanding", () => {
 			name: "Create a new Agent",
 		});
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Connect later" })
+			await within(dialog).findByRole("radio", { name: "Codex" })
 		);
 		fireEvent.change(await within(dialog).findByLabelText("Agent name"), {
 			target: { value: "Scout" },
@@ -1897,9 +1939,9 @@ describe("SpaceLanding", () => {
 		expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				configuration: expect.objectContaining({
-					agentControllerRef: null,
+					agentControllerRef: "builtin:codex",
 					defaultProjectId: null,
-					targetComputerId: null,
+					targetComputerId: "device-office",
 				}),
 				idempotencyKey: expect.any(String),
 				organizationId: "org-acme",
@@ -2252,7 +2294,12 @@ describe("SpaceLanding", () => {
 		expect(membersButton.textContent).toBe("");
 		fireEvent.click(membersButton);
 		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
-		expect(await screen.findByText("Runner")).toBeTruthy();
+		expect(screen.queryByRole("dialog", { name: "Members" })).toBeNull();
+		expect(
+			screen.queryByRole("button", {
+				name: "Add People or Agents",
+			})
+		).toBeNull();
 		fireEvent.click(membersButton);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		await waitFor(() => expect(ensureEntryConfirmed).toHaveBeenCalledTimes(1));
@@ -13894,7 +13941,7 @@ describe("SpaceLanding", () => {
 		expect(onConsumed).toHaveBeenCalledTimes(1);
 	});
 
-	it("sends a Center Agent starter action as an ordinary optimistic message", async () => {
+	it("sends a drafted Center Agent starter after explicit Send as an optimistic message", async () => {
 		let resolvePost:
 			| ((signal: ReturnType<typeof createTextSignal>) => void)
 			| null = null;
@@ -13930,6 +13977,15 @@ describe("SpaceLanding", () => {
 				name: SHOW_ME_AROUND_BUTTON_NAME_PATTERN,
 			})
 		);
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await waitFor(() => {
+			expect(
+				readComposerValue(
+					screen.getByRole("textbox", { name: "Message Center Agent" })
+				)
+			).toBe(starterPrompt);
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
@@ -13985,6 +14041,15 @@ describe("SpaceLanding", () => {
 				name: CREATE_SPACE_BUTTON_NAME_PATTERN,
 			})
 		);
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await waitFor(() => {
+			expect(
+				readComposerValue(
+					screen.getByRole("textbox", { name: "Message Center Agent" })
+				)
+			).toBe(starterPrompt);
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		expect(
 			await screen.findByText("The starter message could not be sent.")
@@ -17719,7 +17784,11 @@ function mockSpaceQueries(input: {
 			},
 		});
 	useQueryMock.mockImplementation(
-		(options: { queryKey: readonly unknown[]; select?: unknown }) => {
+		(options: {
+			enabled?: boolean;
+			queryKey: readonly unknown[];
+			select?: unknown;
+		}) => {
 			const queryKey = JSON.stringify(options.queryKey);
 			if (
 				options.queryKey[0] === "space-invitations" &&
@@ -18061,6 +18130,18 @@ function mockSpaceQueries(input: {
 					isSuccess: true,
 					data: { organizationId: "org-acme", projects: [] },
 				});
+			}
+			if (
+				Array.isArray(options.queryKey) &&
+				options.queryKey[0] === "start" &&
+				options.queryKey[1] === "current-local-runtime-reply-readiness"
+			) {
+				if (options.enabled !== false) {
+					throw new Error(
+						"This fixture does not fetch readiness for a different computer."
+					);
+				}
+				return createQueryResult({ isPending: true });
 			}
 			throw new Error(`Unexpected query key: ${queryKey}`);
 		}

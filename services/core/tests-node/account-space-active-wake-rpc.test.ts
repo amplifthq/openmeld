@@ -179,6 +179,49 @@ describe("account Space active Wake summary RPC", () => {
           },
         ],
       });
+      const renamedEnv = {
+        ...env,
+        OPENMELD_AUTH_WORKER: {
+          resolveProfileById: async () => ({
+            ok: true,
+            profile: {
+              profileId: deletedProfileId,
+              profileKind: "agent",
+              profileName: "Renamed Agent",
+              profileHandle: "renamed-agent",
+              ownerUserId: "owner-clico",
+              status: "active",
+            },
+          }),
+        },
+      } as unknown as CoreBindings;
+      const renamed = await rpcListAccountSpaceActiveWakeSummary(renamedEnv, {
+        ownerUserId: "owner-viewer",
+        selectedProfileId: "viewer-profile",
+      });
+      expect(renamed.items[0]?.activeTargets?.[0]?.profileName).toBe(
+        "Renamed Agent"
+      );
+      const startedAt = Date.now();
+      const stalled = await rpcListAccountSpaceActiveWakeSummary(
+        {
+          ...env,
+          OPENMELD_AUTH_WORKER: {
+            resolveProfileById: () =>
+              new Promise(() => {
+                /* Simulate an Auth RPC that never settles. */
+              }),
+          },
+        } as unknown as CoreBindings,
+        {
+          ownerUserId: "owner-viewer",
+          selectedProfileId: "viewer-profile",
+        }
+      );
+      expect(Date.now() - startedAt).toBeLessThan(2000);
+      expect(stalled.items[0]?.activeTargets?.[0]?.profileName).toBe(
+        "Clico Codex"
+      );
     } finally {
       harness.close();
     }

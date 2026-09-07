@@ -136,7 +136,7 @@ describe("CenterAgentPage", () => {
 		spaceLandingSpy.mock.lastCall?.[0].onSpaceViewCommitted("files");
 		expect(navigateSpy).toHaveBeenLastCalledWith({
 			replace: true,
-			to: "/o/acme?session=session-2&view=files",
+			to: "/o/acme/chats/center-agent?session=session-2&view=files",
 		});
 		rendered.rerender(
 			<CenterAgentPage
@@ -162,7 +162,7 @@ describe("CenterAgentPage", () => {
 		spaceLandingSpy.mock.lastCall?.[0].onSpaceViewCommitted("files");
 		expect(navigateSpy).toHaveBeenLastCalledWith({
 			replace: true,
-			to: "/o/acme?session=resolved-chat&view=files",
+			to: "/o/acme/chats/center-agent?session=resolved-chat&view=files",
 		});
 	});
 
