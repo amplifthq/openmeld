@@ -96,3 +96,12 @@ export const peopleComputersResponseSchema = z.strictObject({
   generatedAt: z.iso.datetime({ offset: true }),
   computers: z.array(peopleComputerSchema),
 });
+
+// CLI-only device proof; the server cannot establish which physical computer
+// hosts a browser. This is the computer.list Agent View command payload.
+export const peopleComputerCliInventorySchema =
+  peopleComputersResponseSchema.extend({
+    computers: z.array(
+      peopleComputerSchema.extend({ isThisComputer: z.boolean() })
+    ),
+  });

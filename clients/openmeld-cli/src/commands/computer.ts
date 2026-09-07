@@ -17,6 +17,7 @@ import type {
   LocalRuntimeComputer,
   LocalRuntimesResponse,
   OwnerComputerDiagnostics,
+  PeopleComputerCliInventory,
 } from "@openmeld/schemas/types";
 import { resolveBaseUrl } from "../config/base-url";
 import { resolveOpenMeldEnvPreset } from "../config/paths";
@@ -70,7 +71,7 @@ export async function runComputerList(
             localDeviceId !== null &&
             computerContainsDevice(computer, localDeviceId),
         })),
-      },
+      } satisfies PeopleComputerCliInventory,
     });
     return;
   }

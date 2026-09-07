@@ -1,4 +1,7 @@
 import type { z } from "zod/v4";
+export type PeopleComputerCliInventory = z.infer<
+  typeof import("../../schemas/http/people-computers").peopleComputerCliInventorySchema
+>;
 export type PeopleComputerProjectDiscoveryRpcInput = z.infer<
   typeof import("../../schemas/http/people-computers").peopleComputerProjectDiscoveryRpcInputSchema
 >;

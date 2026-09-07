@@ -1816,6 +1816,7 @@ export {
   summarizeComputerFileAccessPolicy,
 } from "./http/owner-computer-diagnostics";
 export {
+  peopleComputerCliInventorySchema,
   peopleComputerConnectionSchema,
   peopleComputerFileAccessReadRpcInputSchema,
   peopleComputerFileAccessUpdateBodySchema,

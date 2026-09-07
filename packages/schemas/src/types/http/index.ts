@@ -808,6 +808,7 @@ export type {
 } from "./owner-computer-diagnostics";
 export type {
   PeopleComputer,
+  PeopleComputerCliInventory,
   PeopleComputerConnection,
   PeopleComputerFileAccessReadRpcInput,
   PeopleComputerFileAccessUpdateBody,
