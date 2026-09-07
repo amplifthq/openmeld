@@ -447,7 +447,7 @@ function DirectMessageSidebarItem(
 					{label}
 				</TooltipContent>
 			</Tooltip>
-			<SidebarMenuActions className="top-auto bottom-0.5" showOnHover>
+			<SidebarMenuActions showOnHover>
 				<SidebarRowAction
 					disabled={input.disabled}
 					label={`${input.item.pinnedAt ? "Unpin" : "Pin"} ${label}`}

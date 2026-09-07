@@ -42,6 +42,7 @@ import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
+import { useSidebarDisclosure } from "../app/use-sidebar-disclosure";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import {
 	type SpaceUnreadById,
@@ -56,7 +57,6 @@ import {
 } from "./space-member-avatars";
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
-import { useSpaceSidebarDisclosure } from "./use-space-sidebar-disclosure";
 
 const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
 	pinnedItems: [],
@@ -215,7 +215,8 @@ export function AppSpacesSidebar(input: {
 			activeGroupId = "pinned";
 		}
 	}
-	const disclosure = useSpaceSidebarDisclosure(
+	const disclosure = useSidebarDisclosure(
+		"space",
 		input.currentProfileId,
 		currentOrganizationId,
 		activeGroupId,

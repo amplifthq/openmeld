@@ -5,13 +5,13 @@ import { Input } from "@openmeld/ui/components/input";
 import {
 	SidebarGroup,
 	SidebarGroupContent,
-	SidebarGroupLabel,
 } from "@openmeld/ui/components/sidebar";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { SidebarGroupLabel } from "@openmeld/ui/fluid/sidebar-group";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import {
@@ -216,9 +216,11 @@ export function AppSidebarGroup(input: {
 					<SidebarGroupLabel
 						aria-label={input.labelText}
 						className={cn(
-							"flex min-w-0 items-center gap-1",
+							"min-w-0 gap-1 px-0 font-medium text-muted-foreground",
 							input.labelClassName
 						)}
+						data-slot="sidebar-group-label"
+						render={<h2 aria-label={input.labelText} />}
 					>
 						{heading}
 						{input.labelAccessory ? (

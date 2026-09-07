@@ -1865,17 +1865,44 @@ return and every five visible minutes; Space member elapsed-time labels are
 formatted from `lastSeenAt` against the current clock, never a cached label.
 
 The sidebar places the designated **Center Agent** in its own first group,
-linking its actual profile name to Center Agent Home. Starred and user-defined
-groups follow, then **Computer online** and **Computer offline**. The signed-in
-member defaults to Starred only when no personal placement exists. While starred,
-the signed-in member always appears first, regardless of sort or manual order;
+linking its actual profile name to the canonical Center Agent chat. Starred and user-defined
+groups follow, then **Online** and **Offline**, whose hover and keyboard tooltips
+say **Computer online** and **Computer offline**. The signed-in member follows
+ordinary placement unless a saved star or custom group applies. The signed-in
+member always appears first within that group, regardless of sort or manual order;
 the remaining members retain the selected ordering. Explicit
 unstar and custom placement persist; deleting a group returns its members to
 ordinary placement. Computer online requires the existing connected Computer
 projection, not registration or recent Human activity. Other resolved states go
-under Offline; **No computer** and unknown/attention explanations remain visible
-on the row. Pending checks retain the loading state. Sorting and drag placement
+under Offline. Rows show the avatar, name, Computer status icon, Human last-seen
+time when known, and enabled local-agent icons. Computer explanations remain in
+the icon tooltip and accessible name; Channel identities and email are omitted.
+Pending checks retain the loading state. Sorting and drag placement
 remain personal preferences; dragging cannot change Computer connection state.
+
+Team opens a compact member overview at `/o/:orgSlug/people`, with the same
+grouping and ordering as its sidebar. The overview and sidebar share the member
+member presentation data and personal preferences. The overview uses Fluid Card
+groups with persistent card surfaces and 56px avatars; sidebar rows keep their
+compact avatar sizes. Sidebar member rows omit activity timestamps and place
+local agents on a second row aligned with the name, with a 6px row gap, leaving the name row for hover
+actions; cards retain activity timestamps.
+Sidebar groups start collapsed, using
+the same disclosure behavior as Spaces. Entering a person opens their group for
+that visit; explicit expand/collapse choices are remembered per viewer and
+Organization independently of Spaces. The overview remains expanded.
+The overview uses the shared window header with Members navigation and the
+existing permission-gated invitation dialog. Its directory toolbar shows member
+counts, name search, and group filters with the same gutters as Spaces.
+Shared window headers and Team/Spaces directory content use
+`--app-page-inline-padding` (24px below the desktop breakpoint, 32px above).
+Conversation headers inherit this gutter rather than overriding it with the
+separate message-content padding token.
+Saved stars remain intact; historical
+saved preferences have no provenance marker, so Web must not guess which saved
+stars were automatic. An absent preference never creates a self star.
+The Human Profile page omits the entire Advanced details section, including
+Profile ID and copying it; underlying identity and diagnostic contracts remain.
 
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,
@@ -1894,7 +1921,7 @@ shared Profile details, and the permitted Profile Report, Learn about,
 {member}** is the primary action and keeps the same compact button height as
 adjacent actions. It does not repeat those account facts in a separate
 member-account section. Header metadata, Channel-account, Profile, and
-advanced-detail values are
+detail values are
 text-selectable. Editing remains available only
 for the signed-in member's own active default Human Profile. The sidebar and
 detail omit the internal Handle, undefined recent activity, and the ubiquitous
@@ -2444,6 +2471,13 @@ Organization-scoped mutation before the parent Organization access route
 resolves. Once a conversation has renderable Query data, a background
 `isFetching` transition must keep that conversation visible rather than return
 to the route or conversation skeleton.
+
+Space route shells, pending conversation history (including public Spaces), and
+Center Agent use the Web-owned `SpaceConversationSkeleton` for message
+placeholders. It reuses the shared Skeleton primitive with avatar and text-line
+geometry and respects reduced motion. Each caller retains its own header,
+composer, content rail, and loading truth; the skeleton owns no fetching,
+permissions, or message state. Do not add separate full-width block placeholders.
 
 Intent preload warms the same TanStack Query keys consumed by the target page:
 account Profiles plus the Organization Directory for Agent Profiles, account Profiles

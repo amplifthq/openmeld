@@ -105,6 +105,13 @@
   --space-conversation-navigation-height: 1.8125rem;
   --space-conversation-centered-max-width: min(52rem, 90vw);
   --space-conversation-inline-padding: 1rem;
+  --app-page-inline-padding: 1.5rem;
+}
+
+@media (min-width: 64rem) {
+  :root {
+    --app-page-inline-padding: 2rem;
+  }
 }
 
 .dark {

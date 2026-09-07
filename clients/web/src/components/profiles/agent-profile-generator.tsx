@@ -16,8 +16,9 @@ import {
 	type CreateProfileFormProps,
 } from "./create-profile-form";
 import {
+	type AgentProfileConfigurationSection,
 	resolveAgentProfileConfigurationSummaries,
-	resolveCreateProfileSubmitBlockReason,
+	resolveCreateProfileSubmitBlock,
 } from "./create-profile-form-logic";
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 import { LocalAgentSelector } from "./local-agent-selector";
@@ -37,9 +38,18 @@ export function AgentProfileGenerator(input: AgentProfileGeneratorProps) {
 
 function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 	const [configurationExpanded, setConfigurationExpanded] = useState(false);
+	const [openSection, setOpenSection] =
+		useState<AgentProfileConfigurationSection | null>(null);
+	const openConfigurationSection = (
+		section: AgentProfileConfigurationSection
+	) => {
+		setConfigurationExpanded(true);
+		setOpenSection(section);
+	};
 	const submitBlockReasonId = useId();
 	const form = input.form;
-	const submitBlockReason = resolveCreateProfileSubmitBlockReason(form);
+	const submitBlock = resolveCreateProfileSubmitBlock(form);
+	const submitBlockReason = submitBlock?.message;
 	return (
 		<form
 			className="-mx-3 flex min-h-0 min-w-0 flex-1 flex-col"
@@ -87,6 +97,8 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 						expanded={configurationExpanded}
 						form={form}
 						onExpandedChange={setConfigurationExpanded}
+						onOpenSectionChange={setOpenSection}
+						openSection={openSection}
 					/>
 					<CreateProfileErrorNotice
 						errorState={form.errorState}
@@ -112,31 +124,46 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 				)}
 				<div className="grid justify-items-stretch gap-2 sm:justify-items-end">
 					{submitBlockReason ? (
-						<p
+						<output
 							className="max-w-md text-right text-muted-foreground text-xs"
 							id={submitBlockReasonId}
 						>
 							{submitBlockReason}
-						</p>
+						</output>
 					) : null}
-					{form.projectSelectionBlockReason &&
-						submitBlockReason === form.projectSelectionBlockReason &&
-						form.onUseManagedWorkspace && (
+					{submitBlock?.action ? (
+						<div className="flex flex-wrap justify-end gap-2">
+							{submitBlock.action.section === "working-folder" &&
+							form.onUseManagedWorkspace ? (
+								<Button
+									disabled={form.isSubmitting}
+									onClick={form.onUseManagedWorkspace}
+									type="button"
+									variant="outline"
+								>
+									Use OpenMeld managed folder
+								</Button>
+							) : null}
 							<Button
 								disabled={form.isSubmitting}
-								onClick={form.onUseManagedWorkspace}
+								onClick={() => {
+									if (submitBlock.action) {
+										openConfigurationSection(submitBlock.action.section);
+									}
+								}}
 								type="button"
 								variant="outline"
 							>
-								Let OpenMeld choose
+								{submitBlock.action.label}
 							</Button>
-						)}
+						</div>
+					) : null}
 					<SpinnerButton
 						aria-describedby={
 							submitBlockReason ? submitBlockReasonId : undefined
 						}
 						buttonState={form.isSubmitting ? "loading" : "idle"}
-						disabled={submitBlockReason !== null || form.isResolvingLocalAgents}
+						disabled={submitBlock !== null}
 						loadingLabel={form.submittingLabel ?? "Creating Agent…"}
 						type="submit"
 					>
@@ -152,9 +179,19 @@ function AdvancedSetup(input: {
 	expanded: boolean;
 	form: CreateProfileFormProps;
 	onExpandedChange: (expanded: boolean) => void;
+	openSection: AgentProfileConfigurationSection | null;
+	onOpenSectionChange: (
+		section: AgentProfileConfigurationSection | null
+	) => void;
 }) {
 	if (!input.form.boundAgentId) {
-		return null;
+		return (
+			<AgentProfileConfigurationCards
+				input={input.form}
+				onOpenSectionChange={input.onOpenSectionChange}
+				openSection={input.openSection}
+			/>
+		);
 	}
 
 	const summaries = resolveAgentProfileConfigurationSummaries(input.form);
@@ -192,7 +229,11 @@ function AdvancedSetup(input: {
 			</Collapsible.Trigger>
 			<Collapsible.Panel className="overflow-hidden transition-[height,opacity] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)] data-[ending-style]:h-0 data-[starting-style]:h-0 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-[opacity] data-[open]:[height:var(--collapsible-panel-height)]">
 				<div className="pt-3">
-					<AgentProfileConfigurationCards input={input.form} />
+					<AgentProfileConfigurationCards
+						input={input.form}
+						onOpenSectionChange={input.onOpenSectionChange}
+						openSection={input.openSection}
+					/>
 				</div>
 			</Collapsible.Panel>
 		</Collapsible.Root>

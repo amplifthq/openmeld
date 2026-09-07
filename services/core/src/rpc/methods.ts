@@ -1169,6 +1169,10 @@ import {
   type SpaceEntryAccessResult,
 } from "../space/application/space-entry-resolution-service";
 import { buildSpaceFileAuditEvent } from "../space/application/space-file-audit";
+import {
+  readSpaceMemberNameFromAuth,
+  SPACE_MEMBER_NAME_READ_BUDGET_MS,
+} from "../space/application/space-members-service";
 import type { FinalOutcomeWriteAuthority } from "../space/application/types";
 import { readSpaceBoardExecutionProjection } from "../space/infrastructure/d1/space-board-execution-read-repo";
 import { readSpaceDispatchLookupByClientMessageId } from "../space/infrastructure/d1/space-dispatch-read-repo";
@@ -18763,6 +18767,34 @@ async function buildActiveWakeSummaryForSpaceIds(input: {
       ),
       viewerOwnerUserId: input.ownerUserId,
     });
+  const currentNamesByProfileId = new Map<string, string>();
+  const profileIds = [
+    ...new Set(
+      [...targetCountsBySpaceId.values()].flatMap((counts) => [
+        ...counts.keys(),
+      ])
+    ),
+  ];
+  // Resolve each active identity once, even when it is working in many Spaces.
+  const nameDeadlineAtMs = Date.now() + SPACE_MEMBER_NAME_READ_BUDGET_MS;
+  for (let offset = 0; offset < profileIds.length; offset += 8) {
+    if (Date.now() >= nameDeadlineAtMs) {
+      break;
+    }
+    await Promise.all(
+      profileIds.slice(offset, offset + 8).map(async (profileId) => {
+        const name = await readSpaceMemberNameFromAuth({
+          env: input.env,
+          profileId,
+          profileKind: "agent",
+          deadlineAtMs: nameDeadlineAtMs,
+        });
+        if (name) {
+          currentNamesByProfileId.set(profileId, name);
+        }
+      })
+    );
+  }
 
   return {
     generatedAtMs,
@@ -18773,9 +18805,11 @@ async function buildActiveWakeSummaryForSpaceIds(input: {
           activeWakeCount,
           profileId,
           profileName:
+            currentNamesByProfileId.get(profileId) ??
             targetProfileNamesBySpaceAndId.get(
               buildActiveWakeTargetKey({ profileId, spaceId })
-            ) ?? null,
+            ) ??
+            null,
         })
       ).sort((left, right) =>
         (left.profileName ?? left.profileId).localeCompare(

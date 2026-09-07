@@ -29,7 +29,7 @@ describe("resolveAgentProfileActivityPreviewContext", () => {
 				title: "Launch planning",
 			},
 			{
-				href: "/o/acme/direct-messages",
+				href: "/o/acme/chats",
 				source: "direct_message",
 				title: "Bug triage",
 			},

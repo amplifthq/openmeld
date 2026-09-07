@@ -3,6 +3,13 @@ import { describe, expect, it } from "vitest";
 import { resolveWakeProgressStatus } from "./wake-progress-status";
 
 describe("resolveWakeProgressStatus", () => {
+	it("does not expose a legacy Profile ID as a working name", () => {
+		expect(
+			resolveWakeProgressStatus(
+				createWakeProgressItem({ targetLabel: "@agt_legacy_name" })
+			)?.label
+		).toBe("Agent is working");
+	});
 	it.each([
 		["sending", "Starting Wake for runner…", "starting"],
 		["request_sent", "Wake sent to runner", "sent"],

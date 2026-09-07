@@ -2290,6 +2290,7 @@ describe("SpaceConversationPanel", () => {
 					},
 					profileId: "22222222-2222-4222-8222-222222222222",
 					profileName: "Felix",
+					primaryMentionLabel: "Felix",
 					relation: "mention",
 					wakeAvailability: {
 						reasonCodes: [],
@@ -4075,7 +4076,7 @@ describe("SpaceConversationPanel", () => {
 			dialog
 				.getByRole("link", { name: "View Felix profile" })
 				.getAttribute("href")
-		).toBe(`/o/acme/people?profileId=${profileId}`);
+		).toBe(`/o/acme/people/${profileId}`);
 		expect(dialog.queryByText("Check this Profile")).toBeNull();
 		expect(dialog.queryByText("Person")).toBeNull();
 		expect(dialog.queryByText(profileId)).toBeNull();

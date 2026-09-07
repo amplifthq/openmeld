@@ -4,7 +4,7 @@ import {
 } from "@openmeld/schemas";
 import type { ComponentProps } from "react";
 import type { AgentProfileSidebarItemComponent } from "../../src/components/agents/agent-profile-sidebar-item";
-import type { HumanProfileSidebarItem } from "../../src/components/directory/human-profile-sidebar-item";
+import type { HumanProfileItem } from "../../src/components/directory/human-profile-item";
 import type { SpaceSidebarMenuItem } from "../../src/components/spaces/space-sidebar-menu-item";
 import {
 	WAKE_PROGRESS_STATUS_PRIORITY,
@@ -155,7 +155,7 @@ spaceScenarios.push({
 	},
 });
 type PersonScenario = Omit<
-	ComponentProps<typeof HumanProfileSidebarItem>,
+	ComponentProps<typeof HumanProfileItem>,
 	"index" | "isActive" | "onSelect"
 >;
 export const peopleScenarios: PersonScenario[] = [

@@ -229,18 +229,17 @@ describe("DirectoryMembersOverview", () => {
 
 	afterEach(cleanup);
 
-	it("selects the current Human Profile by default and writes explicit selections to the URL", async () => {
+	it("opens Team without selecting a person and writes explicit selections to the URL", async () => {
 		renderOverview();
 
 		expect((await screen.findByTestId("selected-profile")).textContent).toBe(
-			CURRENT_PROFILE_ID
+			""
 		);
 		expect(navigateMock).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "Grace Hopper" }));
 		expect(navigateMock).toHaveBeenCalledWith({
-			search: { profileId: GRACE_PROFILE_ID },
-			to: "/o/acme/people",
+			to: `/o/acme/people/${GRACE_PROFILE_ID}`,
 		});
 	});
 	it("preserves member research and Direct Message behavior behind the new workspace", async () => {
@@ -264,7 +263,7 @@ describe("DirectoryMembersOverview", () => {
 			});
 		});
 		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/acme/direct-messages/space-grace-dm?profileId=22222222-2222-4222-8222-222222222222",
+			to: "/o/acme/chats/space-grace-dm?profileId=22222222-2222-4222-8222-222222222222",
 		});
 	});
 

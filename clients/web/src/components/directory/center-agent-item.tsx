@@ -1,3 +1,4 @@
+import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { SidebarMenuButton } from "@openmeld/ui/fluid/sidebar-menu";
 import { useQuery } from "@tanstack/react-query";
@@ -9,7 +10,7 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
 import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 
-export function CenterAgentSidebarItem() {
+export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 	const { currentOrganization } = useAppOrganization();
 	const { dismiss } = useAppNavigationPresentation();
 	const designation = useQuery(
@@ -40,6 +41,33 @@ export function CenterAgentSidebarItem() {
 			<p className="px-2 text-muted-foreground text-xs">
 				Center Agent unavailable
 			</p>
+		);
+	}
+	if (input.presentation === "card") {
+		return (
+			<FluidCardGroup>
+				<FluidCardItem
+					className="border border-border"
+					itemId={profile.profileId}
+				>
+					<Link
+						aria-label={`Open ${profile.profileName}`}
+						className="flex min-h-24 items-center gap-3 rounded-md p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						params={{ orgSlug: currentOrganization.slug }}
+						to="/o/$orgSlug/chats/center-agent"
+					>
+						<DitherProfileAvatar
+							profileId={profile.profileId}
+							profileKind="center-agent"
+							profileName={profile.profileName}
+							size={56}
+						/>
+						<span className="min-w-0 font-medium text-sm">
+							{profile.profileName}
+						</span>
+					</Link>
+				</FluidCardItem>
+			</FluidCardGroup>
 		);
 	}
 	return (

@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-07T10:26:37.137Z",
+  "updatedAt": "2026-09-07T17:07:19.148Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
-      "packageVersion": "0.3.165",
-      "updatePolicy": "required",
-      "reason": "The new computer command output uses command contract v2; update the CLI before new clients rely on owner-scoped computer controls."
+      "packageVersion": "0.3.167",
+      "updatePolicy": "available",
+      "reason": "CLI commands and result envelopes remain compatible with both cloud versions."
     },
     "service": {
-      "bundleHash": "6e40615e9590d38a3f14f948776355b49962be517dbbda1e758f077d072b05f8",
-      "bundleVersion": "0.3.165",
+      "bundleHash": "64206196c7319b8d1cc02255671a87208da064ed20e9ff5413becc701bf8ff1f",
+      "bundleVersion": "0.3.167",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "The Service wire contract is unchanged; existing Services remain safe while this release improves inventory and optional setup reporting."
+      "reason": "Core repairs the known unreadable reply for existing Services; the new Service adds compatible non-progress protection without invalidating accepted work."
     },
     "skills": {
       "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",

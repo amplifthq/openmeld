@@ -23,7 +23,7 @@ afterEach(() => {
 it.each([
 	["h", "/o/acme"],
 	["s", "/o/acme/spaces"],
-	["m", "/o/acme/direct-messages"],
+	["m", "/o/acme/chats"],
 	["p", "/o/acme/people"],
 	["a", "/o/acme/agents"],
 	["i", "/o/acme/inbox"],

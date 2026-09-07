@@ -12,6 +12,7 @@ import { Route as AgentsRoute } from "./agents";
 import { Route as NewOrganizationRoute } from "./new-organization";
 import { Route as OrganizationsRoute } from "./organizations";
 import { Route as PeopleRoute } from "./people";
+import { Route as PersonAgentsRoute } from "./people_.$personId_.agents";
 import { Route as ProjectsRoute } from "./projects";
 import { Route as ProjectDetailRoute } from "./projects.$projectId";
 import { Route as ProjectsIndexRoute } from "./projects.index";
@@ -20,14 +21,15 @@ import { Route as SettingsGeneralRoute } from "./settings/general";
 
 const ORGANIZATION_HEADING_NAME = /organization/i;
 const getAppSidebarStatesForRouteMock = vi.hoisted(() => vi.fn());
-const prefetchAgentsRouteIdentityDataMock = vi.hoisted(() => vi.fn());
 
 vi.mock("#/lib/sidebar-width-cookie", () => ({
 	getAppSidebarStatesForRoute: getAppSidebarStatesForRouteMock,
 }));
 
-vi.mock("#/lib/organizations/app-route-prefetch", () => ({
-	prefetchAgentsRouteIdentityData: prefetchAgentsRouteIdentityDataMock,
+vi.mock("#/components/agents/person-agents-page", () => ({
+	PersonAgentsPage: ({ personId }: { personId: string }) => (
+		<h1 data-person-id={personId}>Person Agents</h1>
+	),
 }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
@@ -147,31 +149,60 @@ vi.mock("#/components/app/app-full-width-layout", () => ({
 
 beforeEach(() => {
 	getAppSidebarStatesForRouteMock.mockReset().mockResolvedValue(undefined);
-	prefetchAgentsRouteIdentityDataMock.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(cleanup);
 
 describe("primary organization routes", () => {
-	it("loads the Agents-specific sidebar state during SSR", async () => {
-		const loader = AgentsRoute.options.loader;
+	it("loads shared sidebar state for the person's Agent list during SSR", async () => {
+		const loader = PersonAgentsRoute.options.loader;
 		if (typeof loader !== "function") {
-			throw new Error("Expected the Agents route loader.");
+			throw new Error("Expected the person's Agent list route loader.");
 		}
 
 		await loader({
 			context: { queryClient: {}, queryPersistence: {} },
-			location: { href: "/o/acme/agents" },
-			params: { orgSlug: "acme" },
+			location: { href: "/o/acme/people/human-1/agents" },
+			params: { orgSlug: "acme", personId: "human-1" },
 		} as never);
 
-		expect(getAppSidebarStatesForRouteMock).toHaveBeenCalledWith("agents");
-		expect(prefetchAgentsRouteIdentityDataMock).toHaveBeenCalledWith({
-			organizationSlug: "acme",
-			queryClient: {},
-			queryPersistence: {},
-			routeFamily: "/o/acme/agents",
+		expect(getAppSidebarStatesForRouteMock).toHaveBeenCalledWith();
+		expect(PersonAgentsRoute.options.staticData).toEqual({
+			appShellSection: "people",
 		});
+		vi.spyOn(PersonAgentsRoute, "useParams").mockReturnValue({
+			orgSlug: "acme",
+			personId: "human-1",
+		});
+		vi.spyOn(PersonAgentsRoute, "useLoaderData").mockReturnValue({
+			sidebarStates: undefined,
+		});
+		const Component = PersonAgentsRoute.options.component as ComponentType;
+		render(<Component />);
+		expect(
+			screen
+				.getByRole("heading", { name: "Person Agents" })
+				.getAttribute("data-person-id")
+		).toBe("human-1");
+	});
+
+	it.each([
+		[{ view: "create" }, "/o/acme/new-agent"],
+		[
+			{ view: "requests", requestId: "request-1" },
+			"/o/acme/people/agent-requests?requestId=request-1",
+		],
+	])("redirects the legacy Agents entry %j to its current destination", (search, to) => {
+		expect(() =>
+			AgentsRoute.options.beforeLoad?.({
+				params: { orgSlug: "acme" },
+				search,
+			} as never)
+		).toThrow(
+			expect.objectContaining({
+				options: expect.objectContaining({ to, replace: true }),
+			})
+		);
 	});
 
 	it("renders Project child routes through the Projects layout", () => {
@@ -233,10 +264,6 @@ describe("primary organization routes", () => {
 	});
 
 	it.each([
-		{
-			expectedSectionId: "agents",
-			route: AgentsRoute,
-		},
 		{
 			expectedSectionId: "people",
 			route: PeopleRoute,

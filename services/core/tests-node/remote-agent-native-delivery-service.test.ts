@@ -7698,6 +7698,61 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
+  it("rejects a saved request for another Agent before sending a stop to the worker", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const cancelExecution = vi.fn();
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { cancelExecution },
+    });
+    try {
+      const delivery = await createAcceptedContinuationObserver({
+        conversationKind: "slack",
+        db: harness.db,
+        idempotencyKey: "foreign-agent-stop",
+        slackChannelId: "C123",
+        slackTeamId: "T123",
+        slackThreadTs: "1700000000.000001",
+        submissionId: "foreign-agent-stop-submission",
+        triggerMessageId: "1700000000.000001",
+        turnEnvelope: createSlackTurnEnvelope(),
+      });
+      await harness.db
+        .prepare(
+          `UPDATE openMeldRemoteAgent_native_delivery_ledger
+         SET worker_submit_request_json = ? WHERE idempotency_key = ?`
+        )
+        .bind(
+          JSON.stringify(
+            remoteAgentWorkerSubmitTurnRequestSchema.parse({
+              ...delivery.executionRecoverySubmitRequest,
+              agentProfileId: "agt_22222222-2222-4222-8222-222222222222",
+            })
+          ),
+          delivery.idempotencyKey
+        )
+        .run();
+
+      await expect(
+        stopRemoteAgentNativeDelivery({
+          db: harness.db,
+          delivery,
+          env,
+          nowMs: 2100,
+        })
+      ).rejects.toThrow("remote_agent.native_delivery_identity_mismatch");
+      expect(cancelExecution).not.toHaveBeenCalled();
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: delivery.idempotencyKey,
+        })
+      ).resolves.toMatchObject({ status: "accepted" });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("settles a trusted late Task callback as stopped after confirmation timeout without publishing its result", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);

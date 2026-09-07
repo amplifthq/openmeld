@@ -56,24 +56,21 @@ describe("LocalAgentSelector", () => {
 			surface: "page" as const,
 			emptyState: {
 				kind: "connect_computer" as const,
-				primaryActionHref: null,
+				primaryActionHref: "/o/acme/connect",
 				centerAgentHref: null,
 			},
 		};
 		const { rerender } = render(<LocalAgentSelector {...props} />);
 		expect(
-			screen.getByRole("heading", { level: 2, name: "Checking local agents…" })
+			screen.getByRole("status", { name: "Checking available local agents" })
 		).toBeTruthy();
-		expect(
-			screen.queryByText("Connect your computer to use a local agent")
-		).toBeNull();
+		expect(screen.queryByRole("link", { name: "Connect Computer" })).toBeNull();
 		rerender(<LocalAgentSelector {...props} isResolving={false} />);
 		expect(
-			screen.getByRole("heading", {
-				level: 2,
-				name: "Connect your computer to use a local agent",
-			})
-		).toBeTruthy();
+			screen
+				.getByRole("link", { name: "Connect Computer" })
+				.getAttribute("href")
+		).toBe("/o/acme/connect");
 	});
 	it("renders a semantic single-choice control and selects by click", () => {
 		const onChange = vi.fn();
