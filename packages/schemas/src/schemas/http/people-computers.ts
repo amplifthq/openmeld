@@ -14,10 +14,11 @@ export const peopleComputerTargetSchema = z.strictObject({
   deviceId: START_BOUNDED_ID_SCHEMA,
   runtimeLane: daemonServiceLaneSchema,
 });
-export const peopleComputerProjectDiscoveryRpcInputSchema =
+export const peopleComputerProjectDiscoveryRpcInputSchema = z.lazySchema(() =>
   localProjectControlDiscoverProjectsRpcInputSchema.extend(
     peopleComputerTargetSchema.shape
-  );
+  )
+);
 
 export const peopleComputerFileAccessReadRpcInputSchema =
   peopleComputerTargetSchema.extend({
@@ -25,17 +26,19 @@ export const peopleComputerFileAccessReadRpcInputSchema =
   });
 export const peopleComputerFolderPickerBodySchema =
   localFolderPickerRequestSchema.omit({ expectedDeviceId: true });
-export const peopleComputerFolderPickerRpcInputSchema =
+export const peopleComputerFolderPickerRpcInputSchema = z.lazySchema(() =>
   peopleComputerTargetSchema.extend({
     context: openMeldRequestContextSchema,
     ...peopleComputerFolderPickerBodySchema.shape,
-  });
+  })
+);
 export const peopleComputerFileAccessUpdateBodySchema =
   computerFileAccessUpdateRequestSchema.omit({ expectedDeviceId: true });
-export const peopleComputerFileAccessUpdateRpcInputSchema =
+export const peopleComputerFileAccessUpdateRpcInputSchema = z.lazySchema(() =>
   peopleComputerFileAccessReadRpcInputSchema.extend(
     peopleComputerFileAccessUpdateBodySchema.shape
-  );
+  )
+);
 
 export const peopleComputerConnectionSchema = z.strictObject({
   status: z.enum(["connected", "disconnected", "unknown"]),
@@ -80,17 +83,19 @@ export const peopleComputerConnectionSchema = z.strictObject({
   ),
 });
 
-export const peopleComputerSchema = localRuntimeComputerSchema
-  .omit({ connectionStatus: true, isCurrent: true, executionTargets: true })
-  .extend({
-    identityStatus: z.enum(["enrolled", "unconfirmed"]),
-    connection: peopleComputerConnectionSchema,
-    executionTargets: z.array(
-      localRuntimeComputerSchema.shape.executionTargets.element.omit({
-        isCurrent: true,
-      })
-    ),
-  });
+export const peopleComputerSchema = z.lazySchema(() =>
+  localRuntimeComputerSchema
+    .omit({ connectionStatus: true, isCurrent: true, executionTargets: true })
+    .extend({
+      identityStatus: z.enum(["enrolled", "unconfirmed"]),
+      connection: peopleComputerConnectionSchema,
+      executionTargets: z.array(
+        localRuntimeComputerSchema.shape.executionTargets.element.omit({
+          isCurrent: true,
+        })
+      ),
+    })
+);
 
 export const peopleComputersResponseSchema = z.strictObject({
   generatedAt: z.iso.datetime({ offset: true }),
