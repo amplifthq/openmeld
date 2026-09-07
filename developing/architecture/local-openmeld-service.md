@@ -81,6 +81,10 @@ to another installation is not a second owner of this isolated Service.
 Inventory anomalies and effective runtime status must use that same scoped
 manager observation. This does not permit changing another installation's
 registration or suppress multiple owners within the current installation.
+A fresh running lease identifying a directly started process takes precedence
+over that same PID's managed executable path when classifying lifecycle owners.
+Using an installed binary does not itself mean the OS service manager started
+it. Other PIDs and an actually running manager remain independent evidence.
 
 OpenMeld Service does not own:
 

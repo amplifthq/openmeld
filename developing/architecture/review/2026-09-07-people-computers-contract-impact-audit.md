@@ -117,6 +117,15 @@ Service through its installed versioned executable cleared the observed
 `runtime_bundle_mismatch` without weakening process identity checks. The
 remaining external-owner diagnostic still requires the corrected staging CLI.
 
+The corrected binary exposed a second independent owner-counting problem: one
+foreground PID was counted as direct from its fresh runtime lease and as
+system-managed from its installed executable path. Owner classification now
+uses the verified direct lease for that same PID rather than counting its path
+again. A running manager or another managed PID remains independent evidence.
+This changes local owner diagnostics and stop-strategy classification, not the
+Service transport or execution contract. A regression fails on the former
+double count; real packaged staging acceptance is still required.
+
 Staging browser acceptance exposed inherited production cookies masking the
 staging session when both environments used Better Auth's default cookie names.
 Staging Auth now explicitly uses `openmeld-staging`; production names remain

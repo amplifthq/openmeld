@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-07T07:03:33.406Z",
+  "updatedAt": "2026-09-07T07:11:33.235Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
@@ -9,7 +9,7 @@
       "reason": "PeopleComputers uses an explicit computer identity and connection evidence command contract."
     },
     "service": {
-      "bundleHash": "70f7a05bb7ac5814380337704a77716b15c8616434e82b32d3a284bbca73f0aa",
+      "bundleHash": "6ad5b7ddafe3bd756e899a89a54b3785e29e79e75f887ed6d87363dfce54b7c8",
       "bundleVersion": "0.3.165",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
