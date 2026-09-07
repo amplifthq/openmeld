@@ -987,6 +987,21 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "prepare_setup",
     },
     {
+      body: "OpenMeld could not resume the Agent's conversation in time. Try waking the Agent again. If this keeps happening, open Diagnostics.",
+      kind: "system_retry",
+      patterns: ["=context.resume_timeout"],
+      recoveryTarget: null,
+    },
+    {
+      body: "OpenMeld could not read the latest Space messages to finish this reply. Open Diagnostics for details before trying again.",
+      kind: "system_retry",
+      patterns: [
+        "=dispatch.agent_reply_observation.unavailable",
+        "=dispatch.agent_reply_observation.no_progress",
+      ],
+      recoveryTarget: null,
+    },
+    {
       body: (targetName) =>
         `${targetName} stopped making progress on this Wake. Reconnect the computer before trying again.`,
       kind: "local_service",

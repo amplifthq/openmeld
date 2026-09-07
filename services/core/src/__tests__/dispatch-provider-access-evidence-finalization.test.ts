@@ -1,3 +1,4 @@
+import { signalEnvelopeSchema } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonDispatchQueueMessage,
   OpenMeldDaemonTaskResultEnvelope,
@@ -316,6 +317,40 @@ const finalizeExistingAcceptedDispatchResultForTest = async () => {
 };
 
 describe("dispatch provider access evidence finalization", () => {
+  it("publishes a readable reply when finalization has a display name but no mention label", async () => {
+    vi.mocked(spaceSignalEmitter.emitSpaceTextSignal).mockImplementation(
+      async (input) =>
+        signalEnvelopeSchema.parse({
+          v: 1,
+          id: "signal-final-1",
+          spaceId: input.spaceId,
+          ts: 1_700_000_000_200,
+          profile: input.profile,
+          type: "signal.text",
+          data: {
+            text: input.text,
+            messageEnvelope: input.messageEnvelope,
+            meta: input.meta,
+          },
+        })
+    );
+    await expect(
+      finalizeAcceptedDispatchResult({
+        db: {} as D1Database,
+        dispatchMessage,
+        env: buildEnv(),
+        inboxRecord: buildInboxRecord(unboundSuccessTaskResult),
+        recordPublicationProjection: false,
+        targetOwnerUserId: "owner-1",
+        targetProfileMentionLabel: null,
+        targetProfileName: "Felix Lu Codex GPT-5.6 Sol (1)",
+      })
+    ).resolves.toMatchObject({
+      status: "finalized",
+      publishedSignalId: "signal-final-1",
+    });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });

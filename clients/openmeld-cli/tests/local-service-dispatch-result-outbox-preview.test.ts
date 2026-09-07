@@ -135,6 +135,7 @@ function createPresenter(): Presenter & { events: Array<{ code?: string }> } {
 function createAcceptedSettlementSocket(input: {
   ledgerPaths: LedgerPaths;
   presenter: Presenter;
+  reviewFirst?: boolean;
 }): { send: ReturnType<typeof vi.fn> } {
   let acknowledgementQueued = false;
   return {
@@ -157,9 +158,12 @@ function createAcceptedSettlementSocket(input: {
           attemptId: frame.payload?.attemptId ?? null,
           dispatchId: frame.payload?.dispatchId ?? "unknown",
           ledgerPaths: input.ledgerPaths,
-          ok: true,
+          ok: !input.reviewFirst,
           presenter: input.presenter,
-          status: "accepted",
+          status: input.reviewFirst ? "review_required" : "accepted",
+          ...(input.reviewFirst
+            ? { reasonCode: "space.agent_reply.context_changed" }
+            : {}),
         });
       });
     }),
@@ -813,6 +817,88 @@ describe("dispatch result outbox around preview teardown", () => {
         errorCode: null,
         errorMessage: null,
         result: "success",
+      });
+      expect(fetchSpaceMetaMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("ends result review without restarting the controller when the context cursor cannot advance", async () => {
+    await withTempHome(async () => {
+      const ledgerPaths = createLedgerPaths();
+      const presenter = createPresenter();
+      const settlementSocket = createAcceptedSettlementSocket({
+        reviewFirst: true,
+        ledgerPaths,
+        presenter,
+      });
+      const socket = settlementSocket as never;
+      const runtimeContext = {
+        providerRuntimeWorkingDirectory: process.cwd(),
+      };
+      fetchSpaceMetaMock.mockResolvedValueOnce(
+        spaceMetaSchema.parse({
+          spaceId: "space-1",
+          organizationId: "org-1",
+          visibility: "private",
+          name: "Launch Room",
+          purpose: "Coordinate the launch",
+          guide: "Prefer reversible decisions.",
+        })
+      );
+      resolveProfileWorkspaceRuntimeMock.mockResolvedValue({
+        runtimeContext,
+        status: "ready",
+      });
+      prepareProviderRuntimeMock.mockResolvedValue({
+        envOverrides: undefined,
+        preparationDetails: { kind: "none" },
+        runtimeContext,
+      });
+      runRuntimeTaskMock.mockImplementationOnce((input) => {
+        expect(input.task.prompt).toContain(
+          '- This space: "Launch Room" — Coordinate the launch'
+        );
+        expect(input.task.prompt).toContain(
+          "- Space guide (maintained by this space's steward):\nPrefer reversible decisions."
+        );
+        return createRuntimeSuccessResult();
+      });
+
+      const result = await handleDispatchDeliverFrame({
+        computerFileAccessStorePath:
+          "/tmp/openmeld-test-missing-computer-file-access-policy.json",
+        contextStore: new Map(),
+        currentSocketRef: { connectionGeneration: 1, socket },
+        daemonSessionId: "daemon-session-1",
+        deliverRequest: createDeliverRequest(),
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: {
+          getAdapter: () => ({ adapter: {} }),
+        } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: createCurrentRouteByProfileId(),
+        socket,
+      });
+
+      expect(result).toMatchObject({
+        errorCode: "dispatch.agent_reply_observation.no_progress",
+        result: "failed",
+      });
+      expect(runRuntimeTaskMock).toHaveBeenCalledOnce();
+      const submitted = settlementSocket.send.mock.calls
+        .map(([raw]) => JSON.parse(raw))
+        .filter((frame) => frame.code === "daemon.dispatch.result");
+      expect(submitted).toHaveLength(2);
+      expect(submitted[1].payload.taskResult.payload).toMatchObject({
+        status: "failed",
+        errorCode: "dispatch.agent_reply_observation.no_progress",
       });
       expect(fetchSpaceMetaMock).toHaveBeenCalledTimes(1);
     });

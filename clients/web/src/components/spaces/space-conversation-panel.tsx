@@ -138,6 +138,10 @@ import {
 } from "./space-execution-recovery-actions";
 import { SpaceGraph, type SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
+import {
+	buildSpaceMessageAgentMentionProfiles,
+	splitSpaceMessageAgentMentionText,
+} from "./space-message-agent-mention";
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
@@ -2740,6 +2744,10 @@ function ConversationBubbleContent(input: {
 				item={input.item}
 				loadedMainTimelineSignalIds={parent.loadedMainTimelineSignalIds}
 				onJumpToMessage={parent.onJumpToMessage}
+				profilePresentationsById={parent.profilePresentationsById}
+				sourceItem={parent.timelineItems.find(
+					(item) => item.id === input.item.replyToSignalId
+				)}
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
 			<SpaceMessageBody
@@ -3185,11 +3193,32 @@ function ReplyPreview(input: {
 	item: SpaceTimelineItem;
 	loadedMainTimelineSignalIds: ReadonlySet<string>;
 	onJumpToMessage: (signalId: string) => void;
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
+	sourceItem?: SpaceTimelineItem;
 	spaceReferencesById?: SpaceMessageReferencesById;
 }) {
 	if (!input.item.replyPreviewText) {
 		return null;
 	}
+	const profiles = buildSpaceMessageAgentMentionProfiles({
+		profilePresentationsById: input.profilePresentationsById,
+		wakeTargetProfileIds: input.sourceItem?.wakeTargetProfileIds ?? [],
+		referenceTargetProfileIds:
+			input.sourceItem?.referenceTargetProfileIds ?? [],
+	});
+	const previewText = splitSpaceMessageAgentMentionText(
+		input.item.replyPreviewText,
+		profiles
+	)
+		.map((segment) =>
+			segment.kind === "text"
+				? segment.value
+				: `@${segment.profile.profileName}`
+		)
+		.join("");
 
 	const replyToSignalId = input.item.replyToSignalId;
 	const canJump =
@@ -3199,7 +3228,7 @@ function ReplyPreview(input: {
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
 	const hasSpaceReference = hasResolvedSpaceMessageReference({
 		referencesById: spaceReferencesById,
-		text: input.item.replyPreviewText,
+		text: previewText,
 	});
 	const replyLabel = (
 		<>
@@ -3217,7 +3246,7 @@ function ReplyPreview(input: {
 			<p className="line-clamp-2 text-foreground/78">
 				<SpaceMessageReferenceText
 					referencesById={spaceReferencesById}
-					text={input.item.replyPreviewText}
+					text={previewText}
 				/>
 			</p>
 		</>
@@ -3262,7 +3291,7 @@ function ReplyPreview(input: {
 				<p className="line-clamp-2 text-foreground/78">
 					<SpaceMessageReferenceText
 						referencesById={spaceReferencesById}
-						text={input.item.replyPreviewText}
+						text={previewText}
 					/>
 				</p>
 			</div>

@@ -10,6 +10,7 @@ import {
 import { MotionConfig } from "framer-motion";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import {
 	SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS,
 	SPACE_RESPONSE_TRUNCATED_MARKER,
@@ -150,6 +151,33 @@ describe("SpaceMessageBody", () => {
 		fireEvent.click(mentionButton);
 		expect(onOpenAgentProfile).toHaveBeenCalledOnce();
 		expect(onOpenAgentProfile).toHaveBeenCalledWith(WAKE_TARGET_PROFILE_ID);
+	});
+
+	it.each([
+		false,
+		true,
+	])("renders a structured ID mention using its display name (Markdown: %s)", (isAgentFinalReply) => {
+		const profileName = "Felix Lu Codex GPT-5.6 Sol (1)";
+		const profiles = new Map<string, SpaceCollaborationProfilePresentation>(
+			createWakeTargetProfilePresentations()
+		);
+		const profile = profiles.get(WAKE_TARGET_PROFILE_ID);
+		if (!profile) {
+			throw new Error("Missing Wake target fixture");
+		}
+		profiles.set(WAKE_TARGET_PROFILE_ID, { ...profile, profileName });
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply,
+					text: `@${WAKE_TARGET_PROFILE_ID} hi`,
+					wakeTargetProfileIds: [WAKE_TARGET_PROFILE_ID],
+				}}
+				profilePresentationsById={profiles}
+			/>
+		);
+		expect(view.container.textContent).toContain(profileName);
+		expect(view.container.textContent).not.toContain(WAKE_TARGET_PROFILE_ID);
 	});
 
 	it("renders a structured Agent Reference with the same profile-details behavior", () => {

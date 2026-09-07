@@ -132,6 +132,7 @@ import {
   type DispatchAgentReplyObservation,
   readDispatchAgentReplyObservation,
 } from "./dispatch-agent-reply-observation";
+import { settleAgentReplyProposals } from "./dispatch-agent-reply-settlement";
 import {
   type DispatchImageAttachmentPreparation,
   downloadDispatchImageAttachment,
@@ -3620,11 +3621,10 @@ async function coordinateConcurrentAgentReply(input: {
           taskId: input.parsedTask.taskId,
         },
       });
-      return {
-        observedThroughSignalId,
-        relevantSignals: [],
-        status: "current",
-      };
+      throw new DaemonServiceRunError({
+        code: "dispatch.agent_reply_observation.unavailable",
+        message: `OpenMeld could not read the Space context before publishing the Agent reply: ${toErrorMessage(error)}`,
+      });
     }
   };
   const observation = await readObservation(
@@ -4846,28 +4846,6 @@ function sendResultAndSummarize(input: {
   };
 }
 
-function requireDispatchResultOutboxSettlement(input: {
-  settlement: Promise<DispatchResultOutboxSettlement> | null;
-}): Promise<DispatchResultOutboxSettlement> {
-  if (!input.settlement) {
-    throw new DaemonServiceRunError({
-      code: "dispatch.result_settlement.not_registered",
-      message:
-        "OpenMeld could not wait for the Agent reply because result settlement was not registered.",
-    });
-  }
-  return input.settlement;
-}
-
-function shouldAwaitAgentReplySettlement(
-  payload: OpenMeldDaemonTaskResultPayload
-): boolean {
-  return (
-    (payload.status === "success" || payload.status === "partial_success") &&
-    payload.spaceAction?.type === "post_message"
-  );
-}
-
 function requireCompletedDispatchPlans(input: {
   bootstrapPlan: BootstrapPlan | null;
   ledgerIo: ReturnType<typeof createLedgerIo> | null;
@@ -4899,47 +4877,6 @@ function requireCompletedDispatchPlans(input: {
     localRuntimeContextPlan: input.localRuntimeContextPlan,
     runtimePromptPlan: input.runtimePromptPlan,
   };
-}
-
-async function settleAgentReplyProposals(input: {
-  initialResultPayload: OpenMeldDaemonTaskResultPayload;
-  reconsider: (
-    agentReplyObservationCursor: string
-  ) => Promise<OpenMeldDaemonTaskResultPayload>;
-  submit: (payload: OpenMeldDaemonTaskResultPayload) => {
-    resultSummary: LocalExecutionSlotTaskResult;
-    settlement: Promise<DispatchResultOutboxSettlement> | null;
-  };
-}): Promise<{
-  resultPayload: OpenMeldDaemonTaskResultPayload;
-  resultSummary: LocalExecutionSlotTaskResult | null;
-}> {
-  let resultPayload = input.initialResultPayload;
-  while (shouldAwaitAgentReplySettlement(resultPayload)) {
-    const proposal = input.submit(resultPayload);
-    const settlement = await requireDispatchResultOutboxSettlement(proposal);
-    if (settlement.status === "accepted") {
-      return {
-        resultPayload,
-        resultSummary: proposal.resultSummary,
-      };
-    }
-    if (settlement.status === "rejected_terminal") {
-      throw new DaemonServiceRunError({
-        code: settlement.reasonCode,
-        message: `OpenMeld rejected the Agent reply proposal: ${settlement.reasonCode}`,
-      });
-    }
-    const observedThroughSignalId =
-      resultPayload.spaceAction?.type === "post_message"
-        ? resultPayload.spaceAction.observedThroughSignalId
-        : null;
-    resultPayload = await input.reconsider(
-      normalizeOptionalText(observedThroughSignalId) ??
-        resultPayload.sourceEventId
-    );
-  }
-  return { resultPayload, resultSummary: null };
 }
 
 async function requestDispatchAgentInteraction(input: {

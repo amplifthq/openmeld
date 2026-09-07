@@ -70,6 +70,7 @@ import {
   remoteAgentWorkerExecutionInputResponseSchema,
   removeSpaceMembersBodySchema,
   resolveMappedPublicAgentFailureReason,
+  resolveSingleSpaceMentionLabels,
   resolveSpaceComposerUploadScopeResponseSchema,
   resolveSpaceFileContentInputSchema,
   respondToSpaceAgentInteractionInputSchema,
@@ -3816,8 +3817,15 @@ export class Space extends DurableObject<CoreBindings> {
       throw error;
     }
 
-    const finalSignal =
-      this.readAgentTransportSpaceActionFinalSignal(input) ?? signal;
+    const finalSignal = this.readAgentTransportSpaceActionFinalSignal(input);
+    if (!finalSignal) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: "space.agent_reply.final_signal_unreadable",
+        reason:
+          "The published Agent reply could not be read from Space storage.",
+      });
+    }
     return {
       emittedSignal: finalSignal,
       finalReplySettled: true,
@@ -15681,7 +15689,10 @@ export class Space extends DurableObject<CoreBindings> {
       member?.profileNameSnapshot
     );
     return {
-      targetProfileMentionLabel: targetProfileName,
+      targetProfileMentionLabel: resolveSingleSpaceMentionLabels({
+        profileId: targetProfileId,
+        profileName: targetProfileName,
+      }).primaryMentionLabel,
       targetProfileName,
     };
   }
