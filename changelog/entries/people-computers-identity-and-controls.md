@@ -4,6 +4,9 @@ title: Clearer computer status and precise computer controls
 kind: fixed
 areas: ["computers", "agents", "center-agent", "cli"]
 audiences: ["users", "developers"]
+publishedAt: 2026-09-07
+release: v0.3.165
+evidence: ["pr:716", "pr:717", "commit:943ea1dd9732a70115497def08095df30509743c", "workflow:34114975948", "https://github.com/amplifthq/openmeld/pull/716#issuecomment-5570106116"]
 ---
 
 Computer status distinguishes a live connection, a normal disconnection, and a
