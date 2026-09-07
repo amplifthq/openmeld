@@ -1019,6 +1019,8 @@ export {
   centerAgentReadinessBlockerSchema,
   centerAgentReadMemberComputersBodySchema,
   centerAgentReadMemberComputersResponseSchema,
+  centerAgentReadPeopleComputersBodySchema,
+  centerAgentReadPeopleComputersResponseSchema,
   centerAgentReadSpaceContextBodySchema,
   centerAgentReadSpaceContextResponseSchema,
   centerAgentRecordConnectorActionAuditBodySchema,

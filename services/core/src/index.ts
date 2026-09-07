@@ -7,6 +7,7 @@ import type {
 } from "@openmeld/protocol";
 import {
   type ListCenterAgentSessionsResponse,
+  peopleComputerTargetSchema,
   toLegacySpaceAddressingWireValue,
 } from "@openmeld/schemas";
 import type {
@@ -80,6 +81,7 @@ import type {
   CenterAgentReadOrganizationDocumentsRpcInput,
   CenterAgentReadOrganizationSkillsResponse,
   CenterAgentReadOrganizationSkillsRpcInput,
+  CenterAgentReadPeopleComputersResponse,
   CenterAgentReadSlackChannelHistoryResponse,
   CenterAgentReadSlackChannelMembersResponse,
   CenterAgentReadSlackFileResponse,
@@ -562,6 +564,7 @@ import {
   type CenterAgentReadMemberOpenMeldServiceStatusInput,
   type CenterAgentReadOrganizationDirectoryInput,
   type CenterAgentReadOrganizationSpaceDirectoryInput,
+  type CenterAgentReadPeopleComputersInput,
   type CenterAgentReadSlackChannelHistoryInput,
   type CenterAgentReadSlackChannelMembersInput,
   type CenterAgentReadSlackFileInput,
@@ -772,6 +775,7 @@ import {
   rpcCenterAgentReadDispatchHistory,
   rpcCenterAgentReadMemberComputers,
   rpcCenterAgentReadMemberOpenMeldServiceStatus,
+  rpcCenterAgentReadPeopleComputers,
   rpcCenterAgentReadSlackChannelHistory,
   rpcCenterAgentReadSlackChannelMembers,
   rpcCenterAgentReadSlackFile,
@@ -2824,10 +2828,53 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentListComputers(this.env, input);
   }
 
+  centerAgentReadPeopleComputers(
+    input: CenterAgentReadPeopleComputersInput
+  ): Promise<CenterAgentReadPeopleComputersResponse> {
+    return rpcCenterAgentReadPeopleComputers(this.env, input);
+  }
+
   centerAgentRequestOpenMeldToolsUpdate(
     input: CenterAgentRequestOpenMeldToolsUpdateInput
   ): Promise<CenterAgentRequestOpenMeldToolsUpdateResponse> {
     return rpcCenterAgentRequestOpenMeldToolsUpdate(this.env, input);
+  }
+
+  // Separate RPC names prevent an old Core from silently ignoring a target.
+  centerAgentRequestPeopleComputerToolsUpdate(
+    input: CenterAgentRequestOpenMeldToolsUpdateInput
+  ): Promise<CenterAgentRequestOpenMeldToolsUpdateResponse> {
+    return rpcCenterAgentRequestOpenMeldToolsUpdate(this.env, {
+      ...input,
+      target: peopleComputerTargetSchema.parse(input.target),
+    });
+  }
+
+  centerAgentSetPeopleComputerToolsMaintenance(
+    input: CenterAgentSetOpenMeldToolsMaintenanceInput
+  ): Promise<CenterAgentSetOpenMeldToolsMaintenanceResponse> {
+    return rpcCenterAgentSetOpenMeldToolsMaintenance(this.env, {
+      ...input,
+      target: peopleComputerTargetSchema.parse(input.target),
+    });
+  }
+
+  centerAgentListPeopleComputerLocalAgentInstallations(
+    input: CenterAgentListLocalAgentInstallationsInput
+  ): Promise<CenterAgentListLocalAgentInstallationsResponse> {
+    return rpcCenterAgentListLocalAgentInstallations(this.env, {
+      ...input,
+      target: peopleComputerTargetSchema.parse(input.target),
+    });
+  }
+
+  centerAgentSelectPeopleComputerLocalAgentInstallation(
+    input: CenterAgentSelectLocalAgentInstallationInput
+  ): Promise<CenterAgentSelectLocalAgentInstallationResponse> {
+    return rpcCenterAgentSelectLocalAgentInstallation(this.env, {
+      ...input,
+      target: peopleComputerTargetSchema.parse(input.target),
+    });
   }
 
   centerAgentSetOpenMeldToolsMaintenance(

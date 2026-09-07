@@ -1,11 +1,155 @@
 import { env } from "cloudflare:test";
-import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
-import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
+import {
+  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+  HOSTED_CENTER_AGENT_CONTROLLER_REF,
+} from "@openmeld/schemas";
+import type {
+  OpenMeldRequestContext,
+  RuntimeTransportLookupOwnerServiceResponse,
+} from "@openmeld/schemas/types";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
-import { rpcCenterAgentListLocalAgentConnectionCandidates } from "../src/rpc/methods";
+import {
+  rpcCenterAgentListLocalAgentConnectionCandidates,
+  rpcCenterAgentReadPeopleComputers,
+  rpcCenterAgentRequestOpenMeldToolsUpdate,
+} from "../src/rpc/methods";
 
 describe("Center Agent PeopleComputers authorization", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("returns only the represented member's inventory without claiming a current computer", async () => {
+    const fixture = await seedFixture();
+    const request = {
+      context: fixture.context,
+      speakerMember: {
+        memberId: fixture.member.memberId,
+        userId: fixture.member.userId,
+      },
+    };
+    const result = await rpcCenterAgentReadPeopleComputers(
+      fixture.coreEnv,
+      request
+    );
+    expect(result.inventory.computers).toHaveLength(1);
+    expect(JSON.stringify(result.inventory)).toContain(fixture.member.deviceId);
+    expect(JSON.stringify(result)).not.toContain(fixture.owner.deviceId);
+    expect(JSON.stringify(result)).not.toContain('"isCurrent"');
+    expect(result.selectedComputer).toBeNull();
+    const transport = await import(
+      "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
+    );
+    const disconnected: RuntimeTransportLookupOwnerServiceResponse = {
+      online: false,
+      reasonCode: "daemon.session.not_found",
+    };
+    vi.spyOn(transport, "lookupRuntimeTransportOwnerService").mockResolvedValue(
+      disconnected
+    );
+    const target = {
+      deviceId: fixture.member.deviceId,
+      runtimeLane: "canary" as const,
+    };
+    const selected = await rpcCenterAgentReadPeopleComputers(fixture.coreEnv, {
+      ...request,
+      target,
+    });
+    expect(selected.selectedComputer).toMatchObject({
+      target,
+      readiness: {
+        canReplyFromThisComputer: false,
+        currentTarget: { availability: "resolved", ...target },
+        service: { connected: false },
+      },
+      fileAccess: { status: "unavailable" },
+    });
+    await expect(
+      rpcCenterAgentReadPeopleComputers(fixture.coreEnv, {
+        ...request,
+        target: { deviceId: fixture.owner.deviceId, runtimeLane: "prod" },
+      })
+    ).rejects.toThrow("not available on your account");
+  });
+
+  it("updates only the represented member's explicit environment, never the hosted owner's computer", async () => {
+    const transport = await import(
+      "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
+    );
+    const fixture = await seedFixture();
+    const ownerService: RuntimeTransportLookupOwnerServiceResponse = {
+      online: true,
+      sessions: [
+        {
+          daemonSessionId: "member-service",
+          deviceId: fixture.member.deviceId,
+          lane: "canary",
+          connectionGeneration: 1,
+          lastHeartbeatMs: Date.now(),
+          serviceVersion: "0.3.164",
+          capabilities: { openMeldToolsControl: { requestUpdate: true } },
+          executionCompatibility: {
+            status: "compatible",
+            expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+            observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+            reasonCode: "daemon.runtime_contract.compatible",
+          },
+        },
+      ],
+    };
+    const lookup = vi
+      .spyOn(transport, "lookupRuntimeTransportOwnerService")
+      .mockResolvedValue(ownerService);
+    const control = vi
+      .spyOn(transport, "controlRuntimeTransportOpenMeldTools")
+      .mockResolvedValue({
+        status: "accepted",
+        result: {
+          operation: "request_update",
+          result: { status: "current", currentVersion: "0.3.164" },
+        },
+      });
+    const request = {
+      context: fixture.context,
+      speakerMember: {
+        memberId: fixture.member.memberId,
+        userId: fixture.member.userId,
+      },
+      target: {
+        deviceId: fixture.member.deviceId,
+        runtimeLane: "canary" as const,
+      },
+    };
+    await expect(
+      rpcCenterAgentRequestOpenMeldToolsUpdate(fixture.coreEnv, {
+        ...request,
+        target: { ...request.target, deviceId: fixture.owner.deviceId },
+      })
+    ).rejects.toThrow("not available on your account");
+    await expect(
+      rpcCenterAgentRequestOpenMeldToolsUpdate(fixture.coreEnv, {
+        ...request,
+        target: { ...request.target, runtimeLane: "prod" },
+      })
+    ).rejects.toThrow("disconnected in this environment");
+    expect(control).not.toHaveBeenCalled();
+    await expect(
+      rpcCenterAgentRequestOpenMeldToolsUpdate(fixture.coreEnv, request)
+    ).resolves.toMatchObject({
+      result: { status: "current" },
+    });
+    expect(lookup).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ownerUserId: fixture.member.userId })
+    );
+    expect(control).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        ownerUserId: fixture.member.userId,
+        deviceId: fixture.member.deviceId,
+        runtimeLane: "canary",
+        request: { operation: "request_update", requestSource: "center_agent" },
+      })
+    );
+  });
+
   it("reads the requesting member's devices instead of the hosted Profile owner's devices", async () => {
     const fixture = await seedFixture();
     const result = await rpcCenterAgentListLocalAgentConnectionCandidates(

@@ -469,6 +469,19 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentGetOrganizationSpaceDirectory?(input: unknown): Promise<unknown>;
   centerAgentListActiveSpaceWakes?(input: unknown): Promise<unknown>;
   centerAgentListComputers?(input: unknown): Promise<unknown>;
+  centerAgentReadPeopleComputers?(input: unknown): Promise<unknown>;
+  centerAgentRequestPeopleComputerToolsUpdate?(
+    input: unknown
+  ): Promise<unknown>;
+  centerAgentSetPeopleComputerToolsMaintenance?(
+    input: unknown
+  ): Promise<unknown>;
+  centerAgentListPeopleComputerLocalAgentInstallations?(
+    input: unknown
+  ): Promise<unknown>;
+  centerAgentSelectPeopleComputerLocalAgentInstallation?(
+    input: unknown
+  ): Promise<unknown>;
   centerAgentRequestOpenMeldToolsUpdate?(input: unknown): Promise<unknown>;
   centerAgentSetOpenMeldToolsMaintenance?(input: unknown): Promise<unknown>;
   centerAgentListLocalAgentInstallations?(input: unknown): Promise<unknown>;

@@ -62,6 +62,17 @@ versioned release PR; this feature branch does not hand-edit release manifests.
 
 ## Evidence and remaining acceptance
 
+Center Agent's canonical inventory read and four explicit control calls now use
+distinct Worker RPC method names. Existing current-target methods remain for
+old producers, with unchanged response shapes. A missing new receiver fails
+closed; new producers must not retry against an old method that may discard the
+target. No Service message or execution epoch changes. The canonical read omits
+implicit current-computer diagnostics; selected diagnostics require a target
+owned by the represented member. Focused real-D1 tests cover member inventory,
+absence of a browser-current claim, foreign-owner rejection and exact-lane
+update routing. Public Center Agent acceptance remains required after the
+receiver-first staging deployment.
+
 Web self-owned Agent creation now preserves the chosen device, lane, runtime
 and controller through the existing `localAgentConnectionCandidateId` field.
 Its encoding moved unchanged to `packages/agent-runtime` for Core and Web reuse;

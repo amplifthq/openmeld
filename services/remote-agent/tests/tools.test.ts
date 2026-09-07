@@ -1040,12 +1040,12 @@ describe("remote agent OpenMeld tool catalog", () => {
     const centerAgentReadMemberComputers = vi.fn(async () =>
       memberComputersResponse()
     );
-    const centerAgentListComputers = vi.fn();
+    const centerAgentReadPeopleComputers = vi.fn();
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: {
         centerAgentAuthorizeAnonymousMemberTool,
         centerAgentGetOrganizationDirectory,
-        centerAgentListComputers,
+        centerAgentReadPeopleComputers,
         centerAgentReadMemberComputers,
       },
       storage: await createStorageWithPendingContext(request),
@@ -1079,7 +1079,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     await expect(
       executeTool(tools, "openmeld_list_computers", {})
     ).rejects.toThrow("Missing remote-agent tool: openmeld_list_computers");
-    expect(centerAgentListComputers).not.toHaveBeenCalled();
+    expect(centerAgentReadPeopleComputers).not.toHaveBeenCalled();
   });
 
   it("lists Slack channels and reads joined-channel members and history through Core", async () => {
@@ -2424,33 +2424,24 @@ describe("remote agent OpenMeld tool catalog", () => {
         },
       },
     });
-    const centerAgentListComputers = vi.fn(async () => listComputersResponse());
+    const centerAgentReadPeopleComputers = vi.fn(async () =>
+      listComputersResponse()
+    );
     const storage = await createStorageWithPendingContext(request);
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentListComputers },
+      coreWorker: { centerAgentReadPeopleComputers },
       storage,
     });
 
     await expect(
       executeTool(tools, "openmeld_list_computers", {})
     ).resolves.toEqual({
-      computers: [
-        {
-          connectedComputerId: "computer_1",
-          deviceDisplayName: "Felix MacBook Pro",
-          deviceId: "device_1",
-          isCurrent: true,
-          lastObservedAtMs: 1000,
-          reasonCodes: ["service.update_required"],
-          recommendedMode: "update_service",
-          status: "needs_attention",
-        },
-      ],
+      inventory: { computers: [], generatedAt: "2026-09-07T00:00:00.000Z" },
+      selectedComputer: null,
       organizationId: "org_123",
     });
-    expect(centerAgentListComputers).toHaveBeenCalledWith(
+    expect(centerAgentReadPeopleComputers).toHaveBeenCalledWith(
       expect.objectContaining({
-        includeDiagnostics: true,
         includeUsageLimits: "true",
         speakerMember: { memberId: "member_123", userId: "user_1" },
       })
@@ -2460,98 +2451,143 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).resolves.not.toHaveProperty("navigationTarget");
   });
 
+  it("rejects Computer controls without an explicit device and environment before calling Core", async () => {
+    const invoke = vi.fn();
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentRequestPeopleComputerToolsUpdate: invoke,
+        centerAgentSetPeopleComputerToolsMaintenance: invoke,
+        centerAgentListPeopleComputerLocalAgentInstallations: invoke,
+        centerAgentSelectPeopleComputerLocalAgentInstallation: invoke,
+      },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+    const cases = [
+      ["openmeld_update_openmeld_tools", {}],
+      ["openmeld_set_openmeld_tools_updates", { enabled: false }],
+      ["openmeld_list_local_agent_installations", { agentId: "codex" }],
+      [
+        "openmeld_select_local_agent_installation",
+        { agentId: "codex", installationId: "install-1", confirmed: true },
+      ],
+    ] as const;
+    for (const [name, payload] of cases) {
+      await expect(executeTool(tools, name, payload)).rejects.toThrow();
+      await expect(
+        executeTool(tools, name, {
+          ...payload,
+          target: { deviceId: "second-computer" },
+        })
+      ).rejects.toThrow();
+    }
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("updates OpenMeld Tools through the requester's private Computer control", async () => {
-    const centerAgentRequestOpenMeldToolsUpdate = vi.fn(async () => ({
+    const target = { deviceId: "second-computer", runtimeLane: "canary" };
+    const centerAgentRequestPeopleComputerToolsUpdate = vi.fn(async () => ({
       organizationId: "org_123",
       result: { currentVersion: "0.3.87", status: "current" as const },
     }));
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentRequestOpenMeldToolsUpdate },
+      coreWorker: { centerAgentRequestPeopleComputerToolsUpdate },
       storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
     });
 
     await expect(
-      executeTool(tools, "openmeld_update_openmeld_tools", {})
+      executeTool(tools, "openmeld_update_openmeld_tools", { target })
     ).resolves.toEqual({
       organizationId: "org_123",
       result: { currentVersion: "0.3.87", status: "current" },
     });
-    expect(centerAgentRequestOpenMeldToolsUpdate).toHaveBeenCalledWith(
+    expect(centerAgentRequestPeopleComputerToolsUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
+        target,
         speakerMember: { memberId: "member_123", userId: "user_1" },
       })
     );
   });
 
   it("changes the current Computer's OpenMeld Tools update setting", async () => {
-    const centerAgentSetOpenMeldToolsMaintenance = vi.fn(async () => ({
+    const target = { deviceId: "second-computer", runtimeLane: "canary" };
+    const centerAgentSetPeopleComputerToolsMaintenance = vi.fn(async () => ({
       organizationId: "org_123",
       result: { automaticUpdatesEnabled: false, status: "updated" as const },
     }));
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentSetOpenMeldToolsMaintenance },
+      coreWorker: { centerAgentSetPeopleComputerToolsMaintenance },
       storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
     });
 
     await expect(
       executeTool(tools, "openmeld_set_openmeld_tools_updates", {
         enabled: false,
+        target,
       })
     ).resolves.toEqual({
       organizationId: "org_123",
       result: { automaticUpdatesEnabled: false, status: "updated" },
     });
-    expect(centerAgentSetOpenMeldToolsMaintenance).toHaveBeenCalledWith(
+    expect(centerAgentSetPeopleComputerToolsMaintenance).toHaveBeenCalledWith(
       expect.objectContaining({
         automaticUpdatesEnabled: false,
+        target,
         speakerMember: { memberId: "member_123", userId: "user_1" },
       })
     );
   });
 
   it("lists local agent installations before a confirmed switch", async () => {
-    const centerAgentListLocalAgentInstallations = vi.fn(async () => ({
-      agentId: "codex",
-      installations: [
-        {
-          details: "v0.149.1 · Signed in",
-          installationId: "install-nvm",
-          name: "nvm install",
-          selected: true,
-        },
-      ],
-      organizationId: "org_123",
-      selectionStatus: "available" as const,
-      selectedInstallationId: "install-nvm",
-    }));
+    const target = { deviceId: "second-computer", runtimeLane: "canary" };
+    const centerAgentListPeopleComputerLocalAgentInstallations = vi.fn(
+      async () => ({
+        agentId: "codex",
+        installations: [
+          {
+            details: "v0.149.1 · Signed in",
+            installationId: "install-nvm",
+            name: "nvm install",
+            selected: true,
+          },
+        ],
+        organizationId: "org_123",
+        selectionStatus: "available" as const,
+        selectedInstallationId: "install-nvm",
+      })
+    );
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentListLocalAgentInstallations },
+      coreWorker: { centerAgentListPeopleComputerLocalAgentInstallations },
       storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
     });
 
     await expect(
       executeTool(tools, "openmeld_list_local_agent_installations", {
         agentId: "codex",
+        target,
       })
     ).resolves.toMatchObject({
       agentId: "codex",
       organizationId: "org_123",
       selectedInstallationId: "install-nvm",
     });
-    expect(centerAgentListLocalAgentInstallations).toHaveBeenCalledWith(
+    expect(
+      centerAgentListPeopleComputerLocalAgentInstallations
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         agentId: "codex",
+        target,
         speakerMember: { memberId: "member_123", userId: "user_1" },
       })
     );
   });
 
   it("cannot switch a local agent installation without explicit confirmation", async () => {
-    const centerAgentSelectLocalAgentInstallation = vi.fn(() =>
+    const target = { deviceId: "second-computer", runtimeLane: "canary" };
+    const centerAgentSelectPeopleComputerLocalAgentInstallation = vi.fn(() =>
       Promise.reject(new Error("switch reached Core"))
     );
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentSelectLocalAgentInstallation },
+      coreWorker: { centerAgentSelectPeopleComputerLocalAgentInstallation },
       storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
     });
 
@@ -2560,22 +2596,29 @@ describe("remote agent OpenMeld tool catalog", () => {
         agentId: "codex",
         confirmed: false,
         installationId: "install-chatgpt",
+        target,
       })
     ).rejects.toThrow();
-    expect(centerAgentSelectLocalAgentInstallation).not.toHaveBeenCalled();
+    expect(
+      centerAgentSelectPeopleComputerLocalAgentInstallation
+    ).not.toHaveBeenCalled();
 
     await expect(
       executeTool(tools, "openmeld_select_local_agent_installation", {
         agentId: "codex",
         confirmed: true,
         installationId: "install-chatgpt",
+        target,
       })
     ).rejects.toThrow("switch reached Core");
-    expect(centerAgentSelectLocalAgentInstallation).toHaveBeenCalledWith(
+    expect(
+      centerAgentSelectPeopleComputerLocalAgentInstallation
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         agentId: "codex",
         confirmed: true,
         installationId: "install-chatgpt",
+        target,
         speakerMember: { memberId: "member_123", userId: "user_1" },
       })
     );
@@ -2594,9 +2637,11 @@ describe("remote agent OpenMeld tool catalog", () => {
         },
       },
     });
-    const centerAgentListComputers = vi.fn(async () => listComputersResponse());
+    const centerAgentReadPeopleComputers = vi.fn(async () =>
+      listComputersResponse()
+    );
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentListComputers },
+      coreWorker: { centerAgentReadPeopleComputers },
       storage: await createStorageWithPendingContext(request),
       turnEnvelope: request.turnEnvelope,
     });
@@ -2604,7 +2649,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     await expect(
       executeTool(tools, "openmeld_list_computers", {})
     ).rejects.toThrow("only in your direct conversation");
-    expect(centerAgentListComputers).not.toHaveBeenCalled();
+    expect(centerAgentReadPeopleComputers).not.toHaveBeenCalled();
   });
 
   it("uses provider-linked member identity for requester-private Computer diagnostics", async () => {
@@ -2629,9 +2674,11 @@ describe("remote agent OpenMeld tool catalog", () => {
         trigger: { source: "slack", teamId: "T123" },
       },
     });
-    const centerAgentListComputers = vi.fn(async () => listComputersResponse());
+    const centerAgentReadPeopleComputers = vi.fn(async () =>
+      listComputersResponse()
+    );
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentListComputers },
+      coreWorker: { centerAgentReadPeopleComputers },
       storage: await createStorageWithPendingContext(request),
       turnEnvelope: request.turnEnvelope,
     });
@@ -2639,9 +2686,8 @@ describe("remote agent OpenMeld tool catalog", () => {
     await expect(
       executeTool(tools, "openmeld_list_computers", {})
     ).resolves.toMatchObject({ organizationId: "org_123" });
-    expect(centerAgentListComputers).toHaveBeenCalledWith(
+    expect(centerAgentReadPeopleComputers).toHaveBeenCalledWith(
       expect.objectContaining({
-        includeDiagnostics: true,
         speakerMember: { memberId: "member_123", userId: "user_1" },
       })
     );
@@ -6315,13 +6361,12 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     },
     {
       expectedPayload: {
-        includeDiagnostics: true,
         includeUsageLimits: "true",
         speakerMember: { memberId: "member_123", userId: "user_1" },
       },
       input: {},
       response: listComputersResponse(),
-      rpcName: "centerAgentListComputers",
+      rpcName: "centerAgentReadPeopleComputers",
       toolName: "openmeld_list_computers",
     },
     {
@@ -7258,20 +7303,10 @@ function localAgentConnectionCandidatesResponse(candidateId: string) {
   };
 }
 
-function listComputersResponse() {
+function listComputersResponse(): import("@openmeld/schemas/types").CenterAgentReadPeopleComputersResponse {
   return {
-    computers: [
-      {
-        connectedComputerId: "computer_1",
-        deviceDisplayName: "Felix MacBook Pro",
-        deviceId: "device_1",
-        isCurrent: true,
-        lastObservedAtMs: 1000,
-        reasonCodes: ["service.update_required"],
-        recommendedMode: "update_service",
-        status: "needs_attention",
-      },
-    ],
+    inventory: { computers: [], generatedAt: "2026-09-07T00:00:00.000Z" },
+    selectedComputer: null,
     organizationId: "org_123",
   };
 }

@@ -239,6 +239,8 @@ export type {
   CenterAgentReadDispatchHistoryResponse,
   CenterAgentReadMemberComputersBody,
   CenterAgentReadMemberComputersResponse,
+  CenterAgentReadPeopleComputersBody,
+  CenterAgentReadPeopleComputersResponse,
   CenterAgentReadSpaceContextBody,
   CenterAgentReadSpaceContextResponse,
   CenterAgentRecordConnectorActionAuditBody,
