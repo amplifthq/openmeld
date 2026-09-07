@@ -1435,6 +1435,8 @@ async function readActiveWakeProgressForTest(input: {
         }),
       },
     },
+    // This fixture exercises progress evidence, not Auth member-name refresh.
+    refreshMemberNamesFromAuth: { value: vi.fn(async () => undefined) },
     ctx: {
       value: {
         storage: {
@@ -4784,7 +4786,8 @@ describe("space signal service", () => {
     const space = Object.create(Space.prototype) as unknown as {
       bindings: CoreBindings;
       handlePostWakeStop: (
-        body: PostSpaceWakeStopBody
+        body: PostSpaceWakeStopBody,
+        context: unknown
       ) => Promise<PostSpaceWakeStopResponse>;
       readWakeStopDispatchLookup: () => Promise<{
         matches: SpaceDispatchLookupMatch[];
@@ -4799,6 +4802,7 @@ describe("space signal service", () => {
       readWakeStopDispatchLookup: {
         value: vi.fn(async () => ({ matches: [lookupMatch] })),
       },
+      isWakeStopAuthorized: { value: vi.fn(async () => true) },
       requestControllerBackedWakeStop: {
         value: requestControllerBackedWakeStop,
       },
@@ -4810,13 +4814,16 @@ describe("space signal service", () => {
     });
 
     await expect(
-      space.handlePostWakeStop({
-        target: {
-          by: "client_message",
-          clientMessageId: "client-message-1",
-          targetProfileId,
+      space.handlePostWakeStop(
+        {
+          target: {
+            by: "client_message",
+            clientMessageId: "client-message-1",
+            targetProfileId,
+          },
         },
-      })
+        {}
+      )
     ).resolves.toEqual(preAgentResponse);
     expect(requestPreAgentWakeStop).toHaveBeenCalledOnce();
     expect(requestControllerBackedWakeStop).not.toHaveBeenCalled();

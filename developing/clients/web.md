@@ -3977,23 +3977,24 @@ A permanent hosted-publication ambiguity is presented as
 reply and spinner, shows that OpenMeld could not confirm whether the final reply
 was posted, and asks the user to inspect the Space before trying again.
 
-Web may expose a Wake Stop intent as soon as a sent structured Wake has a single
-Space-visible target selector. Web must still opt in to `wakeStopEligibility`
-when reading Wake progress and active Wake progress, and explicit not-eligible
-or unsupported Core projections remain fail-closed. A missing
-`wakeStopEligibility` projection is only a temporary visibility gap: Web may let
-the user request Stop through the normal selector, but Core remains the only
-authority that decides whether the request becomes OpenMeld-owned pre-agent Stop,
-controller-backed running Stop, retry-later, unsupported, or not-stoppable.
-Web must not infer stopped, cancelled, or controller support from local browser
-state, controller labels, or a previous Stop response.
+Web opts in to `wakeStopEligibility` when reading Wake progress and active Wake
+progress. This is a viewer-scoped Core projection: only the Wake requester's
+account or the target Agent Profile's owner, with writable Space access, may
+receive Stop eligibility. Null or missing eligibility hides Stop in the timeline,
+details, and multi-target controls. A sent message, its age, a previous Stop
+response, and other accounts signed in on the same computer never grant Stop
+authority. Progress caches remain scoped to the current acting Profile.
+Core rechecks the same authorization rule on every Stop request before any
+pre-agent, controller, or native-delivery cancellation. Web must not infer
+stopped, cancelled, or controller support from local browser state or labels.
 
 The Wake Stop request path is `POST /v1/spaces/:spaceId/wake-stop`. Web sends
 only `sourceSignalId` or `clientMessageId + targetProfileId`, never
 `dispatchId`, task ids, or RuntimeCoordinator execution ids. A typed
 `unsupported`, `not_stoppable`, `not_found`, or `retry_later` response is product
-state. A raw HTTP 404 is a route/deployment/proxy problem, not normal Wake Stop
-unsupported behavior.
+state. HTTP 403 with `space.wake_stop.forbidden` means the current account is
+neither the requester nor the Agent owner. A raw HTTP 404 is a route/deployment/proxy
+problem, not normal Wake Stop unsupported behavior.
 
 Web must not show `cancellation_requested` as stopped. It may show a low-noise
 stopping state while waiting for Core to project a stopped progress phase or a

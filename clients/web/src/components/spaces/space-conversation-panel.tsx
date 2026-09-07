@@ -415,7 +415,7 @@ export function SpaceConversationPanel(
 ) {
 	return (
 		<SpaceWakeStopScope
-			key={publicInput.spaceId}
+			key={`${publicInput.spaceId}:${publicInput.selfProfileId}`}
 			progressItems={publicInput.ephemeralActivityItems}
 			stopRequestStatusBySelectorKey={
 				publicInput.wakeStopRequestStatusBySelectorKey
@@ -1034,7 +1034,6 @@ function useSpaceConversationPresentationController(
 						item: messageDetailsItem,
 						stopRequestStatusBySelectorKey:
 							input.wakeStopRequestStatusBySelectorKey,
-						targetLabelsByProfileId: wakeStopTargetLabelsByProfileId,
 						timelineItems: mainTimelineItems,
 						wakeOutcomeIndex,
 						wakeProgressItems: input.ephemeralActivityItems,
@@ -1046,7 +1045,6 @@ function useSpaceConversationPresentationController(
 			mainTimelineItems,
 			messageDetailsItem,
 			wakeOutcomeIndex,
-			wakeStopTargetLabelsByProfileId,
 		]
 	);
 	const messageDetailsReplyItems = messageDetailsItem
@@ -2486,7 +2484,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 							item: wakePresentationItem,
 							stopRequestStatusBySelectorKey:
 								input.wakeStopRequestStatusBySelectorKey,
-							targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
 							timelineItems: input.timelineItems,
 							wakeOutcomeIndex: input.wakeOutcomeIndex,
 							wakeProgressItems: input.ephemeralActivityItems,

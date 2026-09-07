@@ -4291,7 +4291,7 @@ describe("SpaceConversationPanel", () => {
 		expect(thinkingIndicator.textContent).toContain("runner is working · 13s");
 	});
 
-	it("shows a Stop intent before Wake progress arrives", () => {
+	it("does not offer Stop before Core confirms eligibility", () => {
 		const onWakeStopRequest = vi.fn();
 		renderSpaceConversationPanel({
 			ephemeralActivityItems: [],
@@ -4310,11 +4310,11 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByRole("button", { name: "Stop Wake for this agent" })
-		).toBeTruthy();
+			screen.queryByRole("button", { name: "Stop Wake for this agent" })
+		).toBeNull();
 	});
 
-	it("keeps the Stop confirmation dialog open when Wake progress arrives", () => {
+	it("keeps the Stop confirmation dialog open when authorized Wake progress updates", () => {
 		const onWakeStopRequest = vi.fn();
 		const sourceItem = createTimelineItem({
 			createdAtMs: Date.now(),
@@ -4327,7 +4327,7 @@ describe("SpaceConversationPanel", () => {
 		const view = render(
 			<SpaceConversationPanel
 				{...createSpaceConversationPanelProps({
-					ephemeralActivityItems: [],
+					ephemeralActivityItems: [createWakeProgressItem()],
 					onWakeStopRequest,
 					readOnly: false,
 					timelineItems: [sourceItem],
@@ -4336,7 +4336,7 @@ describe("SpaceConversationPanel", () => {
 		);
 
 		fireEvent.click(
-			screen.getByRole("button", { name: "Stop Wake for this agent" })
+			screen.getByRole("button", { name: "Stop Wake for @runner" })
 		);
 		expect(
 			screen.getByRole("dialog", { name: "Stop this Wake?" })
@@ -4361,6 +4361,39 @@ describe("SpaceConversationPanel", () => {
 				"OpenMeld will stop this Wake for @runner. If the agent has already started, confirmation may take a moment."
 			)
 		).toBeTruthy();
+	});
+
+	it("drops the previous account's Stop dialog when the acting profile changes", () => {
+		const props = createSpaceConversationPanelProps({
+			ephemeralActivityItems: [createWakeProgressItem()],
+			onWakeStopRequest: vi.fn(),
+			readOnly: false,
+			timelineItems: [
+				createTimelineItem({
+					id: "sig-source",
+					wakeClientMessageId: "client-message-1",
+					wakeSourceSignalId: "sig-source",
+					wakeTargetProfileIds: [TARGET_PROFILE_ID],
+				}),
+			],
+		});
+		const view = render(<SpaceConversationPanel {...props} />);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Stop Wake for @runner" })
+		);
+		expect(screen.getByRole("dialog")).toBeTruthy();
+		view.rerender(
+			<SpaceConversationPanel
+				{...props}
+				ephemeralActivityItems={[]}
+				presentedWakeProgressItems={[]}
+				selfProfileId="another-human-profile"
+			/>
+		);
+		expect(screen.queryByRole("dialog")).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Stop Wake for @runner" })
+		).toBeNull();
 	});
 
 	it("labels an acknowledged Stop request as stopping", () => {

@@ -820,6 +820,14 @@ If OpenMeld stops a Wake before it reaches the agent, the visible outcome is sti
 explicit stopped Space system notice. It is not an Agent reply, and it must not
 be rendered as silent disappearance from progress.
 
+Only the account that authored the Wake's source message or the target Agent
+Profile's owner may stop that Wake, and they must still have writable Space
+access. Space membership, Space creation, or Organization administration alone
+does not grant this permission. Other members can follow progress but cannot
+interrupt the work. Signing in to several accounts on one computer does not
+combine their permissions. This rule covers queued, running, and native-delivery
+Wakes; each target of a multi-Agent Wake is authorized separately.
+
 If a Wake reaches the local agent but the controller or upstream model provider
 fails, the explicit failure notice should expose the safest actionable public
 reason OpenMeld knows. Known provider failures such as insufficient credits, invalid
