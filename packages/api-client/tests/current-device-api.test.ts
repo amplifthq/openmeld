@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createCurrentDeviceApi, createOpenMeldApiClient } from "../src";
 
 describe("api-client current device api", () => {
-  it("exposes the canonical current device methods", () => {
+  it("exposes current-device and explicitly targeted PeopleComputers methods", () => {
     const client = createOpenMeldApiClient({
       baseUrl: "https://gateway.openmeld.invalid",
       transport: vi.fn(() => Promise.resolve(new Response("ok"))),
@@ -25,14 +25,22 @@ describe("api-client current device api", () => {
       "getCurrentLocalAgentInstallations",
       "getCurrentLocalRuntimeReplyReadiness",
       "getCurrentTarget",
+      "getPeopleComputerLocalAgentInstallations",
+      "getPeopleComputerReplyReadiness",
       "listLocalRuntimes",
+      "listPeopleComputers",
       "refreshCurrentLocalAgentCatalog",
+      "refreshPeopleComputerLocalAgentCatalog",
       "requestCurrentOpenMeldToolsUpdate",
+      "requestPeopleComputerOpenMeldToolsUpdate",
       "selectCurrentLocalAgentInstallation",
+      "selectPeopleComputerLocalAgentInstallation",
       "setCurrentAgentProfileWorkspace",
       "setCurrentLocalAgentEnabled",
       "setCurrentOpenMeldToolsMaintenance",
       "setDisplayName",
+      "setPeopleComputerLocalAgentEnabled",
+      "setPeopleComputerOpenMeldToolsMaintenance",
       "writeObservedMetadata",
     ]);
   });

@@ -221,7 +221,7 @@ describe("SelectedComputerPanel detail composition", () => {
 			})
 		);
 		fireEvent.click(
-			screen.getByRole("combobox", { name: "Computer environment" })
+			screen.getByRole("combobox", { name: "Service connection" })
 		);
 		fireEvent.click(await screen.findByRole("option", { name: "Production" }));
 		await waitFor(() =>

@@ -94,11 +94,9 @@ describe("connect route targets", () => {
 		const resumed = resolveConnectRouteIntent(
 			buildConnectRouteSearch({ ...intent, resetThisComputer: false })
 		);
-		expect(resolveConnectBackTarget(resumed, "acme")).toBe(
-			"/o/acme/agents/new"
-		);
+		expect(resolveConnectBackTarget(resumed, "acme")).toBe("/o/acme/new-agent");
 		expect(resolveConnectCompletionTarget(resumed, "acme")).toBe(
-			"/o/acme/agents/new"
+			"/o/acme/new-agent"
 		);
 		expect(resumed.resetThisComputer).toBe(false);
 	});
@@ -111,7 +109,7 @@ describe("connect route targets", () => {
 		} as const;
 
 		expect(resolveConnectBackTarget(intent, "acme")).toBe(
-			"/o/acme/people?profileId=human-1"
+			"/o/acme/people/human-1"
 		);
 		expect(resolveConnectCompletionTarget(intent, "acme")).toBe(
 			"/o/acme/computers?focus=service&refresh=setup-complete"

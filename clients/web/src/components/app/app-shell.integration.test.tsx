@@ -24,7 +24,7 @@ const listAccountSpaceItemsMock = vi.hoisted(() => vi.fn());
 
 const SPACES_TAB_NAME = /Spaces/;
 const SPACE_OR_SPACES_TAB_NAME = /^Spaces?$/;
-const PEOPLE_TAB_NAME = /People/;
+const TEAM_TAB_NAME = /Team/;
 const SETTINGS_TAB_NAME = /Settings/;
 const TEST_ACCOUNT = {
 	email: "felix@example.com",
@@ -250,12 +250,12 @@ describe("AppShell", () => {
 		renderAppShell();
 
 		expect(
-			await screen.findByRole("tab", { name: PEOPLE_TAB_NAME })
+			await screen.findByRole("tab", { name: TEAM_TAB_NAME })
 		).toBeTruthy();
 		expect(
 			screen.queryByRole("tab", { name: SPACE_OR_SPACES_TAB_NAME })
 		).toBeNull();
-		expect(screen.getByRole("tab", { name: PEOPLE_TAB_NAME })).toBeTruthy();
+		expect(screen.getByRole("tab", { name: TEAM_TAB_NAME })).toBeTruthy();
 		expect(screen.queryByRole("tab", { name: SETTINGS_TAB_NAME })).toBeNull();
 	});
 
@@ -281,7 +281,7 @@ describe("AppShell", () => {
 		renderAppShell();
 
 		const spacesTab = await screen.findByRole("tab", { name: SPACES_TAB_NAME });
-		const peopleTab = screen.getByRole("tab", { name: PEOPLE_TAB_NAME });
+		const peopleTab = screen.getByRole("tab", { name: TEAM_TAB_NAME });
 		expect(spacesTab.compareDocumentPosition(peopleTab)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);

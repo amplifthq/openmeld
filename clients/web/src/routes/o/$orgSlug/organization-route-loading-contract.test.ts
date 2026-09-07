@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { Route as CenterAgentLayoutRoute } from "./_center-agent";
 import { Route as CenterAgentHomeRoute } from "./_center-agent/index";
-import { Route as AgentsRoute } from "./agents";
 import { Route as SpaceConversationRoute } from "./spaces/$spaceId";
 import { Route as SpacesRoute } from "./spaces/index";
 
 describe("organization route loading contract", () => {
 	it.each([
-		["Agents", AgentsRoute],
 		["Spaces", SpacesRoute],
 		["Space conversation", SpaceConversationRoute],
 		["Center Agent layout", CenterAgentLayoutRoute],

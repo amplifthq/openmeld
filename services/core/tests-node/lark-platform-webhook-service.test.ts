@@ -419,6 +419,113 @@ describe("Lark-platform Webhook verification", () => {
     }
   });
 
+  it.each([
+    "feishu",
+    "lark",
+  ] as const)("accepts %s encrypted URL challenges without signature headers", async (provider) => {
+    const harness = createSqliteD1Harness();
+    applyConnectionMigration(harness);
+    await seedConnection(harness, {
+      encryptKey: ENCRYPT_KEY,
+      provider,
+      status: "configuring",
+      verificationToken: VERIFICATION_TOKEN,
+    });
+    try {
+      for (const surface of ["events", "callbacks"] as const) {
+        const encrypted = await encryptWebhookPayload({
+          encryptKey: ENCRYPT_KEY,
+          payload: {
+            challenge: "provider_challenge",
+            token: VERIFICATION_TOKEN,
+            type: "url_verification",
+          },
+        });
+        await expect(
+          verifyLarkPlatformWebhook({
+            db: harness.db,
+            env: buildEnv({ feishuEnabled: true, larkEnabled: true }),
+            input: {
+              connectionId: `connection_${provider}_test`,
+              gatewayRequestId: `challenge_${surface}`,
+              headers: { nonce: null, signature: null, timestamp: null },
+              provider,
+              rawBody: JSON.stringify(encrypted),
+              receivedAtMs: 1_710_000_000_100,
+              surface,
+            },
+          })
+        ).resolves.toEqual({
+          challenge: "provider_challenge",
+          status: "challenge",
+        });
+      }
+    } finally {
+      harness.close();
+    }
+  });
+
+  it.each([
+    "wrong-token",
+    "ordinary-event",
+    "partial-signature",
+  ])("rejects an unsigned encrypted %s without recording reachability", async (scenario) => {
+    const harness = createSqliteD1Harness();
+    applyConnectionMigration(harness);
+    await seedConnection(harness, {
+      encryptKey: ENCRYPT_KEY,
+      provider: "feishu",
+      status: "configuring",
+      verificationToken: VERIFICATION_TOKEN,
+    });
+    try {
+      const encrypted = await encryptWebhookPayload({
+        encryptKey: ENCRYPT_KEY,
+        payload:
+          scenario === "ordinary-event"
+            ? MESSAGE_FIXTURE
+            : {
+                challenge: "provider_challenge",
+                token:
+                  scenario === "wrong-token" ? "wrong" : VERIFICATION_TOKEN,
+                type: "url_verification",
+              },
+      });
+      await expect(
+        verifyLarkPlatformWebhook({
+          db: harness.db,
+          env: buildEnv({ feishuEnabled: true }),
+          input: {
+            connectionId: "connection_feishu_test",
+            gatewayRequestId: "rejected_challenge",
+            headers: {
+              nonce: null,
+              signature:
+                scenario === "partial-signature" ? "0".repeat(64) : null,
+              timestamp: null,
+            },
+            provider: "feishu",
+            rawBody: JSON.stringify(encrypted),
+            receivedAtMs: 1_710_000_000_100,
+            surface: "events",
+          },
+        })
+      ).resolves.toMatchObject({ status: "rejected" });
+      await expect(
+        readRemoteAgentLarkPlatformChannelConnection({
+          connectionId: "connection_feishu_test",
+          db: harness.db,
+        })
+      ).resolves.toMatchObject({
+        eventsWebhookVerifiedAtMs: null,
+        callbacksWebhookVerifiedAtMs: null,
+        status: "configuring",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("rejects a bad signature before decrypting or normalizing", async () => {
     const harness = createSqliteD1Harness();
     applyConnectionMigration(harness);

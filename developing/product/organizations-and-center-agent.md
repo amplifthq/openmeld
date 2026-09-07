@@ -1312,11 +1312,12 @@ Center Agent integrations have two distinct user-facing families. Do not place
 both under a generic `Connections` label:
 
 - **Channels** are places where people or systems can message the Center Agent
-  and receive replies. Slack is the first shipped Channel. Lark setup is
-  available to every production Organization but remains `configuring` until
+  and receive replies. Slack is the first shipped Channel. Lark and Feishu setup
+  is enabled in local and production configuration for every Organization but
+  remains `configuring` until
   Core verifies both the Event Subscription URL and Message Card Request URL
-  for that connection. Feishu stays behind its independent provider gate and
-  feature flag. Email, WhatsApp, other
+  for that connection. Setup availability does not prove live provider delivery.
+  Email, WhatsApp, other
   collaboration platforms, and API delivery may join this family later. A
   Message Channel owns conversation routing, sender
   identity mapping, and the result surface. A Channel may also expose a

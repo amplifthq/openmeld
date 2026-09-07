@@ -4075,7 +4075,7 @@ describe("SpaceConversationPanel", () => {
 			dialog
 				.getByRole("link", { name: "View Felix profile" })
 				.getAttribute("href")
-		).toBe(`/o/acme/people?profileId=${profileId}`);
+		).toBe(`/o/acme/people/${profileId}`);
 		expect(dialog.queryByText("Check this Profile")).toBeNull();
 		expect(dialog.queryByText("Person")).toBeNull();
 		expect(dialog.queryByText(profileId)).toBeNull();

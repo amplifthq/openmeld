@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import capturedBegin from "../../../scripts/lark-platform/fixtures/registration-begin.lark.json";
 import capturedPending from "../../../scripts/lark-platform/fixtures/registration-pending.lark.json";
 import capturedSuccess from "../../../scripts/lark-platform/fixtures/registration-success.lark.json";
+import { decryptLarkPlatformCredential } from "../src/remote-agent/application/lark-platform-credential-crypto";
 import { LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE } from "../src/remote-agent/application/lark-platform-permission-bundles";
 import { runLarkPlatformRegistrationTick } from "../src/remote-agent/application/lark-platform-registration-scheduler";
 import {
@@ -27,6 +28,7 @@ import {
   readActiveRemoteAgentLarkPlatformRegistrationAttempt,
   readRemoteAgentLarkPlatformRegistrationAttempt,
   recordRemoteAgentLarkPlatformWebhookReachability,
+  replaceClaimedLarkPlatformCallbackCredentials,
   replacePendingRemoteAgentLarkPlatformRegistrationAttempt,
 } from "../src/remote-agent/infrastructure/d1/lark-platform-registration-attempt-repo";
 import {
@@ -56,6 +58,194 @@ const ENV = {
 const classifyOrganizationWorkspace = async () =>
   ({ ok: true, personal: false }) as const;
 describe("Lark-platform registration service", () => {
+  it.each([
+    "lark",
+    "feishu",
+  ] as const)("repairs %s legacy callback secrets before configuring the saved app", async (provider) => {
+    const harness = createRegistrationHarness();
+    const env = {
+      ...ENV,
+      OPENMELD_FEISHU_CHANNEL_ENABLED: "true",
+      OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS: "org_1",
+    };
+    try {
+      const started = await beginRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        db: harness.db,
+        env,
+        fetchImpl: jsonFetch(capturedBegin),
+        nowMs: 1000,
+        provider,
+      });
+      const success = {
+        ...capturedSuccess,
+        user_info: { ...capturedSuccess.user_info, tenant_brand: provider },
+      };
+      const poll = (nowMs: number) =>
+        pollRemoteAgentLarkPlatformRegistration({
+          actor: ACTOR,
+          attemptId: started.attempt.id,
+          createSecret: () => "x".repeat(43),
+          db: harness.db,
+          env,
+          fetchImpl: jsonFetch(success),
+          nowMs,
+          provider,
+        });
+      const firstPoll = await poll(1100);
+      const registered = provider === "lark" ? await poll(1200) : firstPoll;
+      const connectionId = registered.connection?.id ?? "";
+      const credentialsBefore =
+        await readRemoteAgentLarkPlatformChannelCredentials({
+          connectionId,
+          db: harness.db,
+        });
+      const expiresAtMs = Date.parse(registered.attempt.expiresAt);
+      await expireRemoteAgentLarkPlatformRegistrationAttempt({
+        attemptId: started.attempt.id,
+        db: harness.db,
+        nowMs: expiresAtMs,
+      });
+      const repaired = await beginRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        db: harness.db,
+        env,
+        nowMs: expiresAtMs + 1,
+        provider,
+        repairExisting: true,
+      });
+      // An old proof must not survive a callback-secret replacement.
+      harness.run({
+        sql: "UPDATE openMeldRemoteAgent_lark_platform_channel_connections SET events_webhook_verified_at_ms = ?, callbacks_webhook_verified_at_ms = ? WHERE connection_id = ?",
+        params: [expiresAtMs + 1, expiresAtMs + 1, connectionId],
+      });
+      await claimRemoteAgentLarkPlatformRegistrationAttempt({
+        attemptId: repaired.attempt.id,
+        claimId: "old-claim",
+        claimExpiresAtMs: expiresAtMs + 3,
+        db: harness.db,
+        nowMs: expiresAtMs + 1,
+      });
+      const replacement = {
+        attemptId: repaired.attempt.id,
+        claimId: "old-claim",
+        connectionId,
+        db: harness.db,
+        encryptedEventEncryptKey: "new-encrypted-key",
+        encryptedVerificationToken: "new-encrypted-token",
+        previousEncryptedEventEncryptKey:
+          credentialsBefore?.encryptedEventEncryptKey ?? null,
+        previousEncryptedVerificationToken:
+          credentialsBefore?.encryptedVerificationToken ?? null,
+        nowMs: expiresAtMs + 2,
+      };
+      expect(
+        await replaceClaimedLarkPlatformCallbackCredentials({
+          ...replacement,
+          claimId: "wrong-claim",
+        })
+      ).toBe(false);
+      expect(
+        await replaceClaimedLarkPlatformCallbackCredentials({
+          ...replacement,
+          nowMs: expiresAtMs + 3,
+        })
+      ).toBe(false);
+      harness.run({
+        sql: "UPDATE openMeldRemoteAgent_lark_platform_channel_connections SET status = 'connected' WHERE connection_id = ?",
+        params: [connectionId],
+      });
+      expect(
+        await replaceClaimedLarkPlatformCallbackCredentials(replacement)
+      ).toBe(false);
+      expect(
+        await readRemoteAgentLarkPlatformChannelCredentials({
+          connectionId,
+          db: harness.db,
+        })
+      ).toEqual(credentialsBefore);
+      harness.run({
+        sql: "UPDATE openMeldRemoteAgent_lark_platform_channel_connections SET status = 'configuring' WHERE connection_id = ?",
+        params: [connectionId],
+      });
+      const responses = configuredAppFetch();
+      const fetchImpl = vi.fn<typeof fetch>(async (resource, init) => {
+        if (init?.method === "PATCH") {
+          const body = JSON.parse(String(init.body));
+          const saved = await readRemoteAgentLarkPlatformChannelCredentials({
+            connectionId,
+            db: harness.db,
+          });
+          for (const [name, encrypted] of [
+            ["encryption_key", saved?.encryptedEventEncryptKey],
+            ["verification_token", saved?.encryptedVerificationToken],
+          ] as const) {
+            const secret = body.event_and_callback_encrypt_strategy[name];
+            expect(secret).toHaveLength(32);
+            expect(
+              await decryptLarkPlatformCredential({
+                credentialName: name,
+                cryptoKey: CRYPTO_KEY,
+                encryptedCredential: encrypted ?? "",
+              })
+            ).toBe(secret);
+          }
+          expect(saved?.encryptedAppSecret).toBe(
+            credentialsBefore?.encryptedAppSecret
+          );
+          expect(
+            await readRemoteAgentLarkPlatformChannelConnection({
+              connectionId,
+              db: harness.db,
+            })
+          ).toMatchObject({
+            eventsWebhookVerifiedAtMs: null,
+            callbacksWebhookVerifiedAtMs: null,
+          });
+        }
+        return responses(resource, init);
+      });
+      const result = await pollRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        attemptId: repaired.attempt.id,
+        db: harness.db,
+        env,
+        fetchImpl,
+        nowMs: expiresAtMs + 4,
+        provider,
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(4);
+      expect(result.connection).toMatchObject({
+        id: connectionId,
+        status: "configuring",
+      });
+      expect(
+        await recordRemoteAgentLarkPlatformWebhookReachability({
+          connectionId,
+          db: harness.db,
+          encryptedVerificationToken:
+            credentialsBefore?.encryptedVerificationToken ?? null,
+          organizationId: ACTOR.organizationId,
+          provider,
+          surface: "events",
+          verifiedAtMs: expiresAtMs + 5,
+        })
+      ).toBeNull();
+      expect(
+        await readRemoteAgentLarkPlatformChannelConnection({
+          connectionId,
+          db: harness.db,
+        })
+      ).toMatchObject({
+        status: "configuring",
+        eventsWebhookVerifiedAtMs: null,
+        callbacksWebhookVerifiedAtMs: null,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("projects active setup without decrypting its setup URL", async () => {
     const harness = createRegistrationHarness();
     try {
@@ -408,6 +598,8 @@ describe("Lark-platform registration service", () => {
         pollClaimId: null,
       });
       expect(timeout).toHaveBeenCalledWith(1);
+      // Workers' native fetch rejects an object receiver before sending a request.
+      expect(fetchImpl.mock.contexts[0]).toBeUndefined();
     } finally {
       timeout.mockRestore();
       harness.close();
@@ -464,6 +656,49 @@ describe("Lark-platform registration service", () => {
       expect(randomUuid).toHaveBeenCalledTimes(2);
     } finally {
       randomUuid.mockRestore();
+      harness.close();
+    }
+  });
+
+  it("generates callback credentials within the provider's 32-character limit", async () => {
+    const harness = createRegistrationHarness();
+    try {
+      const started = await beginRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        db: harness.db,
+        env: ENV,
+        fetchImpl: jsonFetch(capturedBegin),
+        nowMs: 1000,
+        provider: "lark",
+      });
+      const poll = (nowMs: number) =>
+        pollRemoteAgentLarkPlatformRegistration({
+          actor: ACTOR,
+          attemptId: started.attempt.id,
+          db: harness.db,
+          env: ENV,
+          fetchImpl: jsonFetch(capturedSuccess),
+          nowMs,
+          provider: "lark",
+        });
+      await poll(1100);
+      const registered = await poll(1200);
+      const credentials = await readRemoteAgentLarkPlatformChannelCredentials({
+        connectionId: registered.connection?.id ?? "",
+        db: harness.db,
+      });
+      for (const encryptedCredential of [
+        credentials?.encryptedVerificationToken,
+        credentials?.encryptedEventEncryptKey,
+      ]) {
+        const secret = await decryptLarkPlatformCredential({
+          credentialName: "test callback secret",
+          cryptoKey: ENV.LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY,
+          encryptedCredential: encryptedCredential ?? "",
+        });
+        expect(secret).toHaveLength(32);
+      }
+    } finally {
       harness.close();
     }
   });
@@ -799,6 +1034,13 @@ describe("Lark-platform registration service", () => {
         status: "configuring",
       });
       await recordRemoteAgentLarkPlatformWebhookReachability({
+        encryptedVerificationToken:
+          (
+            await readRemoteAgentLarkPlatformChannelCredentials({
+              connectionId: "connection_1",
+              db: harness.db,
+            })
+          )?.encryptedVerificationToken ?? null,
         connectionId: "connection_1",
         db: harness.db,
         organizationId: ACTOR.organizationId,
@@ -818,6 +1060,13 @@ describe("Lark-platform registration service", () => {
         status: "configuring",
       });
       await recordRemoteAgentLarkPlatformWebhookReachability({
+        encryptedVerificationToken:
+          (
+            await readRemoteAgentLarkPlatformChannelCredentials({
+              connectionId: "connection_1",
+              db: harness.db,
+            })
+          )?.encryptedVerificationToken ?? null,
         connectionId: "connection_1",
         db: harness.db,
         organizationId: ACTOR.organizationId,

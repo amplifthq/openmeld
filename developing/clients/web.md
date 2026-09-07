@@ -1518,13 +1518,19 @@ already connected; it never tells the manager to disconnect a healthy App.
 While Core is retrying configuration, the dialog shows the latest bounded
 verification failure in plain language instead of presenting an unexplained
 spinner for the rest of the configuration window.
+When configuration requires additional setup permission, the dialog explicitly
+asks the manager to grant `application:application:patch` in the selected
+provider's Developer Console and provides that console link. It does not imply
+that waiting can grant permission. Core retains its existing bounded retries
+so setup can continue after the manager grants access.
 
-The Lark card is available to every local and production Organization.
+The Lark and Feishu cards are enabled in local and production configuration
+for every Organization. Staging keeps both providers disabled.
 Availability means the user may start setup; the card becomes connected only
 after Core verifies that connection's application configuration, Event
-Subscription URL, and Message Card Request URL. Feishu stays unavailable while
-its independent feature flag and provider gate are off. A failed Feishu
-mainland reachability gate must produce honest unavailable copy rather than
+Subscription URL, and Message Card Request URL. Setup availability does not
+prove live provider delivery. A failed Feishu mainland reachability check must
+produce honest failure copy rather than
 silently selecting WebSocket or presenting a connected row. Development and
 production apps and credentials never share a connection.
 
