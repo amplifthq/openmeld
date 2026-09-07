@@ -4,6 +4,7 @@ const cardSchema = z.object({
 	id: z.string().min(1),
 	kind: z.enum(["welcome", "center-agent", "space"]),
 	spaceId: z.string().optional(),
+	guideDismissed: z.boolean().optional(),
 	x: z.number().finite(),
 	y: z.number().finite(),
 	width: z.number().min(280).max(1600),
@@ -11,6 +12,7 @@ const cardSchema = z.object({
 });
 export const homeLayoutSchema = z.object({
 	version: z.literal(2),
+	readableViewport: z.boolean().optional(),
 	hintsDismissed: z.boolean().optional(),
 	cards: z.array(cardSchema),
 	viewport: z
@@ -23,6 +25,17 @@ export const homeLayoutSchema = z.object({
 });
 export type HomeCard = z.infer<typeof cardSchema>;
 export type HomeLayout = z.infer<typeof homeLayoutSchema>;
+
+export function homeStartViewport(cards: readonly HomeCard[], width: number) {
+	const left = Math.min(0, ...cards.map((card) => card.x));
+	const right = Math.max(620, ...cards.map((card) => card.x + card.width));
+	const top = Math.min(0, ...cards.map((card) => card.y));
+	return {
+		x: Math.max(24, (width - (right - left)) / 2) - left,
+		y: 64 - top,
+		zoom: 1,
+	};
+}
 
 /** Only a settled, successful account index may remove saved windows. */
 export function reconcileHomeSpaces(

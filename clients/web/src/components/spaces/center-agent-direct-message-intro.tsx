@@ -41,12 +41,6 @@ export function CenterAgentDirectMessageIntro(input: {
 				<h2 className="text-center font-medium text-lg">
 					What would you like to work on?
 				</h2>
-				<CenterAgentStarterActions
-					disabled={input.disabled}
-					onConnectComputer={input.onStartComputerSetup}
-					onSelect={input.onSelectStarterAction}
-					showComputerSetup={false}
-				/>
 			</div>
 		) : null;
 	}

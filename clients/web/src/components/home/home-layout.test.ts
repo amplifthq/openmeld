@@ -2,11 +2,36 @@ import { describe, expect, it } from "vitest";
 import {
 	createHomeLayout,
 	homeLayoutStorageKey,
+	homeStartViewport,
 	parseHomeLayout,
 	reconcileHomeSpaces,
 } from "./home-layout";
 
 describe("Home layout persistence", () => {
+	it("starts at readable scale even when windows extend beyond the screen", () => {
+		const layout = createHomeLayout();
+		layout.cards.push({
+			id: "wide",
+			kind: "space",
+			spaceId: "wide",
+			x: 900,
+			y: 300,
+			width: 700,
+			height: 1600,
+		});
+		expect(homeStartViewport(layout.cards, 1100)).toEqual({
+			x: 24,
+			y: 64,
+			zoom: 1,
+		});
+	});
+	it("remembers dismissed window guidance", () => {
+		const layout = createHomeLayout();
+		layout.cards[1].guideDismissed = true;
+		expect(
+			parseHomeLayout(JSON.stringify(layout))?.cards[1].guideDismissed
+		).toBe(true);
+	});
 	it("removes unavailable Space windows while preserving the rest of the desk", () => {
 		const layout = createHomeLayout();
 		layout.cards.push(

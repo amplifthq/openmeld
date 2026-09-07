@@ -14,6 +14,7 @@ import {
 	HashIcon,
 	MinusIcon,
 	PlusIcon,
+	QuestionIcon,
 	XIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -62,6 +63,7 @@ import {
 	type HomeCard,
 	type HomeLayout,
 	homeLayoutStorageKey,
+	homeStartViewport,
 	parseHomeLayout,
 	reconcileHomeSpaces,
 } from "./home-layout";
@@ -82,6 +84,7 @@ type HomeNode = Node<{ card: HomeCard }, "home">;
 const nodeTypes = { home: memo(HomeCardNode) };
 const NO_EDGES: Edge[] = [];
 type HomeContextValue = {
+	setGuideDismissed: (id: string, dismissed: boolean) => void;
 	focusedId: string | null;
 	focus: (id: string) => void;
 	spaces: readonly AccountSpaceItem[];
@@ -183,6 +186,10 @@ function HomeWorkspace() {
 			setSaveError(true);
 		}
 		const initial = saved ?? createHomeLayout();
+		if (!initial.readableViewport) {
+			initial.viewport = undefined;
+			initial.readableViewport = true;
+		}
 		if (!saved) {
 			const firstSpace = spaces.find((space) => !space.directMessageProfileIds);
 			if (firstSpace) {
@@ -330,6 +337,13 @@ function HomeWorkspace() {
 	);
 	const context = useMemo<HomeContextValue>(
 		() => ({
+			setGuideDismissed: (id, dismissed) =>
+				setLayout((current) => ({
+					...current,
+					cards: current.cards.map((card) =>
+						card.id === id ? { ...card, guideDismissed: dismissed } : card
+					),
+				})),
 			focusedId,
 			focus: setFocusedId,
 			spaces,
@@ -392,6 +406,7 @@ function HomeWorkspace() {
 		>
 			<header className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:flex-nowrap">
 				<h1 className="w-full truncate font-medium text-base sm:w-auto">
+					Home <span aria-hidden="true" className="mx-2 border-l" />{" "}
 					{currentOrganization.name}
 				</h1>
 				<nav
@@ -450,10 +465,12 @@ function HomeWorkspace() {
 											</Button>
 											<Button
 												onClick={() =>
-													instance.current?.fitView({
-														maxZoom: 1,
-														padding: 0.04,
-													})
+													instance.current?.setViewport(
+														homeStartViewport(
+															layout.cards,
+															canvasRegion.current?.clientWidth ?? 1000
+														)
+													)
 												}
 												size="sm"
 												variant="ghost"
@@ -464,9 +481,7 @@ function HomeWorkspace() {
 										</div>
 									</Panel>
 								}
-								defaultViewport={
-									layout.viewport ?? { x: 40, y: 24, zoom: 0.85 }
-								}
+								defaultViewport={layout.viewport ?? { x: 24, y: 64, zoom: 1 }}
 								edges={NO_EDGES}
 								nodes={nodes}
 								nodeTypes={nodeTypes}
@@ -474,28 +489,10 @@ function HomeWorkspace() {
 									instance.current = value;
 									if (!layout.viewport && canvasRegion.current) {
 										const bounds = canvasRegion.current.getBoundingClientRect();
-										const right = Math.max(
-											620,
-											...layout.cards.map((card) => card.x + card.width)
-										);
-										const bottom = Math.max(
-											640,
-											...layout.cards.map((card) => card.y + card.height)
-										);
-										const zoom = Math.max(
-											0.2,
-											Math.min(
-												1,
-												(bounds.width - 64) / right,
-												(bounds.height - 80) / bottom
-											)
-										);
 										value
-											.setViewport({
-												x: (bounds.width - right * zoom) / 2,
-												y: 56,
-												zoom,
-											})
+											.setViewport(
+												homeStartViewport(layout.cards, bounds.width)
+											)
 											.catch(console.error);
 									}
 								}}
@@ -731,26 +728,37 @@ function HomeCardNode({ data, selected }: NodeProps<HomeNode>) {
 	}
 	return (
 		<>
-			<div className="pointer-events-none absolute -top-12 left-5 flex items-center gap-2 text-muted-foreground text-sm">
-				<svg
-					aria-hidden="true"
-					fill="none"
-					height="42"
-					viewBox="0 0 36 42"
-					width="36"
-				>
-					<path
-						d="M3 3C25 3 28 17 28 36M21 29l7 8 6-9"
-						stroke="currentColor"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-						strokeWidth="1.5"
-					/>
-				</svg>
-				{card.kind === "center-agent"
-					? "Start here — ask for help with your work"
-					: "A Space — chat and work with your team"}
-			</div>
+			{!card.guideDismissed && (
+				<div className="absolute -top-12 left-5 flex items-center gap-2 text-muted-foreground text-sm">
+					<svg
+						aria-hidden="true"
+						fill="none"
+						height="42"
+						viewBox="0 0 36 42"
+						width="36"
+					>
+						<path
+							d="M3 3C25 3 28 17 28 36M21 29l7 8 6-9"
+							stroke="currentColor"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							strokeWidth="1.5"
+						/>
+					</svg>
+					{card.kind === "center-agent"
+						? "Start here — ask for help with your work"
+						: "A Space — chat and work with your team"}
+					<Button
+						aria-label={`Dismiss ${title} guide`}
+						className="nodrag nopan"
+						onClick={() => context.setGuideDismissed(card.id, true)}
+						size="icon-sm"
+						variant="ghost"
+					>
+						<XIcon />
+					</Button>
+				</div>
+			)}
 			<section
 				aria-label={title}
 				className="flex h-full w-full flex-col overflow-hidden rounded-lg border bg-background shadow-sm"
@@ -766,9 +774,21 @@ function HomeCardNode({ data, selected }: NodeProps<HomeNode>) {
 					minWidth={280}
 				/>
 				<header className="home-card-handle flex h-11 shrink-0 cursor-grab items-center gap-2 border-b px-3 active:cursor-grabbing">
-					<h2 className="min-w-0 flex-1 truncate font-medium text-sm">
+					<h2 className="min-w-0 truncate font-medium text-sm">
 						{card.kind === "space" ? `Space · ${title}` : title}
 					</h2>
+					{card.guideDismissed && (
+						<Button
+							aria-label={`Show ${title} guide`}
+							className="nodrag nopan"
+							onClick={() => context.setGuideDismissed(card.id, false)}
+							size="icon-sm"
+							variant="ghost"
+						>
+							<QuestionIcon />
+						</Button>
+					)}
+					<div className="flex-1" />
 					{href && (
 						<Link
 							aria-label={`Open ${title} full screen`}
@@ -888,7 +908,6 @@ const HomeCardContent = memo(function HomeCardContent({
 });
 
 function HomeWelcome() {
-	const { currentOrganization } = useAppOrganization();
 	const { selectedHumanProfile } = useSelectedHumanProfile({
 		selectDefaultWhenMissing: true,
 	});
@@ -897,9 +916,6 @@ function HomeWelcome() {
 			aria-label="Welcome to Home"
 			className="home-card-handle flex h-full cursor-grab flex-col items-center justify-center gap-3 text-center active:cursor-grabbing"
 		>
-			<p className="text-base text-muted-foreground">
-				{currentOrganization.name} · Home
-			</p>
 			<h2 className="font-medium text-4xl">
 				Hello
 				{selectedHumanProfile?.profileName

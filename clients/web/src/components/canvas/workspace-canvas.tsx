@@ -33,7 +33,11 @@ export function WorkspaceCanvas<N extends Node, E extends Edge = Edge>({
 				{...props}
 			>
 				<Background
-					color="color-mix(in oklab, var(--foreground) 18%, transparent)"
+					color={
+						resolvedTheme === "dark"
+							? "color-mix(in oklab, var(--foreground) 18%, transparent)"
+							: "color-mix(in oklab, var(--foreground) 32%, transparent)"
+					}
 					gap={20}
 					size={1.25}
 					variant={BackgroundVariant.Dots}
