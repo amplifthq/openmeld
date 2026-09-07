@@ -16,3 +16,4 @@ The overview uses distinct cards with larger avatars to make members easier to s
 You appear first in your group without being automatically starred. Saved stars
 and custom groups remain available, and personal profiles no longer show the
 Advanced details section.
+Hidden sidebar group actions no longer reserve space beside unread counts.
