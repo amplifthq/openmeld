@@ -34,6 +34,7 @@ export function createAuth(env: AuthBindings): AuthInstance {
     AUTH_BRAND_NAME: env.AUTH_BRAND_NAME,
     WEB_APP_URL: env.WEB_APP_URL,
     AUTH_COOKIE_DOMAIN: env.AUTH_COOKIE_DOMAIN,
+    AUTH_COOKIE_PREFIX: env.AUTH_COOKIE_PREFIX,
     PASSKEY_RP_ID: env.PASSKEY_RP_ID,
     GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID:
       env.GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID,
@@ -86,6 +87,7 @@ function buildAuthCacheKey(env: AuthBindings): string {
     readBindingCacheToken(env.OPENMELD_DB),
     readBindingCacheToken(env.OPENMELD_AUTH_KV),
     env.BETTER_AUTH_URL ?? "",
+    env.AUTH_COOKIE_PREFIX ?? "",
     env.BETTER_AUTH_OPENMELD_SECRET ?? "",
     env.AUTH_WORKER_NODE_ENV ?? "",
     env.AUTH_DEVICE_ALLOWED_CLIENT_IDS ?? "",

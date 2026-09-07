@@ -62,6 +62,16 @@ versioned release PR; this feature branch does not hand-edit release manifests.
 
 ## Evidence and remaining acceptance
 
+Staging browser acceptance exposed inherited production cookies masking the
+staging session when both environments used Better Auth's default cookie names.
+Staging Auth now explicitly uses `openmeld-staging`; production names remain
+unchanged. Existing staging browser sessions require one sign-in, while CLI
+bearer sessions and session rows are unchanged. Web and Gateway forward cookies
+without interpreting their names. This uses Better Auth's existing cookie-prefix
+contract, not a parallel authentication implementation. Mixed-cookie parsing,
+Auth type checks and the Worker environment contract pass; browser acceptance
+with production cookies retained is still required after deployment.
+
 Local evidence includes default binary Web onboarding, a real Codex DM reply
 with a public delivery trace, controller-off guidance, exact file-policy
 save/read/restore, and explicit Project discovery. Focused tests cover member
