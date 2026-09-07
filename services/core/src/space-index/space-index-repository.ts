@@ -14,6 +14,7 @@ import type {
   SpaceOrganizationVisibility,
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
+import { normalizeSpaceMemberNameSnapshot } from "../space/rules/member-name";
 
 const LEGACY_WELCOMING_SPACE_PURPOSE = "openmeld_welcoming_space";
 
@@ -692,7 +693,12 @@ export async function listSpaceIndexTargetProfileNameSnapshots(input: {
       }>();
     for (const row of rows.results ?? []) {
       const profileId = normalizeOptionalText(row.profile_id);
-      const profileName = normalizeOptionalText(row.profile_name_snapshot);
+      const profileName = profileId
+        ? normalizeSpaceMemberNameSnapshot(
+            profileId,
+            normalizeOptionalText(row.profile_name_snapshot)
+          )
+        : null;
       const spaceId = normalizeOptionalText(row.space_id);
       if (profileId && profileName && spaceId) {
         snapshots.push({ profileId, profileName, spaceId });

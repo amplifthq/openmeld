@@ -50,12 +50,14 @@ import {
   rpcPostStatusSignal,
   rpcPostSystemNoticeSignal,
 } from "../src/rpc/methods";
+import { upsertJoinedSpaceMember } from "../src/space/application/space-members-service";
 import {
   createDispatchOutboxRecord,
   insertDispatchOutboxRecord,
   markDispatchOutboxCancelled,
   markDispatchOutboxHandedOff,
 } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
+import { readSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import { Space } from "../src/space/transport/do/space";
 import { waitForJsonMessage } from "./test-support/ws-stream";
 
@@ -10107,6 +10109,110 @@ describe("OpenMeld Core", () => {
     expect(agentMembership.preferredOpenProfileId).toBe(
       "agt_44444444-4444-4444-8444-444444444444"
     );
+  });
+
+  it.each([
+    "publication",
+    "directory",
+    "active progress",
+  ])("repairs the Center Agent name through %s without trusting posted names", async (surface) => {
+    const spaceId = await createSpace({ name: "center-agent-name-repair" });
+    const profileId = "agt_11111111-1111-4111-8111-111111111112";
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    if (surface === "active progress") {
+      await upsertRemoteAgentNativeDeliveryRecord({
+        attemptId: null,
+        bindingId: `binding-${spaceId}`,
+        db: env.OPENMELD_DB,
+        dispatchId: `dispatch-${spaceId}`,
+        idempotencyKey: `name-${spaceId}`,
+        nowMs: Date.now(),
+        organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+        profileId,
+        sourceClientMessageId: `client-${spaceId}`,
+        spaceId,
+        status: "accepted",
+        triggerMessageId: `source-${spaceId}`,
+      });
+    }
+    await runInDurableObject(stub, (_instance, state) => {
+      upsertJoinedSpaceMember({
+        sql: state.storage.sql,
+        spaceId,
+        profile: { kind: "agent", profileId },
+      });
+    });
+    const name = await runInDurableObject(stub, async (_instance, state) => {
+      const repairedSpace = new Space(state, {
+        ...(env as unknown as CoreBindings),
+        OPENMELD_AUTH_WORKER: {
+          resolveProfileById: () =>
+            Promise.resolve({
+              ok: true,
+              profile: {
+                profileId,
+                profileKind: "agent",
+                profileName: "Amplift Center Agent",
+                profileHandle: "amplift-center-agent",
+                ownerUserId: "name-repair-owner",
+                status: "active",
+              },
+            }),
+        },
+      } as unknown as CoreBindings);
+      const context = createRpcContext({
+        requestId: "name-repair-read",
+        profileId,
+        profileKind: "agent",
+        ownerUserId: "name-repair-owner",
+      });
+      if (surface === "directory") {
+        const directory = await repairedSpace.rpcGetMemberDirectory({
+          spaceId,
+          context,
+        });
+        return directory.members.find(
+          (member) => member.profileId === profileId
+        )?.displayName;
+      }
+      if (surface === "active progress") {
+        const progress = await repairedSpace.rpcGetActiveWakeProgress({
+          spaceId,
+          context,
+        });
+        expect(progress.items).toHaveLength(1);
+        expect(progress.items[0]?.phase).toBe("running");
+        return progress.items[0]?.targetLabel;
+      }
+      const signal = await repairedSpace.rpcPostSignal({
+        spaceId,
+        text: "Reply from the Center Agent",
+        authoringPolicy: "system_emitted",
+        profile: {
+          kind: "agent",
+          profileId,
+          profileName: "Forged posted name",
+        },
+        context: createRpcContext({
+          requestId: "name-repair-publication",
+          profileId,
+          profileKind: "agent",
+          profileName: "Forged context name",
+          ownerUserId: "name-repair-owner",
+          agentControllerRef: "hosted:center-agent",
+        }),
+      });
+      return signal.profile.profileName;
+    });
+    expect(name?.startsWith("@") ? name.slice(1) : name).toBe(
+      "Amplift Center Agent"
+    );
+    const member = await runInDurableObject(stub, (_instance, state) =>
+      readSpaceMemberRecord(state.storage.sql, profileId)
+    );
+    expect(member?.profileNameSnapshot).toBe("Amplift Center Agent");
+    expect(member?.status).toBe("active");
   });
 
   it("preserves origin facts on direct DO rpc signals when the posted profile matches the authenticated agent", async () => {

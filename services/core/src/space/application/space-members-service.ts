@@ -47,6 +47,7 @@ import {
   recordSpaceMemberWebActivity,
 } from "../infrastructure/sql/space-member-web-activity-repo";
 import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
+import { normalizeSpaceMemberNameSnapshot } from "../rules/member-name";
 import { parseStoredSignal } from "../rules/parsers/stored-signal";
 import { redactProfileForViewer } from "../rules/privacy/agent-profile-visibility";
 import { resolveViewerCreatorProfileIdsByProfileId } from "../rules/privacy/profile-lineage";
@@ -833,7 +834,7 @@ export const buildSpaceStatusMembersSummaryFromSnapshot = (
   };
 };
 
-function ensureSpaceMembersBackfilled(input: {
+export function ensureSpaceMembersBackfilled(input: {
   sql: SqlStorage;
   spaceId: string;
   liveSessions: Iterable<LiveSessionLike>;
@@ -1614,6 +1615,116 @@ function mergeBackfilledMemberRecord(input: {
   };
 }
 
+export function refreshSpaceMemberNameSnapshot(input: {
+  sql: SqlStorage;
+  profileId: string;
+  profileName: string;
+}): boolean {
+  const name = normalizeSpaceMemberNameSnapshot(
+    input.profileId,
+    input.profileName
+  );
+  const member = readSpaceMemberRecord(input.sql, input.profileId);
+  if (
+    !(name && member) ||
+    member.status !== "active" ||
+    member.profileNameSnapshot === name
+  ) {
+    return false;
+  }
+  upsertSpaceMemberRecord(input.sql, {
+    ...member,
+    profileNameSnapshot: name,
+    updatedAt: new Date().toISOString(),
+  });
+  return true;
+}
+
+export async function repairSpaceMemberNameSnapshots(input: {
+  sql: SqlStorage;
+  env: CoreBindings;
+}): Promise<boolean> {
+  const auth = input.env.OPENMELD_AUTH_WORKER;
+  if (!auth?.resolveProfileById) {
+    return false;
+  }
+  const members = listSpaceMemberRecords(input.sql, {
+    status: "active",
+  }).filter(
+    (member) =>
+      !normalizeSpaceMemberNameSnapshot(
+        member.profileId,
+        member.profileNameSnapshot
+      )
+  );
+  let changed = false;
+  // Only damaged snapshots need an identity read; healthy Spaces do no RPCs.
+  for (const member of members) {
+    const name = await readSpaceMemberNameFromAuth({
+      env: input.env,
+      profileId: member.profileId,
+      profileKind: member.profileKindSnapshot,
+    });
+    if (!name) {
+      continue;
+    }
+    // Re-read after the Auth RPC: a concurrent rename or removal wins.
+    const current = readSpaceMemberRecord(input.sql, member.profileId);
+    if (
+      !current ||
+      current.status !== "active" ||
+      normalizeSpaceMemberNameSnapshot(
+        current.profileId,
+        current.profileNameSnapshot
+      )
+    ) {
+      continue;
+    }
+    changed =
+      refreshSpaceMemberNameSnapshot({
+        sql: input.sql,
+        profileId: member.profileId,
+        profileName: name,
+      }) || changed;
+  }
+  return changed;
+}
+
+export async function readSpaceMemberNameFromAuth(input: {
+  env: CoreBindings;
+  profileId: string;
+  profileKind: "agent" | "human";
+}): Promise<string | null> {
+  try {
+    const result = await input.env.OPENMELD_AUTH_WORKER?.resolveProfileById?.({
+      openMeldProfileId: input.profileId,
+    });
+    if (!result?.ok) {
+      console.warn("[core.space.member_name_unavailable]", {
+        profileId: input.profileId,
+        code: result?.code ?? "auth_unavailable",
+      });
+      return null;
+    }
+    if (
+      result.profile.profileId !== input.profileId ||
+      result.profile.profileKind !== input.profileKind
+    ) {
+      throw new Error("Space member name identity mismatch");
+    }
+    return normalizeSpaceMemberNameSnapshot(
+      input.profileId,
+      result.profile.profileName
+    );
+  } catch (error) {
+    console.warn("[core.space.member_name_failed]", {
+      profileId: input.profileId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
 function resolveMergedProfileNameSnapshot(input: {
   existing: SpaceMemberRecord;
   discovered: SpaceMemberRecord;
@@ -1622,8 +1733,10 @@ function resolveMergedProfileNameSnapshot(input: {
     return input.existing.profileNameSnapshot;
   }
   return (
-    normalizeOptionalText(input.discovered.profileNameSnapshot) ??
-    input.existing.profileNameSnapshot
+    normalizeSpaceMemberNameSnapshot(
+      input.discovered.profileId,
+      input.discovered.profileNameSnapshot
+    ) ?? input.existing.profileNameSnapshot
   );
 }
 
@@ -1729,7 +1842,10 @@ function buildNextSpaceMemberRecord(input: {
   lastEnteredAt?: string | null;
 }): SpaceMemberRecord {
   const profileNameSnapshot =
-    normalizeOptionalText(input.profile.profileName) ??
+    normalizeSpaceMemberNameSnapshot(
+      input.profile.profileId,
+      input.profile.profileName
+    ) ??
     input.existingProfileSnapshot?.profileNameSnapshot ??
     input.profile.profileId;
   return {
@@ -2335,11 +2451,13 @@ function normalizeProfileSnapshot(input: {
     return null;
   }
   const profileId = normalizeOptionalText(input.profile.profileId);
-  const profileName =
-    normalizeOptionalText(input.profile.profileName) ?? profileId;
-  if (!(profileId && profileName)) {
+  if (!profileId) {
     return null;
   }
+  const profileName = normalizeSpaceMemberNameSnapshot(
+    profileId,
+    input.profile.profileName
+  );
 
   return {
     profileId,

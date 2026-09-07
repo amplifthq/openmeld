@@ -4860,6 +4860,20 @@ ids, or reinterpret `readOnly` as permission to mutate local state.
 
 ## Space Member Contracts
 
+Space member names are persisted display snapshots, not Profile identity
+authority. Missing names and legacy Profile-ID placeholders must not overwrite
+a known name during Signal or session backfill. Publication keeps a valid
+member snapshot and rejects caller-reported names; when that snapshot is absent
+or an ID placeholder, Core resolves the matching Profile through Auth's
+`resolveProfileById` contract. Authorized member-directory and active-Wake
+reads repair damaged active-member names through the same contract and the
+Space-owned writer, then update the existing Space Index projection outbox.
+Recovery preserves membership, ownership, removal, aliases and historical
+Signals. It re-reads the member after the Auth call so concurrent removal or
+successful repair wins. Failed or mismatched identity reads do not write names.
+Web treats old ID-valued progress labels as unnamed Agents during rollout.
+These corrections change no HTTP/RPC schema or local-component contract.
+
 `getSpaceStatusResponseSchema` may expose the Organization's current
 `centerAgentProfileId` as an optional presentation identity. This lets public
 Space readers render the Center Agent consistently without inferring identity
