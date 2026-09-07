@@ -577,6 +577,7 @@ function renderSpaceLanding(
 		initialFocusSignalId?: string;
 		initialFocusThreadRootSignalId?: string;
 		initialPendingMessage?: {
+			files?: readonly File[];
 			clientMessageId: string;
 			createdAtMs: number;
 			text: string;
@@ -755,6 +756,14 @@ function buildLocalRuntimeCacheInvalidations(
 
 describe("SpaceLanding", () => {
 	beforeEach(() => {
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				observe = vi.fn();
+				unobserve = vi.fn();
+				disconnect = vi.fn();
+			}
+		);
 		clearSpaceConversationCacheMock.mockClear();
 		useQueryMock.mockReset();
 		useAccountAvatarMock.mockReset().mockReturnValue({
@@ -1703,6 +1712,48 @@ describe("SpaceLanding", () => {
 	});
 
 	it("adds a newly created Space agent only after confirmation without repeating the Core membership write", async () => {
+		const executionTarget = {
+			deviceId: "device-office",
+			runtimeLane: "dev-local",
+			openMeldServiceRuntimeId: "runtime-office",
+			isCurrent: true,
+			capabilities: [],
+			localAgentControl: {
+				refreshCatalog: true,
+				setEnabled: true,
+				setProfileWorkspace: true,
+			},
+			localAgentCatalog:
+				createStartStateWithCodexCatalog().state.readModel.device.value
+					.deviceAgentCatalog,
+		};
+		const computer = {
+			deviceId: "device-office",
+			deviceDisplayName: "Office Mac mini",
+			connection: { status: "connected", sessions: [], reasonCodes: [] },
+			isCurrent: true,
+			executionTargets: [executionTarget],
+		};
+		useLocalAgentRecoveryControllerMock.mockReturnValue({
+			deviceId: "device-office",
+			runtimeLane: "dev-local",
+			currentComputer: computer,
+			selectedExecutionTarget: executionTarget,
+			currentLocalRuntimeReplyReadinessQuery: {
+				data: createCurrentLocalRuntimeReplyReadiness({
+					canReplyFromThisComputer: true,
+					primaryBlocker: "none",
+					serviceConnected: true,
+					status: "ready",
+				}),
+			},
+			localRuntimesQuery: {
+				data: {
+					localRuntimes: [computer],
+					peopleComputers: { computers: [computer] },
+				},
+			},
+		});
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
 		const queryClient = createTestQueryClient();
 		vi.spyOn(queryClient, "invalidateQueries").mockImplementation(
@@ -1870,7 +1921,7 @@ describe("SpaceLanding", () => {
 			name: "Create a new Agent",
 		});
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Connect later" })
+			await within(dialog).findByRole("radio", { name: "Codex" })
 		);
 		fireEvent.change(await within(dialog).findByLabelText("Agent name"), {
 			target: { value: "Scout" },
@@ -1888,9 +1939,9 @@ describe("SpaceLanding", () => {
 		expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				configuration: expect.objectContaining({
-					agentControllerRef: null,
+					agentControllerRef: "builtin:codex",
 					defaultProjectId: null,
-					targetComputerId: null,
+					targetComputerId: "device-office",
 				}),
 				idempotencyKey: expect.any(String),
 				organizationId: "org-acme",
@@ -2243,8 +2294,14 @@ describe("SpaceLanding", () => {
 		expect(membersButton.textContent).toBe("");
 		fireEvent.click(membersButton);
 		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
-		expect(screen.queryByText("Runner")).toBeNull();
-		fireEvent.keyDown(composer, { key: "Enter" });
+		expect(screen.queryByRole("dialog", { name: "Members" })).toBeNull();
+		expect(
+			screen.queryByRole("button", {
+				name: "Add People or Agents",
+			})
+		).toBeNull();
+		fireEvent.click(membersButton);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		await waitFor(() => expect(ensureEntryConfirmed).toHaveBeenCalledTimes(1));
 		expect(statusRefetch).toHaveBeenCalled();
 		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
@@ -3125,15 +3182,12 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) status check")
 			.closest("[data-signal-id]");
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
-		const thinkingIndicator = within(
-			sourceMessageGroup as HTMLElement
-		).getByTestId("space-wake-thinking-indicator");
+		const thinkingIndicator = screen.getByTestId(
+			"space-wake-thinking-indicator"
+		);
 		expect(thinkingIndicator.textContent).toContain("Wake sent to runner");
 		expect(thinkingIndicator.textContent).not.toContain("Wake is queued");
 		expect(screen.queryByText("Starting Wake for @runner...")).toBeNull();
@@ -3208,6 +3262,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3219,16 +3274,13 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) status check")
 			.closest("[data-signal-id]");
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
 		await waitFor(() => {
-			const thinkingIndicator = within(
-				sourceMessageGroup as HTMLElement
-			).getByTestId("space-wake-thinking-indicator");
+			const thinkingIndicator = screen.getByTestId(
+				"space-wake-thinking-indicator"
+			);
 			expect(thinkingIndicator.textContent).toContain("runner is working");
 		});
 	});
@@ -3319,6 +3371,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getActiveWakeProgressMock).toHaveBeenCalledWith({
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3330,15 +3383,12 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) status check")
 			.closest("[data-signal-id]");
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
-		const thinkingIndicator = within(
-			sourceMessageGroup as HTMLElement
-		).getByTestId("space-wake-thinking-indicator");
+		const thinkingIndicator = screen.getByTestId(
+			"space-wake-thinking-indicator"
+		);
 		expect(thinkingIndicator.textContent).toContain("runner is working");
 
 		await act(async () => {
@@ -3601,6 +3651,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3612,16 +3663,13 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) status check")
 			.closest("[data-signal-id]");
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
 		await waitFor(() => {
-			const thinkingIndicator = within(
-				sourceMessageGroup as HTMLElement
-			).getByTestId("space-wake-thinking-indicator");
+			const thinkingIndicator = screen.getByTestId(
+				"space-wake-thinking-indicator"
+			);
 			expect(thinkingIndicator.textContent).toContain(
 				"Posting reply from runner…"
 			);
@@ -3723,6 +3771,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3814,6 +3863,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3924,6 +3974,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3935,16 +3986,13 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) old status check")
 			.closest("[data-signal-id]");
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
 		await waitFor(() => {
-			const thinkingIndicator = within(
-				sourceMessageGroup as HTMLElement
-			).getByTestId("space-wake-thinking-indicator");
+			const thinkingIndicator = screen.getByTestId(
+				"space-wake-thinking-indicator"
+			);
 			expect(thinkingIndicator.textContent).toContain("runner is working");
 		});
 	});
@@ -4245,6 +4293,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -4355,6 +4404,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -6029,10 +6079,8 @@ describe("SpaceLanding", () => {
 			within(membersPanel).queryByText("Refreshing setup status...")
 		).toBeNull();
 		expect(
-			within(membersPanel)
-				.getByRole("button", { name: "Refresh members" })
-				.hasAttribute("disabled")
-		).toBe(false);
+			within(membersPanel).queryByRole("button", { name: "Refresh members" })
+		).toBeNull();
 		expect(
 			within(membersPanel).queryByRole("link", {
 				name: "Review this computer",
@@ -7462,7 +7510,27 @@ describe("SpaceLanding", () => {
 		expect(membersRefetchMock).not.toHaveBeenCalled();
 	});
 
-	it("force-refreshes members, status, and readiness from the Members refresh button", async () => {
+	it("force-refreshes members, status, and readiness when checking an offline member", async () => {
+		const members = createMembersSnapshot();
+		const offlineMembers = {
+			...members,
+			agents: members.agents.map((agent) => ({
+				...agent,
+				agentWakeAvailability: resolveAgentWakeAvailability({
+					readiness: createReadyAgentExecutionReadiness(agent.profileId),
+					wakeRouteStatus: { status: "offline" },
+					agentWakeRouteRegistration: {
+						status: "expired",
+						reasonCode: "wake_route.registration_expired",
+						reportedAtMs: null,
+						daemonSessionId: null,
+						deviceId: null,
+						lane: null,
+						serviceVersion: null,
+					},
+				}),
+			})),
+		};
 		vi.stubGlobal(
 			"matchMedia",
 			createMatchMediaMock({ desktopMembersPanel: true })
@@ -7504,7 +7572,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot(),
+				data: offlineMembers,
 				refetch: membersRefetchMock,
 			}),
 			history: createQueryResult({
@@ -7519,14 +7587,15 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding();
 
 		const panel = openDesktopMembersPanel();
-		fireEvent.click(
-			within(panel).getByRole("button", { name: "Refresh members" })
-		);
+		fireEvent.click(within(panel).getByRole("button", { name: "Check again" }));
 
 		await waitFor(() => {
 			expect(fetchQueryMock).toHaveBeenCalledTimes(2);
 		});
-		expect(notifyAgentExecutionReadinessRefreshMock).not.toHaveBeenCalled();
+		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
+			agentProfileIds: [DEFAULT_AGENT_PROFILE_ID],
+			organizationId: "org-acme",
+		});
 		for (const invalidation of buildSharedReadinessCacheInvalidations()) {
 			expect(invalidateQueriesMock).toHaveBeenCalledWith(
 				expect.objectContaining(invalidation)
@@ -8033,6 +8102,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -9808,7 +9878,7 @@ describe("SpaceLanding", () => {
 					});
 				}
 				if (
-					queryKey ===
+					JSON.stringify(options.queryKey.slice(0, 4)) ===
 					JSON.stringify([
 						"spaces",
 						"active-wake-progress-summary",
@@ -12751,6 +12821,10 @@ describe("SpaceLanding", () => {
 				text: "First hello",
 			})
 		);
+		statusRefetchMock.mockResolvedValue({
+			data: createSpaceStatus(),
+			error: null,
+		});
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
 		});
@@ -12797,7 +12871,7 @@ describe("SpaceLanding", () => {
 				timeoutMs: 30_000,
 			});
 			expect(membersRefetchMock).toHaveBeenCalledTimes(1);
-			expect(statusRefetchMock).toHaveBeenCalledTimes(1);
+			expect(statusRefetchMock).toHaveBeenCalledTimes(2);
 			expect(screen.getAllByText("First hello").length).toBeGreaterThan(0);
 			expect(readComposerValue(textarea)).toBe("");
 		});
@@ -12811,7 +12885,15 @@ describe("SpaceLanding", () => {
 		queryClient.clear();
 	});
 
-	it("shows an outgoing normal message in the timeline before the server responds", async () => {
+	it("shows an outgoing normal message before the access refresh or post responds", async () => {
+		let releaseStatus: (() => void) | undefined;
+		const statusRefetch = vi.fn().mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					releaseStatus = () =>
+						resolve({ data: createSpaceStatus(), error: null });
+				})
+		);
 		let resolvePost:
 			| ((signal: ReturnType<typeof createTextSignal>) => void)
 			| null = null;
@@ -12828,6 +12910,7 @@ describe("SpaceLanding", () => {
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
+				refetch: statusRefetch,
 			}),
 			members: createQueryResult({
 				isSuccess: true,
@@ -12849,6 +12932,15 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(textarea, "Optimistic hello");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		expect(readComposerValue(textarea)).toBe("");
+		expect(
+			within(
+				screen.getByRole("log", { name: "Conversation history" })
+			).getByText("Optimistic hello")
+		).toBeTruthy();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await waitFor(() => expect(statusRefetch).toHaveBeenCalled());
+		await act(async () => releaseStatus?.());
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalled();
@@ -12874,6 +12966,11 @@ describe("SpaceLanding", () => {
 				within(conversationLog).getAllByText("Optimistic hello")
 			).toHaveLength(1);
 		});
+		await setComposerValue(textarea, "Next message while projections refresh");
+		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
+			"disabled",
+			false
+		);
 	});
 
 	it("stages a selected image and publishes it as a Space File only on Send", async () => {
@@ -13068,7 +13165,8 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("sends a Space File without requiring a text note", async () => {
+	it("shows a file-only message before file publication completes", async () => {
+		let releasePublication: (() => void) | undefined;
 		const descriptor = createSpaceFileDescriptor({
 			mimeType: "application/pdf",
 			name: "brief.pdf",
@@ -13093,7 +13191,12 @@ describe("SpaceLanding", () => {
 		createWebSpaceApiMock.mockReturnValue({
 			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			postNormalMessage: postNormalMessageMock,
-			publishComposerUpload: vi.fn().mockResolvedValue(descriptor),
+			publishComposerUpload: vi.fn().mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						releasePublication = () => resolve(descriptor);
+					})
+			),
 			stageComposerUpload: stageComposerUploadMock,
 		});
 		mockSpaceQueries({
@@ -13125,6 +13228,16 @@ describe("SpaceLanding", () => {
 			false
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		const log = screen.getByRole("log", { name: "Conversation history" });
+		expect(within(log).getByText("brief.pdf")).toBeTruthy();
+		expect(within(log).queryByText("Open in Files")).toBeNull();
+		expect(
+			within(log).getByRole("button", { name: "Copy message" })
+		).toHaveProperty("disabled", true);
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await waitFor(() => expect(releasePublication).toBeDefined());
+		await act(async () => releasePublication?.());
+
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [createSpaceMessageFileReference(descriptor)],
@@ -13718,8 +13831,65 @@ describe("SpaceLanding", () => {
 		});
 		expect(
 			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", true);
+		).toHaveProperty("disabled", false);
 		expect(screen.getByText("You can add up to 10 files.")).toBeTruthy();
+	});
+
+	it.each([
+		"Review this file",
+		"",
+	])("uploads first-chat draft files before sending once (text: %s)", async (text) => {
+		const descriptor = createSpaceFileDescriptor();
+		const messageFile = createSpaceMessageFileReference(descriptor);
+		const postNormalMessage = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "first-file-message",
+				text,
+				files: [messageFile],
+			})
+		);
+		const stageComposerUpload = vi.fn().mockImplementation((input) =>
+			Promise.resolve(
+				createSpaceComposerUpload({
+					id: input.uploadId,
+					mimeType: input.mimeType,
+					name: input.name,
+					sizeBytes: input.bytes.size,
+				})
+			)
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage,
+			stageComposerUpload,
+			publishComposerUpload: vi.fn().mockResolvedValue(descriptor),
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+		renderSpaceLanding({
+			initialPendingMessage: {
+				clientMessageId: "first-files",
+				createdAtMs: 1_751_000_000_000,
+				text,
+				files: [new File(["launch"], "launch.txt", { type: "text/plain" })],
+			},
+		});
+		await waitFor(() =>
+			expect(postNormalMessage).toHaveBeenCalledWith(
+				expect.objectContaining({ files: [messageFile], text })
+			)
+		);
+		expect(stageComposerUpload).toHaveBeenCalledTimes(1);
+		expect(postNormalMessage).toHaveBeenCalledTimes(1);
 	});
 
 	it("automatically sends a Center Agent message queued before Space bootstrap", async () => {
@@ -13771,7 +13941,7 @@ describe("SpaceLanding", () => {
 		expect(onConsumed).toHaveBeenCalledTimes(1);
 	});
 
-	it("sends a Center Agent starter action as an ordinary optimistic message", async () => {
+	it("sends a drafted Center Agent starter after explicit Send as an optimistic message", async () => {
 		let resolvePost:
 			| ((signal: ReturnType<typeof createTextSignal>) => void)
 			| null = null;
@@ -13807,6 +13977,15 @@ describe("SpaceLanding", () => {
 				name: SHOW_ME_AROUND_BUTTON_NAME_PATTERN,
 			})
 		);
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await waitFor(() => {
+			expect(
+				readComposerValue(
+					screen.getByRole("textbox", { name: "Message Center Agent" })
+				)
+			).toBe(starterPrompt);
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
@@ -13862,6 +14041,15 @@ describe("SpaceLanding", () => {
 				name: CREATE_SPACE_BUTTON_NAME_PATTERN,
 			})
 		);
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await waitFor(() => {
+			expect(
+				readComposerValue(
+					screen.getByRole("textbox", { name: "Message Center Agent" })
+				)
+			).toBe(starterPrompt);
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		expect(
 			await screen.findByText("The starter message could not be sent.")
@@ -14063,15 +14251,12 @@ describe("SpaceLanding", () => {
 			.getByText("DM hello")
 			.closest("[data-signal-id]");
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
-		const wakeThinkingIndicator = within(
-			sourceMessageGroup as HTMLElement
-		).getByTestId("space-wake-thinking-indicator");
+		const wakeThinkingIndicator = screen.getByTestId(
+			"space-wake-thinking-indicator"
+		);
 		expect(wakeThinkingIndicator.textContent).toContain(
 			"Starting Wake for runner…"
 		);
@@ -14552,7 +14737,9 @@ describe("SpaceLanding", () => {
 	});
 
 	it("sends plain text without a message envelope", async () => {
-		const statusRefetchMock = vi.fn().mockResolvedValue(undefined);
+		const statusRefetchMock = vi
+			.fn()
+			.mockResolvedValue({ data: createSpaceStatus(), error: null });
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
 				id: "sig-plain",
@@ -14600,7 +14787,7 @@ describe("SpaceLanding", () => {
 				text: "Plain text message",
 				timeoutMs: 30_000,
 			});
-			expect(statusRefetchMock).toHaveBeenCalledTimes(1);
+			expect(statusRefetchMock).toHaveBeenCalledTimes(2);
 		});
 	});
 
@@ -14756,15 +14943,12 @@ describe("SpaceLanding", () => {
 			'[data-signal-id="sig-mention"]'
 		);
 		expect(sourceMessage).not.toBeNull();
-		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
-		// message Bubble under the shared data-message-row-id row, not as a
-		// child of the bubble itself, so the indicator has to be found from
-		// that row ancestor rather than the bubble's immediate parent.
+		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
-		const wakeThinkingIndicator = within(
-			sourceMessageGroup as HTMLElement
-		).getByTestId("space-wake-thinking-indicator");
+		const wakeThinkingIndicator = screen.getByTestId(
+			"space-wake-thinking-indicator"
+		);
 		expect(wakeThinkingIndicator.textContent).toContain("Wake sent to watcher");
 		fireEvent.click(wakeThinkingIndicator);
 		expect(
@@ -16202,7 +16386,20 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows an outgoing thread reply before the server responds", async () => {
+	it.each([
+		false,
+		true,
+	])("shows a thread reply before admission or publication responds (Wake: %s)", async (wake) => {
+		let releaseAdmission: (() => void) | undefined;
+		readSpaceMembersMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					releaseAdmission = () => resolve(createMembersSnapshot());
+				})
+		);
+		const outgoingText = wake
+			? "@runner(wake) Optimistic thread reply"
+			: "Optimistic thread reply";
 		const postThreadSignalMock = vi.fn().mockImplementation(
 			() =>
 				new Promise(() => {
@@ -16291,17 +16488,27 @@ describe("SpaceLanding", () => {
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
-		await setComposerValue(threadComposer, "Optimistic thread reply");
+		await setComposerValue(threadComposer, outgoingText);
 		fireEvent.click(
 			within(threadPanel).getByRole("button", { name: "Send reply" })
 		);
+
+		if (wake) {
+			await waitFor(() => expect(readSpaceMembersMock).toHaveBeenCalled());
+			expect(readComposerValue(threadComposer)).toBe("");
+			expect(
+				within(threadPanel).getByText(outgoingText, { selector: "p" })
+			).toBeTruthy();
+			expect(postThreadSignalMock).not.toHaveBeenCalled();
+			await act(async () => releaseAdmission?.());
+		}
 
 		await waitFor(() => {
 			expect(postThreadSignalMock).toHaveBeenCalled();
 		});
 		expect(readComposerValue(threadComposer)).toBe("");
 		expect(
-			within(threadPanel).getByText("Optimistic thread reply", {
+			within(threadPanel).getByText(outgoingText, {
 				selector: "p",
 			})
 		).toBeTruthy();
@@ -17365,7 +17572,7 @@ function expectSpaceAgentAvailabilityIndicator(
 	if (
 		!(
 			indicatorClassName.includes("inline-flex") &&
-			indicatorClassName.includes("size-3") &&
+			indicatorClassName.includes("items-center") &&
 			indicatorClassName.includes("shrink-0")
 		)
 	) {
@@ -17577,7 +17784,11 @@ function mockSpaceQueries(input: {
 			},
 		});
 	useQueryMock.mockImplementation(
-		(options: { queryKey: readonly unknown[]; select?: unknown }) => {
+		(options: {
+			enabled?: boolean;
+			queryKey: readonly unknown[];
+			select?: unknown;
+		}) => {
 			const queryKey = JSON.stringify(options.queryKey);
 			if (
 				options.queryKey[0] === "space-invitations" &&
@@ -17919,6 +18130,18 @@ function mockSpaceQueries(input: {
 					isSuccess: true,
 					data: { organizationId: "org-acme", projects: [] },
 				});
+			}
+			if (
+				Array.isArray(options.queryKey) &&
+				options.queryKey[0] === "start" &&
+				options.queryKey[1] === "current-local-runtime-reply-readiness"
+			) {
+				if (options.enabled !== false) {
+					throw new Error(
+						"This fixture does not fetch readiness for a different computer."
+					);
+				}
+				return createQueryResult({ isPending: true });
 			}
 			throw new Error(`Unexpected query key: ${queryKey}`);
 		}

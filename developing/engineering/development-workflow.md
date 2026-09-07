@@ -331,6 +331,20 @@ on the Dev Slack App. The tunnel must forward to the isolated Gateway port,
 not the Web or Core port. Keep the tunnel URL ephemeral and out of tracked
 configuration.
 
+For a real Lark or Feishu registration and Webhook smoke, forward a public
+HTTPS tunnel to that same isolated Gateway port, then start the stack with:
+
+```bash
+OPENMELD_DEV_PUBLIC_GATEWAY_ORIGIN="https://<current-tunnel-host>" \
+  pnpm dev:worktree
+```
+
+The launcher writes this callback origin into the generated local Core config.
+Browser routing, CORS, persistence, and Service discovery remain on the isolated
+localhost lane. Use a development tenant and app; the provider must reach both
+the event and card callback routes before the connection can become connected.
+This setting does not change staging or production configuration.
+
 A Git worktree does not copy ignored local secret files. The preferred shared
 environment path is `pnpm dev:doctor`, followed by `pnpm dev:worktree` and
 `pnpm dev:web:worktree`. The runner supplies the same authorized Doppler `dev`

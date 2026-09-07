@@ -11,6 +11,7 @@ export type ListAccountSpaceIndexInput = {
   includeDirectMessageProfileIds?: boolean;
   includePurposes?: boolean;
   includeMemberPreviews?: boolean;
+  includeMessagePreviews?: boolean;
   includeRecentlyDeletedItems?: boolean;
   limit?: number;
   scope: AccountSpaceIndexQuery["scope"];

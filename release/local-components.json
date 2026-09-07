@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-06T13:28:40.457Z",
+  "updatedAt": "2026-09-07T14:02:24.220Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.162",
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
+      "packageVersion": "0.3.166",
       "updatePolicy": "available",
-      "reason": "Existing setup, Wake, and ordinary trace commands remain compatible; older detailed Flue diagnostics fail with explicit upgrade guidance."
+      "reason": "Existing CLI commands and setup, Wake, Space actions and diagnostics remain compatible with both cloud versions."
     },
     "service": {
-      "bundleHash": "7d9de5d541d3e39add0fcf711ace2193638752d59d491a389110c72c8f97f8d9",
-      "bundleVersion": "0.3.162",
+      "bundleHash": "b0903575a7edadfa21e570773fdfb709c49cb6c43e332ee02597890c6dd32e48",
+      "bundleVersion": "0.3.166",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "The Flue upgrade changes hosted execution; existing local Services retain compatible Wake, delegation, and self-update contracts, as verified in staging."
+      "reason": "Only shared validator construction timing changes; existing Services remain compatible with setup, Wake, Space actions and diagnostics."
     },
     "skills": {
       "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",

@@ -4822,7 +4822,10 @@ describe("space signal service", () => {
     expect(requestControllerBackedWakeStop).not.toHaveBeenCalled();
   });
 
-  it("routes Stop from an execution-linked head without waiting for its D1 projection", async () => {
+  it.each([
+    "client_message",
+    "source_signal",
+  ] as const)("routes %s Stop from an execution-linked head with its original client identity", async (by) => {
     const targetProfileId = "agt_33333333-3333-4333-8333-333333333333";
     const runtimeCoordinatorExecutionId = "rce-execution-linked-1";
     const fetch = vi.fn((url: string, init: RequestInit) => {
@@ -4893,16 +4896,30 @@ describe("space signal service", () => {
           targetProfileName: null,
         })),
       },
+      readSourceTextSignalById: {
+        value: vi.fn(() => ({
+          id: "signal-1",
+          type: "signal.text",
+          data: { meta: { clientMessageId: "client-message-1" } },
+        })),
+      },
       spaceId: { value: "space-1" },
     });
 
     const response = await space.requestPreAgentWakeStop({
       body: {
-        target: {
-          by: "client_message",
-          clientMessageId: "client-message-1",
-          targetProfileId,
-        },
+        target:
+          by === "client_message"
+            ? {
+                by,
+                clientMessageId: "client-message-1",
+                targetProfileId,
+              }
+            : {
+                by,
+                sourceSignalId: "signal-1",
+                targetProfileId,
+              },
       },
       lookupMatch: {
         dispatchId: "dispatch-execution-linked-1",
@@ -4916,6 +4933,11 @@ describe("space signal service", () => {
       status: "cancellation_requested",
     });
     expect(fetch).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1].body))).toMatchObject({
+      sourceClientMessageId: "client-message-1",
+      dispatchId: "dispatch-execution-linked-1",
+      targetProfileId,
+    });
     expect(
       fetch.mock.calls.map(([url]) => new URL(String(url)).pathname)
     ).toEqual([
@@ -5527,6 +5549,7 @@ describe("space signal service", () => {
     expect(readSpaceWakeProgress).toHaveBeenCalledWith({
       actorOwnerUserId: undefined,
       clientMessageId: "client-message-hosted-stop-1",
+      includePreviewText: false,
       includeSourceContext: false,
       includeTiming: false,
       includeWaitReason: false,

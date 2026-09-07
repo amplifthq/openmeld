@@ -30,11 +30,14 @@ packageExtensionsChecksum: sha256-KgO1AEvxWG2BkZwreCUQEKVuZnpDPXJ+xMuK4j1L8pE=
 
 patchedDependencies:
   '@cloudflare/computer@0.2.1':
-    hash: cf2f0b63be4f15877f2c297a6a7a8030234aef47093a88033cc524bbda678c25
+    hash: 77916b6fd5a867f352e8dd22c3838077b297df43ed09eefccdd8fb9b9d9aae64
     path: patches/@cloudflare__computer@0.2.1.patch
   '@flue/runtime@2.0.3':
     hash: 2af016a413c955dd981242765b00945562a3fe7c93d32d9b39d70eee0f7bee49
     path: patches/@flue__runtime@2.0.3.patch
+  thinking-orbs@0.3.1:
+    hash: 1d2410bd054a0bbf76633d101f3ad9e0e088bed08e1470176fc51bdb7e45d9c3
+    path: patches/thinking-orbs@0.3.1.patch
 
 importers:
 
@@ -526,7 +529,7 @@ importers:
         version: 4.1.18
       thinking-orbs:
         specifier: 0.3.1
-        version: 0.3.1(react@19.2.4)
+        version: 0.3.1(patch_hash=1d2410bd054a0bbf76633d101f3ad9e0e088bed08e1470176fc51bdb7e45d9c3)(react@19.2.4)
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -1362,7 +1365,7 @@ importers:
         version: 0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.219(zod@4.4.3))(zod@4.4.3)
       '@cloudflare/computer':
         specifier: 0.2.1
-        version: 0.2.1(patch_hash=cf2f0b63be4f15877f2c297a6a7a8030234aef47093a88033cc524bbda678c25)(ai@6.0.219(zod@4.4.3))(zod@4.4.3)
+        version: 0.2.1(patch_hash=77916b6fd5a867f352e8dd22c3838077b297df43ed09eefccdd8fb9b9d9aae64)(ai@6.0.219(zod@4.4.3))(zod@4.4.3)
       '@earendil-works/pi-ai':
         specifier: 0.83.0
         version: 0.83.0(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
@@ -14079,7 +14082,7 @@ snapshots:
       ai: 6.0.219(zod@4.4.3)
       zod: 4.4.3
 
-  '@cloudflare/computer@0.2.1(patch_hash=cf2f0b63be4f15877f2c297a6a7a8030234aef47093a88033cc524bbda678c25)(ai@6.0.219(zod@4.4.3))(zod@4.4.3)':
+  '@cloudflare/computer@0.2.1(patch_hash=77916b6fd5a867f352e8dd22c3838077b297df43ed09eefccdd8fb9b9d9aae64)(ai@6.0.219(zod@4.4.3))(zod@4.4.3)':
     dependencies:
       acorn: 8.17.0
       capnweb: 0.8.0
@@ -25017,7 +25020,7 @@ snapshots:
       mkdirp: 0.5.6
       rimraf: 2.6.3
 
-  thinking-orbs@0.3.1(react@19.2.4):
+  thinking-orbs@0.3.1(patch_hash=1d2410bd054a0bbf76633d101f3ad9e0e088bed08e1470176fc51bdb7e45d9c3)(react@19.2.4):
     dependencies:
       react: 19.2.4
 

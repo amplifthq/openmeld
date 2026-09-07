@@ -6,6 +6,7 @@ import type {
 	ComputerFileAccessMode,
 	ComputerFileAccessPolicyInput,
 	ComputerFileAccessPolicyResponse,
+	DaemonServiceLane,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -80,7 +81,9 @@ type FileAccessDraftAction =
 
 export function ComputerFileAccessCard(input: {
 	canChooseFolders: boolean;
+	canChooseProjects: boolean;
 	deviceId: string;
+	runtimeLane: DaemonServiceLane;
 	focusFileAccess?: boolean;
 	onFocusConsumed?: () => void;
 	storageScope: string;
@@ -90,6 +93,7 @@ export function ComputerFileAccessCard(input: {
 	const policyQuery = useQuery(
 		computerFileAccessPolicyQueryOptions({
 			deviceId: input.deviceId,
+			runtimeLane: input.runtimeLane,
 			storageScope: input.storageScope,
 		})
 	);
@@ -138,8 +142,10 @@ export function ComputerFileAccessCard(input: {
 			{policyQuery.isSuccess ? (
 				<FileAccessEditor
 					canChooseFolders={input.canChooseFolders}
+					canChooseProjects={input.canChooseProjects}
 					deviceId={input.deviceId}
 					policyResponse={policyQuery.data}
+					runtimeLane={input.runtimeLane}
 					storageScope={input.storageScope}
 				/>
 			) : null}
@@ -149,7 +155,9 @@ export function ComputerFileAccessCard(input: {
 
 function FileAccessEditor(input: {
 	canChooseFolders: boolean;
+	canChooseProjects: boolean;
 	deviceId: string;
+	runtimeLane: DaemonServiceLane;
 	policyResponse: ComputerFileAccessPolicyResponse;
 	storageScope: string;
 }) {
@@ -184,14 +192,19 @@ function FileAccessEditor(input: {
 	>({
 		mutationFn: (policy) =>
 			updateComputerFileAccessPolicy({
-				expectedDeviceId: input.deviceId,
+				deviceId: input.deviceId,
+				runtimeLane: input.runtimeLane,
 				expectedRevision: input.policyResponse.policy.revision,
 				idempotencyKey: crypto.randomUUID(),
 				policy,
 			}),
 		onSuccess: (response) => {
 			queryClient.setQueryData(
-				computerFileAccessQueryKeys.policy(input.storageScope, input.deviceId),
+				computerFileAccessQueryKeys.policy(
+					input.storageScope,
+					input.deviceId,
+					input.runtimeLane
+				),
 				response
 			);
 			dispatchDraft({ policy: response.policy, type: "replace_policy" });
@@ -253,6 +266,7 @@ function FileAccessEditor(input: {
 				{draft.mode === "local_agent_settings" ? null : (
 					<FolderEditor
 						canChooseFolders={input.canChooseFolders}
+						canChooseProjects={input.canChooseProjects}
 						deviceId={input.deviceId}
 						disabled={mutation.isPending}
 						folders={draft.folders}
@@ -264,6 +278,7 @@ function FileAccessEditor(input: {
 							resetFeedback();
 						}}
 						onChooseProjects={() => setProjectPickerOpen(true)}
+						runtimeLane={input.runtimeLane}
 					/>
 				)}
 
@@ -313,6 +328,7 @@ function FileAccessEditor(input: {
 				}}
 				onOpenChange={setProjectPickerOpen}
 				open={projectPickerOpen}
+				target={{ deviceId: input.deviceId, runtimeLane: input.runtimeLane }}
 			/>
 		</>
 	);
@@ -320,7 +336,9 @@ function FileAccessEditor(input: {
 
 function FolderEditor(input: {
 	canChooseFolders: boolean;
+	canChooseProjects: boolean;
 	deviceId: string;
+	runtimeLane: DaemonServiceLane;
 	disabled: boolean;
 	folders: readonly FolderDraft[];
 	onChange: (folders: FolderDraft[]) => void;
@@ -393,18 +411,21 @@ function FolderEditor(input: {
 							input.onChange(mergeUniqueFolderDrafts(input.folders, paths))
 						}
 						purpose="computer_file_access"
+						runtimeLane={input.runtimeLane}
 					/>
 				) : null}
-				<Button
-					disabled={input.disabled || input.folders.length >= 128}
-					onClick={input.onChooseProjects}
-					size="sm"
-					type="button"
-					variant={input.canChooseFolders ? "ghost" : "outline"}
-				>
-					<FolderSimpleIcon aria-hidden="true" data-icon="inline-start" />
-					Add from Projects
-				</Button>
+				{input.canChooseProjects ? (
+					<Button
+						disabled={input.disabled || input.folders.length >= 128}
+						onClick={input.onChooseProjects}
+						size="sm"
+						type="button"
+						variant={input.canChooseFolders ? "ghost" : "outline"}
+					>
+						<FolderSimpleIcon aria-hidden="true" data-icon="inline-start" />
+						Add from Projects
+					</Button>
+				) : null}
 				<Button
 					disabled={input.disabled || input.folders.length >= 128}
 					onClick={() =>

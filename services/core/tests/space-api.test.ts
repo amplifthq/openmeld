@@ -50,12 +50,14 @@ import {
   rpcPostStatusSignal,
   rpcPostSystemNoticeSignal,
 } from "../src/rpc/methods";
+import { upsertJoinedSpaceMember } from "../src/space/application/space-members-service";
 import {
   createDispatchOutboxRecord,
   insertDispatchOutboxRecord,
   markDispatchOutboxCancelled,
   markDispatchOutboxHandedOff,
 } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
+import { readSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import { Space } from "../src/space/transport/do/space";
 import { waitForJsonMessage } from "./test-support/ws-stream";
 
@@ -1362,7 +1364,7 @@ describe("OpenMeld Core", () => {
     expect(payload.agents).toEqual([]);
   });
 
-  it("includes directly joined profiles in the members snapshot and marks them live", async () => {
+  it("marks directly joined profiles live after foreground activity", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
       profileKind: "human",
@@ -1391,6 +1393,15 @@ describe("OpenMeld Core", () => {
       undefined,
       joinerProfile
     );
+
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const space = namespace.get(namespace.idFromString(spaceId));
+    await space.rpcRecordMemberWebActivity({
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      profileId: THIRD_HUMAN_PROFILE_ID,
+      userId: "owner-members-joiner-1",
+      lastActiveAt: new Date().toISOString(),
+    });
 
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
@@ -8811,12 +8822,13 @@ describe("OpenMeld Core", () => {
     });
   });
 
-  it("persists Center Agent tool messages with the Space member name snapshot", async () => {
+  it("publishes new Center Agent tool messages with the Auth name while preserving history", async () => {
     const organizationId = "org-center-agent-author-name";
     const ownerUserId = "owner-center-agent-author-name";
     const humanProfileId = "55555555-5555-4555-8555-555555555555";
     const agentProfileId = "agt_55555555-5555-4555-8555-555555555555";
     const authoritativeProfileName = "Historical Center Agent";
+    const currentProfileName = "Current Center Agent Profile";
     await ensureTestCenterAgentDesignation({
       agentProfileId,
       agentProfileName: "Current Center Agent Profile",
@@ -8859,25 +8871,63 @@ describe("OpenMeld Core", () => {
     );
     expect(addResponse.status).toBe(200);
 
-    const result = await rpcCenterAgentPostSpaceMessage(
-      env as unknown as CoreBindings,
-      {
-        context: createRpcContext({
-          activeOrganizationId: organizationId,
-          ownerUserId,
-          profileId: agentProfileId,
-          profileKind: "agent",
-          requestId: "remote-agent-tool:openmeld_post_space_message:test",
-        }),
-        spaceId,
-        text: "I updated the launch plan.",
-      }
-    );
+    await rpcCenterAgentPostSpaceMessage(env as unknown as CoreBindings, {
+      context: createRpcContext({
+        activeOrganizationId: organizationId,
+        ownerUserId,
+        profileId: agentProfileId,
+        profileKind: "agent",
+        requestId: "historical-center-agent-message",
+      }),
+      spaceId,
+      text: "Message before the rename.",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const result = await runInDurableObject(stub, async (_instance, state) => {
+      const currentEnv = {
+        ...env,
+        OPENMELD_AUTH_WORKER: {
+          resolveProfileById: async () => ({
+            ok: true,
+            profile: {
+              profileId: agentProfileId,
+              profileKind: "agent",
+              profileName: currentProfileName,
+              profileHandle: "current-center-agent",
+              ownerUserId,
+              status: "active",
+            },
+          }),
+        },
+      } as unknown as CoreBindings;
+      const currentSpace = new Space(state, currentEnv);
+      return await rpcCenterAgentPostSpaceMessage(
+        {
+          ...currentEnv,
+          OPENMELD_SPACES: {
+            idFromString: (id: string) => namespace.idFromString(id),
+            get: () => currentSpace,
+          },
+        } as unknown as CoreBindings,
+        {
+          context: createRpcContext({
+            activeOrganizationId: organizationId,
+            ownerUserId,
+            profileId: agentProfileId,
+            profileKind: "agent",
+            requestId: "remote-agent-tool:openmeld_post_space_message:test",
+          }),
+          spaceId,
+          text: "I updated the launch plan.",
+        }
+      );
+    });
 
     expect(result.signal.profile).toMatchObject({
       kind: "agent",
       profileId: agentProfileId,
-      profileName: authoritativeProfileName,
+      profileName: currentProfileName,
     });
     const historyResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
@@ -8898,8 +8948,15 @@ describe("OpenMeld Core", () => {
     ).toMatchObject({
       kind: "agent",
       profileId: agentProfileId,
-      profileName: authoritativeProfileName,
+      profileName: currentProfileName,
     });
+    expect(
+      history.signals?.find(
+        (signal) =>
+          signal.type === "signal.text" &&
+          signal.data.text === "Message before the rename."
+      )?.profile.profileName
+    ).toBe(authoritativeProfileName);
   });
 
   it("allows anonymous viewers to read direct RPC status, signals, and threads without write access", async () => {
@@ -10098,6 +10155,149 @@ describe("OpenMeld Core", () => {
     expect(agentMembership.preferredOpenProfileId).toBe(
       "agt_44444444-4444-4444-8444-444444444444"
     );
+  });
+
+  it.each(
+    ["publication", "directory", "active progress"].flatMap((surface) =>
+      [
+        undefined,
+        "Previous Center Agent",
+        "agt_11111111-1111-4111-8111-111111111112",
+      ]
+        .map((profileName) => ({
+          surface,
+          profileName,
+          failure: undefined as string | undefined,
+        }))
+        .concat(
+          ["unavailable", "stalled"].map((failure) => ({
+            surface,
+            profileName: "Previous Center Agent",
+            failure,
+          }))
+        )
+    )
+  )("refreshes the Center Agent name through $surface from $profileName with $failure", async ({
+    surface,
+    profileName,
+    failure,
+  }) => {
+    const spaceId = await createSpace({ name: "center-agent-name-repair" });
+    const profileId = "agt_11111111-1111-4111-8111-111111111112";
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    if (surface === "active progress") {
+      await upsertRemoteAgentNativeDeliveryRecord({
+        attemptId: null,
+        bindingId: `binding-${spaceId}`,
+        db: env.OPENMELD_DB,
+        dispatchId: `dispatch-${spaceId}`,
+        idempotencyKey: `name-${spaceId}`,
+        nowMs: Date.now(),
+        organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+        profileId,
+        sourceClientMessageId: `client-${spaceId}`,
+        spaceId,
+        status: "accepted",
+        triggerMessageId: `source-${spaceId}`,
+      });
+    }
+    await runInDurableObject(stub, (_instance, state) => {
+      upsertJoinedSpaceMember({
+        sql: state.storage.sql,
+        spaceId,
+        profile: {
+          kind: "agent",
+          profileId,
+          profileName,
+        },
+      });
+    });
+    const startedAt = Date.now();
+    const name = await runInDurableObject(stub, async (_instance, state) => {
+      const repairedSpace = new Space(state, {
+        ...(env as unknown as CoreBindings),
+        OPENMELD_AUTH_WORKER: {
+          resolveProfileById: () => {
+            if (failure === "stalled") {
+              return new Promise(() => {
+                /* Simulate an Auth RPC that never settles. */
+              });
+            }
+            if (failure === "unavailable") {
+              return Promise.reject(new Error("Auth unavailable"));
+            }
+            return Promise.resolve({
+              ok: true,
+              profile: {
+                profileId,
+                profileKind: "agent",
+                profileName: "Amplift Center Agent",
+                profileHandle: "amplift-center-agent",
+                ownerUserId: "name-repair-owner",
+                status: "active",
+              },
+            });
+          },
+        },
+      } as unknown as CoreBindings);
+      const context = createRpcContext({
+        requestId: "name-repair-read",
+        profileId,
+        profileKind: "agent",
+        ownerUserId: "name-repair-owner",
+      });
+      if (surface === "directory") {
+        const directory = await repairedSpace.rpcGetMemberDirectory({
+          spaceId,
+          context,
+        });
+        return directory.members.find(
+          (member) => member.profileId === profileId
+        )?.displayName;
+      }
+      if (surface === "active progress") {
+        const progress = await repairedSpace.rpcGetActiveWakeProgress({
+          spaceId,
+          context,
+        });
+        expect(progress.items).toHaveLength(1);
+        expect(progress.items[0]?.phase).toBe("running");
+        return progress.items[0]?.targetLabel;
+      }
+      const signal = await repairedSpace.rpcPostSignal({
+        spaceId,
+        text: "Reply from the Center Agent",
+        authoringPolicy: "system_emitted",
+        profile: {
+          kind: "agent",
+          profileId,
+          profileName: "Forged posted name",
+        },
+        context: createRpcContext({
+          requestId: "name-repair-publication",
+          profileId,
+          profileKind: "agent",
+          profileName: "Forged context name",
+          ownerUserId: "name-repair-owner",
+          agentControllerRef: "hosted:center-agent",
+        }),
+      });
+      return signal.profile.profileName;
+    });
+    expect(name?.startsWith("@") ? name.slice(1) : name).toBe(
+      failure ? "Previous Center Agent" : "Amplift Center Agent"
+    );
+    if (failure) {
+      expect(Date.now() - startedAt).toBeLessThan(2000);
+    }
+    const member = await runInDurableObject(stub, (_instance, state) =>
+      readSpaceMemberRecord(state.storage.sql, profileId)
+    );
+    expect(member?.profileNameSnapshot).toBe(
+      failure ? "Previous Center Agent" : "Amplift Center Agent"
+    );
+    expect(member?.status).toBe("active");
   });
 
   it("preserves origin facts on direct DO rpc signals when the posted profile matches the authenticated agent", async () => {

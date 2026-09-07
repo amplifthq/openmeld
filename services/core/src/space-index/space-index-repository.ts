@@ -1,4 +1,7 @@
-import { isCenterAgentDirectMessageSpaceProjection } from "@openmeld/schemas";
+import {
+  accountSpaceIndexItemSchema,
+  isCenterAgentDirectMessageSpaceProjection,
+} from "@openmeld/schemas";
 import type {
   AccountSpaceIndexDeletedItem,
   AccountSpaceIndexItem,
@@ -11,6 +14,7 @@ import type {
   SpaceOrganizationVisibility,
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
+import { normalizeSpaceMemberNameSnapshot } from "../space/rules/member-name";
 
 const LEGACY_WELCOMING_SPACE_PURPOSE = "openmeld_welcoming_space";
 
@@ -92,6 +96,7 @@ export type ListAccountSpacesFromSpaceIndexInput = {
   includeRecentlyDeletedItems?: boolean;
   includePurposes?: boolean;
   includeMemberPreviews?: boolean;
+  includeMessagePreviews?: boolean;
 };
 
 export type SpaceIndexProjectionDriftIssueCode =
@@ -688,7 +693,12 @@ export async function listSpaceIndexTargetProfileNameSnapshots(input: {
       }>();
     for (const row of rows.results ?? []) {
       const profileId = normalizeOptionalText(row.profile_id);
-      const profileName = normalizeOptionalText(row.profile_name_snapshot);
+      const profileName = profileId
+        ? normalizeSpaceMemberNameSnapshot(
+            profileId,
+            normalizeOptionalText(row.profile_name_snapshot)
+          )
+        : null;
       const spaceId = normalizeOptionalText(row.space_id);
       if (profileId && profileName && spaceId) {
         snapshots.push({ profileId, profileName, spaceId });
@@ -721,6 +731,12 @@ export async function listAccountSpacesFromSpaceIndex(
   const sections = partitionAccountSpaceIndexItems(
     buildAccountSpaceItems(input, rows)
   );
+  if (input.includeMessagePreviews === true) {
+    await attachSpaceMessagePreviews(input.db, [
+      ...sections.pinnedItems,
+      ...sections.spaceItems,
+    ]);
+  }
   if (input.includeMemberPreviews === true) {
     await attachSpaceMemberPreviews(input.db, [
       ...sections.pinnedItems,
@@ -735,6 +751,31 @@ export async function listAccountSpacesFromSpaceIndex(
     return sections;
   }
   return { ...sections, recentlyDeletedItems };
+}
+
+async function attachSpaceMessagePreviews(
+  db: D1Database,
+  items: AccountSpaceIndexItem[]
+): Promise<void> {
+  for (let offset = 0; offset < items.length; offset += 90) {
+    const chunk = items.slice(offset, offset + 90);
+    const byId = new Map(chunk.map((item) => [item.spaceId, item]));
+    const rows = await db
+      .prepare(
+        `SELECT space_id, message_preview_json AS preview_json FROM space_index_spaces WHERE status = 'active' AND message_preview_revision IS NOT NULL AND space_id IN (${chunk.map(() => "?").join(",")})`
+      )
+      .bind(...chunk.map((item) => item.spaceId))
+      .all<{ space_id: string; preview_json: string | null }>();
+    for (const row of rows.results) {
+      const item = byId.get(row.space_id);
+      if (item) {
+        item.messagePreview =
+          accountSpaceIndexItemSchema.shape.messagePreview.parse(
+            row.preview_json === null ? null : JSON.parse(row.preview_json)
+          );
+      }
+    }
+  }
 }
 
 // Only enrich the already authorized candidate list. Read at most three active

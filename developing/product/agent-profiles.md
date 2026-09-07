@@ -43,8 +43,8 @@ The template uses plain spaces rather than possessives or decorative separators.
 If the proposed visible name already exists for that owner, the creation surface
 adds the first available numeric suffix such as `(1)` or `(2)`.
 
-The name field appears at the final review rather than blocking the first
-decision. While the name still matches the managed template, configuration
+The name field appears after local agent selection in the single-page creation
+form, before the collapsed Advanced Agent Settings. While the name still matches the managed template, configuration
 changes update it automatically. Once the user edits the name, later
 configuration changes must preserve the user's text. When the Center Agent or
 another assistant creates an Agent from an explicit work goal, it may instead
@@ -265,6 +265,13 @@ CLI operations to represent an AI teammate. An unbound Agent Profile should not
 be presented as wakeable. A wakeable local Agent Profile needs a Binding to a
 local OpenMeld Service Runtime and Agent Controller before a Space Wake can run it
 automatically.
+
+Web creation requires choosing a local Agent Controller on a connected computer
+before a new Agent Profile is requested. It does not expose manual unbound
+creation or a choose-later option. Core rejects a new `source: web` creation
+request without a Controller and target computer before writing any identity.
+This Web entry contract does not remove intentional CLI manual profiles, existing
+unbound profiles, recovery actions, or replay of an existing creation request.
 
 When the Center Agent creates and connects an ordinary workstation Agent
 Profile for an Organization task, the new Profile is created in that
@@ -684,8 +691,27 @@ Project list and current Agent Controller catalog. Missing or archived Projects,
 removed models, unsupported reasoning levels, and unsupported permission modes
 fall back to current defaults rather than leaking stale configuration or a
 different Agent Controller's choices. Failed or cancelled creation does not
-replace the remembered values, and dangerous permission confirmations are
-never remembered as approved.
+replace the remembered values. Restoring a valid permission mode from the
+same user's Core-owned successful-creation defaults also restores consent for
+that mode; creating another Agent must not ask for the same consent again.
+A newly selected dangerous permission mode still needs explicit confirmation.
+An unfinished browser draft alone never establishes consent.
+
+With a local Agent selected, the default creation journey allows Create Agent
+without opening customization. Required account or working-folder reads have
+visible loading explanations. Invalid explicit selections remain blocked with
+a concrete reason and a direct action to open the relevant configuration
+editor. Permission review opens customization and the Permissions editor,
+focusing the confirmation control. Working-folder blockers offer a one-click
+OpenMeld-managed folder action that clears the Project selection and prevents
+late defaults from overwriting that explicit choice.
+
+For a new Web session, a remembered Project id alone is not enough to restore a
+working folder: it does not confirm a connection on the selected computer.
+The form starts with Let OpenMeld choose instead. An explicit Project or custom
+folder choice remains explicit and must be completed before submission; Resume
+and Fork retain their selected Session's Project. Switching back to Let OpenMeld
+choose clears the Project and folder selection together.
 
 The creation page keeps `Create Agent` as its task heading and explains that a
 local agent runs the Agent Profile. A saved execution target is configuration,
@@ -704,7 +730,9 @@ model and reasoning choice, supported controller settings, and a cloud Project
 id. It never stores a custom absolute folder path or a dangerous-permission
 confirmation. Web restores the draft only after validating every value against
 the current local-agent catalog, model catalog, permission options, and Project
-list; otherwise it discards the stale draft and uses current defaults. A
+list; otherwise it discards the stale draft and uses current defaults. A restored
+new-session draft uses Let OpenMeld choose because the stored Project id cannot
+confirm a current local connection. A
 successful creation clears the journey draft. Restoring or abandoning this
 browser draft never writes or replaces the Core-owned remembered creation
 defaults. Once the member changes the selected local Agent or execution target,

@@ -51,13 +51,21 @@ import {
 } from "./connector-connections";
 import {
   currentLocalAgentInstallationsResponseSchema,
+  currentLocalRuntimeReplyReadinessResponseSchema,
   requestCurrentOpenMeldToolsUpdateResponseSchema,
   selectCurrentLocalAgentInstallationResponseSchema,
   setCurrentAgentProfileWorkspaceResponseSchema,
   setCurrentOpenMeldToolsMaintenanceResponseSchema,
 } from "./local-runtimes";
 import { organizationComputersResponseSchema } from "./organization-computers";
-import { ownerComputerDiagnosticsSchema } from "./owner-computer-diagnostics";
+import {
+  computerFileAccessSummarySchema,
+  ownerComputerDiagnosticsSchema,
+} from "./owner-computer-diagnostics";
+import {
+  peopleComputersResponseSchema,
+  peopleComputerTargetSchema,
+} from "./people-computers";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
 import { authProfileViewSchema } from "./profiles";
 import { agentControllerTaskLifecycleEventSourceSchema } from "./runtime-reporting";
@@ -1104,7 +1112,10 @@ export const centerAgentComputerSetupOptionSchema = z
   });
 
 export const centerAgentListLocalAgentConnectionCandidatesBodySchema =
-  z.strictObject({});
+  z.strictObject({
+    memberUserId: trimmedNonEmptyStringSchema.optional(),
+    speakerMember: centerAgentToolSpeakerSchema,
+  });
 
 export const centerAgentListLocalAgentConnectionCandidatesResponseSchema =
   z.strictObject({
@@ -1124,8 +1135,42 @@ export const centerAgentListComputersResponseSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,
 });
 
+export const centerAgentReadPeopleComputersBodySchema = z.strictObject({
+  includeUsageLimits: z.literal("true").optional(),
+  speakerMember: centerAgentToolSpeakerSchema,
+  target: peopleComputerTargetSchema.optional(),
+});
+
+export const centerAgentReadPeopleComputersResponseSchema = z.lazySchema(() =>
+  z.strictObject({
+    inventory: peopleComputersResponseSchema.extend({
+      computers: z.array(
+        peopleComputersResponseSchema.shape.computers.element.extend({
+          executionTargets: z.array(
+            peopleComputersResponseSchema.shape.computers.element.shape.executionTargets.element.omit(
+              {
+                capabilities: true,
+                localAgentCatalog: true,
+              }
+            )
+          ),
+        })
+      ),
+    }),
+    organizationId: trimmedNonEmptyStringSchema,
+    selectedComputer: z
+      .strictObject({
+        target: peopleComputerTargetSchema,
+        readiness: currentLocalRuntimeReplyReadinessResponseSchema,
+        fileAccess: computerFileAccessSummarySchema,
+      })
+      .nullable(),
+  })
+);
+
 export const centerAgentRequestOpenMeldToolsUpdateBodySchema = z.strictObject({
   speakerMember: centerAgentToolSpeakerSchema,
+  target: peopleComputerTargetSchema.optional(),
 });
 
 export const centerAgentRequestOpenMeldToolsUpdateResponseSchema =
@@ -1137,6 +1182,7 @@ export const centerAgentRequestOpenMeldToolsUpdateResponseSchema =
 export const centerAgentSetOpenMeldToolsMaintenanceBodySchema = z.strictObject({
   automaticUpdatesEnabled: z.boolean(),
   speakerMember: centerAgentToolSpeakerSchema,
+  target: peopleComputerTargetSchema.optional(),
 });
 
 export const centerAgentSetOpenMeldToolsMaintenanceResponseSchema =
@@ -1148,6 +1194,7 @@ export const centerAgentSetOpenMeldToolsMaintenanceResponseSchema =
 export const centerAgentListLocalAgentInstallationsBodySchema = z.strictObject({
   agentId: trimmedNonEmptyStringSchema.max(256),
   speakerMember: centerAgentToolSpeakerSchema,
+  target: peopleComputerTargetSchema.optional(),
 });
 
 export const centerAgentListLocalAgentInstallationsResponseSchema =
@@ -1161,6 +1208,7 @@ export const centerAgentSelectLocalAgentInstallationBodySchema = z.strictObject(
     confirmed: z.literal(true),
     installationId: trimmedNonEmptyStringSchema.max(256),
     speakerMember: centerAgentToolSpeakerSchema,
+    target: peopleComputerTargetSchema.optional(),
   }
 );
 

@@ -104,9 +104,25 @@ export function resolveAgentProfileConfigurationSummaries(
 	};
 }
 
-export function resolveCreateProfileSubmitBlockReason(input: {
+export type AgentProfileConfigurationSection =
+	| "owner"
+	| "session"
+	| "working-folder"
+	| "model"
+	| "permissions";
+
+export type CreateProfileSubmitBlock = {
+	message: string;
+	action?: {
+		label: string;
+		section: AgentProfileConfigurationSection;
+	};
+};
+
+type CreateProfileSubmitInput = {
 	additionalHumanProfileCreationEnabled: boolean;
 	additionalSubmitBlockReason?: string | null;
+	additionalSubmitBlockSection?: AgentProfileConfigurationSection;
 	boundAgentControllerPermissionMode: AgentControllerPermissionMode;
 	boundAgentControllerPermissionModeConfirmed: boolean;
 	boundAgentId: string;
@@ -117,23 +133,55 @@ export function resolveCreateProfileSubmitBlockReason(input: {
 	projectSelectionBlockReason?: string | null;
 	modelCatalog: ModelCatalog | null;
 	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
-}): string | null {
+};
+
+export function resolveCreateProfileSubmitBlockReason(
+	input: CreateProfileSubmitInput
+): string | null {
+	return resolveCreateProfileSubmitBlock(input)?.message ?? null;
+}
+
+export function resolveCreateProfileSubmitBlock(
+	input: CreateProfileSubmitInput
+): CreateProfileSubmitBlock | null {
 	if (input.profileKind === null) {
-		return input.additionalHumanProfileCreationEnabled
-			? "Choose a person or Agent Profile."
-			: "Choose an Agent Profile.";
+		return {
+			message: input.additionalHumanProfileCreationEnabled
+				? "Choose a person or Agent Profile."
+				: "Choose an Agent Profile.",
+		};
 	}
 	if (input.profileName.trim().length === 0) {
-		return "Enter a profile name.";
+		return { message: "Enter a profile name." };
 	}
 	if (input.isResolvingAccount) {
-		return "Loading account profiles.";
+		return { message: "Loading account profiles." };
 	}
 	if (input.additionalSubmitBlockReason) {
-		return input.additionalSubmitBlockReason;
+		return {
+			message: input.additionalSubmitBlockReason,
+			action: input.additionalSubmitBlockSection
+				? {
+						label:
+							input.additionalSubmitBlockSection === "owner"
+								? "Choose owner"
+								: "Review session",
+						section: input.additionalSubmitBlockSection,
+					}
+				: undefined,
+		};
+	}
+	if (input.profileKind === "agent" && !input.boundAgentId) {
+		return {
+			message:
+				"Choose a local agent to continue. Connect a computer if none are available.",
+		};
 	}
 	if (input.projectSelectionBlockReason) {
-		return input.projectSelectionBlockReason;
+		return {
+			message: input.projectSelectionBlockReason,
+			action: { label: "Choose working folder", section: "working-folder" },
+		};
 	}
 	if (
 		resolveSelectedModelCompatibility({
@@ -143,10 +191,16 @@ export function resolveCreateProfileSubmitBlockReason(input: {
 			modelId: input.boundModelId,
 		})?.knownIncompatible
 	) {
-		return `Choose a model available in ${input.modelCompatibilityContext?.controllerDisplayName ?? "this local agent"} on this computer.`;
+		return {
+			message: `Choose a model available in ${input.modelCompatibilityContext?.controllerDisplayName ?? "this local agent"} on this computer.`,
+			action: { label: "Choose model", section: "model" },
+		};
 	}
 	if (requiresUnconfirmedAgentControllerPermissionMode(input)) {
-		return "Confirm this permissions mode before creating the profile.";
+		return {
+			message: "Confirm this permissions mode before creating the Agent.",
+			action: { label: "Review permissions", section: "permissions" },
+		};
 	}
 	return null;
 }

@@ -28,6 +28,46 @@
 
 ## Boundary
 
+### PeopleComputers
+
+`peopleComputersResponseSchema` is the owner inventory and connection-evidence
+contract. `PeopleComputerTarget` always names a device and Service lane; Core
+checks the authenticated owner and exact current transport session. Saved
+Binding preference is not connection evidence. CLI-local device proof belongs
+only to `peopleComputerCliInventorySchema`, never to a browser-derived claim.
+The shared legacy inventory adapter accepts an explicitly supplied target and
+does not recompute connection or readiness.
+
+Center Agent reads the same inventory through `centerAgentReadPeopleComputers`.
+This model-facing projection omits full capability and local-agent catalogs
+from execution targets: those include large model and installation reports
+that can exceed the tool-result safety limit. Identity, connection evidence,
+and dated target metadata remain unchanged; focused candidate and installation
+tools provide their own details. This is payload selection, not another
+readiness calculation, and does not raise the tool-result safety limit.
+The verified requesting member owns the read; the hosted Profile owner does
+not select its account. Without an explicit device/lane target, the response
+contains no selected-computer diagnostics and makes no browser identity claim.
+Selected diagnostics retain Core readiness and path-free File Access summaries.
+Tools updates, maintenance, and local-installation selection use distinct
+PeopleComputer RPC methods requiring an exact target. New producers never fall
+back to old current-target methods: an old receiver could otherwise ignore the
+target and operate on another computer. Deploy Core before Remote Agent.
+
+`buildLocalAgentConnectionCandidateId` in `packages/agent-runtime` identifies
+one controller on an exact device, lane, and reported Service runtime. Web
+creation and Core candidate projections share this encoding. The identifier
+is selection evidence, not authorization; Core revalidates the owner inventory
+and current candidate before binding. A missing selected catalog never permits
+falling back to another computer.
+
+PeopleComputers HTTP/RPC endpoints coexist with supported current-target
+endpoints. New clients must deploy after their receivers. Shared optional fields
+are not assumed safe for an old strict parser: the new inventory has a separate
+endpoint, and the CLI output change has a new command contract. See the
+[PeopleComputers audit](review/2026-09-07-people-computers-contract-impact-audit.md)
+for mixed-version direction, required CLI policy and evidence limits.
+
 ### Center Agent Session Creation, Listing And Selection
 
 The Flue 2 candidate adds `POST /v1/organizations/current/center-agent/sessions`
@@ -936,6 +976,19 @@ Gateway, Auth, Web HTTP APIs, CLI, OpenMeld Service, daemon, local components,
 Changelog contracts, and RuntimeCoordinator contracts are unchanged.
 
 ### Organization Directory Contracts
+
+Center Agent's `openmeld_read_organization_directory` projects the authorized
+Core response into `centerAgentOrganizationDirectoryPageSchema`. Pages preserve
+complete records, expose total member/Agent counts and an Organization-bound
+`nextCursor`, and stop at a combined record or serialized-byte budget. Follow
+pages until `nextCursor` is null before asserting absence or a unique identity
+match. Each page rechecks current Core authorization; cursors grant no access.
+Returned member IDs accumulate only within the exact submission for subsequent
+member diagnostics, whose Core authorization still applies. This is output
+pagination, not database pagination or a second identity/readiness store: the
+existing full Core RPC and Web/CLI directory contracts remain unchanged.
+Directory changes between calls are not an immutable snapshot; a removed cursor
+record requires restarting the read.
 
 Auth owns the private Organization Directory identity projections.
 `resolveOrganizationDirectoryMembers` returns current membership, account
@@ -1995,9 +2048,9 @@ App producer builds its subject from the allowlisted App display name and, for
 execution, a normalized safe catalog action id. The protocol temporarily
 accepts the same work keys without a subject so a new Core can receive an older
 Remote Agent payload, but Core and Web keep that compatibility form out of
-every visible summary. When a current Remote Agent reaches an older Core that
-rejects the new `connected_app` subject kind, it retries the same sequence once
-without the entire presentation-only `work` object. Missing, unsafe, or
+every visible summary. Current Remote Agent requires the Core receiver that
+accepts `connected_app` subjects. A rejected part stops that preview without
+stripping its work metadata or resubmitting a degraded part. Missing, unsafe, or
 compatibility-only values therefore never create generic Connected App copy.
 The legacy final-reply field omits Connected App steps because its deployed
 schema cannot represent their required concrete subject; the complete
@@ -2422,6 +2475,26 @@ The provider set is `slack | lark | feishu`. The transport set is
 `webhook | websocket`. Lark and Feishu are separate provider values even though
 one internal Lark-platform implementation serves both brands. `connector` is
 not a Message Channel domain term.
+
+Channel permission read-back requires the complete tenant Channel bundle and
+rejects denied, duplicate, user-token, or unrelated business scopes. The one
+explicitly granted tenant scope `application:application:patch` may additionally
+be present for application configuration. It is setup authority only and never
+becomes a Center Agent tool grant or an App connection. The default registration
+bundle does not request it automatically; an operator must explicitly consent
+before it is granted.
+
+Provider configuration refusal `99991672` becomes the bounded reason
+`<provider>.application_config_permission_required`, including when delivered
+with HTTP 403. Web explains the explicit setup grant and links to the selected
+provider's Developer Console; the existing Core-owned retry remains active.
+This uses the existing string reason field without changing a shared payload,
+CLI/Service protocol, database schema, or local-component artifact. Old Web
+can still read the reason with generic retry copy; new Web accepts old Core.
+Deploy Web before Core for actionable guidance throughout rollout. Old and new
+CLI, Service, Skills, and Gateway remain compatible through setup, Wake, Space
+actions, and diagnostics; no contract-version bump or local-component stamp is
+required.
 
 The additive setup-request HTTP contract accepts one provider and returns its
 Organization, stable request id, recipient count, and `created` or
@@ -2952,13 +3025,12 @@ event idempotency key. Core skips metadata history lookup on a first delivery.
 Only a Queue or Slack retry reconciles the exact top-level or thread message;
 if found, it returns `replied` without another model call or publication.
 
-Roll out the Remote Agent consumer before Core returns the new evidence shape,
-then deploy Core ingress with the trusted event grant. During that short window
-the new consumer accepts only the exact old `{organizationId, status:
-"presented"}` acknowledgement and labels it `legacy_core_presented`; arbitrary
-extra text or fields still fail closed. Core no longer calls or exposes the
-removed transient resolver. Rollback stops the Core producer first, then rolls
-back the Remote Agent consumer. This hosted runtime contract does not change
+The evidence-shape rollout is complete. Current Remote Agent requires the
+shared search result rather than accepting a presentation acknowledgement.
+Core no longer calls or exposes the removed transient resolver. Keep Core's
+current search and invitation receivers in place before deploying Remote Agent;
+roll back Remote Agent before reverting those receiver contracts. This hosted
+runtime contract does not change
 CLI, OpenMeld Service, daemon, Prepare, RuntimeCoordinator, or local-component
 versions.
 
@@ -3857,11 +3929,11 @@ This extension is consumer-first because the service bindings and Web responses
 use strict schemas. Deploy migrations through `0090`, then Web and Gateway
 consumers, then Auth, then Core, with Remote Agent prompt behavior deployable
 after Core.
-The new Remote Agent accepts an old Core authorization response that omits
-`slackIdentityLinkSupported` and refuses to record the target until Core
-advertises support. It also accepts the directory's additive
-`matchedBy = "identity_link"` value before Core may emit it. After Remote Agent
-is current, Core may emit both additions and accept the callback target.
+Current Remote Agent authorizes identity links once using capability version 2,
+including any selected account. It requires both provider-neutral identity-link
+and account-target support before recording the target. It does not retry a
+Slack-only request or discard an unverified selected account to produce a
+generic action. The directory supports `matchedBy = "identity_link"`.
 Rollback stops Core production before removing Gateway or Web consumers; the
 additive D1 columns may remain.
 
@@ -4807,6 +4879,32 @@ They must not hand-write a parallel setup-plan shape, mint client-only action
 ids, or reinterpret `readOnly` as permission to mutate local state.
 
 ## Space Member Contracts
+
+Auth owns current Profile names. Space member names are persisted display
+snapshots, not a second identity authority. Historical Signals and existing
+sessions must never rename an existing member, even when their names are
+nonempty. They can initialize a missing member's historical snapshot only.
+Agent publication, including WebSocket writes, resolves the matching Profile
+through Auth's `resolveProfileById` contract and rejects caller-reported names.
+New Signals freeze the name resolved at publication; existing Signals are never
+rewritten by a Profile rename. Authorized member-directory and active-Wake reads
+refresh active-member names through the Space-owned writer and existing Space
+Index projection outbox. Account working summaries resolve each distinct active
+Agent through Auth, without making the cross-Space index a membership writer.
+Refresh preserves membership, ownership, removal and aliases. It re-reads the
+member after the Auth call so a concurrent removal or changed name wins. Failed
+or mismatched identity reads do not write names: the last known snapshot remains
+available so a display-name lookup outage does not block reply publication.
+Active work prefers the refreshed name over the dispatch's historical label.
+Name enrichment has a 500 ms wait budget per publication or read refresh, shared
+across all batches in a member or account summary read. Timeout preserves the
+last known name and emits diagnostics; it does not cancel or fail Agent
+execution. An RPC may still finish remotely, but its late result cannot write
+a snapshot after the caller has timed out. Name-only index delivery runs in the
+background using the existing durable dirty mark and projection outbox, rather
+than delaying the reply or status response.
+Web treats old ID-valued progress labels as unnamed Agents during rollout.
+These corrections change no HTTP/RPC schema or local-component contract.
 
 `getSpaceStatusResponseSchema` may expose the Organization's current
 `centerAgentProfileId` as an optional presentation identity. This lets public

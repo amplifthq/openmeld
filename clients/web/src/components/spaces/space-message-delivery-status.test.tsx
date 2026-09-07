@@ -26,7 +26,7 @@ describe("SpaceMessageDeliveryStatus", () => {
 		expect(orb?.style.width).toBe("20px");
 		expect(orb?.style.height).toBe("20px");
 		expect(orb?.getAttribute("aria-hidden")).toBe("true");
-		expect(orb?.dataset.spaceAgentOrbState).toBe("working");
+		expect(orb?.dataset.spaceAgentOrbState).toBe("solving");
 		expect(status.querySelector("svg.animate-spin")).toBeNull();
 	});
 

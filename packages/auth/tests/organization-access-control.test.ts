@@ -152,6 +152,6 @@ describe("organization access control", () => {
   it("preserves Organization join-link creation behavior", () => {
     expect(canCreateOrganizationJoinLinkForRole("owner")).toBe(true);
     expect(canCreateOrganizationJoinLinkForRole("admin")).toBe(true);
-    expect(canCreateOrganizationJoinLinkForRole("member")).toBe(false);
+    expect(canCreateOrganizationJoinLinkForRole("member")).toBe(true);
   });
 });

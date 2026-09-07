@@ -19,7 +19,8 @@ export function useSpaceListIndicators(input: {
 	currentProfileId: string;
 	currentSpaceId: string;
 	organizationId: string;
-	sections: AccountSpaceSections;
+	sections?: AccountSpaceSections;
+	spaceIds?: readonly string[];
 }) {
 	const {
 		isPending: isAccountSummaryPending,
@@ -32,14 +33,24 @@ export function useSpaceListIndicators(input: {
 	});
 	const otherActiveSpaceIds = [
 		...new Set(
-			[...input.sections.pinnedItems, ...input.sections.spaceItems].flatMap(
-				(space) =>
+			[
+				...(input.sections?.pinnedItems ?? []),
+				...(input.sections?.spaceItems ?? []),
+			]
+				.flatMap((space) =>
 					space.organizationId === input.organizationId &&
 					space.spaceId !== input.currentSpaceId &&
 					ambientActiveWakeSummaryBySpaceId.has(space.spaceId)
 						? [space.spaceId]
 						: []
-			)
+				)
+				.concat(
+					(input.spaceIds ?? []).filter(
+						(spaceId) =>
+							spaceId !== input.currentSpaceId &&
+							ambientActiveWakeSummaryBySpaceId.has(spaceId)
+					)
+				)
 		),
 	];
 	const otherActiveSpaceQueries = useQueries({

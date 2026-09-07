@@ -6,7 +6,10 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
-import { SidebarMenuAction } from "@openmeld/ui/fluid/sidebar-menu";
+import {
+	SidebarMenuAction,
+	SidebarMenuButton,
+} from "@openmeld/ui/fluid/sidebar-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import { HashIcon, PushPinIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -18,7 +21,6 @@ import {
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { resolveAccountSpaceTrailingStatus } from "./account-space-sections";
-import { useSpaceMessagePreview } from "./direct-message-preview";
 import {
 	resolveConversationTimestamp,
 	SidebarConversationTime,
@@ -74,13 +76,8 @@ export function SpaceSidebarMenuItem(input: {
 			activeWakePresentation?.isWaitingForCurrentTask ?? false,
 		spaceName: input.item.spaceName,
 	});
-	const latestMessage = useSpaceMessagePreview({
-		spaceId: input.item.spaceId,
-		viewerProfileId: input.item.openProfileId,
-		enabled: !(hasActiveWake || hasUnread),
-	});
 	const timestamp = resolveConversationTimestamp(
-		latestMessage.data?.timestamp,
+		input.item.messagePreview?.timestamp,
 		input.item.spaceCreatedAt
 	);
 	return (
@@ -103,57 +100,63 @@ export function SpaceSidebarMenuItem(input: {
 				<Tooltip>
 					<TooltipTrigger
 						render={
-							<Link
-								{...input.drag?.rowProps}
-								aria-label={openLabel}
-								className={resolveSpaceSidebarOpenButtonClassName({
-									hasUnread,
-								})}
-								resetScroll={false}
-								to={input.routePath}
+							<SidebarMenuButton
+								asChild
+								className="h-auto flex-1"
+								isActive={input.isActive}
 							>
-								{input.item.memberPreviews?.length ? (
-									<SpaceMemberAvatars
-										appearances={input.memberAppearances}
-										members={input.item.memberPreviews}
-									/>
-								) : (
-									<HashIcon
-										data-icon="inline-start"
-										data-space-icon="channel"
-									/>
-								)}
-								<div
-									className="flex min-w-0 flex-1 items-center gap-px"
-									data-slot="space-sidebar-name-and-date"
+								<Link
+									{...input.drag?.rowProps}
+									aria-label={openLabel}
+									className={resolveSpaceSidebarOpenButtonClassName({
+										hasUnread,
+									})}
+									resetScroll={false}
+									to={input.routePath}
 								>
-									<CenterTruncatedText
-										className={cn(
-											"min-w-0 flex-1",
-											trailingStatus === "working" ||
-												trailingStatus === "unread"
-												? "pr-16"
-												: "pr-8"
-										)}
-										text={input.item.spaceName}
-									/>
-									{!(hasActiveWake || hasUnread) && timestamp !== null ? (
-										<SidebarConversationTime
-											className="group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0"
-											timestamp={timestamp}
+									{input.item.memberPreviews?.length ? (
+										<SpaceMemberAvatars
+											appearances={input.memberAppearances}
+											members={input.item.memberPreviews}
 										/>
-									) : null}
-								</div>
-								{trailingStatus === "unread" ? (
-									<span
-										aria-hidden="true"
-										className={SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME}
-										data-space-unread-indicator="true"
+									) : (
+										<HashIcon
+											data-icon="inline-start"
+											data-space-icon="channel"
+										/>
+									)}
+									<div
+										className="flex min-w-0 flex-1 items-center gap-2"
+										data-slot="space-sidebar-name-and-date"
 									>
-										<span className={cn("status-dot", "bg-unread")} />
-									</span>
-								) : null}
-							</Link>
+										<CenterTruncatedText
+											className={cn(
+												"min-w-0 flex-1",
+												trailingStatus === "working" ||
+													trailingStatus === "unread"
+													? "pr-8"
+													: null
+											)}
+											text={input.item.spaceName}
+										/>
+										{!(hasActiveWake || hasUnread) && timestamp !== null ? (
+											<SidebarConversationTime
+												className="group-focus-within/space-row:hidden group-hover/space-row:hidden"
+												timestamp={timestamp}
+											/>
+										) : null}
+									</div>
+									{trailingStatus === "unread" ? (
+										<span
+											aria-hidden="true"
+											className={SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME}
+											data-space-unread-indicator="true"
+										>
+											<span className={cn("status-dot", "bg-unread")} />
+										</span>
+									) : null}
+								</Link>
+							</SidebarMenuButton>
 						}
 					/>
 					<TooltipContent
@@ -284,7 +287,7 @@ function resolveSpaceSidebarOpenButtonClassName(input: {
 	hasUnread: boolean;
 }): string {
 	return cn(
-		"flex min-w-0 flex-1 items-center gap-2 px-1 py-1.5 text-left outline-none",
+		"flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-left outline-none",
 		input.hasUnread ? "font-semibold text-sidebar-foreground" : null
 	);
 }

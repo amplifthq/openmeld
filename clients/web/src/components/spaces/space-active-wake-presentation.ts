@@ -28,7 +28,9 @@ export function buildSpaceActiveWakeSummary(input: {
 	const fallbackNamesByProfileId = new Map(
 		(input.fallbackSummary?.activeTargets ?? []).map((target) => [
 			target.profileId,
-			target.profileName,
+			target.profileName
+				? normalizeWorkingTargetLabel(target.profileName)
+				: null,
 		])
 	);
 	const targetsByProfileId = new Map<
@@ -151,7 +153,8 @@ function resolveAttributedSpaceWakeStatusLabel(input: {
 }): string {
 	const namedTargets = input.activeTargets.filter(
 		(target): target is typeof target & { profileName: string } =>
-			target.profileName !== null
+			target.profileName !== null &&
+			normalizeWorkingTargetLabel(target.profileName) !== null
 	);
 	const unknownTargetCount = input.activeTargets.length - namedTargets.length;
 	const targetLabels = namedTargets.map((target) => target.profileName);

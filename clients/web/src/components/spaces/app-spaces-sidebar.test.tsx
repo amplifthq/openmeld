@@ -256,6 +256,13 @@ describe("AppSpacesSidebar", () => {
 	});
 
 	beforeEach(() => {
+		// Row-action tests exercise a user's explicitly expanded sidebar.
+		for (const organization of ["org-acme", "org-personal"]) {
+			localStorage.setItem(
+				`openmeld:space-sidebar-disclosure:human-1:${organization}`,
+				JSON.stringify({ pinned: true, spaces: true })
+			);
+		}
 		appOrganizationMock.activeOrganization = {
 			id: "org-acme",
 			isPersonal: false,
@@ -288,6 +295,42 @@ describe("AppSpacesSidebar", () => {
 	afterEach(() => {
 		cleanup();
 		focusManager.setFocused(undefined);
+	});
+
+	it("shows the indexed message time without subscribing to per-Space previews", async () => {
+		const timestamp = Date.parse("2026-09-06T17:00:00.000Z");
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				{
+					...createAccountSpaceItem({
+						spaceId: "space-alpha",
+						spaceName: "Alpha",
+					}),
+					messagePreview: {
+						signalId: "message-alpha",
+						profileId: "human-1",
+						timestamp,
+						text: "Ready for review.",
+					},
+				},
+			],
+		});
+		const queryClient = createSidebarQueryClient();
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />,
+			queryClient
+		);
+		const row = await screen.findByRole("link", { name: "Alpha" });
+		expect(row.querySelector("time")?.getAttribute("datetime")).toBe(
+			new Date(timestamp).toISOString()
+		);
+		expect(
+			queryClient
+				.getQueryCache()
+				.getAll()
+				.filter((query) => query.queryKey.includes("incoming-preview"))
+		).toHaveLength(0);
 	});
 
 	it("moves unpinned Spaces with unread messages first and shows a static accessible indicator", async () => {
@@ -1042,7 +1085,7 @@ describe("AppSpacesSidebar", () => {
 		expect(nameAndDate?.classList.contains("min-w-0")).toBe(true);
 		expect(nameAndDate?.classList.contains("flex-1")).toBe(true);
 		expect(nameAndDate?.classList.contains("items-center")).toBe(true);
-		expect(nameAndDate?.classList.contains("gap-px")).toBe(true);
+		expect(nameAndDate?.classList.contains("gap-2")).toBe(true);
 		expect(openSpaceButton.classList.contains("items-center")).toBe(true);
 		expect(timestamp).toBeNull();
 		expect(pinButton.classList.contains("top-1.5")).toBe(true);
@@ -1619,11 +1662,15 @@ describe("AppSpacesSidebar", () => {
 			)
 		).toBe(false);
 
-		// Status and action retain separate fixed slots.
+		// Only the status retains a fixed slot; the action uses Fluid's reveal gutter.
 		const spaceName = openSpaceButton.querySelector<HTMLElement>(
 			'[data-slot="center-truncated-text"]'
 		);
-		expect(spaceName?.classList.contains("pr-16")).toBe(true);
+		expect(spaceName?.classList.contains("pr-8")).toBe(true);
+		expect(openSpaceButton.style.getPropertyValue("--row-gutter")).toBe("8px");
+		expect(openSpaceButton.style.getPropertyValue("--row-gutter-hover")).toBe(
+			"34px"
+		);
 		expect(pinButton.getAttribute("data-sidebar")).toBe("menu-action");
 		expect(pinButton.classList.contains("right-9")).toBe(true);
 	});
@@ -1772,9 +1819,11 @@ describe("AppSpacesSidebar", () => {
 				.getByRole("button", { name: "Unpin Idle" })
 				.classList.contains("pointer-events-none")
 		).toBe(false);
+		fireEvent.click(screen.getByRole("button", { name: "Pinned" }));
+		expect(await screen.findByText("2 unread")).toBeTruthy();
 	});
 
-	it("keeps room for a persistently visible pinned action", async () => {
+	it("reserves the pinned action gutter only when revealed", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1797,7 +1846,11 @@ describe("AppSpacesSidebar", () => {
 			'[data-slot="center-truncated-text"]'
 		);
 
-		expect(spaceName?.classList.contains("pr-8")).toBe(true);
+		expect(spaceName?.classList.contains("pr-8")).toBe(false);
+		expect(openSpaceButton.style.getPropertyValue("--row-gutter")).toBe("8px");
+		expect(openSpaceButton.style.getPropertyValue("--row-gutter-hover")).toBe(
+			"34px"
+		);
 		expect(
 			openSpaceButton.querySelector('[data-slot="space-sidebar-date"]')
 		).toBeNull();

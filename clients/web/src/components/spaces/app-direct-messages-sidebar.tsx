@@ -2,13 +2,16 @@
 
 import type { OrganizationProfileDirectoryResponse } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
+import {
+	SidebarMenuActions,
+	SidebarMenuButton,
+} from "@openmeld/ui/fluid/sidebar-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, PushPinIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -18,6 +21,7 @@ import {
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
+import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
@@ -62,6 +66,11 @@ type DirectMessagesListState =
 	| "refresh-retrying";
 
 export function AppDirectMessagesSidebar(input: {
+	pinFilter?: "pinned" | "unpinned";
+	onFirstChatChange?: (item: AccountSpaceItem | null | undefined) => void;
+	embedded?: boolean;
+	category?: "all" | "people" | "local";
+	search?: string;
 	currentProfileId: string;
 	currentSpaceId: string;
 }) {
@@ -98,9 +107,19 @@ export function AppDirectMessagesSidebar(input: {
 		organizationId: currentOrganization.id,
 	});
 	let listState: DirectMessagesListState = "ready";
-	if (spacesQuery.isPending) {
+	if (
+		spacesQuery.isPending ||
+		profileDirectoryQuery.isPending ||
+		centerAgentDesignationQuery.isPending
+	) {
 		listState = "loading";
-	} else if (spacesQuery.isError && spacesQuery.data === undefined) {
+	} else if (
+		(spacesQuery.isError && spacesQuery.data === undefined) ||
+		(profileDirectoryQuery.isError &&
+			profileDirectoryQuery.data === undefined) ||
+		(centerAgentDesignationQuery.isError &&
+			centerAgentDesignationQuery.data === undefined)
+	) {
 		listState = "load-error";
 	} else if (spacesQuery.isError && spacesQuery.isRefetching) {
 		listState = "refresh-retrying";
@@ -110,7 +129,7 @@ export function AppDirectMessagesSidebar(input: {
 
 	return (
 		<nav
-			aria-label="Direct Messages"
+			aria-label="People and local agent chats"
 			className="flex w-full min-w-0 flex-col text-sidebar-foreground"
 			data-slot="app-direct-messages-sidebar"
 		>
@@ -118,13 +137,46 @@ export function AppDirectMessagesSidebar(input: {
 				centerAgentProfileId={centerAgentProfileId}
 				currentProfileId={input.currentProfileId}
 				currentSpaceId={input.currentSpaceId}
-				items={directMessageItems}
+				embedded={input.embedded}
+				items={directMessageItems.filter((item) => {
+					const peer = resolveDirectMessagePeer({
+						item,
+						profileDirectory: profileDirectoryQuery.data,
+						viewerProfileId: resolveAccountSpaceViewerProfileId({
+							currentProfileId: input.currentProfileId,
+							item,
+						}),
+					});
+					if (peer?.profileId === centerAgentProfileId) {
+						return false;
+					}
+					if (
+						!(peer?.profileName ?? item.spaceName)
+							.toLocaleLowerCase()
+							.includes((input.search ?? "").toLocaleLowerCase())
+					) {
+						return false;
+					}
+					return (
+						!input.category ||
+						input.category === "all" ||
+						(input.category === "people"
+							? peer?.profileKind === "human"
+							: peer?.profileKind === "agent")
+					);
+				})}
+				onFirstChatChange={input.onFirstChatChange}
 				onRetry={() => {
-					spacesQuery.refetch().catch((error: unknown) => {
+					Promise.all([
+						spacesQuery.refetch(),
+						profileDirectoryQuery.refetch(),
+						centerAgentDesignationQuery.refetch(),
+					]).catch((error: unknown) => {
 						console.error("Failed to refresh Direct Messages.", error);
 					});
 				}}
 				organizationSlug={currentOrganization.slug}
+				pinFilter={input.pinFilter}
 				profileDirectory={profileDirectoryQuery.data}
 				state={listState}
 				unreadBySpaceId={unreadBySpaceId}
@@ -134,6 +186,9 @@ export function AppDirectMessagesSidebar(input: {
 }
 
 function DirectMessagesList(input: {
+	pinFilter?: "pinned" | "unpinned";
+	embedded?: boolean;
+	onFirstChatChange?: (item: AccountSpaceItem | null | undefined) => void;
 	centerAgentProfileId: string | null;
 	currentProfileId: string;
 	currentSpaceId: string;
@@ -149,27 +204,14 @@ function DirectMessagesList(input: {
 }) {
 	if (input.state === "loading") {
 		return (
-			<output className="flex flex-col gap-1">
-				<span className="sr-only">Loading Direct Messages</span>
-				{Array.from({ length: 6 }).map((_, index) => (
-					<div
-						className="flex h-10 items-center gap-2 px-2"
-						key={`direct-message-sidebar-skeleton-${String(index)}`}
-					>
-						<Skeleton className="size-6 rounded-full" />
-						<Skeleton className="h-4 flex-1" />
-					</div>
-				))}
-			</output>
+			<SidebarListSkeleton label="Loading chats" rowCount={2} showPreview />
 		);
 	}
 
 	if (input.state === "load-error") {
 		return (
 			<div className="flex flex-col gap-3 p-2">
-				<p className="text-muted-foreground text-xs">
-					OpenMeld could not load your Direct Messages.
-				</p>
+				<p className="text-muted-foreground text-xs">Couldn’t load chats.</p>
 				<Button
 					onClick={input.onRetry}
 					size="sm"
@@ -184,9 +226,29 @@ function DirectMessagesList(input: {
 
 	const conversations = (
 		<ManagedDirectMessages
+			categoryForItem={(item) => {
+				const peer = resolveDirectMessagePeer({
+					item,
+					profileDirectory: input.profileDirectory,
+					viewerProfileId: resolveAccountSpaceViewerProfileId({
+						currentProfileId: input.currentProfileId,
+						item,
+					}),
+				});
+				if (peer?.profileKind === "human") {
+					return "People";
+				}
+				if (peer?.profileKind === "agent") {
+					return "Agents";
+				}
+				return "Chats";
+			}}
 			currentProfileId={input.currentProfileId}
 			currentSpaceId={input.currentSpaceId}
+			embedded={input.embedded}
 			items={input.items}
+			onFirstChatChange={input.onFirstChatChange}
+			pinFilter={input.pinFilter}
 			renderRow={(props) => (
 				<DirectMessageSidebarItem
 					{...props}
@@ -295,7 +357,7 @@ function DirectMessageSidebarItem(
 	});
 	return (
 		<FluidNavMenuItem
-			className="@container/conversation-row group/dm-row relative"
+			className="@container/conversation-row relative"
 			index={input.index}
 			ref={drag.ref}
 			style={drag.style}
@@ -304,76 +366,88 @@ function DirectMessageSidebarItem(
 			<Tooltip>
 				<TooltipTrigger
 					render={
-						<Link
-							{...drag.rowProps}
-							aria-current={input.isActive ? "page" : undefined}
-							aria-label={accessibleLabel}
-							className={cn(
-								"flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring",
-								APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
-								APP_NAV_ITEM_TONE_CLASS_NAME,
-								input.isActive
-									? "font-medium text-sidebar-accent-foreground"
-									: null,
-								hasUnread ? "font-semibold text-sidebar-foreground" : null
-							)}
-							onClick={() => {
-								if (preview.isError) {
-									return preview.refetch();
-								}
-							}}
-							to={routePath}
+						<SidebarMenuButton
+							actionLayout="heading"
+							asChild
+							className="h-auto"
+							isActive={input.isActive}
 						>
-							{peer ? (
-								<SpaceProfileIcon
-									agentControllerRef={
-										peer.profileKind === "agent"
-											? peer.agentControllerRef
-											: null
+							<Link
+								{...drag.rowProps}
+								aria-current={input.isActive ? "page" : undefined}
+								aria-label={accessibleLabel}
+								className={cn(
+									"flex min-h-12 w-full min-w-0 items-center gap-2 py-1.5 pl-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring",
+									APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
+									APP_NAV_ITEM_TONE_CLASS_NAME,
+									input.isActive
+										? "font-medium text-sidebar-accent-foreground"
+										: null,
+									hasUnread ? "font-semibold text-sidebar-foreground" : null
+								)}
+								onClick={() => {
+									if (preview.isError) {
+										return preview.refetch();
 									}
-									avatarImageUrl={
-										peer.profileKind === "human" ? peer.avatarUrl : undefined
-									}
-									isCenterAgent={peer.profileId === input.centerAgentProfileId}
-									profileId={peer.profileId}
-									profileKind={peer.profileKind}
-									profileName={peer.profileName}
-									size="sm"
-								/>
-							) : (
-								<span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
-									<ChatCircleTextIcon aria-hidden="true" className="size-4" />
+								}}
+								to={routePath}
+							>
+								{peer ? (
+									<SpaceProfileIcon
+										agentControllerRef={
+											peer.profileKind === "agent"
+												? peer.agentControllerRef
+												: null
+										}
+										avatarImageUrl={
+											peer.profileKind === "human" ? peer.avatarUrl : undefined
+										}
+										isCenterAgent={
+											peer.profileId === input.centerAgentProfileId
+										}
+										profileId={peer.profileId}
+										profileKind={peer.profileKind}
+										profileName={peer.profileName}
+										size="sm"
+									/>
+								) : (
+									<span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
+										<ChatCircleTextIcon aria-hidden="true" className="size-4" />
+									</span>
+								)}
+								<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+									<span
+										className="flex min-w-0 items-center gap-2"
+										data-sidebar="menu-heading"
+									>
+										<CenterTruncatedText className="flex-1" text={label} />
+										{timestamp !== null && (
+											<SidebarConversationTime
+												now={new Date(nowMs)}
+												timestamp={timestamp}
+											/>
+										)}
+									</span>
+									<span className="truncate font-normal text-muted-foreground text-xs leading-4">
+										{previewText}
+									</span>
 								</span>
-							)}
-							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-								<span className="flex min-w-0 items-center gap-2">
-									<CenterTruncatedText className="flex-1" text={label} />
-									{timestamp !== null && (
-										<SidebarConversationTime
-											now={new Date(nowMs)}
-											timestamp={timestamp}
-										/>
-									)}
-								</span>
-								<span className="truncate pr-6 font-normal text-muted-foreground text-xs leading-4">
-									{previewText}
-								</span>
-							</span>
-							{hasUnread ? (
-								<span
-									aria-hidden="true"
-									className="status-dot bg-unread"
-									data-direct-message-unread-indicator="true"
-								/>
-							) : null}
-						</Link>
+								{hasUnread ? (
+									<span
+										aria-hidden="true"
+										className="status-dot bg-unread"
+										data-direct-message-unread-indicator="true"
+									/>
+								) : null}
+							</Link>
+						</SidebarMenuButton>
 					}
 				/>
 				<TooltipContent align="start" side="right">
 					{label}
 				</TooltipContent>
 			</Tooltip>
-			<div className="pointer-events-none absolute right-1 bottom-0.5 opacity-0 group-focus-within/dm-row:pointer-events-auto group-focus-within/dm-row:opacity-100 group-hover/dm-row:pointer-events-auto group-hover/dm-row:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+			<SidebarMenuActions className="top-auto bottom-0.5" showOnHover>
 				<SidebarRowAction
 					disabled={input.disabled}
 					label={`${input.item.pinnedAt ? "Unpin" : "Pin"} ${label}`}
@@ -381,7 +455,7 @@ function DirectMessageSidebarItem(
 				>
 					<PushPinIcon weight={input.item.pinnedAt ? "fill" : "regular"} />
 				</SidebarRowAction>
-			</div>
+			</SidebarMenuActions>
 		</FluidNavMenuItem>
 	);
 }

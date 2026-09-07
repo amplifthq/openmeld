@@ -20,6 +20,39 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Space message previews and slow Web experiences
+
+Space owns message preview truth. Message publication and retention capture a
+bounded text preview and a monotonically increasing Space-local revision into
+the existing durable Space index outbox. Core projects this into
+`space_index_spaces`; delayed retries cannot overwrite a newer revision.
+AccountSpaces attaches previews only to its already-authorized result set, in
+bounded D1 batches, when `includeMessagePreviews=true`. Older strict clients
+receive the unchanged shape. A null preview means no retained text message;
+an omitted preview has not been projected. Existing Spaces are repaired ten at
+a time after the minute scheduler's delivery work, with delayed retries.
+Space SQL schema v33 creates the preview revision table for existing v32
+Spaces before message publication or backfill. Fresh-table initialization alone
+does not upgrade a Space that already has the previous migration marker.
+
+Web reports threshold-crossing experiences to its same-origin
+`/v1/observability/performance` receiver. Search Worker logs for
+`web.openmeld.slow_experience`. Reports contain build identity, an ephemeral
+page-session ID, route templates, navigation lifecycle duration, request-category
+counts/durations and long-task summaries. They exclude message text, profile
+identity, concrete URLs, query strings, and resource names. They do not prove
+that independently fetched conversation content has finished rendering.
+
+Tune `clients/web/src/lib/observability/performance-policy.ts`: navigation
+defaults to 1500 ms, interactions to 250 ms, and reporting to twenty events per
+page session per hour. A pending navigation produces an observation after at
+least five seconds. Hidden-page navigation is excluded. Policy changes ship
+with Web; existing clients refresh policy on navigation after five minutes.
+The receiver validates payload size/shape and applies the current threshold
+and a best-effort per-isolate volume cap. These diagnostics are sampled failure
+evidence, not a complete traffic or latency distribution. Worker log retention
+governs how far back an investigation can look.
+
 ## Boundary
 
 OpenMeld data and observability exist to support the main product chain:
@@ -2315,6 +2348,17 @@ unrepairable App. Retry projections retain the latest bounded failure reason so
 clients can explain continued automatic verification without creating a second
 retry authority.
 
+Before configuring an unconnected App, the live configuration-claim owner
+replaces only callback secrets exceeding the provider's 32-character limit.
+The encrypted replacement and clearing both URL-verification proofs are one
+guarded D1 batch. A lost or expired claim, changed credentials, or a connected
+App prevents replacement and provider configuration. The App Secret and valid
+callback secret values are preserved. This also repairs legacy credentials
+when an existing App re-enters configuration through Repair; it is not a bulk
+credential migration. URL-verification writes compare the encrypted token used
+to authenticate the challenge with the current credential row, so an in-flight
+challenge authenticated before replacement cannot restore obsolete proof.
+
 The App Secret, Webhook verification token, and event encryption key live in a
 separate encrypted credential row. The connection and credential write is one
 D1 batch, so failed encryption or persistence cannot produce a connected
@@ -2322,6 +2366,12 @@ projection. Tenant access tokens are minted and cached only within their
 provider lifetime inside one Worker isolate and are never stored in D1.
 
 Webhook readiness is connection-owned evidence, not a generic provider flag.
+The provider's encrypted URL-verification challenge may omit all three
+signature headers. Core may decrypt that envelope only into a URL-verification
+challenge and must match its verification token before recording reachability.
+Partial or invalid signature headers are rejected. Ordinary encrypted events
+still require a valid signature; this exception never admits an event or starts
+a Center Agent turn.
 Core records the Event Subscription URL challenge and Message Card Request URL
 challenge separately. A Webhook connection becomes `connected` only after its
 application configuration has supplied the bot identity and both surfaces have

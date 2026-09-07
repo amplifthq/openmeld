@@ -1,6 +1,7 @@
 import {
 	buildOrganizationAgentsPath,
 	buildOrganizationPeoplePath,
+	buildOrganizationPersonPath,
 } from "./organizations/organization-routes";
 
 export function buildProfileHomeRoutes(orgSlug: string) {
@@ -10,10 +11,7 @@ export function buildProfileHomeRoutes(orgSlug: string) {
 	} as const;
 }
 
-export type ProfileHomeRoutePath = ReturnType<
-	typeof buildProfileHomeRoutes
->[keyof ReturnType<typeof buildProfileHomeRoutes>];
-
+/** ID-only entry for callers without an owner profile; resolves to the canonical person route. */
 export function buildAgentProfilePath(input: {
 	orgSlug: string;
 	profileId: string;
@@ -26,8 +24,10 @@ export function buildHumanProfilePath(input: {
 	orgSlug: string;
 	profileId: string;
 }): string {
-	const params = new URLSearchParams({ profileId: input.profileId });
-	return `${buildOrganizationPeoplePath(input.orgSlug)}?${params.toString()}`;
+	return buildOrganizationPersonPath({
+		orgSlug: input.orgSlug,
+		personId: input.profileId,
+	});
 }
 
 export function buildProfilePath(input: {

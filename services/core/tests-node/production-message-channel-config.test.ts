@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath, URL as NodeUrl } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseJsoncObject } from "../../../packages/db/src/tooling/parse-jsonc";
+import { listLarkPlatformProvidersEnabledForOrganization } from "../src/remote-agent/application/lark-platform-provider-policy";
 import { REMOTE_AGENT_MESSAGE_CHANNEL_EVENT_MAX_QUEUE_ATTEMPTS } from "../src/remote-agent/application/message-channel-event-service";
 
 type QueueConsumerConfig = {
@@ -28,19 +29,27 @@ const config = parseJsoncObject<CoreWranglerConfig>(
 );
 
 describe("production Message Channel configuration", () => {
-  it("makes Lark available in local and production without enabling Feishu", () => {
+  it("makes Lark and Feishu available to every local and production Organization", () => {
     expect(config.env?.prod?.vars).toMatchObject({
-      OPENMELD_FEISHU_CHANNEL_ENABLED: "false",
-      OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS: "",
+      OPENMELD_FEISHU_CHANNEL_ENABLED: "true",
+      OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS: "*",
       OPENMELD_LARK_CHANNEL_ENABLED: "true",
       OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS: "*",
     });
     expect(config.vars).toMatchObject({
-      OPENMELD_FEISHU_CHANNEL_ENABLED: "false",
-      OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS: "",
+      OPENMELD_FEISHU_CHANNEL_ENABLED: "true",
+      OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS: "*",
       OPENMELD_LARK_CHANNEL_ENABLED: "true",
       OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS: "*",
     });
+    for (const vars of [config.vars, config.env?.prod?.vars]) {
+      expect(
+        listLarkPlatformProvidersEnabledForOrganization({
+          env: vars ?? {},
+          organizationId: "any-organization",
+        })
+      ).toEqual(["lark", "feishu"]);
+    }
   });
 
   it("keeps Cloudflare delivery retries aligned with the terminal ingress budget", () => {

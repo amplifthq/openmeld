@@ -30,7 +30,7 @@ function localRuntimes(
 }
 
 describe("resolveConnectedRuntimeTarget", () => {
-	it("prefers the Binding-derived current device when it is resolved", () => {
+	it("uses the explicit readiness subject instead of another Binding target", () => {
 		const currentDeviceTarget: CurrentDeviceTargetResponse = {
 			availability: "resolved",
 			deviceId: "device-binding",
@@ -47,7 +47,7 @@ describe("resolveConnectedRuntimeTarget", () => {
 					}),
 				},
 			})
-		).toEqual({ deviceId: "device-binding", runtimeLane: "prod" });
+		).toEqual({ deviceId: "device-live", runtimeLane: "prod" });
 	});
 
 	it("falls back to the live ServiceRuntime subject when no Binding names a current device", () => {

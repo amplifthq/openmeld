@@ -1,3 +1,4 @@
+import type { LocalFolderPickerResult } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
   createLocalFolderPickerApi,
@@ -8,6 +9,41 @@ import {
 const INVALID_PICKER_REQUEST_PATTERN = /folder picker request is invalid/i;
 
 describe("api-client Local Folder Picker API", () => {
+  it("routes explicit folder selection to the chosen computer environment", async () => {
+    const result: LocalFolderPickerResult = {
+      deviceId: "device-1",
+      status: "cancelled",
+    };
+    const transport = vi.fn<OpenMeldApiClientTransport>(() =>
+      Promise.resolve(Response.json(result))
+    );
+    const api = createLocalFolderPickerApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    await expect(
+      api.selectPeopleComputerFolders({
+        deviceId: "device-1",
+        runtimeLane: "canary",
+        allowMultiple: false,
+        purpose: "computer_file_access",
+      })
+    ).resolves.toEqual(result);
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://gateway.openmeld.invalid/v1/people-computers/device-1/lanes/canary/folders/select",
+        init: expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            allowMultiple: false,
+            purpose: "computer_file_access",
+          }),
+        }),
+      })
+    );
+  });
   it("opens the picker on the exact current Computer", async () => {
     const transport = vi.fn<OpenMeldApiClientTransport>(() =>
       Promise.resolve(

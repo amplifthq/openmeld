@@ -11,6 +11,7 @@ import { normalizeCookieDomain } from "./cookie-domain";
 export type AuthWorkerNodeEnv = "development" | "production";
 const CLIENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$/;
 const INVALID_HOST_VALUE_PATTERN = /[/:?#\s]/;
+const COOKIE_PREFIX_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 export type AuthConfigInput = {
   BETTER_AUTH_URL?: string;
@@ -21,6 +22,7 @@ export type AuthConfigInput = {
   AUTH_BRAND_NAME?: string;
   WEB_APP_URL?: string;
   AUTH_COOKIE_DOMAIN?: string;
+  AUTH_COOKIE_PREFIX?: string;
   PASSKEY_RP_ID?: string;
   GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID?: string;
   GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET?: string;
@@ -38,6 +40,7 @@ export type ValidatedAuthConfig = {
   AUTH_BRAND_NAME: string;
   WEB_APP_URL: string;
   AUTH_COOKIE_DOMAIN?: string;
+  AUTH_COOKIE_PREFIX?: string;
   PASSKEY_RP_ID?: string;
   GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID?: string;
   GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET?: string;
@@ -73,6 +76,12 @@ export function validateAuthConfig(
   const fromEmail =
     normalizeOptional(input.AUTH_FROM_EMAIL) ?? DEFAULT_AUTH_FROM_EMAIL;
   const cookieDomain = parseCookieDomain(input.AUTH_COOKIE_DOMAIN);
+  const cookiePrefix = normalizeOptional(input.AUTH_COOKIE_PREFIX);
+  if (cookiePrefix && !COOKIE_PREFIX_PATTERN.test(cookiePrefix)) {
+    throw new Error(
+      "AUTH_COOKIE_PREFIX must contain only letters, numbers, underscores or hyphens"
+    );
+  }
   const passkeyRpId = parseRpId(input.PASSKEY_RP_ID);
   const githubClientId = normalizeOptional(
     input.GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID
@@ -110,6 +119,7 @@ export function validateAuthConfig(
     AUTH_BRAND_NAME: brandName,
     WEB_APP_URL: appUrl,
     AUTH_COOKIE_DOMAIN: cookieDomain,
+    AUTH_COOKIE_PREFIX: cookiePrefix,
     PASSKEY_RP_ID: passkeyRpId,
     GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID: githubClientId,
     GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET: githubClientSecret,

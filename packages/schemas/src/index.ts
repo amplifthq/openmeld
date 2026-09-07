@@ -187,3 +187,10 @@ export {
   webApplicationErrorSourceSchema,
   webApplicationErrorSummarySchema,
 } from "./web-application-error";
+export {
+  WEB_PERFORMANCE_PATH,
+  type WebPerformancePolicy,
+  type WebPerformanceReport,
+  webPerformancePolicySchema,
+  webPerformanceReportSchema,
+} from "./web-performance";

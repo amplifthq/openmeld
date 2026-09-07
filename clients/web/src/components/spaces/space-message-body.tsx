@@ -526,7 +526,7 @@ function SpaceMessageFileList(input: {
 							file={file}
 							isSingle={imageFiles.length === 1}
 							key={`${file.fileId}:${String(file.revision)}`}
-							onOpenSpaceFile={input.onOpenSpaceFile}
+							onOpenSpaceFile={file.isLocal ? undefined : input.onOpenSpaceFile}
 							spaceId={input.spaceId}
 						/>
 					))}
@@ -540,6 +540,7 @@ function SpaceMessageFileList(input: {
 					{ordinaryFiles.map((file) => (
 						<button
 							className="group flex min-w-0 items-center gap-3 rounded-md border border-border bg-background p-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
+							disabled={file.isLocal}
 							key={`${file.fileId}:${String(file.revision)}`}
 							onClick={() =>
 								input.onOpenSpaceFile?.(file.fileId, file.revision)
@@ -550,12 +551,12 @@ function SpaceMessageFileList(input: {
 							<div className="min-w-0 flex-1">
 								<p className="truncate font-medium text-sm">{file.name}</p>
 								<p className="mt-0.5 truncate text-muted-foreground text-xs">
-									{formatMessageFileSize(file.sizeBytes)} · Version{" "}
-									{file.revision}
+									{formatMessageFileSize(file.sizeBytes)}
+									{file.isLocal ? null : ` · Version ${file.revision}`}
 								</p>
 							</div>
 							<span className="shrink-0 text-muted-foreground text-xs group-hover:text-foreground">
-								Open in Files
+								{file.isLocal ? null : "Open in Files"}
 							</span>
 						</button>
 					))}
@@ -584,6 +585,7 @@ function SpaceMessageFileImage(input: {
 	const imageSource = useSpaceFileImageSource({
 		api: input.api,
 		fileId: input.file.fileId,
+		isLocal: input.file.isLocal,
 		localPreviewUrl: input.file.localPreviewUrl,
 		mimeType: input.file.mimeType,
 		revision: input.file.revision,

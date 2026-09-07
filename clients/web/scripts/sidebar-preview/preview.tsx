@@ -11,13 +11,17 @@ import {
 import { type ReactNode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AgentProfileSidebarItemComponent } from "../../src/components/agents/agent-profile-sidebar-item";
+import { SidebarListSkeleton } from "../../src/components/app/sidebar-list-skeleton";
 import { HumanProfileSidebarItem } from "../../src/components/directory/human-profile-sidebar-item";
 import { SpaceSidebarMenuItem } from "../../src/components/spaces/space-sidebar-menu-item";
 import { agentScenarios, peopleScenarios, spaceScenarios } from "./scenarios";
 import "./preview.css";
 
 function Preview() {
-	const [dark, setDark] = useState(true);
+	const [loading, setLoading] = useState(
+		new URLSearchParams(window.location.search).has("loading")
+	);
+	const [dark, setDark] = useState(!loading);
 	const [width, setWidth] = useState(280);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [pins, setPins] = useState<Record<string, boolean>>({});
@@ -34,6 +38,9 @@ function Preview() {
 					<Button onClick={() => setDark(!dark)} variant="outline">
 						Switch theme
 					</Button>
+					<Button onClick={() => setLoading(!loading)} variant="outline">
+						{loading ? "Show populated rows" : "Show loading rows"}
+					</Button>
 					<label className="text-sm">
 						Width {width}px{" "}
 						<input
@@ -49,57 +56,88 @@ function Preview() {
 						Selected: {selected ?? "none"}
 					</span>
 				</header>
-				<div className="flex flex-wrap items-start gap-6">
-					<Column
-						onSelect={setSelected}
-						selected={selected}
-						title="Spaces"
-						width={width}
-					>
-						{spaceScenarios.map((scenario, index) => {
-							const pinned =
-								pins[scenario.item.spaceId] ?? Boolean(scenario.item.pinnedAt);
-							return (
-								<SpaceSidebarMenuItem
-									key={scenario.item.spaceId}
+				{loading ? (
+					<div className="flex flex-wrap items-start gap-6">
+						{[
+							{
+								title: "Center Agent",
+								label: "Loading Center Agent chats",
+								rowCount: 2,
+								showPreview: true,
+							},
+							{
+								title: "Chats",
+								label: "Loading chats",
+								showPreview: true,
+								rowCount: 2,
+							},
+							{ title: "Spaces", label: "Loading Spaces", showPreview: false },
+							{ title: "Team", label: "Loading people", showPreview: true },
+						].map(({ title, ...props }) => (
+							<section
+								className="min-h-80 rounded-lg bg-[var(--app-canvas)] p-2"
+								key={title}
+								style={{ width }}
+							>
+								<h2 className="px-2 py-3 text-sm">{title}</h2>
+								<SidebarListSkeleton {...props} />
+							</section>
+						))}
+					</div>
+				) : (
+					<div className="flex flex-wrap items-start gap-6">
+						<Column
+							onSelect={setSelected}
+							selected={selected}
+							title="Spaces"
+							width={width}
+						>
+							{spaceScenarios.map((scenario, index) => {
+								const pinned =
+									pins[scenario.item.spaceId] ??
+									Boolean(scenario.item.pinnedAt);
+								return (
+									<SpaceSidebarMenuItem
+										key={scenario.item.spaceId}
+										{...scenario}
+										index={index}
+										isActive={selected === scenario.item.spaceId}
+										item={{
+											...scenario.item,
+											pinnedAt: pinned ? "2026-09-01T00:00:00Z" : null,
+										}}
+										onOpenSpace={() => setSelected(scenario.item.spaceId)}
+										onTogglePinned={() =>
+											setPins({ ...pins, [scenario.item.spaceId]: !pinned })
+										}
+									/>
+								);
+							})}
+						</Column>
+						<Column selected={selected} title="People" width={width}>
+							{peopleScenarios.map((scenario, index) => (
+								<HumanProfileSidebarItem
+									key={scenario.member.id}
 									{...scenario}
 									index={index}
-									isActive={selected === scenario.item.spaceId}
-									item={{
-										...scenario.item,
-										pinnedAt: pinned ? "2026-09-01T00:00:00Z" : null,
-									}}
-									onOpenSpace={() => setSelected(scenario.item.spaceId)}
-									onTogglePinned={() =>
-										setPins({ ...pins, [scenario.item.spaceId]: !pinned })
-									}
+									isActive={selected === scenario.member.id}
+									onSelect={setSelected}
 								/>
-							);
-						})}
-					</Column>
-					<Column selected={selected} title="People" width={width}>
-						{peopleScenarios.map((scenario, index) => (
-							<HumanProfileSidebarItem
-								key={scenario.member.id}
-								{...scenario}
-								index={index}
-								isActive={selected === scenario.member.id}
-								onSelect={setSelected}
-							/>
-						))}
-					</Column>
-					<Column selected={selected} title="Agents" width={width}>
-						{agentScenarios.map((scenario, index) => (
-							<AgentProfileSidebarItemComponent
-								key={scenario.profile.openMeldProfileId}
-								{...scenario}
-								index={index}
-								isActive={selected === scenario.profile.openMeldProfileId}
-								onSelectProfile={setSelected}
-							/>
-						))}
-					</Column>
-				</div>
+							))}
+						</Column>
+						<Column selected={selected} title="Agents" width={width}>
+							{agentScenarios.map((scenario, index) => (
+								<AgentProfileSidebarItemComponent
+									key={scenario.profile.openMeldProfileId}
+									{...scenario}
+									index={index}
+									isActive={selected === scenario.profile.openMeldProfileId}
+									onSelectProfile={setSelected}
+								/>
+							))}
+						</Column>
+					</div>
+				)}
 			</main>
 		</div>
 	);

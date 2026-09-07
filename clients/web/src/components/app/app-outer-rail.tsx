@@ -11,7 +11,10 @@ import { type ReactNode, useCallback, useState } from "react";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { AppOuterRailFrame } from "#/components/app/app-outer-rail-frame";
 import { AppSidebarGroupStateProvider } from "#/components/app/app-sidebar-group";
-import { resolveAppOuterRailDestinationFromMatches } from "#/components/app/shell-layout";
+import {
+	resolveAppOuterRailDestinationFromMatches,
+	resolveAppShellSectionFromMatches,
+} from "#/components/app/shell-layout";
 import { useCenterAgentConversationIntentPrefetch } from "#/components/organizations/use-center-agent-conversation-intent-prefetch";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -58,12 +61,17 @@ export function AppOuterRail({
 			initialState ?? OUTER_SIDEBAR_DEFAULT_STATE
 		)
 	);
-	const displayState: SidebarPersistedState = drawerPresentation
-		? { ...state, tier: "expanded", width: "100%" }
-		: state;
 	const activeDestination = useMatches({
 		select: resolveAppOuterRailDestinationFromMatches,
 	});
+	const widthKey = useMatches({ select: resolveAppShellSectionFromMatches });
+	const displayState: SidebarPersistedState = {
+		...state,
+		width: state.pageWidths?.[widthKey] ?? OUTER_SIDEBAR_DEFAULT_STATE.width,
+		...(drawerPresentation
+			? ({ tier: "expanded", width: "100%" } as const)
+			: {}),
+	};
 	const { currentOrganization } = useAppOrganization();
 	const prefetchCenterAgentConversation =
 		useCenterAgentConversationIntentPrefetch();
@@ -122,10 +130,14 @@ export function AppOuterRail({
 					...current,
 					tier: geometry.mode,
 					width: `${geometry.width}px`,
+					pageWidths: {
+						...current.pageWidths,
+						[widthKey]: `${geometry.width}px`,
+					},
 				})
 			);
 		},
-		[persistState]
+		[persistState, widthKey]
 	);
 	const handleCollapsedGroupIdsChange = useCallback(
 		(collapsedGroupIds: readonly string[]) => {

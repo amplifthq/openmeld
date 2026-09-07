@@ -6,17 +6,42 @@ import {
 } from "./center-agent-header-navigation";
 
 const navigateSpy = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+const route = vi.hoisted(() => ({ searchStr: "" }));
 
 vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => navigateSpy,
+	useRouterState: ({
+		select,
+	}: {
+		select: (state: { location: { searchStr: string } }) => unknown;
+	}) => select({ location: route }),
 }));
 
 afterEach(() => {
 	cleanup();
 	navigateSpy.mockClear();
+	route.searchStr = "";
 });
 
 describe("CenterAgentHeaderTabs", () => {
+	it("keeps the draft when visiting management tabs and returning", () => {
+		route.searchStr = "?draft=new";
+		render(
+			<CenterAgentHeaderTabs
+				activeSectionId="chat"
+				idPrefix="draft-navigation"
+				organizationSlug="acme"
+			/>
+		);
+		fireEvent.click(screen.getByRole("tab", { name: "Skills" }));
+		expect(navigateSpy).toHaveBeenLastCalledWith({
+			to: "/o/acme/center-agent/skills?draft=new",
+		});
+		fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
+		expect(navigateSpy).toHaveBeenLastCalledWith({
+			to: "/o/acme/chats/center-agent?draft=new",
+		});
+	});
 	it("keeps primary work in the requested header order", () => {
 		render(
 			<CenterAgentHeaderTabs
@@ -84,13 +109,13 @@ describe("CenterAgentHeaderTabs", () => {
 		fireEvent.click(screen.getByRole("tab", { name: "Files" }));
 
 		expect(navigateSpy).toHaveBeenCalledWith({
-			to: "/o/acme?view=files",
+			to: "/o/acme/chats/center-agent?view=files",
 		});
 
 		fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
 
 		expect(navigateSpy).toHaveBeenLastCalledWith({
-			to: "/o/acme",
+			to: "/o/acme/chats/center-agent",
 		});
 	});
 });

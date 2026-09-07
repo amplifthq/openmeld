@@ -1,3 +1,4 @@
+import { buildLocalAgentConnectionCandidateId } from "@openmeld/agent-runtime";
 import type {
   AgentProfileCreationPreferenceSelection,
   CenterAgentCheckAgentProfileReadinessResponse,
@@ -11,7 +12,7 @@ import type {
   CenterAgentUpdateAgentProfileRuntimeSettingsBody,
   CenterAgentUpdateAgentProfileRuntimeSettingsResponse,
   EnsureAgentProfilePrimaryBindingResponse,
-  LocalRuntimesResponse,
+  PeopleComputersResponse,
   SetCurrentAgentProfileWorkspaceResponse,
 } from "@openmeld/schemas/types";
 
@@ -93,16 +94,25 @@ export type CenterAgentProductOperationDeps = {
 };
 
 export function projectCenterAgentLocalAgentConnectionCandidates(input: {
-  localRuntimes: LocalRuntimesResponse;
+  peopleComputers: PeopleComputersResponse;
   organizationId: string;
 }): CenterAgentListLocalAgentConnectionCandidatesResponse {
   const candidates: CenterAgentLocalAgentConnectionCandidate[] = [];
-  for (const computer of input.localRuntimes.localRuntimes) {
+  for (const computer of input.peopleComputers.computers) {
     for (const target of computer.executionTargets) {
       if (!target.openMeldServiceRuntimeId) {
         continue;
       }
       for (const capability of target.capabilities) {
+        const connection = computer.connection.sessions.find(
+          (session) =>
+            session.deviceId === target.deviceId &&
+            session.runtimeLane === target.runtimeLane
+        );
+        const connectionReady =
+          computer.connection.status === "connected" &&
+          connection?.executionCompatibility.status === "compatible" &&
+          !connection.serviceUpdate.wakeBlocked;
         const freshness = resolveCandidateFreshness(capability.status);
         const agentDisplayName =
           capability.agentControllerInterface?.displayName ??
@@ -110,13 +120,14 @@ export function projectCenterAgentLocalAgentConnectionCandidates(input: {
         const candidate = {
           agentControllerRef: capability.agentControllerRef,
           agentDisplayName,
-          candidateId: buildCenterAgentLocalAgentConnectionCandidateId({
+          candidateId: buildLocalAgentConnectionCandidateId({
             agentControllerRef: capability.agentControllerRef,
             deviceId: target.deviceId,
             runtimeLane: target.runtimeLane,
             openMeldServiceRuntimeId: target.openMeldServiceRuntimeId.value,
           }),
           connectable:
+            connectionReady &&
             capability.enabled &&
             capability.status === "ready" &&
             target.status !== "stale",
@@ -125,7 +136,13 @@ export function projectCenterAgentLocalAgentConnectionCandidates(input: {
           freshness,
           lastObservedAtMs: target.lastObservedAtMs,
           reasonCodes: [
-            ...new Set([...target.reasonCodes, ...capability.reasonCodes]),
+            ...new Set([
+              ...computer.connection.reasonCodes,
+              ...(connection?.serviceUpdate.reasonCodes ?? []),
+              ...(connectionReady ? [] : ["computer.connection.not_ready"]),
+              ...target.reasonCodes,
+              ...capability.reasonCodes,
+            ]),
           ],
           runtimeLane: target.runtimeLane,
           status: capability.status,
@@ -147,39 +164,48 @@ export function projectCenterAgentLocalAgentConnectionCandidates(input: {
 }
 
 export function projectCenterAgentComputerSetupOptions(
-  localRuntimes: LocalRuntimesResponse
+  peopleComputers: PeopleComputersResponse
 ): CenterAgentComputerSetupOption[] {
-  return localRuntimes.localRuntimes
+  return peopleComputers.computers
     .map((computer) => {
       const reasonCodes = [
-        ...new Set(
-          computer.executionTargets.flatMap((target) => [
+        ...new Set([
+          ...computer.connection.reasonCodes,
+          ...computer.connection.sessions.flatMap(
+            (session) => session.serviceUpdate.reasonCodes
+          ),
+          ...computer.executionTargets.flatMap((target) => [
             ...target.reasonCodes,
             ...target.capabilities.flatMap(
               (capability) => capability.reasonCodes
             ),
-          ])
-        ),
+          ]),
+        ]),
       ];
       const connectedComputerId = computer.connectedComputerId ?? null;
-      const hasRequiredUpdate = reasonCodes.some(isServiceUpdateReasonCode);
-      const hasReadyTarget = computer.executionTargets.some(
-        (target) => target.status === "ready"
-      );
+      const hasRequiredUpdate =
+        computer.connection.sessions.some(
+          (session) => session.serviceUpdate.wakeBlocked
+        ) || reasonCodes.some(isServiceUpdateReasonCode);
       let recommendedMode: CenterAgentComputerSetupOption["recommendedMode"] =
         null;
       let status: CenterAgentComputerSetupOption["status"] = "connected";
 
-      if (connectedComputerId === null) {
+      if (computer.connection.status === "unknown") {
+        status = "unknown";
+      } else if (
+        computer.connection.status === "connected" &&
+        !hasRequiredUpdate
+      ) {
+        // A connected Service with no discovered local agents is still connected.
+        status = "connected";
+      } else if (connectedComputerId === null) {
         recommendedMode = "setup";
         status = "not_connected";
       } else if (hasRequiredUpdate) {
         recommendedMode = "update_service";
         status = "needs_attention";
-      } else if (
-        computer.connectionStatus === "legacy_disconnected" ||
-        !hasReadyTarget
-      ) {
+      } else if (computer.connection.status === "disconnected") {
         recommendedMode = "reconnect";
         status = "needs_attention";
       }
@@ -188,7 +214,8 @@ export function projectCenterAgentComputerSetupOptions(
         connectedComputerId,
         deviceDisplayName: computer.deviceDisplayName,
         deviceId: computer.deviceId,
-        isCurrent: computer.isCurrent,
+        // The hosted caller has no evidence of the human's physical computer.
+        isCurrent: false,
         lastObservedAtMs: computer.lastObservedAtMs,
         reasonCodes,
         recommendedMode,
@@ -208,23 +235,6 @@ function isServiceUpdateReasonCode(reasonCode: string): boolean {
     reasonCode === "service.update_required" ||
     reasonCode === "background_helper.update_required"
   );
-}
-
-export function buildCenterAgentLocalAgentConnectionCandidateId(input: {
-  agentControllerRef: string;
-  deviceId: string;
-  runtimeLane: string;
-  openMeldServiceRuntimeId: string;
-}): string {
-  return [
-    "local-agent",
-    input.deviceId,
-    input.runtimeLane,
-    input.openMeldServiceRuntimeId,
-    input.agentControllerRef,
-  ]
-    .map(encodeURIComponent)
-    .join(":");
 }
 
 export async function listLocalAgentConnectionCandidatesOperation(input: {

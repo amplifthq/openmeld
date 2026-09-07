@@ -54,10 +54,10 @@ but living natively inside the organization.
 Now state: **a user opens the organization's managed Center Agent and can
 immediately talk to it in a Space DM; Slack app mentions and human App Home
 direct messages are shipped external signals. Slack is the first supported
-external signal, while Lark Channel setup is available to every production
-Organization but still fails closed until its connection-specific transport
-checks pass, Feishu remains behind its independent provider gate and feature
-flag, and organization-owned Routines are the unattended native-delivery
+external signal, while Lark and Feishu Channel setup is enabled in local and
+production configuration for every Organization but still fails closed until
+each connection's transport checks pass. Setup availability does not prove
+live provider delivery. Organization-owned Routines are the unattended native-delivery
 entry.** The original MVP is judged on
 exactly one quality:
 **high availability of the conversation loop** — an authorized member asks
@@ -108,6 +108,13 @@ Infrastructure must not blindly replay an operation whose external effects are
 unknown. Re-running a read or regenerating a disposable file differs from sending
 another message or repeating a mutation. Release acceptance must exercise that
 recovery path; Worker-only continuity does not prove Computer-loss recovery.
+This recovery contract is not a guarantee of seamless arbitrary deployments.
+Computer replacement acceptance establishes retained conversation/files and
+honest command-loss recovery, not uninterrupted external operations. A Core-only
+update does not certify simultaneous Remote Agent and Computer replacement.
+The implementation does not use dual execution targets; publication receipts
+and inspection of external state determine whether an interrupted action can
+be safely retried.
 
 The hosted runtime is normally always available, but the Organization creator
 has one explicit emergency control: **Pause Center Agent**. Pause is not a
@@ -169,6 +176,30 @@ the agent's home") and (b) waking the org's local agents through the
 existing wake system.
 
 ## Implementation Base: Flue Harness (updated 2026-09-06)
+
+Native-delivery cancellation, execution reconciliation, and runtime diagnostics
+resolve the persisted runtime conversation through the same Core owner. Both
+the original worker request and the recovery request must match the ledger's
+Organization, Agent Profile, Space, dispatch, and idempotency key. If both
+requests exist, their runtime routes must agree. A mismatch is an explicit
+identity failure; callers must not prefer one request and contact its runtime.
+This check preserves existing conversation names and generation-zero sessions.
+It does not enable personal Remote Agent creation or grant Center Agent duties
+to an ordinary Profile.
+
+The prelaunch Flue 2 cutover is complete. Current Remote Agent Slack search and
+invitation tools accept only the shared Core result schemas; an acknowledgement
+without the requested result is not success. Message Channel identity actions
+use capability version 2 in one Core authorization, including any selected
+account. They do not retry an older request shape or silently discard account
+targeting. Deploy this Remote Agent only with the current Core receiver; when
+rolling back across that receiver contract, roll back Remote Agent first.
+This retires transient Worker-to-Core negotiation, not persisted submission
+versions, historical message navigation targets, or supported local clients.
+Connected App stream parts likewise retain their complete shared work metadata.
+A Core rejection is terminal for that preview; the worker does not strip the
+subject and resend a degraded part. Transient transport retries and final
+answer delivery remain separate and unchanged.
 
 The agent worker is built on **Flue**, pinned by exact package version in
 `services/remote-agent`. OpenMeld uses Flue for the agent harness and Durable
@@ -457,8 +488,11 @@ the connected provider API.
    Agents or Computers, role authority, destructive confirmation, and other
    identity-owned actions use the same provider-bound setup and exact-request
    continuation contract. Card presentation may differ from Slack, but the
-   product boundary cannot. Their Personal Agent credential is Channel-only and
-   never becomes a model-visible business-action credential.
+   product boundary cannot. Their Personal Agent credential grants Channel
+   capabilities to the runtime and never becomes a model-visible business-action
+   credential. An explicitly consented tenant `application:application:patch`
+   scope may additionally support application setup; it does not add a runtime
+   tool or an App connection and is not requested by the default Channel bundle.
    Core freezes a Lark/Feishu locator containing provider, connection, chat,
    root message, and optional native thread identity before admission. Only the
    provider adapter may interpret that locator, and every normal result returns

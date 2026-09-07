@@ -1,5 +1,7 @@
 ---
 id: distinguish-confirmation-from-completed-actions
+publishedAt: 2026-09-06
+evidence: ["pr:689", "pr:693", "commit:5bffe90ba001eec03f043797a61940fc922d9e06"]
 title: Distinguish confirmation requests from completed actions
 kind: fixed
 areas: ["center-agent", "plugins"]

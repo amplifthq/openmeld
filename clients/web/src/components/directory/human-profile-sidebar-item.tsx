@@ -9,6 +9,10 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
+import {
+	SidebarMenuActions,
+	SidebarMenuButton,
+} from "@openmeld/ui/fluid/sidebar-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, StarIcon } from "@phosphor-icons/react";
 import { type ReactNode, useMemo } from "react";
@@ -97,21 +101,22 @@ export function HumanProfileSidebarItem(input: {
 	}
 	return (
 		<FluidNavMenuItem
-			className="group/people-row relative"
+			className="relative"
 			index={input.index}
 			ref={input.drag?.ref}
 			style={input.drag?.style}
 			value={input.member.id}
 		>
-			<button
+			<SidebarMenuButton
+				actionLayout="heading"
+				isActive={input.isActive}
 				{...input.drag?.rowProps}
 				aria-current={input.isActive ? "page" : undefined}
 				aria-label={`Open ${input.member.name}'s profile`}
 				className={cn(
-					"flex w-full min-w-0 flex-row items-start gap-1.5 px-2 py-1 text-left outline-none",
+					"h-auto min-w-0 flex-row items-start gap-1.5 py-1 text-left outline-none",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
-					input.onToggleStar ? "pr-14" : null,
 					input.isActive ? "text-sidebar-accent-foreground" : null
 				)}
 				onClick={() => {
@@ -124,6 +129,7 @@ export function HumanProfileSidebarItem(input: {
 				<span className="flex min-w-0 flex-1 flex-col overflow-hidden">
 					<span
 						className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden whitespace-nowrap"
+						data-sidebar="menu-heading"
 						data-slot="human-profile-sidebar-heading"
 					>
 						<span className="min-w-0 truncate font-medium text-[13px]">
@@ -136,6 +142,7 @@ export function HumanProfileSidebarItem(input: {
 							</span>
 						) : null}
 					</span>
+					<SidebarComputerLabel member={input.member} />
 					{mappedAccounts.length > 0 ? (
 						<span
 							className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap"
@@ -217,9 +224,9 @@ export function HumanProfileSidebarItem(input: {
 						</span>
 					) : null}
 				</span>
-			</button>
+			</SidebarMenuButton>
 			{input.onToggleStar && (
-				<span className="pointer-events-none absolute top-1 right-1 flex opacity-0 group-focus-within/people-row:pointer-events-auto group-focus-within/people-row:opacity-100 group-hover/people-row:pointer-events-auto group-hover/people-row:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+				<SidebarMenuActions className="top-1" showOnHover>
 					{input.onChat && (
 						<PeopleRowAction
 							disabled={input.actionsDisabled}
@@ -236,13 +243,37 @@ export function HumanProfileSidebarItem(input: {
 					>
 						<StarIcon weight={input.starred ? "fill" : "regular"} />
 					</PeopleRowAction>
-				</span>
+				</SidebarMenuActions>
 			)}
 		</FluidNavMenuItem>
 	);
 }
 
 type LocalAgentIdentity = { agentId: string; displayName: string };
+
+function SidebarComputerLabel({
+	member,
+}: {
+	member: DirectoryHumanProfileRow;
+}) {
+	let label: string | null = null;
+	if (
+		member.computer.state === "not_connected" &&
+		member.computer.count === 0
+	) {
+		label = "No computer";
+	} else if (["unknown", "needs_attention"].includes(member.computer.state)) {
+		label = member.computer.label;
+	} else if (member.isCurrentUser) {
+		label =
+			member.computer.state === "connected"
+				? "Computer online"
+				: "Computer offline";
+	}
+	return label ? (
+		<span className="text-muted-foreground text-xs">{label}</span>
+	) : null;
+}
 
 function resolveEnabledLocalAgents(
 	group: OrganizationComputerGroup | null

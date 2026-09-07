@@ -13,12 +13,16 @@ import {
   listSpaceMemberDirectoryUseCase,
   listSpaceMembersSnapshotUseCase,
   readSpaceStatusMembersSummaryUseCase,
+  refreshSpaceMemberNamesFromAuth,
   removeSpaceMembersUseCase,
   type SpaceMembersUseCaseError,
   upsertJoinedSpaceMember,
   upsertSpaceCreatorMember,
 } from "../src/space/application/space-members-service";
-import { upsertSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
+import {
+  readSpaceMemberRecord,
+  upsertSpaceMemberRecord,
+} from "../src/space/infrastructure/sql/space-member-repo";
 import type { SpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 
 type SqlRow = Record<string, SqlStorageValue>;
@@ -1251,6 +1255,242 @@ describe("space-members-service", () => {
         }),
       ])
     );
+  });
+
+  it.each([
+    undefined,
+    "agt_name_regression",
+  ])("preserves a known name when text activity reports %s instead of a name", (profileName) => {
+    const sql = new MutableSqlStorage();
+    const profileId = "agt_name_regression";
+    upsertJoinedSpaceMember({
+      sql: sql as unknown as SqlStorage,
+      spaceId: "name-regression",
+      profile: {
+        kind: "agent",
+        profileId,
+        profileName: "Amplift Center Agent",
+      },
+    });
+    sql.seedSignal(
+      createTextSignal({
+        signalId: "missing-name",
+        spaceId: "name-regression",
+        ts: "2026-09-07T11:00:00.000Z",
+        profile: {
+          kind: "agent",
+          profileId,
+          ...(profileName ? { profileName } : {}),
+        },
+        text: "Working on the request",
+      })
+    );
+    const directory = listSpaceMemberDirectoryUseCase({
+      sql: sql as unknown as SqlStorage,
+      spaceId: "name-regression",
+      liveSessions: [],
+    });
+    expect(JSON.stringify(directory)).toContain("Amplift Center Agent");
+  });
+
+  it("refreshes an Auth rename and preserves it through old activity and sessions", async () => {
+    const sql = new MutableSqlStorage();
+    const profileId = "agt_repair_name";
+    upsertJoinedSpaceMember({
+      sql: sql as unknown as SqlStorage,
+      spaceId: "repair-name",
+      profile: {
+        kind: "agent",
+        profileId,
+        profileName: "Previous Center Agent",
+      },
+    });
+    const resolveProfileById = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        profile: {
+          profileId,
+          profileKind: "agent",
+          profileName: "Amplift Center Agent",
+          profileHandle: "amplift-center-agent",
+          ownerUserId: "owner-1",
+          status: "active",
+        },
+      })
+    );
+    const input = {
+      sql: sql as unknown as SqlStorage,
+      env: {
+        OPENMELD_AUTH_WORKER: { resolveProfileById },
+      } as unknown as CoreBindings,
+    };
+    expect(await refreshSpaceMemberNamesFromAuth(input)).toBe(true);
+    sql.seedSignal(
+      createTextSignal({
+        signalId: "old-id-name",
+        spaceId: "repair-name",
+        ts: "2026-09-07T11:00:00.000Z",
+        profile: {
+          kind: "agent",
+          profileId,
+          profileName: "Previous Center Agent",
+        },
+        text: "Earlier reply",
+      })
+    );
+    const directory = listSpaceMemberDirectoryUseCase({
+      sql: input.sql,
+      spaceId: "repair-name",
+      liveSessions: [
+        {
+          profile: {
+            kind: "agent",
+            profileId,
+            profileName: "Previous Center Agent",
+          },
+        },
+      ],
+    });
+    expect(JSON.stringify(directory)).toContain("Amplift Center Agent");
+    expect(await refreshSpaceMemberNamesFromAuth(input)).toBe(false);
+    expect(resolveProfileById).toHaveBeenCalledTimes(2);
+    upsertJoinedSpaceMember({
+      sql: input.sql,
+      spaceId: "repair-name",
+      profile: {
+        kind: "agent",
+        profileId,
+        profileName: "Previous Center Agent",
+      },
+    });
+    expect(
+      readSpaceMemberRecord(input.sql, profileId)?.profileNameSnapshot
+    ).toBe("Amplift Center Agent");
+  });
+
+  it("bounds the whole name refresh and ignores late Auth results", async () => {
+    const sql = new MutableSqlStorage();
+    const lateReplies: Array<() => void> = [];
+    for (let index = 0; index < 17; index++) {
+      upsertJoinedSpaceMember({
+        sql: sql as unknown as SqlStorage,
+        spaceId: "name-deadline",
+        profile: {
+          kind: "agent",
+          profileId: `agt_deadline_${index}`,
+          profileName: "Known Agent",
+        },
+      });
+    }
+    const resolveProfileById = vi.fn(
+      ({ openMeldProfileId }: { openMeldProfileId: string }) =>
+        new Promise((resolve) => {
+          lateReplies.push(() =>
+            resolve({
+              ok: true,
+              profile: {
+                profileId: openMeldProfileId,
+                profileKind: "agent",
+                profileName: "Late Name",
+                profileHandle: "late-agent",
+                ownerUserId: "owner",
+                status: "active",
+              },
+            })
+          );
+        })
+    );
+    const startedAt = Date.now();
+    expect(
+      await refreshSpaceMemberNamesFromAuth({
+        sql: sql as unknown as SqlStorage,
+        env: {
+          OPENMELD_AUTH_WORKER: { resolveProfileById },
+        } as unknown as CoreBindings,
+      })
+    ).toBe(false);
+    expect(Date.now() - startedAt).toBeLessThan(2000);
+    expect(resolveProfileById.mock.calls.length).toBeLessThanOrEqual(8);
+    const member = readSpaceMemberRecord(
+      sql as unknown as SqlStorage,
+      "agt_deadline_0"
+    );
+    if (!member) {
+      throw new Error("Missing member");
+    }
+    upsertSpaceMemberRecord(sql as unknown as SqlStorage, {
+      ...member,
+      profileNameSnapshot: "Newer Name",
+    });
+    for (const reply of lateReplies) {
+      reply();
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(
+      readSpaceMemberRecord(sql as unknown as SqlStorage, member.profileId)
+        ?.profileNameSnapshot
+    ).toBe("Newer Name");
+  });
+
+  it.each([
+    "mismatch",
+    "unavailable",
+    "removed",
+    "concurrent rename",
+  ])("does not repair from %s identity evidence", async (scenario) => {
+    const sql = new MutableSqlStorage();
+    const profileId = "agt_repair_rejected";
+    const member = upsertJoinedSpaceMember({
+      sql: sql as unknown as SqlStorage,
+      spaceId: "repair-rejected",
+      profile: { kind: "agent", profileId },
+    });
+    if (!member) {
+      throw new Error("Missing fixture member");
+    }
+    const resolveProfileById = vi.fn(() => {
+      if (scenario === "unavailable") {
+        throw new Error("Auth unavailable");
+      }
+      if (scenario === "removed") {
+        upsertSpaceMemberRecord(sql as unknown as SqlStorage, {
+          ...member,
+          status: "removed",
+        });
+      }
+      if (scenario === "concurrent rename") {
+        upsertSpaceMemberRecord(sql as unknown as SqlStorage, {
+          ...member,
+          profileNameSnapshot: "Newer Auth Name",
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        profile: {
+          profileId: scenario === "mismatch" ? "agt_other" : profileId,
+          profileKind: "agent",
+          profileName: "Center Agent",
+          profileHandle: "center-agent",
+          ownerUserId: "owner-1",
+          status: "active",
+        },
+      });
+    });
+    expect(
+      await refreshSpaceMemberNamesFromAuth({
+        sql: sql as unknown as SqlStorage,
+        env: {
+          OPENMELD_AUTH_WORKER: { resolveProfileById },
+        } as unknown as CoreBindings,
+      })
+    ).toBe(false);
+    if (scenario === "concurrent rename") {
+      expect(
+        readSpaceMemberRecord(sql as unknown as SqlStorage, profileId)
+          ?.profileNameSnapshot
+      ).toBe("Newer Auth Name");
+    }
   });
 
   it("reads stored signals once when building a members snapshot", async () => {

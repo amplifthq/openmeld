@@ -1,8 +1,8 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "openmeld",
-  "version": "0.3.162",
-  "openMeldReleaseDate": "2026-09-06",
+  "version": "0.3.166",
+  "openMeldReleaseDate": "2026-09-07",
   "description": "OpenMeld CLI - https://openmeld.ai",
   "license": "MIT",
   "type": "module",
@@ -85,6 +85,6 @@
   },
   "openmeld": {
     "releaseLine": "openmeld-greenfield-2026-07",
-    "minRequiredCliVersion": "0.3.126"
+    "minRequiredCliVersion": "0.3.165"
   }
 }

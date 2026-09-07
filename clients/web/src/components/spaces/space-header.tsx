@@ -14,6 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
+import { AgentChatBadge } from "./agent-chat-badge";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import {
 	SpaceHeaderNavigationMenu,
@@ -117,7 +118,16 @@ export function SpaceWindowHeader(input: {
 	);
 }
 
+function resolveHeaderTitle(
+	conversationTitle: string | undefined,
+	spaceName: string | null | undefined
+) {
+	return conversationTitle ?? (spaceName?.trim() || "Untitled space");
+}
+
 export function SpaceHeader(input: {
+	conversationTitle?: string;
+	conversationTitleAction?: (title: string) => ReactNode;
 	accessModeErrorMessage: string | null;
 	canManageSpaceAccess: boolean;
 	canManageSpaceName: boolean;
@@ -164,7 +174,10 @@ export function SpaceHeader(input: {
 	status: GetSpaceStatusResponse;
 }) {
 	const [spaceInformationOpen, setSpaceInformationOpen] = useState(false);
-	const spaceName = input.status.name?.trim() || "Untitled space";
+	const spaceName = resolveHeaderTitle(
+		input.conversationTitle,
+		input.status.name
+	);
 	const isDirectMessage = isDirectMessageSpace({
 		activeMemberCount: input.status.members.totalCount,
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
@@ -285,9 +298,7 @@ export function SpaceHeader(input: {
 			title={spaceName}
 			titleAdornment={
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
-					{isDirectMessage && !input.isCenterAgentDirectMessage ? (
-						<DirectMessageHeaderLabel />
-					) : null}
+					{input.conversationTitleAction?.(spaceName)}
 					{input.isCenterAgentDirectMessage || isDirectMessage
 						? null
 						: renderSpaceAccessModeHeaderLabel(input.status.accessMode)}
@@ -296,6 +307,11 @@ export function SpaceHeader(input: {
 						liveState={input.liveState ?? "connected"}
 						onReconnectNow={input.onReconnectLiveUpdates}
 					/>
+					{renderAgentChatBadge(
+						input.isCenterAgentDirectMessage,
+						isDirectMessage,
+						input.status.members.agentCount
+					)}
 				</span>
 			}
 		/>
@@ -316,12 +332,18 @@ export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
 	);
 }
 
-function DirectMessageHeaderLabel() {
-	return (
-		<span className="hidden shrink-0 whitespace-nowrap sm:inline">
-			Direct Message
-		</span>
-	);
+function renderAgentChatBadge(
+	isCenterAgent: boolean | undefined,
+	isDirectMessage: boolean,
+	agentCount: number
+) {
+	if (isCenterAgent) {
+		return <AgentChatBadge kind="center" />;
+	}
+	if (isDirectMessage && agentCount === 1) {
+		return <AgentChatBadge kind="local" />;
+	}
+	return null;
 }
 
 function renderSpaceAccessModeHeaderLabel(

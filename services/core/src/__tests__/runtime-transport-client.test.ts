@@ -582,19 +582,16 @@ describe("runtime transport split clients call fallback behavior", () => {
     });
   });
 
-  it("returns fallback owner service offline code when owner-service lookup is non-JSON 404", async () => {
+  it("does not treat a missing owner-service endpoint as a disconnected computer", async () => {
     const { env, stub } = createEnv();
     stub.fetch.mockResolvedValue(new Response("offline", { status: 404 }));
 
-    const response = await lookupRuntimeTransportOwnerService({
-      env,
-      ownerUserId: "owner",
-    });
-
-    expect(response).toEqual({
-      online: false,
-      reasonCode: "daemon.session.not_found",
-    });
+    await expect(
+      lookupRuntimeTransportOwnerService({
+        env,
+        ownerUserId: "owner",
+      })
+    ).rejects.toThrow("Invalid Runtime Transport owner-Service response.");
     expect(stub.fetch).toHaveBeenCalledWith(
       "https://runtime-transport.internal/lookup-owner-service",
       expect.objectContaining({
@@ -1087,6 +1084,18 @@ describe("runtime transport split clients call fallback behavior", () => {
     ).rejects.toThrow();
   });
 
+  it("rejects malformed owner-service evidence instead of reporting a disconnected computer", async () => {
+    const { env, stub } = createEnv();
+    stub.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ online: true, sessions: [] }), {
+        status: 200,
+      })
+    );
+    await expect(
+      lookupRuntimeTransportOwnerService({ env, ownerUserId: "owner" })
+    ).rejects.toThrow("Invalid Runtime Transport owner-Service response.");
+  });
+
   it("propagates a missing transport binding from the route lookup", async () => {
     const { env } = createEnv({ omitTransport: true });
 
@@ -1151,12 +1160,11 @@ describe("runtime transport split clients call fallback behavior", () => {
         env,
         ownerUserId: "owner",
       });
+      const failure = expect(responsePromise).rejects.toThrow(
+        "Invalid Runtime Transport owner-Service response."
+      );
       await vi.advanceTimersByTimeAsync(5000);
-      const response = await responsePromise;
-      expect(response).toEqual({
-        online: false,
-        reasonCode: "daemon.session.not_found",
-      });
+      await failure;
       expect(warnSpy).toHaveBeenCalledWith(
         "[core.runtime_transport_client.request_timeout]",
         expect.objectContaining({

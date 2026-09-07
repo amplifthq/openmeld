@@ -569,6 +569,11 @@ export async function runDaemonInstall(
   await clearDaemonStartFailureStateSafely();
   const serviceManager = await resolveDaemonServiceManager().catch(() => null);
   const existingContract = await readDaemonServiceContract().catch(() => null);
+  await alignStoppedDaemonInstallContract({
+    existingContract,
+    bundleId: preparedBundle.bundleId,
+    daemonVersion: result.state.daemonVersion,
+  });
   if (!(result.status === "already_installed" && existingContract)) {
     const runtimeStatus =
       result.status === "already_installed"
@@ -667,6 +672,34 @@ export async function runDaemonInstall(
   await emitRuntimeProjectionLine({
     presenter,
     runtimeProjection,
+  });
+}
+
+async function alignStoppedDaemonInstallContract(input: {
+  existingContract: PersistedDaemonServiceContract | null;
+  bundleId: string;
+  daemonVersion: string;
+}): Promise<void> {
+  const contract = input.existingContract;
+  if (
+    contract?.desiredState !== "stopped" ||
+    contract.autoStart ||
+    contract.bundleId === input.bundleId
+  ) {
+    return;
+  }
+  const observed = await readCurrentObservedDaemonRuntimeStatus().catch(
+    () => null
+  );
+  if (observed?.status !== "not_running") {
+    return;
+  }
+  // Install has already activated these files. Keep a stopped contract
+  // aligned without changing its account, device, or service registration.
+  await upsertDaemonServiceContract({
+    ...contract,
+    bundleId: input.bundleId,
+    daemonVersion: input.daemonVersion,
   });
 }
 

@@ -207,7 +207,10 @@ function useMenuScope(
     sessionRef,
     handlers,
     registerItem,
-  } = useProximityHover(containerRef, { isItemDisabled: rowHidden });
+  } = useProximityHover(containerRef, {
+    axis: "both",
+    isItemDisabled: rowHidden,
+  });
   const activeIndexRef = useRef(activeIndex);
   activeIndexRef.current = activeIndex;
   const [hoverStore] = useState(createRowHoverStore);
@@ -1111,6 +1114,8 @@ export const sidebarMenuButtonVariants = cva(
 export interface SidebarMenuButtonProps
   extends ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof sidebarMenuButtonVariants> {
+  /** Multiline rows reserve action space only on their marked heading. */
+  actionLayout?: "row" | "heading";
   isActive?: boolean;
   size?: "default" | "sm" | "lg";
   icon?: IconComponent;
@@ -1131,6 +1136,7 @@ const SidebarMenuButton = forwardRef<HTMLButtonElement, SidebarMenuButtonProps>(
   (
     {
       isActive = false,
+      actionLayout = "row",
       size = "default",
       variant,
       icon: Icon,
@@ -1206,12 +1212,14 @@ const SidebarMenuButton = forwardRef<HTMLButtonElement, SidebarMenuButtonProps>(
 
     const inner = (
       <>
-        {effectiveActive && scope?.activeLayoutId && (
-          <SidebarSelectionBackground
-            className={cn(shape.bg, scope.activeIndicatorClassName)}
-            layoutId={scope.activeLayoutId}
-          />
-        )}
+        {effectiveActive &&
+          scope?.activeLayoutId &&
+          !row?.hasAttribute("data-fluid-nav-value") && (
+            <SidebarSelectionBackground
+              className={cn(shape.bg, scope.activeIndicatorClassName)}
+              layoutId={scope.activeLayoutId}
+            />
+          )}
         {Icon && (
           <Icon
             className={cn(
@@ -1264,6 +1272,7 @@ const SidebarMenuButton = forwardRef<HTMLButtonElement, SidebarMenuButtonProps>(
         },
         type: template ? undefined : "button",
         "data-sidebar": "menu-button",
+        "data-action-layout": actionLayout,
         "data-size": size,
         "data-active": effectiveActive ? "true" : undefined,
         "data-status": status,
@@ -1272,9 +1281,12 @@ const SidebarMenuButton = forwardRef<HTMLButtonElement, SidebarMenuButtonProps>(
         className: cn(
           sidebarMenuButtonVariants({ variant }),
           scope?.activeLayoutId && "isolate",
-          gutterRest !== gutterHover &&
-            "group-focus-within/menu-item:pr-[var(--row-gutter-hover)] group-focus-within/menu-sub-item:pr-[var(--row-gutter-hover)] group-hover/menu-item:pr-[var(--row-gutter-hover)] group-hover/menu-sub-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-sub-item:pr-[var(--row-gutter-hover)]",
+          actionLayout === "row" &&
+            gutterRest !== gutterHover &&
+            "group-focus-within/menu-sub-item:pr-[var(--row-gutter-hover)] group-hover/menu-item:pr-[var(--row-gutter-hover)] group-hover/menu-sub-item:pr-[var(--row-gutter-hover)] group-has-[>[data-sidebar=menu-button]:focus-visible,>[data-sidebar=menu-actions]:focus-within,>[data-sidebar=menu-action]:focus-visible]/menu-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-sub-item:pr-[var(--row-gutter-hover)] [@media(hover:none)]:pr-[var(--row-gutter-hover)]",
           heightClass,
+          actionLayout === "heading" &&
+            "pr-2 [&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter)-8px)] [&_[data-sidebar=menu-heading]]:transition-[padding] [&_[data-sidebar=menu-heading]]:duration-80 group-hover/menu-item:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)] group-has-[>[data-sidebar=menu-button]:focus-visible,>[data-sidebar=menu-actions]:focus-within,>[data-sidebar=menu-action]:focus-visible]/menu-item:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-item:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)] motion-reduce:[&_[data-sidebar=menu-heading]]:transition-none [@media(hover:none)]:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)]",
           shape.item,
           className
         ),
@@ -1416,7 +1428,7 @@ const SidebarMenuActions = forwardRef<HTMLDivElement, SidebarMenuActionsProps>(
       icon: 16,
       text: "text-[13px]",
     };
-    const count = Children.count(children);
+    const count = Children.toArray(children).length;
 
     const setActions = item?.setActions;
     useIsoLayoutEffect(() => {
@@ -1428,6 +1440,7 @@ const SidebarMenuActions = forwardRef<HTMLDivElement, SidebarMenuActionsProps>(
       <div
         className={cn(
           "absolute right-1.5 z-10 flex items-center gap-1",
+          showOnHover && "[@media(hover:none)]:opacity-100",
           // The badge keeps the rightmost slot; the cluster sits left of it.
           item?.isSubRow
             ? "group-has-[>[data-sidebar=menu-badge]]/menu-sub-item:right-8.5"

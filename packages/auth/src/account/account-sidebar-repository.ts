@@ -71,7 +71,8 @@ export function createAccountSidebarRepository(
       const previous =
         snapshot.preferences.people === undefined ||
         snapshot.preferences.agents === undefined ||
-        snapshot.preferences.messages === undefined
+        snapshot.preferences.messages === undefined ||
+        snapshot.preferences.chats === undefined
           ? await this.read(userId, organizationId)
           : null;
       const values = {
@@ -80,6 +81,10 @@ export function createAccountSidebarRepository(
         revision: snapshot.revision + 1,
         preferences: JSON.stringify({
           ...snapshot.preferences,
+          ...(snapshot.preferences.chats === undefined &&
+          previous?.preferences.chats
+            ? { chats: previous.preferences.chats }
+            : {}),
           ...(snapshot.preferences.messages === undefined &&
           previous?.preferences.messages
             ? { messages: previous.preferences.messages }

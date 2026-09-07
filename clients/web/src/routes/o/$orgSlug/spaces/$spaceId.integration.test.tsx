@@ -465,7 +465,7 @@ describe("app space entry route", () => {
 		await waitFor(() => {
 			expect(navigateMock).toHaveBeenCalledWith({
 				replace: true,
-				to: "/o/acme/direct-messages/space-dm?focusInteractionId=interaction-123&focusSignalId=signal-123&focusThreadRootSignalId=thread-123&profileId=profile-123",
+				to: "/o/acme/chats/space-dm?focusInteractionId=interaction-123&focusSignalId=signal-123&focusThreadRootSignalId=thread-123&profileId=profile-123",
 			});
 		});
 		expect(spaceLandingMock).not.toHaveBeenCalled();

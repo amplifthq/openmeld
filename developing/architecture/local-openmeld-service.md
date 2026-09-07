@@ -75,6 +75,16 @@ Lifecycle-owner diagnostics are scoped to one lane. A production system service
 and a dev-local system service may run on the same computer without becoming
 multiple owners. `multiple_owners` means that more than one lifecycle mechanism
 is controlling the same lane, such as launchd plus a direct CLI process.
+For a foreground Service with an explicit `OPENMELD_HOME`, the existing
+installation-root check also scopes manager ownership: a registration belonging
+to another installation is not a second owner of this isolated Service.
+Inventory anomalies and effective runtime status must use that same scoped
+manager observation. This does not permit changing another installation's
+registration or suppress multiple owners within the current installation.
+A fresh running lease identifying a directly started process takes precedence
+over that same PID's managed executable path when classifying lifecycle owners.
+Using an installed binary does not itself mean the OS service manager started
+it. Other PIDs and an actually running manager remain independent evidence.
 
 OpenMeld Service does not own:
 
@@ -533,8 +543,13 @@ intersects with the Agent Profile's controller-native permission mode; neither
 layer may widen the other. Profile, Project, Organization, and Space surfaces
 must not add overrides or duplicate this policy.
 
-Owner policy reads and writes target the current Computer's exact device and
-lane plus its live owner Service session. They do not require a registered or
+Owner policy reads and writes target the explicitly selected Computer's exact
+device and lane plus its live owner Service session. PeopleComputers routes
+revalidate that target and never fall back to an account Binding or another
+environment. The older current-Computer endpoints remain compatibility
+adapters for supported clients. Web policy caches include account, device and
+lane, and changing the selected environment remounts the editor so a draft
+cannot cross targets. They do not require a registered or
 enabled local Agent execution target: execution-target inventory governs Agent
 operations, while this Computer-wide policy remains manageable whenever the
 exact current Service is connected and advertises the negotiated capability.
@@ -1071,6 +1086,14 @@ Project-control request itself fails, its authoritative error distinguishes
 Service offline, Service update required, and a retryable discovery failure;
 clients must not collapse every failure into Service unavailable.
 
+PeopleComputers Project discovery instead names the selected device and lane.
+Its eligibility comes from that exact session's shared `localProjectControl`
+control projection, not Binding preference, Agent reports, or Wakeability.
+Core reuses the Project authorization and canonical-reference preparation path;
+only target resolution changes. An unknown inventory or failed query remains a
+retryable checking failure, not evidence that the selected Service disconnected.
+Legacy current-target Project operations remain available to existing clients.
+
 An operation response may contain an absolute local path only for immediate
 forwarding through Core and Gateway to the authenticated owner who initiated
 that request. Immediate forwarding is not storage. Local paths must never be
@@ -1119,11 +1142,17 @@ facts without asking the person to reconnect or rebuild the Profile.
 
 ## Local Folder Picker
 
-Local Folder Picker is a current-Computer, owner-self interaction capability.
+Local Folder Picker is an owner-self Computer interaction capability.
 It lets an authenticated Web action ask the exact live OpenMeld Service to open
 the operating system's folder chooser on that computer. It is a sibling of
 `computerFileAccess`, `localProjectControl`, and `localAgentControl`; none of
 those product contracts owns it.
+
+PeopleComputers folder selection names the exact device and environment and
+revalidates the current owner Service session; it never falls back to the
+account's routing preference. The existing current-Computer endpoint remains
+for supported clients. A browser draft discards late picker results after
+either the selected device or environment changes, or the editor unmounts.
 
 The picker returns only folders the person selected. It does not inspect folder
 contents, discover Projects, validate repositories, update Computer file access,
@@ -1568,6 +1597,16 @@ collapse to `connected` when any one current session is usable. These states
 must never be promoted into Agent Profile readiness or Wakeability.
 
 ## Service Freshness And Compatibility
+
+Computer-level local-agent availability is an existential capability summary,
+not an all-controllers health check. With a current, compatible Service session,
+one enabled, ready local controller is sufficient for the computer to offer local
+execution. An unrelated controller's failed check or missing sign-in remains
+visible on that controller but must not block a ready controller. A partial
+catalog remains partial; do not erase its individual failures to make the summary
+available. This summary does not authorize a Wake: Core's Agent Profile
+Wakeability must still validate the selected controller, Binding, permissions,
+and task requirements. It must not overwrite an individual execution's outcome.
 
 Service freshness and execution compatibility are separate diagnostic concepts.
 Freshness says whether a newer Service bundle exists. Compatibility says whether
@@ -2162,6 +2201,13 @@ repair and update fail closed and explain the deliberate force command together
 with its no-active-work precondition. They must not infer that a missing control
 endpoint means no local Agent work is running or force-stop the process
 automatically.
+
+An exited process has no live command path to inspect. When its lease is stale
+because the process is gone and the owned-process scan finds no matching
+process, that absence is not a runtime bundle mismatch and must not request
+system-registration repair. Preserve the stale-lease diagnostic and the normal
+restart path. A live or observed process still requires the existing bundle and
+command-path checks; independent bundle corruption remains blocking.
 
 One narrow crash-loop recovery is deterministic rather than destructive: when
 the local control endpoint is missing, runtime state is not running, and process

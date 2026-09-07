@@ -221,6 +221,41 @@ function RegistrationProgress(input: {
 		attempt.status === "credentials_received" ||
 		attempt.status === "configuring"
 	) {
+		if (
+			attempt.reasonCode?.endsWith(".application_config_permission_required")
+		) {
+			return (
+				<div className="space-y-3 border border-border/70 bg-card/30 p-4">
+					<p className="font-medium text-sm">
+						Allow OpenMeld to configure the app
+					</p>
+					<p className="text-muted-foreground text-sm">
+						Open the app in {input.providerLabel} Developer Console and grant
+						the application:application:patch permission. This lets OpenMeld
+						configure the app’s message delivery. OpenMeld will check again
+						automatically after you grant access.
+					</p>
+					<a
+						className={buttonVariants({ size: "sm", variant: "outline" })}
+						href={
+							attempt.provider === "lark"
+								? "https://open.larksuite.com/app"
+								: "https://open.feishu.cn/app"
+						}
+						rel="noreferrer"
+						target="_blank"
+					>
+						<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
+						Open {input.providerLabel} Developer Console
+					</a>
+					{input.errorMessage ? (
+						<p className="text-destructive text-sm" role="alert">
+							{input.errorMessage}
+						</p>
+					) : null}
+				</div>
+			);
+		}
 		return (
 			<WaitingStatus
 				errorMessage={input.errorMessage}

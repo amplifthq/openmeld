@@ -408,7 +408,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 							},
 							queued: [
 								{
-									href: "/o/acme/direct-messages/dm-customer",
+									href: "/o/acme/chats/dm-customer",
 									source: "direct_message",
 									title: "Customer follow-up",
 								},
@@ -428,7 +428,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 									title: "Release review",
 								},
 								{
-									href: "/o/acme/direct-messages/dm-design",
+									href: "/o/acme/chats/dm-design",
 									source: "direct_message",
 									title: "Design feedback",
 								},
@@ -487,7 +487,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			name: "Open Direct Message: Customer follow-up",
 		});
 		expect(directMessageLink.getAttribute("href")).toBe(
-			"/o/acme/direct-messages/dm-customer"
+			"/o/acme/chats/dm-customer"
 		);
 		const currentActivityHeading = screen.getByRole("heading", {
 			name: "Current activity",
@@ -1275,7 +1275,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		fireEvent.click(
 			within(confirmation).getByRole("button", { name: "Cancel" })
 		);
-		expect(screen.queryByRole("alertdialog")).toBeNull();
+		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 
 		fireEvent.click(
 			within(interruptedWork).getByRole("button", { name: "Skip" })
@@ -1628,7 +1628,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
-		expect(screen.queryByRole("textbox", { name: "Name" })).toBeNull();
+		await waitFor(() =>
+			expect(screen.queryByRole("textbox", { name: "Name" })).toBeNull()
+		);
 		expect(screen.getByText("How this Agent works")).toBeTruthy();
 		expect(renameOpenMeldProfileMock).not.toHaveBeenCalled();
 	});
@@ -2051,7 +2053,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				targetProfileId: AGENT_PROFILE_ID,
 			});
 			expect(navigateMock).toHaveBeenCalledWith({
-				to: "/o/acme/direct-messages/space-research-agent-dm?profileId=profile-felix",
+				to: "/o/acme/chats/space-research-agent-dm?profileId=profile-felix",
 			});
 		});
 	});

@@ -83,7 +83,7 @@ import { canManageOrganizationArea } from "#/lib/organizations/organization-perm
 import {
 	buildOrganizationDirectMessagePath,
 	buildOrganizationNewOrganizationPath,
-	buildOrganizationPeoplePath,
+	buildOrganizationPersonPath,
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
@@ -548,8 +548,10 @@ function useDirectoryMembersOverviewModel(
 					return;
 				}
 				navigate({
-					search: { profileId },
-					to: buildOrganizationPeoplePath(input.currentOrganization.slug),
+					to: buildOrganizationPersonPath({
+						orgSlug: input.currentOrganization.slug,
+						personId: profileId,
+					}),
 				}).catch((error: unknown) => {
 					console.error("Failed to open the selected Human Profile.", error);
 				});
@@ -858,17 +860,17 @@ function resolveDirectoryDocumentsStatus(input: {
 
 function resolveCurrentUserComputersStatus(input: {
 	computersStatus: DirectoryProjectionStatus;
-	hasFreshReadiness: boolean;
+	hasReadinessSnapshot: boolean;
 	inventoryStatus: DirectoryProjectionStatus;
 	readinessNeedsReconciliation: boolean;
 }): DirectoryProjectionStatus {
 	if (input.inventoryStatus !== "ready") {
 		return input.inventoryStatus;
 	}
-	if (input.readinessNeedsReconciliation) {
+	if (input.readinessNeedsReconciliation && !input.hasReadinessSnapshot) {
 		return "loading";
 	}
-	return input.hasFreshReadiness ? "ready" : input.computersStatus;
+	return input.hasReadinessSnapshot ? "ready" : input.computersStatus;
 }
 
 function resolveCurrentComputerServiceProjection(input: {
@@ -885,9 +887,7 @@ function resolveCurrentComputerServiceProjection(input: {
 		: false;
 	const deviceId = resolveCurrentLocalRuntimeSubjectDeviceId(readiness);
 	const serviceState =
-		readiness &&
-		deviceId &&
-		(!input.readinessQuery.isFetching || serviceDisconnected)
+		readiness && deviceId
 			? {
 					deviceId,
 					state: serviceDisconnected
@@ -899,7 +899,7 @@ function resolveCurrentComputerServiceProjection(input: {
 		serviceState,
 		status: resolveCurrentUserComputersStatus({
 			computersStatus: input.computersStatus,
-			hasFreshReadiness: serviceState !== null,
+			hasReadinessSnapshot: serviceState !== null,
 			inventoryStatus: input.inventoryStatus,
 			readinessNeedsReconciliation:
 				input.readinessQuery.isFetching && !serviceDisconnected,
