@@ -1827,11 +1827,12 @@ socket reconnects do not count as visits. Directory reads refresh on foreground
 return and every five visible minutes; Space member elapsed-time labels are
 formatted from `lastSeenAt` against the current clock, never a cached label.
 
-The sidebar pins the signed-in member above all groups, without duplicating that
-person in Starred or a named group. Search and Computer filters still apply to
-this row. Starred and user-defined groups follow, then **Online** and **Offline**
-in that fixed order. Hovering or focusing the default labels explains **Computer
-online** and **Computer offline**. Online requires the existing connected Computer
+The sidebar places the designated **Center Agent** in its own first group,
+linking its actual profile name to Center Agent Home. Starred and user-defined
+groups follow, then **Computer online** and **Computer offline**. The signed-in
+member defaults to Starred only when no personal placement exists. Explicit
+unstar and custom placement persist; deleting a group returns its members to
+ordinary placement. Computer online requires the existing connected Computer
 projection, not registration or recent Human activity. Other resolved states go
 under Offline; **No computer** and unknown/attention explanations remain visible
 on the row. Pending checks retain the loading state. Sorting and drag placement

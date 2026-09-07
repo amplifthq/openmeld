@@ -14,7 +14,10 @@ import { CheckIcon, FunnelSimpleIcon } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { AppContextualSidebarNav } from "../app/app-contextual-layout";
+import {
+	type AppContextualNavGroup,
+	AppContextualSidebarNav,
+} from "../app/app-contextual-layout";
 import { useAppNavigationPresentation } from "../app/app-navigation-presentation";
 import { SidebarDestinationAction } from "../app/sidebar-destination-actions";
 import {
@@ -30,6 +33,7 @@ import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import type { OrganizationComputerGroup } from "../computers/organization-computers";
+import { CenterAgentSidebarItem } from "./center-agent-sidebar-item";
 import type { DirectoryHumanProfileRow } from "./directory-human-profile-model";
 import { HumanProfileSidebarItem } from "./human-profile-sidebar-item";
 import {
@@ -37,6 +41,8 @@ import {
 	moveSidebarPerson,
 	type PeopleFilter,
 	peopleConnectionFilter,
+	removeSidebarPeopleGroup,
+	resolvePeopleSidebarDefaults,
 	sortSidebarPeople,
 } from "./people-sidebar-order";
 
@@ -53,6 +59,33 @@ const SORTS = [
 	["manual", "Manual order"],
 ] as const;
 
+function includeCenterAgent(
+	groups: AppContextualNavGroup[],
+	filters: {
+		included: boolean;
+		filter: PeopleFilter;
+		recentlyActive: boolean;
+		search: string;
+	}
+) {
+	if (
+		!filters.included ||
+		filters.filter !== "all" ||
+		filters.recentlyActive ||
+		filters.search.trim()
+	) {
+		return groups;
+	}
+	const result = [...groups];
+	result.unshift({
+		id: "center-agent",
+		label: "Center Agent",
+		ariaLabel: "Center Agent",
+		content: <CenterAgentSidebarItem />,
+	});
+	return result;
+}
+
 export function PeopleSidebar(input: {
 	members: readonly DirectoryHumanProfileRow[];
 	computerGroups: readonly OrganizationComputerGroup[];
@@ -68,7 +101,10 @@ export function PeopleSidebar(input: {
 	const viewerId =
 		input.members.find((m) => m.isCurrentUser)?.id ?? currentUserId;
 	const sidebar = useSidebarPreferences(viewerId, currentOrganization.id);
-	const preferences = sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR;
+	const preferences = resolvePeopleSidebarDefaults(
+		sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR,
+		input.members.find((member) => member.isCurrentUser)?.id
+	);
 	const loading =
 		input.loading ||
 		sidebar.isPending ||
@@ -79,8 +115,9 @@ export function PeopleSidebar(input: {
 	const groupFilter = useSidebarGroupFilter([
 		{ id: "starred", label: "Starred" },
 		...preferences.groups.map((g) => ({ id: g.id, label: g.name })),
-		{ id: "online", label: "Online" },
-		{ id: "offline", label: "Offline" },
+		{ id: "center-agent", label: "Center Agent" },
+		{ id: "online", label: "Computer online" },
+		{ id: "offline", label: "Computer offline" },
 	]);
 	const { presentation } = useAppNavigationPresentation();
 	const computers = useMemo(
@@ -109,23 +146,19 @@ export function PeopleSidebar(input: {
 		);
 	}, [input.members, input.activityNowMs, search, filter, recentlyActive]);
 	const contentReady = !(loading || input.error);
-	const currentMember = contentReady
-		? filtered.find((member) => member.isCurrentUser)
-		: undefined;
-	const teammates = filtered.filter((member) => !member.isCurrentUser);
 	const assigned = new Set([
 		...preferences.starred.itemIds,
 		...preferences.groups.flatMap((g) => g.itemIds),
 	]);
 	const starred = new Set(preferences.starred.itemIds);
-	const remaining = teammates.filter((m) => !assigned.has(m.id));
+	const remaining = filtered.filter((m) => !assigned.has(m.id));
 	const sections = [
-		...(teammates.some((member) => starred.has(member.id))
+		...(filtered.some((member) => starred.has(member.id))
 			? [
 					{
 						id: "starred",
 						label: "Starred",
-						members: teammates.filter((m) => starred.has(m.id)),
+						members: filtered.filter((m) => starred.has(m.id)),
 						settings: preferences.starred,
 					},
 				]
@@ -133,20 +166,20 @@ export function PeopleSidebar(input: {
 		...preferences.groups.map((g) => ({
 			id: g.id,
 			label: g.name,
-			members: teammates.filter((m) => g.itemIds.includes(m.id)),
+			members: filtered.filter((m) => g.itemIds.includes(m.id)),
 			settings: g,
 		})),
 		...[
 			{
 				id: "online",
-				label: "Online",
+				label: "Computer online",
 				members: remaining.filter(
 					(m) => peopleConnectionFilter(m) === "connected"
 				),
 			},
 			{
 				id: "offline",
-				label: "Offline",
+				label: "Computer offline",
 				members: remaining.filter(
 					(m) => peopleConnectionFilter(m) !== "connected"
 				),
@@ -158,13 +191,9 @@ export function PeopleSidebar(input: {
 	const visible = new Map<string, readonly string[]>();
 	const toggleStar = (id: string) => {
 		if (starred.has(id)) {
-			save({
-				...preferences,
-				starred: {
-					...preferences.starred,
-					itemIds: preferences.starred.itemIds.filter((i) => i !== id),
-				},
-			});
+			save(
+				moveSidebarPerson(preferences, "people", id, preferences.people.itemIds)
+			);
 		} else {
 			save(
 				moveSidebarPerson(
@@ -236,13 +265,7 @@ export function PeopleSidebar(input: {
 						label={section.label}
 						onDelete={
 							!defaultSection && section.id !== "starred"
-								? () =>
-										save({
-											...preferences,
-											groups: preferences.groups.filter(
-												(g) => g.id !== section.id
-											),
-										})
+								? () => save(removeSidebarPeopleGroup(preferences, section.id))
 								: undefined
 						}
 						onNewGroup={
@@ -319,6 +342,12 @@ export function PeopleSidebar(input: {
 				),
 			};
 		});
+	const displayGroups = includeCenterAgent(groups, {
+		included: groupFilter.includes("center-agent"),
+		filter,
+		recentlyActive,
+		search,
+	});
 	return (
 		<SidebarDrag
 			canDrop={(itemId, section) => {
@@ -362,7 +391,7 @@ export function PeopleSidebar(input: {
 			<AppContextualSidebarNav
 				activeItemId={input.selectedProfileId}
 				ariaLabel="People"
-				groups={contentReady ? groups : []}
+				groups={contentReady ? displayGroups : []}
 				leadingContent={
 					<>
 						<div className="flex items-center gap-1 px-1">
@@ -447,22 +476,11 @@ export function PeopleSidebar(input: {
 								Retry sidebar settings
 							</Button>
 						)}
-						<CurrentPerson
-							activityNowMs={input.activityNowMs}
-							computers={computers}
-							disabled={sidebar.disabled}
-							member={currentMember}
-							onSelect={input.onSelect}
-							onToggleStar={toggleStar}
-							selectedProfileId={input.selectedProfileId}
-							starred={starred}
-						/>
 						{loading && (
 							<SidebarListSkeleton label="Loading people" showPreview />
 						)}
 						{!(
 							!contentReady ||
-							currentMember ||
 							sections.some(
 								(section) =>
 									groupFilter.includes(section.id) && section.members.length > 0
@@ -489,37 +507,6 @@ export function PeopleSidebar(input: {
 				title="People"
 			/>
 		</SidebarDrag>
-	);
-}
-
-function CurrentPerson(input: {
-	member: DirectoryHumanProfileRow | undefined;
-	computers: ReadonlyMap<string, OrganizationComputerGroup>;
-	activityNowMs: number;
-	selectedProfileId: string | null;
-	onSelect: (id: string) => void;
-	onToggleStar: (id: string) => void;
-	starred: ReadonlySet<string>;
-	disabled: boolean;
-}) {
-	const member = input.member;
-	if (!member) {
-		return null;
-	}
-	return (
-		<FluidNavMenu activeValue={input.selectedProfileId} aria-label="You">
-			<HumanProfileSidebarItem
-				actionsDisabled={input.disabled}
-				activityNowMs={input.activityNowMs}
-				computerGroup={input.computers.get(member.userId) ?? null}
-				index={0}
-				isActive={input.selectedProfileId === member.id}
-				member={member}
-				onSelect={input.onSelect}
-				onToggleStar={() => input.onToggleStar(member.id)}
-				starred={input.starred.has(member.id)}
-			/>
-		</FluidNavMenu>
 	);
 }
 

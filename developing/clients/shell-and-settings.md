@@ -309,9 +309,10 @@ The Web shell is a stable two-layer composition built from the shared
   People reuses the Web-owned section actions, drag mechanics, manual ordering
   and revision-checked preference hook. Starred and named People groups are
   personal to the account and Organization. Moving a person changes only this
-  sidebar arrangement; deleting a group returns its members to Online or Offline.
-  The signed-in member stays above all groups. Online and Offline describe Computer
-  connection, with explicit label tooltips and visible exceptional row states.
+  sidebar arrangement; deleting a group returns its members to Computer online or
+  Computer offline. Center Agent occupies the first group, before Starred and
+  custom groups. The signed-in member defaults to Starred; explicit unstar or
+  custom placement is preserved. Connection labels describe computers, not people.
   These sections are projections, not editable membership. Their ordering
   preference is shared across both sections; named groups and Starred each
   have their own sort. Spaces use a fixed 20px member-avatar slot: one avatar,

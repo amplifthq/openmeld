@@ -13,6 +13,47 @@ export type PeopleFilter =
 	| "offline"
 	| "unconnected"
 	| "unknown";
+
+export function resolvePeopleSidebarDefaults(
+	preferences: PeopleSidebarPreferences,
+	selfId: string | undefined
+): PeopleSidebarPreferences {
+	if (
+		!selfId ||
+		[preferences.starred, preferences.people, ...preferences.groups].some(
+			(section) => section.itemIds.includes(selfId)
+		)
+	) {
+		return preferences;
+	}
+	return {
+		...preferences,
+		starred: {
+			...preferences.starred,
+			itemIds: [selfId, ...preferences.starred.itemIds],
+		},
+	};
+}
+
+export function removeSidebarPeopleGroup(
+	preferences: PeopleSidebarPreferences,
+	groupId: string
+): PeopleSidebarPreferences {
+	const removed = preferences.groups.find((group) => group.id === groupId);
+	return {
+		...preferences,
+		people: {
+			...preferences.people,
+			itemIds: [
+				...new Set([
+					...preferences.people.itemIds,
+					...(removed?.itemIds ?? []),
+				]),
+			],
+		},
+		groups: preferences.groups.filter((group) => group.id !== groupId),
+	};
+}
 export function peopleConnectionFilter(
 	member: Pick<DirectoryHumanProfileRow, "computer">
 ): Exclude<PeopleFilter, "all"> {

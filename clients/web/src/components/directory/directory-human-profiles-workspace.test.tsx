@@ -203,8 +203,12 @@ vi.mock("#/components/computers/computers-picker", () => ({
 	),
 }));
 
+vi.mock("./center-agent-sidebar-item", () => ({
+	CenterAgentSidebarItem: () => <span>Workspace assistant</span>,
+}));
+
 describe("DirectoryHumanProfilesWorkspace", () => {
-	it("pins you above the computer groups and explains the compact labels", () => {
+	it("places Center Agent first and defaults you to Starred", () => {
 		const self = buildMember({ current: true });
 		const offline = buildMember({ current: false });
 		const online = {
@@ -222,31 +226,36 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			);
 		expect(buttons[0]?.getAttribute("aria-label")).toBe("Open Felix's profile");
 		expect(
-			within(screen.getByRole("region", { name: "Online" })).getByRole(
+			within(screen.getByRole("region", { name: "Computer online" })).getByRole(
 				"button",
 				{ name: "Open Online teammate's profile" }
 			)
 		).toBeTruthy();
 		expect(
-			within(screen.getByRole("region", { name: "Online" })).getByText(
+			within(screen.getByRole("region", { name: "Computer online" })).getByText(
 				"Computer online"
 			)
 		).toBeTruthy();
 		expect(
-			within(screen.getByRole("region", { name: "Offline" })).getByText(
-				"Computer offline"
-			)
+			within(
+				screen.getByRole("region", { name: "Computer offline" })
+			).getByText("Computer offline")
 		).toBeTruthy();
 		expect(
-			within(screen.getByRole("region", { name: "Offline" })).getByText(
-				"No computer"
-			)
+			within(
+				screen.getByRole("region", { name: "Computer offline" })
+			).getByText("No computer")
 		).toBeTruthy();
 		expect(
 			within(sidebar)
 				.getAllByRole("region")
 				.map((group) => group.getAttribute("aria-label"))
-		).toEqual(["Online", "Offline"]);
+		).toEqual([
+			"Center Agent",
+			"Starred",
+			"Computer online",
+			"Computer offline",
+		]);
 	});
 
 	it("keeps unknown and attention states in Offline with their explanation", () => {
@@ -277,7 +286,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				},
 			],
 		});
-		const offline = screen.getByRole("region", { name: "Offline" });
+		const offline = screen.getByRole("region", { name: "Computer offline" });
 		expect(
 			within(offline).getByRole("button", { name: "Open Attention's profile" })
 				.textContent
@@ -289,7 +298,9 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(
 			screen.queryByRole("region", { name: "Status needs checking" })
 		).toBeNull();
-		expect(screen.queryByRole("region", { name: "Online" })).toBeNull();
+		expect(
+			screen.queryByRole("region", { name: "Computer online" })
+		).toBeNull();
 	});
 
 	it("keeps pending checks out of Offline until loading finishes", () => {
@@ -305,7 +316,9 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		};
 		renderWorkspace({ members: [self, teammate] });
 		expect(screen.getByText("Loading people")).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Offline" })).toBeNull();
+		expect(
+			screen.queryByRole("region", { name: "Computer offline" })
+		).toBeNull();
 		cleanup();
 		renderWorkspace({
 			members: [
@@ -324,14 +337,13 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			screen.getByRole("button", { name: "Open Felix's profile" })
 		).toBeTruthy();
 		expect(
-			within(screen.getByRole("region", { name: "Offline" })).getByRole(
-				"button",
-				{ name: "Open Grace Hopper's profile" }
-			)
+			within(
+				screen.getByRole("region", { name: "Computer offline" })
+			).getByRole("button", { name: "Open Grace Hopper's profile" })
 		).toBeTruthy();
 	});
 
-	it("keeps an offline self above online teammates", () => {
+	it("defaults an offline self to Starred", () => {
 		const self = {
 			...buildMember({ current: true }),
 			computer: {
@@ -365,7 +377,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			within(sidebar)
 				.getAllByRole("region")
 				.map((group) => group.getAttribute("aria-label"))
-		).toEqual(["Online"]);
+		).toEqual(["Center Agent", "Starred", "Computer online"]);
 	});
 
 	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {
