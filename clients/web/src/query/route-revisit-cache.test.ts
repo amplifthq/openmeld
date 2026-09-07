@@ -60,7 +60,7 @@ describe("frequently revisited route caches", () => {
 				spaceId: "space-1",
 				openMeldProfileId: "human-1",
 			}).gcTime
-		).toBe(ROUTE_REVISIT_GC_TIME_MS);
+		).toBe(PERSISTED_DISPLAY_QUERY_GC_TIME_MS);
 		expect(
 			spaceMembersQueryOptions({
 				enabled: true,

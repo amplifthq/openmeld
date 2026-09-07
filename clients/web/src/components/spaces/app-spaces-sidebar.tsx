@@ -1,12 +1,14 @@
-"use client";
+("use client");
 
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { FunnelSimpleIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -18,6 +20,8 @@ import {
 	AppContextualSidebarNav,
 } from "#/components/app/app-contextual-layout";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
+import { ControlledSidebarGroupStateProvider } from "#/components/app/app-sidebar-group";
+import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationNewSpacePath,
@@ -52,6 +56,7 @@ import {
 } from "./space-member-avatars";
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
+import { useSpaceSidebarDisclosure } from "./use-space-sidebar-disclosure";
 
 const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
 	pinnedItems: [],
@@ -98,6 +103,7 @@ export function AppSpacesSidebar(input: {
 }) {
 	const navigate = useNavigate();
 	const [search, setSearch] = useState("");
+	const [searchOpen, setSearchOpen] = useState(false);
 	const { currentOrganization } = useAppOrganization();
 	const currentOrganizationId = currentOrganization.id;
 	const profileDirectory = useQuery(
@@ -195,6 +201,26 @@ export function AppSpacesSidebar(input: {
 		</SidebarSpaceDropSection>
 	);
 	const preferences = sidebar.preferences;
+	let activeGroupId: string | null = null;
+	if (input.currentSpaceId) {
+		activeGroupId =
+			preferences?.groups.find((group) =>
+				group.spaceIds.includes(input.currentSpaceId)
+			)?.id ?? "spaces";
+		if (
+			sidebarSections.pinnedItems.some(
+				(item) => item.spaceId === input.currentSpaceId
+			)
+		) {
+			activeGroupId = "pinned";
+		}
+	}
+	const disclosure = useSpaceSidebarDisclosure(
+		input.currentProfileId,
+		currentOrganizationId,
+		activeGroupId,
+		input.currentSpaceId
+	);
 	const conversationItems = [
 		...sidebarSections.pinnedItems,
 		...sidebarSections.spaceItems,
@@ -406,7 +432,7 @@ export function AppSpacesSidebar(input: {
 	}, [sections.recentlyDeletedItems]);
 
 	if (sidebar.isPending) {
-		return <Skeleton className="mx-2 h-32" />;
+		return <SidebarListSkeleton label="Loading Spaces" />;
 	}
 	if (!preferences && sidebar.isError) {
 		return (
@@ -454,70 +480,107 @@ export function AppSpacesSidebar(input: {
 				});
 			}}
 		>
-			<AppContextualSidebarNav
-				activeItemId={null}
-				ariaLabel="Spaces"
-				groups={sidebarGroups.filter(
-					(group) =>
-						groupFilter.includes(group.id) &&
-						(!(search.trim() || groupFilter.selected.length > 0) ||
-							spacesQuery.isPending ||
-							spacesQuery.isError ||
-							(visibleBySection.get(group.id)?.length ?? 0) > 0)
-				)}
-				leadingContent={
-					<>
-						<div className="flex items-center gap-1 px-1">
-							<SidebarSearchInput
-								destination="spaces"
-								label="Search Spaces"
-								onValueChange={setSearch}
-								value={search}
-							/>
-							<SidebarDestinationAction destination="spaces">
-								<DropdownMenu>
-									<DropdownMenuTrigger
-										render={
-											<Button
-												aria-label="Filter Spaces"
-												className="size-6 [&_svg]:size-3.5"
-												size="icon-sm"
-												variant="ghost"
-											/>
-										}
-									>
-										<FunnelSimpleIcon />
-									</DropdownMenuTrigger>
-									<FluidDropdownMenuContent
-										align="end"
-										className="w-60 max-w-[calc(100vw-2rem)]"
-									>
-										{groupFilter.menu}
-									</FluidDropdownMenuContent>
-								</DropdownMenu>
-							</SidebarDestinationAction>
-						</div>
-						{groupFilter.badges}
-						{(search.trim() || groupFilter.selected.length > 0) &&
-							!spacesQuery.isPending &&
-							!spacesQuery.isError &&
-							![...visibleBySection].some(
-								([id, items]) => groupFilter.includes(id) && items.length > 0
-							) && (
-								<p className="px-2 py-2 text-muted-foreground text-xs">
-									No Spaces match your search or filters.
-								</p>
-							)}
-						{sidebar.isError ? (
-							<Button onClick={() => sidebar.retry()} size="sm" variant="ghost">
-								Retry sidebar settings
-							</Button>
-						) : null}
-					</>
-				}
-				placement="main"
-				title="Spaces"
-			/>
+			<ControlledSidebarGroupStateProvider value={disclosure}>
+				<AppContextualSidebarNav
+					activeItemId={null}
+					ariaLabel="Spaces"
+					groups={sidebarGroups
+						.map((group) => {
+							const unreadCount = (visibleBySection.get(group.id) ?? []).reduce(
+								(sum, item) =>
+									sum + (unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0),
+								0
+							);
+							return {
+								...group,
+								labelAccessory: (
+									<>
+										{unreadCount > 0 && !disclosure.isOpen(group.id) ? (
+											<span className="mr-1 text-muted-foreground text-xs">
+												{unreadCount} unread
+											</span>
+										) : null}
+										{group.labelAccessory}
+									</>
+								),
+							};
+						})
+						.filter(
+							(group) =>
+								groupFilter.includes(group.id) &&
+								(!(search.trim() || groupFilter.selected.length > 0) ||
+									spacesQuery.isPending ||
+									spacesQuery.isError ||
+									(visibleBySection.get(group.id)?.length ?? 0) > 0)
+						)}
+					leadingContent={
+						<>
+							<div className="flex items-center gap-1 px-1">
+								<SidebarSearchInput
+									destination="spaces"
+									label="Search Spaces"
+									onOpenChange={setSearchOpen}
+									onValueChange={setSearch}
+									open={searchOpen}
+									value={search}
+								/>
+								<SidebarDestinationAction destination="spaces">
+									<DropdownMenu>
+										<DropdownMenuTrigger
+											render={
+												<Button
+													aria-label="Filter Spaces"
+													className="size-6 [&_svg]:size-3.5"
+													size="icon-sm"
+													variant="ghost"
+												/>
+											}
+										>
+											<FunnelSimpleIcon />
+										</DropdownMenuTrigger>
+										<FluidDropdownMenuContent
+											align="end"
+											className="w-60 max-w-[calc(100vw-2rem)]"
+										>
+											<FluidDropdownMenuItem
+												index={-1}
+												onClick={() =>
+													requestAnimationFrame(() => setSearchOpen(true))
+												}
+											>
+												Search manually
+											</FluidDropdownMenuItem>
+											{groupFilter.menu}
+										</FluidDropdownMenuContent>
+									</DropdownMenu>
+								</SidebarDestinationAction>
+							</div>
+							{groupFilter.badges}
+							{(search.trim() || groupFilter.selected.length > 0) &&
+								!spacesQuery.isPending &&
+								!spacesQuery.isError &&
+								![...visibleBySection].some(
+									([id, items]) => groupFilter.includes(id) && items.length > 0
+								) && (
+									<p className="px-2 py-2 text-muted-foreground text-xs">
+										No Spaces match your search or filters.
+									</p>
+								)}
+							{sidebar.isError ? (
+								<Button
+									onClick={() => sidebar.retry()}
+									size="sm"
+									variant="ghost"
+								>
+									Retry sidebar settings
+								</Button>
+							) : null}
+						</>
+					}
+					placement="main"
+					title="Spaces"
+				/>
+			</ControlledSidebarGroupStateProvider>
 		</SidebarSpaceDrag>
 	);
 }
@@ -544,19 +607,7 @@ function SidebarSpacesList(input: {
 }) {
 	const { presentation } = useAppNavigationPresentation();
 	if (input.isPending) {
-		return (
-			<div className="flex flex-col gap-1">
-				{Array.from({ length: 6 }).map((_, index) => (
-					<div
-						className="flex h-10 items-center gap-2 px-2"
-						key={`space-sidebar-skeleton-${String(index)}`}
-					>
-						<Skeleton className="size-4" />
-						<Skeleton className="h-4 flex-1" />
-					</div>
-				))}
-			</div>
-		);
+		return <SidebarListSkeleton label="Loading Spaces" />;
 	}
 
 	if (input.isError) {

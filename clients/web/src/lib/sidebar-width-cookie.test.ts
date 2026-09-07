@@ -19,6 +19,17 @@ import {
 } from "./sidebar-width-cookie";
 
 describe("sidebar-width-cookie", () => {
+	it("restores independent page widths from the SSR-readable outer cookie", () => {
+		const state = {
+			...OUTER_SIDEBAR_DEFAULT_STATE,
+			pageWidths: { people: "320px", space: "260px" },
+		};
+		const restored = readAppSidebarStatesFromCookieHeader(
+			`openmeld_sidebar_outer=${encodeURIComponent(serializeSidebarStateCookieValue(state, "outer"))}`
+		);
+		expect(restored.outer.pageWidths).toEqual(state.pageWidths);
+		expect(restored.outer.pageWidths?.agents).toBeUndefined();
+	});
 	it("clamps a too-wide candidate down to the max", () => {
 		expect(clampSidebarWidth("40rem")).toBe(SIDEBAR_MAX_WIDTH);
 		expect(clampSidebarWidth("40rem", "outer")).toBe(OUTER_SIDEBAR_MAX_WIDTH);

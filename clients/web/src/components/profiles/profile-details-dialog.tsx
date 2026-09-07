@@ -488,6 +488,7 @@ function HumanProfileDetailsPopoverWithCollaboration(input: {
 	);
 	const agentProfiles = profileDirectoryQuery.data
 		? (buildDirectoryAgentProfilesByOwner({
+				members: profileDirectoryQuery.data.members,
 				agentProfiles: profileDirectoryQuery.data.agentProfiles,
 				orgSlug: input.orgSlug,
 				runtimeOverview: runtimeOverviewQuery.data,

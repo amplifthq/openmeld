@@ -431,6 +431,14 @@ unattended Wake and is the final authority.
 
 ## Current-Computer Discovery And Connection
 
+Computer settings use explicit PeopleComputers discovery for the selected
+device and environment. This read does not follow the account's current Binding
+or require an Agent report. Core verifies the requesting Human's Organization
+access and the exact owned Service session before forwarding canonical Project
+references. File-access folder suggestions do not create Project connections.
+The existing current-computer Project connection and mutation APIs retain their
+current-target contract; explicit discovery does not retarget those mutations.
+
 Saved connections and candidate discovery have different costs. Web first sends
 `discoverProjects` with `includeCandidates: false`. The Service reads the
 canonical local connection store and checks directory availability without

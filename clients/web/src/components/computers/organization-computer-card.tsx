@@ -43,7 +43,10 @@ export function OrganizationComputerPickerCard(input: {
 					lastSeenLabel={formatOrganizationComputerLastSeen(
 						input.computer.lastSeenAtMs
 					)}
-					localAgents={localAgents}
+					localAgents={localAgents.map((agent) => ({
+						...agent,
+						muted: input.computer.serviceState !== "connected",
+					}))}
 					localAgentsSummaryLabel={formatLocalAgentSummaryLabel(localAgents)}
 					name={input.computer.deviceDisplayName}
 					platformLabel={formatOrganizationComputerPlatform(input.computer)}

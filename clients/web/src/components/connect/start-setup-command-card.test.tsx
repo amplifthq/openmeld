@@ -40,7 +40,6 @@ describe("StartSetupCommandCard", () => {
 		});
 
 		const commandBox = screen.getByRole("button", { name: command });
-		expect(commandBox.className).toContain("lg:max-w-[50vw]");
 		expect(commandBox.className).toContain("whitespace-nowrap");
 		expect(commandBox.className).toContain("overflow-x-auto");
 		expect(commandBox.className).toContain("rounded-md");

@@ -106,10 +106,15 @@ it("syncs People preferences without old Space-only clients deleting them", asyn
       },
     ],
   };
+  const chats = {
+    ...messages,
+    archivedIds: ["chat-archived"],
+    titles: { "chat-a": "Launch checklist" },
+  };
   expect(
     await repository.save("alice", "one", {
       revision: 0,
-      preferences: { ...original.preferences, people, agents, messages },
+      preferences: { ...original.preferences, people, agents, messages, chats },
     })
   ).toBe(true);
   expect(
@@ -119,6 +124,15 @@ it("syncs People preferences without old Space-only clients deleting them", asyn
     })
   ).toBe(true);
   const anotherDevice = createAccountSidebarRepository(createD1Db(harness.db));
+  expect((await anotherDevice.read("alice", "one")).preferences.chats).toEqual(
+    chats
+  );
+  expect(
+    (await anotherDevice.read("bob", "one")).preferences.chats
+  ).toBeUndefined();
+  expect(
+    (await anotherDevice.read("alice", "two")).preferences.chats
+  ).toBeUndefined();
   expect(
     (await anotherDevice.read("alice", "one")).preferences.messages
   ).toEqual(messages);

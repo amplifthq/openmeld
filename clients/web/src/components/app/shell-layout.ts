@@ -113,7 +113,7 @@ export function resolveAppOuterRailDestinationFromMatches(
 		case "settings":
 			return section;
 		case "centerAgent":
-			return "home";
+			return "directMessages";
 		case "onboarding":
 		case "organizations":
 		case "inbox":

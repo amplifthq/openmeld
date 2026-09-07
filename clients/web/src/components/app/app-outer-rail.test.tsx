@@ -208,11 +208,10 @@ const THEME_TOGGLE_PATTERN = /Switch to .* mode/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
 const PRIMARY_RAIL_LABELS = [
 	"New Agent",
-	"Home",
+	"Center Agent",
 	"Spaces",
-	"Messages",
-	"People",
-	"Agents",
+	"Chats",
+	"Team",
 ] as const;
 
 const TOGGLE_TRIGGER_NAME_PATTERN = /Hide sidebar|Show sidebar/;
@@ -366,7 +365,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier: "expanded", width: "13.75rem" });
 
 		const homeLink = screen.getByRole("link", {
-			name: "Home",
+			name: "Center Agent",
 		});
 		expect(homeLink.className).toContain("h-7");
 		expect(homeLink.className).toContain("text-[13px]");
@@ -377,15 +376,15 @@ describe("AppOuterRail", () => {
 		expect(groups).toHaveLength(1);
 		expect(
 			screen
-				.getByRole("navigation", { name: "Team" })
+				.getByTestId("app-outer-rail")
 				.querySelector('[data-sidebar="menu-sub"]')
-		).toBeTruthy();
+		).toBeNull();
 	});
 
 	it("warms the Center Agent conversation from primary navigation intent", () => {
 		renderRail();
 
-		fireEvent.pointerEnter(screen.getByRole("link", { name: "Home" }));
+		fireEvent.pointerEnter(screen.getByRole("link", { name: "Center Agent" }));
 
 		expect(prefetchCenterAgentConversationMock).toHaveBeenCalledOnce();
 	});
@@ -394,7 +393,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier: "expanded", width: "9rem" });
 
 		const directMessagesLink = screen.getByRole("link", {
-			name: "Messages",
+			name: "Chats",
 		});
 		const centerTruncatedLabel = directMessagesLink.querySelector<HTMLElement>(
 			'[data-slot="center-truncated-text"]'
@@ -405,12 +404,12 @@ describe("AppOuterRail", () => {
 			centerTruncatedLabel?.querySelector(
 				'[data-slot="center-truncated-text-start"]'
 			)?.textContent
-		).toBe("Mess");
+		).toBe("Cha");
 		expect(
 			centerTruncatedLabel?.querySelector(
 				'[data-slot="center-truncated-text-end"]'
 			)?.textContent
-		).toBe("ages");
+		).toBe("ts");
 		expect(directMessagesLink.querySelector("span.truncate")).toBeNull();
 	});
 
@@ -446,11 +445,10 @@ describe("AppOuterRail", () => {
 
 		for (const label of [
 			"New Agent",
-			"Home",
+			"Center Agent",
 			"Spaces",
-			"Messages",
-			"People",
-			"Agents",
+			"Chats",
+			"Team",
 			"Settings",
 		]) {
 			const link = screen.getByRole("link", { name: label });
@@ -478,7 +476,7 @@ describe("AppOuterRail", () => {
 	it("opens the canonical People home", () => {
 		renderRail();
 
-		const peopleLink = screen.getByRole("link", { name: "People" });
+		const peopleLink = screen.getByRole("link", { name: "Team" });
 		expect(peopleLink.getAttribute("href")).toBe("/o/acme/people");
 	});
 
@@ -486,143 +484,19 @@ describe("AppOuterRail", () => {
 		renderRail();
 
 		const newAgentLink = screen.getByRole("link", { name: "New Agent" });
-		expect(newAgentLink.getAttribute("href")).toBe("/o/acme/agents/new");
+		expect(newAgentLink.getAttribute("href")).toBe("/o/acme/new-agent");
 	});
 
 	it("opens the canonical Direct Messages home", () => {
 		renderRail();
 
 		const directMessagesLink = screen.getByRole("link", {
-			name: "Messages",
+			name: "Chats",
 		});
-		expect(directMessagesLink.getAttribute("href")).toBe(
-			"/o/acme/direct-messages"
-		);
+		expect(directMessagesLink.getAttribute("href")).toBe("/o/acme/chats");
 	});
 
-	it("keeps primary destinations flat and nests People and Agents under Team", () => {
-		renderRail();
-
-		const railContent = screen
-			.getByTestId("app-outer-rail")
-			.querySelector('[data-slot="main-sidebar-navigation"]');
-		expect(railContent).toBeInstanceOf(HTMLElement);
-		if (!(railContent instanceof HTMLElement)) {
-			return;
-		}
-
-		const teamHeading = within(railContent).getByRole("navigation", {
-			name: "Team",
-		});
-		expect(teamHeading).toBeTruthy();
-		expect(within(teamHeading).getAllByRole("link")).toHaveLength(2);
-		expect(
-			within(railContent).getByRole("navigation", {
-				name: "Primary navigation",
-			})
-		).toBeTruthy();
-		expect(
-			within(railContent).getByRole("navigation", { name: "Team" })
-		).toBeTruthy();
-		expect(
-			within(railContent).queryByRole("navigation", { name: "Resources" })
-		).toBeNull();
-		expect(
-			within(railContent)
-				.getByRole("button", { name: "Team" })
-				.getAttribute("aria-expanded")
-		).toBe("true");
-		expect(
-			within(railContent).queryByRole("button", { name: "Work" })
-		).toBeNull();
-		expect(
-			within(railContent).queryByRole("button", { name: "Resources" })
-		).toBeNull();
-		expect(
-			within(railContent).getByRole("link", { name: "New Agent" })
-		).toBeTruthy();
-		expect(
-			within(railContent).getByRole("link", { name: "Home" })
-		).toBeTruthy();
-		expect(
-			within(railContent).queryByRole("link", { name: "Center Agent" })
-		).toBeNull();
-		expect(
-			within(railContent).getByRole("link", { name: "Spaces" })
-		).toBeTruthy();
-		expect(
-			within(railContent).getByRole("link", { name: "Messages" })
-		).toBeTruthy();
-		expect(
-			within(railContent).getByRole("link", { name: "People" })
-		).toBeTruthy();
-	});
-
-	it.each([
-		"people",
-		"agents",
-	])("marks the selected %s child in Team", (destination) => {
-		routerLocation = { pathname: `/o/acme/${destination}`, searchStr: "" };
-		appShellSection = destination === "people" ? "people" : "agents";
-		renderRail();
-		const team = screen.getByRole("navigation", { name: "Team" });
-		const trigger = within(team).getByRole("button", { name: "Team" });
-		expect(trigger.getAttribute("data-sidebar")).toBe("menu-button");
-		fireEvent.click(trigger);
-		expect(trigger.getAttribute("aria-expanded")).toBe("false");
-		const collapsedSelection = trigger.querySelector(
-			'[data-slot="collapsed-team-selection"]'
-		);
-		expect(collapsedSelection?.textContent).toBe(
-			destination === "people" ? "People" : "Agents"
-		);
-		expect(collapsedSelection?.querySelector("svg")).toBeTruthy();
-		fireEvent.click(trigger);
-		expect(trigger.getAttribute("aria-expanded")).toBe("true");
-		expect(
-			trigger.querySelector('[data-slot="collapsed-team-selection"]')
-		).toBeNull();
-		const selection = within(team).getByRole("link", {
-			name: destination === "people" ? "People" : "Agents",
-		});
-		expect(selection.getAttribute("aria-current")).toBe("page");
-	});
-
-	it("keeps main navigation outside the scrolling list region", () => {
-		renderRail();
-		const rail = screen.getByTestId("app-outer-rail");
-		const scrollingContent = rail.querySelector('[data-sidebar="content"]');
-		expect(scrollingContent).toBeTruthy();
-		for (const name of ["New Agent", "Home", "Spaces", "Messages"]) {
-			expect(
-				scrollingContent?.contains(screen.getByRole("link", { name }))
-			).toBe(false);
-		}
-		expect(
-			scrollingContent?.contains(
-				screen.getByRole("navigation", { name: "Team" })
-			)
-		).toBe(false);
-	});
-
-	it("restores the persisted Team choice after navigation remounts", () => {
-		const view = renderRail();
-		fireEvent.click(screen.getByRole("button", { name: "Team" }));
-		expect(
-			screen.getByRole("button", { name: "Team" }).getAttribute("aria-expanded")
-		).toBe("false");
-		view.unmount();
-		routerLocation = { pathname: "/o/acme/people", searchStr: "" };
-		appShellSection = "people";
-		renderRail();
-		expect(
-			screen
-				.getByRole("button", { name: "Team People" })
-				.getAttribute("aria-expanded")
-		).toBe("false");
-	});
-
-	it("restores Team from a persisted browser preference", () => {
+	it("keeps Team flat even with a saved collapsed Team preference", () => {
 		rememberClientSidebarState("outer", {
 			collapsedGroupIds: ["team"],
 			tier: "expanded",
@@ -634,8 +508,16 @@ describe("AppOuterRail", () => {
 			width: "13.75rem",
 		});
 		expect(
-			screen.getByRole("button", { name: "Team" }).getAttribute("aria-expanded")
-		).toBe("false");
+			screen.getByRole("link", { name: "Team" }).getAttribute("href")
+		).toBe("/o/acme/people");
+		expect(screen.queryByRole("link", { name: "People" })).toBeNull();
+		expect(screen.queryByRole("link", { name: "Agents" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Team" })).toBeNull();
+		expect(
+			screen
+				.getByTestId("app-outer-rail")
+				.querySelector('[data-sidebar="menu-sub"]')
+		).toBeNull();
 	});
 
 	it("ignores a stale collapsed Work preference in the full rail", () => {
@@ -651,10 +533,10 @@ describe("AppOuterRail", () => {
 		});
 
 		expect(screen.getByRole("link", { name: "New Agent" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Home" })).toBeTruthy();
-		expect(screen.queryByRole("link", { name: "Center Agent" })).toBeNull();
+		expect(screen.getByRole("link", { name: "Center Agent" })).toBeTruthy();
+		expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Messages" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Chats" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
 	});
 
@@ -716,7 +598,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier });
 
 		const link = await screen.findByRole("link", {
-			name: "Home, 2 unread replies",
+			name: "Center Agent, 2 unread replies",
 		});
 		const indicator = link.querySelector(
 			'[data-app-rail-status-indicator="center-agent-unread"]'
@@ -1701,7 +1583,7 @@ describe("AppOuterRail", () => {
 
 		const rendered = renderRail();
 
-		const homeLink = screen.getByRole("link", { name: "Home" });
+		const homeLink = screen.getByRole("link", { name: "Center Agent" });
 		const spacesLink = screen.getByRole("link", { name: "Spaces" });
 
 		expect(homeLink.getAttribute("aria-current")).toBe("page");
@@ -1721,10 +1603,10 @@ describe("AppOuterRail", () => {
 		expect(spacesLink.getAttribute("aria-current")).toBe("page");
 
 		routerLocation = {
-			pathname: "/o/acme/center-agent/skills",
+			pathname: "/o/acme",
 			searchStr: "",
 		};
-		appShellSection = "centerAgent";
+		appShellSection = "home";
 		rendered.rerender(buildRailElement());
 
 		expect(homeLink.getAttribute("aria-current")).toBe("page");

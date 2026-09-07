@@ -13,27 +13,19 @@ import {
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
-	SidebarMenuSub,
-	SidebarMenuSubButton,
-	SidebarMenuSubItem,
 } from "@openmeld/ui/fluid/sidebar-menu";
 import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
 import { resolveStatusToneCompactBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
-	CaretDownIcon,
-	CaretRightIcon,
 	ChatCircleTextIcon,
 	HashIcon,
 	HouseIcon,
-	MinusIcon,
 	PlusIcon,
-	RobotIcon,
-	UserIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { type ReactElement, type ReactNode, useId } from "react";
+import type { ReactElement, ReactNode } from "react";
 import {
 	APP_NAV_GROUP_CLASS_NAME,
 	APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
@@ -45,13 +37,11 @@ import { CenterTruncatedText } from "#/components/app/center-truncated-text";
 import type { AppOuterRailDestination } from "#/components/app/shell-layout";
 import {
 	buildOrganizationAgentCreationPath,
-	buildOrganizationAgentsPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationRootPath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
-import { useAppSidebarGroupState } from "./app-sidebar-group";
 import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
 
 type AppRailDestinationId = AppOuterRailDestination;
@@ -91,11 +81,11 @@ export function buildAppRailGroups(input: {
 				},
 				{
 					id: "home",
-					label: "Home",
+					label: "Center Agent",
 					onIntentPrefetch: input.prefetchCenterAgentConversation,
+					unreadCount: input.centerAgentUnreadCount,
 					to: buildOrganizationRootPath(input.orgSlug),
 					icon: <HouseIcon aria-hidden="true" className="size-4" />,
-					unreadCount: input.centerAgentUnreadCount,
 				},
 				{
 					id: "spaces",
@@ -112,27 +102,17 @@ export function buildAppRailGroups(input: {
 				},
 				{
 					id: "directMessages",
-					label: "Messages",
+					label: "Chats",
+					onIntentPrefetch: input.prefetchCenterAgentConversation,
+					unreadCount: input.centerAgentUnreadCount,
 					to: buildOrganizationDirectMessagesPath(input.orgSlug),
 					icon: <ChatCircleTextIcon aria-hidden="true" className="size-4" />,
 				},
-			],
-		},
-		{
-			id: "team",
-			label: "Team",
-			destinations: [
 				{
 					id: "people",
-					label: "People",
+					label: "Team",
 					to: buildOrganizationPeoplePath(input.orgSlug),
-					icon: <UserIcon aria-hidden="true" className="size-4" />,
-				},
-				{
-					id: "agents",
-					label: "Agents",
-					to: buildOrganizationAgentsPath(input.orgSlug),
-					icon: <RobotIcon aria-hidden="true" className="size-4" />,
+					icon: <UsersThreeIcon aria-hidden="true" className="size-4" />,
 				},
 			],
 		},
@@ -145,12 +125,6 @@ export function AppRailNavigationGroup(input: {
 	position: number;
 	tier: SidebarMode;
 }) {
-	const groupState = useAppSidebarGroupState();
-	const childrenOpen = groupState?.isOpen(input.group.id) ?? true;
-	const childrenId = useId();
-	const selectedDestination = input.group.destinations.find(
-		(destination) => destination.id === input.activeDestination
-	);
 	const { presentation } = useAppNavigationPresentation();
 	const navigation = (
 		<nav aria-label={input.group.label ?? "Primary navigation"}>
@@ -170,75 +144,6 @@ export function AppRailNavigationGroup(input: {
 		APP_NAV_GROUP_CLASS_NAME,
 		input.position > 0 && "mt-0"
 	);
-
-	if (input.tier === "expanded" && input.group.label) {
-		return (
-			<nav aria-label={input.group.label}>
-				<SidebarMenu activeLayoutId={`main-sidebar-selection-${presentation}`}>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							aria-controls={childrenId}
-							aria-expanded={childrenOpen}
-							aria-label={
-								!childrenOpen && selectedDestination
-									? `${input.group.label} ${selectedDestination.label}`
-									: input.group.label
-							}
-							className={cn(
-								"flex items-center gap-1.5 ps-[5px] text-sidebar-foreground/60",
-								APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
-								APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME
-							)}
-							onClick={() => groupState?.setOpen(input.group.id, !childrenOpen)}
-						>
-							<UsersThreeIcon aria-hidden="true" className="size-4 shrink-0" />
-							{input.group.label}
-							{!childrenOpen && selectedDestination && (
-								<span
-									className="flex min-w-0 items-center gap-1.5 text-sidebar-foreground"
-									data-slot="collapsed-team-selection"
-								>
-									<MinusIcon
-										aria-hidden="true"
-										className="size-3 shrink-0 text-muted-foreground"
-									/>
-									<span
-										aria-hidden="true"
-										className="shrink-0 [&_svg]:size-3.5"
-									>
-										{selectedDestination.icon}
-									</span>
-									<span className="truncate">{selectedDestination.label}</span>
-								</span>
-							)}
-							{childrenOpen ? (
-								<CaretDownIcon
-									aria-hidden="true"
-									className="ml-auto size-3.5"
-								/>
-							) : (
-								<CaretRightIcon
-									aria-hidden="true"
-									className="ml-auto size-3.5"
-								/>
-							)}
-						</SidebarMenuButton>
-						<SidebarMenuSub id={childrenId} open={childrenOpen}>
-							{input.group.destinations.map((destination) => (
-								<AppRailLink
-									active={destination.id === input.activeDestination}
-									destination={destination}
-									key={destination.id}
-									nested
-									tier={input.tier}
-								/>
-							))}
-						</SidebarMenuSub>
-					</SidebarMenuItem>
-				</SidebarMenu>
-			</nav>
-		);
-	}
 
 	return (
 		<FluidSidebarGroup className={groupClassName}>
@@ -263,7 +168,6 @@ export function CollapsedRailTooltip(input: {
 }
 
 export function AppRailLink(input: {
-	nested?: boolean;
 	active: boolean;
 	destination: AppRailDestination;
 	tier: SidebarMode;
@@ -339,8 +243,8 @@ export function AppRailLink(input: {
 		</Link>
 	);
 
-	const Item = input.nested ? SidebarMenuSubItem : SidebarMenuItem;
-	const MenuButton = input.nested ? SidebarMenuSubButton : SidebarMenuButton;
+	const Item = SidebarMenuItem;
+	const MenuButton = SidebarMenuButton;
 	return (
 		<Item className={isIcon ? "mx-auto size-9" : "group/destination relative"}>
 			{isIcon ? (
@@ -355,10 +259,15 @@ export function AppRailLink(input: {
 				</MenuButton>
 			)}
 			{!isIcon &&
-				(input.destination.id === "people" ||
+				(input.destination.id === "directMessages" ||
+					input.destination.id === "home" ||
+					input.destination.id === "people" ||
 					input.destination.id === "spaces" ||
 					input.destination.id === "agents") && (
-					<SidebarDestinationActionSlot destination={input.destination.id} />
+					<SidebarDestinationActionSlot
+						active={input.active}
+						destination={input.destination.id}
+					/>
 				)}
 		</Item>
 	);

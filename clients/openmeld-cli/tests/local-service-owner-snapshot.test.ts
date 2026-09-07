@@ -23,7 +23,10 @@ describe("local service owner snapshot", () => {
     legacySharedService: null,
   };
 
-  it("classifies a direct CLI runtime as a single cli_direct owner", () => {
+  it.each([
+    "cli_direct",
+    "stable_launcher",
+  ] as const)("classifies a verified direct runtime as one owner even with %s path classification", (ownership) => {
     const snapshot = buildDaemonOwnerSnapshot({
       context: {
         ...baseContext,
@@ -45,7 +48,7 @@ describe("local service owner snapshot", () => {
           parentPid: 100,
           command: "openmeld service run --mode foreground",
           mode: "foreground",
-          ownership: "cli_direct",
+          ownership,
         },
       ],
     });

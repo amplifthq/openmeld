@@ -130,6 +130,8 @@ const CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER 
 const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
   CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
+  "people-computers-receivers-first":
+    CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "space-invitation-receivers-first": [
     "db",
     "core",
@@ -467,6 +469,7 @@ export function buildProductionPreflightStepSpecs(input) {
   if (
     input.scopes.includes("core") &&
     !input.scopes.includes("cli") &&
+    !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
   ) {
     steps.push(coreCliChannelCompatibilityStep());
@@ -640,6 +643,7 @@ function appendProductionDeployScopeSteps(input) {
   if (input.scope === "core") {
     if (
       input.selected.has("cli") ||
+      input.deployOrderProfile === "people-computers-receivers-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
     ) {
       if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
@@ -722,6 +726,22 @@ function resolveProductionDeployScopeOrder(scopes, changedPaths) {
 
 function resolveProductionDeployOrderProfile(changedPaths) {
   const profile = resolveExistingProductionDeployOrderProfile(changedPaths);
+  if (isPeopleComputersReceiverFirstDiff(changedPaths)) {
+    if (
+      profile !== "default-auth-receiver-first" &&
+      profile !== "core-worker-response-reader-first"
+    ) {
+      throw new Error(
+        `PeopleComputers receiver order conflicts with ${profile}; split the release.`
+      );
+    }
+    if (isSpaceInvitationReceiverFirstDiff(changedPaths)) {
+      throw new Error(
+        "PeopleComputers and invitation receiver orders require separate releases."
+      );
+    }
+    return "people-computers-receivers-first";
+  }
   if (!isSpaceInvitationReceiverFirstDiff(changedPaths)) {
     return profile;
   }
@@ -742,6 +762,14 @@ function isSpaceInvitationReceiverFirstDiff(changedPaths) {
     "services/core/src/organizations/space-invitations.ts",
     "services/auth/src/lib/hono/space-invitation-routes.ts",
   ].every((path) => changedPaths.includes(path));
+}
+
+function isPeopleComputersReceiverFirstDiff(changedPaths) {
+  return [
+    "packages/schemas/src/schemas/http/people-computers.ts",
+    "services/core/src/people-computers/projection.ts",
+    "services/gateway/src/routes/rpc-http.people-computers.ts",
+  ].every((file) => changedPaths.includes(file));
 }
 
 function resolveExistingProductionDeployOrderProfile(changedPaths) {

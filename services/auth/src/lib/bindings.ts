@@ -18,6 +18,7 @@ export type AuthBindings = {
   AUTH_BRAND_NAME?: string;
   WEB_APP_URL?: string;
   AUTH_COOKIE_DOMAIN?: string;
+  AUTH_COOKIE_PREFIX?: string;
   PASSKEY_RP_ID?: string;
   GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID?: string;
   GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET?: string;

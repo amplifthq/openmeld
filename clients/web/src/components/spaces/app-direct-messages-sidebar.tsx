@@ -2,7 +2,6 @@
 
 import type { OrganizationProfileDirectoryResponse } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	Tooltip,
 	TooltipContent,
@@ -22,6 +21,7 @@ import {
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
+import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
@@ -66,6 +66,11 @@ type DirectMessagesListState =
 	| "refresh-retrying";
 
 export function AppDirectMessagesSidebar(input: {
+	pinFilter?: "pinned" | "unpinned";
+	onFirstChatChange?: (item: AccountSpaceItem | null | undefined) => void;
+	embedded?: boolean;
+	category?: "all" | "people" | "local";
+	search?: string;
 	currentProfileId: string;
 	currentSpaceId: string;
 }) {
@@ -102,9 +107,19 @@ export function AppDirectMessagesSidebar(input: {
 		organizationId: currentOrganization.id,
 	});
 	let listState: DirectMessagesListState = "ready";
-	if (spacesQuery.isPending) {
+	if (
+		spacesQuery.isPending ||
+		profileDirectoryQuery.isPending ||
+		centerAgentDesignationQuery.isPending
+	) {
 		listState = "loading";
-	} else if (spacesQuery.isError && spacesQuery.data === undefined) {
+	} else if (
+		(spacesQuery.isError && spacesQuery.data === undefined) ||
+		(profileDirectoryQuery.isError &&
+			profileDirectoryQuery.data === undefined) ||
+		(centerAgentDesignationQuery.isError &&
+			centerAgentDesignationQuery.data === undefined)
+	) {
 		listState = "load-error";
 	} else if (spacesQuery.isError && spacesQuery.isRefetching) {
 		listState = "refresh-retrying";
@@ -114,7 +129,7 @@ export function AppDirectMessagesSidebar(input: {
 
 	return (
 		<nav
-			aria-label="Direct Messages"
+			aria-label="People and local agent chats"
 			className="flex w-full min-w-0 flex-col text-sidebar-foreground"
 			data-slot="app-direct-messages-sidebar"
 		>
@@ -122,13 +137,46 @@ export function AppDirectMessagesSidebar(input: {
 				centerAgentProfileId={centerAgentProfileId}
 				currentProfileId={input.currentProfileId}
 				currentSpaceId={input.currentSpaceId}
-				items={directMessageItems}
+				embedded={input.embedded}
+				items={directMessageItems.filter((item) => {
+					const peer = resolveDirectMessagePeer({
+						item,
+						profileDirectory: profileDirectoryQuery.data,
+						viewerProfileId: resolveAccountSpaceViewerProfileId({
+							currentProfileId: input.currentProfileId,
+							item,
+						}),
+					});
+					if (peer?.profileId === centerAgentProfileId) {
+						return false;
+					}
+					if (
+						!(peer?.profileName ?? item.spaceName)
+							.toLocaleLowerCase()
+							.includes((input.search ?? "").toLocaleLowerCase())
+					) {
+						return false;
+					}
+					return (
+						!input.category ||
+						input.category === "all" ||
+						(input.category === "people"
+							? peer?.profileKind === "human"
+							: peer?.profileKind === "agent")
+					);
+				})}
+				onFirstChatChange={input.onFirstChatChange}
 				onRetry={() => {
-					spacesQuery.refetch().catch((error: unknown) => {
+					Promise.all([
+						spacesQuery.refetch(),
+						profileDirectoryQuery.refetch(),
+						centerAgentDesignationQuery.refetch(),
+					]).catch((error: unknown) => {
 						console.error("Failed to refresh Direct Messages.", error);
 					});
 				}}
 				organizationSlug={currentOrganization.slug}
+				pinFilter={input.pinFilter}
 				profileDirectory={profileDirectoryQuery.data}
 				state={listState}
 				unreadBySpaceId={unreadBySpaceId}
@@ -138,6 +186,9 @@ export function AppDirectMessagesSidebar(input: {
 }
 
 function DirectMessagesList(input: {
+	pinFilter?: "pinned" | "unpinned";
+	embedded?: boolean;
+	onFirstChatChange?: (item: AccountSpaceItem | null | undefined) => void;
 	centerAgentProfileId: string | null;
 	currentProfileId: string;
 	currentSpaceId: string;
@@ -153,27 +204,14 @@ function DirectMessagesList(input: {
 }) {
 	if (input.state === "loading") {
 		return (
-			<output className="flex flex-col gap-1">
-				<span className="sr-only">Loading Direct Messages</span>
-				{Array.from({ length: 6 }).map((_, index) => (
-					<div
-						className="flex h-10 items-center gap-2 px-2"
-						key={`direct-message-sidebar-skeleton-${String(index)}`}
-					>
-						<Skeleton className="size-6 rounded-full" />
-						<Skeleton className="h-4 flex-1" />
-					</div>
-				))}
-			</output>
+			<SidebarListSkeleton label="Loading chats" rowCount={2} showPreview />
 		);
 	}
 
 	if (input.state === "load-error") {
 		return (
 			<div className="flex flex-col gap-3 p-2">
-				<p className="text-muted-foreground text-xs">
-					OpenMeld could not load your Direct Messages.
-				</p>
+				<p className="text-muted-foreground text-xs">Couldn’t load chats.</p>
 				<Button
 					onClick={input.onRetry}
 					size="sm"
@@ -188,9 +226,29 @@ function DirectMessagesList(input: {
 
 	const conversations = (
 		<ManagedDirectMessages
+			categoryForItem={(item) => {
+				const peer = resolveDirectMessagePeer({
+					item,
+					profileDirectory: input.profileDirectory,
+					viewerProfileId: resolveAccountSpaceViewerProfileId({
+						currentProfileId: input.currentProfileId,
+						item,
+					}),
+				});
+				if (peer?.profileKind === "human") {
+					return "People";
+				}
+				if (peer?.profileKind === "agent") {
+					return "Agents";
+				}
+				return "Chats";
+			}}
 			currentProfileId={input.currentProfileId}
 			currentSpaceId={input.currentSpaceId}
+			embedded={input.embedded}
 			items={input.items}
+			onFirstChatChange={input.onFirstChatChange}
+			pinFilter={input.pinFilter}
 			renderRow={(props) => (
 				<DirectMessageSidebarItem
 					{...props}

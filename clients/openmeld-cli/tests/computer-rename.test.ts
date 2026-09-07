@@ -1,4 +1,9 @@
+import type {
+  LocalRuntimesResponse,
+  PeopleComputersResponse,
+} from "@openmeld/schemas/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES } from "../src/agents/builtin-agent-controller-definitions";
 import {
   runComputerCurrent,
   runComputerList,
@@ -15,6 +20,7 @@ const {
   resolveBaseUrlMock,
   resolveRuntimeContextMock,
   listLocalRuntimesMock,
+  listPeopleComputersMock,
   getCurrentLocalRuntimeReplyReadinessMock,
   readFileAccessPolicyMock,
   setDisplayNameMock,
@@ -29,6 +35,7 @@ const {
   resolveBaseUrlMock: vi.fn(),
   resolveRuntimeContextMock: vi.fn(),
   listLocalRuntimesMock: vi.fn(),
+  listPeopleComputersMock: vi.fn(),
   getCurrentLocalRuntimeReplyReadinessMock: vi.fn(),
   readFileAccessPolicyMock: vi.fn(),
   setDisplayNameMock: vi.fn(),
@@ -42,6 +49,9 @@ vi.mock("@openmeld/api-client", () => ({
 
 vi.mock("../src/config/base-url", () => ({
   resolveBaseUrl: resolveBaseUrlMock,
+}));
+vi.mock("../src/config/paths", () => ({
+  resolveOpenMeldEnvPreset: () => "dev-local",
 }));
 
 vi.mock("../src/runtime/context", () => ({
@@ -85,14 +95,14 @@ describe("openmeld computer rename", () => {
       baseUrl: "http://localhost:8080",
     });
     createCurrentDeviceApiMock.mockReturnValue({
-      getCurrentLocalRuntimeReplyReadiness:
-        getCurrentLocalRuntimeReplyReadinessMock,
+      getPeopleComputerReplyReadiness: getCurrentLocalRuntimeReplyReadinessMock,
       listLocalRuntimes: listLocalRuntimesMock,
+      listPeopleComputers: listPeopleComputersMock,
       setDisplayName: setDisplayNameMock,
       writeObservedMetadata: writeObservedMetadataMock,
     });
     createComputerFileAccessApiMock.mockReturnValue({
-      readPolicy: readFileAccessPolicyMock,
+      readPeopleComputerPolicy: readFileAccessPolicyMock,
     });
     readCurrentLocalDeviceIdMock.mockResolvedValue("dev_local_123");
     collectObservedDeviceMetadataMock.mockResolvedValue({
@@ -120,6 +130,7 @@ describe("openmeld computer rename", () => {
       ],
     });
     listLocalRuntimesMock.mockResolvedValue(buildLocalRuntimesResponse());
+    listPeopleComputersMock.mockResolvedValue(buildPeopleComputersResponse());
     getCurrentLocalRuntimeReplyReadinessMock.mockResolvedValue(
       buildCurrentReplyReadiness()
     );
@@ -248,16 +259,7 @@ describe("openmeld computer rename", () => {
   it("lists computers in human view without raw device ids", async () => {
     await runComputerList({ view: "human" });
 
-    expect(writeObservedMetadataMock).toHaveBeenCalledWith({
-      deviceId: "dev_local_123",
-      metadata: {
-        deviceType: "laptop",
-        observedAtMs: 1_777_777_777,
-        observedDisplayName: "Felix's MacBook Pro",
-        osVersion: "25.4.0",
-        platformFamily: "macOS",
-      },
-    });
+    expect(writeObservedMetadataMock).not.toHaveBeenCalled();
     const output = presenter.line.mock.calls
       .map((call) => String(call[0].text))
       .join("\n");
@@ -285,12 +287,18 @@ describe("openmeld computer rename", () => {
 
     await runComputerList({ view: "agent" });
 
-    expect(listLocalRuntimesMock).toHaveBeenCalledWith({
+    expect(listPeopleComputersMock).toHaveBeenCalledWith({
       includeUsageLimits: "true",
     });
     expect(agentPresenter.data).toHaveBeenCalledWith({
       code: "computer.list.completed",
-      payload: buildLocalRuntimesResponse(),
+      payload: {
+        ...buildPeopleComputersResponse(),
+        computers: buildPeopleComputersResponse().computers.map((computer) => ({
+          ...computer,
+          isThisComputer: computer.deviceId === "dev_local_123",
+        })),
+      },
     });
   });
 
@@ -308,12 +316,17 @@ describe("openmeld computer rename", () => {
 
   it("shows the current computer in human view", async () => {
     await runComputerCurrent({ view: "human" });
+    expect(writeObservedMetadataMock).not.toHaveBeenCalled();
+    expect(listLocalRuntimesMock).not.toHaveBeenCalled();
+    expect(listPeopleComputersMock).toHaveBeenCalledWith({
+      includeUsageLimits: "true",
+    });
 
     const output = presenter.line.mock.calls
       .map((call) => String(call[0].text))
       .join("\n");
 
-    expect(writeObservedMetadataMock).toHaveBeenCalled();
+    expect(writeObservedMetadataMock).not.toHaveBeenCalled();
     expect(output).toContain("Office MacBook");
     expect(output).toContain("This computer");
     expect(output).not.toContain("dev_local_123");
@@ -336,7 +349,8 @@ describe("openmeld computer rename", () => {
     await runComputerCurrent({ view: "agent" });
 
     expect(readFileAccessPolicyMock).toHaveBeenCalledWith({
-      expectedDeviceId: "dev_local_123",
+      deviceId: "dev_local_123",
+      runtimeLane: "dev-local",
     });
     const output = agentPresenter.data.mock.calls[0]?.[0];
     expect(output).toMatchObject({
@@ -375,6 +389,10 @@ describe("openmeld computer rename", () => {
     });
 
     await runComputerCurrent({ brief: true, view: "agent" });
+    expect(getCurrentLocalRuntimeReplyReadinessMock).toHaveBeenCalledWith({
+      deviceId: "dev_local_123",
+      runtimeLane: "dev-local",
+    });
 
     expect(readFileAccessPolicyMock).not.toHaveBeenCalled();
     expect(agentPresenter.data).toHaveBeenCalledWith(
@@ -394,6 +412,21 @@ describe("openmeld computer rename", () => {
   it("preserves provider usage evidence and optional non-blocking updates in compact output", async () => {
     const localRuntimes = buildLocalRuntimesResponse();
     localRuntimes.localRuntimes[0]?.executionTargets.push({
+      deviceId: "dev_local_123",
+      isCurrent: true,
+      lastObservedAtMs: 1_777_777_777,
+      openMeldServiceRuntimeId: null,
+      userFacingCommand: "openmeld-dev",
+      localAgentControl: { refreshCatalog: true, setEnabled: true },
+      localAgentCatalog: {
+        totalBuiltins: 0,
+        detectedSupported: 0,
+        needsChoice: 0,
+        needsRepair: 0,
+        detectedNotSupportedYet: 0,
+        notDetected: 0,
+        entries: [],
+      },
       capabilities: [
         {
           agentControllerRef: "builtin:codex",
@@ -401,6 +434,25 @@ describe("openmeld computer rename", () => {
           reasonCodes: [],
           status: "ready",
           agentControllerInterface: {
+            agentControllerRef: "builtin:codex",
+            controllerId: "codex",
+            displayName: "Codex",
+            auth: { label: "Signed in", status: "authenticated" },
+            capabilities: EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES,
+            checkedAt: "2026-09-02T00:00:00.000Z",
+            launch: {
+              argsPrefix: [],
+              commandPath: null,
+              installChoiceCount: 0,
+              status: "ready",
+            },
+            message: null,
+            models: [],
+            nativeInterface: "codex-app-server",
+            schemaVersion: 1,
+            skills: [],
+            status: "ready",
+            version: null,
             usageLimits: [
               {
                 key: "openai:five-hour",
@@ -434,7 +486,9 @@ describe("openmeld computer rename", () => {
       runtimeLane: "dev-local",
       status: "ready",
     });
-    listLocalRuntimesMock.mockResolvedValueOnce(localRuntimes);
+    listPeopleComputersMock.mockResolvedValueOnce(
+      buildPeopleComputersResponse(localRuntimes)
+    );
     const readiness = buildCurrentReplyReadiness();
     getCurrentLocalRuntimeReplyReadinessMock.mockResolvedValueOnce({
       ...readiness,
@@ -525,7 +579,29 @@ describe("openmeld computer rename", () => {
   });
 });
 
-function buildLocalRuntimesResponse(): LocalRuntimesResponseFixture {
+function buildPeopleComputersResponse(
+  localRuntimes = buildLocalRuntimesResponse()
+): PeopleComputersResponse {
+  return {
+    generatedAt: "2026-09-07T00:00:00.000Z",
+    computers: localRuntimes.localRuntimes.map(
+      ({ isCurrent: _routingPreference, executionTargets, ...computer }) => ({
+        ...computer,
+        identityStatus: "unconfirmed",
+        executionTargets: executionTargets.map(
+          ({ isCurrent: _selected, ...target }) => target
+        ),
+        connection: {
+          status: "disconnected",
+          reasonCodes: ["daemon.session.not_found"],
+          sessions: [],
+        },
+      })
+    ),
+  };
+}
+
+function buildLocalRuntimesResponse(): LocalRuntimesResponse {
   return {
     currentDeviceId: "dev_local_123",
     currentRuntimeLane: "dev-local",
@@ -559,45 +635,6 @@ function buildLocalRuntimesResponse(): LocalRuntimesResponseFixture {
     ],
   };
 }
-
-type LocalRuntimesResponseFixture = {
-  currentDeviceId: string;
-  currentRuntimeLane: "dev-local";
-  localRuntimes: Array<{
-    computerFileAccess: { readPolicy: boolean; updatePolicy: boolean };
-    deviceDisplayName: string;
-    deviceDisplayNameSource: "observed" | "placeholder" | "user";
-    deviceId: string;
-    deviceType: "desktop" | "laptop" | "server" | "unknown";
-    firstSeenAtMs: number;
-    isCurrent: boolean;
-    executionTargets: Array<{
-      capabilities: Array<{
-        agentControllerInterface?: {
-          usageLimits: Array<{
-            key: string;
-            label: string;
-            observedAt: string;
-            provider: { displayName: string; id: string };
-            resetsAt: string;
-            status: string;
-            usedPercent: number;
-          }>;
-        };
-        agentControllerRef: string;
-        enabled: boolean;
-        reasonCodes: string[];
-        status: string;
-      }>;
-      reasonCodes: string[];
-      runtimeLane: "dev-local";
-      status: string;
-    }>;
-    lastObservedAtMs: number;
-    osVersion: string | null;
-    platformFamily: "Linux" | "macOS" | "Unknown" | "Windows";
-  }>;
-};
 
 function buildCurrentReplyReadiness() {
   return {

@@ -17,6 +17,7 @@ import type {
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
 	OrganizationComputerLocalAgentDetails,
+	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import type { ComputerReplyReadiness } from "@openmeld/start";
 import { Badge } from "@openmeld/ui/components/badge";
@@ -37,6 +38,11 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import {
+	MagnifyingDock,
+	MagnifyingDockItem,
+} from "@openmeld/ui/components/magnifying-dock";
 import { SettingsActionMenu } from "@openmeld/ui/components/settings-action-menu";
 import {
 	SettingsLocalAgentAdvisoryBadge,
@@ -85,11 +91,12 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
+import { LOCAL_AGENT_EXAMPLE_IDS } from "#/components/profiles/local-agent-logo-stack";
 import { copyCliEntryCommand } from "#/lib/cli-entry-command";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
-	readCurrentLocalAgentInstallations,
-	selectCurrentLocalAgentInstallation,
+	readPeopleComputerLocalAgentInstallations,
+	selectPeopleComputerLocalAgentInstallation,
 } from "#/lib/connect/local-runtimes";
 import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
 import { useCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
@@ -114,8 +121,10 @@ const LOCAL_AGENT_INSTALLATION_QUERY_STALE_TIME_MS = 30_000;
 const LOCAL_AGENT_CHECK_COMPLETE_MESSAGE = "Local agent check complete.";
 
 export type LocalAgentsCardOwnerProps = {
+	controlTarget?: PeopleComputerTarget | null;
+	controlCapabilities?: LocalRuntimeExecutionTarget["localAgentControl"];
 	computer: LocalRuntimeComputer;
-	isCurrentComputer: boolean;
+	hasSelectedEnvironment: boolean;
 	isReconcilingStatus?: boolean;
 	recovery: AgentsPageController;
 	replyReadiness: ComputerReplyReadiness | null;
@@ -278,7 +287,7 @@ function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 		orgSlug,
 		session: "fresh",
 	});
-	const cardDescription = input.isCurrentComputer
+	const cardDescription = input.hasSelectedEnvironment
 		? "OpenMeld can use the local agents that are turned on for this computer. Turning an agent off stops OpenMeld from launching it."
 		: `Last local agent report from ${input.computer.deviceDisplayName}.`;
 	const setupAction = catalogState.primaryActionLabel ? (
@@ -296,7 +305,11 @@ function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 		);
 		setIsCheckingAgents(true);
 		try {
-			await input.recovery.refreshLocalAgentCatalog();
+			const target = input.controlTarget ?? catalogState.target;
+			if (!target) {
+				throw new Error("Choose a computer environment first.");
+			}
+			await input.recovery.refreshLocalAgentCatalog(target);
 			toast.success(LOCAL_AGENT_CHECK_COMPLETE_MESSAGE);
 		} catch (error) {
 			if (isLocalAgentControlStillRunningError(error)) {
@@ -372,10 +385,22 @@ function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 				muted={catalogState.rowsMuted}
 				onCheckAgents={checkLocalAgents}
 				onRefresh={input.recovery.refreshAll}
-				onSetEnabled={input.recovery.setLocalAgentEnabled}
+				onSetEnabled={(change) => {
+					if (!catalogState.target) {
+						return Promise.reject(
+							new Error("Choose a computer environment first.")
+						);
+					}
+					return input.recovery.setLocalAgentEnabled({
+						...change,
+						deviceId: catalogState.target.deviceId,
+						runtimeLane: catalogState.target.runtimeLane,
+					});
+				}}
 				showInstallGuideLink={shouldShowLocalAgentInstallGuideLink(
 					catalogState.entries
 				)}
+				storageScope={input.recovery.storageScope}
 				target={catalogState.target}
 				targetStatus={catalogState.targetStatus}
 			/>
@@ -424,6 +449,7 @@ function reconcileLocalAgentEnabledChange(input: {
 }
 
 function reconcileLocalAgentInstallationChange(input: {
+	target: PeopleComputerTarget;
 	agentId: string;
 	installationId: string;
 }): Promise<
@@ -435,6 +461,7 @@ function reconcileLocalAgentInstallationChange(input: {
 }
 
 async function pollForLocalAgentInstallationChange(input: {
+	target: PeopleComputerTarget;
 	agentId: string;
 	deadlineMs: number;
 	installationId: string;
@@ -442,7 +469,8 @@ async function pollForLocalAgentInstallationChange(input: {
 	| { data: CurrentLocalAgentInstallationsResponse; status: "updated" }
 	| { status: "timed_out" }
 > {
-	const data = await readCurrentLocalAgentInstallations({
+	const data = await readPeopleComputerLocalAgentInstallations({
+		...input.target,
 		agentId: input.agentId,
 	});
 	if (data.selectedInstallationId === input.installationId) {
@@ -595,37 +623,36 @@ type LocalAgentsCatalogState = {
 };
 
 function resolveLocalAgentsCatalogState(input: {
+	controlCapabilities?: LocalRuntimeExecutionTarget["localAgentControl"];
 	computer: LocalRuntimeComputer;
-	isCurrentComputer: boolean;
+	hasSelectedEnvironment: boolean;
 	isReconcilingStatus?: boolean;
 	recovery: AgentsPageController;
 	replyReadiness: ComputerReplyReadiness | null;
 }): LocalAgentsCatalogState {
 	const target = resolveLocalAgentsCatalogTarget(input);
+	const controls = input.controlCapabilities ?? target?.localAgentControl;
 	const serviceDependency = resolveLocalAgentsServiceDependency(
 		input.replyReadiness
 	);
 	const checking =
-		input.isCurrentComputer &&
-		(input.isReconcilingStatus ||
-			!input.replyReadiness ||
-			input.replyReadiness.status === "checking");
-	// Non-current computers expose historical reports, not live readiness.
+		input.isReconcilingStatus ||
+		!input.replyReadiness ||
+		input.replyReadiness.status === "checking";
 	const connectionStatus: LocalAgentCatalogRowSummaryStatus | null =
-		input.isCurrentComputer
+		input.hasSelectedEnvironment
 			? resolveLocalAgentConnectionStatus(checking, serviceDependency)
-			: { label: "Status not current", tone: "muted" };
+			: { label: "Status unavailable", tone: "muted" };
 	const usesCatalogRowsForLocalAgentSetup =
-		input.isCurrentComputer && usesLocalAgentCatalogRowsForSetup(target);
+		input.hasSelectedEnvironment && usesLocalAgentCatalogRowsForSetup(target);
 	const notice = resolveLocalAgentsCatalogNotice({
-		isCurrentComputer: input.isCurrentComputer,
+		hasSelectedEnvironment: input.hasSelectedEnvironment,
 		replyReadiness: input.replyReadiness,
 		serviceDependency,
 		target,
-		usesCatalogRowsForLocalAgentSetup,
 	});
 	const resolvedPrimaryActionLabel =
-		input.isCurrentComputer && input.replyReadiness
+		input.hasSelectedEnvironment && input.replyReadiness
 			? resolveLocalAgentsCatalogPrimaryActionLabel({
 					recovery: input.recovery,
 					replyReadiness: input.replyReadiness,
@@ -642,21 +669,21 @@ function resolveLocalAgentsCatalogState(input: {
 	return {
 		connectionStatus,
 		canManageInstallations:
-			input.isCurrentComputer &&
+			input.hasSelectedEnvironment &&
 			!checking &&
 			!serviceDependency &&
-			target?.localAgentControl.manageInstallations === true &&
-			target.localAgentControl.manageInstallationsSafely === true,
+			controls?.manageInstallations === true &&
+			controls.manageInstallationsSafely === true,
 		canRefreshCatalog:
-			input.isCurrentComputer &&
+			input.hasSelectedEnvironment &&
 			!checking &&
 			!serviceDependency &&
-			target?.localAgentControl.refreshCatalog === true,
+			controls?.refreshCatalog === true,
 		canSetEnabled:
-			input.isCurrentComputer &&
+			input.hasSelectedEnvironment &&
 			!checking &&
 			!serviceDependency &&
-			target?.localAgentControl.setEnabled === true,
+			controls?.setEnabled === true,
 		entries: target?.localAgentCatalog.entries ?? [],
 		notice: checking
 			? {
@@ -668,7 +695,9 @@ function resolveLocalAgentsCatalogState(input: {
 			: notice,
 		primaryActionLabel: checking ? null : primaryActionLabel,
 		rowsMuted:
-			serviceDependency !== null && input.replyReadiness?.status !== "checking",
+			!input.hasSelectedEnvironment ||
+			(serviceDependency !== null &&
+				input.replyReadiness?.status !== "checking"),
 		target,
 		targetStatus: target?.status ?? null,
 	};
@@ -686,6 +715,9 @@ function resolveLocalAgentConnectionStatus(
 	}
 	if (dependency === "update_required") {
 		return { label: "Waiting for computer update", tone: "muted" };
+	}
+	if (dependency === "unavailable") {
+		return { label: "Status unavailable", tone: "muted" };
 	}
 	return null;
 }
@@ -737,23 +769,22 @@ function usesLocalAgentCatalogRowsForSetup(
 
 function resolveLocalAgentsCatalogTarget(input: {
 	computer: LocalRuntimeComputer;
-	isCurrentComputer: boolean;
+	hasSelectedEnvironment: boolean;
 	recovery: AgentsPageController;
 }): LocalRuntimeExecutionTarget | null {
-	if (input.isCurrentComputer && input.recovery.selectedExecutionTarget) {
+	if (input.hasSelectedEnvironment) {
 		return input.recovery.selectedExecutionTarget;
 	}
 	return resolveCurrentExecutionTarget(input.computer);
 }
 
 function resolveLocalAgentsCatalogNotice(input: {
-	isCurrentComputer: boolean;
+	hasSelectedEnvironment: boolean;
 	replyReadiness: ComputerReplyReadiness | null;
 	serviceDependency: LocalAgentsServiceDependency;
 	target: LocalRuntimeExecutionTarget | null;
-	usesCatalogRowsForLocalAgentSetup: boolean;
 }): LocalAgentsCatalogNoticeModel | null {
-	if (!input.isCurrentComputer) {
+	if (!input.hasSelectedEnvironment) {
 		if (input.target === null) {
 			return {
 				description:
@@ -821,6 +852,15 @@ function resolveLocalAgentsCatalogNotice(input: {
 			variant: "inline",
 		};
 	}
+	if (input.serviceDependency === "unavailable") {
+		return {
+			title: "Status unavailable",
+			description:
+				"OpenMeld could not check local agents on this computer. Try again.",
+			tone: "muted",
+			variant: "inline",
+		};
+	}
 
 	if (
 		input.replyReadiness.reasonCode === "execution_target.stale" ||
@@ -841,25 +881,25 @@ function resolveLocalAgentsCatalogNotice(input: {
 		};
 	}
 
-	if (input.usesCatalogRowsForLocalAgentSetup) {
-		return null;
-	}
-
-	return {
-		description:
-			"Connect a local agent so OpenMeld can refresh the local agents on this computer.",
-		title: formatLocalSetupActionLabel("connect_local_agent"),
-		tone: "warning",
-	};
+	// Agent rows or the empty state already explain the next step.
+	return null;
 }
 
-type LocalAgentsServiceDependency = "not_connected" | "update_required" | null;
+type LocalAgentsServiceDependency =
+	| "not_connected"
+	| "update_required"
+	| "unavailable"
+	| null;
 
 function resolveLocalAgentsServiceDependency(
 	replyReadiness: ComputerReplyReadiness | null
 ): LocalAgentsServiceDependency {
-	if (!replyReadiness) {
-		return null;
+	if (
+		!replyReadiness ||
+		(replyReadiness.status === "unknown" &&
+			replyReadiness.reasonCode !== "execution_target.unknown")
+	) {
+		return "unavailable";
 	}
 	if (
 		replyReadiness.reasonCode === "background_helper.update_required" ||
@@ -918,6 +958,7 @@ function LocalAgentsCatalogNotice(input: {
 }
 
 function LocalAgentCatalogList(input: {
+	storageScope: string;
 	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	capabilities: {
 		manageInstallations: boolean;
@@ -1028,22 +1069,64 @@ function LocalAgentCatalogList(input: {
 	};
 
 	if (input.entries.length === 0 || usableEntries.length === 0) {
+		const checkedWithoutAgents =
+			!(input.muted || input.connectionStatus || input.isCheckingAgents) &&
+			input.targetStatus !== "unknown" &&
+			input.targetStatus !== "stale" &&
+			input.entries.length > 0 &&
+			input.entries.every((entry) => !entry.detected);
 		return (
 			<div
-				className="flex items-start gap-3 rounded-md border border-border px-3 py-3"
+				className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-md border border-border/70 border-dashed bg-card/25 px-6 py-6 text-center"
 				data-testid="local-agent-catalog-empty"
 			>
-				<span className="grid h-8 w-8 shrink-0 place-items-center rounded-sm border border-border bg-muted/20 text-muted-foreground">
-					<RobotIcon aria-hidden="true" className="h-4 w-4" />
-				</span>
-				<div className="min-w-0 space-y-1">
+				{checkedWithoutAgents ? null : (
+					<span className="grid h-8 w-8 shrink-0 place-items-center rounded-sm border border-border bg-muted/20 text-muted-foreground">
+						<RobotIcon aria-hidden="true" className="h-4 w-4" />
+					</span>
+				)}
+				<div className="flex w-full min-w-0 flex-col items-center gap-2">
 					<p className="font-medium text-sm">
-						No supported local agents reported yet
+						{checkedWithoutAgents
+							? "No supported agents detected"
+							: "Local agents haven’t been checked yet"}
 					</p>
-					<p className="text-muted-foreground text-xs leading-5">
-						Connect this computer to check which supported local agents are
-						installed on this computer.
+					<p className="max-w-md text-muted-foreground text-xs leading-5">
+						{checkedWithoutAgents
+							? "Install an agent such as Codex or Claude Code on this computer to get started."
+							: "The list will appear after OpenMeld checks this computer."}
 					</p>
+					{checkedWithoutAgents ? (
+						<MagnifyingDock
+							aria-label="Supported agents"
+							className="max-w-full flex-wrap justify-center gap-x-3 gap-y-4 px-2 pt-3 pb-2"
+						>
+							{input.entries
+								.filter(
+									(entry) =>
+										entry.targetKind === "builtin" &&
+										LOCAL_AGENT_EXAMPLE_IDS.includes(entry.agentId)
+								)
+								.sort(
+									(a, b) =>
+										LOCAL_AGENT_EXAMPLE_IDS.indexOf(a.agentId) -
+										LOCAL_AGENT_EXAMPLE_IDS.indexOf(b.agentId)
+								)
+								.map((entry) => (
+									<MagnifyingDockItem
+										caption={entry.displayName}
+										captionClassName="max-w-none whitespace-nowrap"
+										key={entry.agentId}
+									>
+										<LocalAgentLogo
+											agentId={entry.agentId}
+											className="size-12"
+											variant="tile"
+										/>
+									</MagnifyingDockItem>
+								))}
+						</MagnifyingDock>
+					) : null}
 					{input.showInstallGuideLink ? <LocalAgentInstallGuideLink /> : null}
 				</div>
 			</div>
@@ -1078,6 +1161,7 @@ function LocalAgentCatalogList(input: {
 								onRevealAccountEmail: revealAccountEmail,
 								onSetEnabled: requestSetEnabled,
 								pending: pendingAgentId === entry.agentId,
+								storageScope: input.storageScope,
 								target: input.target,
 								targetStatus: input.targetStatus,
 							});
@@ -1113,20 +1197,47 @@ function LocalAgentCatalogList(input: {
 	);
 }
 
-function localAgentInstallationsQueryKey(agentId: string) {
-	return ["current-local-agent-installations", agentId] as const;
+type LocalAgentInstallationTarget = PeopleComputerTarget & {
+	storageScope: string;
+};
+
+function localAgentInstallationsQueryKey(
+	agentId: string,
+	target: LocalAgentInstallationTarget
+) {
+	return [
+		"people-computer-local-agent-installations",
+		target.storageScope,
+		target.deviceId,
+		target.runtimeLane,
+		agentId,
+	] as const;
 }
 
-function useLocalAgentInstallations(agentId: string) {
+function useLocalAgentInstallations(
+	agentId: string,
+	target: LocalAgentInstallationTarget
+) {
 	return useQuery({
-		queryFn: () => readCurrentLocalAgentInstallations({ agentId }),
-		queryKey: localAgentInstallationsQueryKey(agentId),
+		queryFn: () =>
+			readPeopleComputerLocalAgentInstallations({
+				agentId,
+				deviceId: target.deviceId,
+				runtimeLane: target.runtimeLane,
+			}),
+		queryKey: localAgentInstallationsQueryKey(agentId, target),
 		staleTime: LOCAL_AGENT_INSTALLATION_QUERY_STALE_TIME_MS,
 	});
 }
 
-function LocalAgentInstallationSummary(input: { agentId: string }) {
-	const installationsQuery = useLocalAgentInstallations(input.agentId);
+function LocalAgentInstallationSummary(input: {
+	agentId: string;
+	target: LocalAgentInstallationTarget;
+}) {
+	const installationsQuery = useLocalAgentInstallations(
+		input.agentId,
+		input.target
+	);
 	const installation = resolveSelectedLocalAgentInstallation(
 		installationsQuery.data
 	);
@@ -1134,6 +1245,7 @@ function LocalAgentInstallationSummary(input: { agentId: string }) {
 }
 
 function LocalAgentInstallationControl(input: {
+	target: LocalAgentInstallationTarget;
 	agentId: string;
 	displayName: string;
 	onChanged: () => Promise<unknown>;
@@ -1148,8 +1260,11 @@ function LocalAgentInstallationControl(input: {
 	const [statusMessage, setStatusMessage] = useState<string | null>(null);
 	const labelId = useId();
 	const queryClient = useQueryClient();
-	const queryKey = localAgentInstallationsQueryKey(input.agentId);
-	const installationsQuery = useLocalAgentInstallations(input.agentId);
+	const queryKey = localAgentInstallationsQueryKey(input.agentId, input.target);
+	const installationsQuery = useLocalAgentInstallations(
+		input.agentId,
+		input.target
+	);
 	const currentInstallation = resolveSelectedLocalAgentInstallation(
 		installationsQuery.data
 	);
@@ -1188,7 +1303,9 @@ function LocalAgentInstallationControl(input: {
 		setStatusMessage(null);
 		try {
 			try {
-				const result = await selectCurrentLocalAgentInstallation({
+				const result = await selectPeopleComputerLocalAgentInstallation({
+					deviceId: input.target.deviceId,
+					runtimeLane: input.target.runtimeLane,
 					agentId: input.agentId,
 					installationId,
 				});
@@ -1209,6 +1326,7 @@ function LocalAgentInstallationControl(input: {
 			}
 
 			const reconciliation = await reconcileLocalAgentInstallationChange({
+				target: input.target,
 				agentId: input.agentId,
 				installationId,
 			});
@@ -1482,7 +1600,7 @@ function getErrorCode(error: unknown): string | null {
 function LocalAgentInstallGuideLink() {
 	return (
 		<p className="text-muted-foreground text-xs leading-5">
-			No agent CLIs installed yet?{" "}
+			No agents installed yet?{" "}
 			<Link
 				className={cn(
 					APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
@@ -1606,6 +1724,7 @@ function shouldShowLocalAgentInstallGuideLink(
 }
 
 type BuildLocalAgentCatalogRowInput = {
+	storageScope: string;
 	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	accountEmailRevealed: boolean;
 	canManageInstallations: boolean;
@@ -1727,6 +1846,13 @@ function buildLocalAgentCatalogRow(
 			summaryMeta:
 				enabled && agentControllerInterface
 					? renderAgentControllerInterfaceSummary({
+							target: input.target
+								? {
+										deviceId: input.target.deviceId,
+										runtimeLane: input.target.runtimeLane,
+										storageScope: input.storageScope,
+									}
+								: null,
 							agentId: input.entry.agentId,
 							emailRevealed: input.accountEmailRevealed,
 							onRevealEmail: input.onRevealAccountEmail,
@@ -1861,11 +1987,16 @@ function renderLocalAgentCatalogRowDetail(input: {
 					detail={versionAdvisory.detail}
 				/>
 			) : null}
-			{input.canChangeInstallation ? (
+			{input.canChangeInstallation && input.rowInput.target ? (
 				<LocalAgentInstallationControl
 					agentId={input.rowInput.entry.agentId}
 					displayName={input.rowInput.entry.displayName}
 					onChanged={input.rowInput.onRefresh}
+					target={{
+						deviceId: input.rowInput.target.deviceId,
+						runtimeLane: input.rowInput.target.runtimeLane,
+						storageScope: input.rowInput.storageScope,
+					}}
 				/>
 			) : null}
 			<SettingsLocalAgentUsageLimits
@@ -1889,6 +2020,7 @@ function renderLocalAgentCatalogRowDetail(input: {
 }
 
 function renderAgentControllerInterfaceSummary(input: {
+	target: LocalAgentInstallationTarget | null;
 	agentId: string;
 	emailRevealed: boolean;
 	onRevealEmail: (agentId: string) => void;
@@ -1896,9 +2028,13 @@ function renderAgentControllerInterfaceSummary(input: {
 	snapshot: AgentControllerInterfaceSnapshot;
 }): ReactNode {
 	const summary = formatAgentControllerInterfaceSummary(input.snapshot);
-	const installationSummary = input.showInstallation ? (
-		<LocalAgentInstallationSummary agentId={input.agentId} />
-	) : null;
+	const installationSummary =
+		input.showInstallation && input.target ? (
+			<LocalAgentInstallationSummary
+				agentId={input.agentId}
+				target={input.target}
+			/>
+		) : null;
 	const email = resolveAgentControllerAccountEmailText(input.snapshot);
 	if (!email) {
 		return (

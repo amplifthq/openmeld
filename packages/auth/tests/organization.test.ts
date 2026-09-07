@@ -1228,6 +1228,11 @@ describe("organization identity foundation", () => {
         pending: false,
       });
     const coreWorker = {
+      organizationJoinRequest: vi.fn(() => {
+        throw new Error(
+          "Member removal must not invoke the Organization join receiver."
+        );
+      }),
       spaceInvitation: vi.fn(() => {
         throw new Error(
           "Member removal must not invoke the Space invitation receiver."

@@ -3,16 +3,21 @@
 import type {
 	CurrentLocalRuntimeReplyReadinessResponse,
 	LocalRuntimeComputer,
+	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
-import type { QueryClient } from "@tanstack/react-query";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+} from "@openmeld/ui/fluid/select";
+import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
-import {
-	isSelectedCurrentComputer,
-	resolveEffectiveSelectedComputerReplyReadiness,
-	resolveSelectedComputerReplyReadiness,
-} from "./agents-page-computer";
+import { currentLocalRuntimeReplyReadinessQueryOptions } from "#/query/connect/local-runtimes";
+import { formatRuntimeLane } from "./agents-page-formatters";
 import { LocalAgentsCard } from "./agents-page-local-agents";
 import { OpenMeldServiceCard } from "./agents-page-openmeld-service";
 import { ComputerFileAccessCard } from "./computer-file-access-card";
@@ -36,36 +41,106 @@ export function SelectedComputerPanel(input: {
 	const [checkingComputerId, setCheckingComputerId] = useState<string | null>(
 		null
 	);
-	const isCurrentComputer = isSelectedCurrentComputer({
-		computer: input.computer,
-		recovery: input.recovery,
-	});
-	const replyReadiness = resolveSelectedComputerReplyReadiness({
-		computer: input.computer,
-		isCurrentComputer,
-		recovery: input.recovery,
-	});
-	const hasAvailableAgentProfile = hasCurrentComputerAvailableAgentProfile(
-		input.recovery
+	const computerFacts =
+		input.recovery.localRuntimesQuery.data?.peopleComputers.computers.find(
+			(computer) => computer.deviceId === input.computer.deviceId
+		);
+	const [selectedEnvironmentKey, setSelectedEnvironmentKey] = useState<
+		string | null
+	>(null);
+	const environments = [
+		...new Map(
+			[
+				...(computerFacts?.connection.sessions ?? []),
+				...input.computer.executionTargets,
+			].map((entry) => [
+				computerEnvironmentKey(entry),
+				{ deviceId: entry.deviceId, runtimeLane: entry.runtimeLane },
+			])
+		).values(),
+	];
+	const target = selectComputerEnvironment(
+		environments,
+		selectedEnvironmentKey,
+		computerFacts?.connection.sessions
 	);
-	const hasPendingAgentProfileReadiness =
-		hasCurrentComputerPendingAgentProfileReadiness(input.recovery);
+	const reportedTarget =
+		input.computer.executionTargets.find(
+			(entry) =>
+				entry.deviceId === target?.deviceId &&
+				entry.runtimeLane === target.runtimeLane
+		) ?? null;
+	const selectedSession = computerFacts?.connection.sessions.find(
+		(entry) =>
+			entry.deviceId === target?.deviceId &&
+			entry.runtimeLane === target.runtimeLane
+	);
+	const selectedRecovery = {
+		...input.recovery,
+		selectedExecutionTarget: reportedTarget,
+	};
+	const selectedReadinessQuery = useQuery(
+		currentLocalRuntimeReplyReadinessQueryOptions({
+			storageScope: input.recovery.storageScope,
+			enabled: target !== null,
+			target: target
+				? { deviceId: target.deviceId, runtimeLane: target.runtimeLane }
+				: null,
+			refetchIntervalMs: 10_000,
+		}),
+		input.queryClient
+	);
 	const effectiveReplyReadiness =
-		resolveEffectiveSelectedComputerReplyReadiness({
-			hasAvailableAgentProfile,
-			hasPendingAgentProfileReadiness,
-			replyReadiness,
+		mapCurrentLocalRuntimeReplyReadinessQueryState({
+			isPending: target !== null && selectedReadinessQuery.isPending,
+			readiness: selectedReadinessQuery.isError
+				? null
+				: selectedReadinessQuery.data,
 		});
-	const currentLocalRuntimeReplyReadiness =
-		resolveSelectedCurrentLocalRuntimeReplyReadiness({
-			isCurrentComputer,
-			recovery: input.recovery,
-		});
+	const currentLocalRuntimeReplyReadiness = selectedReadinessQuery.isError
+		? null
+		: (selectedReadinessQuery.data ?? null);
 	const canManageComputerFileAccess =
-		input.computer.computerFileAccess?.readPolicy === true &&
-		input.computer.computerFileAccess.updatePolicy === true;
+		selectedSession?.controls?.computerFileAccess?.readPolicy === true &&
+		selectedSession.controls.computerFileAccess.updatePolicy === true;
 	return (
 		<div className="flex flex-col gap-4">
+			{environments.length > 1 ? (
+				<details
+					className="order-last space-y-3 rounded-md border p-4"
+					id="computer-connection-diagnostics"
+				>
+					<summary className="cursor-pointer text-muted-foreground text-sm">
+						Advanced connection details
+					</summary>
+					<p className="font-medium text-sm">Service connection</p>
+					<Select
+						onValueChange={setSelectedEnvironmentKey}
+						value={target ? computerEnvironmentKey(target) : ""}
+					>
+						<SelectTrigger
+							aria-label="Service connection"
+							displayValue={computerEnvironmentLabel(target, environments)}
+							placeholder="Choose a connection"
+						/>
+						<SelectContent>
+							{environments.map((entry, index) => (
+								<SelectItem
+									index={index}
+									key={computerEnvironmentKey(entry)}
+									value={computerEnvironmentKey(entry)}
+								>
+									{computerEnvironmentLabel(entry, environments)}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<p className="text-muted-foreground text-xs">
+						For troubleshooting: choose which Service connection to inspect on
+						this computer. This does not change an Agent’s computer.
+					</p>
+				</details>
+			) : null}
 			<OpenMeldServiceCard
 				computer={input.computer}
 				currentExpectedServiceVersion={
@@ -73,8 +148,9 @@ export function SelectedComputerPanel(input: {
 				}
 				currentLocalRuntimeReplyReadiness={currentLocalRuntimeReplyReadiness}
 				focusService={input.focusService}
-				isCurrentComputer={isCurrentComputer}
+				hasSelectedEnvironment={target !== null}
 				isReconcilingStatus={input.isReconcilingStatus}
+				key={`service/${target ? computerEnvironmentKey(target) : input.computer.deviceId}`}
 				onCheckingStatusChange={(checking) => {
 					const deviceId = input.computer.deviceId;
 					setCheckingComputerId((current) => {
@@ -87,34 +163,95 @@ export function SelectedComputerPanel(input: {
 				onFocusConsumed={input.onFocusConsumed}
 				organizationId={input.organizationId}
 				queryClient={input.queryClient}
-				recovery={input.recovery}
+				recovery={selectedRecovery}
 				replyReadiness={effectiveReplyReadiness}
 				setupCompleteRefreshPending={input.setupCompleteRefreshPending}
 			/>
 			<LocalAgentsCard
 				computer={input.computer}
-				isCurrentComputer={isCurrentComputer}
+				controlCapabilities={
+					selectedSession?.controls?.localAgentControl ?? {
+						refreshCatalog: false,
+						setEnabled: false,
+						setProfileWorkspace: false,
+					}
+				}
+				controlTarget={target}
+				hasSelectedEnvironment={target !== null}
 				isReconcilingStatus={
 					input.isReconcilingStatus ||
 					input.setupCompleteRefreshPending ||
 					checkingComputerId === input.computer.deviceId
 				}
-				recovery={input.recovery}
+				key={`local-agents/${target ? computerEnvironmentKey(target) : input.computer.deviceId}`}
+				recovery={selectedRecovery}
 				replyReadiness={effectiveReplyReadiness}
 			/>
-			{isCurrentComputer && canManageComputerFileAccess ? (
+			{target && canManageComputerFileAccess ? (
 				<ComputerFileAccessCard
 					canChooseFolders={
-						input.computer.localFolderPicker?.selectFolders === true
+						selectedSession?.controls?.localFolderPicker?.selectFolders === true
 					}
-					deviceId={input.computer.deviceId}
+					canChooseProjects={
+						selectedSession?.controls?.localProjectControl?.discoverProjects ===
+						true
+					}
+					deviceId={target.deviceId}
 					focusFileAccess={input.focusFileAccess}
+					key={`file-access/${computerEnvironmentKey(target)}`}
 					onFocusConsumed={input.onFocusConsumed}
+					runtimeLane={target.runtimeLane}
 					storageScope={input.recovery.storageScope}
 				/>
 			) : null}
 		</div>
 	);
+}
+
+function computerEnvironmentKey(target: PeopleComputerTarget) {
+	return `${target.deviceId}/${target.runtimeLane}`;
+}
+
+function selectComputerEnvironment(
+	environments: readonly PeopleComputerTarget[],
+	selectedKey: string | null,
+	liveConnections: readonly PeopleComputerTarget[] = []
+): PeopleComputerTarget | null {
+	const selected = environments.find(
+		(entry) => computerEnvironmentKey(entry) === selectedKey
+	);
+	if (selectedKey !== null) {
+		return selected ?? null;
+	}
+	// One live connection is an unambiguous management target, even when old
+	// device registrations have left historical reports behind. Never use a
+	// Binding preference or a historical ready report as connection evidence.
+	if (liveConnections.length === 1) {
+		const live = liveConnections[0];
+		return (
+			environments.find(
+				(entry) =>
+					entry.deviceId === live?.deviceId &&
+					entry.runtimeLane === live.runtimeLane
+			) ?? null
+		);
+	}
+	return (environments.length === 1 ? environments[0] : null) ?? null;
+}
+
+function computerEnvironmentLabel(
+	target: PeopleComputerTarget | null,
+	environments: readonly PeopleComputerTarget[]
+) {
+	if (!target) {
+		return undefined;
+	}
+	const label = formatRuntimeLane(target.runtimeLane);
+	return environments.filter(
+		(entry) => entry.runtimeLane === target.runtimeLane
+	).length > 1
+		? `${label} · ${target.deviceId.slice(-8)}`
+		: label;
 }
 
 type SetupCompleteRefreshStatus = "idle" | "pending" | "ready" | "error";
@@ -213,44 +350,4 @@ function isCurrentLocalRuntimeServiceUpdateRequired(
 		readiness?.localComponents.service.wakeBlocked === true ||
 		readiness?.primaryBlocker === "service_update_required"
 	);
-}
-
-function hasCurrentComputerAvailableAgentProfile(
-	recovery: LocalAgentRecoveryController
-): boolean {
-	return recovery.agentProfiles.some((profile) => {
-		const readiness = recovery.agentExecutionReadinessByProfileId.get(
-			profile.openMeldProfileId
-		);
-		if (!readiness) {
-			return false;
-		}
-		return readiness.agentWakeAvailability.category === "available";
-	});
-}
-
-function hasCurrentComputerPendingAgentProfileReadiness(
-	recovery: LocalAgentRecoveryController
-): boolean {
-	return (
-		recovery.agentProfilesQuery.isPending ||
-		recovery.agentProfiles.some((profile) =>
-			recovery.agentExecutionReadinessPendingProfileIds.has(
-				profile.openMeldProfileId
-			)
-		)
-	);
-}
-
-function resolveSelectedCurrentLocalRuntimeReplyReadiness(input: {
-	isCurrentComputer: boolean;
-	recovery: LocalAgentRecoveryController;
-}): CurrentLocalRuntimeReplyReadinessResponse | null {
-	if (!input.isCurrentComputer) {
-		return null;
-	}
-	if (input.recovery.currentLocalRuntimeReplyReadinessQuery.isPending) {
-		return null;
-	}
-	return input.recovery.currentLocalRuntimeReplyReadinessQuery.data ?? null;
 }

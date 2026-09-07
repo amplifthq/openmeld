@@ -700,6 +700,52 @@ describe("openmeld service commands", () => {
     });
   });
 
+  it("aligns an explicitly stopped installation with its newly prepared bundle", async () => {
+    await withTempHome(async () => {
+      await runDaemonInstall({ view: "agent", profile: HUMAN_PROFILE_ID });
+      const before = await readDaemonServiceContract();
+      prepareDaemonServiceBundleMock.mockResolvedValue({
+        ...(await prepareDaemonServiceBundleMock.mock.results[0]?.value),
+        bundleId: "rebuilt-service-bundle",
+      });
+      await runDaemonInstall({ view: "agent", profile: HUMAN_PROFILE_ID });
+      expect(await readDaemonServiceContract()).toMatchObject({
+        bundleId: "rebuilt-service-bundle",
+        desiredState: "stopped",
+        autoStart: false,
+        profileId: before?.profileId,
+        deviceId: before?.deviceId,
+        gatewayUrl: before?.gatewayUrl,
+      });
+    });
+  });
+
+  it.each([
+    "running",
+    "stale",
+    "unavailable",
+  ])("preserves the installation contract when runtime observation is %s", async (status) => {
+    await withTempHome(async () => {
+      await runDaemonInstall({ view: "agent", profile: HUMAN_PROFILE_ID });
+      const before = await readDaemonServiceContract();
+      prepareDaemonServiceBundleMock.mockResolvedValue({
+        ...(await prepareDaemonServiceBundleMock.mock.results[0]?.value),
+        bundleId: "rebuilt-service-bundle",
+      });
+      if (status === "unavailable") {
+        readCurrentObservedDaemonRuntimeStatusMock.mockRejectedValue(
+          new Error("observation unavailable")
+        );
+      } else {
+        readCurrentObservedDaemonRuntimeStatusMock.mockResolvedValue({
+          status,
+        });
+      }
+      await runDaemonInstall({ view: "agent", profile: HUMAN_PROFILE_ID });
+      expect(await readDaemonServiceContract()).toEqual(before);
+    });
+  });
+
   it("runs reinstall flow with explicit background restore", async () => {
     inspectDaemonServiceInventoryMock.mockResolvedValue(
       createAlignedRunningDaemonServiceInventory({
