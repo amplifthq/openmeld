@@ -88,8 +88,8 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 							<LocalAgentLogoStack compact />
 						</div>
 						<p className="text-muted-foreground text-xs">
-							Runs on a connected computer using tools like Codex or Claude
-							Code.
+							Runs on a connected computer with an agent harness like Codex or
+							Claude Code.
 						</p>
 					</div>
 				</div>
