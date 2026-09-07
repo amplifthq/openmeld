@@ -153,5 +153,5 @@ function formatWakeTargetName(targetLabel: string): string {
 	const normalized = targetLabel
 		.trim()
 		.replace(LEADING_MENTION_MARKER_PATTERN, "");
-	return normalized || "Agent";
+	return normalized && !normalized.startsWith("agt_") ? normalized : "Agent";
 }
