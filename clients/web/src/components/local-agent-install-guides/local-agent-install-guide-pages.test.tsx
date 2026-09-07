@@ -52,8 +52,8 @@ describe("LocalAgentInstallGuideIndexPage", () => {
 			expect.stringContaining("Codex"),
 			expect.stringContaining("Claude Code"),
 			expect.stringContaining("Grok Build"),
-			expect.stringContaining("Cursor CLI"),
 			expect.stringContaining("OpenCode"),
+			expect.stringContaining("Cursor CLI"),
 		]);
 		expect(
 			guideGrid.querySelector('[data-testid="local-agent-logo-grok-build"]')

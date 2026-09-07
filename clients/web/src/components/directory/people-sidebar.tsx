@@ -25,6 +25,7 @@ import {
 import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
+import { SidebarListSkeleton } from "../app/sidebar-list-skeleton";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
@@ -68,6 +69,10 @@ export function PeopleSidebar(input: {
 		input.members.find((m) => m.isCurrentUser)?.id ?? currentUserId;
 	const sidebar = useSidebarPreferences(viewerId, currentOrganization.id);
 	const preferences = sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR;
+	const loading =
+		input.loading ||
+		sidebar.isPending ||
+		input.members.some((member) => member.computer.state === "checking");
 	const [search, setSearch] = useState("");
 	const [filter, setFilter] = useState<PeopleFilter>("all");
 	const [recentlyActive, setRecentlyActive] = useState(false);
@@ -364,7 +369,7 @@ export function PeopleSidebar(input: {
 			<AppContextualSidebarNav
 				activeItemId={input.selectedProfileId}
 				ariaLabel="People"
-				groups={input.loading || input.error ? [] : groups}
+				groups={loading || input.error ? [] : groups}
 				leadingContent={
 					<>
 						<div className="flex items-center gap-1 px-1">
@@ -449,13 +454,11 @@ export function PeopleSidebar(input: {
 								Retry sidebar settings
 							</Button>
 						)}
-						{input.loading && (
-							<p className="px-2 py-3 text-muted-foreground text-xs">
-								Loading people…
-							</p>
+						{loading && (
+							<SidebarListSkeleton label="Loading people" showPreview />
 						)}
 						{!(
-							input.loading ||
+							loading ||
 							input.error ||
 							sections.some(
 								(section) =>

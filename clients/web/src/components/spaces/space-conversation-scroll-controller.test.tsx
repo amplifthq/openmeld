@@ -4,6 +4,7 @@ import { SpaceConversationSendScrollController } from "./space-conversation-scro
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 
 const scrollToEndMock = vi.hoisted(() => vi.fn());
+const onSendStart = vi.fn();
 
 vi.mock("@shadcn/react/message-scroller", () => ({
 	useMessageScroller: () => ({
@@ -14,28 +15,45 @@ vi.mock("@shadcn/react/message-scroller", () => ({
 describe("SpaceConversationSendScrollController", () => {
 	beforeEach(() => {
 		scrollToEndMock.mockReset();
+		onSendStart.mockReset();
 	});
 
 	it("returns to the live edge when a send starts", () => {
 		const view = render(
-			<SpaceConversationSendScrollController isSendingMessage={false} />
+			<SpaceConversationSendScrollController
+				isSendingMessage={false}
+				onSendStart={onSendStart}
+			/>
 		);
 
 		view.rerender(
-			<SpaceConversationSendScrollController isSendingMessage={true} />
+			<SpaceConversationSendScrollController
+				isSendingMessage={true}
+				onSendStart={onSendStart}
+			/>
 		);
 		view.rerender(
-			<SpaceConversationSendScrollController isSendingMessage={true} />
+			<SpaceConversationSendScrollController
+				isSendingMessage={true}
+				onSendStart={onSendStart}
+			/>
 		);
 
 		expect(scrollToEndMock).toHaveBeenCalledTimes(1);
+		expect(onSendStart).toHaveBeenCalledTimes(1);
 		expect(scrollToEndMock).toHaveBeenCalledWith({ behavior: "auto" });
 	});
 
 	it("does not override a restored position for an already pending send", () => {
-		render(<SpaceConversationSendScrollController isSendingMessage={true} />);
+		render(
+			<SpaceConversationSendScrollController
+				isSendingMessage={true}
+				onSendStart={onSendStart}
+			/>
+		);
 
 		expect(scrollToEndMock).not.toHaveBeenCalled();
+		expect(onSendStart).not.toHaveBeenCalled();
 	});
 });
 

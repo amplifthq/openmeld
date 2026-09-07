@@ -118,7 +118,10 @@ import {
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 } from "./space-message-bubble-style";
-import { copySpaceTimelineItemWithFeedback } from "./space-message-copy";
+import {
+	copySpaceTimelineItemWithFeedback,
+	isSpaceMessageCopyPending,
+} from "./space-message-copy";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
 import {
@@ -1603,6 +1606,7 @@ function ThreadTimelineMessageFooter(input: {
 		<SpaceMessageFooter
 			addressingTargets={input.addressingTargets}
 			align={input.align}
+			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={details}
 			failureSummary={input.failureSummary}
 			onCopy={() =>

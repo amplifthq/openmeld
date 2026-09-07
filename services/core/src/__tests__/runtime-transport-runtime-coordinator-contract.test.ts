@@ -1388,6 +1388,17 @@ const createHarness = (input?: {
     state: RuntimeTransportMutableState;
   };
   Object.defineProperty(hub, "state", { value: state });
+  Object.defineProperties(hub, {
+    pendingAgentReadinessInvalidationsByReason: {
+      value: new Map(),
+      writable: true,
+    },
+    pendingWakeProgressInvalidationsBySpaceId: {
+      value: new Map(),
+      writable: true,
+    },
+    liveInvalidationFlushTimer: { value: null, writable: true },
+  });
   Object.defineProperty(hub, "env", {
     value: {
       OPENMELD_AUTH_WORKER: {

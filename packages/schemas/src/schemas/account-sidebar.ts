@@ -126,6 +126,14 @@ export const accountSidebarPreferencesSchema =
       .optional(),
     people: peopleSidebarPreferencesSchema.optional(),
     messages: spaceSidebarPreferencesSchema.optional(),
+    chats: spaceSidebarPreferencesSchema
+      .safeExtend({
+        archivedIds: spaceIdsSchema.default([]),
+        titles: z
+          .record(z.string().min(1).max(200), z.string().trim().min(1).max(160))
+          .default({}),
+      })
+      .optional(),
   });
 
 export const accountSidebarSnapshotSchema = z.object({

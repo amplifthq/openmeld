@@ -5,6 +5,17 @@ import {
 } from "./center-agent-route-search";
 
 describe("Center Agent route search", () => {
+	it("keeps local drafts distinct from persisted sessions", () => {
+		expect(parseCenterAgentRouteSearch({ draft: "new" })).toEqual({
+			draft: "new",
+		});
+		expect(() =>
+			parseCenterAgentRouteSearch({ draft: "new", session: "saved" })
+		).toThrow("both");
+		expect(() =>
+			parseCenterAgentRouteSearch({ draft: "new", group: "invalid" })
+		).toThrow("invalid");
+	});
 	it("keeps an exact session even when an unrelated legacy search field is invalid", () => {
 		expect(
 			parseCenterAgentRouteSearch({ session: "session-2", view: "manage" })

@@ -143,6 +143,15 @@ export const organizationDirectoryResponseSchema = z.strictObject({
   agentProfiles: z.array(organizationDirectoryAgentProfileSchema),
 });
 
+// Model-facing page of the authorized Core directory, without changing the
+// full Web/CLI/RPC response or dropping fields from individual records.
+export const centerAgentOrganizationDirectoryPageSchema =
+  organizationDirectoryResponseSchema.extend({
+    nextCursor: z.string().min(1).max(1024).nullable(),
+    totalMembers: z.number().int().nonnegative(),
+    totalAgentProfiles: z.number().int().nonnegative(),
+  });
+
 export const organizationMemberWebActivityResponseSchema = z.strictObject({
   lastActiveAt: ISO_DATE_TIME_SCHEMA,
   organizationId: trimmedNonEmptyStringSchema,

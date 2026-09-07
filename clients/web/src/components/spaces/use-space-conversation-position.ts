@@ -75,6 +75,7 @@ export function useSpaceConversationPosition(input: {
 	const shouldRestore =
 		!input.hasExplicitFocus && Boolean(rememberedPosition || routerEntry);
 	const saveRef = useRef<() => void>(() => undefined);
+	const releaseRef = useRef<() => void>(() => undefined);
 	const loadingRef = useRef(false);
 	const releasedKeyRef = useRef<string | null>(null);
 	const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -167,6 +168,7 @@ export function useSpaceConversationPosition(input: {
 			releasedKeyRef.current = positionKey;
 			ready = !input.historyIsPending;
 		};
+		releaseRef.current = release;
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (
 				[
@@ -205,6 +207,7 @@ export function useSpaceConversationPosition(input: {
 			viewport.removeEventListener("keydown", onKeyDown);
 			window.removeEventListener("pagehide", save);
 			saveRef.current = () => undefined;
+			releaseRef.current = () => undefined;
 		};
 	}, [
 		input.viewport,
@@ -233,7 +236,12 @@ export function useSpaceConversationPosition(input: {
 		},
 		[positionKey]
 	);
+	const followLatest = useCallback(() => {
+		releaseRef.current();
+		setFollowingViewport(input.viewport);
+	}, [input.viewport]);
 	return {
+		followLatest,
 		autoScroll:
 			!shouldRestore ||
 			(input.viewport !== null && followingViewport === input.viewport),

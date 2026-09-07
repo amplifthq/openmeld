@@ -48,17 +48,48 @@ conversation is displayed, view navigation pins its resolved Space ID in the
 URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
-The conversation header provides New chat and Chats using the existing header
-controls. Creation retains its idempotency key across an uncertain failure;
-successful creation opens the exact returned session. Chats reads the bounded,
-current-member session list and follows its opaque pagination cursor. Selecting
-an item uses the same exact route validation as a direct link. List cache keys
-include the Organization and Human Profile. Generic Space management remains
-restricted; dedicated session rename, archive and deletion are not exposed.
+Home places Center Agent chats in the Main Sidebar, reusing destination search
+and filters, collapsible groups, group actions and whole-row drag ordering.
+Pinned chats appear once; unpin restores their original group. Empty built-in
+sections are omitted. User-created groups remain visible with the same compact
+empty-state treatment as Spaces. A New chat entry remains available when no
+sections are visible. The old header New chat/Chats dropdown is removed.
 
-These controls still require real browser acceptance. Shared Computer safety,
-execution steering and release continuity remain required before treating the
-Flue 2 candidate as a release-ready session product.
+New chat opens a local `?draft=new` composer without creating a session or
+waiting for a session-list request. The first send creates the session and
+hands its message to the existing Space composer. Creation identity survives
+uncertain failures and same-tab reloads until navigation succeeds. Draft text
+uses the account/Organization composer store. A `group` selector places the
+new chat in that group if it still exists. Explicit draft and session selectors
+cannot be combined. Existing-session loading and pending sends share one
+conversation skeleton inside the inset app frame.
+
+Drafts and saved chats use the same header navigation and welcome template.
+Management tabs retain the session or draft selector when navigating back.
+Messages, Graph and Files remain scoped to that conversation; management tabs
+remain Organization-scoped. A draft has empty Graph and Files views until sent.
+The header pencil edits a personal chat title, including before the first send.
+Draft titles persist alongside draft text. First-send naming uses a manual title
+when present, otherwise the first message or attachment name. It does not run
+an asynchronous model-title job or overwrite a manual name.
+
+The authorized session index supplies chat identities and paginated discovery.
+Pages render progressively; title search covers all loaded pages while older
+pages continue loading with visible progress. Personal titles, archive state,
+pinning, groups and order live in the account/Organization sidebar preferences.
+The same personal title is rendered in the conversation header. These preferences
+are presentation only: archive hides a chat from the normal list, Unarchive returns
+it, and neither changes membership, execution or history. Generic Space
+management remains restricted; permanent deletion is not exposed.
+Archived chats can be found through either Home's filter or a chat group's
+settings menu. Both controls share one filter state and the Archived badge.
+
+Contract impact: the shared account-sidebar payload adds an optional `chats`
+namespace. Auth preserves it when older clients omit it and uses the existing
+revision check for concurrent writes. Deploy the updated Auth before Web; old
+Auth does not retain this namespace. Core/Gateway session contracts, CLI,
+Service, Skills, setup, Wake dispatch and diagnostic protocols are unchanged.
+No local-component floor or runtime contract bump is required.
 
 ### Plugins
 
@@ -2641,8 +2672,22 @@ restored across refresh in the MVP.
 
 The send path takes an immutable snapshot of the current submission, clears that
 draft once, and immediately leaves the Composer available for the next draft.
+For main and Thread composers, this local feedback happens before entry
+confirmation, status refresh, current Wakeability reads, or file publication.
+The pending source and intended Wake presentation use the same client message
+identity throughout admission, publication, retry, and reconciliation. Local
+attachment previews cannot open Files or request file content until publication
+returns canonical references. Server admission remains authoritative; local
+feedback grants no permission and proves no delivery or execution.
+An explicit send releases any restored reading-position anchor before scrolling
+to the latest message; history or layout updates must not pull the new message
+out of view. Restoring a page with an already pending send does not itself
+override the member's reading position.
 The next draft cannot send until the current request has a safe outcome, and
 neither a success callback nor a projection refresh may clear or overwrite it.
+After acceptance, projection refreshes run in the background and do not hold
+the send lock. A failed preflight is definitely unsent; only a publication
+request that actually started can have an unknown delivery outcome.
 When a definitive unsent failure returns and no next draft exists, Web restores
 the failed submission to the Composer. When the member has already started the
 next draft, Web preserves that draft and keeps the failed submission visibly
@@ -3509,9 +3554,11 @@ An existing or restored Wake draft remains a Wake while the user edits it; Web
 does not silently downgrade the authored relation. Before every send path that
 would create a new Wake, Web reads the current Core-owned Wakeability and blocks
 before publishing the message or any Composer Upload when the Agent is not
-currently ready or the read cannot be completed. The Composer stays editable,
-the draft stays intact, and Reference authoring and ordinary text input remain
-available.
+currently ready or the read cannot be completed. Local optimistic feedback
+precedes this check. Rejection restores the submitted draft if no next draft
+exists; otherwise it preserves the next draft and marks the local message as
+unsent. The Composer stays editable, and Reference authoring and ordinary text
+input remain available.
 
 The Composer member picker reuses the shared Fluid layout indicator for its
 active row. Pointer hover and combobox keyboard navigation update that one
