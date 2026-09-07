@@ -407,7 +407,7 @@ export function DirectoryIdentityAccountSummary(input: {
 				className={cn(
 					input.context === "card" ? "size-5 rounded-sm" : null,
 					input.context === "sidebar"
-						? "size-3.5 rounded-[3px] border-0 bg-transparent p-0 shadow-none"
+						? "size-3 rounded-[3px] border-0 bg-transparent p-0 shadow-none"
 						: null
 				)}
 				muted={input.account.state !== "connected"}
