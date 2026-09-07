@@ -7,5 +7,6 @@ audiences: ["users"]
 ---
 
 Agent replies and working indicators keep readable names instead of showing
-internal Profile IDs. Spaces also recover member names affected by this issue
-when their member directory or active work is read.
+internal Profile IDs. Member lists, working indicators, and new replies reflect
+the current Agent name; older messages keep the name used when they were posted.
+Old activity and reconnected sessions no longer replace a member's current name.

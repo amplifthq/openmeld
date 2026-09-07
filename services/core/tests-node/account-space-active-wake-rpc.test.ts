@@ -179,6 +179,29 @@ describe("account Space active Wake summary RPC", () => {
           },
         ],
       });
+      const renamedEnv = {
+        ...env,
+        OPENMELD_AUTH_WORKER: {
+          resolveProfileById: async () => ({
+            ok: true,
+            profile: {
+              profileId: deletedProfileId,
+              profileKind: "agent",
+              profileName: "Renamed Agent",
+              profileHandle: "renamed-agent",
+              ownerUserId: "owner-clico",
+              status: "active",
+            },
+          }),
+        },
+      } as unknown as CoreBindings;
+      const renamed = await rpcListAccountSpaceActiveWakeSummary(renamedEnv, {
+        ownerUserId: "owner-viewer",
+        selectedProfileId: "viewer-profile",
+      });
+      expect(renamed.items[0]?.activeTargets?.[0]?.profileName).toBe(
+        "Renamed Agent"
+      );
     } finally {
       harness.close();
     }

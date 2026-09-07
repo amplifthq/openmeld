@@ -4860,17 +4860,22 @@ ids, or reinterpret `readOnly` as permission to mutate local state.
 
 ## Space Member Contracts
 
-Space member names are persisted display snapshots, not Profile identity
-authority. Missing names and legacy Profile-ID placeholders must not overwrite
-a known name during Signal or session backfill. Publication keeps a valid
-member snapshot and rejects caller-reported names; when that snapshot is absent
-or an ID placeholder, Core resolves the matching Profile through Auth's
-`resolveProfileById` contract. Authorized member-directory and active-Wake
-reads repair damaged active-member names through the same contract and the
-Space-owned writer, then update the existing Space Index projection outbox.
-Recovery preserves membership, ownership, removal, aliases and historical
-Signals. It re-reads the member after the Auth call so concurrent removal or
-successful repair wins. Failed or mismatched identity reads do not write names.
+Auth owns current Profile names. Space member names are persisted display
+snapshots, not a second identity authority. Historical Signals and existing
+sessions must never rename an existing member, even when their names are
+nonempty. They can initialize a missing member's historical snapshot only.
+Agent publication, including WebSocket writes, resolves the matching Profile
+through Auth's `resolveProfileById` contract and rejects caller-reported names.
+New Signals freeze the name resolved at publication; existing Signals are never
+rewritten by a Profile rename. Authorized member-directory and active-Wake reads
+refresh active-member names through the Space-owned writer and existing Space
+Index projection outbox. Account working summaries resolve each distinct active
+Agent through Auth, without making the cross-Space index a membership writer.
+Refresh preserves membership, ownership, removal and aliases. It re-reads the
+member after the Auth call so a concurrent removal or changed name wins. Failed
+or mismatched identity reads do not write names: the last known snapshot remains
+available so a display-name lookup outage does not block reply publication.
+Active work prefers the refreshed name over the dispatch's historical label.
 Web treats old ID-valued progress labels as unnamed Agents during rollout.
 These corrections change no HTTP/RPC schema or local-component contract.
 

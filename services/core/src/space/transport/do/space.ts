@@ -443,8 +443,8 @@ import {
   readSpaceMemberNameFromAuth,
   recordSpaceMemberWebActivityUseCase,
   refreshSpaceMemberNameSnapshot,
+  refreshSpaceMemberNamesFromAuth,
   removeSpaceMembersUseCase,
-  repairSpaceMemberNameSnapshots,
   SpaceMembersUseCaseError,
   upsertJoinedSpaceMember,
   upsertSpaceCreatorMember,
@@ -991,7 +991,7 @@ function mergePublishedOriginFactsIntoAuthorProfile(
   }
 
   // Both the posted Profile and context can carry reported names. Only the
-  // Space snapshot (repaired through Auth when missing) supplies this field.
+  // Auth-refreshed Space snapshot supplies this field.
   const publishedAuthor: Profile = {
     ...author,
     profileName: memberProfileName ?? undefined,
@@ -4257,21 +4257,21 @@ export class Space extends DurableObject<CoreBindings> {
     let name = this.resolveSpaceMemberProfileNameForPublication(
       author.profileId
     );
-    if (
-      author.kind === "agent" &&
-      !normalizeSpaceMemberNameSnapshot(author.profileId, name)
-    ) {
-      name = await readSpaceMemberNameFromAuth({
+    if (author.kind === "agent") {
+      const previousName = name;
+      const currentName = await readSpaceMemberNameFromAuth({
         env: this.bindings,
         profileId: author.profileId,
         profileKind: "agent",
       });
-      // Preserve a valid snapshot restored while Auth was being read.
+      // A concurrent identity refresh wins over an older in-flight read.
+      const latestName = this.resolveSpaceMemberProfileNameForPublication(
+        author.profileId
+      );
       name =
-        normalizeSpaceMemberNameSnapshot(
-          author.profileId,
-          this.resolveSpaceMemberProfileNameForPublication(author.profileId)
-        ) ?? name;
+        latestName !== previousName
+          ? latestName
+          : (currentName ?? previousName);
       if (
         name &&
         refreshSpaceMemberNameSnapshot({
@@ -4290,7 +4290,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
 
-  private async repairMemberNameSnapshots(): Promise<void> {
+  private async refreshMemberNamesFromAuth(): Promise<void> {
     ensureSpaceMembersBackfilled({
       sql: this.ctx.storage.sql,
       spaceId: this.spaceId,
@@ -4298,7 +4298,7 @@ export class Space extends DurableObject<CoreBindings> {
       metaRecord: this.readSpaceMetaRecord(),
     });
     if (
-      await repairSpaceMemberNameSnapshots({
+      await refreshSpaceMemberNamesFromAuth({
         sql: this.ctx.storage.sql,
         env: this.bindings,
       })
@@ -10501,7 +10501,7 @@ export class Space extends DurableObject<CoreBindings> {
       await handleWebSocketTextSignal({
         webSocket,
         session,
-        profile,
+        profile: await this.mergePublishedAuthorProfile(profile, profile),
         payload,
         buildTextSignal: this.buildTextSignal.bind(this),
         publishTextSignal: this.publishTextSignal.bind(this),
@@ -11564,7 +11564,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     await this.ensureAgentOwnerMembershipPolicy(metaRecord);
-    await this.repairMemberNameSnapshots();
+    await this.refreshMemberNamesFromAuth();
 
     const parsed = getSpaceStatusInputSchema.safeParse({
       spaceId: this.spaceId,
@@ -11742,7 +11742,7 @@ export class Space extends DurableObject<CoreBindings> {
 
     await this.ensureAgentOwnerMembershipPolicy(metaRecord);
 
-    await this.repairMemberNameSnapshots();
+    await this.refreshMemberNamesFromAuth();
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: this.ctx.storage.sql,
       env: this.bindings,
@@ -11896,7 +11896,7 @@ export class Space extends DurableObject<CoreBindings> {
       return this.spaceNotFoundResponse();
     }
 
-    await this.repairMemberNameSnapshots();
+    await this.refreshMemberNamesFromAuth();
     const directory = listSpaceIdentityDirectoryUseCase({
       sql: this.ctx.storage.sql,
       spaceId: this.spaceId,
@@ -11912,7 +11912,7 @@ export class Space extends DurableObject<CoreBindings> {
       return this.spaceNotFoundResponse();
     }
 
-    await this.repairMemberNameSnapshots();
+    await this.refreshMemberNamesFromAuth();
     const directory = listSpaceMemberDirectoryUseCase({
       sql: this.ctx.storage.sql,
       spaceId: this.spaceId,
@@ -16121,7 +16121,7 @@ export class Space extends DurableObject<CoreBindings> {
     sourceProfileId?: string;
     targetProfileId?: string;
   }): Promise<GetActiveSpaceWakeProgressResponse> {
-    await this.repairMemberNameSnapshots();
+    await this.refreshMemberNamesFromAuth();
     const targetProfileId = normalizeOptionalText(input.targetProfileId);
     const sourceProfileId = normalizeOptionalText(input.sourceProfileId);
     const useFastSummary = input.includeWakeStopEligibility !== true;
@@ -18211,7 +18211,7 @@ function resolveWakeProgressTargetLabel(input: {
   return formatWakeProgressTargetLabel(
     normalizeSpaceMemberNameSnapshot(
       input.targetProfileId,
-      outboxRecord?.targetProfileMentionLabel
+      member?.profileNameSnapshot
     ) ??
       normalizeSpaceMemberNameSnapshot(
         input.targetProfileId,
@@ -18219,7 +18219,7 @@ function resolveWakeProgressTargetLabel(input: {
       ) ??
       normalizeSpaceMemberNameSnapshot(
         input.targetProfileId,
-        member?.profileNameSnapshot
+        outboxRecord?.targetProfileMentionLabel
       ) ??
       "Agent"
   );

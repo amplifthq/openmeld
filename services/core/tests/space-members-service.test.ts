@@ -13,13 +13,16 @@ import {
   listSpaceMemberDirectoryUseCase,
   listSpaceMembersSnapshotUseCase,
   readSpaceStatusMembersSummaryUseCase,
+  refreshSpaceMemberNamesFromAuth,
   removeSpaceMembersUseCase,
-  repairSpaceMemberNameSnapshots,
   type SpaceMembersUseCaseError,
   upsertJoinedSpaceMember,
   upsertSpaceCreatorMember,
 } from "../src/space/application/space-members-service";
-import { upsertSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
+import {
+  readSpaceMemberRecord,
+  upsertSpaceMemberRecord,
+} from "../src/space/infrastructure/sql/space-member-repo";
 import type { SpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 
 type SqlRow = Record<string, SqlStorageValue>;
@@ -1290,13 +1293,17 @@ describe("space-members-service", () => {
     expect(JSON.stringify(directory)).toContain("Amplift Center Agent");
   });
 
-  it("repairs a legacy ID name from Auth once and preserves it through old activity", async () => {
+  it("refreshes an Auth rename and preserves it through old activity and sessions", async () => {
     const sql = new MutableSqlStorage();
     const profileId = "agt_repair_name";
     upsertJoinedSpaceMember({
       sql: sql as unknown as SqlStorage,
       spaceId: "repair-name",
-      profile: { kind: "agent", profileId },
+      profile: {
+        kind: "agent",
+        profileId,
+        profileName: "Previous Center Agent",
+      },
     });
     const resolveProfileById = vi.fn(() =>
       Promise.resolve({
@@ -1317,30 +1324,55 @@ describe("space-members-service", () => {
         OPENMELD_AUTH_WORKER: { resolveProfileById },
       } as unknown as CoreBindings,
     };
-    expect(await repairSpaceMemberNameSnapshots(input)).toBe(true);
+    expect(await refreshSpaceMemberNamesFromAuth(input)).toBe(true);
     sql.seedSignal(
       createTextSignal({
         signalId: "old-id-name",
         spaceId: "repair-name",
         ts: "2026-09-07T11:00:00.000Z",
-        profile: { kind: "agent", profileId, profileName: profileId },
+        profile: {
+          kind: "agent",
+          profileId,
+          profileName: "Previous Center Agent",
+        },
         text: "Earlier reply",
       })
     );
     const directory = listSpaceMemberDirectoryUseCase({
       sql: input.sql,
       spaceId: "repair-name",
-      liveSessions: [],
+      liveSessions: [
+        {
+          profile: {
+            kind: "agent",
+            profileId,
+            profileName: "Previous Center Agent",
+          },
+        },
+      ],
     });
     expect(JSON.stringify(directory)).toContain("Amplift Center Agent");
-    expect(await repairSpaceMemberNameSnapshots(input)).toBe(false);
-    expect(resolveProfileById).toHaveBeenCalledTimes(1);
+    expect(await refreshSpaceMemberNamesFromAuth(input)).toBe(false);
+    expect(resolveProfileById).toHaveBeenCalledTimes(2);
+    upsertJoinedSpaceMember({
+      sql: input.sql,
+      spaceId: "repair-name",
+      profile: {
+        kind: "agent",
+        profileId,
+        profileName: "Previous Center Agent",
+      },
+    });
+    expect(
+      readSpaceMemberRecord(input.sql, profileId)?.profileNameSnapshot
+    ).toBe("Amplift Center Agent");
   });
 
   it.each([
     "mismatch",
     "unavailable",
     "removed",
+    "concurrent rename",
   ])("does not repair from %s identity evidence", async (scenario) => {
     const sql = new MutableSqlStorage();
     const profileId = "agt_repair_rejected";
@@ -1362,6 +1394,12 @@ describe("space-members-service", () => {
           status: "removed",
         });
       }
+      if (scenario === "concurrent rename") {
+        upsertSpaceMemberRecord(sql as unknown as SqlStorage, {
+          ...member,
+          profileNameSnapshot: "Newer Auth Name",
+        });
+      }
       return Promise.resolve({
         ok: true,
         profile: {
@@ -1375,13 +1413,19 @@ describe("space-members-service", () => {
       });
     });
     expect(
-      await repairSpaceMemberNameSnapshots({
+      await refreshSpaceMemberNamesFromAuth({
         sql: sql as unknown as SqlStorage,
         env: {
           OPENMELD_AUTH_WORKER: { resolveProfileById },
         } as unknown as CoreBindings,
       })
     ).toBe(false);
+    if (scenario === "concurrent rename") {
+      expect(
+        readSpaceMemberRecord(sql as unknown as SqlStorage, profileId)
+          ?.profileNameSnapshot
+      ).toBe("Newer Auth Name");
+    }
   });
 
   it("reads stored signals once when building a members snapshot", async () => {

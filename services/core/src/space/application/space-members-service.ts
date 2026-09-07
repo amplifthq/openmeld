@@ -229,7 +229,11 @@ export const upsertJoinedSpaceMember = (input: {
     existing,
     existingProfileSnapshot: existing,
     spaceId: input.spaceId,
-    profile: normalizedProfile,
+    profile: {
+      ...normalizedProfile,
+      profileName:
+        existing?.profileNameSnapshot ?? normalizedProfile.profileName,
+    },
     nowIso,
     defaultSource: "joined_directly",
     defaultAddedAt: nowIso,
@@ -1578,10 +1582,8 @@ function mergeBackfilledMemberRecord(input: {
   return {
     ...input.existing,
     profileKindSnapshot: input.discovered.profileKindSnapshot,
-    profileNameSnapshot: resolveMergedProfileNameSnapshot({
-      existing: input.existing,
-      discovered: input.discovered,
-    }),
+    // Historical activity cannot rename an existing member.
+    profileNameSnapshot: input.existing.profileNameSnapshot,
     ownerUserIdSnapshot:
       input.discovered.ownerUserIdSnapshot ??
       input.existing.ownerUserIdSnapshot,
@@ -1640,7 +1642,7 @@ export function refreshSpaceMemberNameSnapshot(input: {
   return true;
 }
 
-export async function repairSpaceMemberNameSnapshots(input: {
+export async function refreshSpaceMemberNamesFromAuth(input: {
   sql: SqlStorage;
   env: CoreBindings;
 }): Promise<boolean> {
@@ -1650,42 +1652,37 @@ export async function repairSpaceMemberNameSnapshots(input: {
   }
   const members = listSpaceMemberRecords(input.sql, {
     status: "active",
-  }).filter(
-    (member) =>
-      !normalizeSpaceMemberNameSnapshot(
-        member.profileId,
-        member.profileNameSnapshot
-      )
-  );
+  });
   let changed = false;
-  // Only damaged snapshots need an identity read; healthy Spaces do no RPCs.
-  for (const member of members) {
-    const name = await readSpaceMemberNameFromAuth({
-      env: input.env,
-      profileId: member.profileId,
-      profileKind: member.profileKindSnapshot,
-    });
-    if (!name) {
-      continue;
-    }
-    // Re-read after the Auth RPC: a concurrent rename or removal wins.
-    const current = readSpaceMemberRecord(input.sql, member.profileId);
-    if (
-      !current ||
-      current.status !== "active" ||
-      normalizeSpaceMemberNameSnapshot(
-        current.profileId,
-        current.profileNameSnapshot
-      )
-    ) {
-      continue;
-    }
-    changed =
-      refreshSpaceMemberNameSnapshot({
-        sql: input.sql,
-        profileId: member.profileId,
-        profileName: name,
-      }) || changed;
+  // A nonempty snapshot can still predate an Auth rename.
+  for (let offset = 0; offset < members.length; offset += 8) {
+    const refreshed = await Promise.all(
+      members.slice(offset, offset + 8).map(async (member) => {
+        const name = await readSpaceMemberNameFromAuth({
+          env: input.env,
+          profileId: member.profileId,
+          profileKind: member.profileKindSnapshot,
+        });
+        if (!name) {
+          return false;
+        }
+        // Re-read after the Auth RPC: a concurrent rename or removal wins.
+        const current = readSpaceMemberRecord(input.sql, member.profileId);
+        if (
+          !current ||
+          current.status !== "active" ||
+          current.profileNameSnapshot !== member.profileNameSnapshot
+        ) {
+          return false;
+        }
+        return refreshSpaceMemberNameSnapshot({
+          sql: input.sql,
+          profileId: member.profileId,
+          profileName: name,
+        });
+      })
+    );
+    changed = refreshed.some(Boolean) || changed;
   }
   return changed;
 }
@@ -1723,21 +1720,6 @@ export async function readSpaceMemberNameFromAuth(input: {
     });
     return null;
   }
-}
-
-function resolveMergedProfileNameSnapshot(input: {
-  existing: SpaceMemberRecord;
-  discovered: SpaceMemberRecord;
-}): string {
-  if (input.discovered.memberSource === "backfilled") {
-    return input.existing.profileNameSnapshot;
-  }
-  return (
-    normalizeSpaceMemberNameSnapshot(
-      input.discovered.profileId,
-      input.discovered.profileNameSnapshot
-    ) ?? input.existing.profileNameSnapshot
-  );
 }
 
 function shouldPromoteMemberSource(input: {
