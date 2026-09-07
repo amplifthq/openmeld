@@ -1,5 +1,18 @@
 # Native delivery control identity
 
+## Agent Context
+
+- Purpose: Record the contract impact of the native-delivery identity correction.
+- Read this when: Reviewing or releasing the first personal Remote Agent prerequisite.
+- Update this when: Its compatibility or validation evidence changes.
+- Do not use this for: Personal Remote Agent creation or authorization policy.
+- Source of truth: The implementation and remote-agent-runtime.md own behavior;
+  this file records the scoped release audit.
+
+Status: Implemented; awaiting merge and release.
+Remove this document after the correction is released and its evidence is
+preserved in the merged PR.
+
 ## Scope
 
 This first personal Remote Agent prerequisite changes only Core's use of
