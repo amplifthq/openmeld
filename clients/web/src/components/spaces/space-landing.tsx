@@ -121,7 +121,7 @@ import { SpaceComposer } from "./space-composer";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import { SpaceFilesPanel } from "./space-files-panel";
-import { SpaceHeader } from "./space-header";
+import { SpaceHeader, SpaceLiveStatusIndicator } from "./space-header";
 import {
 	isSameOwnerUserId,
 	resolveCurrentSpaceProfileOwnerUserId,
@@ -1807,6 +1807,40 @@ function SpaceLandingReady({
 	);
 }
 
+function SpaceCanvasHeader(input: {
+	controller: ReadySpaceLandingController;
+	controls: ReturnType<typeof resolveCurrentSpaceControls>;
+	ownerVisibilityLabel: string | null;
+	membersControl: ReactNode;
+}) {
+	return (
+		<div className="flex w-full items-center justify-end gap-2 px-2">
+			{input.ownerVisibilityLabel && (
+				<span className="mr-auto text-muted-foreground text-xs">
+					{input.ownerVisibilityLabel}
+				</span>
+			)}
+			<SpaceLiveStatusIndicator
+				liveErrorMessage={input.controller.liveErrorMessage}
+				liveState={input.controller.liveState}
+				onReconnectNow={input.controller.onReconnectLiveUpdates}
+			/>
+			{(input.controls.onAddProfiles ||
+				input.controls.onAddOrganizationDirectoryProfiles ||
+				input.controls.onConvertDirectMessageToSpace) && (
+				<Button
+					onClick={input.controls.onAddAgentsFromBanner}
+					size="sm"
+					variant="ghost"
+				>
+					Add people or Agents
+				</Button>
+			)}
+			{input.membersControl}
+		</div>
+	);
+}
+
 function useSpaceLandingViewerState({
 	controller,
 	state,
@@ -2015,6 +2049,9 @@ function SpaceLandingConversation({
 		spaceInboxReadPosition,
 		wakeFailureTargetContextsByProfileId,
 	} = state;
+	if (input.presentation === "canvas" && controller.activeThread) {
+		return null;
+	}
 	let readOnlyComposerPlaceholder: string | undefined;
 	if (agentOwnerDirectMessageObserver) {
 		readOnlyComposerPlaceholder = `You can view this Direct Message because you own ${agentOwnerDirectMessageObserver.agentProfileName}. Join to participate.`;
@@ -2571,6 +2608,7 @@ function SpaceLandingSecondaryPanels({
 				currentOwnerUserId={currentOwnerUserId}
 				ephemeralActivityItems={controller.presentedWakeProgressItems}
 				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
+				fillAvailableSpace={input.presentation === "canvas"}
 				initialFocusSignalId={
 					controller.threadUnreadFocus?.signalId ?? input.initialFocusSignalId
 				}

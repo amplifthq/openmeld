@@ -2,6 +2,7 @@ import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
@@ -11,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
 	applyNodeChanges,
+	type Edge,
 	type Node,
 	type NodeProps,
 	NodeResizer,
@@ -66,6 +68,7 @@ const HomeTeam = lazy(() =>
 );
 type HomeNode = Node<{ card: HomeCard }, "home">;
 const nodeTypes = { home: memo(HomeCardNode) };
+const NO_EDGES: Edge[] = [];
 type HomeContextValue = {
 	spaces: readonly AccountSpaceItem[];
 	profiles: ReturnType<typeof useSelectedHumanProfile>["profilesQuery"]["data"];
@@ -77,7 +80,10 @@ type HomeContextValue = {
 	loading: boolean;
 	error: boolean;
 	retry: () => void;
-	indicators: ReturnType<typeof useAccountSpaceIndicators>;
+	indicators: Pick<
+		ReturnType<typeof useAccountSpaceIndicators>,
+		"activeWakeSummaryBySpaceId" | "unreadBySpaceId"
+	>;
 };
 const HomeContext = createContext<HomeContextValue | null>(null);
 
@@ -97,11 +103,16 @@ function HomeWorkspace() {
 			profileId: selectedHumanProfile?.openMeldProfileId ?? "",
 		})
 	);
-	const indicators = useAccountSpaceIndicators({
-		enabled: !!selectedHumanProfile,
-		organizationId: currentOrganization.id,
-		profileId: selectedHumanProfile?.openMeldProfileId ?? "",
-	});
+	const { activeWakeSummaryBySpaceId, unreadBySpaceId } =
+		useAccountSpaceIndicators({
+			enabled: !!selectedHumanProfile,
+			organizationId: currentOrganization.id,
+			profileId: selectedHumanProfile?.openMeldProfileId ?? "",
+		});
+	const indicators = useMemo(
+		() => ({ activeWakeSummaryBySpaceId, unreadBySpaceId }),
+		[activeWakeSummaryBySpaceId, unreadBySpaceId]
+	);
 	const spaces = useMemo(() => {
 		const entries = [
 			...(spacesQuery.data?.pinnedItems ?? []),
@@ -122,6 +133,7 @@ function HomeWorkspace() {
 	const [activeId, setActiveId] = useState<string | null>(null);
 	const [creatingSpace, setCreatingSpace] = useState(false);
 	const [adding, setAdding] = useState(false);
+	const [cardSearch, setCardSearch] = useState("");
 	const instance = useRef<ReactFlowInstance<HomeNode> | null>(null);
 	const canvasRegion = useRef<HTMLElement | null>(null);
 	const [nodes, setNodes] = useState<HomeNode[]>([]);
@@ -201,14 +213,32 @@ function HomeWorkspace() {
 	}, []);
 	const focusCard = useCallback((card: HomeCard) => {
 		const bounds = canvasRegion.current?.getBoundingClientRect();
-		instance.current
-			?.setCenter(card.x + card.width / 2, card.y + card.height / 2, {
-				zoom: Math.min(
-					1,
-					((bounds?.height ?? 720) - 64) / card.height,
-					((bounds?.width ?? 1024) - 64) / card.width
+		let focusedCard = card;
+		if (bounds && bounds.width < 640) {
+			focusedCard = {
+				...card,
+				width: Math.max(280, bounds.width - 32),
+				height: Math.min(card.height, Math.max(300, bounds.height - 48)),
+			};
+			setLayout((current) => ({
+				...current,
+				cards: current.cards.map((item) =>
+					item.id === focusedCard.id ? focusedCard : item
 				),
-			})
+			}));
+		}
+		instance.current
+			?.setCenter(
+				focusedCard.x + focusedCard.width / 2,
+				focusedCard.y + focusedCard.height / 2,
+				{
+					zoom: Math.min(
+						1,
+						((bounds?.height ?? 720) - 32) / focusedCard.height,
+						((bounds?.width ?? 1024) - 32) / focusedCard.width
+					),
+				}
+			)
 			.catch(console.error);
 	}, []);
 	const activate = useCallback(
@@ -330,8 +360,8 @@ function HomeWorkspace() {
 			globalControls={{ hideCenterAgent: activeId === "center-agent" }}
 			scroll={false}
 		>
-			<header className="flex items-center justify-between gap-3 border-b px-4 py-3">
-				<h1 className="truncate font-medium text-base">
+			<header className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:flex-nowrap">
+				<h1 className="w-full truncate font-medium text-base sm:w-auto">
 					{currentOrganization.name}
 				</h1>
 				<div className="flex items-center gap-2">
@@ -378,11 +408,19 @@ function HomeWorkspace() {
 					{restored && (
 						<WorkspaceCanvas<HomeNode>
 							defaultViewport={layout.viewport ?? { x: 32, y: 32, zoom: 1 }}
-							edges={[]}
+							edges={NO_EDGES}
 							nodes={nodes}
 							nodeTypes={nodeTypes}
 							onInit={(value) => {
 								instance.current = value;
+								if (
+									!layout.viewport &&
+									canvasRegion.current &&
+									canvasRegion.current.clientWidth < 640 &&
+									layout.cards[0]
+								) {
+									focusCard(layout.cards[0]);
+								}
 							}}
 							onMoveEnd={(_event, viewport: Viewport) =>
 								setLayout((current) => ({ ...current, viewport }))
@@ -415,29 +453,39 @@ function HomeWorkspace() {
 				<Dialog onOpenChange={setAdding} open={adding}>
 					<DialogContent>
 						<DialogTitle>Add to Home</DialogTitle>
+						<DialogDescription>
+							Choose a card to add or bring into view.
+						</DialogDescription>
 						<div className="flex flex-wrap gap-2">
 							{(["spaces", "team", "center-agent"] as const).map((kind) => (
-								<Button
-									disabled={layout.cards.some((card) => card.id === kind)}
-									key={kind}
-									onClick={() => add(kind)}
-									variant="outline"
-								>
+								<Button key={kind} onClick={() => add(kind)} variant="outline">
 									{CARD_TITLES[kind]}
 								</Button>
 							))}
 						</div>
+						<Input
+							aria-label="Find a Space"
+							onChange={(event) => setCardSearch(event.target.value)}
+							placeholder="Find a Space"
+							value={cardSearch}
+						/>
 						<ScrollArea className="max-h-80">
-							{spaces.map((space) => (
-								<Button
-									className="w-full justify-start"
-									key={space.spaceId}
-									onClick={() => openSpace(space.spaceId)}
-									variant="ghost"
-								>
-									{space.spaceName}
-								</Button>
-							))}
+							{spaces
+								.filter((space) =>
+									space.spaceName
+										.toLowerCase()
+										.includes(cardSearch.trim().toLowerCase())
+								)
+								.map((space) => (
+									<Button
+										className="w-full justify-start"
+										key={space.spaceId}
+										onClick={() => openSpace(space.spaceId)}
+										variant="ghost"
+									>
+										{space.spaceName}
+									</Button>
+								))}
 						</ScrollArea>
 					</DialogContent>
 				</Dialog>
@@ -535,7 +583,7 @@ const CARD_TITLES: Record<HomeCard["kind"], string> = {
 	space: "Space",
 };
 
-function HomeCardContent({
+const HomeCardContent = memo(function HomeCardContent({
 	card,
 	context,
 	space,
@@ -612,7 +660,7 @@ function HomeCardContent({
 	return (
 		<HomeSpacePreview onReply={() => context.activate(card.id)} space={space} />
 	);
-}
+});
 
 function SpacesCard({ context }: { context: HomeContextValue }) {
 	const [search, setSearch] = useState("");

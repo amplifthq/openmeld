@@ -139,15 +139,21 @@ export function HomeTeam(input: {
 							) &&
 								directory.data.members.length <= 1 && (
 									<p className="py-2 text-muted-foreground text-sm">
-										Create an Agent or invite a teammate to start working
-										together.
+										Create an Agent or start a Space to work with others.
 									</p>
 								)}
 						</>
 					)}
 				</div>
 			</ScrollArea>
-			{creating && <HomeCreateAgent onClose={() => setCreating(false)} />}
+			{creating && (
+				<HomeCreateAgent
+					onClose={() => setCreating(false)}
+					onCreated={async (profileId) => {
+						await chat.mutateAsync(profileId);
+					}}
+				/>
+			)}
 			<Dialog onOpenChange={setInviting} open={inviting}>
 				<DialogContent>
 					<DialogTitle>Invite people</DialogTitle>
@@ -160,7 +166,13 @@ export function HomeTeam(input: {
 	);
 }
 
-function HomeCreateAgent({ onClose }: { onClose: () => void }) {
+function HomeCreateAgent({
+	onClose,
+	onCreated,
+}: {
+	onClose: () => void;
+	onCreated: (profileId: string) => Promise<void>;
+}) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const recovery = useLocalAgentRecoveryController({
 		agentExecutionReadinessScope: "bound_runtime",
@@ -172,13 +184,17 @@ function HomeCreateAgent({ onClose }: { onClose: () => void }) {
 			agentOnly
 			allowTeammateRequests={!currentOrganization.isPersonal}
 			currentUserId={currentUserId}
-			onAgentRequestCreated={onClose}
+			onAgentRequestCreated={async (request) => {
+				if (request.createdAgentProfileId) {
+					await onCreated(request.createdAgentProfileId);
+				}
+			}}
 			onOpenChange={(open) => {
 				if (!open) {
 					onClose();
 				}
 			}}
-			onProfileCreated={onClose}
+			onProfileCreated={(profile) => onCreated(profile.openMeldProfileId)}
 			open
 			organizationId={currentOrganization.id}
 			orgSlug={currentOrganization.slug}

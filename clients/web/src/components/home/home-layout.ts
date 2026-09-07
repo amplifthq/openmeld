@@ -11,7 +11,7 @@ const cardSchema = z.object({
 });
 export const homeLayoutSchema = z.object({
 	version: z.literal(1),
-	cards: z.array(cardSchema).max(100),
+	cards: z.array(cardSchema),
 	viewport: z
 		.object({
 			x: z.number().finite(),

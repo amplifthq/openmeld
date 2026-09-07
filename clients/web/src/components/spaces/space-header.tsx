@@ -418,7 +418,7 @@ function resolveLiveStatusSrLabel(liveState: SpaceLiveState): string {
 	}
 }
 
-function SpaceLiveStatusIndicator(input: {
+export function SpaceLiveStatusIndicator(input: {
 	liveErrorMessage: string | null;
 	liveState: SpaceLiveState;
 	onReconnectNow?: () => void;

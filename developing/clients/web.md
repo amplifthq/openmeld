@@ -344,7 +344,7 @@ primary actions and destinations in a flat list:
   overview. Success opens the new Agent's detail; Cancel returns to Agents.
   Pending teammate requests open Agent requests. Legacy `agents?view=create`
   links redirect to this route before loading the Agents directory.
-- **Home** — directly opens the current Organization's default Center Agent chat.
+- **Home** — opens the current workspace's personal, customizable collaboration canvas.
 - **Spaces** and **Chats** — first-level destinations directly below
   Home.
 - **Team** — opens the people directory. Each person's profile owns their Agent list.
@@ -360,12 +360,37 @@ People/Agents children. Old saved Team collapse preferences do not hide it.
 The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
 **Chats**, **Team**. The product destinations are:
 
-1. **Home** — directly renders the existing default Center Agent conversation,
-   keeping Home selected. It shares the complete conversation component,
-   loader, and underlying session with Chats, without an intermediate entry
-   screen or a new conversation. Existing Home session and view selectors
-   remain supported. The default follows the existing production open-or-reuse
-   behavior, rather than switching to the most recently active session.
+1. **Home** — renders an infinite React Flow canvas with movable, resizable
+   cards. New layouts include Spaces, People and Agents, and Center Agent;
+   an existing ordinary Space gets a message preview in the primary position.
+   A Space card starts the existing conversation inline. Creating a Space,
+   opening a Human or Agent DM, and adding members use the same product owners
+   as their full-page surfaces. Center Agent reuses its compact conversation
+   and default open-or-reuse session. Legacy Home session, draft, focus, and
+   view links redirect to the canonical Center Agent chat route.
+
+   Layout, dimensions, and viewport are stored per account and Organization
+   in this browser. They are personal preferences, not a shared Organization
+   layout or a server-synchronized setting. Removing a card only removes it
+   from Home. **Back to start**, **View all**, and **Add to Home** remain outside
+   the canvas so users can recover content after panning. Card headers own
+   dragging; their content owns scrolling and message interaction.
+
+   Only visible cards mount. At most one Home card mounts a full conversation;
+   other Space cards show the last five text messages from the shared history
+   cache. The shared Account Space Index refreshes every 15 seconds; a changed
+   message preview invalidates that visible card's history. Previews do not
+   open a stream or mark messages read. Active collaboration uses the existing
+   live stream and canonical access, read-position, send, Wake, and failure
+   handling. Activity and unread labels reuse the existing account projections;
+   Home does not derive execution status. Threads replace the main conversation
+   within a card, preserving usable width. Member dialogs share one modal system.
+
+   The canvas foundation lives in `components/canvas/workspace-canvas.tsx` and
+   is shared with Space Graph. It owns React Flow viewport defaults and controls;
+   Graph owns relations and edges, while Home owns card layout and has no edges.
+   Computer setup remains optional for Home. Agent creation continues to honor
+   the existing runtime availability; Home does not invent Remote Agent support.
 2. **Spaces** — the current workspace's Space collaboration surface.
    Spaces, Direct Messages, and People place their contextual lists
    below the fixed destinations in the Main Sidebar. Only these contextual
