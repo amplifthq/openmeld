@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T20:48:15.572Z",
+  "updatedAt": "2026-09-08T23:00:15.812Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.180",
+      "packageVersion": "0.3.181",
       "updatePolicy": "available",
-      "reason": "Restore tool discovery with identical shared field validation; old and new cloud and CLI contracts interoperate."
+      "reason": "The additive internal Auth batch contract does not change public CLI commands or supported cloud compatibility."
     },
     "service": {
-      "bundleHash": "d7152d05e80d70989fb146c89af0b04f5b1972bce4de2d4cf2b90b134dab8bd5",
-      "bundleVersion": "0.3.180",
+      "bundleHash": "2e31e60af42e5d4911c0ca0ba75a504aca650e98e07b4da87470a6e1ab4e0d18",
+      "bundleVersion": "0.3.181",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Fix the 0.3.179 required MCP tool startup regression without changing execution, identity, Stop, or publication authority."
+      "reason": "Existing Services remain safe for setup, Wake execution, Stop, and Space replies; only internal cloud profile reads change."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
