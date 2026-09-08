@@ -22,7 +22,7 @@ const listCurrentInboxItemsMock = vi.hoisted(() => vi.fn());
 const markCurrentInboxItemReadMock = vi.hoisted(() => vi.fn());
 const useOptionalAppOrganizationMock = vi.hoisted(() => vi.fn());
 const NEW_SPACE_MESSAGE_NAME_PATTERN = /New Space message/;
-const OPEN_INBOX_PREVIEW_NAME_PATTERN = /^Open Inbox preview/;
+const OPEN_INBOX_PREVIEW_NAME_PATTERN = /^Open Inbox/;
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -80,19 +80,23 @@ describe("GlobalInboxLauncher", () => {
 			organizationId: "organization-123",
 			totalUnreadCount: 3,
 			unresolvedActionCount: 2,
+			unreadUrgentUpdateCount: 0,
 		});
 		listCurrentInboxItemsMock.mockReset().mockImplementation(async (input) => ({
-			items: [
-				input.view === "needs_action"
-					? {
-							...createInboxItem(),
-							attention: "action_required",
-							id: "action-123",
-							resolutionStatus: "open",
-							title: "Approval needed",
-						}
-					: createInboxItem(),
-			],
+			items:
+				input.view === "urgent_updates"
+					? []
+					: [
+							input.view === "needs_action"
+								? {
+										...createInboxItem(),
+										attention: "action_required",
+										id: "action-123",
+										resolutionStatus: "open",
+										title: "Approval needed",
+									}
+								: createInboxItem(),
+						],
 			nextCursor: null,
 			organizationId: "organization-123",
 		}));
@@ -122,7 +126,7 @@ describe("GlobalInboxLauncher", () => {
 		renderLauncher();
 
 		const trigger = await screen.findByRole("button", {
-			name: "Open Inbox preview, 2 items need your attention",
+			name: "Open Inbox, 2 items need action",
 		});
 		const attentionIndicator = trigger.querySelector(
 			'span[aria-hidden="true"]'
@@ -132,18 +136,15 @@ describe("GlobalInboxLauncher", () => {
 		expect(trigger.className).toContain("hover:bg-muted");
 		expect(trigger.className).toContain("motion-reduce:transition-none");
 		expect(trigger.className).not.toContain("bg-[var(--app-canvas)]");
-		expect(attentionIndicator?.textContent).toBe("2");
-		expect(attentionIndicator?.className).not.toContain("border");
-		expect(attentionIndicator?.className).not.toContain("bg-");
+		expect(attentionIndicator).toBeNull();
+		expect(trigger.className).toContain("text-destructive");
 		expect(screen.queryByRole("link", { name: "Inbox" })).toBeNull();
 		fireEvent.click(trigger);
 
 		expect(
 			await screen.findByRole("dialog", { name: "Inbox preview" })
 		).toBeTruthy();
-		expect(screen.getByRole("status").textContent).toBe(
-			"2 items need your attention"
-		);
+		expect(screen.getByRole("status").textContent).toBe("2 items need action");
 		expect(
 			screen.getByRole("link", { name: "Open full Inbox" }).getAttribute("href")
 		).toBe("/o/amplift/inbox");
@@ -160,7 +161,7 @@ describe("GlobalInboxLauncher", () => {
 			expect.objectContaining({ view: "needs_action" })
 		);
 		expect(listCurrentInboxItemsMock).toHaveBeenCalledWith(
-			expect.objectContaining({ view: "unread" })
+			expect.objectContaining({ view: "recent_updates" })
 		);
 	});
 
@@ -174,9 +175,13 @@ describe("GlobalInboxLauncher", () => {
 		};
 		listCurrentInboxItemsMock.mockImplementation(async (input) => ({
 			items:
-				input.view === "needs_action"
-					? [actionItem]
-					: [actionItem, createInboxItem()],
+				(
+					{
+						urgent_updates: [],
+						needs_action: [actionItem],
+						recent_updates: [createInboxItem()],
+					} as Record<string, InboxItem[]>
+				)[input.view] ?? [],
 			nextCursor: null,
 			organizationId: "organization-123",
 		}));
@@ -184,7 +189,7 @@ describe("GlobalInboxLauncher", () => {
 
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox preview, 2 items need your attention",
+				name: "Open Inbox, 2 items need action",
 			})
 		);
 
@@ -193,7 +198,7 @@ describe("GlobalInboxLauncher", () => {
 			screen.getByRole("link", { name: NEW_SPACE_MESSAGE_NAME_PATTERN })
 		).toBeTruthy();
 		expect(listCurrentInboxItemsMock).toHaveBeenCalledWith(
-			expect.objectContaining({ view: "unread" })
+			expect.objectContaining({ view: "recent_updates" })
 		);
 	});
 
@@ -217,6 +222,7 @@ describe("GlobalInboxLauncher", () => {
 			organizationId: "organization-123",
 			totalUnreadCount: 0,
 			unresolvedActionCount: 6,
+			unreadUrgentUpdateCount: 0,
 		});
 		listCurrentInboxItemsMock.mockResolvedValue({
 			items: [
@@ -234,12 +240,12 @@ describe("GlobalInboxLauncher", () => {
 
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox preview, 6 items need your attention",
+				name: "Open Inbox, 6 items need action",
 			})
 		);
 
 		expect((await screen.findByRole("status")).textContent).toBe(
-			"6 items need your attention"
+			"6 items need action"
 		);
 		expect(screen.queryByText("All caught up")).toBeNull();
 		await waitFor(() => {
@@ -256,7 +262,7 @@ describe("GlobalInboxLauncher", () => {
 		renderLauncher();
 
 		const trigger = await screen.findByRole("button", {
-			name: "Open Inbox preview, attention status unavailable",
+			name: "Open Inbox, attention status unavailable",
 		});
 		fireEvent.click(trigger);
 
@@ -266,12 +272,62 @@ describe("GlobalInboxLauncher", () => {
 		expect(screen.queryByText("All caught up")).toBeNull();
 	});
 
+	it("colors urgent-only updates amber and includes older urgent items in their own section", async () => {
+		getCurrentInboxSummaryMock.mockResolvedValue({
+			organizationId: "organization-123",
+			totalUnreadCount: 101,
+			unresolvedActionCount: 0,
+			unreadUrgentUpdateCount: 1,
+		});
+		listCurrentInboxItemsMock.mockImplementation(async (input) => ({
+			items:
+				input.view === "urgent_updates"
+					? [
+							{
+								...createInboxItem(),
+								id: "urgent-one",
+								importance: "urgent",
+								title: "Agent could not finish",
+							},
+						]
+					: [],
+			nextCursor: null,
+			organizationId: "organization-123",
+		}));
+		renderLauncher();
+		const trigger = await screen.findByRole("button", {
+			name: "Open Inbox, 1 unread urgent update",
+		});
+		expect(trigger.className).toContain("text-amber-");
+		expect(trigger.textContent).toBe("Inbox");
+		fireEvent.click(trigger);
+		expect(
+			await screen.findByRole("heading", { name: "Urgent updates" })
+		).toBeTruthy();
+		expect(screen.getByText("Agent could not finish")).toBeTruthy();
+	});
+
+	it("gives actions precedence while describing both kinds of attention", async () => {
+		getCurrentInboxSummaryMock.mockResolvedValue({
+			organizationId: "organization-123",
+			totalUnreadCount: 8,
+			unresolvedActionCount: 2,
+			unreadUrgentUpdateCount: 3,
+		});
+		renderLauncher();
+		const trigger = await screen.findByRole("button", {
+			name: "Open Inbox, 2 items need action, 3 unread urgent updates",
+		});
+		expect(trigger.className).toContain("text-destructive");
+		expect(trigger.textContent).toBe("Inbox");
+	});
+
 	it("announces a preview loading failure", async () => {
 		listCurrentInboxItemsMock.mockRejectedValue(new Error("Items unavailable"));
 		renderLauncher();
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox preview, 2 items need your attention",
+				name: "Open Inbox, 2 items need action",
 			})
 		);
 
@@ -294,7 +350,7 @@ describe("GlobalInboxLauncher", () => {
 		renderLauncher();
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox preview, 2 items need your attention",
+				name: "Open Inbox, 2 items need action",
 			})
 		);
 
@@ -308,7 +364,7 @@ describe("GlobalInboxLauncher", () => {
 		renderLauncher();
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox preview, 2 items need your attention",
+				name: "Open Inbox, 2 items need action",
 			})
 		);
 

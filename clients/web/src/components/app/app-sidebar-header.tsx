@@ -11,6 +11,9 @@ import {
 	TrayIcon,
 } from "@phosphor-icons/react";
 import { Link, useCanGoBack, useRouter } from "@tanstack/react-router";
+import { InboxAttentionBadge } from "#/components/inbox/inbox-attention-badge";
+import { useInboxAttention } from "#/components/inbox/use-inbox-attention";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationInboxPath } from "#/lib/organizations/organization-routes";
 import { useAppNavigationPresentation } from "./app-navigation-presentation";
 import { CollapsedRailTooltip } from "./app-rail-navigation";
@@ -32,6 +35,8 @@ export function AppSidebarHeader({
 	orgSlug: string;
 }) {
 	const { dismiss, presentation } = useAppNavigationPresentation();
+	const { currentOrganization } = useAppOrganization();
+	const attention = useInboxAttention(currentOrganization.id);
 	const router = useRouter();
 	const canGoBack = useCanGoBack();
 	const iconOnly = mode === "icon";
@@ -92,14 +97,21 @@ export function AppSidebarHeader({
 				>
 					<MagnifyingGlassIcon className="size-4" />
 				</button>
-				<CollapsedRailTooltip label="Inbox" side={iconOnly ? "right" : "top"}>
+				<CollapsedRailTooltip
+					label={attention.label}
+					side={iconOnly ? "right" : "top"}
+				>
 					<Link
-						aria-label="Inbox"
-						className={actionClass}
+						aria-label={attention.label}
+						className={cn(actionClass, "relative")}
 						onClick={dismiss}
 						to={buildOrganizationInboxPath(orgSlug)}
 					>
 						<TrayIcon className="size-4" />
+						<InboxAttentionBadge
+							count={attention.count}
+							tone={attention.tone}
+						/>
 					</Link>
 				</CollapsedRailTooltip>
 			</div>
