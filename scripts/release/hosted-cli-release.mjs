@@ -7,6 +7,10 @@ import {
   buildTrustedGitHubRepositoryUrl,
   createTrustedGitEnvironment,
 } from "../ci/trusted-git-network.mjs";
+import {
+  readNpmPublicationReceipt,
+  recordNpmPublicationReceipt,
+} from "./npm-publication-receipt.mjs";
 import { publishCliReleaseTag, runCliRelease } from "./release-cli.mjs";
 import { readRemoteTagCommit } from "./release-cli-resume.mjs";
 
@@ -50,6 +54,18 @@ async function main() {
 
   await runCliRelease({
     adapters: {
+      readNpmPublicationReceipt: (input) =>
+        readNpmPublicationReceipt({
+          ...input,
+          gitEnvironment: authenticatedGitEnvironment,
+          remoteUrl,
+        }),
+      recordNpmPublicationReceipt: (input) =>
+        recordNpmPublicationReceipt({
+          ...input,
+          gitEnvironment: authenticatedGitEnvironment,
+          remoteUrl,
+        }),
       publishCliReleaseTag: (input) =>
         publishCliReleaseTag({
           ...input,
