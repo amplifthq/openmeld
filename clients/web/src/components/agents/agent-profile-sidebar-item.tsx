@@ -183,7 +183,7 @@ export function AgentProfileSidebarItemComponent(input: {
 				</span>
 			</SidebarMenuButton>
 			{hasActions && (
-				<SidebarMenuActions className="top-1" showOnHover>
+				<SidebarMenuActions showOnHover>
 					{input.onChat && (
 						<SidebarRowAction
 							label={`Chat with ${input.profile.profileName}`}

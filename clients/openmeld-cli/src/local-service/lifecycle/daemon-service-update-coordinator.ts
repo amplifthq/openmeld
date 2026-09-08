@@ -520,12 +520,14 @@ export async function waitUntilDaemonServiceSafeSwitch(
     } catch (error) {
       if (
         error instanceof LocalDaemonControlPlaneClientError &&
-        error.code === "daemon.control.contract_mismatch"
+        (error.code === "daemon.control.contract_mismatch" ||
+          error.code === "daemon.control.endpoint_missing")
       ) {
-        // Compatibility bridge for the one update from a Service that predates
-        // this read-only readiness command. The existing controlled drain is
-        // still authoritative and still waits for accepted work plus durable
-        // result acknowledgement before allowing the switch.
+        // A stopped Service cannot answer readiness. Delegate to the lifecycle
+        // owner, which verifies absence or performs controlled drain under its
+        // lock. This is not permission to kill an unresponsive live Service or
+        // discard accepted work and durable replies. The same boundary handles
+        // older Services that predate the readiness command.
         return;
       }
       // A missing process or unreadable runtime projection does not prove that

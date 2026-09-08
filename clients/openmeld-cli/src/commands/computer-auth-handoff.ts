@@ -1,12 +1,14 @@
 import {
   AuthSessionChangedBeforeTransitionError,
+  type AuthSessionMetadata,
   AuthSessionRecoveryInProgressError,
   beginAuthSessionTransition,
+  getAuthSessionMetadata,
   getAuthSessionState,
-  type StoredAuthSession,
 } from "../config/auth-session";
 import { resolveAuthBaseUrl } from "../config/auth-url";
 import { resolveBaseUrl } from "../config/base-url";
+import { formatOpenMeldCliCommand } from "../runtime/cli-entry-command";
 import type { Presenter } from "../runtime/presenter/index";
 import type { RuntimeContext } from "../runtime/types";
 import { runDaemonServiceParticipationGate } from "../system/local-service-participation-gate";
@@ -73,17 +75,6 @@ async function runPreparedComputerAuthHandoff(
     exchangeCandidate: () => Promise<PreparedAuthSession>;
   }
 ): Promise<PrepareSessionExecutorResult> {
-  await waitForOpenMeldToolsUpdateBeforeComputerHandoff({
-    presenter: input.presenter,
-  });
-  const recoveryOutcome = await recoverInterruptedComputerAuthHandoff({
-    presenter: input.presenter,
-    runtime: input.runtime,
-    view: input.view,
-  });
-  if (recoveryOutcome === "deferred") {
-    throw new AuthSessionRecoveryInProgressError();
-  }
   const gatewayUrl = await resolveBaseUrl();
   const initialSnapshot = await resolvePrepareSessionForHandoff({
     gatewayUrl,
@@ -96,10 +87,24 @@ async function runPreparedComputerAuthHandoff(
     opaqueToken: input.startSession,
     prepareSessionId: initialSnapshot.prepareSessionId,
   });
+  let executorStarted = false;
+  let failureReported = false;
   try {
+    await waitForOpenMeldToolsUpdateBeforeComputerHandoff({
+      presenter: input.presenter,
+    });
+    const recoveryOutcome = await recoverInterruptedComputerAuthHandoff({
+      presenter: input.presenter,
+      runtime: input.runtime,
+      view: input.view,
+    });
+    if (recoveryOutcome === "deferred") {
+      throw new AuthSessionRecoveryInProgressError();
+    }
     const notifyStopped = async (reasonCode: string, message: string) => {
       try {
         await reportPrepareHandoffStopped({ stream, reasonCode, message });
+        failureReported = true;
       } catch {
         input.presenter.line({
           code: "setup.handoff.notification_failed",
@@ -151,6 +156,7 @@ async function runPreparedComputerAuthHandoff(
     });
 
     try {
+      executorStarted = true;
       const sessionResult = await runPrepareSessionExecutor({
         gatewayUrl,
         connectedStream: stream,
@@ -195,6 +201,21 @@ async function runPreparedComputerAuthHandoff(
       }
       throw error;
     }
+  } catch (error) {
+    if (!(executorStarted || failureReported)) {
+      try {
+        await reportPrepareHandoffStopped({
+          stream,
+          reasonCode: "prepare.handoff_failed",
+          error,
+          message:
+            "OpenMeld couldn't finish connecting this computer. Check Terminal for the next step.",
+        });
+      } catch {
+        // Reporting must not replace the actionable original failure.
+      }
+    }
+    throw error;
   } finally {
     stream.close();
   }
@@ -217,7 +238,7 @@ async function assertPrepareSessionOwner(input: {
 
 async function resolveCurrentComputerSession(
   candidate: PreparedAuthSession
-): Promise<StoredAuthSession | null> {
+): Promise<AuthSessionMetadata | null> {
   let currentState: Awaited<ReturnType<typeof getAuthSessionState>>;
   try {
     currentState = await getAuthSessionState({
@@ -235,13 +256,24 @@ async function resolveCurrentComputerSession(
   if (currentState.state === "missing" || currentState.session) {
     return currentState.session;
   }
+  if (
+    currentState.reasonCode === "session_token_unavailable" ||
+    currentState.reasonCode === "session_token_missing"
+  ) {
+    const metadata = await getAuthSessionMetadata();
+    if (metadata?.user?.id?.trim()) {
+      // Metadata identifies the account the user is replacing; it never
+      // authorizes execution. The fresh grant was verified above.
+      return metadata;
+    }
+  }
 
   const revoked = await revokePreparedAuthSession(candidate);
   const detail =
     normalizeOptionalString(currentState.errorMessage) ??
     normalizeOptionalString(currentState.reasonCode);
   throw new Error(
-    `OpenMeld could not inspect the current Computer sign-in. The current Computer connection was not changed.${
+    `OpenMeld could not inspect the current Computer sign-in. The current Computer connection was not changed. Run \`${formatOpenMeldCliCommand("openmeld auth logout")}\` to sign out on this computer, then get a new setup command from OpenMeld Web.${
       detail ? ` ${detail}` : ""
     }${formatComputerAuthCleanupFailureSuffix(revoked)}`
   );
@@ -249,7 +281,7 @@ async function resolveCurrentComputerSession(
 
 async function beginComputerSessionTransition(input: {
   candidate: PreparedAuthSession;
-  expectedPreviousSession: StoredAuthSession | null;
+  expectedPreviousSession: AuthSessionMetadata | null;
   gatewayUrl: string;
 }): Promise<Awaited<ReturnType<typeof beginAuthSessionTransition>>> {
   try {
@@ -311,7 +343,7 @@ function attachComputerAuthCleanupFailure(input: {
 
 async function confirmComputerAccountSwitch(input: {
   candidate: PreparedAuthSession;
-  currentSession: StoredAuthSession | null;
+  currentSession: AuthSessionMetadata | null;
   interactive: boolean;
   presenter: Presenter;
   resolvedView: RuntimeContext["resolvedView"];

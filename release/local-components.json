@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-07T14:02:24.220Z",
+  "updatedAt": "2026-09-08T05:09:05.493Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
-      "packageVersion": "0.3.166",
+      "packageVersion": "0.3.170",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands and setup, Wake, Space actions and diagnostics remain compatible with both cloud versions."
+      "reason": "Commands and external payloads remain compatible with both cloud versions; this release changes internal reply review context only."
     },
     "service": {
-      "bundleHash": "b0903575a7edadfa21e570773fdfb709c49cb6c43e332ee02597890c6dd32e48",
-      "bundleVersion": "0.3.166",
+      "bundleHash": "82a2d95f49e0ef5095755c1cc93d26b455cd7e3d09efbc83cbb0975ed3d601ba",
+      "bundleVersion": "0.3.170",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Only shared validator construction timing changes; existing Services remain compatible with setup, Wake, Space actions and diagnostics."
+      "reason": "Existing Services remain protocol-compatible and cloud finalization safely closes accepted results; new Services preserve original Wake ownership during concurrent reply review without changing execution authority."
     },
     "skills": {
       "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",

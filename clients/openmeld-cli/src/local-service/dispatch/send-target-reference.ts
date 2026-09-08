@@ -97,9 +97,11 @@ export async function resolveDispatchSendTargetReference(input: {
     return {
       status: "loaded",
       projection,
-      referenceLines: projection.map((target) =>
-        formatDispatchSendTargetReferenceLine(target)
-      ),
+      referenceLines: projection
+        .filter(
+          (target) => target.profileId !== input.dispatchTask.targetProfileId
+        )
+        .map((target) => formatDispatchSendTargetReferenceLine(target)),
     };
   } catch (error) {
     return {

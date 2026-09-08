@@ -56,6 +56,7 @@ export type SpaceReplyToSignalInput = {
 
 export type SpaceComposerAddressingTarget = {
 	allowedRelations: SpaceSendTargetAllowedRelations;
+	primaryMentionLabel: string;
 	profileId: string;
 	profileName: string;
 	relation: MessageMentionType;
@@ -451,7 +452,8 @@ export function resolveDefaultSpaceComposerMentionRelation(
 	if (suggestion.profileKind === "agent") {
 		if (
 			suggestion.allowedRelations.wake &&
-			suggestion.wakeAvailability.status === "ready"
+			(suggestion.wakeAvailability.status === "ready" ||
+				suggestion.wakeAvailability.status === "preparing")
 		) {
 			return "wake";
 		}
@@ -513,6 +515,7 @@ export function buildSpaceComposerAddressingTargets(input: {
 		}
 		targetByProfileId.set(mention.profileId, {
 			allowedRelations: target.allowedRelations,
+			primaryMentionLabel: target.primaryMentionLabel,
 			profileId: target.profileId,
 			profileName: target.profileName,
 			relation: mention.relation,

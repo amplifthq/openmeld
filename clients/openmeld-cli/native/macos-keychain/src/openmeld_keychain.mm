@@ -208,11 +208,12 @@ void ThrowStatus(napi_env env, const char* operation, OSStatus status) {
 void ThrowReadStatus(napi_env env, OSStatus status) {
   if (status == errSecAuthFailed || status == errSecInteractionNotAllowed ||
       status == errSecInteractionRequired) {
-    napi_throw_error(
-        env, nullptr,
-        "Read access token failed: macOS Keychain approval is required. "
+    const std::string message =
+        "Read access token failed: macOS Keychain denied access (OSStatus " +
+        std::to_string(static_cast<long long>(status)) + "). " +
         "OpenMeld did not open a background authorization window. Reconnect "
-        "this computer from an interactive setup or login.");
+        "this computer from an interactive setup or login.";
+    napi_throw_error(env, nullptr, message.c_str());
     return;
   }
   ThrowStatus(env, "Read access token", status);

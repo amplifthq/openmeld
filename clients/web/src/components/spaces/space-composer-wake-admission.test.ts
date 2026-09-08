@@ -12,6 +12,31 @@ import { requireCurrentSpaceComposerWakeAdmission } from "./space-composer-wake-
 const AGENT_PROFILE_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 describe("current Space Composer Wake admission", () => {
+	it.each([
+		"usage_checking",
+		"agent_execution.route_missing",
+		"daemon.profile.pending_first_report",
+		"wake_route.registration_pending",
+		"wake_route.registration_pending_first_report",
+		"working_folder.report_stale",
+	])("submits a preparing Wake (%s) without claiming it is ready", async (reasonCode) => {
+		const snapshot = createMembersSnapshot("checking_connection", true);
+		const member = snapshot.agents[0];
+		if (!member?.agentWakeAvailability) {
+			throw new Error("Expected canonical Wake availability in fixture");
+		}
+		member.agentWakeAvailability = {
+			...member.agentWakeAvailability,
+			reasonCode,
+		};
+		await expect(
+			requireCurrentSpaceComposerWakeAdmission({
+				agentProfileIds: [AGENT_PROFILE_ID],
+				readCurrentMembers: async () => snapshot,
+			})
+		).resolves.toBeUndefined();
+		expect(member.agentWakeAvailability.status).toBe("checking_connection");
+	});
 	it("does not read Wakeability for a message containing only References", async () => {
 		const readCurrentMembers = vi.fn();
 

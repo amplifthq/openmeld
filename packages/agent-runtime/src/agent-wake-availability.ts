@@ -238,6 +238,25 @@ export function resolveAgentWakeAdmissionTerminalDecision(
   };
 }
 
+// These are missing current evidence, not permission to execute and not a
+// definitive refusal. Core may retain the same undelivered Wake while the
+// existing Service reporting path catches up; every retry reruns admission.
+export function isAgentWakeAdmissionPreparationPendingReason(
+  reasonCode: string
+): boolean {
+  return new Set([
+    "agent_execution.readiness_unconfirmed",
+    "usage_checking",
+    "daemon.profile.pending_first_report",
+    "agent_execution.route_missing",
+    "route.not_registered",
+    "working_folder.report_stale",
+    "working_folder.observation_coverage_invalid",
+    "working_folder.observation_identity_mismatch",
+    "working_folder.observation_stale",
+  ]).has(reasonCode);
+}
+
 export function resolveAgentWakeAdmissionBlockReasonCode(
   readiness: AgentExecutionStatusProjection
 ): string | null {

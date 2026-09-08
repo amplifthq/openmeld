@@ -70,43 +70,47 @@ export const upsertRuntimeCoordinatorFinalizationRetryEntryInStorage = async (
   storage: RuntimeCoordinatorStorage,
   entry: RuntimeCoordinatorFinalizationRetryEntry
 ): Promise<void> => {
-  const existingEntries =
-    await readRuntimeCoordinatorFinalizationRetriesFromStorage(storage);
-  const nextEntries = [
-    ...existingEntries.filter(
-      (existingEntry) =>
-        existingEntry.finalizationCommandId !== entry.finalizationCommandId
-    ),
-    entry,
-  ].sort((left, right) =>
-    left.finalizationCommandId.localeCompare(right.finalizationCommandId)
-  );
-  await storage.put(
-    RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY,
-    nextEntries
-  );
+  await storage.transaction(async (transaction) => {
+    const existingEntries =
+      await readRuntimeCoordinatorFinalizationRetriesFromStorage(transaction);
+    const nextEntries = [
+      ...existingEntries.filter(
+        (existingEntry) =>
+          existingEntry.finalizationCommandId !== entry.finalizationCommandId
+      ),
+      entry,
+    ].sort((left, right) =>
+      left.finalizationCommandId.localeCompare(right.finalizationCommandId)
+    );
+    await transaction.put(
+      RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY,
+      nextEntries
+    );
+  });
 };
 
 export const removeRuntimeCoordinatorFinalizationRetryFromStorage = async (
   storage: RuntimeCoordinatorStorage,
   finalizationCommandId: string
 ): Promise<void> => {
-  const existingEntries =
-    await readRuntimeCoordinatorFinalizationRetriesFromStorage(storage);
-  const nextEntries = existingEntries.filter(
-    (entry) => entry.finalizationCommandId !== finalizationCommandId
-  );
-  if (nextEntries.length === existingEntries.length) {
-    return;
-  }
-  await storage.put(
-    RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY,
-    nextEntries
-  );
+  await storage.transaction(async (transaction) => {
+    const existingEntries =
+      await readRuntimeCoordinatorFinalizationRetriesFromStorage(transaction);
+    const nextEntries = existingEntries.filter(
+      (entry) => entry.finalizationCommandId !== finalizationCommandId
+    );
+    if (nextEntries.length === existingEntries.length) {
+      return;
+    }
+    await transaction.put(
+      RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY,
+      nextEntries
+    );
+  });
 };
 
 export const readRuntimeCoordinatorFinalizationRetriesFromStorage = async (
-  storage: RuntimeCoordinatorStorage
+  storage: Pick<DurableObjectStorage, "get">
 ): Promise<RuntimeCoordinatorFinalizationRetryEntry[]> => {
   const raw = await storage.get<unknown>(
     RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY

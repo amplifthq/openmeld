@@ -1029,6 +1029,7 @@ describe("SpaceThreadPanel", () => {
 		vi.setSystemTime(wakeSignal.ts + 2 * 60 * 1000);
 
 		renderThreadPanel({
+			ephemeralActivityItems: [createWakeProgressItem()],
 			onWakeStopRequest: vi.fn(),
 			signals: [wakeSignal],
 			spaceTimelineItems: buildSpaceTimelineItems({
@@ -1047,9 +1048,8 @@ describe("SpaceThreadPanel", () => {
 			}),
 		});
 
-		expect(screen.getAllByText("Starting Wake")).not.toHaveLength(0);
 		expect(
-			screen.getByRole("button", { name: "Stop Wake for this agent" })
+			screen.getByRole("button", { name: "Stop Wake for @runner" })
 		).toBeTruthy();
 	});
 
