@@ -2165,7 +2165,10 @@ evidence while background reconnect attempts continue.
 A Service advertises it only when it can keep a `post_message` result as an
 unpublished proposal, receive `review_required`, remove that proposal from the
 result outbox, read a bounded Space delta, and resume the exact Agent Controller
-conversation. The same execution slot stays active across review. Review never
+conversation. Each review carries the original source message, source signal ID,
+and target Profile alongside the bounded newer-message delta. The original Wake
+remains the assignment; another Agent's contribution is context, not a new
+activation or a transfer of task ownership. The same execution slot stays active across review. Review never
 starts a new Wake, repeats completed tools, or creates a second result store.
 Older Services omit the capability and must never receive the new response
 status.
