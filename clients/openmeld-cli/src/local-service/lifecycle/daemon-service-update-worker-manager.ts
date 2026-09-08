@@ -38,7 +38,10 @@ import {
   verifyDaemonActiveBundleIntegrity,
 } from "./daemon-service-bundle";
 import { buildDaemonSystemServiceCommandSpec } from "./daemon-service-command-spec";
-import { resolveDaemonServiceManager } from "./daemon-service-manager";
+import {
+  resolveDaemonServiceManager,
+  waitForLaunchdJobUnloaded,
+} from "./daemon-service-manager";
 import {
   type DaemonServiceUpdateJob,
   readPendingDaemonServiceUpdate,
@@ -133,6 +136,7 @@ export async function registerDaemonServiceUpdateWorker(
       command: "launchctl",
       args: ["bootout", serviceKey],
     });
+    await waitForLaunchdJobUnloaded(serviceKey);
     await requireSuccessfulCommand({
       command: "launchctl",
       args: ["bootstrap", guiDomain, plistPath],
@@ -335,8 +339,13 @@ export async function uninstallDaemonServiceUpdateWorker(
       process.getuid === undefined ? "gui/501" : `gui/${process.getuid()}`;
     await runCommand({
       command: "launchctl",
+      args: ["disable", `${guiDomain}/${identity.launchdLabel}`],
+    });
+    await runCommand({
+      command: "launchctl",
       args: ["bootout", `${guiDomain}/${identity.launchdLabel}`],
     });
+    await waitForLaunchdJobUnloaded(`${guiDomain}/${identity.launchdLabel}`);
     await rm(resolveDaemonServiceUpdateWorkerLaunchdPlistPath(pathInput), {
       force: true,
     });

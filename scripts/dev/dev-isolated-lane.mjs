@@ -27,6 +27,7 @@ const PORT_OFFSETS = {
   gateway: 1,
   auth: 2,
   remoteAgent: 3,
+  cliBinary: 4,
   webInspector: 8,
   gatewayInspector: 9,
   authInspector: 10,
@@ -191,6 +192,9 @@ export function buildIsolatedDevEnvironment(lane) {
     BETTER_AUTH_URL: authUrl,
     VITE_BETTER_AUTH_URL: authUrl,
     VITE_OPENMELD_HOME: lane.openMeldHome,
+    VITE_OPENMELD_CLI_BINARY_MANIFEST_URL: `http://127.0.0.1:${lane.ports.cliBinary}/cli/manifest.json`,
+    OPENMELD_CLI_BINARY_MANIFEST_URL: `http://127.0.0.1:${lane.ports.cliBinary}/cli/manifest.json`,
+    OPENMELD_CLI_BINARY_DEV_PORT: String(lane.ports.cliBinary),
     OPENMELD_AUTH_URL: authUrl,
     OPENMELD_DEV_AUTH_INSPECTOR_PORT: String(lane.ports.authInspector),
     OPENMELD_DEV_AUTH_PORT: String(lane.ports.auth),
@@ -218,6 +222,24 @@ export function buildLaneId(repoRoot) {
     .update(resolve(String(repoRoot)))
     .digest("hex");
   return `wt-${digest.slice(0, 12)}`;
+}
+
+export function readCurrentIsolatedDevLane(repoRoot) {
+  const root = resolve(repoRoot);
+  const gitCommonDir = resolveGitCommonDirectory({ repoRoot: root });
+  const registry = readRegistry(buildRegistryPaths(gitCommonDir).registryPath);
+  const lane = registry.lanes[buildLaneId(root)];
+  if (
+    !lane ||
+    lane.repoRoot !== root ||
+    !isLivePid(lane.stackPid, defaultIsPidAlive) ||
+    !Number.isInteger(lane.ports.cliBinary)
+  ) {
+    throw new Error(
+      "Start this worktree's current Worker stack with pnpm dev:worktree before serving its CLI binary."
+    );
+  }
+  return lane;
 }
 
 function attachWebProcess(input) {
