@@ -27,7 +27,6 @@ import { useNavigate } from "@tanstack/react-router";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import {
 	useCallback,
-	useContext,
 	useEffect,
 	useEffectEvent,
 	useId,
@@ -150,7 +149,6 @@ import {
 } from "./space-pending-agent-action-model";
 import { SpacePendingAgentActions } from "./space-pending-agent-actions";
 import { SpaceProfileSwitcher } from "./space-profile-switcher";
-import { SpaceReadTrackingContext } from "./space-read-tracking-context";
 import { buildSpaceReferenceMessageTexts } from "./space-reference-message-texts";
 import {
 	SpaceLandingFailureSurface,
@@ -398,9 +396,7 @@ type SpaceLandingInput = {
 	onInitialPendingMessageConsumed?: () => void;
 	onSpaceViewCommitted?: (view: SpaceView) => void;
 	orgSlug: string;
-	presentation?: "canvas" | "compact" | "full";
-	containerWidth?: number;
-	onUnsavedFileChangesChange?: (hasChanges: boolean) => void;
+	presentation?: "compact" | "full";
 	spaceId: string;
 	profileId: string;
 };
@@ -419,7 +415,6 @@ function resolveSpaceInboxUnreadDestination(input: {
 }
 
 function useSpaceLandingState(input: SpaceLandingInput) {
-	const readTrackingEnabled = useContext(SpaceReadTrackingContext);
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const generatedSpaceViewId = useId();
@@ -430,14 +425,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	);
 	const { changeSpaceView, openSpaceFile, spaceFileToOpen, spaceView } =
 		spaceFileNavigation;
-	useEffect(() => {
-		input.onUnsavedFileChangesChange?.(
-			spaceFileNavigation.hasUnsavedFileChanges
-		);
-	}, [
-		input.onUnsavedFileChangesChange,
-		spaceFileNavigation.hasUnsavedFileChanges,
-	]);
 	const accountProfiles = resolveSpaceLandingAccountProfiles(
 		input.accountProfiles
 	);
@@ -542,10 +529,8 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		centerAgentProfileId: currentSpaceIsCenterAgentDirectMessage
 			? centerAgentState.centerAgentProfileId
 			: null,
-		onViewedThroughTs: readTrackingEnabled
-			? (throughOccurredAtMs) =>
-					spaceInboxReadPosition.markReadThrough(throughOccurredAtMs)
-			: undefined,
+		onViewedThroughTs: (throughOccurredAtMs) =>
+			spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
 		unreadStateReady: spaceInboxReadPosition.isReady,
 		unreadTargets: spaceInboxReadPosition.targets,
 		onAgentReadinessInvalidated: refreshAgentReadinessInvalidated,
@@ -555,9 +540,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		organizationId,
 	});
 	usePublishInboxVisibleConversation(
-		readTrackingEnabled &&
-			controller.mode === "ready" &&
-			spaceView === "messages"
+		controller.mode === "ready" && spaceView === "messages"
 			? {
 					kind: "space",
 					spaceId: input.spaceId,
@@ -576,23 +559,15 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			profileId: input.profileId,
 			spaceId: input.spaceId,
 		});
-	const supportsDesktopMembersPanel = useMediaQuery(
-		SPACE_MEMBERS_SIDE_PANEL_QUERY
-	);
-	const isDesktopMembersPanel =
-		input.presentation === "canvas"
-			? (input.containerWidth ?? 0) >= 720
-			: supportsDesktopMembersPanel;
+	const isDesktopMembersPanel = useMediaQuery(SPACE_MEMBERS_SIDE_PANEL_QUERY);
 	const [membersPanelOpenOverrides, setMembersPanelOpenOverrides] = useState<
 		ReadonlyMap<string, boolean>
 	>(() => new Map());
 	const membersOpen =
 		membersPanelOpenOverrides.get(input.spaceId) ??
-		(input.presentation === "canvas"
-			? false
-			: resolveInitialMembersPanelOpen({
-					spaceId: input.spaceId,
-				}));
+		resolveInitialMembersPanelOpen({
+			spaceId: input.spaceId,
+		});
 	const setMembersOpen = useCallback(
 		(open: boolean) => {
 			setMembersPanelOpenOverrides((current) => {
@@ -1213,7 +1188,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	useEffect(() => {
 		if (
 			controller.mode !== "ready" ||
-			input.presentation === "canvas" ||
 			!isDesktopMembersPanel ||
 			!shouldOpenMembersPanelOnEntry
 		) {
@@ -1234,7 +1208,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		isDesktopMembersPanel,
 		setMembersOpen,
 		shouldOpenMembersPanelOnEntry,
-		input.presentation,
 	]);
 	const handleAgentRecoveryAction = useCallback(
 		async (plan: SpaceAgentProfileBindingRecoveryPlan) => {
@@ -1281,14 +1254,12 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	const handleMembersOpenChange = useCallback(
 		(open: boolean) => {
 			setMembersOpen(open);
-			if (input.presentation !== "canvas") {
-				writeSpaceMembersPanelOpen({
-					open,
-					spaceId: input.spaceId,
-				});
-			}
+			writeSpaceMembersPanelOpen({
+				open,
+				spaceId: input.spaceId,
+			});
 		},
-		[input.spaceId, input.presentation, setMembersOpen]
+		[input.spaceId, setMembersOpen]
 	);
 	// Get-set-up panel recall + Add-agents highlight wiring (drives the header
 	// recall action and the Add-members card flash).
@@ -1316,6 +1287,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			organizationId,
 			organizationSlug: input.orgSlug,
 			queryClient,
+			storageScope: recovery.storageScope,
 		});
 	const handleConvertDirectMessageToSpace =
 		useConvertDirectMessageToSpaceHandler({
@@ -1616,8 +1588,7 @@ function SpaceLandingReady({
 		session: "fresh",
 		spaceId: controller.spaceId,
 	});
-	const isCompactPresentation =
-		input.presentation === "compact" || input.presentation === "canvas";
+	const isCompactPresentation = input.presentation === "compact";
 	const { agentProfileEditContext, pendingAgentActions } =
 		useSpaceLandingPendingAgentActions({
 			controller,
@@ -2036,9 +2007,6 @@ function SpaceLandingConversation({
 		spaceInboxReadPosition,
 		wakeFailureTargetContextsByProfileId,
 	} = state;
-	if (input.presentation === "canvas" && controller.activeThread) {
-		return null;
-	}
 	let readOnlyComposerPlaceholder: string | undefined;
 	if (agentOwnerDirectMessageObserver) {
 		readOnlyComposerPlaceholder = `You can view this Direct Message because you own ${agentOwnerDirectMessageObserver.agentProfileName}. Join to participate.`;
@@ -2122,8 +2090,7 @@ function SpaceLandingConversation({
 			profileControl={composerProfileControl}
 			readOnlyComposerPlaceholder={readOnlyComposerPlaceholder}
 			renderSetupGuidance={(presentation) =>
-				controller.isCurrentAccessConfirmed &&
-				input.presentation !== "canvas" ? (
+				controller.isCurrentAccessConfirmed ? (
 					<SpaceConversationRecoveryBanner
 						accountProfiles={accountProfiles}
 						actingProfileId={input.profileId}
@@ -2595,7 +2562,6 @@ function SpaceLandingSecondaryPanels({
 				currentOwnerUserId={currentOwnerUserId}
 				ephemeralActivityItems={controller.presentedWakeProgressItems}
 				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
-				fillAvailableSpace={input.presentation === "canvas"}
 				initialFocusSignalId={
 					controller.threadUnreadFocus?.signalId ?? input.initialFocusSignalId
 				}
@@ -2678,7 +2644,7 @@ function SpaceLandingSecondaryPanels({
 }
 
 function resolveSpaceLandingBodySlotName(
-	presentation: "canvas" | "compact" | "full" | undefined
+	presentation: "compact" | "full" | undefined
 ) {
 	return presentation === "compact"
 		? "center-agent-compact-conversation"
@@ -2979,6 +2945,7 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 	organizationId: string | null;
 	organizationSlug: string;
 	queryClient: ReturnType<typeof useQueryClient>;
+	storageScope: string;
 }): (
 	input: SpaceAddOrganizationDirectoryProfilesInput
 ) => Promise<SpaceAddProfilesResult> {
@@ -3021,6 +2988,14 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 			});
 
 			(async () => {
+				if (input.organizationId) {
+					await refreshWebAgentReadinessAfterCoreFactsChanged({
+						includeLocalRuntimeCaches: false,
+						organizationId: input.organizationId,
+						queryClient: input.queryClient,
+						storageScope: input.storageScope,
+					});
+				}
 				await Promise.all([
 					input.queryClient.invalidateQueries({
 						queryKey: accountSpaceQueryKeys.all,
@@ -3056,6 +3031,7 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 			input.organizationId,
 			input.organizationSlug,
 			input.queryClient,
+			input.storageScope,
 		]
 	);
 }

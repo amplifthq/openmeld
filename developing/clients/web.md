@@ -344,9 +344,9 @@ primary actions and destinations in a flat list:
   overview. Success opens the new Agent's detail; Cancel returns to Agents.
   Pending teammate requests open Agent requests. Legacy `agents?view=create`
   links redirect to this route before loading the Agents directory.
-- **Home** — opens the current workspace's personal, customizable collaboration canvas.
+- **Desk** — opens an ordinary Space on the current workspace's canvas.
 - **Spaces** and **Chats** — first-level destinations directly below
-  Home.
+  Desk.
 - **Team** — opens the people directory. Each person's profile owns their Agent list.
 
 **Projects**, **Documents**, and **Agent Activity** keep their canonical routes,
@@ -357,40 +357,14 @@ change does not retire, redirect, combine, or relocate those products.
 Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
-The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
+The visible entries resolve in this order: **New Agent**, **Desk**, **Spaces**,
 **Chats**, **Team**. The product destinations are:
 
-1. **Home** — renders an infinite React Flow canvas with movable, resizable
-   cards. New layouts include Spaces, People and Agents, and Center Agent;
-   an existing ordinary Space gets a message preview in the primary position.
-   A Space card starts the existing conversation inline. Creating a Space,
-   opening a Human or Agent DM, and adding members use the same product owners
-   as their full-page surfaces. Center Agent reuses its compact conversation
-   and default open-or-reuse session. Legacy Home session, draft, focus, and
-   view links redirect to the canonical Center Agent chat route.
-
-   Layout, dimensions, and viewport are stored per account and Organization
-   in this browser. They are personal preferences, not a shared Organization
-   layout or a server-synchronized setting. Removing a card only removes it
-   from Home. **Back to start**, **View all**, and **Add to Home** remain outside
-   the canvas so users can recover content after panning. Card headers own
-   dragging; their content owns scrolling and message interaction.
-
-   Only visible cards mount. At most one Home card mounts a full conversation;
-   other Space cards show the last five text messages from the shared history
-   cache. The shared Account Space Index refreshes every 15 seconds; a changed
-   message preview invalidates that visible card's history. Previews do not
-   open a stream or mark messages read. Active collaboration uses the existing
-   live stream and canonical access, read-position, send, Wake, and failure
-   handling. Activity and unread labels reuse the existing account projections;
-   Home does not derive execution status. Threads replace the main conversation
-   within a card, preserving usable width. Member dialogs share one modal system.
-
-   The canvas foundation lives in `components/canvas/workspace-canvas.tsx` and
-   is shared with Space Graph. It owns React Flow viewport defaults and controls;
-   Graph owns relations and edges, while Home owns card layout and has no edges.
-   Computer setup remains optional for Home. Agent creation continues to honor
-   the existing runtime availability; Home does not invent Remote Agent support.
+1. **Desk** — renders one ordinary Space and a greeting on the shared infinite
+   React Flow canvas. See **Desk and Chats** below for selection, creation,
+   persistence, and viewport behavior. Space interactions use the full Space
+   owner without a separate canvas presentation branch. There is no widget
+   picker, standalone Center Agent window, or header shortcut list.
 2. **Spaces** — the current workspace's Space collaboration surface.
    Spaces, Direct Messages, and People place their contextual lists
    below the fixed destinations in the Main Sidebar. Only these contextual
@@ -517,37 +491,32 @@ writer owners for that conversation. Inbox and Center Agent
 are separate controls and truths, and at most one compact panel is open at a
 time.
 
-### Home and Chats
+### Desk and Chats
 
-The authorized Organization root `/o/{orgSlug}` renders **Home**, an infinite
-work desk. Its initial view contains a movable greeting that identifies the
-Organization and explains where to start, a directly usable Center Agent
-conversation, and one existing ordinary Space when available. Home does not
-create a sample Space or require a Computer. Team and a separate Spaces browsing
-widget are deferred; their canonical destinations remain available.
+The authorized Organization root `/o/{orgSlug}` renders **Desk**. It remembers
+one ordinary Space in this browser per account and Organization. Without a
+selection it uses an existing ordinary Space, or creates a private, members-only
+`Getting started` Space through the ordinary creation flow when none exists.
+There is no special Space kind or membership policy. A browser lock prevents
+concurrent tabs from creating duplicates; a pending marker prevents blind
+retries after an uncertain creation result. This is not cross-device atomic
+provisioning. A confirmed deleted Space is removed from Desk and is not recreated.
 
-Home and Space Graph share `WorkspaceCanvas`, with an independent React Flow
-provider for each canvas, including Graph inside a Home window. Header widget
-names focus their windows. Bottom-left controls provide zoom and one Reset view;
-the bottom-right add button opens a large picker with the actual conversation
-UI as an inert preview. Space windows reuse SpaceLanding's header, Messages,
-Graph, Files, sharing, information, members and thread operations. Members
-start closed and use the side panel when the window is wide enough. Maximize
-opens the canonical page and retains the current Space tab.
+Desk and Space Graph share `WorkspaceCanvas`, with independent React Flow
+providers. Desk mounts the same full `SpaceLanding` as the Space route, including
+setup guidance, Messages, Graph, Files, members, sharing, and threads. The same
+responsive rules determine the member surface. The mounted Space survives
+panning and zooming; no preview copy or parallel conversation state exists.
+The maximize link opens its canonical route. The shared member selector uses
+the workspace directory in both Personal and Organization contexts, including
+the workspace's own Center Agent under the existing membership authorization.
 
-Layout version 2 is stored separately in this browser per account and Organization.
-It remembers window geometry and the viewport; it is not a cross-device setting.
-The first view fits the initial desk at a modest zoom. Moving and resizing are
-presentation operations, not Space mutations. Modifier-wheel input batches
-viewport changes per animation frame and preserves the pointer anchor. Layout
-writes wait for viewport movement to settle.
-
-Only visible windows at a readable zoom mount full conversations. Far-out zoom
-uses a lightweight overview. A window with unsaved file edits remains mounted
-and cannot be removed until those edits are saved or discarded. Gallery previews
-and inactive windows do not publish the visible Inbox conversation or write read
-positions; direct interaction selects the read-tracking window. Permissions,
-history, drafts, membership and message sending retain their existing owners.
+The first visit shows an overview, then zooms to readable 100% scale with canvas
+margins. Pointer, wheel, or keyboard input interrupts the entrance. Reduced
+motion skips it. The viewport is remembered locally; Reset view restores the
+readable starting position. Scrolling a clipped Space reveals its lower content
+before the ordinary conversation scrolls. Embedded Graphs own their wheel input.
+Bottom-left zoom controls remain; adding more windows is deferred.
 
 `/o/{orgSlug}/chats/center-agent` remains the canonical full Center Agent page.
 Explicit legacy `session`, `draft`, focused-signal and view selectors on the
@@ -586,7 +555,7 @@ No second conversation controller or message store is introduced.
 ### Inbox
 
 The canonical route is `/o/{orgSlug}/inbox`. The bare authorized Organization
-route renders **Home** after current membership and Organization identity are
+route renders **Desk** after current membership and Organization identity are
 resolved. Inbox remains a lower-priority global utility reached from its
 bottom-right launcher; it must not become the default authenticated or
 post-onboarding destination. Inbox uses the full-width inset app surface without
@@ -2264,7 +2233,7 @@ must preserve `authorizedActions` when supplied; silently dropping that field
 would create a Routine that cannot fulfill its visible document-maintenance or
 team-report promise.
 
-### Home first paint
+### Desk first paint
 
 The deferred proposal for replacing the current aggregate Space bootstrap with
 a bounded, versioned entry read model is tracked in
@@ -2272,14 +2241,14 @@ a bounded, versioned entry read model is tracked in
 production behavior and does not authorize implementation before its trigger
 and consumer-inventory gates are satisfied.
 
-The Organization index renders the Home work desk at `/o/{orgSlug}` after its
+The Organization index renders Desk at `/o/{orgSlug}` after its
 route guard confirms current Organization access.
 Ordinary Organization selection, creation, invitation acceptance, and
 onboarding completion all use this same default path. An explicit intent, such
 as continuing Slack installation, may still enter its named destination
 directly.
 
-The Center Agent pathless route branch renders Home without the Center Agent
+The Center Agent pathless route branch renders Desk without the Center Agent
 conversation layout. Explicit Center Agent capability routes retain their
 existing layout. That branch owns its pending component; the global router does
 not infer Center Agent pending UI from a pathname. The outer rail derives its

@@ -1260,7 +1260,10 @@ describe("SpaceMembersSidePanel", () => {
 		});
 	});
 
-	it("adds Organization Directory members and agents in one atomic request", async () => {
+	it.each([
+		false,
+		true,
+	])("adds workspace directory members and Center Agent atomically (personal=%s)", async (isPersonal) => {
 		const centerAgentProfileId = "agt_44444444-4444-4444-8444-444444444444";
 		const humanProfileId = "22222222-2222-4222-8222-222222222222";
 		const onAddOrganizationDirectoryProfiles = vi
@@ -1300,7 +1303,8 @@ describe("SpaceMembersSidePanel", () => {
 					],
 				})}
 			/>,
-			buildOrganizationDirectory({ centerAgentProfileId, humanProfileId })
+			buildOrganizationDirectory({ centerAgentProfileId, humanProfileId }),
+			isPersonal
 		);
 
 		fireEvent.click(
@@ -2293,7 +2297,8 @@ function createAccountProfile(
 
 function renderWithOrganizationQueryClient(
 	ui: ReactElement,
-	directory: OrganizationDirectoryResponse
+	directory: OrganizationDirectoryResponse,
+	isPersonal = false
 ) {
 	const queryClient = createTestQueryClient();
 	queryClient.setQueryData(
@@ -2302,17 +2307,19 @@ function renderWithOrganizationQueryClient(
 	);
 	return render(
 		<TestQueryClientProvider queryClient={queryClient}>
-			<AppOrganizationProvider scope={createOrganizationScope()}>
+			<AppOrganizationProvider scope={createOrganizationScope(isPersonal)}>
 				{ui}
 			</AppOrganizationProvider>
 		</TestQueryClientProvider>
 	);
 }
 
-function createOrganizationScope(): OrganizationScopeAuthorized {
+function createOrganizationScope(
+	isPersonal = false
+): OrganizationScopeAuthorized {
 	const currentOrganization = {
 		id: "org-acme",
-		isPersonal: false,
+		isPersonal,
 		name: "Acme",
 		slug: "acme",
 	};

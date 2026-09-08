@@ -2,7 +2,7 @@ import type { Node, ReactFlowInstance } from "@xyflow/react";
 import { type RefObject, useEffect } from "react";
 
 /** Normalize modifier-wheel zoom without the Mac-specific 10x pinch multiplier. */
-export function useHomeWheelZoom<N extends Node>(
+export function useDeskWheel<N extends Node>(
 	region: RefObject<HTMLElement | null>,
 	flow: RefObject<ReactFlowInstance<N> | null>
 ) {
@@ -15,7 +15,8 @@ export function useHomeWheelZoom<N extends Node>(
 		let delta = 0;
 		let pointer = { x: 0, y: 0 };
 		const wheel = (event: WheelEvent) => {
-			if (!((event.ctrlKey || event.metaKey) && flow.current)) {
+			const instance = flow.current;
+			if (!instance) {
 				return;
 			}
 			// An embedded Space Graph owns its own viewport.
@@ -23,6 +24,18 @@ export function useHomeWheelZoom<N extends Node>(
 			if (
 				target?.closest(".react-flow") !== element.querySelector(".react-flow")
 			) {
+				return;
+			}
+			if (!isZoomGesture(event)) {
+				const movement = revealWindowMovement(event, target, element);
+				if (movement) {
+					event.preventDefault();
+					event.stopPropagation();
+					const viewport = instance.getViewport();
+					instance
+						.setViewport({ ...viewport, y: viewport.y - movement })
+						.catch(console.error);
+				}
 				return;
 			}
 			event.preventDefault();
@@ -40,10 +53,6 @@ export function useHomeWheelZoom<N extends Node>(
 			}
 			frame = requestAnimationFrame(() => {
 				frame = 0;
-				const instance = flow.current;
-				if (!instance) {
-					return;
-				}
 				const current = instance.getViewport();
 				const zoom = Math.max(
 					0.2,
@@ -66,4 +75,37 @@ export function useHomeWheelZoom<N extends Node>(
 			cancelAnimationFrame(frame);
 		};
 	}, [region, flow]);
+}
+
+function isZoomGesture(event: WheelEvent) {
+	return event.ctrlKey || event.metaKey;
+}
+
+/** Scroll a clipped window into view; then its ordinary Space owns scrolling. */
+function revealWindowMovement(
+	event: WheelEvent,
+	target: Element | null,
+	region: HTMLElement
+) {
+	const window = target?.closest('[aria-label="Desk Space"]');
+	if (!window) {
+		return 0;
+	}
+	const bounds = region.getBoundingClientRect();
+	const card = window.getBoundingClientRect();
+	const pixels = event.deltaY * ([1, 16, bounds.height][event.deltaMode] ?? 1);
+	if (pixels > 0) {
+		return Math.min(pixels, Math.max(0, card.bottom - bounds.bottom + 24));
+	}
+	if (pixels >= 0 || card.top >= bounds.top + 24) {
+		return 0;
+	}
+	let parent = target;
+	while (parent && parent !== window) {
+		if (parent.scrollTop > 0 && parent.scrollHeight > parent.clientHeight) {
+			return 0;
+		}
+		parent = parent.parentElement;
+	}
+	return Math.max(pixels, card.top - bounds.top - 24);
 }

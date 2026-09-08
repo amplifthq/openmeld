@@ -869,9 +869,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	const organizationContext = useOptionalAppOrganization();
 	const organization = organizationContext?.currentOrganization ?? null;
 	const usesOrganizationDirectory = Boolean(
-		organization &&
-			!organization.isPersonal &&
-			input.onAddOrganizationDirectoryProfiles
+		organization && input.onAddOrganizationDirectoryProfiles
 	);
 	const directoryQuery = useQuery(
 		organizationSpaceProfileCandidatesQueryOptions({

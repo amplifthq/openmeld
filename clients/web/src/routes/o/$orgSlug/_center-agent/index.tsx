@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { appShellStaticData } from "#/components/app/shell-layout";
-import { HomePage } from "#/components/home/home-page";
+import { DeskPage } from "#/components/desk/desk-page";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 
 export const Route = createFileRoute("/o/$orgSlug/_center-agent/")({
@@ -13,5 +13,5 @@ export const Route = createFileRoute("/o/$orgSlug/_center-agent/")({
 			});
 		}
 	},
-	component: HomePage,
+	component: DeskPage,
 });

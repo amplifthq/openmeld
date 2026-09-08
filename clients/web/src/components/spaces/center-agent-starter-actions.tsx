@@ -45,24 +45,16 @@ const CENTER_AGENT_STARTER_ACTIONS = [
 export function CenterAgentStarterActions(input: {
 	disabled: boolean;
 	showAgentLogos?: boolean;
-	showComputerSetup?: boolean;
 	onConnectComputer: () => void;
 	onSelect: (prompt: string) => void;
 }) {
 	return (
 		<FluidCardGroup
 			aria-label="Suggested starting points"
-			className={
-				input.showComputerSetup === false
-					? "grid w-full grid-cols-2 gap-3"
-					: "grid w-full grid-cols-1 gap-3 sm:grid-cols-3"
-			}
+			className="grid w-full grid-cols-1 gap-3 sm:grid-cols-3"
 			role="group"
 		>
-			{CENTER_AGENT_STARTER_ACTIONS.filter(
-				(action) =>
-					input.showComputerSetup !== false || action.kind !== "computer_setup"
-			).map((action) => {
+			{CENTER_AGENT_STARTER_ACTIONS.map((action) => {
 				const Icon = action.icon;
 				return (
 					<FluidCardItem

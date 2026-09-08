@@ -43,8 +43,6 @@ export type WelcomeJoinableSpace = {
 export type WelcomeJoinableStatus = "loading" | "error" | "ready";
 
 export type WelcomeSpaceScreenProps = {
-	presentation?: "page" | "dialog";
-	initialMode?: "choices" | "create";
 	contextKind?: "organization" | "personal";
 	computerSetupActions?: {
 		centerAgentPath: string;
@@ -101,7 +99,7 @@ function joinDescriptionFor(
 }
 
 export function WelcomeSpaceScreen(props: WelcomeSpaceScreenProps) {
-	const [mode, setMode] = useState<SpaceMode>(props.initialMode ?? "choices");
+	const [mode, setMode] = useState<SpaceMode>("choices");
 	const [query, setQuery] = useState("");
 	const hasJoinableSpaces = props.joinableSpaces.length > 0;
 	// Loading and settled-empty are dead ends (disabled); an error is actionable
@@ -135,8 +133,7 @@ export function WelcomeSpaceScreen(props: WelcomeSpaceScreenProps) {
 
 	return (
 		<WelcomeLayout
-			onBack={props.presentation === "dialog" ? undefined : handleBack}
-			presentation={props.presentation}
+			onBack={handleBack}
 			subtitle={mode === "choices" ? SPACE_EXPLANATION : undefined}
 			title={resolveTitle(mode)}
 		>

@@ -9,16 +9,13 @@ const SpaceLanding = lazy(() =>
 	}))
 );
 
-export function HomeConversation(input: {
+export function DeskSpace(input: {
 	spaceId: string;
 	profileId: string;
 	orgSlug: string;
 	accountProfiles: readonly AuthProfileView[];
-	isDirectMessage?: boolean;
-	width?: number;
 	onViewChange?: (view: SpaceView) => void;
 	initialView?: SpaceView;
-	onUnsavedFileChangesChange?: (hasChanges: boolean) => void;
 }) {
 	return (
 		<SpaceEntryGate
@@ -37,13 +34,10 @@ export function HomeConversation(input: {
 				>
 					<SpaceLanding
 						accountProfiles={input.accountProfiles}
-						containerWidth={input.width}
 						initialSpaceView={input.initialView}
-						isDirectMessageConversation={input.isDirectMessage}
 						onSpaceViewCommitted={input.onViewChange}
-						onUnsavedFileChangesChange={input.onUnsavedFileChangesChange}
 						orgSlug={input.orgSlug}
-						presentation="canvas"
+						presentation="full"
 						profileId={input.profileId}
 						spaceId={input.spaceId}
 					/>

@@ -98,8 +98,6 @@ function resolveWelcomeBackHandler(
 }
 
 function renderWelcomeSpaceStep(input: {
-	presentation?: "page" | "dialog";
-	initialMode?: "choices" | "create";
 	accountSpacesIsError: boolean;
 	accountSpacesIsSuccess: boolean;
 	contextKind: "organization" | "personal";
@@ -136,7 +134,6 @@ function renderWelcomeSpaceStep(input: {
 			}
 			contextKind={input.contextKind}
 			errorMessage={resolveCreateSpaceErrorMessage(input.createSpace.error)}
-			initialMode={input.initialMode}
 			isPending={input.createSpace.isPending}
 			joinableSpaces={input.joinableSpaces}
 			joinableStatus={resolveJoinableStatus(
@@ -147,7 +144,6 @@ function renderWelcomeSpaceStep(input: {
 			onCreate={input.createSpace.mutate}
 			onJoin={input.onJoin}
 			onRetryJoinable={input.onRetryJoinable}
-			presentation={input.presentation}
 		/>
 	);
 }
@@ -158,15 +154,7 @@ function renderWelcomeSpaceStep(input: {
  * presentational. The screen choice comes from the shared onboarding plan via
  * `selectWelcomeScreen`, so first-run never re-derives onboarding rules.
  */
-export function WelcomeFirstRun(
-	input: {
-		presentation?: "page" | "dialog";
-		showBack?: boolean;
-		initialMode?: "choices" | "create";
-		offerComputerSetup?: boolean;
-		onOpenSpace?: (spaceId: string, profileId: string) => void;
-	} = {}
-) {
+export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 	const navigate = useNavigate();
 	const { currentOrganization } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
@@ -230,10 +218,6 @@ export function WelcomeFirstRun(
 
 	const openSpace = (spaceId: string) => {
 		if (actingProfile === null) {
-			return;
-		}
-		if (input.onOpenSpace) {
-			input.onOpenSpace(spaceId, actingProfile.openMeldProfileId);
 			return;
 		}
 		navigate({
@@ -328,8 +312,6 @@ export function WelcomeFirstRun(
 
 	if (screen === "space") {
 		return renderWelcomeSpaceStep({
-			presentation: input.presentation,
-			initialMode: input.initialMode,
 			accountSpacesIsError:
 				accountSpacesIsError && accountSpaceSections === undefined,
 			accountSpacesIsSuccess:
@@ -345,8 +327,7 @@ export function WelcomeFirstRun(
 			onRetryJoinable: () => {
 				refetchAccountSpaces().catch(() => undefined);
 			},
-			shouldOfferAddComputer:
-				shouldOfferAddComputer && input.offerComputerSetup !== false,
+			shouldOfferAddComputer,
 			showBack: input.showBack,
 		});
 	}

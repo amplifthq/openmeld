@@ -223,7 +223,6 @@ function createThreadExecutionRecoveryHandler(input: {
 }
 
 type SpaceThreadPanelProps = {
-	fillAvailableSpace?: boolean;
 	activeThread: SpaceThread | null;
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	agentStreams: readonly SpaceConversationVisibleStreamProjection[];
@@ -487,12 +486,12 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 			ariaLabel="Thread"
 			className={input.className}
 			id="space-thread-panel"
-			maxWidth={input.fillAvailableSpace ? "100%" : panelWidth.maxWidth}
-			minWidth={input.fillAvailableSpace ? "100%" : panelWidth.minWidth}
+			maxWidth={panelWidth.maxWidth}
+			minWidth={panelWidth.minWidth}
 			onWidthChange={panelWidth.onWidthChange}
 			open={input.activeThread !== null}
 			resizeHandleLabel="Resize Thread panel"
-			width={input.fillAvailableSpace ? "100%" : panelWidth.width}
+			width={panelWidth.width}
 		>
 			<ThreadPanelHeader onClose={input.onClose} />
 			{renderThreadFocusStatus(focusStatusMessage)}

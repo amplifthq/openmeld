@@ -1,13 +1,14 @@
 ---
 id: home-collaboration-canvas
-title: Make Home your collaboration workspace
+title: Start working in a Space on your Desk
 kind: new
 areas: ["web", "spaces", "center-agent"]
 audiences: ["users"]
 ---
 
-Start with a welcoming work desk and chat directly with Center Agent. Add a
-Space after previewing its actual window, then use messages, Graph, Files,
-members and sharing without leaving Home. Drag and resize windows to arrange
-your desk, find them through the header, or open their full pages. Positions
-and sizes are remembered in this browser for each workspace.
+Desk opens a real Space you can work in immediately. If your workspace has no
+Spaces, it creates a private Getting started Space. Messages, Graph, Files,
+members, and sharing use the same interface as the full Space page. Scroll to
+work, zoom out to see the canvas, or open the Space full screen. Your viewport
+is remembered in this browser. Personal workspaces can also select their
+Center Agent in the shared Add People or Agents dialog.
