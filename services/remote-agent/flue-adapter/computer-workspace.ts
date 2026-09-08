@@ -39,7 +39,6 @@ import yqModules from "@cloudflare/computer/shell/yq";
 export const AGENT_COMPUTER_BINDING = "AGENT_COMPUTER";
 export const AGENT_COMPUTER_SHELL_BACKEND_ID = "worker-shell";
 export const AGENT_COMPUTER_CONTAINER_BACKEND_ID = "container";
-const CENTER_AGENT_TASK_CONVERSATION_PREFIX = "center-agent-task:";
 
 /** Root layout of the computer. Prompt conventions reference these. */
 export const AGENT_COMPUTER_ROOT = "/computer";
@@ -47,7 +46,6 @@ export const AGENT_COMPUTER_LAYOUT_DIRECTORIES = [
   `${AGENT_COMPUTER_ROOT}/org`,
   `${AGENT_COMPUTER_ROOT}/projects`,
   `${AGENT_COMPUTER_ROOT}/spaces`,
-  `${AGENT_COMPUTER_ROOT}/tasks`,
   `${AGENT_COMPUTER_ROOT}/routines`,
   `${AGENT_COMPUTER_ROOT}/home`,
 ] as const;
@@ -126,10 +124,6 @@ export function buildAgentComputerSpaceDirectory(spaceId: string): string {
   return `${AGENT_COMPUTER_ROOT}/spaces/${spaceId}`;
 }
 
-export function buildAgentComputerTaskDirectory(taskId: string): string {
-  return `${AGENT_COMPUTER_ROOT}/tasks/${encodePathIdentity(taskId)}`;
-}
-
 export function buildAgentComputerRoutineDirectory(routineId: string): string {
   return `${AGENT_COMPUTER_ROOT}/routines/${encodePathIdentity(routineId)}`;
 }
@@ -139,15 +133,6 @@ export function resolveAgentComputerWorkingDirectory(input: {
   routineId?: string | null;
   spaceId: string | null;
 }): string {
-  if (input.conversationId?.startsWith(CENTER_AGENT_TASK_CONVERSATION_PREFIX)) {
-    const taskId = input.conversationId.slice(
-      CENTER_AGENT_TASK_CONVERSATION_PREFIX.length
-    );
-    if (!taskId) {
-      throw new Error("Center Agent Task Computer identity is empty.");
-    }
-    return buildAgentComputerTaskDirectory(taskId);
-  }
   if (input.routineId) {
     return buildAgentComputerRoutineDirectory(input.routineId);
   }

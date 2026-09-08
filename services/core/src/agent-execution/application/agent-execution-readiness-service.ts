@@ -24,7 +24,8 @@ import {
 } from "@openmeld/agent-runtime";
 import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-  isHostedCenterAgentControllerRef,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+  isHostedAgentControllerRef,
 } from "@openmeld/schemas";
 import type {
   AgentControllerPermissionMode,
@@ -343,7 +344,7 @@ export async function resolveCoreAgentExecutionReadiness(input: {
     agentProfileId: input.agent.profileId,
     binding: bindingSnapshot.agentExecutionBinding,
     claimDiagnostics: bindingSnapshot.claimDiagnostics,
-    executionFamily: isHostedCenterAgentControllerRef(
+    executionFamily: isHostedAgentControllerRef(
       bindingSnapshot.agentControllerRef
     )
       ? "native"
@@ -745,7 +746,7 @@ async function enrichAgentBindingSnapshot(input: {
       : ("missing" as const);
   if (
     bindingProjection &&
-    isHostedCenterAgentControllerRef(parsedAgentControllerRef?.ref)
+    isHostedAgentControllerRef(parsedAgentControllerRef?.ref)
   ) {
     const claimDiagnostics = await measureReadinessStep(
       input.timing,
@@ -965,6 +966,9 @@ async function createHostedAgentBindingSnapshot(input: {
       ? await resolveHostedCenterAgentReadiness({
           activeOrganizationId: input.activeOrganizationId,
           agentProfileId: input.agent.profileId,
+          ownerUserId: input.ownerUserId,
+          personalAgent:
+            input.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF,
           env: input.env,
         })
       : null;
@@ -995,6 +999,9 @@ async function createHostedAgentBindingSnapshot(input: {
     providerAccount: null,
     providerConversation: null,
     readinessImpact: null,
+    ...(input.bindingProjection.modelSelection
+      ? { modelSelection: input.bindingProjection.modelSelection }
+      : {}),
     primaryBinding: input.bindingProjection,
     agentWakeRouteRegistration: {
       daemonSessionId: null,
@@ -1054,6 +1061,8 @@ function createHostedAgentRouteEvidence(input: {
 async function resolveHostedCenterAgentReadiness(input: {
   activeOrganizationId: string | null;
   agentProfileId: string;
+  ownerUserId: string | null;
+  personalAgent: boolean;
   env: CoreBindings;
 }): Promise<{
   available: boolean;
@@ -1073,6 +1082,31 @@ async function resolveHostedCenterAgentReadiness(input: {
     };
   }
   try {
+    if (input.personalAgent) {
+      if (!input.ownerUserId) {
+        return {
+          available: false,
+          reasonCodes: ["remote_agent.personal_profile_unavailable"],
+        };
+      }
+      const { requirePersonalRemoteAgentBinding } = await import(
+        "../../remote-agent/application/personal-remote-agent-binding"
+      );
+      await requirePersonalRemoteAgentBinding({
+        agentProfileId: input.agentProfileId,
+        db,
+        organizationId: input.activeOrganizationId,
+        ownerUserId: input.ownerUserId,
+      });
+      const availability = resolveRemoteAgentRuntimeAvailability({
+        env: input.env,
+        organizationId: input.activeOrganizationId,
+      });
+      return {
+        available: availability.ok,
+        reasonCodes: availability.ok ? [] : [availability.code],
+      };
+    }
     const designation = await readCenterAgentDesignationRecord({
       db,
       organizationId: input.activeOrganizationId,
@@ -1090,18 +1124,19 @@ async function resolveHostedCenterAgentReadiness(input: {
       };
     }
   } catch (error) {
-    console.warn(
-      "[core.agent_execution.hosted_center_agent_designation_failed]",
-      {
-        event: CORE_LOG_EVENTS.coreInternalError,
-        error: error instanceof Error ? error.message : String(error),
-        organizationId: input.activeOrganizationId,
-        profileId: input.agentProfileId,
-      }
-    );
+    console.warn("[core.agent_execution.hosted_agent_authorization_failed]", {
+      event: CORE_LOG_EVENTS.coreInternalError,
+      error: error instanceof Error ? error.message : String(error),
+      organizationId: input.activeOrganizationId,
+      profileId: input.agentProfileId,
+    });
     return {
       available: false,
-      reasonCodes: ["center_agent.designation_lookup_failed"],
+      reasonCodes: [
+        input.personalAgent
+          ? "remote_agent.personal_profile_unavailable"
+          : "center_agent.designation_lookup_failed",
+      ],
     };
   }
   const availability = resolveRemoteAgentRuntimeAvailability({

@@ -41,7 +41,6 @@ export const inboxItemKindSchema = z.enum([
   "agent_interaction",
   "wake_outcome",
   "center_agent_update",
-  "center_agent_task",
   "document_review",
   "organization_request",
   "system_issue",
@@ -56,7 +55,6 @@ export const inboxSourceKindSchema = z.enum([
   "runtime_coordinator_interaction",
   "remote_agent_native_delivery",
   "remote_agent_native_interaction",
-  "center_agent_task_event",
   "organization_document_draft",
   "organization_opportunity",
   "organization_member_request",
@@ -140,10 +138,6 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     documentId: identifierSchema,
     kind: z.literal("organization_document"),
-  }),
-  z.strictObject({
-    kind: z.literal("center_agent_task"),
-    taskId: identifierSchema,
   }),
   slackInboxSourceTargetSchema,
   centerAgentInboxSourceTargetSchema,

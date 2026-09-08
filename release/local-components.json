@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T08:44:46.636Z",
+  "updatedAt": "2026-09-08T09:46:57.676Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
-      "packageVersion": "0.3.173",
-      "updatePolicy": "available",
-      "reason": "The additive Feishu and Lark reauthorization request is Web-only; existing CLI commands and all normal responses remain compatible."
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
+      "packageVersion": "0.3.174",
+      "updatePolicy": "required",
+      "reason": "The explicit Space recipient command contract replaces inline recipient instructions. Upgrade the CLI to use the current authoring contract; structured transport remains compatible during the staged rollout."
     },
     "service": {
-      "bundleHash": "deae72dc1ce84dbfe0ab99c586d3f29cbf73435af65fa5787d92b68ddecf3f55",
-      "bundleVersion": "0.3.173",
+      "bundleHash": "9b5b9c989419d8664eb16553e5299e831fc09861aa61598d9dae1793ac29a047",
+      "bundleVersion": "0.3.174",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Shared-schema packaging changes only; existing Services retain the same Wake, transport, setup and reply contracts."
+      "reason": "Route registration and discovery are decoupled without changing the workstation execution epoch, Task Handle callbacks, or final outcome protocol; old and new Service versions remain interoperable."
     },
     "skills": {
-      "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",
-      "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
+      "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
+      "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
-      "updatePolicy": "available",
-      "reason": "Signed compatible guide revisions update independently, retain the offline baseline, and do not require retiring existing Skills."
+      "updatePolicy": "required",
+      "reason": "The Skills contract now requires explicit recipient flags matching the new CLI command contract. Update Skills with the CLI; older signed revisions remain available to their matching legacy contract."
     }
   }
 }

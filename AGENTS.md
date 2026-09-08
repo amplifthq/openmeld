@@ -81,7 +81,6 @@ Use these owner documents:
 | Organization tenancy, Center Agent identity/designation/delegation policy, Channels and Apps product semantics, Organization Documents and draft review, Information Protection, session sync, MVP scope and red lines | `developing/product/organizations-and-center-agent.md` |
 | Projects: Organization-scoped identity, permissions, local connections, discovery, repository fingerprints, Default Project resolution, and Project-aware Wake failures | `developing/product/projects.md` |
 | Agent Activity, local session observation, metadata privacy, presence, digests, retention, snapshots, canonical Project references, and Center Agent awareness | `developing/product/agent-activity.md` |
-| Center Agent Tasks: canonical Task/Task Context, lifecycle, cross-channel continuity, concurrency, recovery, Inbox, and Web surfaces | `developing/product/center-agent-tasks.md` |
 | Center Agent Routines: Routine/Run semantics, authority, scheduling, target Space, native delivery, tool policy, and client surfaces | `developing/product/center-agent-routines.md` |
 | Organization Skills: portable Agent Skills bundles, permissions, immutable releases, GitHub import, Center Agent/Flue use, Web management, CLI loading, and local-agent delegation | `developing/product/organization-skills.md` |
 | Feedback Inbox, Feedback Issue, submission privacy, delivery modes, handling boundaries | `developing/product/feedback-loop.md` |

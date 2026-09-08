@@ -30,6 +30,7 @@ import {
   REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
   resolveRemoteAgentDailyAdmissionLimit,
 } from "./daily-admission-policy";
+import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import {
   buildRemoteAgentConversationContinuityContext,
   buildRemoteAgentWorkerSubmitTurnRequestV4,
@@ -99,6 +100,48 @@ export function resolveRemoteAgentAdmissionPublicCopy(input: {
   );
 }
 
+async function validatePersonalRemoteAgentAdmission(input: {
+  env: CoreBindings;
+  request: RemoteAgentWorkerSubmitTurnRequest;
+}): Promise<Extract<
+  RemoteAgentWorkerAdmission,
+  { status: "rejected" }
+> | null> {
+  const request = input.request;
+  if (
+    request.v !== 4 ||
+    request.conversationIdentity?.kind !== "personal_agent"
+  ) {
+    return null;
+  }
+  try {
+    const db = identityDb(input.env);
+    if (!(db && request.agentProfileOwnerUserId)) {
+      throw new Error("remote_agent.personal_profile_unavailable");
+    }
+    await requirePersonalRemoteAgentBinding({
+      db,
+      agentProfileId: request.agentProfileId,
+      bindingId: request.bindingId,
+      organizationId: request.organizationId,
+      ownerUserId: request.agentProfileOwnerUserId,
+    });
+    return null;
+  } catch (error) {
+    console.warn("[core.remote_agent.personal_admission_rejected]", {
+      agentProfileId: request.agentProfileId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      status: "rejected",
+      response: {
+        reasonCode: "remote_agent.personal_profile_unavailable",
+        message: "This Remote Agent is unavailable.",
+      },
+    };
+  }
+}
+
 export async function submitRemoteAgentWorkerAdmission(input: {
   db: D1Database;
   env: CoreBindings;
@@ -108,6 +151,10 @@ export async function submitRemoteAgentWorkerAdmission(input: {
   worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>;
 }): Promise<RemoteAgentWorkerAdmission> {
   const centerAgentDb = identityDb(input.env);
+  const personalRejection = await validatePersonalRemoteAgentAdmission(input);
+  if (personalRejection) {
+    return personalRejection;
+  }
   if (centerAgentDb) {
     const designation = await readCenterAgentDesignationRecord({
       db: centerAgentDb,

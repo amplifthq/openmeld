@@ -164,25 +164,6 @@ describe("space timeline helpers", () => {
 		});
 	});
 
-	it("preserves durable Center Agent Task references on the timeline item", () => {
-		const [item] = buildSpaceTimelineItems({
-			envelopes: [
-				createTextSignal({
-					id: "sig-task-created",
-					meta: {
-						centerAgentTaskReferences: [{ taskId: "task-1" }],
-						purpose: AGENT_REPLY_FINAL_PURPOSE,
-					},
-					text: "I started the Task.",
-					ts: 30,
-				}),
-			],
-			membersSnapshot: createMembersSnapshot(),
-		});
-
-		expect(item?.centerAgentTaskReferences).toEqual([{ taskId: "task-1" }]);
-	});
-
 	it("projects reply staleness only when the signal carries it", () => {
 		const items = buildSpaceTimelineItems({
 			envelopes: [
@@ -1650,7 +1631,6 @@ function createTextSignal(input: {
 			kind: "local_agent";
 			sessionId?: string;
 		};
-		centerAgentTaskReferences?: Array<{ taskId: string }>;
 		clientMessageId?: string;
 		conversationCompaction?: {
 			completedAtMs: number;

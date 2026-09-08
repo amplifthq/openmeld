@@ -1360,6 +1360,10 @@ it must not rebuild the device-scoped Binding answer from per-profile reads.
 
 Catalog consumption rules:
 
+- Built-in controller discovery runs in the existing controller inventory report
+  pass, independently of route catalog refresh. A discovered registration uses
+  the normal lane-local catalog-change signal. Install detection for an unrelated
+  controller must not gate registration for an already configured controller.
 - An explicit catalog-change signal starts the existing single-flight catalog
   refresh independently of an in-flight heartbeat. New route registration
   must not wait for old-lease renewal or its local maintenance inspection.

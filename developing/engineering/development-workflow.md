@@ -999,6 +999,35 @@ Prepare Session, dispatch-owned Space Action, diagnostic, or D1 schemas.
   terminal outcome; rollback must not strand a provider waiter or rewrite
   RuntimeCoordinator state.
 
+### Explicit Space Recipients Contract Impact Audit
+
+Space authoring uses selected Profile IDs and relations. CLI command behavior
+changes: generic sends and dispatch actions accept full Profile IDs through
+explicit recipient options, while old inline relation syntax is literal text.
+The CLI command and official Skill contracts advance together so a new CLI
+does not install old inline-authoring instructions from the signed Skill
+channel. Old CLIs keep their compatible Skill release; new CLIs use their
+bundled matching instructions until a matching signed release is published.
+
+The HTTP/WS message envelope, membership checks, Core Wakeability, dispatch
+authority, Service execution epoch, and final-result protocol do not change.
+Old clients already send structured targets, so new Core can continue existing
+setup, Wake, actions, status, trace, and recovery. New clients also send the same
+envelope to old cloud code. Deploy Core's source-text preservation before the
+new CLI/Web so literal examples are never stripped from a dispatched prompt.
+No running Wake or historical message is rewritten.
+
+Keep CLI and local-component manifests unchanged on this feature branch and
+use deferred release verification. The final clean-main release must stamp the
+new CLI/Skill contracts, publish the matching signed Skill channel with the new
+CLI version as its minimum, and preserve the previous signed contract release.
+The CLI and Skills updates are required because their command and Skill contracts
+advance. The Service update remains available because its execution contract is
+unchanged. Wire compatibility preserves accepted work during rollout; it does
+not waive the required update policy for changed contracts or force a Service
+restart. Scripts moving to the new CLI must migrate inline syntax to explicit
+recipient flags.
+
 ### Agent Reply Context Review Contract Impact Audit
 
 Agent reply context review changes the shared Runtime Transport capability and

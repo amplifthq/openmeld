@@ -13,6 +13,60 @@ import {
 describe("Inbox urgent email delivery", () => {
   const allowOrganizationAccess = async () => "allowed" as const;
 
+  it("sends transactional invitation review email even when urgent email preferences are off", async () => {
+    const harness = createInboxHarness();
+    try {
+      const item = await ensureInboxItem({
+        db: harness.db,
+        nowMs: 1000,
+        candidate: {
+          organizationId: "org-1",
+          recipientUserId: "user-1",
+          sourceKey: "invitation:request-1",
+          sourceKind: "organization_member_request",
+          sourceTarget: {
+            kind: "organization_join_request",
+            requestId: "request-1",
+          },
+          attention: "action_required",
+          importance: "urgent",
+          kind: "organization_request",
+          occurredAtMs: 1000,
+          contextLabel: null,
+          title: "Review invitation",
+          preview: "A teammate is waiting to join.",
+        },
+      });
+      harness.run({
+        params: ["user-1", 0, 1500, 1500],
+        sql: "INSERT INTO inbox_notification_preferences (user_id, urgent_email_enabled, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?)",
+      });
+      const send = vi.fn<SendInboxUrgentEmail>(async (input) => ({
+        deliveryId: input.deliveryId,
+        messageId: "review-email",
+        status: "sent",
+      }));
+      expect(
+        await retryInboxUrgentEmailDeliveries({
+          db: harness.db,
+          nowMs: 2000,
+          resolveOrganizationAccess: allowOrganizationAccess,
+          send,
+        })
+      ).toEqual({ attempted: 1, failed: 0, sent: 1, suppressed: 0 });
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: item.deliveryId,
+          purpose: "invitation_review",
+          invitationRequestId: "request-1",
+          userId: "user-1",
+        })
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
   it("does not resend after a confirmed sent ledger state", async () => {
     const harness = createInboxHarness();
     try {

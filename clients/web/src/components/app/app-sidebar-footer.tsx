@@ -23,6 +23,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useOrganizationInviteEntry } from "#/components/organizations/use-organization-invite-entry";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { useLogoutAction } from "#/hooks/auth-form.hooks";
 import { buildOrganizationAccountSettingsPath } from "#/lib/organizations/organization-routes";
@@ -74,6 +75,7 @@ export function AppSidebarFooter({
 	const { dismiss, presentation } = useAppNavigationPresentation();
 	const logout = useLogoutAction();
 	const [menuOpen, setMenuOpen] = useState(false);
+	const invitationEntry = useOrganizationInviteEntry(() => setMenuOpen(false));
 	const [showAccounts, setShowAccounts] = useState(false);
 	const accounts = useAccountSwitcher(account, menuOpen && showAccounts);
 	const { resolvedTheme, setTheme } = useTheme();
@@ -147,13 +149,17 @@ export function AppSidebarFooter({
 								<CaretRightIcon className="size-3.5 shrink-0" />
 							</FluidDropdownMenuItem>
 							<DropdownMenuSeparator className="my-1" />
-							<FluidDropdownMenuItem index={1} onClick={openAccount}>
+							{invitationEntry.menuItem}
+							<FluidDropdownMenuItem
+								index={invitationEntry.nextMenuIndex}
+								onClick={openAccount}
+							>
 								<GearSixIcon />
 								Settings
 							</FluidDropdownMenuItem>
 							<FluidDropdownMenuItem
 								disabled={logout.isPending}
-								index={2}
+								index={invitationEntry.nextMenuIndex + 1}
 								onClick={() => {
 									logout.mutate(undefined, {
 										onSuccess: () => window.location.assign("/"),
@@ -183,6 +189,7 @@ export function AppSidebarFooter({
 				}}
 				open={menuOpen}
 			/>
+			{invitationEntry.dialog}
 			<div
 				className={cn(
 					"app-sidebar-footer-actions flex shrink-0 gap-1",

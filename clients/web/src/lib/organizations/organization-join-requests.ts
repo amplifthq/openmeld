@@ -16,8 +16,8 @@ export async function requestOrganizationJoinRequestResult(
 	const response = await requestAuthEndpoint({
 		path:
 			"token" in request
-				? "/organization/join-link/request"
-				: "/organization/join-requests",
+				? "/organization/join-link/request?responseVersion=2"
+				: "/organization/join-requests?responseVersion=2",
 		fallbackMessage: "Could not load the invitation request. Try again.",
 		request: {
 			method: "POST",

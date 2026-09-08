@@ -161,7 +161,7 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           },
         },
         {
-          value: "@Ops Bot(wake)",
+          value: "@Ops Bot",
           label: "Wake",
           description: "Ask this agent to reply.",
           mentionAllowedRelations: {
@@ -186,7 +186,7 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           },
         },
         {
-          value: "@Ops Bot(reference)",
+          value: "@Ops Bot",
           label: "Reference",
           description: "Add context without asking for a reply.",
           mentionAllowedRelations: {
@@ -245,9 +245,9 @@ describe("PiTuiComposerAutocompleteProvider", () => {
     expect(
       provider.applyCompletion(["hello @"], 0, 7, referenceItem, "@")
     ).toEqual({
-      lines: ["hello @Ops Bot(reference) "],
+      lines: ["hello @Ops Bot "],
       cursorLine: 0,
-      cursorCol: "hello ".length + "@Ops Bot(reference)".length + 1,
+      cursorCol: "hello ".length + "@Ops Bot".length + 1,
     });
   });
 

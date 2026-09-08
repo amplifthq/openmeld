@@ -81,7 +81,7 @@ describe("space member directory", () => {
     expect(agentEntry).toEqual(
       expect.objectContaining({
         manualParticipationOnly: true,
-        mentionLabel: "@ops_alpha(wake)",
+        mentionLabel: "@Ops Alpha",
         presenceLabel: "reply route unavailable",
         presenceStatus: "unavailable",
       })
@@ -271,7 +271,7 @@ describe("space member directory", () => {
     expect(agentEntry).toEqual(
       expect.objectContaining({
         manualParticipationOnly: false,
-        mentionLabel: "@ops_alpha(wake)",
+        mentionLabel: "@Ops Alpha",
         presenceLabel: "checking connection",
         presenceStatus: "checking_connection",
       })

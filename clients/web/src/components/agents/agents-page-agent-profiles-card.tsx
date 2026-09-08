@@ -15,6 +15,7 @@ import {
 	resolveAgentWakeAvailabilityDisplayCategory,
 	resolveNativeAgentControllerCollaborationModeForController,
 } from "@openmeld/agent-runtime";
+import { isHostedAgentControllerRef } from "@openmeld/schemas";
 import type {
 	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
@@ -3648,7 +3649,8 @@ function AgentProfileCardActions(input: {
 				capabilities={{
 					canManage: profile.capabilities.canManage,
 					hasEnabledPrimaryBinding:
-						profile.capabilities.hasEnabledPrimaryBinding,
+						profile.capabilities.hasEnabledPrimaryBinding &&
+						!isHostedAgentControllerRef(profile.primaryAgentControllerRef),
 					showProjectSettings: presentation.showProjectSettings,
 				}}
 				controllerChangeStatusLabel={presentation.controllerChangeStatusLabel}
@@ -3781,7 +3783,8 @@ function AgentProfileWorkspacePresentation(input: {
 			capabilities={{
 				canManage: input.input.capabilities.canManage,
 				hasEnabledPrimaryBinding:
-					input.input.capabilities.hasEnabledPrimaryBinding,
+					input.input.capabilities.hasEnabledPrimaryBinding &&
+					!isHostedAgentControllerRef(input.input.primaryAgentControllerRef),
 				showProjectSettings: input.workspaceOptions.showProjectSettings,
 			}}
 			controllerChangeStatusLabel={input.controllerChangeStatusLabel}
@@ -3807,6 +3810,7 @@ function AgentProfileWorkspacePresentation(input: {
 				configurationContent={
 					input.input.capabilities.canManage ? (
 						<AgentProfileConfigurationOverview
+							agentControllerRef={input.input.primaryAgentControllerRef}
 							controllerChangeEligibilityStatus={
 								input.controllerChangeEligibilityStatus
 							}
@@ -3934,6 +3938,7 @@ function AgentProfileWorkspacePresentation(input: {
 }
 
 type AgentProfileConfigurationOverviewProps = {
+	agentControllerRef?: string | null;
 	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
 	controllerDisplayName: string | null;
@@ -4157,22 +4162,26 @@ export function AgentProfileConfigurationOverview(
 					profileId={ownerProfileId}
 				/>
 				<AgentProfileModelConfigurationCard editor={editor} input={input} />
-				<AgentProfileWorkingFolderConfigurationCard
-					disabled={input.disabled}
-					missing={workingFolderMissing}
-					onOpen={input.onOpenProjectSettings}
-					summary={workingFolder}
-				/>
-				<AgentProfileCollaborationConfigurationCard
-					editor={editor}
-					input={input}
-					summary={collaborationSummary}
-				/>
-				<AgentProfilePermissionsConfigurationCard
-					editor={editor}
-					input={input}
-					summary={permissionSummary}
-				/>
+				{isHostedAgentControllerRef(input.agentControllerRef) ? null : (
+					<>
+						<AgentProfileWorkingFolderConfigurationCard
+							disabled={input.disabled}
+							missing={workingFolderMissing}
+							onOpen={input.onOpenProjectSettings}
+							summary={workingFolder}
+						/>
+						<AgentProfileCollaborationConfigurationCard
+							editor={editor}
+							input={input}
+							summary={collaborationSummary}
+						/>
+						<AgentProfilePermissionsConfigurationCard
+							editor={editor}
+							input={input}
+							summary={permissionSummary}
+						/>
+					</>
+				)}
 				{input.runtime ? (
 					<AgentConfigurationCard
 						description={

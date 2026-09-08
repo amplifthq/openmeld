@@ -22,9 +22,13 @@ const SLACK_ROOT_CHANNEL_CONTEXT_PAGE_LIMIT = 8;
 const SLACK_TIMESTAMP_PATTERN = /^(\d+)\.(\d{1,6})$/u;
 const SLACK_FORBIDDEN_ERROR_CODES = new Set([
   "access_denied",
+  "channel_is_limited_access",
+  "channel_not_found",
   "ekm_access_denied",
+  "enterprise_is_restricted",
   "missing_scope",
   "no_permission",
+  "not_in_channel",
   "not_allowed_token_type",
   "team_access_not_granted",
 ]);
@@ -79,7 +83,7 @@ export async function resolveSlackThreadContext(input: {
       threadTs: input.slackThreadTs,
     });
   } catch (error) {
-    const status = classifySlackThreadContextFailure(error);
+    const status = classifySlackContextFailure(error);
     console.warn("[core.remote_agent.slack_thread_context.unavailable]", {
       channelId: input.slackChannelId,
       error: toErrorMessage(error),
@@ -169,7 +173,7 @@ async function readRecentSlackChannelContext(input: {
       truncated: page.nextCursor !== null,
     };
   } catch (error) {
-    const status = classifySlackThreadContextFailure(error);
+    const status = classifySlackContextFailure(error);
     console.warn("[core.remote_agent.slack_channel_context.unavailable]", {
       channelId: input.channelId,
       error: toErrorMessage(error),
@@ -201,6 +205,9 @@ function buildBoundedChannelMessages(input: {
       continue;
     }
     seenMessageIds.add(message.ts);
+    if (message.richContent?.incomplete) {
+      truncated = true;
+    }
     const normalizedText = buildSlackContextMessageText(message);
     if (!normalizedText) {
       continue;
@@ -236,7 +243,10 @@ function buildBoundedChannelMessages(input: {
 function buildSlackContextMessageText(
   message: SlackThreadMessage
 ): string | null {
-  const text = normalizeOptionalText(message.text);
+  const text =
+    [normalizeOptionalText(message.text), message.richContent?.text]
+      .filter(Boolean)
+      .join("\n") || null;
   const fileEvidence = message.files.map((file) =>
     [
       "Slack file attached",
@@ -337,7 +347,7 @@ function buildChannelContextAuthor(
   };
 }
 
-function classifySlackThreadContextFailure(
+export function classifySlackContextFailure(
   error: unknown
 ): "forbidden" | "rate_limited" | "unavailable" {
   if (!(error instanceof SlackApiError)) {

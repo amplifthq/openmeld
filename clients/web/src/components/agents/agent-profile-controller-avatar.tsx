@@ -1,17 +1,42 @@
 "use client";
 
-import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import {
+	HOSTED_CENTER_AGENT_CONTROLLER_REF,
+	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+	parseAgentControllerRef,
+} from "@openmeld/agent-runtime";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
+import { RemoteAgentAvatar } from "./remote-agent-avatar";
 
 export function AgentProfileControllerAvatar(input: {
 	agentControllerRef: string | null;
 	className?: string;
 	profileId: string;
+	profileName: string;
+	working?: boolean;
 	size: number;
 }) {
+	if (
+		input.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF ||
+		input.agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF
+	) {
+		return (
+			<RemoteAgentAvatar
+				className={input.className}
+				profileName={input.profileName}
+				shape={
+					input.agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF
+						? "circle"
+						: "rounded-square"
+				}
+				size={input.size}
+				working={input.working}
+			/>
+		);
+	}
 	const agentId = parseAgentControllerRef(input.agentControllerRef)?.id ?? null;
 	const hasControllerLogo = agentId !== null && hasLocalAgentLogo(agentId);
 	return (

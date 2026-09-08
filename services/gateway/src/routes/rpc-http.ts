@@ -8,7 +8,6 @@ import { registerAgentProfileBindingRoutes } from "./rpc-http.agent-profile-bind
 import { registerBoardRoute } from "./rpc-http.board";
 import { registerBootstrapRoute } from "./rpc-http.bootstrap";
 import { registerCenterAgentRoutes } from "./rpc-http.center-agent";
-import { registerCenterAgentTaskRoutes } from "./rpc-http.center-agent-tasks";
 import { registerChangelogRoutes } from "./rpc-http.changelog";
 import { registerConfigRoutes } from "./rpc-http.config";
 import { registerConnectorConnectionRoutes } from "./rpc-http.connector-connections";
@@ -68,7 +67,6 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerInboxRoutes(app);
   registerProjectRoutes(app);
   registerCenterAgentRoutes(app);
-  registerCenterAgentTaskRoutes(app);
   registerMessageChannelRoutes(app);
   registerConnectorConnectionRoutes(app);
   registerLocalRuntimeExpectedRoutesRoutes(app);

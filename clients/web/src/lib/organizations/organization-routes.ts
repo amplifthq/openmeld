@@ -204,19 +204,6 @@ export function buildOrganizationCenterAgentRoutinesPath(
 	return `${buildOrganizationCenterAgentRootPath(orgSlug)}/routines`;
 }
 
-export function buildOrganizationCenterAgentTasksPath(orgSlug: string): string {
-	return `${buildOrganizationCenterAgentRootPath(orgSlug)}/tasks`;
-}
-
-export function buildOrganizationCenterAgentTaskPath(input: {
-	orgSlug: string;
-	taskId: string;
-}): string {
-	return `${buildOrganizationCenterAgentTasksPath(input.orgSlug)}/${encodePathSegment(
-		input.taskId
-	)}`;
-}
-
 export function buildOrganizationDocumentsPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/documents`;
 }
@@ -425,8 +412,6 @@ export function resolveOrganizationSwitchPath(input: {
 		switch (subsection) {
 			case "routines":
 				return buildOrganizationCenterAgentRoutinesPath(input.nextOrgSlug);
-			case "tasks":
-				return buildOrganizationCenterAgentTasksPath(input.nextOrgSlug);
 			case "skills":
 				return buildOrganizationSkillsPath(input.nextOrgSlug);
 			case "channels":

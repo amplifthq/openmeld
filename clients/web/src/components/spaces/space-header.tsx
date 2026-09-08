@@ -140,6 +140,7 @@ export function SpaceHeader(input: {
 	isLeaveSpacePending: boolean;
 	isSpaceNamePending: boolean;
 	isCenterAgentDirectMessage?: boolean;
+	isRemoteAgentDirectMessage?: boolean;
 	leaveSpaceErrorMessage: string | null;
 	// Realtime stream health for this browser's live connection. Drives the
 	// status dot pinned after the space name; defaults to "connected" so static
@@ -308,6 +309,7 @@ export function SpaceHeader(input: {
 					/>
 					{renderAgentChatBadge(
 						input.isCenterAgentDirectMessage,
+						input.isRemoteAgentDirectMessage,
 						isDirectMessage,
 						input.status.members.agentCount
 					)}
@@ -333,6 +335,7 @@ export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
 
 function renderAgentChatBadge(
 	isCenterAgent: boolean | undefined,
+	isRemoteAgent: boolean | undefined,
 	isDirectMessage: boolean,
 	agentCount: number
 ) {
@@ -340,7 +343,7 @@ function renderAgentChatBadge(
 		return <AgentChatBadge kind="center" />;
 	}
 	if (isDirectMessage && agentCount === 1) {
-		return <AgentChatBadge kind="local" />;
+		return <AgentChatBadge kind={isRemoteAgent ? "remote" : "local"} />;
 	}
 	return null;
 }

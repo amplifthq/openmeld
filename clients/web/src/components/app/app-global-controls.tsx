@@ -2,13 +2,10 @@
 
 import { useState } from "react";
 import { GlobalInboxLauncher } from "#/components/inbox/global-inbox-launcher";
-import {
-	GlobalCenterAgentLauncher,
-	GlobalCenterAgentTaskLaunchers,
-} from "#/components/organizations/global-center-agent-launcher";
+import { GlobalCenterAgentLauncher } from "#/components/organizations/global-center-agent-launcher";
 import { CurrentComputerToolbarLauncher } from "./current-computer-toolbar-launcher";
 
-export type AppGlobalPanel = "center_agent" | "inbox" | `task:${string}`;
+export type AppGlobalPanel = "center_agent" | "inbox";
 
 export type AppGlobalControlsProps = {
 	currentPathname?: string;
@@ -27,9 +24,6 @@ export function AppGlobalControls(input: AppGlobalControlsProps = {}) {
 		}
 		input.onOpenPanelChange?.(panel);
 	};
-	const openTaskId = openPanel?.startsWith("task:")
-		? openPanel.slice("task:".length)
-		: null;
 	return (
 		<div
 			aria-label="Global controls"
@@ -47,13 +41,6 @@ export function AppGlobalControls(input: AppGlobalControlsProps = {}) {
 				className="flex min-w-0 items-center gap-1 lg:gap-0.5"
 				data-slot="app-global-controls-end"
 			>
-				<GlobalCenterAgentTaskLaunchers
-					currentPathname={input.currentPathname}
-					onOpenTaskChange={(taskId, open) =>
-						setOpenPanel(open ? `task:${taskId}` : null)
-					}
-					openTaskId={openTaskId}
-				/>
 				<GlobalCenterAgentLauncher
 					currentPathname={input.currentPathname}
 					onOpenChange={(open) => setOpenPanel(open ? "center_agent" : null)}

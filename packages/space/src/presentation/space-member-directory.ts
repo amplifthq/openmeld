@@ -146,7 +146,7 @@ function buildDirectoryEntry(
       liveNow: member.liveNow,
       manualParticipationOnly: isManualParticipationOnlyAgent(member),
       mentionLabel: catalogEntry?.mentionAlias
-        ? `@${catalogEntry.mentionAlias}(wake)`
+        ? `@${catalogEntry.profileName}`
         : null,
       modelSelection: member.modelSelection ?? null,
       ownerDisplay: catalogEntry?.ownerDisplay ?? null,
