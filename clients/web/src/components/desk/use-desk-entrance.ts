@@ -8,7 +8,7 @@ function entrancePhase(elapsed: number) {
 	if (elapsed < 650) {
 		return "greeting";
 	}
-	if (elapsed < 1800) {
+	if (elapsed < 1500) {
 		return "arrow";
 	}
 	return "space";
@@ -91,8 +91,8 @@ export function useDeskEntrance<N extends Node>(input: {
 						input.region.current.dataset.deskEntrance = phase;
 					}
 				}
-				if (elapsed >= 2000) {
-					const progress = Math.min(1, (elapsed - 2000) / 1400);
+				if (elapsed >= 1700) {
+					const progress = Math.min(1, (elapsed - 1700) / 1400);
 					const eased = (1 - Math.cos(Math.PI * progress)) / 2;
 					instance
 						.setViewport({

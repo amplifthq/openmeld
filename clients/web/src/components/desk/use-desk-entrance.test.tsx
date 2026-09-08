@@ -78,7 +78,7 @@ it("reveals the greeting, arrow, and Space in order before centering the complet
 	expect(entry.element.dataset.deskEntrance).toBe("greeting");
 	act(() => vi.advanceTimersByTime(450));
 	expect(entry.element.dataset.deskEntrance).toBe("arrow");
-	act(() => vi.advanceTimersByTime(1150));
+	act(() => vi.advanceTimersByTime(850));
 	expect(entry.element.dataset.deskEntrance).toBe("space");
 	act(() => vi.advanceTimersByTime(1600));
 	expect(entry.element.dataset.deskEntrance).toBe("ready");
