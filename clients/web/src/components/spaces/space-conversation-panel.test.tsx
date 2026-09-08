@@ -2074,9 +2074,23 @@ describe("SpaceConversationPanel", () => {
 			readOnly: false,
 		});
 
-		fireEvent.click(screen.getByRole("button", { name: "Add to message" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add" }));
 
 		expect(await screen.findByRole("menuitem", { name: "Files" })).toBeTruthy();
+	});
+
+	it("opens the existing member picker from Add", async () => {
+		const onAddPeopleOrAgents = vi.fn();
+		renderSpaceConversationPanel({
+			allowedActions: ["post_message"],
+			onAddPeopleOrAgents,
+			readOnly: false,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Add" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "People or agents" })
+		);
+		expect(onAddPeopleOrAgents).toHaveBeenCalledOnce();
 	});
 
 	it("opens a conversation file in the same Space Files view", () => {
@@ -2130,7 +2144,7 @@ describe("SpaceConversationPanel", () => {
 		const mentionButton = screen.getByRole("button", {
 			name: "Mention a member",
 		});
-		const addButton = screen.getByRole("button", { name: "Add to message" });
+		const addButton = screen.getByRole("button", { name: "Add" });
 		expect(mentionButton.parentElement?.className).toContain("gap-0");
 		expect(addButton).toHaveProperty("disabled", false);
 		expect(mentionButton).toHaveProperty("disabled", false);
@@ -2147,9 +2161,10 @@ describe("SpaceConversationPanel", () => {
 			/>
 		);
 
-		expect(
-			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", false);
+		expect(screen.getByRole("button", { name: "Add" })).toHaveProperty(
+			"disabled",
+			false
+		);
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
 		).toHaveProperty("disabled", false);

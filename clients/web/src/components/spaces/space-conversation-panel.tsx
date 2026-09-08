@@ -260,6 +260,7 @@ type SpaceConversationPanelResolvedProps = {
 	modelCatalog: ModelCatalog | null;
 	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
+	onAddPeopleOrAgents?: () => void;
 	onClearComposerReplyTo: () => void;
 	onLoadEarlierHistory: () => Promise<void>;
 	onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
@@ -1910,6 +1911,7 @@ function SpaceComposerSection(input: {
 				<SpaceComposer
 					actions={{
 						onAddFiles: panel.onAddComposerFiles,
+						onAddPeopleOrAgents: panel.onAddPeopleOrAgents,
 						onEditorChange: panel.onComposerEditorChange,
 						onMentionButtonClick: panel.onMentionButtonClick,
 						onRemoveFile: panel.onRemoveComposerFile,
