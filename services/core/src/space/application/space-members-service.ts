@@ -24,20 +24,16 @@ import type {
   SpaceStatusMembersSummary,
 } from "@openmeld/schemas/types";
 import { buildSpaceMemberDirectoryFromIdentityDirectory } from "@openmeld/space";
-import { resolveCoreAgentExecutionReadiness } from "../../agent-execution/application/agent-execution-readiness-service";
 import {
-  type ReadLocalRuntimeExpectedRoutesResult,
-  readLocalRuntimeExpectedRoutes,
-} from "../../agent-profile-binding/application/local-runtime-expected-routes-service";
+  type AgentExecutionReadinessReads,
+  createAgentExecutionReadinessReads,
+} from "../../agent-execution/application/agent-execution-readiness-reads";
+import { resolveCoreAgentExecutionReadiness } from "../../agent-execution/application/agent-execution-readiness-service";
 import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoutesBatch,
 } from "../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
-import {
-  type CoreBindings,
-  identityDb,
-  localStateDb,
-} from "../../lib/bindings";
+import { type CoreBindings, identityDb } from "../../lib/bindings";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import {
   clearMemberProfileLivenessEvidence,
@@ -604,12 +600,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
   const humans: SpaceMemberHumanSnapshot[] = [];
   const agentSnapshotPromises: Promise<SpaceMemberAgentSnapshot>[] = [];
   const activeOrganizationId = input.metaRecord?.organizationId ?? null;
-  // Sibling members on one Computer need the same full-runtime coverage read.
-  // Share in-flight work only inside this snapshot, never across requests.
-  const expectedRoutesByTarget = new Map<
-    string,
-    Promise<ReadLocalRuntimeExpectedRoutesResult | null>
-  >();
+  const readinessReads = createAgentExecutionReadinessReads();
 
   for (const record of records) {
     if (record.profileKindSnapshot === "human") {
@@ -647,7 +638,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
         latestAgentOriginFactsByProfileId,
         preloadedDaemonRouteByProfileId,
         preloadedOwnerServiceByOwnerUserId,
-        expectedRoutesByTarget,
+        readinessReads,
         generatedAt,
       })
     );
@@ -1221,10 +1212,7 @@ async function buildAgentSnapshot(input: {
     RuntimeTransportLookupOwnerServiceResponse
   >;
   generatedAt: string;
-  expectedRoutesByTarget: Map<
-    string,
-    Promise<ReadLocalRuntimeExpectedRoutesResult | null>
-  >;
+  readinessReads: AgentExecutionReadinessReads;
 }): Promise<SpaceMemberAgentSnapshot> {
   const snapshotBase = buildSnapshotBase({
     record: input.record,
@@ -1241,14 +1229,8 @@ async function buildAgentSnapshot(input: {
         input.record.ownerUserIdSnapshot
       )
     : undefined;
-  const expectedRoutes = readSnapshotExpectedRoutes({
-    env: input.env,
-    generatedAt: input.generatedAt,
-    ownerUserId: input.record.ownerUserIdSnapshot,
-    route: preloadedDaemonRoute,
-    reads: input.expectedRoutesByTarget,
-  });
   const executionReadiness = await resolveCoreAgentExecutionReadiness({
+    reads: input.readinessReads,
     activeOrganizationId: input.activeOrganizationId ?? null,
     agent: {
       controllerRefSnapshot: input.record.controllerRefSnapshot,
@@ -1260,11 +1242,6 @@ async function buildAgentSnapshot(input: {
     generatedAt: input.generatedAt,
     ...(preloadedDaemonRoute === undefined ? {} : { preloadedDaemonRoute }),
     ...(preloadedOwnerService === undefined ? {} : { preloadedOwnerService }),
-    ...(expectedRoutes === undefined
-      ? {}
-      : {
-          preloadedWorkingFolderExpectedRoutes: await expectedRoutes,
-        }),
   });
   const profileName =
     executionReadiness.profileName ?? input.record.profileNameSnapshot;
@@ -1375,45 +1352,6 @@ async function buildAgentSnapshot(input: {
     agentWakeAvailability,
     ownerWakeDiagnostics,
   };
-}
-
-function readSnapshotExpectedRoutes(input: {
-  env: CoreBindings;
-  generatedAt: string;
-  ownerUserId: string | null;
-  route: RuntimeTransportLookupRouteResponse | undefined;
-  reads: Map<string, Promise<ReadLocalRuntimeExpectedRoutesResult | null>>;
-}): Promise<ReadLocalRuntimeExpectedRoutesResult | null> | undefined {
-  const { route, ownerUserId } = input;
-  if (
-    !(
-      route?.online &&
-      ownerUserId &&
-      route.localWakeRouteReport &&
-      "expectedRoutesContractVersion" in route.localWakeRouteReport
-    )
-  ) {
-    return undefined;
-  }
-  const key = JSON.stringify([ownerUserId, route.deviceId, route.lane, "v4"]);
-  const existing = input.reads.get(key);
-  if (existing) {
-    return existing;
-  }
-  const db = localStateDb(input.env);
-  const read = db
-    ? readLocalRuntimeExpectedRoutes({
-        authWorker: input.env.OPENMELD_AUTH_WORKER,
-        contractVersion: "v4",
-        db,
-        deviceId: route.deviceId,
-        generatedAt: input.generatedAt,
-        lane: route.lane,
-        ownerUserId,
-      }).catch(() => null)
-    : Promise.resolve(null);
-  input.reads.set(key, read);
-  return read;
 }
 
 function maybeBackfillCreator(input: {
