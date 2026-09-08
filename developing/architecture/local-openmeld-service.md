@@ -379,6 +379,12 @@ substitute transcript token/cost estimates.
 
 ### Agent Instruction Delivery
 
+Runtime-independent Space identity, task-material trust, and current-Wake
+participant rendering are consumed from `packages/space-mesh`, together with
+its existing Entry Brief and continuity helpers. Local supplies CLI read
+instructions and retains action submission, publication, injection epochs,
+and provider adapters. Shared rendering grants no new tools or permissions.
+
 OpenMeld owns one provider-neutral instruction plan for every workstation Wake:
 stable developer instructions, a content-derived instruction epoch, the current
 Wake input, and a complete fallback prompt. Stable developer instructions may
@@ -389,6 +395,26 @@ attachment, action facts, and the optional Core-frozen Organization working-
 language advisory remain per-turn input. A preference change therefore does not
 change the stable instruction epoch. Provider adapters must not maintain a
 second copy of either category or run a separate language detector/model call.
+
+The stable workflow applies only to OpenMeld Wakes. User messages, Space Guides,
+attachments, and history remain task context rather than runtime instructions
+or new permissions. Current completion guidance requires the permitted action
+and inspection of its response, while preserving raw-reply, status, and silence
+contracts. A successful action acknowledgement records a proposal; only Core
+publication establishes a visible Space reply. Plain replies omit additional
+targets. Suggested send-target lines exclude the acting Agent without changing
+the complete member projection used for independent action validation.
+When the harness offers tool discovery, completion guidance requires checking
+for the Space Action tool before treating it as unavailable and using the CLI
+alternative. Reply submission alone does not require onboarding material.
+Unknown-submission guidance applies to Space Action submission outcomes, not
+context reads or other business tools. When a context read fails before any
+Space Action submission, the Agent should report the blocker through the
+permitted completion action rather than invent results or silently finish.
+Context-reading commands use the existing dispatch-scoped absolute CLI entry
+from `OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH`, so a provider's login shell
+cannot redirect them to an unrelated installation through PATH. Human-facing
+Service maintenance guidance keeps the normal lane command.
 
 An adapter may separate the plan only through an official controller surface it
 can prove. Codex App Server installs stable instructions on a new thread and
