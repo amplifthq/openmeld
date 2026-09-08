@@ -286,9 +286,13 @@ amber. Red means a human action is outstanding, not that every action is urgent.
 The bottom-right Inbox launcher uses the same tone on its icon and label, with
 no number. Both entry points expose the exact action/urgent-update breakdown in
 their accessible names and hover descriptions. Missing or failed summaries are
-unknown, never zero; the header shows `?` instead of a purported exact count.
-During read/dismiss mutations, both entries say they are checking until Core's
-summary refresh finishes. Entry activation alone never clears an item.
+unknown, never zero; the header renders no badge without a confirmed count.
+Initial loading retains the plain Inbox label without a checking message or
+placeholder badge. Background refreshes and read/dismiss mutations retain the
+last confirmed count until Core returns the updated summary, without an
+intermediate visual change or an optimistic count.
+Failed summaries still expose their unavailable status. Entry activation alone
+never clears an item.
 
 The compact preview uses the same summary breakdown. It separately queries
 **Needs action**, **Urgent updates**, and unread **Recent updates**, in that

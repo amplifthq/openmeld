@@ -34,10 +34,6 @@ export function useInboxItemDismissMutation(input: {
 		InboxItem,
 		InboxCacheSnapshots
 	>({
-		mutationKey: [
-			...inboxQueryKeys.organization(input.organizationId),
-			"mutation",
-		],
 		mutationFn: async (item) =>
 			await dismissCurrentInboxItem({
 				itemId: item.id,
