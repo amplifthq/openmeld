@@ -1,3 +1,4 @@
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import type { PluginDefinition } from "./plugin-catalog";
 
@@ -24,6 +25,7 @@ export function AppLogo(input: {
 	className?: string;
 	muted?: boolean;
 	size?: keyof typeof SIZE_CLASS_NAMES;
+	surfaceLevel?: number;
 }) {
 	const size = input.size ?? "md";
 	const isMessageChannel =
@@ -34,8 +36,11 @@ export function AppLogo(input: {
 		<span
 			aria-hidden="true"
 			className={cn(
-				"flex shrink-0 items-center justify-center rounded-md border border-black/10 bg-white shadow-xs",
-				isMessageChannel
+				"flex shrink-0 items-center justify-center rounded-md border",
+				input.surfaceLevel !== undefined
+					? cn("border-transparent", surfaceClasses(input.surfaceLevel))
+					: "border-black/10 bg-white shadow-xs",
+				isMessageChannel && input.surfaceLevel === undefined
 					? "dark:border-0 dark:bg-transparent dark:shadow-none"
 					: null,
 				SIZE_CLASS_NAMES[size],
@@ -49,6 +54,10 @@ export function AppLogo(input: {
 				alt=""
 				className={cn(
 					"max-h-full max-w-full object-contain",
+					input.surfaceLevel !== undefined &&
+						(input.app.service === "github" || input.app.service === "linear")
+						? "dark:invert"
+						: null,
 					input.muted ? "opacity-50 grayscale" : null
 				)}
 				data-testid={`app-logo-${input.app.service}`}

@@ -1659,7 +1659,7 @@ function ConversationJumpButton(input: {
 		<MessageScrollerButton
 			aria-label="Jump to latest message"
 			behavior={shouldReduceMotion ? "auto" : "smooth"}
-			className="z-20 rounded-full border border-border bg-popover/60 p-0 text-foreground shadow-xs backdrop-blur-sm hover:bg-popover/80 dark:bg-popover/60 dark:hover:bg-popover/80"
+			className="conversation-floating-surface z-20 rounded-full border border-transparent p-0 text-foreground"
 			direction="end"
 			size="icon"
 			type="button"
