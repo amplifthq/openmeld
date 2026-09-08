@@ -1864,13 +1864,16 @@ function SpaceAddMembersCandidateGroup(input: {
 						label={candidate.profileName}
 						labelAdornment={
 							candidate.isCenterAgent ? (
-								<span className="inline-flex items-center gap-2"><Badge
-									className="bg-surface-2 px-1.5 text-[10px] shadow-surface-2"
-									variant="outline"
-								>
-									<CloudIcon aria-hidden="true" />
-									Remote
-								</Badge><Badge variant="outline">Recommended</Badge></span>
+								<span className="inline-flex items-center gap-2">
+									<Badge
+										className="bg-surface-2 px-1.5 text-[10px] shadow-surface-2"
+										variant="outline"
+									>
+										<CloudIcon aria-hidden="true" />
+										Remote
+									</Badge>
+									<Badge variant="outline">Recommended</Badge>
+								</span>
 							) : (
 								<RemoteAgentIndicator
 									agentControllerRef={candidate.agentControllerRef ?? null}
