@@ -1,21 +1,18 @@
 import type { InboxSummaryResponse } from "@openmeld/schemas/types";
-import { useIsMutating, useQuery } from "@tanstack/react-query";
-import {
-	inboxQueryKeys,
-	inboxSummaryQueryOptions,
-} from "#/query/organizations/inbox";
+import { useQuery } from "@tanstack/react-query";
+import { inboxSummaryQueryOptions } from "#/query/organizations/inbox";
 
 export function resolveInboxAttention(input: {
 	summary: InboxSummaryResponse | undefined;
 	unavailable: boolean;
 	pending: boolean;
 }) {
-	if (input.pending) {
+	if (input.pending && !input.summary) {
 		return {
 			count: null,
 			tone: null,
-			label: "Inbox, checking for updates…",
-			status: "Checking for updates…",
+			label: "Inbox",
+			status: null,
 		} as const;
 	}
 	const summary = input.summary;
@@ -59,12 +56,9 @@ export function resolveInboxAttention(input: {
 
 export function useInboxAttention(organizationId: string) {
 	const summaryQuery = useQuery(inboxSummaryQueryOptions({ organizationId }));
-	const mutations = useIsMutating({
-		mutationKey: [...inboxQueryKeys.organization(organizationId), "mutation"],
-	});
 	return resolveInboxAttention({
 		summary: summaryQuery.data,
 		unavailable: summaryQuery.isError,
-		pending: summaryQuery.isPending || mutations > 0,
+		pending: summaryQuery.isPending,
 	});
 }
