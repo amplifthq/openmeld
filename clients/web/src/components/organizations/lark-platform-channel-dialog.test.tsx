@@ -18,6 +18,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage="Saved setup could not be read."
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={vi.fn()}
 				onRetryPoll={vi.fn()}
 				onStartOver={onStartOver}
@@ -55,6 +56,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={vi.fn()}
 				onRetryPoll={vi.fn()}
 				onStartOver={onStartOver}
@@ -89,9 +91,11 @@ describe("LarkPlatformChannelDialog", () => {
 	});
 
 	it.each([
-		["lark", "Lark", "https://open.larksuite.com/app"],
-		["feishu", "Feishu", "https://open.feishu.cn/app"],
-	] as const)("shows the %s permission recovery action instead of indefinite verification", (provider, label, consoleUrl) => {
+		["lark", "Lark"],
+		["feishu", "Feishu"],
+	] as const)("shows the %s permission recovery action instead of indefinite verification", (provider, label) => {
+		const onRetryPoll = vi.fn();
+		const onReauthorize = vi.fn();
 		render(
 			<LarkPlatformChannelDialog
 				canManage
@@ -100,8 +104,9 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={onReauthorize}
 				onRepair={vi.fn()}
-				onRetryPoll={vi.fn()}
+				onRetryPoll={onRetryPoll}
 				onStartOver={vi.fn()}
 				open
 				pollPending={false}
@@ -123,17 +128,18 @@ describe("LarkPlatformChannelDialog", () => {
 				startOverPending={false}
 			/>
 		);
-		expect(
-			screen.getByText("Allow OpenMeld to configure the app")
-		).toBeTruthy();
-		expect(
-			screen
-				.getByRole("link", { name: `Open ${label} Developer Console` })
-				.getAttribute("href")
-		).toBe(consoleUrl);
+		expect(screen.getByText("Authorization required")).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: `Reauthorize ${label}` })
+		);
+		expect(onReauthorize).toHaveBeenCalledOnce();
 		expect(
 			screen.queryByText("Verifying permissions and Webhook delivery")
 		).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "I've authorized, check again" })
+		);
+		expect(onRetryPoll).toHaveBeenCalledOnce();
 	});
 
 	it.each([
@@ -149,6 +155,7 @@ describe("LarkPlatformChannelDialog", () => {
 			errorMessage: null,
 			onDisconnect: vi.fn(),
 			onOpenChange: vi.fn(),
+			onReauthorize: vi.fn(),
 			onRepair: vi.fn(),
 			onRetryPoll: vi.fn(),
 			onStartOver,
@@ -208,6 +215,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={onDisconnect}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={vi.fn()}
 				onRetryPoll={vi.fn()}
 				onStartOver={vi.fn()}
@@ -247,6 +255,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={onRepair}
 				onRetryPoll={vi.fn()}
 				onStartOver={vi.fn()}
@@ -293,6 +302,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={onRepair}
 				onRetryPoll={vi.fn()}
 				onStartOver={vi.fn()}
@@ -332,6 +342,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={vi.fn()}
 				onRetryPoll={vi.fn()}
 				onStartOver={vi.fn()}

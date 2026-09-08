@@ -2481,8 +2481,16 @@ rejects denied, duplicate, user-token, or unrelated business scopes. The one
 explicitly granted tenant scope `application:application:patch` may additionally
 be present for application configuration. It is setup authority only and never
 becomes a Center Agent tool grant or an App connection. The default registration
-bundle does not request it automatically; an operator must explicitly consent
-before it is granted.
+bundle remains limited to Channel capabilities. New registration links request
+this additional setup scope in the provider consent page, where the operator
+must explicitly confirm it before it is granted. Older applications missing
+the scope retain their credentials and require explicit additional consent.
+The additive `reauthorize` begin mode returns a fresh official launcher URL
+for the existing app (`clientID`, without `createOnly`). Only this explicit
+request may return a URL while configuring with the missing-permission reason.
+Normal poll/resume responses remain unchanged for older clients. The URL does
+not mark consent complete: the existing Core configurator still verifies the
+permission and Webhook delivery using the stored app credentials.
 
 Provider configuration refusal `99991672` becomes the bounded reason
 `<provider>.application_config_permission_required`, including when delivered

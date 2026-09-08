@@ -28,6 +28,7 @@ import {
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
+import { requiresLarkPlatformSetupAuthorization } from "./lark-platform-setup-authorization";
 
 export function LarkPlatformChannelDialog(input: {
 	canManage: boolean;
@@ -38,6 +39,7 @@ export function LarkPlatformChannelDialog(input: {
 	onDisconnect: () => void;
 	onOpenChange: (open: boolean) => void;
 	onRepair: () => void;
+	onReauthorize: () => void;
 	onRetryPoll: () => void;
 	onStartOver: () => void;
 	open: boolean;
@@ -96,6 +98,7 @@ export function LarkPlatformChannelDialog(input: {
 				{input.registration && !needsRepair ? (
 					<RegistrationProgress
 						errorMessage={input.errorMessage}
+						onReauthorize={input.onReauthorize}
 						onRetryPoll={input.onRetryPoll}
 						onStartOver={input.onStartOver}
 						pollPending={input.pollPending}
@@ -166,6 +169,7 @@ function resolveDialogDescription(input: {
 }
 
 function RegistrationProgress(input: {
+	onReauthorize: () => void;
 	errorMessage: string | null;
 	onRetryPoll: () => void;
 	onStartOver: () => void;
@@ -190,8 +194,10 @@ function RegistrationProgress(input: {
 					<p className="mt-1 text-muted-foreground text-sm leading-6">
 						Sign in with your {input.providerLabel} account. This setup is for{" "}
 						{input.providerLabel} only. Create a new {input.providerLabel} app,
-						review the requested Channel permissions, and keep this window open
-						while OpenMeld finishes the connection.
+						review the requested permissions, and keep this window open while
+						OpenMeld finishes the connection. The app needs permission to
+						exchange messages and update its configuration so OpenMeld can set
+						up message delivery.
 					</p>
 					<div className="mt-4 flex flex-wrap gap-2">
 						<a
@@ -226,45 +232,45 @@ function RegistrationProgress(input: {
 			</div>
 		);
 	}
+	if (requiresLarkPlatformSetupAuthorization(attempt)) {
+		return (
+			<div className="space-y-3 border border-border/70 bg-card/30 p-4">
+				<p className="font-medium text-sm">Authorization required</p>
+				<p className="text-muted-foreground text-sm">
+					Reconnect your existing bot by approving the updated permissions in
+					{input.providerLabel}. OpenMeld will finish connecting automatically
+					after you authorize.
+				</p>
+				<p className="text-muted-foreground text-sm">
+					The updated permissions let OpenMeld configure your bot to receive
+					messages. Your existing bot is kept.
+				</p>
+				<Button onClick={input.onReauthorize} type="button">
+					<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
+					Reauthorize {input.providerLabel}
+				</Button>
+				<Button
+					disabled={input.pollPending}
+					onClick={input.onRetryPoll}
+					type="button"
+					variant="outline"
+				>
+					{input.pollPending
+						? "Checking authorization…"
+						: "I've authorized, check again"}
+				</Button>
+				{input.errorMessage ? (
+					<p className="text-destructive text-sm" role="alert">
+						{input.errorMessage}
+					</p>
+				) : null}
+			</div>
+		);
+	}
 	if (
 		attempt.status === "credentials_received" ||
 		attempt.status === "configuring"
 	) {
-		if (
-			attempt.reasonCode?.endsWith(".application_config_permission_required")
-		) {
-			return (
-				<div className="space-y-3 border border-border/70 bg-card/30 p-4">
-					<p className="font-medium text-sm">
-						Allow OpenMeld to configure the app
-					</p>
-					<p className="text-muted-foreground text-sm">
-						Open the app in {input.providerLabel} Developer Console and grant
-						the application:application:patch permission. This lets OpenMeld
-						configure the app’s message delivery. OpenMeld will check again
-						automatically after you grant access.
-					</p>
-					<a
-						className={buttonVariants({ size: "sm", variant: "outline" })}
-						href={
-							attempt.provider === "lark"
-								? "https://open.larksuite.com/app"
-								: "https://open.feishu.cn/app"
-						}
-						rel="noreferrer"
-						target="_blank"
-					>
-						<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
-						Open {input.providerLabel} Developer Console
-					</a>
-					{input.errorMessage ? (
-						<p className="text-destructive text-sm" role="alert">
-							{input.errorMessage}
-						</p>
-					) : null}
-				</div>
-			);
-		}
 		return (
 			<WaitingStatus
 				errorMessage={input.errorMessage}
