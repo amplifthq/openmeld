@@ -16,6 +16,7 @@ const PROCESS_DISCOVERY_DIAGNOSTIC_WINDOW_MS = 60_000;
 
 type AgentControllerProcessTableSnapshot = {
   capturedAtMs: number;
+  pending: boolean;
   processTable: Promise<string>;
 };
 
@@ -45,17 +46,23 @@ export function createAgentControllerProcessTableSnapshotReader(input: {
     const readAtMs = now();
     if (snapshot) {
       const ageMs = readAtMs - snapshot.capturedAtMs;
-      if (ageMs >= 0 && ageMs < input.maxAgeMs) {
+      if (snapshot.pending || (ageMs >= 0 && ageMs < input.maxAgeMs)) {
         return await snapshot.processTable;
       }
     }
 
     const processTable = input.readProcessTable();
-    snapshot = {
+    const currentSnapshot = {
       capturedAtMs: readAtMs,
+      pending: true,
       processTable,
     };
-    return await processTable;
+    snapshot = currentSnapshot;
+    try {
+      return await processTable;
+    } finally {
+      currentSnapshot.pending = false;
+    }
   };
 }
 
@@ -471,8 +478,8 @@ const readMacOsSupervisedProcessTable =
   createAgentControllerProcessTableSnapshotReader({
     // One Service drain can stop several controllers in the same event-loop
     // turn. They need one system snapshot, not one blocking `ps eww` scan per
-    // controller. The cache expires before the bounded 100 ms discovery retry,
-    // so a transient timeout still receives one fresh retry.
+    // controller. Pending reads stay shared even when slow; settled snapshots
+    // expire before the bounded 100 ms retry, which still receives a fresh read.
     maxAgeMs: PROCESS_TABLE_STOP_PHASE_SNAPSHOT_MAX_AGE_MS,
     readProcessTable: async () =>
       await readProcessTable(["eww", "-axo", "pid=,ppid=,pgid=,command="], {
