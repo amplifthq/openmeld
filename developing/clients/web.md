@@ -538,7 +538,8 @@ per window, account, and organization in this browser, independently of the view
 Resizing changes only the canvas container, not the shared Space implementation.
 New windows fit the Desk's available width and height with 32px canvas margins,
 within the existing size limits. Small viewports zoom out enough to show the full window.
-Desk conversation rails fill the available width up to a centered 60rem maximum,
+Desk conversation rails fill the available width up to the shared centered-page maximum
+(`--space-conversation-centered-max-width`),
 with 24px inline padding, reduced to 16px in narrow containers. Wider windows
 add outer whitespace rather than lengthening text lines. Appearance's centered/full-width preference applies
 only to page surfaces. Desk passes its measured width into the shared Space so

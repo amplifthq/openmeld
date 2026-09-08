@@ -312,7 +312,7 @@ html[data-space-self-message-alignment="left"]
 html[data-space-conversation-layout] [data-desk-space-window]
   [data-space-conversation-content-width] {
   width: 100%;
-  max-width: 60rem;
+  max-width: var(--space-conversation-centered-max-width);
   margin-inline: auto;
   padding-inline: 24px;
 }
