@@ -64,7 +64,7 @@ describe("useSpaceMessageReferences", () => {
 		expect(listCurrentOrganizationSpacesMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("renders an authenticated App link while reference details are loading", () => {
+	it("renders an authenticated Plugin link while reference details are loading", () => {
 		listCurrentOrganizationSpacesMock.mockReturnValue(
 			new Promise(() => undefined)
 		);

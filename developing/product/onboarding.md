@@ -26,6 +26,14 @@
 
 ## Product Role
 
+The standalone Connect Computer page remains available even when the account has
+a connected computer. A compact, named computer summary links to management; it
+does not assert that the computer hosts the current browser. Chat setup entry
+points offer this management path before starting another setup, except for a
+targeted computer or Agent recovery, explicit reconnect, or Service update request. All hosts retain the same Prepare
+session workflow and source-specific completion actions. Instruction illustrations
+explain user actions, never simulate connection or Agent readiness.
+
 OpenMeld has two complementary onboarding layers:
 
 1. **Account Setup Studio** is the full-screen, low-friction first product
@@ -123,7 +131,15 @@ forking its command, PrepareSession, or live-status behavior.
    selection is optional. The user may skip the whole flow, continue while
    computer setup runs, and move backward without losing completed work. No
    optional integration failure may trap the user.
-3. **Real facts, never onboarding copies.** Organization membership, Channels,
+3. **Real facts, never onboarding copies.** A valid invitation-request link
+   identifies an Organization; it does not prove membership or permission to
+   join. Setup Studio submits the existing invitation request, shows its pending
+   outcome and status link, and keeps workspace selection available. It never
+   optimistically adds membership for an approval request. Direct administrator
+   links instead show Join and use Auth's membership writer before advancing.
+   Both entry points read the stored link mode; a successful preview alone never
+   proves membership. Organization
+   membership, Channels,
    Apps, App requests, local runtime inventory, Organization memory, Wake
    access, Organization documents, Information Protection, and invitations
    remain owned by their existing Auth/Core/Gateway contracts. Setup Studio
@@ -421,6 +437,11 @@ teammates.`; `Skip setup` is never a substitute for choosing it.
      Service fact. If it is already connected, show that connected computer and
      do not create a new Prepare Session unless the user explicitly chooses
      `Set up again`.
+     This reuse requires the browser's completed, account-matching setup
+     handoff and a fresh read for that exact device and lane. An account routing
+     preference or its only connected Service is not a browser setup handoff.
+     A handoff identifies the connected computer, not physical co-location
+     with the browser; Service connection alone does not prove agent readiness.
    - The step is optional. The user may continue while setup runs or install a
      supported local agent later. Copy never asks about a generic "coding
      agent."

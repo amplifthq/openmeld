@@ -238,9 +238,46 @@ export function useLarkPlatformChannelManagement(input: {
 	};
 
 	return {
-		beginPendingProvider: beginMutation.isPending
-			? (beginMutation.variables?.provider ?? null)
-			: null,
+		cancelSetup: (provider: LarkPlatformProvider) =>
+			disconnectMutation.mutate(provider),
+		reauthorize: async () => {
+			if (!selectedProvider) {
+				return;
+			}
+			const authorizationWindow = window.open("about:blank", "_blank");
+			if (authorizationWindow) {
+				authorizationWindow.opener = null;
+			}
+			try {
+				const response = await beginCurrentOrganizationLarkPlatformRegistration(
+					{
+						mode: "reauthorize",
+						organizationId: input.organizationId,
+						provider: selectedProvider,
+					}
+				);
+				const url = response.attempt.registrationUrl;
+				if (!url) {
+					throw new Error("Authorization link is unavailable.");
+				}
+				if (authorizationWindow) {
+					authorizationWindow.location.replace(url);
+				} else {
+					window.location.assign(url);
+				}
+			} catch (error) {
+				authorizationWindow?.close();
+				toast.error(
+					resolveMessageChannelErrorMessage(
+						error,
+						"Could not open authorization. Please try again."
+					)
+				);
+			}
+		},
+		beginPendingProvider:
+			(beginMutation.isPending ? beginMutation.variables?.provider : null) ??
+			(disconnectMutation.isPending ? disconnectMutation.variables : null),
 		connection,
 		disconnect: () => {
 			if (selectedProvider) {

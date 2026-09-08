@@ -9,6 +9,7 @@ import {
   daemonServiceLaneSchema,
   decideAgentProfileCreationRequestBodySchema,
   getAgentProfileCreationApprovalPreferenceResponseSchema,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   listAgentProfileCreationRequestsResponseSchema,
   openMeldRequestContextSchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
@@ -41,13 +42,14 @@ import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/curre
 import { readModelCatalog } from "../config/model-catalog";
 import { forkRuntimeTransportAgentSession } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import { type CoreBindings, identityDb } from "../lib/bindings";
+import { createPersonalRemoteAgentBinding } from "../remote-agent/application/personal-remote-agent-binding";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   type CenterAgentCreateConfiguredAgentProfileInput,
   rpcAddOrganizationDirectoryProfilesToSpace,
   rpcCenterAgentCheckAgentProfileReadiness,
   rpcEnsureAgentProfilePrimaryBinding,
-  rpcListLocalRuntimes,
+  rpcListPeopleComputers,
   rpcSetCurrentAgentProfileWorkspace,
   rpcUpdateAgentProfileDefaultProject,
 } from "../rpc/methods";
@@ -192,12 +194,11 @@ async function resolveCenterAgentProfileCreationRequestConfiguration(input: {
     requestId: `center-agent:resolve-local-agent:${crypto.randomUUID()}`,
     userId: input.targetOwnerUserId,
   });
-  const localRuntimes = await rpcListLocalRuntimes(input.env, {
-    connectionIdentityAdoption: "safe_legacy_current",
+  const peopleComputers = await rpcListPeopleComputers(input.env, {
     context: targetContext,
   });
   const candidate = projectCenterAgentLocalAgentConnectionCandidates({
-    localRuntimes,
+    peopleComputers,
     organizationId: input.organizationId,
   }).candidates.find(
     (item) => item.candidateId === input.localAgentConnectionCandidateId
@@ -233,7 +234,8 @@ async function resolveCenterAgentProfileCreationRequestConfiguration(input: {
 function assertRequestedModelCompatibility(input: {
   configuration: AgentProfileCreationConfiguration;
   deviceId: string;
-  localRuntimes: Awaited<ReturnType<typeof rpcListLocalRuntimes>>;
+  runtimeLane: string;
+  peopleComputers: Awaited<ReturnType<typeof rpcListPeopleComputers>>;
   target: {
     agentDisplayName: string;
     agentControllerRef: string;
@@ -254,14 +256,14 @@ function assertRequestedModelCompatibility(input: {
   if (!parsedRef) {
     return;
   }
-  const capability = input.localRuntimes.localRuntimes
-    .find((computer) =>
-      computer.executionTargets.some(
-        (target) => target.deviceId === input.deviceId
-      )
-    )
-    ?.executionTargets.flatMap((target) => target.capabilities)
+  const capability = input.peopleComputers.computers
+    .flatMap((computer) => computer.executionTargets)
     .find(
+      (target) =>
+        target.deviceId === input.deviceId &&
+        target.runtimeLane === input.runtimeLane
+    )
+    ?.capabilities.find(
       (candidateCapability) =>
         candidateCapability.agentControllerRef ===
         input.target.agentControllerRef
@@ -734,6 +736,17 @@ async function completeRequestedAgentProfileSetup(input: {
   }
 
   const agentControllerRef = input.request.configuration.agentControllerRef;
+  if (agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
+    await createPersonalRemoteAgentBinding({
+      agentProfileId: input.agentProfileId,
+      createdByProfileId: input.request.actorProfileId,
+      db: requireDb(input.env),
+      modelId: input.request.configuration.modelId,
+      organizationId: input.request.organizationId,
+      ownerUserId: input.request.targetOwnerUserId,
+    });
+    return;
+  }
   if (input.localAgentConnection && agentControllerRef) {
     await connectRequestedAgentProfile({
       ...input,
@@ -899,12 +912,11 @@ async function prepareRequestedLocalAgentConnection(input: {
     requestId: `agent-profile-creation-request:${input.request.id}:target`,
     userId: input.request.targetOwnerUserId,
   });
-  const localRuntimes = await rpcListLocalRuntimes(input.env, {
-    connectionIdentityAdoption: "safe_legacy_current",
+  const peopleComputers = await rpcListPeopleComputers(input.env, {
     context: targetContext,
   });
   const candidates = projectCenterAgentLocalAgentConnectionCandidates({
-    localRuntimes,
+    peopleComputers,
     organizationId: input.request.organizationId,
   });
   const candidate = candidates.candidates.find((item) => {
@@ -931,7 +943,8 @@ async function prepareRequestedLocalAgentConnection(input: {
   assertRequestedModelCompatibility({
     configuration,
     deviceId: candidate.deviceId,
-    localRuntimes,
+    runtimeLane: candidate.runtimeLane,
+    peopleComputers,
     target: {
       agentControllerRef: candidate.agentControllerRef,
       agentDisplayName: candidate.agentDisplayName,

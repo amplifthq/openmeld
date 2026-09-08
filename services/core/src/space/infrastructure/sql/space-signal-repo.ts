@@ -1,5 +1,8 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
-import { parseOptionalClientMessageId } from "@openmeld/schemas";
+import {
+  parseOptionalClientMessageId,
+  signalEnvelopeSchema,
+} from "@openmeld/schemas";
 import { isFinalOutcomeTextPurpose } from "../../rules/dispatch/space-final-outcome";
 
 const SIGNAL_STORAGE_KEY_DELIMITER = "|";
@@ -37,6 +40,8 @@ export const insertSignalRecord = (
   sql: SqlStorage,
   signal: SignalEnvelope
 ): InsertSignalRecordResult => {
+  // A final-reply claim must never point at a payload the history reader rejects.
+  signalEnvelopeSchema.parse(signal);
   const signalId = String(signal.id ?? "").trim();
   if (signalId.length === 0) {
     throw new Error("signal.id is required");
@@ -764,6 +769,7 @@ export const deleteAllSqlSpaceData = (sql: SqlStorage): void => {
   sql.exec("DELETE FROM space_members");
   sql.exec("DELETE FROM space_cursors");
   sql.exec("DELETE FROM space_signals");
+  sql.exec("DELETE FROM space_execution_input_outbox");
   sql.exec("DELETE FROM space_client_message_rejections");
   sql.exec("DELETE FROM space_final_reply_claims");
   sql.exec("DELETE FROM space_member_profile_liveness");

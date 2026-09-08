@@ -17,6 +17,7 @@ import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import { SettingsComputerSummaryCardContent } from "@openmeld/ui/components/settings-computers";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { cn } from "@openmeld/ui/lib/utils";
 import { DotsThreeIcon, PencilSimpleIcon } from "@phosphor-icons/react";
@@ -54,7 +55,7 @@ export function ComputerTabs(input: {
 	setSelectedDeviceId: (deviceId: string) => void;
 }) {
 	return (
-		<div className="overflow-x-auto pb-1">
+		<ScrollArea className="" contentClassName="pb-1" orientation="horizontal">
 			<TabsSubtle
 				aria-label="Computers"
 				className="items-stretch gap-3 bg-transparent p-0"
@@ -106,7 +107,7 @@ export function ComputerTabs(input: {
 					);
 				})}
 			</TabsSubtle>
-		</div>
+		</ScrollArea>
 	);
 }
 
@@ -116,7 +117,12 @@ export function ComputerSummaryCardContent(input: {
 	status: ComputerSummaryStatus | null;
 }) {
 	const executionTarget = resolveCurrentExecutionTarget(input.device);
-	const localAgentIcons = resolveComputerTabLocalAgentIcons(executionTarget);
+	const localAgentIcons = resolveComputerTabLocalAgentIcons(
+		executionTarget
+	).map((icon) => ({
+		...icon,
+		muted: icon.muted || !input.status || input.status.tone !== "ready",
+	}));
 
 	return (
 		<SettingsComputerSummaryCardContent
@@ -142,12 +148,13 @@ export function ComputerSummaryCardContent(input: {
 type ComputerTabLocalAgentIcon = {
 	agentId: string;
 	displayName: string;
+	muted: boolean;
 };
 
 function resolveComputerTabLocalAgentIcons(
 	executionTarget: LocalRuntimeExecutionTarget | null
 ): readonly ComputerTabLocalAgentIcon[] {
-	if (executionTarget === null || executionTarget.status === "stale") {
+	if (executionTarget === null) {
 		return [];
 	}
 
@@ -157,6 +164,10 @@ function resolveComputerTabLocalAgentIcons(
 			icons.push({
 				agentId: entry.agentId,
 				displayName: entry.displayName,
+				muted:
+					executionTarget.status !== "ready" ||
+					!entry.enabled ||
+					!entry.selectable,
 			});
 		}
 	}
@@ -168,7 +179,6 @@ function isComputerTabLocalAgentIconEntry(
 ): boolean {
 	return (
 		entry.detected &&
-		entry.selectable &&
 		entry.lifecycleStatus !== "suspended" &&
 		hasLocalAgentLogo(entry.agentId)
 	);

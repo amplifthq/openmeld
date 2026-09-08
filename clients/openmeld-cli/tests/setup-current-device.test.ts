@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   collectObservedDeviceMetadataMock,
@@ -40,6 +40,7 @@ const { syncLocalSetupCurrentDeviceTargetFromServiceContract } = await import(
 );
 
 describe("syncLocalSetupCurrentDeviceTargetFromServiceContract", () => {
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
     vi.clearAllMocks();
     createCliApiClientFoundationMock.mockReturnValue({
@@ -119,5 +120,45 @@ describe("syncLocalSetupCurrentDeviceTargetFromServiceContract", () => {
       deviceId: "device-local",
       runtimeLane: "dev-local",
     });
+  });
+
+  it.each([
+    "collection",
+    "reporting",
+  ])("preserves enrolled identity when optional metadata %s fails", async (stage) => {
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    const failure = new Error("private diagnostic payload must not leak");
+    (stage === "collection"
+      ? collectObservedDeviceMetadataMock
+      : writeObservedMetadataMock
+    ).mockRejectedValueOnce(failure);
+    await expect(
+      syncLocalSetupCurrentDeviceTargetFromServiceContract({
+        gatewayUrl: "https://gateway.openmeld.test",
+      })
+    ).resolves.toEqual({ deviceId: "device-local", runtimeLane: "dev-local" });
+    expect(upsertDaemonServiceContractMock).toHaveBeenCalledOnce();
+    expect(warning).toHaveBeenCalledOnce();
+    expect(JSON.stringify(warning.mock.calls)).not.toContain(failure.message);
+  });
+
+  it.each([
+    "enrollment",
+    "identity persistence",
+  ])("still rejects necessary %s failures before collecting metadata", async (stage) => {
+    const failure = new Error("Required identity step failed");
+    (stage === "enrollment"
+      ? enrollLocalRuntimeMock
+      : upsertDaemonServiceContractMock
+    ).mockRejectedValueOnce(failure);
+    await expect(
+      syncLocalSetupCurrentDeviceTargetFromServiceContract({
+        gatewayUrl: "https://gateway.openmeld.test",
+      })
+    ).rejects.toBe(failure);
+    expect(collectObservedDeviceMetadataMock).not.toHaveBeenCalled();
+    expect(writeObservedMetadataMock).not.toHaveBeenCalled();
   });
 });

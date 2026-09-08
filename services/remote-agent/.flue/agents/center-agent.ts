@@ -1,8 +1,12 @@
-import { defineAgent } from "@flue/runtime";
+"use agent";
+
+import { useModel, useSkill, useTool } from "@flue/runtime";
 import { extend, getCloudflareContext } from "@flue/runtime/cloudflare";
 import {
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerCancellationRequestSchema,
+  remoteAgentWorkerExecutionInputQuerySchema,
+  remoteAgentWorkerExecutionInputRequestSchema,
   remoteAgentWorkerExecutionQuerySchema,
 } from "@openmeld/schemas";
 import type {
@@ -12,9 +16,11 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
+import type { Agent } from "agents";
 import {
   listRemoteAgentUsageRecords,
   type RemoteAgentCoreWorkerBinding,
+  waitForRemoteAgentCallbackContext,
 } from "../../agent-core/callback-context";
 import { callCoreRpc } from "../../agent-core/core-rpc";
 import {
@@ -54,6 +60,7 @@ import {
   emitRemoteAgentAdmissionStageEvidence,
   emitRemoteAgentExecutionStageEvidence,
 } from "../../flue-adapter/cloudflare-runtime-evidence";
+import { stopRemoteAgentComputerCommands } from "../../flue-adapter/computer-command";
 import {
   createRemoteAgentComputerCapability,
   isRemoteAgentComputerEnabled,
@@ -66,8 +73,15 @@ import {
 import { cancelFlueRemoteAgentExecution } from "../../flue-adapter/execution-cancellation";
 import {
   installRemoteAgentExecutionInstrumentation,
+  registerRemoteAgentExecutionPreparation,
+  requireRemoteAgentExecutionResources,
   resolveRemoteAgentExecutionCallbackContext,
 } from "../../flue-adapter/execution-context";
+import {
+  createRemoteAgentSteeringSource,
+  readRemoteAgentExecutionInput,
+  receiveRemoteAgentExecutionInput,
+} from "../../flue-adapter/execution-input";
 import {
   type FlueSubmissionLifecycle,
   reconcileRemoteAgentExecution,
@@ -93,9 +107,9 @@ function createRemoteAgentImagePreparer(
     await transformRemoteAgentImageForContext({ image, imagesBinding });
 }
 
-export default defineAgent(async () => {
+async function prepareCenterAgentRender() {
   const context = getCloudflareContext();
-  const env = context.env as CloudflareBindings;
+  const env = context.env as unknown as CloudflareBindings;
   const prepareImageForContext = createRemoteAgentImagePreparer(
     env.OPENMELD_IMAGES
   );
@@ -112,22 +126,29 @@ export default defineAgent(async () => {
   const runtimeContextPlan = turnEnvelope
     ? resolveCenterAgentRuntimeContextPlan(turnEnvelope)
     : {
-        materializeOrganizationDocuments: true,
+        includeOrganizationDocuments: true,
         materializeOrganizationSkills: true,
       };
+  const personalAgent =
+    executionContext?.conversationIdentity?.kind === "personal_agent";
+  if (personalAgent) {
+    runtimeContextPlan.includeOrganizationDocuments = false;
+    runtimeContextPlan.materializeOrganizationSkills = false;
+  }
   const coreWorker =
     env.OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding;
   const organizationSkillSelections =
     executionContext?.organizationSkillReleases ?? [];
   const materialization = await materializeCenterAgentRuntime({
     createSandbox: async () =>
-      executionContext && isRemoteAgentComputerEnabled(env)
+      executionContext && !personalAgent && isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
             context: executionContext,
             coreWorker,
             env,
-            materializeOrganizationDocuments:
-              runtimeContextPlan.materializeOrganizationDocuments,
+            storage,
+            includeOrganizationDocuments:
+              runtimeContextPlan.includeOrganizationDocuments,
           })
         : {
             definitions: [],
@@ -138,6 +159,7 @@ export default defineAgent(async () => {
     createTools: async (sandboxCapability) =>
       executionContext
         ? await getRemoteAgentFlueTools({
+            personalAgent,
             agentActivityReadEnabled:
               env.OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED === "true",
             connectorExecution: {
@@ -199,7 +221,7 @@ export default defineAgent(async () => {
     // context only in the fiber, where the current authoritative prompt must
     // be ready before model execution.
     readDocuments: async () =>
-      executionContext && runtimeContextPlan.materializeOrganizationDocuments
+      executionContext && runtimeContextPlan.includeOrganizationDocuments
         ? await resolveCurrentOrganizationDocumentPromptContext({
             organizationId: executionContext.organizationId,
             read: async () =>
@@ -211,7 +233,7 @@ export default defineAgent(async () => {
                     executionContext,
                     `remote-agent-prompt:${executionContext.submissionId}`
                   ),
-                  includeOrganizationProtectedInformation: true,
+                  includeOrganizationProtectedInformation: true as const,
                 },
                 (binding, rpcInput) =>
                   binding.readOrganizationDocumentPromptContext?.(rpcInput)
@@ -246,12 +268,15 @@ export default defineAgent(async () => {
   });
 
   return {
+    steeringSource: executionContext
+      ? createRemoteAgentSteeringSource({ context: executionContext, storage })
+      : null,
     compaction: materialization.model.compaction,
     durability: CENTER_AGENT_DURABILITY,
     model: materialization.model.modelSpecifier,
-    skipLocalContextDiscovery: true,
     thinkingLevel: executionContext?.modelRoute?.reasoningLevel ?? "high",
     instructions: buildRemoteAgentSystemPrompt({
+      personalAgent,
       modelDisplayName: resolveRemoteAgentModelDisplayName(
         env,
         executionContext?.modelRoute
@@ -262,15 +287,73 @@ export default defineAgent(async () => {
         materialization.documents?.organizationProtectedInformation,
       turnEnvelope,
     }),
-    sandbox: materialization.sandbox.sandbox,
     skills: materialization.skills,
     tools: materialization.tools,
   };
-});
+}
 
-export const cloudflare = extend({
+registerRemoteAgentExecutionPreparation(prepareCenterAgentRender);
+
+export function CenterAgentV2() {
+  const resources =
+    requireRemoteAgentExecutionResources<
+      Awaited<ReturnType<typeof prepareCenterAgentRender>>
+    >();
+  useModel(resources.model, {
+    compaction: resources.compaction,
+    thinkingLevel: resources.thinkingLevel,
+  });
+  // Computer access is supplied by the authorized OpenMeld tools. Omitting a
+  // Flue sandbox also prevents workspace files from implicitly becoming agent
+  // instructions or unapproved Skills. Packaged Skills remain readable through
+  // Flue's read_skill_resource tool without a sandbox.
+  for (const skill of resources.skills) {
+    useSkill(skill);
+  }
+  for (const tool of resources.tools) {
+    useTool(tool);
+  }
+  return resources.instructions;
+}
+
+CenterAgentV2.agentName = "center-agent-v2";
+CenterAgentV2.durability = CENTER_AGENT_DURABILITY;
+// Every admitted OpenMeld turn currently carries a separate authority and
+// terminal callback. Never silently absorb another turn into that authority.
+// Exact-execution steering is a separate ingress contract.
+CenterAgentV2.joinQueuedDeliveries = false;
+CenterAgentV2.steeringSource = (_submissionId: string) => {
+  const resources =
+    requireRemoteAgentExecutionResources<
+      Awaited<ReturnType<typeof prepareCenterAgentRender>>
+    >();
+  if (!resources.steeringSource) {
+    throw new Error("Execution input requires a prepared execution context.");
+  }
+  return resources.steeringSource;
+};
+
+export const cloudflare = extend<Agent<CloudflareBindings>>({
   base: (Base) =>
     class extends Base {
+      async receiveExecutionInput(input: unknown) {
+        const request =
+          remoteAgentWorkerExecutionInputRequestSchema.parse(input);
+        return await receiveRemoteAgentExecutionInput({
+          request,
+          storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+          nowMs: Date.now(),
+        });
+      }
+
+      async readExecutionInput(input: unknown) {
+        const query = remoteAgentWorkerExecutionInputQuerySchema.parse(input);
+        return await readRemoteAgentExecutionInput({
+          query,
+          storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+        });
+      }
+
       async submitConversationTurn(
         request: RemoteAgentWorkerSubmitTurnRequest
       ) {
@@ -343,12 +426,12 @@ export const cloudflare = extend({
                 attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
                 request,
               }),
-            ensureInitialized: this.__unsafe_ensureInitialized.bind(this),
+            // Flue 2 prepares its stores in the constructor, before admission.
             readConversationFootprint: () =>
               readRemoteAgentConversationFootprint(this.ctx.storage.sql),
             readExistingSubmission: async () =>
               await readExistingRemoteAgentSubmission({ request, storage }),
-            reportConversationFootprintBeforeReplay: (footprint) => {
+            reportConversationFootprint: (footprint) => {
               if (footprint.level !== "soft_limit") {
                 return;
               }
@@ -416,7 +499,7 @@ export const cloudflare = extend({
               });
             },
             reportStage,
-            routeRequest: this.onRequest.bind(this),
+            routeRequest: async (request) => await this.onRequest(request),
             understandImages: async (imageInput) =>
               await understandRemoteAgentImages({
                 ...imageInput,
@@ -520,15 +603,29 @@ export const cloudflare = extend({
 
       async cancelExecution(input: RemoteAgentWorkerCancellationRequest) {
         const request = remoteAgentWorkerCancellationRequestSchema.parse(input);
-        await this.__unsafe_ensureInitialized();
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
         const cancellation = await cancelFlueRemoteAgentExecution({
-          abortSubmission: () =>
-            abortFlueCenterAgentSubmission({
+          abortSubmission: async () => {
+            const abort = await abortFlueCenterAgentSubmission({
               conversationId: buildRemoteAgentName(request),
-              routeRequest: this.onRequest.bind(this),
+              routeRequest: async (routeRequest) =>
+                await this.onRequest(routeRequest),
               submissionId: request.submissionId,
-            }),
+            });
+            const callbackContext = await waitForRemoteAgentCallbackContext({
+              storage,
+              submissionId: request.submissionId,
+              waitMs: 0,
+            });
+            if (callbackContext) {
+              await stopRemoteAgentComputerCommands({
+                context: callbackContext,
+                env: this.env,
+                storage,
+              });
+            }
+            return abort;
+          },
           identity: request,
           nowMs: Date.now(),
           reason: request.reason,
@@ -543,6 +640,7 @@ export const cloudflare = extend({
             submissionId: request.submissionId,
           });
         }
+        await this.armRemoteAgentCallbackRetry();
         return cancellation.response;
       }
 

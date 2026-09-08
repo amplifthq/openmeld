@@ -24,6 +24,7 @@ import type {
 import {
   buildDefaultSpaceContract,
   buildSystemNoticeText,
+  isSelfWakeSpaceAction,
   resolvePublicAgentFailureReason,
   resolveResultArchiveBehavior,
   resolveSpacePublicationRequirement,
@@ -114,8 +115,21 @@ export function resolveDispatchPublicationPlan(input: {
         : undefined,
   });
 
+  const selfWake = isSelfWakeSpaceAction(
+    input.payload.spaceAction,
+    input.dispatchMessage.targetProfileId
+  );
   let plan: DispatchPublicationPlan;
-  if (explicitAction.kind === "blocked") {
+  if (selfWake) {
+    plan = buildSystemNoticePlan({
+      actorName,
+      noticeType: "terminal_failure",
+      publicOutcome: "system_notice",
+      reasonCode: "space.wake.target_invalid",
+      reason:
+        "The Agent tried to Wake itself while replying, so its reply was not posted. Ask it to reply without waking itself.",
+    });
+  } else if (explicitAction.kind === "blocked") {
     plan = buildSystemNoticePlan({
       actorName,
       noticeType: "policy_blocked",
@@ -141,7 +155,7 @@ export function resolveDispatchPublicationPlan(input: {
   return {
     ...plan,
     archiveMode: archiveBehavior.mode,
-    blockedExplicitAction: explicitAction.kind === "blocked",
+    blockedExplicitAction: selfWake || explicitAction.kind === "blocked",
     shouldArchive: resolveShouldArchive({
       archiveMode: archiveBehavior.mode,
       planKind: plan.kind,
@@ -605,6 +619,10 @@ function resolveFailureReason(
     return "OpenMeld did not receive a message it could post in this space.";
   }
 
+  const providerReason = resolveRuntimeProviderFailureReason(payload);
+  if (providerReason) {
+    return providerReason;
+  }
   const reason = resolvePublicAgentFailureReason({
     defaultReason:
       "OpenMeld did not receive a message it could post in this space.",
@@ -615,6 +633,49 @@ function resolveFailureReason(
       : {}),
   });
   return reason;
+}
+
+// Only classify the provider error envelope. Never publish its message, request,
+// or prompt: these may contain private content even after ordinary redaction.
+function resolveRuntimeProviderFailureReason(
+  payload: DispatchPublicationPayload
+): string | null {
+  if (payload.errorCode !== "runtime.turn.failed" || !payload.errorMessage) {
+    return null;
+  }
+  let detail: unknown;
+  try {
+    detail = JSON.parse(payload.errorMessage);
+  } catch {
+    detail = { message: payload.errorMessage };
+  }
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) {
+    return null;
+  }
+  const envelope = detail as Record<string, unknown>;
+  const error =
+    envelope.error &&
+    typeof envelope.error === "object" &&
+    !Array.isArray(envelope.error)
+      ? (envelope.error as Record<string, unknown>)
+      : envelope;
+  if (
+    error.code === "content_policy_violation" ||
+    error.code === "content_filter" ||
+    (typeof error.message === "string" &&
+      error.message.trim() ===
+        "Invalid prompt: your prompt was flagged as potentially violating our usage policy.")
+  ) {
+    return "The model provider declined this request under its usage policy. Review the request before trying again.";
+  }
+  if (
+    error.type === "invalid_request_error" &&
+    (error.code === "invalid_value" || error.code === "unsupported_value") &&
+    (error.param === "model" || error.param === "reasoning.effort")
+  ) {
+    return "The model provider rejected a request setting. Review the Agent's model and reasoning settings, then try again.";
+  }
+  return null;
 }
 
 function buildImplicitPublicMessageEnvelope(input: {

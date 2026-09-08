@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildPersonalRemoteAgentConversationId,
   buildRemoteAgentRuntimeConversationId,
   CHANNEL_CONTEXT_MAX_MESSAGES,
   CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS,
@@ -56,6 +57,82 @@ const TEST_CENTER_AGENT_MODEL_ROUTE = {
 } as const;
 
 describe("Remote Agent worker contracts", () => {
+  it("isolates personal conversations by organization, Agent and Space and rejects mismatched routing", () => {
+    const identity = {
+      organizationId: "org_1",
+      agentProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      spaceId: "space_1",
+    };
+    const conversationId = buildPersonalRemoteAgentConversationId(identity);
+    for (const other of [
+      { organizationId: "org_2" },
+      { agentProfileId: "agt_22222222-2222-4222-8222-222222222222" },
+      { spaceId: "space_2" },
+    ]) {
+      expect(
+        buildPersonalRemoteAgentConversationId({ ...identity, ...other })
+      ).not.toBe(conversationId);
+    }
+    const request = {
+      ...identity,
+      v: 4,
+      conversationId,
+      conversationIdentity: {
+        kind: "personal_agent",
+        agentProfileId: identity.agentProfileId,
+      },
+      runtimeConversation: { generation: 0, id: conversationId },
+      spaceDispatchContext: {
+        dispatchChainId: "chain_1",
+        autoRelayDepth: 0,
+        visitedProfileIds: [],
+        visitedProfileIdsHash: "hash_1",
+      },
+      agentProfileOwnerUserId: "user_1",
+      bindingId: "binding_1",
+      triggerMessageId: "signal_1",
+      dispatchId: "dispatch_1",
+      sourceClientMessageId: null,
+      idempotencyKey: "dispatch_1",
+      messages: [{ role: "user", content: "Help in this Space." }],
+      author: {
+        displayName: "Felix",
+        profileId: "00000000-0000-4000-8000-000000000001",
+        profileKind: "human",
+      },
+      onBehalfOf: null,
+      modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+      turnEnvelope: createRemoteAgentTurnEnvelope(),
+    };
+    expect(
+      remoteAgentWorkerSubmitTurnRequestSchema.safeParse(request).success
+    ).toBe(true);
+    for (const invalid of [
+      { v: 3 },
+      {
+        conversationIdentity: {
+          kind: "center_agent_task",
+          taskId: "retired-task",
+        },
+      },
+      { spaceId: "space_2" },
+      { conversationId: "space_1" },
+      { spaceDispatchContext: undefined },
+      {
+        conversationIdentity: {
+          kind: "personal_agent",
+          agentProfileId: "agt_22222222-2222-4222-8222-222222222222",
+        },
+      },
+    ]) {
+      expect(
+        remoteAgentWorkerSubmitTurnRequestSchema.safeParse({
+          ...request,
+          ...invalid,
+        }).success
+      ).toBe(false);
+    }
+  });
   it("admits ten canonical Space File images without widening legacy attachment limits", () => {
     const canonicalImages = Array.from({ length: 10 }, (_, index) => ({
       fileName: `screen-${index + 1}.png`,
@@ -286,6 +363,8 @@ describe("Remote Agent worker contracts", () => {
       )
     ).toEqual([
       "cancelExecution",
+      "receiveExecutionInput",
+      "readExecutionInput",
       "readExecutionState",
       "reconcileExecution",
       "readRuntimeDiagnostics",
@@ -677,49 +756,6 @@ describe("Remote Agent worker contracts", () => {
       remoteAgentWorkerSubmitTurnRequestSchema.safeParse({
         ...request,
         modelRoute: undefined,
-      }).success
-    ).toBe(false);
-  });
-
-  it("accepts a separate canonical conversation identity for isolated Task turns", () => {
-    const request = {
-      v: 3,
-      organizationId: "org_1",
-      spaceId: "space_1",
-      conversationId: "center-agent-task:task_1",
-      conversationIdentity: {
-        kind: "center_agent_task",
-        taskId: "task_1",
-      },
-      agentProfileId: "agt_11111111-1111-4111-8111-111111111111",
-      agentProfileOwnerUserId: "user_1",
-      bindingId: "binding_1",
-      triggerMessageId: "task_event_1",
-      dispatchId: "task_attempt_1",
-      sourceClientMessageId: null,
-      idempotencyKey: "task_attempt_1",
-      messages: [{ role: "user", content: "Continue this Task." }],
-      author: {
-        displayName: "Felix",
-        profileId: "00000000-0000-4000-8000-000000000001",
-        profileKind: "human",
-      },
-      onBehalfOf: {
-        displayName: "Felix",
-        profileId: "00000000-0000-4000-8000-000000000001",
-        profileKind: "human",
-      },
-      modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
-      turnEnvelope: createRemoteAgentTurnEnvelope(),
-    } as const;
-
-    expect(remoteAgentWorkerSubmitTurnRequestSchema.parse(request)).toEqual(
-      request
-    );
-    expect(
-      remoteAgentWorkerSubmitTurnRequestSchema.safeParse({
-        ...request,
-        conversationId: "   ",
       }).success
     ).toBe(false);
   });
@@ -1659,7 +1695,6 @@ describe("Remote Agent worker contracts", () => {
         dispatchId: "dispatch_1",
         status: "completed",
         text: "Done.",
-        centerAgentTaskReferences: [{ taskId: "task-1" }],
         conversationCompaction: {
           completedAtMs: 1_804_000_000_000,
           count: 1,

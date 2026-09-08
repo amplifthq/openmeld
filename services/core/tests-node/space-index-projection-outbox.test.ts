@@ -1,4 +1,5 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
+import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
   createActiveSpaceIndexProjectionOutboxRecord,
@@ -10,15 +11,224 @@ import {
 import type { SpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import type { SpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-schema-repo";
+import { readAgentReplyObservationState } from "../src/space/infrastructure/sql/space-signal-repo";
+import { parseStoredSignal } from "../src/space/rules/parsers/stored-signal";
 import { attemptSpaceIndexProjectionOutboxRecord } from "../src/space-index/space-index-projection-outbox-service";
 import { projectActiveSpaceIndexSnapshot } from "../src/space-index/space-index-projection-service";
 import { listAccountSpacesFromSpaceIndex } from "../src/space-index/space-index-repository";
+import {
+  captureSpaceMessagePreview,
+  projectSpaceMessagePreview,
+} from "../src/space-index/space-message-preview";
 import {
   applyDrizzleMigrationsForTables,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
 
+function previewSignal(id: string, ts: number, text: string) {
+  return {
+    v: 1,
+    id,
+    ts,
+    spaceId: "space-alpha",
+    type: "signal.text",
+    profile: { kind: "human", profileId: "human-1", profileName: "Mira" },
+    data: { text },
+  };
+}
+
 describe("space index projection outbox", () => {
+  it("recovers the same historical reply for preview, history and the next Agent observation", () => {
+    const storage = createSqlStorageHarness();
+    try {
+      ensureSpaceSqlSchema(storage.sql);
+      const profileId = "agt_11111111-1111-4111-8111-111111111111";
+      const source = previewSignal("source", 1, "Please reply");
+      const historical = {
+        ...previewSignal("old-final", 2, "First Agent finished"),
+        profile: { kind: "agent", profileId },
+        data: {
+          text: "First Agent finished",
+          meta: {
+            purpose: AGENT_REPLY_FINAL_PURPOSE,
+            dispatchId: "first-dispatch",
+            targetProfileId: profileId,
+            targetProfileName: "Codex (1)",
+            targetMentionLabel: "Codex (1)",
+          },
+        },
+      };
+      for (const signal of [source, historical]) {
+        storage.sql.exec(
+          "INSERT INTO space_signals (id, ts, type, profile_id, profile_kind, payload_json) VALUES (?, ?, 'signal.text', ?, ?, ?)",
+          signal.id,
+          signal.ts,
+          signal.profile.profileId,
+          signal.profile.kind,
+          JSON.stringify(signal)
+        );
+      }
+      const observe = (cursor: string) =>
+        readAgentReplyObservationState(storage.sql, {
+          observedThroughSignalId: cursor,
+          sourceSignalId: "source",
+          threadId: null,
+        });
+      expect(observe("source")).toBe("changed");
+      const raw = storage.sql
+        .exec<{ payload_json: string }>(
+          "SELECT payload_json FROM space_signals WHERE id = 'old-final'"
+        )
+        .toArray()[0]?.payload_json;
+      if (!raw) {
+        throw new Error("Missing historical reply fixture");
+      }
+      const readable = parseStoredSignal(raw);
+      if (!readable) {
+        throw new Error("Historical reply remains unreadable");
+      }
+      expect(readable?.id).toBe("old-final");
+      expect(captureSpaceMessagePreview(storage.sql).preview).toMatchObject({
+        signalId: readable?.id,
+        text: "First Agent finished",
+      });
+      expect(observe(readable.id)).toBe("current");
+      expect(JSON.parse(raw).data.meta.targetMentionLabel).toBe("Codex (1)");
+    } finally {
+      storage.close();
+    }
+  });
+  it("does not advertise a message that conversation history cannot read", () => {
+    const storage = createSqlStorageHarness();
+    try {
+      ensureSpaceSqlSchema(storage.sql);
+      storage.sql.exec(
+        "INSERT INTO space_signals (id, ts, type, profile_id, payload_json) VALUES ('broken', 1, 'signal.text', 'human-1', ?)",
+        JSON.stringify({ data: { text: "Invisible reply" } })
+      );
+      expect(captureSpaceMessagePreview(storage.sql).preview).toBeNull();
+    } finally {
+      storage.close();
+    }
+  });
+  it("upgrades an existing v32 Space before capturing a message preview", () => {
+    const spaceSql = createSqlStorageHarness();
+    try {
+      ensureSpaceSqlSchema(spaceSql.sql);
+      spaceSql.sql.exec("DROP TABLE space_message_preview_revision");
+      spaceSql.sql.exec("DELETE FROM schema_migrations");
+      spaceSql.sql.exec(
+        "INSERT INTO schema_migrations (version, checksum, applied_at) VALUES (32, 'space-sql-schema-v32', 1)"
+      );
+      spaceSql.sql.exec(
+        "INSERT INTO space_signals (id, ts, type, profile_id, payload_json) VALUES ('existing', 1, 'signal.text', 'human', ?)",
+        JSON.stringify(previewSignal("existing", 1, "Keep this message"))
+      );
+      ensureSpaceSqlSchema(spaceSql.sql);
+      expect(captureSpaceMessagePreview(spaceSql.sql)).toMatchObject({
+        revision: 1,
+        preview: { signalId: "existing", text: "Keep this message" },
+      });
+      ensureSpaceSqlSchema(spaceSql.sql);
+      expect(captureSpaceMessagePreview(spaceSql.sql).revision).toBe(2);
+    } finally {
+      spaceSql.close();
+    }
+  });
+  it("keeps previews ordered through delayed writes and complete message retention", async () => {
+    const d1 = createSpaceIndexHarness();
+    const spaceSql = createSqlStorageHarness();
+    try {
+      ensureSpaceSqlSchema(spaceSql.sql);
+      await projectActiveSpaceIndexSnapshot({
+        db: d1.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Preview",
+          spaceId: "space-alpha",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-10T00:00:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Mira",
+            spaceId: "space-alpha",
+          }),
+        ],
+      });
+      const empty = captureSpaceMessagePreview(spaceSql.sql);
+      expect(empty.preview).toBeNull();
+      spaceSql.sql.exec(
+        "INSERT INTO space_signals (id, ts, type, profile_id, payload_json) VALUES (?, ?, ?, ?, ?)",
+        "message-1",
+        100,
+        "signal.text",
+        "human-1",
+        JSON.stringify(previewSignal("message-1", 100, "Ready for review"))
+      );
+      const populated = captureSpaceMessagePreview(spaceSql.sql);
+      expect(populated.preview?.text).toBe("Ready for review");
+      await projectSpaceMessagePreview({
+        db: d1.db,
+        spaceId: "space-alpha",
+        ...populated,
+      });
+      await projectSpaceMessagePreview({
+        db: d1.db,
+        spaceId: "space-alpha",
+        ...empty,
+      });
+      const input = {
+        db: d1.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 500,
+        ownerUserId: "owner-1",
+        scope: "account" as const,
+        selectedProfileId: "human-1",
+      };
+      const legacy = await listAccountSpacesFromSpaceIndex(input);
+      expect(legacy.spaceItems[0]).not.toHaveProperty("messagePreview");
+      const current = await listAccountSpacesFromSpaceIndex({
+        ...input,
+        includeMessagePreviews: true,
+      });
+      expect(current.spaceItems[0]?.messagePreview?.text).toBe(
+        "Ready for review"
+      );
+      const unauthorized = await listAccountSpacesFromSpaceIndex({
+        ...input,
+        ownerUserId: "another-owner",
+        includeMessagePreviews: true,
+      });
+      expect(unauthorized.spaceItems).toEqual([]);
+      spaceSql.sql.exec("DELETE FROM space_signals");
+      const retained = captureSpaceMessagePreview(spaceSql.sql);
+      expect(retained.revision).toBeGreaterThan(populated.revision);
+      await projectSpaceMessagePreview({
+        db: d1.db,
+        spaceId: "space-alpha",
+        ...retained,
+      });
+      await projectSpaceMessagePreview({
+        db: d1.db,
+        spaceId: "space-alpha",
+        ...populated,
+      });
+      expect(
+        (
+          await listAccountSpacesFromSpaceIndex({
+            ...input,
+            includeMessagePreviews: true,
+          })
+        ).spaceItems[0]?.messagePreview
+      ).toBeNull();
+    } finally {
+      spaceSql.close();
+      d1.close();
+    }
+  });
   it("keeps failed evidence and retries until AccountSpaces catches up to Space truth", async () => {
     const d1 = createSpaceIndexHarness();
     const spaceSql = createSqlStorageHarness();
@@ -237,7 +447,12 @@ class SqliteSqlStorage {
 
 function isReadStatement(sql: string): boolean {
   const normalized = sql.trim().toUpperCase();
-  return normalized.startsWith("SELECT") || normalized.startsWith("PRAGMA");
+  return (
+    normalized.startsWith("SELECT") ||
+    normalized.startsWith("WITH") ||
+    normalized.startsWith("PRAGMA") ||
+    normalized.includes(" RETURNING ")
+  );
 }
 
 function toSqliteParams(

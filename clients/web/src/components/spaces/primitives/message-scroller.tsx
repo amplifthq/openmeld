@@ -1,4 +1,10 @@
 import { Button } from "@openmeld/ui/components/button";
+import {
+	ScrollAreaContent,
+	ScrollAreaRoot,
+	ScrollAreaViewport,
+	ScrollBar,
+} from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowDownIcon } from "@phosphor-icons/react";
 import { MessageScroller as MessageScrollerPrimitive } from "@shadcn/react/message-scroller";
@@ -13,45 +19,61 @@ function MessageScrollerProvider(
 }
 
 function MessageScroller({
+	children,
 	className,
 	...props
 }: ComponentProps<typeof MessageScrollerPrimitive.Root>) {
 	return (
-		<MessageScrollerPrimitive.Root
+		<ScrollAreaRoot
 			className={cn(
 				"group/message-scroller relative flex size-full min-h-0 flex-col overflow-hidden",
 				className
 			)}
 			data-slot="message-scroller"
+			render={<MessageScrollerPrimitive.Root />}
 			{...props}
-		/>
+		>
+			{children}
+			<ScrollBar orientation="vertical" />
+		</ScrollAreaRoot>
 	);
 }
 
 function MessageScrollerViewport({
+	preserveScrollOnPrepend,
 	className,
 	...props
 }: ComponentProps<typeof MessageScrollerPrimitive.Viewport>) {
 	return (
-		<MessageScrollerPrimitive.Viewport
+		<ScrollAreaViewport
 			className={cn(
 				"data-autoscrolling:scrollbar-thumb-transparent data-autoscrolling:scrollbar-track-transparent size-full min-h-0 min-w-0 overflow-y-auto overscroll-contain outline-none contain-content",
 				className
 			)}
 			data-slot="message-scroller-viewport"
+			render={
+				<MessageScrollerPrimitive.Viewport
+					preserveScrollOnPrepend={preserveScrollOnPrepend}
+				/>
+			}
 			{...props}
 		/>
 	);
 }
 
 function MessageScrollerContent({
+	spacerClassName,
 	className,
 	...props
 }: ComponentProps<typeof MessageScrollerPrimitive.Content>) {
 	return (
-		<MessageScrollerPrimitive.Content
+		<ScrollAreaContent
 			className={cn("flex h-max min-h-full flex-col gap-6", className)}
 			data-slot="message-scroller-content"
+			render={
+				<MessageScrollerPrimitive.Content spacerClassName={spacerClassName} />
+			}
+			style={{ minWidth: 0 }}
 			{...props}
 		/>
 	);

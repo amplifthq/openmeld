@@ -60,6 +60,19 @@ describe("application error intake", () => {
 		);
 	});
 
+	it("preserves explicit user submissions in the same structured log", async () => {
+		const { receiveApplicationError } = await import(
+			"./application-error-server"
+		);
+		const result = await receiveApplicationError(
+			request({ ...report, submission: "user" })
+		);
+		expect(result.status).toBe(204);
+		expect(console.error).toHaveBeenCalledWith(
+			expect.objectContaining({ report: { ...report, submission: "user" } })
+		);
+	});
+
 	it("rejects cross-origin, malformed, oversized and forged server reports without logging", async () => {
 		const { receiveApplicationError } = await import(
 			"./application-error-server"

@@ -412,7 +412,7 @@ export function buildTrustFirstSlackWelcomeBlocks(input: {
       slackLinkButton({
         actionId: "connect_more_context",
         label: labels.connectMoreContext,
-        url: new URL("center-agent/apps", organizationRoot).toString(),
+        url: new URL("center-agent/plugins", organizationRoot).toString(),
       })
     );
   }

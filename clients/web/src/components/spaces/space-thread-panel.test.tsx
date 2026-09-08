@@ -257,10 +257,10 @@ describe("SpaceThreadPanel", () => {
 
 		expect(
 			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", true);
+		).toHaveProperty("disabled", false);
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
-		).toHaveProperty("disabled", true);
+		).toHaveProperty("disabled", false);
 	});
 
 	it("hides redundant mention guidance in an Agent DM thread", () => {
@@ -558,7 +558,7 @@ describe("SpaceThreadPanel", () => {
 		expect(marker?.getAttribute("aria-busy")).toBeNull();
 	});
 
-	it("uses Dither for Center Agent replies in an ordinary Space thread", () => {
+	it("uses circular Fluid avatars for Center Agent replies in an ordinary Space thread", () => {
 		const centerAgentProfileId = "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 		renderThreadPanel({
 			centerAgentProfileId,
@@ -575,11 +575,7 @@ describe("SpaceThreadPanel", () => {
 		const avatar = screen.getByTestId(
 			`space-center-agent-profile-avatar-${centerAgentProfileId}`
 		);
-		expect(
-			avatar.querySelector("canvas")?.getAttribute("data-profile-avatar-seed")
-		).toBe(
-			`openmeld-dither-profile-avatar:v1:center-agent:${centerAgentProfileId}`
-		);
+		expect(avatar.getAttribute("data-shape")).toBe("circle");
 	});
 
 	it("renders completed Agent Activity once inside its durable thread reply", () => {
@@ -1029,6 +1025,7 @@ describe("SpaceThreadPanel", () => {
 		vi.setSystemTime(wakeSignal.ts + 2 * 60 * 1000);
 
 		renderThreadPanel({
+			ephemeralActivityItems: [createWakeProgressItem()],
 			onWakeStopRequest: vi.fn(),
 			signals: [wakeSignal],
 			spaceTimelineItems: buildSpaceTimelineItems({
@@ -1047,9 +1044,8 @@ describe("SpaceThreadPanel", () => {
 			}),
 		});
 
-		expect(screen.getAllByText("Starting Wake")).not.toHaveLength(0);
 		expect(
-			screen.getByRole("button", { name: "Stop Wake for this agent" })
+			screen.getByRole("button", { name: "Stop Wake for @runner" })
 		).toBeTruthy();
 	});
 

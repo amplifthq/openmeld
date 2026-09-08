@@ -305,3 +305,5 @@ export const centerAgentTaskEvents = sqliteTable(
     ),
   ]
 );
+// Retired storage only. Keep its declaration until a post-retirement database
+// migration can run after the old producers have stopped. There is no Task API.

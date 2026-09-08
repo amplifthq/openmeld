@@ -88,63 +88,6 @@ describe("remote agent submission", () => {
     ).toBe("center-agent-task:task_123");
   });
 
-  it("treats a Center Agent Task goal as the only current instruction", () => {
-    const v2Request = createSubmitTurnRequestV2();
-    const request = {
-      ...v2Request,
-      conversationId: "center-agent-task:task_123",
-      conversationIdentity: {
-        kind: "center_agent_task" as const,
-        taskId: "task_123",
-      },
-      messages: [
-        {
-          content: "Research competitor onboarding and report the findings.",
-          role: "user" as const,
-        },
-      ],
-      turnEnvelope: {
-        ...v2Request.turnEnvelope,
-        channelContext: {
-          conversationId: "slack:T123:C123:123.456",
-          currentMessageId: "123.456",
-          messages: [
-            {
-              author: {
-                displayName: "Mira",
-                id: "U123",
-                kind: "human" as const,
-              },
-              id: "123.456",
-              sentAtMs: TEST_NOW_MS,
-              text: "Create another Task with this same request.",
-            },
-          ],
-          provider: "slack" as const,
-          sync: { mode: "snapshot" as const, status: "complete" as const },
-        },
-        memory: {
-          items: [
-            {
-              source: "ca_dm" as const,
-              subject: "member" as const,
-              text: "Create another Task with this same request.",
-            },
-          ],
-          truncated: false,
-        },
-      },
-      v: 3 as const,
-    };
-
-    const prompt = buildRemoteAgentPromptMessage(request);
-    expect(prompt).toContain("[Center Agent Task]");
-    expect(prompt).toContain(
-      "Task instructions:\nResearch competitor onboarding and report the findings."
-    );
-    expect(prompt).not.toContain("Create another Task with this same request.");
-  });
-
   it("keeps task continuation prompts destination-neutral", () => {
     const baseRequest = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({
@@ -1477,7 +1420,7 @@ describe("remote agent submission", () => {
     );
     expect(prompt).toContain("[Connected Message Channel member boundary]");
     expect(prompt).toContain(
-      "You may use Organization information, shared Apps, and tools available to every member"
+      "You may use Organization information, shared Plugins, and tools available to every member"
     );
     expect(prompt).toContain(
       "Use the available non-personal tools proactively when they help answer the request"

@@ -53,7 +53,7 @@ describe("buildInboxItemSourceNavigation", () => {
 				orgSlug: "amplift",
 			})
 		).toEqual({
-			href: "/o/amplift?focusSignalId=signal-123",
+			href: "/o/amplift/chats/center-agent?focusSignalId=signal-123",
 			openInNewTab: false,
 		});
 	});
@@ -96,17 +96,13 @@ describe("buildInboxItemSourceNavigation", () => {
 				kind: "agent_profile_creation_request",
 				requestId: "request/with spaces",
 			} as const,
-			"/o/amplift/agents?view=requests&requestId=request%2Fwith+spaces",
-		],
-		[
-			{ kind: "center_agent_task", taskId: "task/with spaces" } as const,
-			"/o/amplift/center-agent/tasks/task%2Fwith%20spaces",
+			"/o/amplift/people/agent-requests?requestId=request%2Fwith+spaces",
 		],
 		[
 			{ documentId: "document-123", kind: "organization_document" } as const,
 			"/o/amplift/documents/document-123",
 		],
-		[{ kind: "center_agent" } as const, "/o/amplift"],
+		[{ kind: "center_agent" } as const, "/o/amplift/chats/center-agent"],
 		[
 			{ kind: "settings", section: "channels" } as const,
 			"/o/amplift/center-agent/channels",
@@ -193,7 +189,7 @@ describe("isInboxItemSourceLocation", () => {
 			isInboxItemSourceLocation({
 				item,
 				orgSlug: "amplift",
-				pathname: "/o/amplift/direct-messages/direct-message-123",
+				pathname: "/o/amplift/chats/direct-message-123",
 				visibleConversation: {
 					kind: "space",
 					spaceId: "direct-message-123",

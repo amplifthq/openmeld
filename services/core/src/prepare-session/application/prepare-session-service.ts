@@ -650,10 +650,7 @@ export async function writeTerminalStepUseCase(input: {
       message: input.write.message ?? null,
     }),
   });
-  if (
-    input.write.status === "failed" &&
-    input.write.diagnostics !== undefined
-  ) {
+  if (input.write.status === "failed") {
     emitPrepareStepFailureDiagnosticsLog({
       snapshot: next,
       write: input.write,
@@ -669,21 +666,22 @@ function emitPrepareStepFailureDiagnosticsLog(input: {
   // Diagnostic evidence only: this single structured line makes the
   // CLI-collected bundle queryable via Workers Logs. It must never be stored
   // or feed availability/Wake decisions.
-  if (input.write.diagnostics === undefined) {
-    return;
-  }
-  const diagnostics = parsePrepareStepFailureDiagnosticsForLog(
-    input.write.diagnostics
-  );
-  console.log(
-    `[prepare.diagnostics] ${JSON.stringify({
-      prepareSessionId: input.write.prepareSessionId,
-      deviceId: input.snapshot.deviceId,
-      stepId: input.write.stepId,
-      reasonCode: input.write.reasonCode ?? null,
-      ...diagnostics,
-    })}`
-  );
+  const diagnostics =
+    input.write.diagnostics === undefined
+      ? { diagnosticsAbsent: true }
+      : parsePrepareStepFailureDiagnosticsForLog(input.write.diagnostics);
+  console.log({
+    message: "[prepare.diagnostics]",
+    event: "core.openmeld.setup.step_failed",
+    ownerUserId: input.snapshot.ownerUserId,
+    prepareSessionId: input.write.prepareSessionId,
+    connectionEpoch: input.write.connectionEpoch,
+    sessionRevision: input.snapshot.sessionRevision,
+    deviceId: input.snapshot.deviceId,
+    stepId: input.write.stepId,
+    reasonCode: input.write.reasonCode ?? null,
+    ...diagnostics,
+  });
 }
 
 type PrepareStepFailureDiagnosticsLogFields =

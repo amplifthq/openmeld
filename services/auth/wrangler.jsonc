@@ -169,6 +169,7 @@
         "AUTH_BRAND_NAME": "OpenMeld",
         "AUTH_FROM_EMAIL": "OpenMeld <noreply@openmeld.ai>",
         "AUTH_COOKIE_DOMAIN": "staging.openmeld.ai",
+        "AUTH_COOKIE_PREFIX": "openmeld-staging",
         "PASSKEY_RP_ID": "staging.openmeld.ai",
         "AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS": "300"
       },

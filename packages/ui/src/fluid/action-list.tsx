@@ -18,6 +18,7 @@ import { useProximityHover } from "#hooks/use-proximity-hover";
 import { useShape } from "#lib/shape-context";
 import { springs } from "#lib/springs";
 import { cn } from "#lib/utils";
+import { FluidHoverHighlight } from "./hover-highlight";
 
 type FluidActionListContextValue = {
   activeIndex: number | null;
@@ -111,6 +112,15 @@ export function FluidActionList({
           setActiveIndex(null);
         }}
         onFocus={(event) => {
+          if (
+            (event.target as HTMLElement).closest(
+              '[data-slot="fluid-action-list"]'
+            ) !== event.currentTarget
+          ) {
+            setFocusedIndex(null);
+            setActiveIndex(null);
+            return;
+          }
           const indexAttribute = (event.target as HTMLElement)
             .closest("[data-proximity-index]")
             ?.getAttribute("data-proximity-index");
@@ -125,36 +135,27 @@ export function FluidActionList({
         }}
         onMouseEnter={handlers.onMouseEnter}
         onMouseLeave={handlers.onMouseLeave}
-        onMouseMove={handlers.onMouseMove}
+        onMouseMove={(event) => {
+          if (
+            (event.target as HTMLElement).closest(
+              '[data-slot="fluid-action-list"]'
+            ) !== event.currentTarget
+          ) {
+            setActiveIndex(null);
+            return;
+          }
+          handlers.onMouseMove(event);
+        }}
         ref={containerRef}
         role={props.role ?? "group"}
       >
         <AnimatePresence>
           {activeRect ? (
-            <motion.div
-              animate={{ opacity: 1 }}
-              aria-hidden="true"
-              className={cn(
-                "pointer-events-none absolute bg-muted/70",
-                shape.bg,
-                hoverIndicatorClassName
-              )}
-              data-slot="fluid-action-list-hover-indicator"
-              exit={{ opacity: 0, transition: { duration: 0.06 } }}
-              initial={{ opacity: 0 }}
+            <FluidHoverHighlight
+              className={cn(shape.bg, hoverIndicatorClassName)}
               key={sessionRef.current}
-              layout={!reduceMotion}
-              style={{
-                height: activeRect.height,
-                left: activeRect.left,
-                top: activeRect.top,
-                width: activeRect.width,
-              }}
-              transition={
-                reduceMotion
-                  ? { opacity: { duration: 0.08 } }
-                  : { ...springs.fast, opacity: { duration: 0.08 } }
-              }
+              rect={activeRect}
+              slot="fluid-action-list-hover-indicator"
             />
           ) : null}
         </AnimatePresence>

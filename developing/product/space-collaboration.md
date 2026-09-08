@@ -435,6 +435,43 @@ leave, lifecycle, and metadata mutation, and excludes it from ordinary Space
 lists. Clients hide every rejected mutation surface as well as relying on
 server enforcement.
 
+Center Agent chats reuse the ordinary Members panel for viewing the Human and
+Center Agent profiles. This read-only entry does not expose addition,
+conversion, removal, or invitation actions.
+
+### Center Agent session foundation (Flue 2 candidate)
+
+Each private Center Agent session reuses this stricter DM Space specialization;
+the Space ID is its session identity. Multiple sessions retain the same real
+Human/Center Agent pair key. Creating a session uses a dedicated operation with
+an idempotency key scoped to the authenticated Organization and pair. A retry
+reuses that session; a different creation key creates another session. The
+ordinary DM open-or-reuse operation keeps its existing behavior.
+
+Selecting a session checks the exact Space against the caller's current
+Organization, Human Profile and designated Center Agent. An unavailable or
+foreign selection never substitutes another conversation. Message and file
+access still use Space-owned authorization. The session shares the Agent
+Profile's Computer, with its own Space working directory; a directory is not a
+separate Computer or a privacy sandbox.
+
+The existing Center DM parent restrictions apply to every session: hide and
+reject member addition/invitation, conversion, removal/leave, and generic
+metadata, lifecycle, visibility, access and deletion mutations. Keep the
+existing message, file, thread, stream and read-only information surfaces.
+Session management must not unlock those generic mutations as a shortcut.
+
+The candidate provides idempotent creation, authorized paginated listing and
+exact Web route selection through New chat and Chats. Listing filters active,
+unconverted private conversations by the current Organization and real pair;
+the cursor is a pagination boundary, never access authority. Selection still
+checks the owning Space. Dedicated rename, archive and deletion remain future
+session operations. Browser acceptance, explicit execution steering and release
+continuity remain incomplete release gates. Task retirement is deferred; its
+existing product and tools remain available during this upgrade.
+
+### Ordinary Direct Message opening
+
 Opening a Direct Message is idempotent within a generation. OpenMeld first
 looks for an unconverted DM-origin Space for the same organization and pair key
 whose active member count is at most two. If found, it reuses that Space. If
@@ -629,17 +666,24 @@ Reference authoring and ordinary text input remain usable while Wake is blocked.
 Repeating the same Agent
 mention in one message keeps every occurrence explicit: the first token owns
 the selected Wake or Reference, while later tokens resolve to Reference and
-never create another Wake. Web preserves the authored visible text. The generic
-CLI accepts an exact current mention label or stable Profile ID inside
-`@target(wake)`, `@target(reference)`, or
-`@target(mention)`. It resolves that private selector against one current member
-snapshot, publishes `@primaryMentionLabel` without the relation suffix or raw
-machine ID, and retains the exact Profile ID and relation in the structured
-target set. A concurrent Profile rename does not create a permanent alias: a
-stale name fails closed and the sender must use the fresh label or stable ID.
-`--plain` remains the explicit way to publish the authored text literally. The
-Profile appears only once in the structured target set and therefore can be
-woken only once.
+never create another Wake. Web preserves the authored visible text. CLI accepts explicit `--wake <agent-profile-id>`,
+`--reference <agent-profile-id>`, and `--mention <human-profile-id>` recipients.
+Both generic sends and dispatch-owned replies require full current Profile IDs.
+Names, aliases, case folding, short IDs, and relation suffixes are not selectors.
+Web and the interactive terminal retain the selected Profile ID and relation
+alongside the visible mention. Typed or pasted text never creates a recipient;
+editing through a selected token removes its identity rather than re-resolving
+the new text. CLI sends prefix readable current names for explicit recipients.
+Repeated IDs within one CLI relation are deduplicated; conflicting relations
+fail before publication. `--plain` asserts that no recipients were supplied.
+Old `@Name(wake)`, `@Name(reference)`, and `@Name(mention)` text is literal.
+Dispatch prompts preserve authored text instead of stripping apparent controls.
+
+Existing restricted mention-label wire fields remain readable for supported
+older clients and historical messages. They are not Profile names or authoring
+selectors in current clients; their punctuation restriction does not constrain
+selected names. Retiring those wire fields requires a separate negotiated
+response migration, not a silent change to strict older response schemas.
 
 Web presents the first visible `@Name` owned by each structured Agent Wake or
 Reference as one inline Agent token. The token includes the Agent Profile icon,
@@ -782,6 +826,14 @@ one persisted reply, one explicit stopped outcome, or one explicit failure
 If OpenMeld stops a Wake before it reaches the agent, the visible outcome is still an
 explicit stopped Space system notice. It is not an Agent reply, and it must not
 be rendered as silent disappearance from progress.
+
+Only the account that authored the Wake's source message or the target Agent
+Profile's owner may stop that Wake, and they must still have writable Space
+access. Space membership, Space creation, or Organization administration alone
+does not grant this permission. Other members can follow progress but cannot
+interrupt the work. Signing in to several accounts on one computer does not
+combine their permissions. This rule covers queued, running, and native-delivery
+Wakes; each target of a multi-Agent Wake is authorized separately.
 
 If a Wake reaches the local agent but the controller or upstream model provider
 fails, the explicit failure notice should expose the safest actionable public

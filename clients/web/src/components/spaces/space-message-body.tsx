@@ -42,7 +42,6 @@ import {
 	type SpaceMessageAgentMentionProfilesById,
 } from "./space-message-agent-mention";
 import { SpaceMessageAgentMentionText } from "./space-message-agent-mention-view";
-import { SpaceMessageCenterAgentTaskReferences } from "./space-message-center-agent-task-references";
 import {
 	createSpaceMessageReferenceRemarkPlugin,
 	EMPTY_SPACE_MESSAGE_REFERENCES,
@@ -65,11 +64,7 @@ type SpaceMessageBodyProps = {
 	containerClassName?: string;
 	item: Pick<
 		SpaceTimelineItem,
-		| "agentStreamState"
-		| "centerAgentTaskReferences"
-		| "isAgentFinalReply"
-		| "navigationAction"
-		| "text"
+		"agentStreamState" | "isAgentFinalReply" | "navigationAction" | "text"
 	> &
 		Partial<
 			Pick<
@@ -228,7 +223,6 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 					}),
 		[input.openMeldProfileId, input.orgSlug]
 	);
-	const centerAgentTaskReferences = input.item.centerAgentTaskReferences ?? [];
 	const body = renderSpaceMessageTextContent({
 		additionalRemarkPlugins: references.additionalRemarkPlugins,
 		agentMentionProfilesById: references.agentMentionProfilesById,
@@ -244,7 +238,6 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 	const hasVisibleContent =
 		body !== null ||
 		Boolean(navigationActionContent) ||
-		centerAgentTaskReferences.length > 0 ||
 		attachments.length > 0 ||
 		files.length > 0 ||
 		text.textProjection.serverTruncated;
@@ -257,7 +250,6 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 			api={spaceApi}
 			attachments={attachments}
 			body={body}
-			centerAgentTaskReferences={centerAgentTaskReferences}
 			containerClassName={input.containerClassName}
 			files={files}
 			isExpanded={text.isExpanded}
@@ -276,9 +268,6 @@ function SpaceMessageBodyContent(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	attachments: SpaceTimelineItem["attachments"];
 	body: ReactNode;
-	centerAgentTaskReferences: NonNullable<
-		SpaceTimelineItem["centerAgentTaskReferences"]
-	>;
 	containerClassName?: string;
 	files: NonNullable<SpaceTimelineItem["files"]>;
 	isExpanded: boolean;
@@ -292,15 +281,16 @@ function SpaceMessageBodyContent(input: {
 }) {
 	return (
 		<div
-			className={cn("flex min-w-0 flex-col gap-2", input.containerClassName)}
+			className={cn(
+				"flex min-w-0 max-w-full flex-col gap-2",
+				input.containerClassName
+			)}
 			data-slot="space-message-body"
 			style={{ overflowWrap: "anywhere" }}
 		>
 			{input.body}
 			{input.navigationActionContent}
-			<SpaceMessageCenterAgentTaskReferenceList
-				references={input.centerAgentTaskReferences}
-			/>
+
 			<SpaceMessageAttachmentGrid
 				attachments={input.attachments}
 				organizationSlug={input.organizationSlug}
@@ -319,17 +309,6 @@ function SpaceMessageBodyContent(input: {
 			/>
 			<SpaceMessageServerTruncatedNote visible={input.serverTruncated} />
 		</div>
-	);
-}
-
-function SpaceMessageCenterAgentTaskReferenceList(input: {
-	references: NonNullable<SpaceTimelineItem["centerAgentTaskReferences"]>;
-}) {
-	if (input.references.length === 0) {
-		return null;
-	}
-	return (
-		<SpaceMessageCenterAgentTaskReferences references={input.references} />
 	);
 }
 
@@ -400,7 +379,7 @@ function renderSpaceMessageTextContent(input: {
 		);
 	}
 	return (
-		<p className={cn("whitespace-pre-wrap", input.className)}>
+		<p className={cn("max-w-full whitespace-pre-wrap", input.className)}>
 			<SpaceMessageAgentMentionText
 				onOpenAgentProfile={input.onOpenAgentProfile}
 				profilesById={input.agentMentionProfilesById}
@@ -523,7 +502,7 @@ function SpaceMessageFileList(input: {
 							file={file}
 							isSingle={imageFiles.length === 1}
 							key={`${file.fileId}:${String(file.revision)}`}
-							onOpenSpaceFile={input.onOpenSpaceFile}
+							onOpenSpaceFile={file.isLocal ? undefined : input.onOpenSpaceFile}
 							spaceId={input.spaceId}
 						/>
 					))}
@@ -537,6 +516,7 @@ function SpaceMessageFileList(input: {
 					{ordinaryFiles.map((file) => (
 						<button
 							className="group flex min-w-0 items-center gap-3 rounded-md border border-border bg-background p-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
+							disabled={file.isLocal}
 							key={`${file.fileId}:${String(file.revision)}`}
 							onClick={() =>
 								input.onOpenSpaceFile?.(file.fileId, file.revision)
@@ -547,12 +527,12 @@ function SpaceMessageFileList(input: {
 							<div className="min-w-0 flex-1">
 								<p className="truncate font-medium text-sm">{file.name}</p>
 								<p className="mt-0.5 truncate text-muted-foreground text-xs">
-									{formatMessageFileSize(file.sizeBytes)} · Version{" "}
-									{file.revision}
+									{formatMessageFileSize(file.sizeBytes)}
+									{file.isLocal ? null : ` · Version ${file.revision}`}
 								</p>
 							</div>
 							<span className="shrink-0 text-muted-foreground text-xs group-hover:text-foreground">
-								Open in Files
+								{file.isLocal ? null : "Open in Files"}
 							</span>
 						</button>
 					))}
@@ -581,6 +561,7 @@ function SpaceMessageFileImage(input: {
 	const imageSource = useSpaceFileImageSource({
 		api: input.api,
 		fileId: input.file.fileId,
+		isLocal: input.file.isLocal,
 		localPreviewUrl: input.file.localPreviewUrl,
 		mimeType: input.file.mimeType,
 		revision: input.file.revision,

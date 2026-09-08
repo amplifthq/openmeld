@@ -9,6 +9,46 @@ import {
 
 const INVALID_COMMAND_PATTERN = /plan, deploy, or verify/u;
 
+test("explicitly keeps existing containers only for Remote Agent deployments", () => {
+  const input = parseStagingReleaseArgs([
+    "deploy",
+    "--scope",
+    "remote-agent",
+    "--containers-rollout=none",
+  ]);
+  assert.equal(input.skipContainers, true);
+  const steps = buildStagingDeployStepSpecs(input);
+  const deploy = steps.find((step) =>
+    step.label.includes("keep existing containers")
+  );
+  assert.ok(deploy);
+  assert.equal(deploy.args.includes("component:stg"), true);
+  assert.equal(
+    deploy.args.at(-1),
+    "pnpm run sync:secrets:stg && pnpm run deploy:stg --containers-rollout=none"
+  );
+  assert.equal(
+    buildStagingDeployStepSpecs(
+      parseStagingReleaseArgs(["plan", "--containers-rollout=none"])
+    ).filter((step) => step.label.includes("keep existing containers")).length,
+    1
+  );
+  assert.throws(() =>
+    parseStagingReleaseArgs(["verify", "--containers-rollout=none"])
+  );
+  assert.throws(() =>
+    parseStagingReleaseArgs([
+      "deploy",
+      "--scope",
+      "web",
+      "--containers-rollout=none",
+    ])
+  );
+  assert.throws(() =>
+    parseStagingReleaseArgs(["deploy", "--containers-rollout=immediate"])
+  );
+});
+
 test("accepts only the guarded staging commands", () => {
   assert.deepEqual(parseStagingReleaseArgs(["plan"]), {
     command: "plan",
@@ -52,9 +92,9 @@ test("deploys isolated prerequisites, database, secrets, and Workers in order", 
       "Create staging Worker identities",
       "Apply staging database migrations",
       "Deploy staging Auth",
-      "Deploy staging Web",
-      "Deploy staging Gateway",
       "Deploy staging Core",
+      "Deploy staging Gateway",
+      "Deploy staging Web",
       "Deploy staging Remote Agent",
       "Verify staging resources",
       "Verify staging user entry points",

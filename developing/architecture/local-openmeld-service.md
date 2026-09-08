@@ -75,6 +75,25 @@ Lifecycle-owner diagnostics are scoped to one lane. A production system service
 and a dev-local system service may run on the same computer without becoming
 multiple owners. `multiple_owners` means that more than one lifecycle mechanism
 is controlling the same lane, such as launchd plus a direct CLI process.
+For a foreground Service with an explicit `OPENMELD_HOME`, the existing
+installation-root check also scopes manager ownership: a registration belonging
+to another installation is not a second owner of this isolated Service.
+Inventory anomalies and effective runtime status must use that same scoped
+manager observation. This does not permit changing another installation's
+registration or suppress multiple owners within the current installation.
+A fresh running lease identifying a directly started process takes precedence
+over that same PID's managed executable path when classifying lifecycle owners.
+Using an installed binary does not itself mean the OS service manager started
+it. Other PIDs and an actually running manager remain independent evidence.
+
+Isolated Service smoke must use the development or Canary entry point, not
+borrow the installed Production binary with a different `OPENMELD_HOME` or
+environment preset. Service startup rejects that mixed launch before entering
+the carrier. This guard prevents an unsupported test launch from appearing in
+Production's process inventory; it is not a replacement for account, device,
+runtime, connection, or same-installation duplicate-owner checks. Normal
+Production startup and separately installed development/Canary lanes remain
+supported. A home override alone does not prove process or remote isolation.
 
 OpenMeld Service does not own:
 
@@ -533,8 +552,13 @@ intersects with the Agent Profile's controller-native permission mode; neither
 layer may widen the other. Profile, Project, Organization, and Space surfaces
 must not add overrides or duplicate this policy.
 
-Owner policy reads and writes target the current Computer's exact device and
-lane plus its live owner Service session. They do not require a registered or
+Owner policy reads and writes target the explicitly selected Computer's exact
+device and lane plus its live owner Service session. PeopleComputers routes
+revalidate that target and never fall back to an account Binding or another
+environment. The older current-Computer endpoints remain compatibility
+adapters for supported clients. Web policy caches include account, device and
+lane, and changing the selected environment remounts the editor so a draft
+cannot cross targets. They do not require a registered or
 enabled local Agent execution target: execution-target inventory governs Agent
 operations, while this Computer-wide policy remains manageable whenever the
 exact current Service is connected and advertises the negotiated capability.
@@ -943,6 +967,17 @@ that decision.
   candidate. OpenMeld Service uses the committed Computer session when it starts
   at login. The handoff must not be used to add an
   agent-selection step to Web.
+  A missing or unreadable old bearer token does not veto a freshly authorized
+  handoff when the committed account metadata is intact. Metadata is used only
+  for account-switch consent and the locked identity comparison, never to
+  authorize execution. Rollback preserves the original payload, but does not
+  restart a Service with an unreadable credential. Recovery must not reread an
+  already revoked candidate token merely to finish local cleanup.
+  If the committed account cannot be identified, setup remains blocked with
+  an explicit local sign-out action. Explicit logout preserves malformed
+  session JSON in a uniquely named file in the same auth directory before
+  removing it from the active session path; it does not guess Keychain items
+  from damaged metadata or clear unrelated application data.
   A candidate Service may run from its prepared stable carrier before the OS
   service definition is committed. Setup repair and rollback must still drain
   and stop that process; an absent definition means there is no autostart state
@@ -1071,6 +1106,14 @@ Project-control request itself fails, its authoritative error distinguishes
 Service offline, Service update required, and a retryable discovery failure;
 clients must not collapse every failure into Service unavailable.
 
+PeopleComputers Project discovery instead names the selected device and lane.
+Its eligibility comes from that exact session's shared `localProjectControl`
+control projection, not Binding preference, Agent reports, or Wakeability.
+Core reuses the Project authorization and canonical-reference preparation path;
+only target resolution changes. An unknown inventory or failed query remains a
+retryable checking failure, not evidence that the selected Service disconnected.
+Legacy current-target Project operations remain available to existing clients.
+
 An operation response may contain an absolute local path only for immediate
 forwarding through Core and Gateway to the authenticated owner who initiated
 that request. Immediate forwarding is not storage. Local paths must never be
@@ -1119,11 +1162,17 @@ facts without asking the person to reconnect or rebuild the Profile.
 
 ## Local Folder Picker
 
-Local Folder Picker is a current-Computer, owner-self interaction capability.
+Local Folder Picker is an owner-self Computer interaction capability.
 It lets an authenticated Web action ask the exact live OpenMeld Service to open
 the operating system's folder chooser on that computer. It is a sibling of
 `computerFileAccess`, `localProjectControl`, and `localAgentControl`; none of
 those product contracts owns it.
+
+PeopleComputers folder selection names the exact device and environment and
+revalidates the current owner Service session; it never falls back to the
+account's routing preference. The existing current-Computer endpoint remains
+for supported clients. A browser draft discards late picker results after
+either the selected device or environment changes, or the editor unmounts.
 
 The picker returns only folders the person selected. It does not inspect folder
 contents, discover Projects, validate repositories, update Computer file access,
@@ -1311,6 +1360,15 @@ it must not rebuild the device-scoped Binding answer from per-profile reads.
 
 Catalog consumption rules:
 
+- Built-in controller discovery runs in the existing controller inventory report
+  pass, independently of route catalog refresh. A discovered registration uses
+  the normal lane-local catalog-change signal. Install detection for an unrelated
+  controller must not gate registration for an already configured controller.
+- An explicit catalog-change signal starts the existing single-flight catalog
+  refresh independently of an in-flight heartbeat. New route registration
+  must not wait for old-lease renewal or its local maintenance inspection.
+  Changes arriving during a catalog refresh remain pending until that refresh
+  finishes; heartbeat completion must not consume that pending work.
 - The projection response is operation-scoped evidence. It is never persisted,
   and the route catalog cache remains a failure fallback only.
 - Carrier startup and periodic catalog refresh only check existing local
@@ -1568,6 +1626,16 @@ collapse to `connected` when any one current session is usable. These states
 must never be promoted into Agent Profile readiness or Wakeability.
 
 ## Service Freshness And Compatibility
+
+Computer-level local-agent availability is an existential capability summary,
+not an all-controllers health check. With a current, compatible Service session,
+one enabled, ready local controller is sufficient for the computer to offer local
+execution. An unrelated controller's failed check or missing sign-in remains
+visible on that controller but must not block a ready controller. A partial
+catalog remains partial; do not erase its individual failures to make the summary
+available. This summary does not authorize a Wake: Core's Agent Profile
+Wakeability must still validate the selected controller, Binding, permissions,
+and task requirements. It must not overwrite an individual execution's outcome.
 
 Service freshness and execution compatibility are separate diagnostic concepts.
 Freshness says whether a newer Service bundle exists. Compatibility says whether
@@ -1902,6 +1970,13 @@ coordinator. The initiating browser or Terminal is not a lifecycle owner: it
 may close immediately after the durable handoff, and the OS worker must resume
 the same job after its own crash, sign-in, or computer restart.
 
+When the control endpoint is absent, the update worker delegates to the existing
+locked lifecycle checks rather than waiting forever for an absent Service to
+answer readiness. This does not authorize force-killing a live Service: controlled
+drain or verified runtime absence remains required. Setup joins pending updates;
+a newer Setup advances an older waiting job through that same coordinator before
+joining it, so an old worker cannot replace a newly connected Service afterward.
+
 That update job is the single operation truth. Its safe projection reports one
 of `waiting_for_work`, `updating`, `updated`, `restored`, or `needs_help` plus
 the opaque operation id, request source, target version, urgency, and
@@ -1920,6 +1995,12 @@ retain that exact operation and verify both CLI and Service at its target before
 presenting **Up to date** or allowing Setup or Prepare to report completion.
 Same-operation observations are ordered by `updatedAt` and phase, so a stale
 projection cannot move visible progress backward.
+An explicit later repair may establish a fresh running, anomaly-free Service at
+the current CLI version. Setup may use that verified replacement to recover
+from a completed historical failed update at that version or older; it must
+retain the historical failure and must not apply this exception to an in-flight
+update or merely installed artifacts. Account alignment remains independently
+required by the participation gate.
 Because runtime capability payloads are strict, rollout deploys the accepting
 Schemas and Core before publishing a Service that emits `updateOperation`.
 New Core accepts older Services that omit it; rollback removes the new local
@@ -2102,7 +2183,10 @@ evidence while background reconnect attempts continue.
 A Service advertises it only when it can keep a `post_message` result as an
 unpublished proposal, receive `review_required`, remove that proposal from the
 result outbox, read a bounded Space delta, and resume the exact Agent Controller
-conversation. The same execution slot stays active across review. Review never
+conversation. Each review carries the original source message, source signal ID,
+and target Profile alongside the bounded newer-message delta. The original Wake
+remains the assignment; another Agent's contribution is context, not a new
+activation or a transfer of task ownership. The same execution slot stays active across review. Review never
 starts a new Wake, repeats completed tools, or creates a second result store.
 Older Services omit the capability and must never receive the new response
 status.
@@ -2162,6 +2246,13 @@ repair and update fail closed and explain the deliberate force command together
 with its no-active-work precondition. They must not infer that a missing control
 endpoint means no local Agent work is running or force-stop the process
 automatically.
+
+An exited process has no live command path to inspect. When its lease is stale
+because the process is gone and the owned-process scan finds no matching
+process, that absence is not a runtime bundle mismatch and must not request
+system-registration repair. Preserve the stale-lease diagnostic and the normal
+restart path. A live or observed process still requires the existing bundle and
+command-path checks; independent bundle corruption remains blocking.
 
 One narrow crash-loop recovery is deterministic rather than destructive: when
 the local control endpoint is missing, runtime state is not running, and process

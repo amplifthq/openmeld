@@ -391,6 +391,10 @@ Anything not run, with reason
 - Release, health, or smoke failure: preserve the source SHA and completed
   immutable stages, report the failed fact accurately, and follow the scoped
   recovery contract. Never silently continue from another commit.
+- npm acceptance is not package availability. A release waiting for npm remains
+  incomplete, with its original submission evidence preserved across runners.
+  Resume verification without resubmitting an accepted or uncertain publish;
+  follow the npm recovery boundary in `production-release.md`.
 
 ## Agent Experience Occurrence Feedback
 

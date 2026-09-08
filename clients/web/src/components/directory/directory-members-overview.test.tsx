@@ -48,12 +48,10 @@ vi.mock("#/components/directory/directory-human-profiles-workspace", () => ({
 		onSelectProfile: (profileId: string) => void;
 		profileReportsErrorMessage: string | null;
 		selectedProfileId: string | null;
-		sidebarLeadingContent?: ReactNode;
 	}) => {
 		workspacePropsMock(props);
 		return (
 			<div data-testid="people-workspace">
-				{props.sidebarLeadingContent}
 				<p data-testid="selected-profile">{props.selectedProfileId}</p>
 				{props.members.map((member) => (
 					<button
@@ -231,61 +229,19 @@ describe("DirectoryMembersOverview", () => {
 
 	afterEach(cleanup);
 
-	it("selects the current Human Profile by default and writes explicit selections to the URL", async () => {
+	it("opens Team without selecting a person and writes explicit selections to the URL", async () => {
 		renderOverview();
 
 		expect((await screen.findByTestId("selected-profile")).textContent).toBe(
-			CURRENT_PROFILE_ID
+			""
 		);
 		expect(navigateMock).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "Grace Hopper" }));
 		expect(navigateMock).toHaveBeenCalledWith({
-			search: { profileId: GRACE_PROFILE_ID },
-			to: "/o/acme/people",
+			to: `/o/acme/people/${GRACE_PROFILE_ID}`,
 		});
 	});
-
-	it("combines invite-by-email and invite-link controls in one dialog", async () => {
-		renderOverview();
-
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Invite Members" })
-		);
-		expect(screen.getByRole("dialog")).toBeTruthy();
-		expect(
-			screen.getByRole("heading", { name: "Invite Members" })
-		).toBeTruthy();
-		expect(screen.getByLabelText("Invite link controls")).toBeTruthy();
-
-		fireEvent.change(screen.getByLabelText("Email"), {
-			target: { value: "  teammate@example.com  " },
-		});
-		fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
-		await waitFor(() => {
-			expect(inviteOrganizationMemberMock).toHaveBeenCalledWith({
-				email: "teammate@example.com",
-				organizationId: "org-acme",
-				role: "member",
-			});
-		});
-	});
-
-	it("keeps the Invite Members entry visible while explaining member permissions", async () => {
-		getActiveOrganizationMemberRoleMock.mockResolvedValue("member");
-		renderOverview();
-
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Invite Members" })
-		);
-		expect(
-			screen.getByText(
-				"Only organization owners and admins can invite teammates. Ask one of them if you need to add someone."
-			)
-		).toBeTruthy();
-		expect(screen.queryByLabelText("Email")).toBeNull();
-	});
-
 	it("preserves member research and Direct Message behavior behind the new workspace", async () => {
 		renderOverview();
 		await screen.findByTestId("people-workspace");
@@ -307,7 +263,7 @@ describe("DirectoryMembersOverview", () => {
 			});
 		});
 		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/acme/direct-messages/space-grace-dm?profileId=22222222-2222-4222-8222-222222222222",
+			to: "/o/acme/chats/space-grace-dm?profileId=22222222-2222-4222-8222-222222222222",
 		});
 	});
 
@@ -381,21 +337,10 @@ describe("DirectoryMembersOverview", () => {
 		expect(currentGroup?.computers).toHaveLength(1);
 		expect(currentMember?.computer).toMatchObject({
 			count: 1,
-			label: "Computer offline",
+			label: "Computer disconnected",
 			path: "/o/acme/computers/device-current",
 			state: "not_connected",
 		});
-	});
-
-	it("turns Invite Members into organization guidance in a personal workspace", async () => {
-		renderOverview({ isPersonal: true });
-
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Invite Members" })
-		);
-		expect(
-			screen.getByText("Create an organization to invite members")
-		).toBeTruthy();
 	});
 });
 

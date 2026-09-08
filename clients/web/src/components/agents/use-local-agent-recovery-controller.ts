@@ -9,6 +9,7 @@ import type {
 	GetAgentExecutionReadinessResponse,
 	LocalRuntimeComputer,
 	LocalRuntimesResponse,
+	PeopleComputerTarget,
 	PrepareSessionSnapshot,
 } from "@openmeld/schemas/types";
 import {
@@ -37,11 +38,10 @@ import {
 	forgetCurrentComputer,
 	forgetComputer as forgetLocalRuntime,
 } from "#/lib/connect/current-device-target";
-import { resolveCurrentLocalRuntime } from "#/lib/connect/current-local-runtime";
 import {
-	refreshCurrentLocalAgentCatalog,
-	setCurrentLocalAgentEnabled,
+	refreshPeopleComputerLocalAgentCatalog,
 	setLocalRuntimeDisplayName,
+	setPeopleComputerLocalAgentEnabled,
 } from "#/lib/connect/local-runtimes";
 import { readStartGatewayUrl } from "#/lib/connect/start-gateway-url";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
@@ -85,6 +85,7 @@ type GatewayLoadState =
 	  };
 
 type LocalAgentRecoveryControllerOptions = {
+	computerSelection?: "routing" | "setup";
 	agentExecutionReadinessScope?: AgentExecutionReadinessScope;
 	currentLocalRuntimeReplyReadinessRefetchIntervalMs?: false | number;
 	loadAgentExecutionReadiness?: boolean;
@@ -140,6 +141,10 @@ export function useLocalAgentRecoveryController(
 			syncMissingSelectionToStartFlow: false,
 		});
 	const { gatewayLoadState, loadGatewayUrl } = useGatewayLoadController();
+	const [computerChoice, setComputerChoice] = useState<{
+		storageScope: string;
+		target: PeopleComputerTarget;
+	} | null>(null);
 	const [sessionExpiredError, setSessionExpiredError] = useState<
 		unknown | null
 	>(null);
@@ -150,6 +155,12 @@ export function useLocalAgentRecoveryController(
 		localRuntimesQuery,
 		runtimeLane,
 	} = useLocalRuntimeQueries({
+		explicitTarget:
+			computerChoice?.storageScope === storageScope
+				? computerChoice.target
+				: undefined,
+		selection: options.computerSelection,
+		selectedHumanProfileId,
 		currentLocalRuntimeReplyReadinessRefetchIntervalMs:
 			options.currentLocalRuntimeReplyReadinessRefetchIntervalMs,
 		storageScope,
@@ -290,44 +301,32 @@ export function useLocalAgentRecoveryController(
 			prepareSessionQueryIsPending: prepareSessionQuery.isPending,
 		});
 
-	const currentComputer = useMemo(
-		() => resolveCurrentLocalRuntime(localRuntimesQuery.data),
-		[localRuntimesQuery.data]
-	);
-	const selectedTargetDevice = useMemo(() => {
-		const currentDeviceTarget = currentDeviceTargetQuery.data;
-		if (
-			currentDeviceTarget?.availability !== "resolved" ||
-			!localRuntimesQuery.data
-		) {
+	const currentComputer = useMemo(() => {
+		if (!(deviceId && localRuntimesQuery.data)) {
 			return null;
 		}
 
 		return (
 			localRuntimesQuery.data.localRuntimes.find(
-				(device) => device.deviceId === currentDeviceTarget.deviceId
+				(device) =>
+					device.deviceId === deviceId ||
+					device.legacyDeviceIds?.includes(deviceId)
 			) ?? null
 		);
-	}, [currentDeviceTargetQuery.data, localRuntimesQuery.data]);
+	}, [deviceId, localRuntimesQuery.data]);
+	const selectedTargetDevice = currentComputer;
 	const selectedExecutionTarget = useMemo(() => {
-		const currentDeviceTarget = currentDeviceTargetQuery.data;
-		if (
-			currentDeviceTarget?.availability !== "resolved" ||
-			selectedTargetDevice === null
-		) {
+		if (!(deviceId && runtimeLane) || selectedTargetDevice === null) {
 			return null;
 		}
 
-		const currentDeviceId = currentDeviceTarget.deviceId;
-		const currentRuntimeLane = currentDeviceTarget.runtimeLane;
 		return (
 			selectedTargetDevice.executionTargets.find(
 				(target) =>
-					target.deviceId === currentDeviceId &&
-					target.runtimeLane === currentRuntimeLane
+					target.deviceId === deviceId && target.runtimeLane === runtimeLane
 			) ?? null
 		);
-	}, [currentDeviceTargetQuery.data, selectedTargetDevice]);
+	}, [deviceId, runtimeLane, selectedTargetDevice]);
 	const shouldLoadProductionCliRelease =
 		selectedExecutionTarget?.userFacingCommand === "openmeld";
 	const openMeldCliLatestReleaseQuery = useQuery(
@@ -557,6 +556,8 @@ export function useLocalAgentRecoveryController(
 		currentDeviceTargetQuery,
 		currentLocalRuntimeReplyReadinessQuery,
 		deviceId,
+		selectComputer: (target: PeopleComputerTarget) =>
+			setComputerChoice({ storageScope, target }),
 		completedPrepareSessionLocalAgentCatalogEntries,
 		completedPrepareSessionSnapshot,
 		expectedServiceVersion,
@@ -873,11 +874,13 @@ function useLocalRuntimeActions(input: {
 		});
 	};
 
-	const setLocalAgentEnabled = async (target: {
-		agentId: string;
-		enabled: boolean;
-	}) => {
-		await setCurrentLocalAgentEnabled(target);
+	const setLocalAgentEnabled = async (
+		target: PeopleComputerTarget & {
+			agentId: string;
+			enabled: boolean;
+		}
+	) => {
+		await setPeopleComputerLocalAgentEnabled(target);
 		await Promise.all([
 			input.queryClient.invalidateQueries({
 				queryKey: startQueryKeys.localRuntimes(input.storageScope),
@@ -895,8 +898,8 @@ function useLocalRuntimeActions(input: {
 		]);
 	};
 
-	const refreshLocalAgentCatalog = async () => {
-		await refreshCurrentLocalAgentCatalog();
+	const refreshLocalAgentCatalog = async (target: PeopleComputerTarget) => {
+		await refreshPeopleComputerLocalAgentCatalog(target);
 		await Promise.all([
 			input.queryClient.invalidateQueries({
 				queryKey: startQueryKeys.localRuntimes(input.storageScope),

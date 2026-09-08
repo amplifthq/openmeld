@@ -86,7 +86,7 @@ describe("Space Agent stream frames", () => {
     ).toBe(false);
   });
 
-  it("keeps Connected App subjects out of legacy final-reply metadata", () => {
+  it("keeps Connected Plugin subjects out of legacy final-reply metadata", () => {
     const connectedAppActivity = {
       v: 1,
       steps: [

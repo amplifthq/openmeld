@@ -1,4 +1,7 @@
-import { isCenterAgentDirectMessageSpaceProjection } from "@openmeld/schemas";
+import {
+  accountSpaceIndexItemSchema,
+  isCenterAgentDirectMessageSpaceProjection,
+} from "@openmeld/schemas";
 import type {
   AccountSpaceIndexDeletedItem,
   AccountSpaceIndexItem,
@@ -11,6 +14,7 @@ import type {
   SpaceOrganizationVisibility,
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
+import { normalizeSpaceMemberNameSnapshot } from "../space/rules/member-name";
 
 const LEGACY_WELCOMING_SPACE_PURPOSE = "openmeld_welcoming_space";
 
@@ -91,6 +95,8 @@ export type ListAccountSpacesFromSpaceIndexInput = {
   includeDirectMessageProfileIds?: boolean;
   includeRecentlyDeletedItems?: boolean;
   includePurposes?: boolean;
+  includeMemberPreviews?: boolean;
+  includeMessagePreviews?: boolean;
 };
 
 export type SpaceIndexProjectionDriftIssueCode =
@@ -687,7 +693,12 @@ export async function listSpaceIndexTargetProfileNameSnapshots(input: {
       }>();
     for (const row of rows.results ?? []) {
       const profileId = normalizeOptionalText(row.profile_id);
-      const profileName = normalizeOptionalText(row.profile_name_snapshot);
+      const profileName = profileId
+        ? normalizeSpaceMemberNameSnapshot(
+            profileId,
+            normalizeOptionalText(row.profile_name_snapshot)
+          )
+        : null;
       const spaceId = normalizeOptionalText(row.space_id);
       if (profileId && profileName && spaceId) {
         snapshots.push({ profileId, profileName, spaceId });
@@ -720,6 +731,18 @@ export async function listAccountSpacesFromSpaceIndex(
   const sections = partitionAccountSpaceIndexItems(
     buildAccountSpaceItems(input, rows)
   );
+  if (input.includeMessagePreviews === true) {
+    await attachSpaceMessagePreviews(input.db, [
+      ...sections.pinnedItems,
+      ...sections.spaceItems,
+    ]);
+  }
+  if (input.includeMemberPreviews === true) {
+    await attachSpaceMemberPreviews(input.db, [
+      ...sections.pinnedItems,
+      ...sections.spaceItems,
+    ]);
+  }
   // Opt-in only: omit recentlyDeletedItems for callers that did not request it, so a
   // strict legacy client (CLI) receives the legacy {pinnedItems, spaceItems} shape
   // its own strictObject parse accepts. See the schema note. The query is skipped
@@ -728,6 +751,81 @@ export async function listAccountSpacesFromSpaceIndex(
     return sections;
   }
   return { ...sections, recentlyDeletedItems };
+}
+
+async function attachSpaceMessagePreviews(
+  db: D1Database,
+  items: AccountSpaceIndexItem[]
+): Promise<void> {
+  for (let offset = 0; offset < items.length; offset += 90) {
+    const chunk = items.slice(offset, offset + 90);
+    const byId = new Map(chunk.map((item) => [item.spaceId, item]));
+    const rows = await db
+      .prepare(
+        `SELECT space_id, message_preview_json AS preview_json FROM space_index_spaces WHERE status = 'active' AND message_preview_revision IS NOT NULL AND space_id IN (${chunk.map(() => "?").join(",")})`
+      )
+      .bind(...chunk.map((item) => item.spaceId))
+      .all<{ space_id: string; preview_json: string | null }>();
+    for (const row of rows.results) {
+      const item = byId.get(row.space_id);
+      if (item) {
+        item.messagePreview =
+          accountSpaceIndexItemSchema.shape.messagePreview.parse(
+            row.preview_json === null ? null : JSON.parse(row.preview_json)
+          );
+      }
+    }
+  }
+}
+
+// Only enrich the already authorized candidate list. Read at most three active
+// members per Space, in stable membership order; never fan out to Space DOs.
+async function attachSpaceMemberPreviews(
+  db: D1Database,
+  items: AccountSpaceIndexResponse["spaceItems"]
+): Promise<void> {
+  for (let offset = 0; offset < items.length; offset += 90) {
+    const chunk = items.slice(offset, offset + 90);
+    const rows = await db
+      .prepare(`
+      SELECT space_id, profile_id, profile_name_snapshot,
+        profile_kind_snapshot, controller_ref_snapshot
+      FROM (
+        SELECT space_id, profile_id, profile_name_snapshot,
+          profile_kind_snapshot, controller_ref_snapshot,
+          ROW_NUMBER() OVER (
+            PARTITION BY space_id ORDER BY added_at_ms, profile_id
+          ) AS member_rank
+        FROM space_index_memberships
+        WHERE status = 'active'
+          AND space_id IN (${chunk.map(() => "?").join(",")})
+      )
+      WHERE member_rank <= 3
+      ORDER BY space_id, member_rank
+    `)
+      .bind(...chunk.map((item) => item.spaceId))
+      .all<{
+        space_id: string;
+        profile_id: string;
+        profile_name_snapshot: string;
+        profile_kind_snapshot: "human" | "agent";
+        controller_ref_snapshot: string | null;
+      }>();
+    const byId = new Map(
+      chunk.map((item) => {
+        item.memberPreviews = [];
+        return [item.spaceId, item] as const;
+      })
+    );
+    for (const row of rows.results ?? []) {
+      byId.get(row.space_id)?.memberPreviews?.push({
+        profileId: row.profile_id,
+        profileName: row.profile_name_snapshot,
+        profileKind: row.profile_kind_snapshot,
+        agentControllerRef: row.controller_ref_snapshot,
+      });
+    }
+  }
 }
 
 export async function listOrganizationSpacesFromSpaceIndex(input: {
@@ -1157,6 +1255,54 @@ export async function readCenterAgentDirectMessageProjectionCandidateBySpaceId(i
     .first<SpaceIndexCenterAgentDirectMessageProjectionCandidateRow>();
 
   return row ? toCenterAgentDirectMessageProjectionCandidate(row) : null;
+}
+
+export async function listCenterAgentSessionIndexRows(input: {
+  db: D1Database;
+  organizationId: string;
+  pairKey: string;
+  limit: number;
+  before?: { createdAtMs: number; spaceId: string };
+}): Promise<
+  Array<{ spaceId: string; name: string | null; createdAtMs: number | null }>
+> {
+  const beforeClause = input.before
+    ? "AND (COALESCE(s.space_created_at_ms, 0) < ? OR (COALESCE(s.space_created_at_ms, 0) = ? AND s.space_id < ?))"
+    : "";
+  const rows = await input.db
+    .prepare(`
+    SELECT s.space_id, s.space_name, s.space_created_at_ms
+    FROM space_index_spaces s
+    WHERE s.organization_id = ? AND s.direct_message_pair_key = ?
+      AND s.space_purpose = ? AND s.direct_message_converted_at_ms IS NULL
+      AND s.status = 'active'
+      ${beforeClause}
+    ORDER BY COALESCE(s.space_created_at_ms, 0) DESC, s.space_id DESC
+    LIMIT ?
+  `)
+    .bind(
+      input.organizationId,
+      input.pairKey,
+      OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+      ...(input.before
+        ? [
+            input.before.createdAtMs,
+            input.before.createdAtMs,
+            input.before.spaceId,
+          ]
+        : []),
+      input.limit
+    )
+    .all<{
+      space_id: string;
+      space_name: string | null;
+      space_created_at_ms: number | null;
+    }>();
+  return rows.results.map((row) => ({
+    spaceId: row.space_id,
+    name: row.space_name,
+    createdAtMs: row.space_created_at_ms,
+  }));
 }
 
 export async function readSpaceIndexOrganizationJoinTarget(input: {

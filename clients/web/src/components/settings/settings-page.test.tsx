@@ -254,7 +254,9 @@ describe("Settings grouped navigation", () => {
 			})
 		);
 		expect(onSendFeedback).toHaveBeenCalledOnce();
-		expect(screen.queryByRole("link", { name: "Connected Apps" })).toBeNull();
+		expect(
+			screen.queryByRole("link", { name: "Connected Plugins" })
+		).toBeNull();
 		expect(
 			Array.from(
 				screen

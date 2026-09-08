@@ -892,7 +892,7 @@ describe("shared drizzle migration history integrity", () => {
     }
   });
 
-  it("stores one active organization join link while preserving revoked history", () => {
+  it("stores one active organization join link per mode while preserving revoked history", () => {
     const database = new DatabaseSync(":memory:");
     try {
       applyMigrationFiles(database, listSqlMigrationFiles());
@@ -906,6 +906,9 @@ describe("shared drizzle migration history integrity", () => {
         "created_by",
         "created_at",
         "revoked_at",
+        "space_id",
+        "mode",
+        "expires_at",
       ]);
       expect(listTableIndexes(database, "organization_join_links")).toEqual(
         expect.arrayContaining([
@@ -959,6 +962,29 @@ describe("shared drizzle migration history integrity", () => {
         `,
         "UNIQUE constraint failed: organization_join_links.organization_id"
       );
+
+      expect(
+        database
+          .prepare(
+            "SELECT mode, expires_at FROM organization_join_links WHERE id = 'join-link-1'"
+          )
+          .get()
+      ).toMatchObject({ mode: "request", expires_at: null });
+      database.exec(`
+        INSERT INTO organization_join_links (
+          id, organization_id, token, role, created_by, created_at, mode, expires_at
+        ) VALUES (
+          'direct-join-link', 'join-link-org', 'joinlink_direct', 'member',
+          'join-link-owner', 2, 'direct', 3000
+        );
+      `);
+      expect(
+        database
+          .prepare(
+            "SELECT COUNT(*) AS count FROM organization_join_links WHERE revoked_at IS NULL"
+          )
+          .get()
+      ).toMatchObject({ count: 2 });
 
       database.exec(`
         UPDATE organization_join_links
@@ -1023,6 +1049,7 @@ describe("shared drizzle migration history integrity", () => {
         "created_at_ms",
         "updated_at_ms",
         "archived_at_ms",
+        "creation_request_signature",
       ]);
       expect(listTableIndexes(database, "projects")).toEqual(
         expect.arrayContaining([
@@ -2347,6 +2374,9 @@ describe("shared drizzle migration history integrity", () => {
         "active_human_count",
         "active_agent_count",
         "direct_message_converted_at_ms",
+        "message_preview_json",
+        "message_preview_revision",
+        "message_preview_attempted_at_ms",
       ]);
       expect(
         listTableColumns(database, "organization_binding_authorizations")

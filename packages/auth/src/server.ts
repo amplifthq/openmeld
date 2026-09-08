@@ -28,6 +28,7 @@ export {
   AccountOrganizationMembershipRequiredError,
   createAccountOrganizationPreferenceService,
 } from "./account/account-organization-preference-service";
+export { createAccountSidebarRepository } from "./account/account-sidebar-repository";
 export type { AuthConfigEnv } from "./configs/auth.config";
 export { createAuthConfig } from "./configs/auth.config";
 export {

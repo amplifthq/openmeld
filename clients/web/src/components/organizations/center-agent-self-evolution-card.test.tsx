@@ -210,7 +210,7 @@ describe("CenterAgentSelfEvolutionCard", () => {
 		expect(createdBodies[0]?.cronExpression).toBe("*/5 * * * *");
 	});
 
-	it("does not recommend Self-Evolution until the Organization has a connected App or Slack workspace", async () => {
+	it("does not recommend Self-Evolution until the Organization has a connected Plugin or Slack workspace", async () => {
 		vi.stubGlobal(
 			"fetch",
 			createRouteFetch({
@@ -352,13 +352,13 @@ describe("CenterAgentSelfEvolutionCard", () => {
 	});
 
 	it.each([
-		"apps",
+		"plugins",
 		"channels",
 	] as const)("fails closed when the %s source check fails after another source succeeds", async (failedSource) => {
 		vi.stubGlobal(
 			"fetch",
 			createRouteFetch({
-				failAppConnections: failedSource === "apps",
+				failAppConnections: failedSource === "plugins",
 				failMessageChannels: failedSource === "channels",
 				onCreateRoutine: () => {
 					throw new Error("The Routine must not be created.");
@@ -380,14 +380,14 @@ describe("CenterAgentSelfEvolutionCard", () => {
 	});
 
 	it.each([
-		"apps",
+		"plugins",
 		"channels",
 	] as const)("fails closed when the %s response belongs to another Organization", async (mismatchedSource) => {
 		vi.stubGlobal(
 			"fetch",
 			createRouteFetch({
 				appOrganizationId:
-					mismatchedSource === "apps" ? "org-other" : ORGANIZATION_ID,
+					mismatchedSource === "plugins" ? "org-other" : ORGANIZATION_ID,
 				messageChannelOrganizationId:
 					mismatchedSource === "channels" ? "org-other" : ORGANIZATION_ID,
 				onCreateRoutine: () => {

@@ -1,12 +1,12 @@
 import {
-	buildOrganizationAppPath as buildSharedOrganizationAppPath,
-	buildOrganizationAppsPath as buildSharedOrganizationAppsPath,
+	buildOrganizationPluginPath as buildSharedOrganizationAppPath,
+	buildOrganizationPluginsPath as buildSharedOrganizationPluginsPath,
 	buildOrganizationRootPath as buildSharedOrganizationRootPath,
 	buildOrganizationSpacePath as buildSharedOrganizationSpacePath,
 } from "@openmeld/schemas";
 
-export const buildOrganizationAppPath = buildSharedOrganizationAppPath;
-export const buildOrganizationAppsPath = buildSharedOrganizationAppsPath;
+export const buildOrganizationPluginPath = buildSharedOrganizationAppPath;
+export const buildOrganizationPluginsPath = buildSharedOrganizationPluginsPath;
 export const buildOrganizationRootPath = buildSharedOrganizationRootPath;
 export const buildOrganizationSpacePath = buildSharedOrganizationSpacePath;
 
@@ -41,7 +41,7 @@ export function buildOrganizationSpacesPath(orgSlug: string): string {
 }
 
 export function buildOrganizationDirectMessagesPath(orgSlug: string): string {
-	return `${buildOrganizationRootPath(orgSlug)}/direct-messages`;
+	return `${buildOrganizationRootPath(orgSlug)}/chats`;
 }
 
 export function buildOrganizationDirectMessagePath(input: {
@@ -97,12 +97,34 @@ export function buildOrganizationPeoplePath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/people`;
 }
 
+export function buildOrganizationPersonPath(input: {
+	orgSlug: string;
+	personId: string;
+}): string {
+	return `${buildOrganizationPeoplePath(input.orgSlug)}/${encodePathSegment(input.personId)}`;
+}
+
+export function buildOrganizationPersonAgentsPath(input: {
+	orgSlug: string;
+	personId: string;
+}): string {
+	return `${buildOrganizationPersonPath(input)}/agents`;
+}
+
+export function buildOrganizationPersonAgentPath(input: {
+	orgSlug: string;
+	personId: string;
+	agentId: string;
+}): string {
+	return `${buildOrganizationPersonAgentsPath(input)}/${encodePathSegment(input.agentId)}`;
+}
+
 export function buildOrganizationAgentsPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/agents`;
 }
 
 export function buildOrganizationAgentCreationPath(orgSlug: string): string {
-	return `${buildOrganizationAgentsPath(orgSlug)}/new`;
+	return `${buildOrganizationRootPath(orgSlug)}/new-agent`;
 }
 
 export function buildOrganizationAgentCreationRequestsPath(input: {
@@ -110,10 +132,9 @@ export function buildOrganizationAgentCreationRequestsPath(input: {
 	requestId?: string | null;
 }): string {
 	const url = new URL(
-		buildOrganizationAgentsPath(input.orgSlug),
+		`${buildOrganizationPeoplePath(input.orgSlug)}/agent-requests`,
 		"http://localhost"
 	);
-	url.searchParams.set("view", "requests");
 	if (input.requestId) {
 		url.searchParams.set("requestId", input.requestId);
 	}
@@ -183,19 +204,6 @@ export function buildOrganizationCenterAgentRoutinesPath(
 	return `${buildOrganizationCenterAgentRootPath(orgSlug)}/routines`;
 }
 
-export function buildOrganizationCenterAgentTasksPath(orgSlug: string): string {
-	return `${buildOrganizationCenterAgentRootPath(orgSlug)}/tasks`;
-}
-
-export function buildOrganizationCenterAgentTaskPath(input: {
-	orgSlug: string;
-	taskId: string;
-}): string {
-	return `${buildOrganizationCenterAgentTasksPath(input.orgSlug)}/${encodePathSegment(
-		input.taskId
-	)}`;
-}
-
 export function buildOrganizationDocumentsPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/documents`;
 }
@@ -247,15 +255,29 @@ export function buildOrganizationCenterAgentRootPath(orgSlug: string): string {
 export function buildOrganizationCenterAgentChatPath(
 	orgSlug: string,
 	search?: {
+		draft?: "new";
+		group?: string;
+		session?: string;
 		focusSignalId?: string;
 		view?: "files" | "graph" | "messages";
 	}
 ): string {
-	const path = buildOrganizationDefaultPath(orgSlug);
-	if (!(search?.focusSignalId || search?.view)) {
+	const path = `${buildOrganizationRootPath(orgSlug)}/chats/center-agent`;
+	if (
+		!(search?.focusSignalId || search?.view || search?.session || search?.draft)
+	) {
 		return path;
 	}
 	const params = new URLSearchParams();
+	if (search.draft) {
+		params.set("draft", search.draft);
+	}
+	if (search.group) {
+		params.set("group", search.group);
+	}
+	if (search.session) {
+		params.set("session", search.session);
+	}
 	if (search.focusSignalId) {
 		params.set("focusSignalId", search.focusSignalId);
 	}
@@ -312,10 +334,10 @@ export function buildOrganizationNotificationsSettingsPath(
 	return `${buildOrganizationSettingsRootPath(orgSlug)}/notifications`;
 }
 
-export function buildOrganizationConnectedAppsSettingsPath(
+export function buildOrganizationConnectedPluginsSettingsPath(
 	orgSlug: string
 ): string {
-	return `${buildOrganizationSettingsRootPath(orgSlug)}/connected-apps`;
+	return buildOrganizationPluginsPath(orgSlug);
 }
 
 export function buildOrganizationComputersSettingsPath(
@@ -390,14 +412,12 @@ export function resolveOrganizationSwitchPath(input: {
 		switch (subsection) {
 			case "routines":
 				return buildOrganizationCenterAgentRoutinesPath(input.nextOrgSlug);
-			case "tasks":
-				return buildOrganizationCenterAgentTasksPath(input.nextOrgSlug);
 			case "skills":
 				return buildOrganizationSkillsPath(input.nextOrgSlug);
 			case "channels":
 				return buildOrganizationChannelsPath(input.nextOrgSlug);
-			case "apps":
-				return buildOrganizationAppsPath(input.nextOrgSlug);
+			case "plugins":
+				return buildOrganizationPluginsPath(input.nextOrgSlug);
 			case "memory":
 				return buildOrganizationMemoryPath(input.nextOrgSlug);
 			case "settings":
@@ -411,7 +431,10 @@ export function resolveOrganizationSwitchPath(input: {
 		return buildOrganizationSpacesPath(input.nextOrgSlug);
 	}
 
-	if (section === "direct-messages") {
+	if (section === "direct-messages" || section === "chats") {
+		if (section === "chats" && subsection === "center-agent") {
+			return buildOrganizationCenterAgentChatPath(input.nextOrgSlug);
+		}
 		return buildOrganizationDirectMessagesPath(input.nextOrgSlug);
 	}
 
@@ -504,7 +527,7 @@ function resolveSettingsSwitchPath(input: {
 		case "notifications":
 			return buildOrganizationNotificationsSettingsPath(input.nextOrgSlug);
 		case "connected-apps":
-			return buildOrganizationConnectedAppsSettingsPath(input.nextOrgSlug);
+			return buildOrganizationConnectedPluginsSettingsPath(input.nextOrgSlug);
 		case "general":
 			return buildOrganizationOrgSettingsPath(input.nextOrgSlug);
 		case "privacy":

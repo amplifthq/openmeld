@@ -76,12 +76,6 @@ export const sanitizeSignalTextPreview = (
 
 export const signalTextReplyToSchema = signalReplyToSchema;
 
-export const centerAgentTaskReferenceSchema = z.strictObject({
-  taskId: z.string().trim().min(1).max(256),
-});
-
-export const CENTER_AGENT_TASK_REFERENCE_MAX_COUNT = 20 as const;
-
 const signalTextContentSchema = z.preprocess(
   trimmedStringFromUnknown,
   z.string().max(MAX_TEXT_LENGTH)
@@ -110,11 +104,13 @@ const signalTextMetaSchema = z.object({
   transient: z.literal(true).optional(),
   agentActivity: legacySpaceAgentActivitySchema.optional(),
   agentWorkSummary: spaceAgentActivitySchema.optional(),
-  centerAgentTaskReferences: z
-    .array(centerAgentTaskReferenceSchema)
-    .max(CENTER_AGENT_TASK_REFERENCE_MAX_COUNT)
-    .optional(),
   clientMessageId: clientMessageIdSchema.optional(),
+  centerAgentExecutionInput: z
+    .strictObject({
+      dispatchId: z.string().min(1).max(200),
+      targetProfileId: openMeldRuntimeProfileIdSchema,
+    })
+    .optional(),
   // Confirms only this authored message, never a conversation read position.
   authorHasRead: z.literal(true).optional(),
   centerAgentInteractionSource: centerAgentInteractionSourceSchema.optional(),
@@ -235,7 +231,6 @@ const postedSignalTextMetaSchema = signalTextMetaSchema
   .omit({
     agentActivity: true,
     agentWorkSummary: true,
-    centerAgentTaskReferences: true,
     conversationCompaction: true,
   })
   .superRefine(validateAuthoredSignalTextMeta);

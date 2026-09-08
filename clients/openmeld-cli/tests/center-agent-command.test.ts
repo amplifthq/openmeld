@@ -133,12 +133,6 @@ describe("center-agent commands", () => {
           spaceId: CENTER_AGENT_DM_SPACE_ID,
         },
         status: "completed",
-        taskReferences: [
-          {
-            taskId: "task-release-readiness",
-            url: "https://openmeld.invalid/o/acme/center-agent/tasks/task-release-readiness",
-          },
-        ],
       });
     });
 
@@ -1016,7 +1010,7 @@ describe("center-agent commands", () => {
     );
   });
 
-  it("reads a bounded Center Agent context manifest for the detected Local Agent", async () => {
+  it("reads a selected Center Agent session separately from the Local Agent source session", async () => {
     const calls = mockCenterAgentFetch();
 
     await withTempHome(async () => {
@@ -1025,6 +1019,7 @@ describe("center-agent commands", () => {
 
       const result = await runCommandAndCapture(() =>
         runCenterAgentContext({
+          spaceId: "selected-center-session",
           limit: 10,
           maxContextTokens: 2048,
           view: "agent",
@@ -1071,6 +1066,7 @@ describe("center-agent commands", () => {
     expect(calls).toContainEqual(
       expect.objectContaining({
         body: {
+          spaceId: "selected-center-session",
           limit: 10,
           maxContextTokens: 2048,
           source: {

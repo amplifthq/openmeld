@@ -170,7 +170,7 @@ describe("computer summary status", () => {
 		});
 
 		expect(status).toEqual({
-			label: "OpenMeld Tools are ready",
+			label: "Connected",
 			reason: "ready",
 			showLabel: false,
 			tone: "ready",
@@ -200,7 +200,7 @@ describe("computer summary status", () => {
 		).toBe("device-1");
 	});
 
-	it("returns danger when an update is required", () => {
+	it("returns warning when an update is required", () => {
 		expect(
 			resolveCurrentLocalRuntimeComputerSummaryStatus({
 				readiness: buildReadiness({
@@ -209,7 +209,7 @@ describe("computer summary status", () => {
 					}),
 				}),
 			})
-		).toMatchObject({ label: "Update required", tone: "danger" });
+		).toMatchObject({ label: "Update required", tone: "warning" });
 	});
 
 	it("prioritizes the disconnected service outcome over a cached update", () => {
@@ -225,7 +225,7 @@ describe("computer summary status", () => {
 						connected: false,
 						executionCompatibility: null,
 						matchingCurrentRuntime: false,
-						reasonCodes: ["daemon.session.missing"],
+						reasonCodes: ["daemon.session.not_found"],
 						sessionDeviceId: null,
 						sessionLane: null,
 					},
@@ -233,9 +233,9 @@ describe("computer summary status", () => {
 				}),
 			})
 		).toMatchObject({
-			label: "Computer not connected",
+			label: "Disconnected",
 			reason: "service_not_connected",
-			tone: "danger",
+			tone: "muted",
 		});
 	});
 
@@ -598,10 +598,10 @@ describe("computer summary status", () => {
 	});
 
 	it.each([
-		["connected", "ready", "OpenMeld Tools are ready"],
-		["needs_attention", "warning", "OpenMeld Tools need an update"],
-		["not_connected", "muted", "Computer offline"],
-		["unknown", "muted", "OpenMeld Tools status unavailable"],
+		["connected", "ready", "Connected"],
+		["needs_attention", "warning", "Update required"],
+		["not_connected", "muted", "Disconnected"],
+		["unknown", "muted", "OpenMeld status unavailable"],
 	] as const)("maps an Organization computer's %s projection to %s", (serviceState, tone, label) => {
 		expect(
 			resolveOrganizationComputerSummaryStatus(serviceState)

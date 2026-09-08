@@ -411,8 +411,8 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     },
     {
       availabilityBadgeLabel: "Available",
-      availabilitySummary: "Center Agent can answer now.",
-      availabilityTooltip: "Center Agent available",
+      availabilitySummary: "This Agent can answer now.",
+      availabilityTooltip: "Agent available",
       patterns: ["=remote_agent.available"],
     },
     {
@@ -987,6 +987,21 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "prepare_setup",
     },
     {
+      body: "OpenMeld could not resume the Agent's conversation in time. Try waking the Agent again. If this keeps happening, open Diagnostics.",
+      kind: "system_retry",
+      patterns: ["=context.resume_timeout"],
+      recoveryTarget: null,
+    },
+    {
+      body: "OpenMeld could not read the latest Space messages to finish this reply. Open Diagnostics for details before trying again.",
+      kind: "system_retry",
+      patterns: [
+        "=dispatch.agent_reply_observation.unavailable",
+        "=dispatch.agent_reply_observation.no_progress",
+      ],
+      recoveryTarget: null,
+    },
+    {
       body: (targetName) =>
         `${targetName} stopped making progress on this Wake. Reconnect the computer before trying again.`,
       kind: "local_service",
@@ -1042,16 +1057,16 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "prepare_setup",
     },
     {
-      availabilityBadgeLabel: "Update",
+      availabilityBadgeLabel: "Needs attention",
       availabilitySummary:
-        "Update OpenMeld on your computer before this Agent can reply.",
-      availabilityTooltip: "Update OpenMeld on Computer",
+        "OpenMeld found a service problem on this computer. Open Computer details to check it.",
+      availabilityTooltip: "Check OpenMeld on Computer",
       body: (targetName) =>
-        `OpenMeld on ${formatPossessiveTargetName(targetName)} computer needs an update before it can receive local Wake work.`,
+        `OpenMeld found a service problem on ${formatPossessiveTargetName(targetName)} computer. Open Computer details to see what needs attention.`,
       kind: "local_service",
       patterns: ["=service.drifted"],
-      primaryActionId: "update_openmeld_service",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "check_status",
+      recoveryTarget: "computer",
     },
     {
       availabilityBadgeLabel: "Offline",

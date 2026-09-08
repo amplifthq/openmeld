@@ -7,7 +7,6 @@ import {
 } from "@openmeld/ui/components/avatar";
 import { DitherAvatarBackground } from "@openmeld/ui/components/dither-avatar-background";
 import { cn } from "@openmeld/ui/lib/utils";
-import { RobotIcon } from "@phosphor-icons/react";
 import type { ComponentProps } from "react";
 import { buildDitherProfileAvatarSeed } from "#/components/profiles/dither-profile-avatar-seed";
 
@@ -22,17 +21,10 @@ type CommonDitherProfileAvatarProps = Omit<
 	size: number;
 };
 
-type DitherProfileAvatarProps = CommonDitherProfileAvatarProps &
-	(
-		| {
-				avatarImageUrl?: string | null;
-				profileKind: "human";
-		  }
-		| {
-				avatarImageUrl?: never;
-				profileKind: "center-agent";
-		  }
-	);
+type DitherProfileAvatarProps = CommonDitherProfileAvatarProps & {
+	avatarImageUrl?: string | null;
+	profileKind: "human";
+};
 
 export function DitherProfileAvatar({
 	avatarImageUrl,
@@ -69,22 +61,12 @@ export function DitherProfileAvatar({
 					size={size}
 				/>
 				<span className="absolute inset-0 z-10 bg-black/15" />
-				{profileKind === "human" ? (
-					<span
-						className="relative z-20 font-semibold leading-none [text-shadow:0_1px_2px_rgb(0_0_0_/_45%)]"
-						style={{ fontSize: Math.max(9, Math.round(size * 0.38)) }}
-					>
-						{buildProfileInitials(profileName)}
-					</span>
-				) : (
-					<RobotIcon
-						aria-hidden="true"
-						className="relative z-20 [filter:drop-shadow(0_1px_1px_rgb(0_0_0_/_55%))]"
-						data-slot="center-agent-profile-avatar-glyph"
-						size={Math.max(10, Math.round(size * 0.55))}
-						weight="bold"
-					/>
-				)}
+				<span
+					className="relative z-20 font-semibold leading-none [text-shadow:0_1px_2px_rgb(0_0_0_/_45%)]"
+					style={{ fontSize: Math.max(9, Math.round(size * 0.38)) }}
+				>
+					{buildProfileInitials(profileName)}
+				</span>
 			</AvatarFallback>
 		</Avatar>
 	);

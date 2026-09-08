@@ -55,8 +55,7 @@ export const remoteAgentSlackAppMentionEventSchema = z
     thread_ts: nonEmptyStringSchema.optional(),
     event_ts: nonEmptyStringSchema.optional(),
   })
-  .catchall(z.unknown())
-  .superRefine(requireSlackMessageContent);
+  .catchall(z.unknown());
 
 export const remoteAgentSlackDirectMessageEventSchema = z
   .object({

@@ -41,7 +41,7 @@ const DEFAULT_GPT_55_MODEL_PATTERN = /GPT-5.5 \(default\)/;
 const AUTHORIZE_PATTERN = /authorize/i;
 const USE_CONTROLLER_DEFAULT_PATTERN = /use controller default/i;
 const CURRENT_CODEX_RADIO_PATTERN = /^Codex$/i;
-const CUSTOMIZE_AGENT_BUTTON_PATTERN = /^Customize this Agent/i;
+const CUSTOMIZE_AGENT_BUTTON_PATTERN = /^Advanced Agent Settings/i;
 const WAKE_ACCESS_PATTERN = /Wake access/i;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a personal profile to this account before bringing profiles into this Space.";
@@ -68,6 +68,7 @@ const createStartAgentProfileMock = vi.hoisted(() => vi.fn());
 const addMembersMock = vi.hoisted(() => vi.fn());
 const recordProfileSpaceHistoryMock = vi.hoisted(() => vi.fn());
 const refreshAllMock = vi.hoisted(() => vi.fn());
+const readPeopleComputerReplyReadinessMock = vi.hoisted(() => vi.fn());
 const checkRuntimeReadinessMock = vi.hoisted(() => vi.fn());
 const ensureRuntimeBindingMock = vi.hoisted(() => vi.fn());
 const setCurrentAgentProfileWorkspaceMock = vi.hoisted(() => vi.fn());
@@ -307,8 +308,20 @@ vi.mock("#/query/config/model-catalog", () => ({
 
 type DialogRecovery = ComponentProps<typeof CreateProfileDialog>["recovery"];
 
+vi.mock("#/lib/connect/local-runtimes", async (importOriginal) => ({
+	...(await importOriginal<typeof import("#/lib/connect/local-runtimes")>()),
+	readPeopleComputerReplyReadiness: (target: unknown) =>
+		readPeopleComputerReplyReadinessMock(target),
+}));
+
 function buildFakeRecovery(
-	catalogEntries: readonly unknown[] = [],
+	catalogEntries: readonly unknown[] = [
+		buildCatalogEntry({
+			agentId: "codex",
+			launchStatus: "ready",
+			selectable: true,
+		}),
+	],
 	input: {
 		agentControllerInterface?: unknown;
 		fetchStatus?: "fetching" | "idle" | "paused";
@@ -318,15 +331,14 @@ function buildFakeRecovery(
 	const fetchStatus = input.fetchStatus ?? "idle";
 	const setProfileWorkspaceSupported =
 		input.setProfileWorkspaceSupported ?? true;
-	return {
+	const recovery = {
 		deviceId: "device-123",
 		runtimeLane: "dev-local",
 		runContext: { localAgentIds: [] },
 		storageScope: "scope-test",
 		refreshAll: refreshAllMock,
-		// Exercise the real-app fallback: the current-device target is unresolved
-		// (selectedExecutionTarget + currentComputer null, no isCurrent computer),
-		// so the catalog must be found via the reported localRuntimes computer.
+		// The fixture selects an explicit device/lane below. Historical reports
+		// from an unselected computer must never supply the creation catalog.
 		selectedExecutionTarget: null,
 		currentComputer: null,
 		currentDeviceTargetQuery: { data: undefined, fetchStatus },
@@ -356,6 +368,7 @@ function buildFakeRecovery(
 													]
 												: [],
 											deviceId: "device-123",
+											openMeldServiceRuntimeId: "runtime-device-123",
 											isCurrent: false,
 											localAgentControl: {
 												refreshCatalog: true,
@@ -373,6 +386,32 @@ function buildFakeRecovery(
 			fetchStatus,
 		},
 	} as unknown as DialogRecovery;
+	const data = recovery.localRuntimesQuery.data;
+	if (!data) {
+		throw new Error("Expected the fixture Computer inventory.");
+	}
+	data.peopleComputers = {
+		generatedAt: new Date().toISOString(),
+		computers: data.localRuntimes.map((computer) => ({
+			...computer,
+			identityStatus: "unconfirmed",
+			connection: { status: "connected", sessions: [], reasonCodes: [] },
+		})) as typeof data.peopleComputers.computers,
+	};
+	recovery.currentComputer = data.localRuntimes[0] ?? null;
+	recovery.selectedExecutionTarget =
+		recovery.currentComputer?.executionTargets[0] ?? null;
+	recovery.currentLocalRuntimeReplyReadinessQuery.data = {
+		currentTarget: {
+			availability: "resolved",
+			deviceId: "device-123",
+			runtimeLane: "dev-local",
+		},
+		status: "ready",
+		nextAction: "none",
+		service: { connected: true, matchingCurrentRuntime: true },
+	} as NonNullable<typeof recovery.currentLocalRuntimeReplyReadinessQuery.data>;
+	return recovery;
 }
 
 function buildCrossComputerRecovery(): DialogRecovery {
@@ -573,6 +612,9 @@ async function fillProfileForm(input: { kind: RegExp; name: string }) {
 		expect(getProfileCapabilitiesMock).toHaveBeenCalled();
 	});
 	fireEvent.click(await screen.findByRole("tab", { name: input.kind }));
+	if (input.kind === AGENT_PROFILE_CARD_PATTERN) {
+		fireEvent.click(await screen.findByRole("radio", { name: "Codex" }));
+	}
 	fireEvent.change(screen.getByLabelText("Profile name"), {
 		target: { value: input.name },
 	});
@@ -593,6 +635,10 @@ async function selectAgentProfileKind() {
 
 describe("CreateProfileDialog", () => {
 	beforeEach(() => {
+		readPeopleComputerReplyReadinessMock.mockImplementation(async (target) => ({
+			...buildFakeRecovery().currentLocalRuntimeReplyReadinessQuery.data,
+			currentTarget: { availability: "resolved", ...target },
+		}));
 		window.localStorage.clear();
 		window.sessionStorage.clear();
 		getProfileCapabilitiesMock.mockReset().mockResolvedValue({
@@ -747,7 +793,10 @@ describe("CreateProfileDialog", () => {
 					name: CUSTOMIZE_AGENT_BUTTON_PATTERN,
 				})
 			).getAttribute("aria-expanded")
-		).toBe("true");
+		).toBe("false");
+		fireEvent.click(
+			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_PATTERN })
+		);
 		await waitFor(() => {
 			expect(
 				screen.getByRole("button", { name: "Edit Model" }).textContent
@@ -772,7 +821,6 @@ describe("CreateProfileDialog", () => {
 			screen.queryByRole("option", { name: USE_CONTROLLER_DEFAULT_PATTERN })
 		).toBeNull();
 		fireEvent.click(modelSelect);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
 		const nameInput = (await screen.findByLabelText(
 			"Agent name"
@@ -781,10 +829,6 @@ describe("CreateProfileDialog", () => {
 			expect(nameInput.value).toBe("Felix Codex GPT-5.5 High");
 		});
 		fireEvent.change(nameInput, { target: { value: "My persistent Agent" } });
-		fireEvent.click(screen.getByRole("button", { name: "Back" }));
-		await waitFor(() => {
-			expect(screen.queryByLabelText("Agent name")).toBeNull();
-		});
 		if (!screen.queryByRole("combobox", { name: "Model" })) {
 			fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
 		}
@@ -795,7 +839,6 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			await screen.findByRole("option", { name: "GPT-5.4 Mini" })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
 		await waitFor(() => {
 			expect(
@@ -894,6 +937,7 @@ describe("CreateProfileDialog", () => {
 	});
 
 	it("targets Session Resume at the selected Session Computer", async () => {
+		readPeopleComputerReplyReadinessMock.mockClear();
 		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
 		renderCreateProfileDialog({
 			agentActivitySessionPreset: {
@@ -933,6 +977,10 @@ describe("CreateProfileDialog", () => {
 					targetOwnerUserId: "user-123",
 				})
 			);
+		});
+		expect(readPeopleComputerReplyReadinessMock).toHaveBeenCalledWith({
+			deviceId: "device-session",
+			runtimeLane: "canary",
 		});
 		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
 	});
@@ -1057,6 +1105,7 @@ describe("CreateProfileDialog", () => {
 					openCodePermission: null,
 					reasoningLevel: "high",
 					targetComputerId: "device-ashley",
+					localAgentConnectionCandidateId: null,
 				},
 				idempotencyKey: expect.any(String),
 				nativeSessionId: null,
@@ -1391,8 +1440,8 @@ describe("CreateProfileDialog", () => {
 		expect(screen.getByText("Create an Agent on this account.")).toBeTruthy();
 		expect(screen.getByLabelText("Profile name")).toBeTruthy();
 		expect(
-			screen.getByRole("radio", { name: CHOOSE_LATER_PATTERN })
-		).toBeTruthy();
+			screen.queryByRole("radio", { name: CHOOSE_LATER_PATTERN })
+		).toBeNull();
 	});
 
 	it("blocks a model the selected Codex installation does not offer", async () => {
@@ -1432,7 +1481,9 @@ describe("CreateProfileDialog", () => {
 		}) as HTMLButtonElement;
 		expect(submitButton.disabled).toBe(true);
 		expect(
-			screen.getByText("Choose a model available in Codex on this computer.")
+			await screen.findByText(
+				"Choose a model available in Codex on this computer."
+			)
 		).toBeTruthy();
 		expect(
 			screen
@@ -1545,6 +1596,7 @@ describe("CreateProfileDialog", () => {
 		expect(screen.getByText("Choose a person or Agent Profile.")).toBeTruthy();
 
 		await selectAgentProfileKind();
+		fireEvent.click(await screen.findByRole("radio", { name: "Codex" }));
 
 		await waitFor(() => {
 			expect(submitButton.disabled).toBe(false);
@@ -1566,7 +1618,7 @@ describe("CreateProfileDialog", () => {
 		expect(screen.getByTestId("create-profile-actions")).not.toBeNull();
 	});
 
-	it("keeps the Working folder state and create action clear while Projects load", async () => {
+	it("keeps managed-folder creation available while Projects load", async () => {
 		listProjectsMock.mockImplementation(() => new Promise(() => undefined));
 		renderCreateProfileDialog({
 			recovery: buildFakeRecovery([
@@ -1593,10 +1645,19 @@ describe("CreateProfileDialog", () => {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
 		}) as HTMLButtonElement;
 		expect(actions.contains(submitButton)).toBe(true);
-		expect(submitButton.disabled).toBe(true);
+		await waitFor(() => expect(submitButton.disabled).toBe(false));
 		expect(
 			screen.getByText("Loading your Projects and saved working folder.")
 		).toBeTruthy();
+		await waitFor(() => expect(submitButton.disabled).toBe(false));
+		fireEvent.click(submitButton);
+		await waitFor(() =>
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({ defaultProjectId: null }),
+				})
+			)
+		);
 	});
 
 	it("creates a self-owned Agent through the shared creation request", async () => {
@@ -1610,9 +1671,9 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith({
 				configuration: expect.objectContaining({
-					agentControllerRef: null,
+					agentControllerRef: "builtin:codex",
 					defaultProjectId: null,
-					targetComputerId: null,
+					targetComputerId: "device-123",
 				}),
 				idempotencyKey: expect.any(String),
 				nativeSessionId: null,
@@ -1648,6 +1709,7 @@ describe("CreateProfileDialog", () => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
 		await selectAgentProfileKind();
+		fireEvent.click(await screen.findByRole("radio", { name: "Codex" }));
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1723,6 +1785,13 @@ describe("CreateProfileDialog", () => {
 		const secondIdempotencyKey =
 			createAgentProfileCreationRequestMock.mock.calls[1]?.[0].idempotencyKey;
 		expect(firstIdempotencyKey).toEqual(expect.any(String));
+		expect({
+			...createAgentProfileCreationRequestMock.mock.calls[1]?.[0],
+			idempotencyKey: null,
+		}).toEqual({
+			...createAgentProfileCreationRequestMock.mock.calls[0]?.[0],
+			idempotencyKey: null,
+		});
 		expect(secondIdempotencyKey).toBe(firstIdempotencyKey);
 	});
 
@@ -2043,62 +2112,33 @@ describe("CreateProfileDialog", () => {
 		expect(screen.queryByText("Adel")).toBeNull();
 	});
 
-	it("lets Core prepare the managed workspace for an unbound Agent", async () => {
-		renderCreateProfileDialog({
-			recovery: buildFakeRecovery([
-				buildCatalogEntry({
-					agentId: "grok-build",
-					launchStatus: "ready",
-					selectable: true,
-				}),
-			]),
-		});
-
-		await fillProfileForm({
-			kind: AGENT_PROFILE_CARD_PATTERN,
-			name: "Future Grok Agent",
-		});
-
-		await waitFor(() => {
-			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
-				expect.objectContaining({
-					configuration: expect.objectContaining({
-						agentControllerRef: null,
-						targetComputerId: null,
-					}),
-				})
-			);
-		});
-		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
-		expect(setCurrentAgentProfileWorkspaceMock).not.toHaveBeenCalled();
-	});
-
-	it("creates an unbound Agent without contacting a historical Service for workspace setup", async () => {
+	it("blocks an unbound Agent even when the form is submitted directly", async () => {
 		const { onOpenChange } = renderCreateProfileDialog({
-			recovery: buildFakeRecovery(
-				[
-					buildCatalogEntry({
-						agentId: "grok-build",
-						launchStatus: "ready",
-						selectable: true,
-					}),
-				],
-				{ setProfileWorkspaceSupported: false }
-			),
+			recovery: buildFakeRecovery([]),
 		});
-
-		await fillProfileForm({
-			kind: AGENT_PROFILE_CARD_PATTERN,
-			name: "Manual Teammate",
+		await selectAgentProfileKind();
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Unconnected Agent" },
 		});
-
-		await waitFor(() => {
-			expect(createAgentProfileCreationRequestMock).toHaveBeenCalled();
-			expect(onOpenChange).toHaveBeenCalledWith(false);
-		});
+		const submit = screen.getByRole("button", {
+			name: CREATE_PROFILE_BUTTON_PATTERN,
+		}) as HTMLButtonElement;
+		expect(submit.disabled).toBe(true);
+		const form = submit.closest("form");
+		expect(form).not.toBeNull();
+		if (form) {
+			fireEvent.submit(form);
+		}
+		await waitFor(() =>
+			expect(
+				screen.getByText(
+					"Choose a local agent to continue. Connect a computer if none are available."
+				)
+			).toBeTruthy()
+		);
+		expect(createAgentProfileCreationRequestMock).not.toHaveBeenCalled();
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
-		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
-		expect(setCurrentAgentProfileWorkspaceMock).not.toHaveBeenCalled();
+		expect(onOpenChange).not.toHaveBeenCalledWith(false);
 	});
 
 	it("shows local agent loading state before treating the catalog as empty", async () => {
@@ -2229,6 +2269,15 @@ describe("CreateProfileDialog", () => {
 		expect(screen.queryByText(AUTHORIZE_PATTERN)).toBeNull();
 		expect(screen.queryByText(WAKE_ACCESS_PATTERN)).toBeNull();
 
+		await waitFor(() => {
+			expect(
+				(
+					screen.getByRole("button", {
+						name: CREATE_PROFILE_BUTTON_PATTERN,
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(false);
+		});
 		fireEvent.click(
 			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
 		);
@@ -2245,7 +2294,19 @@ describe("CreateProfileDialog", () => {
 		).toMatchObject({ authorizeForOrganization: true });
 	});
 
-	it("uses the managed Project folder when a bound agent is created without a custom folder", async () => {
+	it("creates with an OpenMeld-chosen folder when remembered Project connectivity is unconfirmed", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		getAgentProfileCreationDefaultsMock.mockResolvedValue({
+			agentControllerCollaborationMode: null,
+			agentControllerPermissionMode: null,
+			agentControllerRef: "builtin:codex",
+			defaultProjectId: "project-1",
+			modelId: null,
+			openCodePermission: null,
+			organizationId: "organization-123",
+			reasoningLevel: null,
+			updatedAt: "2026-09-07T00:00:00.000Z",
+		});
 		renderCreateProfileDialog({
 			recovery: buildFakeRecovery([
 				buildCatalogEntry({
@@ -2271,6 +2332,15 @@ describe("CreateProfileDialog", () => {
 		});
 		expect(screen.queryByLabelText("Custom working folder path")).toBeNull();
 
+		await waitFor(() => {
+			expect(
+				(
+					screen.getByRole("button", {
+						name: CREATE_PROFILE_BUTTON_PATTERN,
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(false);
+		});
 		fireEvent.click(
 			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
 		);
@@ -2461,7 +2531,7 @@ describe("CreateProfileDialog", () => {
 				agentControllerCollaborationMode:
 					agentControllerRef === "builtin:codex" ? "codex:plan" : null,
 				agentControllerPermissionMode:
-					agentControllerRef === "builtin:codex" ? "codex:approveForMe" : null,
+					agentControllerRef === "builtin:codex" ? "codex:fullAccess" : null,
 				agentControllerRef,
 				defaultProjectId:
 					agentControllerRef === "builtin:codex" ? "project-1" : null,
@@ -2502,7 +2572,7 @@ describe("CreateProfileDialog", () => {
 			expect(
 				screen.getByRole("combobox", { name: "Codex permissions mode" })
 					.textContent
-			).toContain("Approve for me");
+			).toContain("Full access");
 			expect(
 				screen.getByRole("combobox", { name: "Model" }).textContent
 			).toContain("GPT-5.4 Mini");
@@ -2510,9 +2580,29 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", { name: "Reasoning effort" }).textContent
 			).toContain("High");
 			expect(
-				screen.getByRole("combobox", { name: "Project" }).textContent
-			).toContain("OpenMeld");
+				screen.getByRole("combobox", { name: "Folder source" }).textContent
+			).toContain("Let OpenMeld choose");
 		});
+
+		expect(
+			(
+				screen.getByRole("checkbox", {
+					name: "I understand this permissions mode can run with dangerous full access.",
+				}) as HTMLInputElement
+			).checked
+		).toBe(true);
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Remembered Agent" },
+		});
+		await waitFor(() =>
+			expect(
+				(
+					screen.getByRole("button", {
+						name: CREATE_PROFILE_BUTTON_PATTERN,
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(false)
+		);
 
 		fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }));
 		await waitFor(() => {
@@ -2528,6 +2618,124 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", { name: "Folder source" }).textContent
 			).toContain("Let OpenMeld choose");
 		});
+	});
+
+	it.each([
+		"codex:fullAccess",
+		"codex:approveForMe",
+	] as const)("restores draft consent only when it matches saved %s", async (savedMode) => {
+		window.localStorage.setItem(
+			"openmeld:agent-profile-creation-journey:organization-123:user-123",
+			JSON.stringify({
+				version: 1,
+				agentId: "codex",
+				agentControllerCollaborationMode: null,
+				agentControllerPermissionMode: "codex:fullAccess",
+				modelId: "",
+				openCodePermission: null,
+				reasoningLevel: "",
+				selectedProjectId: "",
+			})
+		);
+		getAgentProfileCreationDefaultsMock.mockImplementation(
+			({ agentControllerRef, organizationId }) => ({
+				agentControllerRef,
+				organizationId,
+				userId: "user-123",
+				agentControllerPermissionMode: savedMode,
+				agentControllerCollaborationMode: null,
+				modelId: null,
+				reasoningLevel: null,
+				openCodePermission: null,
+				defaultProjectId: null,
+				updatedAt: "2026-09-07T00:00:00.000Z",
+			})
+		);
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+		await waitFor(() =>
+			expect(getAgentProfileCreationDefaultsMock).toHaveBeenCalled()
+		);
+		const create = (await screen.findByRole("button", {
+			name: "Create Agent",
+		})) as HTMLButtonElement;
+		await waitFor(() =>
+			expect(create.disabled).toBe(savedMode !== "codex:fullAccess")
+		);
+		if (savedMode !== "codex:fullAccess") {
+			fireEvent.click(
+				screen.getByRole("button", { name: "Review permissions" })
+			);
+			fireEvent.click(
+				await screen.findByRole("checkbox", {
+					name: "I understand this permissions mode can run with dangerous full access.",
+				})
+			);
+			await waitFor(() =>
+				expect(
+					(
+						screen.getByRole("button", {
+							name: "Create Agent",
+						}) as HTMLButtonElement
+					).disabled
+				).toBe(false)
+			);
+		}
+	});
+
+	it("keeps a restored Agent directly creatable without restoring a disconnected Project", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		window.localStorage.setItem(
+			"openmeld:agent-profile-creation-journey:organization-123:user-123",
+			JSON.stringify({
+				version: 1,
+				agentId: "codex",
+				agentControllerCollaborationMode: null,
+				agentControllerPermissionMode: "codex:askForApproval",
+				modelId: "",
+				openCodePermission: null,
+				reasoningLevel: "",
+				selectedProjectId: "project-1",
+			})
+		);
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+		await waitFor(() =>
+			expect(getAgentProfileCreationDefaultsMock).toHaveBeenCalled()
+		);
+		expect(
+			screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
+		).toBeNull();
+		const submitButton = screen.getByRole("button", {
+			name: "Create Agent",
+		}) as HTMLButtonElement;
+		await waitFor(() => expect(submitButton.disabled).toBe(false));
+		fireEvent.click(submitButton);
+		await waitFor(() =>
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						agentControllerRef: "builtin:codex",
+						defaultProjectId: null,
+						agentControllerPermissionMode: "codex:askForApproval",
+					}),
+				})
+			)
+		);
 	});
 
 	it("does not render Agent Controller Permission Mode for unsupported local controllers", async () => {
@@ -2558,6 +2766,15 @@ describe("CreateProfileDialog", () => {
 			).toBeNull();
 		});
 
+		await waitFor(() => {
+			expect(
+				(
+					screen.getByRole("button", {
+						name: CREATE_PROFILE_BUTTON_PATTERN,
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(false);
+		});
 		fireEvent.click(
 			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
 		);
@@ -2742,6 +2959,8 @@ describe("CreateProfileDialog", () => {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
 		}) as HTMLButtonElement;
 		expect(submitButton.disabled).toBe(true);
+		fireEvent.submit(screen.getByTestId("create-profile-panel"));
+		expect(createAgentProfileCreationRequestMock).not.toHaveBeenCalled();
 		fireEvent.click(
 			screen.getByLabelText(
 				"I understand this permissions mode can run with dangerous full access."

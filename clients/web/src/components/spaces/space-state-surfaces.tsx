@@ -11,31 +11,30 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import type { ReactNode } from "react";
 import { SessionExpiredCard } from "#/components/auth/session-expired-card";
 import { toSessionExpiredState } from "#/lib/session-expired";
+import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
 
 export function SpaceLandingLoadingShell(input: { composer?: ReactNode } = {}) {
 	return (
 		<section className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
 			<header className="flex h-[var(--space-conversation-header-height)] shrink-0 items-center border-border border-b px-4">
 				<div className="flex flex-col gap-2">
-					<Skeleton className="h-6 w-72" />
-					<Skeleton className="h-4 w-64" />
+					<Skeleton className="h-6 w-72 max-w-full motion-reduce:animate-none" />
+					<Skeleton className="h-4 w-64 max-w-full motion-reduce:animate-none" />
 				</div>
 			</header>
-			<div className="min-h-0 flex-1 overflow-hidden p-4">
-				<div className="flex h-full flex-col gap-3">
-					{Array.from({ length: 5 }).map((_, index) => (
-						<Skeleton
-							className="h-20 w-full"
-							key={`space-loading-message-${String(index)}`}
-						/>
-					))}
+			<div className="min-h-0 flex-1 overflow-hidden">
+				<div className="w-full py-5" data-space-conversation-content-width="">
+					<SpaceConversationSkeleton />
 				</div>
 			</div>
 			<footer className="shrink-0 border-border border-t p-4">
-				{input.composer ?? <Skeleton className="h-28 w-full" />}
+				{input.composer ?? (
+					<Skeleton className="h-28 w-full motion-reduce:animate-none" />
+				)}
 			</footer>
 		</section>
 	);
@@ -51,75 +50,80 @@ export function SpacePasswordRecoverySurface(input: {
 	onRefresh: () => Promise<void>;
 }) {
 	return (
-		<section className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
-			<header className="flex shrink-0 flex-col gap-1 border-border border-b pb-4">
-				<h1 className="font-medium text-2xl">Open This Protected Space</h1>
-				<p className="text-muted-foreground text-sm">
-					Enter the current password to continue.
-				</p>
-			</header>
+		<ScrollArea
+			className="h-full min-h-0 w-full min-w-0 flex-1"
+			orientation="vertical"
+		>
+			<section className="flex flex-col p-4 sm:p-6">
+				<header className="flex shrink-0 flex-col gap-1 border-border border-b pb-4">
+					<h1 className="font-medium text-2xl">Open This Protected Space</h1>
+					<p className="text-muted-foreground text-sm">
+						Enter the current password to continue.
+					</p>
+				</header>
 
-			<div className="flex min-h-[28rem] flex-1 items-center justify-center py-8 sm:py-10">
-				<Card className="w-full max-w-xl border-border bg-card">
-					<CardHeader className="gap-3 border-border border-b px-6 pb-5">
-						<CardTitle className="text-2xl">Space Password</CardTitle>
-						<CardDescription className="max-w-none text-sm/6">
-							This space is protected. Enter the password for{" "}
-							<span className="break-all font-mono text-foreground">
-								{input.spaceId}
-							</span>
-							.
-						</CardDescription>
-					</CardHeader>
-					<CardContent className="flex flex-col gap-5 px-6 pt-5">
-						<div className="grid gap-2.5">
-							<Label className="text-sm" htmlFor="space-password">
-								Password
-							</Label>
-							<Input
-								autoComplete="current-password"
-								className="h-11 px-3 text-sm md:text-sm"
-								disabled={input.isSubmitting}
-								id="space-password"
-								name="space-password"
-								onChange={(event) => {
-									input.onPasswordChange(event.target.value);
-								}}
-								placeholder="Enter the current space password…"
-								type="password"
-								value={input.password}
-							/>
-						</div>
-						{input.inlineErrorMessage ? (
-							<div className="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
-								{input.inlineErrorMessage}
+				<div className="flex min-h-[28rem] flex-1 items-center justify-center py-8 sm:py-10">
+					<Card className="w-full max-w-xl border-border bg-card">
+						<CardHeader className="gap-3 border-border border-b px-6 pb-5">
+							<CardTitle className="text-2xl">Space Password</CardTitle>
+							<CardDescription className="max-w-none text-sm/6">
+								This space is protected. Enter the password for{" "}
+								<span className="break-all font-mono text-foreground">
+									{input.spaceId}
+								</span>
+								.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="flex flex-col gap-5 px-6 pt-5">
+							<div className="grid gap-2.5">
+								<Label className="text-sm" htmlFor="space-password">
+									Password
+								</Label>
+								<Input
+									autoComplete="current-password"
+									className="h-11 px-3 text-sm md:text-sm"
+									disabled={input.isSubmitting}
+									id="space-password"
+									name="space-password"
+									onChange={(event) => {
+										input.onPasswordChange(event.target.value);
+									}}
+									placeholder="Enter the current space password…"
+									type="password"
+									value={input.password}
+								/>
 							</div>
-						) : null}
-						<div className="flex flex-wrap gap-2.5">
-							<Button
-								className="h-10 px-4 text-sm"
-								disabled={
-									input.isSubmitting ||
-									normalizeSpacePasswordText(input.password).length === 0
-								}
-								onClick={input.onSubmit}
-								type="button"
-							>
-								{input.isSubmitting ? "Opening…" : "Open Space"}
-							</Button>
-							<Button
-								className="h-10 px-4 text-sm"
-								onClick={input.onRefresh}
-								type="button"
-								variant="outline"
-							>
-								Refresh
-							</Button>
-						</div>
-					</CardContent>
-				</Card>
-			</div>
-		</section>
+							{input.inlineErrorMessage ? (
+								<div className="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
+									{input.inlineErrorMessage}
+								</div>
+							) : null}
+							<div className="flex flex-wrap gap-2.5">
+								<Button
+									className="h-10 px-4 text-sm"
+									disabled={
+										input.isSubmitting ||
+										normalizeSpacePasswordText(input.password).length === 0
+									}
+									onClick={input.onSubmit}
+									type="button"
+								>
+									{input.isSubmitting ? "Opening…" : "Open Space"}
+								</Button>
+								<Button
+									className="h-10 px-4 text-sm"
+									onClick={input.onRefresh}
+									type="button"
+									variant="outline"
+								>
+									Refresh
+								</Button>
+							</div>
+						</CardContent>
+					</Card>
+				</div>
+			</section>
+		</ScrollArea>
 	);
 }
 
@@ -152,49 +156,56 @@ export function SpaceLandingFailureSurface(input: {
 		: input.onRetry;
 
 	return (
-		<section className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-y-auto p-4">
-			<header className="flex shrink-0 flex-col gap-1 border-border border-b pb-4">
-				<h1 className="font-medium text-2xl">{title}</h1>
-				<p className="text-muted-foreground text-sm">
-					{description ?? (
-						<>
-							OpenMeld couldn&apos;t load the current space state for{" "}
-							<span className="font-mono text-foreground">{input.spaceId}</span>
-							.
-						</>
-					)}
-				</p>
-			</header>
+		<ScrollArea
+			className="h-full min-h-0 w-full min-w-0 flex-1"
+			orientation="vertical"
+		>
+			<section className="flex flex-col p-4">
+				<header className="flex shrink-0 flex-col gap-1 border-border border-b pb-4">
+					<h1 className="font-medium text-2xl">{title}</h1>
+					<p className="text-muted-foreground text-sm">
+						{description ?? (
+							<>
+								OpenMeld couldn&apos;t load the current space state for{" "}
+								<span className="font-mono text-foreground">
+									{input.spaceId}
+								</span>
+								.
+							</>
+						)}
+					</p>
+				</header>
 
-			<div className="flex min-h-0 flex-1 items-center justify-center py-8">
-				{sessionExpiredState ? (
-					<SessionExpiredCard
-						className="w-full max-w-md"
-						requestId={input.error?.requestId}
-						state={sessionExpiredState}
-					/>
-				) : (
-					<Card className="w-full max-w-md border-destructive bg-destructive/10">
-						<CardHeader className="gap-2 border-border border-b pb-4">
-							<CardTitle className="text-xl">{cardTitle}</CardTitle>
-							<CardDescription className="max-w-xl">
-								{cardDescription}
-							</CardDescription>
-						</CardHeader>
-						<CardContent className="flex flex-col gap-4 pt-4">
-							{input.error?.requestId ? (
-								<p className="text-muted-foreground text-xs">
-									Request ID: {input.error.requestId}
-								</p>
-							) : null}
-							<Button onClick={onRecover} size="sm" type="button">
-								{buttonLabel}
-							</Button>
-						</CardContent>
-					</Card>
-				)}
-			</div>
-		</section>
+				<div className="flex min-h-0 flex-1 items-center justify-center py-8">
+					{sessionExpiredState ? (
+						<SessionExpiredCard
+							className="w-full max-w-md"
+							requestId={input.error?.requestId}
+							state={sessionExpiredState}
+						/>
+					) : (
+						<Card className="w-full max-w-md border-destructive bg-destructive/10">
+							<CardHeader className="gap-2 border-border border-b pb-4">
+								<CardTitle className="text-xl">{cardTitle}</CardTitle>
+								<CardDescription className="max-w-xl">
+									{cardDescription}
+								</CardDescription>
+							</CardHeader>
+							<CardContent className="flex flex-col gap-4 pt-4">
+								{input.error?.requestId ? (
+									<p className="text-muted-foreground text-xs">
+										Request ID: {input.error.requestId}
+									</p>
+								) : null}
+								<Button onClick={onRecover} size="sm" type="button">
+									{buttonLabel}
+								</Button>
+							</CardContent>
+						</Card>
+					)}
+				</div>
+			</section>
+		</ScrollArea>
 	);
 }
 

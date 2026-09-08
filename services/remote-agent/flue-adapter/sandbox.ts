@@ -12,7 +12,7 @@ const LEADING_SLASH_PATTERN = /^\//u;
 
 export function disabledNoNetworkSandbox(): SandboxFactory {
   return {
-    createSessionEnv(): Promise<SessionEnv> {
+    createSandbox(): Promise<SessionEnv> {
       return Promise.resolve(
         createSandboxSessionEnv(new DisabledNoNetworkSandboxApi(), "/")
       );

@@ -94,13 +94,14 @@ describe("@openmeld/api-client", () => {
         gatewayHost: "openmeld.invalid",
         includeDirectMessageProfileIds: true,
         includePurposes: true,
+        includeMemberPreviews: true,
         includeRecentlyDeletedItems: true,
         limit: 20,
         scope: "account",
         selectedProfileId: "profile-123",
       })
     ).toBe(
-      "/v1/account/spaces?gatewayHost=openmeld.invalid&scope=account&selectedProfileId=profile-123&limit=20&includeRecentlyDeletedItems=true&includeDirectMessageProfileIds=true&includePurposes=true"
+      "/v1/account/spaces?gatewayHost=openmeld.invalid&scope=account&selectedProfileId=profile-123&limit=20&includeRecentlyDeletedItems=true&includeDirectMessageProfileIds=true&includePurposes=true&includeMemberPreviews=true"
     );
   });
 

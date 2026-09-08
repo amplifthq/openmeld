@@ -7,10 +7,10 @@ import type {
   LarkPlatformWebhookVerificationResponse,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
+import type { LarkPlatformWebhookCredentials } from "../infrastructure/d1/lark-platform-channel-connection-repo";
 import {
   bindRemoteAgentLarkPlatformConnectionTenant,
-  readRemoteAgentLarkPlatformChannelConnection,
-  readRemoteAgentLarkPlatformChannelCredentials,
+  readRemoteAgentLarkPlatformWebhookContext,
 } from "../infrastructure/d1/lark-platform-channel-connection-repo";
 import { recordRemoteAgentLarkPlatformWebhookReachability } from "../infrastructure/d1/lark-platform-registration-attempt-repo";
 import {
@@ -38,6 +38,7 @@ export async function verifyLarkPlatformWebhook(input: {
     | "LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY"
   >;
   input: LarkPlatformWebhookVerificationInput;
+  waitUntil: (promise: Promise<unknown>) => void;
 }): Promise<LarkPlatformWebhookVerificationResponse> {
   const request = larkPlatformWebhookVerificationInputSchema.safeParse(
     input.input
@@ -56,10 +57,11 @@ export async function verifyLarkPlatformWebhook(input: {
       status: "rejected",
     });
   }
-  const connection = await readRemoteAgentLarkPlatformChannelConnection({
+  const context = await readRemoteAgentLarkPlatformWebhookContext({
     connectionId: request.data.connectionId,
     db: input.db,
   });
+  const connection = context?.connection;
   if (
     !connection ||
     connection.provider !== request.data.provider ||
@@ -87,7 +89,7 @@ export async function verifyLarkPlatformWebhook(input: {
   const secrets = await readConnectionWebhookSecrets({
     connectionId: connection.connectionId,
     cryptoKey: input.env.LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY,
-    db: input.db,
+    credentials: context?.credentials ?? null,
   });
   if (secrets.status === "rejected") {
     return response(secrets);
@@ -125,21 +127,27 @@ export async function verifyLarkPlatformWebhook(input: {
         status: "rejected",
       });
     }
-    const verifiedConnection =
-      await recordRemoteAgentLarkPlatformWebhookReachability({
+    // Feishu requires the authenticated challenge within one second. Keep the
+    // durable, credential-fenced readiness write off that response deadline.
+    input.waitUntil(
+      recordRemoteAgentLarkPlatformWebhookReachability({
         connectionId: connection.connectionId,
+        encryptedVerificationToken: secrets.encryptedVerificationToken,
         db: input.db,
         organizationId: connection.organizationId,
         provider: connection.provider,
         surface: request.data.surface,
         verifiedAtMs: request.data.receivedAtMs,
-      });
-    return verifiedConnection
-      ? response({ challenge, status: "challenge" })
-      : response({
-          reasonCode: "message_channel.connection_unavailable",
-          status: "rejected",
+      }).catch((error) => {
+        console.error("[core.message_channel.webhook_reachability_failed]", {
+          connectionId: connection.connectionId,
+          gatewayRequestId: request.data.gatewayRequestId,
+          surface: request.data.surface,
+          error: toErrorMessage(error),
         });
+      })
+    );
+    return response({ challenge, status: "challenge" });
   }
   if (connection.status !== "connected") {
     return response({
@@ -186,20 +194,18 @@ export async function verifyLarkPlatformWebhook(input: {
 async function readConnectionWebhookSecrets(input: {
   connectionId: string;
   cryptoKey: string | undefined;
-  db: D1Database;
+  credentials: LarkPlatformWebhookCredentials | null;
 }): Promise<
   | {
       eventEncryptKey: string | null;
+      encryptedVerificationToken: string;
       status: "ready";
       verificationToken: string;
     }
   | { reasonCode: string; status: "rejected" }
 > {
   const cryptoKey = input.cryptoKey?.trim();
-  const credentials = await readRemoteAgentLarkPlatformChannelCredentials({
-    connectionId: input.connectionId,
-    db: input.db,
-  });
+  const credentials = input.credentials;
   if (
     !(cryptoKey && credentials) ||
     credentials.credentialFormatVersion !==
@@ -226,7 +232,12 @@ async function readConnectionWebhookSecrets(input: {
           })
         : Promise.resolve(null),
     ]);
-    return { eventEncryptKey, status: "ready", verificationToken };
+    return {
+      eventEncryptKey,
+      encryptedVerificationToken: credentials.encryptedVerificationToken,
+      status: "ready",
+      verificationToken,
+    };
   } catch (error) {
     console.error(
       "[core.message_channel.webhook_credential_decryption_failed]",
@@ -266,12 +277,20 @@ async function verifyAndDecryptPayload(input: {
       status: "rejected",
     };
   }
-  const signatureValid = await verifyWebhookSignature({
-    eventEncryptKey: input.eventEncryptKey,
-    headers: input.headers,
-    rawBody: input.rawBody,
-  });
-  if (!signatureValid) {
+  const signatureHeadersAbsent =
+    input.headers.nonce === null &&
+    input.headers.signature === null &&
+    input.headers.timestamp === null;
+  if (
+    !(
+      signatureHeadersAbsent ||
+      (await verifyWebhookSignature({
+        eventEncryptKey: input.eventEncryptKey,
+        headers: input.headers,
+        rawBody: input.rawBody,
+      }))
+    )
+  ) {
     return {
       reasonCode: "message_channel.webhook_signature_invalid",
       status: "rejected",
@@ -281,6 +300,17 @@ async function verifyAndDecryptPayload(input: {
     encryptedPayload,
     eventEncryptKey: input.eventEncryptKey,
   });
+  // URL verification omits signature headers; the caller still checks its token.
+  if (
+    signatureHeadersAbsent &&
+    decryptedPayload &&
+    readString(decryptedPayload, "type") !== "url_verification"
+  ) {
+    return {
+      reasonCode: "message_channel.webhook_signature_invalid",
+      status: "rejected",
+    };
+  }
   return decryptedPayload
     ? { payload: decryptedPayload, status: "verified" }
     : {

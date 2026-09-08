@@ -504,8 +504,6 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
       checkedIndex === undefined ? null : itemRects[checkedIndex];
     const focusRect =
       focusedIndex === null ? null : (itemRects[focusedIndex] ?? null);
-    const isHoveringOther =
-      activeIndex !== null && activeIndex !== checkedIndex;
     const triggerElementId = triggerRef.current?.id || undefined;
     const contentPlacement = resolveSelectContentPlacement({
       align,
@@ -598,11 +596,11 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                     animate={{
                       height: checkedRect.height,
                       left: checkedRect.left,
-                      opacity: isHoveringOther ? 0.82 : 1,
+                      opacity: 1,
                       top: checkedRect.top,
                       width: checkedRect.width,
                     }}
-                    className="pointer-events-none absolute rounded-md border border-border bg-muted"
+                    className="pointer-events-none absolute rounded-md border border-transparent bg-interaction-active"
                     exit={{ opacity: 0, transition: { duration: 0.12 } }}
                     initial={false}
                     transition={{
@@ -623,7 +621,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                       top: activeRect.top,
                       width: activeRect.width,
                     }}
-                    className="pointer-events-none absolute rounded-md border border-border/80 bg-muted/70"
+                    className="pointer-events-none absolute rounded-md border border-transparent bg-interaction-hover"
                     exit={{ opacity: 0, transition: { duration: 0.06 } }}
                     initial={{
                       height: checkedRect?.height ?? activeRect.height,

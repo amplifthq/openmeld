@@ -10,6 +10,15 @@ import {
   withWorkspaceContainer,
 } from "@cloudflare/computer/backends/container";
 import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
+import curlModules from "@cloudflare/computer/shell/curl";
+import fileModules from "@cloudflare/computer/shell/file";
+import htmlToMarkdownModules from "@cloudflare/computer/shell/html-to-markdown";
+import jqModules from "@cloudflare/computer/shell/jq";
+import jsExecModules from "@cloudflare/computer/shell/js-exec";
+import pythonModules from "@cloudflare/computer/shell/python";
+import sqliteModules from "@cloudflare/computer/shell/sqlite";
+import xanModules from "@cloudflare/computer/shell/xan";
+import yqModules from "@cloudflare/computer/shell/yq";
 
 /**
  * The Center Agent's computer: an org-level durable workspace backed by
@@ -30,7 +39,6 @@ import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
 export const AGENT_COMPUTER_BINDING = "AGENT_COMPUTER";
 export const AGENT_COMPUTER_SHELL_BACKEND_ID = "worker-shell";
 export const AGENT_COMPUTER_CONTAINER_BACKEND_ID = "container";
-const CENTER_AGENT_TASK_CONVERSATION_PREFIX = "center-agent-task:";
 
 /** Root layout of the computer. Prompt conventions reference these. */
 export const AGENT_COMPUTER_ROOT = "/computer";
@@ -38,7 +46,6 @@ export const AGENT_COMPUTER_LAYOUT_DIRECTORIES = [
   `${AGENT_COMPUTER_ROOT}/org`,
   `${AGENT_COMPUTER_ROOT}/projects`,
   `${AGENT_COMPUTER_ROOT}/spaces`,
-  `${AGENT_COMPUTER_ROOT}/tasks`,
   `${AGENT_COMPUTER_ROOT}/routines`,
   `${AGENT_COMPUTER_ROOT}/home`,
 ] as const;
@@ -56,6 +63,8 @@ function workspaceRef(ctx: DurableObjectState) {
 export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
   readonly #containerBackend = new CloudflareContainerBackend({
     container: () => this,
+    // Preserve the native Computer's existing public-network capability.
+    egress: { mode: "direct" },
     // The backend defaults MOUNT_POINT to /workspace; our tree lives
     // under /computer, so pin the FUSE mount there for same-path
     // fidelity between the isolate and the container.
@@ -67,6 +76,19 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
   readonly workspace = new Workspace({
     backends: [
       new WorkerShellBackend({
+        // SDK 0.2 makes previously bundled commands opt-in. Preserve the
+        // existing tool surface; worker-shell network access remains disabled.
+        commands: [
+          curlModules,
+          fileModules,
+          htmlToMarkdownModules,
+          jqModules,
+          jsExecModules,
+          pythonModules,
+          sqliteModules,
+          xanModules,
+          yqModules,
+        ],
         ctx: this.ctx,
         id: AGENT_COMPUTER_SHELL_BACKEND_ID,
         loader: (this.env as AgentComputerEnv).LOADER as never,
@@ -102,10 +124,6 @@ export function buildAgentComputerSpaceDirectory(spaceId: string): string {
   return `${AGENT_COMPUTER_ROOT}/spaces/${spaceId}`;
 }
 
-export function buildAgentComputerTaskDirectory(taskId: string): string {
-  return `${AGENT_COMPUTER_ROOT}/tasks/${encodePathIdentity(taskId)}`;
-}
-
 export function buildAgentComputerRoutineDirectory(routineId: string): string {
   return `${AGENT_COMPUTER_ROOT}/routines/${encodePathIdentity(routineId)}`;
 }
@@ -115,15 +133,6 @@ export function resolveAgentComputerWorkingDirectory(input: {
   routineId?: string | null;
   spaceId: string | null;
 }): string {
-  if (input.conversationId?.startsWith(CENTER_AGENT_TASK_CONVERSATION_PREFIX)) {
-    const taskId = input.conversationId.slice(
-      CENTER_AGENT_TASK_CONVERSATION_PREFIX.length
-    );
-    if (!taskId) {
-      throw new Error("Center Agent Task Computer identity is empty.");
-    }
-    return buildAgentComputerTaskDirectory(taskId);
-  }
   if (input.routineId) {
     return buildAgentComputerRoutineDirectory(input.routineId);
   }

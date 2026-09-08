@@ -186,7 +186,9 @@ send an envelope that the active Remote Agent rejects before execution.
 The planner selects the `core-worker-response-reader-first` profile when the
 strict Remote Agent worker-response schema and its Remote Agent producer change
 in the same diff. Within the selected scopes it deploys Database, Auth, Core,
-Remote Agent, Gateway, Web, then CLI. Core must accept the expanded strict
+Gateway, Web, Remote Agent, then CLI. Gateway and Web activity readers also
+precede the runtime so a coordinated release can add activity outcomes without
+emitting them to older readers. Core must accept the expanded strict
 response union before Remote Agent can emit it; otherwise an old Core treats a
 valid new rejection as a protocol error. The schema path alone remains
 non-directional, so request-only changes do not accidentally select this
@@ -295,6 +297,30 @@ mismatch later. Use the planner's guarded ordered path until that exact order
 has reviewed hosted orchestration support.
 
 ### Inbox source-target receiver-first order
+
+Task Inbox retirement reverses the writer/reader dependency. The planner proves
+this specific removal from Git: the Task Inbox producer must be deleted, and
+the Inbox schema must differ only by removing the Task item kind, source kind,
+and target object. Explicit source-SHA plans inspect that immutable tree; local
+plans inspect the working candidate against its merge base. A pathname alone
+does not establish retirement. Mixed expansion/removal, partial removal, or a
+remaining producer fails closed and requires a separate compatibility rollout.
+
+For this retirement, Core must stop returning Task rows before Gateway or Web
+stops accepting them. `inbox-task-retirement-producer-first` places Core before
+Auth, Gateway, and Web. If the same release requires a Remote request receiver,
+`remote-agent-and-inbox-task-retirement-first` orders Database, Remote Agent,
+Core, Auth, Gateway, Web, then CLI. Core also precedes the new Auth join-request
+caller that requests response version 2. Required Inbox scopes and the combined
+Remote scope remain enforced; conflicting receiver orders still require a
+split. This rule does not authorize dropping the retained Task tables.
+
+Both retirement profiles deploy Core with the current published CLI projection
+even when CLI is excluded from the deployment scope for a later GitHub release.
+Verification and preflight do not compare that stage against the checked-in
+future CLI projection; the current-projection deployment retains its own
+published-channel compatibility checks. The later CLI release publishes the new
+artifacts and updates Core's release projection through the normal guarded path.
 
 The planner selects `inbox-source-target-receiver-first` when a diff changes the
 strict Inbox source-target schema together with a Core writer for those targets.
@@ -453,6 +479,15 @@ recovery and never bypasses tag, channel, source, lease, or deployment health
 checks.
 
 ## Local Scoped Release
+
+The `people-computers-receivers-first` profile recognizes the shared computer
+schema, Core projection, and Gateway endpoint together. It deploys selected
+Auth, Core, Gateway, Web, Remote Agent, then CLI scopes (Database remains first
+when selected). Core and Gateway must precede new computer callers. A staged
+Core receiver deploy uses the immutable current stable CLI projection even when
+CLI publication is reserved for the later signed GitHub lane. Pass the same
+pre-feature base to each staged plan so the directional contract remains visible.
+Unreviewed combinations with opposing receiver profiles fail closed.
 
 Use this lane only from a dedicated clean release worktree at the exact approved
 `main` commit being released. The primary `main` checkout remains the human
@@ -918,6 +953,42 @@ the same resumable release command at the exact original `release_sha`:
   relying on a human-authored exclusion list.
 - Always provide the original `release_sha`; a release tag or Core projection
   from another commit is a hard failure, not a recovery target.
+
+### npm submission and availability
+
+`npm publish` can succeed while npm is still processing the package and exact
+version queries return 404. Submission is not availability. Both release lanes
+publish to and query `https://registry.npmjs.org/`, preferring an online query.
+After submission, verification waits with backoff for up to 20 minutes of
+scheduled waits (plus bounded probe time). A missing version after that budget
+leaves channel verification pending and exits nonzero, never successful.
+
+The resumable publisher records source-bound immutable refs on the release
+remote at `refs/heads/openmeld-npm-publication/<version>/attempted` before
+calling npm and `/accepted` after npm returns success. Both point to the exact
+release source SHA. They do not claim that the package is downloadable and do
+not replace the registry probe or the CLI/Core scope leases. Hosted receipt
+operations use trusted Git authentication without exposing credentials to
+candidate code or hooks. Never move a receipt to a different source.
+
+A new runner reads these receipts before starting release stages. Existing
+receipts prevent automatic resubmission on a 404. The original version tag,
+which older releases pushed after npm succeeded, also preserves that evidence
+for releases predating receipts. A pending-only recovery checks npm first and
+does not rebuild artifacts or redeploy Core. A network/authentication probe
+failure remains an error, not evidence that the version is absent.
+
+For pending availability, rerun the normal guarded command or GitHub workflow
+at the original release SHA; it resumes verification. If only `attempted`
+exists, the command was interrupted or failed and acceptance is unknown. Read
+the original npm publish output and check npm status before taking further
+action. Do not delete receipts or increment the version merely because a query
+returns 404. If the publish log conclusively proves rejection before acceptance
+(for example, a credential rejection), first correct that cause. An operator
+may then remove only that version's `attempted` ref using an exact-SHA lease,
+after confirming no publisher is active and no `accepted` ref exists, and rerun
+the guarded command. Ambiguous submission outcomes remain verification-only
+until resolved; they must not silently become another publish attempt.
 
 When R2, npm, and the immutable release tag are already complete but the Core
 projection alone failed Cloudflare startup validation, do not rerun the CLI

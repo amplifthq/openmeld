@@ -18,6 +18,7 @@ import {
   buildMessageChannelTurnEnvelope,
   resolveMessageChannelTurnTarget as resolveMessageChannelTurnTargetWithAuth,
 } from "../src/remote-agent/application/message-channel-turn-resolution";
+import { readRemoteAgentLarkPlatformChannelCredentials } from "../src/remote-agent/infrastructure/d1/lark-platform-channel-connection-repo";
 import {
   insertRemoteAgentLarkPlatformIdentityLinkIfAbsent,
   readRemoteAgentLarkPlatformIdentityLink,
@@ -1074,6 +1075,13 @@ async function seedLarkConnection(
     nowMs: 2600,
   });
   await recordRemoteAgentLarkPlatformWebhookReachability({
+    encryptedVerificationToken:
+      (
+        await readRemoteAgentLarkPlatformChannelCredentials({
+          connectionId: "connection_lark_1",
+          db: harness.db,
+        })
+      )?.encryptedVerificationToken ?? null,
     connectionId: "connection_lark_1",
     db: harness.db,
     organizationId: "org_1",
@@ -1082,6 +1090,13 @@ async function seedLarkConnection(
     verifiedAtMs: 2650,
   });
   await recordRemoteAgentLarkPlatformWebhookReachability({
+    encryptedVerificationToken:
+      (
+        await readRemoteAgentLarkPlatformChannelCredentials({
+          connectionId: "connection_lark_1",
+          db: harness.db,
+        })
+      )?.encryptedVerificationToken ?? null,
     connectionId: "connection_lark_1",
     db: harness.db,
     organizationId: "org_1",

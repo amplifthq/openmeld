@@ -8,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { joinProfileToSpace } from "#/lib/profiles/join-profile-to-space";
@@ -79,7 +80,11 @@ export function AgentActivityAddToSpaceDialog(input: {
 						authoritative Space service.
 					</DialogDescription>
 				</DialogHeader>
-				<div className="grid max-h-96 gap-2 overflow-y-auto pr-1">
+				<ScrollArea
+					className="max-h-96"
+					contentClassName="grid gap-2 pr-1"
+					orientation="vertical"
+				>
 					{spacesQuery.isPending ? (
 						<p className="py-8 text-center text-muted-foreground text-sm">
 							Loading Spaces…
@@ -138,7 +143,7 @@ export function AgentActivityAddToSpaceDialog(input: {
 							</Button>
 						</div>
 					))}
-				</div>
+				</ScrollArea>
 			</DialogContent>
 		</Dialog>
 	);

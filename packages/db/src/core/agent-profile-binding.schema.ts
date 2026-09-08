@@ -75,11 +75,11 @@ export const openMeldDaemonAgentProfileBindings = sqliteTable(
     ),
     check(
       "openMeldDaemon_agent_profile_bindings_runtime_kind_check",
-      sql`"runtime_kind" in ('openmeld_service', 'hosted_center_agent')`
+      sql`"runtime_kind" in ('openmeld_service', 'hosted_center_agent', 'hosted_remote_agent')`
     ),
     check(
       "openMeldDaemon_agent_profile_bindings_hosted_identity_check",
-      sql`(("runtime_kind" = 'openmeld_service' and "hosted_runtime_identity_json" is null) or ("runtime_kind" = 'hosted_center_agent' and "hosted_runtime_identity_json" is not null and json_valid("hosted_runtime_identity_json")))`
+      sql`(("runtime_kind" = 'openmeld_service' and "hosted_runtime_identity_json" is null) or ("runtime_kind" in ('hosted_center_agent', 'hosted_remote_agent') and "hosted_runtime_identity_json" is not null and json_valid("hosted_runtime_identity_json")))`
     ),
     check(
       "openMeldDaemon_agent_profile_bindings_agent_controller_ref_non_empty_check",

@@ -1033,6 +1033,7 @@ async function handleTerminalStepFailure(input: {
   )({
     stepId: input.input.stepId,
     supportCode: reasonCode,
+    error: input.error,
   });
   input.input.stream.writeTerminalStep({
     connectionEpoch: input.input.connectionEpoch,
@@ -1954,7 +1955,11 @@ export function formatTerminalStepFailureMessage(input: {
         "openmeld service repair"
       )}\` once; OpenMeld saved the failure details for support.`;
     }
-    return "OpenMeld couldn't update its background service. Restart your computer; OpenMeld will reconnect automatically after sign-in.";
+    const copy = buildHumanErrorCopy(input.rawMessage);
+    if (copy.nextStep) {
+      return `${copy.summary} ${copy.nextStep}`;
+    }
+    return `OpenMeld couldn't finish connecting its background service. Run \`${formatOpenMeldCliCommand("openmeld service repair")}\`, then get a new setup command from OpenMeld Web.`;
   }
   const copy = buildHumanErrorCopy(input.rawMessage);
   return [
@@ -2140,6 +2145,7 @@ export async function reportPrepareHandoffStopped(input: {
   stream: PrepareSessionStream;
   reasonCode: string;
   message: string;
+  error?: unknown;
 }): Promise<void> {
   const stream = input.stream;
   const timeout = setTimeout(() => stream.close(), 5000);
@@ -2151,6 +2157,11 @@ export async function reportPrepareHandoffStopped(input: {
     if (connectionEpoch === null) {
       throw new Error("Terminal connection was not confirmed.");
     }
+    const diagnostics = await collectPrepareStepDiagnostics({
+      stepId: "connect_terminal",
+      supportCode: input.reasonCode,
+      error: input.error,
+    });
     stream.writeTerminalStep({
       connectionEpoch,
       expectedRevision: snapshot.sessionRevision,
@@ -2158,6 +2169,7 @@ export async function reportPrepareHandoffStopped(input: {
       status: "failed",
       reasonCode: input.reasonCode,
       message: input.message,
+      ...(diagnostics === null ? {} : { diagnostics }),
     });
     await stream.waitForSnapshot((current) =>
       current.blockers.some(

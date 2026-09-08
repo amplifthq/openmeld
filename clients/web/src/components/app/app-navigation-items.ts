@@ -1,6 +1,5 @@
 import {
 	buildOrganizationAgentActivityPath,
-	buildOrganizationAgentsPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationDocumentsPath,
 	buildOrganizationInboxPath,
@@ -23,7 +22,7 @@ export function resolveAppNavigationItems(input: {
 }): AppNavigationItem[] {
 	const items = [
 		{
-			label: "Home",
+			label: "Center Agent",
 			section: "home",
 			to: buildOrganizationRootPath(input.orgSlug),
 		},
@@ -38,19 +37,14 @@ export function resolveAppNavigationItems(input: {
 			to: buildOrganizationSpacesPath(input.orgSlug),
 		},
 		{
-			label: "Direct Messages",
+			label: "Chats",
 			section: "directMessages",
 			to: buildOrganizationDirectMessagesPath(input.orgSlug),
 		},
 		{
-			label: "People",
+			label: "Team",
 			section: "people",
 			to: buildOrganizationPeoplePath(input.orgSlug),
-		},
-		{
-			label: "Agents",
-			section: "agents",
-			to: buildOrganizationAgentsPath(input.orgSlug),
 		},
 		{
 			label: "Agent Activity",

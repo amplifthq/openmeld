@@ -50,8 +50,10 @@ vi.mock("#/lib/cli-entry-command", async (importOriginal) => {
 });
 
 vi.mock("#/lib/connect/local-runtimes", () => ({
-	requestCurrentOpenMeldToolsUpdate: requestCurrentOpenMeldToolsUpdateMock,
-	setCurrentOpenMeldToolsMaintenance: setCurrentOpenMeldToolsMaintenanceMock,
+	requestPeopleComputerOpenMeldToolsUpdate:
+		requestCurrentOpenMeldToolsUpdateMock,
+	setPeopleComputerOpenMeldToolsMaintenance:
+		setCurrentOpenMeldToolsMaintenanceMock,
 }));
 
 vi.mock("#/query/agents/execution-readiness", () => ({
@@ -108,7 +110,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
+		expect(screen.getByText("Connected")).toBeTruthy();
 		expect(
 			screen.queryByLabelText("OpenMeld Service connection: Connected")
 		).toBeNull();
@@ -121,8 +123,8 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("OpenMeld Tools")).toBeTruthy();
-		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
+		expect(screen.getByText("Computer Connection")).toBeTruthy();
+		expect(screen.getByText("Connected")).toBeTruthy();
 		expect(
 			screen.queryByRole("button", { name: "Update OpenMeld Tools" })
 		).toBeNull();
@@ -169,7 +171,7 @@ describe("OpenMeldServiceCard", () => {
 			name: "Update manually",
 		});
 
-		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
+		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
 		expect(updateLink).toHaveProperty("pathname", "/o/acme/connect");
 		expect(updateLink).toHaveProperty(
 			"search",
@@ -204,7 +206,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: SERVICE_UPDATE_REQUIRED_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
+		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
 		expect(screen.getByText("Update to v0.3.127.")).toBeTruthy();
 		const updateButton = screen.getByRole("button", { name: "Update" });
 		const manualUpdateLink = screen.getByRole("link", {
@@ -244,7 +246,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: SERVICE_UPDATE_REQUIRED_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
+		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
 		expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
 		expect(screen.queryByRole("link", { name: "Update manually" })).toBeNull();
 		expect(screen.queryByText("Required:", { exact: false })).toBeNull();
@@ -272,9 +274,9 @@ describe("OpenMeldServiceCard", () => {
 			name: "Update manually",
 		});
 
-		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
+		expect(screen.getAllByText("Update available").length).toBeGreaterThan(0);
 		const serviceUpdateText = screen.getByText(
-			"A newer version of OpenMeld Tools is available."
+			"A newer version of OpenMeld is available."
 		);
 		expect(serviceUpdateText.className).toContain("text-amber");
 		expect(screen.getByText("Installed v0.7.99")).toBeTruthy();
@@ -503,7 +505,7 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.getByText("Up to date")).toBeTruthy();
 		expect(screen.queryByText("Verifying…")).toBeNull();
-		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
+		expect(screen.getByText("Connected")).toBeTruthy();
 	});
 
 	it.each([
@@ -545,7 +547,7 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.getByText("Update failed. Try again.")).toBeTruthy();
 		expect(screen.queryByText("Up to date")).toBeNull();
-		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
+		expect(screen.getByText("Connected")).toBeTruthy();
 	});
 
 	it("keeps updating while the owner is still updating even when the target versions are visible", () => {
@@ -622,7 +624,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
+		expect(screen.getAllByText("Update available").length).toBeGreaterThan(0);
 		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
 		expect(screen.queryByText("Verifying…")).toBeNull();
 		expect(screen.queryByText("Up to date")).toBeNull();
@@ -699,7 +701,7 @@ describe("OpenMeldServiceCard", () => {
 					.disabled
 			).toBe(false);
 		});
-		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
+		expect(screen.getAllByText("Update available").length).toBeGreaterThan(0);
 		expect(screen.queryByText("Updating…")).toBeNull();
 		expect(screen.queryByText("Verifying…")).toBeNull();
 		expect(screen.queryByText("Up to date")).toBeNull();
@@ -1109,7 +1111,7 @@ describe("OpenMeldServiceCard", () => {
 		);
 
 		expect(screen.getByText("Up to date")).toBeTruthy();
-		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
+		expect(screen.getByText("Connected")).toBeTruthy();
 	});
 
 	it("clears update verification timers when the card unmounts", async () => {
@@ -1171,7 +1173,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
+		expect(screen.getAllByText("Update available").length).toBeGreaterThan(0);
 		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
 	});
 
@@ -1201,8 +1203,9 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		const toggle = screen.getByRole("switch", {
-			name: "Keep OpenMeld Tools up to date",
+		fireEvent.click(screen.getByRole("button", { name: "OpenMeld options" }));
+		const toggle = await screen.findByRole("switch", {
+			name: "Automatic updates",
 		});
 		expect(toggle.getAttribute("aria-checked")).toBe("true");
 		expect(screen.getByText("Finishing…")).toBeTruthy();
@@ -1210,6 +1213,8 @@ describe("OpenMeldServiceCard", () => {
 
 		await waitFor(() => {
 			expect(setCurrentOpenMeldToolsMaintenanceMock).toHaveBeenCalledWith({
+				deviceId: "device-macbook-pro",
+				runtimeLane: "dev-local",
 				automaticUpdatesEnabled: false,
 			});
 		});
@@ -1236,9 +1241,12 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
-		const updateValue = screen.getByText("Update available");
-		expect(updateValue.className).toContain("text-amber");
+		expect(screen.getAllByText("Update available").length).toBeGreaterThan(0);
+		expect(
+			screen
+				.getAllByText("Update available")
+				.some((element) => element.className.includes("text-amber"))
+		).toBe(true);
 		expect(screen.getByText("Latest available: v0.7.92.")).toBeTruthy();
 		const manualUpdateLink = screen.getByRole("link", {
 			name: "Update manually",
@@ -1332,8 +1340,8 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
-		expect(screen.getByText("Update required")).toBeTruthy();
+		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
 		expect(
 			screen.getByText((content) =>
 				content.includes("Required CLI contract update.")
@@ -1364,7 +1372,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("Update required")).toBeTruthy();
+		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
 		expect(
 			screen.getByText((content) => content.includes("CLI update required."))
 		).toBeTruthy();
@@ -1398,9 +1406,12 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
-		const updateValue = screen.getByText("Update available");
-		expect(updateValue.className).toContain("text-amber");
+		expect(screen.getAllByText("Update available").length).toBeGreaterThan(0);
+		expect(
+			screen
+				.getAllByText("Update available")
+				.some((element) => element.className.includes("text-amber"))
+		).toBe(true);
 		expect(
 			screen.getByText("A newer OpenMeld skill is available.")
 		).toBeTruthy();
@@ -1439,7 +1450,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("Checking OpenMeld tools status...")).toBeTruthy();
+		expect(screen.getByText("Checking OpenMeld status...")).toBeTruthy();
 		expect(screen.queryByText("Update available")).toBeNull();
 		expect(screen.queryByRole("link", { name: "Update manually" })).toBeNull();
 	});
@@ -1465,8 +1476,8 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
-		expect(screen.getByText("Update required")).toBeTruthy();
+		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
 		expect(screen.getByRole("link", { name: "Update manually" })).toBeTruthy();
 	});
 
@@ -1558,9 +1569,7 @@ describe("OpenMeldServiceCard", () => {
 		expect(
 			screen.getByRole("link", { name: "Reconnect Computer" }).className
 		).toContain("text-destructive");
-		fireEvent.click(
-			screen.getByRole("button", { name: "OpenMeld tools options" })
-		);
+		fireEvent.click(screen.getByRole("button", { name: "OpenMeld options" }));
 		expect(
 			screen.getAllByRole("link", { name: "Reconnect Computer" })
 		).toHaveLength(2);
@@ -1605,45 +1614,64 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("Computer not connected")).toBeTruthy();
+		expect(screen.getByText("Disconnected")).toBeTruthy();
 		expect(
 			screen.getByRole("link", { name: "Reconnect Computer" })
 		).toBeTruthy();
 		expect(screen.queryByText("OpenMeld Service is connected")).toBeNull();
 	});
 
+	it("explains an account conflict instead of reporting ordinary disconnection", () => {
+		const readiness = buildCurrentLocalRuntimeReplyReadiness();
+		renderOpenMeldServiceCard({
+			replyReadiness: READY_REPLY_READINESS,
+			currentLocalRuntimeReplyReadiness: {
+				...readiness,
+				service: {
+					...readiness.service,
+					connected: false,
+					matchingCurrentRuntime: false,
+					reasonCodes: ["daemon.session.reject_conflict"],
+				},
+			},
+		});
+		expect(screen.getByText("Reconnect required")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"This computer is connected to another OpenMeld account. Reconnect it to use it with this account."
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Disconnected")).toBeNull();
+	});
+
 	it("guides stale non-current computers back through setup", () => {
 		renderOpenMeldServiceCard({
 			computer: buildComputer({ isCurrent: false, targetStatus: "stale" }),
 			currentLocalRuntimeReplyReadiness: null,
-			isCurrentComputer: false,
+			hasSelectedEnvironment: false,
 			replyReadiness: SERVICE_NOT_CONNECTED_REPLY_READINESS,
 		});
 
-		expect(screen.getAllByText("Needs a fresh check").length).toBeGreaterThan(
-			0
-		);
+		expect(screen.queryByText("Needs a fresh check")).toBeNull();
 		expect(
 			screen.getByText(
-				"This is the last OpenMeld tools report from that computer. Run setup again to refresh this record."
+				"Connect this computer to view its tools and manage updates."
 			)
 		).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Set up again" })).toHaveProperty(
+		expect(screen.getByRole("link", { name: "Set up" })).toHaveProperty(
 			"pathname",
 			"/o/acme/connect"
 		);
-		expect(screen.getByRole("link", { name: "Set up again" })).toHaveProperty(
+		expect(screen.getByRole("link", { name: "Set up" })).toHaveProperty(
 			"search",
 			"?connectedComputerId=computer-macbook-pro&session=fresh"
 		);
 
-		fireEvent.click(
-			screen.getByRole("button", { name: "OpenMeld tools options" })
-		);
+		fireEvent.click(screen.getByRole("button", { name: "OpenMeld options" }));
 
 		expect(screen.queryByText("Check status")).toBeNull();
 		expect(
-			screen.getAllByRole("link", { name: "Set up again" }).length
+			screen.getAllByRole("link", { name: "Set up" }).length
 		).toBeGreaterThan(0);
 	});
 });
@@ -1758,7 +1786,7 @@ function buildUpdateOperation(input: {
 function renderOpenMeldServiceCard(input: {
 	computer?: LocalRuntimeComputer;
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
-	isCurrentComputer?: boolean;
+	hasSelectedEnvironment?: boolean;
 	isReconcilingStatus?: boolean;
 	replyReadiness: ComputerReplyReadiness;
 }) {
@@ -1768,7 +1796,7 @@ function renderOpenMeldServiceCard(input: {
 function buildOpenMeldServiceCard(input: {
 	computer?: LocalRuntimeComputer;
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
-	isCurrentComputer?: boolean;
+	hasSelectedEnvironment?: boolean;
 	isReconcilingStatus?: boolean;
 	replyReadiness: ComputerReplyReadiness;
 }) {
@@ -1781,7 +1809,7 @@ function buildOpenMeldServiceCard(input: {
 					input.currentLocalRuntimeReplyReadiness
 				}
 				focusService={false}
-				isCurrentComputer={input.isCurrentComputer ?? true}
+				hasSelectedEnvironment={input.hasSelectedEnvironment ?? true}
 				isReconcilingStatus={input.isReconcilingStatus ?? false}
 				organizationId="org-acme"
 				queryClient={queryClientStub}

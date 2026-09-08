@@ -685,7 +685,7 @@ describe("SpaceMembersSidePanel", () => {
 			});
 		});
 		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/acme/direct-messages/space-direct-message?profileId=agt_22222222-2222-4222-8222-222222222222",
+			to: "/o/acme/chats/space-direct-message?profileId=agt_22222222-2222-4222-8222-222222222222",
 		});
 	});
 
@@ -1679,11 +1679,13 @@ describe("SpaceMembersSidePanel", () => {
 		expect(onConvertDirectMessageToSpace).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-		expect(
-			screen.queryByRole("heading", {
-				name: "Turn this Direct Message into a Space?",
-			})
-		).toBeNull();
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("heading", {
+					name: "Turn this Direct Message into a Space?",
+				})
+			).toBeNull()
+		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 		fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), {

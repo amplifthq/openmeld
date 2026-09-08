@@ -1,13 +1,9 @@
-import { remoteAgentWorkerCancellationResponseSchema } from "@openmeld/schemas";
 import type {
   RemoteAgentWorkerCancellationResponse,
   RemoteAgentWorkerExecutionQuery,
 } from "@openmeld/schemas/types";
 import type { RemoteAgentStorage } from "../agent-core/callback-context";
-import {
-  completeRemoteAgentExecutionState,
-  requestRemoteAgentExecutionCancellation,
-} from "../agent-core/execution-state";
+import { requestRemoteAgentExecutionCancellation } from "../agent-core/execution-state";
 
 export async function cancelFlueRemoteAgentExecution(input: {
   abortSubmission: () => Promise<{ aborted: boolean }>;
@@ -27,8 +23,7 @@ export async function cancelFlueRemoteAgentExecution(input: {
   });
   if (
     !(
-      (requested.status === "cancellation_requested" ||
-        requested.status === "already_cancelled") &&
+      requested.status === "cancellation_requested" &&
       requested.execution.status === "cancellation_requested"
     )
   ) {
@@ -39,22 +34,12 @@ export async function cancelFlueRemoteAgentExecution(input: {
   }
 
   const abort = await input.abortSubmission();
-  const execution = await completeRemoteAgentExecutionState({
-    identity: input.identity,
-    nowMs: input.nowMs,
-    status: "aborted",
-    storage: input.storage,
-  });
-  if (execution?.status !== "aborted") {
-    throw new Error(
-      "Remote Agent execution did not settle after Flue cancellation."
-    );
-  }
+  // The Flue response acknowledges durable abort intent, not that an external
+  // operation has finished unwinding. Its observer/reconciler owns settlement.
+  // A false result can also mean the submission is absent; absence is not proof
+  // of cancellation and must not fabricate a terminal execution outcome.
   return {
     abortedFlueSubmission: abort.aborted,
-    response: remoteAgentWorkerCancellationResponseSchema.parse({
-      execution,
-      status: "already_cancelled",
-    }),
+    response: requested,
   };
 }

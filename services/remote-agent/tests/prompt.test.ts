@@ -163,7 +163,7 @@ describe("remote agent system prompt", () => {
       "state the exact observation time and what remains unknown"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "A historical OpenMeld Task record never proves current repository, deployment, or external-system state"
+      "Historical records do not prove current external-system state"
     );
   });
 
@@ -184,7 +184,7 @@ describe("remote agent system prompt", () => {
     );
     expect(prompt).not.toContain("You are the hosted Center Agent Runtime.");
     expect(prompt).toContain(
-      "Apps provide scoped external data or actions; they are capabilities, not execution runtimes."
+      "Plugins provide scoped external data or actions; they are capabilities, not execution runtimes."
     );
     expect(prompt).toContain(
       "Channels are conversation and result surfaces; a connected Channel does not grant the provider's wider App capabilities."
@@ -328,21 +328,6 @@ describe("remote agent system prompt", () => {
     );
     expect(prompt).toContain(
       "Coordination may observe one exact task in another Space while the eventual Center Agent continuation returns through the originating conversation's native delivery destination."
-    );
-  });
-
-  it("treats an explicit Task request as a binding work-surface choice", () => {
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "An explicit request for a new or dedicated Task is a binding work-surface requirement"
-    );
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "create that Task before doing the requested work"
-    );
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "Never complete the requested work inline or substitute Chat or a Space"
-    );
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "Web, an OpenMeld Space, Slack, the OpenMeld CLI, or another Message Channel"
     );
   });
 
@@ -601,7 +586,7 @@ describe("remote agent system prompt", () => {
       "Before offering to set up, reconnect, or update a computer, use openmeld_list_computers"
     );
     expect(prompt).toContain(
-      "use the matching OpenMeld tool instead of sending them to the CLI"
+      "use the matching OpenMeld tool with that exact target instead of sending them to the CLI"
     );
     expect(prompt).toContain(
       "call openmeld_select_local_agent_installation only after the requester confirms"
@@ -619,7 +604,7 @@ describe("remote agent system prompt", () => {
       "Other generic Message Channel navigation actions may not have a native control yet"
     );
     expect(prompt).toContain(
-      "call openmeld_list_computers, then return the exact recommended computer_setup navigation action"
+      "For a requested setup or reconnect handoff, use openmeld_get_navigation_action with computer_setup and the matching mode"
     );
     expect(prompt).toContain("Never substitute a Settings breadcrumb");
     expect(prompt).not.toContain("Settings → Connect this computer");

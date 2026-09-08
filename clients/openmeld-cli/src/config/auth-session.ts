@@ -146,6 +146,7 @@ export class AuthSessionTransitionConflictError extends Error {
 
 export type ClearAuthSessionResult = {
   hadLocalSession: boolean;
+  preservedSessionPath?: string;
 };
 
 export type StoredActiveOrganization = {
@@ -198,19 +199,23 @@ export type AuthSessionTransitionContext = {
   computerHandoff?: {
     gatewayUrl: string;
   };
-  expectedPreviousSession?: StoredAuthSession | null;
+  expectedPreviousSession?: AuthSessionMetadata | null;
 };
 
 export type InterruptedComputerAuthSessionRecovery = {
-  candidateSession: StoredAuthSession & {
-    user: NonNullable<StoredAuthSession["user"]> & { id: string };
-  };
   gatewayUrl: string;
   id: string;
   previousSession: StoredAuthSession | null;
-  remoteSessionRevoked: boolean;
   serviceReconciled: boolean;
-};
+} & (
+  | { remoteSessionRevoked: true; candidateSession: null }
+  | {
+      remoteSessionRevoked: false;
+      candidateSession: StoredAuthSession & {
+        user: NonNullable<StoredAuthSession["user"]> & { id: string };
+      };
+    }
+);
 
 export type AuthSessionState =
   | "missing"
@@ -534,7 +539,7 @@ export async function beginAuthSessionTransition(
         ? previousState.session
         : null;
     assertExpectedPreviousSession({
-      current: previousSession,
+      current: buildAuthSessionMetadata(previousPayload),
       expected: context.expectedPreviousSession,
     });
     const tokenRef = await storeAccessToken({
@@ -814,17 +819,30 @@ export async function getInterruptedComputerAuthSessionRecovery(): Promise<Inter
       return null;
     }
 
+    // Revocation is durable. Finishing local cleanup must not require reading
+    // a credential that has already been revoked (and may already be deleted).
+    if (journal.computerHandoff.remoteSessionRevokedAt) {
+      if (journal.computerHandoff.serviceReconciledAt) {
+        await cleanupCandidateTokenRefs(journal);
+        await removeAuthSessionTransitionJournalIfOwned(journal);
+        return null;
+      }
+      return {
+        candidateSession: null,
+        gatewayUrl: journal.computerHandoff.gatewayUrl,
+        id: journal.id,
+        previousSession: await readRecoverablePreviousSession(
+          journal.previousPayload
+        ),
+        remoteSessionRevoked: true,
+        serviceReconciled: Boolean(journal.computerHandoff.serviceReconciledAt),
+      };
+    }
+
     const candidateSession = await readStoredAuthSessionFromPayloadIfPresent(
       journal.candidatePayload
     );
     if (!candidateSession) {
-      if (
-        journal.computerHandoff.serviceReconciledAt &&
-        journal.computerHandoff.remoteSessionRevokedAt
-      ) {
-        await removeAuthSessionTransitionJournalIfOwned(journal);
-        return null;
-      }
       throw new AuthSessionStorageError({
         message: "auth session recovery token is missing",
         reason: "corrupt",
@@ -848,12 +866,10 @@ export async function getInterruptedComputerAuthSessionRecovery(): Promise<Inter
       },
       gatewayUrl: journal.computerHandoff.gatewayUrl,
       id: journal.id,
-      previousSession: journal.previousPayload
-        ? await readStoredAuthSessionFromPayload(journal.previousPayload)
-        : null,
-      remoteSessionRevoked: Boolean(
-        journal.computerHandoff.remoteSessionRevokedAt
+      previousSession: await readRecoverablePreviousSession(
+        journal.previousPayload
       ),
+      remoteSessionRevoked: false,
       serviceReconciled: Boolean(journal.computerHandoff.serviceReconciledAt),
     };
   });
@@ -956,6 +972,12 @@ export async function getAuthSession(): Promise<StoredAuthSession | null> {
 
 export async function getAuthSessionMetadata(): Promise<AuthSessionMetadata | null> {
   const payload = await readSessionPayload();
+  return buildAuthSessionMetadata(payload);
+}
+
+function buildAuthSessionMetadata(
+  payload: Partial<AuthSessionV1> | null
+): AuthSessionMetadata | null {
   if (payload?.v !== 1) {
     return null;
   }
@@ -1040,7 +1062,27 @@ export async function clearAuthSession(): Promise<ClearAuthSessionResult> {
     cachedAuthSession = null;
     await retryPendingTokenCleanup();
     const hadLocalSession = await authSessionFileExists();
-    const payload = await readSessionPayloadFile();
+    let payload: Partial<AuthSessionV1> | null;
+    try {
+      payload = await readSessionPayloadFile();
+    } catch (error) {
+      if (
+        !(
+          error instanceof AuthSessionStorageError && error.reason === "corrupt"
+        )
+      ) {
+        throw error;
+      }
+      // Explicit logout may recover malformed metadata, but must preserve the
+      // original evidence and never guess which Keychain item it referred to.
+      const preservedSessionPath = join(
+        openMeldRootDir(),
+        "auth",
+        `session-corrupt-${randomUUID()}.json`
+      );
+      await rename(authSessionPath(), preservedSessionPath);
+      return { hadLocalSession, preservedSessionPath };
+    }
     if (payload?.v === 1 && isStoredTokenRef(payload.tokenRef)) {
       await deleteAccessTokenOrRetainForCleanup(payload.tokenRef);
     }
@@ -1303,8 +1345,8 @@ function buildStoredAuthSession(input: {
 }
 
 function assertExpectedPreviousSession(input: {
-  current: StoredAuthSession | null;
-  expected: StoredAuthSession | null | undefined;
+  current: AuthSessionMetadata | null;
+  expected: AuthSessionMetadata | null | undefined;
 }): void {
   if (input.expected === undefined) {
     return;
@@ -1318,7 +1360,7 @@ function assertExpectedPreviousSession(input: {
 }
 
 function buildStoredAuthSessionIdentity(
-  session: StoredAuthSession | null
+  session: AuthSessionMetadata | null
 ): string {
   if (!session) {
     return "missing";
@@ -1328,7 +1370,6 @@ function buildStoredAuthSessionIdentity(
   // createdAt changes on every committed login, while user.id catches a real
   // cross-account replacement even if two sessions are created together.
   const identitySource = JSON.stringify([
-    session.v,
     session.authBaseUrl,
     session.clientId,
     session.createdAt,
@@ -2029,6 +2070,21 @@ async function readStoredAuthSessionFromPayloadIfPresent(
     accessToken: accessToken.accessToken,
     payload,
   });
+}
+
+async function readRecoverablePreviousSession(
+  payload: AuthSessionV1 | null
+): Promise<StoredAuthSession | null> {
+  if (!payload) {
+    return null;
+  }
+  const token = await readAccessToken(payload.tokenRef);
+  // The rollback has already restored the original payload. An unreadable
+  // credential cannot restart a Service, but must not prevent cleanup of the
+  // failed candidate or permanently block a fresh authorization attempt.
+  return token.status === "found"
+    ? buildStoredAuthSession({ accessToken: token.accessToken, payload })
+    : null;
 }
 
 async function readRequiredComputerAuthRecoveryJournal(id: string): Promise<

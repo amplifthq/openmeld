@@ -9,12 +9,12 @@ import {
 } from "@openmeld/ui/fluid/accordion";
 import { ArrowRightIcon, CalendarDotsIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import {
-	APPS,
-	LARK_CHANNEL_IDENTITY,
-	SLACK_CHANNEL_IDENTITY,
-} from "#/components/organizations/app-catalog";
 import { AppLogo } from "#/components/organizations/app-logo";
+import {
+	LARK_CHANNEL_IDENTITY,
+	PLUGINS,
+	SLACK_CHANNEL_IDENTITY,
+} from "#/components/organizations/plugin-catalog";
 import {
 	LOCAL_AGENTS_GUIDE_PATH,
 	listLocalAgentInstallGuides,
@@ -38,7 +38,9 @@ const LANDING_CONTENT_CLASS_NAME =
 	"mx-auto w-full max-w-[82rem] px-6 sm:px-10 lg:px-16";
 const OPENMELD_NPM_PACKAGE_URL = "https://www.npmjs.com/package/openmeld";
 const LOCAL_AGENT_GUIDES = listLocalAgentInstallGuides();
-const AVAILABLE_APPS = APPS.filter((app) => app.availability === "available");
+const AVAILABLE_APPS = PLUGINS.filter(
+	(app) => app.availability === "available"
+);
 const AVAILABLE_CHANNELS = [
 	{ ...SLACK_CHANNEL_IDENTITY, name: "Slack" },
 	{ ...LARK_CHANNEL_IDENTITY, name: "Lark" },
@@ -149,8 +151,8 @@ const FAQ_ITEMS = [
 			"Local execution stays local. Spaces receive the collaboration messages and outcomes your team chooses to share. Agent Activity receives only reviewed metadata such as provider, Project, status, and time—not prompts, replies, file contents, commands, terminal output, or local paths.",
 	},
 	{
-		question: "How do Channels and Apps differ?",
-		answer: `Slack and Lark are Channels where people can message the Center Agent and receive replies. The ${AVAILABLE_APPS.length} available Apps give the Center Agent explicitly connected tools for files, calendars, email, code, analytics, and Cloudflare. Every connection keeps its own identity, permissions, and audit trail.`,
+		question: "How do Channels and Plugins differ?",
+		answer: `Slack and Lark are Channels where people can message the Center Agent and receive replies. The ${AVAILABLE_APPS.length} available Plugins give the Center Agent explicitly connected tools for files, calendars, email, code, analytics, and Cloudflare. Every connection keeps its own identity, permissions, and audit trail.`,
 	},
 	{
 		question: "What can the Center Agent remember?",
@@ -388,11 +390,11 @@ function ConnectedWorkSection() {
 					</p>
 					<h2 className="landing-display-tight mt-6 max-w-5xl text-balance font-geist-pixel-square font-medium text-[clamp(2.5rem,4.3vw,4.5rem)] leading-[0.98]">
 						Bring work in from Slack or Lark. Connect your Center Agent to{" "}
-						{AVAILABLE_APPS.length} Apps.
+						{AVAILABLE_APPS.length} Plugins.
 					</h2>
 				</div>
 				<p className="text-base text-muted-foreground leading-7 lg:col-span-4 lg:pt-16">
-					Channels carry the conversation. Apps give the Center Agent scoped
+					Channels carry the conversation. Plugins give the Center Agent scoped
 					tools for real work. Routines keep the loop moving when no one is
 					present.
 				</p>
@@ -430,7 +432,7 @@ function ConnectedWorkSection() {
 						Available now
 					</p>
 					<h3 className="mt-3 font-medium text-2xl">
-						{AVAILABLE_APPS.length} Apps
+						{AVAILABLE_APPS.length} Plugins
 					</h3>
 					<p className="mt-4 max-w-2xl text-muted-foreground text-sm leading-6">
 						Connect the accounts your Center Agent can use. Every action keeps
@@ -444,7 +446,7 @@ function ConnectedWorkSection() {
 						Workspace data for advertising. You can disconnect at any time.
 					</p>
 					<ul
-						aria-label="Available Apps"
+						aria-label="Available Plugins"
 						className="mt-8 grid gap-x-8 sm:grid-cols-2"
 					>
 						{AVAILABLE_APPS.map((app) => (

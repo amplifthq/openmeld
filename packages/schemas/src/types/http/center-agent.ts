@@ -82,6 +82,12 @@ type CenterAgentListComputersBodySchema =
   typeof import("../../schemas/http/center-agent")["centerAgentListComputersBodySchema"];
 type CenterAgentListComputersResponseSchema =
   typeof import("../../schemas/http/center-agent")["centerAgentListComputersResponseSchema"];
+export type CenterAgentReadPeopleComputersBody = z.infer<
+  typeof import("../../schemas/http/center-agent")["centerAgentReadPeopleComputersBodySchema"]
+>;
+export type CenterAgentReadPeopleComputersResponse = z.infer<
+  typeof import("../../schemas/http/center-agent")["centerAgentReadPeopleComputersResponseSchema"]
+>;
 type CenterAgentRequestOpenMeldToolsUpdateBodySchema =
   typeof import("../../schemas/http/center-agent")["centerAgentRequestOpenMeldToolsUpdateBodySchema"];
 type CenterAgentRequestOpenMeldToolsUpdateResponseSchema =

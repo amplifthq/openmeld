@@ -1,6 +1,7 @@
 import { resolveCommandAgentWorkActivity } from "@openmeld/schemas";
 import type { AgentWorkActivity } from "@openmeld/schemas/types";
 import { resolveConnectedAppDisplayName } from "../agent-core/connector-service-presentation";
+import { isRemoteAgentDestructiveConfirmationResult } from "../agent-core/destructive-authorization";
 
 type AgentWorkActivityKey = AgentWorkActivity["key"];
 type AgentWorkSubject = NonNullable<AgentWorkActivity["subject"]>;
@@ -34,7 +35,6 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_create_project", "project.create"],
   ["openmeld_create_routine", "routine.create"],
   ["openmeld_create_space", "space.create"],
-  ["openmeld_create_task", "center_agent.task.create"],
   ["openmeld_delete_routine", "routine.delete"],
   ["openmeld_draft_org_document", "organization.document.draft"],
   ["openmeld_checkout_org_document", "organization.documents.read"],
@@ -57,8 +57,6 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ],
   ["openmeld_list_feedback_issues", "feedback.read"],
   ["openmeld_list_agent_tasks", "tasks.read"],
-  ["openmeld_list_center_agent_tasks", "tasks.read"],
-  ["openmeld_get_center_agent_task", "tasks.read"],
   ["openmeld_list_projects", "projects.read"],
   ["openmeld_list_routines", "routines.read"],
   ["openmeld_list_slack_channels", "slack.channels.read"],
@@ -255,7 +253,8 @@ const WEBSITE_SUBJECT_TOOL_NAMES = new Set([
 
 export function resolveRemoteAgentToolWorkActivity(
   toolName: unknown,
-  toolInput: unknown
+  toolInput: unknown,
+  toolResult?: unknown
 ): AgentWorkActivity | null {
   if (typeof toolName !== "string") {
     return null;
@@ -267,7 +266,14 @@ export function resolveRemoteAgentToolWorkActivity(
     if (CONNECTED_APP_SUBJECT_TOOL_NAMES.has(toolName) && !subject) {
       return null;
     }
-    return { key, v: 1, ...(subject ? { subject } : {}) };
+    return {
+      key,
+      v: 1,
+      ...(subject ? { subject } : {}),
+      ...(isRemoteAgentDestructiveConfirmationResult(toolResult)
+        ? { outcome: "confirmation_required" as const }
+        : {}),
+    };
   }
   if (toolName !== "bash") {
     return null;

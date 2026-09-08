@@ -25,6 +25,8 @@ vi.mock("../src/config/macos-native-keychain-embedded", () => ({
 
 import {
   MAC_OS_KEYCHAIN_HELPER_TIMEOUT_MS,
+  MAC_OS_KEYCHAIN_RETRY_DELAY_MS,
+  readMacOsNativeKeychainToken,
   runMacOsNativeKeychainHelperIfRequested,
   runMacOsNativeKeychainRequestInChild,
 } from "../src/config/macos-native-keychain";
@@ -59,6 +61,37 @@ function createMockChild(): MockChild {
 }
 
 describe("macOS native Keychain child boundary", () => {
+  it("retries a transient timeout after cooldown without restarting or changing credentials", async () => {
+    vi.useFakeTimers();
+    const stalled = createMockChild();
+    spawnMock.mockReturnValue(stalled);
+    const address = { service: "test-service", account: "test-account" };
+    const first = expect(readMacOsNativeKeychainToken(address)).rejects.toThrow(
+      "did not respond"
+    );
+    await vi.advanceTimersByTimeAsync(MAC_OS_KEYCHAIN_HELPER_TIMEOUT_MS);
+    await first;
+    await expect(readMacOsNativeKeychainToken(address)).rejects.toThrow(
+      "did not respond"
+    );
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(MAC_OS_KEYCHAIN_RETRY_DELAY_MS);
+    const recovered = createMockChild();
+    spawnMock.mockReturnValue(recovered);
+    const next = readMacOsNativeKeychainToken(address);
+    recovered.stdout.emit(
+      "data",
+      JSON.stringify({
+        schemaVersion: MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION,
+        ok: true,
+        operation: "read",
+        accessToken: "synthetic-token",
+      })
+    );
+    recovered.emit("close", 0, null);
+    await expect(next).resolves.toBe("synthetic-token");
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+  });
   beforeEach(() => {
     setProcessPlatform("darwin");
     spawnMock.mockReset();

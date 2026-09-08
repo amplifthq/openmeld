@@ -19,6 +19,46 @@ vi.mock("#/lib/spaces/api", () => ({
 }));
 
 describe("spaceActiveWakeProgressSummaryQueryOptions", () => {
+	it("filters the person's Wakes on the server and shares Space invalidation without sharing cached results", async () => {
+		getActiveWakeProgressMock.mockResolvedValue({ items: [] });
+		createWebSpaceApiMock.mockReturnValue({
+			getActiveWakeProgress: getActiveWakeProgressMock,
+		});
+		const common = {
+			enabled: true,
+			spaceId: "space-123",
+			openMeldProfileId: "profile-123",
+		};
+		const all = spaceActiveWakeProgressSummaryQueryOptions(common);
+		const own = spaceActiveWakeProgressSummaryQueryOptions({
+			...common,
+			sourceProfileId: "profile-123",
+		});
+		await (own.queryFn as () => Promise<unknown>)();
+		expect(getActiveWakeProgressMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				sourceProfileId: "profile-123",
+				includePageInfo: true,
+			})
+		);
+		const client = new QueryClient();
+		client.setQueryData(all.queryKey, {
+			items: [],
+			query: { spaceId: "space-123", targetProfileId: null },
+		});
+		client.setQueryData(own.queryKey, {
+			items: [],
+			query: {
+				spaceId: "space-123",
+				targetProfileId: null,
+				sourceProfileId: "profile-123",
+			},
+		});
+		expect(client.getQueryCache().getAll()).toHaveLength(2);
+		await client.invalidateQueries({ queryKey: all.queryKey });
+		expect(client.getQueryState(own.queryKey)?.isInvalidated).toBe(true);
+		client.clear();
+	});
 	it("keeps a cached summary for route returns and revalidates complete active controls", async () => {
 		getActiveWakeProgressMock.mockResolvedValue({
 			items: [],

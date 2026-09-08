@@ -209,6 +209,12 @@ Signals itself, read Flue storage, infer authorization from a conversation or
 session id, or construct its own summary. Each page is independently
 authorized, source-linked, and audited.
 
+`--conversation <space-id>` selects one exact Center Agent session. This is
+separate from `--session`, which only overrides the Local Agent source locator.
+An unavailable selected conversation fails instead of reading a different
+chat. Omitting `--conversation` retains the default conversation behavior;
+session-aware callers must pass their selection on each context page.
+
 Token-budget pages are contiguous. Core never advances the cursor past a
 visible message that cannot be materialized inside the requested budget. If
 that message's required metadata cannot fit even with empty text, Core returns
@@ -1322,6 +1328,15 @@ reported capability status and usage-limit evidence. It does not fetch File
 Access diagnostics or unrelated Computer detail. Missing usage-limit evidence
 means unavailable evidence, not zero capacity.
 
+Both inventory commands read Core's PeopleComputers projection without updating
+device registration or metadata. `computer list` exposes explicit connection
+evidence and `isThisComputer` from local device proof. `computer current` selects
+that local device and the active CLI environment, never the account's preferred
+Binding. Its legacy-shaped diagnostic inventory uses the shared
+`projectPeopleComputersToLegacyLocalRuntimes` adapter; Web uses the same adapter
+with its explicitly named routing preference instead of claiming browser-local
+device proof. File Access diagnostics address the exact local device and lane.
+
 `computer current --view agent` composes the complete current inventory with
 the existing current-computer reply diagnostics, OpenMeld Tools
 versions and update state, and a File Access summary. The summary reports mode,
@@ -1415,33 +1430,28 @@ metadata may still expose `security` as a password-protection label; consumers
 must use the canonical `organizationVisibility`, `accessMode`, and
 `passwordProtected` fields for access decisions.
 
-`space members <space-id>` reads the shared member-directory projection for the
-people and agents currently in the Space, including canonical mention labels
-and the Wake/Reference/Human Mention relations each member accepts. Agent
-canonical forms are `@Name(wake)` and `@Name(reference)`; a person's form is
-`@Name(mention)`. `space action reply` exposes the same distinction through
-`--wake`, `--reference`, and `--mention`. It is an authoring aid,
-not membership, readiness, presence, or execution authority. Agent View emits
-the full validated directory through the presenter protocol; explicit `--json`
-emits the strict versioned `space.members` envelope.
+`space members <space-id>` returns current identities, full Profile IDs, and
+allowed Wake/Reference/Human Mention relations. Human View shows explicit
+recipient flags; Agent View keeps the validated directory and full IDs.
+`space members --target <profile-id-or-mention> --brief` remains a read-only
+lookup aid; resolving a name here never authorizes a send.
 
-`space members <space-id> --target <profile-id-or-mention> --brief` resolves
-exactly one current member using the directory's canonical lookup tokens and
-returns only identity, addressing relations, and the matching Core-owned Agent
-Wake Availability projection. Ambiguous targets fail closed and require an
-exact Profile ID. The convenience `canWakeNow` field means only that the
-preserved readiness status is currently `available_for_wake`; it is not a
-second readiness authority and does not predict completion.
+`space send`, its top-level `send` alias, and `space action reply` use repeatable
+`--wake <agent-profile-id>`, `--reference <agent-profile-id>`, and
+`--mention <human-profile-id>`. Send selectors are full current Profile IDs.
+A missing member, conflicting relation, or incompatible Profile kind fails
+before upload/publication. Repeating an ID in one relation is deduplicated.
+Dispatch-owned replies still use their prompt-owned context and publication
+boundary; generic send cannot replace a dispatch action.
 
-`space send` and Terminal interactive input treat `@target(wake)`,
-`@target(reference)`, and `@target(mention)` as CLI authoring controls. The
-target may be an exact current mention label or a stable Profile ID. Both paths
-resolve it through the same current member snapshot, post
-`@primaryMentionLabel` in message text and message-envelope text, and retain the
-exact Profile ID and relation in structured targets. Agent View reports the
-resolved ID-to-label mapping in the addressing summary. `--plain` is the
-explicit escape hatch that skips member resolution, publishes the authored text
-literally, and creates no structured target.
+Message text is literal, including old `@Name(wake)` syntax, code, and examples.
+`--plain` optionally asserts that no recipient flags were supplied. Plain sends
+need no member-directory read. Explicit recipients are resolved against one
+current snapshot and displayed by current name; the message envelope carries
+Profile IDs and relations. Agent View reports the exact addressing summary.
+Interactive terminal selections retain identity beside the text; typing or
+pasting the same name does not select a recipient. Raw stdio input is literal;
+use `space send` recipient flags for non-interactive addressing.
 
 Current CLI HTTP reads declare Space Addressing response version 1, and current
 Space WebSocket sessions declare `spaceMessageAddressing` in the hello

@@ -2,7 +2,6 @@ import {
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
   CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
   CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
-  CENTER_AGENT_TASK_REFERENCE_MAX_COUNT,
   type CenterAgentModelRoute,
   centerAgentModelRouteSchema,
   conversationCompactionMarkerSchema,
@@ -29,12 +28,10 @@ import type {
   CenterAgentCreateProjectToolResponse,
   CenterAgentCreateProjectToolRpcInput,
   CenterAgentCreateRoutineToolRpcInput,
-  CenterAgentCreateTaskToolRpcInput,
   CenterAgentDeleteRoutineToolRpcInput,
   CenterAgentDraftOrganizationDocumentResponse,
   CenterAgentDraftOrganizationDocumentRpcInput,
   CenterAgentGetOrganizationInviteLinkToolRpcInput,
-  CenterAgentGetTaskToolRpcInput,
   CenterAgentInstallOrganizationSkillResponse,
   CenterAgentInstallOrganizationSkillRpcInput,
   CenterAgentInviteSlackTeammatesRpcInput,
@@ -50,7 +47,6 @@ import type {
   CenterAgentListSlackChannelsResponse,
   CenterAgentListSpaceFilesResponse,
   CenterAgentListSpaceFilesRpcInput,
-  CenterAgentListTasksToolRpcInput,
   CenterAgentManageOrganizationDocumentsResponse,
   CenterAgentManageOrganizationDocumentsRpcInput,
   CenterAgentManageSpaceFilesResponse,
@@ -106,7 +102,6 @@ import type {
   CenterAgentSetOrganizationWorkingLanguageToolRpcInput,
   CenterAgentSpaceAuthoringContractResponse,
   CenterAgentStartSelfMemberResearchToolRpcInput,
-  CenterAgentTaskReference,
   CenterAgentUpdateProjectToolResponse,
   CenterAgentUpdateProjectToolRpcInput,
   CenterAgentUpdateRoutineToolRpcInput,
@@ -114,11 +109,8 @@ import type {
   CommitSpaceFileWriteInput,
   ConversationCompactionMarker,
   CreateCenterAgentRoutineResponse,
-  CreateCenterAgentTaskResponse,
   DeleteCenterAgentRoutineResponse,
-  GetCenterAgentTaskResponse,
   ListCenterAgentRoutinesResponse,
-  ListCenterAgentTasksResponse,
   OpenMeldRequestContext,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
@@ -137,7 +129,6 @@ import type {
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamPartCallbackBody,
   RemoteAgentTurnEnvelope,
-  RemoteAgentWorkerConversationIdentity,
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkLoopCheckpoint,
@@ -171,7 +162,6 @@ const CALLBACK_RETRY_MAX_DELAY_MS = 300_000;
 const CALLBACK_CONTEXT_WRITE_MAX_ATTEMPTS = 8;
 const ANONYMOUS_IDENTITY_BOUNDARY_WRITE_MAX_ATTEMPTS = 8;
 const NAVIGATION_TARGET_WRITE_MAX_ATTEMPTS = 8;
-const CENTER_AGENT_TASK_REFERENCE_WRITE_MAX_ATTEMPTS = 8;
 const CONVERSATION_COMPACTION_WRITE_MAX_ATTEMPTS = 8;
 const WORK_LOOP_CHECKPOINT_WRITE_MAX_ATTEMPTS = 8;
 export const REMOTE_AGENT_CALLBACK_CONTEXT_WAIT_MS = 5000;
@@ -207,9 +197,10 @@ export type RemoteAgentCallbackContext = {
   callbackNextAttemptAt?: string;
   callbackStatus: RemoteAgentCallbackStatus;
   completedText?: string;
-  centerAgentTaskReferences?: CenterAgentTaskReference[];
   conversationId?: string;
-  conversationIdentity?: RemoteAgentWorkerConversationIdentity;
+  conversationIdentity?: import("zod/v4").infer<
+    typeof remoteAgentWorkerConversationIdentitySchema
+  >;
   runtimeConversationId?: string;
   conversationCompaction?: ConversationCompactionMarker;
   outputAttachments?: SpaceMessageAttachment[];
@@ -328,15 +319,6 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentCreateRoutine?(
     input: CenterAgentCreateRoutineToolRpcInput
   ): Promise<CreateCenterAgentRoutineResponse>;
-  centerAgentCreateTask?(
-    input: CenterAgentCreateTaskToolRpcInput
-  ): Promise<CreateCenterAgentTaskResponse>;
-  centerAgentGetTask?(
-    input: CenterAgentGetTaskToolRpcInput
-  ): Promise<GetCenterAgentTaskResponse>;
-  centerAgentListTasks?(
-    input: CenterAgentListTasksToolRpcInput
-  ): Promise<ListCenterAgentTasksResponse>;
   centerAgentListOrganizationMembers?(
     input: CenterAgentListOrganizationMembersToolRpcInput
   ): Promise<CenterAgentListOrganizationMembersResponse>;
@@ -469,6 +451,19 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentGetOrganizationSpaceDirectory?(input: unknown): Promise<unknown>;
   centerAgentListActiveSpaceWakes?(input: unknown): Promise<unknown>;
   centerAgentListComputers?(input: unknown): Promise<unknown>;
+  centerAgentReadPeopleComputers?(input: unknown): Promise<unknown>;
+  centerAgentRequestPeopleComputerToolsUpdate?(
+    input: unknown
+  ): Promise<unknown>;
+  centerAgentSetPeopleComputerToolsMaintenance?(
+    input: unknown
+  ): Promise<unknown>;
+  centerAgentListPeopleComputerLocalAgentInstallations?(
+    input: unknown
+  ): Promise<unknown>;
+  centerAgentSelectPeopleComputerLocalAgentInstallation?(
+    input: unknown
+  ): Promise<unknown>;
   centerAgentRequestOpenMeldToolsUpdate?(input: unknown): Promise<unknown>;
   centerAgentSetOpenMeldToolsMaintenance?(input: unknown): Promise<unknown>;
   centerAgentListLocalAgentInstallations?(input: unknown): Promise<unknown>;
@@ -524,6 +519,7 @@ export type RemoteAgentCoreWorkerBinding = {
   ): Promise<unknown>;
   centerAgentUpdateSpaceSettings?(input: unknown): Promise<unknown>;
   centerAgentWakeAgentProfilesInSpace?(input: unknown): Promise<unknown>;
+  personalRemoteAgentSpaceTool?(input: unknown): Promise<unknown>;
   centerAgentListAgentTasks?(input: unknown): Promise<unknown>;
   centerAgentWatchAgentTask?(input: unknown): Promise<unknown>;
   inspectExecutionRecovery?(input: unknown): Promise<unknown>;
@@ -628,8 +624,7 @@ export function createRemoteAgentCallbackContext(input: {
     callbackAttempts: 0,
     callbackStatus: "pending",
     conversationId: input.request.conversationId,
-    ...((input.request.v === 3 || input.request.v === 4) &&
-    input.request.conversationIdentity
+    ...(input.request.v === 4 && input.request.conversationIdentity
       ? { conversationIdentity: input.request.conversationIdentity }
       : {}),
     ...(input.request.v === 4
@@ -1020,9 +1015,6 @@ export function buildRemoteAgentCoreCallbackBody(input: {
     agentProfileId: input.context.agentProfileId,
     bindingId: input.context.bindingId,
     callbackAttempt: input.context.callbackAttempts + 1,
-    ...(input.context.centerAgentTaskReferences?.length
-      ? { centerAgentTaskReferences: input.context.centerAgentTaskReferences }
-      : {}),
     dispatchId: input.context.dispatchId,
     idempotencyKey: input.context.idempotencyKey,
     organizationId: input.context.organizationId,
@@ -1109,60 +1101,6 @@ export async function recordRemoteAgentWorkLoopCheckpoint(input: {
   }
   throw new Error(
     `Remote Agent work-loop checkpoint ${input.submissionId} could not be persisted after concurrent writes.`
-  );
-}
-
-export async function recordRemoteAgentCenterAgentTaskReference(input: {
-  storage: RemoteAgentStorage;
-  submissionId: string;
-  taskId: string;
-}): Promise<RemoteAgentCallbackContext> {
-  const taskId = input.taskId.trim();
-  if (!taskId) {
-    throw new Error(
-      "Remote Agent Center Agent Task reference requires taskId."
-    );
-  }
-  const key = buildRemoteAgentCallbackContextKey(input.submissionId);
-  for (
-    let attempt = 0;
-    attempt < CENTER_AGENT_TASK_REFERENCE_WRITE_MAX_ATTEMPTS;
-    attempt += 1
-  ) {
-    const current = await readRemoteAgentCallbackContext(
-      input.storage,
-      input.submissionId
-    );
-    if (!current) {
-      throw new Error(
-        `Remote Agent Center Agent Task reference requires callback context ${input.submissionId}.`
-      );
-    }
-    if (current.callbackStatus !== "pending") {
-      throw new Error(
-        `Remote Agent Center Agent Task reference cannot update ${current.callbackStatus} callback context ${input.submissionId}.`
-      );
-    }
-    const references = current.centerAgentTaskReferences ?? [];
-    if (references.some((reference) => reference.taskId === taskId)) {
-      return current;
-    }
-    if (references.length >= CENTER_AGENT_TASK_REFERENCE_MAX_COUNT) {
-      throw new Error(
-        `Remote Agent Center Agent Task references exceed the ${CENTER_AGENT_TASK_REFERENCE_MAX_COUNT}-reference limit.`
-      );
-    }
-    const updated: RemoteAgentCallbackContext = {
-      ...current,
-      centerAgentTaskReferences: [...references, { taskId }],
-    };
-    if (await input.storage.compareAndSet(key, current, updated)) {
-      notifyRemoteAgentCallbackContextWaiters(input.submissionId);
-      return updated;
-    }
-  }
-  throw new Error(
-    `Remote Agent Center Agent Task reference could not update callback context ${input.submissionId} after concurrent writes.`
   );
 }
 
@@ -1932,15 +1870,6 @@ function isRemoteAgentCallbackContext(
     (candidate.runtimeConversationId === undefined ||
       (typeof candidate.runtimeConversationId === "string" &&
         candidate.runtimeConversationId.trim().length > 0)) &&
-    (candidate.centerAgentTaskReferences === undefined ||
-      (Array.isArray(candidate.centerAgentTaskReferences) &&
-        candidate.centerAgentTaskReferences.length <=
-          CENTER_AGENT_TASK_REFERENCE_MAX_COUNT &&
-        candidate.centerAgentTaskReferences.every(
-          (reference) =>
-            typeof reference?.taskId === "string" &&
-            reference.taskId.trim().length > 0
-        ))) &&
     (candidate.modelRoute === undefined ||
       centerAgentModelRouteSchema.safeParse(candidate.modelRoute).success) &&
     (candidate.workLoopCheckpoint === undefined ||

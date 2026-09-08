@@ -10,7 +10,7 @@ describe("start query keys", () => {
 		]);
 		expect(startQueryKeys.localRuntimes("user-a")).toEqual([
 			"start",
-			"local-runtimes",
+			"people-computers",
 			"user-a",
 		]);
 		expect(startQueryKeys.prepareSession("user-a", "prepare-123")).not.toEqual(

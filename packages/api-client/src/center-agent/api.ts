@@ -1,5 +1,6 @@
 import {
   centerAgentModelConfigurationResponseSchema,
+  centerAgentSessionSelectorSchema,
   centerAgentSlackWorkspaceConnectBodySchema,
   centerAgentSlackWorkspaceConnectionResponseSchema,
   centerAgentSlackWorkspaceDisconnectResponseSchema,
@@ -9,6 +10,7 @@ import {
   createCenterAgentContextLoadReceiptResponseSchema,
   createCenterAgentContextManifestBodySchema,
   createCenterAgentContextManifestResponseSchema,
+  createCenterAgentSessionBodySchema,
   designateCenterAgentBodySchema,
   designateCenterAgentResponseSchema,
   getCenterAgentDesignationResponseSchema,
@@ -16,6 +18,8 @@ import {
   getCenterAgentOperatingStateResponseSchema,
   listCenterAgentAuditJournalQuerySchema,
   listCenterAgentAuditJournalResponseSchema,
+  listCenterAgentSessionsQuerySchema,
+  listCenterAgentSessionsResponseSchema,
   openCenterAgentDirectMessageSpaceResponseSchema,
   openMeldRequestContextSchema,
   slackIdentityLinkConsumeBodySchema,
@@ -37,6 +41,8 @@ import {
   buildCenterAgentModelPath,
   buildCenterAgentOperatingStatePath,
   buildCenterAgentProfilePath,
+  buildCenterAgentSessionPath,
+  buildCenterAgentSessionsPath,
   buildCenterAgentSlackWorkspaceConnectionPath,
   buildSlackIdentityLinkConsumePath,
   buildSlackIdentityLinkPreviewPath,
@@ -236,6 +242,7 @@ export const createCenterAgentApi: CreateCenterAgentApi = (
     const request = validateContextManifestInput(input);
     return await client.requestJson({
       body: JSON.stringify({
+        ...(request.spaceId === undefined ? {} : { spaceId: request.spaceId }),
         ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
         limit: request.limit,
         maxContextTokens: request.maxContextTokens,
@@ -269,6 +276,67 @@ export const createCenterAgentApi: CreateCenterAgentApi = (
       signal: request.signal,
       timeoutMs: request.timeoutMs,
       url: buildCenterAgentContextLoadReceiptPath(request.manifestId),
+    });
+  },
+  createSession: async (input) => {
+    const body = createCenterAgentSessionBodySchema.safeParse({
+      creationId: input.creationId,
+    });
+    if (!body.success) {
+      throw new Error("Provide a valid session creation ID.");
+    }
+    return await client.requestJson({
+      url: buildCenterAgentSessionsPath(),
+      operation: "center_agent.session.create",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body.data),
+      requestContext: validateRequestInput(input).requestContext,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      schema: openCenterAgentDirectMessageSpaceResponseSchema,
+      invalidMessage: "Invalid Center Agent session response.",
+    });
+  },
+  listSessions: async (input = {}) => {
+    const parsed = listCenterAgentSessionsQuerySchema.safeParse({
+      ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+      ...(input.limit === undefined ? {} : { limit: input.limit }),
+    });
+    if (!parsed.success) {
+      throw new Error("Provide a valid chat-list cursor and limit.");
+    }
+    const query = new URLSearchParams({ limit: String(parsed.data.limit) });
+    if (parsed.data.cursor !== undefined) {
+      query.set("cursor", parsed.data.cursor);
+    }
+    return await client.requestJson({
+      url: `${buildCenterAgentSessionsPath()}?${query.toString()}`,
+      operation: "center_agent.session.list",
+      method: "GET",
+      requestContext: validateRequestInput(input).requestContext,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      schema: listCenterAgentSessionsResponseSchema,
+      invalidMessage: "Invalid Center Agent chat list.",
+    });
+  },
+  getSession: async (input) => {
+    const selector = centerAgentSessionSelectorSchema.safeParse({
+      spaceId: input.spaceId,
+    });
+    if (!selector.success) {
+      throw new Error("Provide a valid session ID.");
+    }
+    return await client.requestJson({
+      url: buildCenterAgentSessionPath(selector.data.spaceId),
+      operation: "center_agent.session.read",
+      method: "GET",
+      requestContext: validateRequestInput(input).requestContext,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      schema: getCenterAgentDirectMessageSpaceProjectionResponseSchema,
+      invalidMessage: "Invalid Center Agent session response.",
     });
   },
   openDirectMessageSpace: async (input = {}) =>
@@ -313,6 +381,7 @@ function validateContextManifestInput(
   view: "messages";
 } {
   const parsed = createCenterAgentContextManifestBodySchema.safeParse({
+    ...(input.spaceId === undefined ? {} : { spaceId: input.spaceId }),
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
     ...(input.maxContextTokens === undefined

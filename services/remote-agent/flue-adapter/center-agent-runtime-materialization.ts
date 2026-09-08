@@ -55,7 +55,7 @@ type CenterAgentRuntimeMaterialization<
 };
 
 export type CenterAgentRuntimeContextPlan = {
-  materializeOrganizationDocuments: boolean;
+  includeOrganizationDocuments: boolean;
   materializeOrganizationSkills: boolean;
 };
 
@@ -64,7 +64,7 @@ export function resolveCenterAgentRuntimeContextPlan(
 ): CenterAgentRuntimeContextPlan {
   const contextScopePlan = resolveCenterAgentContextScopePlan(turnEnvelope);
   return {
-    materializeOrganizationDocuments:
+    includeOrganizationDocuments:
       canMaterializeCenterAgentOrganizationDocuments(contextScopePlan),
     materializeOrganizationSkills:
       canMaterializeCenterAgentOrganizationSkills(contextScopePlan),

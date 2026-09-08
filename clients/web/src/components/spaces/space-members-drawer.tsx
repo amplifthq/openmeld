@@ -33,6 +33,7 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { springs } from "@openmeld/ui/lib/springs";
 import {
 	resolveStatusToneIconClassName,
@@ -67,6 +68,7 @@ import {
 import { toast } from "sonner";
 import { Drawer } from "vaul";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
+import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { resolveDirectoryHumanProfileActivityLabel } from "#/components/directory/directory-human-profile-format";
 import { SpacePickerCreateAgent } from "#/components/profiles/space-picker-create-agent";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
@@ -691,7 +693,11 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 	return (
 		<LazyMotion features={domAnimation} strict>
 			<MotionConfig reducedMotion="user">
-				<div className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-3">
+				<ScrollArea
+					className="min-h-0 flex-1"
+					contentClassName="px-3 pt-2 pb-3"
+					orientation="vertical"
+				>
 					<div className="flex flex-col gap-3">
 						<SpaceAddProfilesSection
 							accountProfiles={input.accountProfiles}
@@ -778,7 +784,7 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 							snapshot={input.snapshot}
 						/>
 					</div>
-				</div>
+				</ScrollArea>
 			</MotionConfig>
 		</LazyMotion>
 	);
@@ -877,7 +883,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	);
 	const directoryQuery = useQuery(
 		organizationSpaceProfileCandidatesQueryOptions({
-			enabled: usesOrganizationDirectory,
+			enabled: usesOrganizationDirectory || Boolean(input.open && organization),
 			organizationId: organization?.id ?? "",
 		})
 	);
@@ -915,12 +921,14 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			usesOrganizationDirectory
 				? organizationDirectoryCandidates
 				: buildPersonalAddMemberGroups({
+						directory: directoryQuery.data ?? null,
 						alreadyJoinedCandidates:
 							personalProfilesPlan.alreadyJoinedCandidates,
 						selectableCandidates: personalProfilesPlan.selectableCandidates,
 					}),
 		[
 			organizationDirectoryCandidates,
+			directoryQuery.data,
 			personalProfilesPlan.alreadyJoinedCandidates,
 			personalProfilesPlan.selectableCandidates,
 			usesOrganizationDirectory,
@@ -1791,7 +1799,11 @@ function SpaceAddMembersCandidateGroup(input: {
 								<Badge className="h-4 px-1.5 text-[10px]" variant="secondary">
 									Remote
 								</Badge>
-							) : undefined
+							) : (
+								<RemoteAgentIndicator
+									agentControllerRef={candidate.agentControllerRef ?? null}
+								/>
+							)
 						}
 						onToggle={() => input.onToggle(candidate.profileId)}
 					/>
@@ -2091,6 +2103,7 @@ function compareOptionalDatesDescending(
 }
 
 function buildPersonalAddMemberGroups(input: {
+	directory: OrganizationSpaceProfileCandidates | null;
 	alreadyJoinedCandidates: readonly SpaceProfileAddCandidate[];
 	selectableCandidates: readonly SpaceProfileAddCandidate[];
 }): SpaceAddMembersCandidateGroups {
@@ -2107,6 +2120,10 @@ function buildPersonalAddMemberGroups(input: {
 	]) {
 		const summary = {
 			...toAddMembersCandidateSummary(candidate),
+			agentControllerRef:
+				input.directory?.agentProfiles.find(
+					(profile) => profile.profileId === candidate.profile.profileId
+				)?.agentControllerRef ?? null,
 			alreadyMember,
 		};
 		const ownerId = candidate.profile.ownerUserId ?? "personal";

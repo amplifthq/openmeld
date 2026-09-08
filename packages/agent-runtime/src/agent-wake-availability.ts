@@ -125,6 +125,10 @@ const exactWakeAdmissionTerminalDecisions: Readonly<
     publicationCategory: "update_required",
     userRecoveryAction: "update_openmeld_service",
   },
+  "service.drifted": {
+    publicationCategory: "agent_profile_unavailable",
+    userRecoveryAction: "check_status",
+  },
 };
 
 /**
@@ -202,7 +206,6 @@ export function resolveAgentWakeAdmissionTerminalDecision(
   if (
     normalizedReasonCode.startsWith("daemon.runtime_contract.") ||
     normalizedReasonCode === "service.not_installed" ||
-    normalizedReasonCode === "service.drifted" ||
     normalizedReasonCode === "background_helper.update_required"
   ) {
     return {
@@ -238,6 +241,25 @@ export function resolveAgentWakeAdmissionTerminalDecision(
   };
 }
 
+// These are missing current evidence, not permission to execute and not a
+// definitive refusal. Core may retain the same undelivered Wake while the
+// existing Service reporting path catches up; every retry reruns admission.
+export function isAgentWakeAdmissionPreparationPendingReason(
+  reasonCode: string
+): boolean {
+  return new Set([
+    "agent_execution.readiness_unconfirmed",
+    "usage_checking",
+    "daemon.profile.pending_first_report",
+    "agent_execution.route_missing",
+    "route.not_registered",
+    "working_folder.report_stale",
+    "working_folder.observation_coverage_invalid",
+    "working_folder.observation_identity_mismatch",
+    "working_folder.observation_stale",
+  ]).has(reasonCode);
+}
+
 export function resolveAgentWakeAdmissionBlockReasonCode(
   readiness: AgentExecutionStatusProjection
 ): string | null {
@@ -269,6 +291,7 @@ export function resolveAgentWakeAdmissionBlockReasonCode(
     reasonCodes.find((reasonCode) =>
       reasonCode.startsWith("working_folder.")
     ) ??
+    reasonCodes.find(isAgentWakeAdmissionPreparationPendingReason) ??
     "agent_execution.readiness_unconfirmed"
   );
 }

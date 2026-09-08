@@ -71,8 +71,8 @@ export {
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
-  buildOrganizationAppPath,
-  buildOrganizationAppsPath,
+  buildOrganizationPluginPath,
+  buildOrganizationPluginsPath,
   buildOrganizationRootPath,
   buildOrganizationSpacePath,
   buildSlackIdentityLinkNavigationAction,
@@ -99,6 +99,7 @@ export {
   type OrganizationJoinRequestResponse,
   type OrganizationJoinRequestRpcInput,
   organizationJoinRequestInputSchema,
+  organizationJoinRequestResponseForVersion,
   organizationJoinRequestResponseSchema,
   organizationJoinRequestRpcInputSchema,
   organizationJoinRequestSchema,
@@ -144,6 +145,18 @@ export {
   RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
 } from "./runtime-coordinator-reason-code";
+export {
+  type AccountSidebarPreferences,
+  type AccountSidebarSnapshot,
+  accountSidebarErrorResponseSchema,
+  accountSidebarPreferencesSchema,
+  accountSidebarResponseSchema,
+  accountSidebarSnapshotSchema,
+  type PeopleSidebarPreferences,
+  peopleSidebarPreferencesSchema,
+  saveAccountSidebarBodySchema,
+  sidebarSortSchema,
+} from "./schemas/account-sidebar";
 export * from "./schemas/index";
 export {
   ORGANIZATION_INVITATION_LIFETIME_SECONDS,
@@ -175,3 +188,10 @@ export {
   webApplicationErrorSourceSchema,
   webApplicationErrorSummarySchema,
 } from "./web-application-error";
+export {
+  WEB_PERFORMANCE_PATH,
+  type WebPerformancePolicy,
+  type WebPerformanceReport,
+  webPerformancePolicySchema,
+  webPerformanceReportSchema,
+} from "./web-performance";

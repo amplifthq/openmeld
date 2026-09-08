@@ -19,12 +19,12 @@ import {
 } from "@tanstack/react-query-persist-client";
 import { z } from "zod/v4";
 import { currentComputerToolbarDisplaySnapshotSchema } from "#/query/connect/current-computer-toolbar-display-snapshot";
-import {
-	organizationAppConnectionQueryKeys,
-	organizationAppConnectionStatusSummarySchema,
-} from "#/query/organizations/app-connections";
 import { centerAgentQueryKeys } from "#/query/organizations/center-agent";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import {
+	organizationPluginConnectionQueryKeys,
+	organizationPluginConnectionStatusSummarySchema,
+} from "#/query/organizations/plugin-connections";
 import { PERSISTED_DISPLAY_QUERY_GC_TIME_MS } from "#/query/query-config";
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-snapshot";
@@ -511,7 +511,9 @@ export function createBrowserQueryPersistenceController(
 						scopeKind: "organization",
 						targetQueryKeys: [
 							organizationQueryKeys.spaces(organizationId),
-							organizationAppConnectionQueryKeys.statusSummary(organizationId),
+							organizationPluginConnectionQueryKeys.statusSummary(
+								organizationId
+							),
 							centerAgentQueryKeys.directMessageSpaceProjection(organizationId),
 						],
 					}),
@@ -994,7 +996,7 @@ function redactOrganizationPersistedDisplayData(data: unknown): unknown {
 		return centerAgentProjection.data;
 	}
 	const statusSummary =
-		organizationAppConnectionStatusSummarySchema.safeParse(data);
+		organizationPluginConnectionStatusSummarySchema.safeParse(data);
 	if (statusSummary.success) {
 		return statusSummary.data;
 	}
@@ -1067,6 +1069,7 @@ function createObservedPersister(input: {
 	throttleTimeMs?: number;
 }): { didRestoreUsableClient: () => boolean; persister: Persister } {
 	let restoredUsableClient = false;
+	let restoredSizeBytes: number | undefined;
 	const observedStorage = {
 		getItem: input.storage.getItem,
 		removeItem: input.storage.removeItem,
@@ -1103,7 +1106,11 @@ function createObservedPersister(input: {
 	const basePersister = createAsyncStoragePersister({
 		deserialize: (payload) => {
 			try {
-				return JSON.parse(payload) as PersistedClient;
+				const client = JSON.parse(payload) as PersistedClient;
+				// Measure the payload we already read instead of serializing the
+				// entire restored cache again solely for diagnostics.
+				restoredSizeBytes = new TextEncoder().encode(payload).byteLength;
+				return client;
 			} catch (error) {
 				input.diagnostics.record({
 					errorName: resolvePersistenceErrorName(error),
@@ -1136,6 +1143,7 @@ function createObservedPersister(input: {
 		removeClient: async () => await basePersister.removeClient(),
 		restoreClient: async () => {
 			restoredUsableClient = false;
+			restoredSizeBytes = undefined;
 			const startedAtMs = input.nowMs();
 			try {
 				const client = await basePersister.restoreClient();
@@ -1160,7 +1168,7 @@ function createObservedPersister(input: {
 					durationMs: elapsedMs(input.nowMs, startedAtMs),
 					event: restoreEvent,
 					scopeKind: input.scope.scopeKind,
-					sizeBytes: estimatePersistedClientSize(client),
+					sizeBytes: restoredSizeBytes,
 				});
 				return client;
 			} catch (error) {
@@ -1201,10 +1209,6 @@ async function waitWithinRestoreBudget(input: {
 	if (timeout !== undefined) {
 		clearTimeout(timeout);
 	}
-}
-
-function estimatePersistedClientSize(client: PersistedClient): number {
-	return new TextEncoder().encode(JSON.stringify(client)).byteLength;
 }
 
 function elapsedMs(nowMs: () => number, startedAtMs: number): number {

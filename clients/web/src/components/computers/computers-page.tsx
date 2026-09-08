@@ -18,7 +18,10 @@ import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-nav
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { resolveConnectedLocalRuntime } from "#/lib/connect/connected-runtime";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationPeoplePath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationPeoplePath,
+	buildOrganizationPersonPath,
+} from "#/lib/organizations/organization-routes";
 import {
 	organizationComputersQueryOptions,
 	organizationDirectoryQueryOptions,
@@ -212,10 +215,14 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 								"text-foreground hover:text-foreground/80"
 							)}
 							data-testid="computer-owner-profile-link"
-							search={
-								ownerProfileId ? { profileId: ownerProfileId } : undefined
+							to={
+								ownerProfileId
+									? buildOrganizationPersonPath({
+											orgSlug,
+											personId: ownerProfileId,
+										})
+									: buildOrganizationPeoplePath(orgSlug)
 							}
-							to={buildOrganizationPeoplePath(orgSlug)}
 						>
 							<ArrowLeftIcon
 								aria-hidden="true"

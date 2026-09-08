@@ -12,7 +12,7 @@ describe("organization index route", () => {
 		expect(Route.options.staticData).toEqual({ appShellSection: "home" });
 	});
 
-	it("replaces the legacy Center Agent Chat URL with Home", () => {
+	it("replaces the legacy Center Agent Chat URL with the canonical chat", () => {
 		let thrown: unknown;
 		try {
 			LegacyCenterAgentChatRoute.options.beforeLoad?.({
@@ -37,7 +37,7 @@ describe("organization index route", () => {
 		).toMatchObject({
 			replace: true,
 			search: { focusSignalId: "signal-123", view: "graph" },
-			to: "/o/acme",
+			to: "/o/acme/chats/center-agent",
 		});
 	});
 });

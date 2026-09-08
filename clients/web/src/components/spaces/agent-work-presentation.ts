@@ -670,6 +670,17 @@ export function resolveAgentWorkPresentation(
 	if (state === "output-error") {
 		return { status: "failed", text: copy.failed };
 	}
+	if (
+		state === "output-available" &&
+		work.outcome === "confirmation_required"
+	) {
+		return {
+			status: "complete",
+			text: work.subject?.label
+				? `Requested confirmation: ${work.subject.label}`
+				: "Requested confirmation before acting",
+		};
+	}
 	if (state === "input-available" && isLive) {
 		return { status: "active", text: copy.active };
 	}

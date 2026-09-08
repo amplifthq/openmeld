@@ -23,17 +23,12 @@ export const OPENMELD_RESOURCES = [
   durableObject("openmeld-core-prod_Space", "core", "confidential"),
   durableObject("openmeld-core-prod_PrepareSessionHub", "core", "confidential"),
   durableObject(
-    "openmeld-remote-agent-prod_FlueCenterAgentAgent",
+    "openmeld-remote-agent-prod_FlueCenterAgentV2Agent",
     "remote-agent",
     "confidential"
   ),
   durableObject(
     "openmeld-remote-agent-prod_AgentComputer",
-    "remote-agent",
-    "private"
-  ),
-  durableObject(
-    "openmeld-remote-agent-prod_FlueRegistry",
     "remote-agent",
     "private"
   ),
@@ -80,19 +75,13 @@ export const OPENMELD_STAGING_RESOURCES = [
     "staging"
   ),
   durableObject(
-    "openmeld-remote-agent-stg_FlueCenterAgentAgent",
+    "openmeld-remote-agent-stg_FlueCenterAgentV2Agent",
     "remote-agent",
     "confidential",
     "staging"
   ),
   durableObject(
     "openmeld-remote-agent-stg_AgentComputer",
-    "remote-agent",
-    "private",
-    "staging"
-  ),
-  durableObject(
-    "openmeld-remote-agent-stg_FlueRegistry",
     "remote-agent",
     "private",
     "staging"
@@ -107,6 +96,18 @@ export const OPENMELD_STAGING_RESOURCES = [
   queue("openmeld-message-channel-events-stg", "shared", "staging"),
 ];
 
+export const OPENCONNECTOR_STAGING_RESOURCES = [
+  dnsRecord("connectors.staging.openmeld.ai", "open-connector", "staging"),
+  worker("openmeld-open-connector-stg", "open-connector", "staging"),
+  d1("openmeld-open-connector-db-stg", "open-connector", "staging"),
+  r2(
+    "openmeld-open-connector-transit-files-stg",
+    "open-connector",
+    "ephemeral",
+    "staging"
+  ),
+];
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   runCli(process.argv.slice(2)).catch((error) => {
     console.error(formatError(error));
@@ -116,7 +117,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
 export async function provisionOpenMeldResources(input) {
   const client = input.client ?? createCloudflareClient(input);
-  const desiredResources = resolveDesiredResources(input.environment);
+  const desiredResources = resolveDesiredResources(
+    input.environment,
+    input.includeOpenConnector
+  );
   const requireDeploymentManaged = input.requireDeploymentManaged ?? true;
   const summary = {
     environment: input.environment ?? "production",
@@ -172,6 +176,9 @@ export function parseArgs(rawArgs, env = process.env) {
     switch (arg) {
       case "--allow-pending-deploy":
         result.requireDeploymentManaged = false;
+        break;
+      case "--include-open-connector":
+        result.includeOpenConnector = true;
         break;
       case "--apply":
         result.apply = true;
@@ -652,9 +659,14 @@ async function verifyCreatedResources(client, summary, desiredResources) {
   }
 }
 
-function resolveDesiredResources(environment = "production") {
+function resolveDesiredResources(
+  environment = "production",
+  includeOpenConnector = false
+) {
   if (environment === "staging") {
-    return OPENMELD_STAGING_RESOURCES;
+    return includeOpenConnector
+      ? [...OPENMELD_STAGING_RESOURCES, ...OPENCONNECTOR_STAGING_RESOURCES]
+      : OPENMELD_STAGING_RESOURCES;
   }
   if (environment === "production") {
     return OPENMELD_RESOURCES;

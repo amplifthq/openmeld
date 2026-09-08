@@ -1,7 +1,4 @@
-import {
-  formatCanonicalMentionLiteral,
-  type MessageMentionType,
-} from "@openmeld/schemas";
+import type { MessageMentionType } from "@openmeld/schemas";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import {
   listRecentMentionProfileIdsFromText,
@@ -55,7 +52,6 @@ export type SpaceMentionSuggestion = {
 };
 
 export type SpaceMentionRelationChoice = {
-  canonicalLiteral: string;
   description: string;
   disabled: boolean;
   disabledReason: string | null;
@@ -106,12 +102,10 @@ export function listSpaceMentionRelationChoices(input: {
     }
 
     const wakeBlocked =
-      relation === "wake" && input.wakeAvailability.status !== "ready";
+      relation === "wake" &&
+      input.wakeAvailability.status !== "ready" &&
+      input.wakeAvailability.status !== "preparing";
     choices.push({
-      canonicalLiteral: formatCanonicalMentionLiteral({
-        name: input.primaryMentionLabel,
-        type: relation,
-      }),
       description: RELATION_DESCRIPTIONS[relation],
       disabled: wakeBlocked,
       disabledReason: wakeBlocked ? input.wakeAvailability.reasonText : null,
@@ -195,10 +189,7 @@ export function resolveNextRecentMentionProfileIdsForQueuedText(input: {
     | readonly (string | null | undefined)[]
     | null
     | undefined;
-  canonicalMentionsInTextOrder?:
-    | readonly { profileId: string }[]
-    | null
-    | undefined;
+  mentionsInTextOrder?: readonly { profileId: string }[] | null | undefined;
   mentionProfileIndex: SpaceMentionProfileIndex | null | undefined;
   maxRecentProfileIds?: number;
   allowedProfileIds?: readonly string[] | ReadonlySet<string> | null;
@@ -225,7 +216,7 @@ export function resolveNextRecentMentionProfileIdsForQueuedText(input: {
 
   const canonicalUsedProfileIds =
     resolveRecentMentionProfileIdsFromCanonicalMentions(
-      input.canonicalMentionsInTextOrder
+      input.mentionsInTextOrder
     );
   if (canonicalUsedProfileIds.length > 0) {
     return mergeRecentMentionProfileIds({
@@ -384,20 +375,13 @@ function areCaseInsensitiveMatches(left: string, right: string): boolean {
 }
 
 function resolveRecentMentionProfileIdsFromCanonicalMentions(
-  canonicalMentionsInTextOrder:
-    | readonly { profileId: string }[]
-    | null
-    | undefined
+  mentionsInTextOrder: readonly { profileId: string }[] | null | undefined
 ): string[] {
-  if (
-    !(canonicalMentionsInTextOrder && canonicalMentionsInTextOrder.length > 0)
-  ) {
+  if (!(mentionsInTextOrder && mentionsInTextOrder.length > 0)) {
     return [];
   }
 
-  return canonicalMentionsInTextOrder
-    .toReversed()
-    .map((mention) => mention.profileId);
+  return mentionsInTextOrder.toReversed().map((mention) => mention.profileId);
 }
 
 function resolveMaxRecentProfileIds(value: number | undefined): number {

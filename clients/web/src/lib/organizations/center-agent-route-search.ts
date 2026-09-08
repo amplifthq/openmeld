@@ -1,8 +1,14 @@
-import { slackOAuthErrorCodeSchema } from "@openmeld/schemas";
+import {
+	centerAgentSessionSelectorSchema,
+	slackOAuthErrorCodeSchema,
+} from "@openmeld/schemas";
 import { z } from "zod/v4";
 import type { SlackOAuthResult } from "./slack-oauth-result";
 
 export const centerAgentRouteSearchSchema = z.object({
+	draft: z.literal("new").optional(),
+	group: z.string().uuid().optional(),
+	session: centerAgentSessionSelectorSchema.shape.spaceId.optional(),
 	focusSignalId: z.string().trim().min(1).max(256).optional(),
 	view: z.enum(["messages", "graph", "files"]).optional(),
 	slack_oauth: z.enum(["connected", "error", "move_required"]).optional(),
@@ -29,7 +35,37 @@ export function parseCenterAgentRouteSearch(
 	search: unknown
 ): CenterAgentRouteSearch {
 	const parsed = centerAgentRouteSearchSchema.safeParse(search);
-	return parsed.success ? parsed.data : {};
+	if (parsed.success) {
+		if (parsed.data.draft && parsed.data.session) {
+			throw new Error(
+				"A chat link cannot select both a draft and a saved chat."
+			);
+		}
+		return parsed.data;
+	}
+	if (
+		typeof search === "object" &&
+		search !== null &&
+		"draft" in search &&
+		search.draft !== undefined
+	) {
+		throw new Error("The new chat link is invalid.");
+	}
+	if (
+		typeof search === "object" &&
+		search !== null &&
+		"session" in search &&
+		search.session !== undefined
+	) {
+		const selector = centerAgentSessionSelectorSchema.safeParse({
+			spaceId: search.session,
+		});
+		if (!selector.success) {
+			throw new Error("The chat link has an invalid session ID.");
+		}
+		return { session: selector.data.spaceId };
+	}
+	return {};
 }
 
 export function resolveSlackOAuthResult(

@@ -454,11 +454,14 @@ async function waitForAutomaticUpdateTarget(input: {
   while (Date.now() < deadline) {
     const target = await runInDurableObject(input.shard, (instance) => {
       const internal = instance as unknown as {
-        automaticToolsUpdateTargetByComputer: Map<string, string>;
+        automaticToolsUpdateTargetByComputer: Map<
+          string,
+          { targetVersion: string }
+        >;
       };
       return (
-        internal.automaticToolsUpdateTargetByComputer.get(input.computerKey) ??
-        null
+        internal.automaticToolsUpdateTargetByComputer.get(input.computerKey)
+          ?.targetVersion ?? null
       );
     });
     if (target === input.expectedTarget) {

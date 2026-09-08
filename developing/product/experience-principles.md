@@ -29,6 +29,10 @@ substitute a softer state to avoid alarming the user.
   honest "cannot confirm" copy instead of an optimistic green.
 - Applied: a failed route lookup is surfaced as a lookup failure, never
   repainted as a stable `Offline`; `Offline` is never repainted as `Checking`.
+- Applied: an ordinary disconnected computer uses muted `Disconnected` status.
+  Disconnection alone is not a failure and does not deserve a persistent red
+  warning. Show specific operation failures beside the failed action, with a
+  recovery path; never turn unknown status into disconnection to simplify copy.
 - Applied: live Agent work may name the current step, but it keeps the explicit
   `Agent is working` execution state visible until the authoritative stream
   reaches a terminal outcome. A live phase or settled work step remains
@@ -45,11 +49,12 @@ substitute a softer state to avoid alarming the user.
 ## 2. Precision beats generic banners
 
 Put the problem on the thing that has the problem, with its own action.
-Page-level banners are reserved for genuinely global states (for example, zero
-local agents installed).
+Page-level banners are reserved for genuinely global states not already
+explained by the content below.
 
 - Applied: Local Agents surfaces per-agent status issues with a per-agent CTA;
-  the top banner shows only in the zero-agent case.
+  the zero-agent empty state provides the installation guide without a
+  duplicate warning banner above it.
 - Applied: a local agent the owner turned off remains available for inspection,
   but its health never creates Computer or navigation attention. When every
   local agent is off, the Computer shows that intentional state without a

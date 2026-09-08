@@ -35,7 +35,74 @@ const TOOL_OPTIONS = {
   toolCallId: "codemode-inner-call",
 } satisfies ToolExecutionOptions;
 
+async function runCodeModeTool(
+  tool: Awaited<ReturnType<typeof createRemoteAgentCodeModeFlueTool>>,
+  context: { input: { code: string }; signal?: AbortSignal }
+) {
+  const result = await tool.run({
+    data: context.input,
+    signal: context.signal,
+    log: console,
+    toolCallId: "codemode-test-call",
+  });
+  if (!result || typeof result !== "object") {
+    throw new Error("Code Mode must return a Flue tool output envelope.");
+  }
+  return result.output;
+}
+
 describe("Remote Agent Code Mode", () => {
+  it("publishes a confirmation outcome without publishing its token", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const submitRemoteAgentStreamPart = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const result = {
+      status: "destructive_confirmation_required",
+      sideEffects: 0,
+      confirmationToken: "private-confirmation",
+    };
+    const definition = {
+      name: "openmeld_prepare_remove_project",
+      description: "Prepare removal.",
+      input: strictObject({}),
+      execute: async () => result,
+    } satisfies RemoteAgentToolDefinition;
+    const runtime = createRuntime({
+      executorOptions: [],
+      execute: async (tools) => {
+        const prepare = tools.openmeld_prepare_remove_project;
+        if (!prepare?.execute) {
+          throw new Error("Code Mode preparation tool is unavailable.");
+        }
+        return { result: await prepare.execute({}, TOOL_OPTIONS) };
+      },
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions: [definition],
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+      storage,
+      submissionId: SUBMISSION_ID,
+      coreWorker: { submitRemoteAgentStreamPart },
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    });
+    await runCodeModeTool(tool, { input: { code: "async () => null" } });
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        part: expect.objectContaining({
+          work: expect.objectContaining({ outcome: "confirmation_required" }),
+        }),
+      })
+    );
+    expect(
+      JSON.stringify(submitRemoteAgentStreamPart.mock.calls)
+    ).not.toContain("private-confirmation");
+  });
   it("keeps the executable catalog fixed without embedding every schema in the prompt", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const definitions = getRemoteAgentOpenMeldToolDefinitions({
@@ -249,7 +316,7 @@ describe("Remote Agent Code Mode", () => {
     });
 
     await expect(
-      tool.run({
+      runCodeModeTool(tool, {
         input: {
           code: "async () => codemode.openmeld_list_spaces({})",
         },
@@ -351,7 +418,7 @@ describe("Remote Agent Code Mode", () => {
     });
 
     await expect(
-      tool.run({ input: { code: "async () => null" } })
+      runCodeModeTool(tool, { input: { code: "async () => null" } })
     ).resolves.toEqual({ result: boundedResult });
     expect(legacyTruncateResult).not.toHaveBeenCalled();
   });
@@ -386,7 +453,7 @@ describe("Remote Agent Code Mode", () => {
     });
 
     await expect(
-      tool.run({ input: { code: "async () => null" } })
+      runCodeModeTool(tool, { input: { code: "async () => null" } })
     ).rejects.toBeInstanceOf(RemoteAgentToolResultTooLargeError);
   });
 
@@ -414,7 +481,7 @@ describe("Remote Agent Code Mode", () => {
     });
 
     await expect(
-      tool.run({
+      runCodeModeTool(tool, {
         input: {
           code: 'async () => "secret generated code"',
         },
@@ -445,11 +512,11 @@ describe("Remote Agent Code Mode", () => {
 
     for (let index = 0; index < 64; index += 1) {
       await expect(
-        tool.run({ input: { code: "async () => null" } })
+        runCodeModeTool(tool, { input: { code: "async () => null" } })
       ).resolves.toEqual({ result: null });
     }
     await expect(
-      tool.run({ input: { code: "async () => null" } })
+      runCodeModeTool(tool, { input: { code: "async () => null" } })
     ).rejects.toBeInstanceOf(RemoteAgentToolCallBudgetExceededError);
   });
 
@@ -489,7 +556,7 @@ describe("Remote Agent Code Mode", () => {
     });
 
     await expect(
-      tool.run({ input: { code: "async () => null" } })
+      runCodeModeTool(tool, { input: { code: "async () => null" } })
     ).rejects.toThrow("private internal failure");
     expect(submitRemoteAgentStreamPart).not.toHaveBeenCalled();
   });
@@ -533,7 +600,7 @@ describe("Remote Agent Code Mode", () => {
     });
 
     await expect(
-      tool.run({ input: { code: "async () => null" } })
+      runCodeModeTool(tool, { input: { code: "async () => null" } })
     ).resolves.toEqual({ result: { spaces: [] } });
     expect(executeLookup).toHaveBeenCalledOnce();
     expect(warn).toHaveBeenCalledWith(
@@ -588,7 +655,7 @@ describe("Remote Agent Code Mode", () => {
     );
     expect(tool.description).toContain("bash");
     await expect(
-      tool.run({
+      runCodeModeTool(tool, {
         input: {
           code: `async () => codemode.bash({ command: "printf 'sandbox-composition-ok\\\\n'" })`,
         },

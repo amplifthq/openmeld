@@ -17,7 +17,6 @@ import {
   createFlueCenterAgentAdmissionHost,
   reconcileAndRedeliverRemoteAgentCallbacks,
   redeliverRemoteAgentCallbacksAndScheduleNextRetry,
-  scheduleRemoteAgentCallbackRetry,
 } from "../flue-adapter/center-agent-admission";
 import {
   type CenterAgentNamespace,
@@ -29,7 +28,6 @@ import {
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
-  createSubmitTurnRequestV2,
   TEST_NOW_MS,
 } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
@@ -145,41 +143,6 @@ describe("Flue Cloudflare entrypoints", () => {
       expect(submitConversationTurn).toHaveBeenCalledWith(request);
     } finally {
       info.mockRestore();
-    }
-  });
-
-  it("rejects a Task turn whose typed identity conflicts with its conversation route", async () => {
-    const { v: _version, ...baseRequest } = createSubmitTurnRequestV2();
-    const request = {
-      ...baseRequest,
-      conversationId: "center-agent-task:task_123",
-      conversationIdentity: {
-        kind: "center_agent_task" as const,
-        taskId: "task_other",
-      },
-      v: 3 as const,
-    };
-    const namespace = {
-      get: vi.fn(),
-      idFromName: vi.fn(),
-    } as unknown as CenterAgentNamespace;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-
-    try {
-      await expect(
-        submitConversationTurnToCenterAgent({ namespace, request })
-      ).resolves.toEqual({
-        idempotencyKey: request.idempotencyKey,
-        message:
-          "Remote Agent Task conversation identity does not match its route.",
-        outcome: "rejected",
-        reasonCode: "remote_agent.center_agent_task_identity_mismatch",
-        v: 1,
-      });
-      expect(namespace.idFromName).not.toHaveBeenCalled();
-      expect(namespace.get).not.toHaveBeenCalled();
-    } finally {
-      warn.mockRestore();
     }
   });
 
@@ -404,7 +367,7 @@ describe("Flue Cloudflare entrypoints", () => {
       async (_request: Request): Promise<Response> =>
         Response.json({
           acceptedAt: new Date(TEST_NOW_MS).toISOString(),
-          dispatchId: request.dispatchId,
+          submissionId: request.dispatchId,
         })
     );
     const host = createFlueCenterAgentAdmissionHost({
@@ -442,12 +405,13 @@ describe("Flue Cloudflare entrypoints", () => {
       );
       await expect(flueRequest?.json()).resolves.toEqual({
         acceptedAt: new Date(TEST_NOW_MS).toISOString(),
-        agent: "center-agent",
-        dispatchId: request.dispatchId,
+        agent: "center-agent-v2",
+        submissionId: request.dispatchId,
         id: request.spaceId,
-        input: {
-          message: buildRemoteAgentPromptMessage(request),
-          images: [
+        message: {
+          kind: "user",
+          body: buildRemoteAgentPromptMessage(request),
+          attachments: [
             {
               type: "image",
               data: "AQID",
@@ -468,23 +432,6 @@ describe("Flue Cloudflare entrypoints", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("schedules callback retry with an idempotent Flue task", async () => {
-    const schedule = vi.fn(async () => undefined);
-
-    await scheduleRemoteAgentCallbackRetry({
-      dueAtIso: new Date(TEST_NOW_MS + 12_500).toISOString(),
-      nowMs: () => TEST_NOW_MS,
-      schedule,
-    });
-
-    expect(schedule).toHaveBeenCalledWith(
-      13,
-      "retryRemoteAgentCallbacks",
-      undefined,
-      { idempotent: true }
-    );
   });
 
   it("reconciles durable failures from the callback alarm before continuing ordinary redelivery", async () => {
@@ -588,7 +535,7 @@ describe("Flue Cloudflare entrypoints", () => {
       expect(schedule).toHaveBeenCalledWith(
         1,
         "retryRemoteAgentCallbacks",
-        undefined,
+        expect.objectContaining({ retryAt: expect.any(Number) }),
         { idempotent: true }
       );
     } finally {
@@ -749,7 +696,7 @@ describe("Flue Cloudflare entrypoints", () => {
     expect(schedule).toHaveBeenCalledWith(
       5,
       "retryRemoteAgentCallbacks",
-      undefined,
+      expect.objectContaining({ retryAt: expect.any(Number) }),
       { idempotent: true }
     );
   });
@@ -802,7 +749,7 @@ describe("Flue Cloudflare entrypoints", () => {
     expect(schedule).toHaveBeenCalledWith(
       60,
       "retryRemoteAgentCallbacks",
-      undefined,
+      expect.objectContaining({ retryAt: expect.any(Number) }),
       { idempotent: true }
     );
     await expect(storage.get(expiredReceiptKey)).resolves.toEqual({

@@ -56,6 +56,7 @@ export type SpaceReplyToSignalInput = {
 
 export type SpaceComposerAddressingTarget = {
 	allowedRelations: SpaceSendTargetAllowedRelations;
+	primaryMentionLabel: string;
 	profileId: string;
 	profileName: string;
 	relation: MessageMentionType;
@@ -336,8 +337,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			if (input.snapshot) {
 				const nextRecentMentionProfileIds =
 					resolveNextRecentMentionProfileIdsForQueuedText({
-						canonicalMentionsInTextOrder:
-							preparedSubmission.canonicalMentionsInTextOrder,
+						mentionsInTextOrder: preparedSubmission.mentionsInTextOrder,
 						currentRecentProfileIds: recentMentionProfileIds,
 						mentionProfileIndex: buildSpaceMentionProfileIndex(input.snapshot),
 						structuredMentionProfileIdsInTextOrder:
@@ -451,7 +451,8 @@ export function resolveDefaultSpaceComposerMentionRelation(
 	if (suggestion.profileKind === "agent") {
 		if (
 			suggestion.allowedRelations.wake &&
-			suggestion.wakeAvailability.status === "ready"
+			(suggestion.wakeAvailability.status === "ready" ||
+				suggestion.wakeAvailability.status === "preparing")
 		) {
 			return "wake";
 		}
@@ -513,6 +514,7 @@ export function buildSpaceComposerAddressingTargets(input: {
 		}
 		targetByProfileId.set(mention.profileId, {
 			allowedRelations: target.allowedRelations,
+			primaryMentionLabel: target.primaryMentionLabel,
 			profileId: target.profileId,
 			profileName: target.profileName,
 			relation: mention.relation,
@@ -685,6 +687,6 @@ function resolveReplyWakeMention(input: {
 	return {
 		profileId: target.profileId,
 		relation: "wake",
-		text: `@${target.primaryMentionLabel}`,
+		text: `@${target.profileName}`,
 	};
 }

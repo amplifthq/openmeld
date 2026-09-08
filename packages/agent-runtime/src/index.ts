@@ -44,6 +44,7 @@ export {
   buildAgentControllerRef,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_CONTROLLER_REF_ID,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   hasRuntimeAdapterCapabilityForRef,
   parseAgentControllerRef,
   type RuntimeAdapterCapabilityIdentity,
@@ -160,6 +161,7 @@ export {
   type AgentWakeRouteRegistrationStatus,
   classifyAgentWakeAvailabilityReason,
   isAgentProfileWorkspaceBlockerReasonCode,
+  isAgentWakeAdmissionPreparationPendingReason,
   resolveAgentWakeAdmissionBlockReasonCode,
   resolveAgentWakeAdmissionTerminalDecision,
   resolveAgentWakeAvailability,
@@ -257,7 +259,13 @@ export {
   type LocalAgentCatalogProjection,
   projectLocalAgentCatalogFromCapabilities,
 } from "./local-agent-catalog";
+export { buildLocalAgentConnectionCandidateId } from "./local-agent-connection-candidate";
 export { resolveConversationPolicyFromModelSelection } from "./model-selection";
+export {
+  peopleComputerCliCommand,
+  peopleComputerContainsDevice,
+  projectPeopleComputersToLegacyLocalRuntimes,
+} from "./people-computer";
 export {
   type AllRunnableCapabilitiesPreparedStatus,
   assertPrepareOutputHasNoBindingWriteAction,

@@ -59,6 +59,14 @@ test("a real upstream addition becomes a reviewable catalog change without movin
   );
   assert.equal(added.minCliVersion, upstream.minimal_client_version);
   assert.equal(
+    result.catalog.agentControllers.codex.models[0].id,
+    upstream.slug
+  );
+  assert.deepEqual(
+    result.catalog.agentControllers.codex.models.slice(1),
+    catalog.agentControllers.codex.models
+  );
+  assert.equal(
     result.catalog.agentControllers.codex.defaultModelId,
     catalog.agentControllers.codex.defaultModelId
   );
