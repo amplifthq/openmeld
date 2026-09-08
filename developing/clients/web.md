@@ -1459,6 +1459,11 @@ brand mismatch names the selected and returned brands and offers Start over
 after switching accounts. It must not silently change the selected provider or
 keep presenting a brand mismatch as approval still pending.
 
+If initial begin/resume fails before a registration can be displayed, the
+dialog preserves the error and offers managers an explicit Start over action.
+The action keeps the selected provider and uses the existing authorized restart
+mode. It never automatically retries a corrupt or unreadable registration.
+
 1. explain that this is a Channel connection, not access to Docs, Calendar,
    Mail, Tasks, or other business data;
 2. start a Core-owned resumable registration attempt;

@@ -2301,6 +2301,13 @@ selection, using the same atomic retirement/insertion path as an explicit
 restart. It does not migrate credentials, connected channels, or production
 rows out of band.
 
+Pending legacy Lark attempts remain readable during polling: Core projects the
+existing shared-issuer user code onto the Lark launcher and validates the full
+URL without mutating the stored attempt. Corrupt ciphertext or a mismatched
+encryption key still raises its diagnostic error. Recovery uses an explicit,
+authorized pending restart; no catch converts a decryption failure into an
+automatic provider registration or conceals a key-configuration problem.
+
 Before each scheduled continuation, Core reads the canonical Organization
 Personal classification. An unavailable or malformed classification fails
 closed before any provider operation and quarantines the attempt as consumed

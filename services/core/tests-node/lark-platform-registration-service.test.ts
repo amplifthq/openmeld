@@ -64,6 +64,132 @@ describe("Lark-platform registration service", () => {
   it.each([
     "accounts.feishu.cn",
     "accounts.larksuite.com",
+  ])("keeps polling a legacy Lark attempt on %s without requiring resume", async (accountDomain) => {
+    const harness = createRegistrationHarness();
+    try {
+      const started = await beginRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        db: harness.db,
+        env: ENV,
+        fetchImpl: jsonFetch(capturedBegin),
+        nowMs: 1000,
+        provider: "lark",
+      });
+      const encryptedRegistrationUrl = await encryptLarkPlatformCredential({
+        cryptoKey: CRYPTO_KEY,
+        credentialName: "registration URL",
+        credential:
+          "https://open.feishu.cn/page/launcher?user_code=legacy-code&name=Existing+app",
+      });
+      harness.run({
+        sql: "UPDATE openMeldRemoteAgent_lark_platform_registration_attempts SET account_domain = ?, encrypted_registration_url = ? WHERE attempt_id = ?",
+        params: [accountDomain, encryptedRegistrationUrl, started.attempt.id],
+      });
+      const fetchImpl = jsonFetch(capturedPending, 400);
+      for (const nowMs of [1100, 1200]) {
+        const polled = await pollRemoteAgentLarkPlatformRegistration({
+          actor: ACTOR,
+          attemptId: started.attempt.id,
+          db: harness.db,
+          env: ENV,
+          fetchImpl,
+          nowMs,
+          provider: "lark",
+        });
+        expect(polled.attempt).toMatchObject({
+          id: started.attempt.id,
+          provider: "lark",
+          status: "pending_registration",
+          registrationUrl:
+            "https://open.larksuite.com/page/launcher?user_code=legacy-code&name=Existing+app",
+        });
+      }
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      await expect(
+        readRemoteAgentLarkPlatformRegistrationAttempt({
+          attemptId: started.attempt.id,
+          db: harness.db,
+        })
+      ).resolves.toMatchObject({
+        encryptedRegistrationUrl,
+        consumedAtMs: null,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it.each([
+    false,
+    true,
+  ])("preserves unreadable setup diagnostics and permits an explicit restart (rotated key: %s)", async (rotatedKey) => {
+    const harness = createRegistrationHarness();
+    try {
+      const started = await beginRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        db: harness.db,
+        env: ENV,
+        fetchImpl: jsonFetch(capturedBegin),
+        nowMs: 1000,
+        provider: "lark",
+      });
+      if (!rotatedKey) {
+        harness.run({
+          sql: "UPDATE openMeldRemoteAgent_lark_platform_registration_attempts SET encrypted_registration_url = ? WHERE attempt_id = ?",
+          params: ["corrupt-ciphertext", started.attempt.id],
+        });
+      }
+      const env = rotatedKey
+        ? {
+            ...ENV,
+            LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY: btoa(
+              "fedcba9876543210fedcba9876543210"
+            ),
+          }
+        : ENV;
+      const fetchImpl = jsonFetch(capturedBegin);
+      await expect(
+        beginRemoteAgentLarkPlatformRegistration({
+          actor: ACTOR,
+          db: harness.db,
+          env,
+          fetchImpl,
+          nowMs: 1100,
+          provider: "lark",
+        })
+      ).rejects.toThrow(
+        rotatedKey ? "decryption failed" : "ciphertext is invalid"
+      );
+      expect(fetchImpl).not.toHaveBeenCalled();
+      await expect(
+        readRemoteAgentLarkPlatformRegistrationAttempt({
+          attemptId: started.attempt.id,
+          db: harness.db,
+        })
+      ).resolves.toMatchObject({
+        status: "pending_registration",
+        consumedAtMs: null,
+      });
+      const restarted = await beginRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        db: harness.db,
+        env,
+        fetchImpl,
+        nowMs: 1200,
+        provider: "lark",
+        restartPending: true,
+      });
+      expect(restarted.attempt.id).not.toBe(started.attempt.id);
+      expect(restarted.attempt.status).toBe("pending_registration");
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it.each([
+    "accounts.feishu.cn",
+    "accounts.larksuite.com",
   ])("replaces a legacy Lark launcher on resume even when its poll host is %s", async (accountDomain) => {
     const harness = createRegistrationHarness();
     try {

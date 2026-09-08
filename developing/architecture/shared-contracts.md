@@ -2567,7 +2567,10 @@ Lark-platform registration begin has three explicit modes: `resume`,
 current active attempt when its registration route matches the selected
 provider. A pending legacy attempt with a mismatched account domain or launcher
 is replaced through the existing atomic restart path on the next authorized
-begin/resume action; its retired row remains history. This exception never
+begin/resume action; its retired row remains history. Poll responses for legacy
+Lark attempts project a validated Lark launcher using the existing user code,
+so an already-open dialog can continue without first calling resume. This is
+a URL projection only: the stored attempt and ciphertext are unchanged. This exception never
 replaces saved app credentials or a configuring connection. `restart` may
 replace only a `pending_registration`
 attempt owned by the requesting Human Profile in the active Organization. It
@@ -2609,7 +2612,9 @@ registration protocol reports the mismatch.
 
 Contract impact: payload fields are unchanged, but accepted Lark registration
 URLs change host. Older API-client/Web schema readers reject the new Lark URL;
-the stricter new reader rejects the legacy cross-brand Lark URL. Core, Gateway,
+the stricter new reader rejects an unnormalized legacy cross-brand Lark URL.
+New Core normalizes its legacy pending projections, including not-due polls;
+old Core responses still require reader/producer rollout coordination. Core, Gateway,
 Web and external API-client consumers need a coordinated rollout plan for setup
 before release. Do not claim arbitrary old/new setup interoperability. Existing
 connected-channel delivery, CLI setup, workstation Wake and Service contracts

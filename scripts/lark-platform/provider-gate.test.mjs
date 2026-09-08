@@ -144,6 +144,23 @@ test("builds a development update URL without embedding credentials", () => {
   assert.equal(url.searchParams.has("client_secret"), false);
 });
 
+test("reports invalid verification details without exposing user codes", () => {
+  for (const uri of [
+    "https://open.feishu.cn/wrong-path?user_code=do-not-log",
+    "https://open.feishu.cn/page/launcher?user_code=do-not-log",
+    "https://open.feishu.cn/page/launcher",
+  ]) {
+    assert.throws(
+      () =>
+        buildRegistrationUrl({
+          provider: "lark",
+          beginResponse: { ...capturedBegin, verification_uri_complete: uri },
+        }),
+      { message: "Unexpected registration verification details." }
+    );
+  }
+});
+
 test("performs only one pending platform poll per invocation", async () => {
   const requests = [];
   const result = await pollRegistration({

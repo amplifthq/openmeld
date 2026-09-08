@@ -8,6 +8,43 @@ afterEach(cleanup);
 
 describe("LarkPlatformChannelDialog", () => {
 	it.each([
+		true,
+		false,
+	])("preserves a setup read error and gates restart by management permission (%s)", (canManage) => {
+		const onStartOver = vi.fn();
+		render(
+			<LarkPlatformChannelDialog
+				canManage={canManage}
+				connection={null}
+				disconnectPending={false}
+				errorMessage="Saved setup could not be read."
+				onDisconnect={vi.fn()}
+				onOpenChange={vi.fn()}
+				onRepair={vi.fn()}
+				onRetryPoll={vi.fn()}
+				onStartOver={onStartOver}
+				open
+				pollPending={false}
+				provider="lark"
+				registration={null}
+				repairPending={false}
+				startOverPending={false}
+			/>
+		);
+		expect(screen.getByRole("alert").textContent).toContain(
+			"Saved setup could not be read."
+		);
+		const restart = screen.queryByRole("button", { name: "Start over" });
+		if (canManage) {
+			expect(restart).not.toBeNull();
+			fireEvent.click(restart as HTMLElement);
+			expect(onStartOver).toHaveBeenCalledOnce();
+		} else {
+			expect(restart).toBeNull();
+		}
+	});
+
+	it.each([
 		["lark", "Lark", "Feishu"],
 		["feishu", "Feishu", "Lark"],
 	] as const)("explains a %s brand mismatch and restarts the selected provider", (provider, label, otherLabel) => {

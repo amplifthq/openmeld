@@ -1,4 +1,5 @@
 import {
+  LARK_PLATFORM_REGISTRATION_DOMAINS,
   larkPlatformActiveRegistrationProjectionSchema,
   larkPlatformRegistrationResponseSchema,
   type MessageChannelConnectionProjection,
@@ -1033,7 +1034,7 @@ async function projectRegistrationResponse(input: {
     }
     connection = projectRemoteAgentLarkPlatformConnection(record);
   }
-  const registrationUrl =
+  let registrationUrl =
     input.attempt.status === "pending_registration"
       ? await decryptLarkPlatformCredential({
           credentialName: "registration URL",
@@ -1041,6 +1042,15 @@ async function projectRegistrationResponse(input: {
           encryptedCredential: input.attempt.encryptedRegistrationUrl,
         })
       : null;
+  if (registrationUrl && input.attempt.provider === "lark") {
+    const url = new URL(registrationUrl);
+    if (url.host === LARK_PLATFORM_REGISTRATION_DOMAINS.feishu.launcherHost) {
+      // Legacy shared-issuer links keep their code and attempt while polling.
+      // Validate the resulting URL below; this does not rewrite durable state.
+      url.hostname = LARK_PLATFORM_REGISTRATION_DOMAINS.lark.launcherHost;
+      registrationUrl = url.toString();
+    }
+  }
   return larkPlatformRegistrationResponseSchema.parse({
     attempt: {
       expiresAt: new Date(input.attempt.expiresAtMs).toISOString(),

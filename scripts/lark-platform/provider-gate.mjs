@@ -129,9 +129,7 @@ export function buildRegistrationUrl(input) {
     !url.searchParams.get("user_code")?.trim() ||
     url.searchParams.get("user_code") !== input.beginResponse.user_code
   ) {
-    throw new Error(
-      `Unexpected registration verification host ${url.host || "<missing>"}.`
-    );
+    throw new Error("Unexpected registration verification details.");
   }
   assertNonEmptyString(input.appId, "development App ID");
   assertNonEmptyString(input.appName, "development app name");

@@ -108,6 +108,7 @@ export function LarkPlatformChannelDialog(input: {
 						connection={connection}
 						errorMessage={input.errorMessage}
 						onRepair={input.onRepair}
+						onStartOver={input.onStartOver}
 						providerLabel={providerLabel}
 						repairDisabled={
 							input.disconnectPending ||
@@ -115,6 +116,7 @@ export function LarkPlatformChannelDialog(input: {
 							confirmingDisconnect
 						}
 						repairPending={input.repairPending}
+						startOverPending={input.startOverPending}
 					/>
 				)}
 				{canDisconnect && input.canManage ? (
@@ -420,23 +422,56 @@ function resolveConfigurationRetryMessage(input: {
 	return "The latest verification check did not finish. OpenMeld will retry automatically.";
 }
 
+function RegistrationStartError(input: {
+	canManage: boolean;
+	errorMessage: string;
+	onStartOver: () => void;
+	startOverPending: boolean;
+}) {
+	return (
+		<div className="space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+			<p className="text-destructive" role="alert">
+				{input.errorMessage}
+			</p>
+			{input.canManage ? (
+				<>
+					<p>
+						Start over to get a new setup link. If the problem continues,
+						contact your administrator.
+					</p>
+					<Button
+						disabled={input.startOverPending}
+						onClick={input.onStartOver}
+						type="button"
+						variant="outline"
+					>
+						{input.startOverPending ? "Starting over…" : "Start over"}
+					</Button>
+				</>
+			) : null}
+		</div>
+	);
+}
+
 function ConnectionSummary(input: {
 	canManage: boolean;
 	connection: MessageChannelConnectionProjection | null;
 	errorMessage: string | null;
 	onRepair: () => void;
+	onStartOver: () => void;
+	startOverPending: boolean;
 	providerLabel: string;
 	repairDisabled: boolean;
 	repairPending: boolean;
 }) {
 	if (!input.connection) {
 		return input.errorMessage ? (
-			<p
-				className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-destructive text-sm"
-				role="alert"
-			>
-				{input.errorMessage}
-			</p>
+			<RegistrationStartError
+				canManage={input.canManage}
+				errorMessage={input.errorMessage}
+				onStartOver={input.onStartOver}
+				startOverPending={input.startOverPending}
+			/>
 		) : null;
 	}
 	const connected = input.connection.status === "connected";
