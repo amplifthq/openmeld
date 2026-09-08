@@ -2194,6 +2194,7 @@ function SpaceLandingConversation({
 									);
 								}
 							}}
+							presentation={presentation}
 							scope={recovery.storageScope}
 							spaceId={input.spaceId}
 						/>

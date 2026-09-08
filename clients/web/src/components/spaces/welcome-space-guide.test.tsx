@@ -1,9 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { WelcomeSpaceGuide } from "./welcome-space-guide";
 import { saveWelcomeSpace } from "./welcome-space-state";
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+	cleanup();
+	localStorage.clear();
+});
 
 it("keeps adding agents available after the retired shortcut advanced the tutorial", () => {
 	saveWelcomeSpace("account", "space", "send");
@@ -14,6 +17,7 @@ it("keeps adding agents available after the retired shortcut advanced the tutori
 			hasRecipients={false}
 			onAddAgents={onAddAgents}
 			onPrepareConversation={vi.fn()}
+			presentation="empty-state"
 			scope="account"
 			spaceId="space"
 		/>
@@ -31,6 +35,7 @@ it("restores the conversation action when the user clears a draft without fillin
 	saveWelcomeSpace("account", "space", "send");
 	const onPrepareConversation = vi.fn();
 	const props = {
+		presentation: "empty-state" as const,
 		scope: "account",
 		spaceId: "space",
 		hasRecipients: true,
@@ -44,4 +49,25 @@ it("restores the conversation action when the user clears a draft without fillin
 	expect(onPrepareConversation).not.toHaveBeenCalled();
 	fireEvent.click(screen.getByRole("button", { name: "Start a conversation" }));
 	expect(onPrepareConversation).toHaveBeenCalledOnce();
+});
+
+it("removes the empty-state card when messages appear, even before an agent replies", () => {
+	saveWelcomeSpace("account", "space", "send");
+	const props = {
+		scope: "account",
+		spaceId: "space",
+		hasRecipients: true,
+		hasDraft: false,
+		onPrepareConversation: vi.fn(),
+	};
+	const { rerender } = render(
+		<WelcomeSpaceGuide {...props} presentation="empty-state" />
+	);
+	expect(
+		screen.getByRole("button", { name: "Start a conversation" })
+	).toBeTruthy();
+	rerender(<WelcomeSpaceGuide {...props} presentation="banner" />);
+	expect(
+		screen.queryByRole("region", { name: "Welcome Space guide" })
+	).toBeNull();
 });

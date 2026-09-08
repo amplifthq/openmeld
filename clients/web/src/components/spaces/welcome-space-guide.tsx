@@ -1,6 +1,7 @@
 import { ChatCircleIcon, PlusIcon } from "@phosphor-icons/react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { EmptyStateSetupActionCard } from "./onboarding-setup-banner";
+import type { OnboardingSetupPresentation } from "./onboarding-setup-presentation";
 import { useWelcomeSpace } from "./welcome-space-state";
 
 export function WelcomeSpaceLabel({ spaceId }: { spaceId: string }) {
@@ -14,6 +15,7 @@ export function WelcomeSpaceLabel({ spaceId }: { spaceId: string }) {
 }
 
 export function WelcomeSpaceGuide(input: {
+	presentation: OnboardingSetupPresentation;
 	scope: string;
 	spaceId: string;
 	onAddAgents?: () => void;
@@ -22,7 +24,7 @@ export function WelcomeSpaceGuide(input: {
 	onPrepareConversation: () => void;
 }) {
 	const step = useWelcomeSpace(input.scope, input.spaceId);
-	if (!step || step === "prepare") {
+	if (input.presentation !== "empty-state" || !step || step === "prepare") {
 		return null;
 	}
 	if (step === "done") {

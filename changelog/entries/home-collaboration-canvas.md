@@ -27,7 +27,9 @@ Welcome Spaces start with you and a short guide to adding an agent through one
 dashed action card. Center Agent is recommended and preselected the first time;
 you choose whether to add it, create your own Agent, or add both. Adding members prepares an
 editable introduction addressed to those members; you decide when to send it.
-If you clear it, the card lets you prepare it again. Welcome progress and labels are remembered
+If you clear an unsent draft, the card lets you prepare it again. Once the
+conversation starts, the card disappears instead of covering the date and messages.
+Welcome progress and labels are remembered
 in this browser, including when you open the Space full screen.
 
 Hide a Space from Desk with its close button, then restore it through Add Space.

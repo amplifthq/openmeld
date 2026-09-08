@@ -524,7 +524,9 @@ the draft exposes **Start a conversation** in the same card. Its saved recipient
 IDs are draft intent only and are reconciled against active Space members before
 restoring a draft, using current names. Existing text, files, and replies are
 preserved. There is no separate Center Agent sample-task shortcut.
-A real final reply from an added Agent to a newly sent user message completes
+The action card appears only in an empty conversation. Once conversation entries
+exist, it stays out of the timeline's top overlay, including while an Agent is
+working. A real final reply from an added Agent to a newly sent user message completes
 the guide, which then disappears. No skip, resume, or replay controls are exposed.
 Legacy paused progress resumes from its saved step. This guide does not change permissions,
 Wakeability, execution ownership, or server-side Space semantics, and does not
