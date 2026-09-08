@@ -38,6 +38,7 @@ import {
 	type ComponentProps,
 	type FormEvent,
 	useEffect,
+	useId,
 	useRef,
 	useState,
 } from "react";
@@ -715,6 +716,8 @@ function DirectoryInvitePanel(input: {
 }
 
 export function InvitationForm(input: { organizationId: string }) {
+	const emailId = useId();
+	const roleId = useId();
 	const queryClient = useQueryClient();
 	const [email, setEmail] = useState("");
 	const [role, setRole] = useState<OrganizationInviteRole>("member");
@@ -731,6 +734,9 @@ export function InvitationForm(input: { organizationId: string }) {
 			setEmail("");
 			setRole("member");
 			Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: organizationQueryKeys.invitations(input.organizationId),
+				}),
 				queryClient.invalidateQueries({
 					queryKey: organizationQueryKeys.directory(input.organizationId),
 				}),
@@ -763,17 +769,17 @@ export function InvitationForm(input: { organizationId: string }) {
 					Spaces.
 				</CardDescription>
 			</CardHeader>
-			<CardContent>
+			<CardContent className="@container">
 				<form
-					className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end"
+					className="grid @sm:grid-cols-2 @xl:grid-cols-[minmax(0,1fr)_8rem_auto] @sm:items-end gap-3"
 					onSubmit={handleSubmit}
 				>
-					<div className="grid gap-2">
-						<Label htmlFor="organization-invite-email">Email</Label>
+					<div className="@sm:col-span-2 @xl:col-span-1 grid gap-2">
+						<Label htmlFor={emailId}>Email</Label>
 						<Input
 							autoComplete="email"
 							disabled={inviteMutation.isPending}
-							id="organization-invite-email"
+							id={emailId}
 							onChange={(event) => setEmail(event.target.value)}
 							placeholder="teammate@example.com"
 							type="email"
@@ -781,7 +787,7 @@ export function InvitationForm(input: { organizationId: string }) {
 						/>
 					</div>
 					<div className="grid gap-2">
-						<Label htmlFor="organization-invite-role">Role</Label>
+						<Label htmlFor={roleId}>Role</Label>
 						<Select
 							disabled={inviteMutation.isPending}
 							onValueChange={(value) =>
@@ -790,11 +796,12 @@ export function InvitationForm(input: { organizationId: string }) {
 							value={role}
 						>
 							<SelectTrigger
+								className="w-full min-w-0"
 								displayValue={
 									INVITE_ROLE_OPTIONS.find((option) => option.value === role)
 										?.label
 								}
-								id="organization-invite-role"
+								id={roleId}
 							/>
 							<SelectContent>
 								{INVITE_ROLE_OPTIONS.map((option, index) => (

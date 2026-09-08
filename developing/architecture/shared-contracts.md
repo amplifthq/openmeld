@@ -404,14 +404,32 @@ only a request ID; its owner checks current authority on every review.
 The invitation-approval rollout adds Auth HTTP/Core RPC actions, a scoped link
 field, an Inbox target, and an optional transactional-email purpose. It does not
 change setup, Wake, Service status, trace, or self-rescue contracts. Existing local
-components remain safe: the legacy link acceptance endpoint fails closed with
-`organization.join_link.approval_required` instead of enrolling someone. CLI and
+components remain safe: request-mode links fail closed at direct acceptance with
+`organization.join_link.approval_required`. Explicit administrator direct links
+use the same Auth membership writer after verified recipient consent. CLI and
 managed Skills updates are advisory (`available` at release); no runtime contract
 epoch changes are needed. New clients require the new receivers. Use the existing
 `space-invitation-receivers-first` coordinated release: additive Database
 migrations, Core, Auth, then Web and CLI. Keep the receiver/client transition short;
 old Web cannot operate the new Inbox request target. Rolling clients back must
-not restore bearer-link enrollment or remove the additive request data.
+not change a stored link's mode or remove the additive request data.
+
+Direct invitation links add stored `mode` and `expiresAt`, exposed only to HTTP
+management/preview callers requesting `responseVersion=3`. Legacy management
+requests continue addressing request-mode links. Ensure-on-behalf RPC retains its
+old strict response shape. Recipient-request fulfillment adds optional
+`applicantUserId` and `joinedAt` plus the Auth-only `join_complete` RPC action.
+Auth opts into Core response version 2; Web opts into HTTP response version 2.
+Older request callers retain the email-invitation flow and legacy response shape.
+An approval is not a membership claim: Auth fulfills membership and optional Space
+access first, then Core records completion and resolves reviewer Inbox items.
+
+Contract impact: this changes Auth HTTP, Auth/Core RPC, and additive shared D1
+data only. Existing CLI, Service, Skills, Gateway, and Remote Agent remain
+compatible for setup, Wake, Space actions, status, and diagnostics; no local
+component epoch or artifact change is required. The receiver-first release order
+is Database, Core, Auth, then Web. Roll back Web before Auth, and Auth before Core;
+retain the additive columns and the original modes of all issued links.
 
 `packages/schemas` owns Inbox item, counts, list-filter, direct item read,
 read/unread and Dismiss mutations, delivery preference, structured source
