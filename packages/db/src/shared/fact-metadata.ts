@@ -74,7 +74,7 @@ export const getSharedDbSchemaSources = (): DbFactSource[] => {
       kind: "core_schema_module",
       owner: "packages/db",
       path: CORE_CENTER_AGENT_TASKS_SCHEMA_DEFINITION_PATH,
-      note: "Core-owned requester-private Center Agent Tasks, attempts, and safe visible events are part of the shared OPENMELD_DB aggregate.",
+      note: "Retired Center Agent Task tables remain in the physical aggregate for deployment ordering only; active Task code has been removed.",
     },
     {
       kind: "core_schema_module",

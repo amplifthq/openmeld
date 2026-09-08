@@ -17,7 +17,6 @@ export async function buildRemoteAgentToolContext(input: {
 }): Promise<{
   context: OpenMeldRequestContext;
   conversationId: RemoteAgentCallbackContext["conversationId"];
-  conversationIdentity: RemoteAgentCallbackContext["conversationIdentity"];
   modelRoute: RemoteAgentCallbackContext["modelRoute"];
   turnEnvelope: RemoteAgentCallbackContext["turnEnvelope"];
 }> {
@@ -33,7 +32,6 @@ export async function buildRemoteAgentToolContext(input: {
   return {
     context,
     conversationId: turnContext.conversationId,
-    conversationIdentity: turnContext.conversationIdentity,
     modelRoute: turnContext.modelRoute,
     turnEnvelope: turnContext.turnEnvelope,
   };

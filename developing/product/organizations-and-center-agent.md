@@ -18,8 +18,7 @@
 - Do not use this for: Wake execution mechanics
   (`developing/architecture/agent-transport-contract.md`), daemon lifecycle
   (`developing/architecture/local-openmeld-service.md`), current Space
-  semantics (`developing/product/space-collaboration.md`), Center Agent Task
-  product semantics (`developing/product/center-agent-tasks.md`), or
+  semantics (`developing/product/space-collaboration.md`), or runtime
   implementation details that belong in code and scoped owner docs once built.
 - Source of truth: This file owns the Organization/Center Agent direction,
   shipped MVP baseline, deferred scope, and red lines until narrower
@@ -33,9 +32,7 @@ This approved design baseline was settled with Felix on 2026-07-04 (strategy
 sessions in the pre-migration ATS repo). Shipped on main: Organization
 foundation, hosted Center Agent MVP surfaces, and Remote Agent R1 on the Flue
 harness with native delivery, Space reply streaming, Slack channel support, and
-Center Agent memory. The approved first-class Center Agent Tasks target is owned
-by `developing/product/center-agent-tasks.md`; its presence in this target model
-is not a production-release claim. Center Agent Routines are a separate
+Center Agent memory. Center Agent Routines are a separate
 first-class product surface owned by
 `developing/product/center-agent-routines.md`. The former Session Sync
 direction is now the Agent Activity product owned by
@@ -74,13 +71,9 @@ infrastructure**:
 
 Anti-goals that guard the other edge:
 
-- Do not build a heavyweight task/workflow system (Jira-clone death). The
-  conversation-first Center Agent Task product is intentionally limited to
-  durable work, re-entry, coordination, attention, and recovery; it does not add
-  custom workflows, backlogs, planning, sprints, estimates, or drag-to-transition
-  authority. The lower Agent Task Coordination records still exist only to
+- Do not build a heavyweight task/workflow system. Agent Task Coordination records exist only to
   connect exact executions, terminal outcomes, and declared continuations; they
-  are not the Center Agent Task registry or a general workflow engine.
+  are not a product task registry or a general workflow engine.
 - Do not add agent features for their own sake; every pillar must shorten or
   strengthen a real organization's work loop.
 
@@ -166,7 +159,7 @@ The hosted Center Agent freezes one executable capability catalog at turn
 start. When that catalog has progressive discovery and Code Mode, every
 tool-capable primary model receives the same small bootstrap: typed search and
 describe tools, Code Mode, the generic Connected App entry points, and the
-bounded read-only member and Center Agent Task list/detail tools. The
+bounded read-only member tools. The
 foundational reads keep current OpenMeld state directly inspectable for models
 that do not begin with a meta-discovery call. The worker never reads the user's
 words to preselect a hidden business-tool slice, and it does not maintain
@@ -548,9 +541,8 @@ The Center Agent has one Web product home with complementary destinations:
 
 - **Center Agent** is the product home for the workspace's managed agent and
   owns no secondary sidebar. Its stable header navigation is **Messages,
-  Graph, Files, Tasks, Routines, Skills, Plugins, Channels**. The first three preserve the everyday
-  conversation surface; Tasks owns durable parallel work and conversation-first
-  re-entry; Routines owns scheduled work. One compact header menu preserves
+  Graph, Files, Routines, Skills, Plugins, Channels**. The first three preserve the selected
+  conversation surface; Routines owns scheduled work. One compact header menu preserves
   **Memory, Center Agent settings** and, on the
   conversation, **Conversation information**. There is no separate About
   surface or Slack shortcut. Identity and configuration live in Center Agent
@@ -562,20 +554,25 @@ The Center Agent has one Web product home with complementary destinations:
   identity. Owners/admins may retain their separately authorized configuration
   actions, but role alone never grants operating-state authority.
 
-### Center Agent Tasks
+### Center Agent sessions
 
-One resident Center Agent may coordinate several independent Tasks at the same
-time while Chat remains available. Each Task has isolated versioned context and
-one ordered mutation lane; independent Tasks may run in parallel. Task detail is
-a conversation surface, not another Center Agent identity or a user-managed chat
-session. The Tasks board is a read-only projection, and Agent Task Handles remain
-internal exact execution selectors.
+One Center Agent supports multiple independent chat sessions on the same Computer.
+The session selects conversational context; it does not create another Agent or
+Computer. Existing Space/session authorization, execution controls, and native
+delivery own admission, steering, stopping, and results.
 
-The canonical model, access rules, cross-channel continuity, concurrency,
-Stop/Retry/Recovery semantics, Inbox projection, and Web presentation are owned
-by `developing/product/center-agent-tasks.md`. This file continues to own the
-resident Center Agent identity, designation, operating state, Organization
-authority, and delegation policy.
+The separate Center Agent Task product is retired: no Task creation/discovery
+tools, board, detail route, HTTP/RPC API, recovery scheduler, or Inbox producer
+remain. Local Agent Task Handles and Agent Task Coordination are execution
+selectors and callbacks, not this retired product, and remain supported.
+Historical Task data is not migrated into sessions. Ordinary Space messages
+remain readable; old Task links do not revive a Task.
+
+Task tables and their schema declarations are retained only for safe deployment
+ordering. No active product code reads or writes them. Inbox reads filter to
+currently supported item kinds, including counts and notification delivery.
+Physical deletion must follow deployment of all retiring producers; do not put
+destructive table removal into the ordinary database-before-Core release.
 
 The Audit Log records Center Agent tool calls and externally carried Local Agent
 requests, authorized Center Agent Context Manifest reads, and verified Context
@@ -1360,13 +1357,6 @@ output, a conversation-id prefix, or a second connected provider cannot
 redirect the normal result. Current provider transcripts also remain separate:
 using the same Center Agent does not automatically copy Slack, Lark, or Feishu
 history into another provider conversation.
-
-When that turn explicitly creates or continues a first-class Center Agent Task,
-Core also records the canonical Task event and exact Task context revision under
-`developing/product/center-agent-tasks.md`. The frozen provider locator still
-owns native publication. Web may render the same authorized Task event without
-another model turn or provider write; it does not copy the provider transcript or
-retarget the original result.
 
 An active human participant whose internal relationship to the current
 Organization is established by its connected Slack, Lark, or Feishu workspace
@@ -2643,10 +2633,6 @@ Generic shareable invite links were removed from this out-of-scope list by the
    Claude-task success conditions; unsupported controllers and conditions,
    including current controller `failed` and `needs_attention` watches, fail
    closed.
-7. **Center Agent Tasks** — target product and architecture are owned by
-   `developing/product/center-agent-tasks.md`. Implementation is in progress;
-   owner docs and partial schemas or routes are not evidence that Task creation,
-   cross-channel continuity, realtime refresh, or recovery is released.
 8. **Agent Activity** — implementation is in progress under the first-class
    Project, privacy, ingestion, presence, retention, and read contracts in
    `developing/product/agent-activity.md`.
@@ -2706,9 +2692,7 @@ A coding agent working in this scope must not:
 11. Expose user-profile remote-agent binding as a product surface.
 12. Ship org routes without the `/o/{orgSlug}` scope.
 13. Start building billing, SSO, custom roles, or cross-org guests.
-14. Turn Center Agent Tasks into a second Agent Task Coordination registry, a
-    transcript mirror, or a general backlog/workflow engine. Follow
-    `developing/product/center-agent-tasks.md`.
+14. Reintroduce the retired Center Agent Task product beside chat sessions.
 
 If a task seems to require crossing one of these, stop and surface it to
 Felix; do not "helpfully" cross it.

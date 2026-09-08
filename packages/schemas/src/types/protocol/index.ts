@@ -48,7 +48,6 @@ export type {
 } from "./message-envelope";
 export type { Profile, ProfileKind, ProfileWorkspaceMode } from "./profile";
 export type {
-  CenterAgentTaskReference,
   SignalText,
   SignalTextData,
   SignalTextReplyTo,

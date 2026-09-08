@@ -99,10 +99,6 @@ describe("buildInboxItemSourceNavigation", () => {
 			"/o/amplift/people/agent-requests?requestId=request%2Fwith+spaces",
 		],
 		[
-			{ kind: "center_agent_task", taskId: "task/with spaces" } as const,
-			"/o/amplift/center-agent/tasks/task%2Fwith%20spaces",
-		],
-		[
 			{ documentId: "document-123", kind: "organization_document" } as const,
 			"/o/amplift/documents/document-123",
 		],

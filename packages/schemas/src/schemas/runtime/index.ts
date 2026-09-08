@@ -141,10 +141,8 @@ export {
   remoteAgentWorkLoopContinuationSchema,
 } from "./remote-agent-turn-envelope";
 export {
-  buildRemoteAgentCenterAgentTaskConversationId,
   buildRemoteAgentRuntimeConversationId,
   REMOTE_AGENT_ADMISSION_STAGE_OPERATIONS,
-  REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_TOTAL_TEXT_MAX_CHARS,
@@ -175,7 +173,6 @@ export {
   remoteAgentWorkerAuthorContextSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerCancellationResponseSchema,
-  remoteAgentWorkerConversationIdentitySchema,
   remoteAgentWorkerExecutionProgressKindSchema,
   remoteAgentWorkerExecutionQueryResponseSchema,
   remoteAgentWorkerExecutionQuerySchema,
@@ -191,7 +188,6 @@ export {
   remoteAgentWorkerSubmitTurnRequestSchema,
   remoteAgentWorkerSubmitTurnRequestV1Schema,
   remoteAgentWorkerSubmitTurnRequestV2Schema,
-  remoteAgentWorkerSubmitTurnRequestV3Schema,
   remoteAgentWorkerSubmitTurnRequestV4Schema,
   remoteAgentWorkerSubmitTurnResponseSchema,
   remoteAgentWorkerTurnMessageSchema,
