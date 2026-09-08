@@ -300,6 +300,15 @@ compile. Keep the page open; later loads should be fast. This message is also
 printed by the launcher so a newcomer does not mistake first compilation for a
 failed start.
 
+For real CLI/Service Setup smoke, run `pnpm cli:binary:serve` in the same
+worktree and use the Web-generated lane command. On macOS, when testing real
+Keychain access across CLI and Service copies, an already provisioned signing
+identity can be selected with `OPENMELD_CLI_BINARY_DEV_SIGNING_IDENTITY`.
+The binary server signs with the normal release entitlements, verifies the
+signature, then computes the served checksum. Without this option it retains
+the normal ad-hoc development build. This is local test packaging, not a release
+or notarization; never replace production binaries or credentials to run it.
+
 For a localhost Routine smoke, start the Worker stack with
 `pnpm dev:worktree -- --test-scheduled`, create an enabled Routine through Web,
 then run the printed command to trigger one Core minute-scheduler tick:

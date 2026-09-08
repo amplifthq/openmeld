@@ -12,7 +12,7 @@ import { type ReactNode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AgentProfileSidebarItemComponent } from "../../src/components/agents/agent-profile-sidebar-item";
 import { SidebarListSkeleton } from "../../src/components/app/sidebar-list-skeleton";
-import { HumanProfileSidebarItem } from "../../src/components/directory/human-profile-sidebar-item";
+import { HumanProfileItem } from "../../src/components/directory/human-profile-item";
 import { SpaceSidebarMenuItem } from "../../src/components/spaces/space-sidebar-menu-item";
 import { agentScenarios, peopleScenarios, spaceScenarios } from "./scenarios";
 import "./preview.css";
@@ -116,7 +116,7 @@ function Preview() {
 						</Column>
 						<Column selected={selected} title="People" width={width}>
 							{peopleScenarios.map((scenario, index) => (
-								<HumanProfileSidebarItem
+								<HumanProfileItem
 									key={scenario.member.id}
 									{...scenario}
 									index={index}

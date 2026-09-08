@@ -68,7 +68,7 @@ export function SidebarSectionActions(input: {
 	return (
 		<>
 			<SidebarGroupActions
-				className="static h-6 opacity-0 group-focus-within/sidebar-group-root:opacity-100 group-hover/sidebar-group-root:opacity-100 data-open:opacity-100 [@media(hover:none)]:opacity-100"
+				className="static hidden h-6 group-focus-within/sidebar-group-root:flex group-hover/sidebar-group-root:flex data-open:flex [@media(hover:none)]:flex"
 				data-open={addOpen || settingsOpen || undefined}
 			>
 				{(input.onNewItem || input.onNewGroup) && (

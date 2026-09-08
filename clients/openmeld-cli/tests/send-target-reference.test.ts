@@ -106,6 +106,42 @@ describe("resolveDispatchSendTargetReference", () => {
     });
   });
 
+  it("does not advertise the acting agent as its own send target, including across cached directory reuse", async () => {
+    getMemberDirectoryMock.mockResolvedValue(createMemberDirectory());
+    const references: string[][] = [];
+    for (const targetProfileId of [
+      "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    ]) {
+      const result = await resolveDispatchSendTargetReference({
+        agentControllerRef: "builtin:codex",
+        dispatchTask: createDispatchTask({ targetProfileId }),
+        profileOwnerName: "Felix",
+        profileOwnerUserId: "usr-felix",
+        targetProfileName: "Codex",
+      });
+      expect(result.status).toBe("loaded");
+      if (result.status !== "loaded") {
+        throw new Error("Expected loaded send target reference");
+      }
+      // The directory projection remains intact for independent action validation.
+      expect(result.projection).toHaveLength(3);
+      expect(result.referenceLines.join("\n")).not.toContain(targetProfileId);
+      references.push(result.referenceLines);
+    }
+    expect(getMemberDirectoryMock).toHaveBeenCalledTimes(1);
+    expect(references).toEqual([
+      [
+        "Mira -> 11111111-1111-4111-8111-111111111111 (mention)",
+        "Watcher -> agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb (wake | reference)",
+      ],
+      [
+        "Budget Analyst -> agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa (wake | reference)",
+        "Mira -> 11111111-1111-4111-8111-111111111111 (mention)",
+      ],
+    ]);
+  });
+
   it("shares one in-flight member directory request for concurrent loads with the same access scope", async () => {
     let resolveDirectory:
       | ((directory: SpaceMemberDirectory) => void)

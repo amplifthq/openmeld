@@ -32,14 +32,14 @@ declare const OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON:
 const SEMVER_RE =
   /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u;
 const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
-// OpenMeld Service 0.3.153 is the first release that reports the current
-// working-folder facts and keeps every reply owned by its accepted Wake.
-// Earlier Services can admit work from stale routing facts or let a later Wake
-// influence an earlier Wake's reply observation.
+// OpenMeld Service 0.3.168 adds credential recovery, setup/update coordination,
+// and task-scoped reply publication without unrelated CLI initialization.
+// Earlier Services can remain stuck during recovery or fail to publish a reply
+// after the local Agent has finished its work.
 // Core owns this monotonic compatibility floor separately from the latest
 // release's advisory policy, so a later optional release can never make an
 // older unsafe Service eligible for new Wake work again.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.153";
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.168";
 
 type ServiceUpdateDecision = {
   reasonCodes: string[];

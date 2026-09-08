@@ -4,6 +4,9 @@ import {
   markInterruptedComputerAuthSessionRecovery,
   recordInterruptedComputerAuthSessionRecoveryFailure,
 } from "../config/auth-session";
+import { compareSemver } from "../config/version-state";
+import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-coordinator";
+import { readPendingDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-state";
 import { readOpenMeldToolsUpdateContextFromEnv } from "../local-service/maintenance/openmeld-tools-update-context";
 import {
   resolveExternalOpenMeldToolsUpdate,
@@ -11,6 +14,7 @@ import {
 } from "../local-service/maintenance/openmeld-tools-update-join";
 import type { Presenter } from "../runtime/presenter/index";
 import type { RuntimeContext } from "../runtime/types";
+import { OPENMELD_VERSION } from "../runtime/version";
 import { runDaemonServiceParticipationGate } from "../system/local-service-participation-gate";
 import { revokePreparedAuthSession } from "./computer-auth-session";
 import { bestEffortStopCurrentLaneDaemonService } from "./service";
@@ -144,6 +148,11 @@ async function stopCurrentLaneDaemonServiceAfterToolsUpdate(input: {
       currentOperationId: readOpenMeldToolsUpdateContextFromEnv()?.operationId,
     });
     if (externalUpdate) {
+      if (externalUpdate.phase === "waiting_for_work") {
+        // Waiting for accepted work is not a switching lock. A failed stop
+        // needs its own recovery guidance, not a tight retry loop.
+        break;
+      }
       await waitForOpenMeldToolsUpdateBeforeComputerHandoff(input);
     } else if (retriedAfterUpdateDisappeared) {
       break;
@@ -164,6 +173,21 @@ export async function waitForOpenMeldToolsUpdateBeforeComputerHandoff(input: {
   presenter: Presenter;
 }): Promise<void> {
   const currentUpdate = readOpenMeldToolsUpdateContextFromEnv();
+  const pending = await readPendingDaemonServiceUpdate();
+  if (
+    pending &&
+    pending.jobId !== currentUpdate?.operationId &&
+    pending.phase === "waiting_for_work" &&
+    compareSemver(OPENMELD_VERSION, pending.targetVersion) > 0
+  ) {
+    // Keep one operation owner. A newer Setup must advance the existing job,
+    // not start a replacement that the older pending worker can later undo.
+    await scheduleDaemonServiceUpdate({
+      targetVersion: OPENMELD_VERSION,
+      urgency: pending.urgency,
+      requestSource: "cli",
+    });
+  }
   await waitForExternalOpenMeldToolsUpdate({
     currentOperationId: currentUpdate?.operationId,
     onWaiting: (operation) => {
