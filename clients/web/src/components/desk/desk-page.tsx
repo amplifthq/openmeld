@@ -39,10 +39,7 @@ import {
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
 import { createSpaceInOrganization } from "#/lib/spaces/create-space-in-organization";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
-import {
-	saveWelcomeSpace,
-	useWelcomeSpace,
-} from "../spaces/welcome-space-state";
+import { saveWelcomeSpace } from "../spaces/welcome-space-state";
 import { DeskAddSpace } from "./desk-add-space";
 import { DeskSpace } from "./desk-space";
 import { DeskTools } from "./desk-tools";
@@ -288,12 +285,13 @@ function Desk() {
 								id: "welcome",
 								type: "desk" as const,
 								origin: [0.5, 0] as [number, number],
-								position: greeting?.origin
-									? greeting.position
-									: {
-											x: width / 2,
-											y: 0,
-										},
+								position:
+									greeting?.origin && greeting.position.y !== 0
+										? greeting.position
+										: {
+												x: width / 2,
+												y: 0,
+											},
 								data: { kind: "welcome" as const },
 								width: greeting?.origin ? greeting.width : undefined,
 								style: greeting?.origin
@@ -591,10 +589,6 @@ function DeskWindow({
 	height: nodeHeight,
 }: NodeProps<DeskNode>) {
 	const context = use(DeskContext);
-	const welcomeStep = useWelcomeSpace(
-		context?.storageScope ?? "",
-		context?.spaceId ?? ""
-	);
 	const [view, setView] = useState<SpaceView>("messages");
 	const spaceId = data.spaceId ?? context?.spaceId ?? "";
 	const profileId = data.profileId ?? context?.profileId ?? "";
@@ -638,10 +632,10 @@ function DeskWindow({
 					<p className="text-base text-muted-foreground">
 						Your work, together in one place.
 					</p>
-					{welcomeStep === "add" && (
+					{
 						<svg
 							aria-hidden="true"
-							className="text-muted-foreground"
+							className="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 text-muted-foreground"
 							data-desk-arrow=""
 							height="32"
 							viewBox="0 0 28 32"
@@ -654,7 +648,7 @@ function DeskWindow({
 								strokeWidth="1.5"
 							/>
 						</svg>
-					)}
+					}
 				</section>
 			</>
 		);
