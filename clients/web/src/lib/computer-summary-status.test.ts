@@ -200,7 +200,7 @@ describe("computer summary status", () => {
 		).toBe("device-1");
 	});
 
-	it("returns danger when an update is required", () => {
+	it("returns warning when an update is required", () => {
 		expect(
 			resolveCurrentLocalRuntimeComputerSummaryStatus({
 				readiness: buildReadiness({
@@ -209,7 +209,7 @@ describe("computer summary status", () => {
 					}),
 				}),
 			})
-		).toMatchObject({ label: "Update required", tone: "danger" });
+		).toMatchObject({ label: "Update required", tone: "warning" });
 	});
 
 	it("prioritizes the disconnected service outcome over a cached update", () => {

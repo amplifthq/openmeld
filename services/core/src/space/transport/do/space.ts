@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  isAgentWakeAdmissionPreparationPendingReason,
   resolveWakeStopEligibility,
 } from "@openmeld/agent-runtime";
 import {
@@ -70,6 +71,7 @@ import {
   remoteAgentWorkerExecutionInputResponseSchema,
   removeSpaceMembersBodySchema,
   resolveMappedPublicAgentFailureReason,
+  resolveSingleSpaceMentionLabels,
   resolveSpaceComposerUploadScopeResponseSchema,
   resolveSpaceFileContentInputSchema,
   respondToSpaceAgentInteractionInputSchema,
@@ -435,11 +437,15 @@ import {
 import { readLatestVisibleFormalUpdate } from "../../application/space-latest-visible-update-service";
 import {
   addSpaceMembersUseCase,
+  ensureSpaceMembersBackfilled,
   leaveSpaceUseCase,
   listSpaceIdentityDirectoryUseCase,
   listSpaceMemberDirectoryUseCase,
   listSpaceMembersSnapshotUseCase,
+  readSpaceMemberNameFromAuth,
   recordSpaceMemberWebActivityUseCase,
+  refreshSpaceMemberNameSnapshot,
+  refreshSpaceMemberNamesFromAuth,
   removeSpaceMembersUseCase,
   SpaceMembersUseCaseError,
   upsertJoinedSpaceMember,
@@ -643,6 +649,7 @@ import {
   VISIBLE_SPACE_TIMELINE_SIGNAL_TYPES,
   type VisibleSpaceTimelineSignalType,
 } from "../../rules/formal-space-update";
+import { normalizeSpaceMemberNameSnapshot } from "../../rules/member-name";
 import {
   buildEffectiveMentionLabelByProfileIdForDispatch,
   buildMentionTargetAliasIndexForDispatch,
@@ -971,7 +978,7 @@ async function assertRpcSpaceAccessAuthorized(
 function mergePublishedOriginFactsIntoAuthorProfile(
   author: Profile,
   requestedProfileRaw: unknown,
-  resolveAuthoritativeAgentProfileName: (profileId: string) => string | null
+  memberProfileName: string | null
 ): Profile {
   if (author.kind === "system") {
     const parsedProfile = parseProfile(requestedProfileRaw);
@@ -985,10 +992,12 @@ function mergePublishedOriginFactsIntoAuthorProfile(
     return author;
   }
 
-  const publishedAuthor = resolvePublishedAgentProfileName({
-    author,
-    resolveAuthoritativeProfileName: resolveAuthoritativeAgentProfileName,
-  });
+  // Both the posted Profile and context can carry reported names. Only the
+  // Auth-refreshed Space snapshot supplies this field.
+  const publishedAuthor: Profile = {
+    ...author,
+    profileName: memberProfileName ?? undefined,
+  };
 
   const parsedProfile = parseProfile(requestedProfileRaw);
   if (!parsedProfile.ok) {
@@ -1015,20 +1024,6 @@ function mergePublishedOriginFactsIntoAuthorProfile(
       ? { workingDirectory: requestedProfile.workingDirectory }
       : {}),
   };
-}
-
-function resolvePublishedAgentProfileName(input: {
-  author: Profile;
-  resolveAuthoritativeProfileName: (profileId: string) => string | null;
-}): Profile {
-  const authorWithoutReportedProfileName = { ...input.author };
-  authorWithoutReportedProfileName.profileName = undefined;
-  const profileName = input.resolveAuthoritativeProfileName(
-    input.author.profileId
-  );
-  return profileName
-    ? { ...authorWithoutReportedProfileName, profileName }
-    : authorWithoutReportedProfileName;
 }
 
 function createPreparedDispatchOutboxRecordForDecision(input: {
@@ -3823,8 +3818,15 @@ export class Space extends DurableObject<CoreBindings> {
       throw error;
     }
 
-    const finalSignal =
-      this.readAgentTransportSpaceActionFinalSignal(input) ?? signal;
+    const finalSignal = this.readAgentTransportSpaceActionFinalSignal(input);
+    if (!finalSignal) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: "space.agent_reply.final_signal_unreadable",
+        reason:
+          "The published Agent reply could not be read from Space storage.",
+      });
+    }
     return {
       emittedSignal: finalSignal,
       finalReplySettled: true,
@@ -4257,28 +4259,75 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
-  private mergePublishedAuthorProfile(
+  private async mergePublishedAuthorProfile(
     author: Profile,
     requestedProfileRaw: unknown
-  ): Profile {
+  ): Promise<Profile> {
+    let name = this.resolveSpaceMemberProfileNameForPublication(
+      author.profileId
+    );
+    if (author.kind === "agent") {
+      const previousName = name;
+      const currentName = await readSpaceMemberNameFromAuth({
+        env: this.bindings,
+        profileId: author.profileId,
+        profileKind: "agent",
+      });
+      // A concurrent identity refresh wins over an older in-flight read.
+      const latestName = this.resolveSpaceMemberProfileNameForPublication(
+        author.profileId
+      );
+      name =
+        latestName !== previousName
+          ? latestName
+          : (currentName ?? previousName);
+      if (
+        name &&
+        refreshSpaceMemberNameSnapshot({
+          sql: this.ctx.storage.sql,
+          profileId: author.profileId,
+          profileName: name,
+        })
+      ) {
+        this.ctx.waitUntil(
+          this.projectCurrentSpaceIndexSnapshot("space.members_updated")
+        );
+      }
+    }
     return mergePublishedOriginFactsIntoAuthorProfile(
       author,
       requestedProfileRaw,
-      (profileId) => this.resolveSpaceMemberProfileNameForPublication(profileId)
+      name
     );
+  }
+
+  private async refreshMemberNamesFromAuth(): Promise<void> {
+    ensureSpaceMembersBackfilled({
+      sql: this.ctx.storage.sql,
+      spaceId: this.spaceId,
+      liveSessions: this.sessions.values(),
+      metaRecord: this.readSpaceMetaRecord(),
+    });
+    if (
+      await refreshSpaceMemberNamesFromAuth({
+        sql: this.ctx.storage.sql,
+        env: this.bindings,
+      })
+    ) {
+      this.ctx.waitUntil(
+        this.projectCurrentSpaceIndexSnapshot("space.members_updated")
+      );
+    }
   }
 
   private resolveSpaceMemberProfileNameForPublication(
     profileId: string
   ): string | null {
-    return resolveSpaceDispatchProfileName({
-      logContext: createSpaceDispatchLogNameContext(
-        this.ctx.storage.sql,
-        this.spaceId
-      ),
+    return normalizeSpaceMemberNameSnapshot(
       profileId,
-      profileKind: "agent",
-    });
+      readSpaceMemberRecord(this.ctx.storage.sql, profileId)
+        ?.profileNameSnapshot
+    );
   }
 
   private async rpcPostThreadedTextSignal(
@@ -4295,7 +4344,7 @@ export class Space extends DurableObject<CoreBindings> {
       ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
     });
     const signal = this.buildTextSignal(
-      this.mergePublishedAuthorProfile(author, input.profile),
+      await this.mergePublishedAuthorProfile(author, input.profile),
       normalizedText,
       {
         ...(input.attachments ? { attachments: input.attachments } : {}),
@@ -4363,7 +4412,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     const signal = this.buildStatusSignal(
-      this.mergePublishedAuthorProfile(author, input.profile),
+      await this.mergePublishedAuthorProfile(author, input.profile),
       parsedData.data
     );
     await this.publishStatusSignal(
@@ -4403,7 +4452,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
 
     const signal = this.buildSystemNoticeSignal(
-      this.mergePublishedAuthorProfile(author, input.profile),
+      await this.mergePublishedAuthorProfile(author, input.profile),
       parsedData.data
     );
     await this.publishSystemNoticeSignal(
@@ -4464,7 +4513,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     const signal = this.buildSystemNoticeSignal(
-      this.mergePublishedAuthorProfile(author, input.profile),
+      await this.mergePublishedAuthorProfile(author, input.profile),
       recoveryData,
       signalId
     );
@@ -8298,7 +8347,7 @@ export class Space extends DurableObject<CoreBindings> {
       .catch(() => null);
     return this.handlePostSignal(
       request,
-      this.mergePublishedAuthorProfile(
+      await this.mergePublishedAuthorProfile(
         toProtocolProfile(requestContext),
         body && typeof body === "object" && !Array.isArray(body)
           ? (body as { profile?: unknown }).profile
@@ -8946,7 +8995,7 @@ export class Space extends DurableObject<CoreBindings> {
       return new Response("Invalid JSON", { status: 400 });
     }
 
-    const author = this.mergePublishedAuthorProfile(
+    const author = await this.mergePublishedAuthorProfile(
       toProtocolProfile(resolved.context),
       (body as { profile?: unknown }).profile
     );
@@ -9486,23 +9535,26 @@ export class Space extends DurableObject<CoreBindings> {
               .ownerUserId
           );
           return Response.json(
-            await this.readActiveSpaceWakeProgress({
-              actorOwnerUserId,
-              db,
-              includePageInfo: parsed.data.includePageInfo === true,
-              includeTiming: parsed.data.includeTiming === true,
-              includePreviewText: parsed.data.includePreviewText === true,
-              includeSourceContext: parsed.data.includeSourceContext === true,
-              includeWaitReason: parsed.data.includeWaitReason === true,
-              includeWakeStopEligibility:
-                parsed.data.includeWakeStopEligibility === true,
-              ...(parsed.data.targetProfileId
-                ? { targetProfileId: parsed.data.targetProfileId }
-                : {}),
-              ...(parsed.data.sourceProfileId
-                ? { sourceProfileId: parsed.data.sourceProfileId }
-                : {}),
-            })
+            await this.projectWakeStopEligibilityForViewer(
+              await this.readActiveSpaceWakeProgress({
+                actorOwnerUserId,
+                db,
+                includePageInfo: parsed.data.includePageInfo === true,
+                includeTiming: parsed.data.includeTiming === true,
+                includePreviewText: parsed.data.includePreviewText === true,
+                includeSourceContext: parsed.data.includeSourceContext === true,
+                includeWaitReason: parsed.data.includeWaitReason === true,
+                includeWakeStopEligibility:
+                  parsed.data.includeWakeStopEligibility === true,
+                ...(parsed.data.targetProfileId
+                  ? { targetProfileId: parsed.data.targetProfileId }
+                  : {}),
+                ...(parsed.data.sourceProfileId
+                  ? { sourceProfileId: parsed.data.sourceProfileId }
+                  : {}),
+              }),
+              resolved.spaceAccess
+            )
           );
         } catch (err) {
           logInternalError(
@@ -9675,12 +9727,16 @@ export class Space extends DurableObject<CoreBindings> {
       );
     }
 
-    const response = await this.handlePostWakeStop(parsed.data.body);
+    const response = await this.handlePostWakeStop(
+      parsed.data.body,
+      requireWritableSpaceActor(resolved.spaceAccess)
+    );
     return Response.json(response);
   }
 
   private async handlePostWakeStop(
-    body: PostSpaceWakeStopBody
+    body: PostSpaceWakeStopBody,
+    context: OpenMeldRequestContext
   ): Promise<PostSpaceWakeStopResponse> {
     const lookup = await this.readWakeStopDispatchLookup(body.target);
     const lookupMatch = lookup.matches.find(
@@ -9692,6 +9748,15 @@ export class Space extends DurableObject<CoreBindings> {
         runtimeCoordinatorExecutionId: null,
         status: "not_found",
         targetProfileId: body.target.targetProfileId,
+      });
+    }
+
+    if (!(await this.isWakeStopAuthorized({ context, ...lookupMatch }))) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space.wake_stop.forbidden",
+        reason:
+          "Only the person who started this Wake or the agent's owner can stop it.",
       });
     }
 
@@ -9707,6 +9772,87 @@ export class Space extends DurableObject<CoreBindings> {
       body,
       lookupMatch,
     });
+  }
+
+  private async isWakeStopAuthorized(
+    input: {
+      context: OpenMeldRequestContext;
+      sourceSignalId: string | null;
+      targetProfileId: string;
+    },
+    profileOwnership = new Map<string, Promise<boolean>>()
+  ): Promise<boolean> {
+    const actor = input.context.actorContext;
+    const ownerUserId = normalizeOptionalText(actor.ownerUserId);
+    if (!ownerUserId || actor.profileKind === "system") {
+      return false;
+    }
+    const source = input.sourceSignalId
+      ? this.readSignalById(input.sourceSignalId)
+      : null;
+    if (source?.profile.profileId === actor.openMeldProfileId) {
+      return true;
+    }
+    const auth = this.bindings.OPENMELD_AUTH_WORKER;
+    const resolveProfile = auth?.resolveProfileById?.bind(auth);
+    if (!resolveProfile) {
+      return false;
+    }
+    // Profile ownership comes from Auth, never client selectors or member names.
+    for (const profileId of new Set([
+      input.targetProfileId,
+      ...(source && source.profile.kind !== "system"
+        ? [source.profile.profileId]
+        : []),
+    ])) {
+      if (!profileOwnership.has(profileId)) {
+        profileOwnership.set(
+          profileId,
+          resolveProfile({ openMeldProfileId: profileId }).then(
+            (resolved) =>
+              resolved.ok &&
+              resolved.profile.status === "active" &&
+              resolved.profile.ownerUserId === ownerUserId
+          )
+        );
+      }
+      if (await profileOwnership.get(profileId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async projectWakeStopEligibilityForViewer<
+    T extends { items: WakeProgressItem[] },
+  >(response: T, spaceAccess: SpaceAccessContext): Promise<T> {
+    if (!response.items.some((item) => item.wakeStopEligibility != null)) {
+      return response;
+    }
+    const access = await this.authorizeWritableSpaceAccess(spaceAccess);
+    const context = getSpaceAccessRequestContext(spaceAccess);
+    // Reuse ownership reads only inside this viewer's request, never across accounts.
+    const profileOwnership = new Map<string, Promise<boolean>>();
+    const items = await Promise.all(
+      response.items.map(async (item) => {
+        if (item.wakeStopEligibility == null) {
+          return item;
+        }
+        const authorized =
+          access.ok &&
+          context &&
+          (await this.isWakeStopAuthorized(
+            {
+              context,
+              sourceSignalId: item.sourceSignalId,
+              targetProfileId: item.targetProfileId,
+            },
+            profileOwnership
+          ));
+        return authorized ? item : { ...item, wakeStopEligibility: null };
+      })
+    );
+    return { ...response, items };
   }
 
   private async requestRemoteAgentNativeDeliveryStop(input: {
@@ -10091,22 +10237,25 @@ export class Space extends DurableObject<CoreBindings> {
         }
 
         return Response.json(
-          await this.readSpaceWakeProgress({
-            actorOwnerUserId: normalizeOptionalText(
-              getSpaceAccessRequestContext(resolved.spaceAccess)?.actorContext
-                .ownerUserId
-            ),
-            clientMessageId: parsed.data.clientMessageId,
-            includeTiming: parsed.data.includeTiming === true,
-            includePreviewText: parsed.data.includePreviewText === true,
-            includeSourceContext: parsed.data.includeSourceContext === true,
-            includeWaitReason: parsed.data.includeWaitReason === true,
-            includeWakeStopEligibility:
-              parsed.data.includeWakeStopEligibility === true,
-            ...(parsed.data.targetProfileId
-              ? { targetProfileId: parsed.data.targetProfileId }
-              : {}),
-          })
+          await this.projectWakeStopEligibilityForViewer(
+            await this.readSpaceWakeProgress({
+              actorOwnerUserId: normalizeOptionalText(
+                getSpaceAccessRequestContext(resolved.spaceAccess)?.actorContext
+                  .ownerUserId
+              ),
+              clientMessageId: parsed.data.clientMessageId,
+              includeTiming: parsed.data.includeTiming === true,
+              includePreviewText: parsed.data.includePreviewText === true,
+              includeSourceContext: parsed.data.includeSourceContext === true,
+              includeWaitReason: parsed.data.includeWaitReason === true,
+              includeWakeStopEligibility:
+                parsed.data.includeWakeStopEligibility === true,
+              ...(parsed.data.targetProfileId
+                ? { targetProfileId: parsed.data.targetProfileId }
+                : {}),
+            }),
+            resolved.spaceAccess
+          )
         );
       },
     });
@@ -10465,7 +10614,7 @@ export class Space extends DurableObject<CoreBindings> {
       await handleWebSocketTextSignal({
         webSocket,
         session,
-        profile,
+        profile: await this.mergePublishedAuthorProfile(profile, profile),
         payload,
         buildTextSignal: this.buildTextSignal.bind(this),
         publishTextSignal: this.publishTextSignal.bind(this),
@@ -11528,6 +11677,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     await this.ensureAgentOwnerMembershipPolicy(metaRecord);
+    await this.refreshMemberNamesFromAuth();
 
     const parsed = getSpaceStatusInputSchema.safeParse({
       spaceId: this.spaceId,
@@ -11705,6 +11855,7 @@ export class Space extends DurableObject<CoreBindings> {
 
     await this.ensureAgentOwnerMembershipPolicy(metaRecord);
 
+    await this.refreshMemberNamesFromAuth();
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: this.ctx.storage.sql,
       env: this.bindings,
@@ -11858,6 +12009,7 @@ export class Space extends DurableObject<CoreBindings> {
       return this.spaceNotFoundResponse();
     }
 
+    await this.refreshMemberNamesFromAuth();
     const directory = listSpaceIdentityDirectoryUseCase({
       sql: this.ctx.storage.sql,
       spaceId: this.spaceId,
@@ -11873,6 +12025,7 @@ export class Space extends DurableObject<CoreBindings> {
       return this.spaceNotFoundResponse();
     }
 
+    await this.refreshMemberNamesFromAuth();
     const directory = listSpaceMemberDirectoryUseCase({
       sql: this.ctx.storage.sql,
       spaceId: this.spaceId,
@@ -15637,7 +15790,10 @@ export class Space extends DurableObject<CoreBindings> {
       member?.profileNameSnapshot
     );
     return {
-      targetProfileMentionLabel: targetProfileName,
+      targetProfileMentionLabel: resolveSingleSpaceMentionLabels({
+        profileId: targetProfileId,
+        profileName: targetProfileName,
+      }).primaryMentionLabel,
       targetProfileName,
     };
   }
@@ -16081,6 +16237,7 @@ export class Space extends DurableObject<CoreBindings> {
     sourceProfileId?: string;
     targetProfileId?: string;
   }): Promise<GetActiveSpaceWakeProgressResponse> {
+    await this.refreshMemberNamesFromAuth();
     const targetProfileId = normalizeOptionalText(input.targetProfileId);
     const sourceProfileId = normalizeOptionalText(input.sourceProfileId);
     const useFastSummary = input.includeWakeStopEligibility !== true;
@@ -18168,10 +18325,19 @@ function resolveWakeProgressTargetLabel(input: {
   );
   const member = input.memberByProfileId.get(input.targetProfileId);
   return formatWakeProgressTargetLabel(
-    normalizeOptionalText(outboxRecord?.targetProfileMentionLabel) ??
-      normalizeOptionalText(outboxRecord?.targetProfileNameSnapshot) ??
-      normalizeOptionalText(member?.profileNameSnapshot) ??
-      input.targetProfileId
+    normalizeSpaceMemberNameSnapshot(
+      input.targetProfileId,
+      member?.profileNameSnapshot
+    ) ??
+      normalizeSpaceMemberNameSnapshot(
+        input.targetProfileId,
+        outboxRecord?.targetProfileNameSnapshot
+      ) ??
+      normalizeSpaceMemberNameSnapshot(
+        input.targetProfileId,
+        outboxRecord?.targetProfileMentionLabel
+      ) ??
+      "Agent"
   );
 }
 
@@ -18590,7 +18756,13 @@ function resolveWakeProgressPhaseFromDispatchEvidence(input: {
     case "cancelled":
       return "stopped";
     case "failed_retryable":
-      return "retrying";
+      return isAgentWakeAdmissionPreparationPendingReason(
+        input.lookupMatch.latestAttemptErrorCode ??
+          input.trace?.latestAttempt?.errorCode ??
+          ""
+      )
+        ? "connecting"
+        : "retrying";
     case "dispatching":
       return "connecting";
     case "queued":

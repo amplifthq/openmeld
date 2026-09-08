@@ -287,7 +287,7 @@ export function SpaceDirectory(input: {
 			id={`spaces-directory-panel-${input.tab}`}
 			role="tabpanel"
 		>
-			<div className="flex h-16 shrink-0 items-center justify-between gap-3 px-6 lg:px-8">
+			<div className="flex h-16 shrink-0 items-center justify-between gap-3 px-[var(--app-page-inline-padding)]">
 				<p className="min-w-0 truncate text-muted-foreground text-xs">
 					{discovering
 						? ""
@@ -386,7 +386,7 @@ export function SpaceDirectory(input: {
 			</div>
 			{!discovering &&
 				(groupFilter.selected.length > 0 || statusFilters.length > 0) && (
-					<div className="flex flex-wrap items-center gap-1 px-6 pb-3 lg:px-8">
+					<div className="flex flex-wrap items-center gap-1 px-[var(--app-page-inline-padding)] pb-3">
 						{groupFilter.badges}
 						{FILTERS.filter(([id]) => statusFilters.includes(id)).map(
 							([id, label]) => (
@@ -400,7 +400,7 @@ export function SpaceDirectory(input: {
 					</div>
 				)}
 			{input.savedViewWarning && (
-				<output className="flex items-center justify-between px-6 pb-3 text-muted-foreground text-sm">
+				<output className="flex items-center justify-between px-[var(--app-page-inline-padding)] pb-3 text-muted-foreground text-sm">
 					Couldn't refresh Spaces. Showing the last saved view.
 					<Button
 						disabled={input.savedViewWarning.isRetrying}
@@ -414,7 +414,7 @@ export function SpaceDirectory(input: {
 			)}
 			<ScrollArea
 				className="min-h-0 flex-1"
-				contentClassName="px-4 pb-8 lg:px-6"
+				contentClassName="px-[calc(var(--app-page-inline-padding)_-_0.5rem)] pb-8"
 				viewportProps={{
 					onScroll: (event) => {
 						scrollPositions.current[input.tab] = event.currentTarget.scrollTop;

@@ -837,6 +837,27 @@ describe("auth session storage", () => {
       await expect(
         readFile(join(authDirectory, "session.json"), "utf8")
       ).resolves.toBe("{not-json\n");
+      const cleared = await clearAuthSession();
+      expect(cleared.hadLocalSession).toBe(true);
+      expect(cleared.preservedSessionPath).toBeTruthy();
+      if (!cleared.preservedSessionPath) {
+        throw new Error("expected preserved damaged record");
+      }
+      await expect(
+        readFile(cleared.preservedSessionPath, "utf8")
+      ).resolves.toBe("{not-json\n");
+      await expect(
+        getAuthSessionState({ validateRemote: false })
+      ).resolves.toMatchObject({ state: "missing" });
+      await setAuthSession({
+        accessToken: "replacement-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "replacement-owner" },
+      });
+      await expect(getAuthSession()).resolves.toMatchObject({
+        user: { id: "replacement-owner" },
+      });
     });
   });
 

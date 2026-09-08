@@ -1453,6 +1453,20 @@ reads the canonical projection.
 
 Lark and Feishu use an in-page Personal Agent wizard:
 
+The selected entry fixes the provider. Setup copy asks for that provider's
+account; returned links must pass the shared-issuer/selected-provider schema.
+Web changes only the validated link's host to the selected platform for the
+browser. Shared-issuer HTTP URLs keep old Gateway and Web readers compatible,
+and new Web also handles old Core without a registration restart. A detected
+brand mismatch names the selected and returned brands and offers Start over
+after switching accounts. It must not silently change the selected provider or
+keep presenting a brand mismatch as approval still pending.
+
+If initial begin/resume fails before a registration can be displayed, the
+dialog preserves the error and offers managers an explicit Start over action.
+The action keeps the selected provider and uses the existing authorized restart
+mode. It never automatically retries a corrupt or unreadable registration.
+
 1. explain that this is a Channel connection, not access to Docs, Calendar,
    Mail, Tasks, or other business data;
 2. start a Core-owned resumable registration attempt;
@@ -1518,13 +1532,19 @@ already connected; it never tells the manager to disconnect a healthy App.
 While Core is retrying configuration, the dialog shows the latest bounded
 verification failure in plain language instead of presenting an unexplained
 spinner for the rest of the configuration window.
+When configuration requires additional setup permission, the dialog explicitly
+asks the manager to grant `application:application:patch` in the selected
+provider's Developer Console and provides that console link. It does not imply
+that waiting can grant permission. Core retains its existing bounded retries
+so setup can continue after the manager grants access.
 
-The Lark card is available to every local and production Organization.
+The Lark and Feishu cards are enabled in local and production configuration
+for every Organization. Staging keeps both providers disabled.
 Availability means the user may start setup; the card becomes connected only
 after Core verifies that connection's application configuration, Event
-Subscription URL, and Message Card Request URL. Feishu stays unavailable while
-its independent feature flag and provider gate are off. A failed Feishu
-mainland reachability gate must produce honest unavailable copy rather than
+Subscription URL, and Message Card Request URL. Setup availability does not
+prove live provider delivery. A failed Feishu mainland reachability check must
+produce honest failure copy rather than
 silently selecting WebSocket or presenting a connected row. Development and
 production apps and credentials never share a connection.
 
@@ -1859,17 +1879,44 @@ return and every five visible minutes; Space member elapsed-time labels are
 formatted from `lastSeenAt` against the current clock, never a cached label.
 
 The sidebar places the designated **Center Agent** in its own first group,
-linking its actual profile name to Center Agent Home. Starred and user-defined
-groups follow, then **Computer online** and **Computer offline**. The signed-in
-member defaults to Starred only when no personal placement exists. While starred,
-the signed-in member always appears first, regardless of sort or manual order;
+linking its actual profile name to the canonical Center Agent chat. Starred and user-defined
+groups follow, then **Online** and **Offline**, whose hover and keyboard tooltips
+say **Computer online** and **Computer offline**. The signed-in member follows
+ordinary placement unless a saved star or custom group applies. The signed-in
+member always appears first within that group, regardless of sort or manual order;
 the remaining members retain the selected ordering. Explicit
 unstar and custom placement persist; deleting a group returns its members to
 ordinary placement. Computer online requires the existing connected Computer
 projection, not registration or recent Human activity. Other resolved states go
-under Offline; **No computer** and unknown/attention explanations remain visible
-on the row. Pending checks retain the loading state. Sorting and drag placement
+under Offline. Rows show the avatar, name, Computer status icon, Human last-seen
+time when known, and enabled local-agent icons. Computer explanations remain in
+the icon tooltip and accessible name; Channel identities and email are omitted.
+Pending checks retain the loading state. Sorting and drag placement
 remain personal preferences; dragging cannot change Computer connection state.
+
+Team opens a compact member overview at `/o/:orgSlug/people`, with the same
+grouping and ordering as its sidebar. The overview and sidebar share the member
+member presentation data and personal preferences. The overview uses Fluid Card
+groups with persistent card surfaces and 56px avatars; sidebar rows keep their
+compact avatar sizes. Sidebar member rows omit activity timestamps and place
+local agents on a second row aligned with the name, with a 6px row gap, leaving the name row for hover
+actions; cards retain activity timestamps.
+Sidebar groups start collapsed, using
+the same disclosure behavior as Spaces. Entering a person opens their group for
+that visit; explicit expand/collapse choices are remembered per viewer and
+Organization independently of Spaces. The overview remains expanded.
+The overview uses the shared window header with Members navigation and the
+existing permission-gated invitation dialog. Its directory toolbar shows member
+counts, name search, and group filters with the same gutters as Spaces.
+Shared window headers and Team/Spaces directory content use
+`--app-page-inline-padding` (24px below the desktop breakpoint, 32px above).
+Conversation headers inherit this gutter rather than overriding it with the
+separate message-content padding token.
+Saved stars remain intact; historical
+saved preferences have no provenance marker, so Web must not guess which saved
+stars were automatic. An absent preference never creates a self star.
+The Human Profile page omits the entire Advanced details section, including
+Profile ID and copying it; underlying identity and diagnostic contracts remain.
 
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,
@@ -1888,7 +1935,7 @@ shared Profile details, and the permitted Profile Report, Learn about,
 {member}** is the primary action and keeps the same compact button height as
 adjacent actions. It does not repeat those account facts in a separate
 member-account section. Header metadata, Channel-account, Profile, and
-advanced-detail values are
+detail values are
 text-selectable. Editing remains available only
 for the signed-in member's own active default Human Profile. The sidebar and
 detail omit the internal Handle, undefined recent activity, and the ubiquitous
@@ -2438,6 +2485,13 @@ Organization-scoped mutation before the parent Organization access route
 resolves. Once a conversation has renderable Query data, a background
 `isFetching` transition must keep that conversation visible rather than return
 to the route or conversation skeleton.
+
+Space route shells, pending conversation history (including public Spaces), and
+Center Agent use the Web-owned `SpaceConversationSkeleton` for message
+placeholders. It reuses the shared Skeleton primitive with avatar and text-line
+geometry and respects reduced motion. Each caller retains its own header,
+composer, content rail, and loading truth; the skeleton owns no fetching,
+permissions, or message state. Do not add separate full-width block placeholders.
 
 Intent preload warms the same TanStack Query keys consumed by the target page:
 account Profiles plus the Organization Directory for Agent Profiles, account Profiles
@@ -3937,23 +3991,24 @@ A permanent hosted-publication ambiguity is presented as
 reply and spinner, shows that OpenMeld could not confirm whether the final reply
 was posted, and asks the user to inspect the Space before trying again.
 
-Web may expose a Wake Stop intent as soon as a sent structured Wake has a single
-Space-visible target selector. Web must still opt in to `wakeStopEligibility`
-when reading Wake progress and active Wake progress, and explicit not-eligible
-or unsupported Core projections remain fail-closed. A missing
-`wakeStopEligibility` projection is only a temporary visibility gap: Web may let
-the user request Stop through the normal selector, but Core remains the only
-authority that decides whether the request becomes OpenMeld-owned pre-agent Stop,
-controller-backed running Stop, retry-later, unsupported, or not-stoppable.
-Web must not infer stopped, cancelled, or controller support from local browser
-state, controller labels, or a previous Stop response.
+Web opts in to `wakeStopEligibility` when reading Wake progress and active Wake
+progress. This is a viewer-scoped Core projection: only the Wake requester's
+account or the target Agent Profile's owner, with writable Space access, may
+receive Stop eligibility. Null or missing eligibility hides Stop in the timeline,
+details, and multi-target controls. A sent message, its age, a previous Stop
+response, and other accounts signed in on the same computer never grant Stop
+authority. Progress caches remain scoped to the current acting Profile.
+Core rechecks the same authorization rule on every Stop request before any
+pre-agent, controller, or native-delivery cancellation. Web must not infer
+stopped, cancelled, or controller support from local browser state or labels.
 
 The Wake Stop request path is `POST /v1/spaces/:spaceId/wake-stop`. Web sends
 only `sourceSignalId` or `clientMessageId + targetProfileId`, never
 `dispatchId`, task ids, or RuntimeCoordinator execution ids. A typed
 `unsupported`, `not_stoppable`, `not_found`, or `retry_later` response is product
-state. A raw HTTP 404 is a route/deployment/proxy problem, not normal Wake Stop
-unsupported behavior.
+state. HTTP 403 with `space.wake_stop.forbidden` means the current account is
+neither the requester nor the Agent owner. A raw HTTP 404 is a route/deployment/proxy
+problem, not normal Wake Stop unsupported behavior.
 
 Web must not show `cancellation_requested` as stopped. It may show a low-noise
 stopping state while waiting for Core to project a stopped progress phase or a

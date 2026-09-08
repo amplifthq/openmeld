@@ -1297,7 +1297,7 @@ describe("claimDispatchAttempt", () => {
     });
   });
 
-  it("dedupes concurrent new claims for the same idempotency key", async () => {
+  it("retains concurrent intake recovery until the same Wake reaches execution handoff", async () => {
     const { db, rows } = createInMemoryDispatchLedgerDb();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-concurrent-new-claim-1",
@@ -1326,6 +1326,52 @@ describe("claimDispatchAttempt", () => {
       .filter((claim) => claim.status === "fulfilled")
       .map((claim) => claim.value.status);
     expect(fulfilledClaims).toEqual(["claimed", "deduped"]);
+    expect(claims[1]).toMatchObject({
+      status: "fulfilled",
+      value: { status: "deduped", admissionInFlight: true },
+    });
+    expect(rows).toHaveLength(1);
+
+    const winner = claims[0];
+    if (winner.status !== "fulfilled" || winner.value.status !== "claimed") {
+      throw new Error("expected one admission owner");
+    }
+    await markDispatchStatus({
+      attemptId: winner.value.attemptId,
+      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
+      db,
+      errorCode: "agent_execution.readiness_unconfirmed",
+      errorMessage: "Initial readiness evidence is not available yet",
+      idempotencyKey: message.idempotencyKey,
+      nowMs: 1100,
+      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+    });
+    const resumed = await claimDispatchAttempt({
+      attempt: 2,
+      db,
+      message,
+      nowMs: 2000,
+    });
+    expect(resumed).toMatchObject({ status: "claimed", attemptNo: 2 });
+    if (resumed.status !== "claimed") {
+      throw new Error("expected the same Wake to resume admission");
+    }
+    await markDispatchAttemptWaitingForResult({
+      attemptId: resumed.attemptId,
+      db,
+      idempotencyKey: message.idempotencyKey,
+      nowMs: 2100,
+      targetProfileId: message.targetProfileId,
+      taskId: message.taskId,
+    });
+    await expect(
+      claimDispatchAttempt({
+        attempt: 3,
+        db,
+        message,
+        nowMs: 2200,
+      })
+    ).resolves.toEqual({ status: "deduped" });
     expect(rows).toHaveLength(1);
   });
 
@@ -1584,7 +1630,11 @@ describe("claimDispatchAttempt", () => {
     });
   });
 
-  it("retries RuntimeCoordinator head accept after a retryable head failure instead of deduping", async () => {
+  it.each([
+    "runtime_coordinator.head_accept_unavailable",
+    "agent_execution.readiness_unconfirmed",
+    "working_folder.observation_coverage_invalid",
+  ])("rechecks pre-execution admission after %s instead of requiring an existing execution", async (errorCode) => {
     const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-head-accept-retry-1",
@@ -1606,7 +1656,7 @@ describe("claimDispatchAttempt", () => {
       attemptId: first.attemptId,
       attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
       db,
-      errorCode: "runtime_coordinator.head_accept_unavailable",
+      errorCode,
       errorMessage:
         "RuntimeCoordinator head accept returned retry_later before execution creation",
       idempotencyKey: message.idempotencyKey,
@@ -1635,7 +1685,7 @@ describe("claimDispatchAttempt", () => {
       status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
     });
     expect(readAttempt(first.attemptId)).toMatchObject({
-      errorCode: "runtime_coordinator.head_accept_unavailable",
+      errorCode,
       status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
     });
     expect(readAttempt(retry.attemptId)).toMatchObject({
@@ -1766,6 +1816,7 @@ describe("claimDispatchAttempt", () => {
     });
     expect(second).toEqual({
       status: "deduped",
+      admissionInFlight: true,
     });
     expect(readRow(message.idempotencyKey)?.status).toBe(
       OPENMELD_DAEMON_DISPATCH_STATE.queued
@@ -1877,6 +1928,7 @@ describe("claimDispatchAttempt", () => {
     });
     expect(second).toEqual({
       status: "deduped",
+      admissionInFlight: true,
     });
     expect(readRow(message.idempotencyKey)?.status).toBe(
       OPENMELD_DAEMON_DISPATCH_STATE.dispatching

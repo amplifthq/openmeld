@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-07T10:26:37.137Z",
+  "updatedAt": "2026-09-08T05:09:05.493Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
-      "packageVersion": "0.3.165",
-      "updatePolicy": "required",
-      "reason": "The new computer command output uses command contract v2; update the CLI before new clients rely on owner-scoped computer controls."
+      "packageVersion": "0.3.170",
+      "updatePolicy": "available",
+      "reason": "Commands and external payloads remain compatible with both cloud versions; this release changes internal reply review context only."
     },
     "service": {
-      "bundleHash": "6e40615e9590d38a3f14f948776355b49962be517dbbda1e758f077d072b05f8",
-      "bundleVersion": "0.3.165",
+      "bundleHash": "82a2d95f49e0ef5095755c1cc93d26b455cd7e3d09efbc83cbb0975ed3d601ba",
+      "bundleVersion": "0.3.170",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "The Service wire contract is unchanged; existing Services remain safe while this release improves inventory and optional setup reporting."
+      "reason": "Existing Services remain protocol-compatible and cloud finalization safely closes accepted results; new Services preserve original Wake ownership during concurrent reply review without changing execution authority."
     },
     "skills": {
       "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",

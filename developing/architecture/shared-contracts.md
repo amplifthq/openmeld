@@ -2476,6 +2476,26 @@ The provider set is `slack | lark | feishu`. The transport set is
 one internal Lark-platform implementation serves both brands. `connector` is
 not a Message Channel domain term.
 
+Channel permission read-back requires the complete tenant Channel bundle and
+rejects denied, duplicate, user-token, or unrelated business scopes. The one
+explicitly granted tenant scope `application:application:patch` may additionally
+be present for application configuration. It is setup authority only and never
+becomes a Center Agent tool grant or an App connection. The default registration
+bundle does not request it automatically; an operator must explicitly consent
+before it is granted.
+
+Provider configuration refusal `99991672` becomes the bounded reason
+`<provider>.application_config_permission_required`, including when delivered
+with HTTP 403. Web explains the explicit setup grant and links to the selected
+provider's Developer Console; the existing Core-owned retry remains active.
+This uses the existing string reason field without changing a shared payload,
+CLI/Service protocol, database schema, or local-component artifact. Old Web
+can still read the reason with generic retry copy; new Web accepts old Core.
+Deploy Web before Core for actionable guidance throughout rollout. Old and new
+CLI, Service, Skills, and Gateway remain compatible through setup, Wake, Space
+actions, and diagnostics; no contract-version bump or local-component stamp is
+required.
+
 The additive setup-request HTTP contract accepts one provider and returns its
 Organization, stable request id, recipient count, and `created` or
 `already_requested` result. It never returns credentials or grants Channel
@@ -2544,7 +2564,9 @@ back in the reverse order.
 
 Lark-platform registration begin has three explicit modes: `resume`,
 `restart`, and `repair`. `resume` is the compatibility default and returns the
-current active attempt. `restart` may replace only a `pending_registration`
+current active attempt. A legacy shared-issuer launcher does not restart an
+attempt: Web selects the browser host while preserving its user code and all
+other URL parameters. `restart` may replace only a `pending_registration`
 attempt owned by the requesting Human Profile in the active Organization. It
 never replaces an attempt after credential receipt or while connection
 configuration is running. `repair` is accepted only for a `repair_required` or
@@ -2561,6 +2583,41 @@ without receiving the now-hidden setup URL. A repair attempt records that
 current manager as its initiator while connection installation ownership stays
 unchanged. The Gateway validates the mode before Core, and Core remains the
 only writer of attempt lifecycle state.
+
+The selected provider fixes registration routing. The shared
+`lark-platform-registration-domains.json` contract maps Feishu to
+`accounts.feishu.cn` and `open.feishu.cn`, and Lark to
+`accounts.larksuite.com` and `open.larksuite.com` for brand-specific polling and
+launcher destinations. Both providers begin at the shared issuer
+`accounts.feishu.cn`: direct Lark issuance still produces invalid launcher
+links in the real browser gate. Core validates the shared issuer's Feishu URL
+and user code, retaining the shared issuer URL in storage and HTTP responses.
+Web sets only the browser launcher host to the selected provider after response
+validation. This presentation does not change registration identity or authority.
+Polling starts at the shared issuer and may move to the Lark account host only
+after the returned brand matches an already selected Lark attempt. This is a
+protocol transport transition; it never changes the selected provider.
+Any reported conflicting brand is rejected before
+credentials are persisted, including a brand reported while authorization is
+still pending. Provider-side redirects remain an external behavior that requires
+real browser verification; changing the initial host is not proof that a
+provider's app-creation UI enforces the intended brand. The provider login UI
+offers a cross-brand sign-in link, so OpenMeld cannot claim that the external
+page prevents creation of a wrong-brand app. It must reject that app when the
+registration protocol reports the mismatch.
+
+Contract impact: payload fields and the emitted shared-issuer URL stay compatible
+with old Gateway, Web, and API-client readers. New readers accept that URL plus
+the selected provider's launcher, with the same HTTPS, path, user-code, and
+credential/fragment restrictions. Core validates stored URLs before returning
+them without host rewriting. New registrations store
+the shared issuer URL so rolling Core back does not strand pending attempts.
+Use the normal Web, Gateway, Core cloud order; either old/new reader/producer
+combination remains readable. Old browser tabs retain their previous launcher
+behavior until reloaded; new Web selects the correct launcher even with old Core.
+The early brand-mismatch refusal requires new Core. Existing
+connected-channel delivery, CLI setup, workstation Wake and Service contracts
+are unchanged; no daemon epoch change is implied by this URL contract.
 
 The runtime schema owns a discriminated locator for every provider. A new
 generic Message Channel delivery freezes that locator in Core and uses
@@ -4121,7 +4178,15 @@ RuntimeCoordinator, RuntimeTransportHub, and the local OpenMeld Service.
 
 `packages/schemas/src/schemas/http/space-wake-progress.ts` owns the Wake
 progress read model, including the optional `startedAtMs` timing projection and
-the optional `wakeStopEligibility` projection. A caller may also opt into
+the optional `wakeStopEligibility` projection. This existing nullable field is
+a viewer-scoped projection of authorization and stopping capability. Null means
+no Stop control is available to this viewer; omission means it was not projected
+and must not grant authority. Core filters eligibility through the same policy
+that protects `POST /v1/spaces/:spaceId/wake-stop`. Unauthorized Stop requests use
+the existing HTTP 403 error envelope with `space.wake_stop.forbidden`. No new
+runtime payload or local-component contract is introduced.
+
+A caller may also opt into
 `sourceContext`, which contains only the Space-owned requester Profile ID, kind,
 display name, sanitized public source-message preview, and nullable thread ID.
 Active reads may filter by one `sourceProfileId`. New dispatch-ledger and native
@@ -4859,6 +4924,32 @@ They must not hand-write a parallel setup-plan shape, mint client-only action
 ids, or reinterpret `readOnly` as permission to mutate local state.
 
 ## Space Member Contracts
+
+Auth owns current Profile names. Space member names are persisted display
+snapshots, not a second identity authority. Historical Signals and existing
+sessions must never rename an existing member, even when their names are
+nonempty. They can initialize a missing member's historical snapshot only.
+Agent publication, including WebSocket writes, resolves the matching Profile
+through Auth's `resolveProfileById` contract and rejects caller-reported names.
+New Signals freeze the name resolved at publication; existing Signals are never
+rewritten by a Profile rename. Authorized member-directory and active-Wake reads
+refresh active-member names through the Space-owned writer and existing Space
+Index projection outbox. Account working summaries resolve each distinct active
+Agent through Auth, without making the cross-Space index a membership writer.
+Refresh preserves membership, ownership, removal and aliases. It re-reads the
+member after the Auth call so a concurrent removal or changed name wins. Failed
+or mismatched identity reads do not write names: the last known snapshot remains
+available so a display-name lookup outage does not block reply publication.
+Active work prefers the refreshed name over the dispatch's historical label.
+Name enrichment has a 500 ms wait budget per publication or read refresh, shared
+across all batches in a member or account summary read. Timeout preserves the
+last known name and emits diagnostics; it does not cancel or fail Agent
+execution. An RPC may still finish remotely, but its late result cannot write
+a snapshot after the caller has timed out. Name-only index delivery runs in the
+background using the existing durable dirty mark and projection outbox, rather
+than delaying the reply or status response.
+Web treats old ID-valued progress labels as unnamed Agents during rollout.
+These corrections change no HTTP/RPC schema or local-component contract.
 
 `getSpaceStatusResponseSchema` may expose the Organization's current
 `centerAgentProfileId` as an optional presentation identity. This lets public

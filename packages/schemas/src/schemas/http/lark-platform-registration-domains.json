@@ -1,0 +1,10 @@
+{
+  "feishu": {
+    "accountDomain": "accounts.feishu.cn",
+    "launcherHost": "open.feishu.cn"
+  },
+  "lark": {
+    "accountDomain": "accounts.larksuite.com",
+    "launcherHost": "open.larksuite.com"
+  }
+}

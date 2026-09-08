@@ -14,7 +14,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
 import { DirectoryHumanProfilesWorkspace } from "./directory-human-profiles-workspace";
-import { sortSidebarPeople } from "./people-sidebar-order";
+import {
+	EMPTY_PEOPLE_SIDEBAR,
+	resolvePeopleSections,
+	sortSidebarPeople,
+} from "./people-sidebar-order";
 
 const ENABLED_LOCAL_AGENT_SUMMARY_PATTERN =
 	/Claude Code enabled, Codex enabled, Cursor enabled/;
@@ -204,11 +208,39 @@ vi.mock("#/components/computers/computers-picker", () => ({
 	),
 }));
 
-vi.mock("./center-agent-sidebar-item", () => ({
-	CenterAgentSidebarItem: () => <span>Workspace assistant</span>,
+vi.mock("./center-agent-item", () => ({
+	CenterAgentItem: () => <span>Workspace assistant</span>,
 }));
 
 describe("DirectoryHumanProfilesWorkspace", () => {
+	it("uses the same placement and self-first order for Team groups", () => {
+		const self = { ...buildMember({ current: true }), name: "Zoe" };
+		const other = {
+			...buildMember({ current: false }),
+			name: "Alice",
+			computer: self.computer,
+		};
+		for (const sort of ["priority", "name", "manual", "recent"] as const) {
+			const settings = { sort, itemIds: [other.id, self.id] };
+			for (const placement of ["online", "starred", "custom"]) {
+				const preferences = {
+					...EMPTY_PEOPLE_SIDEBAR,
+					people: settings,
+					...(placement === "starred" ? { starred: settings } : {}),
+					groups:
+						placement === "custom"
+							? [{ ...settings, id: "custom", name: "Design" }]
+							: [],
+				};
+				const sections = resolvePeopleSections([other, self], preferences);
+				expect(sections.map((section) => section.id)).toEqual([placement]);
+				expect(sections[0]?.members.map((member) => member.id)).toEqual([
+					self.id,
+					other.id,
+				]);
+			}
+		}
+	});
 	it.each([
 		"priority",
 		"name",
@@ -237,7 +269,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			sortSidebarPeople([other, self], settings).map((person) => person.id)
 		).toEqual([other.id, self.id]);
 	});
-	it("places Center Agent first and defaults you to Starred", () => {
+	it("places Center Agent first and self first in Online without a default star", () => {
 		const self = buildMember({ current: true });
 		const offline = buildMember({ current: false });
 		const online = {
@@ -255,36 +287,31 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			);
 		expect(buttons[0]?.getAttribute("aria-label")).toBe("Open Felix's profile");
 		expect(
-			within(screen.getByRole("region", { name: "Computer online" })).getByRole(
+			within(screen.getByRole("region", { name: "Online" })).getByRole(
 				"button",
 				{ name: "Open Online teammate's profile" }
 			)
 		).toBeTruthy();
 		expect(
-			within(screen.getByRole("region", { name: "Computer online" })).getByText(
+			within(screen.getByRole("region", { name: "Online" })).getByText(
 				"Computer online"
 			)
 		).toBeTruthy();
 		expect(
-			within(
-				screen.getByRole("region", { name: "Computer offline" })
-			).getByText("Computer offline")
+			within(screen.getByRole("region", { name: "Offline" })).getByText(
+				"Computer offline"
+			)
 		).toBeTruthy();
 		expect(
-			within(
-				screen.getByRole("region", { name: "Computer offline" })
-			).getByText("No computer")
+			within(screen.getByRole("region", { name: "Offline" })).getByRole("img", {
+				name: "No computer connected",
+			})
 		).toBeTruthy();
 		expect(
 			within(sidebar)
 				.getAllByRole("region")
 				.map((group) => group.getAttribute("aria-label"))
-		).toEqual([
-			"Shared Center Agent",
-			"Starred",
-			"Computer online",
-			"Computer offline",
-		]);
+		).toEqual(["Center Agent", "Online", "Offline"]);
 	});
 
 	it("keeps unknown and attention states in Offline with their explanation", () => {
@@ -315,21 +342,17 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				},
 			],
 		});
-		const offline = screen.getByRole("region", { name: "Computer offline" });
+		const offline = screen.getByRole("region", { name: "Offline" });
 		expect(
-			within(offline).getByRole("button", { name: "Open Attention's profile" })
-				.textContent
-		).toContain("Computer needs attention");
+			within(offline).getByRole("img", { name: "Computer needs attention" })
+		).toBeTruthy();
 		expect(
-			within(offline).getByRole("button", { name: "Open Unknown's profile" })
-				.textContent
-		).toContain("Computer status unavailable");
+			within(offline).getByRole("img", { name: "Computer status unavailable" })
+		).toBeTruthy();
 		expect(
 			screen.queryByRole("region", { name: "Status needs checking" })
 		).toBeNull();
-		expect(
-			screen.queryByRole("region", { name: "Computer online" })
-		).toBeNull();
+		expect(screen.queryByRole("region", { name: "Online" })).toBeNull();
 	});
 
 	it("keeps pending checks out of Offline until loading finishes", () => {
@@ -345,9 +368,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		};
 		renderWorkspace({ members: [self, teammate] });
 		expect(screen.getByText("Loading people")).toBeTruthy();
-		expect(
-			screen.queryByRole("region", { name: "Computer offline" })
-		).toBeNull();
+		expect(screen.queryByRole("region", { name: "Offline" })).toBeNull();
 		cleanup();
 		renderWorkspace({
 			members: [
@@ -366,13 +387,14 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			screen.getByRole("button", { name: "Open Felix's profile" })
 		).toBeTruthy();
 		expect(
-			within(
-				screen.getByRole("region", { name: "Computer offline" })
-			).getByRole("button", { name: "Open Grace Hopper's profile" })
+			within(screen.getByRole("region", { name: "Offline" })).getByRole(
+				"button",
+				{ name: "Open Grace Hopper's profile" }
+			)
 		).toBeTruthy();
 	});
 
-	it("defaults an offline self to Starred", () => {
+	it("places an offline self in Offline", () => {
 		const self = {
 			...buildMember({ current: true }),
 			computer: {
@@ -399,14 +421,14 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				button.getAttribute("aria-label")?.startsWith("Open ")
 			);
 		expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
-			"Open Felix's profile",
 			"Open Grace Hopper's profile",
+			"Open Felix's profile",
 		]);
 		expect(
 			within(sidebar)
 				.getAllByRole("region")
 				.map((group) => group.getAttribute("aria-label"))
-		).toEqual(["Shared Center Agent", "Starred", "Computer online"]);
+		).toEqual(["Center Agent", "Online", "Offline"]);
 	});
 
 	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {
@@ -434,31 +456,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		const channelAccounts = felixItem.querySelector(
 			'[data-slot="human-profile-channel-identities"]'
 		);
-		expect(channelAccounts).not.toBeNull();
-		expect(
-			within(channelAccounts as HTMLElement).getByText(
-				"Felix · felix@slack.example"
-			)
-		).toBeTruthy();
-		expect(
-			within(channelAccounts as HTMLElement).getByRole("img", { name: "Slack" })
-		).toBeTruthy();
-		const slackLogo = within(channelAccounts as HTMLElement).getByTestId(
-			"app-logo-slack"
-		);
-		expect([...(slackLogo.parentElement?.classList ?? [])]).toEqual(
-			expect.arrayContaining([
-				"size-3",
-				"border-0",
-				"bg-transparent",
-				"p-0",
-				"shadow-none",
-			])
-		);
-		expect(within(sidebar).getByRole("img", { name: "Lark" })).toBeTruthy();
-		expect(
-			within(sidebar).queryByText("Account details unavailable")
-		).toBeNull();
+		expect(channelAccounts).toBeNull();
 		const localAgents = within(sidebar).getByRole("img", {
 			name: ENABLED_LOCAL_AGENT_SUMMARY_PATTERN,
 		});
@@ -468,10 +466,10 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(activityAndAgents).not.toBeNull();
 		expect(activityAndAgents?.contains(localAgents)).toBe(true);
 		expect(
-			within(activityAndAgents as HTMLElement).getByText("yesterday")
-		).toBeTruthy();
+			within(activityAndAgents as HTMLElement).queryByText("yesterday")
+		).toBeNull();
 		expect(felixItem.textContent).not.toContain("Last active");
-		expect(localAgents.classList.contains("justify-end")).toBe(true);
+		expect(localAgents.classList.contains("justify-start")).toBe(true);
 		const localAgentLogos = within(localAgents).getAllByTestId(
 			LOCAL_AGENT_LOGO_TEST_ID_PATTERN
 		);
@@ -525,7 +523,6 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				"Codex",
 				"Cursor",
 				"Grok",
-				"Last seen yesterday",
 			])
 		);
 		const graceItem = screen.getByRole("button", {

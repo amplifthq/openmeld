@@ -8,7 +8,7 @@
  */
 
 :root {
-	--content-text-scale: 1;
+	--content-text-scale: calc(16 / 14);
 	--content-font-body: inherit;
 	--content-font-heading: var(--font-heading);
 	--content-font-mono: var(--font-mono);

@@ -49,6 +49,14 @@ export function buildDispatchOwnedRuntimeEnv(input: {
   cliEntryPath?: string;
   spaceActionContextPath?: string | null;
 }): Record<string, string | undefined> {
+  // Provider overrides are not a replacement for the carrier's lane. Keep
+  // these non-secret installation selectors without copying unrelated Service
+  // credentials into the provider environment.
+  const env = {
+    OPENMELD_HOME: process.env.OPENMELD_HOME,
+    OPENMELD_ENV_PRESET: process.env.OPENMELD_ENV_PRESET,
+    ...(input.env ?? {}),
+  };
   const currentPath = normalizeOptionalText(
     input.env?.PATH ?? process.env.PATH
   );
@@ -56,15 +64,15 @@ export function buildDispatchOwnedRuntimeEnv(input: {
     cliEntryPath: input.cliEntryPath,
     dispatchId: input.dispatchId,
     distribution: input.distribution,
-    env: input.env,
+    env,
     spaceActionContextPath: input.spaceActionContextPath,
     targetProfileId: input.targetProfileId,
   });
   const actionCommand = resolveDispatchOwnedRuntimeActionCliEntryCommand({
-    env: input.env,
+    env,
   });
   return {
-    ...(input.env ?? {}),
+    ...env,
     PATH: prependPathEntry({
       currentPath,
       nextEntry: shimDir,
@@ -75,7 +83,7 @@ export function buildDispatchOwnedRuntimeEnv(input: {
     [OPENMELD_USER_FACING_CLI_COMMAND_ENV]: actionCommand,
     [OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH_ENV]: join(shimDir, actionCommand),
     [OPENMELD_ENV_PRESET_ENV]: resolveDispatchOwnedRuntimeEnvPreset({
-      env: input.env,
+      env,
     }),
     ...(input.spaceActionContextPath
       ? {

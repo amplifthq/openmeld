@@ -8,6 +8,7 @@ import {
 	PromptInputActions,
 	PromptInputTextarea,
 } from "#/components/ibelick/prompt-input";
+import { SpaceConversationSkeleton } from "#/components/spaces/space-conversation-skeleton";
 import { SpaceMessageDeliveryStatus } from "#/components/spaces/space-message-delivery-status";
 import type { PendingCenterAgentMessage } from "#/lib/organizations/center-agent-pending-message";
 
@@ -76,54 +77,19 @@ export function CenterAgentOptimisticConversation(input: {
 							className="flex h-full w-full flex-col gap-5 py-5"
 							data-space-conversation-content-width=""
 						>
-							{!input.pendingMessage && (
-								<div className="flex items-start gap-3">
-									<Skeleton
-										aria-hidden="true"
-										className="size-8 shrink-0 rounded-full motion-reduce:animate-none"
-									/>
-									<div
-										aria-hidden="true"
-										className="flex w-full max-w-xl flex-col gap-2"
-									>
-										<Skeleton className="h-3 w-24 motion-reduce:animate-none" />
-										<Skeleton className="h-3 w-full motion-reduce:animate-none" />
-										<Skeleton className="h-3 w-5/6 motion-reduce:animate-none" />
-										<Skeleton className="h-3 w-2/3 motion-reduce:animate-none" />
-									</div>
-								</div>
-							)}
-							<div className="flex justify-end">
-								{input.pendingMessage ? (
-									<div className="max-w-[min(80%,42rem)]">
-										<div className="rounded-lg border border-border bg-muted px-3 py-2 text-foreground text-sm">
-											{input.pendingMessage.text}
+							{input.pendingMessage ? (
+								<>
+									<div className="flex justify-end">
+										<div className="max-w-[min(80%,42rem)]">
+											<div className="rounded-lg border border-border bg-muted px-3 py-2 text-foreground text-sm">
+												{input.pendingMessage.text}
+											</div>
 										</div>
 									</div>
-								) : (
-									<Skeleton
-										aria-hidden="true"
-										className="h-10 w-2/3 max-w-lg rounded-lg motion-reduce:animate-none"
-									/>
-								)}
-							</div>
-							{input.pendingMessage ? (
-								<CenterAgentOptimisticReplyShell />
+									<CenterAgentOptimisticReplyShell />
+								</>
 							) : (
-								<div className="flex items-start gap-3">
-									<Skeleton
-										aria-hidden="true"
-										className="size-8 shrink-0 rounded-full motion-reduce:animate-none"
-									/>
-									<div
-										aria-hidden="true"
-										className="flex w-3/4 max-w-2xl flex-col gap-3"
-									>
-										<Skeleton className="h-3 w-28 motion-reduce:animate-none" />
-										<Skeleton className="h-3 w-full motion-reduce:animate-none" />
-										<Skeleton className="h-3 w-4/5 motion-reduce:animate-none" />
-									</div>
-								</div>
+								<SpaceConversationSkeleton />
 							)}
 						</div>
 					)}

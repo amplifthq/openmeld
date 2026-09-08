@@ -160,6 +160,7 @@ export {
   type AgentWakeRouteRegistrationStatus,
   classifyAgentWakeAvailabilityReason,
   isAgentProfileWorkspaceBlockerReasonCode,
+  isAgentWakeAdmissionPreparationPendingReason,
   resolveAgentWakeAdmissionBlockReasonCode,
   resolveAgentWakeAdmissionTerminalDecision,
   resolveAgentWakeAvailability,

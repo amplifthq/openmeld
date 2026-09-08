@@ -2,6 +2,54 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "simpler-computer-connection-guidance",
+      "title": "Clearer computer connection guidance",
+      "kind": "improved",
+      "areas": [
+        "computers",
+        "onboarding",
+        "center-agent"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-07",
+      "release": "v0.3.165",
+      "evidence": [
+        "pr:716",
+        "pr:717",
+        "commit:943ea1dd9732a70115497def08095df30509743c",
+        "workflow:34114975948",
+        "https://github.com/amplifthq/openmeld/pull/716#issuecomment-5570106116"
+      ],
+      "body": "Computer setup shows short instructions for copying the command, opening Terminal,\nand following the prompts. Connected computers have a direct management link,\nwhile the standalone connection page remains available for adding a computer.\nCenter Agent chat offers management before starting another connection flow.\n\nCreate a Space and Show me around now add a suggestion to the composer without\nreplacing your draft or sending a message. You decide when to send. The computer\nsetup panel also has a close button and follows the surrounding card layout.\n\nComputer Connection keeps automatic updates in its options menu and hides the\nsetting when its value cannot be read. Agent creation lists computers rather than\ntheir historical connections; a single computer does not require a computer choice.\nTechnical connection selection remains available in advanced details when needed.\n\nOptional computer details that fail to upload no longer undo a successful\nregistration. Registration alone still does not mean an Agent is ready to run."
+    },
+    {
+      "id": "people-computers-identity-and-controls",
+      "title": "Clearer computer status and precise computer controls",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "agents",
+        "center-agent",
+        "cli"
+      ],
+      "audiences": [
+        "users",
+        "developers"
+      ],
+      "publishedAt": "2026-09-07",
+      "release": "v0.3.165",
+      "evidence": [
+        "pr:716",
+        "pr:717",
+        "commit:943ea1dd9732a70115497def08095df30509743c",
+        "workflow:34114975948",
+        "https://github.com/amplifthq/openmeld/pull/716#issuecomment-5570106116"
+      ],
+      "body": "Computer status distinguishes a live connection, a normal disconnection, and a\nstatus that could not be checked. Saved computer records no longer count as proof\nthat a local agent can run.\n\nComputer settings and CLI diagnostics target the selected computer and\nenvironment. The Center Agent looks up the requesting teammate's local agents\ninstead of assuming the Organization owner's computer is the target.\n\nCLI integrations must update for the new `computer list --view agent` payload:\n`computers` includes explicit connection evidence and `isThisComputer` identifies\nthe local installation. This replaces the old routing-preference interpretation."
+    },
+    {
       "id": "existing-spaces-message-preview-upgrade",
       "title": "Keep existing chats writable after the preview upgrade",
       "kind": "fixed",

@@ -691,8 +691,20 @@ Project list and current Agent Controller catalog. Missing or archived Projects,
 removed models, unsupported reasoning levels, and unsupported permission modes
 fall back to current defaults rather than leaking stale configuration or a
 different Agent Controller's choices. Failed or cancelled creation does not
-replace the remembered values, and dangerous permission confirmations are
-never remembered as approved.
+replace the remembered values. Restoring a valid permission mode from the
+same user's Core-owned successful-creation defaults also restores consent for
+that mode; creating another Agent must not ask for the same consent again.
+A newly selected dangerous permission mode still needs explicit confirmation.
+An unfinished browser draft alone never establishes consent.
+
+With a local Agent selected, the default creation journey allows Create Agent
+without opening customization. Required account or working-folder reads have
+visible loading explanations. Invalid explicit selections remain blocked with
+a concrete reason and a direct action to open the relevant configuration
+editor. Permission review opens customization and the Permissions editor,
+focusing the confirmation control. Working-folder blockers offer a one-click
+OpenMeld-managed folder action that clears the Project selection and prevents
+late defaults from overwriting that explicit choice.
 
 For a new Web session, a remembered Project id alone is not enough to restore a
 working folder: it does not confirm a connection on the selected computer.
@@ -824,12 +836,17 @@ unsupported, or that has no reliable Usage capability because reporting is
 passive or not evaluated, does not use Usage as an admission condition. Once a
 Local Agent's versioned capability matrix declares native Usage support, a
 missing, stale, expired, or currently unavailable observation projects
-`Checking` and rejects a new Wake; OpenMeld must not promise acceptance while
-the required fact is unknown. During a mixed-version rollout, Core continues
+`Checking` and blocks execution of a new Wake. The user's request may be durably
+submitted while this observation catches up, through the same bounded Core
+preflight recovery as first-report preparation. Submission is not execution
+admission: OpenMeld must not claim the Agent is ready or start it before the
+required fact is known. During a mixed-version rollout, Core continues
 to parse a legacy Local Agent report that omits the Usage support-matrix
 version, but that report cannot prove current capacity for a controller whose
 reviewed matrix requires native Usage. The public verdict remains bounded
-`Checking` and new Wake admission stays closed until a current report arrives. A
+`Checking` and execution admission stays closed until a current report arrives.
+The original request either continues once, is cancelled, or reaches an explicit
+failure when a definitive blocker or the preparation retry limit is reached. A
 fresh exhausted Usage Limit projects `Unavailable` and blocks the Wake before
 admission. These decisions use the current report already held by Core and must
 not add a provider call to the Wake hot path. Core and the Local Service consume

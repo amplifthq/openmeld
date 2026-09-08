@@ -4658,8 +4658,40 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   > {
     const { command, db, outcome } = input;
     if (outcome.status === "review_required") {
-      await this.clearRuntimeCoordinatorFinalizationCommandForReview(command);
-      return { ok: true, outcome };
+      // This result was already durably accepted. Unlike synchronous Service
+      // settlement, there is no live caller responsible for replacing it.
+      // Replaying this immutable proposal cannot re-check changed context. Its
+      // safe publication attempts are exhausted, even without a storage outage.
+      // Use the existing Space final-claim failure path; never re-run the Agent.
+      const nowMs = Date.now();
+      const retryEntry = await this.buildRuntimeCoordinatorFinalizationRetry({
+        command,
+        nowMs,
+        nextReplayAtMs: nowMs + RUNTIME_COORDINATOR_FINALIZATION_RETRY_DELAY_MS,
+      });
+      if (retryEntry.attemptCount <= 2) {
+        console.warn(
+          "[core.runtime_transport.accepted_reply_review_requires_recovery]",
+          {
+            dispatchId: command.dispatchId,
+            finalizationCommandId: command.finalizationCommandId,
+            reasonCode: outcome.publicationErrorCode,
+            runtimeCoordinatorExecutionId:
+              command.runtimeCoordinatorExecutionId,
+            spaceId: command.spaceId,
+            targetProfileId: command.targetProfileId,
+          }
+        );
+      }
+      await this.storeRuntimeCoordinatorFinalizationRetryOrPark({
+        db,
+        publicationCannotContinue: true,
+        queueAlarm: true,
+        retryEntry,
+      });
+      return rejectRuntimeCoordinatorFinalizationReplay({
+        publicationUncertain: true,
+      });
     }
     if (
       !outcome.ok &&
@@ -5505,32 +5537,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
 
-  private async clearRuntimeCoordinatorFinalizationCommandForReview(
-    command: RuntimeCoordinatorFinalizationCommand
-  ): Promise<void> {
-    await this.removeRuntimeCoordinatorFinalizationRetry(
-      command.finalizationCommandId
-    );
-    await Promise.all([
-      this.ctx.storage.delete(
-        buildRuntimeCoordinatorFinalizationCommandStorageKey(
-          command.finalizationCommandId
-        )
-      ),
-      this.ctx.storage.delete(
-        buildRuntimeCoordinatorFinalizationOutcomeStorageKey(
-          command.finalizationCommandId
-        )
-      ),
-    ]);
-  }
-
   private async storeRuntimeCoordinatorFinalizationRetryOrPark(input: {
     db?: D1Database | null;
+    publicationCannotContinue?: boolean;
     queueAlarm?: boolean;
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry;
   }): Promise<void> {
-    if (!isRuntimeCoordinatorPublicationRetryExhausted(input.retryEntry)) {
+    if (
+      !(
+        input.publicationCannotContinue ||
+        isRuntimeCoordinatorPublicationRetryExhausted(input.retryEntry)
+      )
+    ) {
       await this.upsertRuntimeCoordinatorFinalizationRetryEntry(
         input.retryEntry
       );
@@ -5538,6 +5556,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         this.queueHousekeepingAlarmSync();
       }
       return;
+    }
+
+    // Preserve the recovery obligation before crossing into Space. A crash or
+    // failed terminal write must not leave only an accepted result behind.
+    await this.upsertRuntimeCoordinatorFinalizationRetryEntry(input.retryEntry);
+    if (input.queueAlarm) {
+      this.queueHousekeepingAlarmSync();
     }
 
     await this.writeRuntimeCoordinatorPublicationBlocker({
@@ -5556,6 +5581,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
 
     if (
+      input.publicationCannotContinue ||
       isRuntimeCoordinatorFinalizationRetryParkLimitReached({
         firstFailureAtMs: input.retryEntry.firstFailureAtMs,
         nowMs: input.retryEntry.updatedAtMs,

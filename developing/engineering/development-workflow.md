@@ -300,6 +300,15 @@ compile. Keep the page open; later loads should be fast. This message is also
 printed by the launcher so a newcomer does not mistake first compilation for a
 failed start.
 
+For real CLI/Service Setup smoke, run `pnpm cli:binary:serve` in the same
+worktree and use the Web-generated lane command. On macOS, when testing real
+Keychain access across CLI and Service copies, an already provisioned signing
+identity can be selected with `OPENMELD_CLI_BINARY_DEV_SIGNING_IDENTITY`.
+The binary server signs with the normal release entitlements, verifies the
+signature, then computes the served checksum. Without this option it retains
+the normal ad-hoc development build. This is local test packaging, not a release
+or notarization; never replace production binaries or credentials to run it.
+
 For a localhost Routine smoke, start the Worker stack with
 `pnpm dev:worktree -- --test-scheduled`, create an enabled Routine through Web,
 then run the printed command to trigger one Core minute-scheduler tick:
@@ -330,6 +339,20 @@ Configure that exact callback, plus `/slack/events` and `/slack/interactive`,
 on the Dev Slack App. The tunnel must forward to the isolated Gateway port,
 not the Web or Core port. Keep the tunnel URL ephemeral and out of tracked
 configuration.
+
+For a real Lark or Feishu registration and Webhook smoke, forward a public
+HTTPS tunnel to that same isolated Gateway port, then start the stack with:
+
+```bash
+OPENMELD_DEV_PUBLIC_GATEWAY_ORIGIN="https://<current-tunnel-host>" \
+  pnpm dev:worktree
+```
+
+The launcher writes this callback origin into the generated local Core config.
+Browser routing, CORS, persistence, and Service discovery remain on the isolated
+localhost lane. Use a development tenant and app; the provider must reach both
+the event and card callback routes before the connection can become connected.
+This setting does not change staging or production configuration.
 
 A Git worktree does not copy ignored local secret files. The preferred shared
 environment path is `pnpm dev:doctor`, followed by `pnpm dev:worktree` and

@@ -22,6 +22,7 @@ import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentTaskPath,
 	buildOrganizationCenterAgentTasksPath,
+	buildOrganizationRootPath,
 } from "#/lib/organizations/organization-routes";
 import {
 	centerAgentTaskDetailQueryOptions,
@@ -74,7 +75,10 @@ function OrganizationGlobalCenterAgentLauncher(input: {
 	const chatPath = buildOrganizationCenterAgentChatPath(
 		input.organization.slug
 	);
-	if (input.currentPathname === chatPath) {
+	if (
+		input.currentPathname === chatPath ||
+		input.currentPathname === buildOrganizationRootPath(input.organization.slug)
+	) {
 		return null;
 	}
 
