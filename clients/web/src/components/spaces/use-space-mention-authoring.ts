@@ -452,7 +452,8 @@ export function resolveDefaultSpaceComposerMentionRelation(
 	if (suggestion.profileKind === "agent") {
 		if (
 			suggestion.allowedRelations.wake &&
-			suggestion.wakeAvailability.status === "ready"
+			(suggestion.wakeAvailability.status === "ready" ||
+				suggestion.wakeAvailability.status === "preparing")
 		) {
 			return "wake";
 		}

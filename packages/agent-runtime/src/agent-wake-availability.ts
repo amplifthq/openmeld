@@ -246,6 +246,10 @@ export function isAgentWakeAdmissionPreparationPendingReason(
 ): boolean {
   return new Set([
     "agent_execution.readiness_unconfirmed",
+    "usage_checking",
+    "daemon.profile.pending_first_report",
+    "agent_execution.route_missing",
+    "route.not_registered",
     "working_folder.report_stale",
     "working_folder.observation_coverage_invalid",
     "working_folder.observation_identity_mismatch",

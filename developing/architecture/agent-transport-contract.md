@@ -188,7 +188,8 @@ Wakeability projection used by product surfaces. Its current compatibility
 identifier is `AgentExecutionReadiness`. A definitive current blocking fact
 ends as a visible pre-head no-execution outcome; it must not create a current or
 queued Coordinator item. Missing readiness evidence or working-folder report
-coverage, revision, or freshness while Service reports catch up is not a
+coverage, revision, freshness, initial route registration, or required Usage
+observations while Service reports catch up is not a
 definitive refusal. Core retains that same undelivered Wake through the existing
 bounded preflight retry policy and Space outbox; no execution is authorized.
 Each retry rereads canonical readiness and authorization. A ready verdict may
@@ -198,6 +199,12 @@ no already-terminal Wake is revived. The gate reads current Core-held facts only
 not poll the Local Service, call a provider, scan Profiles, enumerate
 owner-wide device inventories for presentation enrichment, sleep, or add a
 second readiness projection to the dispatch path.
+
+Submission must preserve this distinction: Core's canonical `checking_connection`
+projection permits submitting the original request, not executing it or
+displaying Ready. Authoring must not duplicate Core's preparation reason list.
+Missing projections, offline, unauthorized and definitive blocked targets are
+not implicitly admitted by a client-created Checking fallback.
 
 Before any accepted or promoted head can create a local execution, Core reruns
 the canonical readiness and accepted-identity checks against current Profile
@@ -1283,6 +1290,16 @@ flow. Once a result is accepted, replaying finalization and repairing task or
 stream projections remain Core-owned work backed by the finalization retry
 alarm, never by daemon re-sends. A persisted finalization command must never
 exist without a stored outcome or a live retry entry.
+If asynchronous finalization unexpectedly returns `review_required` after
+durable acceptance, Core retains the command and bounded recovery obligation;
+it must not delete them as though a live Service caller had accepted the review
+handoff. The accepted immutable proposal has no safe context-review continuation:
+Core immediately uses the existing publication-exhaustion final-claim path to
+publish an explicit failure, without rerunning the Agent or publishing stale
+text. An existing final reply or Stop wins atomically. Failure to persist or
+reconcile that final claim keeps the existing recovery obligation alive. This
+permanent publication rejection does not wait for the transient-outage repair
+window. The synchronous pre-acceptance review response is unchanged.
 
 Execution Recovery is an execution-level, surface-neutral capability. The
 execution's owning publication pipeline freezes the authorized Space, Slack,

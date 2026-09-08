@@ -24,7 +24,7 @@ export type SpaceTargetWakeAvailability =
       reasonText: null;
     }
   | {
-      status: "ready" | "blocked";
+      status: "ready" | "preparing" | "blocked";
       reasonCodes: readonly string[];
       reasonText: string | null;
     };
@@ -288,12 +288,21 @@ function resolvePublicWakeAvailability(
   const refreshingAvailable =
     agentWakeAvailability.status === "available_for_wake" &&
     agentWakeAvailability.isRefreshing;
+  // Core owns what "checking" means. Authoring may save the user's intent
+  // while Core prepares; it must not maintain a second reason-code readiness
+  // policy here. Submission never grants permission to execute.
+  const preparing = agentWakeAvailability.status === "checking_connection";
+  let status: "ready" | "preparing" | "blocked" = "blocked";
+  if (
+    agentWakeAvailability.status === "available_for_wake" &&
+    !refreshingAvailable
+  ) {
+    status = "ready";
+  } else if (preparing) {
+    status = "preparing";
+  }
   return {
-    status:
-      agentWakeAvailability.status === "available_for_wake" &&
-      !refreshingAvailable
-        ? "ready"
-        : "blocked",
+    status,
     reasonCodes:
       !refreshingAvailable && agentWakeAvailability.reasonCode
         ? [agentWakeAvailability.reasonCode]
