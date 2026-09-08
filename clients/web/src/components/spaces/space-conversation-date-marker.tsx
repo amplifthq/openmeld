@@ -42,7 +42,7 @@ type PendingConversationDateScroll = {
 };
 
 const CONVERSATION_DATE_PILL_CLASS_NAME =
-	"inline-flex h-8 max-lg:h-11 items-center justify-center gap-1.5 rounded-full border border-border bg-popover/60 px-3 font-medium text-foreground shadow-xs backdrop-blur-sm transition-colors hover:bg-popover/80 aria-expanded:bg-popover/80 dark:bg-popover/60 dark:hover:bg-popover/80 dark:aria-expanded:bg-popover/80 motion-reduce:transition-none";
+	"conversation-floating-surface inline-flex h-8 max-lg:h-11 items-center justify-center gap-1.5 rounded-full border border-transparent px-3 font-medium text-foreground transition-colors motion-reduce:transition-none";
 
 export function SpaceConversationDateMarker(input: {
 	date: Date;

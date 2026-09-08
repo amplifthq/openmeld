@@ -249,13 +249,11 @@ describe("AgentProfileGenerator", () => {
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(true);
-		expect(
-			(
-				screen.getByRole("tab", {
-					name: REMOTE_AGENT_NAME,
-				}) as HTMLButtonElement
-			).disabled
-		).toBe(true);
+		const remoteTab = screen.getByRole("tab", { name: REMOTE_AGENT_NAME });
+		expect(remoteTab.getAttribute("aria-disabled")).toBe("true");
+		fireEvent.click(remoteTab);
+		expect(remoteTab.getAttribute("aria-selected")).toBe("false");
+		expect(screen.getByText("Set up local agents")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 		expect(onSubmit).not.toHaveBeenCalled();
 	});

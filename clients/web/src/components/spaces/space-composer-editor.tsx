@@ -8,6 +8,9 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
+import { useSurface } from "@openmeld/ui/lib/surface-context";
+import { cn } from "@openmeld/ui/lib/utils";
 import { XIcon } from "@phosphor-icons/react";
 import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
 import { MotionConfig } from "framer-motion";
@@ -421,6 +424,7 @@ function SpaceComposerProfileToken(
 	props: PlateElementProps<SpaceComposerProfileElement>
 ) {
 	const { editor, element } = props;
+	const surface = useSurface() + 1;
 	// Moving focus into the portaled menu must not move the draft's caret.
 	const relationSelection = useRef(editor.selection);
 	const context = useSpaceComposerEditorContext();
@@ -531,7 +535,10 @@ function SpaceComposerProfileToken(
 	return (
 		<PlateElement {...props} as="span">
 			<span
-				className="group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-baseline text-foreground ring-1 ring-border/70 focus-within:ring-2 focus-within:ring-ring"
+				className={cn(
+					surfaceClasses(surface),
+					"group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 align-baseline text-foreground focus-within:ring-2 focus-within:ring-ring"
+				)}
 				contentEditable={false}
 				data-mention-text={element.mentionText}
 				data-testid="space-composer-profile-token"

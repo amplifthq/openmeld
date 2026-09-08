@@ -32,7 +32,7 @@ export function OrganizationComputerPickerCard(input: {
 				aria-label={`Open ${input.computer.deviceDisplayName} details`}
 				className={cn(
 					cardPickerCardClassName(),
-					"bg-transparent hover:border-border"
+					"border-transparent bg-transparent hover:border-transparent"
 				)}
 				to={buildOrganizationComputerPath({
 					deviceId: input.computer.routeId,

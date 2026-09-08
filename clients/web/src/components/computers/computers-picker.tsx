@@ -7,6 +7,7 @@ import {
 	CARD_PICKER_GRID_CLASS_NAME,
 	cardPickerCardClassName,
 } from "@openmeld/ui/lib/card-picker-contract";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import {
@@ -106,7 +107,11 @@ export function ComputersPicker(input: {
 			{group.computers.map((computer) => {
 				if (!computer.ownedComputer) {
 					return (
-						<DirectoryCardItem itemId={computer.routeId} key={computer.routeId}>
+						<DirectoryCardItem
+							className={surfaceClasses(3)}
+							itemId={computer.routeId}
+							key={computer.routeId}
+						>
 							<OrganizationComputerPickerCard
 								computer={computer}
 								orgSlug={input.orgSlug}
@@ -116,7 +121,11 @@ export function ComputersPicker(input: {
 				}
 				const device = computer.ownedComputer;
 				return (
-					<DirectoryCardItem itemId={computer.routeId} key={computer.routeId}>
+					<DirectoryCardItem
+						className={surfaceClasses(3)}
+						itemId={computer.routeId}
+						key={computer.routeId}
+					>
 						<ComputerPickerCard
 							device={device}
 							devices={ownedComputers}
@@ -223,7 +232,7 @@ function ComputerPickerCard(input: {
 					cardPickerCardClassName({
 						muted: recordState.kind === "older_same_name_record",
 					}),
-					"bg-transparent hover:border-border"
+					"border-transparent bg-transparent hover:border-transparent"
 				)}
 				to={buildOrganizationComputerPath({
 					deviceId: input.device.deviceId,

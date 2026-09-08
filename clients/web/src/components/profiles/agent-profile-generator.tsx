@@ -11,11 +11,9 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
-import {
-	TabsSubtle,
-	TabsSubtleItem,
-	TabsSubtlePanel,
-} from "@openmeld/ui/fluid/tabs-subtle";
+import { TabItem, TabPanel, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
+import { useSurface } from "@openmeld/ui/lib/surface-context";
 import {
 	CaretDownIcon,
 	CloudIcon,
@@ -56,7 +54,6 @@ export function AgentProfileGenerator(input: AgentProfileGeneratorProps) {
 
 function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 	const [remote, setRemote] = useState(false);
-	const tabsId = useId();
 	const {
 		remoteName,
 		setRemoteName,
@@ -96,7 +93,11 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 				contentClassName="px-3"
 				orientation="vertical"
 			>
-				<div className="grid min-w-0 gap-5 pb-2">
+				<Tabs
+					className="grid min-w-0 gap-5 pb-2"
+					onValueChange={(value) => setRemote(value === "remote")}
+					value={remote ? "remote" : "local"}
+				>
 					{input.surface === "page" ? (
 						<div className="grid gap-2">
 							<h1 className="font-medium text-2xl tracking-tight">
@@ -109,17 +110,9 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 					) : null}
 					<AgentRuntimeTabs
 						isSubmitting={form.isSubmitting}
-						onRemoteChange={setRemote}
-						remote={remote}
 						remoteAvailable={Boolean(form.remoteAgentCreation)}
-						tabsId={tabsId}
 					/>
-					<TabsSubtlePanel
-						className="grid min-w-0 gap-5"
-						idPrefix={tabsId}
-						index={0}
-						selectedIndex={remote ? 1 : 0}
-					>
+					<TabPanel className="grid min-w-0 gap-5" value="local">
 						<LocalAgentSelector
 							choices={resolveGeneratorBindingChoices(form)}
 							computerSlot={form.agentComputerSlot}
@@ -158,12 +151,8 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 							onOpenSectionChange={setOpenSection}
 							openSection={openSection}
 						/>
-					</TabsSubtlePanel>
-					<TabsSubtlePanel
-						idPrefix={tabsId}
-						index={1}
-						selectedIndex={remote ? 1 : 0}
-					>
+					</TabPanel>
+					<TabPanel value="remote">
 						<PersonalRemoteAgentConfiguration
 							form={form}
 							model={remoteModel}
@@ -171,12 +160,12 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 							onModelChange={setRemoteModel}
 							onNameChange={setRemoteName}
 						/>
-					</TabsSubtlePanel>
+					</TabPanel>
 					<CreateProfileErrorNotice
 						errorState={form.errorState}
 						recoveryActionHref={form.recoveryActionHref}
 					/>
-				</div>
+				</Tabs>
 			</ScrollArea>
 			<div
 				className="mx-3 flex shrink-0 flex-col-reverse items-stretch justify-between gap-3 bg-background pt-2 sm:flex-row sm:items-end"
@@ -252,25 +241,19 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 
 function AgentRuntimeTabs(input: {
 	isSubmitting: boolean;
-	onRemoteChange: (remote: boolean) => void;
-	remote: boolean;
 	remoteAvailable: boolean;
-	tabsId: string;
 }) {
 	return (
-		<TabsSubtle
+		<TabsList
 			aria-label="Agent runtime"
+			background={false}
 			className="grid grid-cols-2 items-stretch gap-2"
-			idPrefix={input.tabsId}
-			onSelect={(index) => input.onRemoteChange(index === 1)}
-			selectedIndex={input.remote ? 1 : 0}
-			variant="ghost"
 		>
-			<TabsSubtleItem
+			<TabItem
 				className="h-auto items-start gap-3 border border-border p-3 text-left"
 				disabled={input.isSubmitting}
-				index={0}
 				label="Choose a Local Agent"
+				value="local"
 			>
 				<DesktopTowerIcon
 					aria-hidden="true"
@@ -286,12 +269,12 @@ function AgentRuntimeTabs(input: {
 						Claude Code.
 					</span>
 				</span>
-			</TabsSubtleItem>
-			<TabsSubtleItem
-				className="h-auto items-start gap-3 border border-border p-3 text-left disabled:opacity-50"
+			</TabItem>
+			<TabItem
+				className="h-auto items-start gap-3 border border-border p-3 text-left data-[disabled]:opacity-50"
 				disabled={input.isSubmitting || !input.remoteAvailable}
-				index={1}
 				label="Remote Agent"
+				value="remote"
 			>
 				<CloudIcon aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
 				<span className="grid gap-1">
@@ -299,9 +282,7 @@ function AgentRuntimeTabs(input: {
 						<span className="font-medium text-sm">Remote Agent</span>
 						<Tooltip>
 							<TooltipTrigger render={<span />}>
-								<Badge className="text-muted-foreground" variant="secondary">
-									Beta
-								</Badge>
+								<RuntimeBetaBadge />
 							</TooltipTrigger>
 							<TooltipContent>
 								Remote Agents are new. Expect a few bumps.
@@ -317,8 +298,20 @@ function AgentRuntimeTabs(input: {
 						</span>
 					)}
 				</span>
-			</TabsSubtleItem>
-		</TabsSubtle>
+			</TabItem>
+		</TabsList>
+	);
+}
+
+function RuntimeBetaBadge() {
+	const surface = useSurface();
+	return (
+		<Badge
+			className={`${surfaceClasses(surface + 1)} text-muted-foreground`}
+			variant="secondary"
+		>
+			Beta
+		</Badge>
 	);
 }
 

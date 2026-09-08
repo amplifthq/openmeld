@@ -6,6 +6,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { SpaceConversationDatePill } from "./space-conversation-date-marker";
 
 const DATE_MARKER_SELECTOR = "[data-conversation-date-marker]";
@@ -48,14 +49,18 @@ export function SpaceConversationStickyDate(input: {
 
 	const pushOffsetPx = shouldReduceMotion ? 0 : stickyDate.pushOffsetPx;
 
-	return (
+	const overlayHost = input.scrollElement?.parentElement;
+	if (!overlayHost) {
+		return null;
+	}
+	return createPortal(
 		<div
-			className="pointer-events-none sticky top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)] z-10 -mb-8 flex h-8 w-full justify-center max-lg:-mb-11 max-lg:h-11"
+			className="pointer-events-none absolute inset-x-0 top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)] z-10 flex h-8 w-full justify-center max-lg:h-11"
 			data-slot="conversation-date-pill"
 		>
 			{stickyDate.activeDateMs !== null && (
 				<div
-					className="h-[calc(100%+0.125rem)] w-full overflow-hidden pb-0.5"
+					className="-mt-0.5 h-[calc(100%+0.25rem)] w-full overflow-hidden py-0.5"
 					data-slot="conversation-date-pill-viewport"
 				>
 					<div
@@ -85,7 +90,8 @@ export function SpaceConversationStickyDate(input: {
 			>
 				{input.afterDate}
 			</div>
-		</div>
+		</div>,
+		overlayHost
 	);
 }
 
@@ -115,6 +121,10 @@ function useStickyConversationDate(
 			return;
 		}
 		if (!topOverlayElement) {
+			scrollElement.parentElement?.style.setProperty(
+				STICKY_TOP_PROPERTY,
+				getComputedStyle(scrollElement).paddingTop
+			);
 			scrollElement.style.removeProperty(STICKY_TOP_PROPERTY);
 			scrollElement.style.removeProperty(TOP_OVERLAY_HEIGHT_PROPERTY);
 			return;
@@ -134,6 +144,10 @@ function useStickyConversationDate(
 		const stickyTop = Math.max(
 			0,
 			overlayHeight - (Number.isFinite(scrollPaddingTop) ? scrollPaddingTop : 0)
+		);
+		scrollElement.parentElement?.style.setProperty(
+			STICKY_TOP_PROPERTY,
+			`${String(Math.max(overlayHeight, Number.isFinite(scrollPaddingTop) ? scrollPaddingTop : 0))}px`
 		);
 		scrollElement.style.setProperty(
 			STICKY_TOP_PROPERTY,
@@ -224,6 +238,7 @@ function useStickyConversationDate(
 		// temporarily shrinks the scroll range and clamps the browser's position.
 		return () => {
 			scrollElement?.style.removeProperty(STICKY_TOP_PROPERTY);
+			scrollElement?.parentElement?.style.removeProperty(STICKY_TOP_PROPERTY);
 			scrollElement?.style.removeProperty(TOP_OVERLAY_HEIGHT_PROPERTY);
 		};
 	}, [scrollElement]);
