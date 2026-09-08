@@ -508,6 +508,7 @@ describe("Slack channel history", () => {
       expect(url.pathname).toBe("/api/conversations.history");
       expect(url.searchParams.get("channel")).toBe("C_OK8");
       expect(url.searchParams.get("oldest")).toBe("1710000004.000400");
+      expect(url.searchParams.get("latest")).toBe("1710000004.000400");
       expect(url.searchParams.get("inclusive")).toBe("true");
       expect(url.searchParams.get("limit")).toBe("1");
       return Promise.resolve(

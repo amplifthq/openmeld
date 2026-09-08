@@ -1450,6 +1450,16 @@ describe("Remote Agent Slack signal service", () => {
         "is_stranger",
         "ari@example.test"
       ),
+      conversationsHistoryResponse: {
+        ok: true,
+        messages: [
+          {
+            ts: "1710000000.000100",
+            text: "<@B123> create a Codex agent",
+            user: "U123",
+          },
+        ],
+      },
     });
 
     try {
@@ -1772,7 +1782,7 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
-  it("recovers a content-empty app mention from exact history and logs only safe structure", async () => {
+  it("recovers a content-empty app mention from an exact reply and logs only safe structure", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
@@ -1786,9 +1796,19 @@ describe("Remote Agent Slack signal service", () => {
       })
     );
     const fetchMock = stubSlackFetch({
-      conversationsHistoryResponse: (url) => {
+      conversationsRepliesResponse: (url) => {
+        if (url.searchParams.get("limit") !== "1") {
+          return { ok: true, messages: [] };
+        }
         expect(url.searchParams.get("channel")).toBe("C123");
         expect(url.searchParams.get("oldest")).toBe("1710000000.000100");
+        expect(url.searchParams.get("latest")).toBe("1710000000.000100");
+        expect(url.searchParams.get("ts")).toBe("1709999999.000050");
+        expect(
+          fetchMock.mock.calls.some(([request]) =>
+            String(request).includes("/assistant.threads.setStatus")
+          )
+        ).toBe(true);
         expect(url.searchParams.get("inclusive")).toBe("true");
         expect(url.searchParams.get("limit")).toBe("1");
         return {
@@ -1879,7 +1899,11 @@ describe("Remote Agent Slack signal service", () => {
       expect(
         fetchMock.mock.calls
           .map(([request]) => new URL(String(request)))
-          .filter((url) => url.pathname === "/api/conversations.history")
+          .filter(
+            (url) =>
+              url.pathname === "/api/conversations.replies" &&
+              url.searchParams.get("limit") === "1"
+          )
       ).toHaveLength(1);
     } finally {
       consoleInfoSpy.mockRestore();
@@ -1901,11 +1925,10 @@ describe("Remote Agent Slack signal service", () => {
       })
     );
     const mentionText =
-      "<@B123> use <https://acme.slack.com/archives/C_SOURCE/p1709999999000200|this quoted message>";
+      "<@B123> use <https://acme.slack.com/archives/C123/p1709999999000200|this quoted message>";
     const fetchMock = stubSlackFetch({
       conversationsHistoryResponse: (url) => {
-        const channelId = url.searchParams.get("channel");
-        if (channelId === "C_SOURCE") {
+        if (url.searchParams.get("oldest") === "1709999999.000200") {
           expect(url.searchParams.get("oldest")).toBe("1709999999.000200");
           return {
             messages: [
@@ -1956,7 +1979,7 @@ describe("Remote Agent Slack signal service", () => {
           createAppMentionPayload({
             eventId: "EvQuote",
             text: mentionText,
-            threadTs: "1709999999.000050",
+            threadTs: "1710000000.000100",
           })
         )
       ).resolves.toEqual({ status: "processed" });
@@ -1975,7 +1998,7 @@ describe("Remote Agent Slack signal service", () => {
           .map(([request]) => new URL(String(request)))
           .filter((url) => url.pathname === "/api/conversations.history")
           .map((url) => url.searchParams.get("channel"))
-      ).toEqual(["C123", "C_SOURCE"]);
+      ).toEqual(["C123", "C123"]);
     } finally {
       harness.close();
     }
@@ -2557,6 +2580,21 @@ describe("Remote Agent Slack signal service", () => {
     const fetchMock = stubSlackFetch({
       conversationsRepliesResponse: (url) => {
         const oldest = url.searchParams.get("oldest");
+        if (url.searchParams.get("limit") === "1") {
+          return {
+            ok: true,
+            messages: [
+              {
+                ts: oldest,
+                user: "U123",
+                text:
+                  oldest === firstMentionTs
+                    ? "<@B123> diagnose the build above"
+                    : "<@B123> turn this fix into a checklist",
+              },
+            ],
+          };
+        }
         if (!oldest) {
           return {
             has_more: false,
@@ -2690,7 +2728,11 @@ describe("Remote Agent Slack signal service", () => {
       });
       const repliesUrls = fetchMock.mock.calls
         .map(([request]) => new URL(String(request)))
-        .filter((url) => url.pathname === "/api/conversations.replies");
+        .filter(
+          (url) =>
+            url.pathname === "/api/conversations.replies" &&
+            url.searchParams.get("limit") !== "1"
+        );
       expect(repliesUrls).toHaveLength(2);
       expect(repliesUrls[0]?.searchParams.get("latest")).toBe(firstMentionTs);
       expect(repliesUrls[0]?.searchParams.get("oldest")).toBeNull();

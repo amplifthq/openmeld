@@ -1478,8 +1478,10 @@ and ingress ownership.
 ## Slack Thread Context Cursor
 
 Slack remains the source of truth for thread message content. Before an
-accepted `app_mention` enters native delivery, Core first reads the exact
-current message through `conversations.history` to hydrate its provider-owned
+accepted `app_mention` reaches the model, Core admits its original event and
+shows working status, then reads the exact current message through
+`conversations.history` (root) or `conversations.replies` (thread reply), with
+both inclusive time bounds fixed to that message, to hydrate its provider-owned
 text and file metadata. It then reads one bounded `conversations.replies` page
 through the Organization-bound Slack credential and adapts earlier messages
 into the provider-neutral `ChannelContext` contract. The hydrated current
@@ -1499,7 +1501,8 @@ The initial read is a snapshot through the current mention. Later reads are
 deltas strictly after the admitted cursor and through the new current mention.
 Core makes one exact current-message read, one bounded thread-context read, a
 bounded recent-channel read for a root mention, and at most three exact reads
-for Slack message permalinks present in the current request. Quoted messages
+for same-channel Slack message permalinks present in the current request.
+Cross-channel references are rejected without a provider read. Quoted messages
 are transient untrusted reference context, not new requests or authority. A
 partial provider page is marked `truncated` and resumes from its last admitted
 message on a later turn. Forbidden, rate-limited, timed-out, and otherwise

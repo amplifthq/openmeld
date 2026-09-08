@@ -6,7 +6,8 @@ areas: ["channels", "center-agent"]
 audiences: ["members"]
 ---
 
-Slack mentions now recover attached files and referenced Slack messages before
-the Center Agent starts. When Slack cannot provide part of that context, the
+Slack mentions recover message text, attachment details, and referenced messages
+from the same channel, including replies in threads. Working status appears
+before these lookups. When Slack cannot provide part of that context, the
 Center Agent receives a clear limitation instead of treating the context as
 complete.

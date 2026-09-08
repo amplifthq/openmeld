@@ -908,6 +908,7 @@ async function submitClaimedSlackChannelIntroduction(input: {
         slackThreadTs: input.claim.run.acknowledgementTs,
         slackWorkingStatusTurnId: `slack-channel-introduction:${input.claim.run.slackTeamId}:${input.claim.run.interactionId}`,
         sourceText,
+        triggerText: sourceText,
         speakerMember: {
           memberId: memberResolution.member.memberId,
           userId: memberResolution.member.userId,
@@ -1295,22 +1296,6 @@ async function processRemoteAgentSlackAppMention(input: {
     slackTeamId,
   });
   const isDirectMessage = event.type === "message";
-  const richContext =
-    event.type === "app_mention"
-      ? await resolveSlackMentionRichContext({
-          botToken,
-          event,
-          eventId: input.eventId ?? null,
-          reproEnabled:
-            env.OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED === "true",
-          slackTeamId,
-        })
-      : null;
-  const sourceText = buildSlackConversationSourceText({
-    event,
-    isDirectMessage,
-    richContext,
-  });
   const deliveryAdmission = {
     agentProfileId: centerAgent.agentProfileId,
     author:
@@ -1340,7 +1325,11 @@ async function processRemoteAgentSlackAppMention(input: {
     slackChannelId: event.channel,
     slackTeamId,
     slackThreadTs: threadTs,
-    sourceText,
+    triggerText: buildSlackConversationSourceText({
+      event,
+      isDirectMessage,
+      richContext: null,
+    }),
     triggerMessageId: event.ts,
   };
   const admittedDelivery = await admitRemoteAgentSlackNativeDelivery({
@@ -1358,6 +1347,22 @@ async function processRemoteAgentSlackAppMention(input: {
     eventId: input.eventId ?? null,
     slackTeamId,
     threadTs,
+  });
+  const richContext =
+    event.type === "app_mention"
+      ? await resolveSlackMentionRichContext({
+          botToken,
+          event,
+          eventId: input.eventId ?? null,
+          reproEnabled:
+            env.OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED === "true",
+          slackTeamId,
+        })
+      : null;
+  const sourceText = buildSlackConversationSourceText({
+    event,
+    isDirectMessage,
+    richContext,
   });
   const searchAuthorization = await resolveSlackParticipantSearchAuthorization({
     cryptoKey: env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
@@ -1404,6 +1409,7 @@ async function processRemoteAgentSlackAppMention(input: {
   });
   const deliveryRequest = {
     ...deliveryAdmission,
+    sourceText,
     agentProfileOwnerUserId: centerAgent.ownerUserId,
     modelRoute: centerAgent.modelRoute,
     turnEnvelope,

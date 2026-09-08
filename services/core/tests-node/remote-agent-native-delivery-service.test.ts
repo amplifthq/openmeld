@@ -6427,6 +6427,7 @@ describe("Remote Agent native delivery callback service", () => {
             slackTeamId: "T123",
             slackThreadTs: "1700000000.000001",
             sourceText: "Remember that launch reviews happen on Fridays.",
+            triggerText: "Remember that launch reviews happen on Fridays.",
             triggerMessageId: "slack:T123:C123:1700000000.000001",
             turnEnvelope: {
               ...createSlackTurnEnvelope(),
@@ -6716,6 +6717,7 @@ describe("Remote Agent native delivery callback service", () => {
       slackTeamId: "T123",
       slackThreadTs: "1700000000.000001",
       sourceText: "Please retry this safely.",
+      triggerText: "Please retry this safely.",
       triggerMessageId: "slack:T123:C123:1700000000.000001",
       turnEnvelope: createSlackTurnEnvelope(),
     };
@@ -6743,7 +6745,10 @@ describe("Remote Agent native delivery callback service", () => {
           db: harness.db,
           env,
           nowMs: 4247,
-          request,
+          request: {
+            ...request,
+            sourceText: "New hydration observed during retry.",
+          },
         })
       ).resolves.toEqual({ shouldAck: true, status: "submitted" });
 
@@ -8123,6 +8128,7 @@ describe("Remote Agent native delivery callback service", () => {
       slackTeamId: "T123",
       slackThreadTs: "1700000000.000001",
       sourceText: "Prepare the launch review.",
+      triggerText: "Prepare the launch review.",
       triggerMessageId: "slack:T123:C123:1700000000.000001",
       turnEnvelope: createSlackTurnEnvelope(),
     };
@@ -8672,6 +8678,7 @@ describe("Remote Agent native delivery callback service", () => {
             slackTeamId: "T123",
             slackThreadTs: "1700000000.000001",
             sourceText: "Please help.",
+            triggerText: "Please help.",
             triggerMessageId: "slack:T123:C123:1700000000.000001",
             turnEnvelope: {
               ...createSlackTurnEnvelope(),
@@ -8758,6 +8765,7 @@ describe("Remote Agent native delivery callback service", () => {
             slackTeamId: "T123",
             slackThreadTs: "1700000000.000001",
             sourceText,
+            triggerText: sourceText,
             triggerMessageId: "slack:T123:C123:1700000000.000001",
             turnEnvelope: createSlackTurnEnvelope(),
           },

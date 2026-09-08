@@ -423,7 +423,8 @@ the connected provider API.
    model-visible tool policy.
    Before an accepted mention reaches the model, Core reads one bounded page of
    that mention's current Slack thread. Core first reads the exact current
-   message through `conversations.history` so Slack-owned text and attachment
+   message through `conversations.history` for a root or `conversations.replies`
+   for a thread reply, bounded inclusively to its exact timestamp, so text and attachment
    metadata replace the sparse `app_mention` trigger. The first turn includes
    the root message and earlier replies; later turns include only replies after
    the last successfully admitted cursor. For a root app mention, Core also reads one
@@ -433,8 +434,12 @@ the connected provider API.
    including recent Center Agent-authored proposals, but all provider history is
    labeled as untrusted reference context and the current mention remains the
    separately verified request. Up to three Slack message permalinks in the
-   request add exact source-message text and attachment metadata as separately
-   labeled untrusted quote context. Slack history failure is an explicit
+   request add exact same-channel source-message text and attachment metadata as
+   separately labeled untrusted quote context. Automatic hydration rejects
+   cross-channel references before reading them; Bot access alone does not
+   authorize copying another channel's content into this audience. Attachment
+   text is retained as untrusted context, while unsupported rich structures and
+   clipped quotes remain explicitly incomplete. Slack history failure is an explicit
    non-complete context status with a limitation note and does not make the
    current request disappear. This automatic read
    is current-thread and current-channel context only. Interactive and Routine

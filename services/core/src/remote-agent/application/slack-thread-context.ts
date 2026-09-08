@@ -205,6 +205,9 @@ function buildBoundedChannelMessages(input: {
       continue;
     }
     seenMessageIds.add(message.ts);
+    if (message.richContent?.incomplete) {
+      truncated = true;
+    }
     const normalizedText = buildSlackContextMessageText(message);
     if (!normalizedText) {
       continue;
@@ -240,7 +243,10 @@ function buildBoundedChannelMessages(input: {
 function buildSlackContextMessageText(
   message: SlackThreadMessage
 ): string | null {
-  const text = normalizeOptionalText(message.text);
+  const text =
+    [normalizeOptionalText(message.text), message.richContent?.text]
+      .filter(Boolean)
+      .join("\n") || null;
   const fileEvidence = message.files.map((file) =>
     [
       "Slack file attached",

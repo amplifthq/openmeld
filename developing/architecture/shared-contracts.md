@@ -3073,10 +3073,19 @@ because the exact provider lookup hydrates that request through the existing
 worker message field. Message identifiers are unique, timestamps are ordered,
 and both per-message and total text limits are enforced at the shared schema
 boundary. Slack message permalinks in the hydrated request may add at most
-three exact source-message reads as separately labeled untrusted quote context.
+three exact same-channel source-message reads as separately labeled untrusted
+quote context. Cross-channel references are not automatically fetched with the
+Bot credential. Thread permalinks retain their root timestamp for the replies
+API. Unsupported attachment structures and clipped quotes remain non-complete.
 If current-message or quoted-message rich content cannot be read, Core keeps
 the main request but downgrades a nominally complete projection to an explicit
 non-complete status and adds a model-visible limitation note.
+
+Slack native admission freezes the original event's `triggerText` before
+showing working status. The model receives the separately hydrated `sourceText`;
+hydration must not rewrite admission identity or weaken replay checks. Both
+values are internal Core inputs; the persisted ledger and worker wire schemas
+are unchanged.
 
 Channel history is reference context, not authority. Human, agent, bot, system,
 and unknown-author records are all untrusted provider content. The Remote Agent

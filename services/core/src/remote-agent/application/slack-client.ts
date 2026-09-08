@@ -52,6 +52,13 @@ type SlackApiResponse = {
   has_more?: boolean;
   message_ts?: string;
   messages?: Array<{
+    attachments?: Array<{
+      text?: string;
+      fallback?: string;
+      title?: string;
+      from_url?: string;
+      [key: string]: unknown;
+    }>;
     blocks?: unknown[] | null;
     bot_id?: string | null;
     bot_profile?: {
@@ -186,6 +193,7 @@ export type SlackUserIdentity = {
   teamId: string | null;
 };
 export type SlackThreadMessage = {
+  richContent?: { text: string; incomplete: boolean };
   botId: string | null;
   displayName: string | null;
   files: SlackFileMetadata[];
@@ -822,6 +830,7 @@ export async function readSlackMessageByTimestamp(input: {
   fetchImpl?: FetchLike;
   messageTs: string;
   signal?: AbortSignal;
+  threadTs?: string;
 }): Promise<{
   message: SlackThreadMessage | null;
   observation: SlackMessageHistoryObservation;
@@ -829,11 +838,19 @@ export async function readSlackMessageByTimestamp(input: {
   const params = new URLSearchParams({
     channel: input.channelId,
     inclusive: "true",
+    latest: input.messageTs,
     limit: "1",
     oldest: input.messageTs,
   });
+  const method =
+    input.threadTs && input.threadTs !== input.messageTs
+      ? "conversations.replies"
+      : "conversations.history";
+  if (input.threadTs && method === "conversations.replies") {
+    params.set("ts", input.threadTs);
+  }
   const response = await (input.fetchImpl ?? fetch)(
-    `${SLACK_API_BASE_URL}/conversations.history?${params.toString()}`,
+    `${SLACK_API_BASE_URL}/${method}?${params.toString()}`,
     {
       headers: buildSlackHeaders(input.botToken),
       method: "GET",
@@ -841,7 +858,7 @@ export async function readSlackMessageByTimestamp(input: {
     }
   );
   const data = await readSlackApiResponse(response);
-  assertSlackOk(response, data, "conversations.history");
+  assertSlackOk(response, data, method);
   const messages = data.messages ?? [];
   return {
     message:
@@ -1760,6 +1777,7 @@ function toSlackThreadMessages(
     }
     return [
       {
+        ...normalizeSlackRichContent(message),
         botId: normalizeOptionalText(message.bot_id),
         displayName:
           normalizeOptionalText(message.bot_profile?.name) ??
@@ -1791,6 +1809,38 @@ function toSlackThreadMessages(
       },
     ];
   });
+}
+
+// Slack attachment text/fallback are documented provider content, never a new
+// request. Preserve their provenance; unknown rich structures stay incomplete.
+function normalizeSlackRichContent(
+  message: NonNullable<SlackApiResponse["messages"]>[number]
+): Pick<SlackThreadMessage, "richContent"> {
+  const attachments = message.attachments ?? [];
+  if (attachments.length === 0) {
+    return message.blocks?.length && !normalizeOptionalText(message.text)
+      ? { richContent: { text: "", incomplete: true } }
+      : {};
+  }
+  const text = attachments
+    .slice(0, 10)
+    .map((attachment) => {
+      const content =
+        normalizeOptionalText(attachment.text) ??
+        normalizeOptionalText(attachment.fallback);
+      return [
+        normalizeOptionalText(attachment.title),
+        content,
+        normalizeOptionalText(attachment.from_url),
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .filter(Boolean)
+    .join("\n\n");
+  // Text is recoverable, but attachments can also contain images, nested files,
+  // blocks, and provider-specific previews. Do not call this a complete copy.
+  return { richContent: { text, incomplete: true } };
 }
 
 function buildSlackMessageHistoryObservation(

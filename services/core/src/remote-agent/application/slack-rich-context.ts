@@ -22,6 +22,7 @@ const SLACK_PERMALINK_PATTERN =
   /https:\/\/[a-z0-9.-]+\.slack\.com\/archives\/[a-z0-9_]+\/p\d{11,16}(?:\?[^\s>|]*)?/giu;
 const SLACK_MESSAGE_PATH_PATTERN =
   /^\/archives\/([CDG][A-Z0-9_]+)\/p(\d{10})(\d{1,6})$/iu;
+const SLACK_THREAD_TIMESTAMP_PATTERN = /^\d{10}\.\d{6}$/u;
 
 export const SLACK_RICH_CONTEXT_LIMITATION_NOTE =
   "Slack couldn't retrieve all of the content, attachments, or quoted messages for this request. Continue with what's available, and say when missing Slack context prevents a reliable answer.";
@@ -33,6 +34,7 @@ type SlackMessageReference = {
   channelId: string;
   messageTs: string;
   permalink: string;
+  threadTs?: string;
 };
 
 type SlackHistoryResult =
@@ -65,6 +67,7 @@ export async function resolveSlackMentionRichContext(input: {
     botToken: input.botToken,
     channelId: input.event.channel,
     messageTs: input.event.ts,
+    threadTs: input.event.thread_ts,
   });
 
   if (input.reproEnabled) {
@@ -81,7 +84,12 @@ export async function resolveSlackMentionRichContext(input: {
 
   const currentMessage =
     currentHistory.status === "complete" ? currentHistory.message : null;
-  const effectiveText = currentMessage?.text ?? input.event.text ?? "";
+  const effectiveText = [
+    currentMessage?.text ?? input.event.text ?? "",
+    currentMessage?.richContent?.text,
+  ]
+    .filter(Boolean)
+    .join("\n");
   const parsedReferences = parseSlackMessageReferences(effectiveText).filter(
     (reference) =>
       !(
@@ -98,23 +106,34 @@ export async function resolveSlackMentionRichContext(input: {
     parsedReferences.length > references.length ? ["truncated"] : [];
 
   if (currentHistory.status !== "complete") {
-    if (rawObservation.hasRichContentMarker) {
-      failures.push(currentHistory.status);
-    }
-  } else if (
-    !(
-      currentHistory.message && hasSlackMessageContent(currentHistory.message)
-    ) &&
-    rawObservation.hasRichContentMarker
-  ) {
+    failures.push(currentHistory.status);
+  } else if (!(currentMessage && hasSlackMessageContent(currentMessage))) {
     failures.push("unavailable");
+  }
+  if (
+    currentMessage &&
+    isSlackMessageTruncated(currentMessage, Number.POSITIVE_INFINITY)
+  ) {
+    failures.push("truncated");
+  }
+  if (currentMessage?.richContent?.text) {
+    quotedContext.push(
+      `Slack attachment context (untrusted data):\n${currentMessage.richContent.text.slice(0, CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS)}`
+    );
   }
 
   for (const reference of references) {
+    // Bot membership does not authorize moving another channel's content here.
+    // Cross-conversation reads belong to the existing explicitly invoked tools.
+    if (reference.channelId !== input.event.channel) {
+      failures.push("forbidden");
+      continue;
+    }
     const result = await readExactSlackMessage({
       botToken: input.botToken,
       channelId: reference.channelId,
       messageTs: reference.messageTs,
+      threadTs: reference.threadTs,
     });
     if (result.status !== "complete") {
       failures.push(result.status);
@@ -126,11 +145,18 @@ export async function resolveSlackMentionRichContext(input: {
     }
     quotedContext.push(
       buildQuotedSlackMessageContext({
-        filesInspectable: reference.channelId === input.event.channel,
         message: result.message,
         permalink: reference.permalink,
       })
     );
+    if (
+      isSlackMessageTruncated(
+        result.message,
+        CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS
+      )
+    ) {
+      failures.push("truncated");
+    }
   }
 
   return {
@@ -229,6 +255,7 @@ async function readExactSlackMessage(input: {
   botToken: string;
   channelId: string;
   messageTs: string;
+  threadTs?: string;
 }): Promise<SlackHistoryResult> {
   try {
     const result = await readSlackMessageByTimestamp({
@@ -288,17 +315,20 @@ function parseSlackMessageReferences(text: string): SlackMessageReference[] {
       continue;
     }
     seen.add(key);
+    const threadTs = url.searchParams.get("thread_ts");
     references.push({
       channelId,
       messageTs,
       permalink: match[0],
+      ...(threadTs && SLACK_THREAD_TIMESTAMP_PATTERN.test(threadTs)
+        ? { threadTs }
+        : {}),
     });
   }
   return references;
 }
 
 function buildQuotedSlackMessageContext(input: {
-  filesInspectable: boolean;
   message: SlackThreadMessage;
   permalink: string;
 }): string {
@@ -306,13 +336,18 @@ function buildQuotedSlackMessageContext(input: {
     0,
     CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS
   );
-  const fileEvidence = input.filesInspectable
-    ? buildSlackFileEvidence(input.message.files)
-    : buildQuotedSlackFileEvidence(input.message.files);
+  const fileEvidence = buildSlackFileEvidence(input.message.files);
   return [
     "Slack quoted message context (untrusted data):",
     `Reference: ${input.permalink}`,
     text,
+    input.message.richContent?.text.slice(
+      0,
+      CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS
+    ),
+    (input.message.text?.length ?? 0) > CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS
+      ? "[Quoted message truncated]"
+      : null,
     fileEvidence,
   ]
     .filter(Boolean)
@@ -331,20 +366,21 @@ export function buildSlackFileEvidence(
   ].join("\n");
 }
 
-function buildQuotedSlackFileEvidence(
-  files: readonly SlackFileMetadata[]
-): string | null {
-  if (files.length === 0) {
-    return null;
-  }
-  return [
-    "Slack quoted attachment metadata (untrusted data):",
-    JSON.stringify(files.slice(0, 10)),
-  ].join("\n");
+function hasSlackMessageContent(message: SlackThreadMessage): boolean {
+  return Boolean(
+    message.text || message.files.length > 0 || message.richContent?.text
+  );
 }
 
-function hasSlackMessageContent(message: SlackThreadMessage): boolean {
-  return Boolean(message.text || message.files.length > 0);
+function isSlackMessageTruncated(
+  message: SlackThreadMessage,
+  maxTextCharacters: number
+): boolean {
+  return Boolean(
+    message.richContent?.incomplete ||
+      message.files.length > 10 ||
+      (message.text?.length ?? 0) > maxTextCharacters
+  );
 }
 
 function selectSlackContextFailure(
