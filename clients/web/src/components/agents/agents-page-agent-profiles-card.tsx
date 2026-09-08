@@ -165,7 +165,6 @@ import {
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { AGENT_PROFILE_ROUTE_REFRESH_WINDOW_MS } from "#/strategy-constants";
 import type { AgentProfileActivityNavigation } from "./agent-profile-activity-preview";
-import { AgentProfileBulkReconnectNotice } from "./agent-profile-bulk-reconnect-notice";
 import {
 	refreshSavedAgentProfileConnections,
 	saveAgentProfileConnection,
@@ -187,7 +186,6 @@ import {
 import { AgentProfileWorkspaceDetail } from "./agent-profile-workspace-detail";
 import {
 	type AgentProfileAvailabilityFilter,
-	type AgentProfileBulkReconnectCandidate,
 	type AgentProfileRepairAction,
 	type AgentProfileSetupAction,
 	type AgentProfileVisualTone,
@@ -205,7 +203,6 @@ import {
 	resolveAgentProfileAutoRefreshDelayMs,
 	resolveAgentProfileAvailabilityFilterState,
 	resolveAgentProfileAvailabilityTone,
-	resolveAgentProfileBulkReconnectCandidates,
 	resolveAgentProfileIconAgentId,
 	resolveAgentProfileLocalAgentEntry,
 	resolveAgentProfileRepairActions,
@@ -524,14 +521,6 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		input.recovery.currentLocalRuntimeReplyReadinessQuery.data ?? null;
 	const currentLocalRuntimeCanReply =
 		currentLocalRuntimeReplyReadiness?.canReplyFromThisComputer ?? null;
-	const bulkReconnectCandidates = resolveAgentProfileBulkReconnectCandidates({
-		canManageProfile,
-		currentLocalRuntimeCanReply,
-		isCurrentComputer: input.isCurrentComputer,
-		localAgentCatalogEntries,
-		profiles: sortedAgentProfiles,
-		readinessByProfileId: agentExecutionReadinessByProfileId,
-	});
 	const autoRefreshingProfileIds = useMemo(
 		() =>
 			resolveAutoRefreshingAgentProfileIds({
@@ -899,22 +888,18 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 					refreshError
 				);
 				toast.warning(
-					`${profile.profileName} was ${action.intent === "reconnect" ? "reconnected" : "connected"}, but OpenMeld could not refresh its status. Refresh this page to check it again.`
+					`${profile.profileName} was connected, but OpenMeld could not refresh its status. Refresh this page to check it again.`
 				);
 				return;
 			}
 			toast.success(
-				action.intent === "reconnect"
-					? `${profile.profileName} was reconnected to this computer. OpenMeld is checking whether it can reply.`
-					: `Local agent connection saved for ${profile.profileName}. OpenMeld is checking whether it can reply from this computer.`
+				`Local agent connection saved for ${profile.profileName}. OpenMeld is checking whether it can reply from this computer.`
 			);
 		} catch (error) {
 			toast.error(
 				formatMutationError(
 					error,
-					action.intent === "reconnect"
-						? `OpenMeld could not reconnect ${profile.profileName} to this computer.`
-						: `OpenMeld could not connect ${profile.profileName} to this computer.`
+					`OpenMeld could not connect ${profile.profileName} to this computer.`
 				)
 			);
 		} finally {
@@ -929,77 +914,6 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		}
 	};
 
-	const handleBulkReconnectProfiles = async (
-		candidates: readonly AgentProfileBulkReconnectCandidate[]
-	) => {
-		const profileIds = candidates.map(
-			(candidate) => candidate.profile.openMeldProfileId
-		);
-		setPendingRepairProfileIds(
-			(current) => new Set([...current, ...profileIds])
-		);
-		const reconnectResults = await Promise.all(
-			candidates.map(async (candidate) => {
-				try {
-					await saveProfileConnection(candidate.profile, candidate.action);
-					return {
-						profileId: candidate.profile.openMeldProfileId,
-						status: "reconnected" as const,
-					};
-				} catch (error) {
-					console.error(
-						`Failed to reconnect Agent Profile ${candidate.profile.openMeldProfileId}.`,
-						error
-					);
-					return {
-						profileName: candidate.profile.profileName,
-						status: "failed" as const,
-					};
-				}
-			})
-		);
-		const reconnectedProfileIds = reconnectResults.flatMap((result) =>
-			result.status === "reconnected" ? [result.profileId] : []
-		);
-		const failedProfileNames = reconnectResults.flatMap((result) =>
-			result.status === "failed" ? [result.profileName] : []
-		);
-
-		let refreshFailed = false;
-		if (reconnectedProfileIds.length > 0) {
-			try {
-				await refreshProfileConnections(reconnectedProfileIds);
-			} catch (error) {
-				refreshFailed = true;
-				console.error(
-					"Agent Profile connections were saved, but their status refresh failed.",
-					error
-				);
-			}
-		}
-
-		if (failedProfileNames.length > 0) {
-			toast.warning(
-				`Reconnected ${reconnectedProfileIds.length} of ${candidates.length} Agents. Review ${formatListForSentence(failedProfileNames)} and try again.`
-			);
-		} else if (refreshFailed) {
-			toast.warning(
-				`Reconnected ${reconnectedProfileIds.length} Agents, but OpenMeld could not refresh their status. Refresh this page to check them again.`
-			);
-		} else {
-			toast.success(
-				`Reconnected ${reconnectedProfileIds.length} Agents to this computer. OpenMeld is checking whether they can reply.`
-			);
-		}
-
-		setPendingRepairProfileIds((current) => {
-			const next = new Set(current);
-			for (const profileId of profileIds) {
-				next.delete(profileId);
-			}
-			return next;
-		});
-	};
 	const createAgentProfileEditActionContext = (
 		profile: AuthProfileView
 	): AgentProfileEditActionContext => ({
@@ -1463,13 +1377,11 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		agentProfiles,
 		agentProfilesQueryState,
 		autoRefreshExhaustedProfileIds,
-		bulkReconnectCandidates,
 		canManageProfile,
 		controllerChangeOptions,
 		currentLocalRuntimeCanReply,
 		currentOrganization,
 		duplicateConversationProfileNamesByProfileId,
-		handleBulkReconnectProfiles,
 		handleChangeProfileController,
 		handleCheckProfileAgain,
 		handleConnectProfileToComputer,
@@ -1581,13 +1493,7 @@ function AgentProfilesPopulatedView(input: {
 	controller: AgentProfilesCardController;
 	presentation: "cards" | "detail";
 }) {
-	const {
-		bulkReconnectCandidates,
-		handleBulkReconnectProfiles,
-		pendingRepairProfileIds,
-		visibleAgentProfileGroups,
-		visibleAgentProfiles,
-	} = input.controller;
+	const { visibleAgentProfileGroups, visibleAgentProfiles } = input.controller;
 	const renderAgentProfileRow = (profile: AuthProfileView) => (
 		<AgentProfileDirectoryRow
 			cardInput={input.cardInput}
@@ -1596,52 +1502,32 @@ function AgentProfilesPopulatedView(input: {
 			profile={profile}
 		/>
 	);
-	const bulkReconnectNotice =
-		bulkReconnectCandidates.length > 1 ? (
-			<AgentProfileBulkReconnectNotice
-				candidates={bulkReconnectCandidates}
-				isPending={bulkReconnectCandidates.some((candidate) =>
-					pendingRepairProfileIds.has(candidate.profile.openMeldProfileId)
-				)}
-				onReconnect={handleBulkReconnectProfiles}
-			/>
-		) : null;
-
 	if (input.presentation === "detail") {
 		const selectedProfile =
 			visibleAgentProfiles.find(
 				(profile) =>
 					profile.openMeldProfileId === input.cardInput.focusProfileId
 			) ?? visibleAgentProfiles[0];
-		return selectedProfile ? (
-			<>
-				{bulkReconnectNotice}
-				{renderAgentProfileRow(selectedProfile)}
-			</>
-		) : null;
+		return selectedProfile ? renderAgentProfileRow(selectedProfile) : null;
 	}
 
 	if (!input.cardInput.showOwnerGroups) {
 		return (
-			<>
-				{bulkReconnectNotice}
-				<DirectoryCardGrid>
-					{visibleAgentProfiles.map((profile) => (
-						<DirectoryCardItem
-							itemId={profile.openMeldProfileId}
-							key={profile.openMeldProfileId}
-						>
-							{renderAgentProfileRow(profile)}
-						</DirectoryCardItem>
-					))}
-				</DirectoryCardGrid>
-			</>
+			<DirectoryCardGrid>
+				{visibleAgentProfiles.map((profile) => (
+					<DirectoryCardItem
+						itemId={profile.openMeldProfileId}
+						key={profile.openMeldProfileId}
+					>
+						{renderAgentProfileRow(profile)}
+					</DirectoryCardItem>
+				))}
+			</DirectoryCardGrid>
 		);
 	}
 
 	return (
 		<div className="flex flex-col gap-5">
-			{bulkReconnectNotice}
 			{visibleAgentProfileGroups.map((group) => (
 				<DirectoryOwnerGroup
 					countLabel={
@@ -6096,10 +5982,6 @@ function AgentProfileRepairActions(input: {
 	}
 
 	if (input.actions.length === 1) {
-		const pendingLabel =
-			selectedAction.intent === "reconnect"
-				? "Reconnecting..."
-				: "Connecting...";
 		return (
 			<div className="flex justify-start pt-1">
 				<Button
@@ -6117,7 +5999,7 @@ function AgentProfileRepairActions(input: {
 					variant="outline"
 				>
 					<WrenchIcon aria-hidden="true" data-icon="inline-start" />
-					{input.isPending ? pendingLabel : "Connect local agent"}
+					{input.isPending ? "Connecting..." : "Connect local agent"}
 				</Button>
 			</div>
 		);

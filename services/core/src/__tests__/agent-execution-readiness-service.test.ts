@@ -1307,6 +1307,139 @@ describe("Core Agent Execution Readiness", () => {
     ).toBe("service.update_required");
   });
 
+  it("keeps a ready target wakeable when an unrelated working-folder observation is stale", async () => {
+    const profileId = "agt_independent_working_folder";
+    mockReadyBindingAndRuntime(profileId);
+    const route = mockOnlineRoute("device-1");
+    const observation = route.localWakeRouteReport.workingFolderObservations[0];
+    if (!observation) {
+      throw new Error("Expected a target working-folder observation");
+    }
+    route.localWakeRouteReport.workingFolderObservations.push({
+      ...observation,
+      profileId: "agt_unrelated",
+      bindingId: "binding-unrelated",
+      observedAtMs: GENERATED_AT_MS - 100_000,
+    });
+    const resolveProfileById = vi.fn().mockResolvedValue({
+      ok: true,
+      profile: createActiveAgentProfile({
+        profileId,
+        profileName: "Independent Agent",
+      }),
+    });
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({ resolveProfileById }),
+      generatedAt: GENERATED_AT,
+      profileId,
+    });
+
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBeNull();
+    expect(
+      localRuntimeExpectedRoutesService.readLocalRuntimeExpectedRoutes
+    ).not.toHaveBeenCalled();
+    expect(resolveProfileById).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires a fresh target report after its Core Binding revision changes", async () => {
+    const profileId = "agt_changed_binding";
+    mockReadyBindingAndRuntime(profileId);
+    mockOnlineRoute("device-1");
+    const binding = await readPrimaryAgentProfileBindingRecord({
+      agentProfileId: profileId,
+      db: {} as D1Database,
+      owner: { kind: "owner_account", id: "owner-1" },
+    });
+    if (!binding) {
+      throw new Error("Expected the target Binding fixture");
+    }
+    vi.mocked(readPrimaryAgentProfileBindingRecord).mockResolvedValue({
+      ...binding,
+      configurationRevision: 2,
+    });
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId,
+            profileName: "Changed Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId,
+    });
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBe("working_folder.observation_identity_mismatch");
+  });
+
+  it("uses the target's current Auth Default Project and reads it again on the next request", async () => {
+    const profileId = "agt_changed_project";
+    mockReadyBindingAndRuntime(profileId);
+    const profile = createActiveAgentProfile({
+      profileId,
+      profileName: "Project Agent",
+    });
+    const resolveProfileById = vi.fn().mockResolvedValue({
+      ok: true,
+      profile: { ...profile, defaultProjectId: "project-new" },
+    });
+    const input = {
+      env: createCoreEnv({ resolveProfileById }),
+      generatedAt: GENERATED_AT,
+      profileId,
+    };
+    mockOnlineRoute("device-1");
+    const changed = await resolveCoreAgentExecutionReadinessForProfile(input);
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(changed.agentExecutionReadiness)
+    ).toBe("working_folder.observation_identity_mismatch");
+
+    resolveProfileById.mockResolvedValue({ ok: true, profile });
+    mockOnlineRoute("device-1");
+    const restored = await resolveCoreAgentExecutionReadinessForProfile(input);
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(restored.agentExecutionReadiness)
+    ).toBeNull();
+    expect(resolveProfileById).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not accept another Profile's identity from a target lookup", async () => {
+    const profileId = "agt_identity_target";
+    mockReadyBindingAndRuntime(profileId);
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId: "agt_other",
+            profileName: "Other Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId,
+    });
+    expect(readiness.agentExecutionReadiness.facts.profile).toMatchObject({
+      active: false,
+      reasonCodes: ["agent_profile.identity_lookup_failed"],
+    });
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).not.toBeNull();
+  });
+
   it("uses a fresh current working-folder failure instead of reconstructing readiness from older evidence", async () => {
     const profileId = "agt_current_workspace_missing";
     mockReadyBindingAndRuntime(profileId);
@@ -1585,7 +1718,7 @@ describe("Core Agent Execution Readiness", () => {
     });
   });
 
-  it("projects supported but unavailable Usage as Checking and does not claim availability", async () => {
+  it("admits an otherwise ready target when its auxiliary Usage read is unavailable", async () => {
     mockReadyBindingAndRuntime("agt_usage_checking", "builtin:codex");
     mockOnlineRoute("device-1");
     vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
@@ -1609,9 +1742,8 @@ describe("Core Agent Execution Readiness", () => {
     });
 
     expect(readiness.agentExecutionReadiness).toMatchObject({
-      displayState: "not_ready",
-      primaryAction: "check_status",
-      reasonCodes: expect.arrayContaining(["usage_checking"]),
+      displayState: "ready",
+      primaryAction: "none",
     });
     expect(
       resolveAgentWakeAvailability({
@@ -1621,14 +1753,16 @@ describe("Core Agent Execution Readiness", () => {
         wakeRouteStatus: readiness.wakeRouteStatus,
       })
     ).toMatchObject({
-      category: "checking",
-      label: "Checking Usage",
-      reasonCode: "usage_checking",
-      status: "checking_connection",
+      status: "available_for_wake",
     });
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBeNull();
   });
 
-  it("treats an expired current Usage report as Checking and blocks Wake admission", async () => {
+  it("still blocks when the Controller readiness report itself has expired", async () => {
     const profileId = "agt_usage_expired";
     mockReadyBindingAndRuntime(profileId, "builtin:codex");
     mockOnlineRoute("device-1");
@@ -1658,7 +1792,9 @@ describe("Core Agent Execution Readiness", () => {
     expect(readiness.agentExecutionReadiness).toMatchObject({
       displayState: "not_ready",
       primaryAction: "check_status",
-      reasonCodes: expect.arrayContaining(["usage_checking"]),
+      reasonCodes: expect.arrayContaining([
+        "runtime.agent_controller_report_stale",
+      ]),
     });
     expect(
       resolveAgentWakeAvailability({
@@ -1669,13 +1805,13 @@ describe("Core Agent Execution Readiness", () => {
       })
     ).toMatchObject({
       category: "checking",
-      reasonCode: "usage_checking",
+      status: "checking_connection",
     });
     expect(
       resolveAgentWakeAdmissionBlockReasonCode(
         readiness.agentExecutionReadiness
       )
-    ).toBe("usage_checking");
+    ).toBe("agent_execution.readiness_unconfirmed");
   });
 
   it("keeps explicitly unsupported Usage out of Wakeability", async () => {
@@ -1827,7 +1963,7 @@ describe("Core Agent Execution Readiness", () => {
           source: "wake_failure",
         },
       },
-      primaryAction: "check_status",
+      primaryAction: "run_prepare",
     });
     expect(
       resolveAgentWakeAvailability({
@@ -2359,40 +2495,12 @@ function mockReadyBindingAndRuntime(
   ]);
 }
 
-function mockOnlineRoute(deviceId: string): void {
+function mockOnlineRoute(deviceId: string) {
   const profileId = currentExpectedWorkingFolderProfileId;
   if (!profileId) {
     throw new Error("mockOnlineRoute requires a current profile Binding");
   }
-  vi.mocked(
-    localRuntimeExpectedRoutesService.readLocalRuntimeExpectedRoutes
-  ).mockResolvedValue({
-    response: {
-      excludedProfiles: [],
-      expectedRoutes: [
-        {
-          agentProfileId: profileId,
-          bindingId: "binding-1",
-          bindingState: "enabled_primary",
-          configurationRevision: 1,
-          defaultProjectId: null,
-          executionTarget: {
-            agentControllerConversationId: null,
-            agentControllerRef: "builtin:codex",
-            openMeldServiceRuntimeId: "runtime-1",
-          },
-          profileName: "Readiness Test Agent",
-          reasonCodes: [],
-          routable: true,
-        },
-      ],
-      generatedAt: GENERATED_AT,
-      openMeldServiceRuntimeId: "runtime-1",
-      runtimeResolution: "resolved",
-    },
-    status: "ok",
-  });
-  vi.mocked(lookupRuntimeTransportRoute).mockResolvedValueOnce({
+  const route = {
     capabilities: {},
     connectionGeneration: 1,
     daemonSessionId: "daemon-session-1",
@@ -2425,7 +2533,11 @@ function mockOnlineRoute(deviceId: string): void {
     },
     online: true,
     serviceVersion: "999.0.0",
-  });
+  } satisfies NonNullable<
+    Awaited<ReturnType<typeof lookupRuntimeTransportRoute>>
+  >;
+  vi.mocked(lookupRuntimeTransportRoute).mockResolvedValueOnce(route);
+  return route;
 }
 
 function createActiveAgentProfile(input: {
@@ -2433,6 +2545,7 @@ function createActiveAgentProfile(input: {
   profileName: string;
 }) {
   return {
+    defaultProjectId: null,
     ownerUserId: "owner-1",
     profileHandle: "agent",
     profileId: input.profileId,

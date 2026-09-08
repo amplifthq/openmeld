@@ -226,7 +226,7 @@ export function SpaceMembersSidePanel(
 		panelWidth: string;
 	}
 ) {
-	const model = useSpaceMembersModel(input, input.open);
+	const model = useSpaceMembersModel(input);
 	const widthMetrics = SPACE_PANEL_WIDTH_METRICS.members;
 
 	return (
@@ -328,7 +328,7 @@ export function SpaceMembersDrawer(
 		open: boolean;
 	}
 ) {
-	const model = useSpaceMembersModel(input, input.open);
+	const model = useSpaceMembersModel(input);
 
 	return (
 		<Drawer.Root
@@ -533,15 +533,11 @@ function SpaceMembersCloseButton(input: { onClose: () => void }) {
 	);
 }
 
-function useSpaceMembersModel(
-	input: SpaceMembersSurfaceProps,
-	surfaceOpen: boolean
-) {
+function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
 	const addMembersDialogId = useId();
 	const addMembersTriggerRef = useRef<HTMLElement | null>(null);
 	const [isAddMembersOpen, setIsAddMembersOpen] = useState(false);
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
-	const lastOpenNonceRef = useRef(input.openAddMembersNonce);
 	const [query, setQuery] = useState("");
 	const setSearchOpen = (open: boolean) => {
 		setIsSearchOpen(open);
@@ -550,21 +546,6 @@ function useSpaceMembersModel(
 		}
 	};
 
-	// Both desktop and mobile Members surfaces stay mounted. Consume every
-	// external request in both models, but open the dialog only from the surface
-	// that is currently visible so one click cannot create duplicate portals.
-	useEffect(() => {
-		const nonce = input.openAddMembersNonce;
-		if (nonce === undefined || nonce === lastOpenNonceRef.current) {
-			return;
-		}
-		lastOpenNonceRef.current = nonce;
-		if (!surfaceOpen) {
-			return;
-		}
-		addMembersTriggerRef.current = null;
-		setIsAddMembersOpen(true);
-	}, [input.openAddMembersNonce, surfaceOpen]);
 	const deferredQuery = useDeferredValue(query);
 	const directory = useMemo(
 		() =>
@@ -850,6 +831,34 @@ type SpaceAddProfilesSectionProps = {
 	spaceName?: string | null;
 	snapshot: SpaceMembersSnapshot | null;
 };
+
+export function SpaceAddMembersLauncher(input: SpaceMembersSurfaceProps) {
+	const [open, setOpen] = useState(false);
+	const dialogId = useId();
+	const finalFocus = useRef<HTMLElement | null>(null);
+	const lastNonce = useRef(input.openAddMembersNonce);
+	useEffect(() => {
+		if (input.openAddMembersNonce === lastNonce.current) {
+			return;
+		}
+		lastNonce.current = input.openAddMembersNonce;
+		finalFocus.current =
+			document.activeElement instanceof HTMLElement
+				? document.activeElement
+				: null;
+		setOpen(true);
+	}, [input.openAddMembersNonce]);
+	return (
+		<SpaceAddProfilesSection
+			{...input}
+			accountProfiles={input.accountProfiles ?? []}
+			dialogId={dialogId}
+			finalFocus={finalFocus}
+			onOpenChange={setOpen}
+			open={open}
+		/>
+	);
+}
 
 function SpaceAddProfilesSection(input: SpaceAddProfilesSectionProps) {
 	const model = useSpaceAddProfilesSectionModel(input);

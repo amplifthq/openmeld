@@ -14,7 +14,7 @@ import {
 	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
 import {
-	SpaceComposerFileMenu,
+	SpaceComposerAddMenu,
 	SpaceComposerFileTray,
 	useSpaceComposerFileInput,
 } from "./space-composer-attachments";
@@ -35,6 +35,7 @@ import type {
 
 export type SpaceComposerProps = {
 	actions: {
+		onAddPeopleOrAgents?: () => void;
 		onAddFiles?: (files: readonly File[]) => Promise<void>;
 		onEditorChange: (change: SpaceComposerEditorChange) => void;
 		onMentionButtonClick?: () => void;
@@ -199,10 +200,10 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						placeholder={policy.placeholder}
 						text={input.content.text}
 					/>
-					<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
+					<PromptInputActions className="min-w-0 justify-between gap-3 pt-2">
 						<div className="flex flex-1 items-center gap-0">
 							{input.capabilities?.attachments !== false ? (
-								<SpaceComposerFileMenu
+								<SpaceComposerAddMenu
 									addFiles={addFiles}
 									disabled={uploadsDisabled}
 									disabledReason={
@@ -211,6 +212,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 											: (accessHint ?? "Files aren't available yet.")
 									}
 									limitReached={input.availability.fileLimitReached}
+									onAddPeopleOrAgents={input.actions.onAddPeopleOrAgents}
 								/>
 							) : null}
 							{policy.showMentionButton &&

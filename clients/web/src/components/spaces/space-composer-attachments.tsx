@@ -13,7 +13,12 @@ import {
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
-import { FileIcon, PlusIcon, XIcon } from "@phosphor-icons/react";
+import {
+	FileIcon,
+	PlusIcon,
+	UsersThreeIcon,
+	XIcon,
+} from "@phosphor-icons/react";
 import type { ClipboardEvent, DragEvent } from "react";
 import { useRef, useState } from "react";
 import { PromptInputAction } from "#/components/ibelick/prompt-input";
@@ -74,11 +79,12 @@ export function useSpaceComposerFileInput(input: {
 	};
 }
 
-export function SpaceComposerFileMenu(input: {
+export function SpaceComposerAddMenu(input: {
 	addFiles: (files: readonly File[]) => void;
 	disabled: boolean;
 	disabledReason?: string;
 	limitReached: boolean;
+	onAddPeopleOrAgents?: () => void;
 }) {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	return (
@@ -96,17 +102,11 @@ export function SpaceComposerFileMenu(input: {
 				type="file"
 			/>
 			<DropdownMenu>
-				<PromptInputAction
-					tooltip={
-						input.limitReached
-							? "You can add up to 10 files."
-							: "Add to message"
-					}
-				>
+				<PromptInputAction tooltip="Add">
 					<DropdownMenuTrigger
 						render={
 							<Button
-								aria-label="Add to message"
+								aria-label="Add"
 								size="icon-sm"
 								type="button"
 								variant="ghost"
@@ -131,6 +131,15 @@ export function SpaceComposerFileMenu(input: {
 						<FileIcon aria-hidden="true" />
 						Files
 					</FluidDropdownMenuItem>
+					{input.onAddPeopleOrAgents ? (
+						<FluidDropdownMenuItem
+							index={1}
+							onClick={input.onAddPeopleOrAgents}
+						>
+							<UsersThreeIcon aria-hidden="true" />
+							People or agents
+						</FluidDropdownMenuItem>
+					) : null}
 					{input.disabled || input.limitReached ? (
 						<p className="max-w-64 px-2 py-1 text-muted-foreground text-xs">
 							{input.disabled
@@ -157,7 +166,7 @@ export function SpaceComposerFileTray(input: {
 	return (
 		<fieldset
 			aria-label="Files to send"
-			className="m-0 flex min-w-0 flex-nowrap gap-2 overflow-x-auto overscroll-x-contain border-0 border-border border-b px-1 pt-1 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+			className="m-0 flex min-w-0 flex-nowrap gap-2 overflow-x-auto overscroll-x-contain border-0 px-1 pt-1 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 		>
 			{input.files.map((file) => (
 				<div

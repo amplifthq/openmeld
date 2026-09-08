@@ -764,10 +764,10 @@ describe("SpaceConversationPanel", () => {
 			if (inFlowPill) {
 				expect(inFlowPill.className).not.toContain("sr-only");
 				expect(inFlowPill.firstElementChild?.className).toContain(
-					"bg-popover/60"
+					"conversation-floating-surface"
 				);
 				expect(inFlowPill.firstElementChild?.className).toContain(
-					"backdrop-blur-sm"
+					"conversation-floating-surface"
 				);
 			}
 			expect(
@@ -780,11 +780,9 @@ describe("SpaceConversationPanel", () => {
 		);
 		expect(stickyDatePills).toHaveLength(1);
 		for (const pillItem of stickyDatePills) {
-			expect(pillItem?.className).toContain("sticky");
+			expect(pillItem?.className).toContain("absolute");
 			expect(pillItem?.className).toContain("h-8");
-			expect(pillItem?.className).toContain("-mb-8");
 			expect(pillItem?.className).toContain("max-lg:h-11");
-			expect(pillItem?.className).toContain("max-lg:-mb-11");
 			expect(pillItem?.className).toContain(
 				"top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)]"
 			);
@@ -794,20 +792,20 @@ describe("SpaceConversationPanel", () => {
 		const stickyPillViewport = document.querySelector(
 			"[data-slot='conversation-date-pill-viewport']"
 		);
-		expect(stickyPillViewport?.className).toContain("h-[calc(100%+0.125rem)]");
-		expect(stickyPillViewport?.className).toContain("pb-0.5");
+		expect(stickyPillViewport?.className).toContain("h-[calc(100%+0.25rem)]");
+		expect(stickyPillViewport?.className).toContain("py-0.5");
 		expect(stickyPillViewport?.className).toContain("overflow-hidden");
 		expect(stickyDatePills[0]?.className).not.toContain("overflow-clip");
 		expect(
 			document.querySelector(
 				"[data-slot='conversation-date-pill-track'] > :first-child > *"
 			)?.className
-		).toContain("bg-popover/60");
+		).toContain("conversation-floating-surface");
 		expect(
 			document.querySelector(
 				"[data-slot='conversation-date-pill-track'] > :first-child > *"
 			)?.className
-		).toContain("backdrop-blur-sm");
+		).toContain("conversation-floating-surface");
 
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
@@ -908,7 +906,7 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			secondDateMarker.querySelector("[data-conversation-date-marker-pill]")
 				?.firstElementChild?.className
-		).toContain("bg-popover/60");
+		).toContain("conversation-floating-surface");
 
 		secondDateMarkerTop = 10;
 		fireEvent.scroll(conversationLog);
@@ -939,7 +937,7 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			firstDateMarker.querySelector("[data-conversation-date-marker-pill]")
 				?.firstElementChild?.className
-		).toContain("bg-popover/60");
+		).toContain("conversation-floating-surface");
 
 		const unreadBoundary = screen.getByRole("separator", {
 			name: "New messages",
@@ -1150,14 +1148,17 @@ describe("SpaceConversationPanel", () => {
 			name: OPEN_DATE_NAVIGATION_NAME_PATTERN,
 		});
 		fireEvent.click(stickyDateNavigationButton);
-		expect(stickyDateNavigationButton.className).toContain("bg-popover/60");
-		expect(stickyDateNavigationButton.className).toContain("backdrop-blur-sm");
 		expect(stickyDateNavigationButton.className).toContain(
-			"hover:bg-popover/80"
+			"conversation-floating-surface"
 		);
-		expect(stickyDateNavigationButton.className).not.toContain(
-			"hover:bg-muted"
+		expect(stickyDateNavigationButton.className).toContain(
+			"conversation-floating-surface"
 		);
+		expect(
+			stickyDateNavigationButton.closest(
+				'[data-slot="message-scroller-viewport"]'
+			)
+		).toBeNull();
 		const lastWeekButton = screen.getByRole("button", { name: "Last week" });
 		const chooseDateButton = screen.getByRole("button", {
 			name: "Choose a date…",
@@ -1810,8 +1811,8 @@ describe("SpaceConversationPanel", () => {
 		expect(agentMessage?.textContent).toContain("Agent reply");
 		expect(agentHeader?.className ?? "").toContain("mb-1.5");
 		expect(agentHeader?.className ?? "").not.toContain("hover:bg-muted/35");
-		expect(agentRow?.className).toContain("hover:bg-muted/35");
-		expect(agentRow?.className).toContain("focus-within:bg-muted/35");
+		expect(agentRow?.className).toContain("hover:bg-transparent");
+		expect(agentRow?.className).toContain("focus-within:bg-transparent");
 		expect(agentRow?.className).toContain("rounded-md");
 		expect(selfMessage?.className).not.toContain("hover:bg-muted/35");
 		expect(selfMessage?.className).not.toContain("focus-within:bg-muted/35");
@@ -1823,8 +1824,8 @@ describe("SpaceConversationPanel", () => {
 		expect(selfMessage?.getAttribute("data-space-self-message")).toBe("true");
 		expect(selfMessage?.textContent).toContain("Felix");
 		expect(selfMessage?.textContent).toContain("Self message");
-		expect(selfRow?.className).toContain("hover:bg-muted/35");
-		expect(selfRow?.className).toContain("focus-within:bg-muted/35");
+		expect(selfRow?.className).toContain("hover:bg-transparent");
+		expect(selfRow?.className).toContain("focus-within:bg-transparent");
 		expect(selfRow?.className).toContain("rounded-md");
 		expect(
 			screen.getByRole("log", { name: "Conversation history" }).className
@@ -2073,9 +2074,23 @@ describe("SpaceConversationPanel", () => {
 			readOnly: false,
 		});
 
-		fireEvent.click(screen.getByRole("button", { name: "Add to message" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add" }));
 
 		expect(await screen.findByRole("menuitem", { name: "Files" })).toBeTruthy();
+	});
+
+	it("opens the existing member picker from Add", async () => {
+		const onAddPeopleOrAgents = vi.fn();
+		renderSpaceConversationPanel({
+			allowedActions: ["post_message"],
+			onAddPeopleOrAgents,
+			readOnly: false,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Add" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "People or agents" })
+		);
+		expect(onAddPeopleOrAgents).toHaveBeenCalledOnce();
 	});
 
 	it("opens a conversation file in the same Space Files view", () => {
@@ -2129,7 +2144,7 @@ describe("SpaceConversationPanel", () => {
 		const mentionButton = screen.getByRole("button", {
 			name: "Mention a member",
 		});
-		const addButton = screen.getByRole("button", { name: "Add to message" });
+		const addButton = screen.getByRole("button", { name: "Add" });
 		expect(mentionButton.parentElement?.className).toContain("gap-0");
 		expect(addButton).toHaveProperty("disabled", false);
 		expect(mentionButton).toHaveProperty("disabled", false);
@@ -2146,9 +2161,10 @@ describe("SpaceConversationPanel", () => {
 			/>
 		);
 
-		expect(
-			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", false);
+		expect(screen.getByRole("button", { name: "Add" })).toHaveProperty(
+			"disabled",
+			false
+		);
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
 		).toHaveProperty("disabled", false);
@@ -2735,10 +2751,9 @@ describe("SpaceConversationPanel", () => {
 			"message-scroller-button"
 		);
 		expect(jumpButton.getAttribute("data-variant")).toBe("secondary");
-		expect(jumpButton.className).toContain("border-border");
-		expect(jumpButton.className).toContain("bg-popover/60");
-		expect(jumpButton.className).toContain("backdrop-blur-sm");
-		expect(jumpButton.className).toContain("shadow-xs");
+		expect(jumpButton.className).toContain("border-transparent");
+		expect(jumpButton.className).toContain("conversation-floating-surface");
+		expect(jumpButton.className).toContain("conversation-floating-surface");
 		expect(jumpButton.className).not.toContain("ring-background");
 		expect(jumpButton.className).not.toContain("shadow-lg");
 		expect(jumpButton.className).toContain("data-[active=false]:blur-[6px]");

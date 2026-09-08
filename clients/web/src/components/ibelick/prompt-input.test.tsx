@@ -25,7 +25,6 @@ describe("PromptInput", () => {
 		);
 
 		const textarea = screen.getByLabelText("Message");
-		expect(textarea.parentElement?.className).toContain("rounded-md");
 		expect(callerTextarea).toBe(textarea);
 
 		Object.defineProperty(textarea, "scrollHeight", {

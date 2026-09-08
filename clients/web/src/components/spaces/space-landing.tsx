@@ -128,6 +128,7 @@ import {
 } from "./space-member-ownership";
 import {
 	SPACE_MEMBERS_SIDE_PANEL_QUERY,
+	SpaceAddMembersLauncher,
 	type SpaceAddOrganizationDirectoryProfilesInput,
 	type SpaceAddProfilesResult,
 	type SpaceConvertDirectMessageInput,
@@ -198,7 +199,6 @@ type CurrentSpaceMemberFactsRefreshInput = {
 function useSpaceSetupRecallWiring(input: {
 	activeView: SpaceView;
 	onViewChange: (view: SpaceView) => void;
-	setMembersOpen: (open: boolean) => void;
 }) {
 	const [setupRecallNonce, setSetupRecallNonce] = useState(0);
 	const [setupVisibility, setSetupVisibility] = useState<SpaceSetupVisibility>({
@@ -218,9 +218,8 @@ function useSpaceSetupRecallWiring(input: {
 		setSetupVisibility((current) => ({ ...current, allHidden: false }));
 	}, [input.onViewChange]);
 	const handleAddAgentsFromBanner = useCallback(() => {
-		input.setMembersOpen(true);
 		setAddMembersFlashNonce((nonce) => nonce + 1);
-	}, [input.setMembersOpen]);
+	}, []);
 	const setupRecallAction =
 		setupVisibility.hasSetup &&
 		(setupVisibility.allHidden || input.activeView === "graph") ? (
@@ -1273,7 +1272,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	} = useSpaceSetupRecallWiring({
 		activeView: spaceView,
 		onViewChange: changeSpaceView,
-		setMembersOpen: handleMembersOpenChange,
 	});
 	const handleAddProfiles = useSpaceAddProfilesHandler({
 		accountProfiles,
@@ -2063,6 +2061,7 @@ function SpaceLandingConversation({
 			membersSnapshot={controller.presentationMembersSnapshot}
 			modelCatalog={modelCatalog}
 			onAddComposerFiles={controller.onAddComposerFiles}
+			onAddPeopleOrAgents={currentSpaceControls.onAddAgentsFromBanner}
 			onAgentInteractionResponse={controller.onAgentInteractionResponse}
 			onAgentRecoveryAction={handleAgentRecoveryAction}
 			onClearComposerReplyTo={controller.onClearComposerReplyTo}
@@ -2579,6 +2578,7 @@ function SpaceLandingSecondaryPanels({
 				membersSnapshot={controller.presentationMembersSnapshot}
 				modelCatalog={modelCatalog}
 				onAddComposerFiles={controller.onAddThreadComposerFiles}
+				onAddPeopleOrAgents={currentSpaceControls.onAddAgentsFromBanner}
 				onAgentInteractionResponse={controller.onAgentInteractionResponse}
 				onAgentRecoveryAction={handleAgentRecoveryAction}
 				onClose={controller.onCloseThread}
@@ -2679,6 +2679,10 @@ function SpaceLandingMembersChrome(input: {
 }) {
 	return (
 		<>
+			<SpaceAddMembersLauncher
+				key={input.drawerProps.spaceId}
+				{...input.drawerProps}
+			/>
 			<SpaceMembersSidePanel {...input.sidePanelProps} />
 			<SpaceMembersDrawer {...input.drawerProps} />
 		</>

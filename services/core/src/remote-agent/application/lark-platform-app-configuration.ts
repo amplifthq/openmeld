@@ -5,6 +5,7 @@ import {
 } from "./lark-platform-openapi-client";
 import {
   LARK_PLATFORM_APP_CONFIGURATION_SCOPE,
+  LARK_PLATFORM_APP_SELF_MANAGE_SCOPE,
   LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE,
 } from "./lark-platform-permission-bundles";
 
@@ -19,6 +20,10 @@ type JsonObject = Record<string, unknown>;
 type LarkPlatformAppConfigurationReason =
   | "application_config_failed"
   | "application_config_permission_required"
+  | "application_publish_failed"
+  | "application_publication_pending"
+  | "application_publication_rejected"
+  | "application_version_read_failed"
   | "bot_identity_failed"
   | "callback_origin_invalid"
   | "configuration_input_invalid"
@@ -36,6 +41,8 @@ export class LarkPlatformAppConfigurationError extends Error {
 }
 
 export async function configureAndVerifyLarkPlatformWebhookApp(input: {
+  applicationVersionId?: string | null;
+  onPublicationSubmitted: (versionId: string) => Promise<void>;
   appId: string;
   appSecret: string;
   connectionId: string;
@@ -82,22 +89,43 @@ export async function configureAndVerifyLarkPlatformWebhookApp(input: {
   const connectionPath = `${encodeURIComponent(
     input.provider
   )}/${encodeURIComponent(input.connectionId.trim())}`;
-  await patchApplicationConfiguration({
-    apiHost,
-    appId: input.appId.trim(),
-    callbackUrl: `${gatewayOrigin}/message-channels/${connectionPath}/callbacks`,
-    eventEncryptKey: input.eventEncryptKey.trim(),
-    eventUrl: `${gatewayOrigin}/message-channels/${connectionPath}/events`,
-    fetchImpl,
-    provider: input.provider,
-    tenantAccessToken: token.tenantAccessToken,
-    verificationToken: input.verificationToken.trim(),
-  });
+  if (!input.applicationVersionId) {
+    await patchApplicationConfiguration({
+      apiHost,
+      appId: input.appId.trim(),
+      callbackUrl: `${gatewayOrigin}/message-channels/${connectionPath}/callbacks`,
+      eventEncryptKey: input.eventEncryptKey.trim(),
+      eventUrl: `${gatewayOrigin}/message-channels/${connectionPath}/events`,
+      fetchImpl,
+      provider: input.provider,
+      tenantAccessToken: token.tenantAccessToken,
+      verificationToken: input.verificationToken.trim(),
+    });
+  }
   await verifyChannelOnlyPermissionBundle({
     apiHost,
     fetchImpl,
     provider: input.provider,
     tenantAccessToken: token.tenantAccessToken,
+  });
+  let versionId = input.applicationVersionId;
+  if (!versionId) {
+    versionId = await publishLarkPlatformWebhookApp({
+      apiHost,
+      appId: input.appId.trim(),
+      fetchImpl,
+      provider: input.provider,
+      tenantAccessToken: token.tenantAccessToken,
+    });
+    await input.onPublicationSubmitted(versionId);
+  }
+  await verifyLarkPlatformPublishedVersion({
+    apiHost,
+    appId: input.appId.trim(),
+    fetchImpl,
+    provider: input.provider,
+    tenantAccessToken: token.tenantAccessToken,
+    versionId,
   });
   const bot = await readBotIdentity({
     apiHost,
@@ -170,6 +198,91 @@ async function patchApplicationConfiguration(input: {
   }
 }
 
+export async function publishLarkPlatformWebhookApp(input: {
+  apiHost: string;
+  appId: string;
+  fetchImpl: typeof fetch;
+  provider: RemoteAgentLarkPlatformProvider;
+  tenantAccessToken: string;
+}): Promise<string> {
+  const body = await requestJson({
+    fetchImpl: input.fetchImpl,
+    init: {
+      body: JSON.stringify({
+        mobile_default_ability: "bot",
+        pc_default_ability: "bot",
+        remark: "Connect this bot to the OpenMeld Center Agent.",
+        changelog: "Enable webhook message delivery to OpenMeld.",
+      }),
+      headers: {
+        ...JSON_HEADERS,
+        Authorization: `Bearer ${input.tenantAccessToken}`,
+      },
+      method: "POST",
+    },
+    provider: input.provider,
+    reason: "application_publish_failed",
+    url: `${input.apiHost}/open-apis/application/v7/applications/${encodeURIComponent(input.appId)}/publish`,
+  });
+  const versionId = isJsonObject(body.data)
+    ? readString(body.data, "version_id")
+    : null;
+  if (readProviderCode(body) !== 0 || !versionId) {
+    throw configurationError(input.provider, "application_publish_failed");
+  }
+  return versionId;
+}
+
+export async function verifyLarkPlatformPublishedVersion(input: {
+  apiHost: string;
+  appId: string;
+  fetchImpl: typeof fetch;
+  provider: RemoteAgentLarkPlatformProvider;
+  tenantAccessToken: string;
+  versionId: string;
+}): Promise<void> {
+  const body = await requestJson({
+    fetchImpl: input.fetchImpl,
+    init: {
+      method: "GET",
+      headers: { Authorization: `Bearer ${input.tenantAccessToken}` },
+    },
+    provider: input.provider,
+    reason: "application_version_read_failed",
+    url: `${input.apiHost}/open-apis/application/v6/applications/${encodeURIComponent(input.appId)}/app_versions/${encodeURIComponent(input.versionId)}?lang=en_us`,
+  });
+  const version = isJsonObject(body.data) ? body.data.app_version : null;
+  if (
+    readProviderCode(body) !== 0 ||
+    !isJsonObject(version) ||
+    version.app_id !== input.appId ||
+    version.version_id !== input.versionId
+  ) {
+    throw configurationError(input.provider, "application_version_read_failed");
+  }
+  if (version.status === 2) {
+    throw configurationError(
+      input.provider,
+      "application_publication_rejected"
+    );
+  }
+  if (version.status !== 1) {
+    throw configurationError(input.provider, "application_publication_pending");
+  }
+  const eventInfos = version.event_infos;
+  const events = Array.isArray(eventInfos)
+    ? eventInfos.filter(isJsonObject).map((event) => event.event_type)
+    : null;
+  if (
+    !Array.isArray(events) ||
+    LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.events.some(
+      (event) => !events.includes(event)
+    )
+  ) {
+    throw configurationError(input.provider, "application_version_read_failed");
+  }
+}
+
 async function verifyChannelOnlyPermissionBundle(input: {
   apiHost: string;
   fetchImpl: typeof fetch;
@@ -224,6 +337,7 @@ async function verifyChannelOnlyPermissionBundle(input: {
   const expectedScopes = LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.scopes;
   // Explicit app-configuration consent is setup authority, not a Channel tool grant.
   actualScopeNames.delete(LARK_PLATFORM_APP_CONFIGURATION_SCOPE);
+  actualScopeNames.delete(LARK_PLATFORM_APP_SELF_MANAGE_SCOPE);
   if (
     actualScopeNames.size !== expectedScopes.length ||
     expectedScopes.some((scopeName) => !actualScopeNames.has(scopeName))
@@ -283,7 +397,9 @@ async function requestJson(input: {
   }
   if (
     isJsonObject(body) &&
-    input.reason === "application_config_failed" &&
+    (input.reason === "application_config_failed" ||
+      input.reason === "application_publish_failed" ||
+      input.reason === "application_version_read_failed") &&
     readProviderCode(body) === 99_991_672
   ) {
     throw configurationError(

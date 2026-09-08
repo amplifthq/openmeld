@@ -27,6 +27,7 @@ import {
   runtimeTransportRuntimeCoordinatorWakeStopResponseSchema,
   runtimeTransportWaitDispatchResultRequestSchema,
   runtimeTransportWaitDispatchResultResponseSchema,
+  wakeStopEligibilityReadModelSchema,
 } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonDispatchDeliveryRecoveryReason,
@@ -58,6 +59,7 @@ import type {
   RuntimeTransportRuntimeCoordinatorWakeStopResponse,
   RuntimeTransportWaitDispatchResultRequest,
   RuntimeTransportWaitDispatchResultResponse,
+  WakeStopEligibilityReadModel,
   WorkingLanguageGuidance,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../../lib/bindings";
@@ -640,6 +642,31 @@ export const readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace =
       };
     }
     return parsed.data;
+  };
+
+export const readRuntimeTransportRuntimeCoordinatorPublicationWakeStopEligibility =
+  async (input: {
+    env: CoreBindings;
+    ownerUserId: string;
+    wakeStop: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
+  }): Promise<WakeStopEligibilityReadModel | null> => {
+    const request =
+      runtimeTransportRuntimeCoordinatorWakeStopRequestSchema.safeParse(
+        input.wakeStop
+      );
+    if (!request.success) {
+      return null;
+    }
+    const response = await callRuntimeTransportApi({
+      env: input.env,
+      ownerUserId: input.ownerUserId,
+      path: "/runtime-coordinator/wake-stop/publication-eligibility",
+      body: request.data,
+    });
+    const parsed = wakeStopEligibilityReadModelSchema
+      .nullable()
+      .safeParse(response);
+    return parsed.success ? parsed.data : null;
   };
 
 export const requestRuntimeTransportRuntimeCoordinatorWakeStop = async (input: {

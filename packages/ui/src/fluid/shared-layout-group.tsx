@@ -28,6 +28,7 @@ type SharedLayoutGroupProps = HTMLAttributes<HTMLDivElement> & {
 
 type SharedLayoutItemProps = HTMLAttributes<HTMLDivElement> & {
   children: ReactNode;
+  disabled?: boolean;
   indicatorClassName?: string;
   itemId: string;
 };
@@ -113,6 +114,7 @@ const SharedLayoutItem = forwardRef<HTMLDivElement, SharedLayoutItemProps>(
     {
       children,
       className,
+      disabled = false,
       indicatorClassName,
       itemId,
       onFocus,
@@ -123,7 +125,7 @@ const SharedLayoutItem = forwardRef<HTMLDivElement, SharedLayoutItemProps>(
   ) => {
     const { activeItemId, indicatorLayoutId, reduceMotion, setActiveItemId } =
       useSharedLayoutGroup();
-    const active = activeItemId === itemId;
+    const active = !disabled && activeItemId === itemId;
 
     return (
       <>
@@ -136,11 +138,11 @@ const SharedLayoutItem = forwardRef<HTMLDivElement, SharedLayoutItemProps>(
           data-slot="shared-layout-item"
           onFocus={(event) => {
             onFocus?.(event);
-            setActiveItemId?.(itemId);
+            setActiveItemId?.(disabled ? null : itemId);
           }}
           onPointerEnter={(event) => {
             onPointerEnter?.(event);
-            setActiveItemId?.(itemId);
+            setActiveItemId?.(disabled ? null : itemId);
           }}
           ref={ref}
         >
