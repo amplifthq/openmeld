@@ -1,18 +1,21 @@
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_CONTROLLER_REF_ID,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
 
 // biome-ignore lint/performance/noBarrelFile: agent-runtime re-exports the shared hosted ref constants as part of its public ref helpers.
 export {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_CONTROLLER_REF_ID,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
 
 export type AgentControllerRefKind =
   | "builtin"
   | "custom"
-  | "hosted:center-agent";
+  | "hosted:center-agent"
+  | "hosted:remote-agent";
 
 export type AgentControllerRef = {
   kind: AgentControllerRefKind;
@@ -35,6 +38,14 @@ const normalizeCapabilitySourceId = (input: {
   kind: AgentControllerRefKind;
   id: string;
 }): string => {
+  if (input.kind === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
+    if (input.id.trim() !== "remote-agent") {
+      throw new Error(
+        "runtime.agent_controller_ref_invalid: hosted Remote Agent id must be remote-agent"
+      );
+    }
+    return "remote-agent";
+  }
   if (input.kind === HOSTED_CENTER_AGENT_CONTROLLER_REF) {
     if (input.id.trim() !== HOSTED_CENTER_AGENT_CONTROLLER_REF_ID) {
       throw new Error(
@@ -61,6 +72,9 @@ export const buildAgentControllerRef = (input: {
   id: string;
 }): string => {
   const id = normalizeCapabilitySourceId(input);
+  if (input.kind === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
+    return HOSTED_REMOTE_AGENT_CONTROLLER_REF;
+  }
   if (input.kind === HOSTED_CENTER_AGENT_CONTROLLER_REF) {
     return HOSTED_CENTER_AGENT_CONTROLLER_REF;
   }
@@ -73,6 +87,13 @@ export const parseAgentControllerRef = (
   const ref = String(value ?? "").trim();
   if (!ref) {
     return null;
+  }
+  if (ref === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
+    return {
+      kind: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      id: "remote-agent",
+      ref,
+    };
   }
   if (ref === HOSTED_CENTER_AGENT_CONTROLLER_REF) {
     return {
@@ -120,7 +141,10 @@ export const runtimeAgentControllerRefMatchesAdapterSnapshot = (input: {
   if (!agentControllerRef) {
     return false;
   }
-  if (agentControllerRef.kind === HOSTED_CENTER_AGENT_CONTROLLER_REF) {
+  if (
+    agentControllerRef.kind === HOSTED_CENTER_AGENT_CONTROLLER_REF ||
+    agentControllerRef.kind === HOSTED_REMOTE_AGENT_CONTROLLER_REF
+  ) {
     return false;
   }
   return String(input.adapter.adapterId ?? "").trim() === agentControllerRef.id;

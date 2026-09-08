@@ -400,7 +400,7 @@ describe("buildSpaceComposerAddressingTargets", () => {
 });
 
 describe("resolveSpaceComposerAddressingMentions", () => {
-	it("shows the earlier canonical relation when an authored duplicate appears later", () => {
+	it("uses only the selected relation even when earlier prose looks like a Wake", () => {
 		const runnerProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 		const text = "@Runner(wake) Review this with @Runner";
 
@@ -428,7 +428,7 @@ describe("resolveSpaceComposerAddressingMentions", () => {
 		).toEqual([
 			{
 				profileId: runnerProfileId,
-				relation: "wake",
+				relation: "reference",
 			},
 		]);
 	});

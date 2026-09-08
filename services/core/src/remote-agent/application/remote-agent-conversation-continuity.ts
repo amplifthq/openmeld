@@ -1,6 +1,7 @@
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
 import {
   buildRemoteAgentRuntimeConversationId,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_TOTAL_TEXT_MAX_CHARS,
@@ -15,7 +16,6 @@ import type {
 } from "@openmeld/schemas/types";
 import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
 import { buildCenterAgentContextMessageProjection } from "../../center-agent/application/center-agent-context-manifest-service";
-import { readCenterAgentTaskConversationContinuity } from "../../center-agent-tasks/application/center-agent-task-conversation-continuity";
 import type { CoreBindings } from "../../lib/bindings";
 import type { ListSignalsInput, ListSignalsResult } from "../../rpc/methods";
 import { resolveSpaceStub } from "../../rpc/space-ref";
@@ -187,16 +187,6 @@ async function readContinuityEntryDrafts(input: {
   request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
 }): Promise<{ entries: ContinuityEntryDraft[]; truncated: boolean }> {
   if (
-    (input.request.v === 3 || input.request.v === 4) &&
-    input.request.conversationIdentity?.kind === "center_agent_task"
-  ) {
-    return await readTaskContinuityEntryDrafts({
-      db: input.db,
-      request: input.request,
-      taskId: input.request.conversationIdentity.taskId,
-    });
-  }
-  if (
     input.request.turnEnvelope.trigger.source === "slack" ||
     input.request.turnEnvelope.trigger.source === "message_channel" ||
     (input.request.turnEnvelope.trigger.source === "routine" &&
@@ -238,39 +228,6 @@ function readMessageChannelContinuityEntryDrafts(
       },
     })),
     truncated: channelContext.sync.status === "truncated",
-  };
-}
-
-async function readTaskContinuityEntryDrafts(input: {
-  db: D1Database;
-  request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
-  taskId: string;
-}): Promise<{ entries: ContinuityEntryDraft[]; truncated: boolean }> {
-  const projection = await readCenterAgentTaskConversationContinuity({
-    db: input.db,
-    limit: REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES,
-    organizationId: input.request.organizationId,
-    taskId: input.taskId,
-    triggerEventId: input.request.triggerMessageId,
-  });
-  return {
-    entries: projection.entries.map((entry) => ({
-      author: {
-        kind: entry.authorKind,
-      },
-      content: {
-        originalCharacterCount: Array.from(entry.text).length,
-        text: entry.text,
-        truncated: false,
-      },
-      occurredAt: entry.occurredAt,
-      source: {
-        eventId: entry.eventId,
-        kind: "center_agent_task_event" as const,
-        taskId: entry.taskId,
-      },
-    })),
-    truncated: projection.truncated,
   };
 }
 
@@ -357,7 +314,11 @@ function buildContinuityRequestContext(
   return {
     activeOrganizationId: request.organizationId,
     actorContext: {
-      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      agentControllerRef:
+        request.v === 4 &&
+        request.conversationIdentity?.kind === "personal_agent"
+          ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          : HOSTED_CENTER_AGENT_CONTROLLER_REF,
       ownerUserId: request.agentProfileOwnerUserId,
       profileKind: "agent",
       profileName: request.turnEnvelope.centerAgent.profileName,

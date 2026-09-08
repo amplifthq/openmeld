@@ -6,7 +6,7 @@
   the two runtime families, the Remote Agent (OpenMeld-operated Center Agent
   runtime) MVP on the Flue harness, the native delivery contract, the
   capability tiers, Space reply streaming, Center Agent memory integration,
-  Center Agent Task and Routine execution, and the expansion path — so agents
+  Center Agent session and Routine execution, and the expansion path — so agents
   can evolve the Remote Agent without re-deriving strategy or breaking the
   execution architecture.
 - Read this when: You are implementing or reviewing the Remote Agent (native
@@ -18,8 +18,6 @@
   reversals in `developing/decisions.md` in the same PR.
 - Do not use this for: Center Agent identity/designation/permission semantics
   (`developing/product/organizations-and-center-agent.md` owns them),
-  Center Agent Task product semantics
-  (`developing/product/center-agent-tasks.md` owns them),
   Routine product semantics or scheduling
   (`developing/product/center-agent-routines.md` owns them),
   Direct Message Space semantics (`developing/product/space-collaboration.md`
@@ -176,6 +174,40 @@ the agent's home") and (b) waking the org's local agents through the
 existing wake system.
 
 ## Implementation Base: Flue Harness (updated 2026-09-06)
+
+### Personal native Agents
+
+`hosted:remote-agent` identifies an ordinary member-owned native Agent;
+`hosted:center-agent` retains the designated Organization coordinator contract.
+Both use the same Flue execution service and Core delivery ledger. A personal
+Binding uses `hosted_remote_agent` and carries its own model selection, without
+a local Service or a native conversation ID on the Binding.
+
+Core constructs personal logical conversation IDs from Organization, Agent
+Profile, and Space. Version 4 submissions carry the explicit `personal_agent`
+identity, runtime generation, and trusted Space dispatch context. Stop,
+reconciliation, and recovery resolve the persisted exact runtime conversation.
+They must not substitute the Space ID or Center Agent identity.
+
+Personal Agents receive only current-conversation message reading, member
+discovery, and explicit same-Space Agent Wake tools. Message reading reuses the
+existing text-context projection, with at most 30 recent messages and an 8192
+estimated-token budget; attachments and private session locators are omitted.
+Core derives the caller and destination from the
+accepted delivery, revalidates the owner and requesting member's Organization
+membership, current Space membership, Binding, and target Wake permission.
+The model cannot supply an alternate Organization, owner, or destination Space.
+An Agent can explicitly ask another Agent owned by the same user and receive a
+return request; normal final replies do not trigger another Agent. A personal
+Agent stops initiating handoffs at six relay steps in the existing dispatch
+chain. Existing Organization daily admission limits also apply.
+
+The initial personal runtime does not materialize Computer workspaces,
+Organization documents, Skills, Apps, or Center Agent memory. Completion must
+not write personal conversation content into Center Agent memory. Shared
+infrastructure does not confer the Center Agent's responsibilities or tools.
+
+### Shared continuity checks
 
 Native-delivery cancellation, execution reconciliation, and runtime diagnostics
 resolve the persisted runtime conversation through the same Core owner. Both
@@ -422,16 +454,26 @@ the connected provider API.
    remain dormant until each receives a separate product contract and
    model-visible tool policy.
    Before an accepted mention reaches the model, Core reads one bounded page of
-   that mention's current Slack thread. The first turn includes the root message
-   and earlier replies; later turns include only replies after the last
-   successfully admitted cursor. For a root app mention, Core also reads one
+   that mention's current Slack thread. Core first reads the exact current
+   message through `conversations.history` for a root or `conversations.replies`
+   for a thread reply, bounded inclusively to its exact timestamp, so text and attachment
+   metadata replace the sparse `app_mention` trigger. The first turn includes
+   the root message and earlier replies; later turns include only replies after
+   the last successfully admitted cursor. For a root app mention, Core also reads one
    bounded page of recent top-level messages from the same Slack channel before
    the current mention, then merges that transient channel context without
    advancing the thread cursor. This includes other human and Bot messages,
    including recent Center Agent-authored proposals, but all provider history is
    labeled as untrusted reference context and the current mention remains the
-   separately verified request. Slack history failure is an explicit context
-   status and does not make the current request disappear. This automatic read
+   separately verified request. Up to three Slack message permalinks in the
+   request add exact same-channel source-message text and attachment metadata as
+   separately labeled untrusted quote context. Automatic hydration rejects
+   cross-channel references before reading them; Bot access alone does not
+   authorize copying another channel's content into this audience. Attachment
+   text is retained as untrusted context, while unsupported rich structures and
+   clipped quotes remain explicitly incomplete. Slack history failure is an explicit
+   non-complete context status with a limitation note and does not make the
+   current request disappear. This automatic read
    is current-thread and current-channel context only. Interactive and Routine
    turns may use the channel-read tool for another named channel that the App
    has already joined. Locating arbitrary messages or threads across public
@@ -1212,7 +1254,7 @@ execution, capability discovery, and Code Mode. Whenever that catalog includes
 progressive discovery and Code Mode, every tool-capable primary model receives
 the same stable provider bootstrap: `codemode`, the always-direct capability
 search and describe tools, the three generic Connected App tools, and the
-bounded read-only member and Center Agent Task list/detail tools, plus the
+bounded read-only member tools, plus the
 authorized foundational Computer tools (`read`, `write`, `edit`, `bash`, `grep`,
 `glob`, and `computer_command`). Computer operations remain directly usable in
 a fresh chat without first requiring a discovery call; the provider filter
@@ -1394,13 +1436,10 @@ empty new generation and never turns Core into a second transcript owner.
 For a Space turn, the Space owner resolves the exact dispatch's frozen main or
 thread placement and returns only bounded text Signals before that dispatch's
 source Signal; the generic main-timeline reader is not a continuity source for
-a thread. For a Center Agent Task turn, the Task owner returns the bounded typed
-event projection before the trigger event and owns the canonical actor mapping;
-Remote Agent must not query the private Task event table or reinterpret Task
-actors itself.
+a thread.
 Concurrent callers converge on the same active generation. Runtime generations
 are invisible implementation details: the member remains in the same DM,
-Space, provider conversation, or Task and is never asked to start a new one.
+Space, or provider conversation and is never asked to start a new one.
 
 Dispatch diagnostics resolve the exact runtime conversation from the native
 delivery's frozen worker request. They never address a Durable Object from the
@@ -1564,7 +1603,7 @@ surface adopts official features where they are free**:
     active for that turn inside an isolated Dynamic Worker. Every tool-capable
     primary model receives the same direct bootstrap: capability search,
     describe, the three generic Connected App tools, the bounded read-only
-    member and Center Agent Task list/detail tools, and `codemode`. The model
+    member tools, and `codemode`. The model
     chooses whether to use those foundational reads or what else to search and
     load; the worker does not select business tools by matching the user's
     wording or by applying a model-specific tool-count rule. Every other
@@ -1593,10 +1632,8 @@ surface adopts official features where they are free**:
     future second hosted agent gets its own computer. The computer does not
     mount an OpenMeld host or user workstation. Files persist across
     conversations, Durable Object restarts, and deploys under the fixed layout
-    `/computer/{org,projects,spaces,tasks,routines,home}`. Ordinary Space turns
-    work under `/computer/spaces/<spaceId>`, each Center Agent Task keeps one
-    working set under `/computer/tasks/<taskId>` across attempts and
-    continuations, and each Routine keeps one working set under
+    `/computer/{org,projects,spaces,routines,home}`. Ordinary Space turns
+    work under `/computer/spaces/<spaceId>`, and each Routine keeps one working set under
     `/computer/routines/<routineId>` across runs. The isolation boundary is the
     Organization, not the Space: cross-Space continuity on one computer is the
     point, and disclosure control lives on the output side (which Space the
@@ -2220,27 +2257,6 @@ native thread and root/reply identifiers separately when the provider exposes
 both; the adapter chooses the provider-supported reply target and never assumes
 that a thread id is interchangeable with a root message id.
 
-For a first-class Center Agent Task conversation, the instance key is derived
-from the canonical Organization and Task id, never from the mutable browser URL,
-display title, originating provider thread, or one linked execution handle. Core
-admits the exact Task id and `contextRevision`. The Task event stream remains the
-durable user-facing conversation record; the Flue session is the private runtime
-context carrier and must not become a second Task transcript or status writer.
-
-A Task turn may originate from Web, Space, Slack, Lark, or Feishu. Core freezes
-the exact authorized Task event and, when native provider publication is
-required, one typed destination locator. The worker produces one result for the
-canonical Task event. Core records that result once and the provider adapter may
-deliver that same event through one fenced publication operation. Opening the
-Task in Web never reruns the model or reconstructs a second result.
-
-Turns inside one Task are serialized by the Task conversation instance.
-Independent Tasks and the ordinary Center Agent Chat conversation may run in
-parallel. A newer Stop, superseding instruction, access change, or Task revision
-fences a stale callback before publication or further side effects. Detailed
-Task context, access, conflict, Stop, Retry, and Recovery semantics are owned by
-`developing/product/center-agent-tasks.md`.
-
 Turns within one conversation are serialized by that conversation's instance;
 conversations across Spaces and external provider threads run in parallel.
 Conversational context lives in the instance's Flue session (DO SQLite).
@@ -2820,10 +2836,6 @@ posture, in force from day one:
 - Routine Web, CLI, and interactive Center Agent surfaces are owned by
   `developing/product/center-agent-routines.md`; this document owns only their
   Remote Agent execution and tool-runtime boundary.
-- Task Chat, board, detail, compact-window, and Inbox semantics are owned by
-  `developing/product/center-agent-tasks.md`; this document owns the Task turn's
-  Remote Agent session, native execution, callback, cancellation, and provider
-  publication boundary.
 
 ## Expansion Path
 

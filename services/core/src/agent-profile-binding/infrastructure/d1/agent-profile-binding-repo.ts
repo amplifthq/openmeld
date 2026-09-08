@@ -30,7 +30,10 @@ export type EnabledPrimaryAgentProfileBindingInput = {
   owner: AgentProfileBindingOwner;
   reasonCode?: string | null;
   openMeldServiceRuntimeId: string;
-  runtimeKind?: "openmeld_service" | "hosted_center_agent";
+  runtimeKind?:
+    | "openmeld_service"
+    | "hosted_center_agent"
+    | "hosted_remote_agent";
   hostedRuntimeIdentityJson?: string | null;
   agentControllerCollaborationMode?: string | null;
   agentControllerPermissionMode?: string | null;
@@ -80,7 +83,11 @@ type AgentProfileBindingRow = {
   owner_kind: "owner_account";
   reason_code: string | null;
   openmeld_service_runtime_id: string;
-  runtime_kind: "openmeld_service" | "hosted_center_agent" | null;
+  runtime_kind:
+    | "openmeld_service"
+    | "hosted_center_agent"
+    | "hosted_remote_agent"
+    | null;
   hosted_runtime_identity_json: string | null;
   agent_controller_collaboration_mode: string | null;
   agent_controller_permission_mode: string | null;

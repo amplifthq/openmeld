@@ -131,7 +131,15 @@ forking its command, PrepareSession, or live-status behavior.
    selection is optional. The user may skip the whole flow, continue while
    computer setup runs, and move backward without losing completed work. No
    optional integration failure may trap the user.
-3. **Real facts, never onboarding copies.** Organization membership, Channels,
+3. **Real facts, never onboarding copies.** A valid invitation-request link
+   identifies an Organization; it does not prove membership or permission to
+   join. Setup Studio submits the existing invitation request, shows its pending
+   outcome and status link, and keeps workspace selection available. It never
+   optimistically adds membership for an approval request. Direct administrator
+   links instead show Join and use Auth's membership writer before advancing.
+   Both entry points read the stored link mode; a successful preview alone never
+   proves membership. Organization
+   membership, Channels,
    Apps, App requests, local runtime inventory, Organization memory, Wake
    access, Organization documents, Information Protection, and invitations
    remain owned by their existing Auth/Core/Gateway contracts. Setup Studio

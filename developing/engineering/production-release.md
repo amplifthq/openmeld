@@ -298,6 +298,23 @@ has reviewed hosted orchestration support.
 
 ### Inbox source-target receiver-first order
 
+Task Inbox retirement reverses the writer/reader dependency. The planner proves
+this specific removal from Git: the Task Inbox producer must be deleted, and
+the Inbox schema must differ only by removing the Task item kind, source kind,
+and target object. Explicit source-SHA plans inspect that immutable tree; local
+plans inspect the working candidate against its merge base. A pathname alone
+does not establish retirement. Mixed expansion/removal, partial removal, or a
+remaining producer fails closed and requires a separate compatibility rollout.
+
+For this retirement, Core must stop returning Task rows before Gateway or Web
+stops accepting them. `inbox-task-retirement-producer-first` places Core before
+Auth, Gateway, and Web. If the same release requires a Remote request receiver,
+`remote-agent-and-inbox-task-retirement-first` orders Database, Remote Agent,
+Core, Auth, Gateway, Web, then CLI. Core also precedes the new Auth join-request
+caller that requests response version 2. Required Inbox scopes and the combined
+Remote scope remain enforced; conflicting receiver orders still require a
+split. This rule does not authorize dropping the retained Task tables.
+
 The planner selects `inbox-source-target-receiver-first` when a diff changes the
 strict Inbox source-target schema together with a Core writer for those targets.
 The writer inventory includes Message Channel terminal-delivery projection and

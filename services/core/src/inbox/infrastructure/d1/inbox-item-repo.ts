@@ -230,7 +230,6 @@ function readInboxTargetScope(
     case "agent_profile":
     case "agent_profile_creation_request":
     case "organization_join_request":
-    case "center_agent_task":
     case "message_channel":
     case "organization_document":
     case "settings":

@@ -5,7 +5,10 @@ import {
   type OrganizationJoinLink,
   type PreviewOrganizationJoinLinkResponse,
 } from "@openmeld/schemas";
-import { canCreateOrganizationJoinLinkForRole } from "./access-control";
+import {
+  canCreateOrganizationJoinLinkForRole,
+  memberRoleHasOrganizationPermission,
+} from "./access-control";
 import type {
   ActiveOrganizationJoinLinkRecord,
   OrganizationJoinLinkOrganizationRecord,
@@ -15,6 +18,7 @@ import type {
 import { isPersonalOrganization } from "./personal-organization";
 
 const JOIN_LINK_RANDOM_BYTE_LENGTH = 32;
+const JOIN_LINK_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type OrganizationJoinLinkServiceErrorCode =
   | "organization.join_link.email_verification_required"
@@ -66,19 +70,24 @@ export function createOrganizationJoinLinkService(input: {
   return {
     async getActive(
       organizationId: string,
-      spaceId?: string
+      spaceId?: string,
+      mode: "direct" | "request" = "request"
     ): Promise<OrganizationJoinLink | null> {
       const record = await repository.findActiveByOrganizationId(
         organizationId,
-        spaceId
+        spaceId,
+        mode
       );
-      return record ? toOrganizationJoinLink(record, input.webAppUrl) : null;
+      return record && !isExpired(record)
+        ? toOrganizationJoinLink(record, input.webAppUrl)
+        : null;
     },
 
     async ensure(ensureInput: {
       actorUserId: string;
       organizationId: string;
       spaceId?: string;
+      mode?: "direct" | "request";
     }): Promise<EnsuredOrganizationJoinLink> {
       const membership = await repository.findMembership(
         ensureInput.organizationId,
@@ -104,9 +113,21 @@ export function createOrganizationJoinLinkService(input: {
       }
       assertOrganizationCanHaveMembers(organization);
 
+      const mode =
+        ensureInput.mode ??
+        (isAdministrator(membership.role) ? "direct" : "request");
+      if (mode === "direct" && !isAdministrator(membership.role)) {
+        throw new OrganizationJoinLinkServiceError(
+          "organization.join_link.forbidden",
+          "Only organization owners and admins can create direct invite links."
+        );
+      }
       const record = await insertOrReadConcurrentActiveLink({
+        mode,
         insert: () =>
           repository.ensureActive({
+            mode,
+            expiresAt: new Date(Date.now() + JOIN_LINK_LIFETIME_MS),
             createdBy: ensureInput.actorUserId,
             id: crypto.randomUUID(),
             organizationId: ensureInput.organizationId,
@@ -127,6 +148,7 @@ export function createOrganizationJoinLinkService(input: {
       createdBy: string;
       organizationId: string;
       spaceId?: string;
+      mode?: "direct" | "request";
     }): Promise<OrganizationJoinLink> {
       const organization = await repository.findOrganizationById(
         resetInput.organizationId
@@ -139,9 +161,24 @@ export function createOrganizationJoinLinkService(input: {
       }
       assertOrganizationCanHaveMembers(organization);
 
+      const membership = await repository.findMembership(
+        resetInput.organizationId,
+        resetInput.createdBy
+      );
+      if (!(membership && isAdministrator(membership.role))) {
+        throw new OrganizationJoinLinkServiceError(
+          "organization.join_link.forbidden",
+          "Only organization owners and admins can reset invite links."
+        );
+      }
+      const mode = resetInput.mode ?? "request";
+
       const record = await insertOrReadConcurrentActiveLink({
+        mode,
         insert: () =>
           repository.resetActive({
+            mode,
+            expiresAt: new Date(Date.now() + JOIN_LINK_LIFETIME_MS),
             createdBy: resetInput.createdBy,
             id: crypto.randomUUID(),
             organizationId: resetInput.organizationId,
@@ -155,14 +192,33 @@ export function createOrganizationJoinLinkService(input: {
       return toOrganizationJoinLink(record, input.webAppUrl);
     },
 
-    revoke(organizationId: string, spaceId?: string): Promise<boolean> {
-      return repository.revokeActive(organizationId, spaceId);
+    revoke(
+      organizationId: string,
+      spaceId?: string,
+      mode: "direct" | "request" = "request"
+    ): Promise<boolean> {
+      return repository.revokeActive(organizationId, spaceId, mode);
     },
 
     async preview(token: string): Promise<PreviewOrganizationJoinLinkResponse> {
       const record = await repository.findActiveByToken(token);
-      if (!(record && isJoinableOrganization(record.organization))) {
+      if (
+        !(
+          record &&
+          !isExpired(record) &&
+          isJoinableOrganization(record.organization)
+        )
+      ) {
         return { active: false, ok: true };
+      }
+      if (record.mode === "direct") {
+        const creator = await repository.findMembership(
+          record.organizationId,
+          record.createdBy
+        );
+        if (!(creator && isAdministrator(creator.role))) {
+          return { active: false, ok: true };
+        }
       }
       return {
         active: true,
@@ -170,6 +226,8 @@ export function createOrganizationJoinLinkService(input: {
         organizationName: record.organization.name,
         organizationSlug: record.organization.slug,
         spaceId: record.spaceId,
+        mode: record.mode,
+        expiresAt: record.expiresAt?.toISOString() ?? null,
       };
     },
 
@@ -180,7 +238,7 @@ export function createOrganizationJoinLinkService(input: {
       userId: string;
     }): Promise<AcceptOrganizationJoinLinkResponse> {
       const record = await repository.findActiveByToken(acceptInput.token);
-      if (!record) {
+      if (!record || isExpired(record)) {
         throw new OrganizationJoinLinkServiceError(
           "organization.join_link.inactive",
           "This organization join link is no longer active."
@@ -198,13 +256,35 @@ export function createOrganizationJoinLinkService(input: {
         record.organizationId,
         acceptInput.userId
       );
-      if (!membership) {
+      if (!membership && record.mode !== "direct") {
         throw new OrganizationJoinLinkServiceError(
           "organization.join_link.approval_required",
-          "This link now requires approval. Open it in OpenMeld to request an invitation."
+          "An organization owner or admin must approve your request before you can join."
         );
       }
-      return toAcceptResponse(record, membership.role, true);
+      if (record.mode === "direct") {
+        const creator = await repository.findMembership(
+          record.organizationId,
+          record.createdBy
+        );
+        if (!(creator && isAdministrator(creator.role))) {
+          throw new OrganizationJoinLinkServiceError(
+            "organization.join_link.inactive",
+            "This invite link is no longer active. Ask an organization admin for a new link."
+          );
+        }
+      }
+      const enrollment = await enrollOrganizationMember({
+        addMember: acceptInput.addMember,
+        organizationId: record.organizationId,
+        repository,
+        userId: acceptInput.userId,
+      });
+      return toAcceptResponse(
+        record,
+        enrollment.role,
+        enrollment.alreadyMember
+      );
     },
 
     async enrollVerifiedWorkspaceMember(enrollmentInput: {
@@ -289,6 +369,7 @@ async function enrollOrganizationMember(input: {
 }
 
 async function insertOrReadConcurrentActiveLink(input: {
+  mode: "direct" | "request";
   spaceId?: string;
   insert: () => Promise<OrganizationJoinLinkRecord>;
   organizationId: string;
@@ -303,7 +384,8 @@ async function insertOrReadConcurrentActiveLink(input: {
 
     const active = await input.repository.findActiveByOrganizationId(
       input.organizationId,
-      input.spaceId
+      input.spaceId,
+      input.mode
     );
     if (active) {
       return active;
@@ -363,6 +445,8 @@ function toOrganizationJoinLink(
     role: "member",
     createdBy: record.createdBy,
     createdAt: record.createdAt.toISOString(),
+    mode: record.mode,
+    expiresAt: record.expiresAt?.toISOString() ?? null,
     ...(record.spaceId ? { spaceId: record.spaceId } : {}),
   };
 }
@@ -407,6 +491,18 @@ function isJoinableOrganization(
 ): boolean {
   const result = isPersonalOrganization(organization);
   return result.ok && !result.personal;
+}
+
+function isAdministrator(role: string): boolean {
+  return memberRoleHasOrganizationPermission(role, { invitation: ["create"] });
+}
+
+function isExpired(record: OrganizationJoinLinkRecord): boolean {
+  return (
+    record.expiresAt !== null &&
+    record.expiresAt !== undefined &&
+    record.expiresAt.getTime() <= Date.now()
+  );
 }
 
 function assertOrganizationCanHaveMembers(

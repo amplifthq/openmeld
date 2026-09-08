@@ -3,9 +3,9 @@ import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { SidebarMenuButton } from "@openmeld/ui/fluid/sidebar-menu";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { resolveDesignatedCenterAgentProfile } from "#/components/organizations/center-agent-profile-presentation";
-import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
 import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
@@ -56,10 +56,9 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 						params={{ orgSlug: currentOrganization.slug }}
 						to="/o/$orgSlug/chats/center-agent"
 					>
-						<DitherProfileAvatar
-							profileId={profile.profileId}
-							profileKind="center-agent"
+						<RemoteAgentAvatar
 							profileName={profile.profileName}
+							shape="circle"
 							size={56}
 						/>
 						<span className="min-w-0 font-medium text-sm">
@@ -81,10 +80,9 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 						params={{ orgSlug: currentOrganization.slug }}
 						to="/o/$orgSlug/chats/center-agent"
 					>
-						<DitherProfileAvatar
-							profileId={profile.profileId}
-							profileKind="center-agent"
+						<RemoteAgentAvatar
 							profileName={profile.profileName}
+							shape="circle"
 							size={24}
 						/>
 						<span className="truncate font-medium text-[13px]">

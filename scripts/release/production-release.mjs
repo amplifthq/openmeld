@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -130,6 +130,24 @@ const CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER 
 const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
   CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
+  "inbox-task-retirement-producer-first": [
+    "db",
+    "core",
+    "auth",
+    "gateway",
+    "web",
+    "remote-agent",
+    "cli",
+  ],
+  "remote-agent-and-inbox-task-retirement-first": [
+    "db",
+    "remote-agent",
+    "core",
+    "auth",
+    "gateway",
+    "web",
+    "cli",
+  ],
   "people-computers-receivers-first":
     CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "space-invitation-receivers-first": [
@@ -170,6 +188,12 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
 };
 const INBOX_SOURCE_TARGET_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/inbox.ts";
+const RETIRED_TASK_INBOX_PRODUCER_PATH =
+  "services/core/src/center-agent-tasks/application/center-agent-task-inbox-producer.ts";
+const TASK_INBOX_KIND_LINE = /^[ \t]*"center_agent_task",\r?\n/mu;
+const TASK_INBOX_SOURCE_KIND_LINE = /^[ \t]*"center_agent_task_event",\r?\n/mu;
+const TASK_INBOX_TARGET_BLOCK =
+  /^[ \t]*z\.strictObject\(\{\r?\n[ \t]*kind: z\.literal\("center_agent_task"\),\r?\n[ \t]*taskId: identifierSchema,\r?\n[ \t]*\}\),\r?\n/mu;
 const WAKE_PROGRESS_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/space-wake-progress.ts";
 const SPACE_HISTORY_QUERY_SCHEMA_PATH =
@@ -556,11 +580,18 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   const steps = [];
   const changedPaths = input.changedPaths ?? [];
   assertConnectComputerReleaseScopes(scopes, changedPaths);
-  assertInboxSourceTargetReleaseScopes(scopes, changedPaths);
+  assertInboxSourceTargetReleaseScopes(
+    scopes,
+    changedPaths,
+    input.taskInboxRetired
+  );
   assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths);
   assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths);
   assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths);
-  const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
+  const deployOrderProfile = resolveProductionDeployOrderProfile(
+    changedPaths,
+    input.taskInboxRetired
+  );
   if (
     deployOrderProfile === "space-invitation-receivers-first" &&
     (selected.has("auth") || selected.has("cli")) &&
@@ -570,7 +601,11 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
       "Space invitation release requires Core and Auth receivers before publishing its CLI caller."
     );
   }
-  const orderedScopes = resolveProductionDeployScopeOrder(scopes, changedPaths);
+  const orderedScopes = resolveProductionDeployScopeOrder(
+    scopes,
+    changedPaths,
+    input.taskInboxRetired
+  );
   assertWakeProgressOptInDeployOrder(orderedScopes, changedPaths);
   assertSpaceHistoryQueryDeployOrder(orderedScopes, changedPaths);
   for (const scope of orderedScopes) {
@@ -717,14 +752,47 @@ function appendProductionDeployScopeSteps(input) {
   }
 }
 
-function resolveProductionDeployScopeOrder(scopes, changedPaths) {
-  const profile = resolveProductionDeployOrderProfile(changedPaths);
+function resolveProductionDeployScopeOrder(
+  scopes,
+  changedPaths,
+  taskInboxRetired = false
+) {
+  const profile = resolveProductionDeployOrderProfile(
+    changedPaths,
+    taskInboxRetired
+  );
   const order = DEPLOY_SCOPE_ORDER_BY_PROFILE[profile];
   const selected = new Set(scopes);
   return order.filter((scope) => selected.has(scope));
 }
 
-function resolveProductionDeployOrderProfile(changedPaths) {
+function resolveProductionDeployOrderProfile(
+  changedPaths,
+  taskInboxRetired = false
+) {
+  if (taskInboxRetired) {
+    // The exact retired contract is proven against Git below. Other contracts
+    // still select their ordinary profile and must be composable with Core first.
+    const profile = resolveProductionDeployOrderProfile(
+      changedPaths.filter((file) => file !== INBOX_SOURCE_TARGET_SCHEMA_PATH)
+    );
+    if (
+      profile === "remote-agent-receiver-first" ||
+      profile === "center-agent-cli-receiver-first"
+    ) {
+      return "remote-agent-and-inbox-task-retirement-first";
+    }
+    if (
+      profile === "default-auth-receiver-first" ||
+      profile === "core-worker-response-reader-first" ||
+      profile === "space-invitation-receivers-first"
+    ) {
+      return "inbox-task-retirement-producer-first";
+    }
+    throw new Error(
+      `Task Inbox retirement requires Core before its strict readers and conflicts with ${profile}; split the release.`
+    );
+  }
   const profile = resolveExistingProductionDeployOrderProfile(changedPaths);
   if (isPeopleComputersReceiverFirstDiff(changedPaths)) {
     if (
@@ -1086,8 +1154,14 @@ function isInboxSourceTargetReceiverFirstDiff(changedPaths) {
   );
 }
 
-function assertInboxSourceTargetReleaseScopes(scopes, changedPaths) {
-  if (!isInboxSourceTargetReceiverFirstDiff(changedPaths)) {
+function assertInboxSourceTargetReleaseScopes(
+  scopes,
+  changedPaths,
+  taskInboxRetired = false
+) {
+  if (
+    !(taskInboxRetired || isInboxSourceTargetReceiverFirstDiff(changedPaths))
+  ) {
     return;
   }
   const selected = new Set(scopes);
@@ -1100,8 +1174,12 @@ function assertInboxSourceTargetReleaseScopes(scopes, changedPaths) {
     );
   }
   if (
-    resolveProductionDeployOrderProfile(changedPaths) ===
-      "remote-agent-and-inbox-receivers-first" &&
+    [
+      "remote-agent-and-inbox-receivers-first",
+      "remote-agent-and-inbox-task-retirement-first",
+    ].includes(
+      resolveProductionDeployOrderProfile(changedPaths, taskInboxRetired)
+    ) &&
     !selected.has("remote-agent")
   ) {
     throw new Error(
@@ -1124,6 +1202,11 @@ function isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) {
 
 export function buildProductionReleasePlan(input) {
   const changedPaths = input.changedPaths ?? resolveChangedPaths(input.base);
+  const taskInboxRetired = inspectTaskInboxRetirement({
+    base: input.base,
+    changedPaths,
+    sourceSha: input.sourceSha,
+  });
   const requested = expandRequestedReleaseScopes(input.scope);
   const affectedPackages = requested
     ? []
@@ -1132,10 +1215,14 @@ export function buildProductionReleasePlan(input) {
     requested ??
     resolveAutomaticReleaseScopes({ affectedPackages, changedPaths });
   const sourceSha = input.sourceSha ?? readHeadSha();
-  const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
+  const deployOrderProfile = resolveProductionDeployOrderProfile(
+    changedPaths,
+    taskInboxRetired
+  );
   const deployScopeOrder = resolveProductionDeployScopeOrder(
     scopes,
-    changedPaths
+    changedPaths,
+    taskInboxRetired
   );
   return {
     affectedPackages,
@@ -1146,6 +1233,7 @@ export function buildProductionReleasePlan(input) {
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
       changedPaths,
+      taskInboxRetired,
       releaseSha: sourceSha,
     }),
     preflightSteps: buildProductionPreflightStepSpecs({ changedPaths, scopes }),
@@ -1153,6 +1241,62 @@ export function buildProductionReleasePlan(input) {
     sourceSha,
     verifySteps: buildProductionVerifyStepSpecs({ changedPaths, scopes }),
   };
+}
+
+function inspectTaskInboxRetirement({ base, changedPaths, sourceSha }) {
+  if (
+    !(
+      changedPaths.includes(INBOX_SOURCE_TARGET_SCHEMA_PATH) &&
+      changedPaths.includes(RETIRED_TASK_INBOX_PRODUCER_PATH)
+    )
+  ) {
+    return false;
+  }
+  const mergeBase = runGit(["merge-base", base, sourceSha ?? "HEAD"]).trim();
+  const before = runGit([
+    "show",
+    `${mergeBase}:${INBOX_SOURCE_TARGET_SCHEMA_PATH}`,
+  ]);
+  const after = sourceSha
+    ? runGit(["show", `${sourceSha}:${INBOX_SOURCE_TARGET_SCHEMA_PATH}`])
+    : readFileSync(INBOX_SOURCE_TARGET_SCHEMA_PATH, "utf8");
+  const retiredPatterns = [
+    TASK_INBOX_KIND_LINE,
+    TASK_INBOX_SOURCE_KIND_LINE,
+    TASK_INBOX_TARGET_BLOCK,
+  ];
+  if (
+    !retiredPatterns.some(
+      (pattern) => pattern.test(before) && !pattern.test(after)
+    )
+  ) {
+    return false;
+  }
+  const producerStillExists = sourceSha
+    ? runGit([
+        "ls-tree",
+        "--name-only",
+        sourceSha,
+        "--",
+        RETIRED_TASK_INBOX_PRODUCER_PATH,
+      ]).trim().length > 0
+    : existsSync(RETIRED_TASK_INBOX_PRODUCER_PATH);
+  const expected = retiredPatterns.reduce(
+    (source, pattern) => source.replace(pattern, ""),
+    before
+  );
+  if (
+    !retiredPatterns.every(
+      (pattern) => pattern.test(before) && !pattern.test(after)
+    ) ||
+    expected !== after ||
+    producerStillExists
+  ) {
+    throw new Error(
+      "Task Inbox retirement must remove its producer and only the retired contract. Mixed Inbox expansion or other contract edits require a separate compatibility rollout."
+    );
+  }
+  return true;
 }
 
 function resolveChangedPaths(base) {

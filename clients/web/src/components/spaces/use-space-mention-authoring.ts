@@ -337,8 +337,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			if (input.snapshot) {
 				const nextRecentMentionProfileIds =
 					resolveNextRecentMentionProfileIdsForQueuedText({
-						canonicalMentionsInTextOrder:
-							preparedSubmission.canonicalMentionsInTextOrder,
+						mentionsInTextOrder: preparedSubmission.mentionsInTextOrder,
 						currentRecentProfileIds: recentMentionProfileIds,
 						mentionProfileIndex: buildSpaceMentionProfileIndex(input.snapshot),
 						structuredMentionProfileIdsInTextOrder:
@@ -688,6 +687,6 @@ function resolveReplyWakeMention(input: {
 	return {
 		profileId: target.profileId,
 		relation: "wake",
-		text: `@${target.primaryMentionLabel}`,
+		text: `@${target.profileName}`,
 	};
 }

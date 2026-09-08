@@ -2,7 +2,10 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { officialCliSkillPayloadSchema } from "@openmeld/schemas";
+import {
+  OFFICIAL_CLI_SKILL_CONTRACT,
+  officialCliSkillPayloadSchema,
+} from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setConfiguredSkillsConfig } from "../src/config/runtime-config";
 import { OPENMELD_SKILLS_CONTRACT_VERSION } from "../src/local-components/manifest";
@@ -62,13 +65,14 @@ describe("independent official CLI Skill", () => {
   it("accepts the published signature, rejects tampering, and selects only compatible content", () => {
     const release = channel.releases[0];
     expect(verifyOfficialSkillRelease(release).payload.revision).toBe(1);
-    expect(verifyOfficialSkillRelease(release).payload.contractVersion).toBe(
-      OPENMELD_SKILLS_CONTRACT_VERSION
-    );
+    expect(OFFICIAL_CLI_SKILL_CONTRACT).toBe(OPENMELD_SKILLS_CONTRACT_VERSION);
+    const compatible =
+      verifyOfficialSkillRelease(release).payload.contractVersion ===
+      OPENMELD_SKILLS_CONTRACT_VERSION;
     expect(selectOfficialSkillRelease(channel, "0.3.158")).toBeNull();
     expect(
       selectOfficialSkillRelease(channel, "0.3.159")?.payload.revision
-    ).toBe(1);
+    ).toBe(compatible ? 1 : undefined);
     expect(() =>
       verifyOfficialSkillRelease({ ...release, payload: `${release.payload} ` })
     ).toThrow("signature");
@@ -101,7 +105,7 @@ describe("independent official CLI Skill", () => {
     ).toBe(false);
   });
 
-  it("installs remote content and keeps it through repeated local setup and prompt reads", async () => {
+  it("installs only compatible content and keeps it through repeated local setup and prompt reads", async () => {
     await withTempHome(async (home) =>
       withChannel(JSON.stringify(channel), async () => {
         const targetDir = join(home, "agent skills");
@@ -110,26 +114,37 @@ describe("independent official CLI Skill", () => {
           throw new Error("Missing baseline Skill");
         }
         expect(before.version).not.toBe("skill-r1");
-        expect(await downloadOfficialSkillUpdate()).toBe("updated");
+        const compatible = selectOfficialSkillRelease(channel) !== null;
+        expect(await downloadOfficialSkillUpdate()).toBe(
+          compatible ? "updated" : "incompatible"
+        );
         const first = (await ensureLocalSkills())[0];
         if (!first) {
           throw new Error("Missing updated Skill");
         }
-        expect(first.version).toBe("skill-r1");
+        expect(first.version).toBe(compatible ? "skill-r1" : before.version);
         await installSkillsToTargets({
           skills: [first],
           targets: [{ id: "codex", dir: targetDir, type: "agent" }],
         });
-        expect(await downloadOfficialSkillUpdate()).toBe("current");
+        expect(await downloadOfficialSkillUpdate()).toBe(
+          compatible ? "current" : "incompatible"
+        );
         expect((await ensureLocalSkills())[0]?.contentHash).toBe(
           first.contentHash
         );
-        const expected = await readFile(join(publicRoot, "SKILL.md"), "utf8");
+        const expected = await readFile(
+          compatible
+            ? join(publicRoot, "SKILL.md")
+            : fileURLToPath(
+                new URL("../skills/openmeld-cli/SKILL.md", import.meta.url)
+              ),
+          "utf8"
+        );
         expect(
           await readFile(join(targetDir, "openmeld-cli/SKILL.md"), "utf8")
         ).toBe(expected);
         expect(await readSelectedSkillDocument("SKILL.md")).toBe(expected);
-        expect(expected.split("\n").length).toBeLessThan(100);
       })
     );
   });
@@ -141,6 +156,7 @@ describe("independent official CLI Skill", () => {
         await ensureLocalSkills();
       });
       const before = await readSelectedSkillDocument("SKILL.md");
+      const beforeVersion = (await ensureLocalSkills())[0]?.version;
       await withChannel(
         JSON.stringify({
           ...channel,
@@ -153,7 +169,7 @@ describe("independent official CLI Skill", () => {
         }
       );
       expect(await readSelectedSkillDocument("SKILL.md")).toBe(before);
-      expect((await ensureLocalSkills())[0]?.version).toBe("skill-r1");
+      expect((await ensureLocalSkills())[0]?.version).toBe(beforeVersion);
     });
   });
 

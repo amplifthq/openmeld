@@ -1,12 +1,17 @@
 import type { OrganizationJoinRequest } from "@openmeld/schemas";
 import {
   organizationJoinRequestInputSchema,
+  organizationJoinRequestResponseForVersion,
   organizationJoinRequestResponseSchema,
 } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
 import type { AppContext } from "../context";
 import { authContextMiddleware } from "../middlewares/auth";
 import { requireTrustedCookieOrigin } from "../middlewares/trusted-origin";
+import {
+  fulfillInvitationMembership,
+  readInvitationAccount,
+} from "./invitation-membership";
 import {
   createNativeInvitationCaller,
   sendSpaceInvitation,
@@ -48,6 +53,7 @@ export function registerOrganizationJoinRequestRoutes(app: Hono<AppContext>) {
       }
       const result = organizationJoinRequestResponseSchema.parse(
         await core.organizationJoinRequest({
+          responseVersion: "2",
           userId: user.id,
           email: user.email,
           emailVerified: user.emailVerified,
@@ -59,9 +65,31 @@ export function registerOrganizationJoinRequestRoutes(app: Hono<AppContext>) {
           ? result.requests[0]
           : null;
       if (approved?.status === "approved") {
-        return deliverApprovedInvitation(c, approved);
+        try {
+          return await deliverApprovedInvitation(c, approved);
+        } catch (error) {
+          console.error("[auth.organization_join_request.fulfillment_failed]", {
+            requestId: approved.id,
+            error,
+          });
+          return c.json(
+            {
+              ok: false,
+              code: "organization.join_request.fulfillment_failed",
+              message:
+                "Approved, but joining could not be completed. An owner or admin can retry this request.",
+            },
+            503
+          );
+        }
       }
-      return c.json(result, result.ok ? 200 : 400);
+      return c.json(
+        organizationJoinRequestResponseForVersion(
+          result,
+          c.req.query("responseVersion")
+        ),
+        result.ok ? 200 : 400
+      );
     }
   );
 }
@@ -75,15 +103,60 @@ async function deliverApprovedInvitation(
   if (!(user && core)) {
     throw new Error("Authenticated invitation delivery requires Core");
   }
-  if (approved.reviewedByUserId !== user.id) {
+  if (approved.joinedAt != null || approved.invitationSentAt != null) {
     return c.json(
-      {
-        ok: false,
-        code: "organization.join_request.already_reviewed",
-        message:
-          "Another administrator handled this request. Refresh to see the result.",
-      },
-      409
+      organizationJoinRequestResponseForVersion(
+        { ok: true, requests: [approved] },
+        c.req.query("responseVersion")
+      )
+    );
+  }
+  if (approved.applicantUserId) {
+    const applicant = await readInvitationAccount(c, approved.applicantUserId);
+    if (
+      !applicant?.emailVerified ||
+      applicant.email.toLowerCase() !== approved.email
+    ) {
+      return c.json(
+        {
+          ok: false,
+          code: "organization.join_request.account_changed",
+          message:
+            "The applicant’s account has changed. Ask them to submit a new request.",
+        },
+        409
+      );
+    }
+    await fulfillInvitationMembership(c, {
+      organizationId: approved.organizationId,
+      applicant,
+      ...(approved.spaceId
+        ? {
+            spaceInvitation: {
+              actor: user,
+              request: {
+                action: "create_approved" as const,
+                requestId: approved.id,
+              },
+            },
+          }
+        : {}),
+    });
+    const result = organizationJoinRequestResponseSchema.parse(
+      await core.organizationJoinRequest({
+        responseVersion: "2",
+        userId: user.id,
+        email: user.email,
+        emailVerified: user.emailVerified,
+        request: { action: "join_complete", requestId: approved.id },
+      })
+    );
+    return c.json(
+      organizationJoinRequestResponseForVersion(
+        result,
+        c.req.query("responseVersion")
+      ),
+      result.ok ? 200 : 503
     );
   }
   const native = createNativeInvitationCaller(c);
@@ -117,11 +190,18 @@ async function deliverApprovedInvitation(
   }
   const delivered = organizationJoinRequestResponseSchema.parse(
     await core.organizationJoinRequest({
+      responseVersion: "2",
       userId: user.id,
       email: user.email,
       emailVerified: user.emailVerified,
       request: { action: "delivery_complete", requestId: approved.id },
     })
   );
-  return c.json(delivered, delivered.ok ? 200 : 503);
+  return c.json(
+    organizationJoinRequestResponseForVersion(
+      delivered,
+      c.req.query("responseVersion")
+    ),
+    delivered.ok ? 200 : 503
+  );
 }

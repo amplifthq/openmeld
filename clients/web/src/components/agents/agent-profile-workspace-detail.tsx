@@ -37,6 +37,7 @@ import type {
 	AgentProfileActivityNavigation,
 } from "#/components/agents/agent-profile-activity-preview";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
+import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { formatAgentWakeAvailabilityCheckedAt } from "./agents-page-agent-profile-helpers";
 
@@ -114,15 +115,24 @@ export function AgentProfileWorkspaceDetail(input: {
 							hasReducedProminence ? "opacity-55 grayscale" : null
 						)}
 						profileId={input.profile.openMeldProfileId}
+						profileName={input.profile.profileName}
 						size={96}
+						working={input.operationalContext?.status === "working"}
 					/>
 					<div className="flex @[42rem]/agent-detail:h-24 min-w-0 flex-1 flex-col pt-1">
-						<AgentProfileNameEditor
-							canEdit={input.canEdit}
-							hasReducedProminence={hasReducedProminence}
-							onRenameProfile={input.onRenameProfile}
-							profileName={input.profile.profileName}
-						/>
+						<div className="flex min-w-0 items-center gap-2">
+							<AgentProfileNameEditor
+								adornment={
+									<RemoteAgentIndicator
+										agentControllerRef={input.agentControllerRef}
+									/>
+								}
+								canEdit={input.canEdit}
+								hasReducedProminence={hasReducedProminence}
+								onRenameProfile={input.onRenameProfile}
+								profileName={input.profile.profileName}
+							/>
+						</div>
 						<p className="mt-1 break-words text-muted-foreground text-sm">
 							{input.controllerModelSummary}
 						</p>
@@ -760,6 +770,7 @@ function resolveActivitySourceLabel(
 }
 
 function AgentProfileNameEditor(input: {
+	adornment?: ReactNode;
 	canEdit: boolean;
 	hasReducedProminence: boolean;
 	onRenameProfile: (profileName: string) => Promise<void>;
@@ -790,7 +801,12 @@ function AgentProfileNameEditor(input: {
 		</h1>
 	);
 	if (!input.canEdit) {
-		return heading;
+		return (
+			<div className="flex min-w-0 items-center gap-1.5">
+				{heading}
+				{input.adornment}
+			</div>
+		);
 	}
 	return (
 		<Popover.Root
@@ -804,6 +820,7 @@ function AgentProfileNameEditor(input: {
 		>
 			<div className="group/name flex min-w-0 items-center gap-1.5">
 				{heading}
+				{input.adornment}
 				<Popover.Trigger
 					render={
 						<Button

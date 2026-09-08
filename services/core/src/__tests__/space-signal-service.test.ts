@@ -28,6 +28,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DISPATCH_REPLYING_HINT_START_PURPOSE } from "../dispatch/rules/dispatch-hint-policy";
 import { inspectExecutionRecovery } from "../execution-recovery/application/execution-recovery-service";
 import type { CoreBindings } from "../lib/bindings";
+import type { ActiveRemoteAgentNativeDeliveryWakeProgressEvidence } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import { buildDefaultSpaceContract } from "../space/application/space-contract-service";
 import {
   handlePostSignalUseCase,
@@ -512,7 +513,8 @@ const buildWakeProgressItemFromLookupTrace = async (
   lookupMatchOverrides: Partial<SpaceDispatchLookupMatch> = {},
   wakeStopEligibility: WakeStopEligibilityReadModel | null = null,
   includeWakeStopEligibility = wakeStopEligibility !== null,
-  includeWaitReason = false
+  includeWaitReason = false,
+  nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence
 ): Promise<WakeProgressItem> => {
   const lookupMatch = {
     dispatchId: "dispatch-head-progress-1",
@@ -530,6 +532,7 @@ const buildWakeProgressItemFromLookupTrace = async (
       includeWaitReason?: boolean;
       includeWakeStopEligibility?: boolean;
       lookupMatch: SpaceDispatchLookupMatch;
+      nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
       outboxRecord: null;
       sourceSignal: null;
       targetLabel: string;
@@ -564,6 +567,7 @@ const buildWakeProgressItemFromLookupTrace = async (
     includeTiming: true,
     includeWaitReason,
     includeWakeStopEligibility,
+    nativeDeliveryEvidence,
     lookupMatch,
     outboxRecord: null,
     sourceSignal: null,
@@ -3693,71 +3697,6 @@ describe("space signal service", () => {
     );
   });
 
-  it("preserves Task references for system-emitted messages and strips them from user messages", async () => {
-    const publishedSignals: SignalEnvelope[] = [];
-    const body = {
-      type: "signal.text",
-      data: {
-        text: "I started the Task.",
-        meta: {
-          centerAgentTaskReferences: [{ taskId: "task-1" }],
-          purpose: "agent_reply_final",
-        },
-      },
-    };
-    const buildTextSignal = (
-      profile: Parameters<
-        Parameters<typeof handlePostSignalUseCase>[0]["buildTextSignal"]
-      >[0],
-      text: string,
-      options?: Parameters<
-        Parameters<typeof handlePostSignalUseCase>[0]["buildTextSignal"]
-      >[2]
-    ): SignalEnvelope => ({
-      ...createSignal(),
-      profile,
-      data: {
-        text,
-        ...(options?.meta ? { meta: options.meta } : {}),
-      },
-    });
-    const publishTextSignal = (signal: SignalEnvelope) => {
-      publishedSignals.push(signal);
-      return Promise.resolve();
-    };
-
-    const trustedResponse = await handlePostSignalUseCase({
-      body,
-      profile: createSignal().profile,
-      authoringPolicy: "system_emitted",
-      buildTextSignal,
-      publishTextSignal,
-      isDispatchSnapshotOversizeError: () => false,
-      dispatchSnapshotOversizeErrorCode: "dispatch.snapshot_oversize",
-    });
-    const userResponse = await handlePostSignalUseCase({
-      body,
-      profile: createSignal().profile,
-      authoringPolicy: "user_authored",
-      buildTextSignal,
-      publishTextSignal,
-      isDispatchSnapshotOversizeError: () => false,
-      dispatchSnapshotOversizeErrorCode: "dispatch.snapshot_oversize",
-    });
-
-    expect(trustedResponse.status).toBe(200);
-    expect(userResponse.status).toBe(200);
-    const [trustedSignal, userSignal] = publishedSignals;
-    expect(
-      trustedSignal?.type === "signal.text"
-        ? trustedSignal.data.meta?.centerAgentTaskReferences
-        : undefined
-    ).toEqual([{ taskId: "task-1" }]);
-    expect(
-      userSignal?.type === "signal.text" ? userSignal.data.meta : undefined
-    ).not.toHaveProperty("centerAgentTaskReferences");
-  });
-
   it("returns 422 when dispatch snapshot is oversize", async () => {
     const response = await handlePostSignalUseCase({
       body: {
@@ -4617,6 +4556,41 @@ describe("space signal service", () => {
         .omit({ waitReasonCode: true })
         .safeParse(optedInItem).success
     ).toBe(false);
+  });
+
+  it.each([
+    "running",
+    "publishing",
+    "publication_unknown",
+  ] as const)("projects hosted Stop from native %s evidence without a workstation execution", async (phase) => {
+    const item = await buildWakeProgressItemFromLookupTrace(
+      createWakeProgressReplyProducedTrace({}),
+      [],
+      { status: "succeeded" },
+      null,
+      true,
+      false,
+      {
+        clientMessageId: "client-message-1",
+        dispatchId: "dispatch-head-progress-1",
+        failureReasonCode: null,
+        phase,
+        sourceSignalId: "sig-source-1",
+        startedAtMs: 1000,
+        targetProfileId: "agt_33333333-3333-4333-8333-333333333333",
+        updatedAtMs: 2000,
+      }
+    );
+    expect(item.wakeStopEligibility).toEqual(
+      phase === "running"
+        ? {
+            controlMode: "cancel",
+            reasonCode: null,
+            reliability: "native_cancel",
+            status: "eligible",
+          }
+        : null
+    );
   });
 
   it("projects cancel-backed Wake Stop eligibility into active Wake progress", async () => {

@@ -5,14 +5,13 @@
 - Purpose: Define cross-client and cross-service shared contract ownership for
   schemas, runtime policy, API clients, Gateway contracts, shared database
   contracts, Space Board and reply context, Space reply streaming, Center Agent
-  Opportunities, Tasks, Routines and memory, weekly evaluation reports,
+  Opportunities, Routines and memory, weekly evaluation reports,
   reusable Space policy, and reusable Agent Profile semantics.
 - Read this when: You are changing cross-boundary payloads, shared schemas,
   `packages/agent-runtime`, `packages/agent-profile`, `packages/space`, API
   client contracts, Gateway contracts, Space Board or reply metadata, Space
   streaming, Opportunity RPC contracts, Routine HTTP/RPC/turn envelopes,
-  Organization Skill registry and exact-release delivery, Center Agent Task HTTP/RPC/turn envelopes and live
-  invalidation, Center Agent memory, evaluation report payloads, Space password
+  Organization Skill registry and exact-release delivery, Center Agent memory, evaluation report payloads, Space password
   handling, or logic that might otherwise be
   duplicated in Web, CLI, Core, daemon, or adapters.
 - Update this when: A shared package changes ownership, a cross-boundary
@@ -27,6 +26,11 @@
   and reusable policy.
 
 ## Boundary
+
+Personal native Agent creation and the Core/Remote private collaboration RPC
+use shared schemas, including the explicit `personal_agent` V4 identity. See
+the [personal Remote Agent contract audit](review/2026-09-08-personal-remote-agent-contract-impact-audit.md)
+for mixed-version behavior, receiver ordering, and rollback constraints.
 
 ### PeopleComputers
 
@@ -404,14 +408,32 @@ only a request ID; its owner checks current authority on every review.
 The invitation-approval rollout adds Auth HTTP/Core RPC actions, a scoped link
 field, an Inbox target, and an optional transactional-email purpose. It does not
 change setup, Wake, Service status, trace, or self-rescue contracts. Existing local
-components remain safe: the legacy link acceptance endpoint fails closed with
-`organization.join_link.approval_required` instead of enrolling someone. CLI and
+components remain safe: request-mode links fail closed at direct acceptance with
+`organization.join_link.approval_required`. Explicit administrator direct links
+use the same Auth membership writer after verified recipient consent. CLI and
 managed Skills updates are advisory (`available` at release); no runtime contract
 epoch changes are needed. New clients require the new receivers. Use the existing
 `space-invitation-receivers-first` coordinated release: additive Database
 migrations, Core, Auth, then Web and CLI. Keep the receiver/client transition short;
 old Web cannot operate the new Inbox request target. Rolling clients back must
-not restore bearer-link enrollment or remove the additive request data.
+not change a stored link's mode or remove the additive request data.
+
+Direct invitation links add stored `mode` and `expiresAt`, exposed only to HTTP
+management/preview callers requesting `responseVersion=3`. Legacy management
+requests continue addressing request-mode links. Ensure-on-behalf RPC retains its
+old strict response shape. Recipient-request fulfillment adds optional
+`applicantUserId` and `joinedAt` plus the Auth-only `join_complete` RPC action.
+Auth opts into Core response version 2; Web opts into HTTP response version 2.
+Older request callers retain the email-invitation flow and legacy response shape.
+An approval is not a membership claim: Auth fulfills membership and optional Space
+access first, then Core records completion and resolves reviewer Inbox items.
+
+Contract impact: this changes Auth HTTP, Auth/Core RPC, and additive shared D1
+data only. Existing CLI, Service, Skills, Gateway, and Remote Agent remain
+compatible for setup, Wake, Space actions, status, and diagnostics; no local
+component epoch or artifact change is required. The receiver-first release order
+is Database, Core, Auth, then Web. Roll back Web before Auth, and Auth before Core;
+retain the additive columns and the original modes of all issued links.
 
 `packages/schemas` owns Inbox item, counts, list-filter, direct item read,
 read/unread and Dismiss mutations, delivery preference, structured source
@@ -569,36 +591,6 @@ receiver derives the same normalized host from its configured Gateway URL.
 Current Gateway builds send the request host explicitly, and malformed or
 missing receiver configuration fails closed instead of inventing a scope.
 
-The combined rollout order is shared database migrations 0102 through 0106,
-Core receiver, Gateway route, then Web caller. The migrations add the
-Task-owned authorization projection and the native-delivery execution-evidence
-timestamp plus its monotonic stream-sequence fence, fair Task terminal
-projection-attempt ordering, and the nullable Task origin-attribution envelope.
-Existing Tasks retain a null attribution envelope and remain readable. Core
-reads those columns unconditionally, so deploying Core before the database
-would make valid reads fail at SQL preparation.
-
-Center Agent Task reads and mutations use an explicit response contract
-version. A missing
-`x-openmeld-center-agent-task-response-version` header selects the frozen v1
-shape so an old Web build, old Gateway, or both can continue parsing running
-Tasks. Version `2` is the frozen honest execution-evidence shape. Current API
-clients send version `3`; current Gateway accepts `2` or `3`, forwards the same
-optional version through the shared RPC input, and validates the matching Core
-response schema. V3 adds the frozen requester display snapshot and bounded
-Local Agent client attribution to Task origin. It never carries a Local Agent
-session id. V1 keeps the historical `running -> working` presentation only as
-a bounded compatibility response; v2 and v3 require fresh owner execution
-evidence for `Working`. Core performs the only v3-to-v2 and v2-to-v1
-projections at its response boundary.
-
-After the database is current, deploy the v3 receivers in Core and Gateway
-before the API client and Web producer. Core defaults omitted Task response
-versions to v1 and continues accepting explicit v2. Old Web builds continue to
-call the existing Center Agent endpoints; new Web requests Task response v3.
-Rollback removes the Web caller and Gateway route before rolling back Core;
-additive database columns remain in place.
-
 `packages/schemas/src/schemas/http/inbox.ts` also owns the private Center Agent
 attention impact, request, response, and RPC contracts. Remote Agent supplies
 one bounded title and prompt plus `response_needed`, `work_blocked`, or
@@ -616,10 +608,6 @@ Phase 1 has no Inbox live-invalidation contract. Web uses bounded polling and
 refetch-on-focus to re-read Core. A future realtime transport must introduce its
 producer, transport, consumer, and shared refresh-signal contract together; a
 schema without that end-to-end owner must not imply live delivery exists.
-The Center Agent Tasks rollout is that future contract only after its Task and
-Inbox producer, typed signal, transport, Web consumer, reconnect behavior, and
-snapshot refetch all land together. Until then, existing Inbox polling remains
-the honest behavior and no Task surface may claim realtime updates.
 
 The Auth urgent-email RPC accepts a user id, stable delivery id, bounded
 subject, text body, HTML body, and canonical OpenMeld link. Auth resolves the
@@ -2124,76 +2112,6 @@ Remote Agent producer before Core or Web consumers. Gateway, Auth, CLI,
 OpenMeld Service, daemon, Prepare, managed skills, and local-component runtime
 contracts are unchanged.
 
-### Center Agent Task Contracts
-
-`packages/schemas` owns the strict shared boundaries for Phase 1 canonical Center
-Agent Task records, Task events, list/detail projections, requester access,
-execution-attempt links, Task runtime-conversation admission, mutations, Stop,
-Retry, and Inbox targets. Recovery, shared access scopes, paginated detail, and
-live invalidation require additive owner contracts before a producer or UI may
-claim them. Product meaning is owned by
-`developing/product/center-agent-tasks.md`.
-
-Task identity is distinct from `AgentTaskHandle`. A strict Task contract must
-not accept a Space Wake, native-delivery, controller task, dispatch, or
-RuntimeCoordinator execution id where a canonical Task id is required.
-Execution links use discriminated shared schemas and preserve their owning
-domain.
-
-Create and append operations carry one stable client/provider operation id.
-Phase 1 canonical mutations carry `expectedVersion`; Task-turn admission freezes
-the stable runtime `conversationId` derived from the Task id. No independent
-`contextRevision` contract ships in Phase 1. Core returns the updated canonical
-snapshot or a typed conflict. Clients and adapters do not invent merge,
-ordering, status, or deduplication rules.
-
-The shared Task parser validates one lower-level lifecycle `status` plus the
-optional Core-owned `executionEvidence` projection and derives the canonical
-client `state`, `phase`, and `outcome`. `running` without exact evidence from
-the active native-delivery attempt remains `active` with no `working` phase;
-only fresh owner evidence may produce `working`. Supplied projection fields
-must agree with that reducer. Clients group and label Tasks from the derived
-projection rather than duplicating lifecycle switches. A Message Channel
-origin contains the full frozen
-`messageChannelConversationLocatorSchema`; a provider label without its exact
-destination is invalid.
-
-Task list and compact projections are bounded and contain no transcript. Task
-detail events remain typed, authorized, and privacy-bounded. Phase 1 returns the
-full product event history; it does not claim paginated detail. Raw reasoning,
-private runtime transcript, tool inputs/outputs, commands, paths, errors, and
-provider payloads are forbidden.
-
-The Inbox Task target contains only the canonical Task id, not a Web URL,
-requester, access grant, or execution selector. Inbox reads join the Task-owned
-`center_agent_task_authorized_readers` projection and separately require current
-Organization membership, so delayed source JSON cannot preserve revoked
-access. Web maps the Task id to the canonical Organization Task route. Unknown
-target kinds fail closed and stay visible. Producer rollout is consumer first:
-shared schema and Web target support, then Core Task source-event emission.
-
-Phase 1 has no Task live-invalidation contract. Web uses bounded foreground
-polling and refetch-on-focus. A future typed Organization/Task refresh signal
-must carry no lifecycle truth, content, requester authority, or access grant;
-producer, transport, consumer, and snapshot refetch must ship together. A schema
-alone must not imply realtime behavior.
-
-Task conversation support changes the strict Remote Agent turn envelope and
-conversation identity union. Roll out receiver support before Core emits Task
-turns. Mixed versions fail explicitly rather than falling back to Center Agent
-Chat, Space, or a provider conversation. A provider publication keeps one frozen
-typed locator and operation identity; Web projection of the same canonical Task
-event never causes another model execution or provider write.
-
-Version 3 Remote Agent turn requests carry
-`conversationIdentity: { kind: "center_agent_task", taskId }` alongside the
-shared Task conversation id. Remote Agent validates that the typed identity and
-conversation route agree before Durable Object admission, and Core validates
-the same Task id against the Task-owned delivery handle before terminal
-projection. Version 1 and 2 prefix-only Task records remain readable solely for
-mixed-version and retained-record compatibility; current Core Task producers
-emit version 3. Deploy Remote Agent receiver support before the Core producer.
-
 ### Agent Task Coordination Contracts
 
 `packages/schemas/src/schemas/runtime/agent-task-coordination.ts` owns the
@@ -2825,6 +2743,19 @@ Core parses it through the shared schema before durable claim. Unknown queue
 messages fail closed under their owning consumer contract; Gateway and Core
 must not maintain parallel Slack event shapes.
 
+An `app_mention` event may be content-empty because Slack's event envelope is a
+sparse trigger, so the shared event schema preserves it for Core-owned provider
+recovery. Human direct-message events remain content-strict. Before admission,
+Core uses the Organization-bound Slack credential to read the exact current
+message and hydrate its text and file metadata; the normalized queue envelope
+does not become a second source of truth for Slack content.
+
+This additive acceptance rolls out Core before Gateway: the new Core continues
+to accept every old Gateway event, then the new Gateway may begin forwarding
+content-empty `app_mention` triggers. Rollback stops that Gateway production
+before removing the Core receiver. The outer Queue message and local component
+contracts do not change.
+
 ### Slack Workspace Directory Contracts
 
 `packages/schemas/src/schemas/http/slack-workspace-directory.ts` owns the
@@ -3101,10 +3032,23 @@ they must not add provider-specific transcript fields to the turn envelope.
 The projection identifies the provider, stable conversation, current trigger
 message, snapshot-or-delta sync mode, retrieval status, and an ordered bounded
 set of historical message records. It excludes the current trigger message
-because the verified request already carries that text through the existing
+because the exact provider lookup hydrates that request through the existing
 worker message field. Message identifiers are unique, timestamps are ordered,
 and both per-message and total text limits are enforced at the shared schema
-boundary.
+boundary. Slack message permalinks in the hydrated request may add at most
+three exact same-channel source-message reads as separately labeled untrusted
+quote context. Cross-channel references are not automatically fetched with the
+Bot credential. Thread permalinks retain their root timestamp for the replies
+API. Unsupported attachment structures and clipped quotes remain non-complete.
+If current-message or quoted-message rich content cannot be read, Core keeps
+the main request but downgrades a nominally complete projection to an explicit
+non-complete status and adds a model-visible limitation note.
+
+Slack native admission freezes the original event's `triggerText` before
+showing working status. The model receives the separately hydrated `sourceText`;
+hydration must not rewrite admission identity or weaken replay checks. Both
+values are internal Core inputs; the persisted ledger and worker wire schemas
+are unchanged.
 
 Channel history is reference context, not authority. Human, agent, bot, system,
 and unknown-author records are all untrusted provider content. The Remote Agent
@@ -6103,8 +6047,6 @@ Use scoped owner documents for related rules:
 - `developing/product/agent-profiles.md`: Agent Profile product semantics.
 - `developing/product/center-agent-routines.md`: Routine and Run product
   semantics, authority, scheduling, and result surfaces.
-- `developing/product/center-agent-tasks.md`: canonical Task and Task Context,
-  event, access, concurrency, Stop/Retry/Recovery, and cross-channel semantics.
 - `developing/architecture/agent-transport-contract.md`: execution authority,
   readiness, Wake execution, and final outcome contract.
 - `developing/architecture/data-and-observability.md`: data ownership,

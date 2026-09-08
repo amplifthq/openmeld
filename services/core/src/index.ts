@@ -32,14 +32,12 @@ import type {
   CenterAgentCreateProjectToolRpcInput,
   CenterAgentCreateRoutineToolRpcInput,
   CenterAgentCreateSpaceResponse,
-  CenterAgentCreateTaskToolRpcInput,
   CenterAgentDeleteRoutineToolRpcInput,
   CenterAgentDraftOrganizationDocumentResponse,
   CenterAgentDraftOrganizationDocumentRpcInput,
   CenterAgentEnableAgentProfileResponse,
   CenterAgentGetOrganizationInviteLinkResponse,
   CenterAgentGetOrganizationInviteLinkToolRpcInput,
-  CenterAgentGetTaskToolRpcInput,
   CenterAgentInboxSummaryResponse,
   CenterAgentInstallOrganizationSkillResponse,
   CenterAgentInstallOrganizationSkillRpcInput,
@@ -58,7 +56,6 @@ import type {
   CenterAgentListSlackChannelsResponse,
   CenterAgentListSpaceFilesResponse,
   CenterAgentListSpaceFilesRpcInput,
-  CenterAgentListTasksToolRpcInput,
   CenterAgentManageOrganizationDocumentsResponse,
   CenterAgentManageOrganizationDocumentsRpcInput,
   CenterAgentManageSpaceFilesResponse,
@@ -113,8 +110,6 @@ import type {
   CenterAgentSlackWorkspaceDisconnectResponse,
   CenterAgentSpaceAuthoringContractResponse,
   CenterAgentStartSelfMemberResearchToolRpcInput,
-  CenterAgentTaskDetail,
-  CenterAgentTaskDetailRpcResponse,
   CenterAgentUpdateAgentProfileRuntimeSettingsResponse,
   CenterAgentUpdateProfileResponse,
   CenterAgentUpdateProjectToolResponse,
@@ -129,13 +124,11 @@ import type {
   ConnectorAppRequestResponse,
   ConnectorConnection,
   ConnectorConnectionListResponse,
-  ContinueCenterAgentTaskRpcInput,
   ConvertDirectMessageToSpaceResponse,
   CreateAgentProfileCreationRequestResponse,
   CreateCenterAgentContextLoadReceiptResponse,
   CreateCenterAgentContextManifestResponse,
   CreateCenterAgentRoutineResponse,
-  CreateCenterAgentTaskResponse,
   CreateOrganizationDocumentFolderResponse,
   CreateOrganizationDocumentFolderRpcInput,
   CreateOrganizationDocumentResponse,
@@ -185,7 +178,6 @@ import type {
   GetCenterAgentMemberResearchStatusResponse,
   GetCenterAgentMemberResearchStatusRpcInput,
   GetCenterAgentOperatingStateResponse,
-  GetCenterAgentTaskRpcInput,
   GetInboxItemResponse,
   GetInboxItemRpcInput,
   GetInboxNotificationPreferencesRpcInput,
@@ -223,9 +215,6 @@ import type {
   ListAgentProfileCreationRequestsResponse,
   ListCenterAgentAuditJournalResponse,
   ListCenterAgentRoutinesResponse,
-  ListCenterAgentTasksResponse,
-  ListCenterAgentTasksRpcInput,
-  ListCenterAgentTasksRpcResponse,
   ListFeedbackIssuesForOrganizationRequest,
   ListFeedbackIssuesForOrganizationResponse,
   ListInboxItemsResponse,
@@ -299,7 +288,6 @@ import type {
   RespondToSpaceAgentInteractionResponse,
   RestoreSpaceFileEntryResponse,
   ResumeCenterAgentRoutineResponse,
-  RetryCenterAgentTaskRpcInput,
   SelectCurrentLocalAgentInstallationResponse,
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetAgentProfileCreationDefaultsResponse,
@@ -332,7 +320,6 @@ import type {
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
   StartCenterAgentMemberResearchRpcInput,
-  StopCenterAgentTaskRpcInput,
   SubmitFeedbackIssueResponse,
   SubmitRuntimeAgentControllerReportsResponse,
   SubmitRuntimeProviderConversationProofsResponse,
@@ -393,16 +380,6 @@ import {
   clearCoreCenterAgentOrganizationNativeDeliveryData,
   createCoreCenterAgentMemoryService,
 } from "./center-agent-memory/core-memory-service";
-import {
-  rpcCenterAgentCreateTask,
-  rpcCenterAgentGetTaskTool,
-  rpcCenterAgentListTasksTool,
-  rpcContinueCenterAgentTask,
-  rpcGetCenterAgentTask,
-  rpcListCenterAgentTasks,
-  rpcRetryCenterAgentTask,
-  rpcStopCenterAgentTask,
-} from "./center-agent-tasks/transport/rpc/center-agent-task-rpc";
 import { readModelCatalog } from "./config/model-catalog";
 import {
   inspectCoreDbState,
@@ -507,6 +484,7 @@ import {
 import { verifyLarkPlatformWebhook } from "./remote-agent/application/lark-platform-webhook-service";
 import { createConfiguredMessageChannelProviderRegistry } from "./remote-agent/application/message-channel-provider-runtime";
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
+import { runPersonalRemoteAgentSpaceTool } from "./remote-agent/application/personal-remote-agent-space-tools";
 import { processRemoteAgentSlackEvent } from "./remote-agent/application/slack-signal-service";
 import {
   handleCenterAgentSlackTeammateInvitations,
@@ -1392,36 +1370,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   listRoutineRuns(input: ListRoutineRunsInput) {
     return rpcListRoutineRuns(this.env, input);
-  }
-
-  listCenterAgentTasks(
-    input: ListCenterAgentTasksRpcInput
-  ): Promise<ListCenterAgentTasksRpcResponse> {
-    return rpcListCenterAgentTasks(this.env, input);
-  }
-
-  getCenterAgentTask(
-    input: GetCenterAgentTaskRpcInput
-  ): Promise<CenterAgentTaskDetailRpcResponse> {
-    return rpcGetCenterAgentTask(this.env, input);
-  }
-
-  continueCenterAgentTask(
-    input: ContinueCenterAgentTaskRpcInput
-  ): Promise<CenterAgentTaskDetailRpcResponse> {
-    return rpcContinueCenterAgentTask(this.env, input);
-  }
-
-  stopCenterAgentTask(
-    input: StopCenterAgentTaskRpcInput
-  ): Promise<CenterAgentTaskDetailRpcResponse> {
-    return rpcStopCenterAgentTask(this.env, input);
-  }
-
-  retryCenterAgentTask(
-    input: RetryCenterAgentTaskRpcInput
-  ): Promise<CenterAgentTaskDetailRpcResponse> {
-    return rpcRetryCenterAgentTask(this.env, input);
   }
 
   listInboxItems(
@@ -3216,6 +3164,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     );
   }
 
+  personalRemoteAgentSpaceTool(input: unknown) {
+    return runPersonalRemoteAgentSpaceTool(this.env, input);
+  }
+
   centerAgentListAgentTasks(
     input: CenterAgentListAgentTasksInput
   ): Promise<CenterAgentListAgentTasksResponse> {
@@ -3593,36 +3545,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   listRoutineRuns(input: ListRoutineRunsInput) {
     return super.listRoutineRuns(input);
-  }
-
-  listCenterAgentTasks(
-    input: ListCenterAgentTasksRpcInput
-  ): Promise<ListCenterAgentTasksRpcResponse> {
-    return super.listCenterAgentTasks(input);
-  }
-
-  getCenterAgentTask(
-    input: GetCenterAgentTaskRpcInput
-  ): Promise<CenterAgentTaskDetailRpcResponse> {
-    return super.getCenterAgentTask(input);
-  }
-
-  continueCenterAgentTask(
-    input: ContinueCenterAgentTaskRpcInput
-  ): Promise<CenterAgentTaskDetailRpcResponse> {
-    return super.continueCenterAgentTask(input);
-  }
-
-  stopCenterAgentTask(
-    input: StopCenterAgentTaskRpcInput
-  ): Promise<CenterAgentTaskDetailRpcResponse> {
-    return super.stopCenterAgentTask(input);
-  }
-
-  retryCenterAgentTask(
-    input: RetryCenterAgentTaskRpcInput
-  ): Promise<CenterAgentTaskDetailRpcResponse> {
-    return super.retryCenterAgentTask(input);
   }
 
   listInboxItems(
@@ -4964,6 +4886,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.centerAgentWakeAgentProfilesInSpace(input);
   }
 
+  personalRemoteAgentSpaceTool(input: unknown) {
+    return super.personalRemoteAgentSpaceTool(input);
+  }
+
   centerAgentListAgentTasks(
     input: CenterAgentListAgentTasksInput
   ): Promise<CenterAgentListAgentTasksResponse> {
@@ -5060,54 +4986,6 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentInviteSlackTeammatesRpcInput
   ): Promise<CenterAgentInviteSlackTeammatesRpcResponse> {
     return handleCenterAgentSlackTeammateInvitations(this.env, input);
-  }
-
-  listCenterAgentTasks(
-    input: ListCenterAgentTasksRpcInput
-  ): Promise<ListCenterAgentTasksRpcResponse> {
-    return super.listCenterAgentTasks(input);
-  }
-
-  getCenterAgentTask(
-    input: GetCenterAgentTaskRpcInput
-  ): Promise<CenterAgentTaskDetailRpcResponse> {
-    return super.getCenterAgentTask(input);
-  }
-
-  continueCenterAgentTask(
-    input: ContinueCenterAgentTaskRpcInput
-  ): Promise<CenterAgentTaskDetailRpcResponse> {
-    return super.continueCenterAgentTask(input);
-  }
-
-  stopCenterAgentTask(
-    input: StopCenterAgentTaskRpcInput
-  ): Promise<CenterAgentTaskDetailRpcResponse> {
-    return super.stopCenterAgentTask(input);
-  }
-
-  retryCenterAgentTask(
-    input: RetryCenterAgentTaskRpcInput
-  ): Promise<CenterAgentTaskDetailRpcResponse> {
-    return super.retryCenterAgentTask(input);
-  }
-
-  centerAgentCreateTask(
-    input: CenterAgentCreateTaskToolRpcInput
-  ): Promise<CreateCenterAgentTaskResponse> {
-    return rpcCenterAgentCreateTask(this.env, input);
-  }
-
-  centerAgentListTasks(
-    input: CenterAgentListTasksToolRpcInput
-  ): Promise<ListCenterAgentTasksResponse> {
-    return rpcCenterAgentListTasksTool(this.env, input);
-  }
-
-  centerAgentGetTask(
-    input: CenterAgentGetTaskToolRpcInput
-  ): Promise<CenterAgentTaskDetail> {
-    return rpcCenterAgentGetTaskTool(this.env, input);
   }
 
   centerAgentListOrganizationMembers(
