@@ -1021,9 +1021,12 @@ Keep CLI and local-component manifests unchanged on this feature branch and
 use deferred release verification. The final clean-main release must stamp the
 new CLI/Skill contracts, publish the matching signed Skill channel with the new
 CLI version as its minimum, and preserve the previous signed contract release.
-CLI, Service, and Skills can be available updates: old clients remain safe and
-there is no need to interrupt current work or force a Service restart. Scripts
-moving to the new CLI must migrate inline syntax to explicit recipient flags.
+The CLI and Skills updates are required because their command and Skill contracts
+advance. The Service update remains available because its execution contract is
+unchanged. Wire compatibility preserves accepted work during rollout; it does
+not waive the required update policy for changed contracts or force a Service
+restart. Scripts moving to the new CLI must migrate inline syntax to explicit
+recipient flags.
 
 ### Agent Reply Context Review Contract Impact Audit
 

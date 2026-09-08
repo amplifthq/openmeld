@@ -1741,7 +1741,8 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   ];
   const plan = (
     scope = "db,remote-agent,core,auth,gateway,web,cli",
-    sourceSha = null
+    sourceSha = null,
+    includeSteps = false
   ) =>
     JSON.parse(
       execFileSync(
@@ -1754,7 +1755,7 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
     const { buildProductionReleasePlan } = await import(${JSON.stringify(new URL("./production-release.mjs", import.meta.url).href)});
     try {
       const plan = buildProductionReleasePlan({ base: "retirement-base", scope: ${JSON.stringify(scope)}, sourceSha: ${JSON.stringify(sourceSha)} });
-      console.log(JSON.stringify({ profile: plan.deployOrderProfile, order: plan.deployScopeOrder }));
+      console.log(JSON.stringify({ profile: plan.deployOrderProfile, order: plan.deployScopeOrder, ...(${includeSteps} ? { deploy: plan.deploySteps.map(step => step.label), preflight: plan.preflightSteps.map(step => step.label), verify: plan.verifySteps.map(step => step.label) } : {}) }));
     } catch (error) {
       console.log(JSON.stringify({ error: error.message }));
     }
@@ -1783,6 +1784,41 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
     git("add", ".");
     git("commit", "--quiet", "-m", "retire Task and add personal Remote");
     const retirementSha = git("rev-parse", "HEAD");
+    const assertStagedCoreProjection = () => {
+      const staged = plan("db,remote-agent,core,auth,gateway,web", null, true);
+      assert.ok(
+        staged.deploy.includes(
+          "Deploy Core with the current published CLI projection"
+        )
+      );
+      assert.ok(!staged.deploy.includes("Deploy Core Worker"));
+      assert.ok(
+        !staged.deploy.includes(
+          "Publish CLI and deploy its Core release projection"
+        )
+      );
+      assert.ok(
+        !staged.preflight.includes("Verify Core CLI channel compatibility")
+      );
+      assert.ok(
+        !staged.verify.includes("Verify Core CLI channel compatibility")
+      );
+      return staged;
+    };
+    assert.equal(
+      assertStagedCoreProjection().profile,
+      "remote-agent-and-inbox-task-retirement-first"
+    );
+    const producerFirstSteps = buildProductionDeployStepSpecs(
+      ["core", "auth", "gateway", "web"],
+      { changedPaths: [], taskInboxRetired: true }
+    );
+    assert.ok(
+      producerFirstSteps.some(
+        (step) =>
+          step.label === "Deploy Core with the current published CLI projection"
+      )
+    );
     assert.deepEqual(plan(), {
       profile: "remote-agent-and-inbox-task-retirement-first",
       order: ["db", "remote-agent", "core", "auth", "gateway", "web", "cli"],
