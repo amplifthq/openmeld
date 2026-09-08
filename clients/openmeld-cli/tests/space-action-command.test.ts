@@ -568,6 +568,47 @@ describe("OpenMeld Space Action command", () => {
 });
 
 describe("OpenMeld Space Action MCP server", () => {
+  it("rejects a self-Wake before recording and accepts the corrected plain reply", async () => {
+    const context = createTestContext(
+      [
+        createProjectionEntry({
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          primaryMentionLabel: "Current Agent",
+        }),
+      ],
+      { targetProfileId: AGENT_PROFILE_ID }
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "openmeld-test", version: "1.0.0" });
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const rejected = await client.callTool({
+        name: "reply",
+        arguments: { message: "Done", wakeTargets: [AGENT_PROFILE_ID] },
+      });
+      expect(rejected.isError).toBe(true);
+      expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+      const corrected = await client.callTool({
+        name: "reply",
+        arguments: { message: "Done" },
+      });
+      expect(corrected.isError).not.toBe(true);
+      expect(readLoadedActionRecord(context).action).toMatchObject({
+        type: "post_message",
+        messageEnvelope: { text: "Done", activationTargets: [] },
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("records the exact structured reply without writing CLI text to stdout", async () => {
     const context = createTestContext([]);
     const stdoutChunks: string[] = [];
@@ -645,7 +686,7 @@ describe("OpenMeld Space Action MCP server", () => {
 
 function createTestContext(
   projection: SpaceMemberDirectorySendTargetEntry[],
-  options?: { ttlMs?: number }
+  options?: { ttlMs?: number; targetProfileId?: string }
 ): DispatchSpaceActionContext {
   const openMeldHome = mkdtempSync(`${tmpdir()}/openmeld-space-action-`);
   tempDirs.push(openMeldHome);
@@ -668,7 +709,7 @@ function createTestContext(
       publicationMode: "collaboration",
     },
     spaceId: "space-1",
-    targetProfileId: "agt_current",
+    targetProfileId: options?.targetProfileId ?? "agt_current",
     taskId: "task-1",
     ...(options?.ttlMs ? { ttlMs: options.ttlMs } : {}),
   });

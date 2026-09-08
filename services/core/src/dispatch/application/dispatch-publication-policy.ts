@@ -24,6 +24,7 @@ import type {
 import {
   buildDefaultSpaceContract,
   buildSystemNoticeText,
+  isSelfWakeSpaceAction,
   resolvePublicAgentFailureReason,
   resolveResultArchiveBehavior,
   resolveSpacePublicationRequirement,
@@ -114,8 +115,21 @@ export function resolveDispatchPublicationPlan(input: {
         : undefined,
   });
 
+  const selfWake = isSelfWakeSpaceAction(
+    input.payload.spaceAction,
+    input.dispatchMessage.targetProfileId
+  );
   let plan: DispatchPublicationPlan;
-  if (explicitAction.kind === "blocked") {
+  if (selfWake) {
+    plan = buildSystemNoticePlan({
+      actorName,
+      noticeType: "terminal_failure",
+      publicOutcome: "system_notice",
+      reasonCode: "space.wake.target_invalid",
+      reason:
+        "The Agent tried to Wake itself while replying, so its reply was not posted. Ask it to reply without waking itself.",
+    });
+  } else if (explicitAction.kind === "blocked") {
     plan = buildSystemNoticePlan({
       actorName,
       noticeType: "policy_blocked",
@@ -141,7 +155,7 @@ export function resolveDispatchPublicationPlan(input: {
   return {
     ...plan,
     archiveMode: archiveBehavior.mode,
-    blockedExplicitAction: explicitAction.kind === "blocked",
+    blockedExplicitAction: selfWake || explicitAction.kind === "blocked",
     shouldArchive: resolveShouldArchive({
       archiveMode: archiveBehavior.mode,
       planKind: plan.kind,
