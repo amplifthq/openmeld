@@ -4661,6 +4661,33 @@ describe("handleDispatchQueueBatch", () => {
     });
   });
 
+  it("retains the workstation conveyor when a concurrent intake has not handed off execution", async () => {
+    const message = createDispatchQueueMessage({
+      dispatchId: "dispatch-concurrent-intake",
+      sourceEventId: "evt-concurrent-intake",
+      targetProfileId: "agt-concurrent-intake",
+      visitedProfileIdsHash: "hash-concurrent-intake",
+    });
+    vi.mocked(claimDispatchAttempt).mockResolvedValueOnce({
+      status: "deduped",
+      admissionInFlight: true,
+    });
+    const outcome = await dispatchProductionOutboxMessageDirectly({
+      ctx: { waitUntil: vi.fn() },
+      env: makeEnvWithBindings(),
+      message: message.body as OpenMeldDaemonDispatchQueueMessage,
+    });
+    expect(outcome).toMatchObject({
+      status: "retry_scheduled",
+      recoveryTransport: "outbox",
+    });
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(markDispatchStatus).not.toHaveBeenCalled();
+    expect(rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
+  });
+
   it("acks deduped message without dispatch status update", async () => {
     const infoSpy = vi
       .spyOn(console, "info")
