@@ -125,10 +125,6 @@ export function InboxPage(input: {
 		void,
 		InboxCacheSnapshots
 	>({
-		mutationKey: [
-			...inboxQueryKeys.organization(currentOrganization.id),
-			"mutation",
-		],
 		mutationFn: async () =>
 			await markAllCurrentInboxItemsRead({
 				organizationId: currentOrganization.id,

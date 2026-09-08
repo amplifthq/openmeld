@@ -22,7 +22,7 @@ describe("Inbox attention", () => {
 			})
 		).toMatchObject({ count, tone });
 	});
-	it("does not present missing, failed, or mutating data as a confirmed count", () => {
+	it("does not present missing or failed data as a confirmed count", () => {
 		const summary = {
 			organizationId: "org",
 			totalUnreadCount: 0,
@@ -40,11 +40,29 @@ describe("Inbox attention", () => {
 		).toMatchObject({ count: null, tone: null });
 		expect(
 			resolveInboxAttention({
-				summary: { ...summary, unreadUrgentUpdateCount: 4 },
+				summary: undefined,
 				pending: true,
 				unavailable: false,
 			})
-		).toMatchObject({ count: null, tone: null });
+		).toEqual({ count: null, tone: null, label: "Inbox", status: null });
+	});
+	it("keeps the last confirmed count while refreshing", () => {
+		expect(
+			resolveInboxAttention({
+				summary: {
+					organizationId: "org",
+					totalUnreadCount: 4,
+					unresolvedActionCount: 0,
+					unreadUrgentUpdateCount: 4,
+				},
+				pending: true,
+				unavailable: false,
+			})
+		).toMatchObject({
+			count: 4,
+			tone: "warning",
+			label: "Inbox, 4 unread urgent updates",
+		});
 	});
 	it("explains a mixed total without implying every item is urgent or actionable", () => {
 		expect(
