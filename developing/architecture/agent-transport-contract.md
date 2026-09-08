@@ -113,6 +113,17 @@ preserves FIFO order within one target. A candidate failure is isolated from
 the other target queues. After a full batch advances successfully while more
 pending records remain, the shared Space alarm schedules an immediate
 continuation; retrying or poisoned work keeps the normal durable retry cadence.
+Concurrent flush callers share one in-flight flush per Space. D1 overload is
+storage backpressure, not evidence of a malformed request or a missing Agent
+account: it does not consume the candidate poison budget. The same durable
+outbox record remains recoverable through the shared alarm. An in-memory
+retry-not-before hint suppresses additional flushes for the normal redrive
+interval; eviction can shorten that hint but cannot lose the durable work.
+Other repeated candidate exceptions retain the bounded poison behavior and
+report a request-preparation failure, not an unproven account failure.
+Local, staging, and production direct delivery use the same runtime-aware
+submission function; the Worker environment must not select a different
+workstation recovery policy. Local Core enables direct delivery by default.
 The application-level outbox responsibility states are `pending`,
 `handed_off`, and `cancelled`. `handed_off` means the selected transport
 accepted responsibility: direct RuntimeCoordinator submission for workstation
