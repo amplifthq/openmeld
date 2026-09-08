@@ -49,6 +49,7 @@ import {
 	resolveOrganizationComputerGroups,
 } from "#/components/computers/organization-computers";
 import {
+	buildDirectoryAgentProfilesByOwner,
 	buildOrganizationHumanProfileRows,
 	buildPersonalHumanProfileRows,
 	type DirectoryDocumentsStatus,
@@ -461,6 +462,12 @@ function useDirectoryMembersOverviewModel(
 	});
 	const memberRows = isPersonalWorkspace
 		? buildPersonalHumanProfileRows({
+				agentProfileSummaries: buildDirectoryAgentProfilesByOwner({
+					members: input.directoryQuery.data?.members ?? [],
+					agentProfiles: input.directoryQuery.data?.agentProfiles ?? [],
+					orgSlug: input.currentOrganization.slug,
+					runtimeOverview: input.runtimeOverview,
+				}).get(input.currentUserId),
 				account: input.account,
 				canCreateHumanProfile,
 				computers: computersQuery.data ?? null,

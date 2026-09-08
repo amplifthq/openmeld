@@ -6,7 +6,11 @@ import type {
 export async function buildAcceptedDispatchSnapshot(input: {
   message: OpenMeldDaemonDispatchQueueMessage;
   openMeldServiceRuntimeId?: string | null;
-  runtimeKind?: "hosted_center_agent" | "openmeld_service" | null;
+  runtimeKind?:
+    | "hosted_center_agent"
+    | "hosted_remote_agent"
+    | "openmeld_service"
+    | null;
 }): Promise<OpenMeldDaemonAcceptedDispatchSnapshot | null> {
   const controllerSnapshot = input.message.controllerSnapshot;
   if (

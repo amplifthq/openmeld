@@ -46,6 +46,21 @@ const REMOTE_AGENT_RUNTIME_CONVERSATION_ID_MAX_CHARS = 2048;
 const contentHashSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const isoDateTimeSchema = z.iso.datetime({ offset: true });
 
+/** A personal Agent's Space conversation must not share a runtime with another Agent. */
+export function buildPersonalRemoteAgentConversationId(input: {
+  agentProfileId: string;
+  organizationId: string;
+  spaceId: string;
+}): string {
+  const parts = [input.organizationId, input.agentProfileId, input.spaceId].map(
+    (value) => nonEmptyStringSchema.max(256).parse(value)
+  );
+  return [
+    "personal-remote-agent.v1",
+    ...parts.map((value) => `${value.length}:${value}`),
+  ].join("|");
+}
+
 export function buildRemoteAgentRuntimeConversationId(input: {
   generation: number;
   logicalConversationId: string;
@@ -381,10 +396,17 @@ export const remoteAgentWorkerSubmitTurnRequestV2Schema = z.strictObject({
   modelRoute: centerAgentModelRouteSchema,
 });
 
+export const remoteAgentWorkerConversationIdentitySchema = z.strictObject({
+  kind: z.literal("personal_agent"),
+  agentProfileId: nonEmptyStringSchema,
+});
+
 export const remoteAgentWorkerSubmitTurnRequestV4Schema = z
   .strictObject({
     v: z.literal(4),
     ...remoteAgentWorkerSubmitTurnRequestShape,
+    conversationIdentity:
+      remoteAgentWorkerConversationIdentitySchema.optional(),
     conversationId: nonEmptyStringSchema.max(
       REMOTE_AGENT_LOGICAL_CONVERSATION_ID_MAX_CHARS
     ),
@@ -392,8 +414,39 @@ export const remoteAgentWorkerSubmitTurnRequestV4Schema = z
       remoteAgentConversationContinuityContextSchema.optional(),
     modelRoute: centerAgentModelRouteSchema,
     runtimeConversation: remoteAgentRuntimeConversationSchema,
+    spaceDispatchContext: z
+      .strictObject({
+        dispatchChainId: nonEmptyStringSchema,
+        autoRelayDepth: z.number().int().nonnegative(),
+        visitedProfileIds: z.array(nonEmptyStringSchema).max(256),
+        visitedProfileIdsHash: nonEmptyStringSchema,
+      })
+      .optional(),
   })
   .superRefine((request, context) => {
+    if (request.conversationIdentity?.kind === "personal_agent") {
+      if (!request.spaceDispatchContext) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "Personal Agent turns require their source dispatch context.",
+          path: ["spaceDispatchContext"],
+        });
+      }
+      if (
+        request.conversationIdentity.agentProfileId !==
+          request.agentProfileId ||
+        request.conversationId !==
+          buildPersonalRemoteAgentConversationId(request)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "Personal Agent conversations must match the Organization, Agent Profile, and Space.",
+          path: ["conversationIdentity"],
+        });
+      }
+    }
     const expectedRuntimeConversationId = buildRemoteAgentRuntimeConversationId(
       {
         generation: request.runtimeConversation.generation,

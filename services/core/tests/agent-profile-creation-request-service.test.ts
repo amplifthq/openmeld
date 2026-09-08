@@ -1,4 +1,7 @@
-import { DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION } from "@openmeld/schemas";
+import {
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "@openmeld/schemas";
 import type {
   AgentProfileCreationApprovalPolicy,
   CreateAgentProfileCreationRequestBody,
@@ -53,6 +56,34 @@ describe("Agent Profile creation request service", () => {
     });
     expect(projectApprovalInbox).toHaveBeenCalledWith(result.request);
     expect(createAgentProfile).not.toHaveBeenCalled();
+  });
+
+  it("creates a personal Remote Agent without local evidence and rejects creating one for a teammate", async () => {
+    const configuration = {
+      ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+    };
+    const result = await createService().create({
+      actorProfileId: "human-requester",
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+      body: requestBody({ configuration, targetOwnerUserId: "user-requester" }),
+    });
+    expect(result.request.status).toBe("completed");
+    expect(createAgentProfile).toHaveBeenCalledOnce();
+    await expect(
+      createService().create({
+        actorProfileId: "human-requester",
+        organizationId: "org-1",
+        requesterUserId: "user-requester",
+        body: requestBody({
+          configuration,
+          idempotencyKey: "remote-for-teammate",
+          targetOwnerUserId: "user-teammate",
+        }),
+      })
+    ).rejects.toBeInstanceOf(AgentProfileCreationRequestForbiddenError);
+    expect(createAgentProfile).toHaveBeenCalledOnce();
   });
 
   it("rejects a Web request without a run target before creating any identity or request", async () => {

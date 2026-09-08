@@ -27,6 +27,11 @@
 
 ## Boundary
 
+Personal native Agent creation and the Core/Remote private collaboration RPC
+use shared schemas, including the explicit `personal_agent` V4 identity. See
+the [personal Remote Agent contract audit](review/2026-09-08-personal-remote-agent-contract-impact-audit.md)
+for mixed-version behavior, receiver ordering, and rollback constraints.
+
 ### PeopleComputers
 
 `peopleComputersResponseSchema` is the owner inventory and connection-evidence

@@ -773,6 +773,14 @@ function assertRemoteAgentCallbackContextMatchesAdmission(input: {
   request: RemoteAgentWorkerSubmitTurnRequest;
   submissionId: string;
 }): void {
+  const requestConversationIdentity =
+    input.request.v === 4 ? input.request.conversationIdentity : undefined;
+  const conversationIdentityMatches = requestConversationIdentity
+    ? input.context.conversationIdentity?.kind ===
+        requestConversationIdentity.kind &&
+      input.context.conversationIdentity.agentProfileId ===
+        requestConversationIdentity.agentProfileId
+    : input.context.conversationIdentity === undefined;
   if (
     input.context.submissionId !== input.submissionId ||
     input.context.requestId !== input.submissionId ||
@@ -784,6 +792,7 @@ function assertRemoteAgentCallbackContextMatchesAdmission(input: {
       (input.request.v === 4
         ? input.request.runtimeConversation.id
         : undefined) ||
+    !conversationIdentityMatches ||
     input.context.spaceId !== input.request.spaceId
   ) {
     throw new Error(

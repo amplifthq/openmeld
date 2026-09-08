@@ -1,6 +1,7 @@
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
 import {
   buildRemoteAgentRuntimeConversationId,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_TOTAL_TEXT_MAX_CHARS,
@@ -313,7 +314,11 @@ function buildContinuityRequestContext(
   return {
     activeOrganizationId: request.organizationId,
     actorContext: {
-      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      agentControllerRef:
+        request.v === 4 &&
+        request.conversationIdentity?.kind === "personal_agent"
+          ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          : HOSTED_CENTER_AGENT_CONTROLLER_REF,
       ownerUserId: request.agentProfileOwnerUserId,
       profileKind: "agent",
       profileName: request.turnEnvelope.centerAgent.profileName,

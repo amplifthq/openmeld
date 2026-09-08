@@ -17,7 +17,11 @@ import {
   recordCallbackDeliveryFailure,
   redeliverDueRemoteAgentCallbacks,
 } from "../agent-core/callback-context";
-import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
+import {
+  createSubmitTurnRequest,
+  createSubmitTurnRequestV2,
+  TEST_NOW_MS,
+} from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const ACK = {
@@ -103,8 +107,8 @@ describe("remote agent callback context", () => {
     expect(completed).toMatchObject({ callbackStatus: "completed" });
   });
 
-  it("preserves the canonical conversation identity for isolated Task execution", () => {
-    const conversationId = "center-agent-task:task_123";
+  it("preserves the canonical conversation ID", () => {
+    const conversationId = "space_123";
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
       nowMs: TEST_NOW_MS,
@@ -112,6 +116,31 @@ describe("remote agent callback context", () => {
     });
 
     expect(context.conversationId).toBe(conversationId);
+  });
+
+  it("retains personal Agent identity through durable callback storage", async () => {
+    const request = createSubmitTurnRequestV2();
+    const conversationIdentity = {
+      kind: "personal_agent" as const,
+      agentProfileId: request.agentProfileId,
+    };
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: {
+        ...request,
+        v: 4,
+        conversationIdentity,
+        runtimeConversation: { generation: 0, id: request.conversationId },
+      },
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(storage, context);
+    const restored = await readRemoteAgentCallbackContext(
+      storage,
+      context.submissionId
+    );
+    expect(restored?.conversationIdentity).toEqual(conversationIdentity);
   });
 
   it("builds Core callback bodies only from stored R1a context and assistant text", () => {

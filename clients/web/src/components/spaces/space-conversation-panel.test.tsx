@@ -2397,13 +2397,7 @@ describe("SpaceConversationPanel", () => {
 		const centerAgentAvatar = screen.getByTestId(
 			"space-center-agent-profile-avatar-agent-profile-center"
 		);
-		expect(
-			centerAgentAvatar
-				.querySelector("canvas")
-				?.getAttribute("data-profile-avatar-seed")
-		).toBe(
-			"openmeld-dither-profile-avatar:v1:center-agent:agent-profile-center"
-		);
+		expect(centerAgentAvatar.getAttribute("data-shape")).toBe("circle");
 		const intro = introHeading.closest(
 			"[data-center-agent-direct-message-intro]"
 		);
@@ -2447,7 +2441,7 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
-	it("uses Dither for Center Agent messages in an ordinary Space", () => {
+	it("uses circular Fluid avatars for Center Agent messages in an ordinary Space", () => {
 		renderSpaceConversationPanel({
 			centerAgentProfileId: "agent-profile-center",
 			isCenterAgentDirectMessage: false,
@@ -2467,11 +2461,7 @@ describe("SpaceConversationPanel", () => {
 		const avatar = screen.getByTestId(
 			"space-center-agent-profile-avatar-agent-profile-center"
 		);
-		expect(
-			avatar.querySelector("canvas")?.getAttribute("data-profile-avatar-seed")
-		).toBe(
-			"openmeld-dither-profile-avatar:v1:center-agent:agent-profile-center"
-		);
+		expect(avatar.getAttribute("data-shape")).toBe("circle");
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
 	});
 

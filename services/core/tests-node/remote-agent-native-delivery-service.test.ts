@@ -5,6 +5,7 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY,
   REMOTE_AGENT_FAILURE_PURPOSE,
   REMOTE_AGENT_TRIGGER_TEXT_MAX_CHARS,
@@ -15,6 +16,7 @@ import {
   remoteAgentNativeDeliveryDeadlineProbeQueueMessageSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   resolveListSignalsReadQuerySemantics,
+  spaceMemberDirectorySchema,
 } from "@openmeld/schemas";
 import type {
   CenterAgentModelRoute,
@@ -66,6 +68,8 @@ import {
   submitRemoteAgentSlackNativeDelivery,
   submitRemoteAgentTaskContinuationDelivery,
 } from "../src/remote-agent/application/native-delivery-service";
+import { requirePersonalRemoteAgentBinding } from "../src/remote-agent/application/personal-remote-agent-binding";
+import { runPersonalRemoteAgentSpaceTool } from "../src/remote-agent/application/personal-remote-agent-space-tools";
 import { attachCenterAgentMemoryToTurnEnvelope } from "../src/remote-agent/application/remote-agent-memory-context";
 import {
   claimRemoteAgentNativeDeliveryTerminalFailure,
@@ -106,6 +110,138 @@ const THREAD_CONTEXT: NonNullable<
   rootSignalId: "signal_thread_root",
 };
 describe("Remote Agent native delivery callback service", () => {
+  it("admits a personal Agent without Center designation and without Center memory", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    harness.run({
+      sql: "UPDATE openmeld_profiles SET managed_role = NULL WHERE profile_id = ?",
+      params: [AGENT_PROFILE_ID],
+    });
+    harness.run({ sql: "DELETE FROM center_agent_designations" });
+    harness.run({
+      sql: "UPDATE openMeldDaemon_agent_profile_bindings SET runtime_kind = 'hosted_remote_agent', agent_controller_ref = 'hosted:remote-agent', openmeld_service_runtime_id = 'hosted:remote-agent', hosted_runtime_identity_json = ? WHERE binding_id = 'binding_1'",
+      params: [JSON.stringify(HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY)],
+    });
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 2100,
+        requestId: "personal-request",
+        status: "pending" as const,
+        submissionId: "personal-submission",
+      })
+    );
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const directory = spaceMemberDirectorySchema.parse({
+      spaceId: SPACE_ID,
+      generatedAt: new Date().toISOString(),
+      members: [AGENT_PROFILE_ID, HUMAN_PROFILE_ID].map((profileId) => ({
+        profileId,
+        profileKind: profileId === AGENT_PROFILE_ID ? "agent" : "human",
+        displayName: profileId,
+        primaryMentionLabel: profileId,
+        mentionLabels: [profileId],
+        mentionAlias: null,
+        labelSource: "profile_id",
+        lookupTokens: [profileId],
+        preferredLookupToken: profileId,
+        profileIdShort: profileId.slice(0, 8),
+        allowedRelations: {
+          wake: profileId === AGENT_PROFILE_ID,
+          reference: false,
+          mention: profileId === HUMAN_PROFILE_ID,
+        },
+        ownerUserId: "user_1",
+        ownerName: "Ari",
+        agentCard: null,
+        spaceRole: null,
+      })),
+    });
+    const readDirectory = vi.fn(async () => directory);
+    Object.assign(env.__spaceStub, { rpcGetMemberDirectory: readDirectory });
+    try {
+      const result = await submitRemoteAgentNativeDelivery({
+        binding: { ...createBinding(), personalAgent: true },
+        db: harness.db,
+        env,
+        executionAttemptId: "attempt_1",
+        memoryService: null,
+        message: createDispatchMessage(),
+        nowMs: 1000,
+      });
+      expect(result.status).toBe("submitted");
+      const request = workerSubmit.mock.calls[0]?.[0];
+      expect(request).toMatchObject({
+        v: 4,
+        conversationIdentity: {
+          kind: "personal_agent",
+          agentProfileId: AGENT_PROFILE_ID,
+        },
+        organizationSkillReleases: [],
+      });
+      expect(request?.conversationId).not.toBe(SPACE_ID);
+      expect(request?.turnEnvelope.memory).toBeUndefined();
+      const messageRead = {
+        submissionId: "personal-submission",
+        operation: { kind: "messages" },
+      };
+      const history = await runPersonalRemoteAgentSpaceTool(env, messageRead);
+      expect(history).toMatchObject({
+        kind: "messages",
+        messages: [{ content: { text: "Please help." } }],
+      });
+      expect(env.__spaceStub.rpcListSignalsResult).toHaveBeenLastCalledWith(
+        expect.objectContaining({ spaceId: SPACE_ID, limit: 31, recent: true })
+      );
+      await expect(
+        runPersonalRemoteAgentSpaceTool(env, {
+          ...messageRead,
+          operation: { kind: "messages", spaceId: "another-space" },
+        })
+      ).rejects.toThrow();
+      const readsBeforeRevocation =
+        env.__spaceStub.rpcListSignalsResult.mock.calls.length;
+      readDirectory.mockResolvedValueOnce({ ...directory, members: [] });
+      await expect(
+        runPersonalRemoteAgentSpaceTool(env, messageRead)
+      ).rejects.toThrow("space_membership_revoked");
+      expect(env.__spaceStub.rpcListSignalsResult).toHaveBeenCalledTimes(
+        readsBeforeRevocation
+      );
+      if (!request?.agentProfileOwnerUserId) {
+        throw new Error("expected personal Agent owner");
+      }
+      const identity = {
+        db: harness.db,
+        agentProfileId: request.agentProfileId,
+        organizationId: request.organizationId,
+        ownerUserId: request.agentProfileOwnerUserId,
+      };
+      await expect(
+        requirePersonalRemoteAgentBinding({
+          ...identity,
+          bindingId: "replaced-binding",
+        })
+      ).rejects.toThrow("personal_binding_changed");
+      await expect(
+        requirePersonalRemoteAgentBinding({
+          ...identity,
+          organizationId: "another-organization",
+        })
+      ).rejects.toThrow("personal_profile_unavailable");
+      harness.run({
+        sql: "DELETE FROM members WHERE organization_id = ? AND user_id = ?",
+        params: [identity.organizationId, identity.ownerUserId],
+      });
+      await expect(requirePersonalRemoteAgentBinding(identity)).rejects.toThrow(
+        "personal_profile_unavailable"
+      );
+    } finally {
+      harness.close();
+    }
+  });
   it("continues the same delivery after a tool-budget checkpoint and publishes only the later final result", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);

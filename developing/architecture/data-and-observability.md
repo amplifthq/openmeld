@@ -1215,14 +1215,14 @@ RuntimeCoordinator; a retryable workstation result stays in the unchanged
 outbox for alarm redrive and does not enter Queue. Direct processing uses the
 same dispatch claim, RuntimeCoordinator head, execution ledger, and idempotency
 key as the former Queue path. If the preflight authoritatively identifies the
-hosted Center Agent, direct processing instead uses the same native-delivery
+hosted Agent, direct processing instead uses the same native-delivery
 ledger, exact persisted worker request, and admission watchdog as Queue
 processing, and a retryable or outcome-ambiguous hosted result may send the
 same outbox message through Queue. A retryable preflight that cannot identify
 the hosted runtime stays in the outbox rather than blindly entering Queue.
 Diagnostics must distinguish `direct`, `queue`, `direct_queue_fallback`, and
 workstation routing from hosted native delivery. A Binding whose
-`runtimeKind` is `hosted_center_agent` uses the hosted runtime family as the
+`runtimeKind` is `hosted_center_agent` or `hosted_remote_agent` uses the hosted runtime family as the
 routing authority; a stale workstation controller snapshot is normalized at
 the Binding read boundary and recorded as diagnostic drift. It must not route
 the hosted Wake to local workspace readiness or produce simultaneous remote

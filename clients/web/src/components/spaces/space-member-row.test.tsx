@@ -645,7 +645,7 @@ describe("SpaceMemberRow", () => {
 		expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
 	});
 
-	it("uses Dither for the Center Agent in an ordinary Space", () => {
+	it("uses a circular Fluid avatar for the Center Agent in an ordinary Space", () => {
 		renderSpaceMemberRow({
 			centerAgentProfileId: "agt-1",
 			entry: buildAgentEntry({
@@ -654,9 +654,7 @@ describe("SpaceMemberRow", () => {
 		});
 
 		const avatar = screen.getByTestId("space-profile-icon-agt-1");
-		expect(
-			avatar.querySelector("canvas")?.getAttribute("data-profile-avatar-seed")
-		).toBe("openmeld-dither-profile-avatar:v1:center-agent:agt-1");
+		expect(avatar.getAttribute("data-shape")).toBe("circle");
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
 	});
 

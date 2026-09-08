@@ -1,4 +1,7 @@
-import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
+import {
+  HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "@openmeld/schemas";
 import type {
   CenterAgentToolSpeaker,
   OpenMeldRequestContext,
@@ -50,7 +53,10 @@ export function buildRemoteAgentCoreContext(
   return {
     activeOrganizationId: turnContext.organizationId,
     actorContext: {
-      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      agentControllerRef:
+        turnContext.conversationIdentity?.kind === "personal_agent"
+          ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          : HOSTED_CENTER_AGENT_CONTROLLER_REF,
       callerPrincipalId: turnContext.agentProfileOwnerUserId,
       ownerUserId: turnContext.agentProfileOwnerUserId,
       profileKind: "agent",

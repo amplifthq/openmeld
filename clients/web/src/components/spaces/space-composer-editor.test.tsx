@@ -397,12 +397,8 @@ describe("SpaceComposerEditor", () => {
 		const avatar = within(runnerOption).getByTestId(
 			`space-profile-icon-${AGENT_PROFILE_ID}`
 		);
-		expect(avatar.getAttribute("data-profile-kind")).toBe("center-agent");
-		expect(
-			avatar.querySelector("canvas")?.getAttribute("data-profile-avatar-seed")
-		).toBe(
-			`openmeld-dither-profile-avatar:v1:center-agent:${AGENT_PROFILE_ID}`
-		);
+		expect(avatar.getAttribute("data-slot")).toBe("fluid-avatar");
+		expect(avatar.getAttribute("data-shape")).toBe("circle");
 		expect(
 			within(runnerOption).queryByTestId("local-agent-logo-codex")
 		).toBeNull();

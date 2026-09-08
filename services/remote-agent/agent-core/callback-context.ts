@@ -13,6 +13,7 @@ import {
   remoteAgentCoreCallbackBodySchema,
   remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
+  remoteAgentWorkerConversationIdentitySchema,
   remoteAgentWorkLoopCheckpointSchema,
   resolveMappedPublicAgentFailureReason,
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
@@ -197,6 +198,9 @@ export type RemoteAgentCallbackContext = {
   callbackStatus: RemoteAgentCallbackStatus;
   completedText?: string;
   conversationId?: string;
+  conversationIdentity?: import("zod/v4").infer<
+    typeof remoteAgentWorkerConversationIdentitySchema
+  >;
   runtimeConversationId?: string;
   conversationCompaction?: ConversationCompactionMarker;
   outputAttachments?: SpaceMessageAttachment[];
@@ -515,6 +519,7 @@ export type RemoteAgentCoreWorkerBinding = {
   ): Promise<unknown>;
   centerAgentUpdateSpaceSettings?(input: unknown): Promise<unknown>;
   centerAgentWakeAgentProfilesInSpace?(input: unknown): Promise<unknown>;
+  personalRemoteAgentSpaceTool?(input: unknown): Promise<unknown>;
   centerAgentListAgentTasks?(input: unknown): Promise<unknown>;
   centerAgentWatchAgentTask?(input: unknown): Promise<unknown>;
   inspectExecutionRecovery?(input: unknown): Promise<unknown>;
@@ -619,6 +624,9 @@ export function createRemoteAgentCallbackContext(input: {
     callbackAttempts: 0,
     callbackStatus: "pending",
     conversationId: input.request.conversationId,
+    ...(input.request.v === 4 && input.request.conversationIdentity
+      ? { conversationIdentity: input.request.conversationIdentity }
+      : {}),
     ...(input.request.v === 4
       ? { runtimeConversationId: input.request.runtimeConversation.id }
       : {}),
@@ -1854,6 +1862,10 @@ function isRemoteAgentCallbackContext(
     (candidate.conversationCompaction === undefined ||
       conversationCompactionMarkerSchema.safeParse(
         candidate.conversationCompaction
+      ).success) &&
+    (candidate.conversationIdentity === undefined ||
+      remoteAgentWorkerConversationIdentitySchema.safeParse(
+        candidate.conversationIdentity
       ).success) &&
     (candidate.runtimeConversationId === undefined ||
       (typeof candidate.runtimeConversationId === "string" &&
