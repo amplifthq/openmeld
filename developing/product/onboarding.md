@@ -116,6 +116,24 @@ Setup flow presentation copy for the shared CLI/Prepare experience remains in
 production Web setup surface for the optional computer step rather than
 forking its command, PrepareSession, or live-status behavior.
 
+## Welcome Space Tutorial
+
+The optional **Welcome Space tutorial** is a presentation layer over an ordinary
+Space, shared by Desk and the full Space page. Its single path is: understand
+Space, add people or agents through the existing member selector and New Agent
+flow, then send an editable introduction to those members. The initial Center
+Agent is a collaborator, not an alternative sample-task funnel. One dashed
+action card presents the next action; creating a local agent continues to use
+the existing computer setup flow. No tutorial code derives readiness or sends
+messages automatically.
+
+The browser-local marker identifies a tutorial independently of its Space name.
+It may remember pause/completion and draft recipient IDs, but active membership,
+names, permissions, and readiness come from their existing owners. Only a real
+reply from an added Agent completes the collaboration step. Removing recipients
+or clearing a draft leaves a usable next action. Ordinary Space guidance is
+unchanged; replay creates a new ordinary Space and preserves previous work.
+
 ## Product Invariants
 
 1. **Configured value before abstract teaching.** Setup Studio first helps the
@@ -148,7 +166,8 @@ forking its command, PrepareSession, or live-status behavior.
    Versioned, account-scoped local storage may remember the current Setup Studio
    step and completion. Re-entering or restarting the flow must reconcile every
    control against live owning data. It must never create a second connection,
-   policy, or readiness state. This allowance applies only to Setup Studio.
+   policy, or readiness state. This allowance applies to Setup Studio and the
+   explicit Welcome Space tutorial described above.
    Contextual guidance stores no current step or completion token and recomputes
    its presentation from current facts on every render.
 5. **Permissions shape the flow.** An owner/admin may connect shared

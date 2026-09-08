@@ -65,13 +65,61 @@ export function useWelcomeSpace(scope: string, spaceId: string) {
 	);
 }
 
-export function buildWelcomeSpaceDraft(
-	members: readonly {
-		profileId: string;
-		profileName: string;
-		profileKind: "human" | "agent";
-	}[]
+type WelcomeMember = {
+	profileId: string;
+	profileName: string;
+	profileKind: "human" | "agent";
+};
+
+/** Draft recipient selection only; membership always comes from the Space snapshot. */
+export function saveWelcomeRecipients(
+	scope: string,
+	spaceId: string,
+	ids: string[]
 ) {
+	localStorage.setItem(
+		`${key(scope, spaceId)}:recipients`,
+		JSON.stringify(ids)
+	);
+}
+
+export function readWelcomeRecipients(
+	scope: string,
+	spaceId: string
+): string[] {
+	try {
+		const value: unknown = JSON.parse(
+			localStorage.getItem(`${key(scope, spaceId)}:recipients`) ?? "[]"
+		);
+		return Array.isArray(value) && value.every((id) => typeof id === "string")
+			? value
+			: [];
+	} catch {
+		return [];
+	}
+}
+
+export function resolveWelcomeRecipients<T extends WelcomeMember>(
+	members: readonly T[],
+	recipientIds: readonly string[],
+	centerAgentId: string | null | undefined,
+	selfId: string
+): T[] {
+	if (recipientIds.length > 0) {
+		return recipientIds.flatMap((id) => {
+			const member = members.find((candidate) => candidate.profileId === id);
+			return member ? [member] : [];
+		});
+	}
+	return members.filter(
+		(member) =>
+			member.profileKind === "agent" &&
+			member.profileId !== centerAgentId &&
+			member.profileId !== selfId
+	);
+}
+
+export function buildWelcomeSpaceDraft(members: readonly WelcomeMember[]) {
 	let text = "";
 	const authoredMentions: ComposerDraftAuthoredMention[] = [];
 	for (const member of members) {
@@ -86,7 +134,7 @@ export function buildWelcomeSpaceDraft(
 		text += `${label} `;
 	}
 	text +=
-		"Help me plan a simple personal website. Suggest three first steps. Don’t change any files yet.";
+		"What can you help with in this Space, and what do you need from me to get started?";
 	return {
 		text,
 		authoredMentions,

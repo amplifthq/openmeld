@@ -1,6 +1,5 @@
 import { Button } from "@openmeld/ui/components/button";
-import { FluidCardGroup } from "@openmeld/ui/fluid/card";
-import { RobotIcon } from "@phosphor-icons/react";
+import { ChatCircleIcon, PlusIcon } from "@phosphor-icons/react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { EmptyStateSetupActionCard } from "./onboarding-setup-banner";
 import {
@@ -23,7 +22,9 @@ export function WelcomeSpaceGuide(input: {
 	scope: string;
 	spaceId: string;
 	onAddAgents?: () => void;
-	onTryCenterAgent?: () => void;
+	hasRecipients: boolean;
+	hasDraft: boolean;
+	onPrepareConversation: () => void;
 }) {
 	const step = useWelcomeSpace(input.scope, input.spaceId);
 	if (!step || step === "prepare") {
@@ -56,10 +57,35 @@ export function WelcomeSpaceGuide(input: {
 			aria-label="Welcome Space tutorial"
 			className="mx-auto grid w-full max-w-xl gap-4 py-4"
 		>
-			<div className="flex items-start justify-between gap-4">
-				<div className="grid gap-2">
-					<h2 className="font-medium text-base">Try working with an agent</h2>
+			{!input.hasRecipients && input.onAddAgents && (
+				<EmptyStateSetupActionCard
+					description="Choose an existing agent or create one to join this Space."
+					icon={<PlusIcon className="size-5" />}
+					itemId="welcome-add-agent"
+					onClick={input.onAddAgents}
+					presentation="centered"
+					title="Add your first agent"
+				/>
+			)}
+			{input.hasRecipients && !input.hasDraft && (
+				<EmptyStateSetupActionCard
+					description="Prepare a message to the members you added. You can edit it before sending."
+					icon={<ChatCircleIcon className="size-5" />}
+					itemId="welcome-start-conversation"
+					onClick={input.onPrepareConversation}
+					presentation="centered"
+					title="Start a conversation"
+				/>
+			)}
+			{input.hasRecipients && input.hasDraft && (
+				<div className="grid gap-2 rounded-md border border-border/70 border-dashed px-6 py-6 text-center">
+					<p className="font-medium text-base">Send your first message</p>
+					<p className="text-muted-foreground text-sm">
+						Your draft is below. Edit it or send it to start the conversation.
+					</p>
 				</div>
+			)}
+			<div className="flex justify-end">
 				<Button
 					onClick={() => saveWelcomeSpace(input.scope, input.spaceId, "paused")}
 					size="sm"
@@ -68,32 +94,6 @@ export function WelcomeSpaceGuide(input: {
 					Skip tutorial
 				</Button>
 			</div>
-			{step === "add" && input.onAddAgents ? (
-				<FluidCardGroup>
-					<EmptyStateSetupActionCard
-						description="Choose an agent or create your own. Then give it a task in this Space."
-						icon={<RobotIcon className="size-5" />}
-						itemId="welcome-add-agent"
-						onClick={input.onAddAgents}
-						title="Add your first agent"
-					/>
-				</FluidCardGroup>
-			) : (
-				<p className="text-muted-foreground text-sm">
-					{input.onTryCenterAgent
-						? "Write a task and mention an agent, or try a suggested task below."
-						: "Review your message or write a task, mention an agent, then send it."}
-				</p>
-			)}
-			{input.onTryCenterAgent && (
-				<Button
-					className="justify-self-center"
-					onClick={input.onTryCenterAgent}
-					variant={step === "add" ? "outline" : "default"}
-				>
-					Try a task with Center Agent
-				</Button>
-			)}
 		</section>
 	);
 }

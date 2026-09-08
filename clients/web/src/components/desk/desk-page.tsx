@@ -436,7 +436,7 @@ function DeskWindow({ data }: NodeProps<DeskNode>) {
 				</h2>
 				<p className="text-base text-muted-foreground">
 					{welcomeStep === "add" || welcomeStep === "send"
-						? "This Space is ready. Try working with an agent below."
+						? "Your Welcome Space is ready."
 						: "Your work, together in one place."}
 				</p>
 				{welcomeStep === "add" && (

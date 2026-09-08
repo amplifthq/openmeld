@@ -1,13 +1,62 @@
 import { beforeEach, expect, it } from "vitest";
 import {
 	buildWelcomeSpaceDraft,
+	readWelcomeRecipients,
 	readWelcomeSpace,
+	resolveWelcomeRecipients,
 	resumeWelcomeSpace,
+	saveWelcomeRecipients,
 	saveWelcomeSpace,
 	welcomeStepStartedAt,
 } from "./welcome-space-state";
 
 beforeEach(() => localStorage.clear());
+it("does not count the preinstalled Center Agent as completing the add step", () => {
+	expect(
+		resolveWelcomeRecipients(
+			[
+				{
+					profileId: "center",
+					profileName: "Center Agent",
+					profileKind: "agent",
+				},
+				{ profileId: "self", profileName: "Me", profileKind: "human" },
+			],
+			[],
+			"center",
+			"self"
+		)
+	).toEqual([]);
+});
+it("restores the selected batch from current members and excludes removed members", () => {
+	saveWelcomeRecipients("account-a", "space-a", ["agent", "person", "removed"]);
+	const recipients = resolveWelcomeRecipients(
+		[
+			{
+				profileId: "agent",
+				profileName: "Renamed agent",
+				profileKind: "agent",
+			},
+			{ profileId: "person", profileName: "Sam", profileKind: "human" },
+			{
+				profileId: "center",
+				profileName: "Center Agent",
+				profileKind: "agent",
+			},
+		],
+		readWelcomeRecipients("account-a", "space-a"),
+		"center",
+		"self"
+	);
+	expect(recipients.map((member) => member.profileId)).toEqual([
+		"agent",
+		"person",
+	]);
+	expect(buildWelcomeSpaceDraft(recipients).text).toContain(
+		"@Renamed agent @Sam"
+	);
+	expect(readWelcomeRecipients("account-b", "space-a")).toEqual([]);
+});
 it("resumes the same send step without moving its message cutoff", () => {
 	saveWelcomeSpace("account-a", "space-a", "send");
 	const startedAt = welcomeStepStartedAt("account-a", "space-a");

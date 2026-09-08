@@ -234,6 +234,7 @@ type SpaceConversationPanelResolvedProps = {
 		SpaceWakeStopRequestStatus
 	>;
 	emptyStateDescription?: string | null;
+	emptyStateAlignment?: "start" | "center";
 	emptyStateTitle?: string;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
@@ -761,6 +762,7 @@ function renderPanelConversationBody(input: {
 		currentOwnerUserId: panel.currentOwnerUserId,
 		emptyStateActions: input.emptyStateActions,
 		emptyStateDescription: panel.emptyStateDescription,
+		emptyStateAlignment: panel.emptyStateAlignment,
 		emptyStateTitle: panel.emptyStateTitle,
 		entries: presentation.entries,
 		ephemeralActivityItems: panel.ephemeralActivityItems,
@@ -2036,6 +2038,7 @@ function renderConversationBody(input: {
 	currentOwnerUserId: string | null;
 	emptyStateActions?: ReactNode;
 	emptyStateDescription?: string | null;
+	emptyStateAlignment?: "start" | "center";
 	emptyStateTitle?: string;
 	entries: ReturnType<typeof buildSpaceConversationEntries>;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
@@ -2151,7 +2154,14 @@ function renderConversationBody(input: {
 				className="flex flex-1 [content-visibility:visible]"
 				messageId="space-conversation-empty"
 			>
-				<div className="flex min-h-56 w-full flex-1 items-center justify-center px-6 py-8">
+				<div
+					className={cn(
+						"flex min-h-56 w-full flex-1 justify-center px-6 py-8",
+						input.emptyStateAlignment === "start"
+							? "items-start"
+							: "items-center"
+					)}
+				>
 					<div className="flex w-full max-w-2xl flex-col items-center gap-6 text-center">
 						<div className="grid max-w-xl gap-2">
 							<h2 className="font-medium text-xl">

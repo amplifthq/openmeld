@@ -16,7 +16,8 @@ restore the default layout. Personal workspaces can also select their
 Center Agent in the shared Add People or Agents dialog.
 
 Welcome Spaces include the workspace's Center Agent and a short guide to adding
-your own agent. Adding members prepares an editable first-task draft; you decide
-when to send it. You can also try a task with Center Agent, pause the tutorial,
+your own agent through one dashed action card. Adding members prepares an
+editable introduction addressed to those members; you decide when to send it.
+If you clear it, the card lets you prepare it again. You can pause the tutorial
 or start a new Welcome Space. Tutorial progress and Welcome labels are remembered
 in this browser, including when you open the Space full screen.

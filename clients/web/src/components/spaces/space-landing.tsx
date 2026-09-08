@@ -180,7 +180,10 @@ import { useWakeDisplayDebounce } from "./use-wake-display-debounce";
 import { WelcomeSpaceGuide } from "./welcome-space-guide";
 import {
 	buildWelcomeSpaceDraft,
+	readWelcomeRecipients,
 	readWelcomeSpace,
+	resolveWelcomeRecipients,
+	saveWelcomeRecipients,
 	saveWelcomeSpace,
 	useWelcomeSpace,
 	welcomeStepStartedAt,
@@ -2016,13 +2019,36 @@ function SpaceLandingConversation({
 		wakeFailureTargetContextsByProfileId,
 	} = state;
 	const welcomeStep = useWelcomeSpace(recovery.storageScope, input.spaceId);
-	const welcomeCenterAgent = controller.membersSnapshot?.agents.find(
-		(agent) =>
-			agent.profileId === centerAgentState.centerAgentProfileId &&
-			agent.status === "active"
+	const welcomeRecipients = useMemo(
+		() =>
+			!welcomeStep || centerAgentState.designationPending
+				? []
+				: resolveWelcomeRecipients(
+						[
+							...(controller.membersSnapshot?.humans ?? []),
+							...(controller.membersSnapshot?.agents ?? []),
+						].filter((member) => member.status === "active"),
+						readWelcomeRecipients(recovery.storageScope, input.spaceId),
+						centerAgentState.centerAgentProfileId,
+						input.profileId
+					),
+		[
+			controller.membersSnapshot,
+			welcomeStep,
+			recovery.storageScope,
+			input.spaceId,
+			centerAgentState.centerAgentProfileId,
+			centerAgentState.designationPending,
+			input.profileId,
+		]
+	);
+	const hasWelcomeDraft = Boolean(
+		controller.composerText.trim() ||
+			controller.composerFiles.length ||
+			controller.composerReplyToSignalId
 	);
 	useEffect(() => {
-		if (welcomeStep !== "send") {
+		if (welcomeStep !== "send" && welcomeStep !== "add") {
 			return;
 		}
 		const since = welcomeStepStartedAt(recovery.storageScope, input.spaceId);
@@ -2040,6 +2066,9 @@ function SpaceLandingConversation({
 			controller.timelineItems.some(
 				(item) =>
 					item.actorProfileKind === "agent" &&
+					welcomeRecipients.some(
+						(member) => member.profileId === item.actorProfileId
+					) &&
 					item.deliveryState === "sent" &&
 					item.createdAtMs > since &&
 					!!item.replyToSignalId &&
@@ -2055,6 +2084,7 @@ function SpaceLandingConversation({
 		input.spaceId,
 		input.profileId,
 		controller.timelineItems,
+		welcomeRecipients,
 	]);
 	let readOnlyComposerPlaceholder: string | undefined;
 	if (agentOwnerDirectMessageObserver) {
@@ -2082,11 +2112,16 @@ function SpaceLandingConversation({
 			composerReplyToSignalId={controller.composerReplyToSignalId}
 			composerText={controller.composerText}
 			currentOwnerUserId={currentOwnerUserId}
-			emptyStateDescription={resolveSpaceConversationEmptyStateDescription({
-				isAgentOwnerDirectMessageObserver:
-					agentOwnerDirectMessageObserver !== null,
-				isDirectMessage,
-			})}
+			emptyStateAlignment={welcomeStep ? "start" : "center"}
+			emptyStateDescription={
+				welcomeStep
+					? null
+					: resolveSpaceConversationEmptyStateDescription({
+							isAgentOwnerDirectMessageObserver:
+								agentOwnerDirectMessageObserver !== null,
+							isDirectMessage,
+						})
+			}
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			files={
@@ -2145,24 +2180,24 @@ function SpaceLandingConversation({
 				if (welcomeStep) {
 					return (
 						<WelcomeSpaceGuide
+							hasDraft={hasWelcomeDraft}
+							hasRecipients={welcomeRecipients.length > 0}
 							onAddAgents={currentSpaceControls.onAddAgentsFromBanner}
-							onTryCenterAgent={
-								!welcomeCenterAgent ||
-								controller.composerText.trim() ||
-								controller.composerFiles.length > 0 ||
-								controller.composerReplyToSignalId
-									? undefined
-									: () => {
-											controller.onComposerEditorChange(
-												buildWelcomeSpaceDraft([welcomeCenterAgent])
-											);
-											saveWelcomeSpace(
-												recovery.storageScope,
-												input.spaceId,
-												"send"
-											);
-										}
-							}
+							onPrepareConversation={() => {
+								if (hasWelcomeDraft || welcomeRecipients.length === 0) {
+									return;
+								}
+								controller.onComposerEditorChange(
+									buildWelcomeSpaceDraft(welcomeRecipients)
+								);
+								if (welcomeStep === "add") {
+									saveWelcomeSpace(
+										recovery.storageScope,
+										input.spaceId,
+										"send"
+									);
+								}
+							}}
 							scope={recovery.storageScope}
 							spaceId={input.spaceId}
 						/>
@@ -2908,8 +2943,9 @@ function prepareWelcomeDraft(
 	}
 ) {
 	const { controller } = input;
+	const step = readWelcomeSpace(input.storageScope, controller.spaceId);
 	if (
-		readWelcomeSpace(input.storageScope, controller.spaceId) !== "add" ||
+		(step !== "add" && step !== "send") ||
 		response.addedMemberIds.length === 0
 	) {
 		return;
@@ -2920,6 +2956,11 @@ function prepareWelcomeDraft(
 	if (members.length === 0) {
 		return;
 	}
+	saveWelcomeRecipients(
+		input.storageScope,
+		controller.spaceId,
+		members.map((member) => member.profileId)
+	);
 	if (
 		!controller.composerText.trim() &&
 		controller.composerFiles.length === 0 &&
