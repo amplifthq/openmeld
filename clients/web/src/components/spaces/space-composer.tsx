@@ -24,7 +24,10 @@ import {
 	type SpaceComposerConversationKind,
 	type SpaceComposerPlacement,
 } from "./space-composer-copy";
-import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
+import {
+	canSubmitSpaceComposerDeviceWait,
+	type SpaceComposerSendOptions,
+} from "./space-composer-device-wait";
 import { SpaceComposerDeviceWaitControl } from "./space-composer-device-wait-control";
 import {
 	SpaceComposerEditor,
@@ -153,7 +156,8 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		uploadInProgress,
 	});
 	const blockedWakeHint = resolveSpaceComposerBlockedWakeHint(
-		input.content.addressingTargets
+		input.content.addressingTargets,
+		deviceWait
 	);
 	const accessHint = input.availability.canSendMessage
 		? null
@@ -292,13 +296,15 @@ export function SpaceComposer(input: SpaceComposerProps) {
 }
 
 function resolveSpaceComposerBlockedWakeHint(
-	targets: readonly SpaceComposerAddressingTarget[]
+	targets: readonly SpaceComposerAddressingTarget[],
+	deviceWait?: WakeDeviceWait
 ): string | null {
 	const blockedWakeTarget = targets.find(
 		(target) =>
 			target.relation === "wake" &&
 			target.wakeAvailability.status !== "ready" &&
-			target.wakeAvailability.status !== "preparing"
+			target.wakeAvailability.status !== "preparing" &&
+			!canSubmitSpaceComposerDeviceWait(target, deviceWait)
 	);
 	if (!blockedWakeTarget) {
 		return null;

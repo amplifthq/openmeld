@@ -1,4 +1,3 @@
-import { MAX_WAKE_DEVICE_WAIT_MS } from "@openmeld/schemas";
 import type {
 	SpaceMembersSnapshot,
 	WakeDeviceWait,
@@ -7,6 +6,10 @@ import {
 	createSpaceTargetCatalog,
 	SpaceComposerSubmissionError,
 } from "@openmeld/space";
+import {
+	canSubmitSpaceComposerDeviceWait,
+	isCurrentSpaceComposerDeviceWait,
+} from "./space-composer-device-wait";
 
 const WAKEABILITY_CHECK_FAILED_MESSAGE =
 	"OpenMeld couldn't confirm that this agent can reply right now. Try again.";
@@ -39,13 +42,8 @@ export async function requireCurrentSpaceComposerWakeAdmission(input: {
 		if (
 			!(
 				agentProfileIds.includes(wait.targetProfileId) &&
-				member?.deviceWaitTarget
-			) ||
-			member.deviceWaitTarget.bindingId !== wait.bindingId ||
-			member.deviceWaitTarget.openMeldServiceRuntimeId !==
-				wait.openMeldServiceRuntimeId ||
-			wait.deadlineAtMs <= Date.now() ||
-			wait.deadlineAtMs > Date.now() + MAX_WAKE_DEVICE_WAIT_MS
+				isCurrentSpaceComposerDeviceWait(member, wait)
+			)
 		) {
 			throw createWakeBlockedError(
 				"The selected computer or deadline changed. Choose the waiting option again.",
@@ -68,13 +66,7 @@ export async function requireCurrentSpaceComposerWakeAdmission(input: {
 		const member = membersSnapshot.agents.find(
 			(candidate) => candidate.profileId === agentProfileId
 		);
-		if (
-			input.deviceWait?.targetProfileId === agentProfileId &&
-			((member?.agentWakeAvailability?.category === "offline" &&
-				!member.agentWakeAvailability.isRefreshing) ||
-				member?.agentWakeAvailability?.reasonCode ===
-					"local_service.reconnecting")
-		) {
+		if (canSubmitSpaceComposerDeviceWait(member, input.deviceWait)) {
 			continue;
 		}
 

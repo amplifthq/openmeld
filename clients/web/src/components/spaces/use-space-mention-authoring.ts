@@ -55,6 +55,7 @@ export type SpaceReplyToSignalInput = {
 };
 
 export type SpaceComposerAddressingTarget = {
+	agentWakeAvailability?: import("@openmeld/schemas/types").SpaceMemberAgentSnapshot["agentWakeAvailability"];
 	deviceWaitTarget?: import("@openmeld/schemas/types").WakeDeviceWaitTarget;
 	runtimeDeviceDisplayName?: string | null;
 	allowedRelations: SpaceSendTargetAllowedRelations;
@@ -515,10 +516,12 @@ export function buildSpaceComposerAddressingTargets(input: {
 		if (!target?.allowedRelations[mention.relation]) {
 			continue;
 		}
+		const member = input.snapshot.agents.find(
+			(candidate) => candidate.profileId === target.profileId
+		);
 		targetByProfileId.set(mention.profileId, {
-			deviceWaitTarget: input.snapshot.agents.find(
-				(member) => member.profileId === target.profileId
-			)?.deviceWaitTarget,
+			agentWakeAvailability: member?.agentWakeAvailability,
+			deviceWaitTarget: member?.deviceWaitTarget,
 			runtimeDeviceDisplayName: target.runtimeDeviceDisplayName,
 			allowedRelations: target.allowedRelations,
 			primaryMentionLabel: target.primaryMentionLabel,

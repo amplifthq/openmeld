@@ -1,7 +1,48 @@
-import { normalizeMessageEnvelope } from "@openmeld/schemas";
-import type { MessageEnvelope, WakeDeviceWait } from "@openmeld/schemas/types";
+import {
+	MAX_WAKE_DEVICE_WAIT_MS,
+	normalizeMessageEnvelope,
+} from "@openmeld/schemas";
+import type {
+	MessageEnvelope,
+	SpaceMemberAgentSnapshot,
+	WakeDeviceWait,
+} from "@openmeld/schemas/types";
 
 export type SpaceComposerSendOptions = { deviceWait?: WakeDeviceWait };
+
+type DeviceWaitMember = Pick<
+	SpaceMemberAgentSnapshot,
+	"profileId" | "deviceWaitTarget" | "agentWakeAvailability"
+>;
+
+export function isCurrentSpaceComposerDeviceWait(
+	member: DeviceWaitMember | undefined,
+	wait: WakeDeviceWait | undefined,
+	nowMs = Date.now()
+): boolean {
+	return Boolean(
+		wait &&
+			member?.deviceWaitTarget &&
+			member.profileId === wait.targetProfileId &&
+			member.deviceWaitTarget.bindingId === wait.bindingId &&
+			member.deviceWaitTarget.openMeldServiceRuntimeId ===
+				wait.openMeldServiceRuntimeId &&
+			wait.deadlineAtMs > nowMs &&
+			wait.deadlineAtMs <= nowMs + MAX_WAKE_DEVICE_WAIT_MS
+	);
+}
+
+export function canSubmitSpaceComposerDeviceWait(
+	member: DeviceWaitMember | undefined,
+	wait: WakeDeviceWait | undefined
+): boolean {
+	const availability = member?.agentWakeAvailability;
+	return (
+		isCurrentSpaceComposerDeviceWait(member, wait) &&
+		((availability?.category === "offline" && !availability.isRefreshing) ||
+			availability?.reasonCode === "local_service.reconnecting")
+	);
+}
 
 export function applyDeviceWaitToSubmission<
 	T extends {

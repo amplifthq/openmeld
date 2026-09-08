@@ -18597,7 +18597,10 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
     trace: input.trace,
     deviceWait:
       input.outboxRecord?.deviceWait ??
-      input.sourceSignal?.data.meta?.deviceWait,
+      (input.sourceSignal?.data.meta?.deviceWait?.targetProfileId ===
+      input.lookupMatch.targetProfileId
+        ? input.sourceSignal.data.meta.deviceWait
+        : undefined),
   });
   const finalVisibleProgress =
     headLifecycleProgress && !input.trace?.finalVisibleMessage
