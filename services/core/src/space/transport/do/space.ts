@@ -206,6 +206,7 @@ import {
   getSpaceAccessRequestContext,
   type SpaceAccessContext,
 } from "@openmeld/space";
+import { buildSystemNoticeText } from "@openmeld/space-mesh";
 import { readPrimaryAgentProfileBindingRecord } from "../../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import {
   recordRuntimeCoordinatorFailureTaskOutcome,
@@ -3435,6 +3436,25 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcApplyRuntimeCoordinatorPublicationExhaustionCommand(
     input: RuntimeCoordinatorFinalizationCommand
   ): Promise<RuntimeCoordinatorFinalizationClaimRead> {
+    return await this.applyRuntimeCoordinatorFinalNoticeCommand(
+      input,
+      "terminal_failure"
+    );
+  }
+
+  async rpcApplyRuntimeCoordinatorWakeStopCommand(
+    input: RuntimeCoordinatorFinalizationCommand
+  ): Promise<RuntimeCoordinatorFinalizationClaimRead> {
+    return await this.applyRuntimeCoordinatorFinalNoticeCommand(
+      input,
+      "wake_stopped"
+    );
+  }
+
+  private async applyRuntimeCoordinatorFinalNoticeCommand(
+    input: RuntimeCoordinatorFinalizationCommand,
+    noticeType: "terminal_failure" | "wake_stopped"
+  ): Promise<RuntimeCoordinatorFinalizationClaimRead> {
     const parsed = runtimeCoordinatorFinalizationCommandSchema.safeParse(input);
     if (!parsed.success) {
       return { status: "unresolved" };
@@ -3466,7 +3486,10 @@ export class Space extends DurableObject<CoreBindings> {
       command.dispatchFact.sourceEventId
     );
     const signalContext = {
-      finalOutcomeAuthority: "runtime_coordinator_failure_publication",
+      finalOutcomeAuthority:
+        noticeType === "wake_stopped"
+          ? "runtime_coordinator_wake_stop_publication"
+          : "runtime_coordinator_failure_publication",
       ...(threadContext ? { threadContext } : {}),
     } satisfies SignalPublishContext;
     const signal = this.buildSystemNoticeSignal(
@@ -3479,15 +3502,31 @@ export class Space extends DurableObject<CoreBindings> {
         actorProfileId: command.targetProfileId,
         ...resolveRuntimeCoordinatorPublicationExhaustionActorName({ command }),
         dispatchId: command.dispatchId,
-        failureStage: "publication",
+        ...(noticeType === "terminal_failure"
+          ? { failureStage: "publication" as const }
+          : {}),
         generatedBy: "openmeld",
-        noticeType: "terminal_failure",
-        reason: RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
-        reasonCode: RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
+        noticeType,
+        reason:
+          noticeType === "wake_stopped"
+            ? "runtime_coordinator.wake_stop_requested"
+            : RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
+        reasonCode:
+          noticeType === "wake_stopped"
+            ? "runtime_coordinator.wake_stop_requested"
+            : RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
         ...(replyTo ? { replyTo } : {}),
-        text: buildRuntimeCoordinatorPublicationExhaustionNoticeText({
-          command,
-        }),
+        text:
+          noticeType === "wake_stopped"
+            ? buildSystemNoticeText({
+                ...resolveRuntimeCoordinatorPublicationExhaustionActorName({
+                  command,
+                }),
+                noticeType: "wake_stopped",
+              })
+            : buildRuntimeCoordinatorPublicationExhaustionNoticeText({
+                command,
+              }),
       }
     );
     await armSpaceInboxProjectionRecoveryAlarm({
@@ -3510,7 +3549,8 @@ export class Space extends DurableObject<CoreBindings> {
     const settledClaim = readClaim();
     if (
       persistResult.persistedSignal &&
-      settledClaim.status === "publication_failed_visible" &&
+      (settledClaim.status === "publication_failed_visible" ||
+        settledClaim.status === "wake_stopped_visible") &&
       settledClaim.publishedSignalId === signal.id
     ) {
       this.broadcastSignal(signal, signalContext, { persisted: true });

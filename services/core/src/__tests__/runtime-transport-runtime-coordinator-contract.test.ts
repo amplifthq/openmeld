@@ -24,6 +24,7 @@ import type {
   RuntimeCoordinatorExecutionTokenEnvelope,
   RuntimeCoordinatorFailurePublicationCommand,
   RuntimeCoordinatorFailurePublicationOutcome,
+  RuntimeCoordinatorFinalizationClaimRead,
   RuntimeCoordinatorFinalizationCommand,
   RuntimeCoordinatorFinalizationOutcome,
   RuntimeTransportCapabilities,
@@ -1134,9 +1135,20 @@ const createHarness = (input?: {
       }
     ),
     rpcReadRuntimeCoordinatorFinalizationClaimOutcome: vi.fn(
-      (_command: RuntimeCoordinatorFinalizationCommand) =>
+      (
+        _command: RuntimeCoordinatorFinalizationCommand
+      ): Promise<RuntimeCoordinatorFinalizationClaimRead> =>
         Promise.resolve({
           status: "unresolved" as const,
+        })
+    ),
+    rpcApplyRuntimeCoordinatorWakeStopCommand: vi.fn(
+      (
+        _command: RuntimeCoordinatorFinalizationCommand
+      ): Promise<RuntimeCoordinatorFinalizationClaimRead> =>
+        Promise.resolve({
+          status: "wake_stopped_visible",
+          publishedSignalId: "signal-wake-stopped-1",
         })
     ),
     rpcApplyRuntimeCoordinatorPublicationExhaustionCommand: vi.fn(
@@ -12000,6 +12012,190 @@ describe("runtime transport runtime coordinator transport contract", () => {
         (call) => call.params[2] === "cancellation_delivery_rejected"
       )
     ).toHaveLength(1);
+  });
+
+  it.each([
+    [false, "none"],
+    [true, "none"],
+    [true, "unavailable"],
+    [true, "unresolved"],
+    [true, "identity_mismatch"],
+    [false, "reply_wins"],
+  ] as const)("stops an accepted unpublished result without its old Service (legacy command missing: %s, first publication: %s)", async (removeCommand, firstPublication) => {
+    const harness = createHarness();
+    const {
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = harness;
+    const token = await issueDeliveryToken(harness);
+    spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
+      (command) => ({
+        finalizationCommandId: command.finalizationCommandId,
+        ok: false as const,
+        publicationErrorCode: "space.reply_write_failed",
+        publishedSignalId: null,
+        publishState: "reply_publication_failed" as const,
+        status: "retry_later" as const,
+      })
+    );
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          socket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(token),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        taskResult: buildSuccessfulPostMessageTaskResult(),
+      })
+    );
+    await Promise.all(waitUntilTasks.splice(0));
+    expect(
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+        ?.currentRunId
+    ).toBeNull();
+    if (removeCommand) {
+      for (const key of storageRecords.keys()) {
+        if (
+          key.startsWith(
+            RUNTIME_COORDINATOR_FINALIZATION_COMMAND_STORAGE_KEY_PREFIX
+          )
+        ) {
+          storageRecords.delete(key);
+        }
+      }
+      storageRecords.set(
+        RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY,
+        []
+      );
+    }
+    state.sessionsById.clear();
+    sentFrames.length = 0;
+    if (firstPublication === "identity_mismatch") {
+      const inbox = recordingD1.inboxRows.get("dispatch-1::attempt-1");
+      if (!inbox) {
+        throw new Error("Expected the accepted result inbox row.");
+      }
+      inbox.execution_token_fingerprint =
+        "etfp_v1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+      const rejected = await requestRuntimeCoordinatorWakeStop(hub);
+      await expect(rejected.json()).resolves.toMatchObject({
+        ok: false,
+        status: "retry_later",
+        reasonCode: "runtime_coordinator.wake_stop_scope_missing",
+      });
+      expect(
+        spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand
+      ).not.toHaveBeenCalled();
+      expect(sentFrames).toEqual([]);
+      return;
+    }
+    if (firstPublication === "reply_wins") {
+      spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand.mockImplementation(
+        (command) => {
+          const claim = {
+            status: "finalization_visible" as const,
+            outcome: {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-final-1",
+              publishState: "reply_published" as const,
+              status: "finalized" as const,
+            },
+          };
+          spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome.mockResolvedValue(
+            claim
+          );
+          return Promise.resolve(claim);
+        }
+      );
+      const completed = await requestRuntimeCoordinatorWakeStop(hub);
+      await expect(completed.json()).resolves.toMatchObject({
+        ok: false,
+        status: "not_stoppable",
+        reasonCode: "runtime_coordinator.wake_stop_execution_terminal",
+      });
+      expect(
+        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      ).toMatchObject({ status: "reply_published" });
+      expect(
+        findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
+      ).toBeUndefined();
+      expect(sentFrames).toEqual([]);
+      return;
+    }
+    if (firstPublication !== "none") {
+      if (firstPublication === "unavailable") {
+        spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand.mockRejectedValueOnce(
+          new Error("Space unavailable")
+        );
+      } else {
+        spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand.mockResolvedValueOnce(
+          {
+            status: "unresolved",
+          }
+        );
+      }
+      const pending = await requestRuntimeCoordinatorWakeStop(hub);
+      await expect(pending.json()).resolves.toMatchObject({
+        ok: false,
+        status: "retry_later",
+      });
+      expect(
+        findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+          ?.terminalOutcome
+      ).toBeNull();
+      expect(
+        findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
+      ).toBeUndefined();
+      expect(
+        storageRecords.get(
+          RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
+        )
+      ).not.toEqual([]);
+      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10_000);
+      try {
+        await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+        await Promise.all(waitUntilTasks.splice(0));
+      } finally {
+        nowSpy.mockRestore();
+      }
+      expect(
+        findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
+      ).toMatchObject({ status: "published" });
+    }
+    const response = await requestRuntimeCoordinatorWakeStop(hub);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      status: firstPublication === "none" ? "cancelled" : "already_cancelled",
+    });
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({ status: "cancelled" });
+    expect(
+      recordingD1.inboxRows.get("dispatch-1::attempt-1")?.publish_state
+    ).toBe("reply_suppressed_stopped");
+    expect(
+      findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
+    ).toMatchObject({ status: "published" });
+    expect(sentFrames).toEqual([]);
+    const repeated = await requestRuntimeCoordinatorWakeStop(hub);
+    await expect(repeated.json()).resolves.toMatchObject({
+      ok: true,
+      status: "already_cancelled",
+    });
   });
 
   it("rejects Wake Stop for terminal RuntimeCoordinator executions without marking stopped", async () => {

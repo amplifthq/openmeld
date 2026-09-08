@@ -1665,6 +1665,23 @@ bounded-work alarm retries the D1 projection and clears the index only after
 Core accepts it. A transient Core failure therefore cannot leave a visibly
 stopped child permanently invisible to its parent subscription.
 
+An accepted local result retires its execution token, but does not complete the
+Wake's cloud publication obligation. Stop for that accepted result runs through
+the same RuntimeCoordinator finalization serializer without contacting the old
+Service. RuntimeCoordinator verifies the exact accepted inbox result against its
+stored execution authority before reconstructing a missing legacy finalization
+command. It persists the command and retry before recording the Stop fence.
+Space elects the stopped notice through the same atomic final-outcome claim as
+reply publication; an already-persisted final outcome wins. Only that persisted
+claim permits RuntimeCoordinator to settle cancellation and project dependent
+task outcomes. An unavailable Space claim leaves durable repair pending; it
+must not become a successful Stop or trigger another Agent execution.
+
+The internal `rpcApplyRuntimeCoordinatorWakeStopCommand` uses the existing shared
+finalization-command and claim-read schemas. If that RPC is unavailable during
+a Core rollout, Stop returns `retry_later` and preserves the repair command.
+It does not require a CLI, Service, or Agent Controller protocol upgrade.
+
 Wake execution invariants:
 
 - `dispatchId` is the logical Wake identity.
