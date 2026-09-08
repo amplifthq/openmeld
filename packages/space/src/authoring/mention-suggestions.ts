@@ -102,7 +102,9 @@ export function listSpaceMentionRelationChoices(input: {
     }
 
     const wakeBlocked =
-      relation === "wake" && input.wakeAvailability.status !== "ready";
+      relation === "wake" &&
+      input.wakeAvailability.status !== "ready" &&
+      input.wakeAvailability.status !== "preparing";
     choices.push({
       description: RELATION_DESCRIPTIONS[relation],
       disabled: wakeBlocked,
