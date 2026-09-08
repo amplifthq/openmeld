@@ -1,5 +1,5 @@
 import type { AuthProfileView } from "@openmeld/schemas/types";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAccountSpaceItems } from "#/lib/spaces/account-spaces";
 import { createSpaceInOrganization } from "#/lib/spaces/create-space-in-organization";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
@@ -89,37 +89,12 @@ export function useDeskSpace(input: {
 			});
 		},
 	});
-	const restart = useMutation({
-		mutationFn: async () => {
-			if (!profile) {
-				throw new Error("Choose a profile first.");
-			}
-			await navigator.locks.request(key, async () => {
-				const created = await createSpaceInOrganization({
-					actingProfile: profile,
-					organizationId: input.organizationId,
-					space: {
-						name: "Welcome Space",
-						accessMode: "members_only",
-						visibility: "private",
-					},
-				});
-				localStorage.setItem(key, created.spaceId);
-				saveWelcomeSpace(input.storageScope, created.spaceId, "add");
-				await client.invalidateQueries({ queryKey: accountSpaceQueryKeys.all });
-			});
-			await query.refetch({ throwOnError: true });
-		},
-	});
 	return {
 		spaceId: query.data?.spaceId,
 		profileId: query.data?.profileId,
 		ready: query.isSuccess,
-		error: query.error?.message ?? restart.error?.message,
-		restart: () => restart.mutateAsync(),
-		isRestarting: restart.isPending,
+		error: query.error?.message,
 		retry: () => {
-			restart.reset();
 			return query.refetch();
 		},
 	};

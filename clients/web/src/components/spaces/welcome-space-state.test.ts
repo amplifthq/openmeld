@@ -4,7 +4,6 @@ import {
 	readWelcomeRecipients,
 	readWelcomeSpace,
 	resolveWelcomeRecipients,
-	resumeWelcomeSpace,
 	saveWelcomeRecipients,
 	saveWelcomeSpace,
 	welcomeStepStartedAt,
@@ -60,8 +59,10 @@ it("restores the selected batch from current members and excludes removed member
 it("resumes the same send step without moving its message cutoff", () => {
 	saveWelcomeSpace("account-a", "space-a", "send");
 	const startedAt = welcomeStepStartedAt("account-a", "space-a");
-	saveWelcomeSpace("account-a", "space-a", "paused");
-	resumeWelcomeSpace("account-a", "space-a");
+	localStorage.setItem(
+		"openmeld.welcome-space:account-a:space-a",
+		`paused:999:send:${startedAt}`
+	);
 	expect(readWelcomeSpace("account-a", "space-a")).toBe("send");
 	expect(welcomeStepStartedAt("account-a", "space-a")).toBe(startedAt);
 });
@@ -70,8 +71,6 @@ it("keeps tutorial identity scoped to the account and Space, independently of it
 	expect(readWelcomeSpace("account-a", "space-a")).toBe("add");
 	expect(readWelcomeSpace("account-b", "space-a")).toBeNull();
 	expect(readWelcomeSpace("account-a", "space-b")).toBeNull();
-	saveWelcomeSpace("account-a", "space-a", "paused");
-	expect(readWelcomeSpace("account-a", "space-a")).toBe("paused");
 });
 it("addresses the entire added batch and only wakes agents", () => {
 	const draft = buildWelcomeSpaceDraft([

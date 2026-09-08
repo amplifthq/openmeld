@@ -145,13 +145,3 @@ it("creates a Welcome Space without looking up or adding Center Agent", async ()
 	expect(create).toHaveBeenCalledTimes(1);
 	expect(designation).not.toHaveBeenCalled();
 });
-
-it("starts a new tutorial without changing the old Space", async () => {
-	localStorage.setItem(key, "old-space");
-	const desk = openDesk();
-	await waitFor(() => expect(desk.result.current.ready).toBe(true));
-	await desk.result.current.restart();
-	await waitFor(() => expect(desk.result.current.spaceId).toBe("space-new"));
-	expect(create).toHaveBeenCalledTimes(1);
-	expect(create.mock.calls[0][0].space.name).toBe("Welcome Space");
-});

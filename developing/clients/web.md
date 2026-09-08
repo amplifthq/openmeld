@@ -360,7 +360,7 @@ People/Agents children. Old saved Team collapse preferences do not hide it.
 The visible entries resolve in this order: **New Agent**, **Desk**, **Spaces**,
 **Chats**, **Team**. The product destinations are:
 
-1. **Desk** — renders one ordinary Space and a greeting on the shared infinite
+1. **Desk** — renders ordinary Space windows and a greeting on the shared infinite
    React Flow canvas. See **Desk and Chats** below for selection, creation,
    persistence, and viewport behavior. Space interactions use the full Space
    owner without a separate canvas presentation branch. There is no widget
@@ -494,7 +494,7 @@ time.
 ### Desk and Chats
 
 The authorized Organization root `/o/{orgSlug}` renders **Desk**. It remembers
-one ordinary Space in this browser per account and Organization. Without a
+its visible Space windows in this browser per account and Organization. Without a
 selection it uses an existing ordinary Space, or creates a private, members-only
 `Welcome Space` through the ordinary creation flow when none exists.
 There is no special Space kind or membership policy. A browser lock prevents
@@ -525,14 +525,14 @@ IDs are draft intent only and are reconciled against active Space members before
 restoring a draft, using current names. Existing text, files, and replies are
 preserved. There is no separate Center Agent sample-task shortcut.
 A real final reply from an added Agent to a newly sent user message completes
-the tutorial. Pausing preserves the current step; replay creates a new ordinary
-Space without deleting prior work. This tutorial does not change permissions,
+the guide, which then disappears. No skip, resume, or replay controls are exposed.
+Legacy paused progress resumes from its saved step. This guide does not change permissions,
 Wakeability, execution ownership, or server-side Space semantics, and does not
 sync its progress across devices.
 
 Desk Space windows use React Flow's native edge and corner resizing, bounded to
 720–2400 canvas pixels wide and 480–1800 high. Window dimensions are remembered
-per account and organization in this browser, independently of the viewport.
+per window, account, and organization in this browser, independently of the viewport.
 Resizing changes only the canvas container, not the shared Space implementation.
 
 Desk and Space Graph share `WorkspaceCanvas`, with independent React Flow
@@ -549,8 +549,15 @@ margins. Pointer, wheel, or keyboard input interrupts the entrance. Reduced
 motion skips it. The viewport is remembered locally; Reset view restores the
 readable starting position. Scrolling a clipped Space reveals its lower content
 before the ordinary conversation scrolls. Embedded Graphs own their wheel input.
-Bottom-left zoom controls remain; adding more windows is deferred.
-The canvas context menu offers Reset view and Reset layout. Reset layout restores
+Bottom-left controls collapse to a Canvas tools button and expand on mouse hover,
+keyboard focus, or tap; leaving waits briefly before closing. Their opacity-only
+transition is disabled under reduced motion. The canvas context menu offers
+Add Space, Reset view, and Reset layout. Add Space searches existing joined Spaces
+in the current organization, marks displayed windows On Desk, and links to the
+standard Create Space route. Empty Desk also exposes Add Space. Closing a window
+only removes it from the persisted Desk layout; the Space remains in Spaces and
+can be added again. Confirmed deleted Spaces are removed from every Desk window.
+Reset layout restores
 the greeting and Space positions and default dimensions, clears the saved size,
 and resets the viewport without remounting the Space. Context menus inside the
 Space remain owned by the shared Space interface.

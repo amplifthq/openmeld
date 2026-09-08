@@ -20,6 +20,8 @@ it("keeps adding agents available after the retired shortcut advanced the tutori
 	);
 	fireEvent.click(screen.getByRole("button", { name: "Add your first agent" }));
 	expect(onAddAgents).toHaveBeenCalledOnce();
+	expect(screen.queryByRole("button", { name: "Skip tutorial" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Resume tutorial" })).toBeNull();
 	expect(
 		screen.queryByRole("button", { name: "Try a task with Center Agent" })
 	).toBeNull();

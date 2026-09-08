@@ -132,11 +132,13 @@ the existing computer setup flow. No tutorial code derives readiness or sends
 messages automatically.
 
 The browser-local marker identifies a tutorial independently of its Space name.
-It may remember pause/completion and draft recipient IDs, but active membership,
+It remembers completion and draft recipient IDs, but active membership,
 names, permissions, and readiness come from their existing owners. Only a real
 reply from an added Agent completes the collaboration step. Removing recipients
 or clearing a draft leaves a usable next action. Ordinary Space guidance is
-unchanged; replay creates a new ordinary Space and preserves previous work.
+unchanged. No tutorial controls are exposed. Users hide and restore Welcome
+Spaces through the same Desk window controls as other Spaces; hiding never
+changes membership or deletes messages. Legacy paused progress resumes.
 
 ## Product Invariants
 

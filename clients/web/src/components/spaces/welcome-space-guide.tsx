@@ -1,12 +1,7 @@
-import { Button } from "@openmeld/ui/components/button";
 import { ChatCircleIcon, PlusIcon } from "@phosphor-icons/react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { EmptyStateSetupActionCard } from "./onboarding-setup-banner";
-import {
-	resumeWelcomeSpace,
-	saveWelcomeSpace,
-	useWelcomeSpace,
-} from "./welcome-space-state";
+import { useWelcomeSpace } from "./welcome-space-state";
 
 export function WelcomeSpaceLabel({ spaceId }: { spaceId: string }) {
 	const { storageScope } = useAppOrganization();
@@ -31,30 +26,11 @@ export function WelcomeSpaceGuide(input: {
 		return null;
 	}
 	if (step === "done") {
-		return (
-			<p className="py-2 text-muted-foreground text-sm">
-				Your first collaboration is complete. Keep working in this Space
-				whenever you like.
-			</p>
-		);
-	}
-	if (step === "paused") {
-		return (
-			<div className="flex items-center justify-between gap-3 py-2 text-muted-foreground text-sm">
-				<span>Welcome Space</span>
-				<Button
-					onClick={() => resumeWelcomeSpace(input.scope, input.spaceId)}
-					size="sm"
-					variant="outline"
-				>
-					Resume tutorial
-				</Button>
-			</div>
-		);
+		return null;
 	}
 	return (
 		<section
-			aria-label="Welcome Space tutorial"
+			aria-label="Welcome Space guide"
 			className="mx-auto grid w-full max-w-xl gap-4 py-4"
 		>
 			{!input.hasRecipients && input.onAddAgents && (
@@ -85,15 +61,6 @@ export function WelcomeSpaceGuide(input: {
 					</p>
 				</div>
 			)}
-			<div className="flex justify-end">
-				<Button
-					onClick={() => saveWelcomeSpace(input.scope, input.spaceId, "paused")}
-					size="sm"
-					variant="outline"
-				>
-					Skip tutorial
-				</Button>
-			</div>
 		</section>
 	);
 }

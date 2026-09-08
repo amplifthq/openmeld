@@ -27,6 +27,12 @@ Welcome Spaces start with you and a short guide to adding an agent through one
 dashed action card. Center Agent is recommended and preselected the first time;
 you choose whether to add it, create your own Agent, or add both. Adding members prepares an
 editable introduction addressed to those members; you decide when to send it.
-If you clear it, the card lets you prepare it again. You can pause the tutorial
-or start a new Welcome Space. Tutorial progress and Welcome labels are remembered
+If you clear it, the card lets you prepare it again. Welcome progress and labels are remembered
 in this browser, including when you open the Space full screen.
+
+Hide a Space from Desk with its close button, then restore it through Add Space.
+Add Space is available in the canvas context menu, the compact canvas toolbar,
+and on an empty Desk. Search existing Spaces or open the standard Create Space
+flow. Multiple Space windows retain their positions and sizes after refresh.
+The toolbar expands on hover, keyboard focus, or tap. Tutorial controls are no
+longer shown inside Spaces or on Desk.

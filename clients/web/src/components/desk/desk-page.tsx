@@ -5,12 +5,7 @@ import {
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@openmeld/ui/components/context-menu";
-import {
-	ArrowsOutSimpleIcon,
-	CornersOutIcon,
-	MinusIcon,
-	PlusIcon,
-} from "@phosphor-icons/react";
+import { ArrowsOutSimpleIcon, PlusIcon, XIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
@@ -42,16 +37,18 @@ import {
 } from "#/lib/organizations/organization-routes";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
-import {
-	resumeWelcomeSpace,
-	useWelcomeSpace,
-} from "../spaces/welcome-space-state";
+import { useWelcomeSpace } from "../spaces/welcome-space-state";
+import { DeskAddSpace } from "./desk-add-space";
 import { DeskSpace } from "./desk-space";
+import { DeskTools } from "./desk-tools";
 import { useDeskEntrance } from "./use-desk-entrance";
 import { useDeskSpace } from "./use-desk-space";
 import { useDeskWheel } from "./use-desk-wheel";
 
-type DeskNode = Node<{ kind: "welcome" | "space" }, "desk">;
+type DeskNode = Node<
+	{ kind: "welcome" | "space"; spaceId?: string; profileId?: string },
+	"desk"
+>;
 const nodeTypes = { desk: memo(DeskWindow) };
 const edges: [] = [];
 const spaceSizeLimits = {
@@ -75,6 +72,7 @@ const DeskContext = createContext<{
 	spaceId: string;
 	profileId: string;
 	orgSlug: string;
+	onHide: (spaceId: string) => void;
 	profiles: NonNullable<
 		ReturnType<typeof useSelectedHumanProfile>["profilesQuery"]["data"]
 	>;
@@ -95,19 +93,40 @@ function Desk() {
 		organizationId: currentOrganization.id,
 		storageScope,
 	});
-	const welcomeStep = useWelcomeSpace(storageScope, space.spaceId ?? "");
+	const [addOpen, setAddOpen] = useState(false);
+	const layoutKey = `openmeld.desk.windows:${storageScope}:${currentOrganization.id}`;
+	const [windows, setWindows] = useState<
+		{ spaceId: string; profileId: string }[] | null
+	>(null);
+	const restoredNodes = useRef<DeskNode[]>([]);
 	const index = useQuery(
 		accountSpaceItemsQueryOptions({
 			enabled: !!selectedHumanProfile,
 			profileId: selectedHumanProfile?.openMeldProfileId ?? "",
 		})
 	);
-	const deleted =
-		!!space.spaceId &&
-		index.isSuccess &&
-		(index.data.recentlyDeletedItems ?? []).some(
-			(item) => item.spaceId === space.spaceId
-		);
+	const deletedIds = useMemo(
+		() =>
+			new Set(
+				(index.data?.recentlyDeletedItems ?? []).map((item) => item.spaceId)
+			),
+		[index.data]
+	);
+	const availableSpaces = useMemo(
+		() => [
+			...new Map(
+				[...(index.data?.pinnedItems ?? []), ...(index.data?.spaceItems ?? [])]
+					.filter(
+						(item) =>
+							item.organizationId === currentOrganization.id &&
+							!item.directMessageProfileIds &&
+							!deletedIds.has(item.spaceId)
+					)
+					.map((item) => [item.spaceId, item])
+			).values(),
+		],
+		[index.data, currentOrganization.id, deletedIds]
+	);
 	const region = useRef<HTMLDivElement | null>(null);
 	const flow = useRef<ReactFlowInstance<DeskNode> | null>(null);
 	const [width, setWidth] = useState(1100);
@@ -118,6 +137,28 @@ function Desk() {
 	const [savedViewport, setSavedViewport] = useState<Viewport | null>(null);
 	const [loaded, setLoaded] = useState(false);
 	useEffect(() => {
+		try {
+			const saved = JSON.parse(localStorage.getItem(layoutKey) ?? "null");
+			if (Array.isArray(saved)) {
+				restoredNodes.current = saved.filter(
+					(node) =>
+						node?.data?.kind === "space" &&
+						typeof node.data.spaceId === "string" &&
+						typeof node.data.profileId === "string" &&
+						Number.isFinite(node.position?.x) &&
+						Number.isFinite(node.position?.y)
+				);
+				setWindows(
+					restoredNodes.current.flatMap((node) =>
+						node.data.spaceId && node.data.profileId
+							? [{ spaceId: node.data.spaceId, profileId: node.data.profileId }]
+							: []
+					)
+				);
+			}
+		} catch {
+			/* Optional layout preference. */
+		}
 		try {
 			const value = JSON.parse(localStorage.getItem(sizeKey) ?? "null");
 			if (
@@ -155,7 +196,22 @@ function Desk() {
 			/* A viewport preference never blocks the Space. */
 		}
 		setLoaded(true);
-	}, [viewportKey, sizeKey]);
+	}, [viewportKey, sizeKey, layoutKey]);
+	useEffect(() => {
+		if (loaded && windows === null && space.spaceId && space.profileId) {
+			setWindows([{ spaceId: space.spaceId, profileId: space.profileId }]);
+		}
+	}, [loaded, windows, space.spaceId, space.profileId]);
+	useEffect(() => {
+		if (!windows?.some((item) => deletedIds.has(item.spaceId))) {
+			return;
+		}
+		setWindows((current) =>
+			current?.some((item) => deletedIds.has(item.spaceId))
+				? current.filter((item) => !deletedIds.has(item.spaceId))
+				: current
+		);
+	}, [deletedIds, windows]);
 	useEffect(() => {
 		const element = region.current;
 		if (!element) {
@@ -180,42 +236,51 @@ function Desk() {
 				style: { width, height: 150 },
 				dragHandle: ".desk-title",
 			},
-			...(!deleted && space.spaceId
-				? [
-						{
-							id: "space",
-							type: "desk" as const,
-							position: previous.find((n) => n.id === "space")?.position ?? {
-								x: 0,
-								y: 200,
-							},
-							data: { kind: "space" as const },
-							style: savedSize.current ?? defaultSpaceSize(width),
-							dragHandle: ".desk-title",
+			...(windows ?? [])
+				.filter((item) => !deletedIds.has(item.spaceId))
+				.map((item, index) => {
+					const previousNode =
+						previous.find((n) => n.data.spaceId === item.spaceId) ??
+						restoredNodes.current.find((n) => n.data.spaceId === item.spaceId);
+					return {
+						...previousNode,
+						id: item.spaceId,
+						type: "desk" as const,
+						position: previousNode?.position ?? {
+							x: index * (width + 48),
+							y: 200,
 						},
-					]
-				: []),
+						data: { kind: "space" as const, ...item },
+						style:
+							previousNode?.style ??
+							(index === 0 ? savedSize.current : null) ??
+							defaultSpaceSize(width),
+						dragHandle: ".desk-title",
+					};
+				}),
 		]);
-	}, [space.spaceId, deleted, width]);
+	}, [windows, deletedIds, width]);
 	useEffect(() => {
-		const node = nodes.find((item) => item.id === "space");
-		if (!(node?.width && node.height) || node.resizing) {
-			return;
-		}
+		const spaceNodes = nodes.filter((node) => node.data.kind === "space");
 		if (
-			savedSize.current?.width === node.width &&
-			savedSize.current?.height === node.height
+			!loaded ||
+			windows === null ||
+			spaceNodes.length !== windows.length ||
+			spaceNodes.some(
+				(node) =>
+					node.dragging ||
+					node.resizing ||
+					!windows.some((item) => item.spaceId === node.data.spaceId)
+			)
 		) {
 			return;
 		}
-		// React Flow sets explicit dimensions when the user resizes the window.
-		savedSize.current = { width: node.width, height: node.height };
 		try {
-			localStorage.setItem(sizeKey, JSON.stringify(savedSize.current));
+			localStorage.setItem(layoutKey, JSON.stringify(spaceNodes));
 		} catch {
 			/* Optional window preference. */
 		}
-	}, [nodes, sizeKey]);
+	}, [nodes, layoutKey, loaded, windows]);
 	useDeskWheel(region, flow);
 	const saveViewport = useCallback(
 		(viewport: Viewport) => {
@@ -242,6 +307,10 @@ function Desk() {
 			profileId: space.profileId ?? "",
 			orgSlug: currentOrganization.slug,
 			profiles: profilesQuery.data ?? [],
+			onHide: (spaceId: string) =>
+				setWindows(
+					(current) => current?.filter((item) => item.spaceId !== spaceId) ?? []
+				),
 		}),
 		[
 			storageScope,
@@ -261,9 +330,12 @@ function Desk() {
 			/* Optional window preference. */
 		}
 		setNodes((current) =>
-			current.map((node) => ({
+			current.map((node, index) => ({
 				...node,
-				position: { x: 0, y: node.data.kind === "welcome" ? 0 : 200 },
+				position: {
+					x: node.data.kind === "welcome" ? 0 : (index - 1) * (width + 48),
+					y: node.data.kind === "welcome" ? 0 : 200,
+				},
 				width: undefined,
 				height: undefined,
 				resizing: false,
@@ -271,9 +343,6 @@ function Desk() {
 			}))
 		);
 		reset();
-	};
-	const restartTutorial = () => {
-		space.restart().then(resetLayout).catch(console.error);
 	};
 	return (
 		<AppFullWidthLayout contentLayout="flush" scroll={false}>
@@ -327,49 +396,12 @@ function Desk() {
 							<WorkspaceCanvas<DeskNode>
 								controls={
 									<Panel position="bottom-left">
-										<div className="flex items-center gap-1 rounded-md border bg-background p-1">
-											<Button
-												aria-label="Zoom out"
-												onClick={() => flow.current?.zoomOut()}
-												size="icon-sm"
-												variant="ghost"
-											>
-												<MinusIcon />
-											</Button>
-											<Button
-												aria-label="Zoom in"
-												onClick={() => flow.current?.zoomIn()}
-												size="icon-sm"
-												variant="ghost"
-											>
-												<PlusIcon />
-											</Button>
-											<Button onClick={reset} size="sm" variant="ghost">
-												<CornersOutIcon />
-												Reset view
-											</Button>
-											<Button
-												disabled={space.isRestarting}
-												onClick={() => {
-													if (
-														welcomeStep &&
-														welcomeStep !== "done" &&
-														space.spaceId
-													) {
-														resumeWelcomeSpace(storageScope, space.spaceId);
-														reset();
-													} else {
-														restartTutorial();
-													}
-												}}
-												size="sm"
-												variant="ghost"
-											>
-												{welcomeStep === "done"
-													? "New Welcome Space"
-													: "Welcome tutorial"}
-											</Button>
-										</div>
+										<DeskTools
+											onAdd={() => setAddOpen(true)}
+											onReset={reset}
+											onZoomIn={() => flow.current?.zoomIn()}
+											onZoomOut={() => flow.current?.zoomOut()}
+										/>
 									</Panel>
 								}
 								defaultViewport={savedViewport ?? { x: 32, y: 24, zoom: 1 }}
@@ -395,25 +427,48 @@ function Desk() {
 							Preparing your Space…
 						</output>
 					)}
-					{deleted && (
+					{loaded && windows?.length === 0 && (
 						<div className="absolute inset-x-6 top-56 text-center">
-							<Link to={buildOrganizationSpacesPath(currentOrganization.slug)}>
-								Open Spaces
-							</Link>
+							<Button onClick={() => setAddOpen(true)} variant="outline">
+								<PlusIcon />
+								Add Space
+							</Button>
 						</div>
 					)}
 				</ContextMenuTrigger>
 				<ContextMenuContent>
+					<ContextMenuItem onClick={() => setAddOpen(true)}>
+						Add Space
+					</ContextMenuItem>
 					<ContextMenuItem onClick={reset}>Reset view</ContextMenuItem>
 					<ContextMenuItem onClick={resetLayout}>Reset layout</ContextMenuItem>
-					<ContextMenuItem
-						disabled={space.isRestarting}
-						onClick={restartTutorial}
-					>
-						Start a new Welcome Space
-					</ContextMenuItem>
 				</ContextMenuContent>
 			</ContextMenu>
+			<DeskAddSpace
+				error={index.isError}
+				loading={index.isPending}
+				onAdd={(item) => {
+					setWindows((current) => [
+						...(current ?? []).filter(
+							(existing) => existing.spaceId !== item.spaceId
+						),
+						{ spaceId: item.spaceId, profileId: item.openProfileId },
+					]);
+					setAddOpen(false);
+					const x = (windows?.length ?? 0) * (width + 48);
+					flow.current
+						?.setViewport({ x: 32 - x, y: 24, zoom: 1 })
+						.catch(console.error);
+				}}
+				onOpenChange={setAddOpen}
+				onRetry={() => {
+					index.refetch().catch(console.error);
+				}}
+				open={addOpen}
+				orgSlug={currentOrganization.slug}
+				shownIds={(windows ?? []).map((item) => item.spaceId)}
+				spaces={availableSpaces}
+			/>
 		</AppFullWidthLayout>
 	);
 }
@@ -425,6 +480,8 @@ function DeskWindow({ data }: NodeProps<DeskNode>) {
 		context?.spaceId ?? ""
 	);
 	const [view, setView] = useState<SpaceView>("messages");
+	const spaceId = data.spaceId ?? context?.spaceId ?? "";
+	const profileId = data.profileId ?? context?.profileId ?? "";
 	if (!context) {
 		return null;
 	}
@@ -435,9 +492,7 @@ function DeskWindow({ data }: NodeProps<DeskNode>) {
 					Hello{context.name ? `, ${context.name}` : ""}.
 				</h2>
 				<p className="text-base text-muted-foreground">
-					{welcomeStep === "add" || welcomeStep === "send"
-						? "Your Welcome Space is ready."
-						: "Your work, together in one place."}
+					Your work, together in one place.
 				</p>
 				{welcomeStep === "add" && (
 					<svg
@@ -481,12 +536,21 @@ function DeskWindow({ data }: NodeProps<DeskNode>) {
 						className="nodrag nopan rounded p-1 hover:bg-muted"
 						to={buildOrganizationSpacePath({
 							orgSlug: context.orgSlug,
-							spaceId: context.spaceId,
-							search: { profileId: context.profileId, view },
+							spaceId,
+							search: { profileId, view },
 						})}
 					>
 						<ArrowsOutSimpleIcon />
 					</Link>
+					<Button
+						aria-label="Hide Space from Desk"
+						className="nodrag nopan"
+						onClick={() => context.onHide(spaceId)}
+						size="icon-sm"
+						variant="ghost"
+					>
+						<XIcon />
+					</Button>
 				</div>
 				<div className="nodrag nopan nowheel flex min-h-0 flex-1 select-text flex-col">
 					<DeskSpace
@@ -494,8 +558,8 @@ function DeskWindow({ data }: NodeProps<DeskNode>) {
 						initialView={view}
 						onViewChange={setView}
 						orgSlug={context.orgSlug}
-						profileId={context.profileId}
-						spaceId={context.spaceId}
+						profileId={profileId}
+						spaceId={spaceId}
 					/>
 				</div>
 			</section>

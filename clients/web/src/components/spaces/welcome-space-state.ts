@@ -2,9 +2,16 @@ import { useSyncExternalStore } from "react";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 
 const eventName = "openmeld-welcome-space";
-export type WelcomeSpaceStep = "prepare" | "add" | "send" | "done" | "paused";
+export type WelcomeSpaceStep = "prepare" | "add" | "send" | "done";
 function key(scope: string, spaceId: string) {
 	return `openmeld.welcome-space:${scope}:${spaceId}`;
+}
+function readProgress(scope: string, spaceId: string) {
+	let value = localStorage.getItem(key(scope, spaceId)) ?? "";
+	while (value.startsWith("paused:")) {
+		value = value.split(":").slice(2).join(":");
+	}
+	return value;
 }
 export function readWelcomeSpace(
 	scope: string,
@@ -13,12 +20,11 @@ export function readWelcomeSpace(
 	if (typeof window === "undefined") {
 		return null;
 	}
-	const value = localStorage.getItem(key(scope, spaceId))?.split(":")[0];
+	const value = readProgress(scope, spaceId).split(":")[0];
 	return value === "prepare" ||
 		value === "add" ||
 		value === "send" ||
-		value === "done" ||
-		value === "paused"
+		value === "done"
 		? value
 		: null;
 }
@@ -27,27 +33,11 @@ export function saveWelcomeSpace(
 	spaceId: string,
 	step: WelcomeSpaceStep
 ) {
-	const previous = localStorage.getItem(key(scope, spaceId));
-	localStorage.setItem(
-		key(scope, spaceId),
-		step === "paused"
-			? `paused:${Date.now()}:${previous ?? "add:0"}`
-			: `${step}:${Date.now()}`
-	);
+	localStorage.setItem(key(scope, spaceId), `${step}:${Date.now()}`);
 	window.dispatchEvent(new Event(eventName));
 }
-export function resumeWelcomeSpace(scope: string, spaceId: string) {
-	const previous = localStorage.getItem(key(scope, spaceId));
-	if (previous?.startsWith("paused:")) {
-		localStorage.setItem(
-			key(scope, spaceId),
-			previous.split(":").slice(2).join(":")
-		);
-		window.dispatchEvent(new Event(eventName));
-	}
-}
 export function welcomeStepStartedAt(scope: string, spaceId: string) {
-	return Number(localStorage.getItem(key(scope, spaceId))?.split(":")[1] ?? 0);
+	return Number(readProgress(scope, spaceId).split(":")[1] ?? 0);
 }
 function subscribe(callback: () => void) {
 	window.addEventListener(eventName, callback);
