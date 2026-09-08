@@ -190,7 +190,12 @@ reconciliation, and recovery resolve the persisted exact runtime conversation.
 They must not substitute the Space ID or Center Agent identity.
 
 Personal Agents receive only current-conversation message reading, member
-discovery, and explicit same-Space Agent Wake tools. Message reading reuses the
+discovery, live Space Board and public update reading, and explicit same-Space
+Agent Wake tools. Board and updates reuse the same Core/Space readers as Local
+Agents. Updates default to the accepted Wake's source signal, return at most 20
+public text/status/notice projections, and omit attachments and private session
+locators. Each text is bounded to 4000 characters with an explicit truncation
+flag. Message reading reuses the
 existing text-context projection, with at most 30 recent messages and an 8192
 estimated-token budget; attachments and private session locators are omitted.
 Core derives the caller and destination from the
@@ -206,6 +211,15 @@ The initial personal runtime does not materialize Computer workspaces,
 Organization documents, Skills, Apps, or Center Agent memory. Completion must
 not write personal conversation content into Center Agent memory. Shared
 infrastructure does not confer the Center Agent's responsibilities or tools.
+
+Personal turn context uses the shared Space Entry Brief, identity, and Wake
+participant renderers. Participant IDs come from the source message's canonical
+activation targets, never references or the member directory. Older admitted
+requests without that optional envelope do not invent participants. Reasoning
+uses the model thinking stream; final text remains native automatic publication.
+This does not import Local private-context storage rules or its CLI action
+proposal contract. Reading shared updates is advisory context; it does not yet
+apply the workstation's atomic observation cursor to native final publication.
 
 ### Shared continuity checks
 

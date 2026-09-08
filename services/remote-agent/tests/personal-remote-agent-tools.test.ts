@@ -15,11 +15,13 @@ describe("personal Remote Agent capabilities", () => {
       submissionId: "accepted-submission",
     });
     expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_read_space_board",
+      "openmeld_read_space_updates",
       "openmeld_read_space_messages",
       "openmeld_read_space_members",
       "openmeld_wake_agent_in_space",
     ]);
-    const [messages, members, wake] = tools;
+    const [, , messages, members, wake] = tools;
     if (!(messages && members && wake)) {
       throw new Error("expected personal collaboration tools");
     }
