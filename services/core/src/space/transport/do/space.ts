@@ -230,10 +230,7 @@ import {
   buildDispatchTargetSummaryLabel,
   type DispatchHumanLogContext,
 } from "../../../dispatch/application/dispatch-log-context";
-import {
-  dispatchOutboxMessageDirectly,
-  dispatchProductionOutboxMessageDirectly,
-} from "../../../dispatch/application/dispatch-queue-service";
+import { dispatchProductionOutboxMessageDirectly } from "../../../dispatch/application/dispatch-queue-service";
 import {
   buildDispatchPublishedAgentProfile,
   buildDispatchReplyContext,
@@ -253,6 +250,10 @@ import {
 } from "../../../dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 import { cancelRuntimeTransportDeletedAgentProfileWakes } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import { resolveRuntimeTransportOwnerShard } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
+import {
+  DISPATCH_STORAGE_OVERLOADED_ERROR_CODE,
+  isD1OverloadedError,
+} from "../../../dispatch/rules/dispatch-error-policy";
 import { resolveCoreOutboxCandidateTransitionContractViolation } from "../../../dispatch/rules/dispatch-health-invariant-policy";
 import { emitCoreDispatchHealthFinding } from "../../../dispatch/rules/dispatch-health-view";
 import {
@@ -815,10 +816,9 @@ const OUTBOX_QUEUE_BACKOFF_MS = [1000, 3000] as const;
 const OUTBOX_ALARM_REDRIVE_INTERVAL_MS = SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS;
 const OUTBOX_CANDIDATE_POISON_FAILURE_THRESHOLD = 3;
 const OUTBOX_POISON_VISIBLE_FAILURE_REASON_CODE =
-  "dispatch.target_profile_owner_unresolved";
+  "dispatch.outbox.candidate_failed";
 const LEADING_AT_SIGNS_PATTERN = /^@+/;
 const DISPATCH_OUTBOX_DIRECT_DELIVERY_MODE = "direct";
-const DISPATCH_OUTBOX_PRODUCTION_DIRECT_DELIVERY_MODE = "production_direct";
 type DispatchOutboxSubmissionResult = {
   status: "enqueued" | "queue_unavailable" | "retry_scheduled" | "submitted";
 };
@@ -2287,6 +2287,10 @@ export class Space extends DurableObject<CoreBindings> {
   private lastPostCleanupAtMs = 0;
   private lastRetentionWarningAtMs = 0;
   private dispatchOutboxContinuationDueAtMs: number | null = null;
+  private dispatchOutboxFlush: Promise<void> | null = null;
+  // A load-shedding hint, not durable work state. Eviction may retry sooner;
+  // the existing persistent outbox and shared alarm still own recovery.
+  private dispatchOutboxRetryNotBeforeMs = 0;
   private spaceId: string;
 
   constructor(ctx: DurableObjectState, env: CoreBindings) {
@@ -5733,6 +5737,9 @@ export class Space extends DurableObject<CoreBindings> {
     if (!hasPendingWork) {
       return null;
     }
+    if (this.dispatchOutboxRetryNotBeforeMs > Date.now()) {
+      return this.dispatchOutboxRetryNotBeforeMs;
+    }
     return (
       this.dispatchOutboxContinuationDueAtMs ??
       Date.now() + OUTBOX_ALARM_REDRIVE_INTERVAL_MS
@@ -5741,35 +5748,22 @@ export class Space extends DurableObject<CoreBindings> {
 
   private canSubmitDispatchOutbox(): boolean {
     const mode = this.resolveDispatchOutboxDeliveryMode();
-    if (
-      mode === DISPATCH_OUTBOX_DIRECT_DELIVERY_MODE ||
-      mode === DISPATCH_OUTBOX_PRODUCTION_DIRECT_DELIVERY_MODE
-    ) {
+    if (mode === DISPATCH_OUTBOX_DIRECT_DELIVERY_MODE) {
       return true;
     }
     return Boolean(this.bindings.OPENMELD_DAEMON_DISPATCH_QUEUE);
   }
 
-  private resolveDispatchOutboxDeliveryMode():
-    | "direct"
-    | "production_direct"
-    | "queue" {
+  private resolveDispatchOutboxDeliveryMode(): "direct" | "queue" {
     const configuredMode = String(
       this.bindings.OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE ?? ""
-    )
-      .trim()
-      .toLowerCase();
-    const workerEnvironment = String(
-      this.bindings.OPENMELD_WORKER_ENVIRONMENT ?? ""
     )
       .trim()
       .toLowerCase();
     if (configuredMode !== DISPATCH_OUTBOX_DIRECT_DELIVERY_MODE) {
       return "queue";
     }
-    return workerEnvironment === "prod"
-      ? DISPATCH_OUTBOX_PRODUCTION_DIRECT_DELIVERY_MODE
-      : DISPATCH_OUTBOX_DIRECT_DELIVERY_MODE;
+    return DISPATCH_OUTBOX_DIRECT_DELIVERY_MODE;
   }
 
   private pruneExpiredReplyingTransientSignals(nowMs = Date.now()): void {
@@ -14743,18 +14737,14 @@ export class Space extends DurableObject<CoreBindings> {
       return { status: enqueued ? "enqueued" : "queue_unavailable" };
     }
 
-    const outcome =
-      deliveryMode === DISPATCH_OUTBOX_PRODUCTION_DIRECT_DELIVERY_MODE
-        ? await dispatchProductionOutboxMessageDirectly({
-            ctx: this.ctx,
-            env: this.bindings,
-            message,
-          })
-        : await dispatchOutboxMessageDirectly({
-            ctx: this.ctx,
-            env: this.bindings,
-            message,
-          });
+    // Local and staging acceptance must exercise the production ownership
+    // boundary: workstation retries stay in this outbox, hosted recovery may
+    // use Queue only after authoritative runtime classification.
+    const outcome = await dispatchProductionOutboxMessageDirectly({
+      ctx: this.ctx,
+      env: this.bindings,
+      message,
+    });
     if (outcome.status === "submitted") {
       markDispatchOutboxHandedOff(this.ctx.storage.sql, {
         dispatchId: message.dispatchId,
@@ -14875,6 +14865,24 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   private async flushPendingDispatchOutbox(): Promise<void> {
+    if (this.dispatchOutboxFlush) {
+      await this.dispatchOutboxFlush;
+      return;
+    }
+    const flush = this.runPendingDispatchOutboxFlush();
+    this.dispatchOutboxFlush = flush;
+    try {
+      await flush;
+    } finally {
+      this.dispatchOutboxFlush = null;
+    }
+  }
+
+  private async runPendingDispatchOutboxFlush(): Promise<void> {
+    if (this.dispatchOutboxRetryNotBeforeMs > Date.now()) {
+      await this.syncDispatchOutboxAlarm();
+      return;
+    }
     this.dispatchOutboxContinuationDueAtMs = null;
     const nowMs = Date.now();
     const handedOffRedriveBeforeMs = nowMs - OUTBOX_HANDED_OFF_REDRIVE_AFTER_MS;
@@ -14929,9 +14937,8 @@ export class Space extends DurableObject<CoreBindings> {
     let advancedCandidateCount = 0;
     await processDispatchOutboxCandidates({
       candidates: recoveryCandidates,
-      onCandidateFailure: (candidate, error) => {
-        this.recordOutboxCandidateFailure(candidate, logContext, error, nowMs);
-      },
+      onCandidateFailure: (candidate, error) =>
+        this.recordOutboxCandidateFailure(candidate, logContext, error, nowMs),
       processCandidate: async (candidate) => {
         const advanced = await this.redriveHandedOffOutboxCandidate(
           candidate,
@@ -15050,6 +15057,21 @@ export class Space extends DurableObject<CoreBindings> {
     error: unknown,
     nowMs: number
   ): Promise<void> {
+    if (isD1OverloadedError(formatUnknownErrorMessage(error))) {
+      this.dispatchOutboxRetryNotBeforeMs =
+        Date.now() + OUTBOX_ALARM_REDRIVE_INTERVAL_MS;
+      console.warn("[core.openmeld.space.outbox.storage_retry_deferred]", {
+        dispatchId: candidate.dispatchId,
+        event: "core.openmeld.space.outbox.storage_retry_deferred",
+        error: formatUnknownErrorMessage(error),
+        reasonCode: DISPATCH_STORAGE_OVERLOADED_ERROR_CODE,
+        retryNotBeforeMs: this.dispatchOutboxRetryNotBeforeMs,
+        sourceEventId: candidate.sourceEventId,
+        spaceId: this.spaceId,
+        targetProfileId: candidate.targetProfileId,
+      });
+      return;
+    }
     const reasonCode = "outbox.candidate_exception";
     let poisonState: ReturnType<typeof recordDispatchOutboxCandidateFailure>;
     try {
@@ -21039,7 +21061,7 @@ function resolveOutboxPoisonVisibleFailureTargetLabel(input: {
 function buildOutboxPoisonVisibleFailureNoticeText(
   targetLabel: string
 ): string {
-  return `OpenMeld could not wake ${targetLabel} because OpenMeld could not confirm the agent's account right now. Try again in a moment.`;
+  return `OpenMeld could not prepare this request for ${targetLabel}. Try again. If it keeps failing, report the issue from the message details.`;
 }
 
 function buildFormalSignalPublishContext(input: {
