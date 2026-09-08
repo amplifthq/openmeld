@@ -59,6 +59,40 @@ function createUnauthenticatedControllerReadiness() {
 }
 
 describe("agent wake availability", () => {
+  it.each([
+    "local_service.identity_mismatch",
+    "claim_eligibility.binding_runtime_mismatch",
+    "claim_eligibility.openmeld_service_runtime_id_mismatch",
+    "claim_eligibility.binding_capability_mismatch",
+  ])("does not present %s as a first connection", (reasonCode) => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      claimDiagnostics: { status: "mismatch", reasonCodes: [reasonCode] },
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-07-13T06:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: "ready",
+        ready: true,
+        reasonCodes: ["runtime.ready"],
+      },
+    });
+    expect(
+      resolveAgentWakeAvailability({
+        readiness,
+        wakeRouteStatus: createReadyWakeRouteStatus(),
+      })
+    ).toMatchObject({
+      badgeLabel: "Connection mismatch",
+      phase: "unavailable",
+      reasonCode,
+      status: "unavailable_for_wake",
+    });
+  });
+
   it("keeps public availability reason roles explicit", () => {
     expect(
       classifyAgentWakeAvailabilityReason(
