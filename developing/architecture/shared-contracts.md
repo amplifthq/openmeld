@@ -4938,6 +4938,18 @@ ids, or reinterpret `readOnly` as permission to mutate local state.
 
 ## Space Member Contracts
 
+Auth's internal `resolveProfilesByIds` RPC reads at most 64 requested Profile
+IDs per call. It returns the same minimal identity facts as
+`resolveProfileById`, with an explicit null for each absent ID. A database
+failure returns a failed envelope, never a partial successful set. Consumers
+reject missing keys, unrequested keys and Profile IDs that do not match their
+keys. This is an identity read, not authorization or a readiness projection.
+Core keeps ownership, Organization, Binding and execution policy checks.
+Deploy Auth before Core consumers; the scalar RPC remains available to old
+cloud callers. Roll back Core before removing the new Auth receiver. No public
+CLI, Service, Gateway, Web, setup or Wake payload shape changes, and no local
+compatibility floor changes are required.
+
 Auth owns current Profile names. Space member names are persisted display
 snapshots, not a second identity authority. Historical Signals and existing
 sessions must never rename an existing member, even when their names are
@@ -4949,6 +4961,8 @@ rewritten by a Profile rename. Authorized member-directory and active-Wake reads
 refresh active-member names through the Space-owned writer and existing Space
 Index projection outbox. Account working summaries resolve each distinct active
 Agent through Auth, without making the cross-Space index a membership writer.
+Space-wide name refresh uses bounded Auth fact batches instead of one RPC per
+member. It stops launching batches after the existing display-read deadline.
 Refresh preserves membership, ownership, removal and aliases. It re-reads the
 member after the Auth call so a concurrent removal or changed name wins. Failed
 or mismatched identity reads do not write names: the last known snapshot remains
@@ -4962,7 +4976,9 @@ a snapshot after the caller has timed out. Name-only index delivery runs in the
 background using the existing durable dirty mark and projection outbox, rather
 than delaying the reply or status response.
 Web treats old ID-valued progress labels as unnamed Agents during rollout.
-These corrections change no HTTP/RPC schema or local-component contract.
+The batch RPC is additive; public message and local-component contracts stay
+unchanged. Request-scoped reuse between name enrichment and Core readiness is
+separate from this batch transport and must not reuse stale cross-request facts.
 
 `getSpaceStatusResponseSchema` may expose the Organization's current
 `centerAgentProfileId` as an optional presentation identity. This lets public

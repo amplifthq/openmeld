@@ -764,6 +764,11 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   `503`. The projection must never degrade a lookup failure into
   `profile.inactive`: consumers keep their current catalog on a failed read,
   while a false inactive would deregister live routes.
+- Core obtains the target runtime's Profile facts from Auth's bounded
+  `resolveProfilesByIds` RPC. Every requested ID needs either its matching fact
+  or explicit absence. Missing response entries, identity mismatches and a
+  failure in any batch invalidate the whole catalog read. Batching does not
+  weaken the per-Profile owner, kind, status or runtime checks.
 - The projection is a read. It is not lease, registration, or deregistration
   authority. After a rebind, the next read stops including the route;
   in-flight lease arbitration stays with Runtime Transport.

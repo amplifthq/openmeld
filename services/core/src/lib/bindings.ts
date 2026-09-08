@@ -7,6 +7,9 @@ import type {
   AuthRpcResolveOrganizationDirectoryAgentProfilesResult,
   AuthRpcResolveOrganizationDirectoryMembersInput,
   AuthRpcResolveOrganizationDirectoryMembersResult,
+  AuthRpcResolveProfileByIdResult,
+  AuthRpcResolveProfilesByIdsInput,
+  AuthRpcResolveProfilesByIdsResult,
   AuthRpcResolveUserDisplayNameInput,
   AuthRpcResolveUserDisplayNameResult,
   AuthRpcSendInboxUrgentEmailInput,
@@ -133,26 +136,12 @@ type CoreAuthDispatchBindingRpc = {
         message: string;
       }
   >;
-  resolveProfileById?(input: { openMeldProfileId?: string | null }): Promise<
-    | {
-        ok: true;
-        profile: {
-          profileId: string;
-          profileName: string;
-          profileHandle: string;
-          profileKind: "human" | "agent" | "system";
-          status: "active" | "disabled";
-          ownerUserId: string;
-          organizationId?: string | null;
-          defaultProjectId?: string | null;
-        };
-      }
-    | {
-        ok: false;
-        code: string;
-        message: string;
-      }
-  >;
+  resolveProfileById?(input: {
+    openMeldProfileId?: string | null;
+  }): Promise<AuthRpcResolveProfileByIdResult>;
+  resolveProfilesByIds?(
+    input: AuthRpcResolveProfilesByIdsInput
+  ): Promise<AuthRpcResolveProfilesByIdsResult>;
 };
 
 export type RemoteAgentWorkerBindingRpc = {
