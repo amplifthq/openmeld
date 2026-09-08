@@ -49,6 +49,17 @@ describe("Inbox service", () => {
         limit: 1,
       });
       expect(urgentList.items.map((item) => item.id)).toEqual([urgent.itemId]);
+      const recentList = await service.list({
+        ...identity,
+        view: "recent_updates",
+        limit: 100,
+      });
+      expect(recentList.items).toHaveLength(100);
+      expect(
+        recentList.items.every(
+          (item) => item.importance === "normal" && item.attention === "update"
+        )
+      ).toBe(true);
       await service.markRead({
         ...identity,
         itemId: action.itemId,

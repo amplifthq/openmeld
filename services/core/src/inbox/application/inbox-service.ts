@@ -1057,6 +1057,12 @@ function appendViewFilter(filters: string[], view: InboxView): void {
     filters.push("attention = 'action_required'", "resolution_status = 'open'");
   } else if (view === "urgent_updates") {
     filters.push(UNREAD_URGENT_UPDATE_FILTER);
+  } else if (view === "recent_updates") {
+    filters.push(
+      "read_at_ms IS NULL",
+      "NOT (attention = 'action_required' AND resolution_status = 'open')",
+      `NOT (${UNREAD_URGENT_UPDATE_FILTER})`
+    );
   } else if (view === "updates") {
     filters.push(
       "NOT (attention = 'action_required' AND resolution_status = 'open')"

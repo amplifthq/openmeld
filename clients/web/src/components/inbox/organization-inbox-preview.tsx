@@ -39,49 +39,64 @@ export function OrganizationInboxPreview(input: {
 		inboxItemsInfiniteQueryOptions({
 			enabled,
 			organizationId: input.currentOrganization.id,
-			view: "unread",
+			view: "recent_updates",
+		})
+	);
+	const urgentQuery = useInfiniteQuery(
+		inboxItemsInfiniteQueryOptions({
+			enabled,
+			organizationId: input.currentOrganization.id,
+			view: "urgent_updates",
 		})
 	);
 	const actionItems = (
 		actionsQuery.data?.pages.flatMap((page) => page.items) ?? []
 	).slice(0, actionLimit);
+	const urgentItems = (
+		urgentQuery.data?.pages.flatMap((page) => page.items) ?? []
+	).slice(0, Math.min(2, itemLimit - actionItems.length));
 	const updateItems = (
 		unreadQuery.data?.pages.flatMap((page) => page.items) ?? []
-	)
-		.filter(
-			(item) =>
-				item.attention !== "action_required" || item.resolutionStatus !== "open"
-		)
-		.slice(0, itemLimit - actionItems.length);
+	).slice(0, itemLimit - actionItems.length - urgentItems.length);
 	const { setRead } = useInboxItemReadMutation({
 		organizationId: input.currentOrganization.id,
 	});
-	const refreshFailed = actionsQuery.isError || unreadQuery.isError;
+	const refreshFailed =
+		actionsQuery.isError || unreadQuery.isError || urgentQuery.isError;
 	const dataUnavailable =
 		(actionsQuery.isError && !actionsQuery.data) ||
-		(unreadQuery.isError && !unreadQuery.data);
+		(unreadQuery.isError && !unreadQuery.data) ||
+		(urgentQuery.isError && !urgentQuery.data);
 
 	return (
 		<InboxPreviewContent
 			actionItems={actionItems}
 			isError={dataUnavailable}
-			isLoading={actionsQuery.isPending || unreadQuery.isPending}
+			isLoading={
+				actionsQuery.isPending || unreadQuery.isPending || urgentQuery.isPending
+			}
 			isStale={refreshFailed && !dataUnavailable}
 			onOpenItem={(item) => {
 				setRead(item, true);
 				input.onOpenItem?.();
 			}}
 			onRetry={async () =>
-				await Promise.all([actionsQuery.refetch(), unreadQuery.refetch()])
+				await Promise.all([
+					actionsQuery.refetch(),
+					unreadQuery.refetch(),
+					urgentQuery.refetch(),
+				])
 			}
 			onSetRead={setRead}
 			organizationSlug={input.currentOrganization.slug}
 			updateItems={updateItems}
+			urgentItems={urgentItems}
 		/>
 	);
 }
 
 function InboxPreviewContent(input: {
+	urgentItems: readonly InboxItem[];
 	actionItems: readonly InboxItem[];
 	isError: boolean;
 	isLoading: boolean;
@@ -124,7 +139,9 @@ function InboxPreviewContent(input: {
 		);
 	}
 	const isEmpty =
-		input.actionItems.length === 0 && input.updateItems.length === 0;
+		input.actionItems.length === 0 &&
+		input.updateItems.length === 0 &&
+		input.urgentItems.length === 0;
 	return (
 		<div className="space-y-3">
 			{input.isStale ? (
@@ -152,6 +169,15 @@ function InboxPreviewContent(input: {
 				<InboxPreviewSection
 					items={input.actionItems}
 					label="Needs action"
+					onOpenItem={input.onOpenItem}
+					onSetRead={input.onSetRead}
+					organizationSlug={input.organizationSlug}
+				/>
+			) : null}
+			{!isEmpty && input.urgentItems.length > 0 ? (
+				<InboxPreviewSection
+					items={input.urgentItems}
+					label="Urgent updates"
 					onOpenItem={input.onOpenItem}
 					onSetRead={input.onSetRead}
 					organizationSlug={input.organizationSlug}

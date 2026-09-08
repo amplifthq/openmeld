@@ -192,13 +192,14 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       responseSchema: inboxSummaryResponseSchema,
       resolveSuccessPayload: (result) => {
+        const response = inboxSummaryResponseSchema.parse(result);
         if (
           c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ===
           OPENMELD_INBOX_SUMMARY_VERSION
         ) {
-          return result;
+          return response;
         }
-        const { unreadUrgentUpdateCount: _urgentCount, ...legacy } = result;
+        const { unreadUrgentUpdateCount: _urgentCount, ...legacy } = response;
         return legacy;
       },
       route: INBOX_SUMMARY_ROUTE,

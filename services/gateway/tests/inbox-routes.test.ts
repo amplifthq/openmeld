@@ -495,6 +495,7 @@ function makeEnv() {
       organizationId: "org-1",
       totalUnreadCount: 1,
       unresolvedActionCount: 1,
+      unreadUrgentUpdateCount: 0,
     })),
     getCenterAgentInboxSummary: vi.fn(async () => ({
       organizationId: "org-1",

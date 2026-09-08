@@ -27,6 +27,7 @@ export const inboxViewSchema = z.enum([
   "needs_action",
   "updates",
   "urgent_updates",
+  "recent_updates",
 ]);
 export const inboxAttentionSchema = z.enum(["update", "action_required"]);
 export const inboxImportanceSchema = z.enum(["normal", "urgent"]);

@@ -205,6 +205,7 @@ const CREATE_ORGANIZATION_MENU_ITEM_NAME = /Create organization/;
 const FELIX_MENU_ITEM_NAME = /Felix/;
 const FELIX_ACCOUNT_MENU_ITEM_NAME = /Felix.*felix@example\.com/;
 const USER_MENU_PATTERN = /Open user menu for/;
+const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const THEME_TOGGLE_PATTERN = /Switch to .* mode/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
 const PRIMARY_RAIL_LABELS = [
@@ -329,7 +330,9 @@ describe("AppOuterRail", () => {
 		expect(
 			within(header).getByRole("button", { name: "Switch organization" })
 		).toBeTruthy();
-		expect(within(header).getByRole("link", { name: "Inbox" })).toBeTruthy();
+		expect(
+			within(header).getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
+		).toBeTruthy();
 		expect(screen.queryByLabelText("Go to OpenMeld homepage")).toBeNull();
 		expect(screen.queryByText("Experimental")).toBeNull();
 	});
@@ -566,7 +569,9 @@ describe("AppOuterRail", () => {
 			.getByTestId("app-outer-rail")
 			.querySelector("[data-sidebar=header]") as HTMLElement;
 		expect(
-			within(header).getByRole("link", { name: "Inbox" }).getAttribute("href")
+			within(header)
+				.getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
+				.getAttribute("href")
 		).toBe("/o/acme/inbox");
 		expect(
 			(
@@ -1641,7 +1646,9 @@ describe("AppOuterRail", () => {
 		expect(
 			within(header).getByRole("button", { name: TOGGLE_TRIGGER_NAME_PATTERN })
 		).toBeTruthy();
-		expect(within(header).getByRole("link", { name: "Inbox" })).toBeTruthy();
+		expect(
+			within(header).getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
+		).toBeTruthy();
 		expect(
 			within(footer).getByRole("button", { name: USER_MENU_PATTERN })
 		).toBeTruthy();
