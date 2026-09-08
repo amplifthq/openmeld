@@ -522,6 +522,10 @@ motion skips it. The viewport is remembered locally; Reset view restores the
 readable starting position. Scrolling a clipped Space reveals its lower content
 before the ordinary conversation scrolls. Embedded Graphs own their wheel input.
 Bottom-left zoom controls remain; adding more windows is deferred.
+The canvas context menu offers Reset view and Reset layout. Reset layout restores
+the greeting and Space positions and default dimensions, clears the saved size,
+and resets the viewport without remounting the Space. Context menus inside the
+Space remain owned by the shared Space interface.
 
 `/o/{orgSlug}/chats/center-agent` remains the canonical full Center Agent page.
 Explicit legacy `session`, `draft`, focused-signal and view selectors on the

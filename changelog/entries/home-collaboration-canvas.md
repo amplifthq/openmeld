@@ -11,5 +11,6 @@ Spaces, it creates a private Getting started Space. Messages, Graph, Files,
 members, and sharing use the same interface as the full Space page. Scroll to
 work, zoom out to see the canvas, or open the Space full screen. Your viewport
 is remembered in this browser. Drag the Space window’s edges or corners to resize
-it; its size is also remembered. Personal workspaces can also select their
+it; its size is also remembered. Right-click the canvas to reset the view or
+restore the default layout. Personal workspaces can also select their
 Center Agent in the shared Add People or Agents dialog.

@@ -1,5 +1,11 @@
 import { Button } from "@openmeld/ui/components/button";
 import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuTrigger,
+} from "@openmeld/ui/components/context-menu";
+import {
 	ArrowsOutSimpleIcon,
 	CornersOutIcon,
 	MinusIcon,
@@ -50,6 +56,15 @@ const spaceSizeLimits = {
 	minHeight: 480,
 	maxHeight: 1800,
 };
+function defaultSpaceSize(width: number) {
+	return {
+		width: Math.min(
+			spaceSizeLimits.maxWidth,
+			Math.max(spaceSizeLimits.minWidth, width)
+		),
+		height: 900,
+	};
+}
 const DeskContext = createContext<{
 	name: string;
 	spaceId: string;
@@ -87,7 +102,7 @@ function Desk() {
 		(index.data.recentlyDeletedItems ?? []).some(
 			(item) => item.spaceId === space.spaceId
 		);
-	const region = useRef<HTMLElement | null>(null);
+	const region = useRef<HTMLDivElement | null>(null);
 	const flow = useRef<ReactFlowInstance<DeskNode> | null>(null);
 	const [width, setWidth] = useState(1100);
 	const [nodes, setNodes] = useState<DeskNode[]>([]);
@@ -169,13 +184,7 @@ function Desk() {
 								y: 200,
 							},
 							data: { kind: "space" as const },
-							style: savedSize.current ?? {
-								width: Math.min(
-									spaceSizeLimits.maxWidth,
-									Math.max(spaceSizeLimits.minWidth, width)
-								),
-								height: 900,
-							},
+							style: savedSize.current ?? defaultSpaceSize(width),
 							dragHandle: ".desk-title",
 						},
 					]
@@ -235,6 +244,26 @@ function Desk() {
 			profilesQuery.data,
 		]
 	);
+	const resetLayout = () => {
+		const size = defaultSpaceSize(width);
+		savedSize.current = null;
+		try {
+			localStorage.removeItem(sizeKey);
+		} catch {
+			/* Optional window preference. */
+		}
+		setNodes((current) =>
+			current.map((node) => ({
+				...node,
+				position: { x: 0, y: node.data.kind === "welcome" ? 0 : 200 },
+				width: undefined,
+				height: undefined,
+				resizing: false,
+				style: node.data.kind === "welcome" ? { width, height: 150 } : size,
+			}))
+		);
+		reset();
+	};
 	return (
 		<AppFullWidthLayout contentLayout="flush" scroll={false}>
 			<header className="flex items-center gap-3 border-b px-4 py-3">
@@ -243,91 +272,110 @@ function Desk() {
 					{currentOrganization.name}
 				</h1>
 			</header>
-			<section
-				aria-label="Desk workspace"
-				className="relative min-h-0 flex-1"
-				data-desk-canvas
-				onKeyDownCapture={interrupt}
-				onPointerDownCapture={interrupt}
-				onWheelCapture={interrupt}
-				ref={region}
-			>
-				{(space.error || profilesQuery.isError) && (
-					<div className="p-6" role="alert">
-						<p>{space.error ?? "Couldn’t load your profile."}</p>
-						<Button
-							onClick={() => {
-								space.retry();
-								profilesQuery.refetch().catch(console.error);
-							}}
-							variant="outline"
-						>
-							Try again
-						</Button>
-						<Link
-							className="ml-3 underline"
-							to={buildOrganizationSpacesPath(currentOrganization.slug)}
-						>
-							Open Spaces
-						</Link>
-					</div>
-				)}
-				{!(space.error || profilesQuery.isError) && loaded && space.ready && (
-					<DeskContext value={context}>
-						<WorkspaceCanvas<DeskNode>
-							controls={
-								<Panel position="bottom-left">
-									<div className="flex items-center gap-1 rounded-md border bg-background p-1">
-										<Button
-											aria-label="Zoom out"
-											onClick={() => flow.current?.zoomOut()}
-											size="icon-sm"
-											variant="ghost"
-										>
-											<MinusIcon />
-										</Button>
-										<Button
-											aria-label="Zoom in"
-											onClick={() => flow.current?.zoomIn()}
-											size="icon-sm"
-											variant="ghost"
-										>
-											<PlusIcon />
-										</Button>
-										<Button onClick={reset} size="sm" variant="ghost">
-											<CornersOutIcon />
-											Reset view
-										</Button>
-									</div>
-								</Panel>
-							}
-							defaultViewport={savedViewport ?? { x: 32, y: 24, zoom: 1 }}
-							edges={edges}
-							nodes={nodes}
-							nodeTypes={nodeTypes}
-							onInit={initialize}
-							onlyRenderVisibleElements={false}
-							onMoveEnd={(_, viewport) => onMoveEnd(viewport)}
-							onNodesChange={(changes) =>
-								setNodes((current) => applyNodeChanges(changes, current))
-							}
-							zoomOnDoubleClick={false}
-						/>
-					</DeskContext>
-				)}
-				{!(space.error || profilesQuery.isError || (loaded && space.ready)) && (
-					<output className="p-6 text-muted-foreground">
-						Preparing your Space…
-					</output>
-				)}
-				{deleted && (
-					<div className="absolute inset-x-6 top-56 text-center">
-						<Link to={buildOrganizationSpacesPath(currentOrganization.slug)}>
-							Open Spaces
-						</Link>
-					</div>
-				)}
-			</section>
+			<ContextMenu>
+				<ContextMenuTrigger
+					aria-label="Desk workspace"
+					className="relative min-h-0 flex-1"
+					data-desk-canvas
+					onContextMenu={(event) => {
+						if (
+							event.target instanceof Element &&
+							event.target.closest(".nowheel")
+						) {
+							event.preventBaseUIHandler();
+						}
+					}}
+					onKeyDownCapture={interrupt}
+					onPointerDownCapture={interrupt}
+					onWheelCapture={interrupt}
+					ref={region}
+					role="region"
+				>
+					{(space.error || profilesQuery.isError) && (
+						<div className="p-6" role="alert">
+							<p>{space.error ?? "Couldn’t load your profile."}</p>
+							<Button
+								onClick={() => {
+									space.retry();
+									profilesQuery.refetch().catch(console.error);
+								}}
+								variant="outline"
+							>
+								Try again
+							</Button>
+							<Link
+								className="ml-3 underline"
+								to={buildOrganizationSpacesPath(currentOrganization.slug)}
+							>
+								Open Spaces
+							</Link>
+						</div>
+					)}
+					{!(space.error || profilesQuery.isError) && loaded && space.ready && (
+						<DeskContext value={context}>
+							<WorkspaceCanvas<DeskNode>
+								controls={
+									<Panel position="bottom-left">
+										<div className="flex items-center gap-1 rounded-md border bg-background p-1">
+											<Button
+												aria-label="Zoom out"
+												onClick={() => flow.current?.zoomOut()}
+												size="icon-sm"
+												variant="ghost"
+											>
+												<MinusIcon />
+											</Button>
+											<Button
+												aria-label="Zoom in"
+												onClick={() => flow.current?.zoomIn()}
+												size="icon-sm"
+												variant="ghost"
+											>
+												<PlusIcon />
+											</Button>
+											<Button onClick={reset} size="sm" variant="ghost">
+												<CornersOutIcon />
+												Reset view
+											</Button>
+										</div>
+									</Panel>
+								}
+								defaultViewport={savedViewport ?? { x: 32, y: 24, zoom: 1 }}
+								edges={edges}
+								nodes={nodes}
+								nodeTypes={nodeTypes}
+								onInit={initialize}
+								onlyRenderVisibleElements={false}
+								onMoveEnd={(_, viewport) => onMoveEnd(viewport)}
+								onNodesChange={(changes) =>
+									setNodes((current) => applyNodeChanges(changes, current))
+								}
+								zoomOnDoubleClick={false}
+							/>
+						</DeskContext>
+					)}
+					{!(
+						space.error ||
+						profilesQuery.isError ||
+						(loaded && space.ready)
+					) && (
+						<output className="p-6 text-muted-foreground">
+							Preparing your Space…
+						</output>
+					)}
+					{deleted && (
+						<div className="absolute inset-x-6 top-56 text-center">
+							<Link to={buildOrganizationSpacesPath(currentOrganization.slug)}>
+								Open Spaces
+							</Link>
+						</div>
+					)}
+				</ContextMenuTrigger>
+				<ContextMenuContent>
+					<ContextMenuItem onClick={reset}>Reset view</ContextMenuItem>
+					<ContextMenuItem onClick={resetLayout}>Reset layout</ContextMenuItem>
+				</ContextMenuContent>
+			</ContextMenu>
 		</AppFullWidthLayout>
 	);
 }
@@ -380,7 +428,7 @@ function DeskWindow({ data }: NodeProps<DeskNode>) {
 						<ArrowsOutSimpleIcon />
 					</Link>
 				</div>
-				<div className="nodrag nopan nowheel flex min-h-0 flex-1 flex-col">
+				<div className="nodrag nopan nowheel flex min-h-0 flex-1 select-text flex-col">
 					<DeskSpace
 						accountProfiles={context.profiles}
 						initialView={view}
