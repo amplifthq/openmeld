@@ -432,7 +432,7 @@ function resolveConfigurationRetryMessage(input: {
 		return `OpenMeld could not publish the app update to ${input.providerLabel}. The bot is not connected yet. OpenMeld will retry automatically.`;
 	}
 	if (input.reasonCode.endsWith(".application_config_failed")) {
-		return `${input.providerLabel} did not accept the latest app configuration. OpenMeld will retry automatically.`;
+		return `OpenMeld could not finish configuring the ${input.providerLabel} app. It will retry automatically.`;
 	}
 	if (
 		input.reasonCode.endsWith(".registration_transport_failed") ||
