@@ -4,6 +4,7 @@ import { existsSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findActiveDevLockHolder, readDevLockPayload } from "./dev-lock.mjs";
+import { manageWorktreeDevService } from "./dev-service.mjs";
 import {
   buildProcessMatcherContext,
   isDevGuardCommand,
@@ -38,6 +39,7 @@ if (isDirectExecution()) {
 }
 
 async function run() {
+  manageWorktreeDevService(repoRoot, { dryRun });
   const rows = readProcessRows({ repoRoot });
   const targets = collectTargetProcesses(rows);
 
@@ -90,6 +92,13 @@ async function run() {
     );
     for (const pid of aliveAfterTerm) {
       safeKill(pid, "SIGKILL");
+    }
+    await waitForExit(aliveAfterTerm, 4200);
+    const remaining = aliveAfterTerm.filter(isPidAlive);
+    if (remaining.length > 0) {
+      throw new Error(
+        `Processes did not exit: ${remaining.join(", ")}. Environment files were preserved.`
+      );
     }
   }
 
@@ -165,8 +174,10 @@ function summarizeCommand(command) {
 function safeKill(pid, signal) {
   try {
     process.kill(pid, signal);
-  } catch {
-    // Ignore already-dead / permission errors in shutdown flow.
+  } catch (error) {
+    if (error?.code !== "ESRCH") {
+      throw error;
+    }
   }
 }
 
@@ -174,8 +185,11 @@ function isPidAlive(pid) {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (error?.code === "ESRCH") {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -207,7 +221,7 @@ function clearLockFile() {
     isPidAlive,
   });
   if (activeLockHolder) {
-    safeKill(lockPayload.pid, "SIGTERM");
+    throw new Error(`Dev stack owner ${lockPayload.pid} is still active. Its lock was preserved.`);
   }
 
   rmSync(lockFile, { force: true });

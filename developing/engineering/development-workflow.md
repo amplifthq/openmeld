@@ -168,6 +168,30 @@ environment callback, or no coordination best fits the actual work.
   owned processes with `pnpm dev:stop -- --dry-run`, then run `pnpm dev:stop`.
   The command is worktree-scoped. Never stop another worktree merely to create
   headroom; contact its owner only when measured pressure blocks useful work.
+- `pnpm dev:stop` also stops the worktree's isolated OpenMeld Service and
+  removes its maintenance worker registration. It preserves account data and
+  source files. Stop succeeds only after owned processes exit; failures keep
+  the environment available for diagnosis. Resume local Agent validation through
+  the same lane's setup/start entry, which restores maintenance registration.
+- Use `pnpm dev:clean -- --dry-run`, then `pnpm dev:clean` to retire an isolated
+  environment: uninstall its Service and maintenance worker, stop its dev stack,
+  then remove only its isolated OpenMeld home and Wrangler data. Do not remove
+  directories while a supervisor or owned execution can still use them.
+- After merge and completion of acceptance/release dependencies, remove a
+  task-created temporary worktree from a retained checkout with
+  `pnpm dev:clean -- --worktree /absolute/worktree/path --remove-worktree`.
+  This is authorized task closeout for that agent's own temporary environment;
+  it does not authorize deleting pre-existing or another task's worktree.
+  The command refuses primary, main, locked, dirty, unmerged, or in-use
+  worktrees and never forces Git removal or deletes branches. The caller must
+  also establish that no review, task, acceptance, or release still needs it.
+  Process-directory verification must be supported on the current platform;
+  otherwise preserve the stopped worktree and report the limitation.
+- Stop resources as soon as they are no longer needed, including while a PR
+  waits for review. A handoff requiring a live localhost environment must name
+  its URL, owner, reason for retention, and cleanup responsibility. Closeout
+  reports whether the environment was stopped, cleaned, removed, or retained
+  for a concrete dependency. Inactivity alone never authorizes deletion.
 - Do not ask unrelated agents to freeze `main` while one Final Candidate runs.
   A successful exact PR candidate keeps its immutable evidence. Merge queue owns
   the latest-main combination when available; strict up-to-date protection owns
@@ -433,6 +457,13 @@ Each isolated lane owns all of the following:
   `.wrangler-dev-state/isolated/<lane-id>/`
 - one lane-specific `OPENMELD_HOME` under
   `.turbo/dev/isolated/<lane-id>/openmeld-home/`
+- one Service and maintenance registration, lifecycle lock, and repair marker
+  per development home. Their OS-safe suffix is derived from the absolute home
+  already carried by setup and service registration; it does not depend on cwd,
+  current port allocation, or a transient environment variable. Production and
+  canary keep their fixed identities. Old unsuffixed development registrations
+  are not automatically adopted or removed; retire them separately after
+  identifying their owner and finishing its work.
 
 The shared lane registry lives under the repository's Git common directory so
 all worktrees coordinate allocation. A live owner is never stopped or reclaimed.

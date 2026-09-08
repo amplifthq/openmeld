@@ -44,6 +44,7 @@
     "dev:seed": "python3 scripts/dev/dev-seed.py",
     "dev:account": "python3 scripts/dev/dev-account.py",
     "dev:stop": "node scripts/dev/dev-stop.mjs",
+    "dev:clean": "node scripts/dev/dev-clean.mjs",
     "dev:fresh": "node --experimental-strip-types scripts/dev/prepare-fresh-web-start-cli.mts --clear-auth-sessions --print-shell-export",
     "dev:prepare:fresh-web-start": "node --experimental-strip-types scripts/dev/prepare-fresh-web-start-cli.mts",
     "desktop:prepare:dev": "pnpm --filter openmeld build && pnpm run openmeld:dev:install",
