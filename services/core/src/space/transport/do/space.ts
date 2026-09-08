@@ -9790,8 +9790,7 @@ export class Space extends DurableObject<CoreBindings> {
       return true;
     }
     const auth = this.bindings.OPENMELD_AUTH_WORKER;
-    const resolveProfile = auth?.resolveProfileById?.bind(auth);
-    if (!resolveProfile) {
+    if (!auth?.resolveProfileById) {
       return false;
     }
     // Profile ownership comes from Auth, never client selectors or member names.
@@ -9804,12 +9803,14 @@ export class Space extends DurableObject<CoreBindings> {
       if (!profileOwnership.has(profileId)) {
         profileOwnership.set(
           profileId,
-          resolveProfile({ openMeldProfileId: profileId }).then(
-            (resolved) =>
-              resolved.ok &&
-              resolved.profile.status === "active" &&
-              resolved.profile.ownerUserId === ownerUserId
-          )
+          auth
+            .resolveProfileById({ openMeldProfileId: profileId })
+            .then(
+              (resolved) =>
+                resolved.ok &&
+                resolved.profile.status === "active" &&
+                resolved.profile.ownerUserId === ownerUserId
+            )
         );
       }
       if (await profileOwnership.get(profileId)) {
