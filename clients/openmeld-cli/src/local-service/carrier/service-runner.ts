@@ -28,10 +28,7 @@ import {
   refreshManagedAgentActivityIntegrations,
 } from "../../agent-activity/integration-refresh";
 import { startLocalAgentActivitySyncLoop } from "../../agent-activity/local-sync";
-import {
-  reconcileNewRunnableBuiltinAgentRegistrations,
-  setAgentRegistrationEnabled,
-} from "../../agents/registry";
+import { setAgentRegistrationEnabled } from "../../agents/registry";
 import {
   type AuthSessionState,
   getAuthSessionState,
@@ -689,19 +686,12 @@ export const runDaemonServiceLoop = async (
     skippedProfiles: [],
   });
   const routeCatalogLoader = createRouteCatalogSyncLoader({
-    loadFresh: async () => {
-      await reconcileNewRunnableBuiltinAgentRegistrations({
-        notifyRouteCatalogChanged: false,
-      });
-      return await loadDaemonRouteCatalog({
-        allowEmpty: true,
+    loadFresh: () =>
+      loadFreshDaemonRouteCatalog({
         localAdapterContainer,
-        localReplyStateMode: "check",
         ownerUserId,
         presenter: input.presenter,
-        quiet: true,
-      });
-    },
+      }),
     loadInitial: async () =>
       await loadInitialDaemonRouteCatalog({
         allowEmpty: true,
@@ -1189,12 +1179,22 @@ export const runDaemonServiceLoop = async (
   });
 };
 
-// Two-phase catalog loader for the daemon run loop. The first load goes
-// through the initial loader (fresh scan with cache/empty fallback plus
-// journal instrumentation); once it has produced a catalog the loader is
-// "resolved" and later syncs use the plain loader. Resolution only flips on
-// success so an unresolved placeholder can never masquerade as a resolved
-// empty catalog and shrink the registered route set.
+// Route refresh reads configured routes, never controller installation probes.
+export async function loadFreshDaemonRouteCatalog(input: {
+  localAdapterContainer: LocalDaemonAdapterContainer;
+  ownerUserId: string;
+  presenter: Presenter;
+}): Promise<RouteCatalog> {
+  return await loadDaemonRouteCatalog({
+    ...input,
+    allowEmpty: true,
+    localReplyStateMode: "check",
+    quiet: true,
+  });
+}
+
+// The first successful load resolves the bootstrap placeholder. Only then may
+// a fresh empty catalog remove registered routes; load failures never do so.
 export function createRouteCatalogSyncLoader(deps: {
   loadFresh: () => Promise<RouteCatalog>;
   loadInitial: () => Promise<RouteCatalog>;
