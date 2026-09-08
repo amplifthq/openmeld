@@ -185,9 +185,16 @@ resubmitting it on an ordinary alarm.
 
 Core gates fresh Work Coordinator admission with the same canonical
 Wakeability projection used by product surfaces. Its current compatibility
-identifier is `AgentExecutionReadiness`. A current blocking fact
+identifier is `AgentExecutionReadiness`. A definitive current blocking fact
 ends as a visible pre-head no-execution outcome; it must not create a current or
-queued Coordinator item. The gate reads current Core-held facts only. It does
+queued Coordinator item. Missing readiness evidence or working-folder report
+coverage, revision, or freshness while Service reports catch up is not a
+definitive refusal. Core retains that same undelivered Wake through the existing
+bounded preflight retry policy and Space outbox; no execution is authorized.
+Each retry rereads canonical readiness and authorization. A ready verdict may
+continue the original Wake once, while a definitive blocker or exhausted retry
+budget produces its visible failure. No second user message is required, and
+no already-terminal Wake is revived. The gate reads current Core-held facts only. It does
 not poll the Local Service, call a provider, scan Profiles, enumerate
 owner-wide device inventories for presentation enrichment, sleep, or add a
 second readiness projection to the dispatch path.
@@ -477,6 +484,15 @@ Important execution rules:
   become a second execution authority.
 - Caller authority, owner evidence, Binding evidence, and execution truth come
   from verified Gateway/Core context, not request-body trust.
+- Space owns user-requested Wake Stop authorization. After writable Space access,
+  only the authenticated source-message account or target Agent Profile owner
+  may stop the exact target Wake. Resolve the source from the Space's persisted
+  Signal and account ownership from Auth; caller selectors, member names, and
+  other signed-in accounts are not ownership evidence. Use the same policy for
+  viewer-scoped progress eligibility and the Stop mutation, before native or
+  workstation cancellation side effects. Missing ownership fails closed.
+  RuntimeCoordinator continues to own execution and the final stopped outcome;
+  internal deletion/recovery cancellation is not a user Stop permission grant.
 - Before RuntimeCoordinator links an execution, OpenMeld-owned pre-agent Stop may
   move the target Wake head lifecycle to `stopped_before_execution`. That is a
   stopped terminal outcome for the target Wake, not a failed execution and not a

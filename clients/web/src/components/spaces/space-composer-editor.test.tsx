@@ -20,7 +20,10 @@ import {
 } from "./space-composer-editor";
 import { getEditorFocusReadiness } from "./space-composer-focus";
 import type { SpaceComposerAddressingTarget } from "./use-space-mention-authoring";
-import { buildSpaceMentionTargetItems } from "./use-space-mention-authoring";
+import {
+	buildSpaceComposerAddressingTargets,
+	buildSpaceMentionTargetItems,
+} from "./use-space-mention-authoring";
 
 const AGENT_PROFILE_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const HUMAN_PROFILE_ID = "22222222-2222-4222-8222-222222222222";
@@ -29,6 +32,54 @@ const RUNNER_OPTION_NAME = /Runner/;
 
 describe("SpaceComposerEditor", () => {
 	afterEach(cleanup);
+
+	it("renders a restored mention with parentheses in its display name without parsing the name as a literal", () => {
+		const profileName = "Felix Lu Codex GPT-5.6 Sol (1)";
+		const mentionText = `@${AGENT_PROFILE_ID}`;
+		const authoredMentions = [
+			{
+				start: 0,
+				end: mentionText.length,
+				text: mentionText,
+				profileId: AGENT_PROFILE_ID,
+				relation: "wake" as const,
+			},
+		];
+		const snapshot = createSpaceMembersSnapshot({
+			agents: [
+				createSpaceMemberAgentSnapshot({
+					profileId: AGENT_PROFILE_ID,
+					profileName,
+				}),
+			],
+		});
+		render(
+			<SpaceComposerEditor
+				addressingTargets={buildSpaceComposerAddressingTargets({
+					mentions: authoredMentions,
+					snapshot,
+				})}
+				ariaLabel="Message this space"
+				authoredMentions={authoredMentions}
+				mentionPickerItems={buildSpaceMentionTargetItems({
+					query: "",
+					snapshot,
+				})}
+				onChange={vi.fn()}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text={`${mentionText} Reply with the test marker.`}
+			/>
+		);
+		const token = screen.getByTestId("space-composer-profile-token");
+		expect(within(token).getByText(profileName)).toBeTruthy();
+		expect(
+			screen.getByRole("combobox", {
+				name: `Change relation for ${profileName}`,
+			}).textContent
+		).toBe("Wake");
+		expect(token.textContent).not.toContain(AGENT_PROFILE_ID);
+	});
 
 	it("renders an Agent as an inline profile token with its relation beside the name", () => {
 		render(
@@ -920,6 +971,7 @@ function RestoredDraftHarness(input: { text: string }) {
 function createAgentTarget(): SpaceComposerAddressingTarget {
 	return {
 		allowedRelations: { mention: false, reference: true, wake: true },
+		primaryMentionLabel: "Runner",
 		profileId: AGENT_PROFILE_ID,
 		profileName: "Runner",
 		relation: "wake",
@@ -945,6 +997,7 @@ function createBlockedAgentTarget(): SpaceComposerAddressingTarget {
 function createHumanTarget(): SpaceComposerAddressingTarget {
 	return {
 		allowedRelations: { mention: true, reference: false, wake: false },
+		primaryMentionLabel: "Felix",
 		profileId: HUMAN_PROFILE_ID,
 		profileName: "Felix",
 		relation: "mention",

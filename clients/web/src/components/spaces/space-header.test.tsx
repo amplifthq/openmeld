@@ -126,7 +126,7 @@ describe("SpaceHeader", () => {
 		expect(frame?.className).toContain("px-0");
 		expect(frame?.className).not.toContain("px-4");
 		expect(frame?.className).not.toContain(
-			"px-[var(--space-conversation-inline-padding)]"
+			"px-[var(--app-page-inline-padding)]"
 		);
 	});
 
@@ -152,7 +152,7 @@ describe("SpaceHeader", () => {
 		expect(inlineFrame).toBeTruthy();
 		expect(inlineFrame?.className).not.toContain("px-4");
 		expect(inlineFrame?.className).toContain(
-			"px-[var(--space-conversation-inline-padding)]"
+			"px-[var(--app-page-inline-padding)]"
 		);
 		expect(viewControl.closest("header")).not.toBeNull();
 		expect(navigationRow).not.toBeNull();

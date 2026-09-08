@@ -198,6 +198,16 @@ describe("OpenMeld Space Action command", () => {
     ).toThrow("already been recorded");
   });
 
+  it("acknowledges an identical reply retry without replacing the first record", async () => {
+    const context = createTestContext([]);
+    await runSpaceActionReply({ messageParts: ["One answer."] });
+    const original = readLoadedActionRecord(context);
+
+    await runSpaceActionReply({ messageParts: ["One answer."] });
+
+    expect(readLoadedActionRecord(context)).toEqual(original);
+  });
+
   it("preserves a superseded action before one bounded reconsideration", async () => {
     const context = createTestContext([]);
     await runSpaceActionReply({ messageParts: ["First answer."] });

@@ -36,12 +36,10 @@ export type SpaceWakeStopTargetResolution = {
 
 type ResolveSpaceMessageWakeStopTargetInput = {
 	item: SpaceTimelineItem;
-	nowMs?: number;
 	stopRequestStatusBySelectorKey?: ReadonlyMap<
 		string,
 		SpaceWakeStopRequestStatus
 	>;
-	targetLabelsByProfileId?: ReadonlyMap<string, string>;
 	timelineItems?: readonly SpaceTimelineItem[];
 	wakeOutcomeIndex?: SpaceWakeOutcomeIndex;
 	wakeProgressItems: readonly WakeProgressItem[];
@@ -76,7 +74,6 @@ export type SpaceWakeOutcomeIndex = {
 	}) => boolean;
 };
 
-const WAKE_STOP_INTENT_SOURCE_RECENCY_MS = 5 * 60 * 1000;
 const WHITESPACE_CHARACTER_PATTERN = /\s/u;
 const WHITESPACE_SEQUENCE_PATTERN = /\s+/gu;
 
@@ -230,21 +227,8 @@ export function resolveSpaceMessageWakeStopTargets(
 		return terminalTargets;
 	}
 
-	if (
-		!isRecentWakeStopIntentSource({
-			nowMs: input.nowMs ?? Date.now(),
-			sourceItem: input.item,
-		})
-	) {
-		return [];
-	}
-
-	return resolveWakeStopIntentTargetsFromSourceItem({
-		sourceItem: input.item,
-		stopRequestStatusBySelectorKey: input.stopRequestStatusBySelectorKey,
-		targetLabelsByProfileId: input.targetLabelsByProfileId,
-		targetProfileIds: activeTargetProfileIds,
-	});
+	// A sent message is not permission to stop its Wake. Wait for Core's projection.
+	return [];
 }
 
 export function resolveSpaceMessageWakeTargetProfileIds(input: {
@@ -406,10 +390,8 @@ export function resolveWakeStopTargetForProgressItem(input: {
 		? (input.item.wakeStopEligibility ?? null)
 		: undefined;
 	const hasControlBackedEligibility = isWakeStopEligible(wakeStopEligibility);
-	const hasKnownIneligibleControlState =
-		wakeStopEligibility !== undefined && !hasControlBackedEligibility;
 	const canStop =
-		requiresControlBackedEligibility && !hasKnownIneligibleControlState;
+		requiresControlBackedEligibility && hasControlBackedEligibility;
 	const resolvedStatus = resolveControlBackedWakeStopUiStatus({
 		hasControlBackedEligibility,
 		requiresControlBackedEligibility,
@@ -431,46 +413,6 @@ export function resolveWakeStopTargetForProgressItem(input: {
 		targetLabel: input.item.targetLabel,
 		targetProfileId: input.item.targetProfileId,
 	};
-}
-
-function resolveWakeStopIntentTargetsFromSourceItem(input: {
-	sourceItem: SpaceTimelineItem;
-	stopRequestStatusBySelectorKey?: ReadonlyMap<
-		string,
-		SpaceWakeStopRequestStatus
-	>;
-	targetLabelsByProfileId?: ReadonlyMap<string, string>;
-	targetProfileIds: readonly string[];
-}): readonly SpaceWakeStopTargetResolution[] {
-	const targets: SpaceWakeStopTargetResolution[] = [];
-	for (const targetProfileId of input.targetProfileIds) {
-		const selector = resolveWakeStopIntentSelector({
-			sourceItem: input.sourceItem,
-			targetProfileId,
-		});
-		if (!selector) {
-			continue;
-		}
-
-		const selectorKey = buildSpaceWakeStopSelectorKey(selector);
-		const requestStatus =
-			input.stopRequestStatusBySelectorKey?.get(selectorKey) ?? null;
-		const status = resolveWakeStopIntentStatus(requestStatus);
-		const canStop = status === "active" || status === "retry_later";
-
-		targets.push({
-			canStop,
-			clientMessageId: input.sourceItem.wakeClientMessageId,
-			selector,
-			selectorKey,
-			sourceSignalId:
-				selector.by === "source_signal" ? selector.sourceSignalId : null,
-			status,
-			targetLabel: input.targetLabelsByProfileId?.get(targetProfileId) ?? null,
-			targetProfileId,
-		});
-	}
-	return targets;
 }
 
 function hasVisibleWakeOutcomeForSourceTarget(input: {
@@ -696,63 +638,6 @@ function normalizeWakeStopText(text: string): string {
 	return text.replace(WHITESPACE_SEQUENCE_PATTERN, " ").trim();
 }
 
-function isRecentWakeStopIntentSource(input: {
-	nowMs: number;
-	sourceItem: SpaceTimelineItem;
-}): boolean {
-	const ageMs = input.nowMs - input.sourceItem.createdAtMs;
-	return (
-		Number.isFinite(ageMs) &&
-		ageMs >= 0 &&
-		ageMs <= WAKE_STOP_INTENT_SOURCE_RECENCY_MS
-	);
-}
-
-function resolveWakeStopIntentSelector(input: {
-	sourceItem: SpaceTimelineItem;
-	targetProfileId: string;
-}): SpaceWakeStopSelector | null {
-	const sourceSignalId = resolveSpaceMessageWakeSourceSignalId(
-		input.sourceItem
-	);
-	if (sourceSignalId.trim().length > 0) {
-		return {
-			by: "source_signal",
-			sourceSignalId,
-			targetProfileId: input.targetProfileId,
-		};
-	}
-	const clientMessageId = input.sourceItem.wakeClientMessageId;
-	if (!clientMessageId) {
-		return null;
-	}
-	return {
-		by: "client_message",
-		clientMessageId,
-		targetProfileId: input.targetProfileId,
-	};
-}
-
-function resolveWakeStopIntentStatus(
-	requestStatus: SpaceWakeStopRequestStatus | null
-): SpaceWakeStopUiStatus {
-	switch (requestStatus) {
-		case "cancellation_requested":
-		case "cancelled":
-		case "already_cancelled":
-			return "stopping";
-		case "unsupported":
-			return "unsupported";
-		case "not_found":
-		case "not_stoppable":
-			return "not_stoppable";
-		case "retry_later":
-			return "retry_later";
-		default:
-			return "active";
-	}
-}
-
 function resolveWakeStopSelector(input: {
 	item: WakeProgressItem;
 	sourceItem?: SpaceTimelineItem;
@@ -823,10 +708,10 @@ function resolveControlBackedWakeStopUiStatus(input: {
 	status: SpaceWakeStopUiStatus;
 	wakeStopEligibility: WakeStopEligibilityReadModel | null | undefined;
 }): SpaceWakeStopUiStatus {
-	if (!input.requiresControlBackedEligibility) {
-		return input.status;
+	if (input.wakeStopEligibility == null) {
+		return "not_stoppable";
 	}
-	if (input.wakeStopEligibility === undefined) {
+	if (!input.requiresControlBackedEligibility) {
 		return input.status;
 	}
 	if (!input.hasControlBackedEligibility) {

@@ -14,25 +14,56 @@ export type PeopleFilter =
 	| "unconnected"
 	| "unknown";
 
-export function resolvePeopleSidebarDefaults(
-	preferences: PeopleSidebarPreferences,
-	selfId: string | undefined
-): PeopleSidebarPreferences {
-	if (
-		!selfId ||
-		[preferences.starred, preferences.people, ...preferences.groups].some(
-			(section) => section.itemIds.includes(selfId)
-		)
-	) {
-		return preferences;
-	}
-	return {
-		...preferences,
-		starred: {
-			...preferences.starred,
-			itemIds: [selfId, ...preferences.starred.itemIds],
+export function resolvePeopleSections(
+	members: readonly DirectoryHumanProfileRow[],
+	preferences: PeopleSidebarPreferences
+) {
+	const assigned = new Set([
+		...preferences.starred.itemIds,
+		...preferences.groups.flatMap((group) => group.itemIds),
+	]);
+	const remaining = members.filter((member) => !assigned.has(member.id));
+	return [
+		{
+			id: "starred",
+			label: "Starred",
+			members: members.filter((member) =>
+				preferences.starred.itemIds.includes(member.id)
+			),
+			settings: preferences.starred,
 		},
-	};
+		...preferences.groups.map((group) => ({
+			id: group.id,
+			label: group.name,
+			members: members.filter((member) => group.itemIds.includes(member.id)),
+			settings: group,
+		})),
+		{
+			id: "online",
+			label: "Online",
+			members: remaining.filter(
+				(member) => peopleConnectionFilter(member) === "connected"
+			),
+			settings: preferences.people,
+		},
+		{
+			id: "offline",
+			label: "Offline",
+			members: remaining.filter(
+				(member) => peopleConnectionFilter(member) !== "connected"
+			),
+			settings: preferences.people,
+		},
+	]
+		.filter(
+			(section) =>
+				section.members.length > 0 ||
+				preferences.groups.some((group) => group.id === section.id)
+		)
+		.map((section) => ({
+			...section,
+			members: sortSidebarPeople(section.members, section.settings, true),
+		}));
 }
 
 export function removeSidebarPeopleGroup(

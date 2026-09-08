@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  isAgentWakeAdmissionPreparationPendingReason,
   resolveWakeStopEligibility,
 } from "@openmeld/agent-runtime";
 import {
@@ -70,6 +71,7 @@ import {
   remoteAgentWorkerExecutionInputResponseSchema,
   removeSpaceMembersBodySchema,
   resolveMappedPublicAgentFailureReason,
+  resolveSingleSpaceMentionLabels,
   resolveSpaceComposerUploadScopeResponseSchema,
   resolveSpaceFileContentInputSchema,
   respondToSpaceAgentInteractionInputSchema,
@@ -3816,8 +3818,15 @@ export class Space extends DurableObject<CoreBindings> {
       throw error;
     }
 
-    const finalSignal =
-      this.readAgentTransportSpaceActionFinalSignal(input) ?? signal;
+    const finalSignal = this.readAgentTransportSpaceActionFinalSignal(input);
+    if (!finalSignal) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: "space.agent_reply.final_signal_unreadable",
+        reason:
+          "The published Agent reply could not be read from Space storage.",
+      });
+    }
     return {
       emittedSignal: finalSignal,
       finalReplySettled: true,
@@ -9526,23 +9535,26 @@ export class Space extends DurableObject<CoreBindings> {
               .ownerUserId
           );
           return Response.json(
-            await this.readActiveSpaceWakeProgress({
-              actorOwnerUserId,
-              db,
-              includePageInfo: parsed.data.includePageInfo === true,
-              includeTiming: parsed.data.includeTiming === true,
-              includePreviewText: parsed.data.includePreviewText === true,
-              includeSourceContext: parsed.data.includeSourceContext === true,
-              includeWaitReason: parsed.data.includeWaitReason === true,
-              includeWakeStopEligibility:
-                parsed.data.includeWakeStopEligibility === true,
-              ...(parsed.data.targetProfileId
-                ? { targetProfileId: parsed.data.targetProfileId }
-                : {}),
-              ...(parsed.data.sourceProfileId
-                ? { sourceProfileId: parsed.data.sourceProfileId }
-                : {}),
-            })
+            await this.projectWakeStopEligibilityForViewer(
+              await this.readActiveSpaceWakeProgress({
+                actorOwnerUserId,
+                db,
+                includePageInfo: parsed.data.includePageInfo === true,
+                includeTiming: parsed.data.includeTiming === true,
+                includePreviewText: parsed.data.includePreviewText === true,
+                includeSourceContext: parsed.data.includeSourceContext === true,
+                includeWaitReason: parsed.data.includeWaitReason === true,
+                includeWakeStopEligibility:
+                  parsed.data.includeWakeStopEligibility === true,
+                ...(parsed.data.targetProfileId
+                  ? { targetProfileId: parsed.data.targetProfileId }
+                  : {}),
+                ...(parsed.data.sourceProfileId
+                  ? { sourceProfileId: parsed.data.sourceProfileId }
+                  : {}),
+              }),
+              resolved.spaceAccess
+            )
           );
         } catch (err) {
           logInternalError(
@@ -9715,12 +9727,16 @@ export class Space extends DurableObject<CoreBindings> {
       );
     }
 
-    const response = await this.handlePostWakeStop(parsed.data.body);
+    const response = await this.handlePostWakeStop(
+      parsed.data.body,
+      requireWritableSpaceActor(resolved.spaceAccess)
+    );
     return Response.json(response);
   }
 
   private async handlePostWakeStop(
-    body: PostSpaceWakeStopBody
+    body: PostSpaceWakeStopBody,
+    context: OpenMeldRequestContext
   ): Promise<PostSpaceWakeStopResponse> {
     const lookup = await this.readWakeStopDispatchLookup(body.target);
     const lookupMatch = lookup.matches.find(
@@ -9732,6 +9748,15 @@ export class Space extends DurableObject<CoreBindings> {
         runtimeCoordinatorExecutionId: null,
         status: "not_found",
         targetProfileId: body.target.targetProfileId,
+      });
+    }
+
+    if (!(await this.isWakeStopAuthorized({ context, ...lookupMatch }))) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space.wake_stop.forbidden",
+        reason:
+          "Only the person who started this Wake or the agent's owner can stop it.",
       });
     }
 
@@ -9747,6 +9772,87 @@ export class Space extends DurableObject<CoreBindings> {
       body,
       lookupMatch,
     });
+  }
+
+  private async isWakeStopAuthorized(
+    input: {
+      context: OpenMeldRequestContext;
+      sourceSignalId: string | null;
+      targetProfileId: string;
+    },
+    profileOwnership = new Map<string, Promise<boolean>>()
+  ): Promise<boolean> {
+    const actor = input.context.actorContext;
+    const ownerUserId = normalizeOptionalText(actor.ownerUserId);
+    if (!ownerUserId || actor.profileKind === "system") {
+      return false;
+    }
+    const source = input.sourceSignalId
+      ? this.readSignalById(input.sourceSignalId)
+      : null;
+    if (source?.profile.profileId === actor.openMeldProfileId) {
+      return true;
+    }
+    const auth = this.bindings.OPENMELD_AUTH_WORKER;
+    const resolveProfile = auth?.resolveProfileById?.bind(auth);
+    if (!resolveProfile) {
+      return false;
+    }
+    // Profile ownership comes from Auth, never client selectors or member names.
+    for (const profileId of new Set([
+      input.targetProfileId,
+      ...(source && source.profile.kind !== "system"
+        ? [source.profile.profileId]
+        : []),
+    ])) {
+      if (!profileOwnership.has(profileId)) {
+        profileOwnership.set(
+          profileId,
+          resolveProfile({ openMeldProfileId: profileId }).then(
+            (resolved) =>
+              resolved.ok &&
+              resolved.profile.status === "active" &&
+              resolved.profile.ownerUserId === ownerUserId
+          )
+        );
+      }
+      if (await profileOwnership.get(profileId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async projectWakeStopEligibilityForViewer<
+    T extends { items: WakeProgressItem[] },
+  >(response: T, spaceAccess: SpaceAccessContext): Promise<T> {
+    if (!response.items.some((item) => item.wakeStopEligibility != null)) {
+      return response;
+    }
+    const access = await this.authorizeWritableSpaceAccess(spaceAccess);
+    const context = getSpaceAccessRequestContext(spaceAccess);
+    // Reuse ownership reads only inside this viewer's request, never across accounts.
+    const profileOwnership = new Map<string, Promise<boolean>>();
+    const items = await Promise.all(
+      response.items.map(async (item) => {
+        if (item.wakeStopEligibility == null) {
+          return item;
+        }
+        const authorized =
+          access.ok &&
+          context &&
+          (await this.isWakeStopAuthorized(
+            {
+              context,
+              sourceSignalId: item.sourceSignalId,
+              targetProfileId: item.targetProfileId,
+            },
+            profileOwnership
+          ));
+        return authorized ? item : { ...item, wakeStopEligibility: null };
+      })
+    );
+    return { ...response, items };
   }
 
   private async requestRemoteAgentNativeDeliveryStop(input: {
@@ -10131,22 +10237,25 @@ export class Space extends DurableObject<CoreBindings> {
         }
 
         return Response.json(
-          await this.readSpaceWakeProgress({
-            actorOwnerUserId: normalizeOptionalText(
-              getSpaceAccessRequestContext(resolved.spaceAccess)?.actorContext
-                .ownerUserId
-            ),
-            clientMessageId: parsed.data.clientMessageId,
-            includeTiming: parsed.data.includeTiming === true,
-            includePreviewText: parsed.data.includePreviewText === true,
-            includeSourceContext: parsed.data.includeSourceContext === true,
-            includeWaitReason: parsed.data.includeWaitReason === true,
-            includeWakeStopEligibility:
-              parsed.data.includeWakeStopEligibility === true,
-            ...(parsed.data.targetProfileId
-              ? { targetProfileId: parsed.data.targetProfileId }
-              : {}),
-          })
+          await this.projectWakeStopEligibilityForViewer(
+            await this.readSpaceWakeProgress({
+              actorOwnerUserId: normalizeOptionalText(
+                getSpaceAccessRequestContext(resolved.spaceAccess)?.actorContext
+                  .ownerUserId
+              ),
+              clientMessageId: parsed.data.clientMessageId,
+              includeTiming: parsed.data.includeTiming === true,
+              includePreviewText: parsed.data.includePreviewText === true,
+              includeSourceContext: parsed.data.includeSourceContext === true,
+              includeWaitReason: parsed.data.includeWaitReason === true,
+              includeWakeStopEligibility:
+                parsed.data.includeWakeStopEligibility === true,
+              ...(parsed.data.targetProfileId
+                ? { targetProfileId: parsed.data.targetProfileId }
+                : {}),
+            }),
+            resolved.spaceAccess
+          )
         );
       },
     });
@@ -15681,7 +15790,10 @@ export class Space extends DurableObject<CoreBindings> {
       member?.profileNameSnapshot
     );
     return {
-      targetProfileMentionLabel: targetProfileName,
+      targetProfileMentionLabel: resolveSingleSpaceMentionLabels({
+        profileId: targetProfileId,
+        profileName: targetProfileName,
+      }).primaryMentionLabel,
       targetProfileName,
     };
   }
@@ -18644,7 +18756,13 @@ function resolveWakeProgressPhaseFromDispatchEvidence(input: {
     case "cancelled":
       return "stopped";
     case "failed_retryable":
-      return "retrying";
+      return isAgentWakeAdmissionPreparationPendingReason(
+        input.lookupMatch.latestAttemptErrorCode ??
+          input.trace?.latestAttempt?.errorCode ??
+          ""
+      )
+        ? "connecting"
+        : "retrying";
     case "dispatching":
       return "connecting";
     case "queued":

@@ -5400,6 +5400,10 @@ async function main() {
     await runSpaceActionMcpServer();
     return;
   }
+  if (isDispatchSpaceActionArgv(argv)) {
+    await runLocalCli(argv);
+    return;
+  }
   if (await delegateToManagedCliIfAuthoritative(argv)) {
     return;
   }
@@ -5415,8 +5419,19 @@ function isDispatchSpaceActionToolServerArgv(argv: readonly string[]): boolean {
   );
 }
 
+function isDispatchSpaceActionArgv(argv: readonly string[]): boolean {
+  return argv[2] === "space" && argv[3] === "action";
+}
+
 async function runLocalCli(argv: string[]): Promise<void> {
   try {
+    // The dispatch-owned executable records an already-authorized action.
+    // It must not repair global state or switch binaries before doing so.
+    // The action handler still validates the dispatch context and permissions.
+    if (isDispatchSpaceActionArgv(argv)) {
+      await program.parseAsync(argv);
+      return;
+    }
     if (isCliMetadataQueryArgv(argv)) {
       await handlePreParseStandaloneCommand(argv);
       return;

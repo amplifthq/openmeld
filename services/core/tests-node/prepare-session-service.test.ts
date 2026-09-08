@@ -105,7 +105,18 @@ function readPrepareDiagnosticsLogLines(logSpy: {
   mock: { calls: unknown[][] };
 }): string[] {
   return logSpy.mock.calls
-    .map((call) => String(call[0] ?? ""))
+    .map((call) => {
+      const event = call[0];
+      if (
+        typeof event !== "object" ||
+        event === null ||
+        !("message" in event) ||
+        event.message !== "[prepare.diagnostics]"
+      ) {
+        return "";
+      }
+      return `[prepare.diagnostics] ${JSON.stringify(event)}`;
+    })
     .filter((line) => line.startsWith("[prepare.diagnostics] "));
 }
 
@@ -1138,7 +1149,7 @@ describe("prepare session service", () => {
     }
   });
 
-  it("keeps failed step writes without diagnostics silent (published CLIs)", async () => {
+  it("records owner-correlated failures even when published CLIs send no diagnostic bundle", async () => {
     const harness = createSqliteD1Harness();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {
       // Silence output; assertions read the spy calls.
@@ -1152,7 +1163,15 @@ describe("prepare session service", () => {
 
       expect(blocked.phase).toBe("blocked");
       const diagnosticsLogLines = readPrepareDiagnosticsLogLines(logSpy);
-      expect(diagnosticsLogLines).toHaveLength(0);
+      expect(diagnosticsLogLines).toHaveLength(1);
+      const logged = JSON.parse(
+        (diagnosticsLogLines[0] ?? "").slice("[prepare.diagnostics] ".length)
+      );
+      expect(logged).toMatchObject({
+        event: "core.openmeld.setup.step_failed",
+        ownerUserId: blocked.ownerUserId,
+        diagnosticsAbsent: true,
+      });
     } finally {
       logSpy.mockRestore();
       harness.close();
