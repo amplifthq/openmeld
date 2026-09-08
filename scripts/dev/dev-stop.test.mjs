@@ -4,6 +4,38 @@ import test from "node:test";
 import { collectTargetProcesses } from "./dev-stop.mjs";
 import { buildProcessMatcherContext } from "./process-matchers.mjs";
 
+test("stops isolated Vite and artifact servers without selecting another worktree", () => {
+  const rows = [
+    {
+      pid: 1,
+      command:
+        "node /repo/a/clients/web/node_modules/.bin/../vite/bin/vite.js dev",
+    },
+    {
+      pid: 2,
+      command:
+        "node /repo/a/scripts/dev/serve-cli-binary.mjs --absolute-entry --worktree",
+    },
+    {
+      pid: 3,
+      command:
+        "node /repo/b/scripts/dev/serve-cli-binary.mjs --absolute-entry --worktree",
+    },
+    {
+      pid: 4,
+      command:
+        "node /repo/b/clients/web/node_modules/.bin/../vite/bin/vite.js dev",
+    },
+  ];
+  assert.deepEqual(
+    collectTargetProcesses(rows, {
+      matcherContext: buildProcessMatcherContext("/repo/a"),
+      currentPid: 99,
+    }).map((row) => row.pid),
+    [1, 2]
+  );
+});
+
 test("collects Windows coordinator and worker processes with normalized commands", () => {
   const matcherContext = buildProcessMatcherContext("C:\\repo");
   const rows = [

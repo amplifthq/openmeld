@@ -34,10 +34,6 @@ export function useInboxItemReadMutation(input: {
 		{ item: InboxItem; read: boolean },
 		InboxCacheSnapshots
 	>({
-		mutationKey: [
-			...inboxQueryKeys.organization(input.organizationId),
-			"mutation",
-		],
 		mutationFn: async (variables) =>
 			await markCurrentInboxItemRead({
 				itemId: variables.item.id,

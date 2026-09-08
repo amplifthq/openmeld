@@ -8,10 +8,10 @@ export function InboxAttentionBadge({
 	count: number | null;
 	tone: "danger" | "warning" | null;
 }) {
-	if (count === 0) {
+	if (count === null || count === 0) {
 		return null;
 	}
-	const formattedCount = count !== null && count > 99 ? "99+" : count;
+	const formattedCount = count > 99 ? "99+" : count;
 	return (
 		<span
 			aria-hidden="true"
@@ -21,7 +21,7 @@ export function InboxAttentionBadge({
 				tone === "warning" && "dark:text-amber-950"
 			)}
 		>
-			{formattedCount ?? "?"}
+			{formattedCount}
 		</span>
 	);
 }

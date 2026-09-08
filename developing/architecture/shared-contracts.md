@@ -1839,6 +1839,24 @@ dispatch action guidance. The renderer composes already-owned Space, profile,
 guide, and command facts; it must not create another membership, role,
 readiness, execution, or publication-policy source.
 
+`space-mesh/collaboration-context` owns runtime-independent task-material trust
+guidance, Agent identity formatting, and source-scoped Wake participant wording.
+Local consumes these exports alongside the existing Entry Brief and continuity
+renderers. The participant list comes only from canonical activation targets,
+not membership or reference targets; it does not assign ordering or work and
+does not imply that a participant has produced a result. The acting profile is
+described as activated only when its ID is present.
+
+Adapters supply the instruction for reading source-scoped outcomes and the
+existing Entry Brief `needMore` instruction for live Space Board access. These
+are in-process renderer inputs, not a new transport protocol. Cross-service
+source, Board, and result data continue to use their existing schemas. No local
+private context, access rights, or execution state is exported by this module.
+Remote adoption must supply its own authorized read tools and native delivery
+contract; Local action-proposal/CLI rules must not replace Remote automatic
+publication or Center native execution rules. This extraction does not integrate
+either hosted runtime or guarantee conflict-free multi-agent execution.
+
 `packages/schemas/src/schemas/http/space-board.ts` owns the strict Space Board
 HTTP/RPC response. Space/Core compose the response from the Space room
 projection and the RuntimeCoordinator execution query projection. Gateway and
