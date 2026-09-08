@@ -536,6 +536,15 @@ Desk Space windows use React Flow's native edge and corner resizing, bounded to
 720–2400 canvas pixels wide and 480–1800 high. Window dimensions are remembered
 per window, account, and organization in this browser, independently of the viewport.
 Resizing changes only the canvas container, not the shared Space implementation.
+New windows use 85% of the available Desk width, within the existing size limits.
+Desk conversation rails fill their window with 24px inline padding, reduced to
+16px in narrow containers. Appearance's centered/full-width preference applies
+only to page surfaces. Desk passes its measured width into the shared Space so
+the Members side-panel breakpoint follows the window rather than the browser.
+Local development lanes expose Reset Welcome Space in the bottom-left controls.
+It creates a new private ordinary Space with only the acting human, initializes
+Welcome guidance, and clears the current Desk window and viewport preferences.
+Existing Spaces and their messages remain intact. Production builds omit this action.
 
 Desk and Space Graph share `WorkspaceCanvas`, with independent React Flow
 providers. Desk mounts the same full `SpaceLanding` as the Space route, including

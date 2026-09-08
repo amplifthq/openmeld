@@ -38,3 +38,7 @@ and on an empty Desk. Search existing Spaces or open the standard Create Space
 flow. Multiple Space windows retain their positions and sizes after refresh.
 The toolbar expands on hover, keyboard focus, or tap. Tutorial controls are no
 longer shown inside Spaces or on Desk.
+
+Desk windows start slightly narrower and use their own full-width conversation
+layout with comfortable side padding. Resizing a window also adapts its Members
+panel. Page layout preferences continue to apply when you open the full Space.

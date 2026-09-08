@@ -408,6 +408,7 @@ type SpaceLandingInput = {
 	onSpaceViewCommitted?: (view: SpaceView) => void;
 	orgSlug: string;
 	presentation?: "compact" | "full";
+	availableWidth?: number;
 	spaceId: string;
 	profileId: string;
 };
@@ -570,7 +571,13 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			profileId: input.profileId,
 			spaceId: input.spaceId,
 		});
-	const isDesktopMembersPanel = useMediaQuery(SPACE_MEMBERS_SIDE_PANEL_QUERY);
+	const viewportSupportsMembersPanel = useMediaQuery(
+		SPACE_MEMBERS_SIDE_PANEL_QUERY
+	);
+	const isDesktopMembersPanel =
+		input.availableWidth === undefined
+			? viewportSupportsMembersPanel
+			: input.availableWidth >= 1280;
 	const [membersPanelOpenOverrides, setMembersPanelOpenOverrides] = useState<
 		ReadonlyMap<string, boolean>
 	>(() => new Map());

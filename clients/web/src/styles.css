@@ -276,6 +276,27 @@ html[data-space-self-message-alignment="left"]
   }
 }
 
+/* Canvas windows own their content rail, independently of page preferences. */
+[data-desk-space-window] [data-space-conversation-presentation] {
+  container-type: inline-size;
+  container-name: desk-conversation;
+}
+
+html[data-space-conversation-layout] [data-desk-space-window]
+  [data-space-conversation-content-width] {
+  width: 100%;
+  max-width: 100%;
+  margin-inline: 0;
+  padding-inline: 24px;
+}
+
+@container desk-conversation (max-width: 800px) {
+  html[data-space-conversation-layout] [data-desk-space-window]
+    [data-space-conversation-content-width] {
+    padding-inline: 16px;
+  }
+}
+
 @layer base {
   .landing-display-tight {
     letter-spacing: -0.055em !important;

@@ -6,7 +6,7 @@ import {
 	ContextMenuTrigger,
 } from "@openmeld/ui/components/context-menu";
 import { ArrowsOutSimpleIcon, PlusIcon, XIcon } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
 	applyNodeChanges,
@@ -36,8 +36,12 @@ import {
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
+import { createSpaceInOrganization } from "#/lib/spaces/create-space-in-organization";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
-import { useWelcomeSpace } from "../spaces/welcome-space-state";
+import {
+	saveWelcomeSpace,
+	useWelcomeSpace,
+} from "../spaces/welcome-space-state";
 import { DeskAddSpace } from "./desk-add-space";
 import { DeskSpace } from "./desk-space";
 import { DeskTools } from "./desk-tools";
@@ -136,6 +140,39 @@ function Desk() {
 	const viewportKey = `openmeld.desk.viewport:${storageScope}:${currentOrganization.id}`;
 	const [savedViewport, setSavedViewport] = useState<Viewport | null>(null);
 	const [loaded, setLoaded] = useState(false);
+	const resetWelcome = useMutation({
+		mutationFn: async () => {
+			if (
+				!(
+					import.meta.env.DEV &&
+					location.hostname.endsWith(".localhost") &&
+					selectedHumanProfile
+				)
+			) {
+				throw new Error(
+					"Welcome reset is only available in a local development lane."
+				);
+			}
+			const created = await createSpaceInOrganization({
+				actingProfile: selectedHumanProfile,
+				organizationId: currentOrganization.id,
+				space: {
+					name: "Welcome Space",
+					accessMode: "members_only",
+					visibility: "private",
+				},
+			});
+			saveWelcomeSpace(storageScope, created.spaceId, "add");
+			localStorage.setItem(
+				`openmeld.desk.space:${storageScope}:${currentOrganization.id}`,
+				created.spaceId
+			);
+			for (const key of [layoutKey, sizeKey, viewportKey]) {
+				localStorage.removeItem(key);
+			}
+			location.reload();
+		},
+	});
 	useEffect(() => {
 		try {
 			const saved = JSON.parse(localStorage.getItem(layoutKey) ?? "null");
@@ -218,7 +255,7 @@ function Desk() {
 			return;
 		}
 		const observer = new ResizeObserver(([entry]) =>
-			setWidth(Math.max(320, entry.contentRect.width - 64))
+			setWidth(Math.max(720, (entry.contentRect.width - 64) * 0.85))
 		);
 		observer.observe(element);
 		return () => observer.disconnect();
@@ -396,6 +433,29 @@ function Desk() {
 							<WorkspaceCanvas<DeskNode>
 								controls={
 									<Panel position="bottom-left">
+										{import.meta.env.DEV &&
+											location.hostname.endsWith(".localhost") && (
+												<div className="mb-2">
+													<Button
+														disabled={resetWelcome.isPending}
+														onClick={() => resetWelcome.mutate()}
+														size="sm"
+														variant="outline"
+													>
+														{resetWelcome.isPending
+															? "Resetting…"
+															: "Reset Welcome Space (Dev)"}
+													</Button>
+													{resetWelcome.error && (
+														<p
+															className="max-w-xs text-destructive text-xs"
+															role="alert"
+														>
+															{resetWelcome.error.message}
+														</p>
+													)}
+												</div>
+											)}
 										<DeskTools
 											onAdd={() => setAddOpen(true)}
 											onReset={reset}
@@ -529,6 +589,7 @@ function DeskWindow({ data }: NodeProps<DeskNode>) {
 			<section
 				aria-label="Desk Space"
 				className="flex h-full flex-col overflow-hidden rounded-lg border bg-background"
+				data-desk-space-window=""
 			>
 				<div className="desk-title flex h-8 shrink-0 cursor-grab items-center justify-end border-b px-2">
 					<Link
