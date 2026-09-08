@@ -798,10 +798,14 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   whether resolution used the Default Project or Profile workspace, and carries
   the local Project `bindingGeneration` (as
   `localProjectBindingGeneration`) when applicable. The Core trust matcher
-  accepts the set only while those current identities match and every
-  observation is fresh. The Core-owned Wakeability projection consumes that
-  matcher as its current working-folder gate; missing, legacy, partial, stale,
-  duplicated, or identity-mismatched evidence remains unknown and fails closed.
+  checks the requested Profile against its Auth-owned Default Project and the
+  Core-owned primary Binding already read for that readiness decision. Exactly
+  one matching observation must be fresh and belong to the current Service
+  session, device, and lane. Missing, legacy, stale, duplicated, or
+  identity-mismatched target evidence remains unknown and fails closed. An
+  unrelated Profile's missing or stale observation does not block this target.
+  Full expected-route reconciliation retains responsibility for catalog
+  completeness and registration; a readiness read does not reload the catalog.
   `localProjectBindingGeneration` is an opaque Service-owned local connection
   identity. Core does not compare it with a cloud generation; a later accepted
   current-session report replaces the earlier generation and triggers
@@ -809,11 +813,12 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   Missing or invalid facts use the precise Project/workspace reason codes from
   the shared schema; local folder paths never cross the Service boundary.
   Historical Wake outcomes never substitute for this current observation.
-  A Space member/status snapshot shares one in-flight expected-routes read for
-  each owner, device, lane, and contract version. It does not reload the same
-  complete runtime once per member. This reuse is request-scoped only: each
-  member still passes the existing identity, revision, and freshness checks,
-  unavailable evidence fails closed, and the next snapshot reads fresh facts.
+  Space member/status and Organization directory readiness use the same Core
+  decision. Profiles in one request share existing Runtime registry and
+  Controller report reads; no result survives into another request. Each
+  target still passes its own identity, revision, and freshness checks. A
+  failed target read fails closed for that target and the next request reads
+  fresh facts. Readiness does not grant an execution lease or publish a reply.
 - Controller target changes, Controller unbinding, and local working-folder
   changes use an owner-sharded RuntimeCoordinator execution-state read that
   spans every Space. Web may use that read to disable disruptive actions

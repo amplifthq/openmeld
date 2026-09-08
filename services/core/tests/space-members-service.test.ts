@@ -516,6 +516,7 @@ function createRouteTruthD1Database(
         agent_profile_id: queriedAgentProfileId,
         binding_id: "binding-route-truth",
         binding_state: "enabled_primary",
+        configuration_revision: 1,
         agent_controller_ref: agentControllerRef,
         created_at_ms: 1,
         created_by_profile_id: null,
@@ -551,6 +552,9 @@ function createRouteTruthD1Database(
   }
 
   function allForSql(sql: string): Record<string, unknown>[] {
+    if (sql.includes("GROUP BY runtime.device_id, runtime.lane")) {
+      return [{ device_id: deviceId, lane: runtimeLane, last_active_ms: 1 }];
+    }
     if (
       input.includeExpectedRouteBindings &&
       FROM_AGENT_PROFILE_BINDINGS_SQL_REGEX.test(sql)
@@ -3011,10 +3015,12 @@ describe("space-members-service", () => {
     });
   });
 
-  it("reads a 65-profile runtime once per Space snapshot rather than once per member", async () => {
+  it.each([
+    65, 250,
+  ])("reads only five Space member Profiles on a %i-profile runtime", async (runtimeProfileCount) => {
     const sql = new MutableSqlStorage();
     const profileIds = Array.from(
-      { length: 65 },
+      { length: runtimeProfileCount },
       (_, index) => `agt_fanout_${index}`
     );
     const memberIds = profileIds.slice(0, 5);
@@ -3022,6 +3028,7 @@ describe("space-members-service", () => {
       agentProfileId: "agt_fanout_0",
       agentProfileIds: profileIds,
       includeExpectedRouteBindings: true,
+      agentControllerReport: { status: "ready", reasonCodes: [] },
     });
     const runtimeTransportClient = await import(
       "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
@@ -3126,65 +3133,70 @@ describe("space-members-service", () => {
       nowIso,
     });
     resolveProfileById.mockClear();
+    vi.mocked(routeDb.db.prepare).mockClear();
     const snapshotInput = {
       sql: sql as unknown as SqlStorage,
       env,
       spaceId: "space-fanout",
+      metaRecord: createReadinessMetaRecord("space-fanout", "human-fanout"),
+      viewerOwnerUserId: "owner-1",
       liveSessions: [],
       nowIso,
     };
-    await listSpaceMembersSnapshotUseCase(snapshotInput);
-    expect(expectedRoutesRead).toHaveBeenCalledTimes(1);
-    expect(resolveProfileById).toHaveBeenCalledTimes(65 + 5);
-    await listSpaceMembersSnapshotUseCase(snapshotInput);
-    expect(expectedRoutesRead).toHaveBeenCalledTimes(2);
-    expect(resolveProfileById).toHaveBeenCalledTimes(2 * (65 + 5));
-
-    // One failed shared read must not trigger five independent retries. The
-    // next snapshot retries normally; a failure is not cached across requests.
-    expectedRoutesRead.mockRejectedValueOnce(new Error("Auth unavailable"));
-    await listSpaceMembersSnapshotUseCase(snapshotInput);
-    expect(expectedRoutesRead).toHaveBeenCalledTimes(3);
-    await listSpaceMembersSnapshotUseCase(snapshotInput);
-    expect(expectedRoutesRead).toHaveBeenCalledTimes(4);
-
-    const originalBatch: Awaited<
-      ReturnType<
-        typeof runtimeTransportClient.lookupRuntimeTransportRoutesBatch
-      >
-    > = await vi.mocked(
-      runtimeTransportClient.lookupRuntimeTransportRoutesBatch
-    ).mock.results[0]?.value;
-    if (!originalBatch) {
-      throw new Error("Expected the snapshot to read its route batch");
-    }
-    vi.mocked(
-      runtimeTransportClient.lookupRuntimeTransportRoutesBatch
-    ).mockResolvedValue({
-      routes: Object.fromEntries(
-        Object.entries(originalBatch.routes).map(
-          ([profileId, route], index) => [
-            profileId,
-            {
-              ...route,
-              deviceId: index === 0 ? "device-2" : "device-1",
-              lane: index === 1 ? "prod" : "dev-local",
-            },
-          ]
-        )
-      ),
-    });
-    await listSpaceMembersSnapshotUseCase(snapshotInput);
-    expect(expectedRoutesRead).toHaveBeenCalledTimes(7);
+    const first = await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(first.agents).toHaveLength(5);
     expect(
-      expectedRoutesRead.mock.calls
-        .slice(4)
-        .map(([input]) => [input.deviceId, input.lane])
-    ).toEqual([
-      ["device-2", "dev-local"],
-      ["device-1", "prod"],
-      ["device-1", "dev-local"],
-    ]);
+      first.agents.map((agent) => agent.agentWakeAvailability?.status)
+    ).toEqual(Array.from({ length: 5 }, () => "available_for_wake"));
+    expect(expectedRoutesRead).not.toHaveBeenCalled();
+    expect(
+      resolveProfileById.mock.calls
+        .map(([input]) => input.openMeldProfileId)
+        .sort()
+    ).toEqual([...memberIds].sort());
+    const queries = vi
+      .mocked(routeDb.db.prepare)
+      .mock.calls.map(([sql]) => sql);
+    expect(
+      queries.filter(
+        (sql) =>
+          FROM_RUNTIME_REGISTRY_SQL_REGEX.test(sql) &&
+          !FROM_RUNTIME_EXECUTION_TARGETS_SQL_REGEX.test(sql)
+      )
+    ).toHaveLength(2);
+    expect(
+      queries.filter((sql) =>
+        FROM_RUNTIME_AGENT_CONTROLLER_REPORTS_SQL_REGEX.test(sql)
+      )
+    ).toHaveLength(1);
+
+    // One target's temporary lookup failure must not block its siblings or
+    // survive into the next request as a cached failure.
+    resolveProfileById.mockRejectedValueOnce(
+      new Error("temporary Auth read failure")
+    );
+    const interrupted = await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(
+      interrupted.agents.filter(
+        (agent) => agent.agentWakeAvailability?.status === "available_for_wake"
+      )
+    ).toHaveLength(4);
+    const failed = interrupted.agents.find(
+      (agent) => agent.agentWakeAvailability?.status !== "available_for_wake"
+    );
+    expect(
+      failed?.ownerWakeDiagnostics?.agentExecutionReadiness?.facts.profile
+    ).toMatchObject({
+      active: false,
+      reasonCodes: ["agent_profile.identity_lookup_failed"],
+    });
+    expect(failed?.agentWakeAvailability?.badgeLabel).toBe("Unavailable");
+    const recovered = await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(
+      recovered.agents.map((agent) => agent.agentWakeAvailability?.status)
+    ).toEqual(Array.from({ length: 5 }, () => "available_for_wake"));
+    expect(expectedRoutesRead).not.toHaveBeenCalled();
+    expect(resolveProfileById).toHaveBeenCalledTimes(15);
   });
 
   it("preloads route evidence for multiple agent members through one batch lookup", async () => {
