@@ -8,6 +8,17 @@ import type {
   OpenMeldSpaceEgressAction,
 } from "@openmeld/schemas/types";
 
+/** Immutable authoring constraint, not a readiness or execution verdict. */
+export function isSelfWakeSpaceAction(
+  action: OpenMeldSpaceEgressAction | undefined,
+  actorProfileId: string
+): boolean {
+  return (
+    action?.type === "post_message" &&
+    action.messageEnvelope.activationTargets.includes(actorProfileId)
+  );
+}
+
 export function normalizeOpenMeldSpaceAction(
   input: unknown
 ): OpenMeldSpaceAction {

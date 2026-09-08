@@ -26,6 +26,7 @@ export {
 export { resolveGuideEntry } from "./guide-entry";
 export { OPENMELD_GUIDE_URL } from "./guide-urls";
 export {
+  isSelfWakeSpaceAction,
   normalizeOpenMeldSpaceAction,
   normalizeOpenMeldSpaceEgressAction,
 } from "./openmeld-space-action";

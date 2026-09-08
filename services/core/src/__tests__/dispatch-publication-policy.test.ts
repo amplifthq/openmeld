@@ -45,6 +45,36 @@ const malformedReplyCopy = (targetName: string) =>
   `${targetName} answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted.`;
 
 describe("dispatch publication policy", () => {
+  it("settles a recorded self-Wake as a visible failure instead of retrying publication", () => {
+    const plan = resolveDispatchPublicationPlan({
+      actorName: "Research Agent",
+      dispatchMessage: {
+        ...createDispatchMessage(),
+        targetProfileId: "agt_current",
+      },
+      payload: {
+        status: "success",
+        spaceAction: {
+          type: "post_message",
+          messageEnvelope: {
+            text: "Done",
+            activationTargets: ["agt_current"],
+            referenceTargets: [],
+            mentionTargets: [],
+          },
+        },
+      },
+      replyText: "Done",
+    });
+    expect(plan).toMatchObject({
+      kind: "system_notice",
+      noticeType: "terminal_failure",
+      reasonCode: "space.wake.target_invalid",
+      blockedExplicitAction: true,
+    });
+    expect(plan.kind).not.toBe("message");
+  });
+
   it.each([
     [
       "project.local_connection.missing",

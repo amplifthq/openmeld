@@ -18,6 +18,7 @@ import type {
   SpaceContract,
   SpaceMemberDirectoryEntry,
 } from "@openmeld/schemas/types";
+import { isSelfWakeSpaceAction } from "@openmeld/space-mesh";
 import { daemonRuntimeRootPath } from "../config/daemon-state";
 import type { OpenMeldPathResolutionInput } from "../config/paths";
 import {
@@ -179,6 +180,11 @@ export function writeDispatchSpaceActionRecord(input: {
   const parsedAction = openMeldSpaceEgressActionSchema.safeParse(input.action);
   if (!parsedAction.success) {
     throw parsedAction.error;
+  }
+  if (isSelfWakeSpaceAction(parsedAction.data, input.context.targetProfileId)) {
+    throw new Error(
+      "An Agent cannot Wake itself. To reply to the current message, omit wakeTargets (CLI: --wake) and submit the reply again. No action was recorded."
+    );
   }
 
   const record: DispatchSpaceActionRecord = {
