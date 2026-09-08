@@ -435,6 +435,7 @@ type RemoteAgentSlackNativeDeliveryInputBase = {
   slackThreadTs: string;
   slackWorkingStatusTurnId?: string;
   sourceText: string;
+  triggerText: string;
   triggerMessageId: string;
   turnEnvelope: RemoteAgentTurnEnvelope;
 };
@@ -465,7 +466,7 @@ export type RemoteAgentSlackNativeDeliveryAdmission = Pick<
   | "slackTeamId"
   | "slackThreadTs"
   | "slackWorkingStatusTurnId"
-  | "sourceText"
+  | "triggerText"
   | "speakerMember"
   | "triggerMessageId"
 >;
@@ -1789,6 +1790,7 @@ export async function continueSlackIdentityOnboardingRequest(input: {
     slackChannelId,
     slackTeamId,
     slackThreadTs,
+    triggerText,
     sourceText: [
       "Setup is complete. Continue my original request now without asking me to repeat it:",
       "",
@@ -1853,7 +1855,7 @@ export async function admitRemoteAgentSlackNativeDelivery(input: {
   nowMs: number;
   request: RemoteAgentSlackNativeDeliveryAdmission;
 }): Promise<RemoteAgentNativeDeliveryRecord> {
-  const triggerText = truncateRemoteAgentTriggerText(input.request.sourceText);
+  const triggerText = truncateRemoteAgentTriggerText(input.request.triggerText);
   return await upsertRemoteAgentNativeDeliveryRecord({
     attemptId: null,
     bindingId: input.request.bindingId,

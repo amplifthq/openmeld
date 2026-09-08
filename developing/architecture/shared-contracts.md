@@ -2725,6 +2725,19 @@ Core parses it through the shared schema before durable claim. Unknown queue
 messages fail closed under their owning consumer contract; Gateway and Core
 must not maintain parallel Slack event shapes.
 
+An `app_mention` event may be content-empty because Slack's event envelope is a
+sparse trigger, so the shared event schema preserves it for Core-owned provider
+recovery. Human direct-message events remain content-strict. Before admission,
+Core uses the Organization-bound Slack credential to read the exact current
+message and hydrate its text and file metadata; the normalized queue envelope
+does not become a second source of truth for Slack content.
+
+This additive acceptance rolls out Core before Gateway: the new Core continues
+to accept every old Gateway event, then the new Gateway may begin forwarding
+content-empty `app_mention` triggers. Rollback stops that Gateway production
+before removing the Core receiver. The outer Queue message and local component
+contracts do not change.
+
 ### Slack Workspace Directory Contracts
 
 `packages/schemas/src/schemas/http/slack-workspace-directory.ts` owns the
@@ -3001,10 +3014,23 @@ they must not add provider-specific transcript fields to the turn envelope.
 The projection identifies the provider, stable conversation, current trigger
 message, snapshot-or-delta sync mode, retrieval status, and an ordered bounded
 set of historical message records. It excludes the current trigger message
-because the verified request already carries that text through the existing
+because the exact provider lookup hydrates that request through the existing
 worker message field. Message identifiers are unique, timestamps are ordered,
 and both per-message and total text limits are enforced at the shared schema
-boundary.
+boundary. Slack message permalinks in the hydrated request may add at most
+three exact same-channel source-message reads as separately labeled untrusted
+quote context. Cross-channel references are not automatically fetched with the
+Bot credential. Thread permalinks retain their root timestamp for the replies
+API. Unsupported attachment structures and clipped quotes remain non-complete.
+If current-message or quoted-message rich content cannot be read, Core keeps
+the main request but downgrades a nominally complete projection to an explicit
+non-complete status and adds a model-visible limitation note.
+
+Slack native admission freezes the original event's `triggerText` before
+showing working status. The model receives the separately hydrated `sourceText`;
+hydration must not rewrite admission identity or weaken replay checks. Both
+values are internal Core inputs; the persisted ledger and worker wire schemas
+are unchanged.
 
 Channel history is reference context, not authority. Human, agent, bot, system,
 and unknown-author records are all untrusted provider content. The Remote Agent
