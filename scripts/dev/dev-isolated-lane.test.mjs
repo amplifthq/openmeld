@@ -63,7 +63,7 @@ test("gives concurrent worktrees separate complete port blocks", async () => {
       new URL(buildIsolatedDevEnvironment(first).WEB_APP_URL).hostname,
       new URL(buildIsolatedDevEnvironment(second).WEB_APP_URL).hostname
     );
-    assert.equal(portValues(first).length, 9);
+    assert.equal(portValues(first).length, 10);
     assert.equal(new Set(portValues(first)).size, 9);
     assert.equal(
       portValues(first).some((port) => portValues(second).includes(port)),

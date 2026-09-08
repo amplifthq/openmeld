@@ -134,12 +134,20 @@ export function collectTargetProcesses(rows, options = {}) {
       matcherContext
     );
     const isWebViteDev = isWebViteDevCommand(normalizedCommand, matcherContext);
+    const isCliBinaryServer = normalizedCommand.includes(
+      "scripts/dev/serve-cli-binary.mjs"
+    );
 
     if (isGuard || isTurboDev) {
       result.push({ ...row, kind: "coordinator" });
       continue;
     }
-    if (isWranglerDev || isWranglerWorkerd || isWebViteDev) {
+    if (
+      isWranglerDev ||
+      isWranglerWorkerd ||
+      isWebViteDev ||
+      isCliBinaryServer
+    ) {
       result.push({ ...row, kind: "worker" });
     }
   }
@@ -221,7 +229,9 @@ function clearLockFile() {
     isPidAlive,
   });
   if (activeLockHolder) {
-    throw new Error(`Dev stack owner ${lockPayload.pid} is still active. Its lock was preserved.`);
+    throw new Error(
+      `Dev stack owner ${lockPayload.pid} is still active. Its lock was preserved.`
+    );
   }
 
   rmSync(lockFile, { force: true });

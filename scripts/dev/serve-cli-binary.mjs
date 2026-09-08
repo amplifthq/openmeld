@@ -10,12 +10,14 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { buildCliBinary } from "../release/build-cli-binary.mjs";
 import { buildCodeSignArgs } from "../release/macos-cli-signing.mjs";
+import { readCurrentIsolatedDevLane } from "./dev-isolated-lane.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const DEFAULT_PORT = 3197;
 
 async function main() {
+  process.title = `node ${fileURLToPath(import.meta.url)}`;
   const port = readPort();
   const built = buildCliBinary({
     outDir: path.join(REPO_ROOT, "clients", "openmeld-cli", "dist", "binary"),
@@ -152,6 +154,9 @@ async function main() {
 }
 
 function readPort() {
+  if (process.argv.includes("--worktree")) {
+    return readCurrentIsolatedDevLane(REPO_ROOT).ports.cliBinary;
+  }
   const raw = process.env.OPENMELD_CLI_BINARY_DEV_PORT;
   if (!raw) {
     return DEFAULT_PORT;
