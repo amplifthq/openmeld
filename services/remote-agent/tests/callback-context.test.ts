@@ -1,4 +1,7 @@
-import { REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES } from "@openmeld/schemas";
+import {
+  buildPersonalRemoteAgentConversationId,
+  REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
+} from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   assertCoreOriginatedTurnContext,
@@ -120,6 +123,7 @@ describe("remote agent callback context", () => {
 
   it("retains personal Agent identity through durable callback storage", async () => {
     const request = createSubmitTurnRequestV2();
+    const conversationId = buildPersonalRemoteAgentConversationId(request);
     const conversationIdentity = {
       kind: "personal_agent" as const,
       agentProfileId: request.agentProfileId,
@@ -130,8 +134,9 @@ describe("remote agent callback context", () => {
       request: {
         ...request,
         v: 4,
+        conversationId,
         conversationIdentity,
-        runtimeConversation: { generation: 0, id: request.conversationId },
+        runtimeConversation: { generation: 0, id: conversationId },
       },
     });
     const storage = new InMemoryDurableObjectStorage();
