@@ -412,12 +412,17 @@ with backoff, and completed repair makes later reads independent of total
 account history. Active-reference writes remain atomic with their canonical
 authority writes, so a missing or partial legacy index cannot produce a false
 inactive result.
-The Agents home may group multiple eligible reconnect actions behind one explicit
-confirmation, but each Agent Profile still receives its own authoritative
-Binding write and outcome. A Computer or service reconnect must never move
-Bindings implicitly, and a bulk reconnect must never guess from a computer name
-or include a profile whose matching local controller is not runnable now. A
-runtime reconnect preserves the Binding settings that are current when Core
+Agent Profile recovery in Web does not expose migration or a bulk reconnect
+action. A first-connection action is offered only for a confirmed missing
+Binding and uses the non-replacing ensure write; an existing execution target
+must not be moved by that recovery path. Ordinary Computer reconnect must retain
+the existing identity and connections, not ask the user to reconnect each
+Profile. Explicit cross-computer migration is deferred until its target,
+continuity limitations, and confirmation have a dedicated product contract.
+Existing low-level, authorized repair operations remain separate from this Web
+recovery surface. A Computer or service reconnect must never move Bindings
+implicitly or guess identity from a computer name. A runtime reconnect preserves
+the Binding settings that are current when Core
 accepts the write. Reconnect clients must omit controller settings instead of
 replaying a previously read Binding snapshot; only an explicit settings edit
 may carry those fields and its expected `configurationRevision`. The D1 writer
