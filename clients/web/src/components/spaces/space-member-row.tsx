@@ -182,7 +182,12 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 			}
 			profileName={input.entry.profileName}
 			profileNameAdornment={
-				<AgentSpaceMemberAvailabilityIndicator presentation={presentation} />
+				<>
+					<AgentSpaceMemberAvailabilityIndicator presentation={presentation} />
+					<RemoteAgentIndicator
+						agentControllerRef={input.entry.agentControllerRef}
+					/>
+				</>
 			}
 			profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
 			profileSummaryAriaLabel={`Check ${input.entry.profileName} Profile`}
@@ -1032,3 +1037,5 @@ function isOwnedByCurrentUser(input: {
 }): boolean {
 	return isSameOwnerUserId(input);
 }
+
+import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";

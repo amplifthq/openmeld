@@ -159,9 +159,8 @@ describe("CenterAgentSettingsContent", () => {
 		expect(
 			screen
 				.getByTestId(`center-agent-profile-avatar-${CENTER_AGENT_ID}`)
-				.querySelector("canvas")
-				?.getAttribute("data-profile-avatar-seed")
-		).toBe(`openmeld-dither-profile-avatar:v1:center-agent:${CENTER_AGENT_ID}`);
+				.getAttribute("data-shape")
+		).toBe("circle");
 		expect(screen.getByRole("heading", { name: "Identity" })).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Usage" })).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Model" })).toBeTruthy();

@@ -602,7 +602,13 @@ function ChatRow(input: {
 					className={`flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-sm outline-none ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
 					to={input.url}
 				>
-					<CenterAgentChatAvatar />
+					<CenterAgentChatAvatar
+						working={
+							input.activeWakeSummary?.statuses?.some(
+								(status) => status.kind === "working"
+							) ?? false
+						}
+					/>
 					<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 						<span
 							className="flex min-w-0 items-center gap-2"

@@ -8932,7 +8932,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("uses the Center Agent Dither identity in an ordinary Space", () => {
+	it("uses the Center Agent Fluid avatar in an ordinary Space", () => {
 		mockSpaceQueries({
 			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
 			status: createQueryResult({
