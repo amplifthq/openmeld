@@ -1,5 +1,16 @@
 # Instructions candidate staging smoke — September 9
 
+## Agent Context
+
+- Purpose: Record staging outcomes and their exact candidate limitations.
+- Read this when: Assessing the evidence for the Local instruction change.
+- Update this when: New evidence changes the remaining validation scope.
+- Do not use this for: Production acceptance or certification of another candidate.
+- Source of truth: These staging observations only; architecture owner documents retain runtime authority.
+
+Status: Historical staging evidence; production delivery remains pending.
+Remove when the candidate is delivered or superseded and durable findings are incorporated into owner documents.
+
 ## Batch PR handoff
 
 The leaf branch was subsequently synchronized to `5136d398` for PR preparation.

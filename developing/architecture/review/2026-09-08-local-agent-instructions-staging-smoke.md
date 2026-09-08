@@ -9,6 +9,8 @@
 - Source of truth: Experiment observations only; architecture owner documents retain runtime authority.
 - Removal condition: Remove after durable findings are incorporated and the candidate is delivered or superseded.
 
+Status: Historical staging evidence; production delivery remains pending.
+
 ## Candidate and environment
 
 Post-smoke integration: after PR #746 and release-preparation PR #748 merged,

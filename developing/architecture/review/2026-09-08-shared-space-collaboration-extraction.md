@@ -1,5 +1,16 @@
 # Shared Space collaboration extraction
 
+## Agent Context
+
+- Purpose: Record the shared collaboration extraction and its integration boundaries.
+- Read this when: Reviewing the Local instruction change or a later Remote integration.
+- Update this when: The extraction scope or integration evidence changes.
+- Do not use this for: Production acceptance or runtime authority.
+- Source of truth: Historical extraction evidence; shared-contracts.md and local-openmeld-service.md own current contracts.
+
+Status: Historical review evidence; Local delivery remains pending.
+Remove when Local delivery is complete and remaining integration guidance is preserved in owner documents.
+
 ## Candidate and scope
 
 The local candidate remains uncommitted on `codex/local-agent-instructions-v2`
