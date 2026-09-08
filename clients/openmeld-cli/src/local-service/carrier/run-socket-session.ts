@@ -680,9 +680,13 @@ export async function runDaemonSocketSession(input: {
     // Local state changed or the user asked for a check: the next controller
     // report sync must probe for real instead of reusing background snapshots.
     forceFreshAgentControllerProbes = true;
-    if (heartbeatInFlight || routeCatalogSyncInFlight) {
+    if (routeCatalogSyncInFlight) {
       pendingLocalExecutionEvidenceRefreshReason = inputRequest.reason;
     }
+    // A catalog change is independent of renewing the old leases. Waiting for
+    // a heartbeat (including its local maintenance checks) strands new routes
+    // while Core is already waiting to admit their first Wake.
+    startRouteCatalogSyncIfDue();
     scheduleHeartbeat({
       delayMs: 0,
       reason: inputRequest.scheduleReason,
@@ -712,7 +716,7 @@ export async function runDaemonSocketSession(input: {
 
   function schedulePendingLocalExecutionEvidenceRefreshIfNeeded(): void {
     const pendingRefreshReason = pendingLocalExecutionEvidenceRefreshReason;
-    if (closed || !pendingRefreshReason) {
+    if (closed || routeCatalogSyncInFlight || !pendingRefreshReason) {
       return;
     }
 
@@ -722,6 +726,7 @@ export async function runDaemonSocketSession(input: {
     nextProviderConversationProofSyncAtMs = 0;
     nextRuntimeAgentControllerReportSyncAtMs = 0;
     forceFreshAgentControllerProbes = true;
+    startRouteCatalogSyncIfDue();
     scheduleHeartbeat({
       delayMs: 0,
       reason: "pending_local_execution_evidence_refresh",
