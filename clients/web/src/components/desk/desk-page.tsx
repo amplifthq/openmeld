@@ -633,14 +633,14 @@ function DeskWindow({
 						style={{
 							fontSize: Math.max(
 								28,
-								Math.min(96, ((nodeHeight ?? 190) - 40) * 0.28)
+								Math.min(112, ((nodeHeight ?? 190) - 40) * 0.35)
 							),
 						}}
 					>
 						Hello{context.name ? `, ${context.name}` : ""}.
 					</h2>
 					<p className="text-base text-muted-foreground">
-						Your work, together in one place.
+						Your team and your agents together in one place.
 					</p>
 					{
 						<svg
