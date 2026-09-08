@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { gunzipSync } from "node:zlib";
+
+const UNEXPECTED_POLL_HOST_PATTERN = /Unexpected registration poll host/u;
+
 import capturedBegin from "./fixtures/registration-begin.lark.json" with {
   type: "json",
 };
@@ -93,7 +96,7 @@ test("encodes the exact one-click registration add-ons contract", () => {
   });
 });
 
-test("starts resumable registration from the provider-derived Feishu endpoint", async () => {
+test("starts resumable registration at the shared issuer", async () => {
   const requests = [];
   const result = await beginRegistration({
     expectedProvider: "lark",
@@ -127,11 +130,12 @@ test("builds a development update URL without embedding credentials", () => {
       appId: "cli_development",
       appName: "OpenMeld Center Agent Dev",
       beginResponse: capturedBegin,
+      provider: "lark",
       source: "openmeld-gate-0",
     })
   );
 
-  assert.equal(url.host, "open.feishu.cn");
+  assert.equal(url.host, "open.larksuite.com");
   assert.equal(url.searchParams.get("clientID"), "cli_development");
   assert.equal(url.searchParams.get("name"), "OpenMeld Center Agent Dev");
   assert.equal(url.searchParams.get("from"), "sdk");
@@ -154,7 +158,24 @@ test("performs only one pending platform poll per invocation", async () => {
   assert.equal(result.credential, null);
 });
 
-test("moves a Lark registration to its brand domain without a recursive poll", async () => {
+test("rejects a cross-provider route before polling", async () => {
+  const requests = [];
+  await assert.rejects(
+    pollRegistration({
+      fetchImpl: createJsonFetch(capturedPending, requests, 400),
+      nowMs: NOW_MS,
+      state: {
+        ...pendingState(),
+        expectedProvider: "feishu",
+        pollHost: "accounts.larksuite.com",
+      },
+    }),
+    UNEXPECTED_POLL_HOST_PATTERN
+  );
+  assert.equal(requests.length, 0);
+});
+
+test("moves only the selected Lark registration to Lark polling", async () => {
   const requests = [];
   const result = await pollRegistration({
     fetchImpl: createJsonFetch(
@@ -162,14 +183,22 @@ test("moves a Lark registration to its brand domain without a recursive poll", a
       requests
     ),
     nowMs: NOW_MS,
-    state: pendingState(),
+    state: { ...pendingState(), pollHost: "accounts.feishu.cn" },
   });
-
-  assert.equal(requests.length, 1);
   assert.equal(result.status, "domain_switched");
+  assert.equal(result.state.expectedProvider, "lark");
   assert.equal(result.state.pollHost, "accounts.larksuite.com");
-  assert.equal(result.state.nextPollAtMs, NOW_MS);
   assert.equal(result.credential, null);
+  assert.equal(requests.length, 1);
+
+  await assert.rejects(
+    pollRegistration({
+      fetchImpl: createJsonFetch({ user_info: { tenant_brand: "feishu" } }, []),
+      nowMs: NOW_MS,
+      state: { ...pendingState(), pollHost: "accounts.feishu.cn" },
+    }),
+    PROVIDER_MISMATCH_PATTERN
+  );
 });
 
 test("honors slow_down and terminal provider failures", async () => {
@@ -357,7 +386,7 @@ function pendingState() {
     expiresAtMs: NOW_MS + 3_600_000,
     intervalSeconds: 5,
     nextPollAtMs: NOW_MS,
-    pollHost: "accounts.feishu.cn",
+    pollHost: "accounts.larksuite.com",
     status: "pending_registration",
   };
 }

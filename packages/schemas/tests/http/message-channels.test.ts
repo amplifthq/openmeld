@@ -141,7 +141,7 @@ describe("Message Channel HTTP contracts", () => {
         provider: "lark",
         reasonCode: null,
         registrationUrl:
-          "https://open.feishu.cn/page/launcher?user_code=redacted",
+          "https://open.larksuite.com/page/launcher?user_code=redacted",
         status: "pending_registration",
       },
       connection: null,
@@ -151,6 +151,29 @@ describe("Message Channel HTTP contracts", () => {
     expect(larkPlatformRegistrationResponseSchema.parse(response)).toEqual(
       response
     );
+    for (const registrationUrl of [
+      "https://open.feishu.cn/page/launcher?user_code=redacted",
+      "https://open.larksuite.com/page/launcher",
+      "https://open.larksuite.com:444/page/launcher?user_code=redacted",
+    ]) {
+      expect(
+        larkPlatformRegistrationResponseSchema.safeParse({
+          ...response,
+          attempt: { ...response.attempt, registrationUrl },
+        }).success
+      ).toBe(false);
+    }
+    expect(
+      larkPlatformRegistrationResponseSchema.safeParse({
+        ...response,
+        attempt: {
+          ...response.attempt,
+          provider: "feishu",
+          registrationUrl:
+            "https://open.feishu.cn/page/launcher?user_code=redacted",
+        },
+      }).success
+    ).toBe(true);
     expect(
       larkPlatformRegistrationResponseSchema.safeParse({
         ...response,

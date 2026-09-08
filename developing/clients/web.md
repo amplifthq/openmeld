@@ -1453,6 +1453,12 @@ reads the canonical projection.
 
 Lark and Feishu use an in-page Personal Agent wizard:
 
+The selected entry fixes the provider. Setup copy asks for that provider's
+account; returned links must pass the matching provider-host schema. A detected
+brand mismatch names the selected and returned brands and offers Start over
+after switching accounts. It must not silently change the selected provider or
+keep presenting a brand mismatch as approval still pending.
+
 1. explain that this is a Channel connection, not access to Docs, Calendar,
    Mail, Tasks, or other business data;
 2. start a Core-owned resumable registration attempt;

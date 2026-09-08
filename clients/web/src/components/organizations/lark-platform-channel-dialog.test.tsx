@@ -8,6 +8,52 @@ afterEach(cleanup);
 
 describe("LarkPlatformChannelDialog", () => {
 	it.each([
+		["lark", "Lark", "Feishu"],
+		["feishu", "Feishu", "Lark"],
+	] as const)("explains a %s brand mismatch and restarts the selected provider", (provider, label, otherLabel) => {
+		const onStartOver = vi.fn();
+		render(
+			<LarkPlatformChannelDialog
+				canManage
+				connection={null}
+				disconnectPending={false}
+				errorMessage={null}
+				onDisconnect={vi.fn()}
+				onOpenChange={vi.fn()}
+				onRepair={vi.fn()}
+				onRetryPoll={vi.fn()}
+				onStartOver={onStartOver}
+				open
+				pollPending={false}
+				provider={provider}
+				registration={{
+					organizationId: "org_1",
+					connection: null,
+					attempt: {
+						id: "attempt_wrong_brand",
+						provider,
+						status: "repair_required",
+						reasonCode: `${provider}.registration_provider_brand_mismatch`,
+						registrationUrl: null,
+						expiresAt: "2026-09-08T09:00:00Z",
+						nextPollAt: "2026-09-08T08:00:00Z",
+					},
+				}}
+				repairPending={false}
+				startOverPending={false}
+			/>
+		);
+		expect(
+			screen.getByText(
+				`You selected ${label}, but the platform returned a ${otherLabel} account. Switch to a ${label} account before starting over.`
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Waiting for approval")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Start over" }));
+		expect(onStartOver).toHaveBeenCalledOnce();
+	});
+
+	it.each([
 		["lark", "Lark", "https://open.larksuite.com/app"],
 		["feishu", "Feishu", "https://open.feishu.cn/app"],
 	] as const)("shows the %s permission recovery action instead of indefinite verification", (provider, label, consoleUrl) => {
@@ -78,7 +124,7 @@ describe("LarkPlatformChannelDialog", () => {
 					provider: "lark" as const,
 					reasonCode: null,
 					registrationUrl:
-						"https://open.feishu.cn/page/launcher?device_code=redacted",
+						"https://open.larksuite.com/page/launcher?user_code=redacted",
 					status: "pending_registration" as const,
 				},
 				connection: null,
@@ -93,7 +139,7 @@ describe("LarkPlatformChannelDialog", () => {
 			name: "Open Lark setup",
 		});
 		expect(setupLink.getAttribute("href")).toBe(
-			"https://open.feishu.cn/page/launcher?device_code=redacted"
+			"https://open.larksuite.com/page/launcher?user_code=redacted"
 		);
 		expect(screen.getByText(CREATE_APP_COPY_PATTERN)).toBeTruthy();
 		expect(screen.getByText("Waiting for approval")).toBeTruthy();

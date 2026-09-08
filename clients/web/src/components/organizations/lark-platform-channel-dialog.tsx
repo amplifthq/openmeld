@@ -180,9 +180,10 @@ function RegistrationProgress(input: {
 						Open the official {input.providerLabel} setup page
 					</p>
 					<p className="mt-1 text-muted-foreground text-sm leading-6">
-						Create a new {input.providerLabel} app, review the requested Channel
-						permissions, and keep this window open while OpenMeld finishes the
-						connection.
+						Sign in with your {input.providerLabel} account. This setup is for{" "}
+						{input.providerLabel} only. Create a new {input.providerLabel} app,
+						review the requested Channel permissions, and keep this window open
+						while OpenMeld finishes the connection.
 					</p>
 					<div className="mt-4 flex flex-wrap gap-2">
 						<a
@@ -295,6 +296,30 @@ function RegistrationProgress(input: {
 		);
 	}
 	return (
+		<RegistrationFailure
+			errorMessage={input.errorMessage}
+			onStartOver={input.onStartOver}
+			provider={attempt.provider}
+			providerLabel={input.providerLabel}
+			reasonCode={attempt.reasonCode}
+			startOverPending={input.startOverPending}
+		/>
+	);
+}
+
+function RegistrationFailure(input: {
+	errorMessage: string | null;
+	onStartOver: () => void;
+	provider: LarkPlatformProvider;
+	providerLabel: string;
+	reasonCode: string | null;
+	startOverPending: boolean;
+}) {
+	const brandMismatch =
+		input.reasonCode ===
+		`${input.provider}.registration_provider_brand_mismatch`;
+	const otherLabel = input.provider === "lark" ? "Feishu" : "Lark";
+	return (
 		<div className="space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-4">
 			<div className="flex items-start gap-3">
 				<WarningCircleIcon
@@ -306,11 +331,22 @@ function RegistrationProgress(input: {
 						Setup did not finish
 					</p>
 					<p className="mt-1 text-muted-foreground text-sm">
-						Close this window and start the {input.providerLabel} connection
-						again.
+						{brandMismatch
+							? `You selected ${input.providerLabel}, but the platform returned a ${otherLabel} account. Switch to a ${input.providerLabel} account before starting over.`
+							: `Close this window and start the ${input.providerLabel} connection again.`}
 					</p>
 				</div>
 			</div>
+			{brandMismatch ? (
+				<Button
+					disabled={input.startOverPending}
+					onClick={input.onStartOver}
+					type="button"
+					variant="outline"
+				>
+					{input.startOverPending ? "Starting over…" : "Start over"}
+				</Button>
+			) : null}
 			{input.errorMessage ? (
 				<p className="text-destructive text-sm" role="alert">
 					{input.errorMessage}

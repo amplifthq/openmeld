@@ -5,6 +5,9 @@ import {
   messageChannelProviderSchema,
   messageChannelTransportSchema,
 } from "../runtime/message-channel";
+import registrationDomains from "./lark-platform-registration-domains.json";
+
+export const LARK_PLATFORM_REGISTRATION_DOMAINS = registrationDomains;
 
 export const MESSAGE_CHANNEL_CONNECTION_STATUSES = [
   "pending_registration",
@@ -206,8 +209,13 @@ export const larkPlatformRegistrationAttemptProjectionSchema = z
       const url = new URL(attempt.registrationUrl);
       if (
         url.protocol !== "https:" ||
-        url.hostname !== "open.feishu.cn" ||
-        url.pathname !== "/page/launcher"
+        url.host !== registrationDomains[attempt.provider].launcherHost ||
+        url.pathname !== "/page/launcher" ||
+        url.username ||
+        url.password ||
+        url.hash ||
+        url.searchParams.getAll("user_code").length !== 1 ||
+        !url.searchParams.get("user_code")?.trim()
       ) {
         context.addIssue({
           code: "custom",

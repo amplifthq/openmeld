@@ -2280,7 +2280,7 @@ Feishu are explicit provider values even though the repositories share the
 `openMeldRemoteAgent_lark_platform_*` table family.
 
 A short-lived registration-attempt row stores the encrypted device code,
-expected provider, current provider account domain, due time, interval, expiry,
+expected provider, current registration poll domain, due time, interval, expiry,
 poll lease, requested permission-bundle version, canonical lifecycle status,
 and bounded failure reason in the Core local-state domain. Core's independently
 isolated, bounded minute tick lists due attempts from that owner database, and
@@ -2291,6 +2291,15 @@ faster feedback, but the lease keeps the scheduler and Web on one write path.
 `slow_down` advances the interval; expiration, denial, brand mismatch, and
 unknown response fail closed. Web owns no in-memory poll process, and closing
 or reloading it cannot stop a durable attempt.
+
+The provider is selected before registration and never inferred as a routing
+choice from the logged-in identity. Both brands use the shared Feishu issuer;
+only an already selected Lark attempt may transition to Lark polling after a
+matching brand signal. An authorized begin/resume replaces a
+pending legacy registration whose account or launcher host does not match that
+selection, using the same atomic retirement/insertion path as an explicit
+restart. It does not migrate credentials, connected channels, or production
+rows out of band.
 
 Before each scheduled continuation, Core reads the canonical Organization
 Personal classification. An unavailable or malformed classification fails

@@ -42,6 +42,7 @@ import { LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE } from "./lark-platform-pe
 import { isLarkPlatformProviderEnabledForOrganization } from "./lark-platform-provider-policy";
 import {
   beginLarkPlatformRegistration,
+  isLarkPlatformRegistrationRouteCompatible,
   LarkPlatformRegistrationError,
   pollLarkPlatformRegistration,
 } from "./lark-platform-registration-client";
@@ -126,7 +127,11 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
       throw serviceError(input.provider, "repair_unavailable", 409);
     }
     if (
-      !(input.restartPending && activeAttempt.status === "pending_registration")
+      !(await shouldRestartPendingRegistration({
+        attempt: activeAttempt,
+        cryptoKey: configuration.cryptoKey,
+        requested: input.restartPending === true,
+      }))
     ) {
       return await projectRegistrationResponse({
         attempt: activeAttempt,
@@ -222,6 +227,29 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
     attempt,
     cryptoKey: configuration.cryptoKey,
     db: input.db,
+  });
+}
+
+async function shouldRestartPendingRegistration(input: {
+  attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord;
+  cryptoKey: string;
+  requested: boolean;
+}): Promise<boolean> {
+  if (input.attempt.status !== "pending_registration") {
+    return false;
+  }
+  if (input.requested) {
+    return true;
+  }
+  const registrationUrl = await decryptLarkPlatformCredential({
+    credentialName: "registration URL",
+    cryptoKey: input.cryptoKey,
+    encryptedCredential: input.attempt.encryptedRegistrationUrl,
+  });
+  return !isLarkPlatformRegistrationRouteCompatible({
+    accountDomain: input.attempt.accountDomain,
+    provider: input.attempt.provider,
+    registrationUrl,
   });
 }
 
