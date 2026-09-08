@@ -2981,9 +2981,9 @@ The header Add People or Agents action and the one-member empty-state card both
 open the same Add People or Agents dialog. Empty-Space setup and Welcome Space
 actions open that dialog directly without expanding Members. Closing the dialog
 preserves whether the user had already opened Members. New Agent is a compact
-primary action
-below the dialog description; the title row is reserved for the title and close
-action. Invite sits beside New Agent for organization members and stays stable
+primary action at the right of the current user's People row, including when
+they have no Agents. The title row is reserved for the title and close action.
+Invite remains below the description for organization members and stays stable
 while role information loads; an unresolved role cannot enable a direct invitation.
 New Agent replaces the content inside this same dialog, with Back returning to
 the picker and preserving selection. Creation does not grant Space membership:
@@ -2992,9 +2992,10 @@ before the final Add selected operation. Pending teammate requests are not prese
 as created Agents. Only the final membership operation closes the picker.
 The picker presents People as the primary hierarchy, expanded by default, with
 each person's addable Agent Profiles indented below their People row. A person
-who is already in the Space remains visible when one of their Agents can still
-be added. Center Agent remains Organization-owned, appears first in a separate
-Organization group, and carries a compact Remote badge. The hierarchy uses
+who is already in the Space remains visible even without Agents, labeled
+In this Space. Center Agent remains Organization-owned, appears first in a separate
+Organization group, and carries a compact Remote badge with a cloud icon and
+shared surface background and shadow tokens. The hierarchy uses
 spacing, avatars, and typography rather than nested cards or borders. Selecting
 an ordinary Agent explains and counts
 the Core-owned owner-Human participation effect without submitting a duplicate

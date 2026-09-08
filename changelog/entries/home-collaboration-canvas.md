@@ -17,6 +17,9 @@ Center Agent in the shared Add People or Agents dialog.
 
 Adding people or agents from an empty Space opens the dialog directly without
 also opening the Members panel, both on Desk and on the full Space page.
+The picker keeps you and other joined people visible, groups agents beneath
+their owners, and places New Agent beside your name. Remote badges use a cloud
+icon and a raised surface to stay distinct from selected rows.
 
 Welcome Spaces include the workspace's Center Agent and a short guide to adding
 your own agent through one dashed action card. Adding members prepares an

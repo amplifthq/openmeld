@@ -43,6 +43,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import {
 	CaretDownIcon,
 	CaretRightIcon,
+	CloudIcon,
 	MagnifyingGlassIcon,
 	PlusIcon,
 	UsersThreeIcon,
@@ -1162,6 +1163,7 @@ function SpaceAddProfilesSectionView({
 				addQuery={model.addQuery}
 				candidateGroups={model.candidateGroups}
 				canSubmit={model.canSubmit}
+				currentOwnerUserId={input.currentOwnerUserId}
 				dialogId={input.dialogId}
 				directoryHasData={Boolean(model.directoryQuery.data)}
 				directoryIsError={model.directoryQuery.isError}
@@ -1308,6 +1310,7 @@ async function executeSpaceAddProfilesMutation(input: {
 }
 
 type SpaceAddProfilesDialogProps = {
+	currentOwnerUserId: string | null;
 	onCreated: (profileId: string) => Promise<void>;
 	addQuery: string;
 	canSubmit: boolean;
@@ -1398,16 +1401,8 @@ function SpaceAddProfilesDialogContent({
 		<div className="flex flex-col gap-3">
 			<SpaceAddProfilesDialogHeader />
 			<DialogDescription>{description}</DialogDescription>
-			{input.spaceId ? (
-				<div className="flex flex-wrap items-center gap-2">
-					<Button onClick={onCreate} size="xs">
-						<PlusIcon aria-hidden="true" />
-						New Agent
-					</Button>
-					{input.usesOrganizationDirectory ? (
-						<SpaceInvitationsSection spaceId={input.spaceId} />
-					) : null}
-				</div>
+			{input.spaceId && input.usesOrganizationDirectory ? (
+				<SpaceInvitationsSection spaceId={input.spaceId} />
 			) : null}
 			<div className="relative">
 				<MagnifyingGlassIcon
@@ -1436,7 +1431,9 @@ function SpaceAddProfilesDialogContent({
 				onRetry={input.onRetryDirectory}
 				organizationName={input.organizationName}
 			/>
-			{showCandidates ? <SpaceAddProfilesCandidateList input={input} /> : null}
+			{showCandidates ? (
+				<SpaceAddProfilesCandidateList input={input} onCreate={onCreate} />
+			) : null}
 			<SpaceAddProfilesFooter
 				canSubmit={input.canSubmit}
 				isSubmitting={input.isSubmitting}
@@ -1459,14 +1456,18 @@ function SpaceAddProfilesDialogHeader() {
 
 function SpaceAddProfilesCandidateList({
 	input,
+	onCreate,
 }: {
 	input: SpaceAddProfilesDialogProps;
+	onCreate: () => void;
 }) {
 	return (
 		<SpaceAddMembersCandidates
 			candidateGroups={input.candidateGroups}
+			currentOwnerUserId={input.currentOwnerUserId}
 			emptyMessage={input.emptyMessage}
 			isSubmitting={input.isSubmitting}
+			onCreate={input.spaceId ? onCreate : undefined}
 			onToggle={input.onToggle}
 			searchActive={input.addQuery.trim().length > 0}
 			selectedProfileIds={input.selectedProfileIds}
@@ -1546,6 +1547,8 @@ function SpaceAddProfilesFooter(input: {
 }
 
 function SpaceAddMembersCandidates(input: {
+	currentOwnerUserId: string | null;
+	onCreate?: () => void;
 	candidateGroups: SpaceAddMembersCandidateGroups;
 	emptyMessage: string;
 	isSubmitting: boolean;
@@ -1558,8 +1561,7 @@ function SpaceAddMembersCandidates(input: {
 	>(() => new Set());
 	const candidateCount =
 		input.candidateGroups.personGroups.reduce(
-			(count, group) =>
-				count + group.agentCandidates.length + (group.humanCandidate ? 1 : 0),
+			(count, group) => count + group.agentCandidates.length + 1,
 			0
 		) + input.candidateGroups.organizationCandidates.length;
 	if (candidateCount === 0) {
@@ -1598,6 +1600,11 @@ function SpaceAddMembersCandidates(input: {
 									expanded={expanded}
 									group={group}
 									key={group.id}
+									onCreate={
+										group.id === input.currentOwnerUserId
+											? input.onCreate
+											: undefined
+									}
 									onExpandedChange={(nextExpanded) => {
 										setCollapsedGroupIds((current) => {
 											const next = new Set(current);
@@ -1622,6 +1629,7 @@ function SpaceAddMembersCandidates(input: {
 }
 
 function SpaceAddMembersPersonGroupView(input: {
+	onCreate?: () => void;
 	expanded: boolean;
 	group: SpaceAddMembersPersonGroup;
 	onExpandedChange: (expanded: boolean) => void;
@@ -1644,58 +1652,71 @@ function SpaceAddMembersPersonGroupView(input: {
 			agentsId={`space-add-members-person-${input.group.id}-agents`}
 			expanded={input.expanded}
 			header={
-				<div className="min-w-0 flex-1">
-					{input.group.humanCandidate ? (
-						<CheckboxGroup
-							checkedIndices={
-								input.selectedProfileIds.has(
-									input.group.humanCandidate.profileId
-								)
-									? new Set([0])
-									: new Set()
-							}
-							className="w-full"
-						>
-							<CheckboxItem
-								adornment={
-									<SpaceProfileIcon
-										agentControllerRef={null}
-										avatarImageUrl={input.group.avatarImageUrl}
-										profileId={input.group.humanCandidate.profileId}
-										profileKind="human"
-										profileName={input.group.name}
-										size="sm"
-									/>
+				<div className="flex min-w-0 flex-1 items-center gap-2">
+					<div className="min-w-0 flex-1">
+						{input.group.humanCandidate ? (
+							<CheckboxGroup
+								checkedIndices={
+									input.selectedProfileIds.has(
+										input.group.humanCandidate.profileId
+									)
+										? new Set([0])
+										: new Set()
 								}
-								checked={input.selectedProfileIds.has(
-									input.group.humanCandidate.profileId
-								)}
-								description={humanDescription}
-								index={0}
-								label={input.group.name}
-								onToggle={() =>
-									input.onToggle(input.group.humanCandidate?.profileId ?? "")
-								}
-							/>
-						</CheckboxGroup>
-					) : (
-						<div className="flex min-h-11 items-center gap-3 px-3 py-2">
-							<SpaceProfileIcon
-								agentControllerRef={null}
-								avatarImageUrl={input.group.avatarImageUrl}
-								profileId={input.group.id}
-								profileKind="human"
-								profileName={input.group.name}
-								size="sm"
-							/>
-							<div className="min-w-0">
-								<p className="truncate text-sm">{input.group.name}</p>
-								<p className="text-muted-foreground text-xs">
-									{humanDescription}
-								</p>
+								className="w-full"
+							>
+								<CheckboxItem
+									adornment={
+										<SpaceProfileIcon
+											agentControllerRef={null}
+											avatarImageUrl={input.group.avatarImageUrl}
+											profileId={input.group.humanCandidate.profileId}
+											profileKind="human"
+											profileName={input.group.name}
+											size="sm"
+										/>
+									}
+									checked={input.selectedProfileIds.has(
+										input.group.humanCandidate.profileId
+									)}
+									description={humanDescription}
+									index={0}
+									label={input.group.name}
+									onToggle={() =>
+										input.onToggle(input.group.humanCandidate?.profileId ?? "")
+									}
+								/>
+							</CheckboxGroup>
+						) : (
+							<div className="flex min-h-11 items-center gap-3 px-3 py-2">
+								<SpaceProfileIcon
+									agentControllerRef={null}
+									avatarImageUrl={input.group.avatarImageUrl}
+									profileId={input.group.id}
+									profileKind="human"
+									profileName={input.group.name}
+									size="sm"
+								/>
+								<div className="min-w-0">
+									<p className="truncate text-sm">{input.group.name}</p>
+									<p className="text-muted-foreground text-xs">
+										{humanDescription}
+									</p>
+								</div>
 							</div>
-						</div>
-					)}
+						)}
+					</div>
+					{input.onCreate ? (
+						<Button
+							className="shrink-0"
+							onClick={input.onCreate}
+							size="xs"
+							type="button"
+						>
+							<PlusIcon aria-hidden="true" />
+							New Agent
+						</Button>
+					) : null}
 				</div>
 			}
 			name={input.group.name}
@@ -1812,7 +1833,11 @@ function SpaceAddMembersCandidateGroup(input: {
 						label={candidate.profileName}
 						labelAdornment={
 							candidate.isCenterAgent ? (
-								<Badge className="h-4 px-1.5 text-[10px]" variant="secondary">
+								<Badge
+									className="bg-surface-2 px-1.5 text-[10px] shadow-surface-2"
+									variant="outline"
+								>
+									<CloudIcon aria-hidden="true" />
 									Remote
 								</Badge>
 							) : (
@@ -1980,7 +2005,9 @@ function buildOrganizationDirectoryAddCandidates(input: {
 							]),
 						}
 					: null;
-			if (!(humanCandidate || agentCandidates.length > 0)) {
+			if (
+				!(humanCandidate || humanAlreadyMember || agentCandidates.length > 0)
+			) {
 				return [];
 			}
 			for (const agent of agentCandidates) {

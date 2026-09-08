@@ -1464,7 +1464,7 @@ describe("SpaceMembersSidePanel", () => {
 		});
 	});
 
-	it("pins joined Organization Agents under their person as checked context", () => {
+	it("keeps joined people and agents visible with creation scoped to yourself", () => {
 		const centerAgentProfileId = "agt_44444444-4444-4444-8444-444444444444";
 		const humanProfileId = "22222222-2222-4222-8222-222222222222";
 		const joinedAgentProfileId = "agt_88888888-8888-4888-8888-888888888888";
@@ -1526,6 +1526,7 @@ describe("SpaceMembersSidePanel", () => {
 						}),
 					],
 				})}
+				spaceId="space-1"
 			/>,
 			directory
 		);
@@ -1537,6 +1538,21 @@ describe("SpaceMembersSidePanel", () => {
 		const joinedCheckbox = within(dialog).getByRole("checkbox", {
 			name: "Research Agent",
 		});
+		const createButton = within(dialog).getByRole("button", {
+			name: "New Agent",
+		});
+		const ownerRow = createButton.parentElement;
+		if (!ownerRow) {
+			throw new Error("Missing owner row");
+		}
+		expect(within(ownerRow).getByText("Felix")).toBeTruthy();
+		expect(within(ownerRow).getByText("In this Space")).toBeTruthy();
+		expect(
+			within(dialog).getAllByRole("button", { name: "New Agent" })
+		).toHaveLength(1);
+		expect(
+			within(dialog).queryByRole("checkbox", { name: "Felix" })
+		).toBeNull();
 		expect(joinedCheckbox.getAttribute("aria-checked")).toBe("true");
 		expect(joinedCheckbox.getAttribute("aria-disabled")).toBe("true");
 		expect(within(joinedCheckbox).getByText("In this Space")).toBeTruthy();
