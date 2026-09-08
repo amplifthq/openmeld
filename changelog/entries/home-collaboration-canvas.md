@@ -46,3 +46,5 @@ panel. Page layout preferences continue to apply when you open the full Space.
 The first entrance reveals your greeting, then an arrow, then the Space, and
 moves the view down to show the complete window. Returning restores your saved
 view; reduced-motion preferences skip the entrance movement.
+The greeting grows into view at a larger size, followed by a slower Space reveal.
+Select the greeting to resize it or close it. This browser remembers dismissal.

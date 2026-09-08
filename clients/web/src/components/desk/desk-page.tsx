@@ -27,6 +27,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { toast } from "sonner";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { WorkspaceCanvas } from "#/components/canvas/workspace-canvas";
 import type { SpaceView } from "#/components/spaces/space-view";
@@ -80,6 +81,7 @@ const DeskContext = createContext<{
 	profileId: string;
 	orgSlug: string;
 	onHide: (spaceId: string) => void;
+	onHideGreeting: () => void;
 	profiles: NonNullable<
 		ReturnType<typeof useSelectedHumanProfile>["profilesQuery"]["data"]
 	>;
@@ -144,6 +146,8 @@ function Desk() {
 	const viewportKey = `openmeld.desk.viewport:${storageScope}:${currentOrganization.id}`;
 	const [savedViewport, setSavedViewport] = useState<Viewport | null>(null);
 	const [loaded, setLoaded] = useState(false);
+	const greetingKey = `openmeld.desk.greeting-hidden:${storageScope}:${currentOrganization.id}`;
+	const [greetingHidden, setGreetingHidden] = useState(false);
 	const resetWelcome = useMutation({
 		mutationFn: async () => {
 			if (
@@ -178,14 +182,16 @@ function Desk() {
 		},
 	});
 	useEffect(() => {
+		setGreetingHidden(localStorage.getItem(greetingKey) === "true");
 		try {
 			const saved = JSON.parse(localStorage.getItem(layoutKey) ?? "null");
 			if (Array.isArray(saved)) {
 				restoredNodes.current = saved.filter(
 					(node) =>
-						node?.data?.kind === "space" &&
-						typeof node.data.spaceId === "string" &&
-						typeof node.data.profileId === "string" &&
+						(node?.data?.kind === "welcome" ||
+							(node?.data?.kind === "space" &&
+								typeof node.data.spaceId === "string" &&
+								typeof node.data.profileId === "string")) &&
 						Number.isFinite(node.position?.x) &&
 						Number.isFinite(node.position?.y)
 				);
@@ -237,7 +243,7 @@ function Desk() {
 			/* A viewport preference never blocks the Space. */
 		}
 		setLoaded(true);
-	}, [viewportKey, sizeKey, layoutKey]);
+	}, [viewportKey, sizeKey, layoutKey, greetingKey]);
 	useEffect(() => {
 		if (loaded && windows === null && space.spaceId && space.profileId) {
 			setWindows([{ spaceId: space.spaceId, profileId: space.profileId }]);
@@ -266,42 +272,60 @@ function Desk() {
 		return () => observer.disconnect();
 	}, []);
 	useEffect(() => {
-		setNodes((previous) => [
-			{
-				id: "welcome",
-				type: "desk",
-				position: previous.find((n) => n.id === "welcome")?.position ?? {
-					x: 0,
-					y: 0,
-				},
-				data: { kind: "welcome" },
-				style: { width, height: 150 },
-				dragHandle: ".desk-title",
-			},
-			...(windows ?? [])
-				.filter((item) => !deletedIds.has(item.spaceId))
-				.map((item, index) => {
-					const previousNode =
-						previous.find((n) => n.data.spaceId === item.spaceId) ??
-						restoredNodes.current.find((n) => n.data.spaceId === item.spaceId);
-					return {
-						...previousNode,
-						id: item.spaceId,
-						type: "desk" as const,
-						position: previousNode?.position ?? {
-							x: index * (width + 48),
-							y: 200,
-						},
-						data: { kind: "space" as const, ...item },
-						style:
-							previousNode?.style ??
-							(index === 0 ? savedSize.current : null) ??
-							defaultSpaceSize(width, height),
-						dragHandle: ".desk-title",
-					};
-				}),
-		]);
-	}, [windows, deletedIds, width, height]);
+		if (!loaded) {
+			return;
+		}
+		setNodes((previous) => {
+			const greeting =
+				previous.find((n) => n.id === "welcome") ??
+				restoredNodes.current.find((n) => n.id === "welcome");
+			return [
+				...(greetingHidden
+					? []
+					: [
+							{
+								...greeting,
+								id: "welcome",
+								type: "desk" as const,
+								position: greeting?.position ?? {
+									x: 0,
+									y: 0,
+								},
+								data: { kind: "welcome" as const },
+								style: greeting?.style ?? {
+									width,
+									height: 150,
+								},
+								dragHandle: ".desk-title",
+							},
+						]),
+				...(windows ?? [])
+					.filter((item) => !deletedIds.has(item.spaceId))
+					.map((item, index) => {
+						const previousNode =
+							previous.find((n) => n.data.spaceId === item.spaceId) ??
+							restoredNodes.current.find(
+								(n) => n.data.spaceId === item.spaceId
+							);
+						return {
+							...previousNode,
+							id: item.spaceId,
+							type: "desk" as const,
+							position: previousNode?.position ?? {
+								x: index * (width + 48),
+								y: 200,
+							},
+							data: { kind: "space" as const, ...item },
+							style:
+								previousNode?.style ??
+								(index === 0 ? savedSize.current : null) ??
+								defaultSpaceSize(width, height),
+							dragHandle: ".desk-title",
+						};
+					}),
+			];
+		});
+	}, [windows, deletedIds, width, height, greetingHidden, loaded]);
 	useEffect(() => {
 		const spaceNodes = nodes.filter((node) => node.data.kind === "space");
 		if (
@@ -318,7 +342,7 @@ function Desk() {
 			return;
 		}
 		try {
-			localStorage.setItem(layoutKey, JSON.stringify(spaceNodes));
+			localStorage.setItem(layoutKey, JSON.stringify(nodes));
 		} catch {
 			/* Optional window preference. */
 		}
@@ -335,6 +359,7 @@ function Desk() {
 		[viewportKey]
 	);
 	const { initialize, reset, interrupt, onMoveEnd } = useDeskEntrance({
+		greetingHidden,
 		height,
 		region,
 		flow,
@@ -350,6 +375,11 @@ function Desk() {
 			profileId: space.profileId ?? "",
 			orgSlug: currentOrganization.slug,
 			profiles: profilesQuery.data ?? [],
+			onHideGreeting: () => {
+				localStorage.setItem(greetingKey, "true");
+				setGreetingHidden(true);
+				toast("Greeting hidden. You won’t see it again in this browser.");
+			},
 			onHide: (spaceId: string) =>
 				setWindows(
 					(current) => current?.filter((item) => item.spaceId !== spaceId) ?? []
@@ -362,6 +392,7 @@ function Desk() {
 			space.profileId,
 			currentOrganization.slug,
 			profilesQuery.data,
+			greetingKey,
 		]
 	);
 	const resetLayout = () => {
@@ -376,7 +407,10 @@ function Desk() {
 			current.map((node, index) => ({
 				...node,
 				position: {
-					x: node.data.kind === "welcome" ? 0 : (index - 1) * (width + 48),
+					x:
+						node.data.kind === "welcome"
+							? 0
+							: (index - (greetingHidden ? 0 : 1)) * (width + 48),
 					y: node.data.kind === "welcome" ? 0 : 200,
 				},
 				width: undefined,
@@ -542,7 +576,11 @@ function Desk() {
 	);
 }
 
-function DeskWindow({ data }: NodeProps<DeskNode>) {
+function DeskWindow({
+	data,
+	selected,
+	height: nodeHeight,
+}: NodeProps<DeskNode>) {
 	const context = use(DeskContext);
 	const welcomeStep = useWelcomeSpace(
 		context?.storageScope ?? "",
@@ -556,34 +594,60 @@ function DeskWindow({ data }: NodeProps<DeskNode>) {
 	}
 	if (data.kind === "welcome") {
 		return (
-			<section
-				className="desk-title flex h-full cursor-grab flex-col items-center justify-center gap-3 text-center"
-				data-desk-greeting=""
-			>
-				<h2 className="font-medium text-3xl">
-					Hello{context.name ? `, ${context.name}` : ""}.
-				</h2>
-				<p className="text-base text-muted-foreground">
-					Your work, together in one place.
-				</p>
-				{welcomeStep === "add" && (
-					<svg
-						aria-hidden="true"
-						className="text-muted-foreground"
-						data-desk-arrow=""
-						height="32"
-						viewBox="0 0 28 32"
-						width="28"
+			<>
+				<NodeResizer
+					isVisible={selected}
+					maxHeight={480}
+					maxWidth={2400}
+					minHeight={120}
+					minWidth={320}
+				/>
+				<section
+					aria-label="Welcome greeting"
+					className={`desk-title relative flex h-full cursor-grab flex-col items-center justify-center gap-3 rounded-lg border p-6 text-center ${selected ? "border-muted-foreground" : "border-transparent"}`}
+					data-desk-greeting=""
+				>
+					{selected && (
+						<Button
+							aria-label="Hide greeting"
+							className="nodrag nopan absolute top-2 right-2"
+							onClick={context.onHideGreeting}
+							size="icon-sm"
+							variant="ghost"
+						>
+							<XIcon />
+						</Button>
+					)}
+					<h2
+						className="max-w-full break-words font-medium leading-tight"
+						style={{
+							fontSize: Math.max(28, Math.min(96, (nodeHeight ?? 150) * 0.28)),
+						}}
 					>
-						<path
-							d="M5 2 Q24 2 20 27 M13 20 L20 28 L26 20"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="1.5"
-						/>
-					</svg>
-				)}
-			</section>
+						Hello{context.name ? `, ${context.name}` : ""}.
+					</h2>
+					<p className="text-base text-muted-foreground">
+						Your work, together in one place.
+					</p>
+					{welcomeStep === "add" && (
+						<svg
+							aria-hidden="true"
+							className="text-muted-foreground"
+							data-desk-arrow=""
+							height="32"
+							viewBox="0 0 28 32"
+							width="28"
+						>
+							<path
+								d="M5 2 Q24 2 20 27 M13 20 L20 28 L26 20"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="1.5"
+							/>
+						</svg>
+					)}
+				</section>
+			</>
 		);
 	}
 	return (

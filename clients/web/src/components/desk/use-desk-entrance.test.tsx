@@ -12,7 +12,10 @@ afterEach(() => {
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
-function entrance(savedViewport: Viewport | null = null) {
+function entrance(
+	savedViewport: Viewport | null = null,
+	greetingHidden = false
+) {
 	const element = document.createElement("section");
 	const setViewport = vi.fn().mockResolvedValue(undefined);
 	const instance = { setViewport } as unknown as ReactFlowInstance;
@@ -26,12 +29,19 @@ function entrance(savedViewport: Viewport | null = null) {
 			width: 1000,
 			height: 640,
 			savedViewport,
+			greetingHidden,
 			saveViewport,
 		})
 	);
 	act(() => hook.result.current.initialize(instance));
 	return { ...hook, element, setViewport, saveViewport };
 }
+it("frames the Space immediately when the greeting was dismissed", () => {
+	const entry = entrance(null, true);
+	expect(entry.element.dataset.deskEntrance).toBe("ready");
+	expect(entry.saveViewport).toHaveBeenCalledWith({ x: 32, y: -168, zoom: 1 });
+	expect(vi.getTimerCount()).toBe(0);
+});
 it("skips the entrance when reduced motion is requested", () => {
 	vi.stubGlobal("matchMedia", () => ({ matches: true }));
 	const entry = entrance();
@@ -70,7 +80,7 @@ it("reveals the greeting, arrow, and Space in order before centering the complet
 	expect(entry.element.dataset.deskEntrance).toBe("arrow");
 	act(() => vi.advanceTimersByTime(350));
 	expect(entry.element.dataset.deskEntrance).toBe("space");
-	act(() => vi.advanceTimersByTime(1100));
+	act(() => vi.advanceTimersByTime(1600));
 	expect(entry.element.dataset.deskEntrance).toBe("ready");
 	expect(entry.saveViewport).toHaveBeenLastCalledWith({
 		x: 32,

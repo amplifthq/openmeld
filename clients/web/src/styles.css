@@ -284,22 +284,30 @@ html[data-space-self-message-alignment="left"]
   pointer-events: none;
 }
 [data-desk-entrance="greeting"] [data-desk-greeting] {
-  animation: desk-greeting-in 400ms ease-out both;
+  animation: desk-greeting-in 450ms ease-out both;
 }
 [data-desk-entrance="pending"] [data-desk-arrow],
 [data-desk-entrance="greeting"] [data-desk-arrow] { opacity: 0; }
-[data-desk-entrance="arrow"] [data-desk-arrow],
-[data-desk-entrance="space"] .react-flow__node:has([data-desk-space-window]) {
+[data-desk-entrance="arrow"] [data-desk-arrow] {
   animation: desk-fade-in 250ms ease-out both;
 }
+[data-desk-entrance="space"] [data-desk-space-window] {
+  transform-origin: center center;
+  animation: desk-space-in 1600ms ease-out both;
+}
+@keyframes desk-space-in {
+  from { opacity: 0; transform: scale(0.82); }
+  to { opacity: 1; transform: scale(1); }
+}
 @keyframes desk-greeting-in {
-  from { opacity: 0; transform: scale(0.92); }
+  from { opacity: 0; transform: scale(0.65); }
   to { opacity: 1; transform: scale(1); }
 }
 @keyframes desk-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   [data-desk-entrance] [data-desk-greeting],
   [data-desk-entrance] [data-desk-arrow],
+  [data-desk-entrance] [data-desk-space-window],
   [data-desk-entrance] .react-flow__node { animation: none; }
 }
 

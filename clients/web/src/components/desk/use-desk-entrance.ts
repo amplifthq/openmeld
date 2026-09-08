@@ -20,6 +20,7 @@ export function useDeskEntrance<N extends Node>(input: {
 	width: number;
 	height: number;
 	savedViewport: Viewport | null;
+	greetingHidden?: boolean;
 	saveViewport: (viewport: Viewport) => void;
 }) {
 	const frame = useRef(0);
@@ -55,7 +56,7 @@ export function useDeskEntrance<N extends Node>(input: {
 			}
 			const end = target();
 			const reduced = matchMedia("(prefers-reduced-motion: reduce)");
-			if (reduced.matches) {
+			if (reduced.matches || input.greetingHidden) {
 				interrupt();
 				instance.setViewport(end).catch(console.error);
 				input.saveViewport(end);
@@ -91,7 +92,7 @@ export function useDeskEntrance<N extends Node>(input: {
 					}
 				}
 				if (elapsed >= 1200) {
-					const progress = Math.min(1, (elapsed - 1200) / 850);
+					const progress = Math.min(1, (elapsed - 1200) / 1400);
 					const eased = (1 - Math.cos(Math.PI * progress)) / 2;
 					instance
 						.setViewport({
@@ -113,6 +114,7 @@ export function useDeskEntrance<N extends Node>(input: {
 		[
 			input.flow,
 			input.height,
+			input.greetingHidden,
 			input.savedViewport,
 			input.region,
 			input.width,

@@ -545,6 +545,10 @@ add outer whitespace rather than lengthening text lines. Appearance's centered/f
 only to page surfaces. Desk passes its measured width into the shared Space so
 the Members side-panel breakpoint follows the window rather than the browser.
 Local development lanes expose Reset Welcome Space at the top-left of Desk.
+The greeting is selectable and resizable; selection reveals its border and close
+button. Its geometry shares the Desk layout storage. Closing it persists an
+account-and-organization-scoped browser preference, with no restore action.
+Dismissed greetings skip the greeting entrance even when the viewport is reset.
 It creates a new private ordinary Space with only the acting human, initializes
 Welcome guidance, and clears the current Desk window and viewport preferences.
 Existing Spaces and their messages remain intact. Production builds omit this action.
