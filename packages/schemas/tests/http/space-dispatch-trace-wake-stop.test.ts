@@ -10,6 +10,41 @@ import {
 } from "../../src";
 
 describe("space dispatch trace Wake Stop outcome", () => {
+  it.each([
+    ["remote_agent.execution_cancelled", "visible_stopped", "stopped_notice"],
+    ["remote_agent.execution_failed", "visible_failure", "failure_notice"],
+    [null, "visible_reply", "success_reply"],
+  ])("projects native text with reason %s as %s", (reasonCode, status, publicationKind) => {
+    // Shape captured from production service trace after a successful native Stop.
+    // Keep the text identical: classification must use publication evidence, not prose.
+    const finalVisibleMessage =
+      spaceDispatchTraceFinalVisibleMessageSchema.parse({
+        factSource: "space_signal_by_published_signal_id",
+        signalId: "530a365a-adee-4639-8d0d-66b7868dd898",
+        signalType: "signal.text",
+        dispatchId: "36953002-df52-4b84-a3b9-64cf33c54b66",
+        targetProfileId: "agt_e556fd43-6780-4851-bc12-1431a4175811",
+        profileId: "agt_e556fd43-6780-4851-bc12-1431a4175811",
+        profileKind: "agent",
+        profileName: "Production Remote 736 A",
+        text: "This request was stopped.",
+        reasonCode,
+        noticeType: null,
+        statusType: null,
+        createdAt: "2026-09-08T10:33:13.036Z",
+      });
+    expect(
+      projectSpaceDispatchTraceFinalVisibleOutcome({
+        finalVisibleMessage,
+      } as Parameters<typeof projectSpaceDispatchTraceFinalVisibleOutcome>[0])
+    ).toMatchObject({
+      delivered: true,
+      status,
+      publicationKind,
+      sourceReasonCode: reasonCode,
+    });
+  });
+
   it("accepts final visible text up to the Space signal limit", () => {
     const finalVisibleMessage = {
       factSource: "space_signal_by_published_signal_id",

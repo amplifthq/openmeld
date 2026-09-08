@@ -2,7 +2,7 @@ import type { Client } from "@larksuiteoapi/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 import capturedSetupScopes from "../../../scripts/lark-platform/fixtures/application-scopes-with-setup.feishu.json";
 import {
-  configureAndVerifyLarkPlatformWebhookApp,
+  configureAndVerifyLarkPlatformWebhookApp as configureApp,
   LarkPlatformAppConfigurationError,
 } from "../src/remote-agent/application/lark-platform-app-configuration";
 import { LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE } from "../src/remote-agent/application/lark-platform-permission-bundles";
@@ -14,6 +14,44 @@ const EXPECTED_SCOPES = LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.scopes.map(
     scope_type: "tenant",
   })
 );
+
+function configureAndVerifyLarkPlatformWebhookApp(
+  input: Omit<Parameters<typeof configureApp>[0], "onPublicationSubmitted">
+) {
+  const fetchImpl: typeof fetch = async (request, init) => {
+    const url = String(request);
+    if (url.endsWith("/publish")) {
+      return Response.json({
+        code: 0,
+        data: { version: "1.0.1", version_id: "oav_test" },
+        msg: "success",
+      });
+    }
+    if (url.includes("/app_versions/")) {
+      return Response.json({
+        code: 0,
+        data: {
+          app_version: {
+            app_id: input.appId,
+            version_id: "oav_test",
+            status: 1,
+            event_infos:
+              LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.events.map(
+                (event_type) => ({ event_type })
+              ),
+          },
+        },
+        msg: "success",
+      });
+    }
+    return await (input.fetchImpl ?? fetch)(request, init);
+  };
+  return configureApp({
+    ...input,
+    fetchImpl,
+    onPublicationSubmitted: vi.fn().mockResolvedValue(undefined),
+  });
+}
 
 describe("Lark-platform app configuration", () => {
   it.each([

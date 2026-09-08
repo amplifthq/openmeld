@@ -1395,7 +1395,7 @@ function resolveFinalVisibleMessageOutcome(
   if (!finalVisibleMessage) {
     return null;
   }
-  const visibleStopped = isStoppedFinalVisibleSystemNotice(finalVisibleMessage);
+  const visibleStopped = isStoppedFinalVisibleMessage(finalVisibleMessage);
   const visibleFailure =
     isFailureFinalVisibleSystemNotice(finalVisibleMessage) ||
     isFailureFinalVisibleTextMessage(finalVisibleMessage);
@@ -1427,14 +1427,16 @@ function resolveFinalVisibleMessageOutcome(
   };
 }
 
-function isStoppedFinalVisibleSystemNotice(
+function isStoppedFinalVisibleMessage(
   finalVisibleMessage: NonNullable<
     SpaceDispatchTraceSnapshotValue["finalVisibleMessage"]
   >
 ): boolean {
   return (
-    finalVisibleMessage.signalType === "signal.system_notice" &&
-    finalVisibleMessage.noticeType === "wake_stopped"
+    (finalVisibleMessage.signalType === "signal.system_notice" &&
+      finalVisibleMessage.noticeType === "wake_stopped") ||
+    (finalVisibleMessage.signalType === "signal.text" &&
+      finalVisibleMessage.reasonCode === "remote_agent.execution_cancelled")
   );
 }
 

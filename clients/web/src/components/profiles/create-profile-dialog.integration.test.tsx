@@ -21,6 +21,7 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
+import vendorModelCatalog from "../../../../../release/vendor-models.json";
 import {
 	LegacyCreateProfileDialog as CreateProfileDialog,
 	CreateProfileDialog as CurrentCreateProfileDialog,
@@ -34,6 +35,7 @@ const CREATING_PROFILE_BUTTON_PATTERN = /creating profile/i;
 const CHOOSE_LATER_PATTERN = /Choose later/i;
 const HUMAN_PROFILE_CARD_PATTERN = /Person/i;
 const AGENT_PROFILE_CARD_PATTERN = /Agent profile/i;
+const REMOTE_AGENT_CARD_PATTERN = /Remote Agent/;
 const OPENCODE_AGENT_PATTERN = /opencode/i;
 const BORDER_CLASS_PATTERN = /\bborder\b/;
 const ASHLEY_RELEASE_SESSION_PATTERN = /Prepare the release · Codex · OpenMeld/;
@@ -225,6 +227,7 @@ vi.mock("#/query/config/model-catalog", () => ({
 			schemaVersion: 1,
 			updatedAt: "2026-06-18T00:00:00.000Z",
 			agentControllers: {
+				"center-agent": vendorModelCatalog.agentControllers["center-agent"],
 				codex: {
 					defaultModelId: "gpt-5.5",
 					models: [
@@ -1333,6 +1336,27 @@ describe("CreateProfileDialog", () => {
 					sessionStrategy: "fork",
 					targetOwnerUserId: "user-ashley",
 				})
+			);
+		});
+	});
+
+	it("refreshes the organization member directory after creating a Remote Agent", async () => {
+		renderCurrentCreateProfileDialog();
+		await waitFor(() => {
+			expect(readOrganizationDirectoryMock).toHaveBeenCalled();
+		});
+		fireEvent.click(
+			await screen.findByRole("tab", { name: REMOTE_AGENT_CARD_PATTERN })
+		);
+		fireEvent.change(screen.getByRole("textbox", { name: "Agent name" }), {
+			target: { value: "New Remote Partner" },
+		});
+		const readsBeforeCreation = readOrganizationDirectoryMock.mock.calls.length;
+		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalled();
+			expect(readOrganizationDirectoryMock.mock.calls.length).toBeGreaterThan(
+				readsBeforeCreation
 			);
 		});
 	});

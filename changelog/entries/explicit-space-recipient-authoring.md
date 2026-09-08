@@ -4,6 +4,9 @@ title: Choose Space recipients independently of message text
 kind: improved
 areas: ["spaces", "cli"]
 audiences: ["users", "developers"]
+publishedAt: 2026-09-08
+release: v0.3.174
+evidence: ["pr:742", "pr:759", "workflow:34213867447", "commit:db625a228bbdf18cb5b0a7caec3a1cb498877c65"]
 ---
 
 Space messages no longer interpret `@Name(wake)` or similar text as an action.
