@@ -2933,6 +2933,318 @@ const findRuntimeCoordinatorWakeStoppedNoticePublicationRecord = (
 
 type RuntimeTransportTestHarness = ReturnType<typeof createHarness>;
 
+describe("device waiting Wake lifecycle", () => {
+  const isDeliveryFrame = (frame: unknown): boolean =>
+    typeof frame === "object" &&
+    frame !== null &&
+    "code" in frame &&
+    frame.code === "daemon.dispatch.deliver";
+  const nowMs = 1_800_000_000_000;
+  const deadlineAtMs = nowMs + 24 * 60 * 60_000;
+  const request = () =>
+    buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({
+          bindingId: "binding-1",
+          openMeldServiceRuntimeId: "runtime-1",
+          fingerprint: "a",
+        }),
+        deviceWait: {
+          bindingId: "binding-1",
+          openMeldServiceRuntimeId: "runtime-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+          deadlineAtMs,
+        },
+      },
+    });
+  it("keeps post-reconnect readiness checks inside the original device deadline", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      const { hub, storageRecords } = createHarness();
+      const accepted = request();
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        accepted
+      );
+      const response = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/waiting",
+        {
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          dispatchId: accepted.dispatchId,
+          idempotencyKey: accepted.idempotencyKey,
+          observedAtMs: nowMs + 60_000,
+          ownerUserId: accepted.ownerUserId,
+          reasonCode: "wake.device_wait.readiness_checking",
+          userRecoveryAction: "check_status",
+          waitingCategory: "local_agent_unavailable",
+          targetWakeLifecycleIdentity: accepted.targetWakeLifecycleIdentity,
+        } satisfies RuntimeTransportRuntimeCoordinatorHeadWaitingRequest
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        status: "waiting",
+        deadlineAtMs,
+        reasonCode: "wake.device_wait.readiness_checking",
+      });
+      expect(
+        findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+      ).toMatchObject({
+        status: "waiting",
+        runtimeCoordinatorExecutionId: null,
+        waitingBoundary: { deadlineAtMs, waitingFor: "agent_readiness_report" },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+  const deliver = (hub: RuntimeTransportHub) =>
+    (
+      hub as unknown as {
+        handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+      }
+    ).handleDeliverDispatchRequest(
+      new Request("https://runtime-transport.test/deliver-dispatch", {
+        method: "POST",
+        body: JSON.stringify(buildDeliverRequest()),
+      })
+    );
+
+  it("retains the explicit deadline across offline redrives beyond five minutes", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      const { hub, state, sentFrames, storageRecords } = createHarness();
+      state.pendingDispatches.clear();
+      expect(
+        (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            request()
+          )
+        ).status
+      ).toBe(200);
+      for (const elapsed of [1000, 600_000]) {
+        clock.mockReturnValue(nowMs + elapsed);
+        const response = await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/waiting",
+          buildRuntimeCoordinatorHeadWaitingRequest({
+            observedAtMs: nowMs + elapsed,
+          })
+        );
+        expect(await response.json()).toMatchObject({
+          status: "waiting",
+          deadlineAtMs,
+        });
+      }
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorHeadLifecycleStorageKey(
+            request().targetWakeLifecycleIdentity.targetWakeLifecycleId
+          )
+        )
+      ).toMatchObject({
+        status: "waiting",
+        runtimeCoordinatorExecutionId: null,
+      });
+      expect(sentFrames.filter(isDeliveryFrame)).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("delivers one execution when the specified device returns, even after duplicate delivery", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      const { hub, state, socket, sentFrames } = createHarness();
+      state.pendingDispatches.clear();
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request()
+      );
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/waiting",
+        buildRuntimeCoordinatorHeadWaitingRequest({ observedAtMs: nowMs })
+      );
+      configureCompatibleRoute({ state, socket });
+      expect(await (await deliver(hub)).json()).toMatchObject({
+        accepted: true,
+      });
+      clock.mockReturnValue(deadlineAtMs + 60_000);
+      expect(await (await deliver(hub)).json()).toMatchObject({
+        accepted: true,
+      });
+      expect(sentFrames.filter(isDeliveryFrame)).toHaveLength(1);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("never delivers a cancelled device waiting Wake after reconnect or reacceptance", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      const { hub, state, socket, sentFrames } = createHarness();
+      state.pendingDispatches.clear();
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request()
+      );
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/waiting",
+        buildRuntimeCoordinatorHeadWaitingRequest({ observedAtMs: nowMs })
+      );
+      expect(
+        (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/pre-agent-stop",
+            buildRuntimeCoordinatorHeadPreAgentStopRequest()
+          )
+        ).status
+      ).toBe(200);
+      configureCompatibleRoute({ state, socket });
+      const replay = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request()
+      );
+      expect(await replay.json()).not.toMatchObject({
+        action: "create_execution",
+      });
+      expect(await (await deliver(hub)).json()).toMatchObject({
+        accepted: false,
+      });
+      expect(sentFrames.filter(isDeliveryFrame)).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("fences first execution at the deadline even when the expiry alarm has not run", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      const { hub, state, socket, sentFrames } = createHarness();
+      state.pendingDispatches.clear();
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request()
+      );
+      clock.mockReturnValue(deadlineAtMs);
+      configureCompatibleRoute({ state, socket });
+      expect(await (await deliver(hub)).json()).toMatchObject({
+        accepted: false,
+      });
+      expect(sentFrames.filter(isDeliveryFrame)).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("does not revive an already failed Wake when the same waiting request is redriven", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      const { hub, state, socket, sentFrames } = createHarness();
+      state.pendingDispatches.clear();
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request()
+      );
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/no-execution",
+        buildRuntimeCoordinatorHeadNoExecutionRequest({
+          reasonCode: "workspace.missing",
+          publicationCategory: "workspace_unavailable",
+          userRecoveryAction: "review_agent_settings",
+        })
+      );
+      configureCompatibleRoute({ state, socket });
+      expect(
+        await (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            request()
+          )
+        ).json()
+      ).not.toMatchObject({ action: "create_execution" });
+      expect(await (await deliver(hub)).json()).toMatchObject({
+        accepted: false,
+      });
+      expect(sentFrames.filter(isDeliveryFrame)).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("expires a device waiting Wake even while earlier work owns the FIFO head", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      const { hub, state, storageRecords } = createHarness();
+      state.pendingDispatches.clear();
+      await acceptDefaultRuntimeCoordinatorHead(hub);
+      const queuedIdentity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: "client-queued-wait",
+        dispatchId: "dispatch-queued-wait",
+        sourceSignalId: "source-queued-wait",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+      const queuedRequest = {
+        ...request(),
+        dispatchId: queuedIdentity.dispatchId,
+        idempotencyKey: "queued-device-wait",
+        targetWakeLifecycleIdentity: queuedIdentity,
+      };
+      expect(
+        await (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            queuedRequest
+          )
+        ).json()
+      ).toMatchObject({ status: "queued" });
+      clock.mockReturnValue(deadlineAtMs);
+      await (
+        hub as unknown as {
+          processRuntimeCoordinatorHeadWaitingAlarm: (
+            nowMs: number
+          ) => Promise<void>;
+        }
+      ).processRuntimeCoordinatorHeadWaitingAlarm(deadlineAtMs);
+      const expired = storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          queuedIdentity.targetWakeLifecycleId
+        )
+      );
+      expect(expired).toMatchObject({
+        status: "publication_intent_ready",
+        noExecutionDecision: { reasonCode: "wake.device_wait.expired" },
+      });
+      expect(
+        await (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            queuedRequest
+          )
+        ).json()
+      ).not.toMatchObject({ action: "create_execution" });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+});
+
 const sendAutomaticUpdateRegisterFrame = (
   harness: RuntimeTransportTestHarness,
   controlEnabled = true

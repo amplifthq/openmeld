@@ -122,6 +122,7 @@ import {
 	type SpaceAgentDirectConversationComposerHintKind,
 	type SpaceComposerConversationKind,
 } from "./space-composer-copy";
+import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
 import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
@@ -279,7 +280,7 @@ type SpaceConversationPanelResolvedProps = {
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	onMentionButtonClick: () => void;
-	onSend: () => Promise<void>;
+	onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
 	onSpaceViewChange: (view: SpaceView) => void;
 	orgSlug?: string;
@@ -519,11 +520,11 @@ function SpaceConversationPanelContent(
 		navigation,
 		presentation,
 	});
-	const submitComposer = () => {
+	const submitComposer = (options?: SpaceComposerSendOptions) => {
 		if (composerSendBlocked || !canSendMessage || input.isSendingMessage) {
 			return;
 		}
-		input.onSend().catch((error) => {
+		input.onSend(options).catch((error) => {
 			console.error("Failed to send a space message from composer.", error);
 		});
 	};
@@ -1895,7 +1896,7 @@ function SpaceComposerSection(input: {
 	composerSendBlocked: boolean;
 	composerTargetName: string | null;
 	input: SpaceConversationPanelResolvedProps;
-	submitComposer: () => void;
+	submitComposer: (options?: SpaceComposerSendOptions) => void;
 }) {
 	const panel = input.input;
 

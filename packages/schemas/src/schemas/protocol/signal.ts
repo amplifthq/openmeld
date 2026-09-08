@@ -18,6 +18,7 @@ import {
   signalReplyToSchema,
 } from "./signal-reply-to";
 import { spaceMessageAttachmentsSchema } from "./space-attachment";
+import { wakeDeviceWaitSchema } from "./wake-device-wait";
 
 // biome-ignore lint/performance/noBarrelFile: This shared protocol constant must remain re-exported from the canonical signal module.
 export { MAX_SIGNAL_REPLY_TO_PREVIEW_LENGTH } from "./signal-reply-to";
@@ -107,6 +108,7 @@ const legacySpaceAgentActivitySchema = spaceAgentActivitySchema.superRefine(
 );
 
 const signalTextMetaSchema = z.object({
+  deviceWait: wakeDeviceWaitSchema.optional(),
   transient: z.literal(true).optional(),
   agentActivity: legacySpaceAgentActivitySchema.optional(),
   agentWorkSummary: spaceAgentActivitySchema.optional(),
@@ -312,6 +314,7 @@ const buildSignalTextDataSchema = <TMetaSchema extends z.ZodTypeAny>(
   z
     .strictObject({
       text: signalTextContentSchema,
+      deviceWait: wakeDeviceWaitSchema.optional(),
       attachments: spaceMessageAttachmentsSchema.optional(),
       files: spaceMessageFileReferencesSchema.optional(),
       messageEnvelope: messageEnvelopeSchema.optional(),

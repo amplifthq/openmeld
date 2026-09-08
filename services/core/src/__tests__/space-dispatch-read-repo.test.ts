@@ -1092,6 +1092,70 @@ describe("space dispatch read repo", () => {
     });
   });
 
+  it("exposes readiness waiting only to trace version 5 and keeps older readers compatible", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const readRuntimeCoordinatorHeadLifecycleTrace = vi
+      .fn()
+      .mockImplementation(({ request }) =>
+        Promise.resolve({
+          ok: true,
+          readStatus: "found",
+          lifecycle: {
+            createdAtMs: 1_700_000_001_100,
+            duplicateDispatchCount: 0,
+            executionLinkedAtMs: null,
+            modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+            noExecutionDecision: null,
+            ownerUserId: "owner-1",
+            primaryDispatchId: "dispatch-1",
+            publicationIntent: null,
+            runtimeCoordinatorExecutionId: null,
+            status: "waiting",
+            targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+            targetWakeLifecycleId:
+              request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+            updatedAtMs: 1_700_000_001_300,
+            waitingBoundary: {
+              deadlineAtMs: 1_700_000_300_000,
+              deadlineOutcome: "publication_intent_ready",
+              observedAtMs: 1_700_000_001_200,
+              softDeadlineAtMs: 1_700_000_030_000,
+              waitingSinceMs: 1_700_000_001_100,
+              triggerOwner: "runtime_coordinator",
+              reasonCode: "wake.device_wait.readiness_checking",
+              trigger: "agent_readiness_reported",
+              userRecoveryAction: "check_status",
+              userVisibleState: "waiting_for_agent_readiness",
+              waitingCategory: "local_agent_unavailable",
+              waitingFor: "agent_readiness_report",
+            },
+          },
+        })
+      );
+    for (const version of [undefined, 2, 3, 4, 5] as const) {
+      const result = await readSpaceDispatchTrace({
+        db: createTraceDb({ runtimeCoordinatorExecutionRow: undefined }),
+        dispatchId: "dispatch-1",
+        readReplySignalTrace: vi.fn().mockReturnValue(null),
+        readRuntimeCoordinatorHeadLifecycleTrace,
+        responseContractVersion: version,
+        spaceId: "space-1",
+      });
+      expect(result.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject({
+        status: "waiting",
+        runtimeCoordinatorExecutionId: null,
+        waitingBoundary:
+          version === 5
+            ? {
+                reasonCode: "wake.device_wait.readiness_checking",
+                waitingFor: "agent_readiness_report",
+                deadlineAt: "2023-11-14T22:18:20.000Z",
+              }
+            : null,
+      });
+    }
+  });
+
   it("keeps pending route registration compatible while exposing it to the current trace contract", async () => {
     vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
     const readRuntimeCoordinatorHeadLifecycleTrace = vi

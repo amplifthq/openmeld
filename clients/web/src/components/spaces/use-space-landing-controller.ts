@@ -126,6 +126,10 @@ import {
 	invalidateSpaceWakeStopQueries,
 	postWebSpaceWakeStop,
 } from "#/query/spaces/wake-stop";
+import {
+	applyDeviceWaitToSubmission,
+	type SpaceComposerSendOptions,
+} from "./space-composer-device-wait";
 import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
@@ -202,7 +206,8 @@ type PendingComposerSubmission = ReturnType<
 type PreparedSpaceMessageSubmission = Pick<
 	PendingComposerSubmission,
 	"messageEnvelope" | "text"
->;
+> &
+	SpaceComposerSendOptions;
 
 type SpaceComposerSendBoundary =
 	| { state: "access_rejected" }
@@ -416,6 +421,7 @@ function resolveCenterAgentExecutionInput(input: {
 }
 
 function buildNormalMessagePostInput(input: {
+	deviceWait?: SpaceComposerSendOptions["deviceWait"];
 	centerAgentExecutionInput?: NonNullable<
 		TextSignalEnvelope["data"]["meta"]
 	>["centerAgentExecutionInput"];
@@ -439,6 +445,7 @@ function buildNormalMessagePostInput(input: {
 		},
 		spaceId: input.spaceId,
 		text: input.text,
+		...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
 		timeoutMs: SPACE_MESSAGE_SEND_TIMEOUT_MS,
 	};
 }
@@ -1179,7 +1186,7 @@ export type SpaceLandingController =
 			onUpdateSpaceName: (name: string) => Promise<void>;
 			onThreadComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 			onThreadMentionButtonClick: () => void;
-			onThreadSend: () => Promise<void>;
+			onThreadSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 			onThreadSendText: (text: string) => Promise<void>;
 			onAddThreadComposerFiles: (files: readonly File[]) => Promise<void>;
 			onRemoveThreadComposerFile: (localId: string) => void;
@@ -1202,7 +1209,7 @@ export type SpaceLandingController =
 				profileName: string;
 				runtimeLane: DaemonServiceLane | null;
 			}) => Promise<void>;
-			onSend: () => Promise<void>;
+			onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 			onSendText: (text: string) => Promise<void>;
 			profileId: string;
 			spaceId: string;
@@ -1905,6 +1912,7 @@ export function useSpaceLandingController(input: {
 				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
+				includeDeviceWait: true,
 				includeWakeStopEligibility: true,
 				spaceId: input.spaceId,
 				timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,
@@ -2437,6 +2445,7 @@ export function useSpaceLandingController(input: {
 	};
 
 	async function sendMessage(options?: {
+		deviceWait?: SpaceComposerSendOptions["deviceWait"];
 		pendingMessage?: PendingSpaceMessage;
 		throwOnFailure?: boolean;
 	}) {
@@ -2474,12 +2483,15 @@ export function useSpaceLandingController(input: {
 		try {
 			const missingMembersMessage =
 				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions.";
-			const preparedSubmission = prepareMainComposerSubmission({
-				mentionAuthoring,
-				messageSeed,
-				missingMembersMessage,
-				pendingMessage: options?.pendingMessage,
-			});
+			const preparedSubmission = applyDeviceWaitToSubmission(
+				prepareMainComposerSubmission({
+					mentionAuthoring,
+					messageSeed,
+					missingMembersMessage,
+					pendingMessage: options?.pendingMessage,
+				}),
+				options?.deviceWait
+			);
 			pendingSubmission = preparedSubmission;
 			mentionAuthoring.recordPendingSubmission();
 			// Local feedback precedes every network admission or publication step.
@@ -2501,6 +2513,7 @@ export function useSpaceLandingController(input: {
 			}
 			const currentStatus = sendBoundary.status;
 			await requireCurrentSpaceComposerWakeAdmission({
+				deviceWait: preparedSubmission.deviceWait,
 				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 					explicitActivationTargets:
 						preparedSubmission.messageEnvelope?.activationTargets ?? [],
@@ -2754,6 +2767,7 @@ export function useSpaceLandingController(input: {
 				openMeldProfileId: input.profileId,
 			});
 			const postInput = buildNormalMessagePostInput({
+				deviceWait: sendInput.preparedSubmission.deviceWait,
 				centerAgentExecutionInput,
 				files: sendInput.files,
 				clientMessageId: sendInput.clientMessageId,
@@ -3442,7 +3456,7 @@ function useSpaceThreadController(input: {
 		}
 	}
 
-	async function sendMessage() {
+	async function sendMessage(options?: SpaceComposerSendOptions) {
 		if (threadComposerSendInFlightRef.current || !input.statusReady) {
 			return;
 		}
@@ -3471,12 +3485,14 @@ function useSpaceThreadController(input: {
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		let publishedLocalIds: readonly string[] = [];
 		try {
-			const preparedSubmission =
+			const preparedSubmission = applyDeviceWaitToSubmission(
 				trimmedText.length > 0
 					? mentionAuthoring.prepareSubmission(
 							"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
 						)
-					: mentionAuthoring.prepareFileOnlySubmission();
+					: mentionAuthoring.prepareFileOnlySubmission(),
+				options?.deviceWait
+			);
 			pendingSubmission = preparedSubmission;
 			mentionAuthoring.recordPendingSubmission();
 			await sendPreparedThreadMessage({
@@ -3518,6 +3534,7 @@ function useSpaceThreadController(input: {
 		preparedSubmission: PreparedSpaceMessageSubmission
 	) {
 		await requireCurrentSpaceComposerWakeAdmission({
+			deviceWait: preparedSubmission.deviceWait,
 			agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 				explicitActivationTargets:
 					preparedSubmission.messageEnvelope?.activationTargets ?? [],
@@ -3697,6 +3714,9 @@ function useSpaceThreadController(input: {
 			}
 			const postInput = {
 				body: {
+					...(sendInput.preparedSubmission.deviceWait
+						? { deviceWait: sendInput.preparedSubmission.deviceWait }
+						: {}),
 					clientMessageId,
 					authorHasRead: true as const,
 					...(publishedFiles?.messageFiles.length
@@ -3945,6 +3965,7 @@ async function refreshWakeStopAfterResponse(input: {
 					includeSourceContext: true,
 					includeTiming: true,
 					includeWaitReason: true,
+					includeDeviceWait: true,
 					includeWakeStopEligibility: true,
 					spaceId: input.spaceId,
 					targetProfileId: input.targetProfileId,

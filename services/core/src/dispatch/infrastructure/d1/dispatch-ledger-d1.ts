@@ -2,6 +2,7 @@ import { isAgentWakeAdmissionPreparationPendingReason } from "@openmeld/agent-ru
 import {
   buildMentionDispatchResultEnvelope,
   buildRuntimeCoordinatorExecutionId,
+  RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE,
   sanitizeDispatchErrorSummary,
 } from "@openmeld/schemas";
 import type {
@@ -1357,6 +1358,7 @@ const resolveRuntimeCoordinatorQueueDecisionForClaim = (input: {
     shouldRetryRuntimeCoordinatorHeadWaitingAfterRouteRecovery({
       claimDecision: input.claimDecision,
       latestAttempt: input.latestAttempt,
+      message: input.message,
     })
   ) {
     return { kind: "allow" };
@@ -1435,7 +1437,21 @@ const shouldRetryPreExecutionAdmissionAfterRetryableFailure = (input: {
 const shouldRetryRuntimeCoordinatorHeadWaitingAfterRouteRecovery = (input: {
   claimDecision: DispatchAttemptClaimDecision;
   latestAttempt: DispatchAttemptLedgerRow;
+  message: OpenMeldDaemonDispatchQueueMessage;
 }): boolean => {
+  if (
+    input.message.deviceWait &&
+    input.latestAttempt?.status ===
+      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable &&
+    input.latestAttempt.errorCode ===
+      RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE
+  ) {
+    return (
+      (input.claimDecision.kind === "claim_recovery" ||
+        input.claimDecision.kind === "reset_existing") &&
+      input.claimDecision.deliveryRecoveryReason === "route_lost"
+    );
+  }
   if (
     input.latestAttempt?.status !==
       OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable ||

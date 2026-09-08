@@ -481,6 +481,14 @@ type RuntimeCoordinatorHeadWaitingBoundaryCommon = {
 
 export type RuntimeCoordinatorHeadWaitingBoundary =
   | (RuntimeCoordinatorHeadWaitingBoundaryCommon & {
+      reasonCode: "wake.device_wait.readiness_checking";
+      trigger: "agent_readiness_reported";
+      userRecoveryAction: "check_status";
+      userVisibleState: "waiting_for_agent_readiness";
+      waitingCategory: "local_agent_unavailable";
+      waitingFor: "agent_readiness_report";
+    })
+  | (RuntimeCoordinatorHeadWaitingBoundaryCommon & {
       reasonCode: "daemon.profile.offline";
       trigger: "openmeld_service_route_connected";
       userRecoveryAction: "start_or_restart_openmeld_service";
@@ -499,6 +507,14 @@ export type RuntimeCoordinatorHeadWaitingBoundary =
 
 export type RuntimeCoordinatorHeadWaitingPolicy =
   | {
+      reasonCode: "wake.device_wait.readiness_checking";
+      trigger: "agent_readiness_reported";
+      userRecoveryAction: "check_status";
+      userVisibleState: "waiting_for_agent_readiness";
+      waitingCategory: "local_agent_unavailable";
+      waitingFor: "agent_readiness_report";
+    }
+  | {
       reasonCode: "daemon.profile.offline";
       trigger: "openmeld_service_route_connected";
       userRecoveryAction: "start_or_restart_openmeld_service";
@@ -516,6 +532,11 @@ export type RuntimeCoordinatorHeadWaitingPolicy =
     };
 
 export type RuntimeCoordinatorHeadWaitingDecision =
+  | {
+      reasonCode: "wake.device_wait.readiness_checking";
+      userRecoveryAction: "check_status";
+      waitingCategory: "local_agent_unavailable";
+    }
   | Pick<
       Extract<
         RuntimeCoordinatorHeadWaitingPolicy,
@@ -533,8 +554,15 @@ export type RuntimeCoordinatorHeadWaitingDecision =
 
 export const resolveRuntimeCoordinatorHeadWaitingDecision = (
   reasonCode: RuntimeCoordinatorHeadWaitingBoundary["reasonCode"]
-): RuntimeCoordinatorHeadWaitingDecision =>
-  reasonCode === "daemon.profile.pending_first_report"
+): RuntimeCoordinatorHeadWaitingDecision => {
+  if (reasonCode === "wake.device_wait.readiness_checking") {
+    return {
+      reasonCode,
+      userRecoveryAction: "check_status",
+      waitingCategory: "local_agent_unavailable",
+    };
+  }
+  return reasonCode === "daemon.profile.pending_first_report"
     ? {
         reasonCode,
         userRecoveryAction: "wait_for_wake_route_report",
@@ -545,11 +573,22 @@ export const resolveRuntimeCoordinatorHeadWaitingDecision = (
         userRecoveryAction: "start_or_restart_openmeld_service",
         waitingCategory: "service_not_connected",
       };
+};
 
 export const resolveRuntimeCoordinatorHeadWaitingPolicy = (
   reasonCode: RuntimeCoordinatorHeadWaitingBoundary["reasonCode"]
-): RuntimeCoordinatorHeadWaitingPolicy =>
-  reasonCode === "daemon.profile.pending_first_report"
+): RuntimeCoordinatorHeadWaitingPolicy => {
+  if (reasonCode === "wake.device_wait.readiness_checking") {
+    return {
+      reasonCode,
+      trigger: "agent_readiness_reported",
+      userRecoveryAction: "check_status",
+      userVisibleState: "waiting_for_agent_readiness",
+      waitingCategory: "local_agent_unavailable",
+      waitingFor: "agent_readiness_report",
+    };
+  }
+  return reasonCode === "daemon.profile.pending_first_report"
     ? {
         reasonCode,
         trigger: "wake_route_reported",
@@ -566,6 +605,7 @@ export const resolveRuntimeCoordinatorHeadWaitingPolicy = (
         waitingCategory: "service_not_connected",
         waitingFor: "openmeld_service_route_connection",
       };
+};
 
 export type RuntimeCoordinatorHeadLifecycleRecord = {
   /**
@@ -602,6 +642,39 @@ export type RuntimeCoordinatorHeadLifecycleRecord = {
   updatedAtMs: number;
   waitingBoundary?: RuntimeCoordinatorHeadWaitingBoundary;
 };
+
+export function buildRuntimeCoordinatorDeviceWaitBoundary(input: {
+  deadlineAtMs: number;
+  nowMs: number;
+}): RuntimeCoordinatorHeadWaitingBoundary {
+  return {
+    ...resolveRuntimeCoordinatorHeadWaitingPolicy("daemon.profile.offline"),
+    deadlineAtMs: input.deadlineAtMs,
+    deadlineOutcome: "publication_intent_ready",
+    observedAtMs: input.nowMs,
+    softDeadlineAtMs: Math.min(
+      input.nowMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
+      input.deadlineAtMs
+    ),
+    triggerOwner: "runtime_coordinator",
+    waitingSinceMs: input.nowMs,
+  };
+}
+
+export function isRuntimeCoordinatorHeadWaitingForDevice(
+  record: RuntimeCoordinatorHeadLifecycleRecord
+): boolean {
+  return (
+    record.acceptedDispatchSnapshot?.deviceWait !== undefined &&
+    (record.status === "accepted" ||
+      record.status === "queued" ||
+      record.status === "waiting") &&
+    record.runtimeCoordinatorExecutionId === null &&
+    record.executionLinkedAtMs === null &&
+    !record.noExecutionDecision &&
+    !record.publicationIntent
+  );
+}
 
 export type RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord = {
   acceptedDispatchPayloadFingerprint: string;
@@ -791,12 +864,18 @@ export const resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMsFromRecords =
   }): number | null => {
     let nextAlarmAtMs: number | null = null;
     for (const record of input.records) {
-      if (record.status !== "waiting" || !record.waitingBoundary) {
+      const deviceWait = isRuntimeCoordinatorHeadWaitingForDevice(record)
+        ? record.acceptedDispatchSnapshot?.deviceWait
+        : undefined;
+      if (
+        !deviceWait &&
+        (record.status !== "waiting" || !record.waitingBoundary)
+      ) {
         continue;
       }
       nextAlarmAtMs = minNullableTimestamp(
         nextAlarmAtMs,
-        record.waitingBoundary.deadlineAtMs
+        deviceWait?.deadlineAtMs ?? record.waitingBoundary?.deadlineAtMs ?? null
       );
     }
     return nextAlarmAtMs;
@@ -859,7 +938,7 @@ export const resolveNextRuntimeCoordinatorFinalizationRetryAlarmAtMsFromEntries 
 
 export type RuntimeCoordinatorHeadWaitingAlarmWorkItem =
   RuntimeCoordinatorHeadLifecycleRecord & {
-    status: "waiting";
+    status: "waiting" | "queued" | "accepted";
     waitingBoundary: RuntimeCoordinatorHeadWaitingBoundary;
   };
 
@@ -867,11 +946,34 @@ export const planRuntimeCoordinatorHeadWaitingAlarmWork = (input: {
   nowMs: number;
   records: RuntimeCoordinatorHeadLifecycleRecord[];
 }): RuntimeCoordinatorHeadWaitingAlarmWorkItem[] =>
-  input.records.filter(
-    (record): record is RuntimeCoordinatorHeadWaitingAlarmWorkItem =>
-      record.status === "waiting" &&
-      record.waitingBoundary != null &&
-      record.waitingBoundary.deadlineAtMs <= input.nowMs
+  input.records.flatMap(
+    (record): RuntimeCoordinatorHeadWaitingAlarmWorkItem[] => {
+      if (
+        record.status !== "waiting" &&
+        !isRuntimeCoordinatorHeadWaitingForDevice(record)
+      ) {
+        return [];
+      }
+      if (
+        record.status !== "waiting" &&
+        record.status !== "queued" &&
+        record.status !== "accepted"
+      ) {
+        return [];
+      }
+      const waitingBoundary =
+        record.waitingBoundary ??
+        (record.acceptedDispatchSnapshot?.deviceWait
+          ? buildRuntimeCoordinatorDeviceWaitBoundary({
+              deadlineAtMs:
+                record.acceptedDispatchSnapshot.deviceWait.deadlineAtMs,
+              nowMs: record.createdAtMs,
+            })
+          : null);
+      return waitingBoundary && waitingBoundary.deadlineAtMs <= input.nowMs
+        ? [{ ...record, status: record.status, waitingBoundary }]
+        : [];
+    }
   );
 
 export const planRuntimeCoordinatorHeadAcceptedHandoffAlarmWork = (input: {
@@ -2428,6 +2530,12 @@ const isAcceptedDispatchSnapshot = (
   const snapshot = value as OpenMeldDaemonAcceptedDispatchSnapshot;
   const controller = snapshot.controllerSnapshot;
   return (
+    (snapshot.deviceWait === undefined ||
+      (Number.isInteger(snapshot.deviceWait.deadlineAtMs) &&
+        snapshot.deviceWait.deadlineAtMs >= 0 &&
+        snapshot.deviceWait.bindingId === controller?.bindingId &&
+        snapshot.deviceWait.openMeldServiceRuntimeId ===
+          snapshot.openMeldServiceRuntimeId)) &&
     typeof snapshot.payloadFingerprint === "string" &&
     ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_PATTERN.test(
       snapshot.payloadFingerprint

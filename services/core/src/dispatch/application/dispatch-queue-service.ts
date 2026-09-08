@@ -10,6 +10,7 @@ import {
   parseOpenMeldDaemonDispatchQueueIngress,
   projectTargetWakeLifecycleIdentity,
   RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
+  RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE,
   RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
 } from "@openmeld/schemas";
@@ -135,6 +136,7 @@ import {
   buildDispatchSystemRequestContext,
   buildDispatchSystemSpaceAccess,
 } from "./dispatch-space-access";
+import { checkDeviceWaitingWakeAccess } from "./wake-device-wait";
 
 type QueueBatchMessage = MessageBatch<unknown>["messages"][number];
 export type DispatchQueueWaitContext = {
@@ -1375,29 +1377,133 @@ const processDispatchQueueMessageExecution = async (input: {
     logServerTiming();
     return settledHeadAdmission;
   }
-  effectiveDispatchMessage = applyRuntimeCoordinatorAcceptedDispatchSnapshot({
+  const acceptedDispatch = resolveRuntimeCoordinatorAcceptedDispatch({
     headAcceptance,
     message: effectiveDispatchMessage,
   });
+  effectiveDispatchMessage = acceptedDispatch.message;
 
-  const result = await beginFreshDispatchDeliveryPhase({
-    acceptedDispatchSnapshot:
-      headAcceptance.status === "proceed"
-        ? headAcceptance.acceptedDispatchSnapshot
-        : undefined,
-    controllerKey: input.controllerKey,
-    ctx: input.ctx,
+  const deviceWaiting = await settleDeviceWaitingWakeBeforeExecution({
     db: input.db,
     dispatchMessage: effectiveDispatchMessage,
     env: input.env,
     executionAttemptId,
     executionAttemptNo,
+    message: input.message,
     nowMs: input.nowMs,
+    preflightCheck,
     targetOwnerUserId,
-    timing,
   });
+  const result =
+    deviceWaiting ??
+    (await beginFreshDispatchDeliveryPhase({
+      acceptedDispatchSnapshot: acceptedDispatch.snapshot,
+      controllerKey: input.controllerKey,
+      ctx: input.ctx,
+      db: input.db,
+      dispatchMessage: effectiveDispatchMessage,
+      env: input.env,
+      executionAttemptId,
+      executionAttemptNo,
+      nowMs: input.nowMs,
+      targetOwnerUserId,
+      timing,
+    }));
   logServerTiming();
   return result;
+};
+
+const settleDeviceWaitingWakeBeforeExecution = async (input: {
+  db: D1Database;
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  env: CoreBindings;
+  executionAttemptId: string;
+  executionAttemptNo: number;
+  message: QueueBatchMessage;
+  nowMs: number;
+  preflightCheck: Extract<DispatchExecutionPreflightResult, { ok: true }>;
+  targetOwnerUserId: string;
+}): Promise<DispatchQueueMessageExecutionResult | null> => {
+  const effectiveDispatchMessage = input.dispatchMessage;
+  const {
+    executionAttemptId,
+    executionAttemptNo,
+    preflightCheck,
+    targetOwnerUserId,
+  } = input;
+  const deviceWaitAccess = effectiveDispatchMessage.deviceWait
+    ? await checkDeviceWaitingWakeAccess({
+        env: input.env,
+        message: effectiveDispatchMessage,
+      }).catch((error) => {
+        console.warn("[core.device_wait.access_unavailable]", {
+          dispatchId: effectiveDispatchMessage.dispatchId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      })
+    : true;
+  if (deviceWaitAccess === null) {
+    await markDispatchStatus({
+      db: input.db,
+      attemptId: executionAttemptId,
+      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
+      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+      idempotencyKey: effectiveDispatchMessage.idempotencyKey,
+      nowMs: input.nowMs,
+      errorCode: "wake.device_wait.access_unavailable",
+      errorMessage: "The waiting Wake's current access could not be verified.",
+    });
+    retryQueueMessageWithBackoff(
+      input.message,
+      executionAttemptNo,
+      "wake.device_wait.access_unavailable"
+    );
+    return { controllerWaitPromise: null, shouldAck: false };
+  }
+  if (!deviceWaitAccess) {
+    const outcome =
+      await handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded({
+        db: input.db,
+        dispatchMessage: effectiveDispatchMessage,
+        env: input.env,
+        executionAttemptId,
+        message: input.message,
+        nowMs: input.nowMs,
+        preflightCheck: {
+          ok: false,
+          canonicalAdmissionBlock: true,
+          errorCode: "wake.device_wait.access_revoked",
+          errorMessage:
+            "The requester or Agent no longer has permission to execute this waiting Wake in this Space.",
+          finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+          targetOwnerUserId,
+        },
+        queueAttempt: executionAttemptNo,
+      });
+    return { controllerWaitPromise: null, shouldAck: outcome.shouldAck };
+  }
+
+  if (preflightCheck.deviceWaitReason) {
+    const waiting = await recordPreExecutionHeadWaiting({
+      db: input.db,
+      dispatchMessage: effectiveDispatchMessage,
+      env: input.env,
+      errorCode: preflightCheck.deviceWaitReason,
+      errorMessage:
+        preflightCheck.deviceWaitReason === "daemon.profile.offline"
+          ? "Waiting for the specified computer to come online. No work has started."
+          : "Waiting for the Agent's current readiness checks. No work has started.",
+      executionAttemptId,
+      failureAtMs: input.nowMs,
+      message: input.message,
+      ownerUserId: targetOwnerUserId,
+      queueAttempt: executionAttemptNo,
+    });
+    return { controllerWaitPromise: null, shouldAck: waiting.shouldAck };
+  }
+
+  return null;
 };
 
 const isFreshRuntimeCoordinatorHeadSettledWithoutExecution = (
@@ -1668,17 +1774,27 @@ const isAcceptedPayloadConflictSettlementReady = (
     outcome.reasonCode ===
       RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE);
 
-const applyRuntimeCoordinatorAcceptedDispatchSnapshot = (input: {
+const resolveRuntimeCoordinatorAcceptedDispatch = (input: {
   headAcceptance: RuntimeCoordinatorHeadAcceptanceOutcome;
   message: OpenMeldDaemonDispatchQueueMessage;
-}): OpenMeldDaemonDispatchQueueMessage =>
-  input.headAcceptance.status === "proceed" &&
-  input.headAcceptance.acceptedDispatchSnapshot
-    ? applyAcceptedDispatchSnapshotToMessage({
-        message: input.message,
-        snapshot: input.headAcceptance.acceptedDispatchSnapshot,
-      })
-    : input.message;
+}): {
+  message: OpenMeldDaemonDispatchQueueMessage;
+  snapshot: OpenMeldDaemonAcceptedDispatchSnapshot | undefined;
+} => {
+  const snapshot =
+    input.headAcceptance.status === "proceed"
+      ? input.headAcceptance.acceptedDispatchSnapshot
+      : undefined;
+  return {
+    message: snapshot
+      ? applyAcceptedDispatchSnapshotToMessage({
+          message: input.message,
+          snapshot,
+        })
+      : input.message,
+    snapshot,
+  };
+};
 
 const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
   db: D1Database;
@@ -3785,6 +3901,7 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
   if (
     input.errorCode !== "daemon.profile.offline" &&
     input.errorCode !== "daemon.profile.pending_first_report" &&
+    input.errorCode !== "wake.device_wait.readiness_checking" &&
     input.errorCode !== "service.update_required" &&
     input.errorCode !== "local_service.identity_mismatch"
   ) {
@@ -3896,7 +4013,7 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
     });
   }
 
-  return await recordUnavailableRouteHeadWaiting({
+  return await recordPreExecutionHeadWaiting({
     db: input.db,
     dispatchMessage: input.dispatchMessage,
     env: input.env,
@@ -4000,11 +4117,14 @@ const resolvePreExecutionVisibleFailureTargetLabel = (
     : "the agent";
 };
 
-const recordUnavailableRouteHeadWaiting = async (input: {
+const recordPreExecutionHeadWaiting = async (input: {
   db: D1Database;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
-  errorCode: "daemon.profile.offline" | "daemon.profile.pending_first_report";
+  errorCode:
+    | "daemon.profile.offline"
+    | "daemon.profile.pending_first_report"
+    | "wake.device_wait.readiness_checking";
   errorMessage: string;
   executionAttemptId: string;
   failureAtMs: number;
@@ -4105,7 +4225,9 @@ const recordUnavailableRouteHeadWaiting = async (input: {
     db: input.db,
     idempotencyKey: input.dispatchMessage.idempotencyKey,
     status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
-    errorCode: input.errorCode,
+    errorCode: input.dispatchMessage.deviceWait
+      ? RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE
+      : input.errorCode,
     errorMessage: input.errorMessage,
     nowMs: input.failureAtMs,
   });
@@ -4130,11 +4252,16 @@ const recordUnavailableRouteHeadWaiting = async (input: {
     source: "dispatch_queue",
     correlationId: input.dispatchMessage.dispatchId,
   });
-  await emitRetryingActivitySignal({
-    env: input.env,
-    errorCode: input.errorCode,
-    message: input.dispatchMessage,
-  });
+  if (!input.dispatchMessage.deviceWait) {
+    await emitRetryingActivitySignal({
+      env: input.env,
+      errorCode: input.errorCode,
+      message: input.dispatchMessage,
+    });
+  }
+  if (input.dispatchMessage.deviceWait) {
+    return { handled: true, shouldAck: true };
+  }
   retryQueueMessageWithBackoff(
     input.message,
     input.queueAttempt,
@@ -5101,7 +5228,12 @@ const handleDispatchQueueProcessingFailure = async (input: {
       db: input.db,
       dispatchMessage: input.dispatchMessage,
       env: input.env,
-      errorCode,
+      errorCode:
+        input.dispatchMessage.deviceWait &&
+        !input.runtimeExecutionDelivered &&
+        errorCode === "daemon.service.draining"
+          ? "wake.device_wait.readiness_checking"
+          : errorCode,
       errorMessage,
       executionAttemptId: input.executionAttemptId,
       failureAtMs,

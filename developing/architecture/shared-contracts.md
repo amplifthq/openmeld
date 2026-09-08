@@ -793,6 +793,45 @@ execution or token authority. Both incompatible directions return the existing
 strict `retry_later` response shape, without the additive field, so an older
 caller can parse and retry safely.
 
+### Device-waiting Wake contract impact
+
+`protocol/wake-device-wait` owns the selected Binding/Runtime, target Profile,
+absolute deadline, and bounded Space access-check RPC. Normal message and thread
+write schemas accept an optional `deviceWait` field. Space persists it as
+additive message metadata and in its outbox; RuntimeCoordinator freezes it in
+the accepted dispatch snapshot. It is not forwarded as a new local Service
+delivery field or execution token claim.
+
+Normal message callers use `postDeviceWaitingSignal`, an explicit Core RPC
+receiver, so a mixed-version Core missing this method rejects the feature.
+Older strict HTTP/thread write receivers reject the new request field. New Web
+offers the option only when the current member snapshot exposes a
+`deviceWaitTarget`. Those opaque target selectors grant no access and disclose
+no local path or controller conversation. Computer names keep their existing
+owner-only disclosure policy.
+
+Wake progress adds optional `deviceWait` reason/deadline data only for callers
+that request `includeDeviceWait`. Existing phase enums and legacy readers remain
+compatible. Old CLI, Service, and Skills continue setup, ordinary Wake, Space
+actions, status, trace, and recovery unchanged; they cannot author the new Web
+option. Existing Service permission and working-folder checks still run before
+provider work. No local contract epoch or required local update is needed.
+
+Trace response version 5 adds the post-reconnect
+`wake.device_wait.readiness_checking` boundary. Versions 1–4 retain the truthful
+`waiting` lifecycle and omit that unsupported boundary, rather than inventing an
+offline route or exposing an enum an older reader cannot parse. Current Web
+receives reason/deadline details through opted-in Wake progress; updated CLI
+Trace can also explain the readiness-report boundary.
+
+Deploy Core receivers and owner storage logic before Gateway and Web enable
+device-wait producers; this feature overrides the usual generic cloud order.
+Rollback removes the producers first. Already accepted waits must continue to
+be handled by a compatible Core until terminal; do not roll Core back while
+device waits remain active. No database migration or new Cloudflare resource is
+introduced. Local component packaging verification, if selected by the path
+gate, uses deferred release mode and leaves the published manifest unchanged.
+
 ### Delivery Evidence And Production Lease Contracts
 
 `packages/schemas/src/schemas/ci/final-candidate.ts` owns the strict versioned

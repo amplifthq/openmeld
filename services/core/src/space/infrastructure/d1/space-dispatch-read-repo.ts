@@ -1102,6 +1102,17 @@ function projectRuntimeCoordinatorHeadWaitingBoundary(
     triggerOwner: source.triggerOwner,
     waitingSince: toIsoDateTime(source.waitingSinceMs),
   };
+  if (source.reasonCode === "wake.device_wait.readiness_checking") {
+    return {
+      ...common,
+      reasonCode: source.reasonCode,
+      trigger: source.trigger,
+      userRecoveryAction: source.userRecoveryAction,
+      userVisibleState: source.userVisibleState,
+      waitingCategory: source.waitingCategory,
+      waitingFor: source.waitingFor,
+    };
+  }
   if (source.reasonCode === "daemon.profile.pending_first_report") {
     return {
       ...common,
@@ -1176,16 +1187,36 @@ function projectSpaceDispatchTraceResponseForContractVersion(input: {
 }): SpaceDispatchTraceResponse {
   if (
     input.responseContractVersion ===
-      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION ||
-    input.responseContractVersion ===
-      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS
+    SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
   ) {
     return input.response;
   }
-  if (input.responseContractVersion === 2) {
-    return projectSpaceDispatchTraceResponseV2(input.response);
+  let response = input.response;
+  const head = response.trace?.runtimeCoordinatorHeadLifecycle;
+  if (
+    response.trace &&
+    head?.readStatus === "found" &&
+    head.waitingBoundary?.reasonCode === "wake.device_wait.readiness_checking"
+  ) {
+    response = {
+      ...response,
+      trace: {
+        ...response.trace,
+        runtimeCoordinatorHeadLifecycle: { ...head, waitingBoundary: null },
+      },
+    };
   }
-  return projectSpaceDispatchTraceResponseV1(input.response);
+  if (
+    input.responseContractVersion ===
+      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS ||
+    input.responseContractVersion === 3
+  ) {
+    return response;
+  }
+  if (input.responseContractVersion === 2) {
+    return projectSpaceDispatchTraceResponseV2(response);
+  }
+  return projectSpaceDispatchTraceResponseV1(response);
 }
 
 function projectSpaceDispatchTraceResponseV2(

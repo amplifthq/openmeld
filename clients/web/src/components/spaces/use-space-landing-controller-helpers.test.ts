@@ -540,6 +540,7 @@ describe("pollWakeProgress", () => {
 			includeTiming: true,
 			includeSourceContext: true,
 			includeWaitReason: true,
+			includeDeviceWait: true,
 			includeWakeStopEligibility: true,
 			spaceId: "space-123",
 			timeoutMs: 15_000,

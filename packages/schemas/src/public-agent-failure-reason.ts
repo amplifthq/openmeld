@@ -1177,6 +1177,19 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
+        `${formatObjectTargetName(targetName)} did not start before the deadline. This Wake has expired and will not run when the computer reconnects. Send a new Wake if the work is still needed.`,
+      kind: "system_retry",
+      patterns: ["=wake.device_wait.expired"],
+      recoveryTarget: null,
+    },
+    {
+      body: "This waiting Wake could not start because its requester or Agent no longer has access to this Space. Review access before sending a new Wake.",
+      kind: "system_retry",
+      patterns: ["=wake.device_wait.access_revoked"],
+      recoveryTarget: null,
+    },
+    {
+      body: (targetName) =>
         `OpenMeld could not reach ${formatObjectTargetName(targetName)} on this computer for this Wake. Reconnect the computer, then try again.`,
       kind: "local_service",
       patterns: [

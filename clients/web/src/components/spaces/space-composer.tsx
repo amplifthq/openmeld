@@ -1,7 +1,8 @@
+import type { WakeDeviceWait } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowUpIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import {
 	PromptInput,
 	PromptInputAction,
@@ -23,6 +24,8 @@ import {
 	type SpaceComposerConversationKind,
 	type SpaceComposerPlacement,
 } from "./space-composer-copy";
+import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
+import { SpaceComposerDeviceWaitControl } from "./space-composer-device-wait-control";
 import {
 	SpaceComposerEditor,
 	type SpaceComposerEditorChange,
@@ -39,7 +42,7 @@ export type SpaceComposerProps = {
 		onEditorChange: (change: SpaceComposerEditorChange) => void;
 		onMentionButtonClick?: () => void;
 		onRemoveFile?: (localId: string) => void;
-		onSubmit: () => void;
+		onSubmit: (options?: SpaceComposerSendOptions) => void;
 		onBlur?: () => void;
 		onFocus?: () => void;
 	};
@@ -90,7 +93,33 @@ const ignoreFiles = (_files: readonly File[]): Promise<void> =>
 	Promise.resolve();
 const ignoreFileRemoval = (_localId: string): void => undefined;
 
+function useDeviceWaitDraft(
+	text: string,
+	targets: readonly SpaceComposerAddressingTarget[]
+) {
+	const [deviceWait, setDeviceWait] = useState<WakeDeviceWait>();
+	const hasDeviceWaitTarget = targets.some(
+		(target) => target.profileId === deviceWait?.targetProfileId
+	);
+	useEffect(() => {
+		if (!(text && hasDeviceWaitTarget)) {
+			setDeviceWait(undefined);
+		}
+	}, [text, hasDeviceWaitTarget]);
+	return {
+		deviceWait: hasDeviceWaitTarget ? deviceWait : undefined,
+		setDeviceWait,
+	};
+}
+
 export function SpaceComposer(input: SpaceComposerProps) {
+	const { deviceWait, setDeviceWait } = useDeviceWaitDraft(
+		input.content.text,
+		input.content.addressingTargets
+	);
+	const submit = () =>
+		input.actions.onSubmit(deviceWait ? { deviceWait } : undefined);
+
 	const policy = resolveSpaceComposerPolicy({
 		canSendMessage: input.availability.canSendMessage,
 		conversationKind: input.context.conversationKind,
@@ -151,7 +180,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 					blockedWakeHint !== null ||
 					input.availability.sendBlocked
 				}
-				onClick={input.actions.onSubmit}
+				onClick={submit}
 				size="icon-sm"
 				type="button"
 			>
@@ -171,7 +200,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 				<PromptInput
 					className="w-full"
 					maxHeight={input.presentation?.maxHeight ?? 240}
-					onSubmit={input.actions.onSubmit}
+					onSubmit={submit}
 					value={input.content.text}
 				>
 					<SpaceComposerFileTray
@@ -195,9 +224,15 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						onDrop={handleDrop}
 						onFocus={input.actions.onFocus}
 						onPaste={handlePaste}
-						onSend={input.actions.onSubmit}
+						onSend={submit}
 						placeholder={policy.placeholder}
 						text={input.content.text}
+					/>
+					<SpaceComposerDeviceWaitControl
+						disabled={uploadsDisabled}
+						onChange={setDeviceWait}
+						targets={input.content.addressingTargets}
+						value={deviceWait}
 					/>
 					<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
 						<div className="flex flex-1 items-center gap-0">

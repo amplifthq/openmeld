@@ -1,4 +1,8 @@
-import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
+import { MAX_WAKE_DEVICE_WAIT_MS } from "@openmeld/schemas";
+import type {
+	SpaceMembersSnapshot,
+	WakeDeviceWait,
+} from "@openmeld/schemas/types";
 import {
 	createSpaceTargetCatalog,
 	SpaceComposerSubmissionError,
@@ -9,6 +13,7 @@ const WAKEABILITY_CHECK_FAILED_MESSAGE =
 
 export async function requireCurrentSpaceComposerWakeAdmission(input: {
 	agentProfileIds: readonly string[];
+	deviceWait?: WakeDeviceWait;
 	readCurrentMembers: () => Promise<SpaceMembersSnapshot | null>;
 }): Promise<void> {
 	const agentProfileIds = normalizeAgentProfileIds(input.agentProfileIds);
@@ -26,6 +31,28 @@ export async function requireCurrentSpaceComposerWakeAdmission(input: {
 		throw createWakeBlockedError(WAKEABILITY_CHECK_FAILED_MESSAGE);
 	}
 	const targetCatalog = createSpaceTargetCatalog(membersSnapshot);
+	if (input.deviceWait) {
+		const wait = input.deviceWait;
+		const member = membersSnapshot.agents.find(
+			(candidate) => candidate.profileId === wait.targetProfileId
+		);
+		if (
+			!(
+				agentProfileIds.includes(wait.targetProfileId) &&
+				member?.deviceWaitTarget
+			) ||
+			member.deviceWaitTarget.bindingId !== wait.bindingId ||
+			member.deviceWaitTarget.openMeldServiceRuntimeId !==
+				wait.openMeldServiceRuntimeId ||
+			wait.deadlineAtMs <= Date.now() ||
+			wait.deadlineAtMs > Date.now() + MAX_WAKE_DEVICE_WAIT_MS
+		) {
+			throw createWakeBlockedError(
+				"The selected computer or deadline changed. Choose the waiting option again.",
+				wait.targetProfileId
+			);
+		}
+	}
 
 	for (const agentProfileId of agentProfileIds) {
 		const target = targetCatalog.byProfileId.get(agentProfileId);
@@ -33,6 +60,18 @@ export async function requireCurrentSpaceComposerWakeAdmission(input: {
 			throw createWakeBlockedError(WAKEABILITY_CHECK_FAILED_MESSAGE);
 		}
 		if (target.wakeAvailability.status === "ready") {
+			continue;
+		}
+		const member = membersSnapshot.agents.find(
+			(candidate) => candidate.profileId === agentProfileId
+		);
+		if (
+			input.deviceWait?.targetProfileId === agentProfileId &&
+			((member?.agentWakeAvailability?.category === "offline" &&
+				!member.agentWakeAvailability.isRefreshing) ||
+				member?.agentWakeAvailability?.reasonCode ===
+					"local_service.reconnecting")
+		) {
 			continue;
 		}
 

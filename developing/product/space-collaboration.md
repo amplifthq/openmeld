@@ -663,6 +663,22 @@ convert one structured Agent relation into another. An existing or restored
 Wake draft remains a Wake while the user edits it, but every send attempt checks
 the current Core-owned Wakeability before publishing the message or files.
 Reference authoring and ordinary text input remain usable while Wake is blocked.
+The composer additionally offers **Wait for this agent's computer if it is
+offline** for an explicitly selected local Agent with a current device target.
+Choosing it makes that target a Wake, including when its mention began as a
+Reference. It pins the selected Binding and Runtime and asks for an absolute
+**Start by** deadline. The initial suggestion is 24 hours; a user may choose a
+future time up to seven days away. An unchanged ordinary message has no waiting
+policy. Main-timeline and thread messages use the same contract.
+
+While it waits, the message shows whether the computer is offline, the Agent's
+route is still being registered, or earlier work must finish. It shows the start
+deadline in the viewer's local time and retains the existing Wake cancellation
+action. The Agent's current Wakeability is still an independent projection.
+Expiry and cancellation are terminal for this Wake. Reconnecting a computer
+does not revive old failed Wakes or automatically repeat partially executed
+work. A new Wake is needed when the original request has expired.
+
 Repeating the same Agent
 mention in one message keeps every occurrence explicit: the first token owns
 the selected Wake or Reference, while later tokens resolve to Reference and

@@ -183,11 +183,56 @@ finishes. Any other legacy head that may already be executing returns
 Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.
 
+### Explicit device waiting
+
+A new workstation Wake may explicitly request `deviceWait`, selecting the
+current Binding and OpenMeld Service Runtime with an absolute start deadline.
+The Space message and its durable dispatch outbox retain that immutable intent.
+Core verifies the selected target against current Binding and Organization
+authority. Confirmed offline availability, including a Core-confirmed offline
+route while the computer is reconnecting, may admit this Wake without creating
+an execution; ordinary Wakes keep their existing admission contract.
+
+RuntimeCoordinator owns the accepted wait, deadline, FIFO position, cancellation,
+and terminal decision. The deadline applies while waiting for either the device
+or earlier Profile work. It never restarts on redrive or FIFO promotion. The
+normal Service registration, route report, and recurring heartbeat trigger exact
+Space outbox redrive. The handed-off outbox retains the payload while its ledger
+projects `runtime_coordinator.device_waiting`; ordinary conveyor alarms do not
+create repeated delivery attempts for that owned wait. Queue and D1 remain transport
+and projections, never scheduling or execution authorities.
+
+Before first execution, Core rechecks current requester and target Space access,
+Organization authority, Binding, controller configuration, and canonical
+readiness. Local Service still validates the concrete working folder. A changed
+Binding or Runtime is a visible no-execution failure; reconnection cannot
+silently retarget work. Pending route registration may remain in the same bounded
+wait. A transport failure while reading authority is retryable, not permission.
+Transient checks after reconnection, including fresh Usage and controller reports,
+remain under `wake.device_wait.readiness_checking` with the original deadline.
+The next accepted Service heartbeat or report rechecks the complete admission
+path. A definitive permission, identity, or readiness blocker still terminalizes
+the Wake; checking is not a successful admission decision.
+
+The owner transaction fences first execution at the deadline and against Stop.
+An expired wait publishes `wake.device_wait.expired`; cancellation, failure, and
+execution linkage cannot transition back into pre-execution waiting. Deadline
+alarms reread authority and publish only the transaction's accepted decision.
+Once execution is linked, the start deadline no longer applies. Existing durable
+result recovery, exact-conversation answer recovery, `outcome_unknown`, and
+no-automatic-replay rules continue to govern interrupted work.
+
+Public Wakeability stays `Offline` while the device is offline. An opted-in Wake
+progress reader separately receives the waiting reason and deadline, and uses
+the existing pre-agent cancellation capability. Receipt of the message, waiting,
+and actual execution remain distinct facts.
+
 Core gates fresh Work Coordinator admission with the same canonical
 Wakeability projection used by product surfaces. Its current compatibility
 identifier is `AgentExecutionReadiness`. A definitive current blocking fact
-ends as a visible pre-head no-execution outcome; it must not create a current or
-queued Coordinator item. Missing readiness evidence or working-folder report
+ends as a visible pre-head no-execution outcome, except for explicit offline
+device-wait admission above; otherwise it must not create a current or queued
+Coordinator item. Missing readiness evidence or working-folder report
 coverage, revision, or freshness while Service reports catch up is not a
 definitive refusal. Core retains that same undelivered Wake through the existing
 bounded preflight retry policy and Space outbox; no execution is authorized.
@@ -395,8 +440,9 @@ Important execution rules:
   return `daemon.profile.pending_first_report` while the intended owner's
   OpenMeld Service is still heartbeat-fresh but has not reported that Agent
   Profile's Wake route. RuntimeCoordinator must keep that Wake in its durable
-  head-waiting boundary for the existing five-minute hard deadline and redrive
-  it when the route report arrives. Queue attempt count alone must not
+  head-waiting boundary and redrive it when the route report arrives. Ordinary
+  Wakes keep the existing five-minute hard deadline; an explicit device wait
+  keeps its frozen start deadline. Queue attempt count alone must not
   terminalize the Wake during this window. If the bounded wait expires, failure
   publication preserves `daemon.profile.pending_first_report` and explains that
   the Service was connected but the agent did not become ready; it must not

@@ -2630,6 +2630,15 @@ export {
   targetWakeLifecycleIdentitySchema,
 } from "./protocol/target-wake-lifecycle";
 export {
+  DEFAULT_WAKE_DEVICE_WAIT_MS,
+  MAX_WAKE_DEVICE_WAIT_MS,
+  RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE,
+  wakeDeviceWaitAccessRequestSchema,
+  wakeDeviceWaitAccessResponseSchema,
+  wakeDeviceWaitSchema,
+  wakeDeviceWaitTargetSchema,
+} from "./protocol/wake-device-wait";
+export {
   AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS,
   agentControllerInterfaceAuthSnapshotSchema,
   agentControllerInterfaceAuthStatusSchema,

@@ -14,7 +14,8 @@ export type WakeProgressStatusKind =
 	| "retrying"
 	| "needs_input"
 	| "waiting_for_owner"
-	| "waiting_for_controller";
+	| "waiting_for_controller"
+	| "waiting_for_device";
 
 export type WakeProgressStatusPresentation = {
 	description: string;
@@ -35,12 +36,17 @@ export const WAKE_PROGRESS_STATUS_PRIORITY = {
 	retrying: 2,
 	queued: 3,
 	waiting_for_controller: 3,
+	waiting_for_device: 3,
 	waiting_for_owner: 3,
 } as const satisfies Record<WakeProgressStatusKind, number>;
 
 type PresentableWakeProgress = Pick<
 	WakeProgressItem,
-	"pendingInteraction" | "phase" | "targetLabel" | "waitReasonCode"
+	| "pendingInteraction"
+	| "phase"
+	| "targetLabel"
+	| "waitReasonCode"
+	| "deviceWait"
 >;
 
 /**
@@ -61,6 +67,12 @@ export function resolveWakeProgressStatus(
 		return null;
 	}
 	const targetName = formatWakeTargetName(item.targetLabel);
+	if (
+		item.deviceWait &&
+		(item.phase === "request_sent" || item.phase === "queued")
+	) {
+		return resolveDeviceWaitStatus(item.deviceWait, targetName);
+	}
 	if (item.pendingInteraction) {
 		return item.pendingInteraction.canRespond
 			? {
@@ -160,4 +172,25 @@ function formatWakeTargetName(targetLabel: string): string {
 		.trim()
 		.replace(LEADING_MENTION_MARKER_PATTERN, "");
 	return normalized && !normalized.startsWith("agt_") ? normalized : "Agent";
+}
+
+function resolveDeviceWaitStatus(
+	wait: NonNullable<WakeProgressItem["deviceWait"]>,
+	targetName: string
+): WakeProgressStatusPresentation {
+	let label = `${targetName} is queued`;
+	let reason = "Earlier work must finish first.";
+	if (wait.reason === "device_offline") {
+		label = `Waiting for ${targetName}’s computer to come online`;
+		reason = "The computer is offline.";
+	} else if (wait.reason === "agent_not_ready") {
+		label = `Waiting for ${targetName} to become ready`;
+		reason = "The computer is connected; the Agent is still getting ready.";
+	}
+	return {
+		kind: wait.reason === "earlier_work" ? "queued" : "waiting_for_device",
+		label,
+		description: `Start by ${new Date(wait.deadlineAtMs).toLocaleString()}. ${reason} No work has started.`,
+		status: "pending",
+	};
 }

@@ -23,6 +23,9 @@ export async function buildAcceptedDispatchSnapshot(input: {
     return null;
   }
   return {
+    ...(input.message.deviceWait
+      ? { deviceWait: input.message.deviceWait }
+      : {}),
     controllerSnapshot: {
       bindingId: controllerSnapshot.bindingId,
       configurationRevision: controllerSnapshot.configurationRevision,

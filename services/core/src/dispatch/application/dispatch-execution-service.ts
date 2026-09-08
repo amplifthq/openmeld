@@ -177,6 +177,10 @@ import {
   DISPATCH_STREAMING_TELEMETRY_DECISION_CODE,
   DISPATCH_STRUCTURED_ACTION_FAILURE_DECISION_CODE,
 } from "./dispatch-trace-decision-codes";
+import {
+  deviceWaitTargetMatches,
+  resolveDeviceWaitReason,
+} from "./wake-device-wait";
 
 type RuntimeTransportLookupRouteResult = Awaited<
   ReturnType<typeof lookupRuntimeTransportRoute>
@@ -350,6 +354,10 @@ export type DispatchExecutionPreflightResult =
       ok: true;
       effectiveTargetBindingSnapshot: EffectiveTargetBindingSnapshot;
       bindingSource: TargetBindingSource;
+      deviceWaitReason?:
+        | "daemon.profile.offline"
+        | "daemon.profile.pending_first_report"
+        | "wake.device_wait.readiness_checking";
     }
   | {
       ok: false;
@@ -3200,6 +3208,28 @@ export const runDispatchExecutionPreflightGate = async (input: {
   }
   const targetBindingSnapshot = targetBindingResolution.snapshot;
 
+  if (
+    message.deviceWait &&
+    !deviceWaitTargetMatches({
+      wait: message.deviceWait,
+      targetProfileId: message.targetProfileId,
+      bindingId: targetBindingSnapshot.bindingId,
+      openMeldServiceRuntimeId: targetBindingSnapshot.openMeldServiceRuntimeId,
+      runtimeKind: targetBindingSnapshot.runtimeKind,
+    })
+  ) {
+    return {
+      ok: false,
+      canonicalAdmissionBlock: true,
+      errorCode: "local_service.identity_mismatch",
+      errorMessage:
+        "The Agent's current Binding no longer matches the computer selected for this Wake.",
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      targetOwnerUserId: targetBindingSnapshot.ownerUserId ?? undefined,
+      bindingSource: targetBindingResolution.source,
+    };
+  }
+
   if (targetBindingSnapshot.bindingState === "missing") {
     return {
       ok: false,
@@ -3280,26 +3310,15 @@ export const runDispatchExecutionPreflightGate = async (input: {
     };
   }
   if (canonicalReadinessResult) {
-    const blockReasonCode = resolveAgentWakeAdmissionBlockReasonCode(
-      canonicalReadinessResult.readiness.agentExecutionReadiness
-    );
-    if (blockReasonCode) {
-      const preparationPending =
-        isAgentWakeAdmissionPreparationPendingReason(blockReasonCode);
-      return {
-        ok: false,
-        canonicalAdmissionBlock: !preparationPending,
-        errorCode: blockReasonCode,
-        errorMessage:
-          resolvePublicAgentAvailabilityCopy(blockReasonCode)
-            ?.availabilitySummary ??
-          "This Agent Profile is unavailable for a new Wake right now.",
-        finalStatus: preparationPending
-          ? OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable
-          : OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
-        bindingSource: targetBindingResolution.source,
-        targetOwnerUserId: targetBindingSnapshot.ownerUserId,
-      };
+    const readinessDecision = resolveCanonicalDispatchPreflight({
+      bindingSource: targetBindingResolution.source,
+      message,
+      organizationId: organizationScope.organizationId,
+      readiness: canonicalReadinessResult.readiness,
+      targetBindingSnapshot,
+    });
+    if (readinessDecision) {
+      return readinessDecision;
     }
   }
 
@@ -3326,6 +3345,54 @@ export const runDispatchExecutionPreflightGate = async (input: {
     bindingSource: targetBindingResolution.source,
   };
 };
+
+function resolveCanonicalDispatchPreflight(input: {
+  bindingSource: TargetBindingSource;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  organizationId: string;
+  readiness: Awaited<
+    ReturnType<typeof resolveCoreAgentExecutionReadinessForProfile>
+  >;
+  targetBindingSnapshot: EffectiveTargetBindingSnapshot;
+}): DispatchExecutionPreflightResult | null {
+  const { message, targetBindingSnapshot } = input;
+  const deviceWaitReason = message.deviceWait
+    ? resolveDeviceWaitReason(input.readiness)
+    : null;
+  if (deviceWaitReason) {
+    return {
+      ok: true,
+      deviceWaitReason,
+      effectiveTargetBindingSnapshot: {
+        ...targetBindingSnapshot,
+        organizationId: input.organizationId,
+      },
+      bindingSource: input.bindingSource,
+    };
+  }
+  const blockReasonCode = resolveAgentWakeAdmissionBlockReasonCode(
+    input.readiness.agentExecutionReadiness
+  );
+  if (blockReasonCode) {
+    const preparationPending =
+      isAgentWakeAdmissionPreparationPendingReason(blockReasonCode);
+    return {
+      ok: false,
+      canonicalAdmissionBlock: !preparationPending,
+      errorCode: blockReasonCode,
+      errorMessage:
+        resolvePublicAgentAvailabilityCopy(blockReasonCode)
+          ?.availabilitySummary ??
+        "This Agent Profile is unavailable for a new Wake right now.",
+      finalStatus: preparationPending
+        ? OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable
+        : OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      bindingSource: input.bindingSource,
+      targetOwnerUserId: targetBindingSnapshot.ownerUserId ?? undefined,
+    };
+  }
+  return null;
+}
 
 export const applyEffectiveTargetBindingSnapshotToMessage = (input: {
   message: OpenMeldDaemonDispatchQueueMessage;

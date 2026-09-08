@@ -1,6 +1,7 @@
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import { parseSignalText } from "@openmeld/protocol";
 import {
+  MAX_WAKE_DEVICE_WAIT_MS,
   type SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   type SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
   systemEmittedSignalTextSchema,
@@ -116,7 +117,13 @@ export function assertSpaceSignalNavigationActionPolicy(input: {
 export const buildSignalTextOptions = (
   data: SignalTextData
 ): SignalTextBuildOptions | undefined => {
-  const meta = omitReplyStalenessFromAuthoredMeta(data.meta);
+  const authoredMeta = omitReplyStalenessFromAuthoredMeta(data.meta);
+  // Persist this additive metadata so older history readers can still read the
+  // message. New senders use the strict top-level request field, which older
+  // receivers reject instead of silently dropping the wait instruction.
+  const meta = data.deviceWait
+    ? { ...authoredMeta, deviceWait: data.deviceWait }
+    : authoredMeta;
   if (
     !(
       data.attachments ||
@@ -137,6 +144,34 @@ export const buildSignalTextOptions = (
     ...(data.replyTo ? { replyTo: data.replyTo } : {}),
   };
 };
+
+export function assertWakeDeviceWaitAuthoring(input: {
+  signal: SignalEnvelope;
+  targetProfileIds: readonly string[];
+  nowMs: number;
+}): void {
+  if (input.signal.type !== "signal.text") {
+    return;
+  }
+  const wait = input.signal.data.meta?.deviceWait;
+  if (!wait) {
+    return;
+  }
+  if (
+    input.signal.profile.kind === "system" ||
+    !input.targetProfileIds.includes(wait.targetProfileId) ||
+    !input.signal.data.meta?.clientMessageId ||
+    wait.deadlineAtMs <= input.nowMs ||
+    wait.deadlineAtMs > input.nowMs + MAX_WAKE_DEVICE_WAIT_MS
+  ) {
+    throw new SpaceSignalAuthoringError({
+      code: SPACE_WAKE_TARGET_INVALID_ERROR_CODE,
+      message:
+        "Choose a current Wake target and a future deadline within seven days.",
+      targetProfileId: wait.targetProfileId,
+    });
+  }
+}
 
 function omitReplyStalenessFromAuthoredMeta(
   meta: SignalTextData["meta"]

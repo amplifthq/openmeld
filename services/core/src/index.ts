@@ -1695,6 +1695,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     );
   }
 
+  async postDeviceWaitingSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
+    if (!input.deviceWait) {
+      throw new Error("A device waiting request is required.");
+    }
+    return await this.postSignal(input, spaceAddressingVersion);
+  }
+
   async postSignal(
     input: PostSignalInput,
     spaceAddressingVersion?: string
@@ -3856,6 +3866,13 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     spaceAddressingVersion?: string
   ): Promise<ListSignalsResult> {
     return super.listSignals(input, spaceAddressingVersion);
+  }
+
+  postDeviceWaitingSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
+    return super.postDeviceWaitingSignal(input, spaceAddressingVersion);
   }
 
   postSignal(

@@ -2697,13 +2697,26 @@ describe("claimDispatchAttempt", () => {
     expect(readAttempt("attempt-2")).toBeUndefined();
   });
 
-  it("allows route_lost redrive to re-enter pre-execution waiting delivery", async () => {
+  it.each([
+    ["daemon.profile.offline", 2000],
+    ["runtime_coordinator.device_waiting", 2000],
+    [
+      "runtime_coordinator.device_waiting",
+      DISPATCH_IDEMPOTENCY_WINDOW_MS + 2000,
+    ],
+  ] as const)("allows route_lost redrive to re-enter pre-execution waiting delivery for %s at %i", async (errorCode, recoveryAtMs) => {
     const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-offline-waiting-redrive-1",
       sourceEventId: "evt-offline-waiting-redrive-1",
       targetProfileId: "agt-offline-waiting-redrive-1",
     });
+    message.deviceWait = {
+      bindingId: "binding-waiting",
+      openMeldServiceRuntimeId: "runtime-waiting",
+      targetProfileId: message.targetProfileId,
+      deadlineAtMs: 604_801_000,
+    };
 
     const firstClaim = await claimDispatchAttempt({
       db,
@@ -2723,7 +2736,20 @@ describe("claimDispatchAttempt", () => {
     seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
     firstAttempt.status =
       OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable;
-    firstAttempt.errorCode = "daemon.profile.offline";
+    firstAttempt.errorCode = errorCode;
+
+    if (errorCode === "runtime_coordinator.device_waiting") {
+      const duplicate = await claimDispatchAttempt({
+        db,
+        message,
+        attempt: 2,
+        nowMs: 1500,
+      });
+      expect(duplicate.status).toBe("deduped");
+      expect(readRow(message.idempotencyKey)?.latestAttemptId).toBe(
+        firstClaim.attemptId
+      );
+    }
 
     const redriveClaim = await claimDispatchAttempt({
       db,
@@ -2732,11 +2758,11 @@ describe("claimDispatchAttempt", () => {
         deliveryRecoveryReason: "route_lost",
       },
       attempt: 2,
-      nowMs: 2000,
+      nowMs: recoveryAtMs,
     });
 
     expect(redriveClaim).toMatchObject({
-      attemptNo: 2,
+      attemptNo: recoveryAtMs > DISPATCH_IDEMPOTENCY_WINDOW_MS ? 1 : 2,
       deliveryRecoveryReason: "route_lost",
       status: "claimed",
     });

@@ -3,6 +3,7 @@ import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
+import type { RuntimeTransportLookupOwnerServiceResponse } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeTransportHub } from "../src";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -50,7 +51,33 @@ const FROM_RUNTIME_EXECUTION_TARGETS_SQL_REGEX =
   /FROM\s+openMeldDaemon_runtime_registry_records\s+runtime/i;
 const TEST_RUNTIME_TRANSPORT = {
   get: () => ({
-    fetch: async () => new Response("{}", { status: 200 }),
+    fetch: (url: string) => {
+      if (new URL(url).pathname !== "/lookup-owner-service") {
+        return Promise.resolve(new Response("{}", { status: 200 }));
+      }
+      return Promise.resolve(
+        Response.json({
+          online: true,
+          sessions: [
+            {
+              daemonSessionId: "session-1",
+              deviceId: "device-1",
+              lane: "dev-local",
+              connectionGeneration: 1,
+              lastHeartbeatMs: Date.now(),
+              serviceVersion: "999.0.0",
+              capabilities: {},
+              executionCompatibility: {
+                expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+                observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+                reasonCode: "daemon.runtime_contract.compatible",
+                status: "compatible",
+              },
+            },
+          ],
+        } satisfies RuntimeTransportLookupOwnerServiceResponse)
+      );
+    },
   }),
   idFromName: (name: string) => name,
 } as unknown as DurableObjectNamespace<RuntimeTransportHub>;
