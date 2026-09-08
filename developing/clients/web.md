@@ -655,9 +655,12 @@ The Settings secondary sidebar always shows these two groups:
 Invitation review lives at `/o/{orgSlug}/settings/invitations?requestId={id}`
 inside the app shell. Email and Inbox use the same destination; a focused request
 scrolls into view. The legacy external request URL redirects current organization
-members here while preserving the external applicant status surface. Needs review
-is separate from sent invitations awaiting acceptance. Both empty states use the
-shared restrained dashed-border presentation. A Core-owned actionable request count
+reviewers here while preserving the external applicant status surface. An approved
+applicant enters the organization or invited Space after Auth confirms joining.
+Invite members and Invite link appear first. Needs review and Awaiting acceptance
+follow only when populated; neither renders an empty-state panel. The account
+avatar's Invite people menu opens a dialog that reuses the Settings invitation
+controls, including role-gated email invitations and links. A Core-owned actionable request count
 drives the amber Invitations badge and the outer Settings dot; it is not an unread
 count. Approval, delivery, and membership remain separate facts. Clients refresh
 the shared request, invitation, and Inbox projections after a decision.

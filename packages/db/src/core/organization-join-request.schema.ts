@@ -21,6 +21,10 @@ export const organizationJoinRequests = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
+    applicantUserId: text("applicant_user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    joinedAt: integer("joined_at"),
     status: text("status", {
       enum: ["pending", "approved", "rejected", "cancelled"],
     }).notNull(),

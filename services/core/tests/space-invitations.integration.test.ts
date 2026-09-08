@@ -53,6 +53,109 @@ const requestCore: CoreBindings = {
 };
 
 describe("invitation approval boundary", () => {
+  it("notifies every administrator urgently and lets any one complete a recipient's joining request", async () => {
+    const f = await fixture();
+    const adminId = crypto.randomUUID();
+    await env.OPENMELD_DB.batch([
+      env.OPENMELD_DB.prepare(
+        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, 'Admin', ?, 1, ?, ?)"
+      ).bind(adminId, `${adminId}@example.com`, Date.now(), Date.now()),
+      env.OPENMELD_DB.prepare(
+        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'admin', ?)"
+      ).bind(crypto.randomUUID(), f.organizationId, adminId, Date.now()),
+    ]);
+    const call = (
+      userId: string,
+      request: OrganizationJoinRequestRpcInput["request"]
+    ) =>
+      organizationJoinRequest(requestCore, {
+        responseVersion: "2",
+        userId,
+        email: `${userId}@example.com`,
+        emailVerified: true,
+        request,
+      });
+    const submitted = await call(f.recipientId, {
+      action: "create_from_link",
+      organizationId: f.organizationId,
+      sponsorUserId: f.ownerId,
+    });
+    if (!(submitted.ok && submitted.requests[0])) {
+      throw new Error("Request was not created");
+    }
+    const requestId = submitted.requests[0].id;
+    expect(submitted.requests[0]).toMatchObject({
+      applicantUserId: f.recipientId,
+      joinedAt: null,
+      status: "pending",
+    });
+    expect(
+      await call(f.recipientId, {
+        action: "create_from_link",
+        organizationId: f.organizationId,
+        sponsorUserId: f.ownerId,
+      })
+    ).toMatchObject({ requests: [{ id: requestId }] });
+    const items = await env.OPENMELD_DB.prepare(
+      "SELECT recipient_user_id, importance, attention FROM inbox_items WHERE organization_id = ?"
+    )
+      .bind(f.organizationId)
+      .all();
+    expect(items.results).toEqual(
+      expect.arrayContaining(
+        [f.ownerId, adminId].map((recipient_user_id) => ({
+          recipient_user_id,
+          importance: "urgent",
+          attention: "action_required",
+        }))
+      )
+    );
+    expect(items.results).toHaveLength(2);
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT count(*) AS total FROM inbox_email_deliveries WHERE inbox_item_id IN (SELECT id FROM inbox_items WHERE organization_id = ?)"
+      )
+        .bind(f.organizationId)
+        .first()
+    ).toEqual({ total: 2 });
+    const decisions = await Promise.all([
+      call(f.ownerId, { action: "approve", requestId }),
+      call(adminId, { action: "approve", requestId }),
+    ]);
+    for (const decision of decisions) {
+      expect(decision).toMatchObject({
+        ok: true,
+        requests: [{ status: "approved" }],
+      });
+    }
+    expect(
+      await call(adminId, { action: "join_complete", requestId })
+    ).toMatchObject({ ok: false });
+    await f.joinOrganization(); // Auth's membership write must precede Core completion.
+    const completed = await call(adminId, {
+      action: "join_complete",
+      requestId,
+    });
+    expect(completed).toMatchObject({
+      ok: true,
+      requests: [{ joinedAt: expect.any(Number), invitationSentAt: null }],
+    });
+    expect(
+      await call(f.ownerId, { action: "join_complete", requestId })
+    ).toEqual(completed);
+    expect(
+      await call(f.ownerId, {
+        action: "summary",
+        organizationId: f.organizationId,
+      })
+    ).toMatchObject({ actionRequiredCount: 0 });
+    const unresolved = await env.OPENMELD_DB.prepare(
+      "SELECT count(*) AS total FROM inbox_items WHERE organization_id = ? AND resolution_status = 'open'"
+    )
+      .bind(f.organizationId)
+      .first();
+    expect(unresolved).toEqual({ total: 0 });
+  });
   it("keeps requests separate from membership, blocks member approval, and queues one review email", async () => {
     const f = await fixture();
     await f.joinOrganization();
@@ -101,6 +204,13 @@ describe("invitation approval boundary", () => {
       .bind(f.organizationId, f.organizationId, f.organizationId)
       .first();
     expect(counts).toEqual({ inbox: 1, emails: 1, invitations: 0 });
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT importance, attention FROM inbox_items WHERE organization_id = ? AND source_key = ?"
+      )
+        .bind(f.organizationId, `invitation:${requestId}`)
+        .first()
+    ).toEqual({ importance: "urgent", attention: "action_required" });
     expect(
       await call(f.ownerId, { action: "approve", requestId })
     ).toMatchObject({

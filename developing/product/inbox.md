@@ -203,9 +203,12 @@ The first release creates items for these explicit user-visible events:
 12. An invitation request uses the existing `organization_member_request` source
     category with an `invitation:<requestId>` key and an
     `organization_join_request` target. It opens the authorized request detail.
-    Inbox contains no recipient email; reviewers see recipient and target access
-    only after the request owner checks current permission. Decline/cancel resolves
-    the action. Approval resolves it only after invitation delivery is confirmed.
+    Each current owner and admin receives an urgent action because joining is
+    blocked on their decision. These reviewer-only items identify the recipient
+    email so the action and transactional email are understandable. Source reads
+    and email delivery recheck current reviewer permission. Decline/cancel resolves
+    the action. Approval resolves it only after invitation delivery or the
+    applicant's membership fulfillment is confirmed, for every reviewer.
 
 Agent Profile Creation Requests persist their current Inbox projection intent
 with the source request mutation. A failed projection remains retryable and is
@@ -430,7 +433,7 @@ two optional delivery channels:
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe
   content.
-- **Invitation review email** is transactional, normal-importance mail to current
+- **Invitation review email** is transactional mail to current
   owners/admins. It reuses the same durable delivery ledger with an explicit
   `invitation_review` purpose and does not depend on the urgent-email preference.
   Auth rechecks current reviewer role before sending. It links to the same

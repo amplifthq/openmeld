@@ -36,7 +36,9 @@ export function OrganizationInvitationRequests({
 	const pending = requests.filter(
 		(request) =>
 			request.status === "pending" ||
-			(request.status === "approved" && !request.invitationSentAt)
+			(request.status === "approved" &&
+				!request.invitationSentAt &&
+				!request.joinedAt)
 	);
 	const remaining = pending.filter(
 		(request) => request.id !== search.requestId
@@ -46,17 +48,6 @@ export function OrganizationInvitationRequests({
 		listContent = <p>Loading requests…</p>;
 	} else if (list.error) {
 		listContent = <p role="alert">{list.error.message}</p>;
-	} else if (pending.length === 0) {
-		listContent = (
-			<div className="grid min-h-36 place-content-center gap-1 rounded-md border border-border/70 border-dashed px-6 py-8 text-center">
-				<p className="font-medium text-sm">
-					{canReview ? "No requests to review" : "No pending requests"}
-				</p>
-				<p className="text-muted-foreground text-sm">
-					Invitation requests that need approval will appear here.
-				</p>
-			</div>
-		);
 	} else if (remaining.length > 0) {
 		listContent = (
 			<ul className="divide-y rounded-md border">
@@ -69,6 +60,9 @@ export function OrganizationInvitationRequests({
 				))}
 			</ul>
 		);
+	}
+	if (list.isSuccess && pending.length === 0 && !search.requestId) {
+		return null;
 	}
 	return (
 		<section aria-label="Invitation requests" className="space-y-3">

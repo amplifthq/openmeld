@@ -227,7 +227,7 @@ export async function previewOrganizationJoinLink(
 ): Promise<PreviewOrganizationJoinLinkResponse> {
 	const search = new URLSearchParams({
 		token: input.token,
-		responseVersion: "2",
+		responseVersion: "3",
 	});
 	const response = await requestAuthEndpoint<unknown>({
 		fallbackMessage: "Failed to check organization invite link.",
@@ -275,7 +275,7 @@ export async function getOrganizationJoinLink(
 	return await requestManagedOrganizationJoinLink({
 		fallbackMessage: "Failed to load organization invite link.",
 		method: "GET",
-		organizationId: input.organizationId,
+		...input,
 	});
 }
 
@@ -285,7 +285,7 @@ export async function resetOrganizationJoinLink(
 	const joinLink = await requestManagedOrganizationJoinLink({
 		fallbackMessage: "Failed to generate organization invite link.",
 		method: "POST",
-		organizationId: input.organizationId,
+		...input,
 	});
 	if (!joinLink) {
 		throw new Error("Generated organization invite link response is empty.");
@@ -299,6 +299,12 @@ export async function revokeOrganizationJoinLink(
 	const search = new URLSearchParams({
 		organizationId: input.organizationId,
 	});
+	if (input.mode) {
+		search.set("mode", input.mode);
+	}
+	if (input.spaceId) {
+		search.set("spaceId", input.spaceId);
+	}
 	const response = await requestAuthEndpoint<unknown>({
 		fallbackMessage: "Failed to revoke organization invite link.",
 		path: `/organization/join-link?${search.toString()}`,
@@ -323,8 +329,19 @@ async function requestManagedOrganizationJoinLink(input: {
 	fallbackMessage: string;
 	method: "GET" | "POST";
 	organizationId: string;
+	mode?: "direct" | "request";
+	spaceId?: string;
 }): Promise<OrganizationJoinLink | null> {
-	const search = new URLSearchParams({ organizationId: input.organizationId });
+	const search = new URLSearchParams({
+		organizationId: input.organizationId,
+		responseVersion: "3",
+	});
+	if (input.mode) {
+		search.set("mode", input.mode);
+	}
+	if (input.spaceId) {
+		search.set("spaceId", input.spaceId);
+	}
 	const response = await requestAuthEndpoint<unknown>({
 		fallbackMessage: input.fallbackMessage,
 		path: `/organization/join-link?${search.toString()}`,

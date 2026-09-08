@@ -25,7 +25,11 @@ The model cannot choose an Organization, owner, or destination Space.
 
 Local runtime leases, setup, Prepare, Service transport, dispatch-owned Space
 actions, and local execution finalization do not change. Existing Local and
-Center Binding values and V3/V4 Center submissions retain their meaning.
+Center Binding values and ordinary V1/V2/V4 Center submissions retain their
+meaning. The combined Task retirement removes Task-only V3 submissions and
+the V4 `center_agent_task` identity; those retired requests are intentionally
+rejected, including an old producer or callback still carrying Task fields.
+Local Task Handles, delegation, stopping, and continuation callbacks remain.
 Migration 0159 replaces only runtime-kind and hosted-identity validation
 triggers. It preserves rows, indexes, and canonical ownership triggers.
 
