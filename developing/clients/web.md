@@ -536,7 +536,8 @@ Desk Space windows use React Flow's native edge and corner resizing, bounded to
 720–2400 canvas pixels wide and 480–1800 high. Window dimensions are remembered
 per window, account, and organization in this browser, independently of the viewport.
 Resizing changes only the canvas container, not the shared Space implementation.
-New windows use 85% of the available Desk width, within the existing size limits.
+New windows fit the Desk's available width and height with 32px canvas margins,
+within the existing size limits. Small viewports zoom out enough to show the full window.
 Desk conversation rails fill their window with 24px inline padding, reduced to
 16px in narrow containers. Appearance's centered/full-width preference applies
 only to page surfaces. Desk passes its measured width into the shared Space so
@@ -555,10 +556,12 @@ The maximize link opens its canonical route. The shared member selector uses
 the workspace directory in both Personal and Organization contexts, including
 the workspace's own Center Agent under the existing membership authorization.
 
-The first visit shows an overview, then zooms to readable 100% scale with canvas
-margins. Pointer, wheel, or keyboard input interrupts the entrance. Reduced
-motion skips it. The viewport is remembered locally; Reset view restores the
-readable starting position. Scrolling a clipped Space reveals its lower content
+The first visit starts with a blank canvas, reveals the centered greeting with
+a subtle scale-in, then the arrow, then the Space. The viewport pans down to
+center the complete Space, including the Composer. Pointer, wheel, or keyboard
+input interrupts the entrance and reveals all content. Reduced motion shows
+the final view immediately. The viewport is remembered locally; Reset view restores
+the fitted Space view. Scrolling a clipped Space reveals its lower content
 before the ordinary conversation scrolls. Embedded Graphs own their wheel input.
 Bottom-left controls collapse to a Canvas tools button and expand on mouse hover,
 keyboard focus, or tap; leaving waits briefly before closing. Their opacity-only

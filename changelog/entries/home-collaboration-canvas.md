@@ -39,6 +39,10 @@ flow. Multiple Space windows retain their positions and sizes after refresh.
 The toolbar expands on hover, keyboard focus, or tap. Tutorial controls are no
 longer shown inside Spaces or on Desk.
 
-Desk windows start slightly narrower and use their own full-width conversation
+Desk windows fit the available canvas with room around every edge and use their own full-width conversation
 layout with comfortable side padding. Resizing a window also adapts its Members
 panel. Page layout preferences continue to apply when you open the full Space.
+
+The first entrance reveals your greeting, then an arrow, then the Space, and
+moves the view down to show the complete window. Returning restores your saved
+view; reduced-motion preferences skip the entrance movement.

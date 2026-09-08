@@ -276,6 +276,33 @@ html[data-space-self-message-alignment="left"]
   }
 }
 
+[data-desk-entrance="pending"] .react-flow__node,
+[data-desk-entrance="greeting"] .react-flow__node:has([data-desk-space-window]),
+[data-desk-entrance="arrow"] .react-flow__node:has([data-desk-space-window]) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+[data-desk-entrance="greeting"] [data-desk-greeting] {
+  animation: desk-greeting-in 400ms ease-out both;
+}
+[data-desk-entrance="pending"] [data-desk-arrow],
+[data-desk-entrance="greeting"] [data-desk-arrow] { opacity: 0; }
+[data-desk-entrance="arrow"] [data-desk-arrow],
+[data-desk-entrance="space"] .react-flow__node:has([data-desk-space-window]) {
+  animation: desk-fade-in 250ms ease-out both;
+}
+@keyframes desk-greeting-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes desk-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-desk-entrance] [data-desk-greeting],
+  [data-desk-entrance] [data-desk-arrow],
+  [data-desk-entrance] .react-flow__node { animation: none; }
+}
+
 /* Canvas windows own their content rail, independently of page preferences. */
 [data-desk-space-window] [data-space-conversation-presentation] {
   container-type: inline-size;

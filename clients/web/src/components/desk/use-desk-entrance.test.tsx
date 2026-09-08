@@ -20,10 +20,17 @@ function entrance(savedViewport: Viewport | null = null) {
 	const flow = { current: null as ReactFlowInstance | null };
 	const region = { current: element };
 	const hook = renderHook(() =>
-		useDeskEntrance({ region, flow, width: 1000, savedViewport, saveViewport })
+		useDeskEntrance({
+			region,
+			flow,
+			width: 1000,
+			height: 640,
+			savedViewport,
+			saveViewport,
+		})
 	);
 	act(() => hook.result.current.initialize(instance));
-	return { ...hook, setViewport, saveViewport };
+	return { ...hook, element, setViewport, saveViewport };
 }
 it("skips the entrance when reduced motion is requested", () => {
 	vi.stubGlobal("matchMedia", () => ({ matches: true }));
@@ -52,4 +59,22 @@ it("does not persist intermediate animation frames", () => {
 	act(() => entry.result.current.interrupt());
 	act(() => entry.result.current.onMoveEnd({ x: 50, y: 24, zoom: 0.8 }));
 	expect(entry.saveViewport).toHaveBeenCalledTimes(1);
+});
+
+it("reveals the greeting, arrow, and Space in order before centering the complete window", () => {
+	const entry = entrance();
+	expect(entry.element.dataset.deskEntrance).toBe("pending");
+	act(() => vi.advanceTimersByTime(300));
+	expect(entry.element.dataset.deskEntrance).toBe("greeting");
+	act(() => vi.advanceTimersByTime(450));
+	expect(entry.element.dataset.deskEntrance).toBe("arrow");
+	act(() => vi.advanceTimersByTime(350));
+	expect(entry.element.dataset.deskEntrance).toBe("space");
+	act(() => vi.advanceTimersByTime(1100));
+	expect(entry.element.dataset.deskEntrance).toBe("ready");
+	expect(entry.saveViewport).toHaveBeenLastCalledWith({
+		x: 32,
+		y: -168,
+		zoom: 1,
+	});
 });

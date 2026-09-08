@@ -61,13 +61,16 @@ const spaceSizeLimits = {
 	minHeight: 480,
 	maxHeight: 1800,
 };
-function defaultSpaceSize(width: number) {
+function defaultSpaceSize(width: number, height: number) {
 	return {
 		width: Math.min(
 			spaceSizeLimits.maxWidth,
 			Math.max(spaceSizeLimits.minWidth, width)
 		),
-		height: 900,
+		height: Math.max(
+			spaceSizeLimits.minHeight,
+			Math.min(spaceSizeLimits.maxHeight, height)
+		),
 	};
 }
 const DeskContext = createContext<{
@@ -134,6 +137,7 @@ function Desk() {
 	const region = useRef<HTMLDivElement | null>(null);
 	const flow = useRef<ReactFlowInstance<DeskNode> | null>(null);
 	const [width, setWidth] = useState(1100);
+	const [height, setHeight] = useState(640);
 	const [nodes, setNodes] = useState<DeskNode[]>([]);
 	const sizeKey = `openmeld.desk.size:${storageScope}:${currentOrganization.id}`;
 	const savedSize = useRef<{ width: number; height: number } | null>(null);
@@ -254,9 +258,10 @@ function Desk() {
 		if (!element) {
 			return;
 		}
-		const observer = new ResizeObserver(([entry]) =>
-			setWidth(Math.max(720, (entry.contentRect.width - 64) * 0.85))
-		);
+		const observer = new ResizeObserver(([entry]) => {
+			setWidth(Math.max(720, Math.min(2400, entry.contentRect.width - 64)));
+			setHeight(Math.max(480, Math.min(1800, entry.contentRect.height - 64)));
+		});
 		observer.observe(element);
 		return () => observer.disconnect();
 	}, []);
@@ -291,12 +296,12 @@ function Desk() {
 						style:
 							previousNode?.style ??
 							(index === 0 ? savedSize.current : null) ??
-							defaultSpaceSize(width),
+							defaultSpaceSize(width, height),
 						dragHandle: ".desk-title",
 					};
 				}),
 		]);
-	}, [windows, deletedIds, width]);
+	}, [windows, deletedIds, width, height]);
 	useEffect(() => {
 		const spaceNodes = nodes.filter((node) => node.data.kind === "space");
 		if (
@@ -330,6 +335,7 @@ function Desk() {
 		[viewportKey]
 	);
 	const { initialize, reset, interrupt, onMoveEnd } = useDeskEntrance({
+		height,
 		region,
 		flow,
 		width,
@@ -359,7 +365,7 @@ function Desk() {
 		]
 	);
 	const resetLayout = () => {
-		const size = defaultSpaceSize(width);
+		const size = defaultSpaceSize(width, height);
 		savedSize.current = null;
 		try {
 			localStorage.removeItem(sizeKey);
@@ -394,6 +400,7 @@ function Desk() {
 					aria-label="Desk workspace"
 					className="relative min-h-0 flex-1"
 					data-desk-canvas
+					data-desk-entrance={savedViewport ? "ready" : "pending"}
 					onContextMenu={(event) => {
 						if (
 							event.target instanceof Element &&
@@ -549,7 +556,10 @@ function DeskWindow({ data }: NodeProps<DeskNode>) {
 	}
 	if (data.kind === "welcome") {
 		return (
-			<section className="desk-title flex h-full cursor-grab flex-col items-center justify-center gap-3 text-center">
+			<section
+				className="desk-title flex h-full cursor-grab flex-col items-center justify-center gap-3 text-center"
+				data-desk-greeting=""
+			>
 				<h2 className="font-medium text-3xl">
 					Hello{context.name ? `, ${context.name}` : ""}.
 				</h2>
@@ -560,6 +570,7 @@ function DeskWindow({ data }: NodeProps<DeskNode>) {
 					<svg
 						aria-hidden="true"
 						className="text-muted-foreground"
+						data-desk-arrow=""
 						height="32"
 						viewBox="0 0 28 32"
 						width="28"

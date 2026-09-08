@@ -1,37 +1,47 @@
 import type { Node, ReactFlowInstance, Viewport } from "@xyflow/react";
 import { type RefObject, useCallback, useEffect, useRef } from "react";
 
+function entrancePhase(elapsed: number) {
+	if (elapsed < 180) {
+		return "pending";
+	}
+	if (elapsed < 650) {
+		return "greeting";
+	}
+	if (elapsed < 1000) {
+		return "arrow";
+	}
+	return "space";
+}
+
 export function useDeskEntrance<N extends Node>(input: {
 	region: RefObject<HTMLElement | null>;
 	flow: RefObject<ReactFlowInstance<N> | null>;
 	width: number;
+	height: number;
 	savedViewport: Viewport | null;
 	saveViewport: (viewport: Viewport) => void;
 }) {
 	const frame = useRef(0);
-	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const active = useRef(false);
 	const interrupt = useCallback(() => {
 		cancelAnimationFrame(frame.current);
-		if (timer.current) {
-			clearTimeout(timer.current);
-		}
 		active.current = false;
-	}, []);
+		if (input.region.current) {
+			input.region.current.dataset.deskEntrance = "ready";
+		}
+	}, [input.region]);
 	useEffect(() => interrupt, [interrupt]);
-	const target = useCallback(
-		() => ({
-			x: Math.max(
-				24,
-				((input.region.current?.clientWidth ?? input.width + 64) -
-					input.width) /
-					2
-			),
-			y: 24,
-			zoom: 1,
-		}),
-		[input.region, input.width]
-	);
+	const target = useCallback(() => {
+		const w = input.region.current?.clientWidth || input.width + 64;
+		const h = input.region.current?.clientHeight || input.height + 64;
+		const zoom = Math.min(1, (w - 64) / input.width, (h - 64) / input.height);
+		return {
+			x: (w - input.width * zoom) / 2,
+			y: (h - input.height * zoom) / 2 - 200 * zoom,
+			zoom,
+		};
+	}, [input.region, input.width, input.height]);
 	const reset = useCallback(() => {
 		interrupt();
 		input.flow.current?.setViewport(target()).catch(console.error);
@@ -40,40 +50,48 @@ export function useDeskEntrance<N extends Node>(input: {
 		(instance: ReactFlowInstance<N>) => {
 			input.flow.current = instance;
 			if (input.savedViewport) {
+				interrupt();
 				return;
 			}
 			const end = target();
 			const reduced = matchMedia("(prefers-reduced-motion: reduce)");
 			if (reduced.matches) {
+				interrupt();
 				instance.setViewport(end).catch(console.error);
 				input.saveViewport(end);
 				return;
 			}
-			const bounds = input.region.current?.getBoundingClientRect();
-			const zoom = Math.max(
-				0.2,
-				Math.min(1, ((bounds?.height ?? 800) - 48) / 1100)
-			);
-			const start = {
-				x: ((bounds?.width ?? input.width + 64) - input.width * zoom) / 2,
-				y: 24,
-				zoom,
-			};
+
+			const w = input.region.current?.clientWidth || input.width + 64;
+			const h = input.region.current?.clientHeight || input.height + 64;
+			const start = { x: (w - input.width) / 2, y: (h - 150) / 2, zoom: 1 };
+			if (input.region.current) {
+				input.region.current.dataset.deskEntrance = "pending";
+			}
 			instance.setViewport(start).catch(console.error);
 			active.current = true;
-			// Brief overview, then one explanatory transform. User input cancels it.
-			timer.current = setTimeout(() => {
-				const began = performance.now();
-				const tick = (now: number) => {
-					if (!active.current) {
-						return;
+			const began = performance.now();
+			let phase = "pending";
+			const tick = (now: number) => {
+				if (!active.current) {
+					return;
+				}
+				if (reduced.matches) {
+					instance.setViewport(end).catch(console.error);
+					interrupt();
+					input.saveViewport(end);
+					return;
+				}
+				const elapsed = now - began;
+				const nextPhase = entrancePhase(elapsed);
+				if (phase !== nextPhase) {
+					phase = nextPhase;
+					if (input.region.current) {
+						input.region.current.dataset.deskEntrance = phase;
 					}
-					if (reduced.matches) {
-						instance.setViewport(end).catch(console.error);
-						interrupt();
-						return;
-					}
-					const progress = Math.min(1, (now - began) / 900);
+				}
+				if (elapsed >= 1200) {
+					const progress = Math.min(1, (elapsed - 1200) / 850);
 					const eased = (1 - Math.cos(Math.PI * progress)) / 2;
 					instance
 						.setViewport({
@@ -82,18 +100,19 @@ export function useDeskEntrance<N extends Node>(input: {
 							zoom: start.zoom + (end.zoom - start.zoom) * eased,
 						})
 						.catch(console.error);
-					if (progress < 1) {
-						frame.current = requestAnimationFrame(tick);
-					} else {
-						active.current = false;
+					if (progress === 1) {
+						interrupt();
 						input.saveViewport(end);
+						return;
 					}
-				};
+				}
 				frame.current = requestAnimationFrame(tick);
-			}, 350);
+			};
+			frame.current = requestAnimationFrame(tick);
 		},
 		[
 			input.flow,
+			input.height,
 			input.savedViewport,
 			input.region,
 			input.width,
