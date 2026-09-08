@@ -317,6 +317,12 @@ export const getSpaceFileResponseSchema = z.strictObject({
   file: spaceFileDescriptorSchema,
 });
 
+export const readSpaceFileTextResponseSchema = z.strictObject({
+  file: spaceFileDescriptorSchema,
+  revision: spaceFileRevisionNumberSchema,
+  content: z.string(),
+});
+
 export const listSpaceFileRevisionsResponseSchema = z.strictObject({
   file: spaceFileDescriptorSchema,
   revisions: z.array(spaceFileRevisionSchema),

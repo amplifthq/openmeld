@@ -2091,6 +2091,7 @@ export {
   prepareSpaceFileWriteResponseSchema,
   publishSpaceComposerUploadBodySchema,
   publishSpaceComposerUploadResponseSchema,
+  readSpaceFileTextResponseSchema,
   resolveSpaceComposerUploadScopeResponseSchema,
   resolveSpaceFileContentInputSchema,
   resolveSpaceFileContentResponseSchema,
