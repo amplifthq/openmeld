@@ -195,7 +195,10 @@ bounded preflight retry policy and Space outbox; no execution is authorized.
 Each retry rereads canonical readiness and authorization. A ready verdict may
 continue the original Wake once, while a definitive blocker or exhausted retry
 budget produces its visible failure. No second user message is required, and
-no already-terminal Wake is revived. The gate reads current Core-held facts only. It does
+no already-terminal Wake is revived. A duplicate intake reservation is not a
+successful execution handoff: concurrent outbox flushes must retain recovery
+while the original admission is still in flight, without executing it twice.
+The gate reads current Core-held facts only. It does
 not poll the Local Service, call a provider, scan Profiles, enumerate
 owner-wide device inventories for presentation enrichment, sleep, or add a
 second readiness projection to the dispatch path.

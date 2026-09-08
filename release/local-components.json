@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T05:09:05.493Z",
+  "updatedAt": "2026-09-08T07:13:04.696Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
-      "packageVersion": "0.3.170",
+      "packageVersion": "0.3.171",
       "updatePolicy": "available",
       "reason": "Commands and external payloads remain compatible with both cloud versions; this release changes internal reply review context only."
     },
     "service": {
-      "bundleHash": "82a2d95f49e0ef5095755c1cc93d26b455cd7e3d09efbc83cbb0975ed3d601ba",
-      "bundleVersion": "0.3.170",
+      "bundleHash": "c8a1534a7a03118eea5daef414d770e9ccd14de0a08cd76c3482e707ec5fb5d7",
+      "bundleVersion": "0.3.171",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services remain protocol-compatible and cloud finalization safely closes accepted results; new Services preserve original Wake ownership during concurrent reply review without changing execution authority."
+      "reason": "Shared Lark registration schemas change the packaged Service fingerprint, but setup, Wake, Space actions, status, trace, and recovery protocols are unchanged. Old and new cloud and local components remain compatible; existing users do not need to upgrade."
     },
     "skills": {
       "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",

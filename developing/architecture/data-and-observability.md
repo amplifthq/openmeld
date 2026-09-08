@@ -2280,7 +2280,7 @@ Feishu are explicit provider values even though the repositories share the
 `openMeldRemoteAgent_lark_platform_*` table family.
 
 A short-lived registration-attempt row stores the encrypted device code,
-expected provider, current provider account domain, due time, interval, expiry,
+expected provider, current registration poll domain, due time, interval, expiry,
 poll lease, requested permission-bundle version, canonical lifecycle status,
 and bounded failure reason in the Core local-state domain. Core's independently
 isolated, bounded minute tick lists due attempts from that owner database, and
@@ -2291,6 +2291,22 @@ faster feedback, but the lease keeps the scheduler and Web on one write path.
 `slow_down` advances the interval; expiration, denial, brand mismatch, and
 unknown response fail closed. Web owns no in-memory poll process, and closing
 or reloading it cannot stop a durable attempt.
+
+The provider is selected before registration and never inferred as a routing
+choice from the logged-in identity. Both brands use the shared Feishu issuer;
+only an already selected Lark attempt may transition to Lark polling after a
+matching brand signal. Begin/resume retains pending legacy registrations;
+changing the browser launcher does not retire their codes or create another
+attempt. Only an explicit authorized restart uses atomic retirement/insertion.
+Credentials and connected channels are unchanged.
+
+Pending Lark attempts retain the shared-issuer URL in storage and HTTP so old
+readers and rolled-back Core remain compatible. Core validates stored URLs
+before HTTP projection; Web selects the Lark browser host without changing the
+user code or attempt. Corrupt ciphertext or a mismatched
+encryption key still raises its diagnostic error. Recovery uses an explicit,
+authorized pending restart; no catch converts a decryption failure into an
+automatic provider registration or conceals a key-configuration problem.
 
 Before each scheduled continuation, Core reads the canonical Organization
 Personal classification. An unavailable or malformed classification fails

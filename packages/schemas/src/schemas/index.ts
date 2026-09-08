@@ -1526,6 +1526,7 @@ export {
   setLocalRuntimeDisplayNameBodySchema,
 } from "./http/local-runtimes";
 export {
+  LARK_PLATFORM_REGISTRATION_DOMAINS,
   LARK_PLATFORM_WEBHOOK_RAW_BODY_MAX_BYTES,
   LARK_PLATFORM_WEBHOOK_RAW_BODY_MAX_CHARS,
   larkPlatformActiveRegistrationListResponseSchema,
