@@ -81,6 +81,7 @@ import {
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
+import { WelcomeSpaceLabel } from "./welcome-space-guide";
 
 type DirectorySpace = OrganizationSpaceDirectoryWithMemberCountsItem;
 type StatusFilter = "unread" | "needs_input" | "working";
@@ -646,6 +647,7 @@ function UnindexedJoinedRow(input: {
 				>
 					<HashIcon className="size-4 shrink-0 text-muted-foreground" />
 					{input.space.name}
+					<WelcomeSpaceLabel spaceId={input.space.spaceId} />
 				</Link>
 			</TableCell>
 			<TableCell className="hidden lg:table-cell" />
@@ -731,6 +733,7 @@ function JoinedRow(input: {
 					>
 						<HashIcon className="size-4 shrink-0 text-muted-foreground" />
 						<span className="truncate">{item.spaceName}</span>
+						<WelcomeSpaceLabel spaceId={item.spaceId} />
 						{item.visibility === "private" && (
 							<LockKeyIcon
 								aria-label="Invite-only in this organization"

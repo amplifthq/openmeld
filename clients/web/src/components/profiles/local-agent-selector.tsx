@@ -202,7 +202,7 @@ function LocalAgentSelectorEmptyState(input: {
 				actionLabel="Connect Computer"
 				centerAgentHref={emptyState.centerAgentHref}
 				className={className}
-				descriptionLead="Connect a computer so OpenMeld can check its local agents. Then return to finish creating your Agent."
+				descriptionLead="Connect a computer to choose a local agent."
 			/>
 		);
 	}

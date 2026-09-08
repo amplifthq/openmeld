@@ -5,10 +5,17 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useDeskSpace } from "./use-desk-space";
 
-const { list, create } = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn() }));
+const { list, create, designation } = vi.hoisted(() => ({
+	list: vi.fn(),
+	create: vi.fn(),
+	designation: vi.fn(),
+}));
 vi.mock("#/lib/spaces/account-spaces", () => ({ listAccountSpaceItems: list }));
 vi.mock("#/lib/spaces/create-space-in-organization", () => ({
 	createSpaceInOrganization: create,
+}));
+vi.mock("#/lib/organizations/center-agent", () => ({
+	readCurrentCenterAgentDesignation: designation,
 }));
 const profile: AuthProfileView = {
 	createdAt: "2026-08-18T00:00:00.000Z",
@@ -30,6 +37,9 @@ const profile: AuthProfileView = {
 const key = "openmeld.desk.space:user-mira:org-mira";
 beforeEach(() => {
 	localStorage.clear();
+	designation
+		.mockReset()
+		.mockResolvedValue({ organizationId: "org-mira", designation: null });
 	list.mockReset().mockResolvedValue({
 		pinnedItems: [],
 		spaceItems: [],
@@ -87,7 +97,7 @@ it("creates one private ordinary Space for concurrent entries", async () => {
 		actingProfile: profile,
 		organizationId: "org-mira",
 		space: {
-			name: "Getting started",
+			name: "Welcome Space",
 			accessMode: "members_only",
 			visibility: "private",
 		},
@@ -126,4 +136,23 @@ it("does not create when the account Space index cannot be read", async () => {
 	const desk = openDesk();
 	await waitFor(() => expect(desk.result.current.error).toBe("Offline"));
 	expect(create).not.toHaveBeenCalled();
+});
+
+it("retries Welcome preparation without creating a second Space", async () => {
+	designation.mockRejectedValueOnce(new Error("Unavailable"));
+	const desk = openDesk();
+	await waitFor(() => expect(desk.result.current.error).toBe("Unavailable"));
+	await desk.result.current.retry();
+	await waitFor(() => expect(desk.result.current.ready).toBe(true));
+	expect(create).toHaveBeenCalledTimes(1);
+});
+
+it("starts a new tutorial without changing the old Space", async () => {
+	localStorage.setItem(key, "old-space");
+	const desk = openDesk();
+	await waitFor(() => expect(desk.result.current.ready).toBe(true));
+	await desk.result.current.restart();
+	await waitFor(() => expect(desk.result.current.spaceId).toBe("space-new"));
+	expect(create).toHaveBeenCalledTimes(1);
+	expect(create.mock.calls[0][0].space.name).toBe("Welcome Space");
 });

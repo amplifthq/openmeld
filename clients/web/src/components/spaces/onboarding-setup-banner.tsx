@@ -169,7 +169,7 @@ export function OnboardingSetupEmptyStateActions(
 	);
 }
 
-function EmptyStateSetupActionCard(input: {
+export function EmptyStateSetupActionCard(input: {
 	description: string;
 	icon: ReactNode;
 	itemId: string;

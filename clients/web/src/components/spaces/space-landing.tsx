@@ -177,6 +177,14 @@ import { useSpaceMessageReferences } from "./use-space-message-references";
 import { useSpacePanelWidth } from "./use-space-panel-width";
 import { useSpacePendingAgentActions } from "./use-space-pending-agent-actions";
 import { useWakeDisplayDebounce } from "./use-wake-display-debounce";
+import { WelcomeSpaceGuide } from "./welcome-space-guide";
+import {
+	buildWelcomeSpaceDraft,
+	readWelcomeSpace,
+	saveWelcomeSpace,
+	useWelcomeSpace,
+	welcomeStepStartedAt,
+} from "./welcome-space-state";
 
 const EMPTY_ACCOUNT_PROFILES: readonly AuthProfileView[] = [];
 const EMPTY_SPACE_DESCRIPTION =
@@ -2007,6 +2015,47 @@ function SpaceLandingConversation({
 		spaceInboxReadPosition,
 		wakeFailureTargetContextsByProfileId,
 	} = state;
+	const welcomeStep = useWelcomeSpace(recovery.storageScope, input.spaceId);
+	const welcomeCenterAgent = controller.membersSnapshot?.agents.find(
+		(agent) =>
+			agent.profileId === centerAgentState.centerAgentProfileId &&
+			agent.status === "active"
+	);
+	useEffect(() => {
+		if (welcomeStep !== "send") {
+			return;
+		}
+		const since = welcomeStepStartedAt(recovery.storageScope, input.spaceId);
+		const sentIds = new Set(
+			controller.timelineItems
+				.filter(
+					(item) =>
+						item.actorProfileId === input.profileId &&
+						item.deliveryState === "sent" &&
+						item.createdAtMs > since
+				)
+				.map((item) => item.id)
+		);
+		if (
+			controller.timelineItems.some(
+				(item) =>
+					item.actorProfileKind === "agent" &&
+					item.deliveryState === "sent" &&
+					item.createdAtMs > since &&
+					!!item.replyToSignalId &&
+					sentIds.has(item.replyToSignalId) &&
+					item.isAgentFinalReply
+			)
+		) {
+			saveWelcomeSpace(recovery.storageScope, input.spaceId, "done");
+		}
+	}, [
+		welcomeStep,
+		recovery.storageScope,
+		input.spaceId,
+		input.profileId,
+		controller.timelineItems,
+	]);
 	let readOnlyComposerPlaceholder: string | undefined;
 	if (agentOwnerDirectMessageObserver) {
 		readOnlyComposerPlaceholder = `You can view this Direct Message because you own ${agentOwnerDirectMessageObserver.agentProfileName}. Join to participate.`;
@@ -2089,8 +2138,37 @@ function SpaceLandingConversation({
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}
 			readOnlyComposerPlaceholder={readOnlyComposerPlaceholder}
-			renderSetupGuidance={(presentation) =>
-				controller.isCurrentAccessConfirmed ? (
+			renderSetupGuidance={(presentation) => {
+				if (!controller.isCurrentAccessConfirmed) {
+					return null;
+				}
+				if (welcomeStep) {
+					return (
+						<WelcomeSpaceGuide
+							onAddAgents={currentSpaceControls.onAddAgentsFromBanner}
+							onTryCenterAgent={
+								!welcomeCenterAgent ||
+								controller.composerText.trim() ||
+								controller.composerFiles.length > 0 ||
+								controller.composerReplyToSignalId
+									? undefined
+									: () => {
+											controller.onComposerEditorChange(
+												buildWelcomeSpaceDraft([welcomeCenterAgent])
+											);
+											saveWelcomeSpace(
+												recovery.storageScope,
+												input.spaceId,
+												"send"
+											);
+										}
+							}
+							scope={recovery.storageScope}
+							spaceId={input.spaceId}
+						/>
+					);
+				}
+				return (
 					<SpaceConversationRecoveryBanner
 						accountProfiles={accountProfiles}
 						actingProfileId={input.profileId}
@@ -2105,8 +2183,8 @@ function SpaceLandingConversation({
 						spaceId={controller.spaceId}
 						spaceName={spaceName}
 					/>
-				) : null
-			}
+				);
+			}}
 			selfAvatarImageUrl={currentUserAvatarImageUrl}
 			selfProfileId={controller.profileId}
 			spaceId={controller.spaceId}
@@ -2815,6 +2893,43 @@ function useRedirectAwayFromDeletedSpace(input: {
 	};
 }
 
+function prepareWelcomeDraft(
+	input: {
+		controller: ReadySpaceLandingController;
+		storageScope: string;
+	},
+	response: {
+		addedMemberIds: string[];
+		items: readonly {
+			profileId: string;
+			profileKind: "human" | "agent";
+			profileName: string;
+		}[];
+	}
+) {
+	const { controller } = input;
+	if (
+		readWelcomeSpace(input.storageScope, controller.spaceId) !== "add" ||
+		response.addedMemberIds.length === 0
+	) {
+		return;
+	}
+	const members = response.items.filter((member) =>
+		response.addedMemberIds.includes(member.profileId)
+	);
+	if (members.length === 0) {
+		return;
+	}
+	if (
+		!controller.composerText.trim() &&
+		controller.composerFiles.length === 0 &&
+		!controller.composerReplyToSignalId
+	) {
+		controller.onComposerEditorChange(buildWelcomeSpaceDraft(members));
+	}
+	saveWelcomeSpace(input.storageScope, controller.spaceId, "send");
+}
+
 function useSpaceAddProfilesHandler(input: {
 	accountProfiles: readonly AuthProfileView[];
 	controller: ReturnType<typeof useSpaceLandingController>;
@@ -2859,6 +2974,10 @@ function useSpaceAddProfilesHandler(input: {
 				accountProfiles: input.accountProfiles,
 				memberProfileIds,
 			});
+			prepareWelcomeDraft(
+				{ controller, storageScope: input.storageScope },
+				addMembersResult
+			);
 
 			applySpaceMembersResponseToCache({
 				pendingWakeReadinessProfileIds: agentProfileIdsToRefresh,
@@ -2979,6 +3098,10 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 					: {}),
 				spaceId: controller.spaceId,
 			});
+			prepareWelcomeDraft(
+				{ controller, storageScope: input.storageScope },
+				addMembersResult
+			);
 
 			applySpaceMembersResponseToCache({
 				queryClient: input.queryClient,

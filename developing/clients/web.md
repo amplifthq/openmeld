@@ -496,11 +496,24 @@ time.
 The authorized Organization root `/o/{orgSlug}` renders **Desk**. It remembers
 one ordinary Space in this browser per account and Organization. Without a
 selection it uses an existing ordinary Space, or creates a private, members-only
-`Getting started` Space through the ordinary creation flow when none exists.
+`Welcome Space` through the ordinary creation flow when none exists.
 There is no special Space kind or membership policy. A browser lock prevents
 concurrent tabs from creating duplicates; a pending marker prevents blind
 retries after an uncertain creation result. This is not cross-device atomic
 provisioning. A confirmed deleted Space is removed from Desk and is not recreated.
+
+Welcome tutorial identity is browser-local, keyed by account scope and Space ID,
+independent of the editable name. The shared Space page and directory read this
+same marker. Preparation adds the designated Center Agent using the ordinary
+membership API. The guide reuses the existing setup card and member dialog;
+ordinary Spaces keep their existing setup guidance. Confirmed member additions
+prepare an editable draft only when the Composer has no text, files, or reply.
+Agents receive Wake mentions; people receive ordinary mentions. Nothing is sent
+automatically. A real final Agent reply to a newly sent user message completes
+the tutorial. Pausing preserves the current step; replay creates a new ordinary
+Space without deleting prior work. This tutorial does not change permissions,
+Wakeability, execution ownership, or server-side Space semantics, and does not
+sync its progress across devices.
 
 Desk Space windows use React Flow's native edge and corner resizing, bounded to
 720–2400 canvas pixels wide and 480–1800 high. Window dimensions are remembered

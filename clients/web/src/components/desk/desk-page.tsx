@@ -42,6 +42,10 @@ import {
 } from "#/lib/organizations/organization-routes";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
+import {
+	resumeWelcomeSpace,
+	useWelcomeSpace,
+} from "../spaces/welcome-space-state";
 import { DeskSpace } from "./desk-space";
 import { useDeskEntrance } from "./use-desk-entrance";
 import { useDeskSpace } from "./use-desk-space";
@@ -66,6 +70,7 @@ function defaultSpaceSize(width: number) {
 	};
 }
 const DeskContext = createContext<{
+	storageScope: string;
 	name: string;
 	spaceId: string;
 	profileId: string;
@@ -90,6 +95,7 @@ function Desk() {
 		organizationId: currentOrganization.id,
 		storageScope,
 	});
+	const welcomeStep = useWelcomeSpace(storageScope, space.spaceId ?? "");
 	const index = useQuery(
 		accountSpaceItemsQueryOptions({
 			enabled: !!selectedHumanProfile,
@@ -230,6 +236,7 @@ function Desk() {
 	});
 	const context = useMemo(
 		() => ({
+			storageScope,
 			name: selectedHumanProfile?.profileName.split(" ")[0] ?? "",
 			spaceId: space.spaceId ?? "",
 			profileId: space.profileId ?? "",
@@ -237,6 +244,7 @@ function Desk() {
 			profiles: profilesQuery.data ?? [],
 		}),
 		[
+			storageScope,
 			selectedHumanProfile,
 			space.spaceId,
 			space.profileId,
@@ -263,6 +271,9 @@ function Desk() {
 			}))
 		);
 		reset();
+	};
+	const restartTutorial = () => {
+		space.restart().then(resetLayout).catch(console.error);
 	};
 	return (
 		<AppFullWidthLayout contentLayout="flush" scroll={false}>
@@ -337,6 +348,27 @@ function Desk() {
 												<CornersOutIcon />
 												Reset view
 											</Button>
+											<Button
+												disabled={space.isRestarting}
+												onClick={() => {
+													if (
+														welcomeStep &&
+														welcomeStep !== "done" &&
+														space.spaceId
+													) {
+														resumeWelcomeSpace(storageScope, space.spaceId);
+														reset();
+													} else {
+														restartTutorial();
+													}
+												}}
+												size="sm"
+												variant="ghost"
+											>
+												{welcomeStep === "done"
+													? "New Welcome Space"
+													: "Welcome tutorial"}
+											</Button>
 										</div>
 									</Panel>
 								}
@@ -374,6 +406,12 @@ function Desk() {
 				<ContextMenuContent>
 					<ContextMenuItem onClick={reset}>Reset view</ContextMenuItem>
 					<ContextMenuItem onClick={resetLayout}>Reset layout</ContextMenuItem>
+					<ContextMenuItem
+						disabled={space.isRestarting}
+						onClick={restartTutorial}
+					>
+						Start a new Welcome Space
+					</ContextMenuItem>
 				</ContextMenuContent>
 			</ContextMenu>
 		</AppFullWidthLayout>
@@ -382,6 +420,10 @@ function Desk() {
 
 function DeskWindow({ data }: NodeProps<DeskNode>) {
 	const context = use(DeskContext);
+	const welcomeStep = useWelcomeSpace(
+		context?.storageScope ?? "",
+		context?.spaceId ?? ""
+	);
 	const [view, setView] = useState<SpaceView>("messages");
 	if (!context) {
 		return null;
@@ -393,8 +435,26 @@ function DeskWindow({ data }: NodeProps<DeskNode>) {
 					Hello{context.name ? `, ${context.name}` : ""}.
 				</h2>
 				<p className="text-base text-muted-foreground">
-					Your work, together in one place.
+					{welcomeStep === "add" || welcomeStep === "send"
+						? "This Space is ready. Try working with an agent below."
+						: "Your work, together in one place."}
 				</p>
+				{welcomeStep === "add" && (
+					<svg
+						aria-hidden="true"
+						className="text-muted-foreground"
+						height="32"
+						viewBox="0 0 28 32"
+						width="28"
+					>
+						<path
+							d="M5 2 Q24 2 20 27 M13 20 L20 28 L26 20"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.5"
+						/>
+					</svg>
+				)}
 			</section>
 		);
 	}
