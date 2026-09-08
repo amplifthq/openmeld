@@ -23,6 +23,8 @@ const BASE64_PADDING_PATTERN = /=+$/u;
 // to the Center Agent as a runtime Channel capability.
 export const LARK_PLATFORM_APP_CONFIGURATION_SCOPE =
   "application:application:patch";
+export const LARK_PLATFORM_APP_SELF_MANAGE_SCOPE =
+  "application:application:self_manage";
 
 function requireExactBundleValue<const T extends boolean | string>(
   value: boolean | string,
@@ -50,7 +52,11 @@ export async function encodeLarkPlatformRegistrationAddons(
     },
     preset: bundle.preset,
     scopes: {
-      tenant: [...bundle.scopes, LARK_PLATFORM_APP_CONFIGURATION_SCOPE],
+      tenant: [
+        ...bundle.scopes,
+        LARK_PLATFORM_APP_CONFIGURATION_SCOPE,
+        LARK_PLATFORM_APP_SELF_MANAGE_SCOPE,
+      ],
     },
   });
   const compressed = await new Response(

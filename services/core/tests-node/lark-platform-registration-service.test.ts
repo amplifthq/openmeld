@@ -396,7 +396,7 @@ describe("Lark-platform registration service", () => {
         nowMs: expiresAtMs + 4,
         provider,
       });
-      expect(fetchImpl).toHaveBeenCalledTimes(4);
+      expect(fetchImpl).toHaveBeenCalledTimes(6);
       expect(result.connection).toMatchObject({
         id: connectionId,
         status: "configuring",
@@ -1298,7 +1298,7 @@ describe("Lark-platform registration service", () => {
           transport: "webhook",
         },
       });
-      expect(configureFetch).toHaveBeenCalledTimes(4);
+      expect(configureFetch).toHaveBeenCalledTimes(6);
       await expect(
         readRemoteAgentLarkPlatformChannelConnection({
           connectionId: "connection_1",
@@ -1531,7 +1531,7 @@ describe("Lark-platform registration service", () => {
         nowMs: 1300,
         provider: "lark",
       });
-      expect(initialConfigurationFetch).toHaveBeenCalledTimes(4);
+      expect(initialConfigurationFetch).toHaveBeenCalledTimes(6);
       await expect(
         readRemoteAgentLarkPlatformChannelConnection({
           connectionId: "connection_repair",
@@ -1647,7 +1647,7 @@ describe("Lark-platform registration service", () => {
           status: "configuring",
         },
       });
-      expect(repairConfigurationFetch).toHaveBeenCalledTimes(4);
+      expect(repairConfigurationFetch).toHaveBeenCalledTimes(6);
       const firstRepairRetry =
         await readRemoteAgentLarkPlatformRegistrationAttempt({
           attemptId: "attempt_repair_2",
@@ -1840,7 +1840,7 @@ describe("Lark-platform registration service", () => {
           nowMs: 1200,
         })
       ).resolves.toEqual({ errors: 0, processed: 1, scanned: 1 });
-      expect(clock).toHaveBeenCalledTimes(2);
+      expect(clock).toHaveBeenCalledTimes(3);
       await expect(
         readRemoteAgentLarkPlatformChannelConnection({
           connectionId: "connection_slow_scheduler",
@@ -2037,6 +2037,30 @@ function configuredAppFetch() {
               scope_type: "tenant",
             })
           ),
+        },
+        msg: "success",
+      })
+    )
+    .mockResolvedValueOnce(
+      Response.json({
+        code: 0,
+        data: { version: "1.0.1", version_id: "oav_test" },
+        msg: "success",
+      })
+    )
+    .mockResolvedValueOnce(
+      Response.json({
+        code: 0,
+        data: {
+          app_version: {
+            app_id: capturedSuccess.client_id,
+            version_id: "oav_test",
+            status: 1,
+            event_infos:
+              LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.events.map(
+                (event_type) => ({ event_type })
+              ),
+          },
         },
         msg: "success",
       })

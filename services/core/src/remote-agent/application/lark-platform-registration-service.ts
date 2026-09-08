@@ -28,6 +28,7 @@ import {
   type RemoteAgentLarkPlatformRegistrationAttemptRecord,
   readActiveRemoteAgentLarkPlatformRegistrationAttempt,
   readRemoteAgentLarkPlatformRegistrationAttempt,
+  recordClaimedLarkPlatformApplicationVersion,
   repairRemoteAgentLarkPlatformRegistrationAttempt,
   replaceClaimedLarkPlatformCallbackCredentials,
   replacePendingRemoteAgentLarkPlatformRegistrationAttempt,
@@ -800,7 +801,7 @@ async function configurePersistedRegistration(input: {
       nowMs: input.clock(),
     });
   }
-  if (connection.botOpenId) {
+  if (connection.botOpenId && input.attempt.applicationVersionId) {
     return await settleConfiguredRegistration({
       attempt: input.attempt,
       botName: connection.botName,
@@ -887,6 +888,16 @@ async function configurePersistedRegistration(input: {
       }
     }
     const configured = await configureAndVerifyLarkPlatformWebhookApp({
+      applicationVersionId: input.attempt.applicationVersionId,
+      onPublicationSubmitted: async (versionId) => {
+        await recordClaimedLarkPlatformApplicationVersion({
+          attemptId: input.attempt.attemptId,
+          claimId: input.claimId,
+          db: input.db,
+          nowMs: input.clock(),
+          versionId,
+        });
+      },
       appId: connection.appId,
       appSecret,
       connectionId,
