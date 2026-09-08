@@ -1,5 +1,21 @@
 # Native cancellation outcome contract audit
 
+## Agent Context
+
+- Purpose: Record the compatibility and release impact of native cancellation
+  outcome classification.
+- Read this when: Reviewing or releasing the native stopped-outcome correction.
+- Update this when: Its compatibility findings or required release scope change.
+- Do not use this for: Stop authorization, execution control, or general release
+  procedures.
+- Source of truth: The shared outcome projector and captured publication evidence
+  establish behavior; the production release owner documents govern delivery.
+
+Status: Awaiting managed release and production acceptance.
+
+Remove this document after the correction is released and production acceptance
+is recorded in the PR, with any lasting contract decisions retained in owner docs.
+
 The shared final-visible-outcome projector classified an authoritative native
 `signal.text` publication with `remote_agent.execution_cancelled` as a failure.
 Production evidence showed a successful Stop, a cancelled dispatch, and the
@@ -20,9 +36,15 @@ Do not infer cancellation from message text or a Stop request acknowledgement.
   setup, Wake, Space actions, and diagnostics. Old copies that recompute the
   projector retain the display bug until updated; they cannot change cancellation
   authority. No minimum CLI bump or migration is required.
-- Deploy Core for server progress/trace classification. Other consumers that
-  recompute this projection receive the fix when their bundle is next released.
-  Rolling back restores the reporting bug without changing stored outcomes.
+- The changed `packages/schemas/src/` path participates in the managed Service
+  source hash. Wire compatibility does not make this a Core-only release: rebuild
+  and stamp the managed local components through the guarded release workflow,
+  and publish the next CLI/Service 0.3.175 artifact as `available`. Do not hand-edit
+  hashes or bypass release-readiness checks. The minimum required CLI remains
+  unchanged because the existing wire contract remains compatible.
+- Deploy Core for server progress/trace classification with the verified managed
+  artifact required by the release guard. Rolling back restores the reporting
+  bug without changing stored outcomes.
 - No scoped architecture rule is violated: authoritative published evidence
   still determines the public outcome; a stopped execution is not a failure.
 
