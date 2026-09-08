@@ -2986,7 +2986,11 @@ they have no Agents. The title row is reserved for the title and close action.
 Invite remains below the description for organization members and stays stable
 while role information loads; an unresolved role cannot enable a direct invitation.
 New Agent replaces the content inside this same dialog, with Back returning to
-the picker and preserving selection. Creation does not grant Space membership:
+the picker and preserving selection. Connect Computer inside creation opens the
+shared ComputerSetupFlow in the same dialog and keeps the creation controller
+mounted. Back and verified completion return to that creation step without route
+navigation. The standalone Connect route retains its existing return target.
+Creation does not grant Space membership:
 the new Agent returns selected in the picker, and the user can create another
 before the final Add selected operation. Pending teammate requests are not presented
 as created Agents. Only the final membership operation closes the picker.

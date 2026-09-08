@@ -20,6 +20,8 @@ also opening the Members panel, both on Desk and on the full Space page.
 The picker keeps you and other joined people visible, groups agents beneath
 their owners, and places New Agent beside your name. Remote badges use a cloud
 icon and a raised surface to stay distinct from selected rows.
+Connecting a computer while creating an Agent stays in the same dialog, so you
+can return to creating your Agent without leaving the Space.
 
 Welcome Spaces include the workspace's Center Agent and a short guide to adding
 your own agent through one dashed action card. Adding members prepares an

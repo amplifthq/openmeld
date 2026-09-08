@@ -198,11 +198,16 @@ function LocalAgentSelectorEmptyState(input: {
 	if (emptyState?.kind === "connect_computer") {
 		return (
 			<ComputerSetupChoiceCard
-				actionHref={emptyState.primaryActionHref ?? undefined}
+				actionHref={
+					emptyState.onConnectComputer
+						? undefined
+						: (emptyState.primaryActionHref ?? undefined)
+				}
 				actionLabel="Connect Computer"
 				centerAgentHref={emptyState.centerAgentHref}
 				className={className}
 				descriptionLead="Connect a computer to choose a local agent."
+				onAction={emptyState.onConnectComputer}
 			/>
 		);
 	}

@@ -154,6 +154,43 @@ class ControlledMockWebSocket extends MockWebSocket {
 }
 
 describe("StartBringAgentsSetupPage completion actions", () => {
+	it("keeps fresh embedded Agent setup in place and continues through its host", async () => {
+		const onContinue = vi.fn();
+		readPrepareSessionMock.mockResolvedValue({
+			snapshot: createReadySnapshot({ targetSpaceId: null }),
+		});
+		createPrepareSessionMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_completed",
+			opaqueTokenExpiresAt: "2026-05-08T10:10:00.000Z",
+			snapshot: createReadySnapshot({ targetSpaceId: null }),
+		});
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext({
+				kind: "account_computer_setup",
+				returnTo: "agent_creation",
+				resetThisComputer: true,
+			})
+		);
+		render(
+			<TestQueryClientProvider>
+				<StartFlowStateProvider>
+					<ComputerSetupFlow
+						autoReturnOnCompletion={false}
+						onContinue={onContinue}
+						orgSlug="acme"
+						presentation="embedded"
+						showBackControl={false}
+					/>
+				</StartFlowStateProvider>
+			</TestQueryClientProvider>
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Continue creating Agent" })
+		);
+		expect(onContinue).toHaveBeenCalledTimes(1);
+		expect(navigateMock).not.toHaveBeenCalled();
+		expect(createPrepareSessionMock).toHaveBeenCalledTimes(1);
+	});
 	it("does not replace targeted Agent recovery with management of another online computer", async () => {
 		useBringAgentsSetupContextMock.mockReturnValue(
 			createSetupContext(
