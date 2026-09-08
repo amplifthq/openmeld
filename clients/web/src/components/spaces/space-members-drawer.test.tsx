@@ -198,6 +198,62 @@ import {
 } from "./space-members-error-copy";
 
 describe("SpaceMembersSidePanel", () => {
+	it.each([
+		true,
+		false,
+	])("opens one add dialog with Members closed (desktop=%s)", async (desktop) => {
+		const onOpenChange = vi.fn();
+		const common = {
+			activeWakeWaitingTargetProfileIds: new Set<string>(),
+			agentRecoveryPlansByProfileId: new Map(),
+			autoRefreshExhaustedProfileIds: new Set<string>(),
+			currentOwnerUserId: "user_felix",
+			currentProfileId: "11111111-1111-4111-8111-111111111111",
+			isAgentRecoveryPending: () => false,
+			isLoading: false,
+			membersError: null,
+			onAgentRecoveryAction: async () => undefined,
+			onAddProfiles: vi.fn(),
+			onOpenChange,
+			onRefresh: async () => undefined,
+			open: false,
+			orgSlug: "acme",
+			snapshot: createSpaceMembersSnapshot({
+				humans: [
+					createSpaceMemberHumanSnapshot({
+						profileName: "Felix",
+						profileId: "11111111-1111-4111-8111-111111111111",
+					}),
+				],
+			}),
+		};
+		const surfaces = (nonce: number) => (
+			<>
+				<SpaceMembersSidePanel
+					{...common}
+					handlesAddMembersRequest={desktop}
+					openAddMembersNonce={nonce}
+				/>
+				<SpaceMembersDrawer
+					{...common}
+					handlesAddMembersRequest={!desktop}
+					openAddMembersNonce={nonce}
+				/>
+			</>
+		);
+		const view = renderWithQueryClient(surfaces(0));
+		view.rerender(
+			<TestQueryClientProvider>{surfaces(1)}</TestQueryClientProvider>
+		);
+		await screen.findByRole("dialog", { name: "Add People or Agents" });
+		expect(screen.getAllByRole("dialog")).toHaveLength(1);
+		expect(screen.queryByRole("heading", { name: "Members" })).toBeNull();
+		expect(onOpenChange).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(onOpenChange).not.toHaveBeenCalled();
+	});
+
 	afterEach(() => {
 		cleanup();
 		vi.restoreAllMocks();

@@ -2978,7 +2978,10 @@ users receive the final layout without spatial motion.
 
 Members header descriptions own a full-width row below the title and actions.
 The header Add People or Agents action and the one-member empty-state card both
-open the same Add People or Agents dialog. New Agent is a compact primary action
+open the same Add People or Agents dialog. Empty-Space setup and Welcome Space
+actions open that dialog directly without expanding Members. Closing the dialog
+preserves whether the user had already opened Members. New Agent is a compact
+primary action
 below the dialog description; the title row is reserved for the title and close
 action. Invite sits beside New Agent for organization members and stays stable
 while role information loads; an unresolved role cannot enable a direct invitation.

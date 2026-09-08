@@ -216,7 +216,7 @@ function useSpaceSetupRecallWiring(input: {
 		allHidden: false,
 		hasSetup: false,
 	});
-	const [addMembersFlashNonce, setAddMembersFlashNonce] = useState(0);
+	const [addMembersRequestNonce, setAddMembersRequestNonce] = useState(0);
 	const handleSetupVisibilityChange = useCallback(
 		(visibility: SpaceSetupVisibility) => {
 			setSetupVisibility(visibility);
@@ -229,7 +229,7 @@ function useSpaceSetupRecallWiring(input: {
 		setSetupVisibility((current) => ({ ...current, allHidden: false }));
 	}, [input.onViewChange]);
 	const handleAddAgentsFromBanner = useCallback(() => {
-		setAddMembersFlashNonce((nonce) => nonce + 1);
+		setAddMembersRequestNonce((nonce) => nonce + 1);
 	}, []);
 	const setupRecallAction =
 		setupVisibility.hasSetup &&
@@ -237,7 +237,7 @@ function useSpaceSetupRecallWiring(input: {
 			<SetupRecallButton onClick={handleRecallSetup} />
 		) : null;
 	return {
-		addMembersFlashNonce,
+		addMembersRequestNonce,
 		handleAddAgentsFromBanner,
 		handleSetupVisibilityChange,
 		setupRecallAction,
@@ -1272,10 +1272,9 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		},
 		[input.spaceId, setMembersOpen]
 	);
-	// Get-set-up panel recall + Add-agents highlight wiring (drives the header
-	// recall action and the Add-members card flash).
+	// Setup recall and direct requests to open the shared member picker.
 	const {
-		addMembersFlashNonce,
+		addMembersRequestNonce,
 		handleAddAgentsFromBanner,
 		handleSetupVisibilityChange,
 		setupRecallAction,
@@ -1331,7 +1330,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		accountProfiles,
 		activeWakeDisplayTargetProfileIds,
 		activeWakeWaitingTargetProfileIds,
-		addMembersFlashNonce,
+		addMembersRequestNonce,
 		agentRecoveryPlansByProfileId,
 		autoRefreshExhaustedProfileIds,
 		centerAgentState,
@@ -2595,7 +2594,7 @@ function SpaceLandingSecondaryPanels({
 		accountProfiles,
 		activeWakeDisplayTargetProfileIds,
 		activeWakeWaitingTargetProfileIds,
-		addMembersFlashNonce,
+		addMembersRequestNonce,
 		agentRecoveryPlansByProfileId,
 		autoRefreshExhaustedProfileIds,
 		centerAgentState,
@@ -2641,7 +2640,7 @@ function SpaceLandingSecondaryPanels({
 		onOpenChange: handleMembersOpenChange,
 		onRefresh: refreshCurrentSpaceMemberFacts,
 		onRemoveMember: spaceMemberRemovalHandler,
-		openAddMembersNonce: addMembersFlashNonce,
+		openAddMembersNonce: addMembersRequestNonce,
 		orgSlug: input.orgSlug,
 		prepareSetupHref,
 		snapshot: controller.isCurrentAccessConfirmed
@@ -2741,11 +2740,13 @@ function SpaceLandingSecondaryPanels({
 			<SpaceLandingMembersChrome
 				drawerProps={{
 					...sharedMembersProps,
+					handlesAddMembersRequest: !isDesktopMembersPanel,
 					onOpenChange: handleMembersOpenChange,
 					open: !isDesktopMembersPanel && membersOpen,
 				}}
 				sidePanelProps={{
 					...sharedMembersProps,
+					handlesAddMembersRequest: isDesktopMembersPanel,
 					onOpenChange: handleMembersOpenChange,
 					onPanelWidthChange: membersPanelWidth.onWidthChange,
 					open: isDesktopMembersPanel && membersOpen,

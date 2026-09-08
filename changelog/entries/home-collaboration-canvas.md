@@ -15,6 +15,9 @@ it; its size is also remembered. Right-click the canvas to reset the view or
 restore the default layout. Personal workspaces can also select their
 Center Agent in the shared Add People or Agents dialog.
 
+Adding people or agents from an empty Space opens the dialog directly without
+also opening the Members panel, both on Desk and on the full Space page.
+
 Welcome Spaces include the workspace's Center Agent and a short guide to adding
 your own agent through one dashed action card. Adding members prepares an
 editable introduction addressed to those members; you decide when to send it.
