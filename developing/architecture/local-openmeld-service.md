@@ -426,7 +426,8 @@ Unknown-submission guidance applies to Space Action submission outcomes, not
 context reads or other business tools. When a context read fails before any
 Space Action submission, the Agent should report the blocker through the
 permitted completion action rather than invent results or silently finish.
-Context-reading commands use the existing dispatch-scoped absolute CLI entry
+Shared text attachments use the dispatch `read_file` tool when available.
+Other context-reading commands use the existing dispatch-scoped absolute CLI entry
 from `OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH`, so a provider's login shell
 cannot redirect them to an unrelated installation through PATH. Human-facing
 Service maintenance guidance keeps the normal lane command.
@@ -443,7 +444,14 @@ instruction channel.
 For a supported controller, the Service may inject an ephemeral first-party
 Space Action tool configuration into the controller process for the active
 dispatch. That configuration is not written into user settings. It exposes only
-the allowed `reply`, `status`, and `stay_silent` operations, forwards the active
+the allowed `reply`, `status`, and `stay_silent` operations, plus the read-only
+`read_file` context operation. File reads accept only a file ID and optional
+revision; the active dispatch supplies the Space and acting Agent identity.
+The trusted tool process invokes the dispatch-owned CLI's existing public file
+read command outside the controller sandbox, preserving normal authentication,
+Space permissions, revision checks, and text-size limits. It never grants the
+controller access to local credentials or arbitrary filesystem paths. A file
+read does not record an action or finish the Wake. The configuration forwards the active
 dispatch identity, and fails closed when the action context is absent, expired,
 or mismatched. Fresh and resumed controller conversations use the same tool
 boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use

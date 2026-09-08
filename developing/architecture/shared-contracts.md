@@ -1660,6 +1660,15 @@ constants are not evidence of compatibility. No D1 migration or new public R2
 bucket is introduced: each Space Durable Object lazily owns its SQLite tables,
 and immutable bytes use the existing private Space object-store binding.
 
+Workstation dispatch tools expose a bounded `read_file` operation for text
+attachments. Its input is the existing file ID and optional revision; its
+response follows `readSpaceFileTextResponseSchema`, the public CLI text-read
+shape. Space and acting Profile come from the active dispatch context, and the
+existing public file API still owns access checks. This additive local tool
+does not change cloud file routes, dispatch envelopes, or execution authority.
+Old CLI/Service installations retain their existing file commands; new local
+components interoperate with the existing Core and Gateway file receivers.
+
 #### Historical attachment rollout
 
 The first rollout is an explicit exception to the default cloud deploy order:
