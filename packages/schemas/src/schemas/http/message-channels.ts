@@ -209,7 +209,8 @@ export const larkPlatformRegistrationAttemptProjectionSchema = z
       const url = new URL(attempt.registrationUrl);
       if (
         url.protocol !== "https:" ||
-        url.host !== registrationDomains[attempt.provider].launcherHost ||
+        (url.host !== registrationDomains.feishu.launcherHost &&
+          url.host !== registrationDomains[attempt.provider].launcherHost) ||
         url.pathname !== "/page/launcher" ||
         url.username ||
         url.password ||
@@ -219,7 +220,8 @@ export const larkPlatformRegistrationAttemptProjectionSchema = z
       ) {
         context.addIssue({
           code: "custom",
-          message: "Registration URL must use the pinned provider launcher.",
+          message:
+            "Registration URL must use the shared issuer or selected provider launcher.",
           path: ["registrationUrl"],
         });
       }

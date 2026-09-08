@@ -9,8 +9,8 @@ audiences: ["admins"]
 Lark and Feishu setup now open their matching platform pages. OpenMeld keeps
 the selected platform throughout registration, and
 a different account brand produces a clear switch-account message with a
-restart action. Pending links from the older shared entry are refreshed when
-their owner resumes setup.
+restart action. Existing setup links open the selected platform without
+discarding setup progress.
 
 Already-open setup sessions can continue polling older links, and a failed
 resume keeps its error visible with a Start over action for organization admins.

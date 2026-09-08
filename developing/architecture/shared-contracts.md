@@ -2564,15 +2564,9 @@ back in the reverse order.
 
 Lark-platform registration begin has three explicit modes: `resume`,
 `restart`, and `repair`. `resume` is the compatibility default and returns the
-current active attempt when its registration route matches the selected
-provider. A pending legacy attempt with a mismatched account domain or launcher
-is replaced through the existing atomic restart path on the next authorized
-begin/resume action; its retired row remains history. Poll responses for legacy
-Lark attempts project a validated Lark launcher using the existing user code,
-so an already-open dialog can continue without first calling resume. This is
-a URL projection only: the stored attempt and ciphertext are unchanged. This exception never
-replaces saved app credentials or a configuring connection. `restart` may
-replace only a `pending_registration`
+current active attempt. A legacy shared-issuer launcher does not restart an
+attempt: Web selects the browser host while preserving its user code and all
+other URL parameters. `restart` may replace only a `pending_registration`
 attempt owned by the requesting Human Profile in the active Organization. It
 never replaces an attempt after credential receipt or while connection
 configuration is running. `repair` is accepted only for a `repair_required` or
@@ -2597,7 +2591,9 @@ The selected provider fixes registration routing. The shared
 launcher destinations. Both providers begin at the shared issuer
 `accounts.feishu.cn`: direct Lark issuance still produces invalid launcher
 links in the real browser gate. Core validates the shared issuer's Feishu URL
-and user code, then sets only the launcher host to the selected provider.
+and user code, retaining the shared issuer URL in storage and HTTP responses.
+Web sets only the browser launcher host to the selected provider after response
+validation. This presentation does not change registration identity or authority.
 Polling starts at the shared issuer and may move to the Lark account host only
 after the returned brand matches an already selected Lark attempt. This is a
 protocol transport transition; it never changes the selected provider.
@@ -2610,13 +2606,16 @@ offers a cross-brand sign-in link, so OpenMeld cannot claim that the external
 page prevents creation of a wrong-brand app. It must reject that app when the
 registration protocol reports the mismatch.
 
-Contract impact: payload fields are unchanged, but accepted Lark registration
-URLs change host. Older API-client/Web schema readers reject the new Lark URL;
-the stricter new reader rejects an unnormalized legacy cross-brand Lark URL.
-New Core normalizes its legacy pending projections, including not-due polls;
-old Core responses still require reader/producer rollout coordination. Core, Gateway,
-Web and external API-client consumers need a coordinated rollout plan for setup
-before release. Do not claim arbitrary old/new setup interoperability. Existing
+Contract impact: payload fields and the emitted shared-issuer URL stay compatible
+with old Gateway, Web, and API-client readers. New readers accept that URL plus
+the selected provider's launcher, with the same HTTPS, path, user-code, and
+credential/fragment restrictions. Core validates stored URLs before returning
+them without host rewriting. New registrations store
+the shared issuer URL so rolling Core back does not strand pending attempts.
+Use the normal Web, Gateway, Core cloud order; either old/new reader/producer
+combination remains readable. Old browser tabs retain their previous launcher
+behavior until reloaded; new Web selects the correct launcher even with old Core.
+The early brand-mismatch refusal requires new Core. Existing
 connected-channel delivery, CLI setup, workstation Wake and Service contracts
 are unchanged; no daemon epoch change is implied by this URL contract.
 

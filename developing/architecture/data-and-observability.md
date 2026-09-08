@@ -2295,15 +2295,15 @@ or reloading it cannot stop a durable attempt.
 The provider is selected before registration and never inferred as a routing
 choice from the logged-in identity. Both brands use the shared Feishu issuer;
 only an already selected Lark attempt may transition to Lark polling after a
-matching brand signal. An authorized begin/resume replaces a
-pending legacy registration whose account or launcher host does not match that
-selection, using the same atomic retirement/insertion path as an explicit
-restart. It does not migrate credentials, connected channels, or production
-rows out of band.
+matching brand signal. Begin/resume retains pending legacy registrations;
+changing the browser launcher does not retire their codes or create another
+attempt. Only an explicit authorized restart uses atomic retirement/insertion.
+Credentials and connected channels are unchanged.
 
-Pending legacy Lark attempts remain readable during polling: Core projects the
-existing shared-issuer user code onto the Lark launcher and validates the full
-URL without mutating the stored attempt. Corrupt ciphertext or a mismatched
+Pending Lark attempts retain the shared-issuer URL in storage and HTTP so old
+readers and rolled-back Core remain compatible. Core validates stored URLs
+before HTTP projection; Web selects the Lark browser host without changing the
+user code or attempt. Corrupt ciphertext or a mismatched
 encryption key still raises its diagnostic error. Recovery uses an explicit,
 authorized pending restart; no catch converts a decryption failure into an
 automatic provider registration or conceals a key-configuration problem.

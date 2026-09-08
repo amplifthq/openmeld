@@ -801,7 +801,7 @@ function larkRegistrationResponse(
       reasonCode: null,
       registrationUrl: connected
         ? null
-        : "https://open.larksuite.com/page/launcher?user_code=redacted",
+        : "https://open.feishu.cn/page/launcher?user_code=redacted",
       status,
     },
     connection: connected

@@ -101,7 +101,7 @@ describe("Lark-platform registration service", () => {
           provider: "lark",
           status: "pending_registration",
           registrationUrl:
-            "https://open.larksuite.com/page/launcher?user_code=legacy-code&name=Existing+app",
+            "https://open.feishu.cn/page/launcher?user_code=legacy-code&name=Existing+app",
         });
       }
       expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -190,7 +190,7 @@ describe("Lark-platform registration service", () => {
   it.each([
     "accounts.feishu.cn",
     "accounts.larksuite.com",
-  ])("replaces a legacy Lark launcher on resume even when its poll host is %s", async (accountDomain) => {
+  ])("resumes the same legacy attempt without another provider request on %s", async (accountDomain) => {
     const harness = createRegistrationHarness();
     try {
       const started = await beginRemoteAgentLarkPlatformRegistration({
@@ -211,17 +211,19 @@ describe("Lark-platform registration service", () => {
         sql: "UPDATE openMeldRemoteAgent_lark_platform_registration_attempts SET account_domain = ?, encrypted_registration_url = ? WHERE attempt_id = ?",
         params: [accountDomain, encryptedRegistrationUrl, started.attempt.id],
       });
+      const fetchImpl = jsonFetch(capturedBegin);
       const resumed = await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
         db: harness.db,
         env: ENV,
-        fetchImpl: jsonFetch(capturedBegin),
+        fetchImpl,
         nowMs: 1100,
         provider: "lark",
       });
-      expect(resumed.attempt.id).not.toBe(started.attempt.id);
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(resumed.attempt.id).toBe(started.attempt.id);
       expect(new URL(resumed.attempt.registrationUrl ?? "").host).toBe(
-        "open.larksuite.com"
+        "open.feishu.cn"
       );
       await expect(
         readRemoteAgentLarkPlatformRegistrationAttempt({
@@ -229,8 +231,9 @@ describe("Lark-platform registration service", () => {
           db: harness.db,
         })
       ).resolves.toMatchObject({
-        status: "repair_required",
-        failureReasonCode: "lark.registration_restarted",
+        status: "pending_registration",
+        encryptedRegistrationUrl,
+        consumedAtMs: null,
       });
     } finally {
       harness.close();
@@ -910,7 +913,7 @@ describe("Lark-platform registration service", () => {
       });
       expect(
         first.attempt.registrationUrl?.startsWith(
-          "https://open.larksuite.com/page/launcher"
+          "https://open.feishu.cn/page/launcher"
         )
       ).toBe(true);
 
@@ -929,9 +932,7 @@ describe("Lark-platform registration service", () => {
       expect(record?.encryptedDeviceCode).not.toContain(
         "<redacted-device-code>"
       );
-      expect(record?.encryptedRegistrationUrl).not.toContain(
-        "open.larksuite.com"
-      );
+      expect(record?.encryptedRegistrationUrl).not.toContain("open.feishu.cn");
 
       const resumed = await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,

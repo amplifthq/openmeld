@@ -125,9 +125,11 @@ fresh links in that same session produced this controlled comparison:
 These results reject direct Lark issuance as the proposed fix. The revised
 implementation retains the shared issuer and the existing confirmed-Lark poll
 transition, while setting the initial launcher host from the selected provider.
-A reported other brand fails before credential persistence. An authorized
-resume replaces a pending legacy cross-brand launcher through the existing
-atomic restart path. Stored credentials and connected channels are preserved.
+A reported other brand fails before credential persistence. The final
+compatibility implementation retains the shared issuer URL in storage and HTTP,
+and Web selects the browser launcher host after validating the response. Resume
+preserves legacy codes and attempts; only explicit Start over retires a pending
+attempt. Stored credentials and connected channels are preserved.
 
 The explicit Lark launcher in the in-app browser asked for Lark login and
 offered a "Switch to Feishu to log in" link. Thus initial host selection does
@@ -135,6 +137,16 @@ not enforce identity inside the provider's app-creation UI. No new app or grant
 was created during this routing smoke. Fresh credential completion and message
 delivery through the revised launcher remain unverified; this is entry-page
 evidence, not full registration or release certification.
+
+Felix explicitly accepted deferring fresh account-based end-to-end validation
+until after the coordinated merge and production release on 2026-09-08. A
+colleague with Feishu access will verify through Organization Channels: create
+and authorize the app, wait for Connected, send a message and receive the Center
+Agent reply, then check the wrong-account explanation and Start over recovery.
+Lark completion remains separately unverified unless a Lark account is available;
+a Feishu result must not be reported as Lark proof. Record the release SHA,
+platform, visible outcome, and any failure diagnostics with the release evidence.
+This is an explicit smoke deferral, not a claim that the end-to-end gate passed.
 
 On 2026-07-21, the production launcher configuration was rerun in the same real
 Lark tenant after the provider page had once shown `Couldn't create app`. The

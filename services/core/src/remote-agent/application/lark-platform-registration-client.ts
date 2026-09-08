@@ -105,8 +105,6 @@ export async function beginLarkPlatformRegistration(input: {
       "registration_response_invalid"
     );
   }
-  registrationUrl.hostname =
-    LARK_PLATFORM_REGISTRATION_DOMAINS[input.expectedProvider].launcherHost;
   registrationUrl.searchParams.set(
     "addons",
     await encodeLarkPlatformRegistrationAddons(
@@ -292,7 +290,7 @@ async function requestRegistration(input: {
   return body;
 }
 
-export function isLarkPlatformRegistrationRouteCompatible(input: {
+function isLarkPlatformRegistrationRouteCompatible(input: {
   accountDomain: string;
   provider: RemoteAgentLarkPlatformProvider;
   registrationUrl: string;

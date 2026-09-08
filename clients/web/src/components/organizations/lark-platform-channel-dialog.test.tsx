@@ -2,8 +2,6 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LarkPlatformChannelDialog } from "./lark-platform-channel-dialog";
 
-const CREATE_APP_COPY_PATTERN = /create a new Lark app/i;
-
 afterEach(cleanup);
 
 describe("LarkPlatformChannelDialog", () => {
@@ -138,7 +136,11 @@ describe("LarkPlatformChannelDialog", () => {
 		).toBeNull();
 	});
 
-	it("hands the user to the official setup page and can start over", () => {
+	it.each([
+		["lark", "Lark", "open.feishu.cn", "open.larksuite.com"],
+		["lark", "Lark", "open.larksuite.com", "open.larksuite.com"],
+		["feishu", "Feishu", "open.feishu.cn", "open.feishu.cn"],
+	] as const)("opens %s setup from a compatible response and can start over", (provider, label, host, destination) => {
 		const onStartOver = vi.fn();
 		const props = {
 			canManage: true,
@@ -152,16 +154,15 @@ describe("LarkPlatformChannelDialog", () => {
 			onStartOver,
 			open: true,
 			pollPending: false,
-			provider: "lark" as const,
+			provider,
 			registration: {
 				attempt: {
 					expiresAt: "2026-07-18T01:00:00.000Z",
 					id: "attempt_1",
 					nextPollAt: "2026-07-18T00:00:05.000Z",
-					provider: "lark" as const,
+					provider,
 					reasonCode: null,
-					registrationUrl:
-						"https://open.larksuite.com/page/launcher?user_code=redacted",
+					registrationUrl: `https://${host}/page/launcher?user_code=redacted&name=Existing+app`,
 					status: "pending_registration" as const,
 				},
 				connection: null,
@@ -173,12 +174,14 @@ describe("LarkPlatformChannelDialog", () => {
 		render(<LarkPlatformChannelDialog {...props} />);
 
 		const setupLink = screen.getByRole("link", {
-			name: "Open Lark setup",
+			name: `Open ${label} setup`,
 		});
 		expect(setupLink.getAttribute("href")).toBe(
-			"https://open.larksuite.com/page/launcher?user_code=redacted"
+			`https://${destination}/page/launcher?user_code=redacted&name=Existing+app`
 		);
-		expect(screen.getByText(CREATE_APP_COPY_PATTERN)).toBeTruthy();
+		expect(
+			screen.getByText(`Sign in with your ${label} account.`, { exact: false })
+		).toBeTruthy();
 		expect(screen.getByText("Waiting for approval")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Start over" }));
 		expect(onStartOver).toHaveBeenCalledOnce();

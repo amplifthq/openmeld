@@ -15,8 +15,8 @@ const BASE64_URL_PATTERN = /^[A-Za-z0-9_-]+$/u;
 describe("Lark-platform Personal Agent registration client", () => {
   it.each([
     ["feishu", capturedFeishuBegin, "accounts.feishu.cn", "open.feishu.cn"],
-    ["lark", capturedBegin, "accounts.feishu.cn", "open.larksuite.com"],
-  ] as const)("uses the shared issuer and selected %s launcher", async (provider, fixture, accountDomain, launcherHost) => {
+    ["lark", capturedBegin, "accounts.feishu.cn", "open.feishu.cn"],
+  ] as const)("preserves the shared issuer URL for %s storage and HTTP compatibility", async (provider, fixture, accountDomain, launcherHost) => {
     const fetchImpl = jsonFetch(fixture);
     const result = await beginLarkPlatformRegistration({
       appDescription: "Development registration",
@@ -105,7 +105,7 @@ describe("Lark-platform Personal Agent registration client", () => {
     });
   });
 
-  it("uses the shared issuer and preserves its code in the selected Lark launcher", async () => {
+  it("preserves the shared issuer code and launcher options", async () => {
     const fetchImpl = jsonFetch(capturedBegin);
 
     const result = await beginLarkPlatformRegistration({
@@ -130,7 +130,7 @@ describe("Lark-platform Personal Agent registration client", () => {
     expect(body.get("request_user_info")).toBe("open_id");
 
     const registrationUrl = new URL(result.registrationUrl);
-    expect(registrationUrl.host).toBe("open.larksuite.com");
+    expect(registrationUrl.host).toBe("open.feishu.cn");
     expect(registrationUrl.searchParams.get("createOnly")).toBe("true");
     expect(registrationUrl.searchParams.get("from")).toBe("sdk");
     expect(registrationUrl.searchParams.get("source")).toBe(

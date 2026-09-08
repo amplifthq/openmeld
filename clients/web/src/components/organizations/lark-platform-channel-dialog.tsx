@@ -1,5 +1,6 @@
 "use client";
 
+import { LARK_PLATFORM_REGISTRATION_DOMAINS } from "@openmeld/schemas";
 import type {
 	LarkPlatformProvider,
 	LarkPlatformRegistrationResponse,
@@ -175,6 +176,11 @@ function RegistrationProgress(input: {
 }) {
 	const attempt = input.registration.attempt;
 	if (attempt.status === "pending_registration" && attempt.registrationUrl) {
+		// HTTP retains the shared issuer URL for older readers. Only the browser
+		// destination changes; the provider and registration code stay fixed.
+		const launcherUrl = new URL(attempt.registrationUrl);
+		launcherUrl.hostname =
+			LARK_PLATFORM_REGISTRATION_DOMAINS[attempt.provider].launcherHost;
 		return (
 			<div className="space-y-4">
 				<div className="border border-border/70 bg-card/30 p-4">
@@ -190,7 +196,7 @@ function RegistrationProgress(input: {
 					<div className="mt-4 flex flex-wrap gap-2">
 						<a
 							className={buttonVariants({ size: "default" })}
-							href={attempt.registrationUrl}
+							href={launcherUrl.toString()}
 							rel="noreferrer"
 							target="_blank"
 						>

@@ -1,5 +1,4 @@
 import {
-  LARK_PLATFORM_REGISTRATION_DOMAINS,
   larkPlatformActiveRegistrationProjectionSchema,
   larkPlatformRegistrationResponseSchema,
   type MessageChannelConnectionProjection,
@@ -43,7 +42,6 @@ import { LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE } from "./lark-platform-pe
 import { isLarkPlatformProviderEnabledForOrganization } from "./lark-platform-provider-policy";
 import {
   beginLarkPlatformRegistration,
-  isLarkPlatformRegistrationRouteCompatible,
   LarkPlatformRegistrationError,
   pollLarkPlatformRegistration,
 } from "./lark-platform-registration-client";
@@ -128,11 +126,7 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
       throw serviceError(input.provider, "repair_unavailable", 409);
     }
     if (
-      !(await shouldRestartPendingRegistration({
-        attempt: activeAttempt,
-        cryptoKey: configuration.cryptoKey,
-        requested: input.restartPending === true,
-      }))
+      !(input.restartPending && activeAttempt.status === "pending_registration")
     ) {
       return await projectRegistrationResponse({
         attempt: activeAttempt,
@@ -228,29 +222,6 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
     attempt,
     cryptoKey: configuration.cryptoKey,
     db: input.db,
-  });
-}
-
-async function shouldRestartPendingRegistration(input: {
-  attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord;
-  cryptoKey: string;
-  requested: boolean;
-}): Promise<boolean> {
-  if (input.attempt.status !== "pending_registration") {
-    return false;
-  }
-  if (input.requested) {
-    return true;
-  }
-  const registrationUrl = await decryptLarkPlatformCredential({
-    credentialName: "registration URL",
-    cryptoKey: input.cryptoKey,
-    encryptedCredential: input.attempt.encryptedRegistrationUrl,
-  });
-  return !isLarkPlatformRegistrationRouteCompatible({
-    accountDomain: input.attempt.accountDomain,
-    provider: input.attempt.provider,
-    registrationUrl,
   });
 }
 
@@ -1034,7 +1005,7 @@ async function projectRegistrationResponse(input: {
     }
     connection = projectRemoteAgentLarkPlatformConnection(record);
   }
-  let registrationUrl =
+  const registrationUrl =
     input.attempt.status === "pending_registration"
       ? await decryptLarkPlatformCredential({
           credentialName: "registration URL",
@@ -1042,15 +1013,6 @@ async function projectRegistrationResponse(input: {
           encryptedCredential: input.attempt.encryptedRegistrationUrl,
         })
       : null;
-  if (registrationUrl && input.attempt.provider === "lark") {
-    const url = new URL(registrationUrl);
-    if (url.host === LARK_PLATFORM_REGISTRATION_DOMAINS.feishu.launcherHost) {
-      // Legacy shared-issuer links keep their code and attempt while polling.
-      // Validate the resulting URL below; this does not rewrite durable state.
-      url.hostname = LARK_PLATFORM_REGISTRATION_DOMAINS.lark.launcherHost;
-      registrationUrl = url.toString();
-    }
-  }
   return larkPlatformRegistrationResponseSchema.parse({
     attempt: {
       expiresAt: new Date(input.attempt.expiresAtMs).toISOString(),
