@@ -2589,6 +2589,16 @@ const requestRuntimeCoordinatorWakeStop = (
 ): Promise<Response> =>
   fetchRuntimeTransportJson(hub, "/runtime-coordinator/wake-stop", input);
 
+const readPublicationWakeStopEligibility = (
+  hub: RuntimeTransportHub,
+  input: RuntimeTransportRuntimeCoordinatorWakeStopRequest = buildRuntimeCoordinatorWakeStopRequest()
+): Promise<Response> =>
+  fetchRuntimeTransportJson(
+    hub,
+    "/runtime-coordinator/wake-stop/publication-eligibility",
+    input
+  );
+
 const enableWakeStopControl = (
   state: RuntimeTransportMutableState,
   controlMode: "cancel" | "interrupt" = "cancel"
@@ -11994,6 +12004,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     state.sessionsById.delete("daemon-session-1");
 
+    const publicationEligibility =
+      await readPublicationWakeStopEligibility(hub);
+    await expect(publicationEligibility.json()).resolves.toBeNull();
     const response = await requestRuntimeCoordinatorWakeStop(hub);
 
     expect(response.status).toBe(200);
@@ -12081,6 +12094,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
     state.sessionsById.clear();
     sentFrames.length = 0;
+    const beforeEligibility = JSON.stringify([...storageRecords]);
+    const eligibility = await readPublicationWakeStopEligibility(hub);
+    await expect(eligibility.json()).resolves.toEqual({
+      controlMode: "openmeld_owned_publication_cancel",
+      reasonCode: null,
+      reliability: "openmeld_owned_publication",
+      status: "eligible",
+    });
+    expect(JSON.stringify([...storageRecords])).toBe(beforeEligibility);
+    const wrongOwner = await readPublicationWakeStopEligibility(hub, {
+      ...buildRuntimeCoordinatorWakeStopRequest(),
+      ownerUserId: "another-owner",
+    });
+    await expect(wrongOwner.json()).resolves.toBeNull();
     if (firstPublication === "identity_mismatch") {
       const inbox = recordingD1.inboxRows.get("dispatch-1::attempt-1");
       if (!inbox) {
@@ -12196,6 +12223,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ok: true,
       status: "already_cancelled",
     });
+    const terminalEligibility = await readPublicationWakeStopEligibility(hub);
+    await expect(terminalEligibility.json()).resolves.toBeNull();
   });
 
   it("rejects Wake Stop for terminal RuntimeCoordinator executions without marking stopped", async () => {

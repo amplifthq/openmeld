@@ -144,6 +144,7 @@ import {
   runtimeTransportSubmitTaskResultRequestSchema,
   runtimeTransportWaitDispatchResultRequestSchema,
   toLegacySpaceAddressingWireValue,
+  wakeStopEligibilityReadModelSchema,
 } from "@openmeld/schemas";
 import type {
   AgentInteractionPendingSummary,
@@ -9645,16 +9646,22 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return this.handleRuntimeCoordinatorPreExecutionHandoffRequest(request);
     }
 
-    const runtimeCoordinatorInteractionHandler:
+    const runtimeCoordinatorRequestHandler:
       | ((input: Request) => Promise<Response>)
       | undefined = {
       "/runtime-coordinator/interaction/read": (input: Request) =>
         this.handleRuntimeCoordinatorReadInteractionRequest(input),
       "/runtime-coordinator/interaction/respond": (input: Request) =>
         this.handleRuntimeCoordinatorRespondInteractionRequest(input),
+      "/runtime-coordinator/wake-stop/publication-eligibility": (
+        input: Request
+      ) =>
+        this.handleRuntimeCoordinatorPublicationWakeStopEligibilityRequest(
+          input
+        ),
     }[url.pathname];
-    if (runtimeCoordinatorInteractionHandler) {
-      return runtimeCoordinatorInteractionHandler(request);
+    if (runtimeCoordinatorRequestHandler) {
+      return runtimeCoordinatorRequestHandler(request);
     }
 
     if (url.pathname === "/runtime-coordinator/wake-stop") {
@@ -13428,6 +13435,49 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
 
     return Response.json(validated.data);
+  }
+
+  private async handleRuntimeCoordinatorPublicationWakeStopEligibilityRequest(
+    request: Request
+  ): Promise<Response> {
+    const parsed =
+      runtimeTransportRuntimeCoordinatorWakeStopRequestSchema.safeParse(
+        await readJsonBody(request)
+      );
+    if (!parsed.success) {
+      return Response.json(null, { status: 400 });
+    }
+    const input = parsed.data;
+    const [commandState, authority] = await Promise.all([
+      this.readRuntimeCoordinatorRunCommandState(
+        input.runtimeCoordinatorExecutionId
+      ),
+      this.readRuntimeCoordinatorTokenAuthority(
+        input.runtimeCoordinatorExecutionId
+      ),
+    ]);
+    if (
+      !(commandState && authority) ||
+      authority.terminalOutcome ||
+      commandState.localProgress.phase !== "result_received" ||
+      !isRuntimeCoordinatorWakeStopCommandScopeMatch({ commandState, input }) ||
+      !isRuntimeCoordinatorWakeStopTokenAuthorityScopeMatch({
+        authority,
+        input,
+      })
+    ) {
+      return Response.json(null);
+    }
+    // This is a read-only stage projection. The existing Stop command still
+    // validates the accepted inbox and elects the final Space publication.
+    return Response.json(
+      wakeStopEligibilityReadModelSchema.parse({
+        controlMode: "openmeld_owned_publication_cancel",
+        reasonCode: null,
+        reliability: "openmeld_owned_publication",
+        status: "eligible",
+      })
+    );
   }
 
   private async requestRuntimeCoordinatorWakeStop(

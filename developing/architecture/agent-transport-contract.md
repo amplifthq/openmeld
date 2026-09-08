@@ -1682,6 +1682,16 @@ finalization-command and claim-read schemas. If that RPC is unavailable during
 a Core rollout, Stop returns `retry_later` and preserves the repair command.
 It does not require a CLI, Service, or Agent Controller protocol upgrade.
 
+For an accepted-but-unpublished execution, viewer-authorized Space progress
+reads ask RuntimeCoordinator for publication Stop eligibility. Its read-only
+endpoint checks the stored `result_received` lifecycle, nonterminal authority,
+and exact request scope; the absence of a current token run or fresh Controller
+report does not remove this server-owned capability. Missing or terminal
+authority returns no eligibility. An execution still running locally keeps the
+existing fresh cancel/interrupt report requirement. The existing Stop mutation
+continues to validate the accepted result and elect the final Space claim;
+eligibility cannot cancel work, publish a notice, or advance recovery.
+
 Wake execution invariants:
 
 - `dispatchId` is the logical Wake identity.

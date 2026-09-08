@@ -245,6 +245,7 @@ import { recordMentionDispatchPlannerDecision } from "../../../dispatch/infrastr
 import {
   readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace,
   readRuntimeTransportRuntimeCoordinatorInteraction,
+  readRuntimeTransportRuntimeCoordinatorPublicationWakeStopEligibility,
   recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop,
   requestRuntimeTransportRuntimeCoordinatorWakeStop,
   respondToRuntimeTransportRuntimeCoordinatorInteraction,
@@ -16642,6 +16643,12 @@ export class Space extends DurableObject<CoreBindings> {
       return null;
     }
     if (
+      execution.status === "result_accepted" ||
+      execution.status === "failed_retryable"
+    ) {
+      return this.readWakeProgressPublicationWakeStopEligibility(execution);
+    }
+    if (
       execution.terminalOutcome !== null ||
       execution.status === "cancelled"
     ) {
@@ -16668,6 +16675,35 @@ export class Space extends DurableObject<CoreBindings> {
           ? (agentControllerReport.agentControllerInterface ?? null)
           : null,
     });
+  }
+
+  private async readWakeProgressPublicationWakeStopEligibility(
+    execution: NonNullable<
+      SpaceDispatchTraceSnapshot["runtimeCoordinatorExecution"]
+    >
+  ): Promise<WakeProgressItem["wakeStopEligibility"]> {
+    const ownerUserId = await this.readRuntimeOwnerUserId(
+      execution.openMeldServiceRuntimeId.value
+    );
+    if (!ownerUserId) {
+      return null;
+    }
+    return await readRuntimeTransportRuntimeCoordinatorPublicationWakeStopEligibility(
+      {
+        env: this.bindings,
+        ownerUserId,
+        wakeStop: {
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          ownerUserId,
+          runtimeCoordinatorExecutionId:
+            execution.runtimeCoordinatorExecutionId,
+          dispatchId: execution.dispatchId,
+          spaceId: execution.spaceId,
+          sourceClientMessageId: execution.sourceClientMessageId,
+          targetProfileId: execution.targetProfileId,
+        },
+      }
+    ).catch(() => null);
   }
 
   private async readWakeProgressPreAgentWakeStopEligibility(input: {
