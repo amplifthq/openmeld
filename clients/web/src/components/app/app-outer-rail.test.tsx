@@ -120,6 +120,7 @@ vi.mock("#/query/organizations/invitation-requests", () => ({
 
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => appOrganization,
+	useOptionalAppOrganization: () => appOrganization,
 	useCurrentOrganizationSlug: () => appOrganization.currentOrganization.slug,
 }));
 

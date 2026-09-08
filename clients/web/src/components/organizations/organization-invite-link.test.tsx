@@ -72,6 +72,7 @@ describe("OrganizationInviteLink", () => {
 
 		expect(await screen.findByDisplayValue(FIRST_URL)).toBeTruthy();
 		expect(resetOrganizationJoinLinkMock).toHaveBeenNthCalledWith(1, {
+			mode: "direct",
 			organizationId: "org-acme",
 		});
 
@@ -87,6 +88,7 @@ describe("OrganizationInviteLink", () => {
 		expect(await screen.findByDisplayValue(SECOND_URL)).toBeTruthy();
 		expect(screen.queryByDisplayValue(FIRST_URL)).toBeNull();
 		expect(resetOrganizationJoinLinkMock).toHaveBeenNthCalledWith(2, {
+			mode: "direct",
 			organizationId: "org-acme",
 		});
 
@@ -96,6 +98,7 @@ describe("OrganizationInviteLink", () => {
 			await screen.findByRole("button", { name: "Generate invite link" })
 		).toBeTruthy();
 		expect(revokeOrganizationJoinLinkMock).toHaveBeenCalledWith({
+			mode: "direct",
 			organizationId: "org-acme",
 		});
 	});
