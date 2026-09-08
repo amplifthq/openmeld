@@ -638,18 +638,16 @@ describe("public agent failure reason mapping", () => {
     }
   });
 
-  it("returns structured setup recovery for binding runtime and capability mismatches", () => {
+  it("does not offer setup as implicit migration for connection mismatches", () => {
     expect(
       resolvePublicAgentFailureRecovery({
         errorCode: "claim_eligibility.binding_runtime_mismatch",
         targetLabel: "Runner",
       })
     ).toEqual({
-      body: "Runner is connected to an older computer setup. Update setup on this computer, then try again.",
-      kind: "local_agent_prepare",
-      primaryActionId: "connect_local_agent",
-      primaryActionLabel: "Connect local agent",
-      recoveryTarget: "prepare_setup",
+      body: "Runner's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
+      kind: "system_retry",
+      recoveryTarget: null,
     });
     expect(
       resolvePublicAgentFailureRecovery({
@@ -657,11 +655,9 @@ describe("public agent failure reason mapping", () => {
         targetLabel: "Runner",
       })
     ).toEqual({
-      body: "Runner is connected to a different local agent setup. Update setup on this computer, then try again.",
-      kind: "local_agent_prepare",
-      primaryActionId: "connect_local_agent",
-      primaryActionLabel: "Connect local agent",
-      recoveryTarget: "prepare_setup",
+      body: "Runner's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
+      kind: "system_retry",
+      recoveryTarget: null,
     });
   });
 
@@ -974,7 +970,7 @@ describe("public agent failure reason mapping", () => {
     ],
     [
       "local_service.identity_mismatch",
-      "Runner's computer connection does not match this Agent. Reconnect the computer.",
+      "Runner's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
     ],
     [
       "local_service.unavailable",
