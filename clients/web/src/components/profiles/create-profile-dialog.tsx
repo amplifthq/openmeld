@@ -110,6 +110,7 @@ import { currentLocalRuntimeReplyReadinessQueryOptions } from "#/query/connect/l
 import { agentActivitySessionsQueryOptions } from "#/query/organizations/agent-activity";
 import {
 	organizationComputersQueryOptions,
+	organizationDirectoryQueryFilters,
 	organizationDirectoryQueryOptions,
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
@@ -2163,6 +2164,12 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 }) {
 	const refreshes: Promise<unknown>[] = [
 		input.queryClient.invalidateQueries({
+			...organizationDirectoryQueryFilters({
+				organizationId: input.organizationId,
+			}),
+			refetchType: "active",
+		}),
+		input.queryClient.invalidateQueries({
 			queryKey: agentProfileCreationRequestQueryKeys.byOrganization(
 				input.organizationId
 			),
@@ -2174,10 +2181,6 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 		refreshes.push(
 			input.queryClient.invalidateQueries({
 				queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
-				refetchType: "active",
-			}),
-			input.queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.profileDirectory(input.organizationId),
 				refetchType: "active",
 			}),
 			refreshWebAgentReadinessSharedCaches({
@@ -2209,17 +2212,6 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 					})
 			);
 		}
-	} else {
-		refreshes.push(
-			input.queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.directory(input.organizationId),
-				refetchType: "active",
-			}),
-			input.queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.profileDirectory(input.organizationId),
-				refetchType: "active",
-			})
-		);
 	}
 	await Promise.all(refreshes);
 }
