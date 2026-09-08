@@ -2256,6 +2256,13 @@ challenge and must match its verification token before recording reachability.
 Partial or invalid signature headers are rejected. Ordinary encrypted events
 still require a valid signature; this exception never admits an event or starts
 a Center Agent turn.
+URL verification must meet the provider's one-second response deadline. Core
+reads the connection and its current verification credentials together, checks
+the encrypted challenge and token synchronously, and schedules the existing
+credential-fenced reachability transaction with `waitUntil` before returning
+the challenge. The response does not itself mark the connection ready. Failed
+background persistence is logged and leaves readiness unproven; disconnected,
+expired, or replaced credentials cannot regain readiness through that write.
 Core records the Event Subscription URL challenge and Message Card Request URL
 challenge separately. A Webhook connection becomes `connected` only after its
 application configuration has supplied the bot identity and both surfaces have
