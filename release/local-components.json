@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T07:56:39.535Z",
+  "updatedAt": "2026-09-08T08:44:46.636Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
-      "packageVersion": "0.3.172",
+      "packageVersion": "0.3.173",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands and cloud contracts remain compatible; unsupported borrowed Production Service launches are rejected before startup."
+      "reason": "The additive Feishu and Lark reauthorization request is Web-only; existing CLI commands and all normal responses remain compatible."
     },
     "service": {
-      "bundleHash": "965c545fb0ce50b3c7ff9f636ca2f3cc8c1728e6275f6fe298bf0994e835d879",
-      "bundleVersion": "0.3.172",
+      "bundleHash": "deae72dc1ce84dbfe0ab99c586d3f29cbf73435af65fa5787d92b68ddecf3f55",
+      "bundleVersion": "0.3.173",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Catalog registration no longer waits for a heartbeat; existing Service transport and in-flight Wake contracts remain compatible."
+      "reason": "Shared-schema packaging changes only; existing Services retain the same Wake, transport, setup and reply contracts."
     },
     "skills": {
       "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",
