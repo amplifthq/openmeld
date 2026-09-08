@@ -6,6 +6,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { Link } from "@tanstack/react-router";
 import { SLACK_INSTALL_INTENT } from "#/lib/organizations/organization-entry-intent";
 
@@ -14,7 +15,7 @@ export function PersonalWorkspaceChannelsGuidance(input: {
 	hasExistingSlackConnection: boolean;
 }) {
 	return (
-		<Card>
+		<Card className={surfaceClasses(2)}>
 			<CardHeader>
 				<CardTitle>
 					<h2>Create an organization to connect Channels</h2>

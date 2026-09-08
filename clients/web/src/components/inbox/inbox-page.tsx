@@ -97,7 +97,7 @@ export function InboxPage(input: {
 	const unresolvedActionCount = summaryQuery.data?.unresolvedActionCount ?? 0;
 	const unresolvedActionSummary = `${unresolvedActionCount} ${
 		unresolvedActionCount === 1 ? "item needs" : "items need"
-	} your attention`;
+	} action`;
 	const registerItemElement = useCallback(
 		(itemId: string, element: HTMLAnchorElement | null) => {
 			if (element) {
@@ -125,6 +125,10 @@ export function InboxPage(input: {
 		void,
 		InboxCacheSnapshots
 	>({
+		mutationKey: [
+			...inboxQueryKeys.organization(currentOrganization.id),
+			"mutation",
+		],
 		mutationFn: async () =>
 			await markAllCurrentInboxItemsRead({
 				organizationId: currentOrganization.id,

@@ -1,13 +1,13 @@
 "use client";
 
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
+import { SurfaceProvider, useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	type ComponentPropsWithoutRef,
 	forwardRef,
 	type ReactNode,
 } from "react";
-import { surfaceClasses } from "#/lib/surface-classes";
-import { SurfaceProvider, useSurface } from "#/lib/surface-context";
 
 type ElevatedProps = ComponentPropsWithoutRef<"div"> & {
 	offset: number;

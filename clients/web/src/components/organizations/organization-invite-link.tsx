@@ -120,7 +120,7 @@ function OrganizationInviteLinkContent(input: {
 			<p className="text-muted-foreground text-sm">Loading invite link.</p>
 		);
 	}
-	if (input.queryError) {
+	if (input.queryError && !input.joinLink) {
 		return (
 			<div className="space-y-3">
 				<p className="text-destructive text-sm">{input.queryError.message}</p>
@@ -160,6 +160,22 @@ function OrganizationInviteLinkContent(input: {
 	const mutationPending = input.isResetPending || input.isRevokePending;
 	return (
 		<div className="space-y-4">
+			{input.queryError ? (
+				<div className="space-y-3">
+					<p aria-live="polite" className="text-muted-foreground text-sm">
+						Could not refresh the invite link. Showing the last loaded link; its
+						status could not be confirmed.
+					</p>
+					<Button
+						onClick={input.onRetry}
+						size="sm"
+						type="button"
+						variant="outline"
+					>
+						Retry
+					</Button>
+				</div>
+			) : null}
 			<div className="grid gap-2">
 				<Label htmlFor={urlId}>Invite link URL</Label>
 				<Input id={urlId} readOnly value={joinLink.url} />
