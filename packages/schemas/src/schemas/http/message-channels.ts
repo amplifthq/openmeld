@@ -70,6 +70,7 @@ export const larkPlatformRegistrationBeginModeSchema = z.enum([
   "resume",
   "restart",
   "repair",
+  "reauthorize",
 ]);
 
 export const messageChannelConnectionProjectionSchema = z
@@ -195,13 +196,20 @@ export const larkPlatformRegistrationAttemptProjectionSchema = z
   })
   .superRefine((attempt, context) => {
     if (
-      (attempt.status === "pending_registration") !==
-      (attempt.registrationUrl !== null)
+      (attempt.status === "pending_registration" &&
+        attempt.registrationUrl === null) ||
+      (attempt.registrationUrl !== null &&
+        attempt.status !== "pending_registration" &&
+        !(
+          attempt.status === "configuring" &&
+          attempt.reasonCode ===
+            `${attempt.provider}.application_config_permission_required`
+        ))
     ) {
       context.addIssue({
         code: "custom",
         message:
-          "Only a pending registration attempt may expose its registration URL.",
+          "A registration URL is required for registration and may also be returned for explicit reauthorization.",
         path: ["registrationUrl"],
       });
     }

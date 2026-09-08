@@ -14,6 +14,25 @@ const BASE64_URL_PATTERN = /^[A-Za-z0-9_-]+$/u;
 
 describe("Lark-platform Personal Agent registration client", () => {
   it.each([
+    "lark",
+    "feishu",
+  ] as const)("reauthorizes the existing %s app without forcing creation", async (provider) => {
+    const result = await beginLarkPlatformRegistration({
+      appId: "cli_existing_app",
+      appDescription: "Channel setup",
+      appName: "OpenMeld Center Agent",
+      expectedProvider: provider,
+      fetchImpl: jsonFetch(capturedBegin),
+      nowMs: NOW_MS,
+      source: "openmeld-core",
+    });
+    const url = new URL(result.registrationUrl);
+    // Official node-sdk scene/registration/index.ts: clientID selects an existing
+    // app; createOnly=true would override that selection.
+    expect(url.searchParams.get("clientID")).toBe("cli_existing_app");
+    expect(url.searchParams.has("createOnly")).toBe(false);
+  });
+  it.each([
     ["feishu", capturedFeishuBegin, "accounts.feishu.cn", "open.feishu.cn"],
     ["lark", capturedBegin, "accounts.feishu.cn", "open.feishu.cn"],
   ] as const)("preserves the shared issuer URL for %s storage and HTTP compatibility", async (provider, fixture, accountDomain, launcherHost) => {
