@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T11:26:34.430Z",
+  "updatedAt": "2026-09-08T16:24:35.475Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.175",
+      "packageVersion": "0.3.176",
       "updatePolicy": "available",
       "reason": "Existing CLI commands remain compatible with both cloud versions."
     },
     "service": {
-      "bundleHash": "5a790f73930e0609226f78bf5591f3f0eded4805bcf87a9456513f8749c8e97e",
-      "bundleVersion": "0.3.175",
+      "bundleHash": "71e44a2815b047d3300f3cedadc6fc46c6c70912b35c121aa22915a781ad06f1",
+      "bundleVersion": "0.3.176",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services can safely continue current and new Wake work."
+      "reason": "Only bundled Inbox schemas changed; old cloud with new Service and new cloud with old Service preserve existing setup, Wake, and Space action protocols."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
