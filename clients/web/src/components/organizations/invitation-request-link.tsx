@@ -22,6 +22,7 @@ export function InvitationRequestLink(input: {
 					method: "POST",
 					headers: { "content-type": "application/json" },
 					body: JSON.stringify({
+						responseVersion: "3",
 						organizationId: input.organizationId,
 						spaceId: input.spaceId,
 					}),
@@ -34,13 +35,14 @@ export function InvitationRequestLink(input: {
 			if (!result.joinLink) {
 				throw new Error("No invitation link was returned. Try again.");
 			}
-			return result.joinLink.url;
+			return result.joinLink;
 		},
 	});
 	const revoke = useMutation({
 		mutationFn: async () => {
 			const query = new URLSearchParams({
 				organizationId: input.organizationId,
+				mode: mutation.data?.mode ?? "request",
 			});
 			if (input.spaceId) {
 				query.set("spaceId", input.spaceId);
@@ -61,21 +63,24 @@ export function InvitationRequestLink(input: {
 	});
 	return (
 		<div className="space-y-2 border-t pt-3">
-			<p className="font-medium text-sm">Share a link</p>
+			<p className="font-medium text-sm">Invite link</p>
 			<p className="text-muted-foreground text-sm">
-				Anyone with this link can request an invitation. Each person needs
-				approval before joining.
+				{mutation.data?.mode === "direct"
+					? "Anyone with this link can join as a member. No approval needed. The link expires after 30 days."
+					: "Anyone with this link can request to join. An owner or admin must approve each request."}
 			</p>
 			{mutation.data ? (
 				<>
 					<Input
 						aria-label="Invitation request link"
 						readOnly
-						value={mutation.data}
+						value={mutation.data.url}
 					/>
 					<Button
 						onClick={async () => {
-							const success = await copyTextToClipboard(mutation.data ?? "");
+							const success = await copyTextToClipboard(
+								mutation.data?.url ?? ""
+							);
 							setCopied(success);
 							setCopyFailed(!success);
 						}}

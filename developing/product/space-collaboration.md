@@ -666,17 +666,24 @@ Reference authoring and ordinary text input remain usable while Wake is blocked.
 Repeating the same Agent
 mention in one message keeps every occurrence explicit: the first token owns
 the selected Wake or Reference, while later tokens resolve to Reference and
-never create another Wake. Web preserves the authored visible text. The generic
-CLI accepts an exact current mention label or stable Profile ID inside
-`@target(wake)`, `@target(reference)`, or
-`@target(mention)`. It resolves that private selector against one current member
-snapshot, publishes `@primaryMentionLabel` without the relation suffix or raw
-machine ID, and retains the exact Profile ID and relation in the structured
-target set. A concurrent Profile rename does not create a permanent alias: a
-stale name fails closed and the sender must use the fresh label or stable ID.
-`--plain` remains the explicit way to publish the authored text literally. The
-Profile appears only once in the structured target set and therefore can be
-woken only once.
+never create another Wake. Web preserves the authored visible text. CLI accepts explicit `--wake <agent-profile-id>`,
+`--reference <agent-profile-id>`, and `--mention <human-profile-id>` recipients.
+Both generic sends and dispatch-owned replies require full current Profile IDs.
+Names, aliases, case folding, short IDs, and relation suffixes are not selectors.
+Web and the interactive terminal retain the selected Profile ID and relation
+alongside the visible mention. Typed or pasted text never creates a recipient;
+editing through a selected token removes its identity rather than re-resolving
+the new text. CLI sends prefix readable current names for explicit recipients.
+Repeated IDs within one CLI relation are deduplicated; conflicting relations
+fail before publication. `--plain` asserts that no recipients were supplied.
+Old `@Name(wake)`, `@Name(reference)`, and `@Name(mention)` text is literal.
+Dispatch prompts preserve authored text instead of stripping apparent controls.
+
+Existing restricted mention-label wire fields remain readable for supported
+older clients and historical messages. They are not Profile names or authoring
+selectors in current clients; their punctuation restriction does not constrain
+selected names. Retiring those wire fields requires a separate negotiated
+response migration, not a silent change to strict older response schemas.
 
 Web presents the first visible `@Name` owned by each structured Agent Wake or
 Reference as one inline Agent token. The token includes the Agent Profile icon,

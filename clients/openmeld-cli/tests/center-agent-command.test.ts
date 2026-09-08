@@ -133,12 +133,6 @@ describe("center-agent commands", () => {
           spaceId: CENTER_AGENT_DM_SPACE_ID,
         },
         status: "completed",
-        taskReferences: [
-          {
-            taskId: "task-release-readiness",
-            url: "https://openmeld.invalid/o/acme/center-agent/tasks/task-release-readiness",
-          },
-        ],
       });
     });
 

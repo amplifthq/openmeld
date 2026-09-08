@@ -7,7 +7,6 @@ import { Label } from "@openmeld/ui/components/label";
 import {
 	ArrowRightIcon,
 	BuildingsIcon,
-	CheckIcon,
 	LinkIcon,
 	PlusIcon,
 	UserIcon,
@@ -26,6 +25,7 @@ import {
 	previewOrganizationJoinLink,
 	type UserOrganizationInvitation,
 } from "#/lib/organizations/auth-organizations";
+import { requestOrganizationJoinRequests } from "#/lib/organizations/organization-join-requests";
 import type {
 	OrganizationScopeResolution,
 	OrganizationSummary,
@@ -99,54 +99,31 @@ export function OrganizationOnboardingStep(input: {
 			}),
 		mutationKey: ["onboarding", "organization", "join-link", "preview"],
 	});
-	const acceptJoinLinkMutation = useMutation<
-		Awaited<ReturnType<typeof acceptOrganizationJoinLink>>,
-		Error,
-		string,
-		OrganizationMutationContext
-	>({
-		mutationFn: async (value: string) =>
-			await acceptOrganizationJoinLink({
-				token: extractJoinLinkToken(value),
-			}),
-		mutationKey: ["onboarding", "organization", "join-link", "accept"],
-		onError: (_error, _variables, context) => {
-			restoreOrganizationScopeSnapshots(queryClient, context?.snapshots);
-		},
-		onMutate: async () => {
-			const preview = previewMutation.data;
-			if (!preview?.active) {
-				throw new Error("Check the invite link before joining.");
+	const requestInvitationMutation = useMutation({
+		mutationFn: async (value: string) => {
+			const token = extractJoinLinkToken(value);
+			if (
+				previewMutation.data?.active &&
+				previewMutation.data.mode === "direct"
+			) {
+				const joined = await acceptOrganizationJoinLink({ token });
+				await queryClient.invalidateQueries({
+					queryKey: organizationScopeQueryKeys.all,
+				});
+				const organization = (await listOrganizations()).find(
+					(item) => item.id === joined.organizationId
+				);
+				if (!organization) {
+					throw new Error(
+						"You joined, but the organization could not be loaded. Try again."
+					);
+				}
+				await input.onOrganizationChosen(organization);
+				return [];
 			}
-			const optimisticOrganization: OrganizationSummary = {
-				id: `optimistic:join:${preview.organizationSlug}`,
-				isPersonal: false,
-				name: preview.organizationName,
-				slug: preview.organizationSlug,
-			};
-			const snapshots = await addOptimisticOrganization({
-				organization: optimisticOrganization,
-				queryClient,
-			});
-			return { optimisticOrganization, snapshots };
+			return await requestOrganizationJoinRequests({ token });
 		},
-		onSettled: async () => {
-			await queryClient.invalidateQueries({
-				queryKey: organizationScopeQueryKeys.all,
-			});
-		},
-		onSuccess: (result, _variables, context) => {
-			replaceOptimisticOrganization({
-				organization: {
-					id: result.organizationId,
-					isPersonal: false,
-					name: result.organizationName,
-					slug: result.organizationSlug,
-				},
-				optimisticId: context.optimisticOrganization.id,
-				queryClient,
-			});
-		},
+		mutationKey: ["onboarding", "organization", "join-link", "request"],
 	});
 	const acceptPendingInvitationMutation = useMutation<
 		OrganizationSummary,
@@ -256,21 +233,11 @@ export function OrganizationOnboardingStep(input: {
 	if (mode === "join") {
 		return (
 			<OrganizationJoinForm
-				acceptError={acceptJoinLinkMutation.error}
 				inviteLink={inviteLink}
-				isAccepting={acceptJoinLinkMutation.isPending}
 				isPreviewing={previewMutation.isPending}
-				onAccept={async () => {
-					const result = await acceptJoinLinkMutation.mutateAsync(inviteLink);
-					await input.onOrganizationChosen({
-						id: result.organizationId,
-						isPersonal: false,
-						name: result.organizationName,
-						slug: result.organizationSlug,
-					});
-				}}
+				isRequesting={requestInvitationMutation.isPending}
 				onBack={() => {
-					acceptJoinLinkMutation.reset();
+					requestInvitationMutation.reset();
 					previewMutation.reset();
 					setMode("choose");
 					input.onPreviewOrganizationChange(
@@ -280,7 +247,7 @@ export function OrganizationOnboardingStep(input: {
 				onChange={(value) => {
 					setInviteLink(value);
 					previewMutation.reset();
-					acceptJoinLinkMutation.reset();
+					requestInvitationMutation.reset();
 				}}
 				onPreview={async () => {
 					const preview = await previewMutation.mutateAsync(inviteLink);
@@ -293,8 +260,13 @@ export function OrganizationOnboardingStep(input: {
 						});
 					}
 				}}
+				onRequest={async () => {
+					await requestInvitationMutation.mutateAsync(inviteLink);
+				}}
 				preview={previewMutation.data}
 				previewError={previewMutation.error}
+				requestError={requestInvitationMutation.error}
+				requestId={requestInvitationMutation.data?.[0]?.id}
 			/>
 		);
 	}
@@ -588,28 +560,57 @@ type JoinLinkPreview =
 			ok: true;
 			organizationName: string;
 			organizationSlug: string;
+			mode?: "direct" | "request";
 	  };
 
 function OrganizationJoinForm(input: {
-	acceptError: Error | null;
+	requestError: Error | null;
+	requestId: string | undefined;
 	inviteLink: string;
-	isAccepting: boolean;
+	isRequesting: boolean;
 	isPreviewing: boolean;
-	onAccept: () => Promise<void>;
+	onRequest: () => Promise<void>;
 	onBack: () => void;
 	onChange: (value: string) => void;
 	onPreview: () => Promise<void>;
 	preview: JoinLinkPreview | undefined;
 	previewError: Error | null;
 }) {
-	const isBusy = input.isAccepting || input.isPreviewing;
+	const isBusy = input.isRequesting || input.isPreviewing;
 	const activePreview = input.preview?.active ? input.preview : null;
+	if (input.requestId) {
+		return (
+			<div className="flex flex-1 flex-col">
+				<div aria-live="polite" className="space-y-3">
+					<p className="font-medium">Request sent</p>
+					<p className="text-muted-foreground text-sm">
+						We’ve notified the owners and admins. Once one approves, you can
+						enter the organization from your request page.
+					</p>
+					<a
+						className="text-sm underline underline-offset-4"
+						href={`/invitation-requests?requestId=${encodeURIComponent(input.requestId)}`}
+					>
+						View request
+					</a>
+				</div>
+				<div className="mt-auto pt-8">
+					<Button onClick={input.onBack} type="button" variant="ghost">
+						Back to workspaces
+					</Button>
+				</div>
+			</div>
+		);
+	}
 	return (
 		<form
 			className="flex flex-1 flex-col"
 			onSubmit={(event: FormEvent<HTMLFormElement>) => {
 				event.preventDefault();
-				const action = activePreview ? input.onAccept : input.onPreview;
+				if (isBusy || !input.inviteLink.trim()) {
+					return;
+				}
+				const action = activePreview ? input.onRequest : input.onPreview;
 				action().catch(() => undefined);
 			}}
 		>
@@ -620,25 +621,24 @@ function OrganizationJoinForm(input: {
 					disabled={isBusy}
 					id="onboarding-invite-link"
 					onChange={(event) => input.onChange(event.target.value)}
-					placeholder="https://app.openmeld.dev/join-organization?token=…"
+					placeholder="https://openmeld.ai/join-organization?token=…"
 					value={input.inviteLink}
 				/>
-				<p className="text-muted-foreground text-xs leading-5">
-					We’ll check the organization before you join.
-				</p>
 			</div>
 
 			{activePreview ? (
-				<div className="mt-5 flex items-center gap-3 rounded-md border border-emerald-500/25 bg-emerald-500/[0.06] p-3.5">
-					<span className="grid size-8 place-items-center rounded-md bg-emerald-500/10 text-emerald-500">
-						<CheckIcon aria-hidden="true" className="size-4" />
+				<div className="mt-5 flex items-center gap-3 rounded-md border p-3.5">
+					<span className="grid size-8 place-items-center rounded-md bg-muted text-muted-foreground">
+						<BuildingsIcon aria-hidden="true" className="size-4" />
 					</span>
 					<span>
 						<span className="block font-medium text-sm">
 							{activePreview.organizationName}
 						</span>
 						<span className="block text-muted-foreground text-xs">
-							Ready to join
+							{activePreview.mode === "direct"
+								? "You’re invited to join as a member."
+								: "An owner or admin must approve your request to join."}
 						</span>
 					</span>
 				</div>
@@ -649,7 +649,7 @@ function OrganizationJoinForm(input: {
 				</p>
 			) : null}
 
-			<MutationError error={input.previewError ?? input.acceptError} />
+			<MutationError error={input.previewError ?? input.requestError} />
 			<div className="mt-auto flex items-center justify-between gap-3 pt-8">
 				<Button onClick={input.onBack} type="button" variant="ghost">
 					Back
@@ -660,7 +660,7 @@ function OrganizationJoinForm(input: {
 				>
 					{resolveJoinButtonLabel({
 						activePreview,
-						isAccepting: input.isAccepting,
+						isRequesting: input.isRequesting,
 						isPreviewing: input.isPreviewing,
 					})}
 					<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
@@ -672,17 +672,19 @@ function OrganizationJoinForm(input: {
 
 function resolveJoinButtonLabel(input: {
 	activePreview: (JoinLinkPreview & { active: true }) | null;
-	isAccepting: boolean;
+	isRequesting: boolean;
 	isPreviewing: boolean;
 }): string {
-	if (input.isAccepting) {
-		return "Joining…";
+	if (input.isRequesting) {
+		return "Submitting…";
 	}
 	if (input.isPreviewing) {
 		return "Checking…";
 	}
 	if (input.activePreview) {
-		return `Join ${input.activePreview.organizationName}`;
+		return input.activePreview.mode === "direct"
+			? `Join ${input.activePreview.organizationName}`
+			: "Request to join";
 	}
 	return "Check invite";
 }

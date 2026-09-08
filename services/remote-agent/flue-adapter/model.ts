@@ -890,8 +890,6 @@ const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
 const REMOTE_AGENT_SKILL_ACTIVATION_TOOL_NAME = "activate_skill";
 const REMOTE_AGENT_FOUNDATIONAL_READ_TOOL_NAMES = [
   "openmeld_list_organization_members",
-  "openmeld_list_center_agent_tasks",
-  "openmeld_get_center_agent_task",
 ] as const;
 const REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET = new Set<string>([
   ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,

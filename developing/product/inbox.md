@@ -10,7 +10,7 @@
 - Update this when: Inbox scope, classification, lifecycle, delivery policy,
   source coverage, navigation, or ownership changes.
 - Do not use this for: Source-domain business truth, Agent Task execution,
-  Center Agent Task lifecycle, Feedback Issue storage, Space message storage, or
+ Feedback Issue storage, Space message storage, or
   provider-specific messaging.
 - Source of truth: This file owns the Inbox product model. Source owner documents
   remain authoritative for the work or event represented by an Inbox item.
@@ -67,7 +67,6 @@ Phase 1 source kinds are:
 - `agent_interaction`
 - `wake_outcome`
 - `center_agent_update`
-- `center_agent_task`
 - `document_review`
 - `system_issue`
 
@@ -180,9 +179,6 @@ The first release creates items for these explicit user-visible events:
    navigation truth. Other Wake endings remain ordinary updates.
 5. A linked member's Center Agent work started through a Message Channel when
    the result or intervention request is available in OpenMeld.
-6. A Center Agent Task that requests the recipient's action, produces a final
-   result intended for them, or reaches a material failure or visible stopped
-   outcome that requires their attention.
 7. A Center Agent document update awaiting human review. It is sent only to
    current owners and admins who can perform that review. Organization Brief
    and knowledge updates resolve through approval, discard, or replacement. A
@@ -207,9 +203,12 @@ The first release creates items for these explicit user-visible events:
 12. An invitation request uses the existing `organization_member_request` source
     category with an `invitation:<requestId>` key and an
     `organization_join_request` target. It opens the authorized request detail.
-    Inbox contains no recipient email; reviewers see recipient and target access
-    only after the request owner checks current permission. Decline/cancel resolves
-    the action. Approval resolves it only after invitation delivery is confirmed.
+    Each current owner and admin receives an urgent action because joining is
+    blocked on their decision. These reviewer-only items identify the recipient
+    email so the action and transactional email are understandable. Source reads
+    and email delivery recheck current reviewer permission. Decline/cancel resolves
+    the action. Approval resolves it only after invitation delivery or the
+    applicant's membership fulfillment is confirmed, for every reviewer.
 
 Agent Profile Creation Requests persist their current Inbox projection intent
 with the source request mutation. A failed projection remains retryable and is
@@ -248,29 +247,6 @@ Opportunity. A Center Agent decision does not rewrite this historical update.
 Phase 1 does not create an action badge, browser notification, email, Slack,
 Lark, Feishu, or other proactive delivery from this source; the existing Inbox
 surface is the only durable reminder.
-
-### Center Agent Task projection
-
-The Center Agent Task domain owns Task status, conversation, access, Stop,
-Retry, Recovery, and business resolution as defined in
-`developing/product/center-agent-tasks.md`. Inbox consumes explicit Task source
-events and stores only the canonical Task id in its structured target. Every
-read and delivery joins the Task owner's current
-`center_agent_task_authorized_readers` projection. Interactive reads still
-require current Organization membership; urgent-email delivery rechecks that
-Auth-owned membership and retries when it cannot be verified. Inbox source JSON
-never becomes Task access authority.
-
-Opening or Dismissing a Task Inbox item does not answer, stop, retry, finish, or
-otherwise resolve the Task. Task progress, typing, presence, child-execution
-bookkeeping, ordinary continuation, and successful background repair never
-create Inbox items. A Task producer rechecks current Task access before delayed
-projection, list, read, mutation, and delivery; Organization membership alone
-does not preserve access to requester-private or Space-scoped Task content.
-
-Task and Inbox realtime behavior requires one end-to-end refresh contract with
-producer, typed signal, transport, consumer, and canonical snapshot refetch.
-Polling remains a recovery trigger, not Task or Inbox truth.
 
 ## Read and attention behavior
 
@@ -416,10 +392,7 @@ two optional delivery channels:
   addressed to the member: references of that member, replies intended for them (a
   successful Wake reaches its requester through its final reply item), their
   system-owned Wake endings addressed to that requester (visible failure,
-  stopped, `stay_silent`, policy-blocked action, or explicit final status), and
-  Center Agent Task endings (succeeded, failed, or stopped) addressed to the
-  Task requester. The Task producer never creates items for intermediate
-  progress, so these deliveries are always endings, not chatter. Ordinary
+  stopped, `stay_silent`, policy-blocked action, or explicit final status). Ordinary
   Space message updates stay in Inbox without a system notification. A visible
   tab suppresses delivery only for the conversation it is currently showing;
   a hidden tab can deliver any eligible item. Current-conversation suppression
@@ -441,7 +414,7 @@ two optional delivery channels:
   visible conversation immediately before creating the notification. Clicking
   the notification opens that refreshed item's canonical source target -- the
   exact Space message or thread, Agent interaction, Center Agent conversation
-  or Task, Organization document, setting, or connected-channel message --
+  Organization document, setting, or connected-channel message --
   instead of routing through Inbox. A failed
   revalidation remains pending and retryable. Unmounting the authenticated
   listener invalidates that context, so a delivery waiting on a browser lock
@@ -460,7 +433,7 @@ two optional delivery channels:
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe
   content.
-- **Invitation review email** is transactional, normal-importance mail to current
+- **Invitation review email** is transactional mail to current
   owners/admins. It reuses the same durable delivery ledger with an explicit
   `invitation_review` purpose and does not depend on the urgent-email preference.
   Auth rechecks current reviewer role before sending. It links to the same
@@ -524,8 +497,6 @@ adapters without changing Inbox truth.
 - Items are deduplicated, private to their recipient, filterable, and have
   deterministic read/unread behavior.
 - Opening every supported item reaches its canonical source.
-- Task items navigate to the exact authorized Task and never treat Inbox state
-  as Task resolution.
 - Agent Profile Creation Request items navigate to the exact request and never
   treat Inbox read or Dismiss as approval or decline.
 - Source resolution never occurs through Inbox read or Dismiss mutations.

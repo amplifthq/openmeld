@@ -382,7 +382,7 @@ describe("PublicSpacePage", () => {
 		expect(publicSpaceLogo.getAttribute("data-scale")).toBe("0.32");
 	});
 
-	it("uses the projected Center Agent Dither identity in public messages and threads", async () => {
+	it("uses the projected Center Agent Fluid avatar in public messages and threads", async () => {
 		const rootSignal = createCenterAgentSignalEnvelope({
 			id: "signal-center-root",
 			text: "Public Center Agent update.",

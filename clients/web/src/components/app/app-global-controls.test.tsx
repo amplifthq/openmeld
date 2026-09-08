@@ -32,19 +32,6 @@ vi.mock("#/components/organizations/global-center-agent-launcher", () => ({
 			{input.open ? "Close Center Agent panel" : "Open Center Agent panel"}
 		</button>
 	),
-	GlobalCenterAgentTaskLaunchers: (input: {
-		onOpenTaskChange: (taskId: string, open: boolean) => void;
-		openTaskId: string | null;
-	}) => (
-		<button
-			onClick={() =>
-				input.onOpenTaskChange("task-1", input.openTaskId !== "task-1")
-			}
-			type="button"
-		>
-			{input.openTaskId === "task-1" ? "Close Task panel" : "Open Task panel"}
-		</button>
-	),
 }));
 
 describe("AppGlobalControls", () => {
@@ -89,41 +76,9 @@ describe("AppGlobalControls", () => {
 			within(end)
 				.getAllByRole("button")
 				.map((button) => button.textContent)
-		).toEqual([
-			"Open Task panel",
-			"Open Center Agent panel",
-			"Open Inbox panel",
-		]);
+		).toEqual(["Open Center Agent panel", "Open Inbox panel"]);
 		expect(toolbar.classList.contains("lg:ps-0")).toBe(true);
 		expect(toolbar.classList.contains("lg:pe-2")).toBe(true);
-	});
-
-	it("keeps Task, Inbox, and Center Agent panels mutually exclusive", () => {
-		render(<AppGlobalControls />);
-
-		fireEvent.click(screen.getByRole("button", { name: "Open Task panel" }));
-		expect(
-			screen.getByRole("button", { name: "Close Task panel" })
-		).toBeTruthy();
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "Open Center Agent panel" })
-		);
-		expect(
-			screen.getByRole("button", { name: "Close Center Agent panel" })
-		).toBeTruthy();
-		expect(
-			screen.getByRole("button", { name: "Open Task panel" })
-		).toBeTruthy();
-
-		fireEvent.click(screen.getByRole("button", { name: "Open Task panel" }));
-		fireEvent.click(screen.getByRole("button", { name: "Open Inbox panel" }));
-		expect(
-			screen.getByRole("button", { name: "Close Inbox panel" })
-		).toBeTruthy();
-		expect(
-			screen.getByRole("button", { name: "Open Task panel" })
-		).toBeTruthy();
 	});
 
 	it("allows Home to open the canonical Center Agent panel", () => {

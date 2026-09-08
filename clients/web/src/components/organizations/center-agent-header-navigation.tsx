@@ -17,18 +17,16 @@ import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentRoutinesPath,
 	buildOrganizationCenterAgentSettingsPath,
-	buildOrganizationCenterAgentTasksPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationMemoryPath,
 	buildOrganizationPluginsPath,
 	buildOrganizationSkillsPath,
 } from "#/lib/organizations/organization-routes";
 
-const TASKS_TAB_INDEX = 3;
-const ROUTINES_TAB_INDEX = 4;
-const SKILLS_TAB_INDEX = 5;
-const PLUGINS_TAB_INDEX = 6;
-const CHANNELS_TAB_INDEX = 7;
+const ROUTINES_TAB_INDEX = 3;
+const SKILLS_TAB_INDEX = 4;
+const PLUGINS_TAB_INDEX = 5;
+const CHANNELS_TAB_INDEX = 6;
 
 export function CenterAgentHeaderTabs(input: {
 	activeSectionId: CenterAgentSectionId;
@@ -97,11 +95,11 @@ export function CenterAgentHeaderTabs(input: {
 			<TabsSubtleItem index={0} label="Messages" labelClassName="text-sm" />
 			<TabsSubtleItem index={1} label="Graph" labelClassName="text-sm" />
 			<TabsSubtleItem index={2} label="Files" labelClassName="text-sm" />
-			<TabsSubtleItem index={3} label="Tasks" labelClassName="text-sm" />
-			<TabsSubtleItem index={4} label="Routines" labelClassName="text-sm" />
-			<TabsSubtleItem index={5} label="Skills" labelClassName="text-sm" />
-			<TabsSubtleItem index={6} label="Plugins" labelClassName="text-sm" />
-			<TabsSubtleItem index={7} label="Channels" labelClassName="text-sm" />
+
+			<TabsSubtleItem index={3} label="Routines" labelClassName="text-sm" />
+			<TabsSubtleItem index={4} label="Skills" labelClassName="text-sm" />
+			<TabsSubtleItem index={5} label="Plugins" labelClassName="text-sm" />
+			<TabsSubtleItem index={6} label="Channels" labelClassName="text-sm" />
 		</TabsSubtle>
 	);
 }
@@ -136,9 +134,6 @@ function resolveCenterAgentHeaderTabIndex(input: {
 	activeSectionId: CenterAgentSectionId;
 	activeSpaceView?: SpaceView;
 }): number {
-	if (input.activeSectionId === "tasks") {
-		return TASKS_TAB_INDEX;
-	}
 	if (input.activeSectionId === "routines") {
 		return ROUTINES_TAB_INDEX;
 	}
@@ -164,8 +159,6 @@ function resolveCenterAgentHeaderDestination(input: {
 	switch (input.index) {
 		case CHANNELS_TAB_INDEX:
 			return buildOrganizationChannelsPath(input.organizationSlug);
-		case TASKS_TAB_INDEX:
-			return buildOrganizationCenterAgentTasksPath(input.organizationSlug);
 		case ROUTINES_TAB_INDEX:
 			return buildOrganizationCenterAgentRoutinesPath(input.organizationSlug);
 		case SKILLS_TAB_INDEX:

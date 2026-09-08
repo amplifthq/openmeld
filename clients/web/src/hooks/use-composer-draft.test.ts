@@ -158,20 +158,20 @@ describe("useComposerDraft", () => {
 	});
 
 	it("binds asynchronous updates to the conversation scope that created them", () => {
-		const taskAScope = {
-			kind: "center_agent_task" as const,
+		const sessionAScope = {
+			kind: "center_agent_pending" as const,
 			organizationId: "organization-acme",
 			ownerAccountId: "account-1",
-			taskId: "task-a",
+			sessionId: "session-a",
 		};
-		const taskBScope = {
-			...taskAScope,
-			taskId: "task-b",
+		const sessionBScope = {
+			...sessionAScope,
+			sessionId: "session-b",
 		};
 		const composer = renderHook(
-			({ scope }: { scope: typeof taskAScope | typeof taskBScope }) =>
+			({ scope }: { scope: typeof sessionAScope | typeof sessionBScope }) =>
 				useComposerDraft({ scope }),
-			{ initialProps: { scope: taskAScope } }
+			{ initialProps: { scope: sessionAScope } }
 		);
 
 		act(() => {
@@ -181,7 +181,7 @@ describe("useComposerDraft", () => {
 			});
 		});
 		const completeTaskA = composer.result.current.setContent;
-		composer.rerender({ scope: taskBScope });
+		composer.rerender({ scope: sessionBScope });
 		act(() => {
 			composer.result.current.setContent({
 				...EMPTY_COMPOSER_DRAFT_CONTENT,
@@ -193,8 +193,8 @@ describe("useComposerDraft", () => {
 			completeTaskA(EMPTY_COMPOSER_DRAFT_CONTENT);
 		});
 
-		expect(readComposerDraft(taskAScope)).toBeNull();
-		expect(readComposerDraft(taskBScope)?.text).toBe("Task B draft");
+		expect(readComposerDraft(sessionAScope)).toBeNull();
+		expect(readComposerDraft(sessionBScope)?.text).toBe("Task B draft");
 	});
 
 	it("fails closed when a stored structured mention no longer matches its text", () => {

@@ -66,24 +66,6 @@ export type {
   CreateCenterAgentApi,
   ListCenterAgentAuditJournalInput,
 } from "./center-agent/types";
-export { createCenterAgentTasksApi } from "./center-agent-tasks/api";
-export {
-  buildCenterAgentTaskMessagesPath,
-  buildCenterAgentTaskPath,
-  buildCenterAgentTaskRetryPath,
-  buildCenterAgentTaskStopPath,
-  buildCenterAgentTasksPath,
-} from "./center-agent-tasks/routes";
-export type {
-  CenterAgentTaskRequestInput,
-  CenterAgentTasksApi,
-  ContinueCenterAgentTaskInput,
-  CreateCenterAgentTasksApi,
-  GetCenterAgentTaskInput,
-  ListCenterAgentTasksInput,
-  RetryCenterAgentTaskInput,
-  StopCenterAgentTaskInput,
-} from "./center-agent-tasks/types";
 export type {
   OpenMeldApiClientConfig,
   OpenMeldApiClientFoundation,

@@ -127,6 +127,7 @@ pnpm env:doctor:stg
 pnpm staging:deploy
 pnpm staging:deploy -- --scope web
 pnpm staging:deploy -- --scope remote-agent
+pnpm staging:deploy -- --scope remote-agent --containers-rollout=none
 pnpm staging:verify
 pnpm staging:cli:plan
 pnpm staging:cli:publish
@@ -150,6 +151,14 @@ pnpm staging:smoke:computer -- plan
 - `staging:verify` is read-only. It verifies the checked-in environment
   contract, Doppler readiness, Cloudflare resource inventory, and public
   staging entry points.
+- For Worker-only changes with an already deployed, compatible Computer image,
+  pass `--containers-rollout=none` to the full or Remote Agent scoped deploy.
+  The guarded entry point still syncs staging secrets and verifies resources;
+  Wrangler updates Worker code while retaining existing container images and
+  instances. This avoids requiring local Docker. Do not use this option for
+  first deployment or changed container images/configuration. The default
+  deployment continues to deploy containers. See Cloudflare's
+  [container rollout modes](https://developers.cloudflare.com/containers/configuration/rollouts/).
 - `staging:cli:plan` shows the exact source, isolated prerelease version,
   bucket, and manifest without changing anything.
 - `staging:cli:publish` builds, signs, notarizes, and uploads a binary only to

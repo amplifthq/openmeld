@@ -213,6 +213,7 @@ export function buildOrganizationHumanProfileRows(input: {
 }
 
 export function buildPersonalHumanProfileRows(input: {
+	agentProfileSummaries?: readonly DirectoryAgentProfileSummary[];
 	account: AppShellAccount;
 	canCreateHumanProfile: boolean;
 	computers: OrganizationComputersResponse | null;
@@ -229,6 +230,7 @@ export function buildPersonalHumanProfileRows(input: {
 		(candidate) => candidate.profileKind === "human"
 	);
 	const agentProfiles = buildPersonalAgentProfileSummaries({
+		summaries: input.agentProfileSummaries,
 		personId: (
 			humanProfiles.find((candidate) => candidate.isDefault) ?? humanProfiles[0]
 		)?.openMeldProfileId,
@@ -320,21 +322,26 @@ export function buildPersonalHumanProfileRows(input: {
 }
 
 function buildPersonalAgentProfileSummaries(input: {
+	summaries?: readonly DirectoryAgentProfileSummary[];
 	personId?: string;
 	orgSlug: string;
 	profiles: readonly AuthProfileView[];
 }): readonly DirectoryAgentProfileSummary[] {
 	const agentProfiles: DirectoryAgentProfileSummary[] = [];
+	const summariesById = new Map(
+		input.summaries?.map((summary) => [summary.id, summary])
+	);
 	for (const profile of input.profiles) {
 		if (profile.profileKind !== "agent" || profile.managedRole !== null) {
 			continue;
 		}
+		const summary = summariesById.get(profile.openMeldProfileId);
 		agentProfiles.push({
-			agentControllerRef: null,
+			agentControllerRef: summary?.agentControllerRef ?? null,
 			avatarImageUrl: profile.avatarUrl ?? null,
 			id: profile.openMeldProfileId,
-			modelSelection: null,
-			modelSelectionIsKnown: false,
+			modelSelection: summary?.modelSelection ?? null,
+			modelSelectionIsKnown: summary?.modelSelectionIsKnown ?? false,
 			name: profile.profileName,
 			path: input.personId
 				? buildOrganizationPersonAgentPath({

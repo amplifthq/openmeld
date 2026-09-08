@@ -60,15 +60,15 @@ function formatMemberAddressing(
   member: SpaceMemberDirectory["members"][number]
 ): string {
   const mentionLabel = sanitizeTerminalDisplayText(
-    member.primaryMentionLabel,
+    member.profileId,
     "single-line"
   );
   const relations = [
-    ...(member.allowedRelations.wake ? [`@${mentionLabel}(wake)`] : []),
+    ...(member.allowedRelations.wake ? [`--wake ${mentionLabel}`] : []),
     ...(member.allowedRelations.reference
-      ? [`@${mentionLabel}(reference)`]
+      ? [`--reference ${mentionLabel}`]
       : []),
-    ...(member.allowedRelations.mention ? [`@${mentionLabel}(mention)`] : []),
+    ...(member.allowedRelations.mention ? [`--mention ${mentionLabel}`] : []),
   ];
   return relations.length > 0
     ? relations.join(", ")

@@ -110,7 +110,7 @@ scope, not the visible grouped product destinations or their order.
 
 One product per context uses the same first rail slot and never moves. Center
 Agent has no secondary sidebar. Its daily work is the full-width conversation
-with stable header navigation: **Messages, Graph, Files, Tasks, Routines,
+with stable header navigation: **Messages, Graph, Files, Routines,
 Skills, Apps**. Lower-frequency destinations live in one compact header menu:
 **Channels, Memory, Center Agent settings**. The conversation variant also
 contains **Conversation information**. There is no separate About surface.
@@ -120,9 +120,7 @@ preserved as a hidden or personal-only route.
 
 - Header names the owner: "Coordinator agent for Felix Lu" / "… for Acme".
 - **Chat** remains the low-friction place to start work and ask the resident
-  Center Agent for coordination. **Tasks** is the durable work home: a read-only
-  **Active / Needs action / Finished** board and conversation-first Task detail.
-  It does not expose user-managed chat sessions.
+  Center Agent for coordination. Separate chat sessions isolate conversational context.
 - Designation state card: designated → profile identity (display name,
   avatar, designatedBy, since) + revoke; empty → explanation + designate
   flow (owner/admin only; in the personal context the user is always owner).
@@ -162,16 +160,8 @@ preserved as a hidden or personal-only route.
   personal context cannot take members — see below). The role template stays
   single-source; context-specific wording (solo chief-of-staff vs team
   dispatcher) is a noted future refinement, not MVP.
-- A persistent bottom-right Center Agent control opens a compact view of the
-  same canonical Chat or Task. It never creates a new session. From Task detail
-  it opens that Task; elsewhere it may restore the member's last authorized
-  Center Agent location. Maximize preserves the exact Chat or Task destination.
-  The compact control is a shortcut, while **Center Agent → Tasks** remains the
-  durable management home.
-
-The complete Task context, visibility, Channel, concurrency, recovery, Inbox,
-board/detail, and compact-window contract is owned by
-`developing/product/center-agent-tasks.md`.
+- The persistent Center Agent control opens the existing compact Chat. It does
+  not create a separate Task or change the selected Computer.
 
 ## The Personal Context Is Permanently Solo
 
