@@ -70,6 +70,33 @@ const HUMAN_MENTION_ITEM = {
 };
 
 describe("Inbox routes", () => {
+  it("preserves old strict summaries and exposes urgent counts only to aware clients", async () => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.getInboxSummary.mockResolvedValue({
+      organizationId: "org-1",
+      totalUnreadCount: 8,
+      unresolvedActionCount: 2,
+      unreadUrgentUpdateCount: 3,
+    });
+    for (const version of [undefined, "1"]) {
+      const response = await app.fetch(
+        new Request("http://local/v1/inbox/summary", {
+          headers: version
+            ? { "x-openmeld-inbox-summary-version": version }
+            : {},
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        organizationId: "org-1",
+        totalUnreadCount: 8,
+        unresolvedActionCount: 2,
+        ...(version ? { unreadUrgentUpdateCount: 3 } : {}),
+      });
+    }
+  });
   it("forwards the complete member Inbox surface to Core", async () => {
     const { coreRpc, env } = makeEnv();
     const requests = [

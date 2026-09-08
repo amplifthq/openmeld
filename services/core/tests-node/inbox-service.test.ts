@@ -8,6 +8,88 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox service", () => {
+  it("counts urgent updates and open actions once across the full recipient Inbox", async () => {
+    const harness = createInboxHarness();
+    try {
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
+      const action = await seedItem(harness.db, {
+        ...identity,
+        sourceKey: "urgent_action",
+      });
+      const urgent = await seedItem(harness.db, {
+        ...identity,
+        sourceKey: "urgent_update",
+      });
+      await harness.db
+        .prepare(
+          "UPDATE inbox_items SET attention = 'update', resolution_status = 'not_applicable' WHERE id = ?"
+        )
+        .bind(urgent.itemId)
+        .run();
+      for (let i = 0; i < 105; i++) {
+        await seedSpaceItem(harness.db, {
+          recipientUserId: "user_one",
+          spaceId: "space_one",
+          sourceKey: `ordinary_${i}`,
+          occurredAtMs: 3000 + i,
+        });
+      }
+      await expect(service.summary(identity)).resolves.toMatchObject({
+        totalUnreadCount: 107,
+        unresolvedActionCount: 1,
+        unreadUrgentUpdateCount: 1,
+      });
+      const urgentList = await service.list({
+        ...identity,
+        view: "urgent_updates",
+        limit: 1,
+      });
+      expect(urgentList.items.map((item) => item.id)).toEqual([urgent.itemId]);
+      await service.markRead({
+        ...identity,
+        itemId: action.itemId,
+        read: true,
+      });
+      await expect(service.summary(identity)).resolves.toMatchObject({
+        unresolvedActionCount: 1,
+        unreadUrgentUpdateCount: 1,
+      });
+      await service.markAllRead(identity);
+      await expect(service.summary(identity)).resolves.toMatchObject({
+        totalUnreadCount: 0,
+        unresolvedActionCount: 1,
+        unreadUrgentUpdateCount: 0,
+      });
+      await service.markRead({
+        ...identity,
+        itemId: urgent.itemId,
+        read: false,
+      });
+      await expect(service.summary(identity)).resolves.toMatchObject({
+        unreadUrgentUpdateCount: 1,
+      });
+      await service.dismiss({ ...identity, itemId: urgent.itemId });
+      await expect(service.summary(identity)).resolves.toMatchObject({
+        unreadUrgentUpdateCount: 0,
+      });
+      await harness.db
+        .prepare(
+          "UPDATE inbox_items SET resolution_status = 'resolved', resolved_at_ms = 4000 WHERE id = ?"
+        )
+        .bind(action.itemId)
+        .run();
+      await expect(service.summary(identity)).resolves.toMatchObject({
+        unresolvedActionCount: 0,
+        unreadUrgentUpdateCount: 0,
+      });
+    } finally {
+      harness.close();
+    }
+  });
   it("excludes retired Task rows from reads and counts without deleting other Inbox items", async () => {
     const harness = createInboxHarness();
     try {
@@ -101,6 +183,7 @@ describe("Inbox service", () => {
         organizationId: "org_one",
         totalUnreadCount: 1,
         unresolvedActionCount: 1,
+        unreadUrgentUpdateCount: 0,
       });
     } finally {
       harness.close();
@@ -197,6 +280,7 @@ describe("Inbox service", () => {
         organizationId: "org_one",
         totalUnreadCount: 0,
         unresolvedActionCount: 0,
+        unreadUrgentUpdateCount: 0,
       });
       await expect(
         service.get({
@@ -306,6 +390,7 @@ describe("Inbox service", () => {
         organizationId: "org_one",
         totalUnreadCount: 0,
         unresolvedActionCount: 0,
+        unreadUrgentUpdateCount: 0,
       });
       await expect(
         service.markRead({

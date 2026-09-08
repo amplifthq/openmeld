@@ -673,7 +673,9 @@ export function createInboxService(input: {
                 AS unread_count,
               coalesce(sum(CASE
                 WHEN attention = 'action_required' AND resolution_status = 'open'
-                THEN 1 ELSE 0 END), 0) AS action_count
+                THEN 1 ELSE 0 END), 0) AS action_count,
+              coalesce(sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER}
+                THEN 1 ELSE 0 END), 0) AS urgent_update_count
             FROM inbox_items
             WHERE organization_id = ?
               AND recipient_user_id = ?
@@ -682,11 +684,16 @@ export function createInboxService(input: {
           `
         )
         .bind(summaryInput.organizationId, summaryInput.recipientUserId)
-        .first<{ action_count: number; unread_count: number }>();
+        .first<{
+          action_count: number;
+          unread_count: number;
+          urgent_update_count: number;
+        }>();
       return {
         organizationId: summaryInput.organizationId,
         totalUnreadCount: countValue(row?.unread_count),
         unresolvedActionCount: countValue(row?.action_count),
+        unreadUrgentUpdateCount: countValue(row?.urgent_update_count),
       };
     },
 
@@ -1039,11 +1046,17 @@ function mapInboxItemRow(row: InboxItemRow): InboxItem {
   });
 }
 
+// Disjoint from open actions: an urgent action is counted once, as an action.
+const UNREAD_URGENT_UPDATE_FILTER =
+  "importance = 'urgent' AND attention = 'update' AND resolution_status != 'resolved' AND read_at_ms IS NULL";
+
 function appendViewFilter(filters: string[], view: InboxView): void {
   if (view === "unread") {
     filters.push("read_at_ms IS NULL");
   } else if (view === "needs_action") {
     filters.push("attention = 'action_required'", "resolution_status = 'open'");
+  } else if (view === "urgent_updates") {
+    filters.push(UNREAD_URGENT_UPDATE_FILTER);
   } else if (view === "updates") {
     filters.push(
       "NOT (attention = 'action_required' AND resolution_status = 'open')"
