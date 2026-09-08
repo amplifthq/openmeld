@@ -131,5 +131,5 @@ export function useDeskEntrance<N extends Node>(input: {
 		},
 		[input.saveViewport]
 	);
-	return { initialize, reset, interrupt, onMoveEnd };
+	return { initialize, reset, interrupt, onMoveEnd, isEntering: active };
 }

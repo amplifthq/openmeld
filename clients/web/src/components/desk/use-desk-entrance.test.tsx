@@ -2,6 +2,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactFlowInstance, Viewport } from "@xyflow/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useDeskEntrance } from "./use-desk-entrance";
+import { useDeskWheel } from "./use-desk-wheel";
 
 beforeEach(() => {
 	vi.useFakeTimers();
@@ -22,8 +23,8 @@ function entrance(
 	const saveViewport = vi.fn();
 	const flow = { current: null as ReactFlowInstance | null };
 	const region = { current: element };
-	const hook = renderHook(() =>
-		useDeskEntrance({
+	const hook = renderHook(() => {
+		const entry = useDeskEntrance({
 			region,
 			flow,
 			width: 1000,
@@ -31,11 +32,31 @@ function entrance(
 			savedViewport,
 			greetingHidden,
 			saveViewport,
-		})
-	);
+		});
+		useDeskWheel(region, flow, entry.isEntering);
+		return entry;
+	});
 	act(() => hook.result.current.initialize(instance));
 	return { ...hook, element, setViewport, saveViewport };
 }
+it("blocks wheel gestures during entrance and releases them when it finishes", () => {
+	const entry = entrance();
+	for (const ctrlKey of [false, true]) {
+		const wheel = new WheelEvent("wheel", {
+			cancelable: true,
+			ctrlKey,
+			deltaY: 100,
+		});
+		entry.element.dispatchEvent(wheel);
+		expect(wheel.defaultPrevented).toBe(true);
+	}
+	expect(entry.element.dataset.deskEntrance).toBe("pending");
+	act(() => vi.advanceTimersByTime(3200));
+	const wheel = new WheelEvent("wheel", { cancelable: true, deltaY: 100 });
+	entry.element.dispatchEvent(wheel);
+	expect(wheel.defaultPrevented).toBe(false);
+	expect(entry.element.dataset.deskEntrance).toBe("ready");
+});
 it("frames the Space immediately when the greeting was dismissed", () => {
 	const entry = entrance(null, true);
 	expect(entry.element.dataset.deskEntrance).toBe("ready");

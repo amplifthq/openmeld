@@ -358,7 +358,6 @@ function Desk() {
 			/* Optional window preference. */
 		}
 	}, [nodes, layoutKey, loaded, windows]);
-	useDeskWheel(region, flow);
 	const saveViewport = useCallback(
 		(viewport: Viewport) => {
 			try {
@@ -369,15 +368,17 @@ function Desk() {
 		},
 		[viewportKey]
 	);
-	const { initialize, reset, interrupt, onMoveEnd } = useDeskEntrance({
-		greetingHidden,
-		height,
-		region,
-		flow,
-		width,
-		savedViewport,
-		saveViewport,
-	});
+	const { initialize, reset, interrupt, onMoveEnd, isEntering } =
+		useDeskEntrance({
+			greetingHidden,
+			height,
+			region,
+			flow,
+			width,
+			savedViewport,
+			saveViewport,
+		});
+	useDeskWheel(region, flow, isEntering);
 	const context = useMemo(
 		() => ({
 			storageScope,
@@ -459,7 +460,6 @@ function Desk() {
 					}}
 					onKeyDownCapture={interrupt}
 					onPointerDownCapture={interrupt}
-					onWheelCapture={interrupt}
 					ref={region}
 					role="region"
 				>

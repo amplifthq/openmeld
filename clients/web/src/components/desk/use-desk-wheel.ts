@@ -4,7 +4,8 @@ import { type RefObject, useEffect } from "react";
 /** Normalize modifier-wheel zoom without the Mac-specific 10x pinch multiplier. */
 export function useDeskWheel<N extends Node>(
 	region: RefObject<HTMLElement | null>,
-	flow: RefObject<ReactFlowInstance<N> | null>
+	flow: RefObject<ReactFlowInstance<N> | null>,
+	isEntering?: RefObject<boolean>
 ) {
 	useEffect(() => {
 		const element = region.current;
@@ -69,12 +70,23 @@ export function useDeskWheel<N extends Node>(
 					.catch(console.error);
 			});
 		};
-		element.addEventListener("wheel", wheel, { passive: false, capture: true });
+		const onWheel = (event: WheelEvent) => {
+			if (isEntering?.current) {
+				event.preventDefault();
+				event.stopPropagation();
+				return;
+			}
+			wheel(event);
+		};
+		element.addEventListener("wheel", onWheel, {
+			passive: false,
+			capture: true,
+		});
 		return () => {
-			element.removeEventListener("wheel", wheel, true);
+			element.removeEventListener("wheel", onWheel, true);
 			cancelAnimationFrame(frame);
 		};
-	}, [region, flow]);
+	}, [region, flow, isEntering]);
 }
 
 function isZoomGesture(event: WheelEvent) {
