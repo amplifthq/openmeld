@@ -432,10 +432,10 @@ function Desk() {
 						<DeskContext value={context}>
 							<WorkspaceCanvas<DeskNode>
 								controls={
-									<Panel position="bottom-left">
+									<>
 										{import.meta.env.DEV &&
 											location.hostname.endsWith(".localhost") && (
-												<div className="mb-2">
+												<Panel position="top-left">
 													<Button
 														disabled={resetWelcome.isPending}
 														onClick={() => resetWelcome.mutate()}
@@ -454,15 +454,17 @@ function Desk() {
 															{resetWelcome.error.message}
 														</p>
 													)}
-												</div>
+												</Panel>
 											)}
-										<DeskTools
-											onAdd={() => setAddOpen(true)}
-											onReset={reset}
-											onZoomIn={() => flow.current?.zoomIn()}
-											onZoomOut={() => flow.current?.zoomOut()}
-										/>
-									</Panel>
+										<Panel position="bottom-left">
+											<DeskTools
+												onAdd={() => setAddOpen(true)}
+												onReset={reset}
+												onZoomIn={() => flow.current?.zoomIn()}
+												onZoomOut={() => flow.current?.zoomOut()}
+											/>
+										</Panel>
+									</>
 								}
 								defaultViewport={savedViewport ?? { x: 32, y: 24, zoom: 1 }}
 								edges={edges}

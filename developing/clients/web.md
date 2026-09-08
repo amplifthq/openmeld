@@ -541,7 +541,7 @@ Desk conversation rails fill their window with 24px inline padding, reduced to
 16px in narrow containers. Appearance's centered/full-width preference applies
 only to page surfaces. Desk passes its measured width into the shared Space so
 the Members side-panel breakpoint follows the window rather than the browser.
-Local development lanes expose Reset Welcome Space in the bottom-left controls.
+Local development lanes expose Reset Welcome Space at the top-left of Desk.
 It creates a new private ordinary Space with only the acting human, initializes
 Welcome guidance, and clears the current Desk window and viewport preferences.
 Existing Spaces and their messages remain intact. Production builds omit this action.
