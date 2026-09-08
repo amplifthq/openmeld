@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T19:42:22.269Z",
+  "updatedAt": "2026-09-08T20:48:15.572Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.179",
+      "packageVersion": "0.3.180",
       "updatePolicy": "available",
-      "reason": "The additive dispatch file tool reuses existing public CLI and cloud file contracts; setup, Wake and diagnostics remain compatible."
+      "reason": "Restore tool discovery with identical shared field validation; old and new cloud and CLI contracts interoperate."
     },
     "service": {
-      "bundleHash": "536fa9a06451ae2ab42c68003f133b34bcd8818f7b869929e3f2568f019c85c6",
-      "bundleVersion": "0.3.179",
+      "bundleHash": "d7152d05e80d70989fb146c89af0b04f5b1972bce4de2d4cf2b90b134dab8bd5",
+      "bundleVersion": "0.3.180",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Current-dispatch text file access preserves Agent identity and Space permissions without widening the controller sandbox; execution, Stop and reply contracts are unchanged."
+      "reason": "Fix the 0.3.179 required MCP tool startup regression without changing execution, identity, Stop, or publication authority."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
