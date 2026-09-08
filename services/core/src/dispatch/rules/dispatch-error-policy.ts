@@ -6,6 +6,9 @@ import {
   shouldRetryDispatchAttempt,
 } from "./dispatch-runtime-constants";
 
+export const DISPATCH_STORAGE_OVERLOADED_ERROR_CODE =
+  "dispatch.storage.overloaded";
+
 const DISPATCH_OFFLINE_RETRY_ERROR_CODES = new Set([
   "daemon.session.connection_replaced",
   "daemon.service.draining",
@@ -43,6 +46,7 @@ const DISPATCH_TARGET_PROFILE_IDENTITY_NON_RETRYABLE_ERROR_CODES = [
 ] as const;
 
 const RETRYABLE_DISPATCH_ERROR_CODES = new Set([
+  DISPATCH_STORAGE_OVERLOADED_ERROR_CODE,
   "daemon.session.connection_replaced",
   "daemon.service.draining",
   "daemon.profile.offline",
@@ -131,6 +135,11 @@ const D1_SCHEMA_ERROR_MESSAGE_FRAGMENTS = [
 export const DISPATCH_STORAGE_SCHEMA_MISSING_ERROR_CODE =
   "dispatch.storage.schema_missing";
 
+// D1 reports backpressure, not a malformed Wake or a missing identity.
+// Callers must retain work and delay retry rather than retrying immediately.
+export const isD1OverloadedError = (errorMessage: string): boolean =>
+  errorMessage.toLowerCase().includes("d1 db is overloaded.");
+
 export const isD1SchemaError = (errorMessage: string): boolean => {
   const normalized = errorMessage.toLowerCase();
   return D1_SCHEMA_ERROR_MESSAGE_FRAGMENTS.some((fragment) =>
@@ -161,6 +170,9 @@ export const classifyDispatchError = (
   if (isD1SchemaError(errorMessage)) {
     return "non_retryable";
   }
+  if (isD1OverloadedError(errorMessage)) {
+    return "retryable";
+  }
   const directCode = toErrorCode(error);
   if (directCode) {
     if (matchesErrorCode(directCode, RETRYABLE_DISPATCH_ERROR_CODES)) {
@@ -186,6 +198,9 @@ export const resolveDispatchErrorCode = (
 ): string => {
   if (isD1SchemaError(errorMessage)) {
     return DISPATCH_STORAGE_SCHEMA_MISSING_ERROR_CODE;
+  }
+  if (isD1OverloadedError(errorMessage)) {
+    return DISPATCH_STORAGE_OVERLOADED_ERROR_CODE;
   }
   const directCode = toErrorCode(error);
   if (directCode) {

@@ -34,6 +34,7 @@ import {
 } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { AppEmptyState } from "#/components/app/app-empty-state";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -67,6 +68,17 @@ export function OrganizationSkillsListPage() {
 	const [createOpen, setCreateOpen] = useState(false);
 	const [installOpen, setInstallOpen] = useState(false);
 	const normalizedSearch = search.trim().toLowerCase();
+	const isEmpty = skillsQuery.isSuccess && skillsQuery.data.skills.length === 0;
+	const actions = skillsQuery.data?.canManage ? (
+		<>
+			<Button onClick={() => setInstallOpen(true)} variant="outline">
+				<GithubLogoIcon aria-hidden="true" /> Install from GitHub
+			</Button>
+			<Button onClick={() => setCreateOpen(true)}>
+				<PlusIcon aria-hidden="true" /> Create skill
+			</Button>
+		</>
+	) : undefined;
 	const filteredSkills = useMemo(
 		() =>
 			(skillsQuery.data?.skills ?? []).filter((skill) => {
@@ -95,18 +107,7 @@ export function OrganizationSkillsListPage() {
 		<>
 			<div className="grid gap-6">
 				<AppPageHeader
-					action={
-						skillsQuery.data?.canManage ? (
-							<>
-								<Button onClick={() => setInstallOpen(true)} variant="outline">
-									<GithubLogoIcon aria-hidden="true" /> Install from GitHub
-								</Button>
-								<Button onClick={() => setCreateOpen(true)}>
-									<PlusIcon aria-hidden="true" /> Create skill
-								</Button>
-							</>
-						) : undefined
-					}
+					action={isEmpty ? undefined : actions}
 					description={
 						isPersonalWorkspace
 							? "Manage the optional working methods your Center Agent and local agents use in this personal workspace."
@@ -116,21 +117,24 @@ export function OrganizationSkillsListPage() {
 					title="Skills"
 				/>
 
-				<div className="relative max-w-xl">
-					<MagnifyingGlassIcon
-						aria-hidden="true"
-						className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-					/>
-					<Input
-						aria-label="Search Skills"
-						className="pl-9"
-						onChange={(event) => setSearch(event.target.value)}
-						placeholder="Search skills"
-						value={search}
-					/>
-				</div>
+				{!isEmpty && (
+					<div className="relative max-w-xl">
+						<MagnifyingGlassIcon
+							aria-hidden="true"
+							className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+						/>
+						<Input
+							aria-label="Search Skills"
+							className="pl-9"
+							onChange={(event) => setSearch(event.target.value)}
+							placeholder="Search skills"
+							value={search}
+						/>
+					</div>
+				)}
 
 				<SkillsListContent
+					emptyActions={isEmpty ? actions : undefined}
 					filteredSkills={filteredSkills}
 					isPersonalWorkspace={isPersonalWorkspace}
 					orgSlug={currentOrganization.slug}
@@ -157,6 +161,7 @@ export function OrganizationSkillsListPage() {
 }
 
 function SkillsListContent(input: {
+	emptyActions?: React.ReactNode;
 	filteredSkills: OrganizationSkillSummary[];
 	isPersonalWorkspace: boolean;
 	orgSlug: string;
@@ -192,21 +197,15 @@ function SkillsListContent(input: {
 	}
 	if (input.filteredSkills.length === 0) {
 		return (
-			<div className="grid justify-items-center gap-3 rounded-md border px-6 py-14 text-center">
-				<SparkleIcon
-					aria-hidden="true"
-					className="size-7 text-muted-foreground"
-				/>
-				<h2 className="font-medium text-lg">
-					{input.searching ? "No matching Skills" : "No Skills yet"}
-				</h2>
-				<p className="max-w-md text-muted-foreground text-sm">
-					{resolveEmptySkillsDescription({
-						isPersonalWorkspace: input.isPersonalWorkspace,
-						searching: input.searching,
-					})}
-				</p>
-			</div>
+			<AppEmptyState
+				actions={input.emptyActions}
+				description={resolveEmptySkillsDescription({
+					isPersonalWorkspace: input.isPersonalWorkspace,
+					searching: input.searching,
+				})}
+				icon={<SparkleIcon aria-hidden="true" className="size-5" />}
+				title={input.searching ? "No matching Skills" : "No Skills yet"}
+			/>
 		);
 	}
 	return (

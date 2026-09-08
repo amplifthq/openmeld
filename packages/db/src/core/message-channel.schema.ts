@@ -159,6 +159,7 @@ export const openMeldRemoteAgentLarkPlatformRegistrationAttempts = sqliteTable(
     provider: text("provider", { enum: ["lark", "feishu"] }).notNull(),
     encryptedDeviceCode: text("encrypted_device_code").notNull(),
     encryptedRegistrationUrl: text("encrypted_registration_url").notNull(),
+    applicationVersionId: text("application_version_id"),
     accountDomain: text("account_domain").notNull(),
     detectedBrand: text("detected_brand", {
       enum: ["lark", "feishu"],

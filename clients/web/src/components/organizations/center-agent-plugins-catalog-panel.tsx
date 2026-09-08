@@ -2,11 +2,11 @@
 
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
-import { Card, CardContent } from "@openmeld/ui/components/card";
 import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -148,6 +148,7 @@ export function CenterAgentPluginsCatalogPanel(input: {
 				>
 					{visiblePlugins.map((plugin) => (
 						<FluidCardItem
+							className={surfaceClasses(2)}
 							itemId={plugin.service}
 							key={plugin.service}
 							role="listitem"
@@ -182,53 +183,51 @@ function PluginCatalogCard(input: {
 	organizationSlug: string;
 }) {
 	return (
-		<Card className="h-full gap-0 bg-transparent py-0" size="sm">
-			<CardContent className="h-full p-0">
-				<Link
-					aria-disabled={input.connectionStatusIsPending || undefined}
-					className={cn(
-						"group flex h-full min-h-20 min-w-0 items-center gap-3 px-4 py-3 outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset sm:px-5",
-						input.connectionStatusIsPending &&
-							"pointer-events-none cursor-wait opacity-60"
-					)}
-					onClick={(event) => {
-						if (input.connectionStatusIsPending) {
-							event.preventDefault();
-						}
-					}}
-					tabIndex={input.connectionStatusIsPending ? -1 : undefined}
-					to={buildOrganizationPluginPath({
-						orgSlug: input.organizationSlug,
-						service: input.plugin.service,
-					})}
+		<div className="h-full overflow-hidden rounded-md">
+			<Link
+				aria-disabled={input.connectionStatusIsPending || undefined}
+				className={cn(
+					"group flex h-full min-h-20 min-w-0 items-center gap-3 px-4 py-3 outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset sm:px-5",
+					input.connectionStatusIsPending &&
+						"pointer-events-none cursor-wait opacity-60"
+				)}
+				onClick={(event) => {
+					if (input.connectionStatusIsPending) {
+						event.preventDefault();
+					}
+				}}
+				tabIndex={input.connectionStatusIsPending ? -1 : undefined}
+				to={buildOrganizationPluginPath({
+					orgSlug: input.organizationSlug,
+					service: input.plugin.service,
+				})}
+			>
+				<AppLogo app={input.plugin} surfaceLevel={3} />
+				<div className="min-w-0 flex-1">
+					<h3 className="truncate font-medium text-foreground text-sm">
+						{input.plugin.name}
+					</h3>
+					<p className="mt-1 truncate text-muted-foreground text-xs">
+						{input.plugin.category}
+					</p>
+				</div>
+				<span
+					className="flex w-auto shrink-0 justify-end sm:w-20"
+					data-slot="plugin-catalog-card-status"
 				>
-					<AppLogo app={input.plugin} />
-					<div className="min-w-0 flex-1">
-						<h3 className="truncate font-medium text-foreground text-sm">
-							{input.plugin.name}
-						</h3>
-						<p className="mt-1 truncate text-muted-foreground text-xs">
-							{input.plugin.category}
-						</p>
-					</div>
-					<span
-						className="flex w-auto shrink-0 justify-end sm:w-20"
-						data-slot="plugin-catalog-card-status"
-					>
-						<PluginStatusBadge
-							connected={input.connected}
-							loading={input.connectionStatusIsPending}
-							plugin={input.plugin}
-						/>
-					</span>
-					<CaretRightIcon
-						aria-hidden="true"
-						className="hidden size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground sm:block"
-						data-slot="plugin-catalog-card-arrow"
+					<PluginStatusBadge
+						connected={input.connected}
+						loading={input.connectionStatusIsPending}
+						plugin={input.plugin}
 					/>
-				</Link>
-			</CardContent>
-		</Card>
+				</span>
+				<CaretRightIcon
+					aria-hidden="true"
+					className="hidden size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground sm:block"
+					data-slot="plugin-catalog-card-arrow"
+				/>
+			</Link>
+		</div>
 	);
 }
 

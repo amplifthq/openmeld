@@ -1,5 +1,8 @@
 import { resolveAvailableProfileHandle } from "@openmeld/protocol";
-import { AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH } from "@openmeld/schemas";
+import {
+  AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH,
+  authRpcResolveProfilesByIdsInputSchema,
+} from "@openmeld/schemas";
 import type {
   OpenMeldProfileManagedRole,
   OpenMeldProfileSource,
@@ -479,6 +482,17 @@ export function createOpenMeldProfileService(
         throw new ProfileValidationError("profileId is required");
       }
       return repository.findByProfileId(normalizedProfileId);
+    },
+    resolveProfilesByIds: (profileIds: string[]) => {
+      const parsed = authRpcResolveProfilesByIdsInputSchema.safeParse({
+        profileIds,
+      });
+      if (!parsed.success) {
+        throw new ProfileValidationError("Profile fact batch is invalid");
+      }
+      return repository.findFactsByProfileIds([
+        ...new Set(parsed.data.profileIds),
+      ]);
     },
     listProfilesForOwner: async (ownerUserId: string) => {
       const normalizedOwnerUserId = normalizeRequiredText(

@@ -454,6 +454,20 @@ not authorize it to query Auth-private `users` or `members` tables.
 Web, future Desktop, and future Mobile clients consume the same list, direct
 item, count, preference, and mutation contracts. The source target is a
 discriminated, structured locator rather than an arbitrary or Web-only URL.
+
+Inbox summary version `1` adds `unreadUrgentUpdateCount`, disjoint from
+`unresolvedActionCount`. Core derives both from the same recipient/access-filtered
+query; clients never count a list page to reconstruct them. The additive field
+is optional only for receiver-first interoperability: absent means unknown.
+Current API clients send `x-openmeld-inbox-summary-version: 1`; Gateway removes
+the new field for older strict clients, including already-open Web tabs.
+Deploy compatible Gateway first, Core second, and Web last. New Gateway accepts
+old Core output; new Web reports unknown if the field is absent. The new
+`urgent_updates` and `recent_updates` preview list views are available only after Core and Gateway support them;
+unsupported queries fail visibly, with no empty-list fallback. Rollback Web
+before Core, then Gateway; retain the compatible Gateway while Core emits the
+field. CLI, Service, Skills, setup, Wake and Space action contracts are unchanged.
+
 Each client maps only supported targets to its canonical navigation surface.
 Unknown target kinds fail closed and remain visible without creating an
 arbitrary URL. A Slack `message_channel` target is the bounded exception for an
@@ -1646,6 +1660,15 @@ constants are not evidence of compatibility. No D1 migration or new public R2
 bucket is introduced: each Space Durable Object lazily owns its SQLite tables,
 and immutable bytes use the existing private Space object-store binding.
 
+Workstation dispatch tools expose a bounded `read_file` operation for text
+attachments. Its input is the existing file ID and optional revision; its
+response follows `readSpaceFileTextResponseSchema`, the public CLI text-read
+shape. Space and acting Profile come from the active dispatch context, and the
+existing public file API still owns access checks. This additive local tool
+does not change cloud file routes, dispatch envelopes, or execution authority.
+Old CLI/Service installations retain their existing file commands; new local
+components interoperate with the existing Core and Gateway file receivers.
+
 #### Historical attachment rollout
 
 The first rollout is an explicit exception to the default cloud deploy order:
@@ -1824,6 +1847,24 @@ otherwise unchanged.
 dispatch action guidance. The renderer composes already-owned Space, profile,
 guide, and command facts; it must not create another membership, role,
 readiness, execution, or publication-policy source.
+
+`space-mesh/collaboration-context` owns runtime-independent task-material trust
+guidance, Agent identity formatting, and source-scoped Wake participant wording.
+Local consumes these exports alongside the existing Entry Brief and continuity
+renderers. The participant list comes only from canonical activation targets,
+not membership or reference targets; it does not assign ordering or work and
+does not imply that a participant has produced a result. The acting profile is
+described as activated only when its ID is present.
+
+Adapters supply the instruction for reading source-scoped outcomes and the
+existing Entry Brief `needMore` instruction for live Space Board access. These
+are in-process renderer inputs, not a new transport protocol. Cross-service
+source, Board, and result data continue to use their existing schemas. No local
+private context, access rights, or execution state is exported by this module.
+Remote adoption must supply its own authorized read tools and native delivery
+contract; Local action-proposal/CLI rules must not replace Remote automatic
+publication or Center native execution rules. This extraction does not integrate
+either hosted runtime or guarantee conflict-free multi-agent execution.
 
 `packages/schemas/src/schemas/http/space-board.ts` owns the strict Space Board
 HTTP/RPC response. Space/Core compose the response from the Space room
@@ -4122,6 +4163,24 @@ OpenConnector connection list are never Organization authority.
 
 ### Wake Stop HTTP Contracts
 
+The accepted-result publication phase uses the shared eligibility variant
+`controlMode: openmeld_owned_publication_cancel` with
+`reliability: openmeld_owned_publication`. Core obtains that policy projection
+from RuntimeCoordinator's read-only
+`/runtime-coordinator/wake-stop/publication-eligibility` endpoint, which reuses
+the shared Wake Stop request scope and nullable eligibility schema. It does not
+pretend a retired local execution has native Controller cancel capability.
+Web consumes the server eligibility and must not infer it from progress text.
+
+Rollout is consumer-first: deploy the Web/Gateway readers built with the
+expanded eligibility union before Core emits it, and refresh already-open Web
+clients. Older clients that explicitly request eligibility have a strict union
+and cannot decode this new variant. Published CLI commands do not opt into
+`includeWakeStopEligibility`; their response shape stays unchanged. Setup,
+Service transport, Agent skills, and Stop mutation payloads are unchanged, so
+no local-component contract floor is raised. A missing internal eligibility
+receiver fails closed with null rather than granting a client-side fallback.
+
 `packages/schemas/src/schemas/http/space-wake-stop.ts` owns the shared POST
 contract for Wake Stop. Clients may submit only Space-visible selectors:
 `sourceSignalId` or `clientMessageId + targetProfileId`. `dispatchId`, local
@@ -4194,12 +4253,14 @@ strict Web response parser must not receive the additive field before the new
 Web is live.
 
 Wake Stop eligibility is a read model, not execution authority. It may make a
-Wake appear stoppable only when Core can project one of three control modes:
+Wake appear stoppable only when Core can project one of four control modes:
 
 - OpenMeld-owned pre-agent Stop, for a target Wake that has not linked a
   RuntimeCoordinator execution and has not reached local agent delivery.
 - Controller-backed running Stop, for a linked execution whose controller can
   accept native cancel or native interrupt.
+- OpenMeld-owned publication Stop, after RuntimeCoordinator accepts the local
+  result and before its final outcome settles, without current Controller control.
 - Remote Agent native-delivery Stop, for one active hosted submission whose
   durable execution identity can be cancelled through the Remote Agent worker.
 
@@ -4877,6 +4938,18 @@ ids, or reinterpret `readOnly` as permission to mutate local state.
 
 ## Space Member Contracts
 
+Auth's internal `resolveProfilesByIds` RPC reads at most 64 requested Profile
+IDs per call. It returns the same minimal identity facts as
+`resolveProfileById`, with an explicit null for each absent ID. A database
+failure returns a failed envelope, never a partial successful set. Consumers
+reject missing keys, unrequested keys and Profile IDs that do not match their
+keys. This is an identity read, not authorization or a readiness projection.
+Core keeps ownership, Organization, Binding and execution policy checks.
+Deploy Auth before Core consumers; the scalar RPC remains available to old
+cloud callers. Roll back Core before removing the new Auth receiver. No public
+CLI, Service, Gateway, Web, setup or Wake payload shape changes, and no local
+compatibility floor changes are required.
+
 Auth owns current Profile names. Space member names are persisted display
 snapshots, not a second identity authority. Historical Signals and existing
 sessions must never rename an existing member, even when their names are
@@ -4888,6 +4961,8 @@ rewritten by a Profile rename. Authorized member-directory and active-Wake reads
 refresh active-member names through the Space-owned writer and existing Space
 Index projection outbox. Account working summaries resolve each distinct active
 Agent through Auth, without making the cross-Space index a membership writer.
+Space-wide name refresh uses bounded Auth fact batches instead of one RPC per
+member. It stops launching batches after the existing display-read deadline.
 Refresh preserves membership, ownership, removal and aliases. It re-reads the
 member after the Auth call so a concurrent removal or changed name wins. Failed
 or mismatched identity reads do not write names: the last known snapshot remains
@@ -4901,7 +4976,9 @@ a snapshot after the caller has timed out. Name-only index delivery runs in the
 background using the existing durable dirty mark and projection outbox, rather
 than delaying the reply or status response.
 Web treats old ID-valued progress labels as unnamed Agents during rollout.
-These corrections change no HTTP/RPC schema or local-component contract.
+The batch RPC is additive; public message and local-component contracts stay
+unchanged. Request-scoped reuse between name enrichment and Core readiness is
+separate from this batch transport and must not reuse stale cross-request facts.
 
 `getSpaceStatusResponseSchema` may expose the Organization's current
 `centerAgentProfileId` as an optional presentation identity. This lets public

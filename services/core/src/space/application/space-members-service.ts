@@ -24,7 +24,12 @@ import type {
   SpaceStatusMembersSummary,
 } from "@openmeld/schemas/types";
 import { buildSpaceMemberDirectoryFromIdentityDirectory } from "@openmeld/space";
+import {
+  type AgentExecutionReadinessReads,
+  createAgentExecutionReadinessReads,
+} from "../../agent-execution/application/agent-execution-readiness-reads";
 import { resolveCoreAgentExecutionReadiness } from "../../agent-execution/application/agent-execution-readiness-service";
+import { readAuthProfileFacts } from "../../auth/application/profile-facts-reader";
 import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoutesBatch,
@@ -596,6 +601,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
   const humans: SpaceMemberHumanSnapshot[] = [];
   const agentSnapshotPromises: Promise<SpaceMemberAgentSnapshot>[] = [];
   const activeOrganizationId = input.metaRecord?.organizationId ?? null;
+  const readinessReads = createAgentExecutionReadinessReads();
 
   for (const record of records) {
     if (record.profileKindSnapshot === "human") {
@@ -633,6 +639,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
         latestAgentOriginFactsByProfileId,
         preloadedDaemonRouteByProfileId,
         preloadedOwnerServiceByOwnerUserId,
+        readinessReads,
         generatedAt,
       })
     );
@@ -1206,6 +1213,7 @@ async function buildAgentSnapshot(input: {
     RuntimeTransportLookupOwnerServiceResponse
   >;
   generatedAt: string;
+  readinessReads: AgentExecutionReadinessReads;
 }): Promise<SpaceMemberAgentSnapshot> {
   const snapshotBase = buildSnapshotBase({
     record: input.record,
@@ -1223,6 +1231,7 @@ async function buildAgentSnapshot(input: {
       )
     : undefined;
   const executionReadiness = await resolveCoreAgentExecutionReadiness({
+    reads: input.readinessReads,
     activeOrganizationId: input.activeOrganizationId ?? null,
     agent: {
       controllerRefSnapshot: input.record.controllerRefSnapshot,
@@ -1649,49 +1658,63 @@ export async function refreshSpaceMemberNamesFromAuth(input: {
   env: CoreBindings;
 }): Promise<boolean> {
   const auth = input.env.OPENMELD_AUTH_WORKER;
-  if (!auth?.resolveProfileById) {
+  if (!auth?.resolveProfilesByIds) {
     return false;
   }
   const members = listSpaceMemberRecords(input.sql, {
     status: "active",
   });
-  let changed = false;
   const deadlineAtMs = Date.now() + SPACE_MEMBER_NAME_READ_BUDGET_MS;
-  // A nonempty snapshot can still predate an Auth rename.
-  for (let offset = 0; offset < members.length; offset += 8) {
-    if (Date.now() >= deadlineAtMs) {
-      break;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const profiles = await Promise.race([
+      readAuthProfileFacts({
+        authWorker: auth,
+        profileIds: members.map((member) => member.profileId),
+        deadlineAtMs,
+      }),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(
+          () => resolve(null),
+          SPACE_MEMBER_NAME_READ_BUDGET_MS
+        );
+      }),
+    ]);
+    if (profiles === null) {
+      console.warn("[core.space.member_names_unavailable]", {
+        memberCount: members.length,
+      });
+      return false;
     }
-    const refreshed = await Promise.all(
-      members.slice(offset, offset + 8).map(async (member) => {
-        const name = await readSpaceMemberNameFromAuth({
-          env: input.env,
-          profileId: member.profileId,
-          profileKind: member.profileKindSnapshot,
-          deadlineAtMs,
-        });
-        if (!name) {
-          return false;
-        }
-        // Re-read after the Auth RPC: a concurrent rename or removal wins.
-        const current = readSpaceMemberRecord(input.sql, member.profileId);
-        if (
-          !current ||
-          current.status !== "active" ||
-          current.profileNameSnapshot !== member.profileNameSnapshot
-        ) {
-          return false;
-        }
-        return refreshSpaceMemberNameSnapshot({
+    let changed = false;
+    // A nonempty snapshot can still predate an Auth rename.
+    for (const member of members) {
+      const profile = profiles.get(member.profileId);
+      if (!profile || profile.profileKind !== member.profileKindSnapshot) {
+        continue;
+      }
+      // Re-read after the Auth RPC: a concurrent rename or removal wins.
+      const current = readSpaceMemberRecord(input.sql, member.profileId);
+      if (
+        !current ||
+        current.status !== "active" ||
+        current.profileNameSnapshot !== member.profileNameSnapshot
+      ) {
+        continue;
+      }
+      changed =
+        refreshSpaceMemberNameSnapshot({
           sql: input.sql,
           profileId: member.profileId,
-          profileName: name,
-        });
-      })
-    );
-    changed = refreshed.some(Boolean) || changed;
+          profileName: profile.profileName,
+        }) || changed;
+    }
+    return changed;
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
   }
-  return changed;
 }
 
 export async function readSpaceMemberNameFromAuth(input: {

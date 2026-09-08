@@ -67,6 +67,7 @@ describe("Lark-platform permission bundles", () => {
           "im:message:send_as_bot",
           "im:resource",
           "application:application:patch",
+          "application:application:self_manage",
         ],
       },
     });

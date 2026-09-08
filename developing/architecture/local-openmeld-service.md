@@ -256,6 +256,18 @@ standalone CLI package's release channel or offer that CLI package's update
 command. If the host application does not expose a stable update-status
 contract, ACI omits the version advisory instead of guessing across sources.
 
+OpenCode Wake execution validates the selected launch files and starts the real
+controller task without a separate `--version` process. Version and capability
+probes remain in discovery/Prepare; a slow version probe must not be turned into
+an invalid execution contract. This does not bypass permission capability
+attestation or the actual controller startup and execution errors.
+
+Concurrent controller cleanup shares an unfinished macOS process-table read,
+even after the short snapshot age has elapsed. Once the read settles, its
+original capture time still determines freshness; the existing bounded cleanup
+retry obtains a fresh snapshot. Sharing reads never shares process ownership or
+the decision to signal a particular execution.
+
 The same identity rule applies to standalone installs. Latest version and the
 update command must come from the selected install's channel: that controller's
 official native updater, npm/pnpm/bun, or the Homebrew formula actually
@@ -316,17 +328,20 @@ Wake admission, RuntimeCoordinator, routing, or agent selection from these
 states. Core applies the shared versioned capability matrix to the report it
 already holds; it never calls the provider on the Wake hot path. The Service
 stamps each current ACI report with `usageLimitsSupportMatrixVersion`; this
-explicitly tells Core that missing or unconfirmed native Usage evidence must
-fail closed. A legacy Service report without that optional declaration remains
+identifies the evidence contract Core may use to prove exhaustion. Missing or
+unconfirmed Usage does not block an otherwise ready Agent. A legacy Service
+report without that optional declaration remains
 valid during mixed-version rollout and does not acquire a new Usage admission
 condition solely from a newer Core matrix. When retrying against an older Core
 contract, the Service omits both the Usage projection and its support-matrix
 declaration. For a
 controller whose matrix entry declares native Usage support, a reliable fresh
-`available` observation permits Usage admission, a reliable fresh explicitly
-`exhausted` observation blocks the Wake as `Unavailable`, and missing, stale,
-expired, unavailable, or otherwise unconfirmed evidence blocks new Wake
-admission as `Checking`. A controller that explicitly reports Usage as
+`available` observation proves current capacity and a reliable fresh explicitly
+`exhausted` observation blocks the Wake as `Unavailable`. Missing, stale,
+expired, unavailable, or otherwise unconfirmed Usage does not add a block;
+the separate current Controller readiness and trust requirements still apply.
+Positive fresh capacity remains required for automatic recovery after an
+exhausted execution. A controller that explicitly reports Usage as
 `unsupported`, or whose matrix entry is passive, unsupported, or not evaluated,
 does not use Usage as a Wakeability condition. A separate structured
 provider-access evidence field may be emitted only after an ordinary Wake is
@@ -379,6 +394,12 @@ substitute transcript token/cost estimates.
 
 ### Agent Instruction Delivery
 
+Runtime-independent Space identity, task-material trust, and current-Wake
+participant rendering are consumed from `packages/space-mesh`, together with
+its existing Entry Brief and continuity helpers. Local supplies CLI read
+instructions and retains action submission, publication, injection epochs,
+and provider adapters. Shared rendering grants no new tools or permissions.
+
 OpenMeld owns one provider-neutral instruction plan for every workstation Wake:
 stable developer instructions, a content-derived instruction epoch, the current
 Wake input, and a complete fallback prompt. Stable developer instructions may
@@ -389,6 +410,27 @@ attachment, action facts, and the optional Core-frozen Organization working-
 language advisory remain per-turn input. A preference change therefore does not
 change the stable instruction epoch. Provider adapters must not maintain a
 second copy of either category or run a separate language detector/model call.
+
+The stable workflow applies only to OpenMeld Wakes. User messages, Space Guides,
+attachments, and history remain task context rather than runtime instructions
+or new permissions. Current completion guidance requires the permitted action
+and inspection of its response, while preserving raw-reply, status, and silence
+contracts. A successful action acknowledgement records a proposal; only Core
+publication establishes a visible Space reply. Plain replies omit additional
+targets. Suggested send-target lines exclude the acting Agent without changing
+the complete member projection used for independent action validation.
+When the harness offers tool discovery, completion guidance requires checking
+for the Space Action tool before treating it as unavailable and using the CLI
+alternative. Reply submission alone does not require onboarding material.
+Unknown-submission guidance applies to Space Action submission outcomes, not
+context reads or other business tools. When a context read fails before any
+Space Action submission, the Agent should report the blocker through the
+permitted completion action rather than invent results or silently finish.
+Shared text attachments use the dispatch `read_file` tool when available.
+Other context-reading commands use the existing dispatch-scoped absolute CLI entry
+from `OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH`, so a provider's login shell
+cannot redirect them to an unrelated installation through PATH. Human-facing
+Service maintenance guidance keeps the normal lane command.
 
 An adapter may separate the plan only through an official controller surface it
 can prove. Codex App Server installs stable instructions on a new thread and
@@ -402,7 +444,14 @@ instruction channel.
 For a supported controller, the Service may inject an ephemeral first-party
 Space Action tool configuration into the controller process for the active
 dispatch. That configuration is not written into user settings. It exposes only
-the allowed `reply`, `status`, and `stay_silent` operations, forwards the active
+the allowed `reply`, `status`, and `stay_silent` operations, plus the read-only
+`read_file` context operation. File reads accept only a file ID and optional
+revision; the active dispatch supplies the Space and acting Agent identity.
+The trusted tool process invokes the dispatch-owned CLI's existing public file
+read command outside the controller sandbox, preserving normal authentication,
+Space permissions, revision checks, and text-size limits. It never grants the
+controller access to local credentials or arbitrary filesystem paths. A file
+read does not record an action or finish the Wake. The configuration forwards the active
 dispatch identity, and fails closed when the action context is absent, expired,
 or mismatched. Fresh and resumed controller conversations use the same tool
 boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use
@@ -1740,11 +1789,18 @@ installation is fail-atomic: a failed install or verification attempts every
 platform cleanup step and rolls back the newly written definition so a later
 pass still observes missing drift rather than mistaking a partial repair for an
 explicit autostart-disable. If cleanup itself cannot remove the partial
-definition, the daemon keeps a preset-owned durable repair-pending marker and
+definition, the daemon keeps a service-owned durable repair-pending marker and
 continues the same repair on later passes. Because the OS registration is
-global per env preset, the repair marker and daemon lifecycle lock use one
-canonical preset-owned path that deliberately ignores `OPENMELD_HOME`
-overrides. Registration repair, install, start, stop, uninstall, alignment,
+global per service identity, the repair marker and daemon lifecycle lock use
+that same owner's path. Production and canary retain canonical preset-owned
+coordination independent of `OPENMELD_HOME` overrides. Development Service and
+maintenance identities instead use a stable suffix derived from the absolute
+effective `OPENMELD_HOME`, and their coordination remains inside that home.
+This completes worktree isolation without a second lane registry or transient
+identity variable. Existing development definitions with a mismatched home are
+not adopted. Old unsuffixed development registrations require separate,
+owner-verified retirement; new lanes do not clean them up automatically.
+Registration repair, install, start, stop, uninstall, alignment,
 auto-heal, and explicit autostart changes all reuse that one
 lock identity. Nested registration work in the same lifecycle command reuses
 the held lock; competing commands or roots cannot enter until it is released.

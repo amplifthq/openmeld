@@ -2275,7 +2275,7 @@ describe("SpaceLanding", () => {
 			name: "Find a member to mention",
 		});
 		fireEvent.keyDown(mentionSearch, { key: "Escape" });
-		fireEvent.click(screen.getByRole("button", { name: "Add to message" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add" }));
 		const filesItem = await screen.findByRole("menuitem", { name: "Files" });
 		expect(filesItem.getAttribute("aria-disabled")).toBe("true");
 		expect(
@@ -5196,7 +5196,10 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows both empty Space setup cards and opens Add People or Agents", () => {
+	it.each([
+		"setup",
+		"composer",
+	])("opens Add People or Agents from %s without opening Members", async (entry) => {
 		useLocalAgentRecoveryControllerMock.mockReturnValue({
 			localRuntimesQuery: {
 				data: { localRuntimes: [] },
@@ -5254,11 +5257,18 @@ describe("SpaceLanding", () => {
 			})
 		).toBeTruthy();
 
-		fireEvent.click(
-			within(setupActions).getByRole("button", {
-				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
-			})
-		);
+		if (entry === "setup") {
+			fireEvent.click(
+				within(setupActions).getByRole("button", {
+					name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
+				})
+			);
+		} else {
+			fireEvent.click(screen.getByRole("button", { name: "Add" }));
+			fireEvent.click(
+				await screen.findByRole("menuitem", { name: "People or agents" })
+			);
+		}
 		const addMembersDialog = screen.getByRole("dialog", {
 			name: "Add People or Agents",
 		});
@@ -5270,6 +5280,8 @@ describe("SpaceLanding", () => {
 		expect(
 			within(addMembersDialog).getByRole("button", { name: "New Agent" })
 		).toBeTruthy();
+		expect(screen.queryByRole("complementary", { name: "Members" })).toBeNull();
+		expect(screen.queryByRole("dialog", { name: "Members" })).toBeNull();
 	});
 
 	it("does not show ordinary setup guidance in a direct conversation with an agent", () => {
@@ -6407,7 +6419,7 @@ describe("SpaceLanding", () => {
 		expect(
 			within(dialog).getByRole("heading", { name: "People & Agents" })
 		).toBeTruthy();
-		expect(within(dialog).getByText("@runner(wake)")).toBeTruthy();
+		expect(within(dialog).getByText("@Runner")).toBeTruthy();
 
 		fireEvent.click(
 			within(dialog).getByRole("button", { name: "Search members" })
@@ -6481,7 +6493,7 @@ describe("SpaceLanding", () => {
 		expect(
 			within(panel).getByRole("heading", { name: "Members" })
 		).toBeTruthy();
-		expect(within(panel).getByText("@runner(wake)")).toBeTruthy();
+		expect(within(panel).getByText("@Runner")).toBeTruthy();
 
 		fireEvent.click(
 			within(panel).getByRole("button", { name: "Search members" })
@@ -9160,7 +9172,7 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("turns an exact pasted Agent name into a visible Wake", async () => {
+	it("keeps an exact pasted Agent name literal until a recipient is selected", async () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -9186,11 +9198,8 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(textarea, "@Runner wake please reply");
 
-		const token = screen.getByTestId("space-composer-profile-token");
-		const relation = within(token).getByRole("combobox", {
-			name: "Change relation for Runner",
-		});
-		expect(relation.textContent).toBe("Wake");
+		expect(screen.queryByTestId("space-composer-profile-token")).toBeNull();
+		expect(readComposerValue(textarea)).toBe("@Runner wake please reply");
 		expect(screen.queryByText("Waking 1 agent")).toBeNull();
 	});
 
@@ -13829,9 +13838,10 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(screen.getAllByText("Ready")).toHaveLength(10);
 		});
-		expect(
-			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", false);
+		expect(screen.getByRole("button", { name: "Add" })).toHaveProperty(
+			"disabled",
+			false
+		);
 		expect(screen.getByText("You can add up to 10 files.")).toBeTruthy();
 	});
 
@@ -16398,7 +16408,7 @@ describe("SpaceLanding", () => {
 				})
 		);
 		const outgoingText = wake
-			? "@runner(wake) Optimistic thread reply"
+			? "@Runner Optimistic thread reply"
 			: "Optimistic thread reply";
 		const postThreadSignalMock = vi.fn().mockImplementation(
 			() =>
@@ -16488,7 +16498,16 @@ describe("SpaceLanding", () => {
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
-		await setComposerValue(threadComposer, outgoingText);
+		if (wake) {
+			await insertComposerMember(RUNNER_OPTION_NAME, "", threadPanel);
+			await appendComposerText(
+				threadComposer,
+				"Optimistic thread reply",
+				outgoingText
+			);
+		} else {
+			await setComposerValue(threadComposer, outgoingText);
+		}
 		fireEvent.click(
 			within(threadPanel).getByRole("button", { name: "Send reply" })
 		);
@@ -16497,7 +16516,10 @@ describe("SpaceLanding", () => {
 			await waitFor(() => expect(readSpaceMembersMock).toHaveBeenCalled());
 			expect(readComposerValue(threadComposer)).toBe("");
 			expect(
-				within(threadPanel).getByText(outgoingText, { selector: "p" })
+				within(threadPanel).getByText("Optimistic thread reply", {
+					exact: false,
+					selector: "p",
+				})
 			).toBeTruthy();
 			expect(postThreadSignalMock).not.toHaveBeenCalled();
 			await act(async () => releaseAdmission?.());
@@ -16508,7 +16530,8 @@ describe("SpaceLanding", () => {
 		});
 		expect(readComposerValue(threadComposer)).toBe("");
 		expect(
-			within(threadPanel).getByText(outgoingText, {
+			within(threadPanel).getByText("Optimistic thread reply", {
+				exact: false,
 				selector: "p",
 			})
 		).toBeTruthy();
@@ -17080,7 +17103,16 @@ describe("SpaceLanding", () => {
 		const threadComposer = screen.getByRole("textbox", {
 			name: "Reply in thread",
 		});
-		await setComposerValue(threadComposer, "@runner(wake) keep going");
+		await insertComposerMember(
+			RUNNER_OPTION_NAME,
+			"",
+			screen.getByLabelText("Thread")
+		);
+		await appendComposerText(
+			threadComposer,
+			"keep going",
+			"@Runner keep going"
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
 
 		await waitFor(() => {
@@ -17091,7 +17123,7 @@ describe("SpaceLanding", () => {
 					messageEnvelope: expect.objectContaining({
 						activationTargets: [DEFAULT_AGENT_PROFILE_ID],
 					}),
-					text: "@runner(wake) keep going",
+					text: "@Runner keep going",
 				}),
 				spaceId: "space-123",
 				threadId: "thread-1",

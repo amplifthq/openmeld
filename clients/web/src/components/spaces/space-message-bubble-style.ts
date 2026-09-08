@@ -25,8 +25,10 @@ export function resolveSpaceMessageRowLayoutClassName(input: {
 // Hover/focus-within background for one message row. Apply this to the
 // per-message row element, not to a container that spans multiple grouped
 // messages, so hovering one message never highlights its neighbors.
+// Keep hover/focus hooks and action visibility intact, but leave the highlighter
+// transparent. Restore bg-muted/35 below to bring back the row highlight.
 export const SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS =
-	"rounded-md transition-colors hover:bg-muted/35 focus-within:bg-muted/35";
+	"rounded-md transition-colors hover:bg-transparent focus-within:bg-transparent";
 export function resolveSpaceMessageBubblePresentationClass(input: {
 	isHighlighted?: boolean;
 	isSelf?: boolean;

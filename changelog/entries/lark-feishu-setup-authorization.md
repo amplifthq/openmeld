@@ -13,3 +13,6 @@ OpenMeld finishes configuration after approval. Managers can cancel unfinished
 setup, and expired requests no longer leave a Channel stuck on Connecting.
 Connection verification no longer waits for background bookkeeping before
 answering Lark or Feishu, preventing setup from timing out during delivery checks.
+OpenMeld also publishes the bot's message-delivery configuration automatically
+and verifies the approved version before showing Connected. Updates awaiting
+provider approval remain in setup with an explanation.

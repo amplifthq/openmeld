@@ -9,6 +9,9 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { TabItem, TabPanel, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
+import { cn } from "@openmeld/ui/lib/utils";
 import {
 	CheckIcon,
 	CopyIcon,
@@ -58,13 +61,20 @@ type StartSetupCommandExpiryProps = {
 };
 
 export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
+	const platform = input.commandPlatform ?? "posix";
 	const hasInstructions =
 		input.title !== undefined ||
 		input.description !== undefined ||
 		(input.steps !== undefined && input.steps.length > 0);
 
 	return (
-		<div className="grid gap-4">
+		<Tabs
+			className="grid gap-4"
+			onValueChange={(value) =>
+				input.onCommandPlatformChange?.(value as WebSetupCommandPlatform)
+			}
+			value={platform}
+		>
 			{hasInstructions ? (
 				<div className="grid gap-3">
 					{input.title ? (
@@ -86,12 +96,9 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 			) : null}
 			<div className="grid gap-3">
 				{input.commandPlatform && input.onCommandPlatformChange ? (
-					<SetupCommandPlatformSwitch
-						onChange={input.onCommandPlatformChange}
-						value={input.commandPlatform}
-					/>
+					<SetupCommandPlatformSwitch />
 				) : null}
-				<div className="grid gap-2">
+				<TabPanel className="grid gap-2" value={platform}>
 					<button
 						className="w-full min-w-0 touch-manipulation select-all overflow-x-auto whitespace-nowrap rounded-md border border-border bg-muted/10 px-3 py-2 text-left font-mono text-xs transition-colors [scrollbar-width:none] hover:bg-muted/30 max-lg:min-h-11 [&::-webkit-scrollbar]:hidden"
 						onClick={input.onCopyCommand}
@@ -124,9 +131,14 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 							{input.copyStatus === "copied" ? "Copied" : input.copyLabel}
 						</Button>
 					</div>
-				</div>
+				</TabPanel>
 				<ol className="grid gap-2 text-xs sm:grid-cols-3">
-					<li className="rounded-md border p-3">
+					<li
+						className={cn(
+							"rounded-md border border-transparent p-3",
+							surfaceClasses(1)
+						)}
+					>
 						<CopyIcon
 							aria-hidden="true"
 							className="setup-instruction-icon mb-2 size-5 text-muted-foreground"
@@ -136,7 +148,12 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 							Use the copy button above.
 						</p>
 					</li>
-					<li className="rounded-md border p-3">
+					<li
+						className={cn(
+							"rounded-md border border-transparent p-3",
+							surfaceClasses(1)
+						)}
+					>
 						<TerminalIcon
 							aria-hidden="true"
 							className="setup-instruction-icon mb-2 size-5 text-muted-foreground"
@@ -149,7 +166,12 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 							Paste the command and press Return.
 						</p>
 					</li>
-					<li className="rounded-md border p-3">
+					<li
+						className={cn(
+							"rounded-md border border-transparent p-3",
+							surfaceClasses(1)
+						)}
+					>
 						<ListChecksIcon
 							aria-hidden="true"
 							className="setup-instruction-icon mb-2 size-5 text-muted-foreground"
@@ -190,51 +212,39 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 					</div>
 				) : null}
 			</div>
-		</div>
+		</Tabs>
 	);
 }
 
-function SetupCommandPlatformSwitch(input: {
-	onChange: (platform: WebSetupCommandPlatform) => void;
-	value: WebSetupCommandPlatform;
-}) {
+function SetupCommandPlatformSwitch() {
 	return (
-		<fieldset
+		<TabsList
 			aria-label="Setup command platform"
-			className="flex flex-wrap gap-2"
+			background={false}
+			className="w-fit"
 		>
-			<Button
-				aria-pressed={input.value === "posix"}
-				onClick={() => input.onChange("posix")}
-				size="sm"
-				type="button"
-				variant={input.value === "posix" ? "default" : "outline"}
+			<TabItem label="macOS / Linux" value="posix" />
+			<TabItem
+				aria-label="Windows PowerShell"
+				label="Windows PowerShell"
+				value="windows"
 			>
-				macOS / Linux
-			</Button>
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						<Button
-							aria-label="Windows PowerShell"
-							aria-pressed={input.value === "windows"}
-							onClick={() => input.onChange("windows")}
-							size="sm"
-							type="button"
-							variant={input.value === "windows" ? "default" : "outline"}
-						>
-							Windows PowerShell
-							<span className="rounded border px-1 font-normal text-[10px] opacity-70">
+				Windows PowerShell
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<span className="rounded px-1 font-normal text-[10px] opacity-70">
 								Beta
 							</span>
-						</Button>
-					}
-				/>
-				<TooltipContent className="max-w-64 whitespace-normal">
-					Windows setup is in beta. Some steps may need manual troubleshooting.
-				</TooltipContent>
-			</Tooltip>
-		</fieldset>
+						}
+					/>
+					<TooltipContent className="max-w-64 whitespace-normal">
+						Windows setup is in beta. Some steps may need manual
+						troubleshooting.
+					</TooltipContent>
+				</Tooltip>
+			</TabItem>
+		</TabsList>
 	);
 }
 
