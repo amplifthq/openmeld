@@ -1850,9 +1850,9 @@ describe("CreateProfileDialog", () => {
 		expect(recordProfileSpaceHistoryMock).not.toHaveBeenCalled();
 	});
 
-	it("refreshes the created Agent before opening its Profile Details", async () => {
+	it("opens the committed Agent without waiting for background cache refreshes", async () => {
 		const onAgentRequestCreated = vi.fn();
-		const { queryClient } = renderCreateProfileDialog({
+		const { queryClient, onOpenChange } = renderCreateProfileDialog({
 			onAgentRequestCreated,
 			organizationId: "organization-123",
 		});
@@ -1870,14 +1870,16 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledTimes(1);
 		});
-		expect(onAgentRequestCreated).not.toHaveBeenCalled();
-
-		finishRefresh();
-		await waitFor(() => {
-			expect(onAgentRequestCreated).toHaveBeenCalledWith(
-				expect.objectContaining({ createdAgentProfileId: NEW_AGENT_ID })
-			);
-		});
+		try {
+			await waitFor(() => {
+				expect(onAgentRequestCreated).toHaveBeenCalledWith(
+					expect.objectContaining({ createdAgentProfileId: NEW_AGENT_ID })
+				);
+				expect(onOpenChange).toHaveBeenCalledWith(false);
+			});
+		} finally {
+			finishRefresh();
+		}
 	});
 
 	it("reports Core's partial result without repeating local Binding or Space writes", async () => {

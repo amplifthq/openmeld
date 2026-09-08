@@ -76,6 +76,22 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		).toBeTruthy();
 	});
 
+	it("applies the displayed managed choice only when explicitly saved, even without a draft change", async () => {
+		renderSettings("allowed", { defaultProjectId: null }, "OpenMeld managed");
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
+		const save = screen.getByRole("button", { name: "Save changes" });
+		expect((save as HTMLButtonElement).disabled).toBe(false);
+		fireEvent.click(save);
+		await vi.waitFor(() => {
+			expect(updateWorkspaceMock).toHaveBeenCalledExactlyOnceWith({
+				actorProfileId: "human-1",
+				organizationId: "organization-1",
+				profileId: "profile-agent",
+				workspaceMode: "openmeld_managed",
+			});
+		});
+	});
+
 	it("selects a connected project without another folder click and saves only project intent", async () => {
 		renderSettings("allowed", { defaultProjectId: null });
 		selectSource("From a project");
@@ -232,7 +248,8 @@ function renderSettings(
 		| "allowed"
 		| "blocked"
 		| "unavailable" = "allowed",
-	overrides: Partial<AuthProfileView> = {}
+	overrides: Partial<AuthProfileView> = {},
+	currentWorkingFolder: string | null = "/repo"
 ) {
 	const queryClient = createTestQueryClient();
 	const onProfileUpdated = vi.fn();
@@ -259,7 +276,7 @@ function renderSettings(
 			<AgentProfileProjectSettingsDialog
 				actorProfileId="human-1"
 				agentControllerRef="builtin:codex"
-				currentWorkingFolder="/repo"
+				currentWorkingFolder={currentWorkingFolder}
 				executionTargetChangeEligibilityStatus={
 					executionTargetChangeEligibilityStatus
 				}
