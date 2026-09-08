@@ -31,6 +31,7 @@ import {
 } from "../src/remote-agent/application/slack-client";
 import { buildRemoteAgentSlackConversationId } from "../src/remote-agent/application/slack-conversation-id";
 import { digestSlackIdentityLinkToken } from "../src/remote-agent/application/slack-identity-link-token";
+import { SLACK_RICH_CONTEXT_LIMITATION_NOTE } from "../src/remote-agent/application/slack-rich-context";
 import { decryptSlackSearchAuthorization } from "../src/remote-agent/application/slack-search-authorization";
 import {
   processRemoteAgentSlackEvent,
@@ -1771,6 +1772,334 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
+  it("recovers a content-empty app mention from exact history and logs only safe structure", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: "req_slack_forwarded",
+        status: "pending" as const,
+        submissionId: "sub_slack_forwarded",
+      })
+    );
+    const fetchMock = stubSlackFetch({
+      conversationsHistoryResponse: (url) => {
+        expect(url.searchParams.get("channel")).toBe("C123");
+        expect(url.searchParams.get("oldest")).toBe("1710000000.000100");
+        expect(url.searchParams.get("inclusive")).toBe("true");
+        expect(url.searchParams.get("limit")).toBe("1");
+        return {
+          messages: [
+            {
+              blocks: [{ type: "rich_text" }],
+              files: [
+                {
+                  id: "F_FORWARD",
+                  mimetype: "image/png",
+                  name: "forwarded.png",
+                  permalink:
+                    "https://openmeld-dev.slack.com/files/U123/F_FORWARD/forwarded",
+                  size: 2048,
+                },
+              ],
+              text: "Forwarded launch details",
+              ts: "1710000000.000100",
+              user: "U123",
+            },
+          ],
+          ok: true,
+        };
+      },
+      email: "ari@example.test",
+    });
+    const consoleInfoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, {
+            richContextReproEnabled: "true",
+            workerSubmit,
+          }),
+          createAppMentionPayload({
+            eventId: "EvForwarded",
+            text: "",
+            threadTs: "1709999999.000050",
+          })
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      const submitted = workerSubmit.mock.calls[0]?.[0];
+      expect(submitted?.messages[0]?.content).toContain(
+        "Forwarded launch details"
+      );
+      expect(submitted?.messages[0]?.content).toContain('"fileId":"F_FORWARD"');
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        "[core.remote_agent.slack_ingest.rich_context_repro]",
+        expect.objectContaining({
+          channelId: "C123",
+          event: "core.remote_agent.slack_ingest.rich_context_repro",
+          eventId: "EvForwarded",
+          history: expect.objectContaining({
+            status: "complete",
+            observation: expect.objectContaining({
+              matchingMessageCount: 1,
+              messageCount: 1,
+            }),
+          }),
+          rawEvent: expect.objectContaining({
+            filesCount: 0,
+            hasPermalink: false,
+            textLen: 0,
+          }),
+        })
+      );
+      const reproLog = consoleInfoSpy.mock.calls.find(
+        ([prefix]) =>
+          prefix === "[core.remote_agent.slack_ingest.rich_context_repro]"
+      );
+      expect(JSON.stringify(reproLog)).not.toContain(
+        "Forwarded launch details"
+      );
+      expect(JSON.stringify(reproLog)).not.toContain(
+        "https://openmeld-dev.slack.com/files"
+      );
+      expect(
+        fetchMock.mock.calls
+          .map(([request]) => new URL(String(request)))
+          .filter((url) => url.pathname === "/api/conversations.history")
+      ).toHaveLength(1);
+    } finally {
+      consoleInfoSpy.mockRestore();
+      harness.close();
+    }
+  });
+
+  it("adds quoted Slack message text and files from an exact permalink lookup", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: "req_slack_quote",
+        status: "pending" as const,
+        submissionId: "sub_slack_quote",
+      })
+    );
+    const mentionText =
+      "<@B123> use <https://acme.slack.com/archives/C_SOURCE/p1709999999000200|this quoted message>";
+    const fetchMock = stubSlackFetch({
+      conversationsHistoryResponse: (url) => {
+        const channelId = url.searchParams.get("channel");
+        if (channelId === "C_SOURCE") {
+          expect(url.searchParams.get("oldest")).toBe("1709999999.000200");
+          return {
+            messages: [
+              {
+                files: [
+                  {
+                    id: "F_QUOTED",
+                    mimetype: "application/pdf",
+                    name: "quoted-plan.pdf",
+                    permalink:
+                      "https://acme.slack.com/files/U_OTHER/F_QUOTED/quoted-plan",
+                    size: 4096,
+                  },
+                ],
+                text: "Quoted launch plan",
+                ts: "1709999999.000200",
+                user: "U_OTHER",
+              },
+            ],
+            ok: true,
+          };
+        }
+        return {
+          messages: [
+            {
+              text: mentionText,
+              ts: "1710000000.000100",
+              user: "U123",
+            },
+          ],
+          ok: true,
+        };
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload({
+            eventId: "EvQuote",
+            text: mentionText,
+            threadTs: "1709999999.000050",
+          })
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      const submitted = workerSubmit.mock.calls[0]?.[0];
+      expect(submitted?.messages[0]?.content).toContain(
+        "Slack quoted message context (untrusted data)"
+      );
+      expect(submitted?.messages[0]?.content).toContain("Quoted launch plan");
+      expect(submitted?.messages[0]?.content).toContain('"fileId":"F_QUOTED"');
+      expect(submitted?.turnEnvelope.channelContext?.sync.status).toBe(
+        "complete"
+      );
+      expect(
+        fetchMock.mock.calls
+          .map(([request]) => new URL(String(request)))
+          .filter((url) => url.pathname === "/api/conversations.history")
+          .map((url) => url.searchParams.get("channel"))
+      ).toEqual(["C123", "C_SOURCE"]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("marks forwarded mention context incomplete when exact history is also empty", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: "req_slack_forward_empty",
+        status: "pending" as const,
+        submissionId: "sub_slack_forward_empty",
+      })
+    );
+    stubSlackFetch({
+      conversationsHistoryResponse: {
+        messages: [
+          {
+            files: [],
+            text: "",
+            ts: "1710000000.000100",
+            user: "U123",
+          },
+        ],
+        ok: true,
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload({
+            eventId: "EvForwardedEmpty",
+            text: "",
+            threadTs: "1709999999.000050",
+          })
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      const submitted = workerSubmit.mock.calls[0]?.[0];
+      expect(submitted?.messages[0]?.content).toContain(
+        "Help me with this Slack thread."
+      );
+      expect(submitted?.messages[0]?.content).toContain(
+        SLACK_RICH_CONTEXT_LIMITATION_NOTE
+      );
+      expect(submitted?.turnEnvelope.channelContext).toMatchObject({
+        messages: [],
+        sync: { mode: "snapshot", status: "unavailable" },
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps the main mention processing and marks rich context unavailable when lookups fail", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: "req_slack_quote_limited",
+        status: "pending" as const,
+        submissionId: "sub_slack_quote_limited",
+      })
+    );
+    const mentionText =
+      "<@B123> check https://acme.slack.com/archives/C_SOURCE/p1709999999000200";
+    stubSlackFetch({
+      conversationsHistoryResponse: new Response(
+        JSON.stringify({ error: "missing_scope", ok: false }),
+        { status: 403 }
+      ),
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload({
+            eventId: "EvQuoteLimited",
+            text: mentionText,
+            threadTs: "1709999999.000050",
+          })
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      const submitted = workerSubmit.mock.calls[0]?.[0];
+      expect(submitted?.messages[0]?.content).toContain(mentionText);
+      expect(submitted?.messages[0]?.content).toContain(
+        SLACK_RICH_CONTEXT_LIMITATION_NOTE
+      );
+      expect(submitted?.turnEnvelope.channelContext).toMatchObject({
+        messages: [],
+        sync: { mode: "snapshot", status: "forbidden" },
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("keeps follow-up fragments and Slack evidence in one durable Center Agent turn", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
@@ -2487,10 +2816,14 @@ describe("Remote Agent Slack signal service", () => {
       const historyUrls = fetchMock.mock.calls
         .map(([request]) => new URL(String(request)))
         .filter((url) => url.pathname === "/api/conversations.history");
-      expect(historyUrls).toHaveLength(1);
+      expect(historyUrls).toHaveLength(2);
       expect(historyUrls[0]?.searchParams.get("channel")).toBe("C123");
-      expect(historyUrls[0]?.searchParams.get("latest")).toBe(currentMentionTs);
-      expect(historyUrls[0]?.searchParams.get("limit")).toBe("8");
+      expect(historyUrls[0]?.searchParams.get("oldest")).toBe(currentMentionTs);
+      expect(historyUrls[0]?.searchParams.get("inclusive")).toBe("true");
+      expect(historyUrls[0]?.searchParams.get("limit")).toBe("1");
+      expect(historyUrls[1]?.searchParams.get("channel")).toBe("C123");
+      expect(historyUrls[1]?.searchParams.get("latest")).toBe(currentMentionTs);
+      expect(historyUrls[1]?.searchParams.get("limit")).toBe("8");
     } finally {
       harness.close();
     }
@@ -7132,6 +7465,7 @@ function buildEnv(
     cryptoKey?: string;
     ensureWorkspaceMember?: ReturnType<typeof vi.fn>;
     queueSend?: ReturnType<typeof vi.fn>;
+    richContextReproEnabled?: string;
     workerReconcile?: ReturnType<typeof vi.fn>;
     workerSubmit?: ReturnType<typeof vi.fn>;
   } = {}
@@ -7140,6 +7474,12 @@ function buildEnv(
     OPENMELD_DB: db,
     OPENMELD_LOCAL_STATE_DB: db,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: "true",
+    ...(input.richContextReproEnabled
+      ? {
+          OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED:
+            input.richContextReproEnabled,
+        }
+      : {}),
     OPENMELD_AUTH_WORKER: {
       resolveOrganizationAccountIdentity: (request) =>
         resolveTestOrganizationAccountIdentity(db, request),

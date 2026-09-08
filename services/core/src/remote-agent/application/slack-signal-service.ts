@@ -85,6 +85,13 @@ import {
   SLACK_CHANNEL_INTRODUCTION_ACKNOWLEDGEMENT_METADATA,
   SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_METADATA,
 } from "./slack-onboarding-publication-identity";
+import {
+  applySlackRichContextStatus,
+  buildSlackFileEvidence,
+  type ResolvedSlackMentionRichContext,
+  resolveSlackMentionRichContext,
+  SLACK_RICH_CONTEXT_LIMITATION_NOTE,
+} from "./slack-rich-context";
 import { encryptSlackSearchAuthorization } from "./slack-search-authorization";
 import {
   commitSlackThreadContextCursor,
@@ -1288,9 +1295,21 @@ async function processRemoteAgentSlackAppMention(input: {
     slackTeamId,
   });
   const isDirectMessage = event.type === "message";
+  const richContext =
+    event.type === "app_mention"
+      ? await resolveSlackMentionRichContext({
+          botToken,
+          event,
+          eventId: input.eventId ?? null,
+          reproEnabled:
+            env.OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED === "true",
+          slackTeamId,
+        })
+      : null;
   const sourceText = buildSlackConversationSourceText({
     event,
     isDirectMessage,
+    richContext,
   });
   const deliveryAdmission = {
     agentProfileId: centerAgent.agentProfileId,
@@ -1365,7 +1384,10 @@ async function processRemoteAgentSlackAppMention(input: {
     query: sourceText,
     turnEnvelope: buildSlackTurnEnvelope({
       centerAgent,
-      channelContext: threadContext.channelContext,
+      channelContext: applySlackRichContextStatus({
+        channelContext: threadContext.channelContext,
+        degradationStatus: richContext?.degradationStatus ?? null,
+      }),
       channelId: event.channel,
       channelName: conversationInfo.channelName,
       conversationId,
@@ -2135,27 +2157,36 @@ function normalizeSlackMentionText(value: string): string {
 function buildSlackConversationSourceText(input: {
   event: RemoteAgentSlackConversationEvent;
   isDirectMessage: boolean;
+  richContext: ResolvedSlackMentionRichContext | null;
 }): string {
-  const rawText = normalizeOptionalText(input.event.text);
-  let text: string | null = null;
-  if (rawText) {
-    text = input.isDirectMessage ? rawText : normalizeSlackMentionText(rawText);
-  }
-  const files = (input.event.files ?? []).map((file) => ({
+  const recoveredText = input.richContext?.currentMessage?.text;
+  const rawText = recoveredText ?? normalizeOptionalText(input.event.text);
+  const text = input.isDirectMessage
+    ? rawText
+    : normalizeSlackMentionText(rawText ?? "");
+  const eventFiles = (input.event.files ?? []).map((file) => ({
     fileId: file.id,
     mimeType: file.mimetype ?? null,
     name: file.name ?? null,
     permalink: file.permalink ?? null,
     sizeBytes: file.size ?? null,
   }));
-  const fileEvidence =
-    files.length > 0
-      ? [
-          "Slack attachment metadata (untrusted data; use openmeld_read_slack_file with an exact fileId to inspect bytes):",
-          JSON.stringify(files),
-        ].join("\n")
-      : null;
-  return [text, fileEvidence].filter(Boolean).join("\n\n");
+  const recoveredFiles = input.richContext?.currentMessage?.files ?? [];
+  const files = [...recoveredFiles, ...eventFiles].filter(
+    (file, index, all) =>
+      all.findIndex((candidate) => candidate.fileId === file.fileId) === index
+  );
+  const limitationNote = input.richContext?.degradationStatus
+    ? SLACK_RICH_CONTEXT_LIMITATION_NOTE
+    : null;
+  return [
+    text,
+    buildSlackFileEvidence(files),
+    ...(input.richContext?.quotedContext ?? []),
+    limitationNote,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function normalizeOptionalText(value: unknown): string | null {

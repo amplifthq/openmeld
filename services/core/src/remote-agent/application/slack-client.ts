@@ -52,6 +52,7 @@ type SlackApiResponse = {
   has_more?: boolean;
   message_ts?: string;
   messages?: Array<{
+    blocks?: unknown[] | null;
     bot_id?: string | null;
     bot_profile?: {
       name?: string | null;
@@ -192,6 +193,18 @@ export type SlackThreadMessage = {
   text: string | null;
   ts: string;
   userId: string | null;
+};
+export type SlackMessageHistoryObservation = {
+  matchingMessageCount: number;
+  messageCount: number;
+  messages: Array<{
+    blocksCount: number;
+    fieldNames: string[];
+    filesCount: number;
+    fileFieldNames: string[][];
+    textLen: number;
+    tsMatches: boolean;
+  }>;
 };
 export type SlackFileMetadata = {
   fileId: string;
@@ -800,6 +813,42 @@ export async function readSlackChannelHistory(input: {
   return {
     messages: toSlackThreadMessages(data.messages),
     nextCursor: normalizeOptionalText(data.response_metadata?.next_cursor),
+  };
+}
+
+export async function readSlackMessageByTimestamp(input: {
+  botToken: string;
+  channelId: string;
+  fetchImpl?: FetchLike;
+  messageTs: string;
+  signal?: AbortSignal;
+}): Promise<{
+  message: SlackThreadMessage | null;
+  observation: SlackMessageHistoryObservation;
+}> {
+  const params = new URLSearchParams({
+    channel: input.channelId,
+    inclusive: "true",
+    limit: "1",
+    oldest: input.messageTs,
+  });
+  const response = await (input.fetchImpl ?? fetch)(
+    `${SLACK_API_BASE_URL}/conversations.history?${params.toString()}`,
+    {
+      headers: buildSlackHeaders(input.botToken),
+      method: "GET",
+      signal: input.signal,
+    }
+  );
+  const data = await readSlackApiResponse(response);
+  assertSlackOk(response, data, "conversations.history");
+  const messages = data.messages ?? [];
+  return {
+    message:
+      toSlackThreadMessages(messages).find(
+        (message) => message.ts === input.messageTs
+      ) ?? null,
+    observation: buildSlackMessageHistoryObservation(messages, input.messageTs),
   };
 }
 
@@ -1742,6 +1791,28 @@ function toSlackThreadMessages(
       },
     ];
   });
+}
+
+function buildSlackMessageHistoryObservation(
+  messages: NonNullable<SlackApiResponse["messages"]>,
+  messageTs: string
+): SlackMessageHistoryObservation {
+  return {
+    matchingMessageCount: messages.filter(
+      (message) => normalizeOptionalText(message.ts) === messageTs
+    ).length,
+    messageCount: messages.length,
+    messages: messages.slice(0, 3).map((message) => ({
+      blocksCount: Array.isArray(message.blocks) ? message.blocks.length : 0,
+      fieldNames: Object.keys(message).sort().slice(0, 32),
+      filesCount: Array.isArray(message.files) ? message.files.length : 0,
+      fileFieldNames: (message.files ?? [])
+        .slice(0, 10)
+        .map((file) => Object.keys(file).sort().slice(0, 32)),
+      textLen: typeof message.text === "string" ? message.text.length : 0,
+      tsMatches: normalizeOptionalText(message.ts) === messageTs,
+    })),
+  };
 }
 
 function buildSlackHeaders(botToken: string): HeadersInit {

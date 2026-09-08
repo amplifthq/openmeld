@@ -1478,11 +1478,13 @@ and ingress ownership.
 ## Slack Thread Context Cursor
 
 Slack remains the source of truth for thread message content. Before an
-accepted `app_mention` enters native delivery, Core reads one bounded
-`conversations.replies` page through the Organization-bound Slack credential
-and adapts the messages into the provider-neutral `ChannelContext` contract.
-The verified current mention remains the turn request and is excluded from the
-untrusted historical records.
+accepted `app_mention` enters native delivery, Core first reads the exact
+current message through `conversations.history` to hydrate its provider-owned
+text and file metadata. It then reads one bounded `conversations.replies` page
+through the Organization-bound Slack credential and adapts earlier messages
+into the provider-neutral `ChannelContext` contract. The hydrated current
+mention remains the turn request and is excluded from the untrusted historical
+records.
 
 `openMeldRemoteAgent_slack_thread_context_cursors` stores only the last
 successfully admitted Slack message timestamp for one Organization, workspace,
@@ -1495,11 +1497,20 @@ instead of reusing context synchronized under an older Organization Binding.
 
 The initial read is a snapshot through the current mention. Later reads are
 deltas strictly after the admitted cursor and through the new current mention.
-Core makes at most one provider read per mention; a partial provider page is
-marked `truncated` and resumes from its last admitted message on a later turn.
-Forbidden, rate-limited, timed-out, and otherwise unavailable reads do not
-block the verified current request, do not advance the cursor, and carry their
-explicit empty retrieval status to the Remote Agent.
+Core makes one exact current-message read, one bounded thread-context read, a
+bounded recent-channel read for a root mention, and at most three exact reads
+for Slack message permalinks present in the current request. Quoted messages
+are transient untrusted reference context, not new requests or authority. A
+partial provider page is marked `truncated` and resumes from its last admitted
+message on a later turn. Forbidden, rate-limited, timed-out, and otherwise
+unavailable reads do not block the current request, do not advance the cursor,
+and carry an explicit non-complete retrieval status and limitation note to the
+Remote Agent.
+
+The opt-in forwarded-message reproduction diagnostic records only Slack
+message identifiers, provider field names, counts, lengths, and lookup status.
+It never records message text, URLs, credentials, or raw event/response bodies,
+and it remains disabled outside a bounded reproduction window.
 
 ## Opportunity Data Boundary
 

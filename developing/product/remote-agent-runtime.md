@@ -422,16 +422,21 @@ the connected provider API.
    remain dormant until each receives a separate product contract and
    model-visible tool policy.
    Before an accepted mention reaches the model, Core reads one bounded page of
-   that mention's current Slack thread. The first turn includes the root message
-   and earlier replies; later turns include only replies after the last
-   successfully admitted cursor. For a root app mention, Core also reads one
+   that mention's current Slack thread. Core first reads the exact current
+   message through `conversations.history` so Slack-owned text and attachment
+   metadata replace the sparse `app_mention` trigger. The first turn includes
+   the root message and earlier replies; later turns include only replies after
+   the last successfully admitted cursor. For a root app mention, Core also reads one
    bounded page of recent top-level messages from the same Slack channel before
    the current mention, then merges that transient channel context without
    advancing the thread cursor. This includes other human and Bot messages,
    including recent Center Agent-authored proposals, but all provider history is
    labeled as untrusted reference context and the current mention remains the
-   separately verified request. Slack history failure is an explicit context
-   status and does not make the current request disappear. This automatic read
+   separately verified request. Up to three Slack message permalinks in the
+   request add exact source-message text and attachment metadata as separately
+   labeled untrusted quote context. Slack history failure is an explicit
+   non-complete context status with a limitation note and does not make the
+   current request disappear. This automatic read
    is current-thread and current-channel context only. Interactive and Routine
    turns may use the channel-read tool for another named channel that the App
    has already joined. Locating arbitrary messages or threads across public
