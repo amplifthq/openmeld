@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyDispatchError,
+  DISPATCH_STORAGE_OVERLOADED_ERROR_CODE,
   DISPATCH_STORAGE_SCHEMA_MISSING_ERROR_CODE,
   isD1SchemaError,
   isDispatchAttemptTimeoutErrorCode,
@@ -10,6 +11,24 @@ import {
 } from "../dispatch/rules/dispatch-error-policy";
 
 describe("dispatch error policy timeout/runtime classifications", () => {
+  it.each([
+    "D1_ERROR: D1 DB is overloaded. Requests queued for too long.",
+    "D1_ERROR: D1 DB is overloaded. Too many requests queued.",
+  ])("preserves D1 backpressure as retryable storage evidence: %s", (message) => {
+    expect(classifyDispatchError(new Error(message), message)).toBe(
+      "retryable"
+    );
+    expect(resolveDispatchErrorCode(new Error(message), message)).toBe(
+      DISPATCH_STORAGE_OVERLOADED_ERROR_CODE
+    );
+    expect(
+      classifyDispatchError(
+        { code: DISPATCH_STORAGE_OVERLOADED_ERROR_CODE },
+        "Storage is temporarily unavailable"
+      )
+    ).toBe("retryable");
+  });
+
   it("treats timed_out_no_output as non_retryable", () => {
     expect(
       classifyDispatchError(

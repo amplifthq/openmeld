@@ -2275,7 +2275,7 @@ describe("SpaceLanding", () => {
 			name: "Find a member to mention",
 		});
 		fireEvent.keyDown(mentionSearch, { key: "Escape" });
-		fireEvent.click(screen.getByRole("button", { name: "Add to message" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add" }));
 		const filesItem = await screen.findByRole("menuitem", { name: "Files" });
 		expect(filesItem.getAttribute("aria-disabled")).toBe("true");
 		expect(
@@ -5196,7 +5196,10 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows both empty Space setup cards and opens Add People or Agents", () => {
+	it.each([
+		"setup",
+		"composer",
+	])("opens Add People or Agents from %s without opening Members", async (entry) => {
 		useLocalAgentRecoveryControllerMock.mockReturnValue({
 			localRuntimesQuery: {
 				data: { localRuntimes: [] },
@@ -5254,11 +5257,18 @@ describe("SpaceLanding", () => {
 			})
 		).toBeTruthy();
 
-		fireEvent.click(
-			within(setupActions).getByRole("button", {
-				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
-			})
-		);
+		if (entry === "setup") {
+			fireEvent.click(
+				within(setupActions).getByRole("button", {
+					name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
+				})
+			);
+		} else {
+			fireEvent.click(screen.getByRole("button", { name: "Add" }));
+			fireEvent.click(
+				await screen.findByRole("menuitem", { name: "People or agents" })
+			);
+		}
 		const addMembersDialog = screen.getByRole("dialog", {
 			name: "Add People or Agents",
 		});
@@ -5270,6 +5280,8 @@ describe("SpaceLanding", () => {
 		expect(
 			within(addMembersDialog).getByRole("button", { name: "New Agent" })
 		).toBeTruthy();
+		expect(screen.queryByRole("complementary", { name: "Members" })).toBeNull();
+		expect(screen.queryByRole("dialog", { name: "Members" })).toBeNull();
 	});
 
 	it("does not show ordinary setup guidance in a direct conversation with an agent", () => {
@@ -13826,9 +13838,10 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(screen.getAllByText("Ready")).toHaveLength(10);
 		});
-		expect(
-			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", false);
+		expect(screen.getByRole("button", { name: "Add" })).toHaveProperty(
+			"disabled",
+			false
+		);
 		expect(screen.getByText("You can add up to 10 files.")).toBeTruthy();
 	});
 

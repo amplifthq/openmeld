@@ -2101,7 +2101,9 @@ async function handleProfileCreationSuccess(input: {
 			customWorkingFolderIssue: input.result.customWorkingFolderIssue,
 			request: input.result.request,
 		});
-		await refreshAgentProfileCreationRequestCaches({
+		// Creation is committed. Mark caches stale immediately, but don't hold
+		// navigation or the submit state hostage to background network reads.
+		refreshAgentProfileCreationRequestCaches({
 			createdAgentProfileId: input.result.request.createdAgentProfileId,
 			onAfterJoin: input.onAfterJoin,
 			organizationId: input.organizationId,

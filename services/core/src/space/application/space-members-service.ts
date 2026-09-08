@@ -24,6 +24,10 @@ import type {
   SpaceStatusMembersSummary,
 } from "@openmeld/schemas/types";
 import { buildSpaceMemberDirectoryFromIdentityDirectory } from "@openmeld/space";
+import {
+  type AgentExecutionReadinessReads,
+  createAgentExecutionReadinessReads,
+} from "../../agent-execution/application/agent-execution-readiness-reads";
 import { resolveCoreAgentExecutionReadiness } from "../../agent-execution/application/agent-execution-readiness-service";
 import {
   lookupRuntimeTransportOwnerService,
@@ -596,6 +600,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
   const humans: SpaceMemberHumanSnapshot[] = [];
   const agentSnapshotPromises: Promise<SpaceMemberAgentSnapshot>[] = [];
   const activeOrganizationId = input.metaRecord?.organizationId ?? null;
+  const readinessReads = createAgentExecutionReadinessReads();
 
   for (const record of records) {
     if (record.profileKindSnapshot === "human") {
@@ -633,6 +638,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
         latestAgentOriginFactsByProfileId,
         preloadedDaemonRouteByProfileId,
         preloadedOwnerServiceByOwnerUserId,
+        readinessReads,
         generatedAt,
       })
     );
@@ -1206,6 +1212,7 @@ async function buildAgentSnapshot(input: {
     RuntimeTransportLookupOwnerServiceResponse
   >;
   generatedAt: string;
+  readinessReads: AgentExecutionReadinessReads;
 }): Promise<SpaceMemberAgentSnapshot> {
   const snapshotBase = buildSnapshotBase({
     record: input.record,
@@ -1223,6 +1230,7 @@ async function buildAgentSnapshot(input: {
       )
     : undefined;
   const executionReadiness = await resolveCoreAgentExecutionReadiness({
+    reads: input.readinessReads,
     activeOrganizationId: input.activeOrganizationId ?? null,
     agent: {
       controllerRefSnapshot: input.record.controllerRefSnapshot,

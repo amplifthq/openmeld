@@ -268,6 +268,7 @@ type SpaceThreadPanelProps = {
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
 	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
+	onAddPeopleOrAgents?: () => void;
 	onRemoveComposerFile: (localId: string) => void;
 	onMentionButtonClick: () => void;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
@@ -836,6 +837,7 @@ function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 			isDirectMessage={input.isDirectMessage === true}
 			isSendingMessage={input.isSendingMessage}
 			onAddComposerFiles={input.onAddComposerFiles}
+			onAddPeopleOrAgents={input.onAddPeopleOrAgents}
 			onAgentRecoveryAction={input.onAgentRecoveryAction}
 			onComposerEditorChange={input.onComposerEditorChange}
 			onMentionButtonClick={input.onMentionButtonClick}
@@ -1737,6 +1739,7 @@ function ThreadComposer(input: {
 	) => Promise<void>;
 	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
+	onAddPeopleOrAgents?: () => void;
 	onRemoveComposerFile: (localId: string) => void;
 	onMentionButtonClick: () => void;
 	onSend: () => Promise<void>;
@@ -1760,6 +1763,7 @@ function ThreadComposer(input: {
 		<SpaceComposer
 			actions={{
 				onAddFiles: input.onAddComposerFiles,
+				onAddPeopleOrAgents: input.onAddPeopleOrAgents,
 				onEditorChange: input.onComposerEditorChange,
 				onMentionButtonClick: input.onMentionButtonClick,
 				onRemoveFile: input.onRemoveComposerFile,

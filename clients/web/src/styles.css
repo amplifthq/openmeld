@@ -3,6 +3,8 @@
 @import "shadcn/tailwind.css";
 @import "./styles/typeset.css";
 @import "./styles/content-typography.css";
+@import "./styles/composer.css";
+@import "./styles/conversation-floating-surface.css";
 @import "streamdown/styles.css";
 @import "@openmeld/ui/globals.css";
 
@@ -97,7 +99,7 @@
 
 :root {
   --app-canvas: #f5f5f4;
-  --border: oklch(0 0 0 / 7%);
+  --border: oklch(0 0 0 / 10%);
   --sidebar-accent: oklch(0 0 0 / 6%);
   --sidebar-border: var(--border);
   --space-conversation-title-height: 3rem;

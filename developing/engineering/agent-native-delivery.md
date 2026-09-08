@@ -327,8 +327,12 @@ gh pr view <pr-number> --json state,mergedAt,mergeCommit
 Do not pass `--delete-branch` to the merge command. GitHub can merge the pull
 request successfully and then report a local cleanup failure when `main` is
 checked out in another worktree, making a successful remote merge look failed.
-Treat worktree and branch cleanup as a separate, explicitly authorized step
-after the remote merged state and merge commit are proven.
+Treat cleanup as a separate step after the remote merged state and merge commit
+are proven. An agent's own task-created temporary worktree may be retired as
+normal closeout once no acceptance, review, or release depends on it; follow
+Resource Discipline in `development-workflow.md`. Pre-existing and other
+owners' worktrees, and branch deletion, still require explicit authorization.
+Stop unnecessary runtime resources even while an unmerged PR remains open.
 
 ## Release
 

@@ -26,6 +26,8 @@ export const inboxViewSchema = z.enum([
   "unread",
   "needs_action",
   "updates",
+  "urgent_updates",
+  "recent_updates",
 ]);
 export const inboxAttentionSchema = z.enum(["update", "action_required"]);
 export const inboxImportanceSchema = z.enum(["normal", "urgent"]);
@@ -207,6 +209,8 @@ export const inboxSummaryResponseSchema = z.strictObject({
   organizationId: identifierSchema,
   totalUnreadCount: z.number().int().nonnegative(),
   unresolvedActionCount: z.number().int().nonnegative(),
+  // Absent during receiver-first rollout means unknown, never zero.
+  unreadUrgentUpdateCount: z.number().int().nonnegative().optional(),
 });
 
 export const centerAgentInboxSummaryResponseSchema = z.strictObject({
