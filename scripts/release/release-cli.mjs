@@ -129,7 +129,13 @@ export function buildPreTagCliReleaseStepSpecs(input = {}) {
     });
   }
   steps.push({
-    args: ["--filter", "./clients/openmeld-cli", "run", "publish:npm"],
+    args: [
+      "--filter",
+      "./clients/openmeld-cli",
+      "run",
+      "publish:npm",
+      "--registry=https://registry.npmjs.org/",
+    ],
     command: "pnpm",
     label: "Publish OpenMeld CLI to npm",
   });
