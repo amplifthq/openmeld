@@ -657,7 +657,6 @@ import {
   type DispatchReadyDecision,
   isDispatchReadyDecision,
   resolveDispatchPlannerDecisionsForSignal,
-  stripDispatchTargetMentionsFromText,
 } from "../../rules/mention/mention-dispatch-rules";
 import type { SpaceCursorRecord } from "../../rules/parsers/space-cursor";
 import { parseStoredSignal } from "../../rules/parsers/stored-signal";
@@ -1063,11 +1062,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     decision: input.decision,
     sourceText: input.sourceText,
   });
-  const normalizedSourceText = stripDispatchTargetMentionsFromText({
-    mentionTargetAliases: input.mentionTargetAliases,
-    targetProfileId: input.decision.targetProfileId,
-    text: directMessageSourceText,
-  });
+  const normalizedSourceText = directMessageSourceText.trim();
   const continuitySnapshot = resolveDispatchOutboxContinuitySnapshotForTarget({
     targetProfileId: input.decision.targetProfileId,
     continuitySnapshotByTargetProfileId:
