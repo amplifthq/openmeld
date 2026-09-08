@@ -63,7 +63,7 @@ describe("OpenMeld Space Action command", () => {
     ]);
 
     await runSpaceActionWake({
-      target: "@QA Agent",
+      target: AGENT_PROFILE_ID,
       messageParts: ["Please", "review", "this."],
     });
 
@@ -91,7 +91,7 @@ describe("OpenMeld Space Action command", () => {
     ]);
 
     await runSpaceActionReply({
-      mentionTargets: ["@Mira"],
+      mentionTargets: [humanProfileId],
       messageParts: ["Please", "take", "a", "look."],
     });
 
@@ -107,7 +107,7 @@ describe("OpenMeld Space Action command", () => {
     });
   });
 
-  it("records reply --wake as the authoritative CLI action", async () => {
+  it("records reply --wake once for repeated explicit recipients", async () => {
     const context = createTestContext([
       createProjectionEntry({
         profileId: AGENT_PROFILE_ID,
@@ -118,7 +118,7 @@ describe("OpenMeld Space Action command", () => {
 
     await runSpaceActionReply({
       messageParts: ["Implementation", "is", "done."],
-      wakeTargets: ["Review Agent"],
+      wakeTargets: [AGENT_PROFILE_ID, AGENT_PROFILE_ID],
     });
 
     const record = readLoadedActionRecord(context);
@@ -161,16 +161,19 @@ describe("OpenMeld Space Action command", () => {
     ).toThrow("Choose either a reply message or --message-file, not both.");
   });
 
-  it("rejects removed CC syntax in action message text", () => {
-    createTestContext([]);
-
-    expect(() =>
-      runSpaceActionReply({
-        messageParts: ["@Mira(cc)", "Please review."],
-      })
-    ).toThrow(
-      "CC has been removed from Space Message Addressing. Use Reference instead."
-    );
+  it("preserves old control syntax as literal action text", async () => {
+    const context = createTestContext([]);
+    await runSpaceActionReply({
+      messageParts: ["@Mira(cc)", "Please review."],
+    });
+    expect(readLoadedActionRecord(context).action).toMatchObject({
+      type: "post_message",
+      messageEnvelope: {
+        text: "@Mira(cc) Please review.",
+        activationTargets: [],
+        referenceTargets: [],
+      },
+    });
   });
 
   it("rejects status working because status actions are final outcomes", () => {
@@ -378,7 +381,7 @@ describe("OpenMeld Space Action command", () => {
 
     expect(() =>
       runSpaceActionWake({
-        target: "Felix",
+        target: HUMAN_PROFILE_ID,
         messageParts: ["Please", "review."],
       })
     ).toThrow("Wake is not allowed");
@@ -394,7 +397,7 @@ describe("OpenMeld Space Action command", () => {
     ]);
 
     await runSpaceActionWake({
-      target: "QA Agent",
+      target: AGENT_PROFILE_ID,
       messageParts: ["Please", "review."],
     });
 
@@ -435,7 +438,7 @@ describe("OpenMeld Space Action command", () => {
     expect(stdout).not.toContain("Blocked wake targets:");
   });
 
-  it("fails closed on ambiguous target lookup", () => {
+  it("rejects names instead of guessing an identity", () => {
     createTestContext([
       createProjectionEntry({
         lookupTokens: ["qa"],
@@ -456,7 +459,7 @@ describe("OpenMeld Space Action command", () => {
         target: "qa",
         messageParts: ["Please", "review."],
       })
-    ).toThrow("ambiguous");
+    ).toThrow("full Profile ID");
   });
 
   it("fails closed when the dispatch target projection is malformed", () => {
@@ -500,7 +503,7 @@ describe("OpenMeld Space Action command", () => {
       '<DISPATCH_ACTION_CLI> space action reply "message"'
     );
     expect(stdout).toContain(
-      '<DISPATCH_ACTION_CLI> space action reply --reference "@Agent Name" "message"'
+      '<DISPATCH_ACTION_CLI> space action reply --reference <agent-profile-id> "message"'
     );
     expect(stdout).not.toContain("--cc");
     expect(stdout).toContain("<DISPATCH_ACTION_CLI> space action targets");

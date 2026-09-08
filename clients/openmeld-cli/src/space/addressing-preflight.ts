@@ -1,6 +1,6 @@
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 
-export function rethrowCanonicalMentionSnapshotLoadFailure(
+export function rethrowSpaceAddressingSnapshotLoadFailure(
   error: unknown
 ): never {
   const failure = toStructuredApiClientFailure(error);
@@ -14,9 +14,9 @@ export function rethrowCanonicalMentionSnapshotLoadFailure(
 }
 
 function buildMembersSnapshotLoadFailureMessage(error: unknown): string {
-  const prefix = "OpenMeld couldn't check who your mentions refer to.";
+  const prefix = "OpenMeld couldn't validate the selected recipients.";
   const plainTextHint =
-    "Use --plain if you want to send the text without mentioning anyone.";
+    "Retry when Space members are available. To send without recipients, remove the recipient options.";
   const failure = toStructuredApiClientFailure(error);
   const details: string[] = [];
 

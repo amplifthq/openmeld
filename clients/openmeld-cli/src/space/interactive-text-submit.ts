@@ -1,6 +1,6 @@
 import type { MessageEnvelope } from "@openmeld/schemas/types";
 import type {
-  SpaceCanonicalMentionInTextOrder,
+  SpaceAuthoredMentionInTextOrder,
   SpaceResolvedStructuredTargetSet,
 } from "@openmeld/space";
 import type { SpaceSessionSendReceipt } from "./runtime/space-session-runtime";
@@ -8,7 +8,7 @@ import type { SpaceSessionSendReceipt } from "./runtime/space-session-runtime";
 export type PreparedInteractiveOutboundText = {
   text: string;
   messageEnvelope: MessageEnvelope | null;
-  canonicalMentionsInTextOrder: readonly SpaceCanonicalMentionInTextOrder[];
+  mentionsInTextOrder: readonly SpaceAuthoredMentionInTextOrder[];
   resolvedStructuredTargets: SpaceResolvedStructuredTargetSet;
 };
 
@@ -16,14 +16,14 @@ export type InteractiveTextSubmitResult =
   | {
       status: "not_queued";
       text: string;
-      canonicalMentionsInTextOrder: readonly SpaceCanonicalMentionInTextOrder[];
+      mentionsInTextOrder: readonly SpaceAuthoredMentionInTextOrder[];
       resolvedStructuredTargets: SpaceResolvedStructuredTargetSet;
     }
   | {
       status: "queued";
       text: string;
       clientMessageId: string;
-      canonicalMentionsInTextOrder: readonly SpaceCanonicalMentionInTextOrder[];
+      mentionsInTextOrder: readonly SpaceAuthoredMentionInTextOrder[];
       resolvedStructuredTargets: SpaceResolvedStructuredTargetSet;
     };
 
@@ -59,8 +59,7 @@ export async function performInteractiveTextSubmit(input: {
     return {
       status: "not_queued",
       text: outboundText,
-      canonicalMentionsInTextOrder:
-        preparedSubmission.canonicalMentionsInTextOrder,
+      mentionsInTextOrder: preparedSubmission.mentionsInTextOrder,
       resolvedStructuredTargets: preparedSubmission.resolvedStructuredTargets,
     };
   }
@@ -71,8 +70,7 @@ export async function performInteractiveTextSubmit(input: {
     status: "queued",
     text: outboundText,
     clientMessageId: sendReceipt.clientMessageId,
-    canonicalMentionsInTextOrder:
-      preparedSubmission.canonicalMentionsInTextOrder,
+    mentionsInTextOrder: preparedSubmission.mentionsInTextOrder,
     resolvedStructuredTargets: preparedSubmission.resolvedStructuredTargets,
   };
 }

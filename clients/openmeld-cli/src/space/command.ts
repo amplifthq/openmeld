@@ -8408,6 +8408,9 @@ async function syncKnownSpacePasswordProtectionCache(input: {
 }
 
 export async function runSpaceSend(input: {
+  wakeTargets?: readonly string[];
+  referenceTargets?: readonly string[];
+  mentionTargets?: readonly string[];
   profile?: string;
   baseUrl?: string;
   space: string;
@@ -8477,6 +8480,9 @@ export async function runSpaceSend(input: {
   }
   try {
     await runSend({
+      wakeTargets: input.wakeTargets,
+      referenceTargets: input.referenceTargets,
+      mentionTargets: input.mentionTargets,
       profile: openMeldProfile.openMeldProfileId,
       baseUrl,
       space: normalizedSpace,
