@@ -31,7 +31,14 @@ import {
 	WaveformIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { type FormEvent, type ReactNode, useId, useState } from "react";
+import {
+	type FormEvent,
+	type ReactNode,
+	type Ref,
+	useId,
+	useRef,
+	useState,
+} from "react";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
 import { SelectedLocalFolder } from "#/components/local-runtimes/selected-local-folder";
 import { ModelBadge } from "#/components/models/model-badge";
@@ -49,6 +56,7 @@ import {
 	AgentConfigurationGrid,
 } from "./agent-configuration-card";
 import {
+	type AgentProfileConfigurationSection,
 	buildBuiltinAgentControllerRef,
 	formatModelOptionLabel,
 	formatReasoningLevelLabel,
@@ -106,8 +114,16 @@ export type AgentProfileLocalAgentEmptyState = {
 // name input, the agent binding radio, and the recoverable error block. It
 // performs no navigation, no StartFlow reads/writes, and no mutation.
 export type CreateProfileFormProps = {
+	remoteAgentCreation?: {
+		onSubmit: (input: {
+			idempotencyKey: string;
+			modelId: string | null;
+			profileName: string;
+		}) => void;
+	};
 	additionalHumanProfileCreationEnabled: boolean;
 	additionalSubmitBlockReason?: string | null;
+	additionalSubmitBlockSection?: AgentProfileConfigurationSection;
 	agentBindingChoices?: readonly AgentProfileBindingChoice[];
 	agentBindingValue?: string;
 	agentOwnershipSlot?: ReactNode;
@@ -340,12 +356,19 @@ export function AgentProfileAdvancedFields(input: {
 
 export function AgentProfileConfigurationCards(input: {
 	input: CreateProfileFormProps;
+	openSection?: AgentProfileConfigurationSection | null;
+	onOpenSectionChange?: (
+		section: AgentProfileConfigurationSection | null
+	) => void;
 }) {
+	const permissionConfirmationRef = useRef<HTMLInputElement>(null);
 	const form = input.input;
-	if (!form.boundAgentId) {
-		return null;
-	}
 	const summaries = resolveAgentProfileConfigurationSummaries(form);
+	const editorProps = (section: AgentProfileConfigurationSection) => ({
+		open: input.onOpenSectionChange ? input.openSection === section : undefined,
+		onOpenChange: (open: boolean) =>
+			input.onOpenSectionChange?.(open ? section : null),
+	});
 
 	return (
 		<AgentConfigurationGrid>
@@ -362,99 +385,114 @@ export function AgentProfileConfigurationCards(input: {
 						/>
 					}
 					itemId="owner"
+					{...editorProps("owner")}
 					label="Owner"
 					summary={summaries.owner}
 				>
 					{form.agentOwnershipSlot}
 				</AgentConfigurationCard>
 			) : null}
-			<AgentConfigurationCard
-				description="Choose the model and how deeply it reasons."
-				icon={<BrainIcon aria-hidden="true" />}
-				itemId="model"
-				label="Model"
-				summary={summaries.model}
-			>
-				<AgentProfileModelSelectionFields
-					agentId={form.boundAgentId}
-					disabled={form.isSubmitting}
-					modelCatalog={form.modelCatalog}
-					modelCompatibilityContext={form.modelCompatibilityContext}
-					modelId={form.boundModelId}
-					onChangeModelId={form.onChangeBoundModelId}
-					onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
-					reasoningLevel={form.boundReasoningLevel}
-				/>
-			</AgentConfigurationCard>
-			<AgentConfigurationCard
-				description="What this Agent can do without asking."
-				icon={<LockKeyIcon aria-hidden="true" />}
-				itemId="permissions"
-				label="Permissions"
-				summary={summaries.permission}
-			>
-				<div className="grid gap-4">
-					<AgentControllerPermissionModeFields
-						agentId={form.boundAgentId}
-						confirmed={form.boundAgentControllerPermissionModeConfirmed}
-						disabled={form.isSubmitting}
-						onChange={form.onChangeBoundAgentControllerPermissionMode}
-						onConfirmChange={
-							form.onChangeBoundAgentControllerPermissionModeConfirmed
-						}
-						value={form.boundAgentControllerPermissionMode}
-					/>
-					{isOpenCodeAgentId(form.boundAgentId) ? (
-						<OpenCodePermissionsField
+			{form.boundAgentId ? (
+				<>
+					<AgentConfigurationCard
+						description="Choose the model and how deeply it reasons."
+						icon={<BrainIcon aria-hidden="true" />}
+						itemId="model"
+						{...editorProps("model")}
+						label="Model"
+						summary={summaries.model}
+					>
+						<AgentProfileModelSelectionFields
+							agentId={form.boundAgentId}
 							disabled={form.isSubmitting}
-							onChange={form.onChangeBoundOpenCodePermission}
-							value={form.boundOpenCodePermission}
+							modelCatalog={form.modelCatalog}
+							modelCompatibilityContext={form.modelCompatibilityContext}
+							modelId={form.boundModelId}
+							onChangeModelId={form.onChangeBoundModelId}
+							onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
+							reasoningLevel={form.boundReasoningLevel}
 						/>
-					) : null}
-				</div>
-			</AgentConfigurationCard>
+					</AgentConfigurationCard>
+					<AgentConfigurationCard
+						description="What this Agent can do without asking."
+						icon={<LockKeyIcon aria-hidden="true" />}
+						itemId="permissions"
+						{...editorProps("permissions")}
+						initialFocus={() => permissionConfirmationRef.current ?? true}
+						label="Permissions"
+						summary={summaries.permission}
+					>
+						<div className="grid gap-4">
+							<AgentControllerPermissionModeFields
+								agentId={form.boundAgentId}
+								confirmationRef={permissionConfirmationRef}
+								confirmed={form.boundAgentControllerPermissionModeConfirmed}
+								disabled={form.isSubmitting}
+								onChange={form.onChangeBoundAgentControllerPermissionMode}
+								onConfirmChange={
+									form.onChangeBoundAgentControllerPermissionModeConfirmed
+								}
+								value={form.boundAgentControllerPermissionMode}
+							/>
+							{isOpenCodeAgentId(form.boundAgentId) ? (
+								<OpenCodePermissionsField
+									disabled={form.isSubmitting}
+									onChange={form.onChangeBoundOpenCodePermission}
+									value={form.boundOpenCodePermission}
+								/>
+							) : null}
+						</div>
+					</AgentConfigurationCard>
+				</>
+			) : null}
 			{form.agentSessionSlot ? (
 				<AgentConfigurationCard
 					description="Start fresh or continue existing work."
 					icon={<WaveformIcon aria-hidden="true" />}
 					itemId="session"
+					{...editorProps("session")}
 					label="Session"
 					summary={summaries.session}
 				>
 					{form.agentSessionSlot}
 				</AgentConfigurationCard>
 			) : null}
-			<AgentConfigurationCard
-				description="Where this Agent starts work."
-				icon={<FolderOpenIcon aria-hidden="true" />}
-				itemId="working-folder"
-				label="Working folder"
-				summary={summaries.workingFolder}
-			>
-				{form.projectSelectionSlot ?? (
-					<ProjectFolderField
-						disabled={form.isSubmitting}
-						onChange={form.onChangeProjectFolderPath}
-						pickerDeviceId={form.localFolderPickerDeviceId}
-						value={form.projectFolderPath}
-					/>
-				)}
-			</AgentConfigurationCard>
-			{summaries.collaboration ? (
-				<AgentConfigurationCard
-					description="How Codex works with you during a task."
-					icon={<HandIcon aria-hidden="true" />}
-					itemId="collaboration"
-					label="Collaboration"
-					summary={summaries.collaboration}
-				>
-					<AgentControllerCollaborationModeFields
-						agentId={form.boundAgentId}
-						disabled={form.isSubmitting}
-						onChange={form.onChangeBoundAgentControllerCollaborationMode}
-						value={form.boundAgentControllerCollaborationMode}
-					/>
-				</AgentConfigurationCard>
+			{form.boundAgentId ? (
+				<>
+					<AgentConfigurationCard
+						description="Where this Agent starts work."
+						icon={<FolderOpenIcon aria-hidden="true" />}
+						itemId="working-folder"
+						{...editorProps("working-folder")}
+						label="Working folder"
+						summary={summaries.workingFolder}
+					>
+						{form.projectSelectionSlot ?? (
+							<ProjectFolderField
+								disabled={form.isSubmitting}
+								onChange={form.onChangeProjectFolderPath}
+								pickerDeviceId={form.localFolderPickerDeviceId}
+								value={form.projectFolderPath}
+							/>
+						)}
+					</AgentConfigurationCard>
+					{summaries.collaboration ? (
+						<AgentConfigurationCard
+							description="How Codex works with you during a task."
+							icon={<HandIcon aria-hidden="true" />}
+							itemId="collaboration"
+							label="Collaboration"
+							summary={summaries.collaboration}
+						>
+							<AgentControllerCollaborationModeFields
+								agentId={form.boundAgentId}
+								disabled={form.isSubmitting}
+								onChange={form.onChangeBoundAgentControllerCollaborationMode}
+								value={form.boundAgentControllerCollaborationMode}
+							/>
+						</AgentConfigurationCard>
+					) : null}
+				</>
 			) : null}
 		</AgentConfigurationGrid>
 	);
@@ -622,6 +660,7 @@ function resolveAgentBindingHelpText(input: {
 
 export function AgentControllerPermissionModeFields(input: {
 	agentId: string;
+	confirmationRef?: Ref<HTMLInputElement>;
 	confirmed: boolean;
 	disabled: boolean;
 	onChange: (
@@ -693,6 +732,7 @@ export function AgentControllerPermissionModeFields(input: {
 						onChange={(event) => {
 							input.onConfirmChange(event.target.checked);
 						}}
+						ref={input.confirmationRef}
 						type="checkbox"
 					/>
 					<span>

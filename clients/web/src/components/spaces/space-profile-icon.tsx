@@ -1,7 +1,9 @@
+import { HOSTED_REMOTE_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
+import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 
 const SPACE_PROFILE_ICON_SIZE_CLASS_NAMES = {
@@ -40,15 +42,14 @@ export function SpaceProfileIcon(input: {
 
 	if (input.profileKind === "agent" && input.isCenterAgent) {
 		return (
-			<DitherProfileAvatar
+			<RemoteAgentAvatar
 				className={cn(
 					SPACE_PROFILE_ICON_SIZE_CLASS_NAMES[size],
 					input.className
 				)}
 				data-testid={`space-profile-icon-${input.profileId}`}
-				profileId={input.profileId}
-				profileKind="center-agent"
 				profileName={input.profileName}
+				shape="circle"
 				size={SPACE_PROFILE_ICON_SIZE_PIXELS[size]}
 			/>
 		);
@@ -71,6 +72,15 @@ export function SpaceProfileIcon(input: {
 		);
 	}
 
+	if (input.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
+		return (
+			<RemoteAgentAvatar
+				className={input.className}
+				profileName={input.profileName}
+				size={SPACE_PROFILE_ICON_SIZE_PIXELS[size]}
+			/>
+		);
+	}
 	const controllerLogoRef =
 		input.agentControllerRef !== null &&
 		hasLocalAgentLogo(input.agentControllerRef)

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import capturedFeishuBegin from "../../../scripts/lark-platform/fixtures/registration-begin.feishu.json";
 import capturedBegin from "../../../scripts/lark-platform/fixtures/registration-begin.lark.json";
 import capturedPending from "../../../scripts/lark-platform/fixtures/registration-pending.lark.json";
 import capturedSuccess from "../../../scripts/lark-platform/fixtures/registration-success.lark.json";
@@ -12,6 +13,98 @@ const NOW_MS = Date.parse("2026-07-18T07:30:00.000Z");
 const BASE64_URL_PATTERN = /^[A-Za-z0-9_-]+$/u;
 
 describe("Lark-platform Personal Agent registration client", () => {
+  it.each([
+    "lark",
+    "feishu",
+  ] as const)("reauthorizes the existing %s app without forcing creation", async (provider) => {
+    const result = await beginLarkPlatformRegistration({
+      appId: "cli_existing_app",
+      appDescription: "Channel setup",
+      appName: "OpenMeld Center Agent",
+      expectedProvider: provider,
+      fetchImpl: jsonFetch(capturedBegin),
+      nowMs: NOW_MS,
+      source: "openmeld-core",
+    });
+    const url = new URL(result.registrationUrl);
+    // Official node-sdk scene/registration/index.ts: clientID selects an existing
+    // app; createOnly=true would override that selection.
+    expect(url.searchParams.get("clientID")).toBe("cli_existing_app");
+    expect(url.searchParams.has("createOnly")).toBe(false);
+  });
+  it.each([
+    ["feishu", capturedFeishuBegin, "accounts.feishu.cn", "open.feishu.cn"],
+    ["lark", capturedBegin, "accounts.feishu.cn", "open.feishu.cn"],
+  ] as const)("preserves the shared issuer URL for %s storage and HTTP compatibility", async (provider, fixture, accountDomain, launcherHost) => {
+    const fetchImpl = jsonFetch(fixture);
+    const result = await beginLarkPlatformRegistration({
+      appDescription: "Development registration",
+      appName: "OpenMeld Center Agent",
+      expectedProvider: provider,
+      fetchImpl,
+      nowMs: NOW_MS,
+      source: "openmeld-core",
+    });
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(
+      `https://${accountDomain}/oauth/v1/app/registration`
+    );
+    expect(result.accountDomain).toBe(accountDomain);
+    const url = new URL(result.registrationUrl);
+    expect(url.host).toBe(launcherHost);
+    expect(url.searchParams.get("user_code")).toBe(fixture.user_code);
+  });
+
+  it.each([
+    "lark",
+    "feishu",
+  ] as const)("rejects a different brand before %s credentials are returned", async (provider) => {
+    const fetchImpl = jsonFetch(
+      {
+        error: "authorization_pending",
+        user_info: { tenant_brand: provider === "lark" ? "feishu" : "lark" },
+      },
+      400
+    );
+    await expect(
+      pollLarkPlatformRegistration({
+        accountDomain:
+          provider === "lark" ? "accounts.larksuite.com" : "accounts.feishu.cn",
+        deviceCode: "device-code",
+        expectedProvider: provider,
+        expiresAtMs: NOW_MS + 60_000,
+        fetchImpl,
+        nextPollAtMs: NOW_MS,
+        nowMs: NOW_MS,
+        pollIntervalMs: 5000,
+      })
+    ).rejects.toMatchObject({
+      reasonCode: `${provider}.registration_provider_brand_mismatch`,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "https://open.larksuite.com/page/launcher?user_code=%3Credacted-user-code%3E",
+    "https://open.feishu.cn/page/launcher",
+    "https://open.feishu.cn/page/launcher?user_code=other",
+  ])("rejects an unrelated or unbound Lark launcher: %s", async (registrationUrl) => {
+    await expect(
+      beginLarkPlatformRegistration({
+        appDescription: "Development registration",
+        appName: "OpenMeld Center Agent",
+        expectedProvider: "lark",
+        fetchImpl: jsonFetch({
+          ...capturedBegin,
+          verification_uri_complete: registrationUrl,
+        }),
+        nowMs: NOW_MS,
+        source: "openmeld-core",
+      })
+    ).rejects.toMatchObject({
+      reasonCode: "lark.registration_response_invalid",
+    });
+  });
+
   it("invokes the provider transport without an object receiver", async () => {
     const fetchImpl = receiverSensitiveJsonFetch(capturedBegin);
 
@@ -31,7 +124,7 @@ describe("Lark-platform Personal Agent registration client", () => {
     });
   });
 
-  it("starts at the provider-derived Feishu account host and builds a channel-only QR URL", async () => {
+  it("preserves the shared issuer code and launcher options", async () => {
     const fetchImpl = jsonFetch(capturedBegin);
 
     const result = await beginLarkPlatformRegistration({
@@ -82,34 +175,7 @@ describe("Lark-platform Personal Agent registration client", () => {
 
     await expect(
       pollLarkPlatformRegistration({
-        accountDomain: "accounts.feishu.cn",
-        deviceCode: "device-code",
-        expectedProvider: "lark",
-        expiresAtMs: NOW_MS + 60_000,
-        fetchImpl,
-        nextPollAtMs: NOW_MS,
-        nowMs: NOW_MS,
-        pollIntervalMs: 5000,
-      })
-    ).resolves.toEqual({
-      accountDomain: "accounts.feishu.cn",
-      credential: null,
-      detectedBrand: null,
-      nextPollAtMs: NOW_MS + 5000,
-      pollIntervalMs: 5000,
-      status: "authorization_pending",
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-  });
-
-  it("moves a Lark attempt to its brand host without recursively polling", async () => {
-    const fetchImpl = jsonFetch({
-      user_info: { tenant_brand: "lark" },
-    });
-
-    await expect(
-      pollLarkPlatformRegistration({
-        accountDomain: "accounts.feishu.cn",
+        accountDomain: "accounts.larksuite.com",
         deviceCode: "device-code",
         expectedProvider: "lark",
         expiresAtMs: NOW_MS + 60_000,
@@ -121,9 +187,50 @@ describe("Lark-platform Personal Agent registration client", () => {
     ).resolves.toEqual({
       accountDomain: "accounts.larksuite.com",
       credential: null,
-      detectedBrand: "lark",
-      nextPollAtMs: NOW_MS,
+      detectedBrand: null,
+      nextPollAtMs: NOW_MS + 5000,
       pollIntervalMs: 5000,
+      status: "authorization_pending",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a cross-provider poll route before sending its device code", async () => {
+    const fetchImpl = jsonFetch(capturedPending, 400);
+    await expect(
+      pollLarkPlatformRegistration({
+        accountDomain: "accounts.larksuite.com",
+        deviceCode: "device-code",
+        expectedProvider: "feishu",
+        expiresAtMs: NOW_MS + 60_000,
+        fetchImpl,
+        nextPollAtMs: NOW_MS,
+        nowMs: NOW_MS,
+        pollIntervalMs: 5000,
+      })
+    ).rejects.toMatchObject({
+      reasonCode: "feishu.registration_input_invalid",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("moves a confirmed Lark attempt from the shared issuer to Lark polling", async () => {
+    const fetchImpl = jsonFetch({ user_info: { tenant_brand: "lark" } });
+    await expect(
+      pollLarkPlatformRegistration({
+        accountDomain: "accounts.feishu.cn",
+        deviceCode: "device-code",
+        expectedProvider: "lark",
+        expiresAtMs: NOW_MS + 60_000,
+        fetchImpl,
+        nextPollAtMs: NOW_MS,
+        nowMs: NOW_MS,
+        pollIntervalMs: 5000,
+      })
+    ).resolves.toMatchObject({
+      accountDomain: "accounts.larksuite.com",
+      credential: null,
+      detectedBrand: "lark",
       status: "domain_switched",
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -183,7 +290,7 @@ describe("Lark-platform Personal Agent registration client", () => {
 
     await expect(
       pollLarkPlatformRegistration({
-        accountDomain: "accounts.feishu.cn",
+        accountDomain: "accounts.larksuite.com",
         deviceCode: "device-code",
         expectedProvider: "lark",
         expiresAtMs: NOW_MS + 60_000,
@@ -197,7 +304,7 @@ describe("Lark-platform Personal Agent registration client", () => {
     });
     await expect(
       pollLarkPlatformRegistration({
-        accountDomain: "accounts.feishu.cn",
+        accountDomain: "accounts.larksuite.com",
         deviceCode: "device-code",
         expectedProvider: "lark",
         expiresAtMs: NOW_MS,
@@ -213,7 +320,7 @@ describe("Lark-platform Personal Agent registration client", () => {
 
     await expect(
       pollLarkPlatformRegistration({
-        accountDomain: "accounts.feishu.cn",
+        accountDomain: "accounts.larksuite.com",
         deviceCode: "device-code",
         expectedProvider: "lark",
         expiresAtMs: NOW_MS + 60_000,
@@ -225,7 +332,7 @@ describe("Lark-platform Personal Agent registration client", () => {
     ).rejects.toBeInstanceOf(LarkPlatformRegistrationError);
     await expect(
       pollLarkPlatformRegistration({
-        accountDomain: "accounts.feishu.cn",
+        accountDomain: "accounts.larksuite.com",
         deviceCode: "device-code",
         expectedProvider: "lark",
         expiresAtMs: NOW_MS + 60_000,

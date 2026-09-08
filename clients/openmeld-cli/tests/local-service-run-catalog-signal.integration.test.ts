@@ -1695,7 +1695,7 @@ describe("local service run catalog signal", () => {
     await sessionPromise;
   });
 
-  it("runs pending local execution evidence refresh after an in-flight heartbeat finishes", async () => {
+  it("registers a changed catalog without waiting for an in-flight heartbeat", async () => {
     vi.useFakeTimers();
     let syncRouteCatalog: ((reason: string) => Promise<unknown>) | null = null;
 
@@ -1784,7 +1784,10 @@ describe("local service run catalog signal", () => {
 
     const syncPromise = attachedSyncRouteCatalog("profile_updated");
     await vi.advanceTimersByTimeAsync(0);
-    expect(syncDaemonRouteCatalogStateMock).not.toHaveBeenCalled();
+    expect(syncDaemonRouteCatalogStateMock).toHaveBeenCalledTimes(1);
+    await expect(syncPromise).resolves.toMatchObject({
+      status: "changed",
+    });
 
     socket.emitServerFrame({
       v: 1,

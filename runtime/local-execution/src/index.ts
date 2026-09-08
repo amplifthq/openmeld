@@ -92,10 +92,8 @@ export {
   buildMentionDispatchResultEnvelope,
   MENTION_DISPATCH_ERROR_CODES,
   type MentionDispatchDecision,
-  type MentionDispatchDecisionInput,
   type MentionTargetBindingState,
   type MentionTargetResolution,
-  planMentionDispatchDecisions,
 } from "./mention-decision-chain.js";
 export {
   dispatchMentionOnlyTask,

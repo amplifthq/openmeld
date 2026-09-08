@@ -12,7 +12,7 @@ export function SidebarListSkeleton({
 	rowCount?: number;
 }) {
 	return (
-		<output className="flex flex-col gap-1">
+		<output className="flex flex-col gap-1 [&_[data-slot=skeleton]]:bg-sidebar-foreground/15 dark:[&_[data-slot=skeleton]]:bg-muted">
 			<span className="sr-only">{label}</span>
 			{ROW_WIDTHS.slice(0, rowCount).map((width) => (
 				<div

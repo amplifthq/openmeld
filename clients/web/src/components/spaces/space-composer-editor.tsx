@@ -437,7 +437,7 @@ function SpaceComposerProfileToken(
 	const choices = target
 		? listSpaceMentionRelationChoices({
 				allowedRelations: target.allowedRelations,
-				primaryMentionLabel: target.profileName,
+				primaryMentionLabel: target.primaryMentionLabel,
 				wakeAvailability: target.wakeAvailability,
 			})
 		: [];
@@ -741,7 +741,7 @@ function insertProfile(
 	if (!relation) {
 		return;
 	}
-	const mentionText = `@${item.suggestion.primaryMentionLabel}`;
+	const mentionText = `@${item.suggestion.profileName}`;
 	const existing = serializeSpaceComposerEditorValue(
 		editor.children
 	).authoredMentions.some(
@@ -884,7 +884,7 @@ function buildSpaceComposerPasteTargets(
 					item.suggestion.allowedRelations.reference
 						? "reference"
 						: defaultRelation,
-				mentionText: `@${item.suggestion.primaryMentionLabel}`,
+				mentionText: `@${item.suggestion.profileName}`,
 				profileId: item.suggestion.profileId,
 			},
 		];

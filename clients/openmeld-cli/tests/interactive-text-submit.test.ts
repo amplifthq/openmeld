@@ -45,9 +45,9 @@ describe("performInteractiveTextSubmit", () => {
         prepareOutboundText: vi.fn().mockResolvedValue({
           text: "hello world",
           messageEnvelope: null,
-          canonicalMentionsInTextOrder: [],
+          mentionsInTextOrder: [],
           resolvedStructuredTargets: {
-            canonicalMentionsInTextOrder: [],
+            mentionsInTextOrder: [],
             profileIdsInTextOrder: [],
           },
         }),
@@ -58,9 +58,9 @@ describe("performInteractiveTextSubmit", () => {
     ).resolves.toEqual({
       status: "not_queued",
       text: "hello world",
-      canonicalMentionsInTextOrder: [],
+      mentionsInTextOrder: [],
       resolvedStructuredTargets: {
-        canonicalMentionsInTextOrder: [],
+        mentionsInTextOrder: [],
         profileIdsInTextOrder: [],
       },
     });
@@ -91,9 +91,9 @@ describe("performInteractiveTextSubmit", () => {
         prepareOutboundText: vi.fn().mockResolvedValue({
           text: "@Budget Analyst(wake) Please propose the rollout plan.",
           messageEnvelope,
-          canonicalMentionsInTextOrder: [],
+          mentionsInTextOrder: [],
           resolvedStructuredTargets: {
-            canonicalMentionsInTextOrder: [],
+            mentionsInTextOrder: [],
             profileIdsInTextOrder: [],
           },
         }),
@@ -136,9 +136,9 @@ describe("performInteractiveTextSubmit", () => {
         prepareOutboundText: vi.fn().mockResolvedValue({
           text: "hello world",
           messageEnvelope: null,
-          canonicalMentionsInTextOrder: [],
+          mentionsInTextOrder: [],
           resolvedStructuredTargets: {
-            canonicalMentionsInTextOrder: [],
+            mentionsInTextOrder: [],
             profileIdsInTextOrder: [],
           },
         }),
@@ -150,9 +150,9 @@ describe("performInteractiveTextSubmit", () => {
       status: "queued",
       text: "hello world",
       clientMessageId: "client-1",
-      canonicalMentionsInTextOrder: [],
+      mentionsInTextOrder: [],
       resolvedStructuredTargets: {
-        canonicalMentionsInTextOrder: [],
+        mentionsInTextOrder: [],
         profileIdsInTextOrder: [],
       },
     });

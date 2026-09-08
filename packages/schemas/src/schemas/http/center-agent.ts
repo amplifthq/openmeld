@@ -1141,30 +1141,32 @@ export const centerAgentReadPeopleComputersBodySchema = z.strictObject({
   target: peopleComputerTargetSchema.optional(),
 });
 
-export const centerAgentReadPeopleComputersResponseSchema = z.strictObject({
-  inventory: peopleComputersResponseSchema.extend({
-    computers: z.array(
-      peopleComputersResponseSchema.shape.computers.element.extend({
-        executionTargets: z.array(
-          peopleComputersResponseSchema.shape.computers.element.shape.executionTargets.element.omit(
-            {
-              capabilities: true,
-              localAgentCatalog: true,
-            }
-          )
-        ),
+export const centerAgentReadPeopleComputersResponseSchema = z.lazySchema(() =>
+  z.strictObject({
+    inventory: peopleComputersResponseSchema.extend({
+      computers: z.array(
+        peopleComputersResponseSchema.shape.computers.element.extend({
+          executionTargets: z.array(
+            peopleComputersResponseSchema.shape.computers.element.shape.executionTargets.element.omit(
+              {
+                capabilities: true,
+                localAgentCatalog: true,
+              }
+            )
+          ),
+        })
+      ),
+    }),
+    organizationId: trimmedNonEmptyStringSchema,
+    selectedComputer: z
+      .strictObject({
+        target: peopleComputerTargetSchema,
+        readiness: currentLocalRuntimeReplyReadinessResponseSchema,
+        fileAccess: computerFileAccessSummarySchema,
       })
-    ),
-  }),
-  organizationId: trimmedNonEmptyStringSchema,
-  selectedComputer: z
-    .strictObject({
-      target: peopleComputerTargetSchema,
-      readiness: currentLocalRuntimeReplyReadinessResponseSchema,
-      fileAccess: computerFileAccessSummarySchema,
-    })
-    .nullable(),
-});
+      .nullable(),
+  })
+);
 
 export const centerAgentRequestOpenMeldToolsUpdateBodySchema = z.strictObject({
   speakerMember: centerAgentToolSpeakerSchema,

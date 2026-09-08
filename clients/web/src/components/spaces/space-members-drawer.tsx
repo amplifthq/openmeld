@@ -68,6 +68,7 @@ import {
 import { toast } from "sonner";
 import { Drawer } from "vaul";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
+import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { resolveDirectoryHumanProfileActivityLabel } from "#/components/directory/directory-human-profile-format";
 import { SpacePickerCreateAgent } from "#/components/profiles/space-picker-create-agent";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
@@ -882,7 +883,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	);
 	const directoryQuery = useQuery(
 		organizationSpaceProfileCandidatesQueryOptions({
-			enabled: usesOrganizationDirectory,
+			enabled: usesOrganizationDirectory || Boolean(input.open && organization),
 			organizationId: organization?.id ?? "",
 		})
 	);
@@ -920,12 +921,14 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			usesOrganizationDirectory
 				? organizationDirectoryCandidates
 				: buildPersonalAddMemberGroups({
+						directory: directoryQuery.data ?? null,
 						alreadyJoinedCandidates:
 							personalProfilesPlan.alreadyJoinedCandidates,
 						selectableCandidates: personalProfilesPlan.selectableCandidates,
 					}),
 		[
 			organizationDirectoryCandidates,
+			directoryQuery.data,
 			personalProfilesPlan.alreadyJoinedCandidates,
 			personalProfilesPlan.selectableCandidates,
 			usesOrganizationDirectory,
@@ -1796,7 +1799,11 @@ function SpaceAddMembersCandidateGroup(input: {
 								<Badge className="h-4 px-1.5 text-[10px]" variant="secondary">
 									Remote
 								</Badge>
-							) : undefined
+							) : (
+								<RemoteAgentIndicator
+									agentControllerRef={candidate.agentControllerRef ?? null}
+								/>
+							)
 						}
 						onToggle={() => input.onToggle(candidate.profileId)}
 					/>
@@ -2096,6 +2103,7 @@ function compareOptionalDatesDescending(
 }
 
 function buildPersonalAddMemberGroups(input: {
+	directory: OrganizationSpaceProfileCandidates | null;
 	alreadyJoinedCandidates: readonly SpaceProfileAddCandidate[];
 	selectableCandidates: readonly SpaceProfileAddCandidate[];
 }): SpaceAddMembersCandidateGroups {
@@ -2112,6 +2120,10 @@ function buildPersonalAddMemberGroups(input: {
 	]) {
 		const summary = {
 			...toAddMembersCandidateSummary(candidate),
+			agentControllerRef:
+				input.directory?.agentProfiles.find(
+					(profile) => profile.profileId === candidate.profile.profileId
+				)?.agentControllerRef ?? null,
 			alreadyMember,
 		};
 		const ownerId = candidate.profile.ownerUserId ?? "personal";

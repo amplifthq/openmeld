@@ -17,6 +17,46 @@ import {
 } from "#/components/directory/directory-human-profile-model";
 
 describe("directory Human Profile model", () => {
+	it("keeps Remote controller and model information on the personal user page", () => {
+		const modelSelection = {
+			modelId: "deepseek/deepseek-v4-flash",
+		};
+		const rows = buildPersonalHumanProfileRows({
+			account: { email: null, name: null },
+			canCreateHumanProfile: true,
+			computers: null,
+			computersStatus: "ready",
+			documents: [],
+			documentsStatus: "ready",
+			orgSlug: "ari",
+			profiles: [
+				buildHumanProfile(),
+				buildPersonalAgentProfile({
+					managedRole: null,
+					openMeldProfileId: "remote-a",
+					profileName: "Ari’s Remote Agent",
+				}),
+			],
+			subjectUserId: "user-a",
+			agentProfileSummaries: [
+				{
+					agentControllerRef: "hosted:remote-agent",
+					avatarImageUrl: null,
+					id: "remote-a",
+					modelSelection,
+					modelSelectionIsKnown: true,
+					name: "Ari’s Remote Agent",
+					path: "/unused-directory-path",
+				},
+			],
+		});
+		expect(rows[0]?.agentProfiles[0]).toMatchObject({
+			agentControllerRef: "hosted:remote-agent",
+			modelSelection,
+			modelSelectionIsKnown: true,
+			path: "/o/ari/people/human-a/agents/remote-a",
+		});
+	});
 	it("does not invent Organization roles or email values in a personal workspace", () => {
 		const missingProfile = buildPersonalRows({ profiles: [] })[0];
 		const activeProfile = buildPersonalRows({

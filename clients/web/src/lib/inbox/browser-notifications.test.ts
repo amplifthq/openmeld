@@ -610,15 +610,6 @@ describe("Inbox browser notifications", () => {
 		).toBe(true);
 		expect(
 			isInboxBrowserNotificationEligible(
-				createInboxItem({
-					importance: "normal",
-					attention: "update",
-					kind: "center_agent_task",
-				})
-			)
-		).toBe(true);
-		expect(
-			isInboxBrowserNotificationEligible(
 				createInboxItem({ importance: "urgent" })
 			)
 		).toBe(true);
@@ -656,16 +647,6 @@ describe("Inbox browser notifications", () => {
 					importance: "normal",
 					attention: "update",
 					kind: "agent_interaction",
-				})
-			)
-		).toBe(false);
-		expect(
-			isInboxBrowserNotificationEligible(
-				createInboxItem({
-					attention: "action_required",
-					importance: "urgent",
-					kind: "center_agent_task",
-					resolutionStatus: "resolved",
 				})
 			)
 		).toBe(false);

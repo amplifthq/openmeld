@@ -15,15 +15,20 @@ export function resolveSetupServiceUpdateTruth(input: {
   currentCliVersion: string;
   installedServiceVersion: string | null;
   operation: OpenMeldToolsUpdateOperation | null;
+  currentServiceVerified?: boolean;
 }): SetupServiceUpdateTruth {
   const operation = input.operation;
   if (!operation) {
     return { status: "ready" };
   }
-  if (compareSemver(input.currentCliVersion, operation.targetVersion) > 0) {
-    return { status: "ready" };
-  }
   if (operation.phase === "restored" || operation.phase === "needs_help") {
+    if (
+      input.currentServiceVerified &&
+      input.installedServiceVersion === input.currentCliVersion &&
+      compareSemver(input.currentCliVersion, operation.targetVersion) >= 0
+    ) {
+      return { status: "ready" };
+    }
     return {
       message: "OpenMeld Service update failed. Run `openmeld service update`.",
       status: "failed",
@@ -38,6 +43,13 @@ export function resolveSetupServiceUpdateTruth(input: {
         "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes.",
       status: "updating",
     };
+  }
+  if (
+    input.currentServiceVerified &&
+    input.installedServiceVersion === input.currentCliVersion &&
+    compareSemver(input.currentCliVersion, operation.targetVersion) > 0
+  ) {
+    return { status: "ready" };
   }
   if (
     input.currentCliVersion === operation.targetVersion &&
@@ -64,8 +76,13 @@ export async function assertSetupServiceUpdateComplete(): Promise<void> {
   const truth = resolveSetupServiceUpdateTruth({
     currentCliVersion: OPENMELD_VERSION,
     installedServiceVersion:
-      inventory.installStatus.state?.daemonVersion ?? null,
+      inventory.serviceContract?.daemonVersion ??
+      inventory.installStatus.state?.daemonVersion ??
+      null,
     operation,
+    currentServiceVerified:
+      inventory.anomalies.length === 0 &&
+      inventory.runtimeStatus.status === "running",
   });
   if (truth.status !== "ready") {
     throw new Error(truth.message);

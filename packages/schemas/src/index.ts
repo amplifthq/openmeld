@@ -99,6 +99,7 @@ export {
   type OrganizationJoinRequestResponse,
   type OrganizationJoinRequestRpcInput,
   organizationJoinRequestInputSchema,
+  organizationJoinRequestResponseForVersion,
   organizationJoinRequestResponseSchema,
   organizationJoinRequestRpcInputSchema,
   organizationJoinRequestSchema,

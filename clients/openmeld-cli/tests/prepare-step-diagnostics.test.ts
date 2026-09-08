@@ -69,6 +69,26 @@ function buildSources(
 }
 
 describe("collectPrepareStepDiagnostics", () => {
+  it("preserves a native status through wrapped errors without uploading exception content", async () => {
+    const serialized = await collectPrepareStepDiagnostics({
+      stepId: "connect_terminal",
+      supportCode: "prepare.handoff_failed",
+      error: new Error("private command and account", {
+        cause: new Error("Keychain OSStatus -25293 secret-token"),
+      }),
+      env: {},
+      sources: buildSources(),
+    });
+    expect(JSON.parse(serialized ?? "").nativeFailure).toEqual({
+      osStatus: -25_293,
+    });
+    expect(serialized).not.toContain("secret-token");
+    expect(serialized).not.toContain("private command");
+    expect(
+      prepareStepDiagnosticsBundleSchema.safeParse(JSON.parse(serialized ?? ""))
+        .success
+    ).toBe(true);
+  });
   it("collects a whitelist-only bundle from OpenMeld-owned sources", async () => {
     const serialized = await collectPrepareStepDiagnostics({
       stepId: "refresh_service",

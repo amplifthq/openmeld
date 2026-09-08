@@ -12,6 +12,7 @@ import {
   ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITED_ERROR_CODE,
   organizationJoinLinkErrorResponseSchema,
   organizationJoinLinkManagementQuerySchema,
+  organizationJoinRequestResponseForVersion,
   organizationJoinRequestResponseSchema,
   previewOrganizationJoinLinkQuerySchema,
   previewOrganizationJoinLinkResponseSchema,
@@ -23,6 +24,10 @@ import { getOrganizationServerApi } from "../better-auth/organization-server-api
 import type { AppContext } from "../context";
 import { authContextMiddleware } from "../middlewares/auth";
 import { requireTrustedCookieOrigin } from "../middlewares/trusted-origin";
+import {
+  fulfillInvitationMembership,
+  readInvitationAccount,
+} from "./invitation-membership";
 
 export const ORGANIZATION_JOIN_LINK_ROUTE =
   "/api/auth/organization/join-link" as const;
@@ -69,7 +74,11 @@ async function authorizeLinkScope(
       userId: user.id,
       email: user.email,
       emailVerified: user.emailVerified,
-      request: { action: "authorize_link", ...scope },
+      request: {
+        action: "authorize_link",
+        organizationId: scope.organizationId,
+        spaceId: scope.spaceId,
+      },
     })
   );
   return result.ok ? null : c.json(result, 403);
@@ -91,15 +100,25 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
       if (!body.success) {
         return c.json(INVALID_INPUT_RESPONSE, 400);
       }
-      const authorization = await authorizeLinkScope(c, body.data);
+      const authorization = await authorizeLinkScope(c, {
+        organizationId: body.data.organizationId,
+        spaceId: body.data.spaceId,
+      });
       if (authorization) {
         return authorization;
       }
-      const result = await getOrganizationJoinLinkService(c).ensure({
-        actorUserId: user.id,
-        ...body.data,
-      });
-      return c.json({ ok: true, joinLink: result.joinLink });
+      try {
+        const result = await getOrganizationJoinLinkService(c).ensure({
+          actorUserId: user.id,
+          ...body.data,
+        });
+        return c.json({
+          ok: true,
+          joinLink: publicJoinLink(result.joinLink, body.data.responseVersion),
+        });
+      } catch (error) {
+        return handleOrganizationJoinLinkServiceError(c, error);
+      }
     }
   );
   app.post(
@@ -127,7 +146,7 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
         createD1Db(c.env.OPENMELD_DB)
       );
       const link = await repository.findActiveByToken(body.data.token);
-      if (!link) {
+      if (!link || (link.expiresAt && link.expiresAt.getTime() <= Date.now())) {
         return c.json(
           {
             ok: false,
@@ -137,12 +156,24 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
           404
         );
       }
+      if (link.mode === "direct") {
+        return c.json(
+          {
+            ok: false,
+            code: "organization.join_link.invalid_input",
+            message: "This is a direct invitation. Open the link to join.",
+          },
+          400
+        );
+      }
       const core = c.env.OPENMELD_CORE_WORKER;
       if (!core) {
         throw new Error("Core is required for invitation requests");
       }
       const result = organizationJoinRequestResponseSchema.parse(
         await core.organizationJoinRequest({
+          responseVersion:
+            c.req.query("responseVersion") === "2" ? "2" : undefined,
           userId: user.id,
           email: user.email,
           emailVerified: user.emailVerified,
@@ -154,7 +185,13 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
           },
         })
       );
-      return c.json(result, result.ok ? 200 : 400);
+      return c.json(
+        organizationJoinRequestResponseForVersion(
+          result,
+          c.req.query("responseVersion")
+        ),
+        result.ok ? 200 : 400
+      );
     }
   );
   app.get(ORGANIZATION_JOIN_LINK_ROUTE, authContextMiddleware, async (c) => {
@@ -172,6 +209,16 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
     if (authorization) {
       return authorization;
     }
+    if (input.data.mode === "direct") {
+      const directAuthorization = await authorizeJoinLinkManagement(
+        c,
+        input.data.organizationId,
+        "create"
+      );
+      if (directAuthorization) {
+        return directAuthorization;
+      }
+    }
     if (input.data.spaceId) {
       const scopeAuthorization = await authorizeLinkScope(c, input.data);
       if (scopeAuthorization) {
@@ -181,11 +228,14 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
 
     const joinLink = await getOrganizationJoinLinkService(c).getActive(
       input.data.organizationId,
-      input.data.spaceId
+      input.data.spaceId,
+      input.data.mode
     );
     return c.json(
       getOrganizationJoinLinkResponseSchema.parse({
-        joinLink,
+        joinLink: joinLink
+          ? publicJoinLink(joinLink, input.data.responseVersion)
+          : null,
         ok: true,
       }),
       200
@@ -223,10 +273,11 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
           createdBy: requireAuthenticatedUser(c).id,
           organizationId: input.data.organizationId,
           spaceId: input.data.spaceId,
+          mode: input.data.mode,
         });
         return c.json(
           getOrganizationJoinLinkResponseSchema.parse({
-            joinLink,
+            joinLink: publicJoinLink(joinLink, input.data.responseVersion),
             ok: true,
           }),
           201
@@ -259,7 +310,8 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
 
       const revoked = await getOrganizationJoinLinkService(c).revoke(
         input.data.organizationId,
-        input.data.spaceId
+        input.data.spaceId,
+        input.data.mode
       );
       return c.json(
         revokeOrganizationJoinLinkResponseSchema.parse({
@@ -284,13 +336,30 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
     );
     // Existing clients use a strict response schema without Space context.
     // New clients explicitly opt into that context; authorization is unchanged.
-    const { spaceId: _spaceId, ...legacyResponse } = response.active
+    const {
+      spaceId: _spaceId,
+      mode: _mode,
+      expiresAt: _expiresAt,
+      ...legacyResponse
+    } = response.active
       ? response
-      : { ...response, spaceId: undefined };
+      : {
+          ...response,
+          spaceId: undefined,
+          mode: undefined,
+          expiresAt: undefined,
+        };
+    let publicResponse = legacyResponse;
+    if (input.data.responseVersion === "3") {
+      publicResponse = response;
+    } else if (input.data.responseVersion === "2" && response.active) {
+      publicResponse = {
+        ...legacyResponse,
+        spaceId: response.spaceId,
+      } as typeof response;
+    }
     return c.json(
-      previewOrganizationJoinLinkResponseSchema.parse(
-        input.data.responseVersion === "2" ? response : legacyResponse
-      ),
+      previewOrganizationJoinLinkResponseSchema.parse(publicResponse),
       200
     );
   });
@@ -319,6 +388,43 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
       }
 
       try {
+        const db = createD1Db(c.env.OPENMELD_DB);
+        const link = await createDrizzleOrganizationJoinLinkRepository(
+          db
+        ).findActiveByToken(body.data.token);
+        let spaceInvitation: Parameters<
+          typeof fulfillInvitationMembership
+        >[1]["spaceInvitation"];
+        if (link?.mode === "direct" && link.spaceId) {
+          const creator = await readInvitationAccount(c, link.createdBy);
+          if (!(creator && c.env.OPENMELD_CORE_WORKER)) {
+            throw new Error("The invitation sender is unavailable.");
+          }
+          const authorization = organizationJoinRequestResponseSchema.parse(
+            await c.env.OPENMELD_CORE_WORKER.organizationJoinRequest({
+              userId: creator.id,
+              email: creator.email,
+              emailVerified: creator.emailVerified,
+              request: {
+                action: "authorize_link",
+                organizationId: link.organizationId,
+                spaceId: link.spaceId,
+              },
+            })
+          );
+          if (!authorization.ok) {
+            return c.json(authorization, 403);
+          }
+          spaceInvitation = {
+            actor: creator,
+            request: {
+              action: "create",
+              organizationId: link.organizationId,
+              spaceId: link.spaceId,
+              email: user.email,
+            },
+          };
+        }
         const response = await getOrganizationJoinLinkService(c).accept({
           addMember: (input) =>
             getOrganizationServerApi(c.var.betterAuth).addMember({
@@ -328,6 +434,13 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
           token: body.data.token,
           userId: user.id,
         });
+        if (spaceInvitation) {
+          await fulfillInvitationMembership(c, {
+            organizationId: response.organizationId,
+            applicant: user,
+            spaceInvitation,
+          });
+        }
         return c.json(
           acceptOrganizationJoinLinkResponseSchema.parse(response),
           200
@@ -337,6 +450,17 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
       }
     }
   );
+}
+
+function publicJoinLink(
+  link: import("@openmeld/schemas").OrganizationJoinLink,
+  responseVersion?: string
+) {
+  if (responseVersion === "3") {
+    return link;
+  }
+  const { mode: _mode, expiresAt: _expiresAt, ...legacy } = link;
+  return legacy;
 }
 
 function requireJoinLinkAcceptRateLimiter(c: Context<AppContext>): RateLimit {

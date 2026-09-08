@@ -1,3 +1,4 @@
+import { isAgentWakeAdmissionPreparationPendingReason } from "@openmeld/agent-runtime";
 import {
   AGENT_REPLYING_END_PURPOSE,
   AGENT_REPLYING_PURPOSE,
@@ -147,6 +148,9 @@ export const buildRetryingActivityText = (input: {
   const targetLabel = formatDispatchActivityTargetLabel(
     input.targetProfileLabel
   );
+  if (isAgentWakeAdmissionPreparationPendingReason(input.errorCode ?? "")) {
+    return `Preparing ${targetLabel}. Your message is saved; it will run when ready.`;
+  }
   switch (input.errorCode) {
     case "daemon.profile.pending_first_report":
       return `Waiting for ${targetLabel} to become ready...`;

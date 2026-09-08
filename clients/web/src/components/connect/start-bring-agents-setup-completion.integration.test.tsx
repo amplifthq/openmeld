@@ -549,7 +549,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		expect(screen.queryByText("Setup not finished yet.")).toBe(null);
 		expect(screen.queryByText(COMPLETED_PREPARE_TOKEN_PATTERN)).toBeNull();
 		expect(buildWebSetupCommandMock).not.toHaveBeenCalled();
-		expect(refreshAll).toHaveBeenCalledTimes(1);
+		await waitFor(() => expect(refreshAll).toHaveBeenCalledTimes(1));
 		expect(navigateMock).not.toHaveBeenCalled();
 	});
 

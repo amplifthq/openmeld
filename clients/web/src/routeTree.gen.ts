@@ -121,7 +121,6 @@ import { Route as OOrgSlugCenterAgentCenterAgentPluginsRouteImport } from './rou
 import { Route as OOrgSlugCenterAgentCenterAgentRoutinesRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.routines'
 import { Route as OOrgSlugCenterAgentCenterAgentSettingsRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.settings'
 import { Route as OOrgSlugCenterAgentCenterAgentSkillsRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.skills'
-import { Route as OOrgSlugCenterAgentCenterAgentTasksRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.tasks'
 import { Route as OOrgSlugCenterAgentChatsCenterAgentRouteImport } from './routes/o/$orgSlug/_center-agent/chats.center-agent'
 import { Route as OOrgSlugPeoplePersonIdAgentsRouteImport } from './routes/o/$orgSlug/people_.$personId_.agents'
 import { Route as OOrgSlugSettingsComputersDeviceIdRouteImport } from './routes/o/$orgSlug/settings/computers.$deviceId'
@@ -130,8 +129,6 @@ import { Route as OOrgSlugCenterAgentCenterAgentAppsServiceRouteImport } from '.
 import { Route as OOrgSlugCenterAgentCenterAgentPluginsServiceRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.plugins.$service'
 import { Route as OOrgSlugCenterAgentCenterAgentSkillsIndexRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.skills.index'
 import { Route as OOrgSlugCenterAgentCenterAgentSkillsSkillIdRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.skills.$skillId'
-import { Route as OOrgSlugCenterAgentCenterAgentTasksIndexRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.tasks.index'
-import { Route as OOrgSlugCenterAgentCenterAgentTasksTaskIdRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.tasks.$taskId'
 import { Route as OOrgSlugPeoplePersonIdAgentsAgentIdRouteImport } from './routes/o/$orgSlug/people_.$personId_.agents_.$agentId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -725,12 +722,6 @@ const OOrgSlugCenterAgentCenterAgentSkillsRoute =
     path: '/skills',
     getParentRoute: () => OOrgSlugCenterAgentCenterAgentRoute,
   } as any)
-const OOrgSlugCenterAgentCenterAgentTasksRoute =
-  OOrgSlugCenterAgentCenterAgentTasksRouteImport.update({
-    id: '/tasks',
-    path: '/tasks',
-    getParentRoute: () => OOrgSlugCenterAgentCenterAgentRoute,
-  } as any)
 const OOrgSlugCenterAgentChatsCenterAgentRoute =
   OOrgSlugCenterAgentChatsCenterAgentRouteImport.update({
     id: '/chats/center-agent',
@@ -778,18 +769,6 @@ const OOrgSlugCenterAgentCenterAgentSkillsSkillIdRoute =
     id: '/$skillId',
     path: '/$skillId',
     getParentRoute: () => OOrgSlugCenterAgentCenterAgentSkillsRoute,
-  } as any)
-const OOrgSlugCenterAgentCenterAgentTasksIndexRoute =
-  OOrgSlugCenterAgentCenterAgentTasksIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => OOrgSlugCenterAgentCenterAgentTasksRoute,
-  } as any)
-const OOrgSlugCenterAgentCenterAgentTasksTaskIdRoute =
-  OOrgSlugCenterAgentCenterAgentTasksTaskIdRouteImport.update({
-    id: '/$taskId',
-    path: '/$taskId',
-    getParentRoute: () => OOrgSlugCenterAgentCenterAgentTasksRoute,
   } as any)
 const OOrgSlugPeoplePersonIdAgentsAgentIdRoute =
   OOrgSlugPeoplePersonIdAgentsAgentIdRouteImport.update({
@@ -909,7 +888,6 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/center-agent/routines': typeof OOrgSlugCenterAgentCenterAgentRoutinesRoute
   '/o/$orgSlug/center-agent/settings': typeof OOrgSlugCenterAgentCenterAgentSettingsRoute
   '/o/$orgSlug/center-agent/skills': typeof OOrgSlugCenterAgentCenterAgentSkillsRouteWithChildren
-  '/o/$orgSlug/center-agent/tasks': typeof OOrgSlugCenterAgentCenterAgentTasksRouteWithChildren
   '/o/$orgSlug/chats/center-agent': typeof OOrgSlugCenterAgentChatsCenterAgentRoute
   '/o/$orgSlug/people/$personId/agents': typeof OOrgSlugPeoplePersonIdAgentsRoute
   '/o/$orgSlug/settings/computers/$deviceId': typeof OOrgSlugSettingsComputersDeviceIdRoute
@@ -918,10 +896,8 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/center-agent/apps/$service': typeof OOrgSlugCenterAgentCenterAgentAppsServiceRoute
   '/o/$orgSlug/center-agent/plugins/$service': typeof OOrgSlugCenterAgentCenterAgentPluginsServiceRoute
   '/o/$orgSlug/center-agent/skills/$skillId': typeof OOrgSlugCenterAgentCenterAgentSkillsSkillIdRoute
-  '/o/$orgSlug/center-agent/tasks/$taskId': typeof OOrgSlugCenterAgentCenterAgentTasksTaskIdRoute
   '/o/$orgSlug/people/$personId/agents/$agentId': typeof OOrgSlugPeoplePersonIdAgentsAgentIdRoute
   '/o/$orgSlug/center-agent/skills/': typeof OOrgSlugCenterAgentCenterAgentSkillsIndexRoute
-  '/o/$orgSlug/center-agent/tasks/': typeof OOrgSlugCenterAgentCenterAgentTasksIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -1033,10 +1009,8 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/center-agent/apps/$service': typeof OOrgSlugCenterAgentCenterAgentAppsServiceRoute
   '/o/$orgSlug/center-agent/plugins/$service': typeof OOrgSlugCenterAgentCenterAgentPluginsServiceRoute
   '/o/$orgSlug/center-agent/skills/$skillId': typeof OOrgSlugCenterAgentCenterAgentSkillsSkillIdRoute
-  '/o/$orgSlug/center-agent/tasks/$taskId': typeof OOrgSlugCenterAgentCenterAgentTasksTaskIdRoute
   '/o/$orgSlug/people/$personId/agents/$agentId': typeof OOrgSlugPeoplePersonIdAgentsAgentIdRoute
   '/o/$orgSlug/center-agent/skills': typeof OOrgSlugCenterAgentCenterAgentSkillsIndexRoute
-  '/o/$orgSlug/center-agent/tasks': typeof OOrgSlugCenterAgentCenterAgentTasksIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -1151,7 +1125,6 @@ export interface FileRoutesById {
   '/o/$orgSlug/_center-agent/center-agent/routines': typeof OOrgSlugCenterAgentCenterAgentRoutinesRoute
   '/o/$orgSlug/_center-agent/center-agent/settings': typeof OOrgSlugCenterAgentCenterAgentSettingsRoute
   '/o/$orgSlug/_center-agent/center-agent/skills': typeof OOrgSlugCenterAgentCenterAgentSkillsRouteWithChildren
-  '/o/$orgSlug/_center-agent/center-agent/tasks': typeof OOrgSlugCenterAgentCenterAgentTasksRouteWithChildren
   '/o/$orgSlug/_center-agent/chats/center-agent': typeof OOrgSlugCenterAgentChatsCenterAgentRoute
   '/o/$orgSlug/people_/$personId_/agents': typeof OOrgSlugPeoplePersonIdAgentsRoute
   '/o/$orgSlug/settings/computers/$deviceId': typeof OOrgSlugSettingsComputersDeviceIdRoute
@@ -1160,10 +1133,8 @@ export interface FileRoutesById {
   '/o/$orgSlug/_center-agent/center-agent/apps/$service': typeof OOrgSlugCenterAgentCenterAgentAppsServiceRoute
   '/o/$orgSlug/_center-agent/center-agent/plugins/$service': typeof OOrgSlugCenterAgentCenterAgentPluginsServiceRoute
   '/o/$orgSlug/_center-agent/center-agent/skills/$skillId': typeof OOrgSlugCenterAgentCenterAgentSkillsSkillIdRoute
-  '/o/$orgSlug/_center-agent/center-agent/tasks/$taskId': typeof OOrgSlugCenterAgentCenterAgentTasksTaskIdRoute
   '/o/$orgSlug/people_/$personId_/agents_/$agentId': typeof OOrgSlugPeoplePersonIdAgentsAgentIdRoute
   '/o/$orgSlug/_center-agent/center-agent/skills/': typeof OOrgSlugCenterAgentCenterAgentSkillsIndexRoute
-  '/o/$orgSlug/_center-agent/center-agent/tasks/': typeof OOrgSlugCenterAgentCenterAgentTasksIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -1278,7 +1249,6 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/center-agent/routines'
     | '/o/$orgSlug/center-agent/settings'
     | '/o/$orgSlug/center-agent/skills'
-    | '/o/$orgSlug/center-agent/tasks'
     | '/o/$orgSlug/chats/center-agent'
     | '/o/$orgSlug/people/$personId/agents'
     | '/o/$orgSlug/settings/computers/$deviceId'
@@ -1287,10 +1257,8 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/center-agent/apps/$service'
     | '/o/$orgSlug/center-agent/plugins/$service'
     | '/o/$orgSlug/center-agent/skills/$skillId'
-    | '/o/$orgSlug/center-agent/tasks/$taskId'
     | '/o/$orgSlug/people/$personId/agents/$agentId'
     | '/o/$orgSlug/center-agent/skills/'
-    | '/o/$orgSlug/center-agent/tasks/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -1402,10 +1370,8 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/center-agent/apps/$service'
     | '/o/$orgSlug/center-agent/plugins/$service'
     | '/o/$orgSlug/center-agent/skills/$skillId'
-    | '/o/$orgSlug/center-agent/tasks/$taskId'
     | '/o/$orgSlug/people/$personId/agents/$agentId'
     | '/o/$orgSlug/center-agent/skills'
-    | '/o/$orgSlug/center-agent/tasks'
   id:
     | '__root__'
     | '/'
@@ -1519,7 +1485,6 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/_center-agent/center-agent/routines'
     | '/o/$orgSlug/_center-agent/center-agent/settings'
     | '/o/$orgSlug/_center-agent/center-agent/skills'
-    | '/o/$orgSlug/_center-agent/center-agent/tasks'
     | '/o/$orgSlug/_center-agent/chats/center-agent'
     | '/o/$orgSlug/people_/$personId_/agents'
     | '/o/$orgSlug/settings/computers/$deviceId'
@@ -1528,10 +1493,8 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/_center-agent/center-agent/apps/$service'
     | '/o/$orgSlug/_center-agent/center-agent/plugins/$service'
     | '/o/$orgSlug/_center-agent/center-agent/skills/$skillId'
-    | '/o/$orgSlug/_center-agent/center-agent/tasks/$taskId'
     | '/o/$orgSlug/people_/$personId_/agents_/$agentId'
     | '/o/$orgSlug/_center-agent/center-agent/skills/'
-    | '/o/$orgSlug/_center-agent/center-agent/tasks/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -2369,13 +2332,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentSkillsRouteImport
       parentRoute: typeof OOrgSlugCenterAgentCenterAgentRoute
     }
-    '/o/$orgSlug/_center-agent/center-agent/tasks': {
-      id: '/o/$orgSlug/_center-agent/center-agent/tasks'
-      path: '/tasks'
-      fullPath: '/o/$orgSlug/center-agent/tasks'
-      preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentTasksRouteImport
-      parentRoute: typeof OOrgSlugCenterAgentCenterAgentRoute
-    }
     '/o/$orgSlug/_center-agent/chats/center-agent': {
       id: '/o/$orgSlug/_center-agent/chats/center-agent'
       path: '/chats/center-agent'
@@ -2431,20 +2387,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/o/$orgSlug/center-agent/skills/$skillId'
       preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentSkillsSkillIdRouteImport
       parentRoute: typeof OOrgSlugCenterAgentCenterAgentSkillsRoute
-    }
-    '/o/$orgSlug/_center-agent/center-agent/tasks/': {
-      id: '/o/$orgSlug/_center-agent/center-agent/tasks/'
-      path: '/'
-      fullPath: '/o/$orgSlug/center-agent/tasks/'
-      preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentTasksIndexRouteImport
-      parentRoute: typeof OOrgSlugCenterAgentCenterAgentTasksRoute
-    }
-    '/o/$orgSlug/_center-agent/center-agent/tasks/$taskId': {
-      id: '/o/$orgSlug/_center-agent/center-agent/tasks/$taskId'
-      path: '/$taskId'
-      fullPath: '/o/$orgSlug/center-agent/tasks/$taskId'
-      preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentTasksTaskIdRouteImport
-      parentRoute: typeof OOrgSlugCenterAgentCenterAgentTasksRoute
     }
     '/o/$orgSlug/people_/$personId_/agents_/$agentId': {
       id: '/o/$orgSlug/people_/$personId_/agents_/$agentId'
@@ -2551,24 +2493,6 @@ const OOrgSlugCenterAgentCenterAgentSkillsRouteWithChildren =
     OOrgSlugCenterAgentCenterAgentSkillsRouteChildren,
   )
 
-interface OOrgSlugCenterAgentCenterAgentTasksRouteChildren {
-  OOrgSlugCenterAgentCenterAgentTasksTaskIdRoute: typeof OOrgSlugCenterAgentCenterAgentTasksTaskIdRoute
-  OOrgSlugCenterAgentCenterAgentTasksIndexRoute: typeof OOrgSlugCenterAgentCenterAgentTasksIndexRoute
-}
-
-const OOrgSlugCenterAgentCenterAgentTasksRouteChildren: OOrgSlugCenterAgentCenterAgentTasksRouteChildren =
-  {
-    OOrgSlugCenterAgentCenterAgentTasksTaskIdRoute:
-      OOrgSlugCenterAgentCenterAgentTasksTaskIdRoute,
-    OOrgSlugCenterAgentCenterAgentTasksIndexRoute:
-      OOrgSlugCenterAgentCenterAgentTasksIndexRoute,
-  }
-
-const OOrgSlugCenterAgentCenterAgentTasksRouteWithChildren =
-  OOrgSlugCenterAgentCenterAgentTasksRoute._addFileChildren(
-    OOrgSlugCenterAgentCenterAgentTasksRouteChildren,
-  )
-
 interface OOrgSlugCenterAgentCenterAgentRouteChildren {
   OOrgSlugCenterAgentCenterAgentAppsRoute: typeof OOrgSlugCenterAgentCenterAgentAppsRouteWithChildren
   OOrgSlugCenterAgentCenterAgentChannelsRoute: typeof OOrgSlugCenterAgentCenterAgentChannelsRoute
@@ -2578,7 +2502,6 @@ interface OOrgSlugCenterAgentCenterAgentRouteChildren {
   OOrgSlugCenterAgentCenterAgentRoutinesRoute: typeof OOrgSlugCenterAgentCenterAgentRoutinesRoute
   OOrgSlugCenterAgentCenterAgentSettingsRoute: typeof OOrgSlugCenterAgentCenterAgentSettingsRoute
   OOrgSlugCenterAgentCenterAgentSkillsRoute: typeof OOrgSlugCenterAgentCenterAgentSkillsRouteWithChildren
-  OOrgSlugCenterAgentCenterAgentTasksRoute: typeof OOrgSlugCenterAgentCenterAgentTasksRouteWithChildren
   OOrgSlugCenterAgentCenterAgentIndexRoute: typeof OOrgSlugCenterAgentCenterAgentIndexRoute
 }
 
@@ -2600,8 +2523,6 @@ const OOrgSlugCenterAgentCenterAgentRouteChildren: OOrgSlugCenterAgentCenterAgen
       OOrgSlugCenterAgentCenterAgentSettingsRoute,
     OOrgSlugCenterAgentCenterAgentSkillsRoute:
       OOrgSlugCenterAgentCenterAgentSkillsRouteWithChildren,
-    OOrgSlugCenterAgentCenterAgentTasksRoute:
-      OOrgSlugCenterAgentCenterAgentTasksRouteWithChildren,
     OOrgSlugCenterAgentCenterAgentIndexRoute:
       OOrgSlugCenterAgentCenterAgentIndexRoute,
   }

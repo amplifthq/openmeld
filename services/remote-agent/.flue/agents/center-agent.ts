@@ -129,13 +129,19 @@ async function prepareCenterAgentRender() {
         includeOrganizationDocuments: true,
         materializeOrganizationSkills: true,
       };
+  const personalAgent =
+    executionContext?.conversationIdentity?.kind === "personal_agent";
+  if (personalAgent) {
+    runtimeContextPlan.includeOrganizationDocuments = false;
+    runtimeContextPlan.materializeOrganizationSkills = false;
+  }
   const coreWorker =
     env.OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding;
   const organizationSkillSelections =
     executionContext?.organizationSkillReleases ?? [];
   const materialization = await materializeCenterAgentRuntime({
     createSandbox: async () =>
-      executionContext && isRemoteAgentComputerEnabled(env)
+      executionContext && !personalAgent && isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
             context: executionContext,
             coreWorker,
@@ -153,6 +159,7 @@ async function prepareCenterAgentRender() {
     createTools: async (sandboxCapability) =>
       executionContext
         ? await getRemoteAgentFlueTools({
+            personalAgent,
             agentActivityReadEnabled:
               env.OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED === "true",
             connectorExecution: {
@@ -269,6 +276,7 @@ async function prepareCenterAgentRender() {
     model: materialization.model.modelSpecifier,
     thinkingLevel: executionContext?.modelRoute?.reasoningLevel ?? "high",
     instructions: buildRemoteAgentSystemPrompt({
+      personalAgent,
       modelDisplayName: resolveRemoteAgentModelDisplayName(
         env,
         executionContext?.modelRoute

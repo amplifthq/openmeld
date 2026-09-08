@@ -73,7 +73,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
-				text: "Posting reply from runner…",
+				text: "runner · Posting reply…",
 			}),
 		]);
 		expect(state.thinkingEntries[0]?.text).not.toBe("runner is working");

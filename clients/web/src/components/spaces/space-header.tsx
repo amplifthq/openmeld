@@ -47,7 +47,7 @@ export function SpaceWindowHeader(input: {
 	const content = (
 		<div
 			className={cn(
-				"relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-4",
+				"relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-[var(--app-page-inline-padding)]",
 				hasSecondaryRow
 					? "grid-rows-[minmax(0,var(--space-conversation-title-height))_minmax(0,var(--space-conversation-navigation-height))]"
 					: "grid-rows-1",
@@ -140,6 +140,7 @@ export function SpaceHeader(input: {
 	isLeaveSpacePending: boolean;
 	isSpaceNamePending: boolean;
 	isCenterAgentDirectMessage?: boolean;
+	isRemoteAgentDirectMessage?: boolean;
 	leaveSpaceErrorMessage: string | null;
 	// Realtime stream health for this browser's live connection. Drives the
 	// status dot pinned after the space name; defaults to "connected" so static
@@ -214,7 +215,7 @@ export function SpaceHeader(input: {
 					>
 						{input.setupRecallAction ? (
 							<div
-								className="max-lg:absolute max-lg:right-[var(--space-conversation-inline-padding)] max-lg:bottom-0 max-lg:flex max-lg:h-[var(--space-conversation-navigation-height)] max-lg:items-center"
+								className="max-lg:absolute max-lg:right-[var(--app-page-inline-padding)] max-lg:bottom-0 max-lg:flex max-lg:h-[var(--space-conversation-navigation-height)] max-lg:items-center"
 								data-slot="space-header-setup-recall-action"
 							>
 								{input.setupRecallAction}
@@ -284,7 +285,6 @@ export function SpaceHeader(input: {
 					</div>
 				</>
 			}
-			contentClassName="px-[var(--space-conversation-inline-padding)]"
 			leadingControl={
 				<SpaceHeaderIdentityIcon isDirectMessage={isDirectMessage} />
 			}
@@ -309,6 +309,7 @@ export function SpaceHeader(input: {
 					/>
 					{renderAgentChatBadge(
 						input.isCenterAgentDirectMessage,
+						input.isRemoteAgentDirectMessage,
 						isDirectMessage,
 						input.status.members.agentCount
 					)}
@@ -334,6 +335,7 @@ export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
 
 function renderAgentChatBadge(
 	isCenterAgent: boolean | undefined,
+	isRemoteAgent: boolean | undefined,
 	isDirectMessage: boolean,
 	agentCount: number
 ) {
@@ -341,7 +343,7 @@ function renderAgentChatBadge(
 		return <AgentChatBadge kind="center" />;
 	}
 	if (isDirectMessage && agentCount === 1) {
-		return <AgentChatBadge kind="local" />;
+		return <AgentChatBadge kind={isRemoteAgent ? "remote" : "local"} />;
 	}
 	return null;
 }

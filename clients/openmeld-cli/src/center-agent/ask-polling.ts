@@ -1,7 +1,4 @@
-import type {
-  CenterAgentTaskReference,
-  WakeProgressItem,
-} from "@openmeld/schemas/types";
+import type { WakeProgressItem } from "@openmeld/schemas/types";
 import type { createCliSpaceApi } from "../space/cli-space-api";
 
 export const DEFAULT_CENTER_AGENT_ASK_POLL_INTERVAL_MS = 750;
@@ -73,7 +70,6 @@ export async function waitForCenterAgentVisibleReply(input: {
 }): Promise<{
   answer: string;
   publishedSignalId: string;
-  taskReferences: CenterAgentTaskReference[];
 } | null> {
   while (true) {
     const response = await input.spaceApi.listSignalEnvelopes({
@@ -97,8 +93,6 @@ export async function waitForCenterAgentVisibleReply(input: {
         return {
           answer,
           publishedSignalId: visibleReply.id,
-          taskReferences:
-            visibleReply.data.meta?.centerAgentTaskReferences ?? [],
         };
       }
     }

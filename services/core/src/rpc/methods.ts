@@ -205,6 +205,7 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  isHostedAgentControllerRef,
   isSpaceFileTextEditable,
   type ListCenterAgentSessionsQuery,
   type ListCenterAgentSessionsResponse,
@@ -1169,6 +1170,10 @@ import {
   type SpaceEntryAccessResult,
 } from "../space/application/space-entry-resolution-service";
 import { buildSpaceFileAuditEvent } from "../space/application/space-file-audit";
+import {
+  readSpaceMemberNameFromAuth,
+  SPACE_MEMBER_NAME_READ_BUDGET_MS,
+} from "../space/application/space-members-service";
 import type { FinalOutcomeWriteAuthority } from "../space/application/types";
 import { readSpaceBoardExecutionProjection } from "../space/infrastructure/d1/space-board-execution-read-repo";
 import { readSpaceDispatchLookupByClientMessageId } from "../space/infrastructure/d1/space-dispatch-read-repo";
@@ -5808,6 +5813,20 @@ export async function rpcDisableAgentProfilePrimaryBinding(
     });
   }
 
+  const currentBinding = await readPrimaryAgentProfileBindingRecord({
+    db,
+    agentProfileId: request.agentProfileId,
+    owner: request.owner,
+  });
+  if (isHostedAgentControllerRef(currentBinding?.agentControllerRef)) {
+    return buildDisableAgentProfilePrimaryBindingResponse({
+      agentProfileId: request.agentProfileId,
+      disabled: false,
+      reasonCodes: ["agent_profile_binding.primary_conflict"],
+      status: "unavailable",
+    });
+  }
+
   let controllerMutationOperationId: string | null = null;
   const controllerMutationAdmission =
     await acquireAgentProfileExecutionTargetMutationAdmission({
@@ -8500,6 +8519,7 @@ export async function rpcBeginLarkPlatformRegistration(
     const response = await beginRemoteAgentLarkPlatformRegistration({
       ...request,
       repairExisting: input.mode === "repair",
+      reauthorize: input.mode === "reauthorize",
       env,
       restartPending: input.mode === "restart",
     });
@@ -18763,6 +18783,34 @@ async function buildActiveWakeSummaryForSpaceIds(input: {
       ),
       viewerOwnerUserId: input.ownerUserId,
     });
+  const currentNamesByProfileId = new Map<string, string>();
+  const profileIds = [
+    ...new Set(
+      [...targetCountsBySpaceId.values()].flatMap((counts) => [
+        ...counts.keys(),
+      ])
+    ),
+  ];
+  // Resolve each active identity once, even when it is working in many Spaces.
+  const nameDeadlineAtMs = Date.now() + SPACE_MEMBER_NAME_READ_BUDGET_MS;
+  for (let offset = 0; offset < profileIds.length; offset += 8) {
+    if (Date.now() >= nameDeadlineAtMs) {
+      break;
+    }
+    await Promise.all(
+      profileIds.slice(offset, offset + 8).map(async (profileId) => {
+        const name = await readSpaceMemberNameFromAuth({
+          env: input.env,
+          profileId,
+          profileKind: "agent",
+          deadlineAtMs: nameDeadlineAtMs,
+        });
+        if (name) {
+          currentNamesByProfileId.set(profileId, name);
+        }
+      })
+    );
+  }
 
   return {
     generatedAtMs,
@@ -18773,9 +18821,11 @@ async function buildActiveWakeSummaryForSpaceIds(input: {
           activeWakeCount,
           profileId,
           profileName:
+            currentNamesByProfileId.get(profileId) ??
             targetProfileNamesBySpaceAndId.get(
               buildActiveWakeTargetKey({ profileId, spaceId })
-            ) ?? null,
+            ) ??
+            null,
         })
       ).sort((left, right) =>
         (left.profileName ?? left.profileId).localeCompare(
@@ -24129,7 +24179,7 @@ function resolveTeamSafeOrganizationDirectoryDisplayState(
 function resolveHttpAgentWakeAvailability(
   readiness: CoreAgentExecutionReadiness
 ): GetAgentExecutionReadinessResponse["agentWakeAvailability"] {
-  if (readiness.agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF) {
+  if (isHostedAgentControllerRef(readiness.agentControllerRef)) {
     return resolveHostedAgentWakeAvailability({
       readiness: readiness.agentExecutionReadiness,
     });

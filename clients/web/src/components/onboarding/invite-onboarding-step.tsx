@@ -80,13 +80,15 @@ export function InviteOnboardingStep(input: { onContinue: () => void }) {
 		retry: 1,
 		staleTime: 10_000,
 	});
-	const joinLinkQueryKey = organizationQueryKeys.joinLink(
-		currentOrganization.id
-	);
+	const joinLinkQueryKey = [
+		...organizationQueryKeys.joinLink(currentOrganization.id),
+		"direct",
+	];
 	const joinLinkQuery = useQuery({
 		enabled: canInvite,
 		queryFn: async () =>
 			await getOrganizationJoinLink({
+				mode: "direct",
 				organizationId: currentOrganization.id,
 			}),
 		queryKey: joinLinkQueryKey,
@@ -195,6 +197,7 @@ export function InviteOnboardingStep(input: { onContinue: () => void }) {
 	const joinLinkMutation = useMutation({
 		mutationFn: async () =>
 			await resetOrganizationJoinLink({
+				mode: "direct",
 				organizationId: currentOrganization.id,
 			}),
 		mutationKey: [
@@ -406,8 +409,8 @@ function InvitationManager(input: {
 					<p className="font-medium text-sm">Share an invite link</p>
 				</div>
 				<p className="mt-1 text-muted-foreground text-xs leading-5">
-					Anyone with the link can request an invitation. Each person needs
-					approval before joining.
+					Anyone with this link can join as a member. No approval needed. The
+					link expires after 30 days.
 				</p>
 				<InviteLinkControl
 					copyStatus={input.copyStatus}

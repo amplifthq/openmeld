@@ -42,6 +42,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import {
@@ -52,6 +53,7 @@ import {
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
+import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
 import {
 	buildAnchoredSpaceOutcomeNoticesBySourceSignalId,
 	buildSpaceConversationEntries,
@@ -131,6 +133,7 @@ import { resolveLocalDateKey } from "./space-conversation-date";
 import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
 import { SpaceConversationSendScrollController } from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
+import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
@@ -138,6 +141,10 @@ import {
 } from "./space-execution-recovery-actions";
 import { SpaceGraph, type SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
+import {
+	buildSpaceMessageAgentMentionProfiles,
+	splitSpaceMessageAgentMentionText,
+} from "./space-message-agent-mention";
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
@@ -414,7 +421,7 @@ export function SpaceConversationPanel(
 ) {
 	return (
 		<SpaceWakeStopScope
-			key={publicInput.spaceId}
+			key={`${publicInput.spaceId}:${publicInput.selfProfileId}`}
 			progressItems={publicInput.ephemeralActivityItems}
 			stopRequestStatusBySelectorKey={
 				publicInput.wakeStopRequestStatusBySelectorKey
@@ -1033,7 +1040,6 @@ function useSpaceConversationPresentationController(
 						item: messageDetailsItem,
 						stopRequestStatusBySelectorKey:
 							input.wakeStopRequestStatusBySelectorKey,
-						targetLabelsByProfileId: wakeStopTargetLabelsByProfileId,
 						timelineItems: mainTimelineItems,
 						wakeOutcomeIndex,
 						wakeProgressItems: input.ephemeralActivityItems,
@@ -1045,7 +1051,6 @@ function useSpaceConversationPresentationController(
 			mainTimelineItems,
 			messageDetailsItem,
 			wakeOutcomeIndex,
-			wakeStopTargetLabelsByProfileId,
 		]
 	);
 	const messageDetailsReplyItems = messageDetailsItem
@@ -2125,16 +2130,12 @@ function renderConversationBody(input: {
 
 	if (input.historyIsPending) {
 		return (
-			<>
-				{Array.from({ length: 4 }).map((_, index) => (
-					<MessageScrollerItem
-						key={`space-conversation-loading-${String(index)}`}
-						messageId={`space-conversation-loading-${String(index)}`}
-					>
-						<div className="h-20 border border-border bg-muted" />
-					</MessageScrollerItem>
-				))}
-			</>
+			<MessageScrollerItem
+				className="py-5"
+				messageId="space-conversation-loading"
+			>
+				<SpaceConversationSkeleton />
+			</MessageScrollerItem>
 		);
 	}
 
@@ -2489,7 +2490,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 							item: wakePresentationItem,
 							stopRequestStatusBySelectorKey:
 								input.wakeStopRequestStatusBySelectorKey,
-							targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
 							timelineItems: input.timelineItems,
 							wakeOutcomeIndex: input.wakeOutcomeIndex,
 							wakeProgressItems: input.ephemeralActivityItems,
@@ -2740,6 +2740,10 @@ function ConversationBubbleContent(input: {
 				item={input.item}
 				loadedMainTimelineSignalIds={parent.loadedMainTimelineSignalIds}
 				onJumpToMessage={parent.onJumpToMessage}
+				profilePresentationsById={parent.profilePresentationsById}
+				sourceItem={parent.timelineItems.find(
+					(item) => item.id === input.item.replyToSignalId
+				)}
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
 			<SpaceMessageBody
@@ -2840,10 +2844,14 @@ function ConversationSpeakerHeader(input: {
 				isCenterAgent={isCenterAgentRun}
 				profileId={input.run.speaker.profileId}
 				profileKind={input.run.speaker.profileKind}
+				working={input.run.items.some(isSpaceMessageAgentWorking)}
 			/>
 			<span className="min-w-0 break-words font-bold text-foreground text-sm">
 				{input.run.speaker.displayName}
 			</span>
+			<RemoteAgentIndicator
+				agentControllerRef={input.run.speaker.agentControllerRef}
+			/>
 			{agentControlLabel ? (
 				<>
 					<span className="shrink-0 text-muted-foreground">·</span>
@@ -3185,11 +3193,32 @@ function ReplyPreview(input: {
 	item: SpaceTimelineItem;
 	loadedMainTimelineSignalIds: ReadonlySet<string>;
 	onJumpToMessage: (signalId: string) => void;
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
+	sourceItem?: SpaceTimelineItem;
 	spaceReferencesById?: SpaceMessageReferencesById;
 }) {
 	if (!input.item.replyPreviewText) {
 		return null;
 	}
+	const profiles = buildSpaceMessageAgentMentionProfiles({
+		profilePresentationsById: input.profilePresentationsById,
+		wakeTargetProfileIds: input.sourceItem?.wakeTargetProfileIds ?? [],
+		referenceTargetProfileIds:
+			input.sourceItem?.referenceTargetProfileIds ?? [],
+	});
+	const previewText = splitSpaceMessageAgentMentionText(
+		input.item.replyPreviewText,
+		profiles
+	)
+		.map((segment) =>
+			segment.kind === "text"
+				? segment.value
+				: `@${segment.profile.profileName}`
+		)
+		.join("");
 
 	const replyToSignalId = input.item.replyToSignalId;
 	const canJump =
@@ -3199,7 +3228,7 @@ function ReplyPreview(input: {
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
 	const hasSpaceReference = hasResolvedSpaceMessageReference({
 		referencesById: spaceReferencesById,
-		text: input.item.replyPreviewText,
+		text: previewText,
 	});
 	const replyLabel = (
 		<>
@@ -3217,7 +3246,7 @@ function ReplyPreview(input: {
 			<p className="line-clamp-2 text-foreground/78">
 				<SpaceMessageReferenceText
 					referencesById={spaceReferencesById}
-					text={input.item.replyPreviewText}
+					text={previewText}
 				/>
 			</p>
 		</>
@@ -3262,7 +3291,7 @@ function ReplyPreview(input: {
 				<p className="line-clamp-2 text-foreground/78">
 					<SpaceMessageReferenceText
 						referencesById={spaceReferencesById}
-						text={input.item.replyPreviewText}
+						text={previewText}
 					/>
 				</p>
 			</div>

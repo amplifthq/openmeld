@@ -26,6 +26,7 @@ import {
   insertSignalRecord,
   readFinalReplyClaimSignalId,
 } from "../space/infrastructure/sql/space-signal-repo";
+import { parseStoredSignal } from "../space/rules/parsers/stored-signal";
 import {
   resolveConfirmedAcceptedDispatchOutcome,
   resolveRuntimeCoordinatorFinalizationClaimRead,
@@ -47,7 +48,7 @@ const sourceSignal = {
   data: {
     text: "@agent(wake) hey",
     messageEnvelope: {
-      activationTargets: ["agt-1"],
+      activationTargets: ["agt_11111111-1111-4111-8111-111111111111"],
       referenceTargets: [],
       text: "@agent(wake) hey",
     },
@@ -76,7 +77,7 @@ const baseFact = {
   sourceClientMessageId: "client-message-1",
   sourceEventId: "signal-1",
   spaceId: "space-1",
-  targetProfileId: "agt-1",
+  targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
   taskId: "task-1",
 } satisfies AcceptedDispatchFinalizationFact;
 
@@ -94,13 +95,13 @@ const baseInboxRecord = {
   resultKey: "dispatch-1:attempt-1",
   runtimeCoordinatorExecutionId: "rce-1",
   submittedConnectionGeneration: 2,
-  targetProfileId: "agt-1",
+  targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
   taskId: "task-1",
   taskResult: {
     v: 4,
     code: "service.task_result",
     payload: {
-      agentId: "agt-1",
+      agentId: "agt_11111111-1111-4111-8111-111111111111",
       attemptId: "attempt-1",
       agentControllerRef: "builtin:codex",
       deduped: false,
@@ -146,13 +147,45 @@ const baseFinalizationCommand = {
 } satisfies RuntimeCoordinatorFinalizationCommand;
 
 describe("accepted dispatch finalization", () => {
+  it("confirms the original final claim after recovering its historical mention label", () => {
+    const stored = JSON.stringify({
+      ...sourceSignal,
+      id: "historical-final",
+      profile: { kind: "agent", profileId: baseFact.targetProfileId },
+      data: {
+        text: "Already completed",
+        meta: {
+          purpose: AGENT_REPLY_FINAL_PURPOSE,
+          dispatchId: baseFact.dispatchId,
+          targetProfileId: baseFact.targetProfileId,
+          targetProfileName: "Codex (1)",
+          targetMentionLabel: "Codex (1)",
+        },
+      },
+    });
+    expect(
+      resolveRuntimeCoordinatorFinalizationClaimRead({
+        command: baseFinalizationCommand,
+        readFinalReplyClaimSignalId: () => "historical-final",
+        readSignalById: () => parseStoredSignal(stored),
+      })
+    ).toMatchObject({
+      status: "finalization_visible",
+      outcome: {
+        ok: true,
+        status: "already_final",
+        publishState: "reply_published",
+        publishedSignalId: "historical-final",
+      },
+    });
+  });
   it("requires reply_published to point at the claimed visible final Space message", () => {
     const finalReplySignal = {
       ...sourceSignal,
       id: "signal-final-1",
       profile: {
         kind: "agent",
-        profileId: "agt-1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
         profileName: "Test Agent",
       },
       data: {
@@ -160,7 +193,7 @@ describe("accepted dispatch finalization", () => {
         meta: {
           dispatchId: "dispatch-1",
           purpose: AGENT_REPLY_FINAL_PURPOSE,
-          targetProfileId: "agt-1",
+          targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
         },
       },
     } satisfies SignalEnvelope;
@@ -202,7 +235,7 @@ describe("accepted dispatch finalization", () => {
             text: "Not a final reply.",
             meta: {
               dispatchId: "dispatch-1",
-              targetProfileId: "agt-1",
+              targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
             },
           },
         }),
@@ -228,7 +261,7 @@ describe("accepted dispatch finalization", () => {
       id: "signal-final-existing",
       profile: {
         kind: "agent",
-        profileId: "agt-1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
         profileName: "Test Agent",
       },
       data: {
@@ -236,7 +269,7 @@ describe("accepted dispatch finalization", () => {
         meta: {
           dispatchId: "dispatch-1",
           purpose: AGENT_REPLY_FINAL_PURPOSE,
-          targetProfileId: "agt-1",
+          targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
         },
       },
     } satisfies SignalEnvelope;
@@ -264,11 +297,11 @@ describe("accepted dispatch finalization", () => {
       type: "signal.status",
       profile: {
         kind: "agent",
-        profileId: "agt-1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
         profileName: "Test Agent",
       },
       data: {
-        actorProfileId: "agt-1",
+        actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
         dispatchId: "dispatch-1",
         generatedBy: "openmeld",
         status: "working",
@@ -280,7 +313,7 @@ describe("accepted dispatch finalization", () => {
       id: "signal-text-final-1",
       profile: {
         kind: "agent",
-        profileId: "agt-1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
         profileName: "Test Agent",
       },
       data: {
@@ -288,7 +321,7 @@ describe("accepted dispatch finalization", () => {
         meta: {
           dispatchId: "dispatch-1",
           purpose: AGENT_REPLY_FINAL_PURPOSE,
-          targetProfileId: "agt-1",
+          targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
         },
       },
     } satisfies SignalEnvelope;
@@ -302,7 +335,7 @@ describe("accepted dispatch finalization", () => {
         profileName: "OpenMeld",
       },
       data: {
-        actorProfileId: "agt-1",
+        actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
         dispatchId: "dispatch-1",
         generatedBy: "openmeld",
         noticeType: "terminal_failure",
@@ -317,7 +350,7 @@ describe("accepted dispatch finalization", () => {
         taskResult: {
           ...baseFinalizationCommand.acceptedResult.taskResult,
           payload: {
-            agentId: "agt-1",
+            agentId: "agt_11111111-1111-4111-8111-111111111111",
             attemptId: "attempt-1",
             deduped: false,
             errorCode: "provider.rate_limited",
@@ -424,7 +457,7 @@ describe("accepted dispatch finalization", () => {
         profileName: "OpenMeld",
       },
       data: {
-        actorProfileId: "agt-1",
+        actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
         dispatchId: "dispatch-1",
         failureStage: "publication",
         generatedBy: "openmeld",
@@ -543,9 +576,11 @@ describe("accepted dispatch finalization", () => {
       publishedSignalId: "signal-publication-failed-1",
       status: "publication_failed_visible",
     });
-    expect(finalReplyClaims.get("dispatch-1:agt-1")).toBe(
-      "signal-publication-failed-1"
-    );
+    expect(
+      finalReplyClaims.get(
+        "dispatch-1:agt_11111111-1111-4111-8111-111111111111"
+      )
+    ).toBe("signal-publication-failed-1");
     expect(
       JSON.parse(
         String(signalRows.get("signal-publication-failed-1")?.payloadJson)
@@ -553,7 +588,7 @@ describe("accepted dispatch finalization", () => {
     ).toMatchObject({
       data: {
         actorName: "Test Agent",
-        actorProfileId: "agt-1",
+        actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
         dispatchId: "dispatch-1",
         failureStage: "publication",
         noticeType: "terminal_failure",
@@ -578,7 +613,7 @@ describe("accepted dispatch finalization", () => {
       id: "signal-late-final-1",
       profile: {
         kind: "agent",
-        profileId: "agt-1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
         profileName: "Test Agent",
       },
       data: {
@@ -586,7 +621,7 @@ describe("accepted dispatch finalization", () => {
         meta: {
           dispatchId: "dispatch-1",
           purpose: AGENT_REPLY_FINAL_PURPOSE,
-          targetProfileId: "agt-1",
+          targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
         },
       },
     } satisfies SignalEnvelope;
@@ -594,9 +629,11 @@ describe("accepted dispatch finalization", () => {
       duplicateFinalReplyBlocked: true,
       persistedSignal: false,
     });
-    expect(finalReplyClaims.get("dispatch-1:agt-1")).toBe(
-      "signal-publication-failed-1"
-    );
+    expect(
+      finalReplyClaims.get(
+        "dispatch-1:agt_11111111-1111-4111-8111-111111111111"
+      )
+    ).toBe("signal-publication-failed-1");
   });
 
   it("does not replay accepted results from Space history reads", async () => {
@@ -755,7 +792,7 @@ describe("accepted dispatch finalization", () => {
       idempotencyKey: "source|target",
       sourceClientMessageId: "client-message-1",
       sourceEventId: "signal-1",
-      targetProfileId: "agt-1",
+      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
       taskId: "task-1",
       controllerSnapshot: {
         agentControllerRef: "builtin:codex",
@@ -1794,7 +1831,10 @@ describe("accepted dispatch finalization", () => {
     });
   });
 
-  it("places threaded post_message final actions through Space action delivery", async () => {
+  it.each([
+    true,
+    false,
+  ])("requires a readable stored threaded final reply (readable: %s)", async (readableFinal) => {
     const spaceId =
       "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const targetProfileId = "agt_33333333-3333-4333-8333-333333333333";
@@ -1986,6 +2026,9 @@ describe("accepted dispatch finalization", () => {
       },
       readSignalById: {
         value: vi.fn((signalId: string) => {
+          if (!readableFinal && signalId !== source.id) {
+            return null;
+          }
           const row = signalRows.get(signalId);
           return row ? (JSON.parse(row.payloadJson) as SignalEnvelope) : null;
         }),
@@ -2008,7 +2051,7 @@ describe("accepted dispatch finalization", () => {
       replyToSignalId: source.id,
       text: "Thread reply delivered.",
     };
-    const receipt = await space.deliverAgentTransportSpaceAction({
+    const delivery = space.deliverAgentTransportSpaceAction({
       agentControllerConversationId: "ctx-thread-message-1",
       attemptId: inboxRecord.attemptId,
       agentControllerRef: "builtin:codex",
@@ -2037,6 +2080,13 @@ describe("accepted dispatch finalization", () => {
       workingDirectory: "/tmp/thread-agent",
     });
 
+    if (!readableFinal) {
+      await expect(delivery).rejects.toMatchObject({
+        code: "space.agent_reply.final_signal_unreadable",
+      });
+      return;
+    }
+    const receipt = await delivery;
     expect(receipt.finalReplySettled).toBe(true);
     expect(receipt.emittedSignal).toMatchObject({
       spaceId,

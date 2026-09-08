@@ -1,3 +1,4 @@
+import type { GetCenterAgentDesignationResponse } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -97,6 +98,14 @@ vi.mock("#/lib/organizations/organization-directory", () => ({
 		readProfileDirectoryMock(...args),
 }));
 
+vi.mock("#/lib/organizations/center-agent", () => ({
+	readCurrentCenterAgentDesignation: async () =>
+		({
+			organizationId: "org-acme",
+			designation: null,
+		}) satisfies GetCenterAgentDesignationResponse,
+}));
+
 describe("AppDirectMessagesSidebar", () => {
 	beforeEach(() => {
 		listAccountSpaceItemsMock.mockReset();
@@ -174,7 +183,7 @@ describe("AppDirectMessagesSidebar", () => {
 		});
 
 		expect(peerButton.getAttribute("href")).toBe(
-			"/o/acme/direct-messages/space-dm?profileId=human-1"
+			"/o/acme/chats/space-dm?profileId=human-1"
 		);
 		expect(readProfileDirectoryMock).toHaveBeenCalledTimes(1);
 	});
@@ -206,7 +215,7 @@ describe("AppDirectMessagesSidebar", () => {
 		const link = await screen.findByRole("link", { name: "Build Agent" });
 
 		expect(link.getAttribute("href")).toBe(
-			"/o/acme/direct-messages/space-dm?profileId=human-2"
+			"/o/acme/chats/space-dm?profileId=human-2"
 		);
 	});
 
@@ -228,7 +237,7 @@ describe("AppDirectMessagesSidebar", () => {
 		const link = await screen.findByRole("link", { name: "Build Agent" });
 
 		expect(link.getAttribute("href")).toBe(
-			"/o/acme/direct-messages/space-dm?profileId=human-1"
+			"/o/acme/chats/space-dm?profileId=human-1"
 		);
 	});
 
@@ -270,19 +279,26 @@ describe("AppDirectMessagesSidebar", () => {
 		);
 	});
 
-	it("shows a clear empty state when there are no Direct Messages", async () => {
+	it("reports an empty list to the parent Chats surface without an empty category", async () => {
+		const onFirstChatChange = vi.fn();
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [],
 		});
 
 		renderSidebar(
-			<AppDirectMessagesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<AppDirectMessagesSidebar
+				currentProfileId="human-1"
+				currentSpaceId=""
+				onFirstChatChange={onFirstChatChange}
+			/>
 		);
 
-		expect(
-			await screen.findByText("Conversations will appear here.")
-		).toBeTruthy();
+		await waitFor(() =>
+			expect(onFirstChatChange).toHaveBeenLastCalledWith(null)
+		);
+		expect(screen.queryByRole("link")).toBeNull();
+		expect(screen.queryByText("Conversations will appear here.")).toBeNull();
 	});
 
 	it("keeps the last saved Direct Messages navigable when background refresh fails", async () => {
@@ -324,7 +340,7 @@ describe("AppDirectMessagesSidebar", () => {
 			name: "Build Agent",
 		});
 		expect(peerButton.getAttribute("href")).toBe(
-			"/o/acme/direct-messages/space-dm?profileId=human-1"
+			"/o/acme/chats/space-dm?profileId=human-1"
 		);
 		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
 	});

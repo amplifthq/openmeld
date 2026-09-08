@@ -27,6 +27,7 @@ import { ChatCircleTextIcon, StarIcon } from "@phosphor-icons/react";
 import { memo } from "react";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { AgentProfileOperationalStatusIndicator } from "#/components/agents/agent-profile-operational-status";
+import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import {
 	APP_NAV_ITEM_TONE_CLASS_NAME,
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
@@ -138,7 +139,9 @@ export function AgentProfileSidebarItemComponent(input: {
 						hasReducedProminence ? "opacity-55 grayscale" : null
 					)}
 					profileId={input.profile.openMeldProfileId}
+					profileName={input.profile.profileName}
 					size={cardStyle.avatarSize}
+					working={input.operationalContext?.status === "working"}
 				/>
 				<span className="flex min-w-0 flex-1 flex-col overflow-hidden">
 					<span
@@ -172,6 +175,7 @@ export function AgentProfileSidebarItemComponent(input: {
 								{presentation.availabilityTooltip}
 							</TooltipContent>
 						</Tooltip>
+						<RemoteAgentIndicator agentControllerRef={agentControllerRef} />
 						<AgentProfileOperationalStatusIndicator
 							className="shrink-0"
 							operationalContext={input.operationalContext}
@@ -183,7 +187,7 @@ export function AgentProfileSidebarItemComponent(input: {
 				</span>
 			</SidebarMenuButton>
 			{hasActions && (
-				<SidebarMenuActions className="top-1" showOnHover>
+				<SidebarMenuActions showOnHover>
 					{input.onChat && (
 						<SidebarRowAction
 							label={`Chat with ${input.profile.profileName}`}

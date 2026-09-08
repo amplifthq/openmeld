@@ -3,6 +3,7 @@ import {
   type OrganizationJoinRequest,
   type OrganizationJoinRequestResponse,
   type OrganizationJoinRequestRpcInput,
+  organizationJoinRequestResponseForVersion,
   organizationJoinRequestRpcInputSchema,
 } from "@openmeld/schemas";
 import {
@@ -24,7 +25,8 @@ import {
 const SELECT = `SELECT id, organization_id AS organizationId, space_id AS spaceId,
   requested_by_user_id AS requestedByUserId, email, status,
   reviewed_by_user_id AS reviewedByUserId, created_at AS createdAt,
-  reviewed_at AS reviewedAt, invitation_sent_at AS invitationSentAt FROM organization_join_requests`;
+  reviewed_at AS reviewedAt, invitation_sent_at AS invitationSentAt,
+  applicant_user_id AS applicantUserId, joined_at AS joinedAt FROM organization_join_requests`;
 
 class JoinRequestError extends Error {
   readonly code: string;
@@ -50,7 +52,10 @@ export async function organizationJoinRequest(
     };
   }
   try {
-    return await execute(env, parsed.data);
+    return organizationJoinRequestResponseForVersion(
+      await execute(env, parsed.data),
+      parsed.data.responseVersion
+    );
   } catch (error) {
     if (error instanceof JoinRequestError || error instanceof InvitationError) {
       return { ok: false, code: error.code, message: error.message };
@@ -119,9 +124,9 @@ async function createOrListRequests(
     const count = canReview(member.role)
       ? await db
           .prepare(
-            "SELECT count(*) AS total FROM organization_join_requests WHERE organization_id = ? AND (status = 'pending' OR (status = 'approved' AND invitation_sent_at IS NULL AND reviewed_by_user_id = ?))"
+            "SELECT count(*) AS total FROM organization_join_requests WHERE organization_id = ? AND (status = 'pending' OR (status = 'approved' AND invitation_sent_at IS NULL AND joined_at IS NULL))"
           )
-          .bind(request.organizationId, input.userId)
+          .bind(request.organizationId)
           .first<{ total: number }>()
       : null;
     return { ok: true, requests: [], actionRequiredCount: count?.total ?? 0 };
@@ -138,12 +143,24 @@ async function createOrListRequests(
       ok: true,
       requests: rows.results.map((row) => ({
         ...row,
-        canReview:
-          reviewer &&
-          (row.status === "pending" || row.reviewedByUserId === input.userId),
+        canReview: reviewer,
       })),
     };
   }
+  return createRequest(env, db, input, request, member.role, sponsorUserId);
+}
+
+async function createRequest(
+  env: CoreBindings,
+  db: D1Database,
+  input: OrganizationJoinRequestRpcInput,
+  request: Extract<
+    OrganizationJoinRequestRpcInput["request"],
+    { action: "create" | "create_from_link" }
+  >,
+  role: string,
+  sponsorUserId: string
+): Promise<OrganizationJoinRequestResponse> {
   if (request.spaceId) {
     await authorizeSpaceInvitationSponsor(
       env,
@@ -156,19 +173,46 @@ async function createOrListRequests(
     request.action === "create_from_link"
       ? input.email.toLowerCase()
       : request.email;
+  if (request.action === "create_from_link") {
+    const existing = await db
+      .prepare(
+        `${SELECT} WHERE organization_id = ? AND coalesce(space_id, '') = ? AND applicant_user_id = ? AND email = ? AND status IN ('pending', 'approved') AND joined_at IS NULL ORDER BY created_at DESC LIMIT 1`
+      )
+      .bind(request.organizationId, request.spaceId ?? "", input.userId, email)
+      .first<OrganizationJoinRequest>();
+    if (existing) {
+      if (existing.status === "pending") {
+        await projectReview(env, db, existing);
+      }
+      return { ok: true, requests: [{ ...existing, canReview: false }] };
+    }
+  }
   await db
     .prepare(`INSERT INTO organization_join_requests
-    (id, organization_id, space_id, requested_by_user_id, email, status, created_at)
-    VALUES (?, ?, ?, ?, ?, 'pending', ?) ON CONFLICT DO NOTHING`)
+    (id, organization_id, space_id, requested_by_user_id, email, status, created_at, applicant_user_id)
+    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT DO NOTHING`)
     .bind(
       crypto.randomUUID(),
       request.organizationId,
       request.spaceId ?? null,
       sponsorUserId,
       email,
-      Date.now()
+      Date.now(),
+      request.action === "create_from_link" && input.responseVersion === "2"
+        ? input.userId
+        : null
     )
     .run();
+  if (request.action === "create_from_link" && input.responseVersion === "2") {
+    // The verified recipient has now explicitly asked to join, even if a
+    // teammate had already submitted an email invitation for them.
+    await db
+      .prepare(
+        "UPDATE organization_join_requests SET applicant_user_id = ? WHERE organization_id = ? AND coalesce(space_id, '') = ? AND email = ? AND status = 'pending' AND applicant_user_id IS NULL"
+      )
+      .bind(input.userId, request.organizationId, request.spaceId ?? "", email)
+      .run();
+  }
   const row = await db
     .prepare(
       `${SELECT} WHERE organization_id = ? AND coalesce(space_id, '') = ? AND email = ? AND status = 'pending'`
@@ -178,7 +222,11 @@ async function createOrListRequests(
   if (!row) {
     throw new Error("Join request could not be saved");
   }
-  if (row.requestedByUserId !== sponsorUserId && !canReview(member.role)) {
+  if (
+    request.action !== "create_from_link" &&
+    row.requestedByUserId !== sponsorUserId &&
+    !canReview(role)
+  ) {
     throw new JoinRequestError(
       "organization.join_request.already_pending",
       "An invitation request for this person is already awaiting review."
@@ -190,8 +238,7 @@ async function createOrListRequests(
     requests: [
       {
         ...row,
-        canReview:
-          request.action !== "create_from_link" && canReview(member.role),
+        canReview: request.action !== "create_from_link" && canReview(role),
       },
     ],
   };
@@ -230,29 +277,25 @@ async function manageRequest(
   });
   const reviewer = member.ok && canReview(member.role);
   const requester = member.ok && row.requestedByUserId === input.userId;
-  if (request.action === "delivery_complete") {
-    if (
-      !(
-        reviewer &&
-        row.status === "approved" &&
-        row.reviewedByUserId === input.userId
-      )
-    ) {
-      deny("Only the approving administrator can confirm invitation delivery.");
+  if (
+    request.action === "delivery_complete" ||
+    request.action === "join_complete"
+  ) {
+    if (!(reviewer && row.status === "approved")) {
+      deny(
+        "Only an organization owner or admin can complete an approved request."
+      );
     }
-    return await completeDelivery(db, row);
+    if (request.action === "join_complete") {
+      await requireApplicantMembership(env, row);
+    }
+    return await completeDelivery(db, row, request.action === "join_complete");
   }
   if (request.action === "get") {
     if (!(reviewer || requester || input.email.toLowerCase() === row.email)) {
       deny("This request belongs to another account.");
     }
-    return await viewRequest(
-      env,
-      db,
-      row,
-      reviewer &&
-        (row.status === "pending" || row.reviewedByUserId === input.userId)
-    );
+    return await viewRequest(env, db, row, reviewer);
   }
   if (request.action === "cancel" ? !requester : !reviewer) {
     deny(
@@ -260,6 +303,23 @@ async function manageRequest(
     );
   }
   return await decideRequest(env, db, input.userId, row, request.action);
+}
+
+async function requireApplicantMembership(
+  env: CoreBindings,
+  row: OrganizationJoinRequest
+) {
+  if (!row.applicantUserId) {
+    deny("This request requires an email invitation.");
+  }
+  const joined = await resolveOrganizationMembershipById({
+    env,
+    organizationId: row.organizationId,
+    userId: row.applicantUserId,
+  });
+  if (!joined.ok) {
+    deny("The applicant has not joined the organization yet.");
+  }
 }
 
 async function decideRequest(
@@ -308,7 +368,11 @@ async function decideRequest(
       "Another person handled this request. Refresh to see the result."
     );
   }
-  if (current.status !== "approved" || current.invitationSentAt !== null) {
+  if (
+    current.status !== "approved" ||
+    current.invitationSentAt !== null ||
+    current.joinedAt != null
+  ) {
     await resolveInboxItemsBySource({
       db,
       organizationId: row.organizationId,
@@ -373,11 +437,10 @@ async function projectReview(
           requestId: request.id,
         },
         attention: "action_required",
-        importance: "normal",
+        importance: "urgent",
         kind: "organization_request",
-        title: "Review an invitation request",
-        preview:
-          "Review the recipient and requested access before sending an invitation.",
+        title: `Review invitation: ${request.email}`,
+        preview: `${request.email} is waiting to join your organization. Any owner or admin can approve this request.`,
         contextLabel: null,
         occurredAtMs: request.createdAt,
       },
@@ -423,21 +486,35 @@ async function viewRequest(
 
 async function completeDelivery(
   db: D1Database,
-  row: OrganizationJoinRequest
+  row: OrganizationJoinRequest,
+  joined = false
 ): Promise<OrganizationJoinRequestResponse> {
-  const sentAt = row.invitationSentAt ?? Date.now();
+  const sentAt = (joined ? row.joinedAt : row.invitationSentAt) ?? Date.now();
   await db
     .prepare(
-      "UPDATE organization_join_requests SET invitation_sent_at = coalesce(invitation_sent_at, ?) WHERE id = ? AND status = 'approved'"
+      joined
+        ? "UPDATE organization_join_requests SET joined_at = coalesce(joined_at, ?) WHERE id = ? AND status = 'approved'"
+        : "UPDATE organization_join_requests SET invitation_sent_at = coalesce(invitation_sent_at, ?) WHERE id = ? AND status = 'approved'"
     )
     .bind(sentAt, row.id)
     .run();
+  const completed = await db
+    .prepare(`${SELECT} WHERE id = ?`)
+    .bind(row.id)
+    .first<OrganizationJoinRequest>();
+  if (!completed) {
+    throw new Error("Completed invitation request disappeared");
+  }
   await resolveInboxItemsBySource({
     db,
     organizationId: row.organizationId,
-    resolvedAtMs: sentAt,
+    resolvedAtMs:
+      (joined ? completed.joinedAt : completed.invitationSentAt) ?? sentAt,
     sourceKey: `invitation:${row.id}`,
     sourceKind: "organization_member_request",
   });
-  return { ok: true, requests: [{ ...row, invitationSentAt: sentAt }] };
+  return {
+    ok: true,
+    requests: [completed],
+  };
 }

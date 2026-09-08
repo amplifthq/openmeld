@@ -1,10 +1,10 @@
 import {
-  HOSTED_CENTER_AGENT_CONTROLLER_REF,
   resolveAgentWakeAvailability,
   resolveHostedAgentWakeAvailability,
 } from "@openmeld/agent-runtime";
 import type { Profile, SignalEnvelope, SpaceCreator } from "@openmeld/protocol";
 import {
+  isHostedAgentControllerRef,
   normalizeOptionalWorkingDirectory,
   SPACE_MEMBER_JOIN_NOTICE_PURPOSE,
   spaceMemberWebActivityWriteSchema,
@@ -47,6 +47,7 @@ import {
   recordSpaceMemberWebActivity,
 } from "../infrastructure/sql/space-member-web-activity-repo";
 import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
+import { normalizeSpaceMemberNameSnapshot } from "../rules/member-name";
 import { parseStoredSignal } from "../rules/parsers/stored-signal";
 import { redactProfileForViewer } from "../rules/privacy/agent-profile-visibility";
 import { resolveViewerCreatorProfileIdsByProfileId } from "../rules/privacy/profile-lineage";
@@ -228,7 +229,11 @@ export const upsertJoinedSpaceMember = (input: {
     existing,
     existingProfileSnapshot: existing,
     spaceId: input.spaceId,
-    profile: normalizedProfile,
+    profile: {
+      ...normalizedProfile,
+      profileName:
+        existing?.profileNameSnapshot ?? normalizedProfile.profileName,
+    },
     nowIso,
     defaultSource: "joined_directly",
     defaultAddedAt: nowIso,
@@ -833,7 +838,7 @@ export const buildSpaceStatusMembersSummaryFromSnapshot = (
   };
 };
 
-function ensureSpaceMembersBackfilled(input: {
+export function ensureSpaceMembersBackfilled(input: {
   sql: SqlStorage;
   spaceId: string;
   liveSessions: Iterable<LiveSessionLike>;
@@ -1264,18 +1269,17 @@ async function buildAgentSnapshot(input: {
     viewerProfileId: input.viewerProfileId,
     creatorProfileIdByProfileId: input.viewerCreatorProfileIdsByProfileId,
   });
-  const agentWakeAvailability =
-    agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF
-      ? resolveHostedAgentWakeAvailability({
-          readiness: executionReadiness.spaceMemberAgentExecutionReadiness,
-        })
-      : resolveAgentWakeAvailability({
-          agentControllerRef,
-          agentWakeRouteRegistration:
-            executionReadiness.agentWakeRouteRegistration,
-          wakeRouteStatus: executionReadiness.wakeRouteStatus,
-          readiness: executionReadiness.spaceMemberAgentExecutionReadiness,
-        });
+  const agentWakeAvailability = isHostedAgentControllerRef(agentControllerRef)
+    ? resolveHostedAgentWakeAvailability({
+        readiness: executionReadiness.spaceMemberAgentExecutionReadiness,
+      })
+    : resolveAgentWakeAvailability({
+        agentControllerRef,
+        agentWakeRouteRegistration:
+          executionReadiness.agentWakeRouteRegistration,
+        wakeRouteStatus: executionReadiness.wakeRouteStatus,
+        readiness: executionReadiness.spaceMemberAgentExecutionReadiness,
+      });
   const canManageAgentProfile = isSameOwnerUserId({
     leftOwnerUserId: input.viewerOwnerUserId,
     rightOwnerUserId: ownerUserId,
@@ -1577,10 +1581,8 @@ function mergeBackfilledMemberRecord(input: {
   return {
     ...input.existing,
     profileKindSnapshot: input.discovered.profileKindSnapshot,
-    profileNameSnapshot: resolveMergedProfileNameSnapshot({
-      existing: input.existing,
-      discovered: input.discovered,
-    }),
+    // Historical activity cannot rename an existing member.
+    profileNameSnapshot: input.existing.profileNameSnapshot,
     ownerUserIdSnapshot:
       input.discovered.ownerUserIdSnapshot ??
       input.existing.ownerUserIdSnapshot,
@@ -1614,17 +1616,137 @@ function mergeBackfilledMemberRecord(input: {
   };
 }
 
-function resolveMergedProfileNameSnapshot(input: {
-  existing: SpaceMemberRecord;
-  discovered: SpaceMemberRecord;
-}): string {
-  if (input.discovered.memberSource === "backfilled") {
-    return input.existing.profileNameSnapshot;
-  }
-  return (
-    normalizeOptionalText(input.discovered.profileNameSnapshot) ??
-    input.existing.profileNameSnapshot
+export function refreshSpaceMemberNameSnapshot(input: {
+  sql: SqlStorage;
+  profileId: string;
+  profileName: string;
+}): boolean {
+  const name = normalizeSpaceMemberNameSnapshot(
+    input.profileId,
+    input.profileName
   );
+  const member = readSpaceMemberRecord(input.sql, input.profileId);
+  if (
+    !(name && member) ||
+    member.status !== "active" ||
+    member.profileNameSnapshot === name
+  ) {
+    return false;
+  }
+  upsertSpaceMemberRecord(input.sql, {
+    ...member,
+    profileNameSnapshot: name,
+    updatedAt: new Date().toISOString(),
+  });
+  return true;
+}
+
+// Display enrichment must not hold reply publication or status polling open.
+export const SPACE_MEMBER_NAME_READ_BUDGET_MS = 500;
+
+export async function refreshSpaceMemberNamesFromAuth(input: {
+  sql: SqlStorage;
+  env: CoreBindings;
+}): Promise<boolean> {
+  const auth = input.env.OPENMELD_AUTH_WORKER;
+  if (!auth?.resolveProfileById) {
+    return false;
+  }
+  const members = listSpaceMemberRecords(input.sql, {
+    status: "active",
+  });
+  let changed = false;
+  const deadlineAtMs = Date.now() + SPACE_MEMBER_NAME_READ_BUDGET_MS;
+  // A nonempty snapshot can still predate an Auth rename.
+  for (let offset = 0; offset < members.length; offset += 8) {
+    if (Date.now() >= deadlineAtMs) {
+      break;
+    }
+    const refreshed = await Promise.all(
+      members.slice(offset, offset + 8).map(async (member) => {
+        const name = await readSpaceMemberNameFromAuth({
+          env: input.env,
+          profileId: member.profileId,
+          profileKind: member.profileKindSnapshot,
+          deadlineAtMs,
+        });
+        if (!name) {
+          return false;
+        }
+        // Re-read after the Auth RPC: a concurrent rename or removal wins.
+        const current = readSpaceMemberRecord(input.sql, member.profileId);
+        if (
+          !current ||
+          current.status !== "active" ||
+          current.profileNameSnapshot !== member.profileNameSnapshot
+        ) {
+          return false;
+        }
+        return refreshSpaceMemberNameSnapshot({
+          sql: input.sql,
+          profileId: member.profileId,
+          profileName: name,
+        });
+      })
+    );
+    changed = refreshed.some(Boolean) || changed;
+  }
+  return changed;
+}
+
+export async function readSpaceMemberNameFromAuth(input: {
+  env: CoreBindings;
+  profileId: string;
+  profileKind: "agent" | "human";
+  deadlineAtMs?: number;
+}): Promise<string | null> {
+  const remainingMs =
+    (input.deadlineAtMs ?? Date.now() + SPACE_MEMBER_NAME_READ_BUDGET_MS) -
+    Date.now();
+  if (remainingMs <= 0) {
+    return null;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      input.env.OPENMELD_AUTH_WORKER?.resolveProfileById?.({
+        openMeldProfileId: input.profileId,
+      }),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Space member name lookup timed out")),
+          remainingMs
+        );
+      }),
+    ]);
+    if (!result?.ok) {
+      console.warn("[core.space.member_name_unavailable]", {
+        profileId: input.profileId,
+        code: result?.code ?? "auth_unavailable",
+      });
+      return null;
+    }
+    if (
+      result.profile.profileId !== input.profileId ||
+      result.profile.profileKind !== input.profileKind
+    ) {
+      throw new Error("Space member name identity mismatch");
+    }
+    return normalizeSpaceMemberNameSnapshot(
+      input.profileId,
+      result.profile.profileName
+    );
+  } catch (error) {
+    console.warn("[core.space.member_name_failed]", {
+      profileId: input.profileId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 function shouldPromoteMemberSource(input: {
@@ -1729,7 +1851,10 @@ function buildNextSpaceMemberRecord(input: {
   lastEnteredAt?: string | null;
 }): SpaceMemberRecord {
   const profileNameSnapshot =
-    normalizeOptionalText(input.profile.profileName) ??
+    normalizeSpaceMemberNameSnapshot(
+      input.profile.profileId,
+      input.profile.profileName
+    ) ??
     input.existingProfileSnapshot?.profileNameSnapshot ??
     input.profile.profileId;
   return {
@@ -2335,11 +2460,13 @@ function normalizeProfileSnapshot(input: {
     return null;
   }
   const profileId = normalizeOptionalText(input.profile.profileId);
-  const profileName =
-    normalizeOptionalText(input.profile.profileName) ?? profileId;
-  if (!(profileId && profileName)) {
+  if (!profileId) {
     return null;
   }
+  const profileName = normalizeSpaceMemberNameSnapshot(
+    profileId,
+    input.profile.profileName
+  );
 
   return {
     profileId,

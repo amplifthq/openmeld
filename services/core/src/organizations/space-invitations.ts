@@ -101,9 +101,9 @@ async function execute(
   if (request.action === "create_approved") {
     const approved = await db
       .prepare(
-        "SELECT organization_id, space_id, email, requested_by_user_id FROM organization_join_requests WHERE id = ? AND status = 'approved' AND reviewed_by_user_id = ?"
+        "SELECT organization_id, space_id, email, requested_by_user_id FROM organization_join_requests WHERE id = ? AND status = 'approved'"
       )
-      .bind(request.requestId, input.userId)
+      .bind(request.requestId)
       .first<{
         organization_id: string;
         space_id: string | null;
@@ -124,6 +124,13 @@ async function execute(
       true,
       approved.requested_by_user_id
     );
+    const completed = await db
+      .prepare(`${SELECT} WHERE i.id = ? AND i.status = 'accepted'`)
+      .bind(request.requestId)
+      .first<InvitationRow>();
+    if (completed) {
+      return success([completed]);
+    }
     await db
       .prepare(
         "INSERT INTO space_invitations (id, organization_id, space_id, email, inviter_user_id, sponsor_user_id, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT DO NOTHING"

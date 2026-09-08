@@ -169,6 +169,8 @@ export function ManagedDirectMessages(input: {
 			),
 		}));
 	const firstItem = sections.flatMap((section) => section.items)[0] ?? null;
+	// Automatic entry must use the resolved activity order. Individual rows can
+	// already render and be opened while their activity and previews load.
 	const firstReady =
 		!(sidebar.isPending || sidebar.isError) &&
 		latestMessages.every((query) => !(query.isPending || query.isError));
@@ -180,27 +182,14 @@ export function ManagedDirectMessages(input: {
 			sidebar.save({ ...sidebar.preferences, messages });
 		}
 	};
-	if (sidebar.isPending || latestMessages.some((query) => query.isPending)) {
+	if (sidebar.isPending) {
 		return (
 			<SidebarListSkeleton label="Loading chats" rowCount={2} showPreview />
 		);
 	}
-	if (
-		(!sidebar.preferences && sidebar.isError) ||
-		latestMessages.some((query) => query.isError && query.data === undefined)
-	) {
+	if (!sidebar.preferences && sidebar.isError) {
 		return (
-			<Button
-				onClick={() =>
-					Promise.all([
-						sidebar.retry(),
-						...latestMessages
-							.filter((query) => query.isError)
-							.map((query) => query.refetch()),
-					])
-				}
-				variant="ghost"
-			>
+			<Button onClick={() => sidebar.retry()} variant="ghost">
 				Retry loading sidebar
 			</Button>
 		);

@@ -63,7 +63,7 @@ describe("OpenMeld Space Action command", () => {
     ]);
 
     await runSpaceActionWake({
-      target: "@QA Agent",
+      target: AGENT_PROFILE_ID,
       messageParts: ["Please", "review", "this."],
     });
 
@@ -91,7 +91,7 @@ describe("OpenMeld Space Action command", () => {
     ]);
 
     await runSpaceActionReply({
-      mentionTargets: ["@Mira"],
+      mentionTargets: [humanProfileId],
       messageParts: ["Please", "take", "a", "look."],
     });
 
@@ -107,7 +107,7 @@ describe("OpenMeld Space Action command", () => {
     });
   });
 
-  it("records reply --wake as the authoritative CLI action", async () => {
+  it("records reply --wake once for repeated explicit recipients", async () => {
     const context = createTestContext([
       createProjectionEntry({
         profileId: AGENT_PROFILE_ID,
@@ -118,7 +118,7 @@ describe("OpenMeld Space Action command", () => {
 
     await runSpaceActionReply({
       messageParts: ["Implementation", "is", "done."],
-      wakeTargets: ["Review Agent"],
+      wakeTargets: [AGENT_PROFILE_ID, AGENT_PROFILE_ID],
     });
 
     const record = readLoadedActionRecord(context);
@@ -161,16 +161,19 @@ describe("OpenMeld Space Action command", () => {
     ).toThrow("Choose either a reply message or --message-file, not both.");
   });
 
-  it("rejects removed CC syntax in action message text", () => {
-    createTestContext([]);
-
-    expect(() =>
-      runSpaceActionReply({
-        messageParts: ["@Mira(cc)", "Please review."],
-      })
-    ).toThrow(
-      "CC has been removed from Space Message Addressing. Use Reference instead."
-    );
+  it("preserves old control syntax as literal action text", async () => {
+    const context = createTestContext([]);
+    await runSpaceActionReply({
+      messageParts: ["@Mira(cc)", "Please review."],
+    });
+    expect(readLoadedActionRecord(context).action).toMatchObject({
+      type: "post_message",
+      messageEnvelope: {
+        text: "@Mira(cc) Please review.",
+        activationTargets: [],
+        referenceTargets: [],
+      },
+    });
   });
 
   it("rejects status working because status actions are final outcomes", () => {
@@ -196,6 +199,16 @@ describe("OpenMeld Space Action command", () => {
         messageParts: ["Second", "answer."],
       })
     ).toThrow("already been recorded");
+  });
+
+  it("acknowledges an identical reply retry without replacing the first record", async () => {
+    const context = createTestContext([]);
+    await runSpaceActionReply({ messageParts: ["One answer."] });
+    const original = readLoadedActionRecord(context);
+
+    await runSpaceActionReply({ messageParts: ["One answer."] });
+
+    expect(readLoadedActionRecord(context)).toEqual(original);
   });
 
   it("preserves a superseded action before one bounded reconsideration", async () => {
@@ -368,7 +381,7 @@ describe("OpenMeld Space Action command", () => {
 
     expect(() =>
       runSpaceActionWake({
-        target: "Felix",
+        target: HUMAN_PROFILE_ID,
         messageParts: ["Please", "review."],
       })
     ).toThrow("Wake is not allowed");
@@ -384,7 +397,7 @@ describe("OpenMeld Space Action command", () => {
     ]);
 
     await runSpaceActionWake({
-      target: "QA Agent",
+      target: AGENT_PROFILE_ID,
       messageParts: ["Please", "review."],
     });
 
@@ -425,7 +438,7 @@ describe("OpenMeld Space Action command", () => {
     expect(stdout).not.toContain("Blocked wake targets:");
   });
 
-  it("fails closed on ambiguous target lookup", () => {
+  it("rejects names instead of guessing an identity", () => {
     createTestContext([
       createProjectionEntry({
         lookupTokens: ["qa"],
@@ -446,7 +459,7 @@ describe("OpenMeld Space Action command", () => {
         target: "qa",
         messageParts: ["Please", "review."],
       })
-    ).toThrow("ambiguous");
+    ).toThrow("full Profile ID");
   });
 
   it("fails closed when the dispatch target projection is malformed", () => {
@@ -490,7 +503,7 @@ describe("OpenMeld Space Action command", () => {
       '<DISPATCH_ACTION_CLI> space action reply "message"'
     );
     expect(stdout).toContain(
-      '<DISPATCH_ACTION_CLI> space action reply --reference "@Agent Name" "message"'
+      '<DISPATCH_ACTION_CLI> space action reply --reference <agent-profile-id> "message"'
     );
     expect(stdout).not.toContain("--cc");
     expect(stdout).toContain("<DISPATCH_ACTION_CLI> space action targets");
@@ -555,6 +568,47 @@ describe("OpenMeld Space Action command", () => {
 });
 
 describe("OpenMeld Space Action MCP server", () => {
+  it("rejects a self-Wake before recording and accepts the corrected plain reply", async () => {
+    const context = createTestContext(
+      [
+        createProjectionEntry({
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          primaryMentionLabel: "Current Agent",
+        }),
+      ],
+      { targetProfileId: AGENT_PROFILE_ID }
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "openmeld-test", version: "1.0.0" });
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const rejected = await client.callTool({
+        name: "reply",
+        arguments: { message: "Done", wakeTargets: [AGENT_PROFILE_ID] },
+      });
+      expect(rejected.isError).toBe(true);
+      expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+      const corrected = await client.callTool({
+        name: "reply",
+        arguments: { message: "Done" },
+      });
+      expect(corrected.isError).not.toBe(true);
+      expect(readLoadedActionRecord(context).action).toMatchObject({
+        type: "post_message",
+        messageEnvelope: { text: "Done", activationTargets: [] },
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("records the exact structured reply without writing CLI text to stdout", async () => {
     const context = createTestContext([]);
     const stdoutChunks: string[] = [];
@@ -632,7 +686,7 @@ describe("OpenMeld Space Action MCP server", () => {
 
 function createTestContext(
   projection: SpaceMemberDirectorySendTargetEntry[],
-  options?: { ttlMs?: number }
+  options?: { ttlMs?: number; targetProfileId?: string }
 ): DispatchSpaceActionContext {
   const openMeldHome = mkdtempSync(`${tmpdir()}/openmeld-space-action-`);
   tempDirs.push(openMeldHome);
@@ -655,7 +709,7 @@ function createTestContext(
       publicationMode: "collaboration",
     },
     spaceId: "space-1",
-    targetProfileId: "agt_current",
+    targetProfileId: options?.targetProfileId ?? "agt_current",
     taskId: "task-1",
     ...(options?.ttlMs ? { ttlMs: options.ttlMs } : {}),
   });

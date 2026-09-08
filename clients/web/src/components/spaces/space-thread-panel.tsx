@@ -31,6 +31,7 @@ import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-int
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
+import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
 import {
 	buildAnchoredSpaceOutcomeNoticesBySourceSignalId,
 	buildSpaceConversationEntries,
@@ -298,7 +299,7 @@ type SpaceThreadPanelProps = {
 export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 	return (
 		<SpaceWakeStopScope
-			key={input.activeThread?.threadId}
+			key={`${input.activeThread?.threadId}:${input.selfProfileId}`}
 			progressItems={input.ephemeralActivityItems}
 			stopRequestStatusBySelectorKey={input.wakeStopRequestStatusBySelectorKey}
 		>
@@ -693,7 +694,6 @@ function useThreadMessageDetailsController(input: {
 						item: messageDetailsItem,
 						stopRequestStatusBySelectorKey:
 							input.wakeStopRequestStatusBySelectorKey,
-						targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
 						timelineItems: input.rawThreadTimelineItems,
 						wakeOutcomeIndex: input.wakeOutcomeIndex,
 						wakeProgressItems: input.ephemeralActivityItems,
@@ -1358,7 +1358,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				item: wakePresentationItem,
 				stopRequestStatusBySelectorKey:
 					input.wakeStopRequestStatusBySelectorKey,
-				targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
 				timelineItems: input.allItems,
 				wakeOutcomeIndex: input.wakeOutcomeIndex,
 				wakeProgressItems: input.ephemeralActivityItems,
@@ -1467,6 +1466,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							}
 							profileId={input.item.actorProfileId}
 							profileKind={input.item.actorProfileKind}
+							working={isSpaceMessageAgentWorking(input.item)}
 						/>
 						<span className="min-w-0 truncate font-bold text-foreground text-sm">
 							{input.item.actorName}

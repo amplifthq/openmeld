@@ -28,6 +28,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DISPATCH_REPLYING_HINT_START_PURPOSE } from "../dispatch/rules/dispatch-hint-policy";
 import { inspectExecutionRecovery } from "../execution-recovery/application/execution-recovery-service";
 import type { CoreBindings } from "../lib/bindings";
+import type { ActiveRemoteAgentNativeDeliveryWakeProgressEvidence } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import { buildDefaultSpaceContract } from "../space/application/space-contract-service";
 import {
   handlePostSignalUseCase,
@@ -41,6 +42,7 @@ import {
   insertSignalRecord,
   readFinalReplyClaimSignalId,
 } from "../space/infrastructure/sql/space-signal-repo";
+import { parseStoredSignal } from "../space/rules/parsers/stored-signal";
 import {
   handleWebSocketTextSignal,
   persistPostPersistDispatchPlannerEvidenceBestEffort,
@@ -511,7 +513,8 @@ const buildWakeProgressItemFromLookupTrace = async (
   lookupMatchOverrides: Partial<SpaceDispatchLookupMatch> = {},
   wakeStopEligibility: WakeStopEligibilityReadModel | null = null,
   includeWakeStopEligibility = wakeStopEligibility !== null,
-  includeWaitReason = false
+  includeWaitReason = false,
+  nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence
 ): Promise<WakeProgressItem> => {
   const lookupMatch = {
     dispatchId: "dispatch-head-progress-1",
@@ -529,6 +532,7 @@ const buildWakeProgressItemFromLookupTrace = async (
       includeWaitReason?: boolean;
       includeWakeStopEligibility?: boolean;
       lookupMatch: SpaceDispatchLookupMatch;
+      nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
       outboxRecord: null;
       sourceSignal: null;
       targetLabel: string;
@@ -563,6 +567,7 @@ const buildWakeProgressItemFromLookupTrace = async (
     includeTiming: true,
     includeWaitReason,
     includeWakeStopEligibility,
+    nativeDeliveryEvidence,
     lookupMatch,
     outboxRecord: null,
     sourceSignal: null,
@@ -1435,6 +1440,8 @@ async function readActiveWakeProgressForTest(input: {
         }),
       },
     },
+    sessions: { value: new Map() },
+    readSpaceMetaRecord: { value: () => null },
     ctx: {
       value: {
         storage: {
@@ -1477,6 +1484,65 @@ async function readActiveWakeProgressForTest(input: {
 }
 
 describe("space signal service", () => {
+  it("rejects an unreadable final reply before reserving its publication claim", () => {
+    const sql = { exec: vi.fn() } as unknown as SqlStorage;
+    const signal = {
+      v: 1,
+      id: "invalid-final",
+      spaceId: "space-1",
+      ts: 100,
+      profile: {
+        kind: "agent",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
+      },
+      type: "signal.text",
+      data: {
+        text: "done",
+        meta: {
+          purpose: AGENT_REPLY_FINAL_PURPOSE,
+          dispatchId: "dispatch-1",
+          targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+          targetProfileName: "Codex (1)",
+          targetMentionLabel: "Codex (1)",
+        },
+      },
+    } satisfies SignalEnvelope;
+    expect(() => insertSignalRecord(sql, signal)).toThrow();
+    expect(sql.exec).not.toHaveBeenCalled();
+    const recovered = parseStoredSignal(JSON.stringify(signal));
+    expect(recovered?.id).toBe(signal.id);
+    expect(recovered?.data).toMatchObject({
+      text: "done",
+      meta: {
+        purpose: AGENT_REPLY_FINAL_PURPOSE,
+        dispatchId: "dispatch-1",
+        targetProfileName: "Codex (1)",
+      },
+    });
+    if (recovered?.type === "signal.text") {
+      expect(recovered.data.meta?.targetMentionLabel).toBeUndefined();
+    }
+    // Recovery must not turn a corrupt identity into an accepted reply.
+    expect(
+      parseStoredSignal(JSON.stringify({ ...signal, profile: {} }))
+    ).toBeNull();
+    expect(
+      parseStoredSignal(
+        JSON.stringify({
+          ...signal,
+          data: {
+            ...signal.data,
+            messageEnvelope: {
+              activationTargets: [],
+              referenceTargets: [],
+              text: "different",
+            },
+          },
+        })
+      )
+    ).toBeNull();
+  });
+
   it.each(
     createReplyingHintTerminalSignals()
   )("clears replying replay state when a $label is broadcast", ({ signal }) => {
@@ -1546,6 +1612,11 @@ describe("space signal service", () => {
       },
       buildSystemNoticeSignal: { value: vi.fn(() => signal) },
       publishSystemNoticeSignal: { value: publishSystemNoticeSignal },
+      ctx: {
+        value: {
+          storage: { sql: createActiveWakeProgressSql({ outboxRows: [] }) },
+        },
+      },
     });
     const threadContext = {
       threadId: "thr_11111111-1111-4111-8111-111111111111",
@@ -2193,6 +2264,11 @@ describe("space signal service", () => {
       persistSignalWithOptionalOutbox: {
         value: persistSignalWithOptionalOutbox,
       },
+      ctx: {
+        value: {
+          storage: { sql: createActiveWakeProgressSql({ outboxRows: [] }) },
+        },
+      },
     });
 
     await expect(
@@ -2244,6 +2320,11 @@ describe("space signal service", () => {
       buildSystemNoticeSignal: { value: vi.fn(() => signal) },
       persistSignalWithOptionalOutbox: {
         value: persistSignalWithOptionalOutbox,
+      },
+      ctx: {
+        value: {
+          storage: { sql: createActiveWakeProgressSql({ outboxRows: [] }) },
+        },
       },
     });
 
@@ -2544,7 +2625,11 @@ describe("space signal service", () => {
       },
       broadcastSignal: { value: broadcastSignal },
       buildStatusSignal: { value: vi.fn(() => signal) },
-      ctx: { value: { storage: {} } },
+      ctx: {
+        value: {
+          storage: { sql: createActiveWakeProgressSql({ outboxRows: [] }) },
+        },
+      },
       persistSignalWithOptionalOutbox: {
         value: persistSignalWithOptionalOutbox,
       },
@@ -3612,71 +3697,6 @@ describe("space signal service", () => {
     );
   });
 
-  it("preserves Task references for system-emitted messages and strips them from user messages", async () => {
-    const publishedSignals: SignalEnvelope[] = [];
-    const body = {
-      type: "signal.text",
-      data: {
-        text: "I started the Task.",
-        meta: {
-          centerAgentTaskReferences: [{ taskId: "task-1" }],
-          purpose: "agent_reply_final",
-        },
-      },
-    };
-    const buildTextSignal = (
-      profile: Parameters<
-        Parameters<typeof handlePostSignalUseCase>[0]["buildTextSignal"]
-      >[0],
-      text: string,
-      options?: Parameters<
-        Parameters<typeof handlePostSignalUseCase>[0]["buildTextSignal"]
-      >[2]
-    ): SignalEnvelope => ({
-      ...createSignal(),
-      profile,
-      data: {
-        text,
-        ...(options?.meta ? { meta: options.meta } : {}),
-      },
-    });
-    const publishTextSignal = (signal: SignalEnvelope) => {
-      publishedSignals.push(signal);
-      return Promise.resolve();
-    };
-
-    const trustedResponse = await handlePostSignalUseCase({
-      body,
-      profile: createSignal().profile,
-      authoringPolicy: "system_emitted",
-      buildTextSignal,
-      publishTextSignal,
-      isDispatchSnapshotOversizeError: () => false,
-      dispatchSnapshotOversizeErrorCode: "dispatch.snapshot_oversize",
-    });
-    const userResponse = await handlePostSignalUseCase({
-      body,
-      profile: createSignal().profile,
-      authoringPolicy: "user_authored",
-      buildTextSignal,
-      publishTextSignal,
-      isDispatchSnapshotOversizeError: () => false,
-      dispatchSnapshotOversizeErrorCode: "dispatch.snapshot_oversize",
-    });
-
-    expect(trustedResponse.status).toBe(200);
-    expect(userResponse.status).toBe(200);
-    const [trustedSignal, userSignal] = publishedSignals;
-    expect(
-      trustedSignal?.type === "signal.text"
-        ? trustedSignal.data.meta?.centerAgentTaskReferences
-        : undefined
-    ).toEqual([{ taskId: "task-1" }]);
-    expect(
-      userSignal?.type === "signal.text" ? userSignal.data.meta : undefined
-    ).not.toHaveProperty("centerAgentTaskReferences");
-  });
-
   it("returns 422 when dispatch snapshot is oversize", async () => {
     const response = await handlePostSignalUseCase({
       body: {
@@ -4538,6 +4558,41 @@ describe("space signal service", () => {
     ).toBe(false);
   });
 
+  it.each([
+    "running",
+    "publishing",
+    "publication_unknown",
+  ] as const)("projects hosted Stop from native %s evidence without a workstation execution", async (phase) => {
+    const item = await buildWakeProgressItemFromLookupTrace(
+      createWakeProgressReplyProducedTrace({}),
+      [],
+      { status: "succeeded" },
+      null,
+      true,
+      false,
+      {
+        clientMessageId: "client-message-1",
+        dispatchId: "dispatch-head-progress-1",
+        failureReasonCode: null,
+        phase,
+        sourceSignalId: "sig-source-1",
+        startedAtMs: 1000,
+        targetProfileId: "agt_33333333-3333-4333-8333-333333333333",
+        updatedAtMs: 2000,
+      }
+    );
+    expect(item.wakeStopEligibility).toEqual(
+      phase === "running"
+        ? {
+            controlMode: "cancel",
+            reasonCode: null,
+            reliability: "native_cancel",
+            status: "eligible",
+          }
+        : null
+    );
+  });
+
   it("projects cancel-backed Wake Stop eligibility into active Wake progress", async () => {
     const item = await buildWakeProgressItemFromLookupTrace(
       createRunningRuntimeCoordinatorTrace(),
@@ -4784,7 +4839,8 @@ describe("space signal service", () => {
     const space = Object.create(Space.prototype) as unknown as {
       bindings: CoreBindings;
       handlePostWakeStop: (
-        body: PostSpaceWakeStopBody
+        body: PostSpaceWakeStopBody,
+        context: unknown
       ) => Promise<PostSpaceWakeStopResponse>;
       readWakeStopDispatchLookup: () => Promise<{
         matches: SpaceDispatchLookupMatch[];
@@ -4799,6 +4855,7 @@ describe("space signal service", () => {
       readWakeStopDispatchLookup: {
         value: vi.fn(async () => ({ matches: [lookupMatch] })),
       },
+      isWakeStopAuthorized: { value: vi.fn(async () => true) },
       requestControllerBackedWakeStop: {
         value: requestControllerBackedWakeStop,
       },
@@ -4810,13 +4867,16 @@ describe("space signal service", () => {
     });
 
     await expect(
-      space.handlePostWakeStop({
-        target: {
-          by: "client_message",
-          clientMessageId: "client-message-1",
-          targetProfileId,
+      space.handlePostWakeStop(
+        {
+          target: {
+            by: "client_message",
+            clientMessageId: "client-message-1",
+            targetProfileId,
+          },
         },
-      })
+        {}
+      )
     ).resolves.toEqual(preAgentResponse);
     expect(requestPreAgentWakeStop).toHaveBeenCalledOnce();
     expect(requestControllerBackedWakeStop).not.toHaveBeenCalled();

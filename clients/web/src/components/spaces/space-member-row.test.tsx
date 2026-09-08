@@ -645,7 +645,7 @@ describe("SpaceMemberRow", () => {
 		expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
 	});
 
-	it("uses Dither for the Center Agent in an ordinary Space", () => {
+	it("uses a circular Fluid avatar for the Center Agent in an ordinary Space", () => {
 		renderSpaceMemberRow({
 			centerAgentProfileId: "agt-1",
 			entry: buildAgentEntry({
@@ -654,13 +654,11 @@ describe("SpaceMemberRow", () => {
 		});
 
 		const avatar = screen.getByTestId("space-profile-icon-agt-1");
-		expect(
-			avatar.querySelector("canvas")?.getAttribute("data-profile-avatar-seed")
-		).toBe("openmeld-dither-profile-avatar:v1:center-agent:agt-1");
+		expect(avatar.getAttribute("data-shape")).toBe("circle");
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
 	});
 
-	it("treats the Center Agent as the canonical Home chat, not an editable Agent Profile", () => {
+	it("treats the Center Agent as the canonical Center Agent chat, not an editable Agent Profile", () => {
 		renderSpaceMemberRow({
 			centerAgentProfileId: "agt-1",
 			entry: buildAgentEntry({ profileName: "Amplift Center Agent" }),
@@ -677,7 +675,7 @@ describe("SpaceMemberRow", () => {
 			dialog
 				.getByRole("link", { name: "Chat with Amplift Center Agent" })
 				.getAttribute("href")
-		).toBe("/o/acme");
+		).toBe("/o/acme/chats/center-agent");
 		expect(
 			dialog.queryByRole("link", { name: "Edit Amplift Center Agent" })
 		).toBeNull();
@@ -778,7 +776,7 @@ describe("SpaceMemberRow", () => {
 			dialog
 				.getByRole("link", { name: "View Felix profile" })
 				.getAttribute("href")
-		).toBe("/o/acme/people?profileId=human-1");
+		).toBe("/o/acme/people/human-1");
 	});
 
 	it("links another person to their People detail page", () => {
@@ -803,7 +801,7 @@ describe("SpaceMemberRow", () => {
 			dialog
 				.getByRole("link", { name: "View Monica Cheng profile" })
 				.getAttribute("href")
-		).toBe("/o/acme/people?profileId=human-monica");
+		).toBe("/o/acme/people/human-monica");
 		expect(dialog.queryByText("You")).toBeNull();
 	});
 

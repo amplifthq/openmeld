@@ -1,5 +1,8 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
-import { parseOptionalClientMessageId } from "@openmeld/schemas";
+import {
+  parseOptionalClientMessageId,
+  signalEnvelopeSchema,
+} from "@openmeld/schemas";
 import { isFinalOutcomeTextPurpose } from "../../rules/dispatch/space-final-outcome";
 
 const SIGNAL_STORAGE_KEY_DELIMITER = "|";
@@ -37,6 +40,8 @@ export const insertSignalRecord = (
   sql: SqlStorage,
   signal: SignalEnvelope
 ): InsertSignalRecordResult => {
+  // A final-reply claim must never point at a payload the history reader rejects.
+  signalEnvelopeSchema.parse(signal);
   const signalId = String(signal.id ?? "").trim();
   if (signalId.length === 0) {
     throw new Error("signal.id is required");

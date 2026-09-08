@@ -3599,8 +3599,26 @@ withSpaceProfileOption(
     .option("--stdin", "Read message text from stdin (EOF to finish)", false)
     .option("--text-file <path>", "Read message text from a UTF-8 file")
     .option(
+      "--wake <profile-id>",
+      "Wake an Agent Profile (repeatable)",
+      collectRepeatedOptionValue,
+      []
+    )
+    .option(
+      "--reference <profile-id>",
+      "Reference an Agent Profile (repeatable)",
+      collectRepeatedOptionValue,
+      []
+    )
+    .option(
+      "--mention <profile-id>",
+      "Mention a Human Profile (repeatable)",
+      collectRepeatedOptionValue,
+      []
+    )
+    .option(
       "--plain",
-      "Send text literally without resolving @Name(wake), @Name(reference), or @Name(mention) addressing",
+      "Assert that this message has no recipients; text is always literal",
       false
     )
     .option(
@@ -3638,6 +3656,9 @@ withSpaceProfileOption(
         stdin: Boolean(opts.stdin),
         textFile: typeof opts.textFile === "string" ? opts.textFile : undefined,
         plainText: opts.plain === true,
+        wakeTargets: opts.wake,
+        referenceTargets: opts.reference,
+        mentionTargets: opts.mention,
         replyToSignalId:
           typeof opts.replyTo === "string" ? opts.replyTo : undefined,
         view,
@@ -4331,8 +4352,26 @@ program
   )
   .option("--text-file <path>", "Read message text from a UTF-8 file")
   .option(
+    "--wake <profile-id>",
+    "Wake an Agent Profile (repeatable)",
+    collectRepeatedOptionValue,
+    []
+  )
+  .option(
+    "--reference <profile-id>",
+    "Reference an Agent Profile (repeatable)",
+    collectRepeatedOptionValue,
+    []
+  )
+  .option(
+    "--mention <profile-id>",
+    "Mention a Human Profile (repeatable)",
+    collectRepeatedOptionValue,
+    []
+  )
+  .option(
     "--plain",
-    "Send text literally without resolving @Name(wake), @Name(reference), or @Name(mention) addressing",
+    "Assert that this message has no recipients; text is always literal",
     false
   )
   .option("--password <value>", "Space password for protected access")
@@ -4347,6 +4386,9 @@ program
         file?: string[];
         textFile?: string;
         plain?: boolean;
+        wake?: string[];
+        reference?: string[];
+        mention?: string[];
         password?: string;
       }
     ) => {
@@ -4372,6 +4414,9 @@ program
             textFile:
               typeof opts.textFile === "string" ? opts.textFile : undefined,
             plainText: opts.plain === true,
+            wakeTargets: opts.wake,
+            referenceTargets: opts.reference,
+            mentionTargets: opts.mention,
             view,
             entryChecksHandled: true,
           });
@@ -5400,6 +5445,10 @@ async function main() {
     await runSpaceActionMcpServer();
     return;
   }
+  if (isDispatchSpaceActionArgv(argv)) {
+    await runLocalCli(argv);
+    return;
+  }
   if (await delegateToManagedCliIfAuthoritative(argv)) {
     return;
   }
@@ -5415,8 +5464,19 @@ function isDispatchSpaceActionToolServerArgv(argv: readonly string[]): boolean {
   );
 }
 
+function isDispatchSpaceActionArgv(argv: readonly string[]): boolean {
+  return argv[2] === "space" && argv[3] === "action";
+}
+
 async function runLocalCli(argv: string[]): Promise<void> {
   try {
+    // The dispatch-owned executable records an already-authorized action.
+    // It must not repair global state or switch binaries before doing so.
+    // The action handler still validates the dispatch context and permissions.
+    if (isDispatchSpaceActionArgv(argv)) {
+      await program.parseAsync(argv);
+      return;
+    }
     if (isCliMetadataQueryArgv(argv)) {
       await handlePreParseStandaloneCommand(argv);
       return;

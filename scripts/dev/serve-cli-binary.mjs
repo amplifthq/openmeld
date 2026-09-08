@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -8,6 +9,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { buildCliBinary } from "../release/build-cli-binary.mjs";
+import { buildCodeSignArgs } from "../release/macos-cli-signing.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
@@ -19,13 +21,34 @@ async function main() {
     outDir: path.join(REPO_ROOT, "clients", "openmeld-cli", "dist", "binary"),
     platform: "darwin-arm64",
   });
+  // Keychain recovery smoke must exercise the same signing identity across
+  // managed CLI and stable Service copies. Ad-hoc builds remain the default.
+  const signingIdentity = process.env.OPENMELD_CLI_BINARY_DEV_SIGNING_IDENTITY;
+  if (signingIdentity) {
+    execFileSync(
+      "codesign",
+      buildCodeSignArgs({
+        entitlementsPath: path.join(
+          REPO_ROOT,
+          "scripts/release/macos-cli.entitlements.plist"
+        ),
+        identityHash: signingIdentity,
+        outFile: built.outFile,
+      }),
+      { stdio: "inherit" }
+    );
+    execFileSync("codesign", ["--verify", "--strict", built.outFile], {
+      stdio: "inherit",
+    });
+  }
   const artifact = await readFile(built.outFile);
   const actualSha256 = createHash("sha256").update(artifact).digest("hex");
-  if (actualSha256 !== built.sha256) {
+  if (!signingIdentity && actualSha256 !== built.sha256) {
     throw new Error(
       `built artifact sha256 mismatch: ${actualSha256} != ${built.sha256}`
     );
   }
+  built.sha256 = actualSha256;
   const artifactStats = await stat(built.outFile);
   const archive = gzipSync(artifact, { level: 9 });
   const archiveSha256 = createHash("sha256").update(archive).digest("hex");
