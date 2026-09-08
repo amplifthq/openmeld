@@ -1806,6 +1806,7 @@ function SpaceAddMembersCandidateGroup(input: {
 	onToggle: (profileId: string) => void;
 	selectedProfileIds: ReadonlySet<string>;
 }) {
+	const organization = useOptionalAppOrganization()?.currentOrganization;
 	if (input.candidates.length === 0) {
 		return null;
 	}
@@ -1853,7 +1854,10 @@ function SpaceAddMembersCandidateGroup(input: {
 							candidate.alreadyMember ||
 							input.selectedProfileIds.has(candidate.profileId)
 						}
-						description={resolveAgentCandidateDescription(candidate)}
+						description={resolveAgentCandidateDescription(
+							candidate,
+							organization?.isPersonal === true
+						)}
 						disabled={candidate.alreadyMember}
 						index={index}
 						key={candidate.profileId}
@@ -2290,10 +2294,14 @@ function resolvePersonActivityLabel(
 }
 
 function resolveAgentCandidateDescription(
-	candidate: SpaceAddMembersCandidateSummary
+	candidate: SpaceAddMembersCandidateSummary,
+	isPersonal: boolean
 ): string | undefined {
 	if (candidate.isCenterAgent) {
-		return `${candidate.alreadyMember ? "In this Space. " : ""}Your workspace’s shared assistant. Helps coordinate work across Spaces.`;
+		const description = isPersonal
+			? "Your workspace’s assistant. Helps coordinate work across apps."
+			: "Your team’s shared assistant. Helps coordinate work across apps.";
+		return `${candidate.alreadyMember ? "In this Space. " : ""}${description}`;
 	}
 	if (candidate.alreadyMember) {
 		return "In this Space";
