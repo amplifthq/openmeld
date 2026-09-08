@@ -930,6 +930,42 @@ the same resumable release command at the exact original `release_sha`:
 - Always provide the original `release_sha`; a release tag or Core projection
   from another commit is a hard failure, not a recovery target.
 
+### npm submission and availability
+
+`npm publish` can succeed while npm is still processing the package and exact
+version queries return 404. Submission is not availability. Both release lanes
+publish to and query `https://registry.npmjs.org/`, preferring an online query.
+After submission, verification waits with backoff for up to 20 minutes of
+scheduled waits (plus bounded probe time). A missing version after that budget
+leaves channel verification pending and exits nonzero, never successful.
+
+The resumable publisher records source-bound immutable refs on the release
+remote at `refs/heads/openmeld-npm-publication/<version>/attempted` before
+calling npm and `/accepted` after npm returns success. Both point to the exact
+release source SHA. They do not claim that the package is downloadable and do
+not replace the registry probe or the CLI/Core scope leases. Hosted receipt
+operations use trusted Git authentication without exposing credentials to
+candidate code or hooks. Never move a receipt to a different source.
+
+A new runner reads these receipts before starting release stages. Existing
+receipts prevent automatic resubmission on a 404. The original version tag,
+which older releases pushed after npm succeeded, also preserves that evidence
+for releases predating receipts. A pending-only recovery checks npm first and
+does not rebuild artifacts or redeploy Core. A network/authentication probe
+failure remains an error, not evidence that the version is absent.
+
+For pending availability, rerun the normal guarded command or GitHub workflow
+at the original release SHA; it resumes verification. If only `attempted`
+exists, the command was interrupted or failed and acceptance is unknown. Read
+the original npm publish output and check npm status before taking further
+action. Do not delete receipts or increment the version merely because a query
+returns 404. If the publish log conclusively proves rejection before acceptance
+(for example, a credential rejection), first correct that cause. An operator
+may then remove only that version's `attempted` ref using an exact-SHA lease,
+after confirming no publisher is active and no `accepted` ref exists, and rerun
+the guarded command. Ambiguous submission outcomes remain verification-only
+until resolved; they must not silently become another publish attempt.
+
 When R2, npm, and the immutable release tag are already complete but the Core
 projection alone failed Cloudflare startup validation, do not rerun the CLI
 publisher. Merge the reviewed Core startup fix first, then dispatch

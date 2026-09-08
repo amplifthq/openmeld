@@ -9,6 +9,10 @@ import { gunzipSync } from "node:zlib";
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
 import {
+  readNpmPublicationReceipt,
+  recordNpmPublicationReceipt,
+} from "./npm-publication-receipt.mjs";
+import {
   classifyCliBinaryManifestVersion,
   decideChannelAlignmentStage,
   decideCliBinaryStage,
@@ -20,7 +24,12 @@ import {
 const CLI_BINARY_PLATFORM = "darwin-arm64";
 const ARTIFACT_PROBE_TIMEOUT_MS = 60_000;
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
-const NPM_PROPAGATION_DELAYS_MS = [10_000, 20_000, 30_000, 60_000];
+const NPM_PROPAGATION_DELAYS_MS = [
+  10_000,
+  20_000,
+  30_000,
+  ...new Array(19).fill(60_000),
+];
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const WHITESPACE_SPLIT_REGEX = /\s+/u;
 const RELEASE_RESUME_COMMAND = "pnpm run release:deploy:local -- --scope cli";
@@ -46,6 +55,11 @@ export async function runResumableCliRelease(input) {
     readRemoteTagCommit:
       input.adapters?.readRemoteTagCommit ?? readRemoteTagCommit,
     sleep: input.adapters?.sleep ?? sleep,
+    readNpmPublicationReceipt:
+      input.adapters?.readNpmPublicationReceipt ?? readNpmPublicationReceipt,
+    recordNpmPublicationReceipt:
+      input.adapters?.recordNpmPublicationReceipt ??
+      recordNpmPublicationReceipt,
   };
 
   input.release.assertCleanWorktree({ cwd });
@@ -55,7 +69,7 @@ export async function runResumableCliRelease(input) {
     printStageDecision("Release tag", tag, write);
     throw new Error(tag.reason);
   }
-  const initial = await probeCliReleaseStages({
+  let initial = await probeCliReleaseStages({
     adapters,
     cwd,
     env,
@@ -74,6 +88,14 @@ export async function runResumableCliRelease(input) {
     printStageDecision("Final R2/npm/Core alignment", initial.alignment, write);
     throw new Error(initial.alignment.reason);
   }
+  initial = await resumeNpmVerification({
+    adapters,
+    cwd,
+    env,
+    initial,
+    target,
+    write,
+  });
   if (initial.alignment.action === "SKIP" && initial.tag.action === "SKIP") {
     printStageDecision(
       "Verify local-components release manifest",
@@ -98,6 +120,35 @@ export async function runResumableCliRelease(input) {
     withBinary,
     write,
   });
+}
+
+async function resumeNpmVerification(input) {
+  if (input.initial.npm.criterion !== "npm-target-version-missing") {
+    return input.initial;
+  }
+  const receipt = input.adapters.readNpmPublicationReceipt({
+    cwd: input.cwd,
+    env: input.env,
+    ...input.target,
+  });
+  // Older releases wrote the immutable version tag only after npm returned
+  // success. Retain that evidence when resuming a pre-receipt release.
+  const npmSubmission =
+    receipt ?? (input.initial.tag.action === "SKIP" ? "accepted" : null);
+  if (!npmSubmission) {
+    return input.initial;
+  }
+  const result = await waitForNpmPropagation({
+    final: input.initial,
+    npmSubmission,
+    probeNpm: () => probeNpmPublishStage(input),
+    sleep: input.adapters.sleep,
+    write: input.write,
+  });
+  if (result.npm.action !== "SKIP") {
+    throw new Error(formatFinalAlignmentFailure(result));
+  }
+  return result;
 }
 
 export function resolveCoreProjectionTag(input = {}) {
@@ -188,7 +239,7 @@ async function executeIncompleteCliRelease(input) {
   });
   final = await waitForNpmPropagation({
     final,
-    npmPublishedThisRun,
+    npmSubmission: npmPublishedThisRun ? "accepted" : null,
     probeNpm: () =>
       probeNpmPublishStage({
         adapters: input.adapters,
@@ -249,11 +300,20 @@ function runNpmReleaseStage(input) {
   );
   printStageDecision("npm publish", input.initial.npm, input.write);
   if (input.initial.npm.action === "RUN") {
+    const receiptInput = { cwd: input.cwd, env: input.env, ...input.target };
+    input.adapters.recordNpmPublicationReceipt({
+      ...receiptInput,
+      state: "attempted",
+    });
     runReleaseStep({
       ...input,
       failureContext:
         "npm publish may be incomplete or may already have succeeded.",
       step: npmStep,
+    });
+    input.adapters.recordNpmPublicationReceipt({
+      ...receiptInput,
+      state: "accepted",
     });
     return true;
   }
@@ -263,19 +323,16 @@ function runNpmReleaseStage(input) {
 export async function waitForNpmPropagation(input) {
   let final = input.final;
   if (
-    !input.npmPublishedThisRun ||
+    !input.npmSubmission ||
     final.npm.action !== "RUN" ||
-    final.npm.criterion !== "npm-target-version-missing" ||
-    final.binary.action !== "SKIP" ||
-    final.core.action !== "SKIP" ||
-    final.tag.action !== "SKIP"
+    final.npm.criterion !== "npm-target-version-missing"
   ) {
     return final;
   }
 
   for (const delayMs of input.delays ?? NPM_PROPAGATION_DELAYS_MS) {
     input.write(
-      `\n[release:cli] npm registry propagation — WAIT ${delayMs / 1000}s: npm accepted the immutable publish but does not expose the exact version yet.\n`
+      `\n[release:cli] npm availability — WAIT ${delayMs / 1000}s: ${input.npmSubmission === "accepted" ? "npm accepted the publish" : "an earlier publish was attempted; its result is unconfirmed"}. The exact version is not visible yet; no package will be republished.\n`
     );
     await input.sleep(delayMs);
     const npm = await input.probeNpm();
@@ -296,6 +353,25 @@ export async function waitForNpmPropagation(input) {
     ) {
       break;
     }
+  }
+  if (final.npm.criterion === "npm-target-version-missing") {
+    final = {
+      ...final,
+      npm: {
+        ...final.npm,
+        action: "FAIL",
+        criterion: "npm-publication-pending",
+        reason:
+          input.npmSubmission === "accepted"
+            ? "npm accepted this version, but it is not available yet. Release verification is pending, not complete."
+            : "An earlier npm publish was attempted, but acceptance is unconfirmed and the version is not visible. Inspect the original publish log before deciding whether another submission is safe.",
+      },
+      alignment: {
+        action: "FAIL",
+        reason:
+          "npm availability remains unconfirmed; completed stages are preserved",
+      },
+    };
   }
   return final;
 }
@@ -459,6 +535,8 @@ async function probeNpmPublishStage(input) {
         "version",
         "openmeld.minRequiredCliVersion",
         "--json",
+        "--registry=https://registry.npmjs.org/",
+        "--prefer-online",
       ],
       command: "npm",
       cwd: input.cwd,
@@ -674,13 +752,18 @@ function printStageDecision(label, decision, write) {
 
 function formatFinalAlignmentFailure(result) {
   return [
-    `Final CLI channel alignment failed: ${result.alignment.reason}.`,
+    `Final CLI channel alignment ${result.npm.criterion === "npm-publication-pending" ? "pending" : "failed"}: ${result.alignment.reason}.`,
     `R2: ${result.binary.reason}`,
     `npm: ${result.npm.reason}`,
     `tag: ${result.tag.reason}`,
     `Core: ${result.core.reason}`,
     "Next command:",
     RELEASE_RESUME_COMMAND,
+    ...(result.npm.criterion === "npm-publication-pending"
+      ? [
+          "Use the original release SHA. This resumes verification without republishing. If npm remains unavailable, inspect the original publish log and npm status; do not bump the version just to retry.",
+        ]
+      : []),
   ].join("\n");
 }
 
