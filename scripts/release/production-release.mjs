@@ -460,6 +460,7 @@ export function buildProductionVerifyStepSpecs(input) {
     if (
       scope === "core" &&
       !input.scopes.includes("cli") &&
+      !input.taskInboxRetired &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
     ) {
       steps.push(coreCliChannelCompatibilityStep());
@@ -493,6 +494,7 @@ export function buildProductionPreflightStepSpecs(input) {
   if (
     input.scopes.includes("core") &&
     !input.scopes.includes("cli") &&
+    !input.taskInboxRetired &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
   ) {
@@ -678,6 +680,9 @@ function appendProductionDeployScopeSteps(input) {
   if (input.scope === "core") {
     if (
       input.selected.has("cli") ||
+      input.deployOrderProfile === "inbox-task-retirement-producer-first" ||
+      input.deployOrderProfile ===
+        "remote-agent-and-inbox-task-retirement-first" ||
       input.deployOrderProfile === "people-computers-receivers-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
     ) {
@@ -1236,10 +1241,18 @@ export function buildProductionReleasePlan(input) {
       taskInboxRetired,
       releaseSha: sourceSha,
     }),
-    preflightSteps: buildProductionPreflightStepSpecs({ changedPaths, scopes }),
+    preflightSteps: buildProductionPreflightStepSpecs({
+      changedPaths,
+      scopes,
+      taskInboxRetired,
+    }),
     scopes,
     sourceSha,
-    verifySteps: buildProductionVerifyStepSpecs({ changedPaths, scopes }),
+    verifySteps: buildProductionVerifyStepSpecs({
+      changedPaths,
+      scopes,
+      taskInboxRetired,
+    }),
   };
 }
 

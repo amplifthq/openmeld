@@ -315,6 +315,13 @@ caller that requests response version 2. Required Inbox scopes and the combined
 Remote scope remain enforced; conflicting receiver orders still require a
 split. This rule does not authorize dropping the retained Task tables.
 
+Both retirement profiles deploy Core with the current published CLI projection
+even when CLI is excluded from the deployment scope for a later GitHub release.
+Verification and preflight do not compare that stage against the checked-in
+future CLI projection; the current-projection deployment retains its own
+published-channel compatibility checks. The later CLI release publishes the new
+artifacts and updates Core's release projection through the normal guarded path.
+
 The planner selects `inbox-source-target-receiver-first` when a diff changes the
 strict Inbox source-target schema together with a Core writer for those targets.
 The writer inventory includes Message Channel terminal-delivery projection and
