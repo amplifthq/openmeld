@@ -32,6 +32,16 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
+  it("does not turn a service conflict into an update or setup instruction", () => {
+    const recovery = resolvePublicAgentFailureRecovery({
+      errorCode: "service.drifted",
+      targetLabel: "Runner",
+    });
+    expect(recovery).toMatchObject({
+      primaryActionId: "check_status",
+      recoveryTarget: "computer",
+    });
+  });
   it("explains a resume timeout without claiming the Agent finished or failed to post", () => {
     expect(
       resolveMappedPublicAgentFailureReason("context.resume_timeout")
@@ -956,7 +966,7 @@ describe("public agent failure reason mapping", () => {
     ],
     [
       "service.drifted",
-      "OpenMeld on Runner's computer needs an update before it can receive local Wake work.",
+      "OpenMeld found a service problem on Runner's computer. Open Computer details to see what needs attention.",
     ],
     [
       "local_service.not_connected_for_account",
@@ -1114,7 +1124,7 @@ describe("public agent failure reason mapping", () => {
       "center_agent.designation_required",
       "Connect the Center Agent before waking it from this Space.",
     ],
-    ["remote_agent.available", "Center Agent can answer now."],
+    ["remote_agent.available", "This Agent can answer now."],
     [
       "remote_agent.budget_resting",
       "Center Agent is resting until the next budget window.",

@@ -18,6 +18,10 @@ import { RequestDetails } from "#/components/organizations/invitation-request-de
 import { useAuthSession } from "#/hooks/auth.hooks";
 import { listOrganizations } from "#/lib/organizations/auth-organizations";
 import { requestOrganizationJoinRequests } from "#/lib/organizations/organization-join-requests";
+import {
+	buildOrganizationDefaultPath,
+	buildOrganizationSpacePath,
+} from "#/lib/organizations/organization-routes";
 
 export const Route = createFileRoute("/invitation-requests")({
 	component: InvitationRequestsPage,
@@ -36,6 +40,13 @@ function InvitationRequestsPage() {
 		queryKey: ["invitation-requests", session.data?.user.id, requestId],
 		enabled: Boolean(session.data && requestId),
 		retry: false,
+		refetchInterval: (query) =>
+			query.state.data?.[0]?.status === "pending" ||
+			(query.state.data?.[0]?.status === "approved" &&
+				!query.state.data?.[0]?.joinedAt &&
+				!query.state.data?.[0]?.invitationSentAt)
+				? 5000
+				: false,
 		queryFn: () =>
 			requestOrganizationJoinRequests({
 				action: "get",
@@ -50,7 +61,11 @@ function InvitationRequestsPage() {
 	const request = query.data?.[0];
 	const navigate = useNavigate();
 	const memberships = useQuery({
-		queryKey: ["invitation-request-organizations", session.data?.user.id],
+		queryKey: [
+			"invitation-request-organizations",
+			session.data?.user.id,
+			request?.joinedAt,
+		],
 		enabled: Boolean(session.data),
 		queryFn: listOrganizations,
 	});
@@ -59,6 +74,20 @@ function InvitationRequestsPage() {
 	);
 	useEffect(() => {
 		if (organization && requestId) {
+			if (
+				request?.applicantUserId === session.data?.user.id &&
+				request?.joinedAt
+			) {
+				window.location.assign(
+					request.spaceId
+						? buildOrganizationSpacePath({
+								orgSlug: organization.slug,
+								spaceId: request.spaceId,
+							})
+						: buildOrganizationDefaultPath(organization.slug)
+				);
+				return;
+			}
 			navigate({
 				to: "/o/$orgSlug/settings/invitations",
 				params: { orgSlug: organization.slug },
@@ -66,7 +95,15 @@ function InvitationRequestsPage() {
 				replace: true,
 			});
 		}
-	}, [navigate, organization, requestId]);
+	}, [
+		navigate,
+		organization,
+		requestId,
+		request?.applicantUserId,
+		request?.joinedAt,
+		request?.spaceId,
+		session.data?.user.id,
+	]);
 	const content = () => {
 		if (session.isPending) {
 			return <p>Loading request…</p>;
@@ -123,7 +160,7 @@ function InvitationRequestsPage() {
 					{mutation.isSuccess ? (
 						<output className="block">
 							{mutation.variables === "approve"
-								? "Invitation sent."
+								? "Request approved."
 								: "Request declined."}
 						</output>
 					) : null}

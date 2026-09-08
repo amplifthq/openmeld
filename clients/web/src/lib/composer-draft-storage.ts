@@ -45,12 +45,6 @@ export type ComposerDraftScope =
 			ownerAccountId: string;
 	  }
 	| {
-			kind: "center_agent_task";
-			organizationId: string;
-			ownerAccountId: string;
-			taskId: string;
-	  }
-	| {
 			kind: "space";
 			ownerAccountId: string;
 			profileId: string;
@@ -113,13 +107,6 @@ function buildComposerDraftStorageKeyWithPrefix(
 					...(scope.sessionId === undefined
 						? []
 						: ["session", normalizeScopePart(scope.sessionId, "session id")]),
-				] as const;
-			case "center_agent_task":
-				return [
-					scope.kind,
-					normalizeScopePart(scope.ownerAccountId, "owner account id"),
-					normalizeScopePart(scope.organizationId, "organization id"),
-					normalizeScopePart(scope.taskId, "task id"),
 				] as const;
 			case "space":
 				return [

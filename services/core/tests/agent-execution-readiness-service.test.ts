@@ -193,11 +193,15 @@ describe("agent-execution-readiness-service", () => {
       activeOrganizationId: "org-acme",
       env: createHostedCenterAgentReadinessEnv({
         profileOrganizationId: "org-acme",
+        modelId: "deepseek/deepseek-v4-flash",
       }),
       generatedAt: "2026-05-10T00:00:00.000Z",
       profileId: "agt_readiness_without_snapshot",
     });
 
+    expect(readiness.modelSelection).toEqual({
+      modelId: "deepseek/deepseek-v4-flash",
+    });
     expect(readiness.agentExecutionReadiness).toMatchObject({
       displayState: "ready",
       facts: {
@@ -241,7 +245,7 @@ describe("agent-execution-readiness-service", () => {
       expect.arrayContaining([
         {
           label: "Reply status",
-          value: "Available for Wake · Center Agent can answer now.",
+          value: "Available for Wake · This Agent can answer now.",
         },
         {
           label: "Hosted runtime",
@@ -267,7 +271,7 @@ describe("agent-execution-readiness-service", () => {
       badgeLabel: "Available",
       reasonCode: "remote_agent.available",
       status: "available_for_wake",
-      summary: "Center Agent can answer now.",
+      summary: "This Agent can answer now.",
     });
   });
 
@@ -474,6 +478,7 @@ function createAuthorizationEnv(
 }
 
 function createHostedCenterAgentReadinessEnv(input: {
+  modelId?: string;
   profileOrganizationId: string;
   remoteAgentWorkerAvailable?: boolean;
 }): CoreBindings {
@@ -504,7 +509,7 @@ function createHostedCenterAgentReadinessEnv(input: {
                 hosted_runtime_identity_json: JSON.stringify(
                   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
                 ),
-                model_id: null,
+                model_id: input.modelId ?? null,
                 opencode_permission: null,
                 owner_id: "user-1",
                 owner_kind: "owner_account",

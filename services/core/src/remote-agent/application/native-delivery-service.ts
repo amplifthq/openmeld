@@ -5,7 +5,7 @@ import {
   buildMessageChannelConversationId,
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
-  buildRemoteAgentCenterAgentTaskConversationId,
+  buildPersonalRemoteAgentConversationId,
   buildSlackIdentityLinkNavigationAction,
   CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
   CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY,
@@ -16,7 +16,6 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   type NavigationAction,
   projectTargetWakeLifecycleIdentity,
-  REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
   REMOTE_AGENT_FAILURE_PURPOSE,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
@@ -82,23 +81,11 @@ import {
   resolveCenterAgentModelRouteForBinding,
 } from "../../center-agent/application/center-agent-model-service";
 import { isHostedCenterAgentExecutionTarget } from "../../center-agent/application/hosted-center-agent-binding";
-import {
-  isCenterAgentDesignationActive,
-  readCenterAgentDesignationRecord,
-} from "../../center-agent/center-agent-repository";
+import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import { isCenterAgentMemberResearchDelivery } from "../../center-agent-member-research/member-research-repository";
 import { createCoreCenterAgentMemoryService } from "../../center-agent-memory/core-memory-service";
 import { resolveCenterAgentMemoryFrozenTurnContext } from "../../center-agent-memory/frozen-turn-context";
 import type { CenterAgentMemoryService } from "../../center-agent-memory/memory-service";
-import {
-  readCenterAgentTaskNativeDeliveryOwner,
-  readCenterAgentTaskNativeDeliveryStopIntent,
-} from "../../center-agent-tasks/application/center-agent-task-native-delivery-access";
-import { resumeCenterAgentTaskPendingReplacement } from "../../center-agent-tasks/application/center-agent-task-service";
-import {
-  type CenterAgentTaskTerminalProjectionResult,
-  projectCenterAgentTaskTerminal,
-} from "../../center-agent-tasks/application/center-agent-task-terminal-projector";
 import { readModelCatalog } from "../../config/model-catalog";
 import { buildDispatchReplyTargetProfile } from "../../dispatch/application/dispatch-reply-foundation";
 import {
@@ -171,7 +158,6 @@ import {
   claimRemoteAgentRoutineSubmissionRecoveryAttempt,
   claimRemoteAgentSlackAdmissionFailurePublication,
   clearPreviousRoutineWorkerSubmitRequest,
-  clearRemoteAgentFinalPublicationPayload,
   countRemoteAgentWorkLoopAttempts,
   expireRemoteAgentFinalPublicationClaim,
   handoffRoutineRunNativeDelivery,
@@ -180,8 +166,6 @@ import {
   listLinkedSlackNativeDeliveriesNeedingInboxProjection,
   listRecoverableRemoteAgentRoutineDeliveries,
   listRemoteAgentNativeDeliveriesMissingAcceptedProbe,
-  listTerminalRemoteAgentNativeDeliveriesWithRetainedPayload,
-  markCenterAgentTaskTerminalProjectionAttempted,
   markLinkedSlackNativeDeliveryInboxProjectionAttempted,
   markRemoteAgentAcceptedDeliveryProbeScheduled,
   markRemoteAgentCallbackPublishFailure,
@@ -211,7 +195,6 @@ import {
   readRemoteAgentWorkLoopAttemptByCallbackIdentity,
   rearmRemoteAgentNativeDeliveryForWorkLoop,
   reconcileRemoteAgentRoutineSubmissionWithTerminalRun,
-  recordRemoteAgentFinalPublicationPayload,
   recordRemoteAgentNativeDeliveryRepresentedMember,
   releaseRemoteAgentAcceptedDeliveryProbeSchedule,
   releaseRemoteAgentFinalPublicationClaim,
@@ -265,13 +248,11 @@ import {
   enqueueRemoteAgentAdmissionWatchdog,
   isRemoteAgentAdmissionWatchdogProbe,
 } from "./native-delivery-admission-watchdog";
-import {
-  requestRemoteAgentNativeDeliveryStop,
-  stopRemoteAgentNativeDelivery,
-} from "./native-delivery-cancellation-service";
+import { stopRemoteAgentNativeDelivery } from "./native-delivery-cancellation-service";
 import { buildRemoteAgentFinalPublicationMetadata } from "./native-delivery-final-publication-identity";
 import { resolveRemoteAgentNativeDeliveryIdentityMismatch } from "./native-delivery-identity";
 import { projectLinkedSlackNativeDeliveryInboxItem } from "./native-delivery-inbox-producer";
+import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 import { attachCenterAgentMemoryToTurnEnvelope as attachCenterAgentMemoryToTurnEnvelopeImpl } from "./remote-agent-memory-context";
@@ -382,6 +363,7 @@ type RemoteAgentCompletedCallbackBody = Extract<
 
 type NativeDeliveryBindingSnapshot = {
   bindingId: string;
+  personalAgent?: boolean;
   controllerNormalization?: {
     bindingUpdatedAtMs: number;
     storedAgentControllerRef: string | null;
@@ -430,6 +412,7 @@ type NativeDeliveryPublishRecord = Pick<
   | "triggerMessageId"
   | "triggerText"
 > & {
+  workerSubmitRequest?: RemoteAgentNativeDeliveryRecord["workerSubmitRequest"];
   routineNameSnapshot?: string | null;
   routineRunId?: string | null;
 };
@@ -452,6 +435,7 @@ type RemoteAgentSlackNativeDeliveryInputBase = {
   slackThreadTs: string;
   slackWorkingStatusTurnId?: string;
   sourceText: string;
+  triggerText: string;
   triggerMessageId: string;
   turnEnvelope: RemoteAgentTurnEnvelope;
 };
@@ -482,7 +466,7 @@ export type RemoteAgentSlackNativeDeliveryAdmission = Pick<
   | "slackTeamId"
   | "slackThreadTs"
   | "slackWorkingStatusTurnId"
-  | "sourceText"
+  | "triggerText"
   | "speakerMember"
   | "triggerMessageId"
 >;
@@ -602,7 +586,6 @@ const REMOTE_AGENT_CALLBACK_PUBLICATION_OUTCOME_UNKNOWN_REASON_CODE =
   "remote_agent.callback_publication_outcome_unknown";
 const REMOTE_AGENT_MESSAGE_CHANNEL_PUBLICATION_NOT_READY_REASON_CODE =
   "remote_agent.message_channel_publication_not_ready";
-const CENTER_AGENT_TASK_TERMINAL_PROJECTION_RECOVERY_LIMIT = 50;
 const HOSTED_EXECUTION_RECOVERY_RESUME_PROMPT = [
   "OpenMeld execution recovery.",
   "Continue this exact hosted controller conversation.",
@@ -617,17 +600,6 @@ export type RemoteAgentExecutionRecoverySubmission = {
   status: "already_requested" | "requested";
 };
 
-export type RemoteAgentCenterAgentTaskSubmission =
-  | {
-      deliveryId: string;
-      outcome: "accepted";
-      status: "already_submitted" | "stopped_before_submission" | "submitted";
-    }
-  | {
-      deliveryId: string;
-      outcome: "unknown";
-    };
-
 export class RemoteAgentExecutionRecoverySubmissionOutcomeUnknownError extends Error {
   readonly reasonCode = "execution_recovery.hosted_submission_outcome_unknown";
 
@@ -638,676 +610,6 @@ export class RemoteAgentExecutionRecoverySubmissionOutcomeUnknownError extends E
       this.cause = options.cause;
     }
   }
-}
-
-export async function submitRemoteAgentCenterAgentTaskTurn(input: {
-  db: D1Database;
-  deliveryId: string;
-  env: CoreBindings;
-  idempotencyKey: string;
-  instruction: string;
-  nowMs: number;
-  parent:
-    | { deliveryId: string; kind: "delivery" }
-    | { kind: "submission"; submissionId: string };
-  requesterUserId: string;
-  taskEventId: string;
-  taskId: string;
-}): Promise<RemoteAgentCenterAgentTaskSubmission> {
-  const parentDelivery = await readCenterAgentTaskParentDelivery(input);
-  if (!parentDelivery) {
-    throw new Error("center_agent_task.source_delivery_not_found");
-  }
-  if (parentDelivery.onBehalfOfUserId !== input.requesterUserId) {
-    throw new Error("center_agent_task.requester_identity_mismatch");
-  }
-  const parentRequest =
-    parentDelivery.workerSubmitRequest ??
-    parentDelivery.executionRecoverySubmitRequest;
-  if (!parentRequest) {
-    throw new Error("center_agent_task.source_request_unavailable");
-  }
-  const existing = await readRemoteAgentNativeDeliveryByIdempotencyKey({
-    db: input.db,
-    idempotencyKey: input.idempotencyKey,
-  });
-  const replay = resolveExistingCenterAgentTaskSubmission({
-    delivery: existing,
-    deliveryId: input.deliveryId,
-    parentDelivery,
-  });
-  if (replay) {
-    return replay;
-  }
-  const authority = await requireCurrentCenterAgentTaskAdmissionAuthority({
-    env: input.env,
-    organizationId: parentDelivery.organizationId,
-    parentDelivery,
-    requesterUserId: input.requesterUserId,
-  });
-  const parentTurnEnvelope = discardFrozenContextScopeForNewTurn(
-    parentRequest.turnEnvelope
-  );
-  const {
-    channelContext: _sourceChannelContext,
-    memory: _sourceMemory,
-    ...taskTurnEnvelopeWithoutMaterializedContext
-  } = parentTurnEnvelope;
-  const taskTurnEnvelope = parseCoreOwnedRemoteAgentTurnEnvelope(
-    taskTurnEnvelopeWithoutMaterializedContext
-  );
-  const candidateWorkerRequest = remoteAgentWorkerSubmitTurnRequestSchema.parse(
-    {
-      ...stripRemoteAgentConversationProtocolForNewTask(parentRequest),
-      agentProfileId: authority.profileId,
-      agentProfileOwnerUserId: authority.ownerUserId,
-      bindingId: authority.binding.bindingId,
-      conversationId: buildRemoteAgentCenterAgentTaskConversationId(
-        input.taskId
-      ),
-      conversationIdentity: {
-        kind: "center_agent_task",
-        taskId: input.taskId,
-      },
-      dispatchId: input.deliveryId,
-      idempotencyKey: input.idempotencyKey,
-      messages: [{ content: input.instruction, role: "user" }],
-      modelRoute: authority.modelRoute,
-      sourceClientMessageId: null,
-      turnEnvelope: taskTurnEnvelope,
-      v: 3,
-    }
-  );
-  if (existing) {
-    assertRemoteAgentCenterAgentTaskDeliveryMatches({
-      candidateWorkerRequest,
-      delivery: existing,
-      deliveryId: input.deliveryId,
-      parentDelivery,
-    });
-  } else {
-    await upsertRemoteAgentNativeDeliveryRecord({
-      attemptId: null,
-      bindingId: authority.binding.bindingId,
-      controllerNormalizationSnapshot: {
-        bindingUpdatedAtMs: authority.binding.updatedAtMs,
-        storedAgentControllerRef: authority.binding.agentControllerRef,
-        storedAgentControllerRefStatus: "canonical",
-      },
-      conversationKind: parentDelivery.conversationKind,
-      db: input.db,
-      deliveryId: input.deliveryId,
-      dispatchId: input.deliveryId,
-      idempotencyKey: input.idempotencyKey,
-      messageChannelLocator:
-        parentDelivery.conversationKind === "message_channel"
-          ? parentDelivery.messageChannelLocator
-          : null,
-      nowMs: input.nowMs,
-      onBehalfOfDisplayName: parentDelivery.onBehalfOfDisplayName,
-      onBehalfOfProfileId: parentDelivery.onBehalfOfProfileId,
-      onBehalfOfUserId: parentDelivery.onBehalfOfUserId,
-      organizationId: parentDelivery.organizationId,
-      profileId: authority.profileId,
-      providerPublicationIdempotencyKey:
-        await resolveExecutionRecoveryProviderPublicationIdempotencyKey({
-          deliveryId: input.deliveryId,
-          originalDelivery: parentDelivery,
-        }),
-      slackChannelId: parentDelivery.slackChannelId,
-      slackTeamId: parentDelivery.slackTeamId,
-      slackThreadTs: parentDelivery.slackThreadTs,
-      sourceClientMessageId: null,
-      spaceId: parentDelivery.spaceId,
-      status: "submitted",
-      threadContext: parentDelivery.threadContext,
-      triggerMessageId: parentDelivery.triggerMessageId,
-      triggerText: truncateRemoteAgentTriggerText(input.instruction),
-    });
-  }
-
-  const durableDelivery = await persistRemoteAgentWorkerSubmitRequest({
-    db: input.db,
-    idempotencyKey: input.idempotencyKey,
-    nowMs: input.nowMs,
-    workerSubmitRequest: candidateWorkerRequest,
-  });
-  const durableWorkerRequest = durableDelivery.workerSubmitRequest;
-  if (!durableWorkerRequest) {
-    throw new Error("center_agent_task.submission_request_not_durable");
-  }
-  await requireCenterAgentTaskAdmissionWatchdog({
-    db: input.db,
-    deliveryId: input.deliveryId,
-    env: input.env,
-    idempotencyKey: input.idempotencyKey,
-    nowMs: input.nowMs,
-    organizationId: parentDelivery.organizationId,
-    profileId: authority.profileId,
-    spaceId: parentDelivery.spaceId,
-  });
-  if (
-    await stopCenterAgentTaskBeforeWorkerAdmissionIfRequested({
-      db: input.db,
-      delivery: durableDelivery,
-      env: input.env,
-      nowMs: input.nowMs,
-    })
-  ) {
-    return {
-      deliveryId: input.deliveryId,
-      outcome: "accepted",
-      status: "stopped_before_submission",
-    };
-  }
-  const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
-  if (!worker?.submitConversationTurn) {
-    throw new Error("center_agent_task.worker_unavailable");
-  }
-  const admission = await submitRemoteAgentWorkerAdmission({
-    db: input.db,
-    env: input.env,
-    nowMs: input.nowMs,
-    organizationId: parentDelivery.organizationId,
-    request: durableWorkerRequest,
-    worker,
-  });
-  if (admission.status === "rejected") {
-    await markRemoteAgentNativeDeliveryFailure({
-      db: input.db,
-      failureCode: admission.response.reasonCode,
-      failureDetail: admission.response.message,
-      idempotencyKey: input.idempotencyKey,
-      nowMs: input.nowMs,
-      status: "failed",
-    });
-    throw new Error(admission.response.reasonCode);
-  }
-  if (admission.status !== "acknowledged") {
-    console.warn(
-      "[core.remote_agent.center_agent_task.submit_outcome_unknown]",
-      {
-        deliveryId: input.deliveryId,
-        error: toErrorMessage(admission.error),
-        event: CORE_LOG_EVENTS.coreInternalError,
-        taskId: input.taskId,
-      }
-    );
-    return { deliveryId: input.deliveryId, outcome: "unknown" };
-  }
-  const acceptedDelivery = await markRemoteAgentNativeDeliveryAckWithProbe({
-    accepted: admission.ack.accepted,
-    db: input.db,
-    env: input.env,
-    idempotencyKey: input.idempotencyKey,
-    nowMs: input.nowMs,
-    submissionId: admission.ack.submissionId,
-    workerRequestId: admission.ack.requestId ?? null,
-  });
-  try {
-    await forwardDurableCenterAgentTaskStopAfterAdmission({
-      db: input.db,
-      delivery: acceptedDelivery,
-      env: input.env,
-      nowMs: input.nowMs,
-    });
-  } catch {
-    // The already-enqueued admission watchdog owns durable retry.
-  }
-  return {
-    deliveryId: input.deliveryId,
-    outcome: "accepted",
-    status: "submitted",
-  };
-}
-
-type RemoteAgentWorkerSubmitTurnBase = Omit<
-  Extract<RemoteAgentWorkerSubmitTurnRequest, { v: 4 }>,
-  | "continuityContext"
-  | "conversationId"
-  | "conversationIdentity"
-  | "modelRoute"
-  | "runtimeConversation"
-  | "v"
->;
-
-function stripRemoteAgentConversationProtocolForNewTask(
-  request: RemoteAgentWorkerSubmitTurnRequest
-): RemoteAgentWorkerSubmitTurnBase {
-  switch (request.v) {
-    case 1: {
-      const { v: _version, ...base } = request;
-      return base;
-    }
-    case 2: {
-      const { modelRoute: _modelRoute, v: _version, ...base } = request;
-      return base;
-    }
-    case 3: {
-      const {
-        conversationId: _conversationId,
-        conversationIdentity: _conversationIdentity,
-        modelRoute: _modelRoute,
-        v: _version,
-        ...base
-      } = request;
-      return base;
-    }
-    case 4: {
-      const {
-        continuityContext: _continuityContext,
-        conversationId: _conversationId,
-        conversationIdentity: _conversationIdentity,
-        modelRoute: _modelRoute,
-        runtimeConversation: _runtimeConversation,
-        v: _version,
-        ...base
-      } = request;
-      return base;
-    }
-    default: {
-      const unsupportedRequest: never = request;
-      throw new Error(
-        `Unsupported Remote Agent parent protocol for a new Task: ${String(unsupportedRequest)}`
-      );
-    }
-  }
-}
-
-export async function stopRemoteAgentCenterAgentTaskDelivery(input: {
-  db: D1Database;
-  delivery: RemoteAgentNativeDeliveryRecord;
-  env: CoreBindings;
-  nowMs: number;
-}): Promise<
-  "already_terminal" | "not_stoppable" | "stop_requested" | "stopped"
-> {
-  if (isRemoteAgentNativeDeliveryTerminal(input.delivery)) {
-    if (
-      input.delivery.status !== "failed" ||
-      input.delivery.failureCode !==
-        RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE
-    ) {
-      return "already_terminal";
-    }
-    await projectRemoteAgentNativeDeliveryTerminalEffects(input);
-    return "stopped";
-  }
-  const outcome = await requestRemoteAgentNativeDeliveryStop(input);
-  if (outcome !== "stopped") {
-    return outcome;
-  }
-  const stoppedDelivery = await readRemoteAgentNativeDeliveryByDeliveryId({
-    db: input.db,
-    deliveryId: input.delivery.deliveryId,
-  });
-  if (!stoppedDelivery) {
-    throw new Error("center_agent_task.stopped_delivery_missing");
-  }
-  await projectRemoteAgentNativeDeliveryTerminalEffects({
-    ...input,
-    delivery: stoppedDelivery,
-  });
-  return "stopped";
-}
-
-function resolveExistingCenterAgentTaskSubmission(input: {
-  delivery: RemoteAgentNativeDeliveryRecord | null;
-  deliveryId: string;
-  parentDelivery: RemoteAgentNativeDeliveryRecord;
-}): RemoteAgentCenterAgentTaskSubmission | null {
-  if (!input.delivery) {
-    return null;
-  }
-  assertRemoteAgentCenterAgentTaskDeliveryIdentity({
-    delivery: input.delivery,
-    deliveryId: input.deliveryId,
-    parentDelivery: input.parentDelivery,
-  });
-  if (
-    input.delivery.status === "accepted" ||
-    input.delivery.status === "retry_observed" ||
-    input.delivery.status === "completed"
-  ) {
-    return {
-      deliveryId: input.delivery.deliveryId,
-      outcome: "accepted",
-      status: "already_submitted",
-    };
-  }
-  if (input.delivery.status !== "submitted") {
-    throw new Error(
-      input.delivery.failureCode ??
-        "center_agent_task.submission_terminal_failure"
-    );
-  }
-  return null;
-}
-
-async function readCenterAgentTaskParentDelivery(input: {
-  db: D1Database;
-  parent:
-    | { deliveryId: string; kind: "delivery" }
-    | { kind: "submission"; submissionId: string };
-}): Promise<RemoteAgentNativeDeliveryRecord | null> {
-  if (input.parent.kind === "submission") {
-    return await readRemoteAgentNativeDeliveryBySubmissionId({
-      db: input.db,
-      submissionId: input.parent.submissionId,
-    });
-  }
-  return await readRemoteAgentNativeDeliveryByDeliveryId({
-    db: input.db,
-    deliveryId: input.parent.deliveryId,
-  });
-}
-
-export async function requireCurrentCenterAgentTaskAdmissionAuthority(input: {
-  env: CoreBindings;
-  organizationId: string;
-  parentDelivery: RemoteAgentNativeDeliveryRecord;
-  requesterUserId: string;
-}): Promise<{
-  binding: AgentProfileBindingRecord;
-  modelRoute: CenterAgentModelRoute;
-  ownerUserId: string;
-  profileId: string;
-}> {
-  const availability = resolveRemoteAgentRuntimeAvailability({
-    env: input.env,
-    organizationId: input.organizationId,
-  });
-  if (!availability.ok) {
-    throw new RemoteAgentTaskContinuationTerminalError(availability.code);
-  }
-  const currentIdentityDb = identityDb(input.env);
-  if (!currentIdentityDb) {
-    throw new RemoteAgentTaskContinuationTerminalError(
-      "remote_agent.center_agent_designation_store_unavailable"
-    );
-  }
-  const designation = await readCenterAgentDesignationRecord({
-    db: currentIdentityDb,
-    organizationId: input.organizationId,
-  });
-  if (
-    designation?.agentProfileId !== input.parentDelivery.profileId ||
-    !isCenterAgentDesignationActive(designation)
-  ) {
-    throw new RemoteAgentTaskContinuationTerminalError(
-      designation?.operatingState === "paused"
-        ? "remote_agent.center_agent_paused"
-        : "remote_agent.center_agent_not_designated"
-    );
-  }
-  const requesterProfileId = normalizeOptionalText(
-    input.parentDelivery.onBehalfOfProfileId
-  );
-  const requester = requesterProfileId
-    ? await readActiveRepresentedHumanSender({
-        db: currentIdentityDb,
-        organizationId: input.organizationId,
-        profileId: requesterProfileId,
-        userId: input.requesterUserId,
-      })
-    : null;
-  if (!requester) {
-    throw new RemoteAgentTaskContinuationTerminalError(
-      "center_agent_task.requester_membership_unavailable"
-    );
-  }
-  const profile = await currentIdentityDb
-    .prepare(
-      `
-        SELECT owner_user_id
-        FROM openmeld_profiles
-        WHERE profile_id = ?
-          AND organization_id = ?
-          AND profile_kind = 'agent'
-          AND managed_role = 'center_agent'
-          AND status = 'active'
-        LIMIT 1
-      `
-    )
-    .bind(input.parentDelivery.profileId, input.organizationId)
-    .first<{ owner_user_id: string }>();
-  if (!profile) {
-    throw new RemoteAgentTaskContinuationTerminalError(
-      "remote_agent.center_agent_profile_unavailable"
-    );
-  }
-  const binding = await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: input.parentDelivery.profileId,
-    db: currentIdentityDb,
-    owner: { id: profile.owner_user_id, kind: "owner_account" },
-  });
-  if (!(binding && isHostedCenterAgentExecutionTarget(binding))) {
-    throw new RemoteAgentTaskContinuationTerminalError(
-      "remote_agent.hosted_binding_invalid"
-    );
-  }
-  const modelRoute = resolveDelegatedNativeDeliveryModelRoute(binding);
-  if (!modelRoute.ok) {
-    throw new RemoteAgentTaskContinuationTerminalError(modelRoute.failureCode);
-  }
-  return {
-    binding,
-    modelRoute: modelRoute.modelRoute,
-    ownerUserId: profile.owner_user_id,
-    profileId: input.parentDelivery.profileId,
-  };
-}
-
-async function requireCenterAgentTaskAdmissionWatchdog(input: {
-  db: D1Database;
-  deliveryId: string;
-  env: CoreBindings;
-  idempotencyKey: string;
-  nowMs: number;
-  organizationId: string;
-  profileId: string;
-  spaceId: string;
-}): Promise<void> {
-  const enqueued = await enqueueRemoteAgentAdmissionWatchdog({
-    ack: {
-      submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
-        input.idempotencyKey
-      ),
-    },
-    env: input.env,
-    nowMs: input.nowMs,
-    target: {
-      dispatchId: input.deliveryId,
-      idempotencyKey: input.idempotencyKey,
-      organizationId: input.organizationId,
-      profileId: input.profileId,
-      spaceId: input.spaceId,
-    },
-  });
-  if (enqueued) {
-    return;
-  }
-  await markRemoteAgentNativeDeliveryFailure({
-    db: input.db,
-    failureCode: "center_agent_task.admission_watchdog_unavailable",
-    failureDetail:
-      "Center Agent Task admission requires a durable recovery watchdog.",
-    idempotencyKey: input.idempotencyKey,
-    nowMs: input.nowMs,
-    status: "failed",
-  });
-  throw new RemoteAgentTaskContinuationTerminalError(
-    "center_agent_task.admission_watchdog_unavailable"
-  );
-}
-
-async function forwardDurableCenterAgentTaskStopAfterAdmission(input: {
-  db: D1Database;
-  delivery: RemoteAgentNativeDeliveryRecord;
-  env: CoreBindings;
-  nowMs: number;
-}): Promise<void> {
-  const taskIdentity = resolveCenterAgentTaskNativeDeliveryIdentity(
-    input.delivery
-  );
-  if (!taskIdentity) {
-    return;
-  }
-  const taskDb = localStateDb(input.env);
-  if (!taskDb) {
-    console.error(
-      "[core.remote_agent.center_agent_task.admission_stop_store_unavailable]",
-      {
-        deliveryId: input.delivery.deliveryId,
-        event: CORE_LOG_EVENTS.coreInternalError,
-        organizationId: input.delivery.organizationId,
-      }
-    );
-    throw new Error("center_agent_task.admission_stop_store_unavailable");
-  }
-  let stopIntent: Awaited<
-    ReturnType<typeof readCenterAgentTaskNativeDeliveryStopIntent>
-  >;
-  try {
-    stopIntent = await readCenterAgentTaskNativeDeliveryStopIntent({
-      db: taskDb,
-      deliveryId: input.delivery.deliveryId,
-    });
-  } catch (error) {
-    console.error(
-      "[core.remote_agent.center_agent_task.admission_stop_read_failed]",
-      {
-        deliveryId: input.delivery.deliveryId,
-        error: toErrorMessage(error),
-        event: CORE_LOG_EVENTS.coreInternalError,
-        organizationId: input.delivery.organizationId,
-      }
-    );
-    throw error;
-  }
-  if (!stopIntent) {
-    return;
-  }
-  try {
-    const outcome = await requestRemoteAgentNativeDeliveryStop({
-      admittedSubmissionId: input.delivery.submissionId ?? undefined,
-      db: input.db,
-      delivery: input.delivery,
-      env: input.env,
-      nowMs: input.nowMs,
-    });
-    console.info(
-      "[core.remote_agent.center_agent_task.admission_stop_forwarded]",
-      {
-        attemptGeneration: stopIntent.attemptGeneration,
-        deliveryId: input.delivery.deliveryId,
-        outcome,
-        submissionId: input.delivery.submissionId,
-        taskId: stopIntent.taskId,
-      }
-    );
-    if (outcome === "stop_requested") {
-      throw new Error("center_agent_task.admission_stop_pending");
-    }
-    if (outcome !== "stopped") {
-      throw new Error(
-        `center_agent_task.admission_stop_not_confirmed:${outcome}`
-      );
-    }
-    const stoppedDelivery = await readRemoteAgentNativeDeliveryByDeliveryId({
-      db: input.db,
-      deliveryId: input.delivery.deliveryId,
-    });
-    if (!stoppedDelivery) {
-      throw new Error("center_agent_task.stopped_delivery_missing");
-    }
-    await projectRemoteAgentNativeDeliveryTerminalEffects({
-      db: input.db,
-      delivery: stoppedDelivery,
-      env: input.env,
-      nowMs: input.nowMs,
-    });
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "center_agent_task.admission_stop_pending"
-    ) {
-      console.info(
-        "[core.remote_agent.center_agent_task.admission_stop_pending]",
-        {
-          attemptGeneration: stopIntent.attemptGeneration,
-          deliveryId: input.delivery.deliveryId,
-          submissionId: input.delivery.submissionId,
-          taskId: stopIntent.taskId,
-        }
-      );
-      throw error;
-    }
-    console.error(
-      "[core.remote_agent.center_agent_task.admission_stop_forward_failed]",
-      {
-        attemptGeneration: stopIntent.attemptGeneration,
-        deliveryId: input.delivery.deliveryId,
-        error: toErrorMessage(error),
-        event: CORE_LOG_EVENTS.coreInternalError,
-        submissionId: input.delivery.submissionId,
-        taskId: stopIntent.taskId,
-      }
-    );
-    throw error;
-  }
-}
-
-async function stopCenterAgentTaskBeforeWorkerAdmissionIfRequested(input: {
-  db: D1Database;
-  delivery: RemoteAgentNativeDeliveryRecord;
-  env: CoreBindings;
-  nowMs: number;
-}): Promise<boolean> {
-  const taskIdentity = resolveCenterAgentTaskNativeDeliveryIdentity(
-    input.delivery
-  );
-  if (!taskIdentity) {
-    return false;
-  }
-  const taskDb = localStateDb(input.env);
-  if (!taskDb) {
-    throw new RemoteAgentTaskContinuationTerminalError(
-      "center_agent_task.admission_stop_store_unavailable"
-    );
-  }
-  const stopIntent = await readCenterAgentTaskNativeDeliveryStopIntent({
-    db: taskDb,
-    deliveryId: input.delivery.deliveryId,
-  });
-  if (!stopIntent) {
-    return false;
-  }
-  if (stopIntent.taskId !== taskIdentity.taskId) {
-    throw new Error("center_agent_task.delivery_identity_mismatch");
-  }
-  await markRemoteAgentNativeDeliveryFailure({
-    db: input.db,
-    failureCode: RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
-    failureDetail: "Task stopped before native execution started.",
-    idempotencyKey: input.delivery.idempotencyKey,
-    nowMs: input.nowMs,
-    status: "failed",
-  });
-  const stoppedDelivery = await readRemoteAgentNativeDeliveryByDeliveryId({
-    db: input.db,
-    deliveryId: input.delivery.deliveryId,
-  });
-  if (!stoppedDelivery) {
-    throw new Error("center_agent_task.stopped_delivery_missing");
-  }
-  await projectRemoteAgentNativeDeliveryTerminalEffects({
-    db: input.db,
-    delivery: stoppedDelivery,
-    env: input.env,
-    nowMs: input.nowMs,
-  });
-  return true;
 }
 
 function buildRemoteAgentSourceText(
@@ -1424,7 +726,15 @@ export async function submitRemoteAgentNativeDelivery(
     });
     return { shouldAck: true, status: "failed" };
   }
-  if (designation?.agentProfileId !== input.message.targetProfileId) {
+  if (input.binding.personalAgent) {
+    await requirePersonalRemoteAgentBinding({
+      bindingId: input.binding.bindingId,
+      agentProfileId: input.message.targetProfileId,
+      db: designationDb,
+      organizationId: input.binding.organizationId,
+      ownerUserId: input.binding.ownerUserId,
+    });
+  } else if (designation?.agentProfileId !== input.message.targetProfileId) {
     await rejectNativeDeliveryWithSpaceFailure({
       ...input,
       failureCode: "remote_agent.center_agent_not_designated",
@@ -1481,18 +791,20 @@ export async function submitRemoteAgentNativeDelivery(
 
   const preparation = startRemoteAgentTurnContextAndSkills({
     readOrganizationSkills: () =>
-      measureRemoteAgentAdmissionStage(
-        input,
-        {
-          description: "Read enabled Organization Skill releases",
-          name: "openmeld_remote_admission_skill_selection",
-        },
-        () =>
-          readEnabledOrganizationSkillReleaseSelection({
-            db: input.db,
-            organizationId: input.binding.organizationId,
-          })
-      ),
+      input.binding.personalAgent
+        ? Promise.resolve([])
+        : measureRemoteAgentAdmissionStage(
+            input,
+            {
+              description: "Read enabled Organization Skill releases",
+              name: "openmeld_remote_admission_skill_selection",
+            },
+            () =>
+              readEnabledOrganizationSkillReleaseSelection({
+                db: input.db,
+                organizationId: input.binding.organizationId,
+              })
+          ),
     resolveTurnContext: async () => {
       const baseTurnEnvelope = await measureRemoteAgentAdmissionStage(
         input,
@@ -1503,7 +815,7 @@ export async function submitRemoteAgentNativeDelivery(
         () =>
           resolveRemoteAgentTurnEnvelope({
             author,
-            centerAgentProfileId: designation.agentProfileId,
+            centerAgentProfileId: input.message.targetProfileId,
             db: input.db,
             message: input.message,
             organizationId: input.binding.organizationId,
@@ -1527,16 +839,18 @@ export async function submitRemoteAgentNativeDelivery(
                   name: "openmeld_remote_admission_memory",
                 },
                 () =>
-                  attachCenterAgentMemoryToTurnEnvelope({
-                    env: input.env,
-                    memoryService:
-                      input.memoryService === undefined
-                        ? createCoreCenterAgentMemoryService(input.env)
-                        : input.memoryService,
-                    organizationId: input.binding.organizationId,
-                    query: sourceText,
-                    turnEnvelope: baseTurnEnvelope,
-                  })
+                  input.binding.personalAgent
+                    ? Promise.resolve(baseTurnEnvelope)
+                    : attachCenterAgentMemoryToTurnEnvelope({
+                        env: input.env,
+                        memoryService:
+                          input.memoryService === undefined
+                            ? createCoreCenterAgentMemoryService(input.env)
+                            : input.memoryService,
+                        organizationId: input.binding.organizationId,
+                        query: sourceText,
+                        turnEnvelope: baseTurnEnvelope,
+                      })
               ),
               baseTurnEnvelope.trigger.source === "space_wake"
                 ? measureRemoteAgentAdmissionStage(
@@ -1611,7 +925,7 @@ export async function submitRemoteAgentNativeDelivery(
   const organizationSkillReleases = organizationSkillPreparation.value;
   const representedMember =
     resolveRemoteAgentTurnEnvelopeRepresentedMember(turnEnvelope);
-  if (representedMember) {
+  if (representedMember && !input.binding.personalAgent) {
     await recordRemoteAgentNativeDeliveryRepresentedMember({
       db: input.db,
       displayName: representedMember.displayName,
@@ -1629,7 +943,7 @@ export async function submitRemoteAgentNativeDelivery(
     });
     if (turnEnvelope.centerAgentInteractionSource) {
       await recordCenterAgentLocalAgentRequest({
-        actorProfileId: designation.agentProfileId,
+        actorProfileId: input.message.targetProfileId,
         db: designationDb,
         deliveryId: admittedDelivery.deliveryId,
         nowMs: input.nowMs,
@@ -1642,7 +956,30 @@ export async function submitRemoteAgentNativeDelivery(
 
   const candidateWorkerRequest = remoteAgentWorkerSubmitTurnRequestSchema.parse(
     {
-      v: 2,
+      ...(input.binding.personalAgent
+        ? (() => {
+            const conversationId = buildPersonalRemoteAgentConversationId({
+              organizationId: input.binding.organizationId,
+              agentProfileId: input.message.targetProfileId,
+              spaceId: input.message.spaceId,
+            });
+            return {
+              v: 4,
+              conversationId,
+              conversationIdentity: {
+                kind: "personal_agent",
+                agentProfileId: input.message.targetProfileId,
+              },
+              runtimeConversation: { generation: 0, id: conversationId },
+              spaceDispatchContext: {
+                dispatchChainId: input.message.dispatchChainId,
+                autoRelayDepth: input.message.autoRelayDepth,
+                visitedProfileIds: input.message.visitedProfileIds,
+                visitedProfileIdsHash: input.message.visitedProfileIdsHash,
+              },
+            };
+          })()
+        : { v: 2 }),
       organizationId: input.binding.organizationId,
       spaceId: input.message.spaceId,
       agentProfileId: input.message.targetProfileId,
@@ -2453,6 +1790,7 @@ export async function continueSlackIdentityOnboardingRequest(input: {
     slackChannelId,
     slackTeamId,
     slackThreadTs,
+    triggerText,
     sourceText: [
       "Setup is complete. Continue my original request now without asking me to repeat it:",
       "",
@@ -2517,7 +1855,7 @@ export async function admitRemoteAgentSlackNativeDelivery(input: {
   nowMs: number;
   request: RemoteAgentSlackNativeDeliveryAdmission;
 }): Promise<RemoteAgentNativeDeliveryRecord> {
-  const triggerText = truncateRemoteAgentTriggerText(input.request.sourceText);
+  const triggerText = truncateRemoteAgentTriggerText(input.request.triggerText);
   return await upsertRemoteAgentNativeDeliveryRecord({
     attemptId: null,
     bindingId: input.request.bindingId,
@@ -2836,46 +2174,6 @@ async function resolveExecutionRecoveryProviderPublicationIdempotencyKey(input: 
         publicationKind: "final",
       })
     : null;
-}
-
-function assertRemoteAgentCenterAgentTaskDeliveryMatches(input: {
-  candidateWorkerRequest: RemoteAgentWorkerSubmitTurnRequest;
-  delivery: RemoteAgentNativeDeliveryRecord;
-  deliveryId: string;
-  parentDelivery: RemoteAgentNativeDeliveryRecord;
-}): void {
-  if (
-    input.delivery.deliveryId !== input.deliveryId ||
-    input.delivery.dispatchId !== input.deliveryId ||
-    input.delivery.organizationId !== input.parentDelivery.organizationId ||
-    input.delivery.spaceId !== input.parentDelivery.spaceId ||
-    input.delivery.profileId !== input.candidateWorkerRequest.agentProfileId ||
-    input.delivery.bindingId !== input.candidateWorkerRequest.bindingId ||
-    input.delivery.conversationKind !== input.parentDelivery.conversationKind ||
-    (input.delivery.workerSubmitRequest !== null &&
-      JSON.stringify(input.delivery.workerSubmitRequest) !==
-        JSON.stringify(input.candidateWorkerRequest))
-  ) {
-    throw new Error("center_agent_task.submission_conflict");
-  }
-}
-
-function assertRemoteAgentCenterAgentTaskDeliveryIdentity(input: {
-  delivery: RemoteAgentNativeDeliveryRecord;
-  deliveryId: string;
-  parentDelivery: RemoteAgentNativeDeliveryRecord;
-}): void {
-  if (
-    input.delivery.deliveryId !== input.deliveryId ||
-    input.delivery.dispatchId !== input.deliveryId ||
-    input.delivery.organizationId !== input.parentDelivery.organizationId ||
-    input.delivery.spaceId !== input.parentDelivery.spaceId ||
-    input.delivery.profileId !== input.parentDelivery.profileId ||
-    input.delivery.onBehalfOfUserId !== input.parentDelivery.onBehalfOfUserId ||
-    input.delivery.conversationKind !== input.parentDelivery.conversationKind
-  ) {
-    throw new Error("center_agent_task.submission_conflict");
-  }
 }
 
 function assertRemoteAgentExecutionRecoveryDeliveryMatches(input: {
@@ -3740,16 +3038,8 @@ type RemoteAgentTaskContinuationWorkerProtocol =
       "modelRoute" | "v"
     >
   | Pick<
-      Extract<RemoteAgentWorkerSubmitTurnRequest, { v: 3 }>,
-      "conversationId" | "conversationIdentity" | "modelRoute" | "v"
-    >
-  | Pick<
       Extract<RemoteAgentWorkerSubmitTurnRequest, { v: 4 }>,
-      | "conversationId"
-      | "conversationIdentity"
-      | "modelRoute"
-      | "runtimeConversation"
-      | "v"
+      "conversationId" | "modelRoute" | "runtimeConversation" | "v"
     >;
 
 function inheritRemoteAgentTaskContinuationWorkerProtocol(
@@ -3760,19 +3050,9 @@ function inheritRemoteAgentTaskContinuationWorkerProtocol(
       return { v: request.v };
     case 2:
       return { modelRoute: request.modelRoute, v: request.v };
-    case 3:
-      return {
-        conversationId: request.conversationId,
-        conversationIdentity: request.conversationIdentity,
-        modelRoute: request.modelRoute,
-        v: request.v,
-      };
     case 4:
       return {
         conversationId: request.conversationId,
-        ...(request.conversationIdentity
-          ? { conversationIdentity: request.conversationIdentity }
-          : {}),
         modelRoute: request.modelRoute,
         runtimeConversation: request.runtimeConversation,
         v: request.v,
@@ -7001,7 +6281,14 @@ function scheduleCenterAgentMemoryRemember(input: {
   memoryService?: CenterAgentMemoryService | null;
   waitUntil?: (promise: Promise<unknown>) => void;
 }): void {
-  if (input.delivery.routineRunId) {
+  const request =
+    input.delivery.executionRecoverySubmitRequest ??
+    input.delivery.workerSubmitRequest;
+  if (
+    input.delivery.routineRunId ||
+    (request?.v === 4 &&
+      request.conversationIdentity?.kind === "personal_agent")
+  ) {
     return;
   }
   const memoryService =
@@ -7799,16 +7086,6 @@ export async function completeRemoteAgentNativeDelivery(
     delivery,
     nowMs,
   });
-  const taskStopSettlement = await trySettleCenterAgentTaskStopCallback({
-    body,
-    db,
-    delivery,
-    env,
-    nowMs,
-  });
-  if (taskStopSettlement) {
-    return taskStopSettlement;
-  }
   if (isRemoteAgentWorkLoopContinuationCallback(body)) {
     return await continueRemoteAgentNativeDeliveryWorkLoop({
       body,
@@ -8069,9 +7346,8 @@ async function continueRemoteAgentNativeDeliveryWorkLoop(input: {
     });
   }
 
-  let rearmed: RemoteAgentNativeDeliveryRecord;
   try {
-    rearmed = await rearmRemoteAgentNativeDeliveryForWorkLoop({
+    await rearmRemoteAgentNativeDeliveryForWorkLoop({
       attempt,
       checkpoint: input.body.checkpoint,
       db: input.db,
@@ -8099,20 +7375,6 @@ async function continueRemoteAgentNativeDeliveryWorkLoop(input: {
       reasonCode: "remote_agent.work_loop_rearm_unavailable",
       retryAfterMs: 5000,
       status: "retryable",
-    });
-  }
-
-  if (
-    await stopCenterAgentTaskBeforeWorkerAdmissionIfRequested({
-      db: input.db,
-      delivery: rearmed,
-      env: input.env,
-      nowMs: input.nowMs,
-    })
-  ) {
-    return remoteAgentCoreCallbackResponseSchema.parse({
-      publishedSignalId: null,
-      status: "accepted",
     });
   }
 
@@ -8154,9 +7416,8 @@ async function continueRemoteAgentNativeDeliveryWorkLoop(input: {
       status: "accepted",
     });
   }
-  let acceptedDelivery: RemoteAgentNativeDeliveryRecord;
   try {
-    acceptedDelivery = await markRemoteAgentNativeDeliveryAckWithProbe({
+    await markRemoteAgentNativeDeliveryAckWithProbe({
       accepted: admission.ack.accepted,
       db: input.db,
       env: input.env,
@@ -8180,16 +7441,6 @@ async function continueRemoteAgentNativeDeliveryWorkLoop(input: {
       publishedSignalId: null,
       status: "accepted",
     });
-  }
-  try {
-    await forwardDurableCenterAgentTaskStopAfterAdmission({
-      db: input.db,
-      delivery: acceptedDelivery,
-      env: input.env,
-      nowMs: input.nowMs,
-    });
-  } catch {
-    // The durable admission watchdog owns recovery for an already-admitted turn.
   }
   console.info("[core.remote_agent.native_delivery.work_loop_continued]", {
     attempt,
@@ -8291,95 +7542,6 @@ async function failRearmedRemoteAgentWorkLoopAdmission(input: {
     }),
     input.options
   );
-}
-
-async function trySettleCenterAgentTaskStopCallback(input: {
-  body: RemoteAgentCoreCallbackEvent;
-  db: D1Database;
-  delivery: RemoteAgentNativeDeliveryRecord;
-  env: CoreBindings;
-  nowMs: number;
-}): Promise<RemoteAgentCoreCallbackResponse | null> {
-  if (!isAcceptedRemoteAgentNativeDelivery(input.delivery)) {
-    return null;
-  }
-  const taskIdentity = resolveCenterAgentTaskNativeDeliveryIdentity(
-    input.delivery
-  );
-  if (!taskIdentity) {
-    return null;
-  }
-  const taskDb = localStateDb(input.env);
-  if (!taskDb) {
-    throw new Error("center_agent_task.stop_store_unavailable");
-  }
-  const stopIntent = await readCenterAgentTaskNativeDeliveryStopIntent({
-    db: taskDb,
-    deliveryId: input.delivery.deliveryId,
-  });
-  if (!stopIntent) {
-    return null;
-  }
-  if (stopIntent.taskId !== taskIdentity.taskId) {
-    throw new Error("center_agent_task.delivery_identity_mismatch");
-  }
-  return await settleRemoteAgentStoppedCallback({
-    body: input.body,
-    db: input.db,
-    delivery: input.delivery,
-    env: input.env,
-    nowMs: input.nowMs,
-  });
-}
-
-function isAcceptedRemoteAgentNativeDelivery(
-  delivery: RemoteAgentNativeDeliveryRecord
-): delivery is RemoteAgentNativeDeliveryRecord & {
-  status: "accepted" | "retry_observed";
-} {
-  return delivery.status === "accepted" || delivery.status === "retry_observed";
-}
-
-export function resolveCenterAgentTaskNativeDeliveryIdentity(
-  delivery: RemoteAgentNativeDeliveryRecord
-): { taskId: string } | null {
-  const request =
-    delivery.workerSubmitRequest ?? delivery.executionRecoverySubmitRequest;
-  const conversationId = request?.conversationId;
-  if (
-    !request ||
-    typeof conversationId !== "string" ||
-    delivery.attemptId !== null ||
-    delivery.deliveryId !== delivery.dispatchId ||
-    request.dispatchId !== delivery.deliveryId ||
-    request.idempotencyKey !== delivery.idempotencyKey
-  ) {
-    return null;
-  }
-  if (request.v === 3) {
-    const taskId = request.conversationIdentity.taskId;
-    return request.conversationIdentity.kind === "center_agent_task" &&
-      conversationId === buildRemoteAgentCenterAgentTaskConversationId(taskId)
-      ? { taskId }
-      : null;
-  }
-  if (
-    !conversationId.startsWith(
-      REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX
-    )
-  ) {
-    return null;
-  }
-  const taskId = conversationId.slice(
-    REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX.length
-  );
-  if (
-    !taskId ||
-    conversationId !== buildRemoteAgentCenterAgentTaskConversationId(taskId)
-  ) {
-    return null;
-  }
-  return { taskId };
 }
 
 async function projectRemoteAgentCallbackRejectedTask(input: {
@@ -8866,22 +8028,6 @@ async function completeRemoteAgentCompletedCallback(input: {
   const { body, db, delivery, env, nowMs, options } = input;
   if (delivery.conversationKind === "slack") {
     return await completeRemoteAgentSlackCompletedCallback(input);
-  }
-
-  if (resolveCenterAgentTaskNativeDeliveryIdentity(delivery)) {
-    const recordedDelivery = await recordRemoteAgentFinalPublicationPayload({
-      db,
-      idempotencyKey: delivery.idempotencyKey,
-      nowMs,
-      payload: buildRemoteAgentFinalPublicationPayload({
-        body,
-        resumeStatus: delivery.status,
-      }),
-      submissionId: body.submissionId,
-    });
-    if (!recordedDelivery) {
-      throw new Error("center_agent_task.final_result_retention_failed");
-    }
   }
 
   const existingPublishedSignalId =
@@ -10840,17 +9986,6 @@ async function resolveAlreadySettledRemoteAgentAdmissionWatchdog(input: {
     input.delivery.status === "retry_observed" ||
     input.delivery.status === "completed"
   ) {
-    if (
-      input.delivery.status === "accepted" ||
-      input.delivery.status === "retry_observed"
-    ) {
-      await forwardDurableCenterAgentTaskStopAfterAdmission({
-        db: input.db,
-        delivery: input.delivery,
-        env: input.env,
-        nowMs: input.nowMs,
-      });
-    }
     return {
       reasonCode: "remote_agent.admission_watchdog_already_acknowledged",
       status: "skipped",
@@ -12003,9 +11138,6 @@ async function publishRemoteAgentCallbackReply(input: {
     },
     meta: {
       clientMessageId: input.body.submissionId,
-      ...(input.body.centerAgentTaskReferences?.length
-        ? { centerAgentTaskReferences: input.body.centerAgentTaskReferences }
-        : {}),
       ...(input.body.conversationCompaction
         ? { conversationCompaction: input.body.conversationCompaction }
         : {}),
@@ -12679,28 +11811,6 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
     delivery: input.delivery,
     env: input.env,
   });
-  const centerAgentTaskIdentity = await resolveCenterAgentTaskTerminalIdentity({
-    delivery: input.delivery,
-    env: input.env,
-  });
-  const isCenterAgentTaskOwned = centerAgentTaskIdentity !== null;
-  const requiresOwnedStopConfirmation =
-    isCenterAgentTaskOwned &&
-    input.delivery.failureCode ===
-      RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE;
-  if (!requiresOwnedStopConfirmation) {
-    await projectCenterAgentTaskTerminalIfOwned({
-      delivery: input.delivery,
-      deliveryDb: input.db,
-      env: input.env,
-      finalPublicationPayload:
-        input.finalPublicationPayload ??
-        input.delivery.finalPublicationPayload ??
-        undefined,
-      nowMs: input.nowMs,
-      taskIdentity: centerAgentTaskIdentity,
-    });
-  }
   if (input.delivery.status === "callback_rejected") {
     return;
   }
@@ -12764,13 +11874,12 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
     tasks,
   });
   const outcome = buildNativeDeliveryTerminalOutcome(input.delivery);
-  if (!isCenterAgentTaskOwned) {
-    await tryProjectLinkedSlackNativeDeliveryInboxItem({
-      delivery: input.delivery,
-      env: input.env,
-      outcome,
-    });
-  }
+  await tryProjectLinkedSlackNativeDeliveryInboxItem({
+    delivery: input.delivery,
+    env: input.env,
+    outcome,
+  });
+
   for (const task of watchedTasks) {
     await recordAndEnqueueAgentTaskTerminalOutcome({
       db: coordinationDb,
@@ -12783,213 +11892,6 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
       task,
     });
   }
-  if (requiresOwnedStopConfirmation) {
-    await projectCenterAgentTaskTerminalIfOwned({
-      delivery: input.delivery,
-      deliveryDb: input.db,
-      env: input.env,
-      finalPublicationPayload:
-        input.finalPublicationPayload ??
-        input.delivery.finalPublicationPayload ??
-        undefined,
-      nowMs: input.nowMs,
-      taskIdentity: centerAgentTaskIdentity,
-    });
-  }
-}
-
-type CenterAgentTaskOwnedTerminalProjection =
-  | { owned: false }
-  | {
-      owned: true;
-      terminalProjection: CenterAgentTaskTerminalProjectionResult;
-    };
-
-export type CenterAgentTaskTerminalProjectionRecoverySummary = {
-  canonicalized: number;
-  errors: number;
-  ownerRejected: number;
-  retained: number;
-  scanned: number;
-};
-
-export async function retryPendingCenterAgentTaskTerminalProjections(input: {
-  deliveryDb: D1Database;
-  env: CoreBindings;
-  limit?: number;
-  nowMs: number;
-}): Promise<CenterAgentTaskTerminalProjectionRecoverySummary> {
-  const deliveries =
-    await listTerminalRemoteAgentNativeDeliveriesWithRetainedPayload({
-      conversationIdPrefix:
-        REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
-      db: input.deliveryDb,
-      limit:
-        input.limit ?? CENTER_AGENT_TASK_TERMINAL_PROJECTION_RECOVERY_LIMIT,
-    });
-  const summary: CenterAgentTaskTerminalProjectionRecoverySummary = {
-    canonicalized: 0,
-    errors: 0,
-    ownerRejected: 0,
-    retained: 0,
-    scanned: deliveries.length,
-  };
-  for (const delivery of deliveries) {
-    try {
-      await markCenterAgentTaskTerminalProjectionAttempted({
-        attemptedAtMs: input.nowMs,
-        db: input.deliveryDb,
-        deliveryId: delivery.deliveryId,
-        idempotencyKey: delivery.idempotencyKey,
-      });
-      const projection = await projectCenterAgentTaskTerminalIfOwned({
-        delivery,
-        deliveryDb: input.deliveryDb,
-        env: input.env,
-        nowMs: input.nowMs,
-      });
-      if (!projection.owned) {
-        summary.errors += 1;
-        console.error(
-          "[core.center_agent_task.terminal_projection_recovery_identity_mismatch]",
-          {
-            deliveryId: delivery.deliveryId,
-            organizationId: delivery.organizationId,
-          }
-        );
-        continue;
-      }
-      if (projection.terminalProjection.outcome === "canonicalized") {
-        summary.canonicalized += 1;
-      } else if (projection.terminalProjection.outcome === "owner_rejected") {
-        summary.ownerRejected += 1;
-      } else {
-        summary.retained += 1;
-      }
-    } catch (error) {
-      summary.errors += 1;
-      console.error(
-        "[core.center_agent_task.terminal_projection_recovery_failed]",
-        {
-          deliveryId: delivery.deliveryId,
-          error: toErrorMessage(error),
-          organizationId: delivery.organizationId,
-        }
-      );
-    }
-  }
-  return summary;
-}
-
-async function projectCenterAgentTaskTerminalIfOwned(input: {
-  delivery: RemoteAgentNativeDeliveryRecord;
-  deliveryDb: D1Database;
-  env: CoreBindings;
-  finalPublicationPayload?: { text: string };
-  nowMs: number;
-  taskIdentity?: { taskId: string } | null;
-}): Promise<CenterAgentTaskOwnedTerminalProjection> {
-  const taskIdentity =
-    input.taskIdentity ??
-    (await resolveCenterAgentTaskTerminalIdentity({
-      delivery: input.delivery,
-      env: input.env,
-    }));
-  if (!taskIdentity) {
-    return { owned: false };
-  }
-  const taskDb = localStateDb(input.env);
-  const ownerInboxDb = inboxDb(input.env);
-  if (!(taskDb && ownerInboxDb)) {
-    throw new Error("center_agent_task.projection_store_unavailable");
-  }
-  const terminalProjection = await projectCenterAgentTaskTerminal({
-    delivery: input.finalPublicationPayload
-      ? {
-          ...input.delivery,
-          finalPublicationPayload: input.finalPublicationPayload,
-        }
-      : input.delivery,
-    inboxDb: ownerInboxDb,
-    expectedTaskId: taskIdentity.taskId,
-    nowMs: input.nowMs,
-    taskDb,
-  });
-  if (terminalProjection.payloadDisposition === "erase") {
-    await clearRemoteAgentFinalPublicationPayload({
-      db: input.deliveryDb,
-      deliveryId: input.delivery.deliveryId,
-      idempotencyKey: input.delivery.idempotencyKey,
-    });
-  }
-  if (
-    input.delivery.failureCode !==
-    RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE
-  ) {
-    return { owned: true, terminalProjection };
-  }
-  await resumeCenterAgentTaskPendingReplacement({
-    db: taskDb,
-    deliveryId: input.delivery.deliveryId,
-    inboxDb: ownerInboxDb,
-    now: () => input.nowMs,
-    organizationId: input.delivery.organizationId,
-    runtime: {
-      authorizeTurn: async (request) => {
-        if (
-          request.parent.kind !== "delivery" ||
-          request.parent.deliveryId !== input.delivery.deliveryId ||
-          request.organizationId !== input.delivery.organizationId ||
-          request.requesterUserId !== input.delivery.onBehalfOfUserId
-        ) {
-          throw new Error("center_agent_task.source_delivery_mismatch");
-        }
-        await requireCurrentCenterAgentTaskAdmissionAuthority({
-          env: input.env,
-          organizationId: request.organizationId,
-          parentDelivery: input.delivery,
-          requesterUserId: request.requesterUserId,
-        });
-      },
-      submitTurn: async (request) => {
-        const submission = await submitRemoteAgentCenterAgentTaskTurn({
-          ...request,
-          db: input.deliveryDb,
-          env: input.env,
-        });
-        return { outcome: submission.outcome };
-      },
-    },
-    taskId: taskIdentity.taskId,
-  });
-  return { owned: true, terminalProjection };
-}
-
-async function resolveCenterAgentTaskTerminalIdentity(input: {
-  delivery: RemoteAgentNativeDeliveryRecord;
-  env: CoreBindings;
-}): Promise<{ taskId: string } | null> {
-  const embeddedIdentity = resolveCenterAgentTaskNativeDeliveryIdentity(
-    input.delivery
-  );
-  if (embeddedIdentity) {
-    return embeddedIdentity;
-  }
-  if (
-    input.delivery.failureCode !==
-    RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE
-  ) {
-    return null;
-  }
-  const taskDb = localStateDb(input.env);
-  if (!taskDb) {
-    throw new Error("center_agent_task.stop_owner_store_unavailable");
-  }
-  return await readCenterAgentTaskNativeDeliveryOwner({
-    db: taskDb,
-    deliveryId: input.delivery.deliveryId,
-    organizationId: input.delivery.organizationId,
-  });
 }
 
 async function tryProjectLinkedSlackNativeDeliveryInboxItem(input: {

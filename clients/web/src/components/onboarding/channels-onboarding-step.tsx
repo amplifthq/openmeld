@@ -19,6 +19,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppLogo } from "#/components/organizations/app-logo";
 import { LarkPlatformChannelDialog } from "#/components/organizations/lark-platform-channel-dialog";
+import { requiresLarkPlatformSetupAuthorization } from "#/components/organizations/lark-platform-setup-authorization";
 import {
 	FEISHU_CHANNEL_IDENTITY,
 	LARK_CHANNEL_IDENTITY,
@@ -221,6 +222,7 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 								(connection) => connection.provider === provider
 							)}
 							key={provider}
+							onCancelSetup={() => larkPlatform.cancelSetup(provider)}
 							onManage={() => larkPlatform.manage(provider)}
 							pending={larkPlatform.beginPendingProvider === provider}
 							provider={provider}
@@ -277,6 +279,7 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 				errorMessage={larkPlatform.errorMessage}
 				onDisconnect={larkPlatform.disconnect}
 				onOpenChange={larkPlatform.setOpen}
+				onReauthorize={larkPlatform.reauthorize}
 				onRepair={larkPlatform.repair}
 				onRetryPoll={larkPlatform.retryPoll}
 				onStartOver={larkPlatform.startOver}
@@ -292,6 +295,7 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 }
 
 function LarkChannelChoice(input: {
+	onCancelSetup: () => void;
 	activeRegistration?: LarkPlatformActiveRegistrationProjection;
 	canManage: boolean;
 	connection?: MessageChannelConnectionProjection;
@@ -306,22 +310,40 @@ function LarkChannelChoice(input: {
 			: LARK_CHANNEL_IDENTITY;
 	const connected = input.connection?.status === "connected";
 	const registrationPending = input.activeRegistration !== undefined;
+	const authorizationRequired = requiresLarkPlatformSetupAuthorization({
+		provider: input.provider,
+		status: input.connection?.status ?? input.activeRegistration?.status,
+		reasonCode:
+			input.connection?.reasonCode ?? input.activeRegistration?.reasonCode,
+	});
+	const cannotResume = input.activeRegistration?.canResume === false;
+	let actionLabel: string | undefined;
+	if (authorizationRequired) {
+		actionLabel = "Review authorization";
+	}
+	if (cannotResume) {
+		actionLabel = "Cancel setup";
+	}
 	return (
 		<ChannelChoice
 			accountName={input.connection?.externalAccountName ?? null}
+			actionLabel={actionLabel}
 			canManage={input.canManage}
 			connected={connected}
 			description={`Let your team message Center Agent from ${label}.`}
 			disabled={input.pending}
 			label={label}
 			logo={logo}
-			onManage={input.onManage}
-			pending={input.pending || registrationPending}
+			onManage={cannotResume ? input.onCancelSetup : input.onManage}
+			pending={input.pending || (registrationPending && !authorizationRequired)}
+			statusLabel={authorizationRequired ? "Authorization required" : undefined}
 		/>
 	);
 }
 
 function ChannelChoice(input: {
+	actionLabel?: string;
+	statusLabel?: string;
 	accountName: string | null;
 	canManage: boolean;
 	connected: boolean;
@@ -332,7 +354,8 @@ function ChannelChoice(input: {
 	onManage: () => void;
 	pending: boolean;
 }) {
-	const statusLabel = input.pending ? "Connecting…" : "Not connected";
+	const statusLabel =
+		input.statusLabel ?? (input.pending ? "Connecting…" : "Not connected");
 	return (
 		<Card className="flex min-h-24 flex-row items-center gap-4 rounded-md p-4">
 			<AppLogo app={input.logo} size="lg" />
@@ -377,7 +400,7 @@ function ChannelChoice(input: {
 					{input.pending ? (
 						<CircleNotchIcon aria-hidden="true" className="animate-spin" />
 					) : null}
-					Connect {input.label}
+					{input.actionLabel ?? `Connect ${input.label}`}
 				</Button>
 			) : null}
 			{input.canManage || input.connected ? null : (

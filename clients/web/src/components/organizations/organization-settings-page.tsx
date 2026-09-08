@@ -32,10 +32,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
-import { InvitationForm } from "#/components/directory/directory-members-overview";
 import { OrganizationInformationProtectionSection } from "#/components/organizations/organization-information-protection-section";
-import { OrganizationInvitationRequestForm } from "#/components/organizations/organization-invitation-request-form";
-import { OrganizationInviteLink } from "#/components/organizations/organization-invite-link";
 import { OrganizationLogoSection } from "#/components/organizations/organization-logo-section";
 import {
 	cancelOrganizationInvitation,
@@ -63,6 +60,7 @@ import {
 import { applyOrganizationDeletionToScopeCache } from "#/query/organizations/organization-scope";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { OrganizationInvitationRequests } from "./organization-invitation-requests";
+import { OrganizationInviteControls } from "./organization-invite-controls";
 
 const MEMBER_ROLE_OPTIONS = [
 	{ label: "Member", value: "member" },
@@ -147,6 +145,10 @@ function OrganizationSettingsContent(input: {
 			case "invitations":
 				content = (
 					<>
+						<OrganizationInviteControls
+							canManage={canManage}
+							organizationId={organization.id}
+						/>
 						<OrganizationInvitationRequests
 							canReview={canManage}
 							organizationId={organization.id}
@@ -818,42 +820,27 @@ function OrganizationInvitationsSection(input: {
 		retry: 1,
 		staleTime: 10_000,
 	});
-	let invitationsContent: ReactNode;
-	if (input.canManage) {
-		invitationsContent = (
-			<div className="space-y-4">
-				<h3 className="font-medium text-sm">Awaiting acceptance</h3>
-				<PendingInvitationsList
-					errorMessage={
-						invitationsQuery.isError ? invitationsQuery.error.message : null
-					}
-					invitations={(invitationsQuery.data ?? []).filter(
-						(invitation) => (invitation.status ?? "pending") === "pending"
-					)}
-					isPending={invitationsQuery.isPending}
-					isRetrying={invitationsQuery.isRefetching}
-					onRetry={() => invitationsQuery.refetch()}
-					organizationId={input.organizationId}
-				/>
-				<InvitationForm organizationId={input.organizationId} />
-				<OrganizationInviteLink organizationId={input.organizationId} />
-			</div>
-		);
-	} else {
-		invitationsContent = (
-			<OrganizationInvitationRequestForm
+	const pendingInvitations = (invitationsQuery.data ?? []).filter(
+		(invitation) => (invitation.status ?? "pending") === "pending"
+	);
+	if (
+		!input.canManage ||
+		(invitationsQuery.isSuccess && pendingInvitations.length === 0)
+	) {
+		return null;
+	}
+	return (
+		<SettingsSection id="organization-invitations" title="Awaiting acceptance">
+			<PendingInvitationsList
+				errorMessage={
+					invitationsQuery.isError ? invitationsQuery.error.message : null
+				}
+				invitations={pendingInvitations}
+				isPending={invitationsQuery.isPending}
+				isRetrying={invitationsQuery.isRefetching}
+				onRetry={() => invitationsQuery.refetch()}
 				organizationId={input.organizationId}
 			/>
-		);
-	}
-
-	return (
-		<SettingsSection
-			description="Send invitations by email or share a link. Link recipients need approval before joining."
-			id="organization-invitations"
-			title="Invite people"
-		>
-			{invitationsContent}
 		</SettingsSection>
 	);
 }
@@ -892,17 +879,7 @@ function PendingInvitationsList(input: {
 		);
 	}
 	if (input.invitations.length === 0) {
-		return (
-			<div className="grid min-h-36 place-content-center gap-1 rounded-md border border-border/70 border-dashed px-6 py-8 text-center">
-				<p className="font-medium text-sm">
-					No invitations awaiting acceptance
-				</p>
-				<p className="text-muted-foreground text-sm">
-					Invitations you send will appear here until they’re accepted or no
-					longer active.
-				</p>
-			</div>
-		);
+		return null;
 	}
 	return (
 		<ul className="divide-y divide-border/70 overflow-hidden rounded-md border border-border/70">

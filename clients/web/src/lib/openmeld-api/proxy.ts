@@ -8,7 +8,6 @@ import {
 	OPENMELD_HEADER_SPACE_PASSWORD,
 } from "@openmeld/gateway-contract";
 import {
-	CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER,
 	gatewayErrorEnvelopeSchema,
 	normalizeSpacePasswordText,
 } from "@openmeld/schemas";
@@ -41,7 +40,6 @@ const ALLOWED_PROXY_REQUEST_HEADERS = new Set([
 	"if-unmodified-since",
 	"origin",
 	"pragma",
-	CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER.toLowerCase(),
 	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION.toLowerCase(),
 	OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION.toLowerCase(),
 	OPENMELD_HEADER_SPACE_ADDRESSING_VERSION.toLowerCase(),
@@ -100,9 +98,6 @@ export function buildOpenMeldGatewayUpstreamHeaders(input: {
 				OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID.toLowerCase() ||
 			normalizedHeaderName ===
 				OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG.toLowerCase();
-		const isTaskResponseContractHeader =
-			normalizedHeaderName ===
-			CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER.toLowerCase();
 		const isInboxSourceTargetVersionHeader =
 			normalizedHeaderName ===
 			OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION.toLowerCase();
@@ -117,7 +112,6 @@ export function buildOpenMeldGatewayUpstreamHeaders(input: {
 				!isSpacePasswordHeader &&
 				!isProfileIdHeader &&
 				!isOrganizationSelectorHeader &&
-				!isTaskResponseContractHeader &&
 				!isInboxSourceTargetVersionHeader &&
 				!isInboxItemKindVersionHeader &&
 				!isSpaceAddressingVersionHeader) ||

@@ -324,7 +324,7 @@ describe("auth organization client helpers", () => {
 			organizationSlug: "acme-research",
 		});
 		expect(fetchMock).toHaveBeenCalledWith(
-			`/api/auth/organization/join-link/preview?token=${token}&responseVersion=2`,
+			`/api/auth/organization/join-link/preview?token=${token}&responseVersion=3`,
 			expect.objectContaining({ credentials: "include", method: "GET" })
 		);
 	});
@@ -410,12 +410,12 @@ describe("auth organization client helpers", () => {
 		const path = "/api/auth/organization/join-link?organizationId=org-acme";
 		expect(fetchMock).toHaveBeenNthCalledWith(
 			1,
-			path,
+			`${path}&responseVersion=3`,
 			expect.objectContaining({ credentials: "include", method: "GET" })
 		);
 		expect(fetchMock).toHaveBeenNthCalledWith(
 			2,
-			path,
+			`${path}&responseVersion=3`,
 			expect.objectContaining({ credentials: "include", method: "POST" })
 		);
 		expect(fetchMock).toHaveBeenNthCalledWith(

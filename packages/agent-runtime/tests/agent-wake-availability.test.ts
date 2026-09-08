@@ -206,6 +206,56 @@ describe("agent wake availability", () => {
     );
   });
 
+  it("preserves a pending route reason instead of reporting unknown readiness", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      localService: {
+        reachable: true,
+        refreshable: true,
+        reasonCodes: ["local_service.refresh_in_progress"],
+        source: "runtime_transport",
+      },
+      route: { status: "offline", reasonCodes: ["route.not_registered"] },
+      runtimeReadiness: {
+        displayState: "ready",
+        ready: true,
+        reasonCodes: ["runtime.ready"],
+      },
+    });
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
+      "route.not_registered"
+    );
+  });
+
+  it("keeps service drift a definite service problem, not an update requirement", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      route: { status: "offline", reasonCodes: ["route.not_registered"] },
+      service: {
+        executionCompatible: false,
+        reasonCodes: ["service.drifted"],
+        source: "unavailable",
+      },
+      runtimeReadiness: {
+        displayState: "ready",
+        ready: true,
+        reasonCodes: ["runtime.ready"],
+      },
+    });
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
+      "service.drifted"
+    );
+    expect(
+      resolveAgentWakeAdmissionTerminalDecision("service.drifted")
+    ).toEqual({
+      reasonCode: "service.drifted",
+      publicationCategory: "agent_profile_unavailable",
+      userRecoveryAction: "check_status",
+    });
+  });
+
   it.each([
     {
       evidence: {
@@ -593,7 +643,7 @@ describe("agent wake availability", () => {
       phase: "available",
       reasonCode: "remote_agent.available",
       status: "available_for_wake",
-      summary: "Center Agent can answer now.",
+      summary: "This Agent can answer now.",
     });
     expect(JSON.stringify(availability)).not.toContain("OpenMeld Service");
     expect(JSON.stringify(availability)).not.toContain("Update");

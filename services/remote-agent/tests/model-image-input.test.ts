@@ -319,11 +319,9 @@ describe("Remote Agent model reasoning", () => {
     const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
       (name) => ({ function: { name }, type: "function" })
     );
-    const foundationalReads = [
-      "openmeld_list_organization_members",
-      "openmeld_list_center_agent_tasks",
-      "openmeld_get_center_agent_task",
-    ].map((name) => ({ function: { name }, type: "function" }));
+    const foundationalReads = ["openmeld_list_organization_members"].map(
+      (name) => ({ function: { name }, type: "function" })
+    );
     const createTask = {
       function: { name: "openmeld_create_task" },
       type: "function",
@@ -779,56 +777,6 @@ describe("Remote Agent model reasoning", () => {
         TEXT_ONLY_MODEL
       )
     ).resolves.toMatchObject({ tools: directTools });
-  });
-
-  it("keeps Task selection with the primary Agent instead of preselecting a Task write", async () => {
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
-    const createTask = {
-      function: { name: "openmeld_create_task" },
-      type: "function",
-    };
-    const createSpace = {
-      function: { name: "openmeld_create_space" },
-      type: "function",
-    };
-    const codemode = {
-      function: { name: "codemode" },
-      type: "function",
-    };
-    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
-      (name) => ({ function: { name }, type: "function" })
-    );
-    const tools = [
-      createTask,
-      createSpace,
-      ...Array.from({ length: 65 }, (_, index) => ({
-        function: { name: `tool_${String(index)}` },
-        type: "function",
-      })),
-      ...discoveryTools,
-      codemode,
-    ];
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [
-          {
-            content:
-              "[Current verified request]\nCreate a dedicated Task for this investigation.\n\n[OpenMeld turn context]\nAuthoritative UTC time for this turn: 2026-08-12T00:00:00.000Z",
-            role: "user",
-          },
-        ],
-        reasoning: { effort: "high" },
-        tools,
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(payload).toMatchObject({
-      reasoning: { effort: "high" },
-      tools: [...discoveryTools, codemode],
-    });
-    expect(payload).not.toHaveProperty("tool_choice");
   });
 
   it("preserves a successful legacy Space result without re-exposing its write tool", async () => {

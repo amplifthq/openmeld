@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { runAgentActivityDigestTick } from "../src/agent-activity/activity-digest-service";
-import type { recoverCenterAgentTaskWork } from "../src/center-agent-tasks/application/center-agent-task-service";
 import type { retryInboxUrgentEmailDeliveries } from "../src/inbox/application/inbox-email-delivery-service";
 import type { CoreBindings } from "../src/lib/bindings";
-import type { retryPendingCenterAgentTaskTerminalProjections } from "../src/remote-agent/application/native-delivery-service";
 import {
   AGENT_ACTIVITY_RETENTION_CRON,
   EVAL_WEEKLY_REPORT_CRON,
@@ -123,25 +121,6 @@ describe("Core scheduled task dispatcher", () => {
       errors: 0,
       projected: 0,
     }));
-    const recoverCenterAgentTasks = vi.fn<typeof recoverCenterAgentTaskWork>(
-      async () => ({
-        admissionsDelivered: 0,
-        admissionsFailed: 0,
-        errors: 0,
-        stopsFailed: 0,
-        stopsPending: 0,
-        stopsResolved: 0,
-      })
-    );
-    const retryCenterAgentTaskTerminalProjections = vi.fn<
-      typeof retryPendingCenterAgentTaskTerminalProjections
-    >(async () => ({
-      canonicalized: 1,
-      errors: 0,
-      ownerRejected: 0,
-      retained: 0,
-      scanned: 1,
-    }));
     const directSendInboxUrgentEmail = vi.fn(
       async (input: { deliveryId: string }) => ({
         deliveryId: input.deliveryId,
@@ -197,9 +176,7 @@ describe("Core scheduled task dispatcher", () => {
       } as unknown as CoreBindings,
       nowMs: 1000,
       countStrandedSlackIngress,
-      recoverCenterAgentTasks,
       recoverStaleAgentProfileCreationRequests,
-      retryCenterAgentTaskTerminalProjections,
       reconcileOrganizationDocumentInbox,
       reconcileSlackNativeDeliveryInbox,
       retryAgentTaskContinuations,
@@ -234,11 +211,6 @@ describe("Core scheduled task dispatcher", () => {
       db: routineDatabase,
       nowMs: 1000,
       resolveMembershipState: expect.any(Function),
-    });
-    expect(retryCenterAgentTaskTerminalProjections).toHaveBeenCalledWith({
-      deliveryDb: routineDatabase,
-      env: expect.anything(),
-      nowMs: 1000,
     });
     expect(runLarkPlatformRegistrationTick).toHaveBeenCalledWith({
       classifyOrganization: expect.any(Function),
@@ -318,17 +290,6 @@ describe("Core scheduled task dispatcher", () => {
       env: expect.anything(),
       nowMs: 1000,
     });
-    expect(recoverCenterAgentTasks).toHaveBeenCalledWith({
-      db: localStateDatabase,
-      inboxDb: routineDatabase,
-      now: expect.any(Function),
-      runtime: expect.any(Object),
-    });
-    const taskRecoveryInput = recoverCenterAgentTasks.mock.calls[0]?.[0];
-    if (!taskRecoveryInput?.now) {
-      throw new Error("expected Center Agent Task recovery to receive a clock");
-    }
-    expect(taskRecoveryInput.now()).toBe(1000);
     expect(retryAgentTaskContinuations).toHaveBeenCalledWith({
       db: expect.anything(),
       env: expect.anything(),

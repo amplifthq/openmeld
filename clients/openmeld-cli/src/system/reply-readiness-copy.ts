@@ -95,9 +95,9 @@ export const REPLY_READINESS_COPY = {
   },
   guidance: {
     readyMentionInstruction:
-      'Send a message with an exact mention like "@Name(wake)".',
+      "Choose Wake in the Space, or send with --wake <agent-profile-id>.",
     readySummary:
-      'This agent can reply in a space when you mention it with "@Name(wake)".',
+      "This agent can reply when you select it as a Wake recipient.",
     selectProfileAgentInstruction:
       "Open this Agent in OpenMeld Web and choose a local agent.",
     turnOnProfileAgentInstruction:

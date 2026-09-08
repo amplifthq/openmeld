@@ -1,4 +1,27 @@
 import type { SpaceTimelineItem } from "./timeline";
+import { resolveWakeProgressStatus } from "./wake-progress-status";
+
+export function isSpaceMessageAgentWorking(
+	item: Pick<
+		SpaceTimelineItem,
+		"actorProfileKind" | "activeWakeProgress" | "agentStreamState"
+	>
+): boolean {
+	if (item.actorProfileKind !== "agent") {
+		return false;
+	}
+	if (item.agentStreamState && item.agentStreamState.status !== "streaming") {
+		return false;
+	}
+	if (item.activeWakeProgress) {
+		if (item.activeWakeProgress.terminal) {
+			return false;
+		}
+		const kind = resolveWakeProgressStatus(item.activeWakeProgress)?.kind;
+		return kind === "working" || kind === "replying" || kind === "posting";
+	}
+	return item.agentStreamState?.status === "streaming";
+}
 
 export const SPACE_LOCAL_PENDING_MESSAGE_DELAY_MS = 8000;
 export const SPACE_WAKE_PROGRESS_STALE_WAITING_MS = 45_000;
