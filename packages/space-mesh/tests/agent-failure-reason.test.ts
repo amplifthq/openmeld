@@ -127,7 +127,7 @@ describe("agent failure reason", () => {
     ).toBe("No local agent has been selected to reply for this agent yet.");
   });
 
-  it("explains stale Binding runtime truth as reconnect needed", () => {
+  it("explains stale Binding runtime truth without moving the existing Agent", () => {
     expect(
       resolvePublicAgentFailureReason({
         defaultReason:
@@ -136,11 +136,11 @@ describe("agent failure reason", () => {
         errorMessage: null,
       })
     ).toBe(
-      "This agent is connected to an older computer setup. Update setup on this computer, then try again."
+      "This agent's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved."
     );
   });
 
-  it("explains Binding capability mismatch as setup needed", () => {
+  it("explains Binding capability mismatch without moving the existing Agent", () => {
     expect(
       resolvePublicAgentFailureReason({
         defaultReason:
@@ -149,7 +149,7 @@ describe("agent failure reason", () => {
         errorMessage: null,
       })
     ).toBe(
-      "This agent is connected to a different local agent setup. Update setup on this computer, then try again."
+      "This agent's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved."
     );
   });
 
@@ -177,7 +177,7 @@ describe("agent failure reason", () => {
     ],
     [
       "claim_eligibility.openmeld_service_runtime_id_mismatch",
-      "This agent is connected to an older computer setup. Update setup on this computer, then try again.",
+      "This agent's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
     ],
     [
       "claim_eligibility.runtime_conflict",

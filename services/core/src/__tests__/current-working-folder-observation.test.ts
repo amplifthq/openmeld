@@ -5,8 +5,8 @@ import type {
 import { describe, expect, it } from "vitest";
 import {
   type CurrentExpectedWorkingFolderRoute,
-  resolveCurrentWorkingFolderObservations,
-} from "../agent-profile-binding/application/current-working-folder-observations";
+  resolveCurrentWorkingFolderObservation,
+} from "../agent-profile-binding/application/current-working-folder-observation";
 
 const NOW_MS = 1_700_000_030_000;
 const CURRENT_SESSION = {
@@ -14,7 +14,7 @@ const CURRENT_SESSION = {
   deviceId: "device-1",
   lane: "prod" as const,
 };
-const EXPECTED_ROUTES: CurrentExpectedWorkingFolderRoute[] = [
+const EXPECTED_ROUTES = [
   {
     agentProfileId: "agent-1",
     bindingId: "binding-1",
@@ -27,7 +27,7 @@ const EXPECTED_ROUTES: CurrentExpectedWorkingFolderRoute[] = [
     configurationRevision: 5,
     defaultProjectId: null,
   },
-];
+] as const satisfies readonly CurrentExpectedWorkingFolderRoute[];
 const DEFAULT_PROJECT_OBSERVATION: LocalWakeRouteWorkingFolderObservation = {
   bindingId: "binding-1",
   configurationRevision: 3,
@@ -73,12 +73,12 @@ function createV4Report(
 
 function resolve(
   overrides: Partial<
-    Parameters<typeof resolveCurrentWorkingFolderObservations>[0]
+    Parameters<typeof resolveCurrentWorkingFolderObservation>[0]
   > = {}
 ) {
-  return resolveCurrentWorkingFolderObservations({
+  return resolveCurrentWorkingFolderObservation({
     currentSession: CURRENT_SESSION,
-    expectedRoutes: EXPECTED_ROUTES,
+    expectedRoute: EXPECTED_ROUTES[0],
     freshnessMs: 90_000,
     nowMs: NOW_MS,
     report: createV4Report(),
@@ -87,12 +87,12 @@ function resolve(
 }
 
 describe("current working-folder observation consumer", () => {
-  it("confirms complete fresh v4 facts against the current Core expected set", () => {
-    const result = resolve();
+  it("confirms the target fact against its current Core identity", () => {
+    const result = resolve({ expectedRoute: EXPECTED_ROUTES[1] });
 
     expect(result.status).toBe("confirmed");
     if (result.status === "confirmed") {
-      expect(result.observationsByProfileId.get("agent-2")).toMatchObject({
+      expect(result.observation).toMatchObject({
         reasonCode: "profile.workspace.missing",
         status: "missing",
       });
@@ -115,23 +115,15 @@ describe("current working-folder observation consumer", () => {
     expect(replacementGeneration.status).toBe("confirmed");
     if (replacementGeneration.status === "confirmed") {
       expect(
-        replacementGeneration.observationsByProfileId.get("agent-1")
-          ?.localProjectBindingGeneration
+        replacementGeneration.observation.localProjectBindingGeneration
       ).toBe("binding-generation-8");
     }
   });
 
   it.each([
-    ["missing", [OBSERVATIONS[0]]],
-    ["duplicate", [OBSERVATIONS[0], OBSERVATIONS[0]]],
-    [
-      "extra",
-      [
-        ...OBSERVATIONS,
-        { ...OBSERVATIONS[1], bindingId: "binding-3", profileId: "agent-3" },
-      ],
-    ],
-  ])("rejects %s observation coverage without partial truth", (_label, observations) => {
+    ["missing", [PROFILE_WORKSPACE_OBSERVATION]],
+    ["duplicate", [DEFAULT_PROJECT_OBSERVATION, DEFAULT_PROJECT_OBSERVATION]],
+  ])("rejects %s target evidence", (_label, observations) => {
     expect(
       resolve({
         report: createV4Report({
@@ -142,6 +134,36 @@ describe("current working-folder observation consumer", () => {
     ).toEqual({
       reasonCode: "working_folder.observation_coverage_invalid",
       status: "unknown",
+    });
+  });
+
+  it.each([
+    ["absent", []],
+    [
+      "stale",
+      [{ ...PROFILE_WORKSPACE_OBSERVATION, observedAtMs: NOW_MS - 90_000 }],
+    ],
+    [
+      "duplicate",
+      [PROFILE_WORKSPACE_OBSERVATION, PROFILE_WORKSPACE_OBSERVATION],
+    ],
+    [
+      "old configuration",
+      [{ ...PROFILE_WORKSPACE_OBSERVATION, configurationRevision: 4 }],
+    ],
+  ])("ignores %s evidence for another Profile", (_label, unrelated) => {
+    expect(
+      resolve({
+        report: createV4Report({
+          workingFolderObservations: [
+            DEFAULT_PROJECT_OBSERVATION,
+            ...(unrelated as LocalWakeRouteWorkingFolderObservation[]),
+          ],
+        }),
+      })
+    ).toEqual({
+      status: "confirmed",
+      observation: DEFAULT_PROJECT_OBSERVATION,
     });
   });
 

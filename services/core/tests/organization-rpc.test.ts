@@ -486,8 +486,22 @@ describe("organization Core RPC", () => {
     expect(readOperationalContexts).not.toHaveBeenCalled();
   });
 
-  it("batches Agent runtime lookups once per owner and reuses Auth identity", async () => {
-    const resolveProfileById = vi.fn();
+  it("batches Agent runtime lookups once per owner and reads each target Profile", async () => {
+    const resolveProfileById = vi.fn(
+      async (input: { openMeldProfileId: string }) => ({
+        ok: true as const,
+        profile: {
+          ownerUserId: "user-a",
+          profileKind: "agent" as const,
+          profileId: input.openMeldProfileId,
+          profileName:
+            input.openMeldProfileId === AGENT_PROFILE_ID ? "Codex" : "Reviewer",
+          profileHandle: "agent",
+          status: "active" as const,
+          defaultProjectId: null,
+        },
+      })
+    );
     const env = buildEnv({
       agentProfiles: [
         {
@@ -578,10 +592,14 @@ describe("organization Core RPC", () => {
       profileIds: [AGENT_PROFILE_ID, SECOND_AGENT_PROFILE_ID],
     });
     expect(lookupOwnerService).toHaveBeenCalledOnce();
-    expect(resolveProfileById).not.toHaveBeenCalled();
+    expect(
+      resolveProfileById.mock.calls
+        .map(([input]) => input.openMeldProfileId)
+        .sort()
+    ).toEqual([AGENT_PROFILE_ID, SECOND_AGENT_PROFILE_ID].sort());
   });
 
-  it("reads expected working-folder routes once for profiles on the same owner runtime", async () => {
+  it("does not reload the runtime catalog to check Organization Agent readiness", async () => {
     const profiles = [
       {
         organizationId: "org-a",
@@ -675,35 +693,10 @@ describe("organization Core RPC", () => {
       runtimeTransportClient,
       "readRuntimeTransportAgentProfileOperationalContexts"
     ).mockResolvedValue({ contexts: [] });
-    const readExpectedRoutes = vi
-      .spyOn(
-        localRuntimeExpectedRoutesService,
-        "readLocalRuntimeExpectedRoutes"
-      )
-      .mockResolvedValue({
-        response: {
-          excludedProfiles: [],
-          expectedRoutes: profiles.map((profile) => ({
-            agentProfileId: profile.profileId,
-            bindingId: `binding-${profile.profileId}`,
-            bindingState: "enabled_primary" as const,
-            configurationRevision: 1,
-            defaultProjectId: null,
-            executionTarget: {
-              agentControllerConversationId: null,
-              agentControllerRef: "builtin:codex",
-              openMeldServiceRuntimeId: "runtime-user-a",
-            },
-            profileName: profile.profileName,
-            reasonCodes: [],
-            routable: true,
-          })),
-          generatedAt: "2026-07-08T00:00:00.000Z",
-          openMeldServiceRuntimeId: "runtime-user-a",
-          runtimeResolution: "resolved",
-        },
-        status: "ok",
-      });
+    const readExpectedRoutes = vi.spyOn(
+      localRuntimeExpectedRoutesService,
+      "readLocalRuntimeExpectedRoutes"
+    );
 
     const response = await rpcGetCurrentOrganizationAgentRuntimeOverview(env, {
       context: buildContext({
@@ -713,15 +706,7 @@ describe("organization Core RPC", () => {
     });
 
     expect(response.agentProfiles).toHaveLength(2);
-    expect(readExpectedRoutes).toHaveBeenCalledOnce();
-    expect(readExpectedRoutes).toHaveBeenCalledWith(
-      expect.objectContaining({
-        contractVersion: "v4",
-        deviceId: "device-1",
-        lane: "dev-local",
-        ownerUserId: "user-a",
-      })
-    );
+    expect(readExpectedRoutes).not.toHaveBeenCalled();
   });
 
   it("keeps owner readiness details while sharing only the allowlisted Usage fact with another active member", async () => {

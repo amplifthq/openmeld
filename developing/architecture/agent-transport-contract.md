@@ -113,6 +113,17 @@ preserves FIFO order within one target. A candidate failure is isolated from
 the other target queues. After a full batch advances successfully while more
 pending records remain, the shared Space alarm schedules an immediate
 continuation; retrying or poisoned work keeps the normal durable retry cadence.
+Concurrent flush callers share one in-flight flush per Space. D1 overload is
+storage backpressure, not evidence of a malformed request or a missing Agent
+account: it does not consume the candidate poison budget. The same durable
+outbox record remains recoverable through the shared alarm. An in-memory
+retry-not-before hint suppresses additional flushes for the normal redrive
+interval; eviction can shorten that hint but cannot lose the durable work.
+Other repeated candidate exceptions retain the bounded poison behavior and
+report a request-preparation failure, not an unproven account failure.
+Local, staging, and production direct delivery use the same runtime-aware
+submission function; the Worker environment must not select a different
+workstation recovery policy. Local Core enables direct delivery by default.
 The application-level outbox responsibility states are `pending`,
 `handed_off`, and `cancelled`. `handed_off` means the selected transport
 accepted responsibility: direct RuntimeCoordinator submission for workstation
@@ -787,10 +798,14 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   whether resolution used the Default Project or Profile workspace, and carries
   the local Project `bindingGeneration` (as
   `localProjectBindingGeneration`) when applicable. The Core trust matcher
-  accepts the set only while those current identities match and every
-  observation is fresh. The Core-owned Wakeability projection consumes that
-  matcher as its current working-folder gate; missing, legacy, partial, stale,
-  duplicated, or identity-mismatched evidence remains unknown and fails closed.
+  checks the requested Profile against its Auth-owned Default Project and the
+  Core-owned primary Binding already read for that readiness decision. Exactly
+  one matching observation must be fresh and belong to the current Service
+  session, device, and lane. Missing, legacy, stale, duplicated, or
+  identity-mismatched target evidence remains unknown and fails closed. An
+  unrelated Profile's missing or stale observation does not block this target.
+  Full expected-route reconciliation retains responsibility for catalog
+  completeness and registration; a readiness read does not reload the catalog.
   `localProjectBindingGeneration` is an opaque Service-owned local connection
   identity. Core does not compare it with a cloud generation; a later accepted
   current-session report replaces the earlier generation and triggers
@@ -798,6 +813,12 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   Missing or invalid facts use the precise Project/workspace reason codes from
   the shared schema; local folder paths never cross the Service boundary.
   Historical Wake outcomes never substitute for this current observation.
+  Space member/status and Organization directory readiness use the same Core
+  decision. Profiles in one request share existing Runtime registry and
+  Controller report reads; no result survives into another request. Each
+  target still passes its own identity, revision, and freshness checks. A
+  failed target read fails closed for that target and the next request reads
+  fresh facts. Readiness does not grant an execution lease or publish a reply.
 - Controller target changes, Controller unbinding, and local working-folder
   changes use an owner-sharded RuntimeCoordinator execution-state read that
   spans every Space. Web may use that read to disable disruptive actions
@@ -847,6 +868,12 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   indexes. Collection and page-apply failures share the same fail-closed,
   backoff-based state machine. Reference overflow is explicit and bounded, and
   the ready-state hot path never scans total account history.
+  Legacy active references without FIFO work metadata remain fail-closed for
+  that Profile's operational-context display. They are not an active-index
+  inconsistency when the Profile is correctly indexed: rebuilding active
+  references cannot reconstruct FIFO metadata and must not repeatedly make
+  every other Profile's mutation admission unavailable. Execution-state reads
+  continue to honor those canonical active references.
 - Removing a visibly settled execution head does not release duplicate
   protection. The deterministic terminal execution-token authority rejects an
   exact head and dispatch replay before admission; D1 history may explain the
@@ -1642,6 +1669,33 @@ publication record and a pending terminal-projection index atomically. Its
 bounded-work alarm retries the D1 projection and clears the index only after
 Core accepts it. A transient Core failure therefore cannot leave a visibly
 stopped child permanently invisible to its parent subscription.
+
+An accepted local result retires its execution token, but does not complete the
+Wake's cloud publication obligation. Stop for that accepted result runs through
+the same RuntimeCoordinator finalization serializer without contacting the old
+Service. RuntimeCoordinator verifies the exact accepted inbox result against its
+stored execution authority before reconstructing a missing legacy finalization
+command. It persists the command and retry before recording the Stop fence.
+Space elects the stopped notice through the same atomic final-outcome claim as
+reply publication; an already-persisted final outcome wins. Only that persisted
+claim permits RuntimeCoordinator to settle cancellation and project dependent
+task outcomes. An unavailable Space claim leaves durable repair pending; it
+must not become a successful Stop or trigger another Agent execution.
+
+The internal `rpcApplyRuntimeCoordinatorWakeStopCommand` uses the existing shared
+finalization-command and claim-read schemas. If that RPC is unavailable during
+a Core rollout, Stop returns `retry_later` and preserves the repair command.
+It does not require a CLI, Service, or Agent Controller protocol upgrade.
+
+For an accepted-but-unpublished execution, viewer-authorized Space progress
+reads ask RuntimeCoordinator for publication Stop eligibility. Its read-only
+endpoint checks the stored `result_received` lifecycle, nonterminal authority,
+and exact request scope; the absence of a current token run or fresh Controller
+report does not remove this server-owned capability. Missing or terminal
+authority returns no eligibility. An execution still running locally keeps the
+existing fresh cancel/interrupt report requirement. The existing Stop mutation
+continues to validate the accepted result and elect the final Space claim;
+eligibility cannot cancel work, publish a notice, or advance recovery.
 
 Wake execution invariants:
 

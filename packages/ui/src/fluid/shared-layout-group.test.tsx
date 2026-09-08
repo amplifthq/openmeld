@@ -6,6 +6,27 @@ import { SharedLayoutGroup, SharedLayoutItem } from "./shared-layout-group";
 afterEach(cleanup);
 
 describe("SharedLayoutGroup", () => {
+  it("does not highlight a disabled action", () => {
+    render(
+      <SharedLayoutGroup>
+        <SharedLayoutItem disabled itemId="join">
+          <button disabled type="button">
+            Join
+          </button>
+        </SharedLayoutItem>
+      </SharedLayoutGroup>
+    );
+    const item = screen
+      .getByRole("button", { name: "Join" })
+      .closest("[data-slot=shared-layout-item]");
+    if (!item) {
+      throw new Error("Missing choice card");
+    }
+    fireEvent.pointerEnter(item);
+    expect(
+      document.querySelector('[data-slot="shared-layout-background"]')
+    ).toBeNull();
+  });
   it("follows a controlled active item without drawing duplicate backgrounds", () => {
     const { rerender } = render(
       <SharedLayoutGroup activeItemId="first">

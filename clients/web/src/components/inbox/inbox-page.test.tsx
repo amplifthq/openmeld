@@ -1,5 +1,6 @@
 import type {
 	InboxItem,
+	InboxView,
 	ListInboxItemsResponse,
 } from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -29,7 +30,7 @@ const markCurrentInboxItemReadMock = vi.hoisted(() => vi.fn());
 const dismissCurrentInboxItemMock = vi.hoisted(() => vi.fn());
 const DEEP_LINKED_APPROVAL_NAME_PATTERN = /Deep-linked approval/;
 const INBOX_ITEM_UNAVAILABLE_NAME_PATTERN = /Inbox item isn't available/;
-const NEEDS_ATTENTION_SUMMARY_NAME_PATTERN = /2 items need your attention/;
+const NEEDS_ATTENTION_SUMMARY_NAME_PATTERN = /2 items need action/;
 const NEW_SPACE_MESSAGE_LINK_NAME_PATTERN = /New Space message/;
 const SLACK_REPLY_LINK_NAME_PATTERN = /Center Agent replied in Slack/;
 const APPROVAL_COMMAND_LINK_NAME_PATTERN = /Approve the production command/;
@@ -586,7 +587,7 @@ function renderInboxPage(input: {
 	items: InboxItem[];
 	nextPageError?: Error;
 	nextPageItems?: InboxItem[];
-	onViewChange?: (view: "all" | "needs_action" | "unread" | "updates") => void;
+	onViewChange?: (view: InboxView) => void;
 	onItemDismissed?: (itemId: string) => void;
 	totalUnreadCount?: number;
 	unresolvedActionCount?: number;

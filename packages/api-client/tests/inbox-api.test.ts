@@ -223,6 +223,16 @@ describe("api-client Inbox API", () => {
       api.updatePreferences({ urgentEmailEnabled: false })
     ).resolves.toMatchObject({ urgentEmailEnabled: false });
     expect(transport).toHaveBeenCalledTimes(13);
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "inbox.summary",
+        init: expect.objectContaining({
+          headers: expect.objectContaining({
+            "x-openmeld-inbox-summary-version": "1",
+          }),
+        }),
+      })
+    );
     for (const operation of [
       "inbox.list",
       "inbox.item.get",

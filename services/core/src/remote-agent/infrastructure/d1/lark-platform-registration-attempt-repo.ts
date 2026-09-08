@@ -13,6 +13,7 @@ export type RemoteAgentLarkPlatformPermissionMode =
   | "official_preset";
 
 export type RemoteAgentLarkPlatformRegistrationAttemptRecord = {
+  applicationVersionId: string | null;
   accountDomain: string;
   attemptId: string;
   connectionId: string | null;
@@ -39,6 +40,7 @@ export type RemoteAgentLarkPlatformRegistrationAttemptRecord = {
 };
 
 type RemoteAgentLarkPlatformRegistrationAttemptRow = {
+  application_version_id: string | null;
   account_domain: string;
   attempt_id: string;
   connection_id: string | null;
@@ -66,6 +68,7 @@ type RemoteAgentLarkPlatformRegistrationAttemptRow = {
 
 const REGISTRATION_SELECT = `
   SELECT
+    application_version_id,
     attempt_id,
     organization_id,
     initiated_by_user_id,
@@ -93,6 +96,36 @@ const REGISTRATION_SELECT = `
 `;
 
 const CAPABILITY_GROUP_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
+
+export async function recordClaimedLarkPlatformApplicationVersion(input: {
+  attemptId: string;
+  claimId: string;
+  db: D1Database;
+  nowMs: number;
+  versionId: string;
+}): Promise<void> {
+  const result = await input.db
+    .prepare(`
+    UPDATE openMeldRemoteAgent_lark_platform_registration_attempts
+    SET application_version_id = ?, updated_at_ms = ?
+    WHERE attempt_id = ? AND poll_claim_id = ?
+      AND poll_claim_expires_at_ms > ? AND expires_at_ms > ?
+      AND consumed_at_ms IS NULL AND status = 'configuring'
+      AND application_version_id IS NULL
+  `)
+    .bind(
+      input.versionId,
+      input.nowMs,
+      input.attemptId,
+      input.claimId,
+      input.nowMs,
+      input.nowMs
+    )
+    .run();
+  if (result.meta.changes !== 1) {
+    throw new Error("Lark-platform publication claim lost");
+  }
+}
 
 type CreateRemoteAgentLarkPlatformRegistrationAttemptInput = {
   accountDomain: string;
@@ -1619,6 +1652,7 @@ function mapRegistrationAttemptRow(
   row: RemoteAgentLarkPlatformRegistrationAttemptRow
 ): RemoteAgentLarkPlatformRegistrationAttemptRecord {
   return {
+    applicationVersionId: row.application_version_id,
     accountDomain: row.account_domain,
     attemptId: row.attempt_id,
     connectionId: row.connection_id,

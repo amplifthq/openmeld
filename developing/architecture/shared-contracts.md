@@ -454,6 +454,20 @@ not authorize it to query Auth-private `users` or `members` tables.
 Web, future Desktop, and future Mobile clients consume the same list, direct
 item, count, preference, and mutation contracts. The source target is a
 discriminated, structured locator rather than an arbitrary or Web-only URL.
+
+Inbox summary version `1` adds `unreadUrgentUpdateCount`, disjoint from
+`unresolvedActionCount`. Core derives both from the same recipient/access-filtered
+query; clients never count a list page to reconstruct them. The additive field
+is optional only for receiver-first interoperability: absent means unknown.
+Current API clients send `x-openmeld-inbox-summary-version: 1`; Gateway removes
+the new field for older strict clients, including already-open Web tabs.
+Deploy compatible Gateway first, Core second, and Web last. New Gateway accepts
+old Core output; new Web reports unknown if the field is absent. The new
+`urgent_updates` and `recent_updates` preview list views are available only after Core and Gateway support them;
+unsupported queries fail visibly, with no empty-list fallback. Rollback Web
+before Core, then Gateway; retain the compatible Gateway while Core emits the
+field. CLI, Service, Skills, setup, Wake and Space action contracts are unchanged.
+
 Each client maps only supported targets to its canonical navigation surface.
 Unknown target kinds fail closed and remain visible without creating an
 arbitrary URL. A Slack `message_channel` target is the bounded exception for an
@@ -1824,6 +1838,24 @@ otherwise unchanged.
 dispatch action guidance. The renderer composes already-owned Space, profile,
 guide, and command facts; it must not create another membership, role,
 readiness, execution, or publication-policy source.
+
+`space-mesh/collaboration-context` owns runtime-independent task-material trust
+guidance, Agent identity formatting, and source-scoped Wake participant wording.
+Local consumes these exports alongside the existing Entry Brief and continuity
+renderers. The participant list comes only from canonical activation targets,
+not membership or reference targets; it does not assign ordering or work and
+does not imply that a participant has produced a result. The acting profile is
+described as activated only when its ID is present.
+
+Adapters supply the instruction for reading source-scoped outcomes and the
+existing Entry Brief `needMore` instruction for live Space Board access. These
+are in-process renderer inputs, not a new transport protocol. Cross-service
+source, Board, and result data continue to use their existing schemas. No local
+private context, access rights, or execution state is exported by this module.
+Remote adoption must supply its own authorized read tools and native delivery
+contract; Local action-proposal/CLI rules must not replace Remote automatic
+publication or Center native execution rules. This extraction does not integrate
+either hosted runtime or guarantee conflict-free multi-agent execution.
 
 `packages/schemas/src/schemas/http/space-board.ts` owns the strict Space Board
 HTTP/RPC response. Space/Core compose the response from the Space room
@@ -4122,6 +4154,24 @@ OpenConnector connection list are never Organization authority.
 
 ### Wake Stop HTTP Contracts
 
+The accepted-result publication phase uses the shared eligibility variant
+`controlMode: openmeld_owned_publication_cancel` with
+`reliability: openmeld_owned_publication`. Core obtains that policy projection
+from RuntimeCoordinator's read-only
+`/runtime-coordinator/wake-stop/publication-eligibility` endpoint, which reuses
+the shared Wake Stop request scope and nullable eligibility schema. It does not
+pretend a retired local execution has native Controller cancel capability.
+Web consumes the server eligibility and must not infer it from progress text.
+
+Rollout is consumer-first: deploy the Web/Gateway readers built with the
+expanded eligibility union before Core emits it, and refresh already-open Web
+clients. Older clients that explicitly request eligibility have a strict union
+and cannot decode this new variant. Published CLI commands do not opt into
+`includeWakeStopEligibility`; their response shape stays unchanged. Setup,
+Service transport, Agent skills, and Stop mutation payloads are unchanged, so
+no local-component contract floor is raised. A missing internal eligibility
+receiver fails closed with null rather than granting a client-side fallback.
+
 `packages/schemas/src/schemas/http/space-wake-stop.ts` owns the shared POST
 contract for Wake Stop. Clients may submit only Space-visible selectors:
 `sourceSignalId` or `clientMessageId + targetProfileId`. `dispatchId`, local
@@ -4194,12 +4244,14 @@ strict Web response parser must not receive the additive field before the new
 Web is live.
 
 Wake Stop eligibility is a read model, not execution authority. It may make a
-Wake appear stoppable only when Core can project one of three control modes:
+Wake appear stoppable only when Core can project one of four control modes:
 
 - OpenMeld-owned pre-agent Stop, for a target Wake that has not linked a
   RuntimeCoordinator execution and has not reached local agent delivery.
 - Controller-backed running Stop, for a linked execution whose controller can
   accept native cancel or native interrupt.
+- OpenMeld-owned publication Stop, after RuntimeCoordinator accepts the local
+  result and before its final outcome settles, without current Controller control.
 - Remote Agent native-delivery Stop, for one active hosted submission whose
   durable execution identity can be cancelled through the Remote Agent worker.
 

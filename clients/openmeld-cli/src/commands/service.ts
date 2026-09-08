@@ -49,6 +49,7 @@ import {
 } from "../config/daemon-state";
 import { isOpenMeldLockError } from "../config/lock";
 import { resolveOpenMeldEnvironmentTarget } from "../config/openmeld-environment-target";
+import { resolveOpenMeldEnvPreset } from "../config/paths";
 import { canAttachAuthTokenToRequest } from "../config/request-headers";
 import { resolveOpenMeldProfileOrNull } from "../config/resolve-openmeld-profile";
 import { runDaemonServiceLoop } from "../local-service/carrier/service-runner";
@@ -2413,13 +2414,28 @@ export async function runDaemonStop(
         },
         resolveResult: (stopResult) =>
           summarizeDaemonStopJournalResult(stopResult),
-        run: async () =>
-          await executeDaemonStopCommand({
+        run: async () => {
+          if (resolveOpenMeldEnvPreset() === "dev-local") {
+            await uninstallDaemonServiceUpdateWorker();
+          }
+          const stopped = await executeDaemonStopCommand({
             force: input.force,
             presenter,
             profile: input.profile,
             runtime,
-          }),
+          });
+          if (
+            resolveOpenMeldEnvPreset() === "dev-local" &&
+            (stopped.status === "stopped" || stopped.status === "not_running")
+          ) {
+            const manager = await resolveDaemonServiceManager();
+            if (manager) {
+              await manager.stop();
+              await manager.waitUntilStopped();
+            }
+          }
+          return stopped;
+        },
       }),
     {
       intent: "stop",

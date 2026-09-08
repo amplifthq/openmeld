@@ -2250,6 +2250,20 @@ projection. Tenant access tokens are minted and cached only within their
 provider lifetime inside one Worker isolate and are never stored in D1.
 
 Webhook readiness is connection-owned evidence, not a generic provider flag.
+Core publishes the configured provider application before recording its bot
+identity as configured. The claimed registration attempt stores the exact
+provider application version ID; later polls verify that version without
+repeating the configuration PATCH or submitting another publication. Core
+requires the matching application and version, approved provider status, and
+the required event subscriptions before settling configuration. A submitted
+version still under review is not a connected Channel. Setup consent includes
+application self-management solely to read the application's own version;
+it does not add a Center Agent runtime capability.
+The publication rollout marks earlier connected Webhook rows as requiring
+repair, preserving their apps and credentials. The existing authorized repair
+flow reconfigures and publishes the same app and requests updated consent when
+needed. Disconnected rows and active attempts are unchanged; active legacy
+attempts cannot use a saved bot identity to skip publication verification.
 The provider's encrypted URL-verification challenge may omit all three
 signature headers. Core may decrypt that envelope only into a URL-verification
 challenge and must match its verification token before recording reachability.

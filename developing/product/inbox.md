@@ -272,19 +272,37 @@ A resolved action is no longer presented as actively urgent. Its historical
 title and preview may remain visible in **Updates**, but an `Urgent` treatment
 must not imply that the member still has an outstanding decision.
 
-The global Inbox launcher's badge counts uncleared, unresolved `action_required`
-items, whether or not they have been read. Ordinary unread updates remain
-visible in Inbox but do not inflate this high-attention badge. Reading an item
-never makes unfinished work disappear from the badge. The count is capped
-visually at `99+`; the server response retains the exact count.
+The sidebar header Inbox badge counts two disjoint sets: uncleared, unresolved
+`action_required` items (read or unread), plus uncleared, unread urgent `update`
+items. Resolved actions never contribute. An urgent action counts once, as an
+action. Ordinary unread updates do not inflate this count. Reading an urgent
+update clears its contribution; reading an action does not resolve it. Dismiss
+removes either contribution without changing source business state.
+Core computes both exact counts over the complete accessible recipient Inbox,
+independently of list pagination. Web caps only the displayed sum at `99+`.
 
-The compact preview uses that same attention fact: when unresolved actions
-exist, its status names the action count. The preview renders unresolved items
-under **Needs action** and ordinary unread items under **Recent updates** at the
-same time; one section never hides the other. When there are no unresolved
-actions, the bounded preview may use the full available item allowance for
-recent updates. It may say **All caught up** only when there are no unresolved
-actions and no unread items.
+An open action makes the badge red; otherwise unread urgent updates make it
+amber. Red means a human action is outstanding, not that every action is urgent.
+The bottom-right Inbox launcher uses the same tone on its icon and label, with
+no number. Both entry points expose the exact action/urgent-update breakdown in
+their accessible names and hover descriptions. Missing or failed summaries are
+unknown, never zero; the header renders no badge without a confirmed count.
+Initial loading retains the plain Inbox label without a checking message or
+placeholder badge. Background refreshes and read/dismiss mutations retain the
+last confirmed count until Core returns the updated summary, without an
+intermediate visual change or an optimistic count.
+Failed summaries still expose their unavailable status. Entry activation alone
+never clears an item.
+
+The compact preview uses the same summary breakdown. It separately queries
+**Needs action**, **Urgent updates**, and unread **Recent updates**, in that
+order, without duplicating an item across groups. The `urgent_updates` list view
+uses the same predicate as the urgent update count, so older urgent updates
+cannot be displaced by a page of newer ordinary messages. The `recent_updates`
+view independently selects unread items outside both attention groups so a
+page of actions or urgent updates cannot starve ordinary updates either. The bounded preview
+reserves room for each group; full Inbox remains the complete list. It may say
+**All caught up** only when there are no unresolved actions and no unread items.
 
 ### Space message unread behavior
 
