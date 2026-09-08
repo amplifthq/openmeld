@@ -68,4 +68,36 @@ describe("browser application error reporting", () => {
 		await Promise.resolve();
 		expect(fetch).toHaveBeenCalledTimes(20);
 	});
+
+	it("allows an explicit report after automatic capture and returns its searchable ID", async () => {
+		const { reportClientApplicationError, submitApplicationErrorReport } =
+			await import("./application-error-client");
+		const error = new Error("private token in assets/page.js:12:34");
+		reportClientApplicationError(error, "route");
+		const id = await submitApplicationErrorReport(error);
+		expect(fetch).toHaveBeenCalledTimes(2);
+		const body = String(vi.mocked(fetch).mock.calls[1][1]?.body);
+		expect(JSON.parse(body)).toMatchObject({
+			id,
+			submission: "user",
+			source: "route",
+			error: { frames: ["assets/page.js:12:34"] },
+		});
+		expect(body).not.toMatch(PRIVATE_CONTENT);
+	});
+
+	it("never claims successful manual delivery on rejection or a network failure", async () => {
+		const { submitApplicationErrorReport } = await import(
+			"./application-error-client"
+		);
+		vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 429 }));
+		await expect(
+			submitApplicationErrorReport(new Error("error"))
+		).rejects.toThrow();
+		vi.mocked(fetch).mockRejectedValueOnce(new TypeError("Offline"));
+		await expect(
+			submitApplicationErrorReport(new Error("error"))
+		).rejects.toThrow("Offline");
+		expect(fetch).toHaveBeenCalledTimes(2);
+	});
 });

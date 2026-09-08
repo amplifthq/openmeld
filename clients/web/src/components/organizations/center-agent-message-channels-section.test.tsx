@@ -3,8 +3,70 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CenterAgentMessageChannelsSection } from "./center-agent-message-channels-section";
 
 afterEach(cleanup);
+const PASSIVE_WAIT_GUIDANCE = /You can leave this page/;
+const MANAGER_CONSENT_GUIDANCE = /An organization manager needs to approve/;
 
 describe("CenterAgentMessageChannelsSection", () => {
+	it.each([
+		"lark",
+		"feishu",
+	] as const)("shows %s missing consent as an action, not passive connection progress", (provider) => {
+		const onManage = vi.fn();
+		const props = {
+			availableProviders: [provider],
+			canManage: true,
+			connections: [
+				{
+					id: "connection_consent",
+					provider,
+					status: "configuring" as const,
+					reasonCode: `${provider}.application_config_permission_required`,
+					transport: "webhook" as const,
+					externalAccountId: null,
+					externalAccountName: null,
+					grantedCapabilityGroups: [],
+					lastVerifiedAt: null,
+					permissionBundleVersion: "channel-only-2026-07-18",
+				},
+			],
+			disableSlackConnect: false,
+			disableSlackDisconnect: false,
+			onConnectSlackWorkspace: vi.fn(),
+			onDisconnectSlackWorkspace: vi.fn(),
+			onManageLarkPlatform: onManage,
+			organizationSlug: "acme",
+		};
+		const { rerender } = render(
+			<CenterAgentMessageChannelsSection {...props} />
+		);
+		expect(screen.getByText("Authorization required")).toBeTruthy();
+		expect(screen.queryByText("Connecting")).toBeNull();
+		expect(screen.queryByText(PASSIVE_WAIT_GUIDANCE)).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Review authorization" })
+		);
+		expect(onManage).toHaveBeenCalledWith(provider);
+		rerender(
+			<CenterAgentMessageChannelsSection {...props} canManage={false} />
+		);
+		expect(screen.getByText(MANAGER_CONSENT_GUIDANCE)).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Review authorization" })
+		).toBeNull();
+		rerender(
+			<CenterAgentMessageChannelsSection
+				{...props}
+				connections={props.connections.map((connection) => ({
+					...connection,
+					status: "connected",
+					reasonCode: null,
+				}))}
+			/>
+		);
+		expect(screen.queryByText("Authorization required")).toBeNull();
+		expect(screen.getByText("Connected")).toBeTruthy();
+	});
+
 	it("puts the Channel explanation on each provider card without a tooltip", () => {
 		render(
 			<CenterAgentMessageChannelsSection
@@ -387,6 +449,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 	});
 
 	it("does not offer another manager an installer-private setup action", () => {
+		const onCancelSetup = vi.fn();
 		render(
 			<CenterAgentMessageChannelsSection
 				activeRegistrations={[
@@ -404,6 +467,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				canManage
 				disableSlackConnect={false}
 				disableSlackDisconnect={false}
+				onCancelLarkPlatformSetup={onCancelSetup}
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
@@ -414,10 +478,12 @@ describe("CenterAgentMessageChannelsSection", () => {
 		expect(screen.getByText("Connecting")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Setup is in progress. The person who started it can continue."
+				"Another manager started this setup. You can cancel it and connect again."
 			)
 		).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Continue setup" })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Cancel setup" }));
+		expect(onCancelSetup).toHaveBeenCalledWith("lark");
 	});
 
 	it("offers the real repair action and aligns channel status badges with controls", () => {

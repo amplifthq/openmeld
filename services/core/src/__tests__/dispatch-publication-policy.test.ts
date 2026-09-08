@@ -45,6 +45,36 @@ const malformedReplyCopy = (targetName: string) =>
   `${targetName} answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted.`;
 
 describe("dispatch publication policy", () => {
+  it("settles a recorded self-Wake as a visible failure instead of retrying publication", () => {
+    const plan = resolveDispatchPublicationPlan({
+      actorName: "Research Agent",
+      dispatchMessage: {
+        ...createDispatchMessage(),
+        targetProfileId: "agt_current",
+      },
+      payload: {
+        status: "success",
+        spaceAction: {
+          type: "post_message",
+          messageEnvelope: {
+            text: "Done",
+            activationTargets: ["agt_current"],
+            referenceTargets: [],
+            mentionTargets: [],
+          },
+        },
+      },
+      replyText: "Done",
+    });
+    expect(plan).toMatchObject({
+      kind: "system_notice",
+      noticeType: "terminal_failure",
+      reasonCode: "space.wake.target_invalid",
+      blockedExplicitAction: true,
+    });
+    expect(plan.kind).not.toBe("message");
+  });
+
   it.each([
     [
       "project.local_connection.missing",
@@ -619,11 +649,10 @@ describe("dispatch publication policy", () => {
     expect(plan.text).not.toContain("raw vendor error");
   });
 
-  it("names the agent and keeps an unmapped runtime errorCode structured without leaking diagnostics", () => {
+  it("explains a rejected provider setting without publishing private diagnostics", () => {
     // Real 2026-07-10 dogfooding incident shape: the daemon reported
     // errorCode "runtime.turn.failed" with an OpenAI 400 JSON errorMessage.
-    // No specific public mapping exists for this code. The visible notice stays
-    // plain-language while the structured reasonCode preserves diagnostics.
+    // Classify the structured setting rejection while keeping provider text private.
     const plan = resolveDispatchPublicationPlan({
       actorName: "oh-my-claude",
       dispatchMessage: createDispatchMessage(),
@@ -641,20 +670,79 @@ describe("dispatch publication policy", () => {
       kind: "system_notice",
       noticeType: "terminal_failure",
       publicOutcome: "system_notice",
-      reason: "OpenMeld did not receive a message it could post in this space.",
+      reason:
+        "The model provider rejected a request setting. Review the Agent's model and reasoning settings, then try again.",
       reasonCode: "runtime.turn.failed",
     });
     if (plan.kind !== "system_notice") {
       throw new Error("expected a system notice publication plan");
     }
     expect(plan.text).toBe(
-      "oh-my-claude couldn't reply: OpenMeld did not receive a message it could post in this space."
+      "oh-my-claude couldn't reply: The model provider rejected a request setting. Review the Agent's model and reasoning settings, then try again."
     );
     expect(plan.text).toContain("oh-my-claude");
     expect(plan.text).not.toContain("runtime.turn.failed");
     expect(plan.text).not.toContain("reasoning.effort");
     expect(plan.text).not.toContain("Invalid value");
     expect(plan.text).not.toContain("invalid_request_error");
+  });
+
+  it.each([
+    "Invalid prompt: your prompt was flagged as potentially violating our usage policy.",
+    JSON.stringify({
+      error: {
+        code: "content_policy_violation",
+        message: "private prompt and credential sk-private",
+      },
+    }),
+  ])("publishes a fixed policy explanation without raw provider content", (errorMessage) => {
+    const plan = resolveDispatchPublicationPlan({
+      actorName: "Codex",
+      dispatchMessage: createDispatchMessage(),
+      payload: {
+        status: "failed",
+        errorCode: "runtime.turn.failed",
+        errorMessage,
+      },
+      replyText: null,
+      targetProfileName: null,
+    });
+    expect(plan).toMatchObject({
+      kind: "system_notice",
+      reason:
+        "The model provider declined this request under its usage policy. Review the request before trying again.",
+      reasonCode: "runtime.turn.failed",
+    });
+    expect(JSON.stringify(plan)).not.toContain("sk-private");
+  });
+
+  it.each([
+    "private prompt with invalid_request_error and unsupported_value",
+    JSON.stringify({ error: { code: "unknown_code", message: "sk-private" } }),
+    JSON.stringify({
+      error: {
+        type: "invalid_request_error",
+        code: "unknown_code",
+        message: "sk-private",
+      },
+    }),
+  ])("keeps unknown runtime failures private", (errorMessage) => {
+    const plan = resolveDispatchPublicationPlan({
+      actorName: "Codex",
+      dispatchMessage: createDispatchMessage(),
+      payload: {
+        status: "failed",
+        errorCode: "runtime.turn.failed",
+        errorMessage,
+      },
+      replyText: null,
+      targetProfileName: null,
+    });
+    expect(plan).toMatchObject({
+      kind: "system_notice",
+      reason: "OpenMeld did not receive a message it could post in this space.",
+    });
+    expect(JSON.stringify(plan)).not.toContain("sk-private");
   });
 
   it("uses target profile snapshots before falling back to a generic actor name", () => {

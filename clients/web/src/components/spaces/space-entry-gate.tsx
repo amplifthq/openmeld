@@ -11,17 +11,14 @@ import {
 	UserPlusIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { isSessionExpiredError } from "#/lib/session-expired";
 import { isCurrentSpaceAccessRejection } from "#/lib/spaces/errors";
 import { rememberProtectedSpaceAccess } from "#/lib/spaces/protected-space-access";
 import { spaceEntryResolutionQueryOptions } from "#/query/spaces/entry-resolution";
-import {
-	SpaceEntryConfirmationContext,
-	SpaceEntryRetryContext,
-} from "./space-entry-confirmation";
+import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
 
 export function SpaceEntryGate(input: {
 	backHref?: string;
@@ -37,6 +34,7 @@ export function SpaceEntryGate(input: {
 	threadRootSignalId?: string;
 }) {
 	const [password, setPassword] = useState("");
+	const queryClient = useQueryClient();
 	const [passwordError, setPasswordError] = useState<string | null>(null);
 	const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
 	const queryInput = {
@@ -49,11 +47,38 @@ export function SpaceEntryGate(input: {
 			? {}
 			: { threadRootSignalId: input.threadRootSignalId }),
 	};
-	const resolutionQuery = useQuery(
-		spaceEntryResolutionQueryOptions({
-			...queryInput,
-			enabled: typeof window !== "undefined",
-		})
+	const resolutionOptions = spaceEntryResolutionQueryOptions({
+		...queryInput,
+		enabled: typeof window !== "undefined",
+	});
+	const resolutionQuery = useQuery(resolutionOptions);
+	const ensureConfirmed = useCallback(async (): Promise<boolean> => {
+		if (resolutionQuery.data?.view.state === "allowed") {
+			return true;
+		}
+		// A Send intent should not inherit a stale or stalled background read.
+		// Replace it with one bounded current read while keeping the draft intact.
+		await queryClient.cancelQueries({
+			queryKey: resolutionOptions.queryKey,
+			exact: true,
+		});
+		const refreshed = await resolutionQuery.refetch();
+		if (refreshed.error) {
+			throw refreshed.error;
+		}
+		return refreshed.data?.view.state === "allowed";
+	}, [
+		queryClient,
+		resolutionOptions.queryKey,
+		resolutionQuery.data?.view.state,
+		resolutionQuery.refetch,
+	]);
+	const confirmation = useMemo(
+		() => ({
+			confirmed: resolutionQuery.data?.view.state === "allowed",
+			ensureConfirmed,
+		}),
+		[ensureConfirmed, resolutionQuery.data?.view.state]
 	);
 
 	const rejected =
@@ -68,37 +93,31 @@ export function SpaceEntryGate(input: {
 	}, [rejected, input.onAccessRejected]);
 	if (!rejected && resolutionQuery.data?.view.state === "allowed") {
 		return (
-			<SpaceEntryConfirmationContext value={true}>
-				<SpaceEntryRetryContext value={null}>
-					{input.children(resolutionQuery.data)}
-				</SpaceEntryRetryContext>
+			<SpaceEntryConfirmationContext value={confirmation}>
+				{input.children(resolutionQuery.data)}
 			</SpaceEntryConfirmationContext>
 		);
 	}
 
 	if (!(rejected || resolutionQuery.data) && input.restoredContent) {
 		return (
-			<SpaceEntryConfirmationContext value={false}>
-				<SpaceEntryRetryContext
-					value={
-						resolutionQuery.isError
-							? async () => {
-									await resolutionQuery.refetch();
-								}
-							: null
-					}
-				>
-					{input.restoredContent}
-				</SpaceEntryRetryContext>
+			<SpaceEntryConfirmationContext value={confirmation}>
+				{input.restoredContent}
 			</SpaceEntryConfirmationContext>
 		);
 	}
 
 	const retry = () => {
 		setPasswordError(null);
-		resolutionQuery.refetch().catch((error: unknown) => {
-			console.error("Failed to check Space access.", error);
-		});
+		queryClient
+			.cancelQueries({
+				queryKey: resolutionOptions.queryKey,
+				exact: true,
+			})
+			.then(async () => await resolutionQuery.refetch())
+			.catch((error: unknown) => {
+				console.error("Failed to check Space access.", error);
+			});
 	};
 	const submitPassword = async () => {
 		const normalizedPassword = normalizeSpacePasswordText(password);
@@ -162,14 +181,14 @@ export function SpaceEntryState(input: {
 	if (input.isPending && !input.resolution) {
 		return (
 			<output
-				aria-label="Checking Space access"
+				aria-label="Opening Space"
 				className="flex w-full max-w-sm flex-col items-center gap-4 text-center"
 			>
 				<Bars aria-hidden="true" className="h-7 w-10 text-muted-foreground" />
 				<div className="space-y-2">
-					<h1 className="font-medium text-base">Checking Space access</h1>
+					<h1 className="font-medium text-base">Opening Space</h1>
 					<p className="text-muted-foreground text-sm">
-						OpenMeld is checking what this account can view and do here.
+						Loading the latest messages…
 					</p>
 				</div>
 			</output>

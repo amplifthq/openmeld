@@ -4,6 +4,8 @@ import {
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
   parseAgentControllerRef,
+  peopleComputerContainsDevice,
+  projectPeopleComputersToLegacyLocalRuntimes,
   type RuntimeLookupInput,
   resolveAgentWakeAvailability,
   resolveHostedAgentWakeAvailability,
@@ -87,6 +89,8 @@ import {
   centerAgentReadMemberComputersResponseSchema,
   centerAgentReadMemberOpenMeldServiceStatusBodySchema,
   centerAgentReadMemberOpenMeldServiceStatusResponseSchema,
+  centerAgentReadPeopleComputersBodySchema,
+  centerAgentReadPeopleComputersResponseSchema,
   centerAgentReadSlackChannelHistoryBodySchema,
   centerAgentReadSlackChannelMembersBodySchema,
   centerAgentReadSlackFileBodySchema,
@@ -114,6 +118,7 @@ import {
   centerAgentSearchSlackMessagesResponseSchema,
   centerAgentSelectLocalAgentInstallationBodySchema,
   centerAgentSelectLocalAgentInstallationResponseSchema,
+  centerAgentSessionSelectorSchema,
   centerAgentSetOpenMeldToolsMaintenanceBodySchema,
   centerAgentSetOpenMeldToolsMaintenanceResponseSchema,
   centerAgentSlackWorkspaceConnectBodySchema,
@@ -144,6 +149,7 @@ import {
   createCenterAgentContextLoadReceiptBodySchema,
   createCenterAgentContextLoadReceiptResponseSchema,
   createCenterAgentContextManifestBodySchema,
+  createCenterAgentSessionBodySchema,
   createConnectorAppRequestBodySchema,
   createSpaceDiagnosticReportBodySchema,
   currentAgentProfileSessionLookupQuerySchema,
@@ -199,12 +205,16 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  isHostedAgentControllerRef,
   isSpaceFileTextEditable,
+  type ListCenterAgentSessionsQuery,
+  type ListCenterAgentSessionsResponse,
   larkPlatformActiveRegistrationListResponseSchema,
   larkPlatformProviderSchema,
   larkPlatformRegistrationAttemptIdSchema,
   listCenterAgentAuditJournalQuerySchema,
   listCenterAgentAuditJournalResponseSchema,
+  listCenterAgentSessionsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
   localRuntimeEnrollmentBodySchema,
   localRuntimeEnrollmentResponseSchema,
@@ -240,6 +250,12 @@ import {
   patchSpaceContractBodySchema,
   patchSpaceMetaBodySchema,
   pendingGitHubAppInstallationSchema,
+  peopleComputerFileAccessReadRpcInputSchema,
+  peopleComputerFileAccessUpdateRpcInputSchema,
+  peopleComputerFolderPickerRpcInputSchema,
+  peopleComputerProjectDiscoveryRpcInputSchema,
+  peopleComputersResponseSchema,
+  peopleComputerTargetSchema,
   postSpaceWakeStopInputSchema,
   prepareReadinessRouteParamsSchema,
   profileSpaceHistoryGatewayHostSchema,
@@ -390,6 +406,8 @@ import type {
   CenterAgentReadMemberComputersResponse,
   CenterAgentReadMemberOpenMeldServiceStatusBody,
   CenterAgentReadMemberOpenMeldServiceStatusResponse,
+  CenterAgentReadPeopleComputersBody,
+  CenterAgentReadPeopleComputersResponse,
   CenterAgentReadSlackChannelHistoryBody,
   CenterAgentReadSlackChannelHistoryResponse,
   CenterAgentReadSlackChannelMembersBody,
@@ -575,6 +593,12 @@ import type {
   OwnerComputerDiagnostics,
   PatchSpaceContractBody,
   PendingGitHubAppInstallation,
+  PeopleComputerFileAccessReadRpcInput,
+  PeopleComputerFileAccessUpdateRpcInput,
+  PeopleComputerFolderPickerRpcInput,
+  PeopleComputerProjectDiscoveryRpcInput,
+  PeopleComputersResponse,
+  PeopleComputerTarget,
   PostSpaceMembersResponse,
   PostSpaceWakeStopBody,
   PostSpaceWakeStopResponse,
@@ -775,6 +799,7 @@ import {
   projectCenterAgentModelConfiguration,
   resolveCenterAgentModelRouteForBinding,
 } from "../center-agent/application/center-agent-model-service";
+import { listAuthorizedCenterAgentSessions } from "../center-agent/application/center-agent-session-list";
 import {
   executeCenterAgentSlackFilePublication,
   executeCenterAgentSlackPublication,
@@ -790,7 +815,6 @@ import {
   type CenterAgentProductOperationDeps,
   checkAgentProfileReadinessOperation,
   connectAgentProfileToLocalAgentOperation,
-  listLocalAgentConnectionCandidatesOperation,
   projectCenterAgentComputerSetupOptions,
   projectCenterAgentLocalAgentConnectionCandidates,
   updateAgentProfileRuntimeSettingsOperation,
@@ -958,6 +982,12 @@ import {
   recordOrganizationMemberActivity,
 } from "../organizations/organization-member-activity-repository";
 import { listOrganizationMemberOpenMeldServiceStatuses } from "../organizations/organization-member-openmeld-service-status-service";
+import { projectPeopleComputerControls } from "../people-computers/control-policy";
+import { requirePeopleComputerControlSession } from "../people-computers/control-target";
+import {
+  projectPeopleComputerConnection,
+  projectPeopleComputers,
+} from "../people-computers/projection";
 import { updateAgentProfileDefaultProjectForAuthority } from "../projects/agent-profile-default-project-service";
 import {
   buildCanonicalLocalProjectConnectRequest,
@@ -1140,6 +1170,10 @@ import {
   type SpaceEntryAccessResult,
 } from "../space/application/space-entry-resolution-service";
 import { buildSpaceFileAuditEvent } from "../space/application/space-file-audit";
+import {
+  readSpaceMemberNameFromAuth,
+  SPACE_MEMBER_NAME_READ_BUDGET_MS,
+} from "../space/application/space-members-service";
 import type { FinalOutcomeWriteAuthority } from "../space/application/types";
 import { readSpaceBoardExecutionProjection } from "../space/infrastructure/d1/space-board-execution-read-repo";
 import { readSpaceDispatchLookupByClientMessageId } from "../space/infrastructure/d1/space-dispatch-read-repo";
@@ -1328,44 +1362,192 @@ const localProjectControlRpc = createLocalProjectControlRpc({
   resolveCurrentTarget: resolveCurrentLocalProjectControlTarget,
 });
 
-const computerFileAccessRpc = createComputerFileAccessRpc({
-  readPolicy: readRuntimeTransportComputerFileAccessPolicy,
-  requireOwnerUserId: requireAuthenticatedOwnerUserId,
-  resolveCurrentTarget: async ({ env, userId }) => {
-    const { bindingTarget, localRuntimes, ownerService } =
-      await resolveCurrentLocalServiceContext({ env, userId });
-    return requireCurrentLocalRuntimeServiceTarget({
-      bindingTarget,
-      inventory: localRuntimes,
-      ownerService,
-      offlineError: {
-        code: "computer.file_access.service_offline",
-        reason: "This computer isn't reachable for OpenMeld right now.",
-        status: 503,
-      },
+export function rpcDiscoverPeopleComputerProjects(
+  env: CoreBindings,
+  input: PeopleComputerProjectDiscoveryRpcInput
+) {
+  const parsed = peopleComputerProjectDiscoveryRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer Project discovery request.",
     });
-  },
-  updatePolicy: updateRuntimeTransportComputerFileAccessPolicy,
-});
+  }
+  const { deviceId, runtimeLane, ...request } = parsed.data;
+  const target = { deviceId, runtimeLane };
+  return createLocalProjectControlRpc({
+    resolveCurrentTarget: async ({ env: targetEnv, userId }) => {
+      const { localRuntimes, ownerService } =
+        await resolveCurrentLocalServiceContext({
+          env: targetEnv,
+          userId,
+          target,
+        });
+      const session = requirePeopleComputerControlSession({
+        target,
+        inventory: localRuntimes,
+        ownerService,
+      });
+      if (
+        !projectPeopleComputerControls(session).localProjectControl
+          .discoverProjects
+      ) {
+        throw createCoreRpcHttpError({
+          status: 409,
+          code: "service_update_required",
+          reason:
+            "Update OpenMeld Service in this environment before checking Project folders.",
+        });
+      }
+      return target;
+    },
+  }).discoverProjects(env, request);
+}
 
-const localFolderPickerRpc = createLocalFolderPickerRpc({
-  requireOwnerUserId: requireAuthenticatedOwnerUserId,
-  resolveCurrentTarget: async ({ env, userId }) => {
-    const { bindingTarget, localRuntimes, ownerService } =
-      await resolveCurrentLocalServiceContext({ env, userId });
-    return requireCurrentLocalRuntimeServiceTarget({
-      bindingTarget,
-      inventory: localRuntimes,
-      ownerService,
-      offlineError: {
-        code: "local.folder_picker.service_offline",
-        reason: "This computer isn't reachable for OpenMeld right now.",
-        status: 503,
-      },
+function buildComputerFileAccessRpc(target?: PeopleComputerTarget) {
+  return createComputerFileAccessRpc({
+    readPolicy: readRuntimeTransportComputerFileAccessPolicy,
+    requireOwnerUserId: requireAuthenticatedOwnerUserId,
+    resolveCurrentTarget: async ({ env, userId }) => {
+      const { bindingTarget, localRuntimes, ownerService } =
+        await resolveCurrentLocalServiceContext({ env, userId, target });
+      if (target) {
+        const session = requirePeopleComputerControlSession({
+          target,
+          inventory: localRuntimes,
+          ownerService,
+        });
+        if (
+          !(
+            projectPeopleComputerControls(session).computerFileAccess
+              .readPolicy &&
+            projectPeopleComputerControls(session).computerFileAccess
+              .updatePolicy
+          )
+        ) {
+          throw createCoreRpcHttpError({
+            status: 409,
+            code: "computer.file_access.unsupported",
+            reason:
+              "This environment does not support managing file access. Update OpenMeld Service and try again.",
+          });
+        }
+        return target;
+      }
+      return requireCurrentLocalRuntimeServiceTarget({
+        bindingTarget,
+        inventory: localRuntimes,
+        ownerService,
+        offlineError: {
+          code: "computer.file_access.service_offline",
+          reason: "This computer isn't reachable for OpenMeld right now.",
+          status: 503,
+        },
+      });
+    },
+    updatePolicy: updateRuntimeTransportComputerFileAccessPolicy,
+  });
+}
+const computerFileAccessRpc = buildComputerFileAccessRpc();
+
+export function rpcReadPeopleComputerFileAccessPolicy(
+  env: CoreBindings,
+  input: PeopleComputerFileAccessReadRpcInput
+) {
+  const parsed = peopleComputerFileAccessReadRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer file access target.",
     });
-  },
-  selectFolders: selectRuntimeTransportLocalFolders,
-});
+  }
+  const { context, deviceId, runtimeLane } = parsed.data;
+  return buildComputerFileAccessRpc({ deviceId, runtimeLane }).readPolicy(env, {
+    context,
+    expectedDeviceId: deviceId,
+  });
+}
+
+export function rpcUpdatePeopleComputerFileAccessPolicy(
+  env: CoreBindings,
+  input: PeopleComputerFileAccessUpdateRpcInput
+) {
+  const parsed = peopleComputerFileAccessUpdateRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer file access request.",
+    });
+  }
+  const { deviceId, runtimeLane, ...request } = parsed.data;
+  return buildComputerFileAccessRpc({ deviceId, runtimeLane }).updatePolicy(
+    env,
+    { ...request, expectedDeviceId: deviceId }
+  );
+}
+
+function buildLocalFolderPickerRpc(target?: PeopleComputerTarget) {
+  return createLocalFolderPickerRpc({
+    requireOwnerUserId: requireAuthenticatedOwnerUserId,
+    resolveCurrentTarget: async ({ env, userId }) => {
+      const { bindingTarget, localRuntimes, ownerService } =
+        await resolveCurrentLocalServiceContext({ env, userId, target });
+      if (target) {
+        const session = requirePeopleComputerControlSession({
+          target,
+          inventory: localRuntimes,
+          ownerService,
+        });
+        if (
+          !projectPeopleComputerControls(session).localFolderPicker
+            .selectFolders
+        ) {
+          throw createCoreRpcHttpError({
+            status: 409,
+            code: "local.folder_picker.service_update_required",
+            reason:
+              "This environment does not support choosing folders. Update OpenMeld Service or enter a path manually.",
+          });
+        }
+        return target;
+      }
+      return requireCurrentLocalRuntimeServiceTarget({
+        bindingTarget,
+        inventory: localRuntimes,
+        ownerService,
+        offlineError: {
+          code: "local.folder_picker.service_offline",
+          reason: "This computer isn't reachable for OpenMeld right now.",
+          status: 503,
+        },
+      });
+    },
+    selectFolders: selectRuntimeTransportLocalFolders,
+  });
+}
+const localFolderPickerRpc = buildLocalFolderPickerRpc();
+
+export function rpcSelectPeopleComputerFolders(
+  env: CoreBindings,
+  input: PeopleComputerFolderPickerRpcInput
+) {
+  const parsed = peopleComputerFolderPickerRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer folder picker request.",
+    });
+  }
+  const { deviceId, runtimeLane, ...request } = parsed.data;
+  return buildLocalFolderPickerRpc({ deviceId, runtimeLane }).selectFolders(
+    env,
+    { ...request, expectedDeviceId: deviceId }
+  );
+}
 
 export function rpcReadComputerFileAccessPolicy(
   env: CoreBindings,
@@ -2269,6 +2451,8 @@ export type ListAccountSpacesInput = {
   includeDirectMessageProfileIds?: boolean;
   includeRecentlyDeletedItems?: boolean;
   includePurposes?: boolean;
+  includeMemberPreviews?: boolean;
+  includeMessagePreviews?: boolean;
 };
 
 export type ListAccountSpaceActiveWakeSummaryInput =
@@ -2483,6 +2667,186 @@ export type GetLocalRuntimesInput = {
 export type GetCurrentLocalRuntimeReplyReadinessInput = {
   context?: CoreRpcContextInput;
 };
+
+export type GetPeopleComputerReplyReadinessInput = PeopleComputerTarget & {
+  context?: CoreRpcContextInput;
+};
+
+export function rpcListPeopleComputers(
+  env: CoreBindings,
+  input: GetLocalRuntimesInput
+): Promise<PeopleComputersResponse> {
+  const userId = requireAuthenticatedOwnerUserId(input.context);
+  return listPeopleComputersForOwnerUser({
+    env,
+    userId,
+    includeUsageLimits: input.includeUsageLimits === "true",
+  });
+}
+
+async function listPeopleComputersForOwnerUser(input: {
+  env: CoreBindings;
+  userId: string;
+  includeUsageLimits?: boolean;
+}): Promise<PeopleComputersResponse> {
+  const { env, userId } = input;
+  const ownerService = await lookupRuntimeTransportOwnerService({
+    env,
+    ownerUserId: userId,
+    blockForgottenDevices: true,
+  }).catch((error: unknown) => {
+    console.warn("[core.people_computers.connection_lookup_failed]", {
+      userId,
+      error: error instanceof Error ? error.name : "unknown",
+    });
+    return null;
+  });
+  const inventory = await listLocalRuntimesUseCase({
+    store: buildCurrentDeviceTargetStore(env),
+    userId,
+    ...(ownerService ? { lookupOwnerService: async () => ownerService } : {}),
+  });
+  return peopleComputersResponseSchema.parse(
+    projectPeopleComputers({
+      generatedAt: new Date().toISOString(),
+      inventory: input.includeUsageLimits
+        ? inventory
+        : omitLocalRuntimeUsageLimits(inventory),
+      ownerService,
+    })
+  );
+}
+
+export function rpcGetPeopleComputerReplyReadiness(
+  env: CoreBindings,
+  input: GetPeopleComputerReplyReadinessInput
+): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
+  const target = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!target.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return getCurrentLocalRuntimeReplyReadinessForOwnerUser({
+    env,
+    userId: requireAuthenticatedOwnerUserId(input.context),
+    target: target.data,
+  });
+}
+
+// Explicit RPC names prevent an older receiver from ignoring the selected target.
+export function rpcSetPeopleComputerLocalAgentEnabled(
+  env: CoreBindings,
+  input: SetCurrentLocalAgentEnabledInput & PeopleComputerTarget
+) {
+  const parsed = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return rpcSetCurrentLocalAgentEnabled(env, input, parsed.data);
+}
+
+export function rpcGetPeopleComputerLocalAgentInstallations(
+  env: CoreBindings,
+  input: GetCurrentLocalAgentInstallationsInput & PeopleComputerTarget
+) {
+  const parsed = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return rpcGetCurrentLocalAgentInstallations(env, input, parsed.data);
+}
+
+export function rpcSelectPeopleComputerLocalAgentInstallation(
+  env: CoreBindings,
+  input: SelectCurrentLocalAgentInstallationInput & PeopleComputerTarget
+) {
+  const parsed = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return rpcSelectCurrentLocalAgentInstallation(env, input, parsed.data);
+}
+
+export function rpcRefreshPeopleComputerLocalAgentCatalog(
+  env: CoreBindings,
+  input: RefreshCurrentLocalAgentCatalogInput & PeopleComputerTarget
+) {
+  const parsed = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return rpcRefreshCurrentLocalAgentCatalog(env, input, parsed.data);
+}
+
+export function rpcRequestPeopleComputerOpenMeldToolsUpdate(
+  env: CoreBindings,
+  input: RequestCurrentOpenMeldToolsUpdateInput & PeopleComputerTarget
+) {
+  const parsed = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return rpcRequestCurrentOpenMeldToolsUpdate(env, input, parsed.data);
+}
+
+export function rpcSetPeopleComputerOpenMeldToolsMaintenance(
+  env: CoreBindings,
+  input: SetCurrentOpenMeldToolsMaintenanceInput & PeopleComputerTarget
+) {
+  const parsed = peopleComputerTargetSchema.safeParse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid computer target.",
+    });
+  }
+  return rpcSetCurrentOpenMeldToolsMaintenance(env, input, parsed.data);
+}
 
 export type SetLocalRuntimeDisplayNameInput = SetLocalRuntimeDisplayNameBody & {
   deviceId: string;
@@ -2792,8 +3156,13 @@ export type DisconnectMessageChannelIdentityLinkInput = {
   identityLinkId: string;
 };
 
+export type ListCenterAgentSessionsInput = ListCenterAgentSessionsQuery & {
+  context?: CoreRpcContextInput;
+};
+
 export type GetCenterAgentDirectMessageSpaceProjectionInput = {
   context?: CoreRpcContextInput;
+  spaceId?: string;
 };
 
 export type CreateCenterAgentContextManifestInput =
@@ -2925,6 +3294,10 @@ export type CenterAgentListLocalAgentConnectionCandidatesInput =
 export type CenterAgentListComputersInput = CenterAgentListComputersBody & {
   context?: CoreRpcContextInput;
 };
+export type CenterAgentReadPeopleComputersInput =
+  CenterAgentReadPeopleComputersBody & {
+    context?: CoreRpcContextInput;
+  };
 
 export type CenterAgentRequestOpenMeldToolsUpdateInput =
   CenterAgentRequestOpenMeldToolsUpdateBody & {
@@ -3118,6 +3491,7 @@ export type CenterAgentReadSpaceWakeProgressInput =
 
 export type OpenCenterAgentDirectMessageSpaceInput = {
   context?: CoreRpcContextInput;
+  sessionCreationId?: string;
   suppressWelcome?: boolean;
 };
 
@@ -3307,8 +3681,10 @@ export async function rpcGetCurrentLocalRuntimeReplyReadiness(
 async function getCurrentLocalRuntimeReplyReadinessForOwnerUser(input: {
   env: CoreBindings;
   userId: string;
+  target?: PeopleComputerTarget;
 }): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
   const response = await getCurrentLocalRuntimeReplyReadinessUseCase({
+    ...(input.target ? { target: input.target } : {}),
     lookupOwnerService: async ({ ownerUserId }) =>
       await lookupRuntimeTransportOwnerService({
         blockForgottenDevices: true,
@@ -3333,12 +3709,14 @@ async function buildOwnerComputerDiagnostics(input: {
   env: CoreBindings;
   includeUsageLimits: boolean;
   localRuntimes: LocalRuntimesResponse;
+  target?: PeopleComputerTarget;
   userId: string;
 }): Promise<OwnerComputerDiagnostics> {
   const [currentLocalRuntimeReplyReadiness, currentComputerFileAccess] =
     await Promise.all([
       getCurrentLocalRuntimeReplyReadinessForOwnerUser({
         env: input.env,
+        target: input.target,
         userId: input.userId,
       }),
       readOwnerCurrentComputerFileAccessSummary(input),
@@ -3357,6 +3735,7 @@ async function buildOwnerComputerDiagnostics(input: {
 async function readOwnerCurrentComputerFileAccessSummary(input: {
   env: CoreBindings;
   localRuntimes: LocalRuntimesResponse;
+  target?: PeopleComputerTarget;
   userId: string;
 }): Promise<OwnerComputerDiagnostics["currentComputerFileAccess"]> {
   const currentComputer = input.localRuntimes.localRuntimes.find(
@@ -3377,7 +3756,10 @@ async function readOwnerCurrentComputerFileAccessSummary(input: {
       status: "unavailable",
     };
   }
-  if (currentComputer.computerFileAccess?.readPolicy !== true) {
+  if (
+    !input.target &&
+    currentComputer.computerFileAccess?.readPolicy !== true
+  ) {
     return { status: "unsupported" };
   }
 
@@ -3387,6 +3769,18 @@ async function readOwnerCurrentComputerFileAccessSummary(input: {
       env: input.env,
       ownerUserId: input.userId,
     });
+    if (input.target) {
+      const session = requirePeopleComputerControlSession({
+        target: input.target,
+        inventory: input.localRuntimes,
+        ownerService,
+      });
+      if (
+        !projectPeopleComputerControls(session).computerFileAccess.readPolicy
+      ) {
+        return { status: "unsupported" };
+      }
+    }
     const target = requireCurrentLocalRuntimeServiceTarget({
       bindingTarget: {
         availability: "resolved",
@@ -3471,6 +3865,7 @@ async function resolveCurrentLocalControlTarget(input: {
 
 async function resolveCurrentLocalServiceContext(input: {
   env: CoreBindings;
+  target?: PeopleComputerTarget;
   userId: string;
 }) {
   const lookupOwnerServiceForUser: LookupOwnerServiceForUser = async ({
@@ -3485,7 +3880,9 @@ async function resolveCurrentLocalServiceContext(input: {
     ownerUserId: input.userId,
   });
   const localRuntimes = await listLocalRuntimesUseCase({
-    connectionIdentityAdoption: "safe_legacy_current",
+    connectionIdentityAdoption: input.target
+      ? undefined
+      : "safe_legacy_current",
     lookupOwnerService: async () => ownerService,
     store: buildCurrentDeviceTargetStore(input.env),
     userId: input.userId,
@@ -3509,13 +3906,35 @@ async function resolveCurrentLocalServiceContext(input: {
 async function resolveCurrentLocalAgentControlTarget(input: {
   capability: keyof CurrentLocalAgentControlTarget["localAgentControl"];
   env: CoreBindings;
+  target?: PeopleComputerTarget;
   unsupportedCode: string;
   unsupportedReason: string;
   userId: string;
 }): Promise<{
-  currentTarget: CurrentLocalAgentControlTarget;
+  currentTarget: PeopleComputerTarget;
   lookupOwnerServiceForUser: LookupOwnerServiceForUser;
 }> {
+  if (input.target) {
+    const { localRuntimes, ownerService, lookupOwnerServiceForUser } =
+      await resolveCurrentLocalServiceContext(input);
+    const session = requirePeopleComputerControlSession({
+      target: input.target,
+      inventory: localRuntimes,
+      ownerService,
+    });
+    if (
+      projectPeopleComputerControls(session).localAgentControl[
+        input.capability
+      ] !== true
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: input.unsupportedCode,
+        reason: input.unsupportedReason,
+      });
+    }
+    return { currentTarget: input.target, lookupOwnerServiceForUser };
+  }
   const { currentTarget, lookupOwnerServiceForUser } =
     await resolveCurrentLocalControlTarget({
       env: input.env,
@@ -3540,28 +3959,39 @@ async function resolveCurrentLocalAgentControlTarget(input: {
 async function resolveCurrentOpenMeldToolsControlTarget(input: {
   capability: "requestUpdate" | "setAutomaticUpdates";
   env: CoreBindings;
+  target?: PeopleComputerTarget;
   userId: string;
 }): Promise<{ deviceId: string; runtimeLane: DaemonServiceLane }> {
   const { bindingTarget, localRuntimes, ownerService } =
     await resolveCurrentLocalServiceContext(input);
-  const currentTarget = requireCurrentLocalRuntimeServiceTarget({
-    bindingTarget,
-    inventory: localRuntimes,
-    offlineError: {
-      code: "service_offline",
-      reason: "OpenMeld Service is offline.",
-      status: 503,
-    },
-    ownerService,
-  });
+  const explicitSession = input.target
+    ? requirePeopleComputerControlSession({
+        target: input.target,
+        inventory: localRuntimes,
+        ownerService,
+      })
+    : undefined;
+  const currentTarget = explicitSession
+    ? { deviceId: explicitSession.deviceId, runtimeLane: explicitSession.lane }
+    : requireCurrentLocalRuntimeServiceTarget({
+        bindingTarget,
+        inventory: localRuntimes,
+        offlineError: {
+          code: "service_offline",
+          reason: "OpenMeld Service is offline.",
+          status: 503,
+        },
+        ownerService,
+      });
   const supportsControl =
     ownerService.online &&
-    ownerService.sessions.some(
+    (explicitSession ? [explicitSession] : ownerService.sessions).some(
       (session) =>
         session.deviceId === currentTarget.deviceId &&
         session.lane === currentTarget.runtimeLane &&
-        session.executionCompatibility.status === "compatible" &&
-        session.capabilities.openMeldToolsControl?.[input.capability] === true
+        projectPeopleComputerControls(session).openMeldToolsControl[
+          input.capability
+        ] === true
     );
   if (!supportsControl) {
     throw createCoreRpcHttpError({
@@ -3600,6 +4030,7 @@ function requireAcceptedOpenMeldToolsControlResult(
 
 async function controlOpenMeldToolsForUser(input: {
   env: CoreBindings;
+  target?: PeopleComputerTarget;
   request: OpenMeldToolsControlRequest;
   userId: string;
 }) {
@@ -3610,6 +4041,7 @@ async function controlOpenMeldToolsForUser(input: {
   const currentTarget = await resolveCurrentOpenMeldToolsControlTarget({
     capability,
     env: input.env,
+    target: input.target,
     userId: input.userId,
   });
   return requireAcceptedOpenMeldToolsControlResult(
@@ -3625,10 +4057,12 @@ async function controlOpenMeldToolsForUser(input: {
 
 export async function rpcRequestCurrentOpenMeldToolsUpdate(
   env: CoreBindings,
-  input: RequestCurrentOpenMeldToolsUpdateInput
+  input: RequestCurrentOpenMeldToolsUpdateInput,
+  target?: PeopleComputerTarget
 ): Promise<RequestCurrentOpenMeldToolsUpdateResponse> {
   const result = await controlOpenMeldToolsForUser({
     env,
+    target,
     request: {
       operation: "request_update",
       requestSource: "web",
@@ -3643,7 +4077,8 @@ export async function rpcRequestCurrentOpenMeldToolsUpdate(
 
 export async function rpcSetCurrentOpenMeldToolsMaintenance(
   env: CoreBindings,
-  input: SetCurrentOpenMeldToolsMaintenanceInput
+  input: SetCurrentOpenMeldToolsMaintenanceInput,
+  target?: PeopleComputerTarget
 ): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
   const parsed = setCurrentOpenMeldToolsMaintenanceBodySchema.safeParse({
     automaticUpdatesEnabled: input.automaticUpdatesEnabled,
@@ -3657,6 +4092,7 @@ export async function rpcSetCurrentOpenMeldToolsMaintenance(
   }
   const result = await controlOpenMeldToolsForUser({
     env,
+    target,
     request: {
       automaticUpdatesEnabled: parsed.data.automaticUpdatesEnabled,
       operation: "set_automatic_updates",
@@ -3702,7 +4138,8 @@ async function resolveCurrentLocalProjectControlTarget(input: {
 
 export async function rpcSetCurrentLocalAgentEnabled(
   env: CoreBindings,
-  input: SetCurrentLocalAgentEnabledInput
+  input: SetCurrentLocalAgentEnabledInput,
+  target?: PeopleComputerTarget
 ): Promise<SetCurrentLocalAgentEnabledResponse> {
   const userId = requireAuthenticatedOwnerUserId(input.context);
   const routeParams = setCurrentLocalAgentEnabledRouteParamsSchema.safeParse({
@@ -3726,6 +4163,7 @@ export async function rpcSetCurrentLocalAgentEnabled(
     await resolveCurrentLocalAgentControlTarget({
       capability: "setEnabled",
       env,
+      target,
       unsupportedCode: "local_agent_control.unsupported",
       unsupportedReason:
         "The current local OpenMeld Service does not support local agent changes from OpenMeld Web.",
@@ -3768,17 +4206,19 @@ export async function rpcSetCurrentLocalAgentEnabled(
 
 export async function rpcGetCurrentLocalAgentInstallations(
   env: CoreBindings,
-  input: GetCurrentLocalAgentInstallationsInput
+  input: GetCurrentLocalAgentInstallationsInput,
+  target?: PeopleComputerTarget
 ): Promise<CurrentLocalAgentInstallationsResponse> {
   return await getCurrentLocalAgentInstallationsForUser(env, {
     agentId: input.agentId,
+    target,
     userId: requireAuthenticatedOwnerUserId(input.context),
   });
 }
 
 async function getCurrentLocalAgentInstallationsForUser(
   env: CoreBindings,
-  input: { agentId: string; userId: string }
+  input: { agentId: string; userId: string; target?: PeopleComputerTarget }
 ): Promise<CurrentLocalAgentInstallationsResponse> {
   const routeParams = currentLocalAgentInstallationsRouteParamsSchema.safeParse(
     {
@@ -3798,6 +4238,7 @@ async function getCurrentLocalAgentInstallationsForUser(
   const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
     capability: "manageInstallationsSafely",
     env,
+    target: input.target,
     unsupportedCode: "local_agent_control.unsupported",
     unsupportedReason:
       "Update OpenMeld Service before choosing a local agent installation.",
@@ -3835,10 +4276,12 @@ async function getCurrentLocalAgentInstallationsForUser(
 
 export async function rpcSelectCurrentLocalAgentInstallation(
   env: CoreBindings,
-  input: SelectCurrentLocalAgentInstallationInput
+  input: SelectCurrentLocalAgentInstallationInput,
+  target?: PeopleComputerTarget
 ): Promise<SelectCurrentLocalAgentInstallationResponse> {
   return await selectCurrentLocalAgentInstallationForUser(env, {
     agentId: input.agentId,
+    target,
     installationId: input.installationId,
     userId: requireAuthenticatedOwnerUserId(input.context),
   });
@@ -3846,7 +4289,12 @@ export async function rpcSelectCurrentLocalAgentInstallation(
 
 async function selectCurrentLocalAgentInstallationForUser(
   env: CoreBindings,
-  input: { agentId: string; installationId: string; userId: string }
+  input: {
+    agentId: string;
+    installationId: string;
+    userId: string;
+    target?: PeopleComputerTarget;
+  }
 ): Promise<SelectCurrentLocalAgentInstallationResponse> {
   const routeParams = currentLocalAgentInstallationsRouteParamsSchema.safeParse(
     {
@@ -3871,6 +4319,7 @@ async function selectCurrentLocalAgentInstallationForUser(
     await resolveCurrentLocalAgentControlTarget({
       capability: "manageInstallationsSafely",
       env,
+      target: input.target,
       unsupportedCode: "local_agent_control.unsupported",
       unsupportedReason:
         "Update OpenMeld Service before choosing a local agent installation.",
@@ -4083,13 +4532,15 @@ function requireUpdatedProfileWorkspaceResponse(
 
 export async function rpcRefreshCurrentLocalAgentCatalog(
   env: CoreBindings,
-  input: RefreshCurrentLocalAgentCatalogInput
+  input: RefreshCurrentLocalAgentCatalogInput,
+  target?: PeopleComputerTarget
 ): Promise<RefreshCurrentLocalAgentCatalogResponse> {
   const userId = requireAuthenticatedOwnerUserId(input.context);
   const { currentTarget, lookupOwnerServiceForUser } =
     await resolveCurrentLocalAgentControlTarget({
       capability: "refreshCatalog",
       env,
+      target,
       unsupportedCode: "local_agent_control.refresh_catalog_unsupported",
       unsupportedReason:
         "The current local OpenMeld Service does not support checking local agents from OpenMeld Web.",
@@ -5362,6 +5813,20 @@ export async function rpcDisableAgentProfilePrimaryBinding(
     });
   }
 
+  const currentBinding = await readPrimaryAgentProfileBindingRecord({
+    db,
+    agentProfileId: request.agentProfileId,
+    owner: request.owner,
+  });
+  if (isHostedAgentControllerRef(currentBinding?.agentControllerRef)) {
+    return buildDisableAgentProfilePrimaryBindingResponse({
+      agentProfileId: request.agentProfileId,
+      disabled: false,
+      reasonCodes: ["agent_profile_binding.primary_conflict"],
+      status: "unavailable",
+    });
+  }
+
   let controllerMutationOperationId: string | null = null;
   const controllerMutationAdmission =
     await acquireAgentProfileExecutionTargetMutationAdmission({
@@ -6403,12 +6868,18 @@ function projectOrganizationComputerLiveSessions(input: {
     return null;
   }
   if (!input.liveSessions.online) {
-    return [];
+    return projectPeopleComputerConnection({
+      deviceIds: [],
+      ownerService: input.liveSessions,
+    }).status === "disconnected"
+      ? []
+      : null;
   }
   return selectCurrentOwnerServiceSessionsByDeviceLane(input.liveSessions).map(
     (session) => {
       const localComponents = resolveLocalComponentUpdateProjection({
         generatedAt: input.generatedAt,
+        runtimeLane: session.lane,
         localComponentsStatus: session.capabilities.localComponents ?? null,
         serviceConnected: true,
         serviceVersion: session.serviceVersion ?? null,
@@ -8048,6 +8519,7 @@ export async function rpcBeginLarkPlatformRegistration(
     const response = await beginRemoteAgentLarkPlatformRegistration({
       ...request,
       repairExisting: input.mode === "repair",
+      reauthorize: input.mode === "reauthorize",
       env,
       restartPending: input.mode === "restart",
     });
@@ -8129,6 +8601,55 @@ export async function rpcDisconnectLarkPlatformRegistration(
   });
 }
 
+export async function rpcListCenterAgentSessions(
+  env: CoreBindings,
+  input: ListCenterAgentSessionsInput
+): Promise<ListCenterAgentSessionsResponse> {
+  const parsed = listCenterAgentSessionsQuerySchema.safeParse({
+    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+    ...(input.limit === undefined ? {} : { limit: input.limit }),
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Provide a valid chat-list cursor and limit.",
+    });
+  }
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const human = requireHumanSpaceMemberFromContext({
+    context,
+    userId: activeOrganization.userId,
+  });
+  const designation = await readCenterAgentDesignationRecord({
+    db: requireCenterAgentDb(env),
+    organizationId: activeOrganization.organizationId,
+  });
+  if (!designation) {
+    return {
+      generatedAt: new Date().toISOString(),
+      organizationId: activeOrganization.organizationId,
+      sessions: [],
+      nextCursor: null,
+    };
+  }
+  return await listAuthorizedCenterAgentSessions({
+    ...parsed.data,
+    db: requireSpaceIndexDb(env),
+    organizationId: activeOrganization.organizationId,
+    memberProfileId: human.profileId,
+    centerAgentProfileId: designation.agentProfileId,
+    pairKey: buildDirectMessagePairKey(
+      human.profileId,
+      designation.agentProfileId
+    ),
+  });
+}
+
 export async function rpcGetCenterAgentDirectMessageSpaceProjection(
   env: CoreBindings,
   input: GetCenterAgentDirectMessageSpaceProjectionInput
@@ -8143,6 +8664,7 @@ export async function rpcGetCenterAgentDirectMessageSpaceProjection(
       activeOrganization,
       context,
       env,
+      ...(input.spaceId === undefined ? {} : { spaceId: input.spaceId }),
     });
   const response: GetCenterAgentDirectMessageSpaceProjectionResponse = {
     generatedAt: new Date().toISOString(),
@@ -8166,6 +8688,7 @@ export async function rpcCreateCenterAgentContextManifest(
   input: CreateCenterAgentContextManifestInput
 ): Promise<CreateCenterAgentContextManifestResponse> {
   const parsed = createCenterAgentContextManifestBodySchema.safeParse({
+    ...(input.spaceId === undefined ? {} : { spaceId: input.spaceId }),
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
     ...(input.maxContextTokens === undefined
@@ -8197,12 +8720,15 @@ export async function rpcCreateCenterAgentContextManifest(
       activeOrganization,
       context,
       env,
+      ...(parsed.data.spaceId === undefined
+        ? {}
+        : { spaceId: parsed.data.spaceId }),
     });
   if (!conversation) {
     throw createCoreRpcHttpError({
       code: "center_agent.context_conversation_required",
       reason:
-        "Start a conversation with Center Agent before reading its context.",
+        "The selected Center Agent conversation is unavailable. Open a conversation you can access before reading its context.",
       status: 404,
     });
   }
@@ -10676,23 +11202,41 @@ export async function rpcCenterAgentListLocalAgentConnectionCandidates(
   env: CoreBindings,
   input: CenterAgentListLocalAgentConnectionCandidatesInput
 ): Promise<CenterAgentListLocalAgentConnectionCandidatesResponse> {
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
-    context: requireRpcContext(input.context),
-    env,
-  });
   const parsed =
-    centerAgentListLocalAgentConnectionCandidatesBodySchema.safeParse({});
+    centerAgentListLocalAgentConnectionCandidatesBodySchema.safeParse({
+      speakerMember: input.speakerMember,
+      ...(input.memberUserId ? { memberUserId: input.memberUserId } : {}),
+    });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
       status: 400,
-      reason:
-        parsed.error.issues[0]?.message ??
-        "invalid Center Agent local agent candidate payload",
       code: "invalid_payload",
+      reason: "A verified requesting member is required to list local agents.",
     });
   }
-  const response = await listLocalAgentConnectionCandidatesOperation({
-    deps: buildCenterAgentProductOperationDeps(env, authorization),
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      requireRpcContext(input.context),
+      parsed.data.speakerMember
+    );
+  const userId = parsed.data.memberUserId ?? representedHuman.userId;
+  const membership = await resolveOrganizationMembershipById({
+    env,
+    organizationId: authorization.activeOrganization.organizationId,
+    requestId: authorization.context.actorContext.requestId,
+    userId,
+  });
+  if (!membership.ok) {
+    throw createCoreRpcHttpError({
+      status: membership.status,
+      code: membership.code,
+      reason: membership.message,
+    });
+  }
+  const response = projectCenterAgentLocalAgentConnectionCandidates({
+    peopleComputers: await listPeopleComputersForOwnerUser({ env, userId }),
+    organizationId: authorization.activeOrganization.organizationId,
   });
   const validated =
     centerAgentListLocalAgentConnectionCandidatesResponseSchema.safeParse(
@@ -10704,6 +11248,91 @@ export async function rpcCenterAgentListLocalAgentConnectionCandidates(
     );
   }
   return validated.data;
+}
+
+export async function rpcCenterAgentReadPeopleComputers(
+  env: CoreBindings,
+  input: CenterAgentReadPeopleComputersInput
+): Promise<CenterAgentReadPeopleComputersResponse> {
+  const parsed = centerAgentReadPeopleComputersBodySchema.safeParse({
+    speakerMember: input.speakerMember,
+    includeUsageLimits: input.includeUsageLimits,
+    target: input.target,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid Computer read request.",
+    });
+  }
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      requireRpcContext(input.context),
+      parsed.data.speakerMember,
+      {
+        code: "center_agent.computer_setup_speaker_required",
+        reason:
+          "Computer information requires a verified active human Organization member.",
+      }
+    );
+  const inventory = await listPeopleComputersForOwnerUser({
+    env,
+    userId: representedHuman.userId,
+    includeUsageLimits: parsed.data.includeUsageLimits === "true",
+  });
+  const target = parsed.data.target;
+  let selectedComputer: CenterAgentReadPeopleComputersResponse["selectedComputer"] =
+    null;
+  if (target) {
+    if (
+      !inventory.computers.some((computer) =>
+        peopleComputerContainsDevice(computer, target.deviceId)
+      )
+    ) {
+      throw createCoreRpcHttpError({
+        status: 404,
+        code: "computer.not_found",
+        reason: "This computer is not available on your account.",
+      });
+    }
+    const diagnostics = await buildOwnerComputerDiagnostics({
+      env,
+      userId: representedHuman.userId,
+      includeUsageLimits: parsed.data.includeUsageLimits === "true",
+      localRuntimes: projectPeopleComputersToLegacyLocalRuntimes(
+        inventory,
+        target
+      ),
+      target,
+    });
+    selectedComputer = {
+      target,
+      readiness: diagnostics.currentLocalRuntimeReplyReadiness,
+      fileAccess: diagnostics.currentComputerFileAccess,
+    };
+  }
+  return centerAgentReadPeopleComputersResponseSchema.parse({
+    inventory: {
+      ...inventory,
+      computers: inventory.computers.map((computer) => ({
+        ...computer,
+        // Discovery catalogs contain model lists and detailed install reports.
+        // Keep their dated target facts here; local-agent candidate and
+        // installation tools own the corresponding focused reads.
+        executionTargets: computer.executionTargets.map(
+          ({
+            capabilities: _capabilities,
+            localAgentCatalog: _catalog,
+            ...target
+          }) => target
+        ),
+      })),
+    },
+    organizationId: authorization.activeOrganization.organizationId,
+    selectedComputer,
+  });
 }
 
 export async function rpcCenterAgentListComputers(
@@ -10752,7 +11381,12 @@ export async function rpcCenterAgentListComputers(
       })
     : undefined;
   const validated = centerAgentListComputersResponseSchema.safeParse({
-    computers: projectCenterAgentComputerSetupOptions(localRuntimes),
+    computers: projectCenterAgentComputerSetupOptions(
+      await listPeopleComputersForOwnerUser({
+        env,
+        userId: representedHuman.userId,
+      })
+    ),
     ...(diagnostics === undefined ? {} : { diagnostics }),
     organizationId: authorization.activeOrganization.organizationId,
   });
@@ -10770,6 +11404,7 @@ export async function rpcCenterAgentRequestOpenMeldToolsUpdate(
 ): Promise<CenterAgentRequestOpenMeldToolsUpdateResponse> {
   const parsed = centerAgentRequestOpenMeldToolsUpdateBodySchema.safeParse({
     speakerMember: input.speakerMember,
+    target: input.target,
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -10794,6 +11429,7 @@ export async function rpcCenterAgentRequestOpenMeldToolsUpdate(
       operation: "request_update",
       requestSource: "center_agent",
     },
+    target: parsed.data.target,
     userId: representedHuman.userId,
   });
   if (result.operation !== "request_update") {
@@ -10812,6 +11448,7 @@ export async function rpcCenterAgentSetOpenMeldToolsMaintenance(
   const parsed = centerAgentSetOpenMeldToolsMaintenanceBodySchema.safeParse({
     automaticUpdatesEnabled: input.automaticUpdatesEnabled,
     speakerMember: input.speakerMember,
+    target: input.target,
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -10837,6 +11474,7 @@ export async function rpcCenterAgentSetOpenMeldToolsMaintenance(
       operation: "set_automatic_updates",
       requestSource: "center_agent",
     },
+    target: parsed.data.target,
     userId: representedHuman.userId,
   });
   if (result.operation !== "set_automatic_updates") {
@@ -10855,6 +11493,7 @@ export async function rpcCenterAgentListLocalAgentInstallations(
   const parsed = centerAgentListLocalAgentInstallationsBodySchema.safeParse({
     agentId: input.agentId,
     speakerMember: input.speakerMember,
+    target: input.target,
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -10875,6 +11514,7 @@ export async function rpcCenterAgentListLocalAgentInstallations(
     );
   const result = await getCurrentLocalAgentInstallationsForUser(env, {
     agentId: parsed.data.agentId,
+    target: parsed.data.target,
     userId: representedHuman.userId,
   });
   return centerAgentListLocalAgentInstallationsResponseSchema.parse({
@@ -10892,6 +11532,7 @@ export async function rpcCenterAgentSelectLocalAgentInstallation(
     confirmed: input.confirmed,
     installationId: input.installationId,
     speakerMember: input.speakerMember,
+    target: input.target,
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -10913,6 +11554,7 @@ export async function rpcCenterAgentSelectLocalAgentInstallation(
   const result = await selectCurrentLocalAgentInstallationForUser(env, {
     agentId: parsed.data.agentId,
     installationId: parsed.data.installationId,
+    target: parsed.data.target,
     userId: representedHuman.userId,
   });
   return centerAgentSelectLocalAgentInstallationResponseSchema.parse({
@@ -10953,7 +11595,14 @@ export async function rpcCenterAgentConnectAgentProfileToLocalAgent(
     });
   }
   const response = await connectAgentProfileToLocalAgentOperation({
-    deps: buildCenterAgentProductOperationDeps(env, authorization),
+    deps: buildCenterAgentProductOperationDeps(
+      env,
+      authorization,
+      await resolveCenterAgentProductOperationOwner(
+        authorization,
+        parsed.data.onBehalfOf
+      )
+    ),
     request: parsed.data,
   });
   const validated =
@@ -11000,7 +11649,14 @@ export async function rpcCenterAgentUpdateAgentProfileRuntimeSettings(
     });
   }
   const response = await updateAgentProfileRuntimeSettingsOperation({
-    deps: buildCenterAgentProductOperationDeps(env, authorization),
+    deps: buildCenterAgentProductOperationDeps(
+      env,
+      authorization,
+      await resolveCenterAgentProductOperationOwner(
+        authorization,
+        parsed.data.onBehalfOf
+      )
+    ),
     organizationId: authorization.activeOrganization.organizationId,
     request: parsed.data,
   });
@@ -11050,6 +11706,51 @@ export async function rpcCenterAgentCheckAgentProfileReadiness(
   return validated.data;
 }
 
+async function resolveCenterAgentProductOperationOwner(
+  authorization: Awaited<
+    ReturnType<typeof requireCurrentDesignatedCenterAgentCaller>
+  >,
+  onBehalfOf: { profileId: string } | undefined
+): Promise<{
+  representedContext: OpenMeldRequestContext;
+  representedUserId: string;
+}> {
+  if (!onBehalfOf) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "center_agent.member_actor_required",
+      reason:
+        "A verified requesting member is required to manage a local Agent.",
+    });
+  }
+  const member = await readResolvedOrganizationDirectorySpaceMember({
+    db: authorization.db,
+    organizationId: authorization.activeOrganization.organizationId,
+    profileId: onBehalfOf.profileId,
+  });
+  if (!(member?.ownerUserId && member.profileKind === "human")) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "center_agent.member_actor_required",
+      reason: "The requesting member is no longer available.",
+    });
+  }
+  return {
+    representedUserId: member.ownerUserId,
+    representedContext: {
+      activeOrganizationId: authorization.activeOrganization.organizationId,
+      actorContext: {
+        callerPrincipalId: member.ownerUserId,
+        ownerUserId: member.ownerUserId,
+        openMeldProfileId: member.profileId,
+        profileKind: "human",
+        profileName: member.profileName,
+        requestId: authorization.context.actorContext.requestId,
+      },
+    },
+  };
+}
+
 function buildCenterAgentProductOperationDeps(
   env: CoreBindings,
   authorization: Awaited<
@@ -11064,6 +11765,7 @@ function buildCenterAgentProductOperationDeps(
   const organizationId = authorization.activeOrganization.organizationId;
   const representedContext = preferenceOwner?.representedContext ?? null;
   const representedUserId = preferenceOwner?.representedUserId ?? null;
+  const ownerContext = representedContext ?? context;
   return {
     addAgentProfileToSpace: async ({ agentProfileId, onBehalfOf, spaceId }) => {
       await rpcCenterAgentAddAgentProfilesToSpace(env, {
@@ -11076,7 +11778,7 @@ function buildCenterAgentProductOperationDeps(
     checkAgentProfileReadiness: async ({ agentProfileId }) => {
       const readiness = await rpcGetAgentExecutionReadiness(env, {
         agentProfileId,
-        context,
+        context: ownerContext,
       });
       return buildCenterAgentReadinessResponse({
         organizationId,
@@ -11104,7 +11806,7 @@ function buildCenterAgentProductOperationDeps(
       await rpcEnsureAgentProfilePrimaryBinding(env, {
         agentControllerRef: candidate.agentControllerRef,
         agentProfileId,
-        context,
+        context: ownerContext,
         deviceId: candidate.deviceId,
         lane: candidate.runtimeLane,
         openMeldServiceRuntimeId: candidate.openMeldServiceRuntimeId,
@@ -11132,12 +11834,11 @@ function buildCenterAgentProductOperationDeps(
           : { reasoningLevel: settings.reasoningLevel }),
       }),
     listLocalAgentConnectionCandidates: async () => {
-      const localRuntimes = await rpcListLocalRuntimes(env, {
-        connectionIdentityAdoption: "safe_legacy_current",
-        context,
+      const peopleComputers = await rpcListPeopleComputers(env, {
+        context: ownerContext,
       });
       return projectCenterAgentLocalAgentConnectionCandidates({
-        localRuntimes,
+        peopleComputers,
         organizationId,
       });
     },
@@ -11180,7 +11881,7 @@ function buildCenterAgentProductOperationDeps(
     }) =>
       await rpcSetCurrentAgentProfileWorkspace(env, {
         agentProfileId,
-        context,
+        context: ownerContext,
         workspaceMode,
         ...(workspacePath === undefined ? {} : { workspacePath }),
       }),
@@ -11193,7 +11894,7 @@ function buildCenterAgentProductOperationDeps(
         {
           agentControllerPermissionMode,
           agentProfileId,
-          context,
+          context: ownerContext,
         }
       ),
     updateAgentControllerCollaborationMode: async ({
@@ -11205,20 +11906,20 @@ function buildCenterAgentProductOperationDeps(
         {
           agentControllerCollaborationMode,
           agentProfileId,
-          context,
+          context: ownerContext,
         }
       ),
     updateModelSelection: async ({ agentProfileId, modelId, reasoningLevel }) =>
       await rpcUpdateAgentProfilePrimaryBindingModelSelection(env, {
         agentProfileId,
-        context,
+        context: ownerContext,
         modelId,
         ...(reasoningLevel === undefined ? {} : { reasoningLevel }),
       }),
     updateOpenCodePermission: async ({ agentProfileId, openCodePermission }) =>
       await rpcUpdateAgentProfilePrimaryBindingOpenCodePermission(env, {
         agentProfileId,
-        context,
+        context: ownerContext,
         openCodePermission,
       }),
   };
@@ -15511,6 +16212,19 @@ export async function rpcOpenCenterAgentDirectMessageSpace(
   input: OpenCenterAgentDirectMessageSpaceInput
 ): Promise<OpenCenterAgentDirectMessageSpaceResponse> {
   const context = requireRpcContext(input.context);
+  const sessionCreation =
+    input.sessionCreationId === undefined
+      ? undefined
+      : createCenterAgentSessionBodySchema.safeParse({
+          creationId: input.sessionCreationId,
+        });
+  if (sessionCreation && !sessionCreation.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Provide a valid session creation ID.",
+    });
+  }
   const timing = createCenterAgentDirectMessageOpenTiming({
     env,
     requestId: context.actorContext.requestId,
@@ -15578,20 +16292,26 @@ export async function rpcOpenCenterAgentDirectMessageSpace(
         organizationId: activeOrganization.organizationId,
       }
     );
-    const openedSpace = await timing.measure(
-      "direct_message_open",
-      async () =>
-        await openDirectMessageSpaceInternal(env, {
-          context,
-          humanMember,
-          legacySpaceId,
-          organizationId: activeOrganization.organizationId,
-          targetMember: centerAgentMember,
-          timing,
-        })
+    const openedSpace = await timing.measure("direct_message_open", async () =>
+      sessionCreation?.success
+        ? await createCenterAgentSessionSpace(env, {
+            context,
+            creationId: sessionCreation.data.creationId,
+            humanMember,
+            organizationId: activeOrganization.organizationId,
+            targetMember: centerAgentMember,
+          })
+        : await openDirectMessageSpaceInternal(env, {
+            context,
+            humanMember,
+            legacySpaceId,
+            organizationId: activeOrganization.organizationId,
+            targetMember: centerAgentMember,
+            timing,
+          })
     );
     opened = openedSpace;
-    if (!input.suppressWelcome) {
+    if (!(input.suppressWelcome || sessionCreation)) {
       try {
         await timing.measure(
           "welcome",
@@ -15812,7 +16532,19 @@ async function readCurrentMemberCenterAgentDirectMessageSpaceProjection(input: {
   activeOrganization: ActiveOrganization;
   context: CoreRpcContextInput;
   env: CoreBindings;
+  spaceId?: string;
 }): Promise<CenterAgentDirectMessageSpaceProjection | null> {
+  const selector =
+    input.spaceId === undefined
+      ? undefined
+      : centerAgentSessionSelectorSchema.safeParse({ spaceId: input.spaceId });
+  if (selector && !selector.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Provide a valid session ID.",
+    });
+  }
   const designation = await readCenterAgentDesignationRecord({
     db: requireCenterAgentDb(input.env),
     organizationId: input.activeOrganization.organizationId,
@@ -15828,13 +16560,21 @@ async function readCurrentMemberCenterAgentDirectMessageSpaceProjection(input: {
     humanMember.profileId,
     designation.agentProfileId
   );
-  const candidate =
-    await readCenterAgentDirectMessageProjectionCandidateByPairKey({
-      db: requireSpaceIndexDb(input.env),
-      organizationId: input.activeOrganization.organizationId,
-      pairKey,
-    });
-  if (!candidate) {
+  const candidate = selector?.success
+    ? await readCenterAgentDirectMessageProjectionCandidateBySpaceId({
+        db: requireSpaceIndexDb(input.env),
+        spaceId: selector.data.spaceId,
+      })
+    : await readCenterAgentDirectMessageProjectionCandidateByPairKey({
+        db: requireSpaceIndexDb(input.env),
+        organizationId: input.activeOrganization.organizationId,
+        pairKey,
+      });
+  if (
+    !candidate ||
+    candidate.organizationId !== input.activeOrganization.organizationId ||
+    candidate.directMessagePairKey !== pairKey
+  ) {
     return null;
   }
   return deriveCenterAgentDirectMessageSpaceProjection({
@@ -16227,6 +16967,49 @@ async function openDirectMessageSpaceInternal(
         targetMember: input.targetMember,
       })
   );
+  return { created: initialized.created, spaceId };
+}
+
+async function createCenterAgentSessionSpace(
+  env: CoreBindings,
+  input: {
+    context: CoreRpcContextInput;
+    creationId: string;
+    humanMember: ResolvedSpaceMemberProfile;
+    organizationId: string;
+    targetMember: ResolvedSpaceMemberProfile;
+  }
+): Promise<{ created: boolean; spaceId: string }> {
+  const pairKey = buildDirectMessagePairKey(
+    input.humanMember.profileId,
+    input.targetMember.profileId
+  );
+  const spaceId = resolveNamedSpaceId(
+    env.OPENMELD_SPACES,
+    JSON.stringify([
+      "center-agent-session-v1",
+      input.organizationId,
+      pairKey,
+      input.creationId,
+    ])
+  ).toString();
+  const initialized = await initializeDirectMessageSpaceMeta(env, {
+    context: input.context,
+    guide: buildDirectMessageSpaceGuide({
+      firstName: input.humanMember.profileName,
+      secondName: input.targetMember.profileName,
+    }),
+    name: "New chat",
+    organizationId: input.organizationId,
+    pairKey,
+    spaceId,
+  });
+  await addDirectMessageMembers(env, {
+    context: input.context,
+    humanMember: input.humanMember,
+    spaceId,
+    targetMember: input.targetMember,
+  });
   return { created: initialized.created, spaceId };
 }
 
@@ -17902,6 +18685,8 @@ export async function rpcListAccountSpaces(
       input.includeDirectMessageProfileIds === true,
     includeRecentlyDeletedItems: input.includeRecentlyDeletedItems === true,
     includePurposes: input.includePurposes === true,
+    includeMemberPreviews: input.includeMemberPreviews === true,
+    includeMessagePreviews: input.includeMessagePreviews === true,
   });
 }
 
@@ -17998,6 +18783,34 @@ async function buildActiveWakeSummaryForSpaceIds(input: {
       ),
       viewerOwnerUserId: input.ownerUserId,
     });
+  const currentNamesByProfileId = new Map<string, string>();
+  const profileIds = [
+    ...new Set(
+      [...targetCountsBySpaceId.values()].flatMap((counts) => [
+        ...counts.keys(),
+      ])
+    ),
+  ];
+  // Resolve each active identity once, even when it is working in many Spaces.
+  const nameDeadlineAtMs = Date.now() + SPACE_MEMBER_NAME_READ_BUDGET_MS;
+  for (let offset = 0; offset < profileIds.length; offset += 8) {
+    if (Date.now() >= nameDeadlineAtMs) {
+      break;
+    }
+    await Promise.all(
+      profileIds.slice(offset, offset + 8).map(async (profileId) => {
+        const name = await readSpaceMemberNameFromAuth({
+          env: input.env,
+          profileId,
+          profileKind: "agent",
+          deadlineAtMs: nameDeadlineAtMs,
+        });
+        if (name) {
+          currentNamesByProfileId.set(profileId, name);
+        }
+      })
+    );
+  }
 
   return {
     generatedAtMs,
@@ -18008,9 +18821,11 @@ async function buildActiveWakeSummaryForSpaceIds(input: {
           activeWakeCount,
           profileId,
           profileName:
+            currentNamesByProfileId.get(profileId) ??
             targetProfileNamesBySpaceAndId.get(
               buildActiveWakeTargetKey({ profileId, spaceId })
-            ) ?? null,
+            ) ??
+            null,
         })
       ).sort((left, right) =>
         (left.profileName ?? left.profileId).localeCompare(
@@ -23364,7 +24179,7 @@ function resolveTeamSafeOrganizationDirectoryDisplayState(
 function resolveHttpAgentWakeAvailability(
   readiness: CoreAgentExecutionReadiness
 ): GetAgentExecutionReadinessResponse["agentWakeAvailability"] {
-  if (readiness.agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF) {
+  if (isHostedAgentControllerRef(readiness.agentControllerRef)) {
     return resolveHostedAgentWakeAvailability({
       readiness: readiness.agentExecutionReadiness,
     });

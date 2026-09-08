@@ -25,7 +25,6 @@ import {
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
-import { SPACE_SYSTEM_DIVIDER_CLASS_NAME } from "./primitives/marker";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import {
 	MessageActionTooltip,
@@ -95,6 +94,7 @@ export function SpaceMessageFooter(input: {
 	details?: SpaceMessageFooterDetailsAction;
 	failureSummary?: string | null;
 	onCopy: () => void;
+	copyDisabled?: boolean;
 	reply?: SpaceMessageFooterAction;
 	thread?: SpaceMessageFooterAction;
 	timestamp: string;
@@ -116,7 +116,7 @@ export function SpaceMessageFooter(input: {
 			className={cn(
 				"@container mt-0.5 flex min-h-7 w-full min-w-0 items-center",
 				input.align === "end" ? "justify-end" : "justify-start",
-				persistent && ["gap-2", SPACE_SYSTEM_DIVIDER_CLASS_NAME]
+				persistent && "gap-2"
 			)}
 			data-persistent={persistent ? "true" : undefined}
 			data-slot="message-footer"
@@ -135,6 +135,7 @@ export function SpaceMessageFooter(input: {
 				/>
 				{persistent ? null : (
 					<MessageFooterIconAction
+						disabled={input.copyDisabled}
 						icon={<CopyIcon aria-hidden="true" />}
 						label="Copy message"
 						onSelect={input.onCopy}
@@ -169,7 +170,9 @@ export function SpaceMessageFooter(input: {
 					<MessageFooterMoreMenu
 						addressingTargets={input.addressingTargets}
 						alwaysVisible={persistent}
-						onCopy={persistent ? input.onCopy : undefined}
+						onCopy={
+							persistent && !input.copyDisabled ? input.onCopy : undefined
+						}
 						reply={input.reply}
 						thread={input.thread}
 					/>

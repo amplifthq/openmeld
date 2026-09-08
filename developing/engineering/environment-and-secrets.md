@@ -55,6 +55,13 @@ start Web with the same environment:
 pnpm dev:web:worktree
 ```
 
+After the Workers are ready, run `pnpm dev:account` to get a local test email
+and simple password, then sign in through the normal product page. Run
+`pnpm dev:seed` to populate that account with shared sample data; it also prepares
+an account if needed. Both commands reuse this worktree's isolated local state.
+See [test accounts and fixture scenarios](../../scripts/dev/sidebar-fixtures.md)
+for options and how to contribute scenarios.
+
 The first Web page load can take about one minute while Web and Cloudflare
 compile. Keep the page open. Later loads should be fast; this first-load delay
 does not mean startup failed.

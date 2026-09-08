@@ -1,57 +1,35 @@
 "use client";
 
-import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import type {
 	CenterAgentMemberResearchBatch,
 	CenterAgentMemberResearchTask,
 	ModelCatalog,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
-import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@openmeld/ui/components/tooltip";
-import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
-import { cn } from "@openmeld/ui/lib/utils";
-import { PlusIcon, UserFocusIcon } from "@phosphor-icons/react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
+import { PlusIcon, UsersThreeIcon } from "@phosphor-icons/react";
+import { type ReactNode, useEffect, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
-import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
-import {
-	APP_NAV_ITEM_TONE_CLASS_NAME,
-	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
-} from "#/components/app/app-nav-item-style";
-import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { ComputersPicker } from "#/components/computers/computers-picker";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import {
 	ConnectChannelAccountDialog,
 	ManageChannelAccountDialog,
 } from "#/components/directory/directory-channel-account-dialogs";
-import { DirectoryHumanProfileAvatar } from "#/components/directory/directory-human-profile-avatar";
 import {
 	DirectoryHumanProfileDetails,
 	type DirectoryHumanProfileResearchAction,
 } from "#/components/directory/directory-human-profile-details";
-import {
-	resolveDirectoryHumanProfileActivityLabel,
-	resolveDirectoryHumanProfileActivityTooltipLabel,
-} from "#/components/directory/directory-human-profile-format";
 import type {
 	DirectoryHumanProfileRow,
 	DirectoryIdentityAccount,
 } from "#/components/directory/directory-human-profile-model";
-import {
-	DirectoryComputerStatusIcon,
-	DirectoryIdentityAccountSummary,
-} from "#/components/directory/directory-human-profile-presentation";
-import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
+import { localPeopleSidebarFixtures } from "#/lib/dev/people-sidebar-fixtures";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
+import { SpaceWindowHeader } from "../spaces/space-header";
+import { PeopleSidebar } from "./people-sidebar";
+import { TeamHome } from "./team-home";
 
 type LocalAgentRecoveryController = ReturnType<
 	typeof useLocalAgentRecoveryController
@@ -69,7 +47,6 @@ export type DirectoryHumanProfilesViewState = {
 };
 
 const DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
-const MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS = 4;
 
 export function DirectoryHumanProfilesWorkspace(input: {
 	activeBatch: CenterAgentMemberResearchBatch | null;
@@ -94,6 +71,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	onResearch: (subjectUserId: string) => void;
 	onResearchAll: () => void;
 	onSelectProfile: (profileId: string) => void;
+	onInviteMembers?: () => void;
 	orgSlug: string;
 	pendingResearch: DirectoryMemberResearchRequest | undefined;
 	profileReportsAreRetrying: boolean;
@@ -101,16 +79,22 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	recovery: LocalAgentRecoveryController;
 	researchErrorMessage: string | null;
 	selectedProfileId: string | null;
-	sidebarLeadingContent?: ReactNode;
 	state: DirectoryHumanProfilesViewState;
 }) {
 	const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
-	const selectedMember = resolveSelectedMember({
+	const [previewReady, setPreviewReady] = useState(false);
+	const preview = localPeopleSidebarFixtures({
 		members: input.members,
+		computerGroups: input.computerGroups,
+		orgSlug: input.orgSlug,
+		enabled: previewReady,
+	});
+	const selectedMember = resolveSelectedMember({
+		members: preview.members,
 		selectedProfileId: input.selectedProfileId,
 	});
 	const selectedComputerGroup = selectedMember
-		? (input.computerGroups.find(
+		? (preview.computerGroups.find(
 				(group) => group.ownerUserId === selectedMember.userId
 			) ?? null)
 		: null;
@@ -125,20 +109,9 @@ export function DirectoryHumanProfilesWorkspace(input: {
 				state: input.state,
 			})
 		: null;
-	const learnAllLabel = resolveLearnAllActionLabel({
-		activeBatch: input.activeBatch,
-		isResearchPending: input.state.research === "pending",
-		pendingResearch: input.pendingResearch,
-	});
-	const compactLearnAllLabel =
-		learnAllLabel === "Learn about all members" ? "Learn all" : learnAllLabel;
-	const sidebarGroups = resolveHumanProfileSidebarGroups({
-		errorMessage: input.errorMessage,
-		members: input.members,
-		state: input.state,
-	});
 
 	useEffect(() => {
+		setPreviewReady(true);
 		const intervalId = window.setInterval(
 			() => setActivityNowMs(Date.now()),
 			DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS
@@ -147,109 +120,64 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	}, []);
 
 	const sidebar = (
-		<AppContextualSidebarNav
-			activeItemId={selectedMember?.id ?? null}
-			ariaLabel="People"
-			groups={sidebarGroups.map((group) => ({
-				ariaLabel: group.label,
-				content: (
-					<HumanProfileSidebarList
-						activityNowMs={activityNowMs}
-						ariaLabel={group.label}
-						computerGroups={input.computerGroups}
-						emptyMessage={input.emptyMessage}
-						errorMessage={input.errorMessage}
-						members={group.members}
-						onSelect={input.onSelectProfile}
-						selectedProfileId={selectedMember?.id ?? null}
-						state={input.state}
-					/>
-				),
-				id: group.id,
-				label: group.label,
-				labelTooltip: group.tooltip,
-			}))}
-			leadingContent={
-				<div className="space-y-2">
-					{input.sidebarLeadingContent}
-					{input.canCreateProfile ? (
-						<Button
-							aria-label="Create profile"
-							className="w-full min-w-0 justify-start overflow-hidden"
-							onClick={input.onCreateProfile}
-							size="sm"
-							type="button"
-							variant="ghost"
-						>
-							<PlusIcon
-								aria-hidden="true"
-								className="shrink-0"
-								data-icon="inline-start"
-							/>
-							<span
-								aria-hidden="true"
-								className="@[12rem]/contextual-sidebar:inline hidden truncate"
-							>
-								Create profile
-							</span>
-							<span
-								aria-hidden="true"
-								className="@[12rem]/contextual-sidebar:hidden truncate"
-							>
-								Create
-							</span>
-						</Button>
-					) : null}
-					{input.state.context === "organization" ? (
-						<Button
-							aria-label={learnAllLabel}
-							className="w-full min-w-0 justify-start overflow-hidden"
-							disabled={
-								Boolean(input.activeBatch) ||
-								input.state.research === "pending" ||
-								input.members.length === 0
-							}
-							onClick={input.onResearchAll}
-							size="sm"
-							type="button"
-							variant="ghost"
-						>
-							<UserFocusIcon
-								aria-hidden="true"
-								className="shrink-0"
-								data-icon="inline-start"
-							/>
-							<span
-								aria-hidden="true"
-								className="@[12rem]/contextual-sidebar:inline hidden truncate"
-							>
-								{learnAllLabel}
-							</span>
-							<span
-								aria-hidden="true"
-								className="@[12rem]/contextual-sidebar:hidden truncate"
-							>
-								{compactLearnAllLabel}
-							</span>
-						</Button>
-					) : null}
-				</div>
-			}
-			onActivate={input.onSelectProfile}
-			title="People"
+		<PeopleSidebar
+			activityNowMs={activityNowMs}
+			chatPending={input.state.directMessage === "pending"}
+			computerGroups={preview.computerGroups}
+			error={input.errorMessage}
+			loading={input.state.profiles === "loading"}
+			members={preview.members}
+			onChat={input.onOpenDirectMessage}
+			onSelect={input.onSelectProfile}
+			selectedProfileId={selectedMember?.id ?? null}
 		/>
 	);
+	const showTeamHome =
+		!input.selectedProfileId &&
+		input.state.profiles === "ready" &&
+		!input.errorMessage;
 
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
-			initialInnerSidebarState={input.initialSidebarStates?.inner}
 			initialOuterSidebarState={input.initialSidebarStates?.outer}
-			mobileSidebarTitle="People"
+			mainHeader={
+				input.selectedProfileId ? undefined : (
+					<SpaceWindowHeader
+						actions={
+							input.onInviteMembers ? (
+								<Button onClick={input.onInviteMembers} size="sm">
+									<PlusIcon />
+									Invite members
+								</Button>
+							) : undefined
+						}
+						leadingControl={
+							<UsersThreeIcon className="size-4 text-muted-foreground" />
+						}
+						navigation={
+							<TabsSubtle
+								aria-label="Team view"
+								className="h-full shrink-0 gap-5"
+								idPrefix="team-directory"
+								onSelect={() => undefined}
+								selectedIndex={0}
+								variant="underline"
+							>
+								<TabsSubtleItem
+									index={0}
+									label="Members"
+									labelClassName="text-sm"
+								/>
+							</TabsSubtle>
+						}
+						renderFrame={false}
+						title="Team"
+					/>
+				)
+			}
+			mainSidebarContent={sidebar}
 			showMainHeader
-			sidebar={sidebar}
-			sidebarPreferenceKey="people"
-			sidebarSeparatorLabel="Resize the People sidebar"
 		>
 			{input.researchErrorMessage ? (
 				<p className="m-4 rounded-md border border-destructive/50 px-4 py-3 text-destructive text-sm">
@@ -289,7 +217,16 @@ export function DirectoryHumanProfilesWorkspace(input: {
 					profileReportsErrorMessage={input.profileReportsErrorMessage}
 					researchAction={researchAction}
 				/>
-			) : (
+			) : null}
+			{!selectedMember && showTeamHome && (
+				<TeamHome
+					activityNowMs={activityNowMs}
+					computerGroups={preview.computerGroups}
+					members={preview.members}
+					onSelect={input.onSelectProfile}
+				/>
+			)}
+			{!(selectedMember || showTeamHome) && (
 				<HumanProfileWorkspaceState
 					emptyMessage={input.emptyMessage}
 					errorMessage={input.errorMessage}
@@ -369,402 +306,6 @@ function SelectedHumanProfileWorkspace(input: {
 	);
 }
 
-function HumanProfileSidebarList(input: {
-	activityNowMs: number;
-	ariaLabel: string;
-	computerGroups: readonly OrganizationComputerGroup[];
-	emptyMessage: string;
-	errorMessage: string | null;
-	members: readonly DirectoryHumanProfileRow[];
-	onSelect: (profileId: string) => void;
-	selectedProfileId: string | null;
-	state: DirectoryHumanProfilesViewState;
-}) {
-	if (input.state.profiles === "loading") {
-		return (
-			<div className="space-y-1" data-testid="people-sidebar-loading">
-				{["first", "second", "third"].map((id) => (
-					<div className="flex min-h-20 items-start gap-2 px-2 py-2" key={id}>
-						<Skeleton className="size-9 shrink-0 rounded-full" />
-						<div className="flex-1 space-y-2 pt-1">
-							<Skeleton className="h-3 w-3/4" />
-							<Skeleton className="h-3 w-full" />
-						</div>
-					</div>
-				))}
-			</div>
-		);
-	}
-	if (input.errorMessage) {
-		return (
-			<p className="px-2 py-3 text-destructive text-xs">{input.errorMessage}</p>
-		);
-	}
-	if (input.members.length === 0) {
-		return (
-			<p className="px-2 py-3 text-muted-foreground text-xs">
-				{input.emptyMessage}
-			</p>
-		);
-	}
-	return (
-		<FluidNavMenu
-			activeIndicatorClassName="bg-sidebar-accent"
-			activeValue={input.selectedProfileId}
-			aria-label={input.ariaLabel}
-			focusIndicatorClassName="border-sidebar-ring"
-			hoverIndicatorClassName="bg-sidebar-accent"
-		>
-			{input.members.map((member, index) => (
-				<HumanProfileSidebarItem
-					activityNowMs={input.activityNowMs}
-					computerGroup={
-						input.computerGroups.find(
-							(group) => group.ownerUserId === member.userId
-						) ?? null
-					}
-					index={index}
-					isActive={member.id === input.selectedProfileId}
-					key={member.id}
-					member={member}
-					onSelect={input.onSelect}
-				/>
-			))}
-		</FluidNavMenu>
-	);
-}
-
-type HumanProfileSidebarGroup = {
-	id: string;
-	label: string;
-	members: readonly DirectoryHumanProfileRow[];
-	tooltip: string;
-};
-
-const CONNECTED_GROUP = {
-	id: "computer-connected",
-	label: "Connected",
-	tooltip: "Computer connected",
-} as const;
-
-const NOT_CONNECTED_GROUP = {
-	id: "computer-not-connected",
-	label: "Not Connected",
-	tooltip: "Computer not connected",
-} as const;
-
-function resolveHumanProfileSidebarGroups(input: {
-	errorMessage: string | null;
-	members: readonly DirectoryHumanProfileRow[];
-	state: DirectoryHumanProfilesViewState;
-}): HumanProfileSidebarGroup[] {
-	if (
-		input.state.profiles === "loading" ||
-		input.errorMessage !== null ||
-		input.members.length === 0 ||
-		input.members.some(
-			(member) =>
-				member.computer.count === 0 &&
-				(member.computer.state === "checking" ||
-					member.computer.state === "unknown")
-		)
-	) {
-		return [
-			{
-				id: "computer-connection",
-				label: "Computer Connection",
-				members: input.members,
-				tooltip: "Computer connection",
-			},
-		];
-	}
-
-	const groups = [CONNECTED_GROUP, NOT_CONNECTED_GROUP].flatMap((group) => {
-		const expectsComputer = group.id === CONNECTED_GROUP.id;
-		const members = input.members.filter(
-			(member) => member.computer.count > 0 === expectsComputer
-		);
-		return members.length === 0
-			? []
-			: [
-					{
-						id: group.id,
-						label: group.label,
-						members,
-						tooltip: group.tooltip,
-					},
-				];
-	});
-	const currentMemberGroupIndex = groups.findIndex((group) =>
-		group.members.some((member) => member.isCurrentUser)
-	);
-	if (currentMemberGroupIndex <= 0) {
-		return groups;
-	}
-	const currentMemberGroup = groups[currentMemberGroupIndex];
-	if (!currentMemberGroup) {
-		return groups;
-	}
-	return [
-		currentMemberGroup,
-		...groups.slice(0, currentMemberGroupIndex),
-		...groups.slice(currentMemberGroupIndex + 1),
-	];
-}
-
-function HumanProfileSidebarItem(input: {
-	activityNowMs: number;
-	computerGroup: OrganizationComputerGroup | null;
-	index: number;
-	isActive: boolean;
-	member: DirectoryHumanProfileRow;
-	onSelect: (profileId: string) => void;
-}) {
-	const { dismiss } = useAppNavigationPresentation();
-	const activityLabel = resolveDirectoryHumanProfileActivityLabel({
-		lastActiveAt: input.member.lastActiveAt,
-		nowMs: input.activityNowMs,
-		profileStatus: input.member.profileStatus,
-	});
-	const activityTooltipLabel = resolveDirectoryHumanProfileActivityTooltipLabel(
-		{
-			lastActiveAt: input.member.lastActiveAt,
-			nowMs: input.activityNowMs,
-			profileStatus: input.member.profileStatus,
-		}
-	);
-	const localAgents = useMemo(
-		() => resolveEnabledLocalAgents(input.computerGroup),
-		[input.computerGroup]
-	);
-	const mappedAccounts = input.member.identityAccounts.filter(
-		(account) => account.id !== null
-	);
-	const visibleLocalAgents = localAgents.slice(
-		0,
-		MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS
-	);
-	const hiddenLocalAgentCount = localAgents.length - visibleLocalAgents.length;
-	let activityContent: ReactNode = null;
-	if (activityLabel) {
-		activityContent = activityTooltipLabel ? (
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						<span
-							className="min-w-0 truncate text-muted-foreground text-xs"
-							data-slot="human-profile-last-seen"
-						/>
-					}
-				>
-					{activityLabel}
-				</TooltipTrigger>
-				<TooltipContent side="top" sideOffset={6}>
-					{activityTooltipLabel}
-				</TooltipContent>
-			</Tooltip>
-		) : (
-			<span className="min-w-0 truncate text-muted-foreground text-xs">
-				{activityLabel}
-			</span>
-		);
-	}
-	return (
-		<FluidNavMenuItem index={input.index} value={input.member.id}>
-			<button
-				aria-current={input.isActive ? "page" : undefined}
-				aria-label={`Open ${input.member.name}'s profile`}
-				className={cn(
-					"flex w-full min-w-0 flex-row items-start gap-2 px-2 py-2 text-left outline-none",
-					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
-					APP_NAV_ITEM_TONE_CLASS_NAME,
-					input.isActive ? "text-sidebar-accent-foreground" : null
-				)}
-				onClick={() => {
-					input.onSelect(input.member.id);
-					dismiss();
-				}}
-				type="button"
-			>
-				<DirectoryHumanProfileAvatar context="sidebar" member={input.member} />
-				<span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
-					<span
-						className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden whitespace-nowrap"
-						data-slot="human-profile-sidebar-heading"
-					>
-						<span className="min-w-0 truncate font-medium text-sm">
-							{input.member.name}
-						</span>
-						<DirectoryComputerStatusIcon member={input.member} />
-						{input.member.isCurrentUser ? (
-							<span className="shrink-0 text-muted-foreground text-xs">
-								(you)
-							</span>
-						) : null}
-					</span>
-					{mappedAccounts.length > 0 ? (
-						<span
-							className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap"
-							data-slot="human-profile-channel-identities"
-						>
-							{mappedAccounts.map((account) => (
-								<span
-									className="min-w-0 shrink overflow-hidden"
-									key={account.provider}
-								>
-									<DirectoryIdentityAccountSummary
-										account={account}
-										context="sidebar"
-									/>
-								</span>
-							))}
-						</span>
-					) : null}
-					{activityLabel || localAgents.length > 0 ? (
-						<span
-							className="flex min-h-4 min-w-0 items-center justify-between gap-2"
-							data-slot="human-profile-activity-and-local-agents"
-						>
-							{activityContent}
-							{localAgents.length > 0 ? (
-								<span
-									aria-label={buildLocalAgentSummary(localAgents)}
-									className="ml-auto flex shrink-0 items-center justify-end -space-x-1.5"
-									role="img"
-								>
-									{visibleLocalAgents.map((agent) => (
-										<Tooltip key={agent.agentId}>
-											<TooltipTrigger
-												render={
-													<span
-														aria-hidden="true"
-														className="group/local-agent relative z-0 grid size-4 shrink-0 place-items-center hover:z-20"
-														data-testid="human-profile-local-agent"
-													/>
-												}
-											>
-												<span
-													className="relative isolate inline-grid size-4 overflow-hidden rounded-sm bg-sidebar p-px transition-transform duration-150 ease-[cubic-bezier(0.19,1,0.22,1)] before:absolute before:inset-0 before:bg-sidebar-accent before:content-[''] group-hover/local-agent:-translate-y-1 group-hover/local-agent:scale-[1.14] motion-reduce:transform-none motion-reduce:transition-none"
-													data-slot="human-profile-local-agent-logo"
-												>
-													<LocalAgentLogo
-														agentId={agent.agentId}
-														className="relative z-10"
-														size="xs"
-													/>
-												</span>
-											</TooltipTrigger>
-											<TooltipContent side="top" sideOffset={6}>
-												{agent.displayName}
-											</TooltipContent>
-										</Tooltip>
-									))}
-									{hiddenLocalAgentCount > 0 ? (
-										<Tooltip>
-											<TooltipTrigger
-												render={
-													<span className="relative isolate z-10 inline-flex h-4 min-w-4 items-center justify-center overflow-hidden rounded-full bg-sidebar px-0.5 font-medium text-[9px] text-muted-foreground before:absolute before:inset-0 before:bg-sidebar-accent before:content-['']" />
-												}
-											>
-												<span className="relative z-10">
-													+{hiddenLocalAgentCount}
-												</span>
-											</TooltipTrigger>
-											<TooltipContent side="top" sideOffset={6}>
-												{localAgents
-													.slice(MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS)
-													.map((agent) => agent.displayName)
-													.join(", ")}
-											</TooltipContent>
-										</Tooltip>
-									) : null}
-								</span>
-							) : null}
-						</span>
-					) : null}
-				</span>
-			</button>
-		</FluidNavMenuItem>
-	);
-}
-
-type LocalAgentIdentity = { agentId: string; displayName: string };
-
-function resolveEnabledLocalAgents(
-	group: OrganizationComputerGroup | null
-): readonly LocalAgentIdentity[] {
-	if (!group) {
-		return [];
-	}
-	const agents = new Map<string, LocalAgentIdentity>();
-	for (const computer of group.computers) {
-		if (computer.ownedComputer) {
-			appendOwnedComputerLocalAgents(
-				agents,
-				computer.ownedComputer.executionTargets
-			);
-			continue;
-		}
-		appendOrganizationComputerLocalAgents(agents, computer.localAgents);
-	}
-	return [...agents.values()].sort((left, right) =>
-		left.displayName.localeCompare(right.displayName, "en", {
-			sensitivity: "base",
-		})
-	);
-}
-
-function appendOwnedComputerLocalAgents(
-	agents: Map<string, LocalAgentIdentity>,
-	executionTargets: NonNullable<
-		OrganizationComputerGroup["computers"][number]["ownedComputer"]
-	>["executionTargets"]
-): void {
-	for (const target of executionTargets) {
-		if (target.status === "stale") {
-			continue;
-		}
-		for (const entry of target.localAgentCatalog.entries) {
-			if (
-				entry.enabled &&
-				entry.detected &&
-				entry.lifecycleStatus !== "suspended" &&
-				hasLocalAgentLogo(entry.agentId)
-			) {
-				agents.set(entry.agentId, {
-					agentId: entry.agentId,
-					displayName: entry.displayName,
-				});
-			}
-		}
-	}
-}
-
-function appendOrganizationComputerLocalAgents(
-	agents: Map<string, LocalAgentIdentity>,
-	localAgents: OrganizationComputerGroup["computers"][number]["localAgents"]
-): void {
-	for (const localAgent of localAgents) {
-		const parsed = parseAgentControllerRef(localAgent.agentControllerRef);
-		if (
-			localAgent.enabled &&
-			parsed?.kind === "builtin" &&
-			hasLocalAgentLogo(parsed.id)
-		) {
-			agents.set(parsed.id, {
-				agentId: parsed.id,
-				displayName: formatLocalAgentDisplayName(parsed.id),
-			});
-		}
-	}
-}
-
-function buildLocalAgentSummary(
-	localAgents: readonly LocalAgentIdentity[]
-): string {
-	return localAgents.map((agent) => `${agent.displayName} enabled`).join(", ");
-}
-
 function HumanProfileComputers(input: {
 	directoryError: string | null;
 	directoryIsPending: boolean;
@@ -839,8 +380,6 @@ function resolveSelectedMember(input: {
 }): DirectoryHumanProfileRow | null {
 	return (
 		input.members.find((member) => member.id === input.selectedProfileId) ??
-		input.members.find((member) => member.isCurrentUser) ??
-		input.members[0] ??
 		null
 	);
 }
@@ -905,20 +444,4 @@ function resolveLearnActionLabel(input: {
 		return "Try again";
 	}
 	return `Learn about ${input.displayName}`;
-}
-
-function resolveLearnAllActionLabel(input: {
-	activeBatch: CenterAgentMemberResearchBatch | null;
-	isResearchPending: boolean;
-	pendingResearch: DirectoryMemberResearchRequest | undefined;
-}): string {
-	if (input.activeBatch) {
-		const processedCount =
-			input.activeBatch.completedCount + input.activeBatch.failedCount;
-		return `Learning ${processedCount}/${input.activeBatch.totalCount}`;
-	}
-	if (input.isResearchPending && input.pendingResearch?.scope === "all") {
-		return "Starting…";
-	}
-	return "Learn about all members";
 }

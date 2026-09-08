@@ -156,6 +156,16 @@ type CoreAuthDispatchBindingRpc = {
 };
 
 export type RemoteAgentWorkerBindingRpc = {
+  receiveExecutionInput?(
+    input: import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputResponse
+  >;
+  readExecutionInput?(
+    input: import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputQuery
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputResponse
+  >;
   cancelExecution?(
     input: import("@openmeld/schemas/types").RemoteAgentWorkerCancellationRequest
   ): Promise<
@@ -218,6 +228,7 @@ export type CoreBindings = {
   OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED?: string;
   OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS?: string;
   OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT?: string;
+  OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED?: string;
   OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED?: string;
   OPENMELD_LARK_CHANNEL_ENABLED?: string;
   OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS?: string;

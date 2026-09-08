@@ -120,6 +120,8 @@ export const prepareStepDiagnosticsBundleSchema = z.object({
   bundleVersion: z.int().positive(),
   collectedAt: PREPARE_ISO_DATE_TIME_SCHEMA,
   supportCode: PREPARE_STEP_DIAGNOSTICS_SHORT_TEXT_SCHEMA,
+  // The immediate native failure, without copying arbitrary exception text.
+  nativeFailure: z.object({ osStatus: z.int() }).optional(),
   stepId: PREPARE_STEP_DIAGNOSTICS_SHORT_TEXT_SCHEMA,
   // Stable OpenMeld-internal device UUID read from the local service contract. It
   // is not user-identifying data; it lets Workers Logs correlate a machine's

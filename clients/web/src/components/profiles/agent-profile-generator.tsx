@@ -1,30 +1,29 @@
 "use client";
 
 import { Collapsible } from "@base-ui/react/collapsible";
+import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
-import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import {
-	ArrowLeftIcon,
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import {
+	TabsSubtle,
+	TabsSubtleItem,
+	TabsSubtlePanel,
+} from "@openmeld/ui/fluid/tabs-subtle";
+import {
 	CaretDownIcon,
+	CloudIcon,
 	DesktopTowerIcon,
 	SlidersHorizontalIcon,
 } from "@phosphor-icons/react";
-import {
-	AnimatePresence,
-	domAnimation,
-	LazyMotion,
-	m,
-	useReducedMotion,
-	type Variants,
-} from "framer-motion";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { SpinnerButton } from "#/components/spinner-button";
-import {
-	formatAgentProfileReasoningLevel,
-	resolveAgentProfileTemplateModelName,
-} from "#/lib/profiles/agent-profile-template-name";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
 import {
 	AgentProfileConfigurationCards,
@@ -33,36 +32,14 @@ import {
 	type CreateProfileFormProps,
 } from "./create-profile-form";
 import {
+	type AgentProfileConfigurationSection,
 	resolveAgentProfileConfigurationSummaries,
-	resolveCreateProfileSubmitBlockReason,
+	resolveCreateProfileSubmitBlock,
 } from "./create-profile-form-logic";
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
+import { LocalAgentLogoStack } from "./local-agent-logo-stack";
 import { LocalAgentSelector } from "./local-agent-selector";
-
-const GENERATOR_STEP_TRAVEL_PX = 64;
-
-type GeneratorStep = "configure" | "review";
-type GeneratorStepDirection = -1 | 1;
-type GeneratorStepMotionContext = {
-	direction: GeneratorStepDirection;
-	reduceMotion: boolean;
-};
-
-const GENERATOR_STEP_VARIANTS: Variants = {
-	active: { opacity: 1, transform: "translateX(0px)" },
-	exit: (context: GeneratorStepMotionContext) => ({
-		opacity: 0,
-		transform: context.reduceMotion
-			? "translateX(0px)"
-			: `translateX(${-context.direction * GENERATOR_STEP_TRAVEL_PX}px)`,
-	}),
-	initial: (context: GeneratorStepMotionContext) => ({
-		opacity: 0,
-		transform: context.reduceMotion
-			? "translateX(0px)"
-			: `translateX(${context.direction * GENERATOR_STEP_TRAVEL_PX}px)`,
-	}),
-};
+import { PersonalRemoteAgentConfiguration } from "./personal-remote-agent-configuration";
 
 export type AgentProfileGeneratorProps = {
 	form: CreateProfileFormProps;
@@ -78,235 +55,335 @@ export function AgentProfileGenerator(input: AgentProfileGeneratorProps) {
 }
 
 function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
-	const reduceMotion = useReducedMotion() === true;
-	const [configurationExpanded, setConfigurationExpanded] = useState(true);
-	const [step, setStep] = useState<GeneratorStep>("configure");
-	const [stepDirection, setStepDirection] = useState<GeneratorStepDirection>(1);
+	const [remote, setRemote] = useState(false);
+	const tabsId = useId();
+	const {
+		remoteName,
+		setRemoteName,
+		remoteModel,
+		setRemoteModel,
+		remoteReady,
+		submitRemote,
+	} = useRemoteAgentDraft(input.form);
+	const [configurationExpanded, setConfigurationExpanded] = useState(false);
+	const [openSection, setOpenSection] =
+		useState<AgentProfileConfigurationSection | null>(null);
+	const openConfigurationSection = (
+		section: AgentProfileConfigurationSection
+	) => {
+		setConfigurationExpanded(true);
+		setOpenSection(section);
+	};
 	const submitBlockReasonId = useId();
 	const form = input.form;
-	const bindingChoices = resolveGeneratorBindingChoices(form);
-	const selectedBindingValue = form.agentBindingValue ?? form.boundAgentId;
-	const selectedBinding = bindingChoices.find(
-		(choice) => choice.value === selectedBindingValue
-	);
-	const stepMotionContext: GeneratorStepMotionContext = {
-		direction: stepDirection,
-		reduceMotion,
-	};
-	const handleStepChange = (nextStep: GeneratorStep) => {
-		if (
-			nextStep === "configure" &&
-			resolveCreateProfileSubmitBlockReason(form) !== null
-		) {
-			setConfigurationExpanded(true);
-		}
-		setStepDirection(nextStep === "review" ? 1 : -1);
-		setStep(nextStep);
-	};
-
+	const submitBlock = remote ? null : resolveCreateProfileSubmitBlock(form);
+	const submitBlockReason = submitBlock?.message;
 	return (
-		<LazyMotion features={domAnimation}>
-			<form
-				className="-mx-3 flex min-h-0 min-w-0 flex-1 flex-col"
-				data-testid="create-profile-panel"
-				onSubmit={form.onSubmit}
-			>
-				<div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-					<AnimatePresence
-						custom={stepMotionContext}
-						initial={false}
-						mode="popLayout"
-					>
-						<m.div
-							animate="active"
-							className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
-							custom={stepMotionContext}
-							exit="exit"
-							initial="initial"
-							key={step}
-							transition={
-								reduceMotion
-									? { duration: 0.14, ease: "easeOut" }
-									: { duration: 0.28, ease: [0.32, 0.72, 0, 1] }
-							}
-							variants={GENERATOR_STEP_VARIANTS}
-						>
-							<div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-3">
-								<GeneratorStepContent
-									bindingChoices={bindingChoices}
-									configurationExpanded={configurationExpanded}
-									form={form}
-									onConfigurationExpandedChange={setConfigurationExpanded}
-									selectedBinding={selectedBinding ?? null}
-									selectedBindingValue={selectedBindingValue}
-									step={step}
-									surface={input.surface}
-								/>
-							</div>
-							<GeneratorActions
-								form={form}
-								onCancel={input.onCancel}
-								onStepChange={handleStepChange}
-								step={step}
-								submitBlockReasonId={submitBlockReasonId}
-							/>
-						</m.div>
-					</AnimatePresence>
-				</div>
-			</form>
-		</LazyMotion>
-	);
-}
-
-function GeneratorStepContent(input: {
-	bindingChoices: readonly AgentProfileBindingChoice[];
-	configurationExpanded: boolean;
-	form: CreateProfileFormProps;
-	onConfigurationExpandedChange: (expanded: boolean) => void;
-	selectedBinding: AgentProfileBindingChoice | null;
-	selectedBindingValue: string;
-	surface: "dialog" | "page";
-	step: GeneratorStep;
-}) {
-	return input.step === "configure" ? (
-		<div className="grid min-w-0 gap-5 pb-5">
-			<LocalAgentSelector
-				choices={input.bindingChoices}
-				disabled={input.form.isSubmitting}
-				emptyState={input.form.localAgentEmptyState}
-				isResolving={input.form.isResolvingLocalAgents}
-				locked={input.form.lockLocalAgentSelection}
-				onChange={(value) => {
-					(
-						input.form.onChangeAgentBindingValue ??
-						input.form.onChangeBoundAgentId
-					)(value);
-				}}
-				surface={input.surface}
-				value={input.selectedBindingValue}
-			/>
-			<AdvancedSetup
-				expanded={input.configurationExpanded}
-				form={input.form}
-				onExpandedChange={input.onConfigurationExpandedChange}
-			/>
-		</div>
-	) : (
-		<div className="grid min-w-0 gap-5 pb-5">
-			<GeneratorReview
-				form={input.form}
-				selectedBinding={input.selectedBinding}
-			/>
-			<CreateProfileErrorNotice
-				errorState={input.form.errorState}
-				recoveryActionHref={input.form.recoveryActionHref}
-			/>
-		</div>
-	);
-}
-
-function GeneratorActions(input: {
-	form: CreateProfileFormProps;
-	onCancel?: () => void;
-	onStepChange: (step: GeneratorStep) => void;
-	step: GeneratorStep;
-	submitBlockReasonId: string;
-}) {
-	return (
-		<div
-			className="mx-3 shrink-0 border-border border-t bg-background pt-4"
-			data-testid="create-profile-actions"
+		<form
+			className="-mx-3 flex min-h-0 min-w-0 flex-1 flex-col"
+			data-testid="create-profile-panel"
+			onSubmit={(event) => {
+				if (!remote) {
+					form.onSubmit(event);
+					return;
+				}
+				event.preventDefault();
+				submitRemote();
+			}}
 		>
-			{input.step === "configure" ? (
-				<GeneratorConfigureActions {...input} />
-			) : (
-				<GeneratorReviewActions {...input} />
-			)}
-		</div>
-	);
-}
-
-function GeneratorConfigureActions(input: {
-	form: CreateProfileFormProps;
-	onCancel?: () => void;
-	onStepChange: (step: GeneratorStep) => void;
-}) {
-	return (
-		<div className="flex flex-col-reverse items-stretch justify-between gap-2 sm:flex-row sm:items-center">
-			{input.onCancel ? (
-				<Button onClick={input.onCancel} type="button" variant="ghost">
-					Cancel
-				</Button>
-			) : (
-				<span />
-			)}
-			<div className="grid justify-items-stretch gap-1.5 sm:justify-items-end">
-				<Button
-					disabled={
-						input.form.isSubmitting || input.form.isResolvingLocalAgents
-					}
-					onClick={() => input.onStepChange("review")}
-					type="button"
-				>
-					{input.form.boundAgentId || input.form.lockLocalAgentSelection
-						? "Continue"
-						: "Connect later"}
-				</Button>
-			</div>
-		</div>
-	);
-}
-
-function GeneratorReviewActions(input: {
-	form: CreateProfileFormProps;
-	onStepChange: (step: GeneratorStep) => void;
-	submitBlockReasonId: string;
-}) {
-	const submitBlockReason = resolveCreateProfileSubmitBlockReason(input.form);
-	return (
-		<div className="flex flex-col-reverse items-stretch justify-between gap-3 sm:flex-row sm:items-end">
-			<Button
-				className="gap-2"
-				disabled={input.form.isSubmitting}
-				onClick={() => input.onStepChange("configure")}
-				type="button"
-				variant="ghost"
+			<ScrollArea
+				className="min-h-0 min-w-0 flex-1"
+				contentClassName="px-3"
+				orientation="vertical"
 			>
-				<ArrowLeftIcon aria-hidden="true" />
-				Back
-			</Button>
-			<div className="grid justify-items-stretch gap-2 sm:justify-items-end">
-				{submitBlockReason ? (
-					<p
-						className="max-w-md text-right text-muted-foreground text-xs"
-						id={input.submitBlockReasonId}
+				<div className="grid min-w-0 gap-5 pb-2">
+					{input.surface === "page" ? (
+						<div className="grid gap-2">
+							<h1 className="font-medium text-2xl tracking-tight">
+								Create Agent
+							</h1>
+							<p className="text-muted-foreground text-sm">
+								Choose where your Agent runs.
+							</p>
+						</div>
+					) : null}
+					<AgentRuntimeTabs
+						isSubmitting={form.isSubmitting}
+						onRemoteChange={setRemote}
+						remote={remote}
+						remoteAvailable={Boolean(form.remoteAgentCreation)}
+						tabsId={tabsId}
+					/>
+					<TabsSubtlePanel
+						className="grid min-w-0 gap-5"
+						idPrefix={tabsId}
+						index={0}
+						selectedIndex={remote ? 1 : 0}
 					>
-						{submitBlockReason}
-					</p>
-				) : null}
-				<SpinnerButton
-					aria-describedby={
-						submitBlockReason ? input.submitBlockReasonId : undefined
-					}
-					buttonState={input.form.isSubmitting ? "loading" : "idle"}
-					disabled={submitBlockReason !== null}
-					loadingLabel={input.form.submittingLabel ?? "Creating Agent…"}
-					type="submit"
-				>
-					{input.form.submitLabel ?? "Create Agent"}
-				</SpinnerButton>
+						<LocalAgentSelector
+							choices={resolveGeneratorBindingChoices(form)}
+							computerSlot={form.agentComputerSlot}
+							disabled={form.isSubmitting}
+							emptyState={form.localAgentEmptyState}
+							isResolving={form.isResolvingLocalAgents}
+							locked={form.lockLocalAgentSelection}
+							onChange={
+								form.onChangeAgentBindingValue ?? form.onChangeBoundAgentId
+							}
+							surface={input.surface}
+							value={form.agentBindingValue ?? form.boundAgentId}
+						/>
+						{form.boundAgentId ? (
+							<div className="grid min-w-0 gap-2">
+								<Label htmlFor="create-profile-name-input">Agent name</Label>
+								<Input
+									autoComplete="off"
+									disabled={form.isSubmitting}
+									id="create-profile-name-input"
+									onChange={(event) =>
+										form.onChangeProfileName(event.target.value)
+									}
+									placeholder="Agent name"
+									value={form.profileName}
+								/>
+								<p className="text-muted-foreground text-xs leading-5">
+									You can rename this Agent now or later.
+								</p>
+							</div>
+						) : null}
+						<AdvancedSetup
+							expanded={configurationExpanded}
+							form={form}
+							onExpandedChange={setConfigurationExpanded}
+							onOpenSectionChange={setOpenSection}
+							openSection={openSection}
+						/>
+					</TabsSubtlePanel>
+					<TabsSubtlePanel
+						idPrefix={tabsId}
+						index={1}
+						selectedIndex={remote ? 1 : 0}
+					>
+						<PersonalRemoteAgentConfiguration
+							form={form}
+							model={remoteModel}
+							name={remoteName}
+							onModelChange={setRemoteModel}
+							onNameChange={setRemoteName}
+						/>
+					</TabsSubtlePanel>
+					<CreateProfileErrorNotice
+						errorState={form.errorState}
+						recoveryActionHref={form.recoveryActionHref}
+					/>
+				</div>
+			</ScrollArea>
+			<div
+				className="mx-3 flex shrink-0 flex-col-reverse items-stretch justify-between gap-3 bg-background pt-2 sm:flex-row sm:items-end"
+				data-testid="create-profile-actions"
+			>
+				{input.onCancel ? (
+					<Button
+						disabled={form.isSubmitting}
+						onClick={input.onCancel}
+						type="button"
+						variant="ghost"
+					>
+						Cancel
+					</Button>
+				) : (
+					<span />
+				)}
+				<div className="grid justify-items-stretch gap-2 sm:justify-items-end">
+					{submitBlockReason ? (
+						<output
+							className="max-w-md text-right text-muted-foreground text-xs"
+							id={submitBlockReasonId}
+						>
+							{submitBlockReason}
+						</output>
+					) : null}
+					{submitBlock?.action ? (
+						<div className="flex flex-wrap justify-end gap-2">
+							{submitBlock.action.section === "working-folder" &&
+							form.onUseManagedWorkspace ? (
+								<Button
+									disabled={form.isSubmitting}
+									onClick={form.onUseManagedWorkspace}
+									type="button"
+									variant="outline"
+								>
+									Use OpenMeld managed folder
+								</Button>
+							) : null}
+							<Button
+								disabled={form.isSubmitting}
+								onClick={() => {
+									if (submitBlock.action) {
+										openConfigurationSection(submitBlock.action.section);
+									}
+								}}
+								type="button"
+								variant="outline"
+							>
+								{submitBlock.action.label}
+							</Button>
+						</div>
+					) : null}
+					<SpinnerButton
+						aria-describedby={
+							submitBlockReason ? submitBlockReasonId : undefined
+						}
+						buttonState={form.isSubmitting ? "loading" : "idle"}
+						disabled={
+							form.isSubmitting ||
+							(remote ? !remoteReady : submitBlock !== null)
+						}
+						loadingLabel={form.submittingLabel ?? "Creating Agent…"}
+						type="submit"
+					>
+						{form.submitLabel ?? "Create Agent"}
+					</SpinnerButton>
+				</div>
 			</div>
-		</div>
+		</form>
 	);
+}
+
+function AgentRuntimeTabs(input: {
+	isSubmitting: boolean;
+	onRemoteChange: (remote: boolean) => void;
+	remote: boolean;
+	remoteAvailable: boolean;
+	tabsId: string;
+}) {
+	return (
+		<TabsSubtle
+			aria-label="Agent runtime"
+			className="grid grid-cols-2 items-stretch gap-2"
+			idPrefix={input.tabsId}
+			onSelect={(index) => input.onRemoteChange(index === 1)}
+			selectedIndex={input.remote ? 1 : 0}
+			variant="ghost"
+		>
+			<TabsSubtleItem
+				className="h-auto items-start gap-3 border border-border p-3 text-left"
+				disabled={input.isSubmitting}
+				index={0}
+				label="Choose a Local Agent"
+			>
+				<DesktopTowerIcon
+					aria-hidden="true"
+					className="mt-0.5 size-5 shrink-0"
+				/>
+				<span className="grid gap-1">
+					<span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+						<span className="font-medium text-sm">Choose a Local Agent</span>
+						<LocalAgentLogoStack compact />
+					</span>
+					<span className="text-muted-foreground text-xs">
+						Runs on a connected computer with an agent harness like Codex or
+						Claude Code.
+					</span>
+				</span>
+			</TabsSubtleItem>
+			<TabsSubtleItem
+				className="h-auto items-start gap-3 border border-border p-3 text-left disabled:opacity-50"
+				disabled={input.isSubmitting || !input.remoteAvailable}
+				index={1}
+				label="Remote Agent"
+			>
+				<CloudIcon aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+				<span className="grid gap-1">
+					<span className="flex items-center gap-2">
+						<span className="font-medium text-sm">Remote Agent</span>
+						<Tooltip>
+							<TooltipTrigger render={<span />}>
+								<Badge className="text-muted-foreground" variant="secondary">
+									Beta
+								</Badge>
+							</TooltipTrigger>
+							<TooltipContent>
+								Remote Agents are new. Expect a few bumps.
+							</TooltipContent>
+						</Tooltip>
+					</span>
+					<span className="text-muted-foreground text-xs">
+						Runs in the cloud, even when your computer is off.
+					</span>
+					{input.remoteAvailable ? null : (
+						<span className="text-muted-foreground text-xs">
+							Unavailable for this owner
+						</span>
+					)}
+				</span>
+			</TabsSubtleItem>
+		</TabsSubtle>
+	);
+}
+
+function useRemoteAgentDraft(form: CreateProfileFormProps) {
+	const [editedRemoteName, setRemoteName] = useState<string | null>(null);
+	const ownerName = form.agentOwnershipSummary?.trim();
+	const defaultRemoteName =
+		ownerName && ownerName !== "You"
+			? `${ownerName}’s Remote Agent`
+			: "Your Remote Agent";
+	const remoteName = editedRemoteName ?? defaultRemoteName;
+	const [remoteModel, setRemoteModel] = useState("");
+	const intent = useRef<{ fingerprint: string; key: string } | null>(null);
+	const catalog = form.modelCatalog?.agentControllers["center-agent"];
+	const remoteModelId = remoteModel || catalog?.defaultModelId;
+	const remoteReady = Boolean(
+		remoteName.trim() &&
+			catalog?.models.some(
+				(choice) =>
+					choice.id === remoteModelId &&
+					choice.hostedRuntime &&
+					!choice.unavailable
+			)
+	);
+	const submitRemote = () => {
+		if (form.isSubmitting || !remoteReady || !form.remoteAgentCreation) {
+			return;
+		}
+		const fingerprint = JSON.stringify([remoteName.trim(), remoteModelId]);
+		if (intent.current?.fingerprint !== fingerprint) {
+			intent.current = { fingerprint, key: crypto.randomUUID() };
+		}
+		form.remoteAgentCreation.onSubmit({
+			idempotencyKey: intent.current.key,
+			modelId: remoteModelId ?? null,
+			profileName: remoteName.trim(),
+		});
+	};
+	return {
+		remoteName,
+		setRemoteName,
+		remoteModel,
+		setRemoteModel,
+		remoteReady,
+		submitRemote,
+	};
 }
 
 function AdvancedSetup(input: {
 	expanded: boolean;
 	form: CreateProfileFormProps;
 	onExpandedChange: (expanded: boolean) => void;
+	openSection: AgentProfileConfigurationSection | null;
+	onOpenSectionChange: (
+		section: AgentProfileConfigurationSection | null
+	) => void;
 }) {
 	if (!input.form.boundAgentId) {
-		return null;
+		return (
+			<AgentProfileConfigurationCards
+				input={{ ...input.form, agentSessionSlot: undefined }}
+				onOpenSectionChange={input.onOpenSectionChange}
+				openSection={input.openSection}
+			/>
+		);
 	}
 
 	const summaries = resolveAgentProfileConfigurationSummaries(input.form);
@@ -329,7 +406,7 @@ function AdvancedSetup(input: {
 					className="size-4 shrink-0 text-muted-foreground"
 				/>
 				<span className="shrink-0 font-medium text-sm">
-					Customize this Agent
+					Advanced Agent Settings
 				</span>
 				<span
 					className="min-w-0 flex-1 truncate text-right text-muted-foreground text-xs"
@@ -344,79 +421,14 @@ function AdvancedSetup(input: {
 			</Collapsible.Trigger>
 			<Collapsible.Panel className="overflow-hidden transition-[height,opacity] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)] data-[ending-style]:h-0 data-[starting-style]:h-0 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-[opacity] data-[open]:[height:var(--collapsible-panel-height)]">
 				<div className="pt-3">
-					<AgentProfileConfigurationCards input={input.form} />
+					<AgentProfileConfigurationCards
+						input={input.form}
+						onOpenSectionChange={input.onOpenSectionChange}
+						openSection={input.openSection}
+					/>
 				</div>
 			</Collapsible.Panel>
 		</Collapsible.Root>
-	);
-}
-
-function GeneratorReview(input: {
-	form: CreateProfileFormProps;
-	selectedBinding: AgentProfileBindingChoice | null;
-}) {
-	const modelName = resolveAgentProfileTemplateModelName({
-		agentId: input.form.boundAgentId,
-		modelCatalog: input.form.modelCatalog,
-		modelId: input.form.boundModelId,
-	});
-	const reasoningName = formatAgentProfileReasoningLevel(
-		input.form.boundReasoningLevel
-	);
-	return (
-		<div className="grid gap-5">
-			<div className="grid gap-1">
-				<h2 className="font-medium text-lg">Ready to create</h2>
-				<p className="text-pretty text-muted-foreground text-sm leading-5">
-					Review the setup and change the suggested name if you want.
-				</p>
-			</div>
-
-			<div className="flex min-w-0 items-center gap-3 rounded-xl border border-border/70 bg-muted/20 p-3.5">
-				<span className="grid size-11 shrink-0 place-items-center rounded-xl border border-border/70 bg-background">
-					{input.form.boundAgentId ? (
-						<LocalAgentLogo
-							agentId={input.form.boundAgentId}
-							className="size-7 overflow-hidden rounded-[22%]"
-							size="md"
-						/>
-					) : (
-						<DesktopTowerIcon
-							aria-hidden="true"
-							className="size-5 text-muted-foreground"
-						/>
-					)}
-				</span>
-				<div className="min-w-0 flex-1">
-					<p className="truncate font-medium text-sm">
-						{input.selectedBinding?.label ?? "Connect a local agent later"}
-					</p>
-					<p className="truncate text-muted-foreground text-xs">
-						{[modelName, reasoningName]
-							.filter((part): part is string => Boolean(part))
-							.join(" · ") || "Default setup"}
-					</p>
-				</div>
-			</div>
-
-			<div className="grid min-w-0 gap-2">
-				<Label htmlFor="create-profile-name-input">Agent name</Label>
-				<Input
-					autoComplete="off"
-					disabled={input.form.isSubmitting}
-					id="create-profile-name-input"
-					onChange={(event) =>
-						input.form.onChangeProfileName(event.target.value)
-					}
-					placeholder="Agent name"
-					value={input.form.profileName}
-				/>
-				<p className="text-muted-foreground text-xs leading-5">
-					OpenMeld suggests this from the owner, local agent, model, and
-					reasoning. You can rename it now or later.
-				</p>
-			</div>
-		</div>
 	);
 }
 

@@ -11,7 +11,6 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
-  isSpaceComposerSubmissionError,
   prepareSpaceComposerSubmission,
   prepareSpaceFileOnlySubmission,
 } from "../src/index";
@@ -21,6 +20,23 @@ const HUMAN_LEGAL_ID = "22222222-2222-4222-8222-222222222222";
 const AGENT_BUDGET_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 describe("space composer submission", () => {
+  it("does not reattach a deleted selection to matching plain text elsewhere", () => {
+    const result = prepareSpaceComposerSubmission({
+      text: "Removed; @Budget Analyst is only prose",
+      snapshot: createSnapshot(),
+      missingSnapshotMessage: "missing snapshot",
+      authoredMentionsInTextOrder: [
+        {
+          profileId: AGENT_BUDGET_ID,
+          relation: "wake",
+          start: 0,
+          text: "@Budget Analyst",
+        },
+      ],
+    });
+    expect(result.hasStructuredTargets).toBe(false);
+    expect(result.messageEnvelope).toBeNull();
+  });
   it("prepares a file-only message without inventing visible text", () => {
     expect(
       prepareSpaceFileOnlySubmission({
@@ -28,12 +44,12 @@ describe("space composer submission", () => {
       })
     ).toEqual({
       authoredMentionsInTextOrder: [],
-      canonicalMentionsInTextOrder: [],
+      mentionsInTextOrder: [],
       hasStructuredTargets: false,
       messageEnvelope: null,
       replyTo: { signalId: "signal-1" },
       resolvedStructuredTargets: {
-        canonicalMentionsInTextOrder: [],
+        mentionsInTextOrder: [],
         profileIdsInTextOrder: [],
       },
       text: "",
@@ -51,9 +67,9 @@ describe("space composer submission", () => {
       text: "hello from the dry run",
       messageEnvelope: null,
       hasStructuredTargets: false,
-      canonicalMentionsInTextOrder: [],
+      mentionsInTextOrder: [],
       resolvedStructuredTargets: {
-        canonicalMentionsInTextOrder: [],
+        mentionsInTextOrder: [],
         profileIdsInTextOrder: [],
       },
       replyTo: null,
@@ -71,7 +87,7 @@ describe("space composer submission", () => {
       text: "@unknown-token stays plain text here.",
       messageEnvelope: null,
       hasStructuredTargets: false,
-      canonicalMentionsInTextOrder: [],
+      mentionsInTextOrder: [],
       replyTo: null,
     });
   });
@@ -201,77 +217,6 @@ describe("space composer submission", () => {
     });
   });
 
-  it("normalizes canonical mentions into the message envelope", () => {
-    expect(
-      prepareSpaceComposerSubmission({
-        missingSnapshotMessage: "missing snapshot",
-        text: [
-          "  @Budget Analyst(wake) Please propose the rollout plan.",
-          "@Legal(mention) Please keep visibility on this thread.",
-          "@Alice(mention) I agree with the risk framing.  ",
-        ].join("\n"),
-        snapshot: createSnapshot(),
-      })
-    ).toMatchObject({
-      messageEnvelope: {
-        activationTargets: [AGENT_BUDGET_ID],
-        referenceTargets: [],
-        mentionTargets: [HUMAN_LEGAL_ID, HUMAN_ANALYST_ID],
-        text: [
-          "@Budget Analyst(wake) Please propose the rollout plan.",
-          "@Legal(mention) Please keep visibility on this thread.",
-          "@Alice(mention) I agree with the risk framing.",
-        ].join("\n"),
-      },
-      text: [
-        "@Budget Analyst(wake) Please propose the rollout plan.",
-        "@Legal(mention) Please keep visibility on this thread.",
-        "@Alice(mention) I agree with the risk framing.",
-      ].join("\n"),
-      hasStructuredTargets: true,
-    });
-  });
-
-  it("keeps long follow-up text and code formatting outside the wake mention", () => {
-    const agentProfileId = "agt_449dc84a-14c2-4afc-a3be-94dc008ddd9c";
-    const agentName = "Prod Smoke Codex 0.7.1 20260531";
-    const snapshot = createSnapshot({
-      agents: [
-        createAgentMember({
-          profileId: agentProfileId,
-          profileName: agentName,
-          mentionAlias: null,
-        }),
-      ],
-    });
-
-    expect(
-      prepareSpaceComposerSubmission({
-        missingSnapshotMessage: "missing snapshot",
-        text: `@${agentProfileId}(wake) DOGFOOD_REPORT: Confirmed \`openmeld --version\` and Felix (\`326d1bf2-a521-474f-8cb8-b6664c1c8c6f\`) can read the Space.`,
-        snapshot,
-      })
-    ).toMatchObject({
-      messageEnvelope: {
-        activationTargets: [agentProfileId],
-      },
-      hasStructuredTargets: true,
-    });
-
-    expect(
-      prepareSpaceComposerSubmission({
-        missingSnapshotMessage: "missing snapshot",
-        text: `@${agentName}(wake) DOGFOOD_FINDINGS: service status said route online, then later status changed (transient).`,
-        snapshot,
-      })
-    ).toMatchObject({
-      messageEnvelope: {
-        activationTargets: [agentProfileId],
-      },
-      hasStructuredTargets: true,
-    });
-  });
-
   it("aligns top-level replyTo with messageEnvelope.replyToSignalId", () => {
     expect(
       prepareSpaceComposerSubmission({
@@ -295,266 +240,54 @@ describe("space composer submission", () => {
     });
   });
 
-  it("keeps replyTo and structured mentions together", () => {
+  it.each([
+    "@Budget Analyst(wake)",
+    "@NameWith(Bracket)(wake)",
+    "@Alice(mention)",
+    "@Budget Analyst(reference)",
+    "@Agent(cc)",
+  ])("keeps typed syntax literal: %s", (text) => {
     expect(
       prepareSpaceComposerSubmission({
+        text,
+        snapshot: null,
         missingSnapshotMessage: "missing snapshot",
-        replyTo: {
-          signalId: "sig-origin",
-        },
-        text: "@Budget Analyst(wake) hello",
-        snapshot: createSnapshot(),
       })
     ).toMatchObject({
-      replyTo: {
-        signalId: "sig-origin",
-      },
-      messageEnvelope: {
-        activationTargets: [AGENT_BUDGET_ID],
-        referenceTargets: [],
-        replyToSignalId: "sig-origin",
-        text: "@Budget Analyst(wake) hello",
-      },
+      text,
+      messageEnvelope: null,
+      hasStructuredTargets: false,
     });
   });
-
-  it("requires a members snapshot when canonical attempts are present", () => {
+  it("requires a current snapshot for selected identities", () => {
     expect(() =>
       prepareSpaceComposerSubmission({
-        missingSnapshotMessage: "Cannot validate canonical mentions right now.",
-        text: "@Budget Analyst(wake) Please propose the rollout plan.",
+        text: "@Budget Analyst please",
         snapshot: null,
-      })
-    ).toThrow("Cannot validate canonical mentions right now.");
-  });
-
-  it("fails canonical syntax before snapshot-dependent resolution", () => {
-    expect(() =>
-      prepareSpaceComposerSubmission({
         missingSnapshotMessage: "missing snapshot",
-        text: "@NameWith(Bracket)(wake) hello",
-        snapshot: null,
-      })
-    ).toThrow(
-      "That mention is not valid. Type @ and choose a member from the list."
-    );
-  });
-
-  it("rejects invalid target lookup", () => {
-    expect(() =>
-      prepareSpaceComposerSubmission({
-        missingSnapshotMessage: "missing snapshot",
-        text: "@budget analyst(wake) hello",
-        snapshot: createSnapshot(),
-      })
-    ).toThrow(
-      "That mention does not match a current member. Type @ and choose a member from the list."
-    );
-  });
-
-  it("keeps the first structured relation when a canonical target repeats", () => {
-    const text = [
-      "@Budget Analyst(wake) first",
-      "@Budget Analyst(reference) second",
-    ].join("\n");
-
-    expect(
-      prepareSpaceComposerSubmission({
-        missingSnapshotMessage: "missing snapshot",
-        text,
-        snapshot: createSnapshot(),
-      })
-    ).toMatchObject({
-      canonicalMentionsInTextOrder: [
-        {
-          profileId: AGENT_BUDGET_ID,
-          text: "@Budget Analyst(wake)",
-          type: "wake",
-        },
-        {
-          profileId: AGENT_BUDGET_ID,
-          text: "@Budget Analyst(reference)",
-          type: "reference",
-        },
-      ],
-      messageEnvelope: {
-        activationTargets: [AGENT_BUDGET_ID],
-        referenceTargets: [],
-        text,
-      },
-      resolvedStructuredTargets: {
-        canonicalMentionsInTextOrder: [
-          {
-            profileId: AGENT_BUDGET_ID,
-            text: "@Budget Analyst(wake)",
-            type: "wake",
-          },
-        ],
-        profileIdsInTextOrder: [AGENT_BUDGET_ID],
-      },
-    });
-  });
-
-  it("keeps an earlier authored relation ahead of a later canonical relation", () => {
-    const text = [
-      "@Budget Analyst please keep an eye on this.",
-      "@Budget Analyst(wake) should remain ordinary repeated text.",
-    ].join("\n");
-
-    expect(
-      prepareSpaceComposerSubmission({
         authoredMentionsInTextOrder: [
           {
             profileId: AGENT_BUDGET_ID,
-            relation: "reference",
-            start: 0,
+            relation: "wake",
             text: "@Budget Analyst",
           },
         ],
-        missingSnapshotMessage: "missing snapshot",
-        text,
+      })
+    ).toThrow("missing snapshot");
+  });
+  it("rejects a selected human Wake", () => {
+    expect(() =>
+      prepareSpaceComposerSubmission({
+        text: "@Alice please",
         snapshot: createSnapshot(),
-      })
-    ).toMatchObject({
-      messageEnvelope: {
-        activationTargets: [],
-        referenceTargets: [AGENT_BUDGET_ID],
-        text,
-      },
-      resolvedStructuredTargets: {
-        canonicalMentionsInTextOrder: [],
-        profileIdsInTextOrder: [AGENT_BUDGET_ID],
-      },
-    });
-  });
-
-  it("rejects wake mentions for human targets before submitting an envelope", () => {
-    expect(
-      captureSubmissionError(() =>
-        prepareSpaceComposerSubmission({
-          missingSnapshotMessage: "missing snapshot",
-          text: "@Alice(wake) please handle this.",
-          snapshot: createSnapshot(),
-        })
-      )
-    ).toMatchObject({
-      code: "addressing.relation_incompatible",
-      message: expect.stringContaining(
-        "wake is only allowed for agent targets"
-      ),
-    });
-  });
-
-  it("rejects missing canonical mention targets with a stable reason code", () => {
-    expect(
-      captureSubmissionError(() =>
-        prepareSpaceComposerSubmission({
-          missingSnapshotMessage: "missing snapshot",
-          text: "@Missing Agent(wake) please handle this.",
-          snapshot: createSnapshot(),
-        })
-      )
-    ).toMatchObject({
-      code: "addressing.target_not_in_current_space",
-      message: expect.stringContaining(
-        "That mention does not match a current member. Type @ and choose a member from the list."
-      ),
-    });
-  });
-
-  it("rejects unresolved target kind from the members snapshot before submitting an envelope", () => {
-    const brokenAgent = {
-      ...createAgentMember({
-        profileId: AGENT_BUDGET_ID,
-        profileName: "Budget Analyst",
-        mentionAlias: null,
-      }),
-      profileKind: undefined,
-    } as unknown as SpaceMemberAgentSnapshot;
-
-    const error = captureSubmissionError(() =>
-      prepareSpaceComposerSubmission({
         missingSnapshotMessage: "missing snapshot",
-        text: "@Budget Analyst(wake) please handle this.",
-        snapshot: createSnapshot({
-          agents: [brokenAgent],
-        }),
+        authoredMentionsInTextOrder: [
+          { profileId: HUMAN_ANALYST_ID, relation: "wake", text: "@Alice" },
+        ],
       })
-    );
-
-    expect(isSpaceComposerSubmissionError(error)).toBe(true);
-    expect(error).toMatchObject({
-      code: "addressing.target_kind_unresolved",
-      message: `Cannot resolve Space Message Addressing target kind for profile ${AGENT_BUDGET_ID}.`,
-    });
-  });
-
-  it("keeps repeated canonical text while waking the target once", () => {
-    const text = [
-      "@Budget Analyst(wake) first request.",
-      "@Budget Analyst(wake) duplicate request.",
-    ].join("\n");
-
-    expect(
-      prepareSpaceComposerSubmission({
-        missingSnapshotMessage: "missing snapshot",
-        text,
-        snapshot: createSnapshot(),
-      })
-    ).toMatchObject({
-      messageEnvelope: {
-        activationTargets: [AGENT_BUDGET_ID],
-        referenceTargets: [],
-        text,
-      },
-      resolvedStructuredTargets: {
-        profileIdsInTextOrder: [AGENT_BUDGET_ID],
-      },
-      text,
-    });
-  });
-
-  it("accepts wake mentions for blocked-readiness agent targets", () => {
-    expect(
-      prepareSpaceComposerSubmission({
-        missingSnapshotMessage: "missing snapshot",
-        text: "@Budget Analyst(wake) Please propose the rollout plan.",
-        snapshot: createSnapshot({
-          agents: [
-            createAgentMember({
-              agentExecutionReadiness:
-                createMissingBindingAgentExecutionReadiness(AGENT_BUDGET_ID),
-              profileId: AGENT_BUDGET_ID,
-              profileName: "Budget Analyst",
-              mentionAlias: null,
-              wakeabilityStatus: "blocked",
-              wakeabilityReasonText: "Offline from this device right now.",
-            }),
-          ],
-        }),
-      })
-    ).toMatchObject({
-      messageEnvelope: {
-        activationTargets: [AGENT_BUDGET_ID],
-        referenceTargets: [],
-        text: "@Budget Analyst(wake) Please propose the rollout plan.",
-      },
-      hasStructuredTargets: true,
-      resolvedStructuredTargets: {
-        profileIdsInTextOrder: [AGENT_BUDGET_ID],
-      },
-    });
+    ).toThrow();
   });
 });
-
-function captureSubmissionError(action: () => unknown): unknown {
-  try {
-    action();
-  } catch (error) {
-    return error;
-  }
-  throw new Error("Expected action to throw.");
-}
 
 function createSnapshot(input?: {
   humans?: SpaceMemberHumanSnapshot[];
@@ -657,27 +390,5 @@ function createReadyAgentExecutionReadiness(
     displayState: "ready",
     primaryAction: "none",
     reasonCodes: [],
-  });
-}
-
-function createMissingBindingAgentExecutionReadiness(
-  agentProfileId: string
-): NonNullable<
-  NonNullable<
-    SpaceMemberAgentSnapshot["ownerWakeDiagnostics"]
-  >["agentExecutionReadiness"]
-> {
-  return createSpaceMemberAgentExecutionReadiness({
-    agentProfileId,
-    displayState: "not_ready",
-    facts: {
-      binding: {
-        reasonCodes: ["agent_profile_binding.missing"],
-        routable: false,
-        source: "missing",
-      },
-    },
-    primaryAction: "reconnect_binding",
-    reasonCodes: ["agent_profile_binding.missing"],
   });
 }

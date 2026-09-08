@@ -14,6 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
+import { AgentChatBadge } from "./agent-chat-badge";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import {
 	SpaceHeaderNavigationMenu,
@@ -46,9 +47,9 @@ export function SpaceWindowHeader(input: {
 	const content = (
 		<div
 			className={cn(
-				"relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-4",
+				"relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-[var(--app-page-inline-padding)]",
 				hasSecondaryRow
-					? "grid-rows-[minmax(0,2.5rem)_minmax(0,var(--space-conversation-navigation-height))]"
+					? "grid-rows-[minmax(0,var(--space-conversation-title-height))_minmax(0,var(--space-conversation-navigation-height))]"
 					: "grid-rows-1",
 				input.contentClassName
 			)}
@@ -77,7 +78,7 @@ export function SpaceWindowHeader(input: {
 					className={cn(
 						"col-end-4 row-start-2 flex min-w-0 items-center gap-3",
 						input.navigation
-							? "col-start-1 overflow-visible"
+							? "col-start-1 -mx-2 overflow-visible px-2"
 							: "col-start-2 overflow-hidden",
 						input.secondaryContentClassName
 					)}
@@ -117,7 +118,16 @@ export function SpaceWindowHeader(input: {
 	);
 }
 
+function resolveHeaderTitle(
+	conversationTitle: string | undefined,
+	spaceName: string | null | undefined
+) {
+	return conversationTitle ?? (spaceName?.trim() || "Untitled space");
+}
+
 export function SpaceHeader(input: {
+	conversationTitle?: string;
+	conversationTitleAction?: (title: string) => ReactNode;
 	accessModeErrorMessage: string | null;
 	canManageSpaceAccess: boolean;
 	canManageSpaceName: boolean;
@@ -130,6 +140,7 @@ export function SpaceHeader(input: {
 	isLeaveSpacePending: boolean;
 	isSpaceNamePending: boolean;
 	isCenterAgentDirectMessage?: boolean;
+	isRemoteAgentDirectMessage?: boolean;
 	leaveSpaceErrorMessage: string | null;
 	// Realtime stream health for this browser's live connection. Drives the
 	// status dot pinned after the space name; defaults to "connected" so static
@@ -164,7 +175,10 @@ export function SpaceHeader(input: {
 	status: GetSpaceStatusResponse;
 }) {
 	const [spaceInformationOpen, setSpaceInformationOpen] = useState(false);
-	const spaceName = input.status.name?.trim() || "Untitled space";
+	const spaceName = resolveHeaderTitle(
+		input.conversationTitle,
+		input.status.name
+	);
 	const isDirectMessage = isDirectMessageSpace({
 		activeMemberCount: input.status.members.totalCount,
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
@@ -201,7 +215,7 @@ export function SpaceHeader(input: {
 					>
 						{input.setupRecallAction ? (
 							<div
-								className="max-lg:absolute max-lg:right-[var(--space-conversation-inline-padding)] max-lg:bottom-0 max-lg:flex max-lg:h-[var(--space-conversation-navigation-height)] max-lg:items-center"
+								className="max-lg:absolute max-lg:right-[var(--app-page-inline-padding)] max-lg:bottom-0 max-lg:flex max-lg:h-[var(--space-conversation-navigation-height)] max-lg:items-center"
 								data-slot="space-header-setup-recall-action"
 							>
 								{input.setupRecallAction}
@@ -271,7 +285,6 @@ export function SpaceHeader(input: {
 					</div>
 				</>
 			}
-			contentClassName="px-[var(--space-conversation-inline-padding)]"
 			leadingControl={
 				<SpaceHeaderIdentityIcon isDirectMessage={isDirectMessage} />
 			}
@@ -285,9 +298,7 @@ export function SpaceHeader(input: {
 			title={spaceName}
 			titleAdornment={
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
-					{isDirectMessage && !input.isCenterAgentDirectMessage ? (
-						<DirectMessageHeaderLabel />
-					) : null}
+					{input.conversationTitleAction?.(spaceName)}
 					{input.isCenterAgentDirectMessage || isDirectMessage
 						? null
 						: renderSpaceAccessModeHeaderLabel(input.status.accessMode)}
@@ -296,6 +307,12 @@ export function SpaceHeader(input: {
 						liveState={input.liveState ?? "connected"}
 						onReconnectNow={input.onReconnectLiveUpdates}
 					/>
+					{renderAgentChatBadge(
+						input.isCenterAgentDirectMessage,
+						input.isRemoteAgentDirectMessage,
+						isDirectMessage,
+						input.status.members.agentCount
+					)}
 				</span>
 			}
 		/>
@@ -316,12 +333,19 @@ export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
 	);
 }
 
-function DirectMessageHeaderLabel() {
-	return (
-		<span className="hidden shrink-0 whitespace-nowrap sm:inline">
-			Direct Message
-		</span>
-	);
+function renderAgentChatBadge(
+	isCenterAgent: boolean | undefined,
+	isRemoteAgent: boolean | undefined,
+	isDirectMessage: boolean,
+	agentCount: number
+) {
+	if (isCenterAgent) {
+		return <AgentChatBadge kind="center" />;
+	}
+	if (isDirectMessage && agentCount === 1) {
+		return <AgentChatBadge kind={isRemoteAgent ? "remote" : "local"} />;
+	}
+	return null;
 }
 
 function renderSpaceAccessModeHeaderLabel(
@@ -403,7 +427,7 @@ function SpaceLiveStatusIndicator(input: {
 	const isStale = input.liveState === "stale";
 	const needsAttention = isDegraded || isStale;
 	const dotClassName = cn(
-		"size-2 shrink-0 rounded-full",
+		"status-dot",
 		resolveStatusToneIndicatorClassName(
 			needsAttention ? "warning" : "ready",
 			"solid"

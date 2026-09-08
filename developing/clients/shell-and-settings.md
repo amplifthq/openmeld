@@ -33,7 +33,7 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 ## 1. Goal and current owner
 
 Current Web uses the fixed
-**Home / Spaces / Direct Messages / People / Agents** product rail, with
+**New Agent / Home / Spaces / Direct Messages / Team** product rail, with
 **Settings** as a separated utility. **Projects**, **Documents**, and **Agent
 Activity** retain their routes and product surfaces but are temporarily hidden
 from this rail. The bottom toolbar puts
@@ -42,22 +42,27 @@ content column and keeps **Center Agent / Inbox** together at the far-right
 edge, and
 the **Personal / current Organization name** Settings groups defined in
 `developing/clients/web.md`. Center Agent has no secondary sidebar: **Messages /
-Graph / Files / Tasks / Routines / Skills / Apps** live in its header, while
+Graph / Files / Tasks / Routines / Skills / Plugins** live in its header, while
 **Channels / Memory / Center Agent settings** live in its compact header menu.
+
+The Web Main Sidebar header places toggle/back/forward controls beside disabled
+Search and an Inbox page link, above a compact Organization selector. Its
+footer uses the Fluid user dropdown with account switching, Settings, and Log out entries,
+plus adjacent Settings and theme controls. Authentication, history, and theme
+ownership remain in the existing Web hooks and router.
 
 One shell and one Settings framework let Web and the Electron GUI reuse shared
 pieces without forcing two clients to keep an obsolete route map. Current Web:
 
-- keeps **Home / Spaces / Direct Messages / People / Agents** as the fixed
+- keeps **New Agent / Home / Spaces / Direct Messages / Team** as the fixed
   visible product destinations, temporarily omits **Projects / Documents /
   Agent Activity** without relocating them, separates Settings as a utility,
   and opens the current Computer, Center Agent, and Inbox from the app canvas's
   global toolbar;
 - uses one Settings destination with stable **Personal** and dynamically named
   current Organization groups;
-- gives Human teammates and ordinary Agent Profiles the parallel first-level
-  **People / Agents** homes, with each person's Computers inside their Human
-  Profile detail;
+- makes Team the people directory, with each person's Computers and Agent list
+  reached through their Human Profile detail;
 - keeps Service preferences capability-gated for hosts that can own local-service
   controls; Service is not a Web top-level sidebar item;
 - gives every active app view one persistent outer app rail and content
@@ -162,9 +167,9 @@ mental verbs:
    are folded IN as
    properties of that machine — not peer cards. (This is where today's
    `agents-page.tsx` Computer-tab state machine belongs.)
-3. **People / Agents** — **People** owns Human Profiles and member invitation
-   entry, while **Agents** owns ordinary Agent Profile identity (name / model /
-   reasoning). `Directory` remains an internal data-domain term, not a
+3. **Team** — the people directory owns Human Profiles and member invitation
+   entry. Each person's Agent list leads to ordinary Agent Profile identity
+   (name / model / reasoning). `Directory` remains an internal data-domain term, not a
    user-facing navigation container. The Agent readiness badge
    (`Available / …`) lives on the Agent — not on a Computer card.
 4. **Service preferences** — local app behavior (service autostart,
@@ -186,7 +191,7 @@ gated.
 Each domain is a **real route**, not a scroll anchor. Current Web uses the fixed
 ten-destination product rail, separated Settings utility, and **Personal /
 current Organization name** Settings groups from `developing/clients/web.md`.
-App management exists once under **Center Agent → Apps** in both personal and
+App management exists once under **Center Agent → Plugins** in both personal and
 multi-member workspaces. Routines is a Center Agent use-and-creation surface,
 not a global Settings page or root product peer.
 
@@ -230,17 +235,18 @@ The Web shell is a stable two-layer composition built from the shared
   Messages, People, Agents, Projects, Documents, Agent Activity, and
   Settings. The selected workspace switcher is its top identity surface. Home
   starts with a flat **New Agent** action followed by **Home**, **Spaces**, and
-  **Direct Messages**; **People** and **Agents** remain grouped under **Team**.
+  **Direct Messages**, and one flat **Team** destination. Team opens People;
+  Agents are reached through each person's profile and nested Agent routes.
   Projects, Documents, and Agent Activity routes
   render the same rail without a matching primary destination while their
   future placement remains unsettled. Settings remains a bottom
-  utility that opens Account settings. The workspace switcher offers a second
-  link to that same global Settings destination below its separated
-  Organization actions; it does not create a second Settings surface. Send
+  utility that opens Account settings. The footer account dropdown offers a second
+  link to that same global Settings destination. The workspace switcher contains
+  only organization selection and management actions. Send
   feedback lives in the Personal Settings group rather than as a second
   outer-rail utility. The rail has no
-  separate OpenMeld brand row or outer-rail account entry. A nested account row
-  in the workspace switcher owns browser-saved account switching, adding, and
+  separate OpenMeld brand row. A nested account row
+  in the footer dropdown owns browser-saved account switching, adding, and
   sign-out without becoming another navigation destination. The rail continues
   to support resize + collapse.
   Collapsed state preserves recognizable icons for every fixed destination;
@@ -258,14 +264,86 @@ The Web shell is a stable two-layer composition built from the shared
   placeholder or dead action.
 - **Inner contextual sidebar** — optional, rendered inside the inset app
   surface, and owned only by route families that need contextual navigation.
-  Center Agent does not own one. Spaces fills it with New Space, Explore,
-  Pinned, and the existing Spaces list.
-  Direct Messages fills it with the current workspace's DM list, using the
-  other participant's profile identity and opening the shared Space conversation
-  surface in the content region. Agent Activity fills it with Overview / Sessions / Changes.
-  People fills it with an **Invite Members** button and the Human Profile list;
-  selecting a person opens that profile's persistent detail in the content
-  region. Agents remains a full-width home without an inner sidebar.
+  Center Agent does not own one. Spaces, Direct Messages, and People
+  render their contextual lists in the Main Sidebar below the fixed primary
+  navigation. Only that contextual region scrolls. Space groups appear between
+  Pinned and Spaces; their section actions create Spaces/groups and select
+  Priority, Recently added, or Manual order independently. All three section
+  kinds use the same Priority ranking: human input, unread messages, active
+  work, then idle Spaces, with recent activity breaking ties. Opening a Space must not promote it
+  merely because its visit timestamp changed. Recently added uses pin time for
+  Pinned and creation time for ordinary Spaces. Dragging the whole row changes manual order
+  within or across Pinned, custom groups, and ordinary Spaces. Crossing the
+  Pinned boundary uses the same Account Space pin mutation as the row control;
+  a failed pin mutation must not save a new group placement. Custom groups can
+  be renamed inline from section settings (Enter or blur saves; Escape cancels).
+  Drag a custom group's title to reorder custom groups in Spaces, Direct
+  Messages, People, or Agents; built-in groups keep their fixed positions.
+  Row and group drags use a horizontal insertion line, including gaps and empty
+  sections. Rows stay stationary during dragging; dropping inserts before the
+  indicated row (or at the end), then settles using transform-only motion.
+  Reduced-motion preferences disable the settling animation. Group order uses
+  the existing saved group array, independently of each group's row sort.
+  People and Agent row actions reveal immediately without translation or fades.
+  Deleting a group returns its Spaces to
+  the ordinary list without changing membership or deleting Spaces.
+  Groups and ordering are personal account × Organization preferences, stored
+  by Auth with revision-checked writes and refreshed on window focus. They do
+  not alter another member's sidebar or authorize access to any Space.
+  Preserve contextual scroll position across detail navigation. Unseen membership
+  alone does not brighten a Space name; unread activity, selection, and hover do.
+  Section actions appear on their own group's hover or keyboard focus, remain
+  visible while their menu is open, and stay discoverable on touch devices.
+  Messages reuses the same section actions, ordering, and drag primitives.
+  Its optional `messages` preference namespace stores independent Pinned,
+  Direct Messages, and named group orders. Pin state still belongs to the
+  existing Account Space history, not sidebar preferences. Deleting a group
+  returns conversations to Direct Messages without changing membership.
+  The section add menu opens the shared DM open-or-reuse contract through an
+  active People/Agents picker; creating a sidebar group never creates a group DM.
+  Older clients omitting `messages` cannot erase it on a revision-checked save.
+  Pin/unpin actions reveal on their row's hover or keyboard focus, including
+  inside Pinned. Unread and work indicators remain visible without hover.
+  When both are present, the active Wake indicator takes the trailing slot ahead
+  of the unread dot and timestamp; unread styling and accessible text remain.
+  People reuses the Web-owned section actions, drag mechanics, manual ordering
+  and revision-checked preference hook. Starred and named People groups are
+  personal to the account and Organization. Moving a person changes only this
+  sidebar arrangement; deleting a group returns its members to Computer online or
+  Computer offline. Center Agent occupies the first group, before Starred and
+  custom groups. The signed-in member defaults to Starred; explicit unstar or
+  custom placement is preserved. Connection labels describe computers, not people.
+  These sections are projections, not editable membership. Their ordering
+  preference is shared across both sections; named groups and Starred each
+  have their own sort. Spaces use a fixed 20px member-avatar slot: one avatar,
+  a diagonal pair, or the first three active members in a triangle. Row tooltips
+  include the full active-member count. Member identity comes from the opt-in
+  Space Index preview; Organization profile presentation supplies current human
+  avatar images and Agent controller logos without per-row requests.
+  Profile sidebar avatars are 20px, row action icons are
+  14px inside 24px targets, and contextual group
+  labels have an 8px gap before their content.
+  People contextual controls render into the Team navigation row's
+  action slot, preserving local ownership of search and filter state. Actions
+  reveal on hover, focus, open menus, and touch. Search starts collapsed unless
+  a query is already active, opens with focus, and closes by clearing the query
+  and returning focus to its trigger. Search reveal animates opacity/transform
+  only and respects reduced motion. Filter menus remain left-aligned.
+  The optional `people` preference namespace needs no DB migration. Auth preserves
+  it when an older Space-only client saves. Deploy the supporting Auth receiver
+  before Web; no CLI, Service, Core Wake or Gateway execution contract changes.
+  Agents shares these controls and stores its arrangement in the optional
+  `agents` namespace. Named groups can contain Agents from different owners;
+  moving back to an owner section requires the Agent's actual owner to match.
+  Owner filtering combines with search and availability filtering, including
+  counts. An Agent outside the selected owner is not retained in the list.
+  Availability uses the canonical Core projection: a dot next to the name,
+  with detail in its tooltip, or the shared Thinking icon for Checking.
+  This display does not grant Wake permission. Row Chat actions open the existing
+  Direct Message flow. Older clients preserve both omitted collection namespaces.
+  Shell geometry selectors must target the immediate sidebar owner; an
+  unbounded descendant `:has()` invalidates the full surface on row hover.
+  Agent Activity keeps Overview / Sessions / Changes in its inner sidebar.
   Settings owns its Personal /
   current Organization section navigation. Every inner sidebar header shows one
   compact title only; it does not repeat the section purpose as a description.
@@ -362,9 +440,10 @@ dividers. The outer rail is borderless against the app canvas; full-height
 column borders must not recreate the old flat three-column frame. The inset
 surface keeps its canvas gutter on the top, right, and bottom. The bottom
 gutter owns the global control toolbar; controls stay outside the inset surface
-and must not cover its content. The surface's left border meets the outer rail
-directly. The outer rail resize rule shares that
-single boundary instead of drawing a second line across a canvas gutter. The
+and must not cover its content. A subtle perimeter outlines the inset; the Main Sidebar boundary only
+highlights during hover, focus or resize. Hidden mode restores the left canvas
+gutter, and its restore button sits in the bottom toolbar gutter. Peek ends
+above that toolbar instead of covering the controls. The
 inset surface uses the shared semantic radius tokens, so it follows the same
 radius scale as controls, selected backgrounds, and other surfaces in the
 default Rounded appearance, and becomes square only when the user selects
@@ -372,31 +451,36 @@ Square.
 
 ## 6. Shared Sidebar family and resize behavior
 
-The shared primitive is `packages/ui/src/components/sidebar.tsx`, a
-shadcn-style Sidebar family adapted to OpenMeld:
+Main Sidebar uses the Fluid Functionalism Base UI registry components in
+`packages/ui/src/fluid/sidebar*.tsx`. Its provider owns transient pointer,
+keyboard and peek interaction; Web injects the persisted geometry. Business
+navigation and workspace/account menus live in `app-rail-navigation.tsx` and
+`app-workspace-switcher.tsx`; `AppOuterRail` composes them with Fluid's
+header/content/footer and collapsible group slots. Row density, typography,
+semantic radii, icons and status indicators retain OpenMeld's design tokens.
 
-- `SidebarProvider`
-- `Sidebar`
-- `SidebarRail`
-- `SidebarInset`
-- `SidebarHeader`
-- `SidebarContent`
-- `SidebarFooter`
-- `SidebarGroup`
-- `SidebarGroupContent`
-- `SidebarGroupLabel`
-- `SidebarMenu`
-- `SidebarMenuItem`
-- `SidebarMenuButton`
-- `SidebarMenuBadge`
-- `SidebarTrigger`
-- `useSidebar`
+There are three desktop modes: hidden (0 px), icon-only (52 px), and expanded
+(160–384 px, initially 220 px). Dragging crosses snap regions with hysteresis
+and can reverse across all three in the same gesture. Expanded width remains
+remembered through icon and hidden modes; only releasing a drag writes the
+preference. Clicking the edge or pressing `[` / Cmd/Ctrl+B toggles expanded and
+hidden; clicking from icon-only restores expanded. Editable fields and mobile
+drawers do not handle these shortcuts.
 
-The old bespoke `packages/ui/src/components/resizable-sidebar.tsx` facade has
-been removed. Do not reintroduce it and do not re-vendor an upstream
-`components/ui/sidebar.tsx` wholesale. The shared Sidebar family is the stable
-composition surface; `packages/ui/src/hooks/use-sidebar-resize.ts` remains the
-hardened resize engine under `SidebarProvider` / `SidebarRail`.
+Hidden mode exposes a hover-intent peek strip and a persistent restore button.
+Peek overlays the inset without changing its layout or saving a new mode.
+Owned popup menus remain usable outside the peek card. Leaving the card,
+pressing Escape, choosing a navigation link, or clicking outside dismisses it;
+keyboard focus inside the card or an owned popup keeps it open. Escape closes
+a nested popup before the peek. The resize tooltip follows the pointer and
+explains both dragging and clicking; its divider highlight fades at the ends.
+Reduced motion disables movement. The existing Web responsive drawer remains
+the sole mobile navigation presentation and does not overwrite desktop geometry.
+
+Inner contextual sidebars retain `packages/ui/src/components/sidebar.tsx` and
+its `use-sidebar-resize.ts` engine for resize-only behavior. Main Sidebar does
+not stack that engine under the Fluid provider. Do not reintroduce the removed
+`components/resizable-sidebar.tsx` facade or a second Main Sidebar state owner.
 
 Web contextual navigation composes that family through
 `AppContextualSidebarNav` in
@@ -413,21 +497,28 @@ style system.
 
 Resize affordance lives on the rail/divider itself. The shared engine supports
 pointer drag and keyboard resize (`role="separator"`, arrow/Home/End semantics,
-ARIA min/max/current values). The outer app rail opts into resize + collapse. The
-inner contextual sidebar is resize-only: it uses the same engine, but the rail
-does not toggle collapse.
+ARIA min/max/current values). Main Sidebar adds resize, collapse and peek through Fluid. The inner
+contextual sidebar is resize-only: its rail does not toggle collapse.
 
 Persistence is injected by each client. Web stores non-sensitive layout
 preferences in first-party cookies so SSR can read them with no width flash.
 The same SSR-readable state stores width, tier, and stable ids for explicitly
 collapsed labeled groups, so disclosure state does not flash open during
-hydration. The outer rail remains one browser-wide preference:
+hydration. The outer rail stores browser-wide mode and collapsed groups, plus
+independent expanded widths keyed by stable app shell section:
 
 - outer rail: `openmeld_sidebar_outer`
 
-Without that cookie, Web defaults the outer rail to the full tier so a new
+Each section shares its width across detail routes and Organizations. A section
+without a customized width uses the default. Navigation supplies the restored
+width to the existing Fluid geometry animation; reduced motion remains honored.
+
+Without that cookie, Web defaults the outer rail to the expanded mode so a new
 user sees every destination label. Once the user changes tiers, Web restores
-that browser-wide choice without resetting it for a different account.
+that browser-wide choice without resetting it for a different account. The
+existing expanded (0) and icon-only (1) cookie tokens keep their meaning; the
+retired compact icon-and-label token (2) restores expanded, and hidden uses 3.
+Width and collapsed-group preferences survive this migration.
 
 Inner contextual sidebars persist independently by stable route family. A
 family shares one width and one collapsed-group set across its child routes,

@@ -48,7 +48,7 @@ describe("CenterAgentLayout", () => {
 		appOuterRailSpy.mockReset();
 		const queryClient = new QueryClient();
 		const initialOuterSidebarState = {
-			tier: "full" as const,
+			tier: "expanded" as const,
 			width: "10.5rem",
 		};
 		const host = document.createElement("div");

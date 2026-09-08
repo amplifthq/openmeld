@@ -196,7 +196,7 @@ describe("CenterAgentRoutePendingPage", () => {
 		render(
 			<QueryClientProvider client={queryClient}>
 				<CenterAgentRoutePendingPage
-					initialOuterSidebarState={{ tier: "full", width: "10.5rem" }}
+					initialOuterSidebarState={{ tier: "expanded", width: "10.5rem" }}
 					organizationSlug="acme"
 					section="chat"
 				/>
@@ -205,9 +205,7 @@ describe("CenterAgentRoutePendingPage", () => {
 
 		const rail = screen.getByTestId("center-agent-pending-outer-rail");
 		expect(rail.getAttribute("data-state")).toBe("expanded");
-		expect(rail.parentElement?.style.getPropertyValue("--sidebar-width")).toBe(
-			"10.5rem"
-		);
+		expect(rail.style.width).toBe("168px");
 		expect(
 			screen.getByTestId("center-agent-pending-outer-rail-expanded")
 		).toBeTruthy();
@@ -222,7 +220,7 @@ describe("CenterAgentRoutePendingPage", () => {
 		render(
 			<QueryClientProvider client={queryClient}>
 				<CenterAgentRoutePendingPage
-					initialOuterSidebarState={{ tier: "collapsed", width: "10.5rem" }}
+					initialOuterSidebarState={{ tier: "icon", width: "10.5rem" }}
 					organizationSlug="acme"
 					section="chat"
 				/>
@@ -230,10 +228,8 @@ describe("CenterAgentRoutePendingPage", () => {
 		);
 
 		const rail = screen.getByTestId("center-agent-pending-outer-rail");
-		expect(rail.getAttribute("data-state")).toBe("collapsed");
-		expect(
-			rail.parentElement?.style.getPropertyValue("--sidebar-width-icon")
-		).toBe("3.25rem");
+		expect(rail.getAttribute("data-state")).toBe("icon");
+		expect(rail.style.width).toBe("52px");
 		expect(
 			screen.getByTestId("center-agent-pending-outer-rail-collapsed")
 		).toBeTruthy();

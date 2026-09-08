@@ -1,11 +1,11 @@
 import {
 	AGENT_REPLY_FINAL_PURPOSE,
 	type NavigationAction,
+	REMOTE_AGENT_FAILURE_PURPOSE,
 } from "@openmeld/schemas";
 import type {
 	AgentStreamToolPart,
 	CenterAgentInteractionSource,
-	CenterAgentTaskReference,
 	ConversationCompactionMarker,
 	SignalEnvelope,
 	SpaceAgentActivity,
@@ -66,7 +66,6 @@ export type SpaceTimelineItem = {
 	agentWorkspace: string | null;
 	clientMessageId: string | null;
 	centerAgentInteractionSource?: CenterAgentInteractionSource;
-	centerAgentTaskReferences?: readonly CenterAgentTaskReference[];
 	conversationCompaction?: ConversationCompactionMarker;
 	isAgentFinalReply?: boolean;
 	newMessagesDuringComposition: number | null;
@@ -112,6 +111,7 @@ export type SpaceTimelineAttachment = SpaceMessageAttachment & {
 };
 
 export type SpaceTimelineFile = SpaceMessageFileReference & {
+	isLocal?: boolean;
 	localPreviewUrl: string | null;
 };
 
@@ -354,7 +354,6 @@ function buildSpaceTimelineItem(input: {
 			input.signal.type === "signal.text"
 				? input.signal.data.meta?.centerAgentInteractionSource
 				: undefined,
-		centerAgentTaskReferences: readCenterAgentTaskReferences(input.signal),
 		...readConversationCompaction(input.signal),
 		isAgentFinalReply: isAgentFinalReplySignal(input.signal),
 		newMessagesDuringComposition: readNewMessagesDuringComposition(
@@ -413,15 +412,6 @@ function readClientMessageId(
 	return normalizeOptionalText(signal.data.meta?.clientMessageId);
 }
 
-function readCenterAgentTaskReferences(
-	signal: SpaceTimelineVisibleEnvelope
-): readonly CenterAgentTaskReference[] {
-	if (signal.type !== "signal.text") {
-		return [];
-	}
-	return signal.data.meta?.centerAgentTaskReferences ?? [];
-}
-
 function readAgentActivity(
 	signal: SpaceTimelineVisibleEnvelope
 ): SpaceAgentActivity | undefined {
@@ -457,6 +447,9 @@ function readTimelineFiles(input: {
 	const isPending = input.signal.id.startsWith("pending:");
 	return (input.signal.data.files ?? []).map((file) => ({
 		...file,
+		isLocal:
+			file.fileId.startsWith("composer-file:") &&
+			(isPending || input.signal.id.startsWith("failed:")),
 		localPreviewUrl: isPending
 			? (input.pendingFilePreviewUrlsById?.get(file.fileId) ?? null)
 			: null,
@@ -742,11 +735,13 @@ function isAgentFinalReplySignal(
 }
 
 function readFinalizedAgentStreamId(signal: SignalEnvelope): string | null {
+	if (signal.type !== "signal.text" || signal.profile.kind !== "agent") {
+		return null;
+	}
+	const purpose = normalizeOptionalText(signal.data.meta?.purpose);
 	if (
-		signal.type !== "signal.text" ||
-		signal.profile.kind !== "agent" ||
-		normalizeOptionalText(signal.data.meta?.purpose) !==
-			AGENT_REPLY_FINAL_PURPOSE
+		purpose !== AGENT_REPLY_FINAL_PURPOSE &&
+		purpose !== REMOTE_AGENT_FAILURE_PURPOSE
 	) {
 		return null;
 	}

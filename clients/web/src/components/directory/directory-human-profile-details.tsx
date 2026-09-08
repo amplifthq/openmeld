@@ -94,6 +94,7 @@ export function DirectoryHumanProfileDetails(
 			) : null}
 
 			<DirectoryAgentProfilesSummary
+				manage={input.member.isCurrentUser}
 				modelCatalog={input.modelCatalog}
 				ownerName={input.member.name}
 				path={input.member.agentProfilesPath}
@@ -119,13 +120,15 @@ export function DirectoryHumanProfileDetails(
 				onRetry={input.onRetryProfileReports}
 			/>
 
-			{input.member.details?.sections.map((section) => (
-				<DetailSection key={section.id} title={section.title}>
-					{section.rows.map((row) => (
-						<ProfileDetailRow key={`${section.id}:${row.id}`} row={row} />
-					))}
-				</DetailSection>
-			))}
+			{input.member.details?.sections
+				.filter((section) => section.id !== "advanced")
+				.map((section) => (
+					<DetailSection key={section.id} title={section.title}>
+						{section.rows.map((row) => (
+							<ProfileDetailRow key={`${section.id}:${row.id}`} row={row} />
+						))}
+					</DetailSection>
+				))}
 		</div>
 	);
 }

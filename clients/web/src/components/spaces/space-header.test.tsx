@@ -126,7 +126,7 @@ describe("SpaceHeader", () => {
 		expect(frame?.className).toContain("px-0");
 		expect(frame?.className).not.toContain("px-4");
 		expect(frame?.className).not.toContain(
-			"px-[var(--space-conversation-inline-padding)]"
+			"px-[var(--app-page-inline-padding)]"
 		);
 	});
 
@@ -152,13 +152,13 @@ describe("SpaceHeader", () => {
 		expect(inlineFrame).toBeTruthy();
 		expect(inlineFrame?.className).not.toContain("px-4");
 		expect(inlineFrame?.className).toContain(
-			"px-[var(--space-conversation-inline-padding)]"
+			"px-[var(--app-page-inline-padding)]"
 		);
 		expect(viewControl.closest("header")).not.toBeNull();
 		expect(navigationRow).not.toBeNull();
 		expect(secondaryRow?.className).toContain("overflow-visible");
 		expect(inlineFrame?.className).toContain(
-			"grid-rows-[minmax(0,2.5rem)_minmax(0,var(--space-conversation-navigation-height))]"
+			"grid-rows-[minmax(0,var(--space-conversation-title-height))_minmax(0,var(--space-conversation-navigation-height))]"
 		);
 		expect(secondaryRow?.className).toContain("col-start-1");
 		expect(titleRow).not.toBeNull();
@@ -206,7 +206,7 @@ describe("SpaceHeader", () => {
 		);
 	});
 
-	it("labels current Direct Message Spaces beside the title", () => {
+	it("labels local Agent chats beside the live status", () => {
 		render(
 			createSpaceHeader({
 				memberCount: 2,
@@ -214,13 +214,14 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		const directMessageLabel = screen.getByText("Direct Message");
+		const directMessageLabel = screen.getByText("Local Agent");
 		const titleRow = directMessageLabel.closest(
 			'[data-slot="space-window-header-title"]'
 		);
 
 		expect(titleRow).not.toBeNull();
-		expect(titleRow?.textContent).toContain("Design RoomDirect Message");
+		expect(titleRow?.textContent).toContain("Local Agent");
+		expect(screen.queryByText("Direct Message")).toBeNull();
 		expect(screen.queryByText("2 members")).toBeNull();
 		expect(screen.queryByText("1 human live")).toBeNull();
 		expect(screen.queryByTestId("space-public-access-warning")).toBeNull();
@@ -336,8 +337,10 @@ describe("SpaceHeader", () => {
 		expect(dialog.className).toContain("max-h-[min(42rem,calc(100dvh-2rem))]");
 		expect(dialog.className).toContain("overflow-hidden");
 		expect(
-			screen.getByTestId("space-info-dialog-scroll-area").className
-		).toContain("overflow-y-auto");
+			screen
+				.getByTestId("space-info-dialog-scroll-area")
+				.querySelector('[data-slot="scroll-area-viewport"]')
+		).toBeTruthy();
 		expect(screen.getByText("Space information")).toBeTruthy();
 		expect(screen.getByText("Space ID")).toBeTruthy();
 		expect(screen.getByText("space-123")).toBeTruthy();
@@ -436,7 +439,7 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		expect(screen.getByText("Direct Message")).toBeTruthy();
+		expect(screen.getByText("Local Agent")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
 		const dialog = screen.getByRole("dialog");
 
@@ -465,8 +468,10 @@ describe("SpaceHeader", () => {
 		expect(dialog.className).toContain("max-h-[min(42rem,calc(100dvh-2rem))]");
 		expect(dialog.className).toContain("overflow-hidden");
 		expect(
-			within(dialog).getByTestId("space-share-dialog-scroll-area").className
-		).toContain("overflow-y-auto");
+			within(dialog)
+				.getByTestId("space-share-dialog-scroll-area")
+				.querySelector('[data-slot="scroll-area-viewport"]')
+		).toBeTruthy();
 		expect(within(dialog).getByText("Share Space")).toBeTruthy();
 		expect(
 			within(dialog).getByRole("radio", { name: SHARE_PUBLIC_MODE_LABEL_TEXT })

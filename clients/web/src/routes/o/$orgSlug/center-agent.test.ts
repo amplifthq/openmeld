@@ -13,9 +13,9 @@ describe("loadCenterAgentRouteContext", () => {
 	});
 
 	it("returns persisted sidebar geometry for pending and ready renders", async () => {
-		const innerState = { tier: "compact" as const, width: "12.5rem" };
-		const legacyInnerState = { tier: "full" as const, width: "14rem" };
-		const outerState = { tier: "full" as const, width: "10.5rem" };
+		const innerState = { tier: "expanded" as const, width: "12.5rem" };
+		const legacyInnerState = { tier: "expanded" as const, width: "14rem" };
+		const outerState = { tier: "expanded" as const, width: "10.5rem" };
 		// biome-ignore lint/suspicious/noDocumentCookie: test sets the browser cookie that the route reads.
 		document.cookie = `openmeld_sidebar_inner=${encodeURIComponent(
 			serializeSidebarStateCookieValue(legacyInnerState, "inner")

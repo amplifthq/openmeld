@@ -7,11 +7,13 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { useStartFlowState } from "#/components/app/start-flow-state";
+import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { SpaceLanding } from "#/components/spaces/space-landing";
 import type { SpaceView } from "#/components/spaces/space-view";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import { resolveCenterAgentErrorMessage } from "#/lib/organizations/center-agent";
+import { EMPTY_CHAT_PREFERENCES } from "#/lib/organizations/center-agent-chat-preferences";
 import {
 	activateCenterAgentPendingMessageScope,
 	clearCenterAgentPendingMessage,
@@ -29,10 +31,13 @@ import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentSettingsPath,
 } from "#/lib/organizations/organization-routes";
+import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
+import { ChatTitleEditor } from "./chat-title-editor";
 
 export function CenterAgentPage(input: {
+	sessionId?: string;
 	directMessageRouteData: CenterAgentDirectMessageRouteData | null;
 	initialFocusSignalId?: string;
 	initialSpaceView?: SpaceView;
@@ -47,11 +52,13 @@ export function CenterAgentPage(input: {
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialSpaceView={input.initialSpaceView}
 			presentation={input.presentation}
+			sessionId={input.sessionId}
 		/>
 	);
 }
 
 function CenterAgentDirectMessagePage(input: {
+	sessionId?: string;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
 	initialFocusSignalId?: string;
 	initialSpaceView?: SpaceView;
@@ -66,15 +73,17 @@ function CenterAgentDirectMessagePage(input: {
 			directMessageRouteData={input.directMessageRouteData}
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialSpaceView={input.initialSpaceView}
-			key={currentOrganization.id}
+			key={`${currentOrganization.id}:${input.sessionId ?? "default"}`}
 			organizationId={currentOrganization.id}
 			organizationSlug={currentOrganization.slug}
 			presentation={input.presentation}
+			sessionId={input.sessionId}
 		/>
 	);
 }
 
 function CenterAgentDirectMessageOrganizationBoundary(input: {
+	sessionId?: string;
 	currentUserAvatarImageUrl: string | null;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
 	initialFocusSignalId?: string;
@@ -108,11 +117,13 @@ function CenterAgentDirectMessageOrganizationBoundary(input: {
 			organizationId={input.organizationId}
 			organizationSlug={input.organizationSlug}
 			presentation={input.presentation}
+			sessionId={input.sessionId}
 		/>
 	);
 }
 
 function CenterAgentDirectMessageEntry(input: {
+	sessionId?: string;
 	currentUserAvatarImageUrl: string | null;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
 	initialFocusSignalId?: string;
@@ -126,30 +137,22 @@ function CenterAgentDirectMessageEntry(input: {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { storageScope } = useStartFlowState();
-	const handleSpaceViewCommitted = useCallback(
-		(view: SpaceView) => {
-			navigate({
-				replace: true,
-				to: buildOrganizationCenterAgentChatPath(
-					input.organizationSlug,
-					view === "messages" ? undefined : { view }
-				),
-			}).catch((error: unknown) => {
-				console.error(
-					"Failed to update the Center Agent conversation view.",
-					error
-				);
-			});
-		},
-		[input.organizationSlug, navigate]
-	);
 	const pendingScope = {
+		...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
 		organizationId: input.organizationId,
 		organizationSlug: input.organizationSlug,
 	};
+	const { defaultHumanProfile } = useDefaultHumanProfile();
+	const sidebar = useSidebarPreferences(
+		defaultHumanProfile?.openMeldProfileId ?? "",
+		input.organizationId
+	);
 	const composerDraftScope = storageScope.trim()
 		? {
 				kind: "center_agent_pending" as const,
+				...(input.sessionId === undefined
+					? {}
+					: { sessionId: input.sessionId }),
 				organizationId: input.organizationId,
 				ownerAccountId: storageScope,
 			}
@@ -175,6 +178,29 @@ function CenterAgentDirectMessageEntry(input: {
 		routeDataOverride?.source === input.directMessageRouteData
 			? routeDataOverride.value
 			: input.directMessageRouteData;
+	const resolvedSessionId =
+		directMessageRouteData.status === "ready"
+			? directMessageRouteData.directMessage.spaceId
+			: input.sessionId;
+	const handleSpaceViewCommitted = useCallback(
+		(view: SpaceView) => {
+			navigate({
+				replace: true,
+				to: buildOrganizationCenterAgentChatPath(input.organizationSlug, {
+					...(view === "messages" ? {} : { view }),
+					...(resolvedSessionId === undefined
+						? {}
+						: { session: resolvedSessionId }),
+				}),
+			}).catch((error: unknown) => {
+				console.error(
+					"Failed to update the Center Agent conversation view.",
+					error
+				);
+			});
+		},
+		[input.organizationSlug, resolvedSessionId, navigate]
+	);
 	const [retryPending, setRetryPending] = useState(false);
 	const profilesQuery = useQuery(
 		buildStartProfilesQueryOptions({ enabled: true, storageScope })
@@ -213,6 +239,28 @@ function CenterAgentDirectMessageEntry(input: {
 				composerDraftMigrationScopes={
 					composerDraftScope ? [composerDraftScope] : undefined
 				}
+				conversationTitle={
+					sidebar.preferences?.chats?.titles[directMessage.spaceId]
+				}
+				conversationTitleAction={(currentTitle) => (
+					<ChatTitleEditor
+						disabled={sidebar.disabled}
+						onSave={async (title) => {
+							if (!sidebar.preferences) {
+								throw new Error("Chat settings are still loading.");
+							}
+							const chats = sidebar.preferences.chats ?? EMPTY_CHAT_PREFERENCES;
+							await sidebar.saveAsync({
+								...sidebar.preferences,
+								chats: {
+									...chats,
+									titles: { ...chats.titles, [directMessage.spaceId]: title },
+								},
+							});
+						}}
+						title={currentTitle}
+					/>
+				)}
 				currentUserAvatarImageUrl={input.currentUserAvatarImageUrl}
 				initialComposerDraft={composerDraft.record}
 				initialFocusSignalId={input.initialFocusSignalId}
@@ -249,6 +297,9 @@ function CenterAgentDirectMessageEntry(input: {
 						onClick={() => {
 							setRetryPending(true);
 							loadCenterAgentDirectMessageRouteData({
+								...(input.sessionId === undefined
+									? {}
+									: { sessionId: input.sessionId }),
 								organizationId: input.organizationId,
 								queryClient,
 							})

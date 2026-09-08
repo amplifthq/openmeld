@@ -1,13 +1,20 @@
 import { DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE } from "@openmeld/agent-runtime";
 import type { ModelCatalog } from "@openmeld/schemas/types";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { type FormEvent, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentProfileGenerator } from "./agent-profile-generator";
 import type { CreateProfileFormProps } from "./create-profile-form";
 
 const CODEX_RADIO_NAME = /^codex$/i;
-const CUSTOMIZE_AGENT_BUTTON_NAME = /Customize this Agent/i;
+const REMOTE_AGENT_NAME = /Remote Agent/;
+const CUSTOMIZE_AGENT_BUTTON_NAME = /Advanced Agent Settings/i;
 const TEST_MODEL_CATALOG = {
 	agentControllers: {
 		codex: {
@@ -30,12 +37,145 @@ const TEST_MODEL_CATALOG = {
 afterEach(cleanup);
 
 describe("AgentProfileGenerator", () => {
+	it("opens the owner editor even when no local agent is selected", async () => {
+		render(
+			<GeneratorHarness
+				initialAgentId=""
+				overrides={{
+					additionalSubmitBlockReason: "Choose an Agent owner.",
+					additionalSubmitBlockSection: "owner",
+				}}
+			/>
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Choose owner" })
+		);
+		expect(await screen.findByText("Owner choice")).toBeTruthy();
+	});
+
+	it("submits directly from the single-page form with the keyboard", async () => {
+		const onSubmit = vi.fn();
+		render(<GeneratorHarness initialAgentId="codex" onSubmit={onSubmit} />);
+		fireEvent.submit(screen.getByTestId("create-profile-panel"));
+		expect(await screen.findByLabelText("Agent name")).toBeTruthy();
+		expect(onSubmit).toHaveBeenCalledOnce();
+	});
+	it("keeps creation available while selected local agent discovery refreshes", () => {
+		render(
+			<GeneratorHarness
+				initialAgentId="codex"
+				overrides={{ isResolvingLocalAgents: true }}
+			/>
+		);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Create Agent",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(false);
+	});
+
+	it("opens Permissions from its blocker and enables creation after consent", async () => {
+		render(
+			<GeneratorHarness
+				initialAgentId="codex"
+				overrides={{
+					boundAgentControllerPermissionMode: "codex:fullAccess",
+				}}
+				permissionConfirmed={false}
+			/>
+		);
+		expect(
+			(
+				(await screen.findByRole("button", {
+					name: "Create Agent",
+				})) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "Review permissions" }));
+		const confirmation = await screen.findByRole("checkbox", {
+			name: "I understand this permissions mode can run with dangerous full access.",
+		});
+		await waitFor(() => expect(document.activeElement).toBe(confirmation));
+		expect(
+			screen
+				.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
+				.getAttribute("aria-expanded")
+		).toBe("true");
+		fireEvent.click(confirmation);
+		expect(
+			(
+				(await screen.findByRole("button", {
+					name: "Create Agent",
+				})) as HTMLButtonElement
+			).disabled
+		).toBe(false);
+	});
+
+	it("keeps remembered full access usable without opening customization", async () => {
+		render(
+			<GeneratorHarness
+				initialAgentId="codex"
+				overrides={{ boundAgentControllerPermissionMode: "codex:fullAccess" }}
+			/>
+		);
+		expect(
+			(
+				(await screen.findByRole("button", {
+					name: "Create Agent",
+				})) as HTMLButtonElement
+			).disabled
+		).toBe(false);
+		expect(
+			screen.queryByRole("button", { name: "Review permissions" })
+		).toBeNull();
+	});
+
+	it("keeps an explicitly cleared name blocked with a visible reason", async () => {
+		render(<GeneratorHarness initialAgentId="codex" />);
+		fireEvent.change(await screen.findByLabelText("Agent name"), {
+			target: { value: "" },
+		});
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Create Agent",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		expect(screen.getByRole("status").textContent).toBe(
+			"Enter a profile name."
+		);
+	});
+
+	it("offers working-folder recovery directly beside the blocked action", async () => {
+		const onUseManagedWorkspace = vi.fn();
+		render(
+			<GeneratorHarness
+				initialAgentId="codex"
+				overrides={{
+					projectSelectionBlockReason:
+						"Waiting for a connected working folder.",
+					onUseManagedWorkspace,
+				}}
+			/>
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Use OpenMeld managed folder" })
+		);
+		expect(onUseManagedWorkspace).toHaveBeenCalledOnce();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Choose working folder" })
+		);
+		expect(await screen.findByText("Project choice")).toBeTruthy();
+		expect(screen.queryByText("Session choice")).toBeNull();
+	});
 	it("asks for the local agent before showing the editable generated name", async () => {
 		render(<GeneratorHarness />);
 
 		expect(screen.queryByLabelText("Agent name")).toBeNull();
 		fireEvent.click(screen.getByRole("radio", { name: CODEX_RADIO_NAME }));
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
 		expect(
 			((await screen.findByLabelText("Agent name")) as HTMLInputElement).value
@@ -46,13 +186,14 @@ describe("AgentProfileGenerator", () => {
 	it.each([
 		"dialog",
 		"page",
-	] as const)("starts customization expanded on the %s surface and opens only the selected editor", async (surface) => {
+	] as const)("starts advanced settings collapsed on the %s surface and opens only the selected editor", async (surface) => {
 		render(<GeneratorHarness initialAgentId="codex" surface={surface} />);
 
 		const customizeTrigger = screen.getByRole("button", {
 			name: CUSTOMIZE_AGENT_BUTTON_NAME,
 		});
-		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("true");
+		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(customizeTrigger);
 		fireEvent.click(screen.getByRole("button", { name: "Edit Owner" }));
 
 		expect(await screen.findByText("Owner choice")).toBeTruthy();
@@ -60,17 +201,14 @@ describe("AgentProfileGenerator", () => {
 		expect(screen.queryByText("Project choice")).toBeNull();
 	});
 
-	it("keeps customization expanded when returning from review", async () => {
+	it("shows the editable name and direct submit without a review step", () => {
 		render(<GeneratorHarness initialAgentId="codex" />);
-
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-		fireEvent.click(await screen.findByRole("button", { name: "Back" }));
-
-		const customizeTrigger = await screen.findByRole("button", {
-			name: CUSTOMIZE_AGENT_BUTTON_NAME,
-		});
-		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("true");
-		expect(screen.getByRole("button", { name: "Edit Owner" })).toBeTruthy();
+		const name = screen.getByLabelText("Agent name") as HTMLInputElement;
+		fireEvent.change(name, { target: { value: "My Agent" } });
+		expect(name.value).toBe("My Agent");
+		expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+		expect(screen.queryByText("Ready to create")).toBeNull();
+		expect(screen.getByRole("button", { name: "Create Agent" })).toBeTruthy();
 	});
 
 	it("summarizes the effective setup without opening an editor", () => {
@@ -88,14 +226,10 @@ describe("AgentProfileGenerator", () => {
 		).toContain(
 			"New session · openmeld · GPT-5.6 Sol (default) · Model default · Ask for approval"
 		);
-		expect(
-			screen.getByText("GPT-5.6 Sol (default) · Model default")
-		).toBeTruthy();
-		expect(screen.getByText("openmeld")).toBeTruthy();
-		expect(screen.getByText("Ask for approval")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Edit Model" })).toBeNull();
 	});
 
-	it("allows an explicit unbound Agent without inventing an available local agent", async () => {
+	it("blocks creation until a local agent is selected and keeps Remote Agent unavailable", () => {
 		const onSubmit = vi.fn();
 		render(
 			<GeneratorHarness
@@ -107,9 +241,22 @@ describe("AgentProfileGenerator", () => {
 
 		expect(screen.getByText("Set up local agents")).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Edit Runs on" })).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Connect later" }));
-
-		expect(await screen.findByText("Connect a local agent later")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Connect later" })).toBeNull();
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Create Agent",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: REMOTE_AGENT_NAME,
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 		expect(onSubmit).not.toHaveBeenCalled();
 	});
 
@@ -119,7 +266,6 @@ describe("AgentProfileGenerator", () => {
 		});
 		render(<GeneratorHarness initialAgentId="codex" onSubmit={onSubmit} />);
 
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 
 		expect(onSubmit).toHaveBeenCalledOnce();
@@ -127,6 +273,8 @@ describe("AgentProfileGenerator", () => {
 });
 
 function GeneratorHarness(input: {
+	overrides?: Partial<CreateProfileFormProps>;
+	permissionConfirmed?: boolean;
 	availableLocalAgentIds?: readonly string[];
 	initialAgentId?: string;
 	modelCatalog?: ModelCatalog | null;
@@ -135,6 +283,9 @@ function GeneratorHarness(input: {
 	surface?: "dialog" | "page";
 }) {
 	const [boundAgentId, setBoundAgentId] = useState(input.initialAgentId ?? "");
+	const [permissionConfirmed, setPermissionConfirmed] = useState(
+		input.permissionConfirmed ?? true
+	);
 	const [profileName, setProfileName] = useState(
 		"Felix Lu Codex GPT-5.6 Sol Xhigh"
 	);
@@ -146,7 +297,7 @@ function GeneratorHarness(input: {
 		boundAgentControllerCollaborationMode: null,
 		boundAgentControllerPermissionMode:
 			DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE,
-		boundAgentControllerPermissionModeConfirmed: true,
+		boundAgentControllerPermissionModeConfirmed: permissionConfirmed,
 		boundAgentId,
 		boundModelId: "",
 		boundOpenCodePermission: null,
@@ -159,7 +310,7 @@ function GeneratorHarness(input: {
 		modelCatalog: input.modelCatalog ?? null,
 		onChangeBoundAgentControllerCollaborationMode: vi.fn(),
 		onChangeBoundAgentControllerPermissionMode: vi.fn(),
-		onChangeBoundAgentControllerPermissionModeConfirmed: vi.fn(),
+		onChangeBoundAgentControllerPermissionModeConfirmed: setPermissionConfirmed,
 		onChangeBoundAgentId: setBoundAgentId,
 		onChangeBoundModelId: vi.fn(),
 		onChangeBoundOpenCodePermission: vi.fn(),
@@ -177,6 +328,7 @@ function GeneratorHarness(input: {
 		projectFolderPath: input.projectFolderPath ?? "",
 		projectSelectionSlot: <div>Project choice</div>,
 		recoveryActionHref: "/connect",
+		...input.overrides,
 	};
 	return (
 		<AgentProfileGenerator form={form} surface={input.surface ?? "dialog"} />

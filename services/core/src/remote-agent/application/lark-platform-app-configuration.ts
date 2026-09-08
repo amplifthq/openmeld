@@ -3,7 +3,10 @@ import {
   getLarkPlatformApiHost,
   requestLarkPlatformTenantAccessToken,
 } from "./lark-platform-openapi-client";
-import { LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE } from "./lark-platform-permission-bundles";
+import {
+  LARK_PLATFORM_APP_CONFIGURATION_SCOPE,
+  LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE,
+} from "./lark-platform-permission-bundles";
 
 const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
@@ -15,6 +18,7 @@ type JsonObject = Record<string, unknown>;
 
 type LarkPlatformAppConfigurationReason =
   | "application_config_failed"
+  | "application_config_permission_required"
   | "bot_identity_failed"
   | "callback_origin_invalid"
   | "configuration_input_invalid"
@@ -218,6 +222,8 @@ async function verifyChannelOnlyPermissionBundle(input: {
     actualScopeNames.add(scopeName);
   }
   const expectedScopes = LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.scopes;
+  // Explicit app-configuration consent is setup authority, not a Channel tool grant.
+  actualScopeNames.delete(LARK_PLATFORM_APP_CONFIGURATION_SCOPE);
   if (
     actualScopeNames.size !== expectedScopes.length ||
     expectedScopes.some((scopeName) => !actualScopeNames.has(scopeName))
@@ -274,6 +280,16 @@ async function requestJson(input: {
     body = await response.json();
   } catch {
     throw configurationError(input.provider, input.reason);
+  }
+  if (
+    isJsonObject(body) &&
+    input.reason === "application_config_failed" &&
+    readProviderCode(body) === 99_991_672
+  ) {
+    throw configurationError(
+      input.provider,
+      "application_config_permission_required"
+    );
   }
   if (!(response.ok && isJsonObject(body))) {
     throw configurationError(input.provider, input.reason);

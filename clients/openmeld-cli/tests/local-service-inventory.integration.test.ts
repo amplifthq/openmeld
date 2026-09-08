@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -64,6 +65,26 @@ const EXTERNAL_MANAGER_STATUS: DaemonServiceManagerRuntimeStatus = {
 };
 
 describe("local service inventory process evidence", () => {
+  it("does not diagnose a missing live command as bundle corruption after the process exits", async () => {
+    await withTempHome(async () => {
+      const exited = spawnSync(process.execPath, ["-e", ""]);
+      expect(exited.status).toBe(0);
+      await writeRunningRuntimeLease(exited.pid);
+      const inventory = await inspectDaemonServiceInventory({
+        expectedVersion: "0.2.2",
+        readDaemonStatus: async () => INSTALLED_STATUS,
+        listOwnedProcesses: async () => [],
+        resolveServiceManager: async () => null,
+      });
+      expect(inventory.runtimeStatus.reason).toBe("process_not_alive");
+      expect(inventory.anomalies.map((item) => item.code)).toContain(
+        "runtime_stale"
+      );
+      expect(inventory.anomalies.map((item) => item.code)).not.toContain(
+        "runtime_bundle_mismatch"
+      );
+    });
+  });
   it("fails closed when the owned-process scan cannot run", async () => {
     await withTempHome(async () => {
       await expect(
@@ -212,14 +233,20 @@ describe("local service inventory", () => {
     });
   });
 
-  it("still detects multiple active owners from an external manager when OPENMELD_HOME is explicitly overridden", async () => {
-    await withTempHome(async () => {
+  it("does not count another installation's manager as an owner of an explicitly isolated home", async () => {
+    await withTempHome(async (home) => {
+      const definitionPath = join(home, "external-service.plist");
+      await writeFile(
+        definitionPath,
+        "<plist><string>/tmp/other-installation/runtime/daemon/launcher.mjs</string></plist>\n"
+      );
       const inventory = await inspectDaemonServiceInventory({
         expectedVersion: "0.2.2",
         readDaemonStatus: async () => INSTALLED_STATUS,
         resolveServiceManager: async () =>
           createServiceManager({
             ...EXTERNAL_MANAGER_STATUS,
+            definitionPath,
             running: true,
           }),
         listOwnedProcesses: async () => [
@@ -239,11 +266,41 @@ describe("local service inventory", () => {
         inventory.anomalies.find(
           (anomaly) => anomaly.code === "multiple_active_owners"
         )
-      ).toEqual({
-        code: "multiple_active_owners",
-        message:
-          "Multiple OpenMeld Service owners are active on this device: Direct CLI + System service.",
+      ).toBeUndefined();
+    });
+  });
+
+  it("still detects a same-home manager and direct process with an explicit home override", async () => {
+    await withTempHome(async (home) => {
+      const definitionPath = join(home, "current-service.plist");
+      await writeFile(
+        definitionPath,
+        `<plist><string>${daemonServiceExecutableWrapperPath()}</string></plist>\n`
+      );
+      const inventory = await inspectDaemonServiceInventory({
+        expectedVersion: "0.2.2",
+        readDaemonStatus: async () => INSTALLED_STATUS,
+        resolveServiceManager: async () =>
+          createServiceManager({
+            ...EXTERNAL_MANAGER_STATUS,
+            definitionPath,
+            running: true,
+          }),
+        listOwnedProcesses: async () => [
+          {
+            pid: 222,
+            parentPid: 1,
+            command:
+              "node /tmp/current-cli/dist/openmeld.js service run --mode foreground",
+            mode: "foreground",
+            ownership: "cli_direct",
+          },
+        ],
       });
+      expect(inventory.serviceManagerStatus?.running).toBe(true);
+      expect(inventory.anomalies.map((anomaly) => anomaly.code)).toContain(
+        "multiple_active_owners"
+      );
     });
   });
 
@@ -1124,7 +1181,7 @@ describe("local service inventory", () => {
   });
 });
 
-async function writeRunningRuntimeLease(): Promise<void> {
+async function writeRunningRuntimeLease(pid = process.pid): Promise<void> {
   const runtimeLeaseFilePath = daemonRuntimeLeasePath();
   await mkdir(dirname(runtimeLeaseFilePath), { recursive: true });
   const now = new Date().toISOString();
@@ -1136,7 +1193,7 @@ async function writeRunningRuntimeLease(): Promise<void> {
         v: 1,
         generation: 10,
         bundleId: "service-bundle",
-        pid: process.pid,
+        pid,
         mode: "background",
         startedAt: now,
         updatedAt: now,

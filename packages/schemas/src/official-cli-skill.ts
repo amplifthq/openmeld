@@ -1,7 +1,7 @@
 import * as z from "zod/v4";
 
 export const OFFICIAL_CLI_SKILL_CONTRACT =
-  "openmeld-skills-contract-2026-08-tool-owned-actions-v2";
+  "openmeld-skills-contract-2026-09-explicit-space-recipients-v1";
 export const OFFICIAL_CLI_SKILL_URL =
   "https://openmeld.ai/skills/openmeld-cli/SKILL.md";
 export const OFFICIAL_CLI_SKILL_MAX_BYTES = 1_048_576;

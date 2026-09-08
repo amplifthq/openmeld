@@ -1,4 +1,5 @@
 import {
+	buildOrganizationAgentCreationPath,
 	buildOrganizationConnectPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationSpacePath,
@@ -16,7 +17,7 @@ export type ConnectRouteSearch = {
 	connectedComputerId?: string;
 	profileId?: string;
 	reset?: "this-computer";
-	returnTo?: "space";
+	returnTo?: "space" | "agent_creation";
 	serviceAction?: ConnectServiceAction;
 	session?: ConnectSession;
 	spaceId?: string;
@@ -26,6 +27,7 @@ export type ConnectRouteIntent =
 	| {
 			connectedComputerId?: string;
 			kind: "account_computer_setup";
+			returnTo?: "agent_creation";
 			profileId?: string;
 			resetThisComputer: boolean;
 			serviceAction?: ConnectServiceAction;
@@ -46,8 +48,9 @@ export const DEFAULT_CONNECT_ROUTE_INTENT: ConnectRouteIntent = {
 };
 
 // Canonical "Connect this computer" entry point. This is the official
-// App Connect URL builder used by live Agents, Spaces, and profile surfaces.
+// Plugin Connect URL builder used by live Agents, Spaces, and profile surfaces.
 export function buildConnectComputerPath(input?: {
+	returnTo?: "agent_creation";
 	connectedComputerId?: string;
 	orgSlug?: string;
 	profileId?: string;
@@ -69,12 +72,15 @@ export function buildConnectComputerPath(input?: {
 	connectedComputerId?: string;
 	orgSlug?: string;
 	profileId?: string;
-	returnTo?: "space";
+	returnTo?: "space" | "agent_creation";
 	serviceAction?: ConnectServiceAction;
 	session?: ConnectSession;
 	spaceId?: string;
 }): string {
 	const params = new URLSearchParams();
+	if (input?.returnTo === "agent_creation") {
+		params.set("returnTo", "agent_creation");
+	}
 	if (input?.connectedComputerId) {
 		params.set("connectedComputerId", input.connectedComputerId);
 	}
@@ -119,7 +125,10 @@ export function normalizeConnectRouteSearch(
 				? search.profileId.trim()
 				: undefined,
 		reset: search.reset === "this-computer" ? "this-computer" : undefined,
-		returnTo: search.returnTo === "space" ? "space" : undefined,
+		returnTo:
+			search.returnTo === "space" || search.returnTo === "agent_creation"
+				? search.returnTo
+				: undefined,
 		serviceAction:
 			search.serviceAction === "update_service" ? "update_service" : undefined,
 		session: search.session === "fresh" ? "fresh" : undefined,
@@ -154,6 +163,9 @@ export function resolveConnectRouteIntent(
 			? { connectedComputerId: search.connectedComputerId }
 			: {}),
 		kind: "account_computer_setup",
+		...(search.returnTo === "agent_creation"
+			? { returnTo: "agent_creation" as const }
+			: {}),
 		profileId: search.profileId,
 		resetThisComputer,
 		serviceAction: search.serviceAction,
@@ -185,6 +197,9 @@ export function buildConnectRouteSearch(
 			? { connectedComputerId: intent.connectedComputerId }
 			: {}),
 		profileId: intent.profileId,
+		...(intent.returnTo === "agent_creation"
+			? { returnTo: "agent_creation" as const }
+			: {}),
 		serviceAction: intent.serviceAction,
 		session: intent.resetThisComputer ? "fresh" : undefined,
 	};
@@ -194,6 +209,13 @@ export function resolveConnectBackTarget(
 	intent: ConnectRouteIntent,
 	orgSlug?: string
 ): string {
+	if (
+		intent.kind === "account_computer_setup" &&
+		intent.returnTo === "agent_creation" &&
+		orgSlug
+	) {
+		return buildOrganizationAgentCreationPath(orgSlug);
+	}
 	if (intent.kind === "space_recovery") {
 		return buildSpaceRouteTarget(intent, orgSlug);
 	}
@@ -209,6 +231,13 @@ export function resolveConnectCompletionTarget(
 	intent: ConnectRouteIntent,
 	orgSlug?: string
 ): string {
+	if (
+		intent.kind === "account_computer_setup" &&
+		intent.returnTo === "agent_creation" &&
+		orgSlug
+	) {
+		return buildOrganizationAgentCreationPath(orgSlug);
+	}
 	if (intent.kind === "space_recovery") {
 		return buildSpaceRouteTarget(intent, orgSlug);
 	}

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,10 +29,14 @@ import {
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
 const INDEPENDENT_SKILL_BRIDGE_ERROR_RE = /independent Skill bridge/u;
 const SPACE_INVITATION_ORDER_ERROR = /Space invitation/u;
+const PEOPLE_COMPUTERS_ORDER_ERROR =
+  /PeopleComputers receiver order conflicts/u;
 const CURRENT_WORKER_VERSION_RE =
   /11111111-1111-1111-1111-111111111111 \(100%\)/u;
 const COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE = /requires the Remote Agent scope/u;
 const INBOX_SCOPE_ERROR_RE = /requires the Web, Gateway, and Core scopes/u;
+const MIXED_INBOX_RETIREMENT_ERROR_RE = /Mixed Inbox expansion/u;
+const INBOX_RETIREMENT_PRODUCER_ERROR_RE = /remove its producer/u;
 const LOCAL_SERVICE_CORE_SCOPE_ERROR_RE =
   /requires the Core scope before publishing CLI\/Service/u;
 const CORE_GATEWAY_HTTP_SCOPE_ERROR_RE =
@@ -1185,6 +1195,61 @@ test("deploys the Context Scope Plan receiver before Core and keeps the CLI last
   ]);
 });
 
+test("deploys computer receivers before callers and preserves the stable CLI during staged Core delivery", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/http/people-computers.ts",
+    "services/core/src/people-computers/projection.ts",
+    "services/gateway/src/routes/rpc-http.people-computers.ts",
+  ];
+  const input = {
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths,
+    sourceSha: REMOTE_SOURCE_SHA,
+  };
+  const plan = buildProductionReleasePlan({
+    ...input,
+    scope: "core,gateway,web,remote-agent,cli",
+  });
+  assert.equal(plan.deployOrderProfile, "people-computers-receivers-first");
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Deploy Core with the current published CLI projection",
+      "Verify Core deployment is visible",
+      "Deploy Gateway Worker",
+      "Verify Gateway Worker health",
+      "Deploy Web",
+      "Verify Web health",
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
+      "Publish CLI and deploy its Core release projection",
+      "Verify final R2/npm/Core alignment",
+    ]
+  );
+  const staged = buildProductionReleasePlan({ ...input, scope: "core" });
+  assert.equal(
+    staged.deploySteps[0].args[0],
+    "scripts/release/deploy-core-current-cli-projection.mjs"
+  );
+  assert.deepEqual(
+    buildProductionPreflightStepSpecs({ scopes: ["core"], changedPaths }),
+    buildCoreCurrentCliProjectionPreflightStepSpecs(changedPaths)
+  );
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        ...input,
+        changedPaths: [
+          ...changedPaths,
+          "services/remote-agent/.flue/cloudflare.ts",
+        ],
+        scope: "cloud",
+      }),
+    PEOPLE_COMPUTERS_ORDER_ERROR
+  );
+});
+
 test("routes a local Core release through startup admission at the exact source SHA", () => {
   const plan = buildProductionReleasePlan({
     affectedPackages: [],
@@ -1404,7 +1469,7 @@ test("does not infer the Remote Agent receiver-first profile from bidirectional 
   );
 });
 
-test("deploys Core's strict worker-response reader before PR 194's Remote Agent producer", () => {
+test("deploys worker-response and activity readers before the Remote Agent producer", () => {
   const plan = buildProductionReleasePlan({
     affectedPackages: [],
     base: "previous-release",
@@ -1414,6 +1479,7 @@ test("deploys Core's strict worker-response reader before PR 194's Remote Agent 
       "services/core/src/remote-agent/application/native-delivery-service.ts",
       "services/remote-agent/.flue/agents/center-agent.ts",
       "services/remote-agent/flue-adapter/conversation-footprint.ts",
+      "packages/schemas/src/schemas/protocol/agent-stream.ts",
     ],
     scope: "db,auth,core,gateway,web,remote-agent,cli",
     sourceSha: REMOTE_SOURCE_SHA,
@@ -1428,12 +1494,12 @@ test("deploys Core's strict worker-response reader before PR 194's Remote Agent 
       "Verify Auth Worker health",
       "Deploy Core with the current published CLI projection",
       "Verify Core deployment is visible",
-      "Deploy Remote Agent Worker",
-      "Verify Remote Agent deployment is visible",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Web",
       "Verify Web health",
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
       "Publish CLI and deploy its Core release projection",
       "Verify final R2/npm/Core alignment",
     ]
@@ -1620,6 +1686,187 @@ test("composes Remote Agent and Inbox receiver-first constraints before Core", (
       "Verify Core deployment is visible",
     ]
   );
+});
+
+test("plans Task Inbox retirement from real Git content separately from expansion", () => {
+  const repositoryPath = mkdtempSync(
+    path.join(tmpdir(), "openmeld-inbox-retirement-")
+  );
+  const git = (...args) =>
+    execFileSync("git", args, {
+      cwd: repositoryPath,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  const schemaPath = "packages/schemas/src/schemas/http/inbox.ts";
+  const producerPath =
+    "services/core/src/center-agent-tasks/application/center-agent-task-inbox-producer.ts";
+  // Captured shapes of the three retired declarations; current members stay intact.
+  const before = `export const inboxItemKindSchema = z.enum([
+  "center_agent_update",
+  "center_agent_task",
+]);
+export const inboxSourceKindSchema = z.enum([
+  "remote_agent_native_delivery",
+  "center_agent_task_event",
+]);
+export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("center_agent_task"),
+    taskId: identifierSchema,
+  }),
+  centerAgentInboxSourceTargetSchema,
+]);
+`;
+  const after = `export const inboxItemKindSchema = z.enum([
+  "center_agent_update",
+]);
+export const inboxSourceKindSchema = z.enum([
+  "remote_agent_native_delivery",
+]);
+export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
+  centerAgentInboxSourceTargetSchema,
+]);
+`;
+  const write = (file, content) => {
+    const target = path.join(repositoryPath, file);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  };
+  const remotePaths = [
+    "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+    "services/remote-agent/.flue/agents/center-agent.ts",
+    "services/core/src/remote-agent/application/remote-agent-worker-admission.ts",
+    "services/core/src/remote-agent/application/native-delivery-service.ts",
+  ];
+  const plan = (
+    scope = "db,remote-agent,core,auth,gateway,web,cli",
+    sourceSha = null,
+    includeSteps = false
+  ) =>
+    JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `
+    process.argv[1] = "readonly-plan-test";
+    const { buildProductionReleasePlan } = await import(${JSON.stringify(new URL("./production-release.mjs", import.meta.url).href)});
+    try {
+      const plan = buildProductionReleasePlan({ base: "retirement-base", scope: ${JSON.stringify(scope)}, sourceSha: ${JSON.stringify(sourceSha)} });
+      console.log(JSON.stringify({ profile: plan.deployOrderProfile, order: plan.deployScopeOrder, ...(${includeSteps} ? { deploy: plan.deploySteps.map(step => step.label), preflight: plan.preflightSteps.map(step => step.label), verify: plan.verifySteps.map(step => step.label) } : {}) }));
+    } catch (error) {
+      console.log(JSON.stringify({ error: error.message }));
+    }
+  `,
+        ],
+        { cwd: repositoryPath, encoding: "utf8" }
+      )
+    );
+  try {
+    git("init", "--quiet");
+    git("config", "user.email", "release-test@openmeld.ai");
+    git("config", "user.name", "Release test");
+    write(schemaPath, before);
+    write(producerPath, "old Task producer\n");
+    for (const file of remotePaths) {
+      write(file, "before\n");
+    }
+    git("add", ".");
+    git("commit", "--quiet", "-m", "base contracts");
+    git("tag", "retirement-base");
+    for (const file of remotePaths) {
+      write(file, "after\n");
+    }
+    write(schemaPath, after);
+    git("rm", "--quiet", producerPath);
+    git("add", ".");
+    git("commit", "--quiet", "-m", "retire Task and add personal Remote");
+    const retirementSha = git("rev-parse", "HEAD");
+    const assertStagedCoreProjection = () => {
+      const staged = plan("db,remote-agent,core,auth,gateway,web", null, true);
+      assert.ok(
+        staged.deploy.includes(
+          "Deploy Core with the current published CLI projection"
+        )
+      );
+      assert.ok(!staged.deploy.includes("Deploy Core Worker"));
+      assert.ok(
+        !staged.deploy.includes(
+          "Publish CLI and deploy its Core release projection"
+        )
+      );
+      assert.ok(
+        !staged.preflight.includes("Verify Core CLI channel compatibility")
+      );
+      assert.ok(
+        !staged.verify.includes("Verify Core CLI channel compatibility")
+      );
+      return staged;
+    };
+    assert.equal(
+      assertStagedCoreProjection().profile,
+      "remote-agent-and-inbox-task-retirement-first"
+    );
+    const producerFirstSteps = buildProductionDeployStepSpecs(
+      ["core", "auth", "gateway", "web"],
+      { changedPaths: [], taskInboxRetired: true }
+    );
+    assert.ok(
+      producerFirstSteps.some(
+        (step) =>
+          step.label === "Deploy Core with the current published CLI projection"
+      )
+    );
+    assert.deepEqual(plan(), {
+      profile: "remote-agent-and-inbox-task-retirement-first",
+      order: ["db", "remote-agent", "core", "auth", "gateway", "web", "cli"],
+    });
+    assert.match(
+      plan("core,auth,gateway,web,cli").error,
+      COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE
+    );
+    assert.match(plan("remote-agent,core").error, INBOX_SCOPE_ERROR_RE);
+
+    // A new kind alongside removal is not silently classified as retirement.
+    write(
+      schemaPath,
+      after.replace(
+        '  "center_agent_update",',
+        '  "center_agent_update",\n  "new_kind",'
+      )
+    );
+    assert.match(plan().error, MIXED_INBOX_RETIREMENT_ERROR_RE);
+
+    write(schemaPath, before.replace('  "center_agent_task",\n', ""));
+    assert.match(plan().error, MIXED_INBOX_RETIREMENT_ERROR_RE);
+
+    // Expansion preserves the old producer and old Task variants: readers first.
+    write(producerPath, "old Task producer\n");
+    write(
+      schemaPath,
+      before.replace(
+        '  "center_agent_update",',
+        '  "center_agent_update",\n  "new_kind",'
+      )
+    );
+    assert.deepEqual(plan(), {
+      profile: "remote-agent-and-inbox-receivers-first",
+      order: ["db", "remote-agent", "auth", "web", "gateway", "core", "cli"],
+    });
+    // An immutable release must not borrow the current checkout's different contract.
+    assert.deepEqual(plan(undefined, retirementSha), {
+      profile: "remote-agent-and-inbox-task-retirement-first",
+      order: ["db", "remote-agent", "core", "auth", "gateway", "web", "cli"],
+    });
+
+    // Deleting only the client contract cannot certify retirement of its writer.
+    write(schemaPath, after);
+    assert.match(plan().error, INBOX_RETIREMENT_PRODUCER_ERROR_RE);
+  } finally {
+    rmSync(repositoryPath, { recursive: true, force: true });
+  }
 });
 
 test("fails closed when a combined receiver-first release omits Remote Agent", () => {

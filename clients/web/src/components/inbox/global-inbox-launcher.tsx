@@ -7,6 +7,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { resolveStatusToneStrongTextClassName } from "@openmeld/ui/lib/status-tone";
 import { ArrowsOutSimpleIcon, TrayIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -155,13 +156,17 @@ function OrganizationGlobalInboxLauncher(input: {
 							</Tooltip>
 						</header>
 
-						<div className="min-h-0 overflow-y-auto p-2">
+						<ScrollArea
+							className="min-h-0"
+							contentClassName="p-2"
+							orientation="vertical"
+						>
 							<OrganizationInboxPreview
 								currentOrganization={currentOrganization}
 								enabled={open}
 								onOpenItem={() => setOpen(false)}
 							/>
-						</div>
+						</ScrollArea>
 					</Popover.Popup>
 				</Popover.Positioner>
 			</Popover.Portal>

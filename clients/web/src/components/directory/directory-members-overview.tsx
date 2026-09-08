@@ -31,13 +31,14 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
-import { PaperPlaneTiltIcon, PlusIcon } from "@phosphor-icons/react";
+import { PaperPlaneTiltIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
 	type ComponentProps,
 	type FormEvent,
 	useEffect,
+	useId,
 	useRef,
 	useState,
 } from "react";
@@ -49,6 +50,7 @@ import {
 	resolveOrganizationComputerGroups,
 } from "#/components/computers/organization-computers";
 import {
+	buildDirectoryAgentProfilesByOwner,
 	buildOrganizationHumanProfileRows,
 	buildPersonalHumanProfileRows,
 	type DirectoryDocumentsStatus,
@@ -83,7 +85,7 @@ import { canManageOrganizationArea } from "#/lib/organizations/organization-perm
 import {
 	buildOrganizationDirectMessagePath,
 	buildOrganizationNewOrganizationPath,
-	buildOrganizationPeoplePath,
+	buildOrganizationPersonPath,
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
@@ -461,6 +463,12 @@ function useDirectoryMembersOverviewModel(
 	});
 	const memberRows = isPersonalWorkspace
 		? buildPersonalHumanProfileRows({
+				agentProfileSummaries: buildDirectoryAgentProfilesByOwner({
+					members: input.directoryQuery.data?.members ?? [],
+					agentProfiles: input.directoryQuery.data?.agentProfiles ?? [],
+					orgSlug: input.currentOrganization.slug,
+					runtimeOverview: input.runtimeOverview,
+				}).get(input.currentUserId),
 				account: input.account,
 				canCreateHumanProfile,
 				computers: computersQuery.data ?? null,
@@ -505,10 +513,7 @@ function useDirectoryMembersOverviewModel(
 		profilesArePending,
 		researchIsPending: researchMutation.isPending,
 	});
-	const selectedProfileId = resolveSelectedProfileId({
-		members: memberRows,
-		requestedProfileId: input.focusProfileId,
-	});
+	const selectedProfileId = input.focusProfileId;
 	const workspaceProps: ComponentProps<typeof DirectoryHumanProfilesWorkspace> =
 		{
 			activeBatch: activeResearchBatch,
@@ -548,8 +553,10 @@ function useDirectoryMembersOverviewModel(
 					return;
 				}
 				navigate({
-					search: { profileId },
-					to: buildOrganizationPeoplePath(input.currentOrganization.slug),
+					to: buildOrganizationPersonPath({
+						orgSlug: input.currentOrganization.slug,
+						personId: profileId,
+					}),
 				}).catch((error: unknown) => {
 					console.error("Failed to open the selected Human Profile.", error);
 				});
@@ -563,34 +570,6 @@ function useDirectoryMembersOverviewModel(
 			recovery: input.recovery,
 			researchErrorMessage: researchErrors.section,
 			selectedProfileId,
-			sidebarLeadingContent: (
-				<Button
-					aria-label="Invite Members"
-					className="w-full min-w-0 justify-start overflow-hidden"
-					onClick={() => setIsInviteDialogOpen(true)}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					<PlusIcon
-						aria-hidden="true"
-						className="shrink-0"
-						data-icon="inline-start"
-					/>
-					<span
-						aria-hidden="true"
-						className="@[12rem]/contextual-sidebar:inline hidden truncate"
-					>
-						Invite Members
-					</span>
-					<span
-						aria-hidden="true"
-						className="@[12rem]/contextual-sidebar:hidden truncate"
-					>
-						Invite
-					</span>
-				</Button>
-			),
 			state: profilesViewState,
 		};
 	return {
@@ -612,7 +591,14 @@ function DirectoryMembersOverviewView(input: {
 }) {
 	return (
 		<>
-			<DirectoryHumanProfilesWorkspace {...input.model.workspaceProps} />
+			<DirectoryHumanProfilesWorkspace
+				{...input.model.workspaceProps}
+				onInviteMembers={
+					input.model.invitationAccess.kind === "allowed"
+						? () => input.model.onInviteDialogOpenChange(true)
+						: undefined
+				}
+			/>
 			<DirectoryInviteDialog
 				access={input.model.invitationAccess}
 				isOpen={input.model.isInviteDialogOpen}
@@ -672,19 +658,6 @@ function resolveDirectoryInvitationAccess(input: {
 		return { kind: "unavailable" };
 	}
 	return { kind: input.canInvite ? "allowed" : "forbidden" };
-}
-
-function resolveSelectedProfileId(input: {
-	members: readonly { id: string; isCurrentUser: boolean }[];
-	requestedProfileId: string | null;
-}): string | null {
-	return (
-		input.members.find((member) => member.id === input.requestedProfileId)
-			?.id ??
-		input.members.find((member) => member.isCurrentUser)?.id ??
-		input.members[0]?.id ??
-		null
-	);
 }
 
 function resolveDirectoryProjectionStatus(input: {
@@ -750,6 +723,8 @@ function DirectoryInvitePanel(input: {
 }
 
 export function InvitationForm(input: { organizationId: string }) {
+	const emailId = useId();
+	const roleId = useId();
 	const queryClient = useQueryClient();
 	const [email, setEmail] = useState("");
 	const [role, setRole] = useState<OrganizationInviteRole>("member");
@@ -766,6 +741,9 @@ export function InvitationForm(input: { organizationId: string }) {
 			setEmail("");
 			setRole("member");
 			Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: organizationQueryKeys.invitations(input.organizationId),
+				}),
 				queryClient.invalidateQueries({
 					queryKey: organizationQueryKeys.directory(input.organizationId),
 				}),
@@ -798,17 +776,17 @@ export function InvitationForm(input: { organizationId: string }) {
 					Spaces.
 				</CardDescription>
 			</CardHeader>
-			<CardContent>
+			<CardContent className="@container">
 				<form
-					className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end"
+					className="grid @sm:grid-cols-2 @xl:grid-cols-[minmax(0,1fr)_8rem_auto] @sm:items-end gap-3"
 					onSubmit={handleSubmit}
 				>
-					<div className="grid gap-2">
-						<Label htmlFor="organization-invite-email">Email</Label>
+					<div className="@sm:col-span-2 @xl:col-span-1 grid gap-2">
+						<Label htmlFor={emailId}>Email</Label>
 						<Input
 							autoComplete="email"
 							disabled={inviteMutation.isPending}
-							id="organization-invite-email"
+							id={emailId}
 							onChange={(event) => setEmail(event.target.value)}
 							placeholder="teammate@example.com"
 							type="email"
@@ -816,7 +794,7 @@ export function InvitationForm(input: { organizationId: string }) {
 						/>
 					</div>
 					<div className="grid gap-2">
-						<Label htmlFor="organization-invite-role">Role</Label>
+						<Label htmlFor={roleId}>Role</Label>
 						<Select
 							disabled={inviteMutation.isPending}
 							onValueChange={(value) =>
@@ -825,11 +803,12 @@ export function InvitationForm(input: { organizationId: string }) {
 							value={role}
 						>
 							<SelectTrigger
+								className="w-full min-w-0"
 								displayValue={
 									INVITE_ROLE_OPTIONS.find((option) => option.value === role)
 										?.label
 								}
-								id="organization-invite-role"
+								id={roleId}
 							/>
 							<SelectContent>
 								{INVITE_ROLE_OPTIONS.map((option, index) => (
@@ -886,17 +865,17 @@ function resolveDirectoryDocumentsStatus(input: {
 
 function resolveCurrentUserComputersStatus(input: {
 	computersStatus: DirectoryProjectionStatus;
-	hasFreshReadiness: boolean;
+	hasReadinessSnapshot: boolean;
 	inventoryStatus: DirectoryProjectionStatus;
 	readinessNeedsReconciliation: boolean;
 }): DirectoryProjectionStatus {
 	if (input.inventoryStatus !== "ready") {
 		return input.inventoryStatus;
 	}
-	if (input.readinessNeedsReconciliation) {
+	if (input.readinessNeedsReconciliation && !input.hasReadinessSnapshot) {
 		return "loading";
 	}
-	return input.hasFreshReadiness ? "ready" : input.computersStatus;
+	return input.hasReadinessSnapshot ? "ready" : input.computersStatus;
 }
 
 function resolveCurrentComputerServiceProjection(input: {
@@ -913,9 +892,7 @@ function resolveCurrentComputerServiceProjection(input: {
 		: false;
 	const deviceId = resolveCurrentLocalRuntimeSubjectDeviceId(readiness);
 	const serviceState =
-		readiness &&
-		deviceId &&
-		(!input.readinessQuery.isFetching || serviceDisconnected)
+		readiness && deviceId
 			? {
 					deviceId,
 					state: serviceDisconnected
@@ -927,7 +904,7 @@ function resolveCurrentComputerServiceProjection(input: {
 		serviceState,
 		status: resolveCurrentUserComputersStatus({
 			computersStatus: input.computersStatus,
-			hasFreshReadiness: serviceState !== null,
+			hasReadinessSnapshot: serviceState !== null,
 			inventoryStatus: input.inventoryStatus,
 			readinessNeedsReconciliation:
 				input.readinessQuery.isFetching && !serviceDisconnected,

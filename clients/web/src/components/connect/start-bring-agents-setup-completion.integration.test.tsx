@@ -7,6 +7,7 @@ import type {
 	LocalCliComponentUpdateProjection,
 	LocalRuntimesResponse,
 	LocalServiceComponentUpdateProjection,
+	PeopleComputersResponse,
 	PrepareSessionSnapshot,
 	PrepareSetupBootstrapResult,
 } from "@openmeld/schemas/types";
@@ -153,6 +154,66 @@ class ControlledMockWebSocket extends MockWebSocket {
 }
 
 describe("StartBringAgentsSetupPage completion actions", () => {
+	it("does not replace targeted Agent recovery with management of another online computer", async () => {
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{
+					kind: "space_recovery",
+					resetThisComputer: false,
+					spaceId: "space-target",
+					agentProfileIds: ["agent-needing-recovery"],
+				},
+				{ peopleComputers: connectedComputerInventory() }
+			)
+		);
+		render(
+			<TestQueryClientProvider>
+				<StartFlowStateProvider>
+					<ComputerSetupFlow orgSlug="acme" presentation="conversation" />
+				</StartFlowStateProvider>
+			</TestQueryClientProvider>
+		);
+		await waitFor(() => expect(createPrepareSessionMock).toHaveBeenCalled());
+		expect(createPrepareSessionMock.mock.calls[0]?.[0]).toMatchObject({
+			targetSpaceId: "space-target",
+		});
+	});
+	it("keeps standalone setup available alongside a named connected computer", async () => {
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{ kind: "account_computer_setup", resetThisComputer: false },
+				{ peopleComputers: connectedComputerInventory() }
+			)
+		);
+		renderPreparePage();
+		await waitFor(() =>
+			expect(screen.getByRole("link", { name: "Manage computer" })).toBeTruthy()
+		);
+		expect(screen.getByText("Office Mac")).toBeTruthy();
+		expect(createPrepareSessionMock).toHaveBeenCalled();
+	});
+
+	it("offers management in chat without creating a setup until requested", async () => {
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{ kind: "account_computer_setup", resetThisComputer: false },
+				{ peopleComputers: connectedComputerInventory() }
+			)
+		);
+		render(
+			<TestQueryClientProvider>
+				<StartFlowStateProvider>
+					<ComputerSetupFlow orgSlug="acme" presentation="conversation" />
+				</StartFlowStateProvider>
+			</TestQueryClientProvider>
+		);
+		expect(
+			screen.getByRole("link", { name: "Manage computer" }).getAttribute("href")
+		).toContain("/computers/office-mac");
+		expect(createPrepareSessionMock).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Connect a computer" }));
+		await waitFor(() => expect(createPrepareSessionMock).toHaveBeenCalled());
+	});
 	beforeEach(() => {
 		ControlledMockWebSocket.latest = null;
 		navigateMock.mockReset().mockResolvedValue(undefined);
@@ -430,7 +491,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		});
 	});
 
-	it("keeps standalone App Connect completion visible until the user returns", async () => {
+	it("keeps standalone Plugin Connect completion visible until the user returns", async () => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
 		useBringAgentsSetupContextMock.mockReturnValue(
 			createSetupContext(
@@ -488,7 +549,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		expect(screen.queryByText("Setup not finished yet.")).toBe(null);
 		expect(screen.queryByText(COMPLETED_PREPARE_TOKEN_PATTERN)).toBeNull();
 		expect(buildWebSetupCommandMock).not.toHaveBeenCalled();
-		expect(refreshAll).toHaveBeenCalledTimes(1);
+		await waitFor(() => expect(refreshAll).toHaveBeenCalledTimes(1));
 		expect(navigateMock).not.toHaveBeenCalled();
 	});
 
@@ -1272,7 +1333,10 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		expect(createPrepareSessionMock).not.toHaveBeenCalled();
 	});
 
-	it("shows Terminal setup when embedded onboarding has no existing computer to check", async () => {
+	it.each([
+		false,
+		true,
+	])("shows Terminal setup without a browser handoff even with account routing: %s", async (hasAccountComputer) => {
 		createPrepareSessionMock.mockResolvedValueOnce({
 			opaqueToken: "preptok_active",
 			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
@@ -1289,6 +1353,17 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 					resetThisComputer: false,
 				},
 				{
+					...(hasAccountComputer
+						? {
+								currentDeviceTargetQuery: {
+									data: {
+										availability: "resolved" as const,
+										deviceId: "another-computer",
+										runtimeLane: "prod" as const,
+									},
+								},
+							}
+						: {}),
 					currentLocalRuntimeReplyReadinessQuery: {
 						data: undefined,
 						isError: false,
@@ -1309,6 +1384,11 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		).toBeTruthy();
 		expect(screen.queryByText("Checking this computer…")).toBeNull();
 		expect(createPrepareSessionMock).toHaveBeenCalledOnce();
+		expect(
+			screen.queryByText(
+				"OpenMeld Service is connected. Agent availability is checked separately."
+			)
+		).toBeNull();
 	});
 
 	it("hands a replayed automatic setup action back to the explicit Continue gate", async () => {
@@ -2837,6 +2917,47 @@ function createEmbeddedOnboardingComputerSetupElement() {
 	);
 }
 
+// Sanitized connection contract from the staging computer.list capture on
+// 2026-09-07. No local-agent catalog is needed to prove Service connectivity.
+function connectedComputerInventory(): PeopleComputersResponse {
+	return {
+		generatedAt: "2026-05-08T10:00:00.000Z",
+		computers: [
+			{
+				deviceId: "office-mac",
+				deviceDisplayName: "Office Mac",
+				deviceDisplayNameSource: "observed",
+				platformFamily: "macOS",
+				osVersion: "25.6.0",
+				deviceType: "laptop",
+				firstSeenAtMs: 1_778_234_400_000,
+				lastObservedAtMs: 1_778_234_400_000,
+				identityStatus: "enrolled",
+				executionTargets: [],
+				connection: {
+					status: "connected",
+					reasonCodes: [],
+					sessions: [
+						{
+							deviceId: "office-mac",
+							runtimeLane: "dev-local",
+							lastHeartbeatMs: 1_778_234_400_000,
+							serviceVersion: "0.3.165",
+							executionCompatibility: {
+								status: "compatible",
+								expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+								observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+								reasonCode: "daemon.runtime_contract.compatible",
+							},
+							serviceUpdate: { wakeBlocked: false, reasonCodes: [] },
+						},
+					],
+				},
+			},
+		],
+	};
+}
+
 function createSetupContext(
 	routeIntent: ConnectRouteIntent,
 	overrides: Partial<{
@@ -2872,6 +2993,7 @@ function createSetupContext(
 		};
 		refreshAll: ReturnType<typeof vi.fn>;
 		runtimeLane: string | null;
+		peopleComputers: PeopleComputersResponse;
 		sessionExpiredState: SessionExpiredState | null;
 	}> = {}
 ) {
@@ -2899,6 +3021,10 @@ function createSetupContext(
 		currentRuntimeLane: inventoryRuntimeLane,
 		localRuntimes: [],
 	} satisfies LocalRuntimesResponse;
+	const inventory =
+		overrides.localRuntimesQuery === undefined
+			? defaultLocalRuntimes
+			: overrides.localRuntimesQuery.data;
 	return {
 		agentExecutionReadinessByProfileId:
 			overrides.agentExecutionReadinessByProfileId ?? new Map(),
@@ -2934,10 +3060,15 @@ function createSetupContext(
 		deviceId,
 		loadGatewayUrl: vi.fn().mockResolvedValue("http://localhost:8080"),
 		localRuntimesQuery: {
-			data:
-				overrides.localRuntimesQuery === undefined
-					? defaultLocalRuntimes
-					: overrides.localRuntimesQuery.data,
+			data: inventory
+				? {
+						...inventory,
+						peopleComputers: overrides.peopleComputers ?? {
+							generatedAt: "2026-05-08T10:00:00.000Z",
+							computers: [],
+						},
+					}
+				: undefined,
 			isError: overrides.localRuntimesQuery?.isError ?? false,
 			isFetching: overrides.localRuntimesQuery?.isFetching ?? false,
 			isPending: overrides.localRuntimesQuery?.isPending ?? false,

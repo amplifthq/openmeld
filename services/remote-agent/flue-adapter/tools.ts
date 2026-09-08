@@ -3,6 +3,7 @@ import type {
   CenterAgentModelRoute,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
+import type { GenericSchema } from "valibot";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
@@ -10,6 +11,7 @@ import type {
 import type { RemoteAgentExternalToolEnv } from "../agent-core/external-tools";
 import type { RemoteAgentConnectorExecutionConfig } from "../agent-core/github-tools";
 import type { RemoteAgentImagePreparer } from "../agent-core/image-understanding";
+import { getPersonalRemoteAgentTools } from "../agent-core/personal-remote-agent-tools";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   getRemoteAgentOpenMeldToolDefinitions,
@@ -29,6 +31,7 @@ import {
 } from "./tool-execution";
 
 export async function getRemoteAgentFlueTools(input: {
+  personalAgent?: boolean;
   agentActivityReadEnabled?: boolean;
   codeModeRuntime?: RemoteAgentCodeModeRuntime;
   computerFileHandoff?: RemoteAgentComputerFileHandoff;
@@ -45,6 +48,15 @@ export async function getRemoteAgentFlueTools(input: {
   submissionId: string;
   turnEnvelope?: RemoteAgentTurnEnvelope | null;
 }) {
+  if (input.personalAgent) {
+    return getPersonalRemoteAgentTools(input).map((definition) =>
+      toFlueTool({
+        definition,
+        storage: input.storage,
+        submissionId: input.submissionId,
+      })
+    );
+  }
   const unverifiedMember =
     input.turnEnvelope?.sender.kind === "member" &&
     !input.turnEnvelope.sender.verified;
@@ -101,19 +113,21 @@ function toFlueTool(input: {
   return defineTool({
     name: definition.name,
     description: definition.description,
-    input: definition.input as never,
-    run: async ({ input: toolInput, signal }) => {
-      return toBoundedRemoteAgentToolResult({
-        toolName: definition.name,
-        value: await executeRemoteAgentToolDefinition({
-          definition,
-          signal,
-          source: "direct",
-          storage: input.storage,
-          submissionId: input.submissionId,
-          toolInput: (toolInput ?? {}) as Record<string, unknown>,
+    input: definition.input as GenericSchema<Record<string, unknown>, unknown>,
+    run: async ({ data: toolInput, signal }) => {
+      return {
+        output: toBoundedRemoteAgentToolResult({
+          toolName: definition.name,
+          value: await executeRemoteAgentToolDefinition({
+            definition,
+            signal,
+            source: "direct",
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolInput: (toolInput ?? {}) as Record<string, unknown>,
+          }),
         }),
-      });
+      };
     },
   });
 }

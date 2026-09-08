@@ -13,6 +13,7 @@ vi.mock("@tanstack/react-router", () => ({
 beforeEach(() => {
 	vi.useFakeTimers();
 	sessionStorage.clear();
+	localStorage.clear();
 });
 afterEach(() => {
 	cleanup();
@@ -90,6 +91,29 @@ it("restores after history arrives and keeps the same message when an image chan
 		vi.advanceTimersByTime(40);
 	});
 	expect(f.input.viewport.scrollTop).toBe(900);
+});
+
+it("releases a restored reading position when the user sends and follows the latest message", () => {
+	const f = fixture();
+	writeSpaceConversationPosition(f.key, {
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: 20,
+	});
+	const { result, rerender } = renderHook(useSpaceConversationPosition, {
+		initialProps: f.input,
+	});
+	act(() => vi.advanceTimersByTime(40));
+	expect(f.input.viewport.scrollTop).toBe(780);
+	act(() => result.current.followLatest());
+	f.input.viewport.scrollTop = 1500;
+	rerender({ ...f.input, historyVersion: 2 });
+	f.moveMessage(1100);
+	act(() => {
+		notifyResizeObservers(f.message);
+		vi.advanceTimersByTime(40);
+	});
+	expect(f.input.viewport.scrollTop).toBe(1500);
+	expect(result.current.autoScroll).toBe(true);
 });
 
 it("loads earlier history for an anchor outside the latest page", async () => {

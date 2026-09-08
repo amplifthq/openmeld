@@ -26,6 +26,13 @@ import {
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
 
+const PLANNING_ROW = /Open Planning/;
+const WORKING_ROW = /Open Working.*2 unread/;
+const UNREAD_ROW = /Open Unread.*1 unread/;
+const IDLE_ROW = /Open Idle/;
+const SUPPORT_ROW = /Support.*Preview.*Join/;
+const UNREAD_TEXT = /unread/;
+
 const {
 	appOrganizationMock,
 	appSpaceShellMock,
@@ -174,6 +181,46 @@ vi.mock("#/query/persistence/app-query-persistence", () => ({
 	}),
 }));
 
+vi.mock("#/components/app/use-sidebar-preferences", () => ({
+	useSidebarPreferences: () => ({
+		preferences: {
+			pinned: { sort: "priority", spaceIds: [] },
+			spaces: { sort: "priority", spaceIds: [] },
+			groups: [],
+		},
+		isPending: false,
+		isError: false,
+		disabled: false,
+		save: vi.fn(),
+		retry: vi.fn(),
+	}),
+}));
+vi.mock(
+	"#/components/spaces/direct-message-preview",
+	async (importOriginal) => {
+		const actual =
+			await importOriginal<
+				typeof import("#/components/spaces/direct-message-preview")
+			>();
+		return {
+			...actual,
+			spaceMessagePreviewQueryOptions: (input: { spaceId: string }) => ({
+				queryKey: ["test-preview", input.spaceId],
+				queryFn: async () => null,
+				initialData: null,
+			}),
+		};
+	}
+);
+vi.mock("#/lib/organizations/organization-directory", () => ({
+	readCurrentOrganizationProfileDirectory: async () => ({
+		organizationId: "org-acme",
+		generatedAt: "2026-07-05T00:00:00.000Z",
+		members: [],
+		agentProfiles: [],
+	}),
+}));
+
 import { AppSpacesIndexContent } from "./index";
 
 describe("app spaces index route", () => {
@@ -206,7 +253,17 @@ describe("app spaces index route", () => {
 			.mockResolvedValue(createOrganizationSpacesResponse());
 		listAccountSpaceItemsMock.mockReset().mockResolvedValue({
 			pinnedItems: [],
-			spaceItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					spaceId: "space-planning",
+					spaceName: "Planning",
+				}),
+				createAccountSpaceItem({
+					spaceId: "space-private",
+					spaceName: "Finance",
+					activeMemberCount: 3,
+				}),
+			],
 		});
 		listStartProfilesMock.mockReset();
 		setAccountSpaceItemPinnedMock.mockReset().mockResolvedValue([]);
@@ -256,68 +313,32 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
-		expect(await screen.findByRole("heading", { name: "Spaces" })).toBeTruthy();
 		expect(
-			screen.getByText(
-				"Browse Spaces in this organization. Public Spaces are open to every member; private Spaces require an invitation."
-			)
+			await screen.findByRole("heading", { level: 1, name: "Spaces" })
 		).toBeTruthy();
-		expect(screen.getByText("Planning")).toBeTruthy();
-		expect(screen.getByRole("heading", { name: "Your Spaces" })).toBeTruthy();
-		expect(screen.getByRole("heading", { name: "Discover" })).toBeTruthy();
+		expect(await screen.findByText("Planning")).toBeTruthy();
 		expect(
-			screen.getByRole("searchbox", { name: "Search Spaces" })
-		).toBeTruthy();
-		expect(screen.getAllByText("Public")).toHaveLength(2);
-		expect(screen.getByText("Private")).toBeTruthy();
-		expect(screen.getByText("8 members")).toBeTruthy();
-		expect(screen.getByText("3 members")).toBeTruthy();
-		const planningCard = screen.getByTestId(
-			"organization-space-card-space-planning"
-		);
-		expect(planningCard.getAttribute("data-slot")).toBe("card");
+			screen
+				.getByRole("tab", { name: "Your Spaces" })
+				.getAttribute("aria-selected")
+		).toBe("true");
+		expect(screen.getByRole("tab", { name: "Discover" })).toBeTruthy();
+		expect(screen.queryByRole("searchbox")).toBeNull();
 		expect(
-			within(planningCard).getByRole("heading", {
-				level: 3,
-				name: "Planning",
-			})
-		).toBeTruthy();
-		expect(
-			within(planningCard).getByText(
-				"Open this Space to continue where you left off."
-			)
-		).toBeTruthy();
-		expect(
-			planningCard.querySelector('[data-slot="card-content"]')
-		).toBeTruthy();
-		const supportCard = screen.getByTestId(
-			"organization-space-card-space-support"
-		);
-		expect(
-			within(supportCard).getByText(
-				"Join this public Space to see its conversation and collaborate."
-			)
-		).toBeTruthy();
-		expect(
-			screen.getByRole("link", { name: "Open Planning" }).getAttribute("href")
+			screen.getByRole("link", { name: PLANNING_ROW }).getAttribute("href")
 		).toBe("/o/acme/spaces/space-planning?profileId=selected-human");
+		expect(screen.getByRole("button", { name: "Pin Planning" })).toBeTruthy();
+		expect(screen.queryByText("Support")).toBeNull();
+		fireEvent.click(screen.getByRole("tab", { name: "Discover" }));
 		expect(
-			within(planningCard).queryByTestId("space-directory-unread-indicator")
-		).toBeNull();
-		expect(
-			within(planningCard).queryByTestId("space-directory-working-indicator")
-		).toBeNull();
-		expect(
-			within(planningCard).queryByRole("button", { name: "Pin Planning" })
-		).toBeNull();
-		expect(screen.getByRole("button", { name: "Join Support" })).toBeTruthy();
-		const privateCard = screen.getByTestId(
-			"organization-space-card-space-private"
-		);
-		expect(
-			within(privateCard).getByRole("link", { name: "Open Finance" })
+			await screen.findByRole("button", { name: "Join Support" })
 		).toBeTruthy();
-		expect(screen.queryByRole("tablist")).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Preview Support" })
+		).toBeTruthy();
+		expect(screen.queryByText("Finance")).toBeNull();
+		expect(joinOrganizationSpaceMock).not.toHaveBeenCalled();
+
 		expect(screen.getByTestId("app-space-shell")).toBeTruthy();
 		await waitFor(() => {
 			expect(appSpaceShellMock).toHaveBeenLastCalledWith(
@@ -331,7 +352,7 @@ describe("app spaces index route", () => {
 		expect(screen.queryByTestId("space-landing")).toBeNull();
 	});
 
-	it("shows joined Space status facts in Account Space Index order without leaking them into Discover", async () => {
+	it("groups joined Spaces with Priority order without leaking status into Discover", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({
 				openMeldProfileId: "selected-human",
@@ -431,91 +452,42 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
-		const workingCard = await screen.findByTestId(
-			"organization-space-card-space-working"
+		const workingRow = await screen.findByRole("row", {
+			name: WORKING_ROW,
+		});
+		const unreadRow = screen.getByRole("row", { name: UNREAD_ROW });
+		const idleRow = screen.getByRole("row", { name: IDLE_ROW });
+		expect(workingRow.compareDocumentPosition(unreadRow)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
 		);
-		const unreadCard = screen.getByTestId(
-			"organization-space-card-space-unread"
+		expect(unreadRow.compareDocumentPosition(idleRow)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
 		);
-		const idleCard = screen.getByTestId("organization-space-card-space-idle");
-		const supportCard = screen.getByTestId(
-			"organization-space-card-space-support"
+		expect(within(workingRow).getAllByText("2 unread").length).toBeGreaterThan(
+			0
 		);
-
-		const workingUnreadIndicator = within(workingCard).getByTestId(
-			"space-directory-unread-indicator"
-		);
-		expect(workingUnreadIndicator).toBeTruthy();
-		const workingUnreadDot = workingUnreadIndicator.querySelector(
-			'[aria-hidden="true"]'
-		);
-		expect(workingUnreadDot).toBeTruthy();
-		expect(workingUnreadDot?.className).not.toContain("animate");
-		expect(within(workingCard).getByText("2 unread")).toBeTruthy();
-		expect(
-			within(workingCard).queryByTestId("space-directory-working-indicator")
-		).toBeNull();
-		expect(within(workingCard).queryByText("Pinned")).toBeNull();
-		const unpinButton = within(workingCard).getByRole("button", {
+		const unpin = within(workingRow).getByRole("button", {
 			name: "Unpin Working",
 		});
-		expect(unpinButton.getAttribute("aria-pressed")).toBe("true");
-		expect(unpinButton.className).toContain("opacity-0");
-		expect(unpinButton.className).toContain(
-			"group-hover/space-card:opacity-100"
-		);
-		expect(unpinButton.className).toContain(
-			"group-focus-within/space-card:opacity-100"
-		);
-		expect(unpinButton.className).toContain("motion-reduce:transition-none");
-
-		const idleWorkingIndicator = within(idleCard).getByTestId(
-			"space-directory-working-indicator"
-		);
-		expect(idleWorkingIndicator).toBeTruthy();
-		expect(
-			idleWorkingIndicator.querySelector('[data-slot="space-agent-orb"]')
-		).toBeTruthy();
-		expect(
-			within(idleCard).queryByTestId("space-directory-unread-indicator")
-		).toBeNull();
-
-		expect(workingCard.compareDocumentPosition(unreadCard)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
-		);
-		expect(unreadCard.compareDocumentPosition(idleCard)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
-		);
-		expect(within(unreadCard).getByText("1 unread")).toBeTruthy();
-
-		expect(
-			within(supportCard).getByRole("button", { name: "Join Support" })
-		).toBeTruthy();
-		expect(
-			within(supportCard).queryByTestId("space-directory-unread-indicator")
-		).toBeNull();
-		expect(
-			within(supportCard).queryByTestId("space-directory-working-indicator")
-		).toBeNull();
-		expect(
-			within(supportCard).queryByRole("button", { name: "Pin Support" })
-		).toBeNull();
-
-		fireEvent.click(unpinButton);
-
-		await waitFor(() => {
+		fireEvent.click(unpin);
+		await waitFor(() =>
 			expect(setAccountSpaceItemPinnedMock).toHaveBeenCalledWith({
 				pinnedAt: null,
 				profileIds: ["selected-human", "other-human"],
 				spaceId: "space-working",
-			});
+			})
+		);
+		fireEvent.click(screen.getByRole("tab", { name: "Discover" }));
+		const support = await screen.findByRole("row", {
+			name: SUPPORT_ROW,
 		});
+		expect(within(support).queryByText(UNREAD_TEXT)).toBeNull();
 		expect(
-			within(workingCard).getByRole("button", { name: "Pin Working" })
-		).toBeTruthy();
+			within(support).queryByRole("button", { name: "Pin Support" })
+		).toBeNull();
 	});
 
-	it("pins a joined Space directly from its directory card", async () => {
+	it("pins a joined Space from its directory row and updates the shared index", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({
 				openMeldProfileId: "selected-human",
@@ -542,40 +514,40 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
-		const planningCard = await screen.findByTestId(
-			"organization-space-card-space-planning"
-		);
-		const financeCard = screen.getByTestId(
-			"organization-space-card-space-private"
-		);
-		expect(financeCard.compareDocumentPosition(planningCard)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
-		);
-		const pinButton = within(planningCard).getByRole("button", {
-			name: "Pin Planning",
+		const planning = await screen.findByRole("row", {
+			name: PLANNING_ROW,
 		});
-		expect(pinButton.getAttribute("aria-pressed")).toBe("false");
-
-		pinButton.focus();
-		fireEvent.click(pinButton);
-
-		await waitFor(() => {
+		fireEvent.click(
+			within(planning).getByRole("button", { name: "Pin Planning" })
+		);
+		await waitFor(() =>
 			expect(setAccountSpaceItemPinnedMock).toHaveBeenCalledWith({
 				pinnedAt: expect.any(String),
 				profileIds: ["selected-human"],
 				spaceId: "space-planning",
-			});
-		});
-		const unpinButton = within(planningCard).getByRole("button", {
-			name: "Unpin Planning",
-		});
-		expect(unpinButton.getAttribute("aria-disabled")).toBe("true");
-		expect(unpinButton.hasAttribute("disabled")).toBe(false);
-		expect(planningCard.compareDocumentPosition(financeCard)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
+			})
 		);
-		expect(document.activeElement).toBe(unpinButton);
-		expect(within(planningCard).getByText("Pinned")).toBeTruthy();
+		expect(
+			await screen.findByRole("button", { name: "Unpin Planning" })
+		).toBeTruthy();
+		const pinned = screen.getByRole("heading", { name: "Pinned" });
+		expect(pinned).toBeTruthy();
+	});
+
+	it("keeps joined Spaces openable when account-specific index facts are missing", async () => {
+		listStartProfilesMock.mockResolvedValue([
+			createProfile({ isDefault: true, openMeldProfileId: "selected-human" }),
+		]);
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [],
+		});
+		renderSpacesIndex();
+		expect(
+			await screen.findByRole("link", { name: "Open Planning" })
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Pin Planning" })).toBeNull();
+		expect(screen.queryByText("Support")).toBeNull();
 	});
 
 	it("keeps current Direct Messages out of the Spaces directory", async () => {
@@ -616,6 +588,10 @@ describe("app spaces index route", () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
+				createAccountSpaceItem({
+					spaceId: "space-planning",
+					spaceName: "Planning",
+				}),
 				createAccountSpaceItem({
 					activeMemberCount: 2,
 					spaceId: "space-direct-message",
@@ -685,9 +661,10 @@ describe("app spaces index route", () => {
 		expect(await screen.findByText("Planning")).toBeTruthy();
 		expect(
 			await screen.findByText(
-				"Couldn't refresh Spaces. Showing the last saved view from this browser."
+				"Couldn't refresh Spaces. Showing the last saved view."
 			)
 		).toBeTruthy();
+		fireEvent.click(screen.getByRole("tab", { name: "Discover" }));
 		expect(
 			(
 				screen.getByRole("button", {
@@ -723,7 +700,8 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex({ queryClient });
 
-		expect(await screen.findByText("Planning")).toBeTruthy();
+		await screen.findByRole("tab", { name: "Discover" });
+		fireEvent.click(screen.getByRole("tab", { name: "Discover" }));
 		expect(
 			(
 				screen.getByRole("button", {
@@ -771,7 +749,9 @@ describe("app spaces index route", () => {
 				profileName: "Selected Human",
 			}),
 		]);
-		expect(await screen.findByRole("heading", { name: "Spaces" })).toBeTruthy();
+		expect(
+			await screen.findByRole("heading", { level: 1, name: "Spaces" })
+		).toBeTruthy();
 	});
 
 	it("keeps organization discovery visible when there are no Spaces", async () => {
@@ -788,16 +768,12 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
-		expect(await screen.findByText("No public Spaces to join")).toBeTruthy();
+		fireEvent.click(await screen.findByRole("tab", { name: "Discover" }));
 		expect(
-			screen.getByText("Private Spaces appear here after someone invites you.")
+			await screen.findByText("No public Spaces to discover right now.")
 		).toBeTruthy();
-		expect(
-			screen.getByRole("region", { name: "No public Spaces to join" })
-		).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Create Space" })).toBeTruthy();
-		expect(screen.queryByRole("link", { name: "New Space" })).toBeNull();
-		expect(screen.queryByRole("tablist")).toBeNull();
+		expect(screen.getByRole("link", { name: "New Space" })).toBeTruthy();
+
 		expect(screen.queryByTestId("new-space-view")).toBeNull();
 		expect(screen.queryByTestId("route-redirect")).toBeNull();
 		expect(navigateComponentMock).not.toHaveBeenCalled();
@@ -831,7 +807,8 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
-		expect(await screen.findByText("Member count unavailable")).toBeTruthy();
+		fireEvent.click(await screen.findByRole("tab", { name: "Discover" }));
+		expect(await screen.findByText("—")).toBeTruthy();
 		expect(screen.queryByText("0 members")).toBeNull();
 	});
 
@@ -855,12 +832,12 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex({ orgSlug: "solo" });
 
-		expect(await screen.findByText("No Spaces yet")).toBeTruthy();
 		expect(
-			screen.getByText("Create your first Space to get started.")
+			await screen.findByText("No Spaces in this group yet.")
 		).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Create Space" })).toBeTruthy();
-		expect(screen.queryByRole("link", { name: "New Space" })).toBeNull();
+		expect(screen.getByRole("link", { name: "New Space" })).toBeTruthy();
+		expect(screen.queryByRole("tab", { name: "Discover" })).toBeNull();
+
 		expect(screen.queryByTestId("new-space-view")).toBeNull();
 		expect(screen.queryByTestId("route-redirect")).toBeNull();
 		expect(navigateComponentMock).not.toHaveBeenCalled();
@@ -902,6 +879,7 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
+		fireEvent.click(await screen.findByRole("tab", { name: "Discover" }));
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Join Support" })
 		);
@@ -933,6 +911,7 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
+		fireEvent.click(await screen.findByRole("tab", { name: "Discover" }));
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Join Support" })
 		);
@@ -941,23 +920,28 @@ describe("app spaces index route", () => {
 		expect(alert.textContent).toBe("This Space is no longer public.");
 	});
 
-	it("searches joined and discoverable Spaces from one input", async () => {
+	it("expands search on demand and keeps each tab search independent", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({ isDefault: true, openMeldProfileId: "selected-human" }),
 		]);
 
 		renderSpacesIndex();
 
-		fireEvent.change(
-			await screen.findByRole("searchbox", { name: "Search Spaces" }),
-			{ target: { value: "support" } }
-		);
-
-		await waitFor(() => {
-			expect(screen.queryByText("Planning")).toBeNull();
-			expect(screen.queryByText("Finance")).toBeNull();
-			expect(screen.getByText("Support")).toBeTruthy();
+		await screen.findByText("Planning");
+		expect(screen.queryByRole("searchbox")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Search Spaces" }));
+		fireEvent.change(screen.getByRole("searchbox", { name: "Search Spaces" }), {
+			target: { value: "planning" },
 		});
+		await waitFor(() => expect(screen.queryByText("Finance")).toBeNull());
+		fireEvent.click(screen.getByRole("tab", { name: "Discover" }));
+		expect(await screen.findByText("Support")).toBeTruthy();
+		expect(screen.queryByRole("searchbox")).toBeNull();
+		fireEvent.click(screen.getByRole("tab", { name: "Your Spaces" }));
+		expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe(
+			"planning"
+		);
+		expect(screen.queryByText("Finance")).toBeNull();
 	});
 
 	it("falls back to the default human profile when no selected profile is active", async () => {
@@ -971,7 +955,9 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
-		expect(await screen.findByRole("heading", { name: "Spaces" })).toBeTruthy();
+		expect(
+			await screen.findByRole("heading", { level: 1, name: "Spaces" })
+		).toBeTruthy();
 		expect(appSpaceShellMock).toHaveBeenLastCalledWith(
 			expect.objectContaining({
 				currentProfileId: "default-human",
@@ -1020,8 +1006,10 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
-		expect(await screen.findByRole("heading", { name: "Spaces" })).toBeTruthy();
-		expect(screen.getByText("Planning")).toBeTruthy();
+		expect(
+			await screen.findByRole("heading", { level: 1, name: "Spaces" })
+		).toBeTruthy();
+		expect(await screen.findByText("Planning")).toBeTruthy();
 		expect(listOrganizationsMock).toHaveBeenCalledTimes(1);
 		expect(
 			screen.queryByText("OpenMeld could not load your Spaces.")

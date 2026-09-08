@@ -1,0 +1,58 @@
+{
+  "code": 0,
+  "data": {
+    "scopes": [
+      {
+        "scope_name": "cardkit:card:read",
+        "scope_type": "tenant",
+        "grant_status": 1
+      },
+      {
+        "scope_name": "im:message.group_at_msg:readonly",
+        "scope_type": "tenant",
+        "grant_status": 1
+      },
+      {
+        "scope_name": "im:message.p2p_msg:readonly",
+        "scope_type": "tenant",
+        "grant_status": 1
+      },
+      {
+        "scope_name": "im:message:readonly",
+        "scope_type": "tenant",
+        "grant_status": 1
+      },
+      {
+        "scope_name": "im:message:send_as_bot",
+        "scope_type": "tenant",
+        "grant_status": 1
+      },
+      {
+        "scope_name": "im:resource",
+        "scope_type": "tenant",
+        "grant_status": 1
+      },
+      {
+        "scope_name": "application:application:patch",
+        "scope_type": "tenant",
+        "grant_status": 1
+      },
+      {
+        "scope_name": "cardkit:card:write",
+        "scope_type": "tenant",
+        "grant_status": 1
+      },
+      {
+        "scope_name": "im:chat.members:bot_access",
+        "scope_type": "tenant",
+        "grant_status": 1
+      },
+      {
+        "scope_name": "im:chat:read",
+        "scope_type": "tenant",
+        "grant_status": 1
+      },
+      { "scope_name": "im:message", "scope_type": "tenant", "grant_status": 1 }
+    ]
+  }
+}

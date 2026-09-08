@@ -29,6 +29,7 @@ import {
   readActiveRemoteAgentLarkPlatformRegistrationAttempt,
   readRemoteAgentLarkPlatformRegistrationAttempt,
   repairRemoteAgentLarkPlatformRegistrationAttempt,
+  replaceClaimedLarkPlatformCallbackCredentials,
   replacePendingRemoteAgentLarkPlatformRegistrationAttempt,
 } from "../infrastructure/d1/lark-platform-registration-attempt-repo";
 import { configureAndVerifyLarkPlatformWebhookApp } from "./lark-platform-app-configuration";
@@ -91,6 +92,7 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
   nowMs?: number;
   provider: RemoteAgentLarkPlatformProvider;
   repairExisting?: boolean;
+  reauthorize?: boolean;
   restartPending?: boolean;
 }): Promise<LarkPlatformRegistrationResponse> {
   const nowMs = input.nowMs ?? Date.now();
@@ -101,6 +103,13 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
     provider: input.provider,
   });
   const createId = input.createId ?? (() => crypto.randomUUID());
+  if (input.reauthorize) {
+    return await reauthorizeExistingRegistration({
+      ...input,
+      cryptoKey: configuration.cryptoKey,
+      nowMs,
+    });
+  }
   let activeAttempt =
     await readActiveRemoteAgentLarkPlatformRegistrationAttempt({
       db: input.db,
@@ -121,9 +130,7 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
       attempt: activeAttempt,
       provider: input.provider,
     });
-    if (input.repairExisting && activeAttempt.connectionId === null) {
-      throw serviceError(input.provider, "repair_unavailable", 409);
-    }
+    assertRepairableAttempt(input.repairExisting, activeAttempt);
     if (
       !(input.restartPending && activeAttempt.status === "pending_registration")
     ) {
@@ -221,6 +228,75 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
     attempt,
     cryptoKey: configuration.cryptoKey,
     db: input.db,
+  });
+}
+
+function assertRepairableAttempt(
+  repairExisting: boolean | undefined,
+  attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord
+): void {
+  if (repairExisting && attempt.connectionId === null) {
+    throw serviceError(attempt.provider, "repair_unavailable", 409);
+  }
+}
+
+async function reauthorizeExistingRegistration(input: {
+  actor: RegistrationActor;
+  cryptoKey: string;
+  db: D1Database;
+  fetchImpl?: typeof fetch;
+  nowMs: number;
+  provider: RemoteAgentLarkPlatformProvider;
+}): Promise<LarkPlatformRegistrationResponse> {
+  const attempt = await readActiveRemoteAgentLarkPlatformRegistrationAttempt({
+    db: input.db,
+    organizationId: input.actor.organizationId,
+    provider: input.provider,
+  });
+  assertAttemptAuthority({
+    actor: input.actor,
+    attempt,
+    provider: input.provider,
+  });
+  if (
+    !attempt?.connectionId ||
+    attempt.status !== "configuring" ||
+    attempt.failureReasonCode !==
+      `${input.provider}.application_config_permission_required`
+  ) {
+    throw serviceError(input.provider, "repair_unavailable", 409);
+  }
+  const connection = await readRemoteAgentLarkPlatformChannelConnection({
+    db: input.db,
+    connectionId: attempt.connectionId,
+  });
+  if (
+    !connection ||
+    connection.organizationId !== input.actor.organizationId ||
+    connection.provider !== input.provider
+  ) {
+    throw serviceError(input.provider, "registration_connection_invalid", 503);
+  }
+  // Consent updates this existing app. Its stored credentials remain authoritative;
+  // the normal configuration worker verifies the grant before declaring success.
+  const started = await beginLarkPlatformRegistration({
+    appId: connection.appId,
+    appDescription:
+      "Connect your OpenMeld Center Agent to conversations in your workspace.",
+    appName: "OpenMeld Center Agent",
+    expectedProvider: input.provider,
+    fetchImpl: input.fetchImpl,
+    nowMs: input.nowMs,
+    source: "openmeld-core",
+  });
+  const response = await projectRegistrationResponse({
+    attempt,
+    cryptoKey: input.cryptoKey,
+    db: input.db,
+  });
+  return larkPlatformRegistrationResponseSchema.parse({
+    ...response,
+    attempt: { ...response.attempt, registrationUrl: started.registrationUrl },
   });
 }
 
@@ -329,6 +405,7 @@ export async function disconnectRemoteAgentLarkPlatformRegistration(input: {
 
 export async function listRemoteAgentActiveLarkPlatformRegistrations(input: {
   db: D1Database;
+  nowMs?: number;
   organizationId: string;
   providers: readonly RemoteAgentLarkPlatformProvider[];
   viewer: RegistrationActor & { canManage: boolean };
@@ -344,7 +421,7 @@ export async function listRemoteAgentActiveLarkPlatformRegistrations(input: {
     )
   );
   return attempts.flatMap((attempt) =>
-    attempt
+    attempt && attempt.expiresAtMs > (input.nowMs ?? Date.now())
       ? [
           larkPlatformActiveRegistrationProjectionSchema.parse({
             canResume:
@@ -537,9 +614,10 @@ function createClaimDeadlineFetch(input: {
   fetchImpl: typeof fetch;
   timeoutMs: number;
 }): typeof fetch {
+  const fetchImpl = input.fetchImpl;
   const deadline = AbortSignal.timeout(input.timeoutMs);
   return ((resource: RequestInfo | URL, init?: RequestInit) =>
-    input.fetchImpl(resource, {
+    fetchImpl(resource, {
       ...init,
       signal: init?.signal
         ? AbortSignal.any([init.signal, deadline])
@@ -737,27 +815,77 @@ async function configurePersistedRegistration(input: {
   }
 
   try {
-    const [appSecret, verificationToken, eventEncryptKey] = await Promise.all([
-      decryptLarkPlatformCredential({
-        credentialName: "app secret",
-        cryptoKey: input.configuration.cryptoKey,
-        encryptedCredential: credentials.encryptedAppSecret,
-      }),
-      credentials.encryptedVerificationToken
-        ? decryptLarkPlatformCredential({
+    const [appSecret, savedVerificationToken, savedEventEncryptKey] =
+      await Promise.all([
+        decryptLarkPlatformCredential({
+          credentialName: "app secret",
+          cryptoKey: input.configuration.cryptoKey,
+          encryptedCredential: credentials.encryptedAppSecret,
+        }),
+        credentials.encryptedVerificationToken
+          ? decryptLarkPlatformCredential({
+              credentialName: "verification token",
+              cryptoKey: input.configuration.cryptoKey,
+              encryptedCredential: credentials.encryptedVerificationToken,
+            })
+          : Promise.reject(new Error("verification token is unavailable")),
+        credentials.encryptedEventEncryptKey
+          ? decryptLarkPlatformCredential({
+              credentialName: "event encrypt key",
+              cryptoKey: input.configuration.cryptoKey,
+              encryptedCredential: credentials.encryptedEventEncryptKey,
+            })
+          : Promise.reject(new Error("event encrypt key is unavailable")),
+      ]);
+    const verificationToken =
+      savedVerificationToken.length > 32
+        ? createOpaqueSecret()
+        : savedVerificationToken;
+    const eventEncryptKey =
+      savedEventEncryptKey.length > 32
+        ? createOpaqueSecret()
+        : savedEventEncryptKey;
+    if (
+      verificationToken !== savedVerificationToken ||
+      eventEncryptKey !== savedEventEncryptKey
+    ) {
+      const [encryptedVerificationToken, encryptedEventEncryptKey] =
+        await Promise.all([
+          encryptLarkPlatformCredential({
+            credential: verificationToken,
             credentialName: "verification token",
             cryptoKey: input.configuration.cryptoKey,
-            encryptedCredential: credentials.encryptedVerificationToken,
-          })
-        : Promise.reject(new Error("verification token is unavailable")),
-      credentials.encryptedEventEncryptKey
-        ? decryptLarkPlatformCredential({
+          }),
+          encryptLarkPlatformCredential({
+            credential: eventEncryptKey,
             credentialName: "event encrypt key",
             cryptoKey: input.configuration.cryptoKey,
-            encryptedCredential: credentials.encryptedEventEncryptKey,
-          })
-        : Promise.reject(new Error("event encrypt key is unavailable")),
-    ]);
+          }),
+        ]);
+      const replaced = await replaceClaimedLarkPlatformCallbackCredentials({
+        attemptId: input.attempt.attemptId,
+        claimId: input.claimId,
+        connectionId,
+        db: input.db,
+        encryptedEventEncryptKey,
+        encryptedVerificationToken,
+        previousEncryptedEventEncryptKey: credentials.encryptedEventEncryptKey,
+        previousEncryptedVerificationToken:
+          credentials.encryptedVerificationToken,
+        nowMs: input.clock(),
+      });
+      if (!replaced) {
+        const current = await readRemoteAgentLarkPlatformRegistrationAttempt({
+          attemptId: input.attempt.attemptId,
+          db: input.db,
+        });
+        return await projectRegistrationResponse({
+          attempt: current ?? input.attempt,
+          cryptoKey: input.configuration.cryptoKey,
+          db: input.db,
+        });
+      }
+    }
     const configured = await configureAndVerifyLarkPlatformWebhookApp({
       appId: connection.appId,
       appSecret,
@@ -1067,7 +1195,8 @@ function normalizeFailureReasonCode(
 }
 
 function createOpaqueSecret(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  // 24 random bytes encode to 32 base64url characters, the provider's limit.
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
   let binary = "";
   for (const byte of bytes) {
     binary += String.fromCharCode(byte);

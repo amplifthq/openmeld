@@ -1,6 +1,21 @@
 import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
-import { resolveSetupServiceUpdateTruth } from "../src/commands/setup-service-update-truth";
+import { describe, expect, it, vi } from "vitest";
+import {
+  assertSetupServiceUpdateComplete,
+  resolveSetupServiceUpdateTruth,
+} from "../src/commands/setup-service-update-truth";
+import { OPENMELD_VERSION } from "../src/runtime/version";
+
+const { inventory, update } = vi.hoisted(() => ({
+  inventory: vi.fn(),
+  update: vi.fn(),
+}));
+vi.mock("../src/local-service/lifecycle/daemon-service-inventory", () => ({
+  inspectDaemonServiceInventory: inventory,
+}));
+vi.mock("../src/local-service/lifecycle/daemon-service-update-state", () => ({
+  resolveDaemonServiceUpdateOperation: update,
+}));
 
 function operation(
   phase: OpenMeldToolsUpdateOperation["phase"]
@@ -17,6 +32,47 @@ function operation(
 }
 
 describe("setup service update truth", () => {
+  it("uses the current Service contract, not a retained legacy install record", async () => {
+    update.mockResolvedValue({
+      ...operation("needs_help"),
+      targetVersion: OPENMELD_VERSION,
+    });
+    inventory.mockResolvedValue({
+      serviceContract: { daemonVersion: OPENMELD_VERSION },
+      installStatus: { state: { daemonVersion: "0.0.1" } },
+      runtimeStatus: { status: "running" },
+      anomalies: [],
+    });
+    await expect(assertSetupServiceUpdateComplete()).resolves.toBeUndefined();
+  });
+  it("does not hide an in-flight older update behind a newer CLI", () => {
+    expect(
+      resolveSetupServiceUpdateTruth({
+        currentCliVersion: "0.9.0",
+        installedServiceVersion: "0.9.0",
+        currentServiceVerified: true,
+        operation: operation("waiting_for_work"),
+      })
+    ).toMatchObject({ status: "updating" });
+  });
+  it("keeps the historical failure but accepts a verified current replacement", () => {
+    expect(
+      resolveSetupServiceUpdateTruth({
+        currentCliVersion: "0.8.0",
+        installedServiceVersion: "0.8.0",
+        operation: operation("needs_help"),
+        currentServiceVerified: true,
+      })
+    ).toEqual({ status: "ready" });
+    expect(
+      resolveSetupServiceUpdateTruth({
+        currentCliVersion: "0.8.0",
+        installedServiceVersion: "0.7.99",
+        operation: operation("needs_help"),
+        currentServiceVerified: true,
+      })
+    ).toMatchObject({ status: "failed" });
+  });
   it.each([
     "waiting_for_work",
     "updating",

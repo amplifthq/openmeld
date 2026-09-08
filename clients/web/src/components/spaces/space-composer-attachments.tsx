@@ -77,6 +77,7 @@ export function useSpaceComposerFileInput(input: {
 export function SpaceComposerFileMenu(input: {
 	addFiles: (files: readonly File[]) => void;
 	disabled: boolean;
+	disabledReason?: string;
 	limitReached: boolean;
 }) {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -103,11 +104,9 @@ export function SpaceComposerFileMenu(input: {
 					}
 				>
 					<DropdownMenuTrigger
-						disabled={input.disabled || input.limitReached}
 						render={
 							<Button
 								aria-label="Add to message"
-								disabled={input.disabled || input.limitReached}
 								size="icon-sm"
 								type="button"
 								variant="ghost"
@@ -125,12 +124,21 @@ export function SpaceComposerFileMenu(input: {
 				>
 					<FluidDropdownMenuItem
 						className="text-sm"
+						disabled={input.disabled || input.limitReached}
 						index={0}
 						onClick={() => fileInputRef.current?.click()}
 					>
 						<FileIcon aria-hidden="true" />
 						Files
 					</FluidDropdownMenuItem>
+					{input.disabled || input.limitReached ? (
+						<p className="max-w-64 px-2 py-1 text-muted-foreground text-xs">
+							{input.disabled
+								? (input.disabledReason ??
+									"Confirm access to this Space before adding files.")
+								: "You can add up to 10 files."}
+						</p>
+					) : null}
 				</FluidDropdownMenuContent>
 			</DropdownMenu>
 		</>

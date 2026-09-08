@@ -591,8 +591,8 @@ describe("ComputersPage", () => {
 			screen.getByText("Desktop · macOS 25.5.0 · Owned by Ashley")
 		).toBeTruthy();
 		expect(screen.getAllByText("Ashley's Mac Studio")).toHaveLength(1);
-		expect(screen.getByText("OpenMeld Tools")).toBeTruthy();
-		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
+		expect(screen.getByText("Computer Connection")).toBeTruthy();
+		expect(screen.getByText("Update required")).toBeTruthy();
 		expect(screen.getByText("Installed v0.3.65")).toBeTruthy();
 		expect(screen.getByText("Installed v0.3.66")).toBeTruthy();
 		expect(screen.getByText("Installed")).toBeTruthy();
@@ -653,7 +653,7 @@ describe("ComputersPage", () => {
 		).toBeNull();
 		expect(
 			screen.getByTestId("computer-owner-profile-link").getAttribute("href")
-		).toBe("/o/acme/people?profileId=member:member-ashley");
+		).toBe("/o/acme/people/member%3Amember-ashley");
 	});
 
 	it("waits for a fresh Organization projection before declaring a legacy Computer missing", () => {
@@ -700,7 +700,7 @@ describe("ComputersPage", () => {
 		expect(
 			screen.getByRole("heading", { name: "Ashley's Mac Studio" })
 		).toBeTruthy();
-		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
+		expect(screen.getByText("Update required")).toBeTruthy();
 		expect(screen.getByText("Installed v0.3.107")).toBeTruthy();
 		expect(screen.getByText("Update to v0.3.131.")).toBeTruthy();
 
@@ -903,7 +903,7 @@ describe("ComputersPage", () => {
 		).toBeNull();
 		expect(
 			screen.getByTestId("computer-owner-profile-link").getAttribute("href")
-		).toBe("/o/acme/people?profileId=human-felix");
+		).toBe("/o/acme/people/human-felix");
 		const backLink = screen.getByTestId("computer-owner-profile-link");
 		expect(backLink.className).toContain("touch-manipulation");
 		expect(backLink.className).toContain("max-lg:min-h-11");

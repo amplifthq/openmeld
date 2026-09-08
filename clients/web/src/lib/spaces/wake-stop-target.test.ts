@@ -1,5 +1,6 @@
 import type { WakeProgressItem } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
+import { shouldRenderSpaceWakeStopControl } from "../../components/spaces/space-wake-stop-control";
 import type { SpaceTimelineItem } from "./timeline";
 import {
 	buildSpaceWakeOutcomeIndex,
@@ -36,6 +37,19 @@ const UNSUPPORTED_WAKE_STOP_ELIGIBILITY = {
 } satisfies NonNullable<WakeProgressItem["wakeStopEligibility"]>;
 
 describe("resolveSpaceMessageWakeStopTarget", () => {
+	it.each([
+		"timeline",
+		"details",
+	] as const)("hides %s Stop when Core withholds viewer eligibility", (variant) => {
+		const target = resolveSpaceMessageWakeStopTarget({
+			item: createTimelineItem(),
+			wakeProgressItems: [
+				createWakeProgressItem({ phase: "running", wakeStopEligibility: null }),
+			],
+		});
+		expect(target.canStop).toBe(false);
+		expect(shouldRenderSpaceWakeStopControl(target, variant)).toBe(false);
+	});
 	it("resolves an active Wake Stop target from the Wake source signal", () => {
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: createTimelineItem(),
@@ -141,7 +155,7 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		});
 	});
 
-	it("keeps a Stop intent while active Wake Stop eligibility is temporarily missing", () => {
+	it("waits for Core authorization when active Wake Stop eligibility is missing", () => {
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: createTimelineItem(),
 			wakeProgressItems: [
@@ -152,8 +166,8 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 			],
 		});
 
-		expect(target.canStop).toBe(true);
-		expect(target.status).toBe("active");
+		expect(target.canStop).toBe(false);
+		expect(target.status).toBe("not_stoppable");
 	});
 
 	it("derives an active Wake Stop target for Direct Message automatic Wake progress", () => {
@@ -184,7 +198,7 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		});
 	});
 
-	it("keeps a pre-agent Stop intent while Wake Stop eligibility is temporarily missing", () => {
+	it("waits for Core authorization before offering pre-agent Stop", () => {
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: createTimelineItem(),
 			wakeProgressItems: [
@@ -195,11 +209,11 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 			],
 		});
 
-		expect(target.canStop).toBe(true);
-		expect(target.status).toBe("active");
+		expect(target.canStop).toBe(false);
+		expect(target.status).toBe("not_stoppable");
 	});
 
-	it("keeps retry_later retryable while Wake Stop eligibility is temporarily missing", () => {
+	it("does not let a previous retry bypass missing authorization", () => {
 		const selector = {
 			by: "source_signal" as const,
 			sourceSignalId: "sig-source",
@@ -218,8 +232,8 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 			],
 		});
 
-		expect(target.canStop).toBe(true);
-		expect(target.status).toBe("retry_later");
+		expect(target.canStop).toBe(false);
+		expect(target.status).toBe("not_stoppable");
 	});
 
 	it("keeps retry_later retryable only for control-backed Wake Stop eligibility", () => {
@@ -286,26 +300,18 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		});
 	});
 
-	it("creates a Stop intent from a structured Wake before progress arrives", () => {
+	it("does not infer Stop permission from a structured Wake before progress arrives", () => {
 		const sourceItem = createTimelineItem();
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: sourceItem,
-			nowMs: sourceItem.createdAtMs + 1000,
 			timelineItems: [sourceItem],
 			wakeProgressItems: [],
 		});
 
 		expect(target).toMatchObject({
-			canStop: true,
-			clientMessageId: "client-message-1",
-			selector: {
-				by: "source_signal",
-				sourceSignalId: "sig-source",
-				targetProfileId: TARGET_PROFILE_ID,
-			},
-			status: "active",
-			targetLabel: null,
-			targetProfileId: TARGET_PROFILE_ID,
+			canStop: false,
+			selector: null,
+			status: "not_stoppable",
 		});
 	});
 
@@ -313,7 +319,6 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		const sourceItem = createTimelineItem();
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: sourceItem,
-			nowMs: sourceItem.createdAtMs + 10 * 60 * 1000,
 			timelineItems: [sourceItem],
 			wakeProgressItems: [],
 		});
@@ -327,7 +332,6 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		const sourceItem = createTimelineItem();
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: sourceItem,
-			nowMs: sourceItem.createdAtMs + 1000,
 			timelineItems: [
 				sourceItem,
 				createTimelineItem({
@@ -352,7 +356,6 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		const sourceItem = createTimelineItem();
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: sourceItem,
-			nowMs: sourceItem.createdAtMs + 1000,
 			timelineItems: [
 				sourceItem,
 				createTimelineItem({
@@ -382,7 +385,6 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		const sourceItem = createTimelineItem();
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: sourceItem,
-			nowMs: sourceItem.createdAtMs + 1000,
 			timelineItems: [
 				sourceItem,
 				createTimelineItem({
@@ -426,7 +428,6 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		];
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: sourceItem,
-			nowMs: sourceItem.createdAtMs + 1000,
 			timelineItems,
 			wakeOutcomeIndex: buildSpaceWakeOutcomeIndex(timelineItems),
 			wakeProgressItems: [],
@@ -437,53 +438,24 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		expect(target.status).toBe("not_stoppable");
 	});
 
-	it("creates precise Stop intents for a multi-target Wake before progress arrives", () => {
+	it("does not offer batch Stop before Core authorizes individual targets", () => {
 		const sourceItem = createTimelineItem({
 			wakeTargetProfileIds: [TARGET_PROFILE_ID, SECOND_TARGET_PROFILE_ID],
 		});
 		const targets = resolveSpaceMessageWakeStopTargets({
 			item: sourceItem,
-			nowMs: sourceItem.createdAtMs + 1000,
-			targetLabelsByProfileId: new Map([
-				[TARGET_PROFILE_ID, "Claude Agent"],
-				[SECOND_TARGET_PROFILE_ID, "Codex Agent"],
-			]),
 			wakeProgressItems: [],
 		});
 
-		expect(targets).toMatchObject([
-			{
-				canStop: true,
-				selector: {
-					by: "source_signal",
-					sourceSignalId: "sig-source",
-					targetProfileId: TARGET_PROFILE_ID,
-				},
-				status: "active",
-				targetLabel: "Claude Agent",
-				targetProfileId: TARGET_PROFILE_ID,
-			},
-			{
-				canStop: true,
-				selector: {
-					by: "source_signal",
-					sourceSignalId: "sig-source",
-					targetProfileId: SECOND_TARGET_PROFILE_ID,
-				},
-				status: "active",
-				targetLabel: "Codex Agent",
-				targetProfileId: SECOND_TARGET_PROFILE_ID,
-			},
-		]);
+		expect(targets).toEqual([]);
 	});
 
-	it("keeps remaining multi-target Stop intents after one target has a visible stopped notice", () => {
+	it("keeps the authorized remaining target after one target has a visible stopped notice", () => {
 		const sourceItem = createTimelineItem({
 			wakeTargetProfileIds: [TARGET_PROFILE_ID, SECOND_TARGET_PROFILE_ID],
 		});
 		const targets = resolveSpaceMessageWakeStopTargets({
 			item: sourceItem,
-			nowMs: sourceItem.createdAtMs + 1000,
 			timelineItems: [
 				sourceItem,
 				createTimelineItem({
@@ -498,7 +470,12 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 					wakeTargetProfileIds: [],
 				}),
 			],
-			wakeProgressItems: [],
+			wakeProgressItems: [
+				createWakeProgressItem({
+					phase: "running",
+					targetProfileId: SECOND_TARGET_PROFILE_ID,
+				}),
+			],
 		});
 
 		expect(targets).toHaveLength(1);
@@ -517,7 +494,6 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		const sourceItem = createTimelineItem();
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: sourceItem,
-			nowMs: sourceItem.createdAtMs + 1000,
 			timelineItems: [
 				sourceItem,
 				createTimelineItem({
@@ -551,7 +527,6 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		});
 		const targets = resolveSpaceMessageWakeStopTargets({
 			item: sourceItem,
-			nowMs: sourceItem.createdAtMs + 1000,
 			timelineItems: [
 				sourceItem,
 				createTimelineItem({
@@ -702,8 +677,9 @@ function createWakeProgressItem(input: {
 		updatedAtMs: 1,
 	};
 	if (!input.omitWakeStopEligibility) {
-		item.wakeStopEligibility =
-			input.wakeStopEligibility ?? CANCEL_BACKED_WAKE_STOP_ELIGIBILITY;
+		item.wakeStopEligibility = Object.hasOwn(input, "wakeStopEligibility")
+			? input.wakeStopEligibility
+			: CANCEL_BACKED_WAKE_STOP_ELIGIBILITY;
 	}
 	return item;
 }

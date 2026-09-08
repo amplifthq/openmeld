@@ -79,6 +79,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 
 	return {
 		...actual,
+		useElementScrollRestoration: () => undefined,
 		Link: ({
 			children,
 			search,
@@ -381,7 +382,7 @@ describe("PublicSpacePage", () => {
 		expect(publicSpaceLogo.getAttribute("data-scale")).toBe("0.32");
 	});
 
-	it("uses the projected Center Agent Dither identity in public messages and threads", async () => {
+	it("uses the projected Center Agent Fluid avatar in public messages and threads", async () => {
 		const rootSignal = createCenterAgentSignalEnvelope({
 			id: "signal-center-root",
 			text: "Public Center Agent update.",
@@ -505,10 +506,8 @@ describe("PublicSpacePage", () => {
 			threadRootSignalId: rootSignal.id,
 		});
 
-		const threadPanel = await screen.findByLabelText("Thread");
-		const linkedReply = await within(threadPanel).findByText(
-			"The linked public reply."
-		);
+		const linkedReply = await screen.findByText("The linked public reply.");
+		expect(linkedReply.closest('[aria-label="Thread"]')).not.toBeNull();
 		expect(
 			linkedReply.closest('[data-signal-id="linked-thread-reply"]')
 		).not.toBeNull();

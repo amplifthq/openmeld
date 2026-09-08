@@ -40,6 +40,148 @@ afterEach(() => {
 });
 
 describe("organization join link HTTP API", () => {
+  it("separates administrator direct links from member request links and joins exactly once", async () => {
+    const context = createTestContext();
+    const owner = await createSignedInUser(context, {
+      email: "direct-owner@example.com",
+      name: "Owner",
+    });
+    const member = await createSignedInUser(context, {
+      email: "direct-member@example.com",
+      name: "Member",
+    });
+    const newcomer = await createSignedInUser(context, {
+      email: "direct-newcomer@example.com",
+      name: "Newcomer",
+    });
+    const organizationId = insertSharedOrganization(context.harness, {
+      memberships: [
+        { role: "owner", userId: owner.userId },
+        { role: "member", userId: member.userId },
+      ],
+      name: "Direct team",
+      slug: "direct-team",
+    });
+    const requestLink = await ensureJoinLinkOnBehalfOf(context, {
+      actorUserId: member.userId,
+      organizationId,
+    });
+    if (!requestLink.ok) {
+      throw new Error("Request link creation failed");
+    }
+    const direct = await readJoinLink(
+      await requestJoinLink(context, {
+        headers: owner.headers,
+        organizationId,
+        method: "POST",
+        mode: "direct",
+      })
+    );
+    expect(direct.token).not.toBe(requestLink.joinLink.token);
+    expect(
+      (
+        await requestJoinLink(context, {
+          headers: member.headers,
+          organizationId,
+          mode: "direct",
+        })
+      ).status
+    ).toBe(403);
+    expect(
+      (
+        await requestJoinLink(context, {
+          headers: member.headers,
+          organizationId,
+          method: "POST",
+          mode: "direct",
+        })
+      ).status
+    ).toBe(403);
+    expect(
+      (
+        await acceptJoinLink(
+          context,
+          requestLink.joinLink.token,
+          newcomer.headers
+        )
+      ).status
+    ).toBe(400);
+    const joined = await acceptJoinLink(
+      context,
+      direct.token,
+      newcomer.headers
+    );
+    expect(joined.status).toBe(200);
+    expect(await joined.json()).toMatchObject({
+      alreadyMember: false,
+      organizationId,
+      role: "member",
+    });
+    const repeated = await acceptJoinLink(
+      context,
+      direct.token,
+      newcomer.headers
+    );
+    expect(await repeated.json()).toMatchObject({
+      alreadyMember: true,
+      role: "member",
+    });
+    expect(
+      readMembershipRole(context.harness, organizationId, newcomer.userId)
+    ).toBe("member");
+    context.harness.database
+      .prepare(
+        "UPDATE organization_join_links SET expires_at = ? WHERE token = ?"
+      )
+      .run(Date.now() - 1, direct.token);
+    expect(await previewJoinLink(context, direct.token)).toEqual({
+      ok: true,
+      active: false,
+    });
+    expect(
+      (await acceptJoinLink(context, direct.token, newcomer.headers)).status
+    ).toBe(404);
+  });
+
+  it("invalidates a direct link when its creator loses invitation permission", async () => {
+    const context = createTestContext();
+    const owner = await createSignedInUser(context, {
+      email: "former-owner@example.com",
+      name: "Owner",
+    });
+    const newcomer = await createSignedInUser(context, {
+      email: "blocked-newcomer@example.com",
+      name: "Newcomer",
+    });
+    const organizationId = insertSharedOrganization(context.harness, {
+      memberships: [{ role: "owner", userId: owner.userId }],
+      name: "Permission team",
+      slug: "permission-team",
+    });
+    const direct = await readJoinLink(
+      await requestJoinLink(context, {
+        headers: owner.headers,
+        organizationId,
+        method: "POST",
+        mode: "direct",
+      })
+    );
+    context.harness.database
+      .prepare(
+        "UPDATE members SET role = 'member' WHERE organization_id = ? AND user_id = ?"
+      )
+      .run(organizationId, owner.userId);
+    expect(await previewJoinLink(context, direct.token)).toEqual({
+      ok: true,
+      active: false,
+    });
+    expect(
+      (await acceptJoinLink(context, direct.token, newcomer.headers)).status
+    ).toBe(404);
+    expect(
+      readMembershipRole(context.harness, organizationId, newcomer.userId)
+    ).toBeNull();
+  });
   it("lets an owner create and an admin reuse one active link without resetting it", async () => {
     const context = createTestContext();
     const owner = await createSignedInUser(context, {
@@ -357,6 +499,8 @@ describe("organization join link HTTP API", () => {
 
     await expect(
       repository.resetActive({
+        mode: "request",
+        expiresAt: new Date(Date.now() + 86_400_000),
         createdBy: owner.userId,
         id: `join_link_${randomUUID()}`,
         organizationId,
@@ -937,6 +1081,7 @@ function requestJoinLink(
     headers: Headers;
     method?: "DELETE" | "GET" | "POST";
     organizationId: string;
+    mode?: "direct" | "request";
     origin?: string | null;
   }
 ): Promise<Response> {
@@ -950,7 +1095,7 @@ function requestJoinLink(
   }
   return context.app.fetch(
     new Request(
-      `${AUTH_BASE_URL}/api/auth/organization/join-link?organizationId=${encodeURIComponent(input.organizationId)}`,
+      `${AUTH_BASE_URL}/api/auth/organization/join-link?organizationId=${encodeURIComponent(input.organizationId)}${input.mode ? `&mode=${input.mode}&responseVersion=3` : ""}`,
       {
         headers,
         method,

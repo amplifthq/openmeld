@@ -10,6 +10,8 @@ export type ListAccountSpaceIndexInput = {
   gatewayHost: string;
   includeDirectMessageProfileIds?: boolean;
   includePurposes?: boolean;
+  includeMemberPreviews?: boolean;
+  includeMessagePreviews?: boolean;
   includeRecentlyDeletedItems?: boolean;
   limit?: number;
   scope: AccountSpaceIndexQuery["scope"];

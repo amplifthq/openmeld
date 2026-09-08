@@ -4,6 +4,7 @@ import {
   DEFAULT_TASK_PROGRESS_EVIDENCE_STALE_AFTER_MS,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   hasRuntimeAdapterCapabilityForRef,
+  isAgentWakeAdmissionPreparationPendingReason,
   parseAgentControllerRef,
   resolveAgentControllerUsageLimitSupport,
   resolveAgentWakeAdmissionBlockReasonCode,
@@ -13,6 +14,7 @@ import {
   builtinAgentControllerAllowsDistinctConversationId,
   CONVERSATION_CONTINUITY_WARNING_PURPOSE,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
+  HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
   hostedCenterAgentRuntimeIdentitySchema,
   LEGACY_RUNTIME_DISPATCH_POLICY,
   normalizeKnownBuiltinAgentControllerId,
@@ -21,6 +23,7 @@ import {
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   resolveBuiltinAgentControllerConversationKind,
   resolvePublicAgentAvailabilityCopy,
+  resolveSingleSpaceMentionLabels,
 } from "@openmeld/schemas";
 import type {
   AgentControllerConversationRef,
@@ -28,6 +31,7 @@ import type {
   CenterAgentModelRoute,
   DispatchExecution,
   DispatchResult,
+  HostedAgentRuntimeIdentity,
   HostedCenterAgentRuntimeIdentity,
   MessageEnvelope,
   OpenMeldDaemonAcceptedDispatchSnapshot,
@@ -68,6 +72,7 @@ import {
   readOrganizationWorkingLanguagePreferenceForSpace,
   toWorkingLanguageGuidance,
 } from "../../organizations/organization-working-language-repository";
+import { isPersonalRemoteAgentBinding } from "../../remote-agent/application/personal-remote-agent-binding";
 import {
   emitSpaceStatusSignal,
   emitSpaceSystemNoticeSignal,
@@ -242,8 +247,12 @@ export type EffectiveTargetBindingSnapshot = {
   } | null;
   ownerUserId: string | null;
   organizationId: string | null;
-  runtimeKind: "openmeld_service" | "hosted_center_agent" | null;
-  hostedRuntimeIdentity: HostedCenterAgentRuntimeIdentity | null;
+  runtimeKind:
+    | "openmeld_service"
+    | "hosted_center_agent"
+    | "hosted_remote_agent"
+    | null;
+  hostedRuntimeIdentity: HostedAgentRuntimeIdentity | null;
   modelRoute?: CenterAgentModelRoute | null;
   openMeldServiceRuntimeId: string | null;
 };
@@ -351,7 +360,7 @@ export type DispatchExecutionPreflightResult =
     }
   | {
       ok: false;
-      canonicalAdmissionBlock?: true;
+      canonicalAdmissionBlock?: boolean;
       errorCode: string;
       errorMessage: string;
       finalStatus:
@@ -767,9 +776,11 @@ export const deliverDispatchMessageToDaemon = async (input: {
   const profileHandle = targetProfileIdentity.profileHandle;
   const targetProfileMentionLabel =
     targetProfileMentionLabelSnapshot ??
-    targetProfileNameSnapshot ??
-    targetProfileIdentity.profileName ??
-    input.message.targetProfileId;
+    resolveSingleSpaceMentionLabels({
+      profileId: input.message.targetProfileId,
+      profileName:
+        targetProfileNameSnapshot ?? targetProfileIdentity.profileName,
+    }).primaryMentionLabel;
   const targetProfileName =
     targetProfileNameSnapshot ?? targetProfileIdentity.profileName;
   const targetProfileIsCenterAgent = await measureDispatchTiming({
@@ -3130,10 +3141,15 @@ const resolveAwaitDispatchReplyTargetContext = async (input: {
     targetProfileMentionLabel:
       normalizeOptionalText(input.targetProfileMentionLabel) ??
       normalizeOptionalText(input.dispatchMessage.targetProfileMentionLabel) ??
-      normalizeOptionalText(input.targetProfileName) ??
-      normalizeOptionalText(input.dispatchMessage.targetProfileNameSnapshot) ??
-      fallbackTargetProfileIdentity.profileName ??
-      input.dispatchMessage.targetProfileId,
+      resolveSingleSpaceMentionLabels({
+        profileId: input.dispatchMessage.targetProfileId,
+        profileName:
+          normalizeOptionalText(input.targetProfileName) ??
+          normalizeOptionalText(
+            input.dispatchMessage.targetProfileNameSnapshot
+          ) ??
+          fallbackTargetProfileIdentity.profileName,
+      }).primaryMentionLabel,
     targetProfileName:
       normalizeOptionalText(input.targetProfileName) ??
       fallbackTargetProfileIdentity.profileName,
@@ -3275,15 +3291,19 @@ export const runDispatchExecutionPreflightGate = async (input: {
       canonicalReadinessResult.readiness.agentExecutionReadiness
     );
     if (blockReasonCode) {
+      const preparationPending =
+        isAgentWakeAdmissionPreparationPendingReason(blockReasonCode);
       return {
         ok: false,
-        canonicalAdmissionBlock: true,
+        canonicalAdmissionBlock: !preparationPending,
         errorCode: blockReasonCode,
         errorMessage:
           resolvePublicAgentAvailabilityCopy(blockReasonCode)
             ?.availabilitySummary ??
           "This Agent Profile is unavailable for a new Wake right now.",
-        finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+        finalStatus: preparationPending
+          ? OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable
+          : OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
         bindingSource: targetBindingResolution.source,
         targetOwnerUserId: targetBindingSnapshot.ownerUserId,
       };
@@ -5548,6 +5568,31 @@ const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
   }
 
   const runtimeKind = binding.runtimeKind ?? "openmeld_service";
+  if (runtimeKind === "hosted_remote_agent") {
+    if (!isPersonalRemoteAgentBinding(binding)) {
+      throw new Error("remote_agent.personal_binding_invalid");
+    }
+    const bindingEnabled = binding.bindingState === "enabled_primary";
+    return {
+      bindingState: "bound",
+      bindingEnabled,
+      bindingId: binding.bindingId,
+      configurationRevision: binding.configurationRevision,
+      agentControllerRef: binding.agentControllerRef,
+      controllerNormalization: null,
+      hostedRuntimeIdentity: HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
+      modelRoute: bindingEnabled
+        ? resolveCenterAgentModelRouteForBinding({
+            binding,
+            catalog: readModelCatalog(),
+          })
+        : null,
+      openMeldServiceRuntimeId: binding.openMeldServiceRuntimeId,
+      organizationId: null,
+      ownerUserId: input.ownerUserId,
+      runtimeKind,
+    };
+  }
   const agentControllerRef =
     runtimeKind === "hosted_center_agent"
       ? null

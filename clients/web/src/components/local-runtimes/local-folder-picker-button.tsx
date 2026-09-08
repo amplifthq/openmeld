@@ -2,6 +2,7 @@
 
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import type {
+	DaemonServiceLane,
 	LocalFolderPickerPurpose,
 	LocalFolderPickerResult,
 } from "@openmeld/schemas/types";
@@ -9,12 +10,15 @@ import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { FolderOpenIcon } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
-import { selectLocalFolders } from "#/lib/connect/local-folder-picker";
+import {
+	selectLocalFolders,
+	selectPeopleComputerFolders,
+} from "#/lib/connect/local-folder-picker";
 
 const LOCAL_FOLDER_PICKER_WEB_TIMEOUT_MS = 610_000;
 
 type PickerState = {
-	deviceId: string;
+	targetKey: string;
 	isPending: boolean;
 	resultError: string | null;
 };
@@ -24,41 +28,59 @@ export function LocalFolderPickerButton(input: {
 	className?: string;
 	deviceId: string;
 	disabled?: boolean;
+	runtimeLane?: DaemonServiceLane;
 	label: string;
 	onSelect: (paths: readonly string[]) => void;
 	purpose: LocalFolderPickerPurpose;
 	variant?: "default" | "ghost" | "outline";
 }) {
+	const targetKey = `${input.deviceId}/${input.runtimeLane ?? "legacy-current"}`;
 	const [state, setState] = useState<PickerState>({
-		deviceId: input.deviceId,
+		targetKey,
 		isPending: false,
 		resultError: null,
 	});
-	const currentDeviceIdRef = useRef(input.deviceId);
+	const currentTargetKeyRef = useRef<string | null>(targetKey);
 	useEffect(() => {
-		currentDeviceIdRef.current = input.deviceId;
-	}, [input.deviceId]);
+		currentTargetKeyRef.current = targetKey;
+		return () => {
+			currentTargetKeyRef.current = null;
+		};
+	}, [targetKey]);
 	const currentState =
-		state.deviceId === input.deviceId
+		state.targetKey === targetKey
 			? state
 			: {
-					deviceId: input.deviceId,
+					targetKey,
 					isPending: false,
 					resultError: null,
 				};
 
 	const chooseFolders = async () => {
-		const deviceId = input.deviceId;
-		setState({ deviceId, isPending: true, resultError: null });
+		const requestTargetKey = targetKey;
+		setState({
+			targetKey: requestTargetKey,
+			isPending: true,
+			resultError: null,
+		});
 		try {
-			const result = await selectLocalFolders({
+			const request = {
 				allowMultiple: input.allowMultiple,
-				expectedDeviceId: deviceId,
 				purpose: input.purpose,
 				timeoutMs: LOCAL_FOLDER_PICKER_WEB_TIMEOUT_MS,
-			});
+			};
+			const result = input.runtimeLane
+				? await selectPeopleComputerFolders({
+						...request,
+						deviceId: input.deviceId,
+						runtimeLane: input.runtimeLane,
+					})
+				: await selectLocalFolders({
+						...request,
+						expectedDeviceId: input.deviceId,
+					});
 			if (result.status === "selected") {
-				if (currentDeviceIdRef.current === deviceId) {
+				if (currentTargetKeyRef.current === requestTargetKey) {
 					input.onSelect(result.paths);
 				}
 				return;
@@ -67,13 +89,13 @@ export function LocalFolderPickerButton(input: {
 				return;
 			}
 			setState((current) =>
-				current.deviceId === deviceId
+				current.targetKey === requestTargetKey
 					? { ...current, resultError: formatUnavailableResult(result) }
 					: current
 			);
 		} catch (error) {
 			setState((current) =>
-				current.deviceId === deviceId
+				current.targetKey === requestTargetKey
 					? {
 							...current,
 							resultError: formatRequestFailure(
@@ -84,7 +106,7 @@ export function LocalFolderPickerButton(input: {
 			);
 		} finally {
 			setState((current) =>
-				current.deviceId === deviceId
+				current.targetKey === requestTargetKey
 					? { ...current, isPending: false }
 					: current
 			);

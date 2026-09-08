@@ -15,11 +15,12 @@ import type { AppShellAccount } from "#/components/app/app-shell-account";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
-	buildOrganizationAgentsPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationComputerPath,
 	buildOrganizationComputersPath,
 	buildOrganizationDocumentPath,
+	buildOrganizationPersonAgentPath,
+	buildOrganizationPersonAgentsPath,
 } from "#/lib/organizations/organization-routes";
 import { buildAgentProfilePath } from "#/lib/profile-routes";
 import { buildSlackIdentityStartPath } from "#/lib/slack-oauth-start";
@@ -143,6 +144,7 @@ export function buildOrganizationHumanProfileRows(input: {
 }): DirectoryHumanProfileRow[] {
 	const reportsBySubject = indexProfileReportDocuments(input.documents);
 	const agentProfilesByOwner = buildDirectoryAgentProfilesByOwner({
+		members: input.members,
 		agentProfiles: input.agentProfiles,
 		orgSlug: input.orgSlug,
 		runtimeOverview: input.runtimeOverview,
@@ -159,7 +161,7 @@ export function buildOrganizationHumanProfileRows(input: {
 			return {
 				agentProfiles,
 				agentProfilesPath: resolveAgentProfilesPath({
-					agentProfiles,
+					personId: humanProfile?.profileId ?? `member:${member.memberId}`,
 					orgSlug: input.orgSlug,
 				}),
 				avatarImageUrl: member.user.image,
@@ -211,6 +213,7 @@ export function buildOrganizationHumanProfileRows(input: {
 }
 
 export function buildPersonalHumanProfileRows(input: {
+	agentProfileSummaries?: readonly DirectoryAgentProfileSummary[];
 	account: AppShellAccount;
 	canCreateHumanProfile: boolean;
 	computers: OrganizationComputersResponse | null;
@@ -227,6 +230,10 @@ export function buildPersonalHumanProfileRows(input: {
 		(candidate) => candidate.profileKind === "human"
 	);
 	const agentProfiles = buildPersonalAgentProfileSummaries({
+		summaries: input.agentProfileSummaries,
+		personId: (
+			humanProfiles.find((candidate) => candidate.isDefault) ?? humanProfiles[0]
+		)?.openMeldProfileId,
 		orgSlug: input.orgSlug,
 		profiles: input.profiles,
 	});
@@ -242,7 +249,7 @@ export function buildPersonalHumanProfileRows(input: {
 			{
 				agentProfiles,
 				agentProfilesPath: resolveAgentProfilesPath({
-					agentProfiles,
+					personId: `member:${input.subjectUserId}`,
 					orgSlug: input.orgSlug,
 				}),
 				avatarImageUrl: null,
@@ -280,7 +287,7 @@ export function buildPersonalHumanProfileRows(input: {
 		{
 			agentProfiles,
 			agentProfilesPath: resolveAgentProfilesPath({
-				agentProfiles,
+				personId: profile.openMeldProfileId,
 				orgSlug: input.orgSlug,
 			}),
 			avatarImageUrl: profile.avatarUrl ?? null,
@@ -315,31 +322,44 @@ export function buildPersonalHumanProfileRows(input: {
 }
 
 function buildPersonalAgentProfileSummaries(input: {
+	summaries?: readonly DirectoryAgentProfileSummary[];
+	personId?: string;
 	orgSlug: string;
 	profiles: readonly AuthProfileView[];
 }): readonly DirectoryAgentProfileSummary[] {
 	const agentProfiles: DirectoryAgentProfileSummary[] = [];
+	const summariesById = new Map(
+		input.summaries?.map((summary) => [summary.id, summary])
+	);
 	for (const profile of input.profiles) {
 		if (profile.profileKind !== "agent" || profile.managedRole !== null) {
 			continue;
 		}
+		const summary = summariesById.get(profile.openMeldProfileId);
 		agentProfiles.push({
-			agentControllerRef: null,
+			agentControllerRef: summary?.agentControllerRef ?? null,
 			avatarImageUrl: profile.avatarUrl ?? null,
 			id: profile.openMeldProfileId,
-			modelSelection: null,
-			modelSelectionIsKnown: false,
+			modelSelection: summary?.modelSelection ?? null,
+			modelSelectionIsKnown: summary?.modelSelectionIsKnown ?? false,
 			name: profile.profileName,
-			path: buildAgentProfilePath({
-				orgSlug: input.orgSlug,
-				profileId: profile.openMeldProfileId,
-			}),
+			path: input.personId
+				? buildOrganizationPersonAgentPath({
+						orgSlug: input.orgSlug,
+						personId: input.personId,
+						agentId: profile.openMeldProfileId,
+					})
+				: buildAgentProfilePath({
+						orgSlug: input.orgSlug,
+						profileId: profile.openMeldProfileId,
+					}),
 		});
 	}
 	return sortAgentProfileSummaries(agentProfiles);
 }
 
 export function buildDirectoryAgentProfilesByOwner(input: {
+	members: OrganizationProfileDirectoryResponse["members"];
 	agentProfiles: readonly DirectoryAgentProfileSource[];
 	orgSlug: string;
 	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
@@ -364,6 +384,12 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 		readonly DirectoryAgentProfileSummary[]
 	>();
 	for (const [ownerUserId, sources] of sourcesByOwner) {
+		const owner = input.members.find(
+			(member) => member.user.id === ownerUserId
+		);
+		const personId = owner
+			? (owner.humanProfile?.profileId ?? `member:${owner.memberId}`)
+			: null;
 		const profiles = [...sources]
 			.sort(compareAgentProfileSourceRecency)
 			.map((profile) => {
@@ -389,10 +415,16 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 						null,
 					modelSelectionIsKnown: readiness !== null,
 					name: profile.profileName,
-					path: buildAgentProfilePath({
-						orgSlug: input.orgSlug,
-						profileId: profile.profileId,
-					}),
+					path: personId
+						? buildOrganizationPersonAgentPath({
+								orgSlug: input.orgSlug,
+								personId,
+								agentId: profile.profileId,
+							})
+						: buildAgentProfilePath({
+								orgSlug: input.orgSlug,
+								profileId: profile.profileId,
+							}),
 				};
 			});
 		profilesByOwner.set(ownerUserId, profiles);
@@ -456,16 +488,10 @@ function sortAgentProfileSummaries(
 }
 
 function resolveAgentProfilesPath(input: {
-	agentProfiles: readonly DirectoryAgentProfileSummary[];
+	personId: string;
 	orgSlug: string;
 }): string {
-	const firstProfile = input.agentProfiles[0];
-	return firstProfile
-		? buildAgentProfilePath({
-				orgSlug: input.orgSlug,
-				profileId: firstProfile.id,
-			})
-		: buildOrganizationAgentsPath(input.orgSlug);
+	return buildOrganizationPersonAgentsPath(input);
 }
 
 export function resolveMissingPersonalHumanProfileMessage(
@@ -645,7 +671,7 @@ function resolveHumanProfileComputerRecords(input: {
 	if (computers.length > 0) {
 		return {
 			count: computers.length,
-			label: "Computer offline",
+			label: "Computer disconnected",
 			path: resolveComputerRecordsPath(input),
 			state: "not_connected",
 		};

@@ -57,7 +57,7 @@ owners.
   preflight, a workstation Wake goes directly from that outbox to
   RuntimeCoordinator and the current local OpenMeld Service. A retryable
   workstation admission remains in the same outbox and is redriven by the
-  Space alarm. An authoritatively identified hosted Center Agent may use Queue
+  Space alarm. An authoritatively identified hosted Agent may use Queue
   as a recovery transport after a retryable or outcome-ambiguous direct native
   delivery. Queue also remains the conveyor for its other queue message
   families; it is not RuntimeCoordinator authority or the default workstation
@@ -185,12 +185,29 @@ resubmitting it on an ordinary alarm.
 
 Core gates fresh Work Coordinator admission with the same canonical
 Wakeability projection used by product surfaces. Its current compatibility
-identifier is `AgentExecutionReadiness`. A current blocking fact
+identifier is `AgentExecutionReadiness`. A definitive current blocking fact
 ends as a visible pre-head no-execution outcome; it must not create a current or
-queued Coordinator item. The gate reads current Core-held facts only. It does
+queued Coordinator item. Missing readiness evidence or working-folder report
+coverage, revision, freshness, initial route registration, or required Usage
+observations while Service reports catch up is not a
+definitive refusal. Core retains that same undelivered Wake through the existing
+bounded preflight retry policy and Space outbox; no execution is authorized.
+Each retry rereads canonical readiness and authorization. A ready verdict may
+continue the original Wake once, while a definitive blocker or exhausted retry
+budget produces its visible failure. No second user message is required, and
+no already-terminal Wake is revived. A duplicate intake reservation is not a
+successful execution handoff: concurrent outbox flushes must retain recovery
+while the original admission is still in flight, without executing it twice.
+The gate reads current Core-held facts only. It does
 not poll the Local Service, call a provider, scan Profiles, enumerate
 owner-wide device inventories for presentation enrichment, sleep, or add a
 second readiness projection to the dispatch path.
+
+Submission must preserve this distinction: Core's canonical `checking_connection`
+projection permits submitting the original request, not executing it or
+displaying Ready. Authoring must not duplicate Core's preparation reason list.
+Missing projections, offline, unauthorized and definitive blocked targets are
+not implicitly admitted by a client-created Checking fallback.
 
 Before any accepted or promoted head can create a local execution, Core reruns
 the canonical readiness and accepted-identity checks against current Profile
@@ -432,7 +449,9 @@ Important execution rules:
   terminalizing, or successfully settled row is not failure evidence.
 - Hosted direct-first transport is allowed only after the Space durable outbox
   write and an authoritative Core Binding preflight confirms
-  `hosted_center_agent`. If that check no longer holds, or direct admission
+  `hosted_center_agent` or `hosted_remote_agent`. Personal hosted Agents must
+  also pass current owner, Organization membership, and Binding checks; they
+  do not require or inherit Center Agent designation. If that check no longer holds, or direct admission
   needs retry, Core enqueues the exact same idempotent dispatch. Queue recovery
   must resume the native-delivery ledger/request; it must not fork the Wake into
   RuntimeCoordinator or create a second worker submission.
@@ -477,6 +496,15 @@ Important execution rules:
   become a second execution authority.
 - Caller authority, owner evidence, Binding evidence, and execution truth come
   from verified Gateway/Core context, not request-body trust.
+- Space owns user-requested Wake Stop authorization. After writable Space access,
+  only the authenticated source-message account or target Agent Profile owner
+  may stop the exact target Wake. Resolve the source from the Space's persisted
+  Signal and account ownership from Auth; caller selectors, member names, and
+  other signed-in accounts are not ownership evidence. Use the same policy for
+  viewer-scoped progress eligibility and the Stop mutation, before native or
+  workstation cancellation side effects. Missing ownership fails closed.
+  RuntimeCoordinator continues to own execution and the final stopped outcome;
+  internal deletion/recovery cancellation is not a user Stop permission grant.
 - Before RuntimeCoordinator links an execution, OpenMeld-owned pre-agent Stop may
   move the target Wake head lifecycle to `stopped_before_execution`. That is a
   stopped terminal outcome for the target Wake, not a failed execution and not a
@@ -1267,6 +1295,16 @@ flow. Once a result is accepted, replaying finalization and repairing task or
 stream projections remain Core-owned work backed by the finalization retry
 alarm, never by daemon re-sends. A persisted finalization command must never
 exist without a stored outcome or a live retry entry.
+If asynchronous finalization unexpectedly returns `review_required` after
+durable acceptance, Core retains the command and bounded recovery obligation;
+it must not delete them as though a live Service caller had accepted the review
+handoff. The accepted immutable proposal has no safe context-review continuation:
+Core immediately uses the existing publication-exhaustion final-claim path to
+publish an explicit failure, without rerunning the Agent or publishing stale
+text. An existing final reply or Stop wins atomically. Failure to persist or
+reconcile that final claim keeps the existing recovery obligation alive. This
+permanent publication rejection does not wait for the transient-outage repair
+window. The synchronous pre-acceptance review response is unchanged.
 
 Execution Recovery is an execution-level, surface-neutral capability. The
 execution's owning publication pipeline freezes the authorized Space, Slack,

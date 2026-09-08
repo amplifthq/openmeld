@@ -9,13 +9,14 @@ import {
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CheckIcon, RobotIcon } from "@phosphor-icons/react";
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
 import type { AgentProfileLocalAgentEmptyState } from "./create-profile-form";
 
 export type LocalAgentSelectorProps = {
 	choices: readonly AgentProfileBindingChoice[];
+	computerSlot?: ReactNode;
 	disabled: boolean;
 	emptyState?: AgentProfileLocalAgentEmptyState;
 	isResolving: boolean;
@@ -36,7 +37,9 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 	const selectedDescription = resolveSelectedChoiceDescription(selectedChoice);
 	const selectionDisabled = input.disabled || input.locked === true;
 	let heading = "Choose a local agent";
-	if (input.locked) {
+	if (input.isResolving || input.emptyState?.kind === "checking") {
+		heading = "Checking local agents…";
+	} else if (input.locked) {
 		heading = "Agent connected to this Session";
 	} else if (input.emptyState?.kind === "connect_computer") {
 		heading = "Connect your computer to use a local agent";
@@ -57,6 +60,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 			>
 				{heading}
 			</legend>
+			{input.computerSlot}
 			{input.locked ? (
 				<p className="text-pretty text-muted-foreground text-sm leading-5">
 					This Agent will keep using the agent connected to this Session.
@@ -169,6 +173,28 @@ function LocalAgentSelectorEmptyState(input: {
 }) {
 	const emptyState = input.emptyState;
 	const className = cn("min-h-48", input.surface === "page" && "min-h-64");
+	if (emptyState?.kind === "checking") {
+		return (
+			<output
+				className={cn(className, "grid content-center gap-2 text-center")}
+			>
+				<p className="font-medium text-sm">Checking local agents…</p>
+				<p className="text-muted-foreground text-sm">
+					Waiting for this computer to report its local agents.
+				</p>
+			</output>
+		);
+	}
+	if (emptyState?.kind === "check_failed") {
+		return (
+			<ComputerSetupChoiceCard
+				actionLabel="Retry local agent check"
+				className={className}
+				descriptionLead="OpenMeld could not confirm which local agents are available. Retry the check to continue creating your Agent."
+				onAction={emptyState.onRetry}
+			/>
+		);
+	}
 	if (emptyState?.kind === "connect_computer") {
 		return (
 			<ComputerSetupChoiceCard
@@ -176,7 +202,7 @@ function LocalAgentSelectorEmptyState(input: {
 				actionLabel="Connect Computer"
 				centerAgentHref={emptyState.centerAgentHref}
 				className={className}
-				descriptionLead="No computer is connected yet."
+				descriptionLead="Connect a computer so OpenMeld can check its local agents. Then return to finish creating your Agent."
 			/>
 		);
 	}
@@ -205,7 +231,7 @@ function LocalAgentSelectorEmptyState(input: {
 			actionLabel="Set up local agents"
 			centerAgentHref={emptyState?.centerAgentHref}
 			className={className}
-			descriptionLead="This computer is connected, but no local agents are ready yet."
+			descriptionLead="No local agents are available to select. Set up a local agent such as Codex or Claude Code, then return to finish creating your Agent."
 		/>
 	);
 }

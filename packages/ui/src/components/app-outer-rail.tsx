@@ -192,11 +192,8 @@ export function AppOuterRail({
             </div>
           ) : null}
           <FluidNavMenu
-            activeIndicatorClassName="bg-sidebar-accent"
             activeValue={activeDestinationId}
             aria-label="App sections"
-            focusIndicatorClassName="border-sidebar-ring"
-            hoverIndicatorClassName="bg-sidebar-accent"
           >
             {destinations.map((destination, index) => (
               <AppRailLink

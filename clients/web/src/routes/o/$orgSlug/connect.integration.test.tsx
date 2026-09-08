@@ -154,8 +154,26 @@ describe("/o/$orgSlug/connect route", () => {
 			session: "fresh",
 			spaceId: "space-123",
 		});
-		// returnTo only resolves to "space"; corridor returnTo values are dropped.
+		// Unsupported return destinations are dropped.
 		expect(validateSearch({ returnTo: "agents" }).returnTo).toBeUndefined();
+	});
+
+	it("keeps Agent creation as the visible return destination and resumes after verified setup", () => {
+		renderRoute({ returnTo: "agent_creation", session: "fresh" });
+		expect(
+			screen
+				.getByRole("link", { name: "Back to creating Agent" })
+				.getAttribute("href")
+		).toBe("/o/acme/new-agent");
+		expect(startBringAgentsSetupPageMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				autoReturnOnCompletion: false,
+				selfRouteSearch: expect.objectContaining({
+					returnTo: "agent_creation",
+					session: undefined,
+				}),
+			})
+		);
 	});
 
 	it("mounts the setup page without the choose-local-agents step and stays on the org Connect route", () => {
@@ -196,7 +214,7 @@ describe("/o/$orgSlug/connect route", () => {
 
 		expect(
 			screen.getByRole("link", { name: "Back" }).getAttribute("href")
-		).toBe("/o/acme/people?profileId=human-1");
+		).toBe("/o/acme/people/human-1");
 		const providerProps = bringAgentsSetupProviderMock.mock.calls[0][0];
 		expect(providerProps.routeIntent).toMatchObject({
 			kind: "account_computer_setup",

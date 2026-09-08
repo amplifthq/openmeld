@@ -20,6 +20,7 @@ import { useProximityHover } from "#hooks/use-proximity-hover";
 import { fontWeights } from "#lib/font-weight";
 import { springs } from "#lib/springs";
 import { cn } from "#lib/utils";
+import { FluidHoverHighlight } from "./hover-highlight";
 
 type TabsSubtleIcon = ComponentType<{
   "aria-hidden"?: boolean;
@@ -33,6 +34,7 @@ type TabsSubtleVariant = "ghost" | "solid" | "subtle" | "underline";
 type TabsSubtleContextValue = {
   hoveredIndex: number | null;
   idPrefix: string;
+  indicatorLayoutId: string;
   onSelect: (index: number) => void;
   registerTab: (index: number, element: HTMLElement | null) => void;
   selectedIndex: number;
@@ -42,6 +44,7 @@ type TabsSubtleContextValue = {
 type TabsSubtleProps = Omit<HTMLAttributes<HTMLDivElement>, "onSelect"> & {
   children: ReactNode;
   idPrefix?: string;
+  indicatorLayoutId?: string;
   onSelect: (index: number) => void;
   selectedIndex: number;
   // "ghost" removes the surrounding surface while retaining the shared
@@ -75,6 +78,20 @@ const useIsomorphicLayoutEffect =
 
 const TabsSubtleContext = createContext<TabsSubtleContextValue | null>(null);
 
+function hoverBounds(
+  rect: { height: number; left: number; top: number; width: number },
+  variant: TabsSubtleVariant
+) {
+  return variant === "underline"
+    ? {
+        height: Math.max(0, rect.height - 4),
+        left: rect.left - 8,
+        top: rect.top + 2,
+        width: rect.width + 16,
+      }
+    : rect;
+}
+
 function resolveTabsSubtleContainerClassName(variant: TabsSubtleVariant) {
   return variant === "ghost" || variant === "underline"
     ? "bg-transparent p-0"
@@ -88,19 +105,19 @@ function resolveTabsSubtleSelectedIndicatorClassName(
     return "border-primary bg-primary";
   }
   if (variant === "ghost") {
-    return "border-transparent bg-muted/70";
+    return "border-transparent bg-interaction-active";
   }
-  return "border-border bg-muted";
+  return "border-transparent bg-interaction-active";
 }
 
 function resolveTabsSubtleHoverIndicatorClassName(variant: TabsSubtleVariant) {
   if (variant === "solid") {
     return "border-primary/70 bg-primary/80";
   }
-  if (variant === "ghost") {
-    return "border-transparent bg-muted/50";
+  if (variant === "ghost" || variant === "underline") {
+    return "border-transparent bg-interaction-hover";
   }
-  return "border-border/80 bg-muted/70";
+  return "border-transparent bg-interaction-hover";
 }
 
 function useTabsSubtle() {
@@ -119,6 +136,7 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
       children,
       className,
       idPrefix: idPrefixProp,
+      indicatorLayoutId,
       onSelect,
       selectedIndex,
       variant = "subtle",
@@ -138,6 +156,7 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
       itemRects: tabRects,
       measureItems,
       registerItem: registerTab,
+      sessionRef,
       setActiveIndex: setHoveredIndex,
     } = useProximityHover(containerRef, {
       axis: "x",
@@ -150,6 +169,9 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
 
     const handleMouseMove = useCallback(
       (event: React.MouseEvent) => {
+        if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+          return;
+        }
         isMouseInside.current = true;
         handlers.onMouseMove(event);
       },
@@ -174,6 +196,7 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
         value={{
           hoveredIndex,
           idPrefix,
+          indicatorLayoutId: indicatorLayoutId ?? `${idPrefix}-underline`,
           onSelect,
           registerTab,
           selectedIndex,
@@ -209,7 +232,14 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
             }
 
             const index = Number(indexAttribute);
-            setHoveredIndex(index);
+            if (variant !== "underline") {
+              setHoveredIndex(
+                isMouseInside.current ||
+                  (event.target as HTMLElement).matches(":focus-visible")
+                  ? index
+                  : null
+              );
+            }
             setFocusedIndex(
               (event.target as HTMLElement).matches(":focus-visible")
                 ? index
@@ -218,7 +248,9 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
           }}
           onKeyDown={(event) => {
             const items = Array.from(
-              containerRef.current?.querySelectorAll('[role="tab"]') ?? []
+              containerRef.current?.querySelectorAll(
+                '[role="tab"]:not(:disabled)'
+              ) ?? []
             ) as HTMLElement[];
             const currentIndex = items.indexOf(event.target as HTMLElement);
 
@@ -270,7 +302,7 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
               animate={{
                 height: selectedRect.height,
                 left: selectedRect.left,
-                opacity: hoverRect && !isHoveringSelected ? 0.92 : 1,
+                opacity: 1,
                 top: selectedRect.top,
                 width: selectedRect.width,
               }}
@@ -286,17 +318,25 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
           ) : null}
 
           <AnimatePresence>
+            {variant === "underline" && hoverRect ? (
+              <FluidHoverHighlight
+                className="rounded-sm"
+                key={sessionRef.current}
+                rect={hoverBounds(hoverRect, variant)}
+                slot="tabs-subtle-hover-indicator"
+              />
+            ) : null}
+          </AnimatePresence>
+
+          <AnimatePresence>
             {variant !== "underline" &&
             hoverRect &&
-            !isHoveringSelected &&
+            (variant !== "solid" || !isHoveringSelected) &&
             hoverInitialRect ? (
               <motion.div
                 animate={{
-                  height: hoverRect.height,
-                  left: hoverRect.left,
-                  opacity: 0.55,
-                  top: hoverRect.top,
-                  width: hoverRect.width,
+                  ...hoverBounds(hoverRect, variant),
+                  opacity: variant === "solid" ? 0.55 : 1,
                 }}
                 className={cn(
                   "pointer-events-none absolute border",
@@ -310,11 +350,8 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
                   selectedRect,
                 })}
                 initial={{
-                  height: hoverInitialRect.height,
-                  left: hoverInitialRect.left,
+                  ...hoverBounds(hoverInitialRect, variant),
                   opacity: 0,
-                  top: hoverInitialRect.top,
-                  width: hoverInitialRect.width,
                 }}
                 transition={resolveTabsSubtleFastTransition(reduceMotion)}
               />
@@ -421,9 +458,11 @@ const TabsSubtleItem = forwardRef<HTMLButtonElement, TabsSubtleItemProps>(
     ref
   ) => {
     const internalRef = useRef<HTMLButtonElement>(null);
+    const reduceMotion = useReducedMotion() === true;
     const {
       hoveredIndex,
       idPrefix,
+      indicatorLayoutId,
       onSelect,
       registerTab,
       selectedIndex,
@@ -451,7 +490,7 @@ const TabsSubtleItem = forwardRef<HTMLButtonElement, TabsSubtleItemProps>(
         className={cn(
           "group relative z-10 flex h-7 cursor-pointer touch-manipulation items-center gap-2 border-none bg-transparent px-2.5 py-1 outline-none max-lg:min-h-11 max-lg:min-w-11",
           variant === "underline"
-            ? "h-full px-0 after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-foreground after:opacity-0 after:content-[''] focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-[-2px] data-[state=active]:after:opacity-100"
+            ? "h-full px-0 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-[-2px]"
             : tabsSubtleShapeClassName,
           className
         )}
@@ -478,6 +517,16 @@ const TabsSubtleItem = forwardRef<HTMLButtonElement, TabsSubtleItemProps>(
         }
         type={type}
       >
+        {variant === "underline" && selectedIndex === index ? (
+          <motion.span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 -bottom-px h-0.5 bg-foreground"
+            data-slot="tabs-subtle-underline"
+            initial={false}
+            layoutId={indicatorLayoutId}
+            transition={resolveTabsSubtleModerateTransition(reduceMotion)}
+          />
+        ) : null}
         {children ?? (
           <>
             {Icon ? (

@@ -22,7 +22,7 @@ import {
 import {
   ORGANIZATION_DOCUMENTS_COMPUTER_MANIFEST,
   ORGANIZATION_DOCUMENTS_COMPUTER_ROOT,
-} from "../flue-adapter/organization-document-computer-projection";
+} from "../flue-adapter/organization-document-computer-snapshot";
 import { ORGANIZATION_DOCUMENT_COMPUTER_TOOL_NAMES } from "../flue-adapter/organization-document-computer-tools";
 import { getRemoteAgentSandboxToolDefinitions } from "../flue-adapter/sandbox-tools";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
@@ -230,7 +230,7 @@ function createOrganizationDocumentsComputerFixture() {
         idFromName: vi.fn(() => ({})),
       },
     },
-    materializeOrganizationDocuments: true,
+    includeOrganizationDocuments: true,
   };
   return {
     allowedInput,
@@ -356,25 +356,6 @@ describe("Agent computer layout", () => {
     expect(workingDirectory).toBe("/computer/home");
   });
 
-  it("keeps each Center Agent Task in its own durable working directory", async () => {
-    const { directories, workspace } = createWorkspaceFake();
-
-    const firstAttempt = await ensureAgentComputerLayout(workspace, {
-      conversationId: "center-agent-task:task 123/launch",
-      spaceId: "space-1",
-    });
-    const retryAttempt = await ensureAgentComputerLayout(workspace, {
-      conversationId: "center-agent-task:task 123/launch",
-      spaceId: "space-2",
-    });
-
-    expect(firstAttempt.workingDirectory).toBe(
-      "/computer/tasks/task%20123%2Flaunch"
-    );
-    expect(retryAttempt.workingDirectory).toBe(firstAttempt.workingDirectory);
-    expect(directories.has(firstAttempt.workingDirectory)).toBe(true);
-  });
-
   it("keeps Routine runs together without mixing them into the destination Space", () => {
     expect(
       resolveAgentComputerWorkingDirectory({
@@ -388,12 +369,69 @@ describe("Agent computer layout", () => {
         routineId: "routine-weekly",
         spaceId: "space-reports",
       })
-    ).toBe("/computer/tasks/task-one");
+    ).toBe("/computer/routines/routine-weekly");
   });
 });
 
 describe("Organization Documents computer scope", () => {
-  it("reacquires the same durable computer and idempotently finishes a disconnected projection", async () => {
+  it("keeps parallel session checkouts independent on one Computer", async () => {
+    const { allowedInput, fixture } =
+      createOrganizationDocumentsComputerFixture();
+    const [first, second] = await Promise.all([
+      createRemoteAgentComputerCapability({
+        ...allowedInput,
+        context: {
+          ...allowedInput.context,
+          conversationId: "space-one",
+          spaceId: "space-one",
+        },
+      }),
+      createRemoteAgentComputerCapability({
+        ...allowedInput,
+        context: {
+          ...allowedInput.context,
+          conversationId: "space-two",
+          spaceId: "space-two",
+        },
+      }),
+    ]);
+    const checkouts = [first, second].map((capability) => {
+      const tool = capability.definitions.find(
+        (item) => item.name === "openmeld_checkout_org_document"
+      );
+      if (!tool) {
+        throw new Error("Missing checkout tool");
+      }
+      return tool;
+    });
+    const copies = await Promise.all(
+      checkouts.map(
+        async (tool) =>
+          (await tool.execute({ documentId: "doc_private" }, undefined)) as {
+            path: string;
+          }
+      )
+    );
+    const [one, two] = copies;
+    if (!(one && two)) {
+      throw new Error("Missing checkout results");
+    }
+    expect(one.path).toContain("/computer/spaces/space-one/");
+    expect(two.path).toContain("/computer/spaces/space-two/");
+    const original = fixture.files.get(two.path);
+    fixture.files.set(one.path, "# First session draft");
+    await createRemoteAgentComputerCapability({
+      ...allowedInput,
+      includeOrganizationDocuments: false,
+    });
+    expect(fixture.files.get(one.path)).toBe("# First session draft");
+    expect(fixture.files.get(two.path)).toBe(original);
+    expect(fixture.files.has(ORGANIZATION_DOCUMENTS_COMPUTER_MANIFEST)).toBe(
+      false
+    );
+  });
+
+  it("reacquires the same durable computer while retiring a disconnected legacy projection", async () => {
     const oldProjectionPath = `${ORGANIZATION_DOCUMENTS_COMPUTER_ROOT}/stale.md`;
     const state = {
       directories: new Set<string>(["/", ORGANIZATION_DOCUMENTS_COMPUTER_ROOT]),
@@ -441,7 +479,7 @@ describe("Organization Documents computer scope", () => {
         centerAgentOrganizationDocumentsComputerSnapshot,
       },
       env: { AGENT_COMPUTER: namespace },
-      materializeOrganizationDocuments: true,
+      includeOrganizationDocuments: true,
     });
 
     expect(namespace.idFromName).toHaveBeenCalledOnce();
@@ -459,7 +497,7 @@ describe("Organization Documents computer scope", () => {
       state.files.has(
         `${ORGANIZATION_DOCUMENTS_COMPUTER_ROOT}/Private-Launch-Plan--doc_private.md`
       )
-    ).toBe(true);
+    ).toBe(false);
     expect(
       ORGANIZATION_DOCUMENT_COMPUTER_TOOL_NAMES.every((toolName) =>
         capability.definitions.some(
@@ -487,7 +525,7 @@ describe("Organization Documents computer scope", () => {
         ),
       },
       env: { AGENT_COMPUTER: namespace },
-      materializeOrganizationDocuments: true,
+      includeOrganizationDocuments: true,
     });
     const grep = capability.definitions.find(
       (definition) => definition.name === "grep"
@@ -510,7 +548,7 @@ describe("Organization Documents computer scope", () => {
     ).toHaveBeenCalledOnce();
   });
 
-  it("clears an earlier projection when the current turn cannot materialize documents", async () => {
+  it("keeps document contents off shared disk and preserves an explicit checkout across a restricted turn", async () => {
     const {
       allowedInput,
       centerAgentOrganizationDocumentsComputerSnapshot,
@@ -526,17 +564,29 @@ describe("Organization Documents computer scope", () => {
       fixture.files.has(
         `${ORGANIZATION_DOCUMENTS_COMPUTER_ROOT}/Private-Launch-Plan--doc_private.md`
       )
-    ).toBe(true);
+    ).toBe(false);
     expect(
       ORGANIZATION_DOCUMENT_COMPUTER_TOOL_NAMES.every((toolName) =>
         allowed.definitions.some((definition) => definition.name === toolName)
       )
     ).toBe(true);
 
+    const checkout = allowed.definitions.find(
+      (tool) => tool.name === "openmeld_checkout_org_document"
+    );
+    if (!checkout) {
+      throw new Error("Missing checkout tool");
+    }
+    const copy = (await checkout.execute(
+      { documentId: "doc_private" },
+      undefined
+    )) as { path: string };
+    const original = fixture.files.get(copy.path);
+    expect(original).toBeTruthy();
     centerAgentOrganizationDocumentsComputerSnapshot.mockClear();
     const restricted = await createRemoteAgentComputerCapability({
       ...allowedInput,
-      materializeOrganizationDocuments: false,
+      includeOrganizationDocuments: false,
     });
 
     expect(
@@ -550,7 +600,7 @@ describe("Organization Documents computer scope", () => {
     expect(fixture.files.has(ORGANIZATION_DOCUMENTS_COMPUTER_MANIFEST)).toBe(
       false
     );
-    expect(fixture.modes.get(ORGANIZATION_DOCUMENTS_COMPUTER_ROOT)).toBe(0o555);
+    expect(fixture.files.get(copy.path)).toBe(original);
     expect(
       ORGANIZATION_DOCUMENT_COMPUTER_TOOL_NAMES.some((toolName) =>
         restricted.definitions.some(
@@ -576,7 +626,7 @@ describe("Organization Documents computer scope", () => {
     await expect(
       createRemoteAgentComputerCapability({
         ...allowedInput,
-        materializeOrganizationDocuments: false,
+        includeOrganizationDocuments: false,
       })
     ).rejects.toThrow("Computer storage unavailable");
     expect(

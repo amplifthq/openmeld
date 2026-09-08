@@ -104,6 +104,11 @@ export function attachAgentReplyObservation(input: {
 
 export function buildAgentReplyReconsiderationPrompt(input: {
   action: OpenMeldSpaceEgressAction;
+  originalWake: {
+    sourceSignalId: string;
+    targetProfileId: string;
+    text: string;
+  };
   relevantSignals: readonly SignalEnvelope[];
   spaceId: string;
 }): string {
@@ -116,6 +121,8 @@ export function buildAgentReplyReconsiderationPrompt(input: {
   return [
     "OpenMeld concurrent Space update review.",
     `Space: ${input.spaceId}`,
+    "Continue the assignment below. This review is not a new Wake: do not run activation-intent classification against the newer messages or treat their author as the task owner.",
+    `Original Wake (the assignment being completed): ${JSON.stringify(input.originalWake)}`,
     "Other public collaboration messages arrived after the room state used for your proposed reply.",
     "Your previous action is an unpublished proposal.",
     "If a dispatch-scoped Space Action command said it was accepted, that only means OpenMeld recorded a replaceable proposal; it does not mean the Space published it or that you used your one public reply.",
@@ -123,6 +130,8 @@ export function buildAgentReplyReconsiderationPrompt(input: {
     "Do not redo completed work, repeat tool calls, or repeat external side effects.",
     "A failed, stopped, or silent outcome is not a public contribution. Use it only as truthful availability and coordination context.",
     "Keep the user's full request as the goal. Reconsider only the final Space action in light of these newer messages.",
+    "This is a review within your original Wake, not a new assignment. Another Agent's reply does not turn you into a reference or candidate, or transfer the user's request to that Agent.",
+    "If the user asked each woken Agent to respond, acknowledge, or report its own result, your own response remains a distinct contribution even when another Agent has already answered. A direct ping to multiple Agents asks each of them to acknowledge.",
     "Replace the proposal when a distinct, useful contribution is still possible. Avoid duplicating work or a conclusion another Agent has already posted.",
     "Choose stay_silent only when no distinct, useful, non-duplicative contribution remains.",
     "Call exactly one dispatch-scoped OpenMeld Space Action tool for the final action. Use the CLI only if the tool is unavailable. Answer text never becomes an action.",
@@ -133,6 +142,11 @@ export function buildAgentReplyReconsiderationPrompt(input: {
 
 export async function coordinateDispatchAgentReply<T>(input: {
   action: OpenMeldSpaceEgressAction;
+  originalWake: {
+    sourceSignalId: string;
+    targetProfileId: string;
+    text: string;
+  };
   currentValue: T;
   observation: DispatchAgentReplyObservation;
   reconsider: (
@@ -161,6 +175,7 @@ export async function coordinateDispatchAgentReply<T>(input: {
     const reconsidered = await input.reconsider(
       buildAgentReplyReconsiderationPrompt({
         action,
+        originalWake: input.originalWake,
         relevantSignals: observation.relevantSignals,
         spaceId: input.spaceId,
       }),

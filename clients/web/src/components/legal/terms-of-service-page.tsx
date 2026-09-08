@@ -10,7 +10,7 @@ const summaryItems = [
 	},
 	{
 		label: "Your control",
-		text: "You choose the computers, agents, accounts, Apps, repositories, and content that you connect.",
+		text: "You choose the computers, agents, accounts, Plugins, repositories, and content that you connect.",
 	},
 	{
 		label: "No warranty",
@@ -26,7 +26,7 @@ const termsSections = [
 	{
 		title: "1. Agreement to These Terms",
 		paragraphs: [
-			"These Terms of Service govern your use of OpenMeld, including the OpenMeld website, hosted service, account features, connected Apps, CLI-supported setup, optional desktop surfaces, and local OpenMeld Service.",
+			"These Terms of Service govern your use of OpenMeld, including the OpenMeld website, hosted service, account features, connected Plugins, CLI-supported setup, optional desktop surfaces, and local OpenMeld Service.",
 			"By creating an account or using OpenMeld, you agree to these terms. If you use OpenMeld for an organization, you represent that you are authorized to accept these terms for that organization.",
 		],
 	},
@@ -45,7 +45,7 @@ const termsSections = [
 		],
 	},
 	{
-		title: "4. Connected Computers, Agents, and Apps",
+		title: "4. Connected Computers, Agents, and Plugins",
 		paragraphs: [
 			"You are responsible for every computer, local agent runtime, repository, third-party service, and connected account you authorize OpenMeld to use. You must have permission to use those systems and data.",
 			"When you connect a Google account, OpenMeld's current production baseline requests read-only access. OpenMeld may read information from that connected Google account only when needed to provide the features you request and subject to the permissions you approved.",
@@ -119,7 +119,7 @@ const termsSections = [
 export function TermsOfServicePage() {
 	return (
 		<LegalPolicyPage
-			intro="These terms explain the rules for using OpenMeld, an experimental service that connects shared cloud work with local AI agents and optional third-party Apps."
+			intro="These terms explain the rules for using OpenMeld, an experimental service that connects shared cloud work with local AI agents and optional third-party Plugins."
 			lastUpdated={LAST_UPDATED}
 			sections={termsSections}
 			summaryItems={summaryItems}

@@ -71,8 +71,11 @@ operator-managed AI Gateway above. The checked-in contract verifier rejects
 every other cross-environment reference.
 
 `OPENMELD_LARK_CHANNEL_ENABLED` and `OPENMELD_FEISHU_CHANNEL_ENABLED` are false
-in staging. OpenConnector endpoints are empty. These external integrations are
-not part of the initial internal staging baseline.
+in staging. Gateway and Remote Agent use the independent OpenConnector endpoint
+`https://connectors.staging.openmeld.ai`. Gateway's GitHub App slug is
+`openmeld-staging-flue2`. Their opt-in `sync:secrets:connectors:stg` commands
+sync only the component-owned administration or runtime token from staging
+Doppler. Provider connections still require separate staging authorization.
 
 The resource manifest in
 `scripts/cloudflare/provision-openmeld-resources.mjs` is the account-resource
@@ -114,6 +117,7 @@ Workers, and verifies the public entry points. See
   - `GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID`
   - `GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_ID`
   - `AUTH_COOKIE_DOMAIN`
+  - `AUTH_COOKIE_PREFIX` (staging-only `openmeld-staging`; production retains default names)
   - `PASSKEY_RP_ID`
   - `AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS`
 - `.dev.vars` / `.dev.vars.prod`
@@ -141,6 +145,7 @@ Workers, and verifies the public entry points. See
   - `OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED`
   - `OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS`
   - `OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT`
+  - `OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED`
   - `OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED`
   - `OPENMELD_LARK_CHANNEL_ENABLED`
   - `OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS`
@@ -162,6 +167,11 @@ Workers, and verifies the public entry points. See
   destination-neutral subscription shape and execute its supported
   destinations. Set production back to `false` to stop new destination-neutral
   writes during rollback; Core continues reading both continuation shapes.
+- `OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED` defaults to `false`. Enable it
+  only for a bounded Slack forwarded-message reproduction, then disable it
+  after capture. The diagnostic records message identifiers, field names,
+  counts, lengths, and lookup status; it never records message text, URLs,
+  credentials, or raw provider response bodies.
 - `wrangler.jsonc` `workflows` / `env.prod.workflows`
   - `OPENMELD_ROUTINE_RUN_WORKFLOW` binds the `openmeld-routine-run` Workflow
     to `RoutineRunWorkflow`

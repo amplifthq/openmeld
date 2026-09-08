@@ -3,6 +3,7 @@ import {
 	AGENT_REPLYING_END_PURPOSE,
 	DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
 	DISPATCH_ACTIVITY_FAILED_PURPOSE,
+	REMOTE_AGENT_FAILURE_PURPOSE,
 } from "@openmeld/schemas";
 import {
 	createSpaceMemberAgentSnapshot,
@@ -161,25 +162,6 @@ describe("space timeline helpers", () => {
 				url: "http://localhost:5173/o/acme/projects/project_123",
 			},
 		});
-	});
-
-	it("preserves durable Center Agent Task references on the timeline item", () => {
-		const [item] = buildSpaceTimelineItems({
-			envelopes: [
-				createTextSignal({
-					id: "sig-task-created",
-					meta: {
-						centerAgentTaskReferences: [{ taskId: "task-1" }],
-						purpose: AGENT_REPLY_FINAL_PURPOSE,
-					},
-					text: "I started the Task.",
-					ts: 30,
-				}),
-			],
-			membersSnapshot: createMembersSnapshot(),
-		});
-
-		expect(item?.centerAgentTaskReferences).toEqual([{ taskId: "task-1" }]);
 	});
 
 	it("projects reply staleness only when the signal carries it", () => {
@@ -653,6 +635,57 @@ describe("space timeline helpers", () => {
 				},
 			],
 		});
+	});
+
+	it.each([
+		"streaming",
+		"failed",
+		"stopped",
+	] as const)("replaces a %s native reply stream with its durable cancellation confirmation", (status) => {
+		const stream = createAgentStreamProjection({
+			sequence: 4,
+			text: "Working…",
+		});
+		const stopped = createTextSignal({
+			id: "signal-stopped-native",
+			ts: 30,
+			text: "This request was stopped.",
+			profile: {
+				kind: "agent",
+				profileId: stream.profileId,
+				profileName: "Runner",
+			},
+			meta: {
+				clientMessageId: "submission-1",
+				dispatchId: stream.dispatchId,
+				errorCode: "remote_agent.execution_cancelled",
+				purpose: REMOTE_AGENT_FAILURE_PURPOSE,
+			},
+		});
+		const items = buildSpaceTimelineItems({
+			envelopes: [stopped],
+			membersSnapshot: createMembersSnapshot(),
+			agentStreams: [
+				status === "streaming"
+					? stream
+					: {
+							...stream,
+							status,
+							reasonCode: "remote_agent.execution_cancelled",
+						},
+				{
+					...stream,
+					dispatchId: "dispatch-2",
+					streamId: "stream:submission-2",
+				},
+			],
+		});
+		expect(
+			items
+				.filter((item) => item.agentStreamState)
+				.map((item) => item.agentStreamState?.streamId)
+		).toEqual(["stream:submission-2"]);
+		expect(items.filter((item) => item.id === stopped.id)).toHaveLength(1);
 	});
 
 	it("lets a durable terminal notice replace the temporary stream notice for the same dispatch", () => {
@@ -1598,7 +1631,6 @@ function createTextSignal(input: {
 			kind: "local_agent";
 			sessionId?: string;
 		};
-		centerAgentTaskReferences?: Array<{ taskId: string }>;
 		clientMessageId?: string;
 		conversationCompaction?: {
 			completedAtMs: number;

@@ -34,7 +34,7 @@ describe("Lark-platform permission bundles", () => {
     });
   });
 
-  it("encodes the exact official registration add-ons shape", async () => {
+  it("requests setup consent alongside the Channel scopes without broadening runtime permissions", async () => {
     const encoded = await encodeLarkPlatformRegistrationAddons(
       LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE
     );
@@ -66,6 +66,7 @@ describe("Lark-platform permission bundles", () => {
           "im:message:readonly",
           "im:message:send_as_bot",
           "im:resource",
+          "application:application:patch",
         ],
       },
     });

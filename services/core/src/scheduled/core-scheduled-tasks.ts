@@ -11,8 +11,6 @@ import { runAgentControllerTaskRetention } from "../agent-task-coordination/infr
 import { retryPendingCenterAgentWakePublications } from "../center-agent/application/center-agent-wake-publication-service";
 import { shouldWriteDestinationNeutralTaskContinuations } from "../center-agent/application/task-continuation-rollout";
 import { runCenterAgentMemberResearchTick } from "../center-agent-member-research/member-research-service";
-import { recoverCenterAgentTaskWork } from "../center-agent-tasks/application/center-agent-task-service";
-import { createCenterAgentTaskNativeRuntimePort } from "../center-agent-tasks/infrastructure/remote-agent/center-agent-task-native-runtime";
 import { retryPendingPreHeadFailurePublications } from "../dispatch/application/dispatch-queue-service";
 import { runWakeEvidenceRetentionIfSplitActive } from "../dispatch/infrastructure/d1/wake-evidence-retention";
 import {
@@ -42,7 +40,6 @@ import { runLarkPlatformRegistrationTick } from "../remote-agent/application/lar
 import {
   reconcileLinkedSlackNativeDeliveryInbox,
   retryMissingRemoteAgentAcceptedDeliveryProbes,
-  retryPendingCenterAgentTaskTerminalProjections,
   retryRemoteAgentRoutineFailurePublications,
   retryRemoteAgentRoutineSubmissions,
   submitRemoteAgentRoutineDelivery,
@@ -65,6 +62,7 @@ import {
 } from "../rpc/methods";
 import { emitCoreCloudflareRuntimeEvidence } from "../shared/observability/cloudflare-runtime-evidence";
 import { deleteExpiredSpaceComposerUploads } from "../space/application/space-composer-upload-storage";
+import { backfillSpaceMessagePreviews } from "../space-index/space-message-preview-backfill";
 
 export const ROUTINE_TICK_CRON = "* * * * *";
 export const WAKE_EVIDENCE_RETENTION_CRON = "0 4 * * *";
@@ -96,8 +94,6 @@ export async function runCoreScheduledTasks(input: {
   runWeeklyEvalReport?: typeof runWeeklyEvalReport;
   reconcileOrganizationDocumentInbox?: typeof reconcileOrganizationDocumentDraftInbox;
   reconcileSlackNativeDeliveryInbox?: typeof reconcileLinkedSlackNativeDeliveryInbox;
-  recoverCenterAgentTasks?: typeof recoverCenterAgentTaskWork;
-  retryCenterAgentTaskTerminalProjections?: typeof retryPendingCenterAgentTaskTerminalProjections;
   retryInboxEmailDeliveries?: typeof retryInboxUrgentEmailDeliveries;
   retryAgentProfileCreationRequestInboxProjections?: typeof retryAgentProfileCreationRequestInboxProjections;
   recoverStaleAgentProfileCreationRequests?: typeof recoverStaleAgentProfileCreationRequests;
@@ -125,8 +121,6 @@ export async function runCoreScheduledTasks(input: {
     await runOrganizationDocumentInboxReconciliation(input);
     await runSlackNativeDeliveryInboxReconciliation(input);
     await runInboxEmailDeliveryRedrive(input);
-    await runCenterAgentTaskRecovery(input);
-    await runCenterAgentTaskTerminalProjectionRecovery(input);
     assertRoutineWorkflowConfiguration(input.env);
     const db = routineDb(input.env);
     if (!db) {
@@ -219,6 +213,11 @@ export async function runCoreScheduledTasks(input: {
         })
       );
     }
+    await backfillSpaceMessagePreviews(input.env, input.nowMs).catch(() => {
+      console.warn({
+        event: "core.space_message_preview.backfill_tick_failed",
+      });
+    });
     return;
   }
 
@@ -438,105 +437,6 @@ async function runAcceptedDeliveryProbeRecovery(input: {
       "[core.remote_agent.native_delivery.accepted_probe_recovery_failed]",
       { error: error instanceof Error ? error.message : String(error) }
     );
-  }
-}
-
-async function runCenterAgentTaskTerminalProjectionRecovery(input: {
-  env: CoreBindings;
-  nowMs: number;
-  retryCenterAgentTaskTerminalProjections?: typeof retryPendingCenterAgentTaskTerminalProjections;
-}): Promise<void> {
-  const taskDb = localStateDb(input.env);
-  const deliveryDb = wakeEvidenceDb(input.env);
-  const taskInboxDb = inboxDb(input.env);
-  if (!(taskDb && deliveryDb && taskInboxDb)) {
-    console.error(
-      "[core.center_agent_task.terminal_projection_recovery_store_unavailable]",
-      {
-        deliveryDatabaseAvailable: Boolean(deliveryDb),
-        inboxDatabaseAvailable: Boolean(taskInboxDb),
-        taskDatabaseAvailable: Boolean(taskDb),
-      }
-    );
-    return;
-  }
-  try {
-    const result = await (
-      input.retryCenterAgentTaskTerminalProjections ??
-      retryPendingCenterAgentTaskTerminalProjections
-    )({
-      deliveryDb,
-      env: input.env,
-      nowMs: input.nowMs,
-    });
-    if (
-      result.canonicalized +
-        result.errors +
-        result.ownerRejected +
-        result.retained >
-      0
-    ) {
-      console.log(
-        JSON.stringify({
-          event: "core.center_agent_task.terminal_projection_recovery",
-          ...result,
-        })
-      );
-    }
-  } catch (error) {
-    console.error(
-      "[core.center_agent_task.terminal_projection_recovery_failed]",
-      {
-        error: error instanceof Error ? error.message : String(error),
-      }
-    );
-  }
-}
-
-async function runCenterAgentTaskRecovery(input: {
-  env: CoreBindings;
-  nowMs: number;
-  recoverCenterAgentTasks?: typeof recoverCenterAgentTaskWork;
-}): Promise<void> {
-  const taskDb = localStateDb(input.env);
-  const deliveryDb = wakeEvidenceDb(input.env);
-  const taskInboxDb = inboxDb(input.env);
-  if (!(taskDb && deliveryDb && taskInboxDb)) {
-    console.error("[core.center_agent_task.recovery_store_unavailable]", {
-      deliveryDatabaseAvailable: Boolean(deliveryDb),
-      inboxDatabaseAvailable: Boolean(taskInboxDb),
-      taskDatabaseAvailable: Boolean(taskDb),
-    });
-    return;
-  }
-  try {
-    const result = await (
-      input.recoverCenterAgentTasks ?? recoverCenterAgentTaskWork
-    )({
-      db: taskDb,
-      inboxDb: taskInboxDb,
-      now: () => input.nowMs,
-      runtime: createCenterAgentTaskNativeRuntimePort({
-        deliveryDb,
-        env: input.env,
-      }),
-    });
-    if (
-      result.admissionsDelivered +
-        result.admissionsFailed +
-        result.stopsResolved +
-        result.stopsFailed +
-        result.errors >
-      0
-    ) {
-      console.log(
-        JSON.stringify({ event: "core.center_agent_task.recovery", ...result })
-      );
-    }
-  } catch (error) {
-    console.error("[core.center_agent_task.recovery_failed]", {
-      error: error instanceof Error ? error.message : String(error),
-    });
   }
 }
 

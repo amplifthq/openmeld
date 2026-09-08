@@ -17,6 +17,30 @@ const REMOTE_AGENT_EXECUTION_INSTRUMENTATION_KEY = Symbol.for(
 );
 const executionSubmissionStorage = new AsyncLocalStorage<string>();
 let instrumentationInstalled = false;
+let prepareExecution: (() => Promise<unknown>) | undefined;
+const executionResources = new AsyncLocalStorage<unknown>();
+
+export function registerRemoteAgentExecutionPreparation(
+  prepare: () => Promise<unknown>
+): () => void {
+  const previous = prepareExecution;
+  prepareExecution = prepare;
+  return () => {
+    if (prepareExecution === prepare) {
+      prepareExecution = previous;
+    }
+  };
+}
+
+export function requireRemoteAgentExecutionResources<T>(): T {
+  const resources = executionResources.getStore();
+  if (!resources) {
+    throw new Error(
+      "Center Agent render requires prepared execution resources."
+    );
+  }
+  return resources as T;
+}
 
 export const REMOTE_AGENT_EXECUTION_INSTRUMENTATION: FlueInstrumentation = {
   key: REMOTE_AGENT_EXECUTION_INSTRUMENTATION_KEY,
@@ -29,9 +53,21 @@ export const REMOTE_AGENT_EXECUTION_INSTRUMENTATION: FlueInstrumentation = {
     if (operation.type !== "agent" || !context.submissionId) {
       return await next();
     }
+    if (
+      getRemoteAgentExecutionSubmissionId() === context.submissionId &&
+      executionResources.getStore() !== undefined
+    ) {
+      return await next();
+    }
     return await runWithRemoteAgentSubmissionExecution(
       context.submissionId,
-      next
+      async () => {
+        if (!prepareExecution) {
+          return await next();
+        }
+        const resources = await prepareExecution();
+        return await executionResources.run(resources, next);
+      }
     );
   },
   dispose: () => undefined,

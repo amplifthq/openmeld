@@ -14,6 +14,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
 import { DirectoryHumanProfilesWorkspace } from "./directory-human-profiles-workspace";
+import {
+	EMPTY_PEOPLE_SIDEBAR,
+	resolvePeopleSections,
+	sortSidebarPeople,
+} from "./people-sidebar-order";
 
 const ENABLED_LOCAL_AGENT_SUMMARY_PATTERN =
 	/Claude Code enabled, Codex enabled, Cursor enabled/;
@@ -41,6 +46,25 @@ afterEach(() => {
 	cleanup();
 	vi.useRealTimers();
 });
+
+vi.mock("#/lib/organizations/organization-context", () => ({
+	useAppOrganization: () => ({
+		currentOrganization: { id: "org-test" },
+		currentUserId: "viewer",
+	}),
+}));
+vi.mock("../app/use-sidebar-preferences", () => ({
+	useSidebarPreferences: () => ({
+		preferences: {
+			pinned: { sort: "priority", spaceIds: [] },
+			spaces: { sort: "priority", spaceIds: [] },
+			groups: [],
+		},
+		disabled: false,
+		save: vi.fn(),
+		isError: false,
+	}),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -135,14 +159,14 @@ vi.mock("#/components/app/app-full-width-layout", () => ({
 	AppFullWidthLayout: ({
 		children,
 		showMainHeader,
-		sidebar,
+		mainSidebarContent,
 	}: {
 		children: ReactNode;
 		showMainHeader?: boolean;
-		sidebar?: ReactNode;
+		mainSidebarContent?: ReactNode;
 	}) => (
 		<div>
-			{sidebar}
+			{mainSidebarContent}
 			<main data-show-main-header={showMainHeader ? "true" : "false"}>
 				{children}
 			</main>
@@ -184,78 +208,156 @@ vi.mock("#/components/computers/computers-picker", () => ({
 	),
 }));
 
+vi.mock("./center-agent-item", () => ({
+	CenterAgentItem: () => <span>Workspace assistant</span>,
+}));
+
 describe("DirectoryHumanProfilesWorkspace", () => {
-	it("groups people by Computer connection with novice-friendly tooltips", () => {
-		renderWorkspace();
-
-		const connectedGroup = screen.getByRole("region", {
-			name: "Connected",
-		});
-		expect(within(connectedGroup).getByText("Computer connected")).toBeTruthy();
-		expect(
-			within(connectedGroup).getByRole("button", {
-				name: "Open Felix's profile",
-			})
-		).toBeTruthy();
-		expect(
-			within(connectedGroup).queryByRole("button", {
-				name: "Open Grace Hopper's profile",
-			})
-		).toBeNull();
-
-		const notConnectedGroup = screen.getByRole("region", {
-			name: "Not Connected",
-		});
-		expect(
-			within(notConnectedGroup).getByText("Computer not connected")
-		).toBeTruthy();
-		expect(
-			within(notConnectedGroup).getByRole("button", {
-				name: "Open Grace Hopper's profile",
-			})
-		).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Human Profiles" })).toBeNull();
-	});
-
-	it("groups every registered Computer as Connected without hiding its detailed state", () => {
-		const needsAttentionMember = {
-			...buildMember({ current: true }),
-			computer: {
-				count: 1,
-				label: "Computer needs attention",
-				path: null,
-				state: "needs_attention" as const,
-			},
-		};
-		const unknownMember = {
+	it("uses the same placement and self-first order for Team groups", () => {
+		const self = { ...buildMember({ current: true }), name: "Zoe" };
+		const other = {
 			...buildMember({ current: false }),
-			computer: {
-				count: 1,
-				label: "Computer status unavailable",
-				path: null,
-				state: "unknown" as const,
-			},
+			name: "Alice",
+			computer: self.computer,
 		};
-		renderWorkspace({ members: [needsAttentionMember, unknownMember] });
-
+		for (const sort of ["priority", "name", "manual", "recent"] as const) {
+			const settings = { sort, itemIds: [other.id, self.id] };
+			for (const placement of ["online", "starred", "custom"]) {
+				const preferences = {
+					...EMPTY_PEOPLE_SIDEBAR,
+					people: settings,
+					...(placement === "starred" ? { starred: settings } : {}),
+					groups:
+						placement === "custom"
+							? [{ ...settings, id: "custom", name: "Design" }]
+							: [],
+				};
+				const sections = resolvePeopleSections([other, self], preferences);
+				expect(sections.map((section) => section.id)).toEqual([placement]);
+				expect(sections[0]?.members.map((member) => member.id)).toEqual([
+					self.id,
+					other.id,
+				]);
+			}
+		}
+	});
+	it.each([
+		"priority",
+		"name",
+		"manual",
+		"recent",
+	] as const)("keeps self first in Starred with %s sorting", (sort) => {
+		const self = {
+			...buildMember({ current: true }),
+			name: "Zoe",
+			lastActiveAt: null,
+			joinedAt: "2020-01-01T00:00:00.000Z",
+		};
+		const other = {
+			...buildMember({ current: false }),
+			name: "Alice",
+			lastActiveAt: "2026-09-07T00:00:00.000Z",
+			joinedAt: "2026-09-07T00:00:00.000Z",
+		};
+		const settings = { sort, itemIds: [other.id, self.id] };
 		expect(
-			within(screen.getByRole("region", { name: "Connected" })).getByRole(
+			sortSidebarPeople([other, self], settings, true).map(
+				(person) => person.id
+			)
+		).toEqual([self.id, other.id]);
+		expect(
+			sortSidebarPeople([other, self], settings).map((person) => person.id)
+		).toEqual([other.id, self.id]);
+	});
+	it("places Center Agent first and self first in Online without a default star", () => {
+		const self = buildMember({ current: true });
+		const offline = buildMember({ current: false });
+		const online = {
+			...offline,
+			id: "online-person",
+			name: "Online teammate",
+			computer: { ...self.computer },
+		};
+		renderWorkspace({ members: [offline, online, self] });
+		const sidebar = screen.getByRole("navigation", { name: "People" });
+		const buttons = within(sidebar)
+			.getAllByRole("button")
+			.filter((button) =>
+				button.getAttribute("aria-label")?.startsWith("Open ")
+			);
+		expect(buttons[0]?.getAttribute("aria-label")).toBe("Open Felix's profile");
+		expect(
+			within(screen.getByRole("region", { name: "Online" })).getByRole(
 				"button",
-				{ name: "Open Felix's profile" }
+				{ name: "Open Online teammate's profile" }
 			)
 		).toBeTruthy();
 		expect(
-			within(screen.getByRole("region", { name: "Connected" })).getByRole(
-				"button",
-				{ name: "Open Grace Hopper's profile" }
+			within(screen.getByRole("region", { name: "Online" })).getByText(
+				"Computer online"
 			)
 		).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Not Connected" })).toBeNull();
+		expect(
+			within(screen.getByRole("region", { name: "Offline" })).getByText(
+				"Computer offline"
+			)
+		).toBeTruthy();
+		expect(
+			within(screen.getByRole("region", { name: "Offline" })).getByRole("img", {
+				name: "No computer connected",
+			})
+		).toBeTruthy();
+		expect(
+			within(sidebar)
+				.getAllByRole("region")
+				.map((group) => group.getAttribute("aria-label"))
+		).toEqual(["Center Agent", "Online", "Offline"]);
 	});
 
-	it("keeps Computer connection neutral while teammate status is unresolved", () => {
-		const currentMember = buildMember({ current: true });
-		const checkingMember = {
+	it("keeps unknown and attention states in Offline with their explanation", () => {
+		const teammate = buildMember({ current: false });
+		renderWorkspace({
+			members: [
+				{
+					...teammate,
+					id: "attention",
+					name: "Attention",
+					computer: {
+						count: 1,
+						label: "Computer needs attention",
+						path: null,
+						state: "needs_attention",
+					},
+				},
+				{
+					...teammate,
+					id: "unknown",
+					name: "Unknown",
+					computer: {
+						count: 1,
+						label: "Computer status unavailable",
+						path: null,
+						state: "unknown",
+					},
+				},
+			],
+		});
+		const offline = screen.getByRole("region", { name: "Offline" });
+		expect(
+			within(offline).getByRole("img", { name: "Computer needs attention" })
+		).toBeTruthy();
+		expect(
+			within(offline).getByRole("img", { name: "Computer status unavailable" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("region", { name: "Status needs checking" })
+		).toBeNull();
+		expect(screen.queryByRole("region", { name: "Online" })).toBeNull();
+	});
+
+	it("keeps pending checks out of Offline until loading finishes", () => {
+		const self = buildMember({ current: true });
+		const teammate = {
 			...buildMember({ current: false }),
 			computer: {
 				count: 0,
@@ -264,36 +366,45 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				state: "checking" as const,
 			},
 		};
-
-		renderWorkspace({ members: [currentMember, checkingMember] });
-
-		const connectionGroup = screen.getByRole("region", {
-			name: "Computer Connection",
+		renderWorkspace({ members: [self, teammate] });
+		expect(screen.getByText("Loading people")).toBeTruthy();
+		expect(screen.queryByRole("region", { name: "Offline" })).toBeNull();
+		cleanup();
+		renderWorkspace({
+			members: [
+				self,
+				{
+					...teammate,
+					computer: {
+						...teammate.computer,
+						state: "unknown",
+						label: "Computer status unavailable",
+					},
+				},
+			],
 		});
 		expect(
-			within(connectionGroup).getByRole("button", {
-				name: "Open Felix's profile",
-			})
+			screen.getByRole("button", { name: "Open Felix's profile" })
 		).toBeTruthy();
 		expect(
-			within(connectionGroup).getByRole("button", {
-				name: "Open Grace Hopper's profile",
-			})
+			within(screen.getByRole("region", { name: "Offline" })).getByRole(
+				"button",
+				{ name: "Open Grace Hopper's profile" }
+			)
 		).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Not Connected" })).toBeNull();
 	});
 
-	it("keeps the current member's Computer group first", () => {
-		const currentMember = {
+	it("places an offline self in Offline", () => {
+		const self = {
 			...buildMember({ current: true }),
 			computer: {
 				count: 0,
-				label: "Connect a computer",
+				label: "No computer connected",
 				path: null,
 				state: "not_connected" as const,
 			},
 		};
-		const connectedTeammate = {
+		const teammate = {
 			...buildMember({ current: false }),
 			computer: {
 				count: 1,
@@ -302,14 +413,22 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				state: "connected" as const,
 			},
 		};
-		renderWorkspace({ members: [currentMember, connectedTeammate] });
-
-		const groupNames = within(
-			screen.getByRole("navigation", { name: "People" })
-		)
-			.getAllByRole("region")
-			.map((group) => group.getAttribute("aria-label"));
-		expect(groupNames).toEqual(["Not Connected", "Connected"]);
+		renderWorkspace({ members: [teammate, self] });
+		const sidebar = screen.getByRole("navigation", { name: "People" });
+		const buttons = within(sidebar)
+			.getAllByRole("button")
+			.filter((button) =>
+				button.getAttribute("aria-label")?.startsWith("Open ")
+			);
+		expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+			"Open Grace Hopper's profile",
+			"Open Felix's profile",
+		]);
+		expect(
+			within(sidebar)
+				.getAllByRole("region")
+				.map((group) => group.getAttribute("aria-label"))
+		).toEqual(["Center Agent", "Online", "Offline"]);
 	});
 
 	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {
@@ -337,31 +456,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		const channelAccounts = felixItem.querySelector(
 			'[data-slot="human-profile-channel-identities"]'
 		);
-		expect(channelAccounts).not.toBeNull();
-		expect(
-			within(channelAccounts as HTMLElement).getByText(
-				"Felix · felix@slack.example"
-			)
-		).toBeTruthy();
-		expect(
-			within(channelAccounts as HTMLElement).getByRole("img", { name: "Slack" })
-		).toBeTruthy();
-		const slackLogo = within(channelAccounts as HTMLElement).getByTestId(
-			"app-logo-slack"
-		);
-		expect([...(slackLogo.parentElement?.classList ?? [])]).toEqual(
-			expect.arrayContaining([
-				"size-3.5",
-				"border-0",
-				"bg-transparent",
-				"p-0",
-				"shadow-none",
-			])
-		);
-		expect(within(sidebar).getByRole("img", { name: "Lark" })).toBeTruthy();
-		expect(
-			within(sidebar).queryByText("Account details unavailable")
-		).toBeNull();
+		expect(channelAccounts).toBeNull();
 		const localAgents = within(sidebar).getByRole("img", {
 			name: ENABLED_LOCAL_AGENT_SUMMARY_PATTERN,
 		});
@@ -371,10 +466,10 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(activityAndAgents).not.toBeNull();
 		expect(activityAndAgents?.contains(localAgents)).toBe(true);
 		expect(
-			within(activityAndAgents as HTMLElement).getByText("yesterday")
-		).toBeTruthy();
+			within(activityAndAgents as HTMLElement).queryByText("yesterday")
+		).toBeNull();
 		expect(felixItem.textContent).not.toContain("Last active");
-		expect(localAgents.classList.contains("justify-end")).toBe(true);
+		expect(localAgents.classList.contains("justify-start")).toBe(true);
 		const localAgentLogos = within(localAgents).getAllByTestId(
 			LOCAL_AGENT_LOGO_TEST_ID_PATTERN
 		);
@@ -428,7 +523,6 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				"Codex",
 				"Cursor",
 				"Grok",
-				"Last seen yesterday",
 			])
 		);
 		const graceItem = screen.getByRole("button", {
@@ -480,7 +574,6 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			)
 		).toBeNull();
 		expect(item.classList.contains("min-h-20")).toBe(false);
-		expect(item.classList.contains("py-2")).toBe(true);
 	});
 
 	it("selects a Human Profile from the sidebar without opening a Drawer", () => {
@@ -596,7 +689,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		});
 
 		expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "All Agents" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Manage Agents" })).toBeTruthy();
 		const agentStrip = screen.getByLabelText("Felix's Agents");
 		expect(agentStrip.className).toContain("overflow-x-auto");
 		expect(agentStrip.className).toContain("flex");
@@ -673,7 +766,11 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				"Create a Human Profile to manage how you appear in this workspace.",
 		});
 
-		expect(screen.getByRole("status").textContent).toBe(
+		expect(
+			screen.getByText(
+				"Create a Human Profile to manage how you appear in this workspace."
+			).textContent
+		).toBe(
 			"Create a Human Profile to manage how you appear in this workspace."
 		);
 	});
@@ -726,7 +823,6 @@ function renderWorkspace(
 			recovery={buildRecovery()}
 			researchErrorMessage={null}
 			selectedProfileId={input.selectedProfileId ?? "profile-current"}
-			sidebarLeadingContent={<button type="button">Invite Members</button>}
 			state={{
 				context: "organization",
 				directMessage: "idle",

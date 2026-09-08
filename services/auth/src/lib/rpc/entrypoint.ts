@@ -1433,8 +1433,17 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     }
 
     try {
+      const ensured = await this.getOrganizationJoinLinkService().ensure(
+        request.data
+      );
+      const {
+        mode: _mode,
+        expiresAt: _expiresAt,
+        ...joinLink
+      } = ensured.joinLink;
       return ensureOrganizationJoinLinkOnBehalfOfRpcResponseSchema.parse({
-        ...(await this.getOrganizationJoinLinkService().ensure(request.data)),
+        organizationName: ensured.organizationName,
+        joinLink,
         ok: true,
       });
     } catch (error) {

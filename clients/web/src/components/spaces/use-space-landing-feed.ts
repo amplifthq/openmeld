@@ -1255,12 +1255,10 @@ async function flushWakeProgressRefreshes(
 		input.scope.pending
 	) {
 		input.scope.pending = false;
-		const wasAlreadyFetching =
-			input.queryClient.getQueryState(queryKey)?.fetchStatus === "fetching";
+		const wasAlreadyFetching = input.queryClient.isFetching({ queryKey }) > 0;
 		try {
 			await input.queryClient.invalidateQueries(
 				{
-					exact: true,
 					queryKey,
 					refetchType: "active",
 				},

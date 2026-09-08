@@ -53,8 +53,7 @@ vi.mock("#/lib/inbox/browser-notifications", () => ({
 				item.resolutionStatus === "open") ||
 			item.kind === "space_mention" ||
 			item.kind === "agent_reply" ||
-			item.kind === "wake_outcome" ||
-			item.kind === "center_agent_task"),
+			item.kind === "wake_outcome"),
 	markInboxBrowserNotificationItemPending: (input: {
 		itemId: string;
 		organizationId: string;

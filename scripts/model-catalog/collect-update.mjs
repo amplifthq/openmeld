@@ -8,9 +8,9 @@ import { renderBatchReview } from "./review.mjs";
 export function combineUpdates(current, results) {
   const catalog = structuredClone(current);
   for (const result of results) {
-    for (const change of result.evidence.changes) {
-      catalog.agentControllers[result.evidence.controller].models.push(
-        change.after
+    if (result.evidence.changes.length) {
+      catalog.agentControllers[result.evidence.controller].models.unshift(
+        ...result.evidence.changes.map((change) => change.after)
       );
       catalog.updatedAt = result.evidence.observedAt;
     }

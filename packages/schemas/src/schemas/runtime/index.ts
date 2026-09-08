@@ -49,7 +49,11 @@ export {
 export {
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
+  hostedAgentRuntimeIdentitySchema,
   hostedCenterAgentRuntimeIdentitySchema,
+  hostedRemoteAgentRuntimeIdentitySchema,
+  isHostedAgentRuntimeKind,
 } from "./hosted-runtime";
 export {
   localAgentCatalogEntrySchema,
@@ -101,6 +105,16 @@ export {
   openConnectorRuntimeActionSuccessEnvelopeSchema,
 } from "./openconnector-runtime";
 export {
+  personalRemoteAgentSpaceToolRequestSchema,
+  personalRemoteAgentSpaceToolResponseSchema,
+} from "./personal-remote-agent";
+export {
+  remoteAgentWorkerExecutionInputQuerySchema,
+  remoteAgentWorkerExecutionInputReceiptSchema,
+  remoteAgentWorkerExecutionInputRequestSchema,
+  remoteAgentWorkerExecutionInputResponseSchema,
+} from "./remote-agent-execution-input";
+export {
   aiGatewayLogEntrySchema,
   aiGatewayLogsListResponseSchema,
   aiGatewayResultInfoSchema,
@@ -135,10 +149,9 @@ export {
   remoteAgentWorkLoopContinuationSchema,
 } from "./remote-agent-turn-envelope";
 export {
-  buildRemoteAgentCenterAgentTaskConversationId,
+  buildPersonalRemoteAgentConversationId,
   buildRemoteAgentRuntimeConversationId,
   REMOTE_AGENT_ADMISSION_STAGE_OPERATIONS,
-  REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_TOTAL_TEXT_MAX_CHARS,
@@ -185,7 +198,6 @@ export {
   remoteAgentWorkerSubmitTurnRequestSchema,
   remoteAgentWorkerSubmitTurnRequestV1Schema,
   remoteAgentWorkerSubmitTurnRequestV2Schema,
-  remoteAgentWorkerSubmitTurnRequestV3Schema,
   remoteAgentWorkerSubmitTurnRequestV4Schema,
   remoteAgentWorkerSubmitTurnResponseSchema,
   remoteAgentWorkerTurnMessageSchema,

@@ -1,3 +1,4 @@
+import { projectObservabilityWakeCorrelation } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const buildHeadersMock = vi.hoisted(() =>
@@ -26,6 +27,51 @@ const REQUEST_CONTEXT = {
 describe("Space dispatch trace API", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    1, 2,
+  ] as const)("accepts runtime diagnostics v%s during the receiver-first rollout", async (version) => {
+    const query = {
+      spaceId: "space-trace-test",
+      dispatchId: "dispatch-trace-test",
+    };
+    const diagnostics = {
+      activeRuns: [],
+      ...(version === 1 ? { attemptMarkers: [] } : {}),
+      callbackContexts: [],
+      collectedAt: "2026-08-12T00:00:00.000Z",
+      durableObjectAlarmAtMs: null,
+      fibers: [],
+      schedules: [],
+      spaceId: query.spaceId,
+      submissions: [],
+      v: version,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            correlation: projectObservabilityWakeCorrelation({
+              selector: { kind: "dispatch", ...query },
+            }),
+            query,
+            trace: null,
+            remoteAgentRuntimeDiagnostics: diagnostics,
+          }),
+          { status: 200 }
+        )
+      )
+    );
+    const result = await fetchSpaceDispatchTrace({
+      requestContext: REQUEST_CONTEXT,
+      baseUrl: "https://gateway.openmeld.invalid",
+      space: query.spaceId,
+      dispatchId: query.dispatchId,
+      includeRemoteAgentRuntimeDiagnostics: true,
+    });
+    expect(result.remoteAgentRuntimeDiagnostics).toEqual(diagnostics);
   });
 
   it("preserves the first schema mismatch when a trace response is invalid", async () => {
@@ -59,7 +105,7 @@ describe("Space dispatch trace API", () => {
       expect.objectContaining({
         headers: {
           authorization: "Bearer test-token",
-          "x-openmeld-space-dispatch-trace-response-version": "3",
+          "x-openmeld-space-dispatch-trace-response-version": "4",
         },
       })
     );

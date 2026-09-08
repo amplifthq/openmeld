@@ -11,6 +11,7 @@ import { TestQueryClientProvider } from "#/test-support/query-client";
 
 const preview = vi.hoisted(() => vi.fn());
 const request = vi.hoisted(() => vi.fn());
+const accept = vi.hoisted(() => vi.fn());
 const organizations = vi.hoisted(() => vi.fn());
 let session = vi.hoisted(() => ({
 	data: { user: { id: "user-1", email: "alex@example.com" } } as {
@@ -44,6 +45,7 @@ vi.mock("#/hooks/auth.hooks", () => ({ useAuthSession: () => session }));
 vi.mock("#/lib/organizations/auth-organizations", () => ({
 	previewOrganizationJoinLink: preview,
 	listOrganizations: organizations,
+	acceptOrganizationJoinLink: accept,
 }));
 vi.mock("#/lib/organizations/organization-join-requests", () => ({
 	requestOrganizationJoinRequests: request,
@@ -53,7 +55,7 @@ import { JoinOrganizationPage } from "./join-organization";
 
 const token = `joinlink_${"a".repeat(64)}`;
 const href = `/join-organization?token=${token}`;
-const submittedText = /Your request was submitted/;
+const submittedText = /We’ve notified the owners and admins/;
 const inactiveText = /no longer active/;
 function page() {
 	render(
@@ -86,7 +88,7 @@ describe("approval-required link entry", () => {
 		expect(
 			(
 				await screen.findByRole("link", {
-					name: "Sign in to request an invitation",
+					name: "Sign in to request to join",
 				})
 			).getAttribute("data-redirect")
 		).toBe(href);
@@ -95,7 +97,7 @@ describe("approval-required link entry", () => {
 	it("requires an explicit request and does not turn submission into membership navigation", async () => {
 		page();
 		const button = await screen.findByRole("button", {
-			name: "Request invitation",
+			name: "Request to join",
 		});
 		await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
 		expect(request).not.toHaveBeenCalled();
@@ -126,7 +128,7 @@ describe("approval-required link entry", () => {
 		page();
 		await screen.findByText(inactiveText);
 		expect(
-			screen.queryByRole("button", { name: "Request invitation" })
+			screen.queryByRole("button", { name: "Request to join" })
 		).toBeNull();
 		expect(request).not.toHaveBeenCalled();
 	});

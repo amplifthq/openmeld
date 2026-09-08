@@ -1,5 +1,6 @@
 "use client";
 
+import { LARK_PLATFORM_REGISTRATION_DOMAINS } from "@openmeld/schemas";
 import type {
 	LarkPlatformProvider,
 	LarkPlatformRegistrationResponse,
@@ -27,6 +28,7 @@ import {
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
+import { requiresLarkPlatformSetupAuthorization } from "./lark-platform-setup-authorization";
 
 export function LarkPlatformChannelDialog(input: {
 	canManage: boolean;
@@ -37,6 +39,7 @@ export function LarkPlatformChannelDialog(input: {
 	onDisconnect: () => void;
 	onOpenChange: (open: boolean) => void;
 	onRepair: () => void;
+	onReauthorize: () => void;
 	onRetryPoll: () => void;
 	onStartOver: () => void;
 	open: boolean;
@@ -95,6 +98,7 @@ export function LarkPlatformChannelDialog(input: {
 				{input.registration && !needsRepair ? (
 					<RegistrationProgress
 						errorMessage={input.errorMessage}
+						onReauthorize={input.onReauthorize}
 						onRetryPoll={input.onRetryPoll}
 						onStartOver={input.onStartOver}
 						pollPending={input.pollPending}
@@ -108,6 +112,7 @@ export function LarkPlatformChannelDialog(input: {
 						connection={connection}
 						errorMessage={input.errorMessage}
 						onRepair={input.onRepair}
+						onStartOver={input.onStartOver}
 						providerLabel={providerLabel}
 						repairDisabled={
 							input.disconnectPending ||
@@ -115,6 +120,7 @@ export function LarkPlatformChannelDialog(input: {
 							confirmingDisconnect
 						}
 						repairPending={input.repairPending}
+						startOverPending={input.startOverPending}
 					/>
 				)}
 				{canDisconnect && input.canManage ? (
@@ -163,6 +169,7 @@ function resolveDialogDescription(input: {
 }
 
 function RegistrationProgress(input: {
+	onReauthorize: () => void;
 	errorMessage: string | null;
 	onRetryPoll: () => void;
 	onStartOver: () => void;
@@ -173,6 +180,11 @@ function RegistrationProgress(input: {
 }) {
 	const attempt = input.registration.attempt;
 	if (attempt.status === "pending_registration" && attempt.registrationUrl) {
+		// HTTP retains the shared issuer URL for older readers. Only the browser
+		// destination changes; the provider and registration code stay fixed.
+		const launcherUrl = new URL(attempt.registrationUrl);
+		launcherUrl.hostname =
+			LARK_PLATFORM_REGISTRATION_DOMAINS[attempt.provider].launcherHost;
 		return (
 			<div className="space-y-4">
 				<div className="border border-border/70 bg-card/30 p-4">
@@ -180,14 +192,17 @@ function RegistrationProgress(input: {
 						Open the official {input.providerLabel} setup page
 					</p>
 					<p className="mt-1 text-muted-foreground text-sm leading-6">
-						Create a new {input.providerLabel} app, review the requested Channel
-						permissions, and keep this window open while OpenMeld finishes the
-						connection.
+						Sign in with your {input.providerLabel} account. This setup is for{" "}
+						{input.providerLabel} only. Create a new {input.providerLabel} app,
+						review the requested permissions, and keep this window open while
+						OpenMeld finishes the connection. The app needs permission to
+						exchange messages and update its configuration so OpenMeld can set
+						up message delivery.
 					</p>
 					<div className="mt-4 flex flex-wrap gap-2">
 						<a
 							className={buttonVariants({ size: "default" })}
-							href={attempt.registrationUrl}
+							href={launcherUrl.toString()}
 							rel="noreferrer"
 							target="_blank"
 						>
@@ -214,6 +229,41 @@ function RegistrationProgress(input: {
 					onRetryPoll={input.onRetryPoll}
 					pollPending={input.pollPending}
 				/>
+			</div>
+		);
+	}
+	if (requiresLarkPlatformSetupAuthorization(attempt)) {
+		return (
+			<div className="space-y-3 border border-border/70 bg-card/30 p-4">
+				<p className="font-medium text-sm">Authorization required</p>
+				<p className="text-muted-foreground text-sm">
+					Reconnect your existing bot by approving the updated permissions in
+					{input.providerLabel}. OpenMeld will finish connecting automatically
+					after you authorize.
+				</p>
+				<p className="text-muted-foreground text-sm">
+					The updated permissions let OpenMeld configure your bot to receive
+					messages. Your existing bot is kept.
+				</p>
+				<Button onClick={input.onReauthorize} type="button">
+					<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
+					Reauthorize {input.providerLabel}
+				</Button>
+				<Button
+					disabled={input.pollPending}
+					onClick={input.onRetryPoll}
+					type="button"
+					variant="outline"
+				>
+					{input.pollPending
+						? "Checking authorization…"
+						: "I've authorized, check again"}
+				</Button>
+				{input.errorMessage ? (
+					<p className="text-destructive text-sm" role="alert">
+						{input.errorMessage}
+					</p>
+				) : null}
 			</div>
 		);
 	}
@@ -260,6 +310,30 @@ function RegistrationProgress(input: {
 		);
 	}
 	return (
+		<RegistrationFailure
+			errorMessage={input.errorMessage}
+			onStartOver={input.onStartOver}
+			provider={attempt.provider}
+			providerLabel={input.providerLabel}
+			reasonCode={attempt.reasonCode}
+			startOverPending={input.startOverPending}
+		/>
+	);
+}
+
+function RegistrationFailure(input: {
+	errorMessage: string | null;
+	onStartOver: () => void;
+	provider: LarkPlatformProvider;
+	providerLabel: string;
+	reasonCode: string | null;
+	startOverPending: boolean;
+}) {
+	const brandMismatch =
+		input.reasonCode ===
+		`${input.provider}.registration_provider_brand_mismatch`;
+	const otherLabel = input.provider === "lark" ? "Feishu" : "Lark";
+	return (
 		<div className="space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-4">
 			<div className="flex items-start gap-3">
 				<WarningCircleIcon
@@ -271,11 +345,22 @@ function RegistrationProgress(input: {
 						Setup did not finish
 					</p>
 					<p className="mt-1 text-muted-foreground text-sm">
-						Close this window and start the {input.providerLabel} connection
-						again.
+						{brandMismatch
+							? `You selected ${input.providerLabel}, but the platform returned a ${otherLabel} account. Switch to a ${input.providerLabel} account before starting over.`
+							: `Close this window and start the ${input.providerLabel} connection again.`}
 					</p>
 				</div>
 			</div>
+			{brandMismatch ? (
+				<Button
+					disabled={input.startOverPending}
+					onClick={input.onStartOver}
+					type="button"
+					variant="outline"
+				>
+					{input.startOverPending ? "Starting over…" : "Start over"}
+				</Button>
+			) : null}
 			{input.errorMessage ? (
 				<p className="text-destructive text-sm" role="alert">
 					{input.errorMessage}
@@ -349,23 +434,56 @@ function resolveConfigurationRetryMessage(input: {
 	return "The latest verification check did not finish. OpenMeld will retry automatically.";
 }
 
+function RegistrationStartError(input: {
+	canManage: boolean;
+	errorMessage: string;
+	onStartOver: () => void;
+	startOverPending: boolean;
+}) {
+	return (
+		<div className="space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+			<p className="text-destructive" role="alert">
+				{input.errorMessage}
+			</p>
+			{input.canManage ? (
+				<>
+					<p>
+						Start over to get a new setup link. If the problem continues,
+						contact your administrator.
+					</p>
+					<Button
+						disabled={input.startOverPending}
+						onClick={input.onStartOver}
+						type="button"
+						variant="outline"
+					>
+						{input.startOverPending ? "Starting over…" : "Start over"}
+					</Button>
+				</>
+			) : null}
+		</div>
+	);
+}
+
 function ConnectionSummary(input: {
 	canManage: boolean;
 	connection: MessageChannelConnectionProjection | null;
 	errorMessage: string | null;
 	onRepair: () => void;
+	onStartOver: () => void;
+	startOverPending: boolean;
 	providerLabel: string;
 	repairDisabled: boolean;
 	repairPending: boolean;
 }) {
 	if (!input.connection) {
 		return input.errorMessage ? (
-			<p
-				className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-destructive text-sm"
-				role="alert"
-			>
-				{input.errorMessage}
-			</p>
+			<RegistrationStartError
+				canManage={input.canManage}
+				errorMessage={input.errorMessage}
+				onStartOver={input.onStartOver}
+				startOverPending={input.startOverPending}
+			/>
 		) : null;
 	}
 	const connected = input.connection.status === "connected";

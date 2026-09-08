@@ -35,6 +35,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactElement, ReactNode } from "react";
 import { toast } from "sonner";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
+import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import type {
 	DirectoryAgentProfileSummary,
 	DirectoryHumanProfileComputer,
@@ -168,12 +169,16 @@ function AgentProfileDetailsHeader(input: {
 				<AgentProfileControllerAvatar
 					agentControllerRef={input.entry.agentControllerRef}
 					profileId={input.entry.profileId}
+					profileName={input.entry.profileName}
 					size={48}
 				/>
 			)}
 			<div className="min-w-0 flex-1 pt-0.5">
-				<p className="break-words font-semibold text-base text-foreground">
-					{input.entry.profileName}
+				<p className="flex items-center gap-1.5 font-semibold text-base text-foreground">
+					<span className="min-w-0 break-words">{input.entry.profileName}</span>
+					<RemoteAgentIndicator
+						agentControllerRef={input.entry.agentControllerRef}
+					/>
 				</p>
 				<p className="mt-1 break-words text-muted-foreground text-sm">
 					{modelSummary}
@@ -488,6 +493,7 @@ function HumanProfileDetailsPopoverWithCollaboration(input: {
 	);
 	const agentProfiles = profileDirectoryQuery.data
 		? (buildDirectoryAgentProfilesByOwner({
+				members: profileDirectoryQuery.data.members,
 				agentProfiles: profileDirectoryQuery.data.agentProfiles,
 				orgSlug: input.orgSlug,
 				runtimeOverview: runtimeOverviewQuery.data,

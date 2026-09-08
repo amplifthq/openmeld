@@ -3,10 +3,7 @@ import {
 	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
 	OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
 } from "@openmeld/gateway-contract";
-import {
-	CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER,
-	OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS,
-} from "@openmeld/schemas";
+import { OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import { encodeProtectedSpaceAccessCookieValue } from "#/lib/spaces/protected-space-access.server";
 import {
@@ -265,7 +262,6 @@ describe("OpenMeld gateway proxy", () => {
 				cookie: "session=abc",
 				"if-none-match": '"etag-123"',
 				host: "web.openmeld.test",
-				[CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER]: "3",
 				[OPENMELD_HEADER_SPACE_PASSWORD]: "  pw-123  ",
 				"x-openmeld-active-organization-id": "forged-authority",
 				"x-openmeld-unknown-client-contract": "forged-contract",
@@ -283,9 +279,6 @@ describe("OpenMeld gateway proxy", () => {
 		expect(headers.get("authorization")).toBeNull();
 		expect(headers.get("host")).toBeNull();
 		expect(headers.get("cookie")).toBe("session=abc");
-		expect(
-			headers.get(CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER)
-		).toBe("3");
 		expect(headers.get(OPENMELD_HEADER_SPACE_PASSWORD)).toBe("pw-123");
 		expect(headers.get("x-openmeld-profile-id")).toBe("forged-profile");
 		expect(headers.get("x-openmeld-active-organization-id")).toBeNull();

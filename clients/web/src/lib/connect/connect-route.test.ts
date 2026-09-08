@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildConnectComputerPath,
+	buildConnectRouteSearch,
+	normalizeConnectRouteSearch,
 	parseAgentProfileIdList,
 	resolveConnectBackTarget,
 	resolveConnectCompletionTarget,
+	resolveConnectRouteIntent,
 } from "./connect-route";
 
 describe("buildConnectComputerPath", () => {
@@ -14,13 +17,13 @@ describe("buildConnectComputerPath", () => {
 		);
 	});
 
-	it("builds the organization App Connect path", () => {
+	it("builds the organization Plugin Connect path", () => {
 		expect(buildConnectComputerPath({ orgSlug: "acme" })).toBe(
 			"/o/acme/connect"
 		);
 	});
 
-	it("uses session=fresh for new App Connect setup sessions", () => {
+	it("uses session=fresh for new Plugin Connect setup sessions", () => {
 		expect(
 			buildConnectComputerPath({
 				orgSlug: "acme",
@@ -78,6 +81,26 @@ describe("parseAgentProfileIdList", () => {
 });
 
 describe("connect route targets", () => {
+	it("keeps Agent creation as the destination across setup session consumption", () => {
+		const path = buildConnectComputerPath({
+			orgSlug: "acme",
+			returnTo: "agent_creation",
+			session: "fresh",
+		});
+		const search = normalizeConnectRouteSearch(
+			Object.fromEntries(new URL(path, "http://localhost").searchParams)
+		);
+		const intent = resolveConnectRouteIntent(search);
+		const resumed = resolveConnectRouteIntent(
+			buildConnectRouteSearch({ ...intent, resetThisComputer: false })
+		);
+		expect(resolveConnectBackTarget(resumed, "acme")).toBe("/o/acme/new-agent");
+		expect(resolveConnectCompletionTarget(resumed, "acme")).toBe(
+			"/o/acme/new-agent"
+		);
+		expect(resumed.resetThisComputer).toBe(false);
+	});
+
 	it("returns account computer setup to the selected Human Profile", () => {
 		const intent = {
 			kind: "account_computer_setup",
@@ -86,7 +109,7 @@ describe("connect route targets", () => {
 		} as const;
 
 		expect(resolveConnectBackTarget(intent, "acme")).toBe(
-			"/o/acme/people?profileId=human-1"
+			"/o/acme/people/human-1"
 		);
 		expect(resolveConnectCompletionTarget(intent, "acme")).toBe(
 			"/o/acme/computers?focus=service&refresh=setup-complete"

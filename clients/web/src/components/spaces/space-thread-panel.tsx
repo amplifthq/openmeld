@@ -31,6 +31,7 @@ import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-int
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
+import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
 import {
 	buildAnchoredSpaceOutcomeNoticesBySourceSignalId,
 	buildSpaceConversationEntries,
@@ -71,7 +72,6 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
-import { SpaceActiveWakeSource } from "./space-active-wake-source";
 import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
 import {
 	SpaceAgentInteractionCard,
@@ -119,7 +119,10 @@ import {
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 } from "./space-message-bubble-style";
-import { copySpaceTimelineItemWithFeedback } from "./space-message-copy";
+import {
+	copySpaceTimelineItemWithFeedback,
+	isSpaceMessageCopyPending,
+} from "./space-message-copy";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
 import {
@@ -139,6 +142,7 @@ import {
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
+import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
@@ -295,7 +299,7 @@ type SpaceThreadPanelProps = {
 export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 	return (
 		<SpaceWakeStopScope
-			key={input.activeThread?.threadId}
+			key={`${input.activeThread?.threadId}:${input.selfProfileId}`}
 			progressItems={input.ephemeralActivityItems}
 			stopRequestStatusBySelectorKey={input.wakeStopRequestStatusBySelectorKey}
 		>
@@ -690,7 +694,6 @@ function useThreadMessageDetailsController(input: {
 						item: messageDetailsItem,
 						stopRequestStatusBySelectorKey:
 							input.wakeStopRequestStatusBySelectorKey,
-						targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
 						timelineItems: input.rawThreadTimelineItems,
 						wakeOutcomeIndex: input.wakeOutcomeIndex,
 						wakeProgressItems: input.ephemeralActivityItems,
@@ -1355,7 +1358,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				item: wakePresentationItem,
 				stopRequestStatusBySelectorKey:
 					input.wakeStopRequestStatusBySelectorKey,
-				targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
 				timelineItems: input.allItems,
 				wakeOutcomeIndex: input.wakeOutcomeIndex,
 				wakeProgressItems: input.ephemeralActivityItems,
@@ -1421,7 +1423,14 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				onOpenMessageDetails: input.onOpenMessageDetails,
 			});
 	return (
-		<MessageScrollerItem messageId={input.item.id}>
+		<MessageScrollerItem
+			className={
+				input.item.activeWakeProgress
+					? "[content-visibility:visible]"
+					: undefined
+			}
+			messageId={input.item.id}
+		>
 			<Message
 				align={messageAlign}
 				className={cn(
@@ -1457,6 +1466,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							}
 							profileId={input.item.actorProfileId}
 							profileKind={input.item.actorProfileKind}
+							working={isSpaceMessageAgentWorking(input.item)}
 						/>
 						<span className="min-w-0 truncate font-bold text-foreground text-sm">
 							{input.item.actorName}
@@ -1544,15 +1554,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
 							})}
 							{showProgressInAnswerArea ? progressStatus : null}
-							{input.item.activeWakeSourceItemId &&
-							input.allItems.some(
-								(item) => item.id === input.item.activeWakeSourceItemId
-							) ? (
-								<SpaceActiveWakeSource
-									item={input.item}
-									onJumpToMessage={input.onJumpToMessage}
-								/>
-							) : null}
 						</BubbleContent>
 					</Bubble>
 					{showProgressInAnswerArea ? null : progressStatus}
@@ -1605,6 +1606,7 @@ function ThreadTimelineMessageFooter(input: {
 		<SpaceMessageFooter
 			addressingTargets={input.addressingTargets}
 			align={input.align}
+			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={details}
 			failureSummary={input.failureSummary}
 			onCopy={() =>
@@ -1794,6 +1796,7 @@ function ThreadComposer(input: {
 				maxHeight: 180,
 			}}
 			slots={{
+				beforePrimaryAction: <SpaceComposerActiveWakes placement="thread" />,
 				error: input.composerErrorMessage ? (
 					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
 						<p>{input.composerErrorMessage}</p>

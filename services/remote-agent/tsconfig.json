@@ -3,7 +3,13 @@
   "compilerOptions": {
     "noEmit": true,
     "lib": ["ESNext", "WebWorker"],
-    "types": ["./worker-configuration.d.ts"]
+    "types": ["./worker-configuration.d.ts", "@cloudflare/vitest-pool-workers"]
   },
-  "include": [".flue", "agent-core", "flue-adapter", "tests"]
+  "include": [
+    ".flue/**/*.ts",
+    "agent-core",
+    "flue-adapter",
+    "tests",
+    "vite.config.ts"
+  ]
 }

@@ -5,6 +5,9 @@ import {
   messageChannelProviderSchema,
   messageChannelTransportSchema,
 } from "../runtime/message-channel";
+import registrationDomains from "./lark-platform-registration-domains.json";
+
+export const LARK_PLATFORM_REGISTRATION_DOMAINS = registrationDomains;
 
 export const MESSAGE_CHANNEL_CONNECTION_STATUSES = [
   "pending_registration",
@@ -67,6 +70,7 @@ export const larkPlatformRegistrationBeginModeSchema = z.enum([
   "resume",
   "restart",
   "repair",
+  "reauthorize",
 ]);
 
 export const messageChannelConnectionProjectionSchema = z
@@ -192,13 +196,20 @@ export const larkPlatformRegistrationAttemptProjectionSchema = z
   })
   .superRefine((attempt, context) => {
     if (
-      (attempt.status === "pending_registration") !==
-      (attempt.registrationUrl !== null)
+      (attempt.status === "pending_registration" &&
+        attempt.registrationUrl === null) ||
+      (attempt.registrationUrl !== null &&
+        attempt.status !== "pending_registration" &&
+        !(
+          attempt.status === "configuring" &&
+          attempt.reasonCode ===
+            `${attempt.provider}.application_config_permission_required`
+        ))
     ) {
       context.addIssue({
         code: "custom",
         message:
-          "Only a pending registration attempt may expose its registration URL.",
+          "A registration URL is required for registration and may also be returned for explicit reauthorization.",
         path: ["registrationUrl"],
       });
     }
@@ -206,12 +217,19 @@ export const larkPlatformRegistrationAttemptProjectionSchema = z
       const url = new URL(attempt.registrationUrl);
       if (
         url.protocol !== "https:" ||
-        url.hostname !== "open.feishu.cn" ||
-        url.pathname !== "/page/launcher"
+        (url.host !== registrationDomains.feishu.launcherHost &&
+          url.host !== registrationDomains[attempt.provider].launcherHost) ||
+        url.pathname !== "/page/launcher" ||
+        url.username ||
+        url.password ||
+        url.hash ||
+        url.searchParams.getAll("user_code").length !== 1 ||
+        !url.searchParams.get("user_code")?.trim()
       ) {
         context.addIssue({
           code: "custom",
-          message: "Registration URL must use the pinned provider launcher.",
+          message:
+            "Registration URL must use the shared issuer or selected provider launcher.",
           path: ["registrationUrl"],
         });
       }

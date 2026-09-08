@@ -33,7 +33,7 @@ export function SpaceAgentOrb(input: {
 				)}
 				data-space-agent-orb-state={state}
 				data-testid={input["data-testid"]}
-				paused={shouldReduceMotion || input.paused || state === "listening"}
+				paused={shouldReduceMotion || input.paused}
 				size={input.prominent ? 64 : 20}
 				state={state}
 			/>

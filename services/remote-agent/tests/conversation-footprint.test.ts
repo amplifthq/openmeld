@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import type { ConversationRecord } from "@flue/runtime/adapter";
 import { SqliteConversationStreamStore } from "@flue/runtime/internal";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { prepareFlueCenterAgentAdmission } from "../flue-adapter/center-agent-admission";
 import {
   assertRemoteAgentConversationFootprintSchema,
@@ -14,20 +14,6 @@ import {
   createCloudflareSqlHarness,
   createTransactionRunner,
 } from "./helpers/cloudflare-sql-harness.test-support";
-
-// Captured from the published @flue/runtime@2.0.3 SQLite store. The pinned
-// beta.9 runtime does not create this table; its presence means the footprint
-// reader must not silently apply the older batches.data-only contract.
-const FLUE_2_0_3_BATCH_CHUNKS_SCHEMA = `
-  CREATE TABLE flue_conversation_stream_batch_chunks (
-    path TEXT NOT NULL,
-    seq INTEGER NOT NULL,
-    chunk_index INTEGER NOT NULL CHECK (chunk_index >= 0),
-    chunk_count INTEGER NOT NULL CHECK (chunk_count > 0),
-    data TEXT NOT NULL,
-    PRIMARY KEY (path, seq, chunk_index)
-  )
-`;
 
 class FakeSqlCursor {
   private readonly rows: Record<string, unknown>[];
@@ -99,7 +85,7 @@ describe("Remote Agent conversation footprint", () => {
     );
   });
 
-  it("fails closed on the Flue 2.0.3 spilled-batch schema before replay", async () => {
+  it("counts every byte of a spilled batch written by the Flue 2 store", async () => {
     const database = new DatabaseSync(":memory:");
     databases.push(database);
     const sql = createCloudflareSqlHarness(database);
@@ -107,60 +93,47 @@ describe("Remote Agent conversation footprint", () => {
       sql,
       createTransactionRunner(database)
     );
-    const path = "agent:center-agent:future-chunk-schema";
+    const path = "agent:center-agent-v2:chunk-schema";
     await store.createStream(path, {
-      agentName: "center-agent",
-      instanceId: "future-chunk-schema",
+      agentName: "center-agent-v2",
+      instanceId: "chunk-schema",
     });
-    database.exec(FLUE_2_0_3_BATCH_CHUNKS_SCHEMA);
-    database
-      .prepare(
-        `
-          INSERT INTO flue_conversation_stream_batches (
-            path,
-            seq,
-            producer_id,
-            producer_epoch,
-            producer_sequence,
-            data
-          ) VALUES (?, 0, 'future-producer', 1, 0, ?)
-        `
-      )
-      .run(path, JSON.stringify({ $flueChunkCount: 1 }));
-    database
-      .prepare(
-        `
-          INSERT INTO flue_conversation_stream_batch_chunks (
-            path,
-            seq,
-            chunk_index,
-            chunk_count,
-            data
-          ) VALUES (?, 0, 0, 1, ?)
-        `
-      )
-      .run(path, '[{"type":"future_spilled_record"}]');
-
-    const ensureInitialized = vi.fn(async () => undefined);
-
-    await expect(
-      prepareFlueCenterAgentAdmission({
-        assertConversationFootprintSchema: () =>
-          assertRemoteAgentConversationFootprintSchema(sql),
-        cleanupFinalizedSubmissionReplay: async () => undefined,
-        ensureInitialized,
-        readConversationFootprint: () =>
-          readRemoteAgentConversationFootprint(sql),
-        readExistingSubmission: async () => ({
-          claimedAtMs: 1000,
-          status: "claimed",
-        }),
-        reportConversationFootprintBeforeReplay: () => undefined,
-      })
-    ).rejects.toThrow(
-      "Remote Agent conversation footprint schema is incompatible with the pinned Flue runtime."
+    const claim = await store.acquireProducer(path, "footprint-test");
+    const records: ConversationRecord[] = [
+      {
+        v: 1,
+        id: "large-conversation",
+        type: "conversation_created",
+        conversationId: "large",
+        harness: "default",
+        session: "default",
+        timestamp: "2026-09-06T00:00:00.000Z",
+        createdAt: "2026-09-06T00:00:00.000Z",
+        affinityKey: "北".repeat(1_100_000),
+        kind: "root",
+      },
+    ];
+    await store.append({
+      path,
+      producerId: claim.producerId,
+      producerEpoch: claim.producerEpoch,
+      incarnation: claim.incarnation,
+      producerSequence: claim.nextProducerSequence,
+      records,
+    });
+    const footprint = readRemoteAgentConversationFootprint(sql);
+    expect(footprint.canonicalBytes).toBe(
+      Buffer.byteLength(JSON.stringify(records))
     );
-    expect(ensureInitialized).not.toHaveBeenCalled();
+    expect(footprint.largestBatchBytes).toBe(footprint.canonicalBytes);
+    expect(footprint.batchCount).toBe(1);
+    expect(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM flue_conversation_stream_batch_chunks"
+        )
+        .get()?.count
+    ).toBeGreaterThan(0);
   });
 
   it("reads only aggregate size facts and marks the soft-limit range", () => {
@@ -170,6 +143,7 @@ describe("Remote Agent conversation footprint", () => {
         rows: [
           { name: "flue_conversation_streams" },
           { name: "flue_conversation_stream_batches" },
+          { name: "flue_conversation_stream_batch_chunks" },
         ],
       },
       {
@@ -270,15 +244,12 @@ describe("Remote Agent conversation footprint", () => {
     ).toBeNull();
   });
 
-  it("rejects a model-limited history before initializing or replaying Flue", async () => {
-    const ensureInitialized = vi.fn(async () => undefined);
-
+  it("rejects a model-limited history during admission", async () => {
     await expect(
       prepareFlueCenterAgentAdmission({
         automaticRolloverSupported: true,
         assertConversationFootprintSchema: () => undefined,
         cleanupFinalizedSubmissionReplay: async () => undefined,
-        ensureInitialized,
         providerContextCapacity: { inputTokenBudget: 450_000 },
         readConversationFootprint: () => ({
           batchCount: 40,
@@ -287,7 +258,7 @@ describe("Remote Agent conversation footprint", () => {
           level: "normal",
         }),
         readExistingSubmission: async () => null,
-        reportConversationFootprintBeforeReplay: () => undefined,
+        reportConversationFootprint: () => undefined,
       })
     ).resolves.toMatchObject({
       outcome: "rejected",
@@ -295,7 +266,6 @@ describe("Remote Agent conversation footprint", () => {
         reasonCode: "remote_agent.conversation_history_limit_exceeded",
       },
     });
-    expect(ensureInitialized).not.toHaveBeenCalled();
   });
 
   it("fails closed when aggregate storage facts are invalid", () => {
@@ -305,6 +275,7 @@ describe("Remote Agent conversation footprint", () => {
         rows: [
           { name: "flue_conversation_streams" },
           { name: "flue_conversation_stream_batches" },
+          { name: "flue_conversation_stream_batch_chunks" },
         ],
       },
       {
@@ -348,6 +319,7 @@ describe("Remote Agent conversation footprint", () => {
         rows: [
           { name: "flue_conversation_streams" },
           { name: "flue_conversation_stream_batches" },
+          { name: "flue_conversation_stream_batch_chunks" },
         ],
       },
       {
@@ -371,7 +343,7 @@ describe("Remote Agent conversation footprint", () => {
     );
     const path = "agent:center-agent:footprint-contract";
     await store.createStream(path, {
-      agentName: "center-agent",
+      agentName: "center-agent-v2",
       instanceId: "footprint-contract",
     });
     const claim = await store.acquireProducer(path, "footprint-test");
@@ -406,22 +378,19 @@ describe("Remote Agent conversation footprint", () => {
     expect(footprint.canonicalBytes).toBeGreaterThan(0);
     expect(footprint.largestBatchBytes).toBe(footprint.canonicalBytes);
 
-    const ensureInitialized = vi.fn(async () => undefined);
     await expect(
       prepareFlueCenterAgentAdmission({
         assertConversationFootprintSchema: () =>
           assertRemoteAgentConversationFootprintSchema(sql),
         cleanupFinalizedSubmissionReplay: async () => undefined,
-        ensureInitialized,
         readConversationFootprint: () =>
           readRemoteAgentConversationFootprint(sql),
         readExistingSubmission: async () => ({
           claimedAtMs: 1000,
           status: "claimed",
         }),
-        reportConversationFootprintBeforeReplay: () => undefined,
+        reportConversationFootprint: () => undefined,
       })
     ).resolves.toMatchObject({ admission: "claimed", outcome: "ready" });
-    expect(ensureInitialized).toHaveBeenCalledOnce();
   });
 });

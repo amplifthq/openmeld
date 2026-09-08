@@ -1,5 +1,8 @@
 import * as z from "zod/v4";
-import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
+import {
+  agentControllerRefSchema,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "../daemon/agent-controller-ref";
 import { agentProfileCreationPreferenceSelectionSchema } from "./agent-profile-binding";
 
 const identifierSchema = z.string().trim().min(1).max(256);
@@ -59,6 +62,28 @@ const completeAgentProfileCreationConfigurationSchema =
       const hasComputer = configuration.targetComputerId !== null;
       const hasCandidate =
         configuration.localAgentConnectionCandidateId != null;
+      if (
+        configuration.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF
+      ) {
+        for (const key of [
+          "targetComputerId",
+          "localAgentConnectionCandidateId",
+          "defaultProjectId",
+          "agentControllerCollaborationMode",
+          "agentControllerPermissionMode",
+          "openCodePermission",
+          "reasoningLevel",
+        ] as const) {
+          if (configuration[key] != null) {
+            context.addIssue({
+              code: "custom",
+              message: "Remote Agents do not use local agent settings.",
+              path: [key],
+            });
+          }
+        }
+        return;
+      }
       if (hasController !== hasComputer) {
         context.addIssue({
           code: "custom",
@@ -208,6 +233,17 @@ export const createAgentProfileCreationRequestBodySchema = z
   })
   .superRefine((request, context) => {
     const nativeSessionId = request.nativeSessionId ?? null;
+    if (
+      request.configuration?.agentControllerRef ===
+        HOSTED_REMOTE_AGENT_CONTROLLER_REF &&
+      request.sessionStrategy !== "new"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Remote Agents start a new conversation.",
+        path: ["sessionStrategy"],
+      });
+    }
     if (request.sessionStrategy === "new" && nativeSessionId !== null) {
       context.addIssue({
         code: "custom",

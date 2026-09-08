@@ -398,7 +398,7 @@ export async function continueMessageChannelIdentityOnboardingRequest(input: {
     !(
       sourceDelivery &&
       sourceCanContinue &&
-      (originalRequest?.v === 2 || originalRequest?.v === 3) &&
+      originalRequest?.v === 2 &&
       sourceDelivery.conversationKind === "message_channel" &&
       locator &&
       (locator.provider === "lark" || locator.provider === "feishu") &&

@@ -44,6 +44,7 @@ export type SpaceComposerProps = {
 		onFocus?: () => void;
 	};
 	availability: {
+		canUploadFiles?: boolean;
 		canSendMessage: boolean;
 		fileLimitReached: boolean;
 		isSendingMessage: boolean;
@@ -72,6 +73,7 @@ export type SpaceComposerProps = {
 	};
 	slots?: {
 		beforeInput?: ReactNode;
+		beforePrimaryAction?: ReactNode;
 		error?: ReactNode;
 		primaryAction?: ReactNode;
 		profileControl?: ReactNode;
@@ -102,8 +104,9 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	const uploadInProgress = input.content.files.some(
 		isSpaceComposerFileInProgress
 	);
-	const composerActionsDisabled =
-		input.availability.isSendingMessage || !input.availability.canSendMessage;
+	const uploadsDisabled =
+		input.availability.isSendingMessage ||
+		!(input.availability.canUploadFiles ?? input.availability.canSendMessage);
 	const {
 		addFiles,
 		handleDragLeave,
@@ -112,7 +115,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		handlePaste,
 		isDraggingFiles,
 	} = useSpaceComposerFileInput({
-		disabled: composerActionsDisabled,
+		disabled: uploadsDisabled,
 		onAddFiles: input.actions.onAddFiles ?? ignoreFiles,
 	});
 	const fileHint = resolveSpaceComposerFileHint({
@@ -123,7 +126,11 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	const blockedWakeHint = resolveSpaceComposerBlockedWakeHint(
 		input.content.addressingTargets
 	);
-	const composerHint = blockedWakeHint ?? fileHint ?? policy.wakeTextHint;
+	const accessHint = input.availability.canSendMessage
+		? null
+		: policy.placeholder;
+	const composerHint =
+		accessHint ?? blockedWakeHint ?? fileHint ?? policy.wakeTextHint;
 	let composerHintClassName = "text-muted-foreground";
 	if (policy.wakeTextHint) {
 		composerHintClassName = "text-foreground";
@@ -193,11 +200,16 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						text={input.content.text}
 					/>
 					<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
-						<div className="flex min-w-0 flex-1 items-center gap-0">
+						<div className="flex flex-1 items-center gap-0">
 							{input.capabilities?.attachments !== false ? (
 								<SpaceComposerFileMenu
 									addFiles={addFiles}
-									disabled={composerActionsDisabled}
+									disabled={uploadsDisabled}
+									disabledReason={
+										input.availability.isSendingMessage
+											? "Wait for this message to finish sending."
+											: (accessHint ?? "Files aren't available yet.")
+									}
 									limitReached={input.availability.fileLimitReached}
 								/>
 							) : null}
@@ -206,7 +218,6 @@ export function SpaceComposer(input: SpaceComposerProps) {
 								<Button
 									aria-label="Mention a member"
 									className="size-8 text-base"
-									disabled={composerActionsDisabled}
 									onClick={input.actions.onMentionButtonClick}
 									size="icon-sm"
 									type="button"
@@ -228,8 +239,9 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									</p>
 								) : null)}
 						</div>
-						<div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
+						<div className="flex min-w-0 items-center justify-end gap-2">
 							{input.slots?.profileControl}
+							{input.slots?.beforePrimaryAction}
 							{primaryAction}
 						</div>
 					</PromptInputActions>
@@ -249,7 +261,9 @@ function resolveSpaceComposerBlockedWakeHint(
 ): string | null {
 	const blockedWakeTarget = targets.find(
 		(target) =>
-			target.relation === "wake" && target.wakeAvailability.status !== "ready"
+			target.relation === "wake" &&
+			target.wakeAvailability.status !== "ready" &&
+			target.wakeAvailability.status !== "preparing"
 	);
 	if (!blockedWakeTarget) {
 		return null;

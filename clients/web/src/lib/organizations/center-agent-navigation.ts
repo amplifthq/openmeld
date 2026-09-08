@@ -1,12 +1,11 @@
 export type CenterAgentSectionId =
-	| "apps"
+	| "plugins"
 	| "channels"
 	| "chat"
 	| "memory"
 	| "routines"
 	| "settings"
-	| "skills"
-	| "tasks";
+	| "skills";
 
 const CENTER_AGENT_SECTION_PATH_PATTERN = /^\/o\/[^/]+\/center-agent\/([^/]+)/u;
 
@@ -15,13 +14,12 @@ export function resolveCenterAgentSectionId(
 ): CenterAgentSectionId {
 	const section = CENTER_AGENT_SECTION_PATH_PATTERN.exec(pathname)?.[1];
 	switch (section) {
-		case "apps":
+		case "plugins":
 		case "channels":
 		case "memory":
 		case "routines":
 		case "settings":
 		case "skills":
-		case "tasks":
 			return section;
 		default:
 			return "chat";

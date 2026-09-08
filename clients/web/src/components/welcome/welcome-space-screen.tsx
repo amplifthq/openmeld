@@ -10,13 +10,13 @@ import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowRightIcon, PlusIcon } from "@phosphor-icons/react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import { SpaceAccessModeRadioGroup } from "#/components/spaces/space-access-editor";
-import { ScrollArea } from "#/components/ui/scroll-area";
 import { WelcomeLayout } from "./welcome-layout";
 
 const SPACE_NAME_INPUT_ID = "welcome-space-name-input";

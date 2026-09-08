@@ -3,9 +3,10 @@ import type {
   OpenAICompletionsCompat,
   StreamOptions,
 } from "@earendil-works/pi-ai";
+import { createProvider } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
-import { registerApiProvider, registerProvider } from "@flue/runtime";
+import { setProvider } from "@flue/runtime";
 import { getCloudflareContext } from "@flue/runtime/cloudflare";
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
 import * as z from "zod/v4";
@@ -156,7 +157,6 @@ export async function registerRemoteAgentCloudflareProvider(input: {
     modelRoute: input.modelRoute,
     organizationId: input.organizationId,
   });
-  registerRemoteAgentModelCapabilitiesApi();
   const openRouterModel = getBuiltinModels("openrouter").find(
     (model) => model.id === modelId && model.api === "openai-completions"
   ) as Model<"openai-completions"> | undefined;
@@ -235,26 +235,41 @@ export async function registerRemoteAgentCloudflareProvider(input: {
     modelId,
     organizationId: input.organizationId,
   });
-  registerProvider(providerId, {
-    api: "openai-completions",
-    // pi-ai requires an apiKey before the OpenAI client is created. The
-    // registered headers clear SDK Authorization so this placeholder is never
-    // sent to Cloudflare AI Gateway.
-    apiKey: "unused",
-    baseUrl: resolveRemoteAgentAiGatewayOpenRouterBaseUrl(input.env),
-    contextWindow,
-    headers: buildRemoteAgentAiGatewayHeaders({
-      env: input.env,
-      metadata,
-    }) as Record<string, string>,
-    maxTokens,
-    models: {
-      [modelId]: {
-        contextWindow,
-        maxTokens,
+  setProvider(
+    createProvider({
+      id: providerId,
+      auth: {
+        apiKey: {
+          name: "OpenMeld AI Gateway",
+          resolve: async () => ({ auth: { apiKey: "unused" } }),
+        },
       },
-    },
-  });
+      api: createRemoteAgentModelCapabilitiesApi(),
+      models: [
+        declareRemoteAgentModelCapabilities({
+          id: modelId,
+          name: input.modelRoute?.displayName ?? modelId,
+          api: "openai-completions",
+          provider: providerId,
+          baseUrl: resolveRemoteAgentAiGatewayOpenRouterBaseUrl(input.env),
+          headers: buildRemoteAgentAiGatewayHeaders({
+            env: input.env,
+            metadata,
+          }) as Record<string, string>,
+          reasoning: input.modelRoute?.reasoningLevel !== "off",
+          input: input.modelRoute?.inputModalities ?? ["text", "image"],
+          cost: openRouterModel?.cost ?? {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+          },
+          contextWindow,
+          maxTokens,
+        }),
+      ],
+    })
+  );
   return {
     ...runtimeConfig,
     modelSpecifier: `${providerId}/${modelId}`,
@@ -680,10 +695,12 @@ function declareRemoteAgentModelCapabilities<
   };
 }
 
-function registerRemoteAgentModelCapabilitiesApi(): void {
+function createRemoteAgentModelCapabilitiesApi(): ReturnType<
+  typeof openAICompletionsApi
+> {
   const base = openAICompletionsApi();
-  registerApiProvider({
-    api: "openai-completions",
+  return {
+    ...base,
     stream: (model, context, options) => {
       const capabilities = registeredRemoteAgentModelCapabilities.get(
         model.provider
@@ -720,7 +737,7 @@ function registerRemoteAgentModelCapabilitiesApi(): void {
         signal: resolvedOptions?.signal,
       });
     },
-  });
+  };
 }
 
 function logCompletedEmptyProviderRetry(modelId: string): void {
@@ -873,14 +890,22 @@ const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
 const REMOTE_AGENT_SKILL_ACTIVATION_TOOL_NAME = "activate_skill";
 const REMOTE_AGENT_FOUNDATIONAL_READ_TOOL_NAMES = [
   "openmeld_list_organization_members",
-  "openmeld_list_center_agent_tasks",
-  "openmeld_get_center_agent_task",
 ] as const;
 const REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET = new Set<string>([
   ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
   ...REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
   ...REMOTE_AGENT_FOUNDATIONAL_READ_TOOL_NAMES,
   REMOTE_AGENT_SKILL_ACTIVATION_TOOL_NAME,
+  // Foundational Computer operations must be usable in a fresh conversation,
+  // without requiring the model to discover that it has its own Computer.
+  // This filters the authorized catalog; it never adds unavailable tools.
+  "read",
+  "write",
+  "edit",
+  "bash",
+  "grep",
+  "glob",
+  "computer_command",
 ]);
 
 function exposeRemoteAgentBootstrapTools(tools: unknown): unknown {
