@@ -490,7 +490,8 @@ the connected provider API.
    capabilities to the runtime and never becomes a model-visible business-action
    credential. An explicitly consented tenant `application:application:patch`
    scope may additionally support application setup; it does not add a runtime
-   tool or an App connection and is not requested by the default Channel bundle.
+   tool or an App connection. Registration requests this setup scope alongside
+   the unchanged Channel bundle in the provider's explicit consent flow.
    Core freezes a Lark/Feishu locator containing provider, connection, chat,
    root message, and optional native thread identity before admission. Only the
    provider adapter may interpret that locator, and every normal result returns

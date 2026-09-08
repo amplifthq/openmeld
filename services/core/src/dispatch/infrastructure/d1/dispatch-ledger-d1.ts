@@ -1,3 +1,4 @@
+import { isAgentWakeAdmissionPreparationPendingReason } from "@openmeld/agent-runtime";
 import {
   buildMentionDispatchResultEnvelope,
   buildRuntimeCoordinatorExecutionId,
@@ -111,6 +112,7 @@ export type OpenMeldDaemonDispatchAttemptClaimResult =
     }
   | {
       status: "deduped";
+      admissionInFlight?: boolean;
       hostedAdmissionRecoveryAttemptId?: string;
       hostedAdmissionRecoveryAttemptNo?: number;
       runtimeCoordinatorDecisionRequest?: RuntimeCoordinatorQueueDecisionRequest;
@@ -535,7 +537,9 @@ const commitDispatchAttemptClaim = async (input: {
   const [ledgerResult, attemptResult, supersedeResult] =
     await input.db.batch(statements);
   if (!didWriteRows(ledgerResult)) {
-    return { status: "deduped" };
+    // Losing an intake race does not prove the winner reached durable
+    // execution ownership. Keep the conveyor until a subsequent read can.
+    return { status: "deduped", admissionInFlight: true };
   }
   if (!didWriteRows(attemptResult)) {
     throw new Error(
@@ -1093,6 +1097,21 @@ const buildRecentOpenMeldDaemonOpsDecisionsQuery = (input: {
   };
 };
 
+const buildDedupedDispatchClaim = (
+  status: OpenMeldDaemonDispatchState | null,
+  latestAttempt: DispatchAttemptLedgerRow
+): OpenMeldDaemonDispatchAttemptClaimResult => {
+  const admissionInFlight =
+    (status === OPENMELD_DAEMON_DISPATCH_STATE.queued ||
+      status === OPENMELD_DAEMON_DISPATCH_STATE.dispatching) &&
+    (!latestAttempt ||
+      latestAttempt.status ===
+        OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.dispatching);
+  return admissionInFlight
+    ? { status: "deduped", admissionInFlight: true }
+    : { status: "deduped" };
+};
+
 export const claimDispatchAttempt = async (
   input: ClaimDispatchAttemptInput
 ): Promise<OpenMeldDaemonDispatchAttemptClaimResult> => {
@@ -1206,9 +1225,7 @@ export const claimDispatchAttempt = async (
       };
     }
     case "dedupe": {
-      return {
-        status: "deduped",
-      };
+      return buildDedupedDispatchClaim(existingStatus, latestAttempt);
     }
     case "reclaim_stale_dispatching": {
       if (!existing || lastAttemptAtMs === null) {
@@ -1345,7 +1362,7 @@ const resolveRuntimeCoordinatorQueueDecisionForClaim = (input: {
     return { kind: "allow" };
   }
   if (
-    shouldRetryRuntimeCoordinatorHeadAcceptAfterRetryableFailure({
+    shouldRetryPreExecutionAdmissionAfterRetryableFailure({
       claimDecision: input.claimDecision,
       latestAttempt: input.latestAttempt,
     })
@@ -1407,7 +1424,7 @@ const resolveRuntimeCoordinatorQueueDecisionTrigger = (
   }
 };
 
-const shouldRetryRuntimeCoordinatorHeadAcceptAfterRetryableFailure = (input: {
+const shouldRetryPreExecutionAdmissionAfterRetryableFailure = (input: {
   claimDecision: DispatchAttemptClaimDecision;
   latestAttempt: DispatchAttemptLedgerRow;
 }): boolean => {
@@ -1422,9 +1439,12 @@ const shouldRetryRuntimeCoordinatorHeadAcceptAfterRetryableFailure = (input: {
   return (
     input.latestAttempt?.status ===
       OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable &&
-    isRuntimeCoordinatorHeadLifecycleRetryableErrorCode(
+    (isRuntimeCoordinatorHeadLifecycleRetryableErrorCode(
       input.latestAttempt.errorCode
-    )
+    ) ||
+      isAgentWakeAdmissionPreparationPendingReason(
+        input.latestAttempt.errorCode ?? ""
+      ))
   );
 };
 

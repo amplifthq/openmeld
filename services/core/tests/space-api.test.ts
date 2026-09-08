@@ -58,6 +58,7 @@ import {
   markDispatchOutboxHandedOff,
 } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import { readSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
+import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import { Space } from "../src/space/transport/do/space";
 import { waitForJsonMessage } from "./test-support/ws-stream";
 
@@ -71,6 +72,8 @@ const AGENT_PROFILE_ID_REGEX =
   /^agt_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MEMBERSHIP_REQUIRED_RPC_ERROR_REGEX =
   /HTTP 403.*space\.membership_required/;
+const WAKE_STOP_FORBIDDEN_RPC_ERROR_REGEX =
+  /HTTP 403.*space\.wake_stop\.forbidden/;
 const DEFAULT_REQUEST_ID = "req-core-test";
 const DEFAULT_HUMAN_PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const SECOND_HUMAN_PROFILE_ID = "22222222-2222-4222-8222-222222222222";
@@ -906,6 +909,201 @@ describe("OpenMeld Core", () => {
     };
     expect(payload.code).toBe("auth.unauthenticated");
     expect(payload.message).toBe("authentication required");
+  });
+
+  it("authorizes Wake Stop and its progress projection for the requester or agent owner only", async () => {
+    // The unrelated account creates the Space: creation must not grant Stop.
+    const spaceId = await createSpace(undefined, {
+      profileId: THIRD_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      ownerUserId: "unrelated-owner",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    await runInDurableObject(stub, async (_instance, state) => {
+      const sourceSignalId = `wake-stop-source-${randomUUID()}`;
+      const targetProfileId = `agt_${randomUUID()}`;
+      insertSignalRecord(state.storage.sql, {
+        v: 1,
+        id: sourceSignalId,
+        spaceId,
+        ts: Date.now(),
+        type: "signal.text",
+        profile: {
+          kind: "human",
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+          profileName: "Requester",
+        },
+        data: { text: "Run this task." },
+      });
+      const resolveProfileById = vi.fn(
+        async ({ openMeldProfileId }: { openMeldProfileId: string }) => ({
+          ok: true as const,
+          profile: {
+            profileId: openMeldProfileId,
+            profileKind:
+              openMeldProfileId === targetProfileId
+                ? ("agent" as const)
+                : ("human" as const),
+            profileName: "Test profile",
+            profileHandle: "test-profile",
+            status: "active" as const,
+            ownerUserId:
+              openMeldProfileId === targetProfileId
+                ? "agent-owner"
+                : "owner-test-default",
+          },
+        })
+      );
+      const space = new Space(state, {
+        ...env,
+        OPENMELD_AUTH_WORKER: { resolveProfileById },
+      } as unknown as CoreBindings);
+      const stop = {
+        ok: true as const,
+        status: "cancelled" as const,
+        targetProfileId,
+        runtimeCoordinatorExecutionId: null,
+        stopMode: "openmeld_owned_pre_agent" as const,
+        cancellationState: {
+          status: "cancelled" as const,
+          observedAtMs: Date.now(),
+          reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+        },
+      };
+      const nativeStop = vi.fn(async () => null as typeof stop | null);
+      const preAgentStop = vi.fn(async () => stop);
+      const item = {
+        clientMessageId: "stop-permission-test",
+        dispatchId: "stop-permission-dispatch",
+        sourceSignalId,
+        targetProfileId,
+        targetLabel: "Test agent",
+        phase: "running" as const,
+        message: "Working",
+        updatedAtMs: Date.now(),
+        terminal: false,
+        wakeStopEligibility: {
+          status: "eligible" as const,
+          controlMode: "cancel" as const,
+          reliability: "native_cancel" as const,
+          reasonCode: null,
+        },
+      };
+      Object.defineProperties(space, {
+        readWakeStopDispatchLookup: {
+          value: async () => ({
+            matches: [
+              { dispatchId: item.dispatchId, sourceSignalId, targetProfileId },
+            ],
+          }),
+        },
+        requestRemoteAgentNativeDeliveryStop: { value: nativeStop },
+        requestPreAgentWakeStop: { value: preAgentStop },
+        readSpaceWakeProgress: {
+          value: async () => ({
+            query: {
+              spaceId,
+              clientMessageId: item.clientMessageId,
+              targetProfileId: null,
+            },
+            items: [item],
+          }),
+        },
+        readActiveSpaceWakeProgress: {
+          value: async () => ({
+            query: { spaceId, targetProfileId: null },
+            items: [item],
+          }),
+        },
+      });
+      for (const native of [false, true]) {
+        nativeStop.mockResolvedValue(native ? stop : null);
+        for (const by of ["source_signal", "client_message"] as const) {
+          for (const [profileId, ownerUserId, allowed] of [
+            [DEFAULT_HUMAN_PROFILE_ID, "owner-test-default", true],
+            [SECOND_HUMAN_PROFILE_ID, "agent-owner", true],
+            [THIRD_HUMAN_PROFILE_ID, "unrelated-owner", false],
+            [FOURTH_HUMAN_PROFILE_ID, "owner-test-default", true],
+          ] as const) {
+            nativeStop.mockClear();
+            preAgentStop.mockClear();
+            const context = createRpcContext({
+              profileId,
+              ownerUserId,
+              profileKind: "human",
+              requestId: "stop-authorization-test",
+            });
+            const request = space.rpcPostWakeStop({
+              spaceId,
+              context,
+              body: {
+                target:
+                  by === "source_signal"
+                    ? { by, sourceSignalId, targetProfileId }
+                    : {
+                        by,
+                        clientMessageId: item.clientMessageId,
+                        targetProfileId,
+                      },
+              },
+            });
+            if (allowed) {
+              await expect(request).resolves.toMatchObject({ ok: true });
+              expect(nativeStop).toHaveBeenCalledOnce();
+              expect(preAgentStop).toHaveBeenCalledTimes(native ? 0 : 1);
+            } else {
+              await expect(request).rejects.toThrow(
+                WAKE_STOP_FORBIDDEN_RPC_ERROR_REGEX
+              );
+              expect(nativeStop).not.toHaveBeenCalled();
+              expect(preAgentStop).not.toHaveBeenCalled();
+            }
+            for (const progress of [
+              await space.rpcGetWakeProgress({
+                spaceId,
+                context,
+                clientMessageId: item.clientMessageId,
+                includeWakeStopEligibility: true,
+              }),
+              await space.rpcGetActiveWakeProgress({
+                spaceId,
+                context,
+                includeWakeStopEligibility: true,
+              }),
+            ]) {
+              expect(progress.items[0]?.wakeStopEligibility).toEqual(
+                allowed ? item.wakeStopEligibility : null
+              );
+              expect(progress.items[0]?.phase).toBe("running");
+            }
+          }
+        }
+      }
+      nativeStop.mockClear();
+      preAgentStop.mockClear();
+      const anonymousAccess = createAnonymousViewerSpaceAccessContext({
+        spaceId,
+        requestId: "anonymous-stop",
+      });
+      await expect(
+        space.rpcPostWakeStop({
+          spaceId,
+          spaceAccess: anonymousAccess,
+          body: {
+            target: { by: "source_signal", sourceSignalId, targetProfileId },
+          },
+        })
+      ).rejects.toThrow("space.access.read_only");
+      const anonymousProgress = await space.rpcGetActiveWakeProgress({
+        spaceId,
+        spaceAccess: anonymousAccess,
+        includeWakeStopEligibility: true,
+      });
+      expect(anonymousProgress.items[0]?.wakeStopEligibility).toBeNull();
+      expect(nativeStop).not.toHaveBeenCalled();
+      expect(preAgentStop).not.toHaveBeenCalled();
+    });
   });
 
   it("routes Wake Stop POST requests to a typed response instead of 404", async () => {

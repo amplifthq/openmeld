@@ -10,6 +10,7 @@ const {
   exchangeComputerAuthorizationGrantMock,
   exchangeOneTimeTokenAuthSessionMock,
   getAuthSessionStateMock,
+  getAuthSessionMetadataMock,
   getInterruptedComputerAuthSessionRecoveryMock,
   markInterruptedComputerAuthSessionRecoveryMock,
   recordInterruptedComputerAuthSessionRecoveryFailureMock,
@@ -22,6 +23,8 @@ const {
   connectPrepareSessionStreamMock,
   reportPrepareHandoffStoppedMock,
   waitForExternalOpenMeldToolsUpdateMock,
+  readPendingDaemonServiceUpdateMock,
+  scheduleDaemonServiceUpdateMock,
 } = vi.hoisted(() => ({
   beginAuthSessionTransitionMock: vi.fn(),
   bestEffortStopCurrentLaneDaemonServiceMock: vi.fn(),
@@ -30,6 +33,7 @@ const {
   exchangeComputerAuthorizationGrantMock: vi.fn(),
   exchangeOneTimeTokenAuthSessionMock: vi.fn(),
   getAuthSessionStateMock: vi.fn(),
+  getAuthSessionMetadataMock: vi.fn(),
   getInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
   markInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
   recordInterruptedComputerAuthSessionRecoveryFailureMock: vi.fn(),
@@ -42,7 +46,19 @@ const {
   connectPrepareSessionStreamMock: vi.fn(async () => ({ close: vi.fn() })),
   reportPrepareHandoffStoppedMock: vi.fn(),
   waitForExternalOpenMeldToolsUpdateMock: vi.fn(),
+  readPendingDaemonServiceUpdateMock: vi.fn(),
+  scheduleDaemonServiceUpdateMock: vi.fn(),
 }));
+
+vi.mock("../src/local-service/lifecycle/daemon-service-update-state", () => ({
+  readPendingDaemonServiceUpdate: readPendingDaemonServiceUpdateMock,
+}));
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-update-coordinator",
+  () => ({
+    scheduleDaemonServiceUpdate: scheduleDaemonServiceUpdateMock,
+  })
+);
 
 vi.mock("../src/ui/confirm", () => ({
   promptConfirm: promptConfirmMock,
@@ -54,6 +70,7 @@ vi.mock("../src/config/auth-session", async (importOriginal) => ({
   completeInterruptedComputerAuthSessionRecovery:
     completeInterruptedComputerAuthSessionRecoveryMock,
   getAuthSessionState: getAuthSessionStateMock,
+  getAuthSessionMetadata: getAuthSessionMetadataMock,
   getInterruptedComputerAuthSessionRecovery:
     getInterruptedComputerAuthSessionRecoveryMock,
   markInterruptedComputerAuthSessionRecovery:
@@ -102,8 +119,12 @@ import {
   runComputerAuthorizationHandoff,
   runOneTimeTokenComputerHandoff,
 } from "../src/commands/computer-auth-handoff";
-import { recoverInterruptedComputerAuthHandoff } from "../src/commands/computer-auth-handoff-recovery";
+import {
+  recoverInterruptedComputerAuthHandoff,
+  waitForOpenMeldToolsUpdateBeforeComputerHandoff,
+} from "../src/commands/computer-auth-handoff-recovery";
 import { AuthSessionChangedBeforeTransitionError } from "../src/config/auth-session";
+import { OPENMELD_VERSION } from "../src/runtime/version";
 
 const candidateSession = {
   accessToken: "candidate-token",
@@ -143,12 +164,33 @@ const presenter = {
 } satisfies Presenter;
 
 describe("Computer authorization handoff", () => {
+  it("advances an older waiting update before joining it, never racing it", async () => {
+    readPendingDaemonServiceUpdateMock.mockResolvedValue({
+      jobId: "older-pending-update",
+      phase: "waiting_for_work",
+      targetVersion: "0.0.1",
+      urgency: "available",
+    });
+    await waitForOpenMeldToolsUpdateBeforeComputerHandoff({ presenter });
+    expect(scheduleDaemonServiceUpdateMock).toHaveBeenCalledWith({
+      targetVersion: OPENMELD_VERSION,
+      urgency: "available",
+      requestSource: "cli",
+    });
+    expect(
+      scheduleDaemonServiceUpdateMock.mock.invocationCallOrder[0]
+    ).toBeLessThan(
+      waitForExternalOpenMeldToolsUpdateMock.mock.invocationCallOrder[0] ?? 0
+    );
+  });
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    readPendingDaemonServiceUpdateMock.mockResolvedValue(null);
+    getAuthSessionMetadataMock.mockResolvedValue(null);
     resolveBaseUrlMock.mockResolvedValue("https://gateway.openmeld.test");
     resolveExternalOpenMeldToolsUpdateMock.mockResolvedValue(null);
     resolvePrepareSessionForHandoffMock.mockResolvedValue({
@@ -230,7 +272,7 @@ describe("Computer authorization handoff", () => {
     );
   });
 
-  it("waits for an existing OpenMeld update before starting a new Computer handoff", async () => {
+  it("opens the diagnostic transport before waiting, but does not exchange credentials during a switching update", async () => {
     let releaseUpdateWait: (() => void) | undefined;
     waitForExternalOpenMeldToolsUpdateMock.mockImplementationOnce(
       async () =>
@@ -243,7 +285,8 @@ describe("Computer authorization handoff", () => {
     await vi.waitFor(() => {
       expect(waitForExternalOpenMeldToolsUpdateMock).toHaveBeenCalledTimes(1);
     });
-    expect(resolvePrepareSessionForHandoffMock).not.toHaveBeenCalled();
+    expect(resolvePrepareSessionForHandoffMock).toHaveBeenCalledTimes(1);
+    expect(exchangeComputerAuthorizationGrantMock).not.toHaveBeenCalled();
 
     releaseUpdateWait?.();
     await expect(handoff).resolves.toEqual(
@@ -533,8 +576,11 @@ describe("Computer authorization handoff", () => {
       name: "AuthSessionRecoveryInProgressError",
     });
 
-    expect(resolveBaseUrlMock).not.toHaveBeenCalled();
-    expect(resolvePrepareSessionForHandoffMock).not.toHaveBeenCalled();
+    expect(resolveBaseUrlMock).toHaveBeenCalledTimes(1);
+    expect(resolvePrepareSessionForHandoffMock).toHaveBeenCalledTimes(1);
+    expect(reportPrepareHandoffStoppedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ reasonCode: "prepare.handoff_failed" })
+    );
     expect(exchangeComputerAuthorizationGrantMock).not.toHaveBeenCalled();
     expect(beginAuthSessionTransitionMock).not.toHaveBeenCalled();
     expect(runPrepareSessionExecutorMock).not.toHaveBeenCalled();
@@ -617,6 +663,32 @@ describe("Computer authorization handoff", () => {
     );
   });
 
+  it.each([
+    "session_token_unavailable",
+    "session_token_missing",
+  ])("recovers %s after fresh authorization without dropping account identity", async (reasonCode) => {
+    getAuthSessionStateMock.mockResolvedValueOnce({
+      reasonCode,
+      session: null,
+      state: "invalid",
+    });
+    const {
+      accessToken: _token,
+      tokenType: _type,
+      v: _version,
+      ...metadata
+    } = existingSession;
+    getAuthSessionMetadataMock.mockResolvedValueOnce(metadata);
+
+    await runAgentHandoff();
+
+    expect(beginAuthSessionTransitionMock).toHaveBeenCalledWith(
+      candidateSession,
+      expect.objectContaining({ expectedPreviousSession: metadata })
+    );
+    expect(runPrepareSessionExecutorMock).toHaveBeenCalled();
+  });
+
   it("fails closed when the current Computer account identity is missing", async () => {
     getAuthSessionStateMock.mockResolvedValueOnce({
       state: "valid",
@@ -634,14 +706,21 @@ describe("Computer authorization handoff", () => {
     );
   });
 
-  it("requires an interactive human confirmation for a cross-account switch", async () => {
+  it.each([
+    "valid",
+    "session_token_missing",
+    "session_token_unavailable",
+  ])("requires confirmation for a cross-account switch with %s credentials", async (reason) => {
+    const otherSession = {
+      ...existingSession,
+      user: { id: "user-other", email: "other@example.com" },
+    };
     getAuthSessionStateMock.mockResolvedValueOnce({
-      state: "valid",
-      session: {
-        ...existingSession,
-        user: { id: "user-other", email: "other@example.com" },
-      },
+      state: reason === "valid" ? "valid" : "invalid",
+      session: reason === "valid" ? otherSession : null,
+      reasonCode: reason,
     });
+    getAuthSessionMetadataMock.mockResolvedValueOnce(otherSession);
 
     await expect(runAgentHandoff()).rejects.toThrow(
       "Run the setup command in an interactive Terminal to review and confirm the account switch. The current Computer connection was not changed."

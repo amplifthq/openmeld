@@ -3,7 +3,10 @@ import {
   getLarkPlatformApiHost,
   requestLarkPlatformTenantAccessToken,
 } from "./lark-platform-openapi-client";
-import { LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE } from "./lark-platform-permission-bundles";
+import {
+  LARK_PLATFORM_APP_CONFIGURATION_SCOPE,
+  LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE,
+} from "./lark-platform-permission-bundles";
 
 const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
@@ -220,7 +223,7 @@ async function verifyChannelOnlyPermissionBundle(input: {
   }
   const expectedScopes = LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.scopes;
   // Explicit app-configuration consent is setup authority, not a Channel tool grant.
-  actualScopeNames.delete("application:application:patch");
+  actualScopeNames.delete(LARK_PLATFORM_APP_CONFIGURATION_SCOPE);
   if (
     actualScopeNames.size !== expectedScopes.length ||
     expectedScopes.some((scopeName) => !actualScopeNames.has(scopeName))

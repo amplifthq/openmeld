@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildDispatchOwnedRuntimeEnv,
   ensureDispatchOwnedRuntimeCliShims,
@@ -19,6 +19,7 @@ import { OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV } from "../src/runtime/dispatch-
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (!dir) {
@@ -140,6 +141,30 @@ describe("dispatch-owned runtime env", () => {
       `exec '${join(openMeldHome, "bin", "openmeld")}' "$@"`
     );
     expect(openMeldShim).not.toContain(`exec '${process.execPath}' "$@"`);
+  });
+
+  it("keeps the Service lane when provider environment contains only task overrides", () => {
+    const openMeldHome = mkdtempSync(`${tmpdir()}/dispatch-owned-runtime-`);
+    tempDirs.push(openMeldHome);
+    vi.stubEnv("OPENMELD_HOME", openMeldHome);
+    vi.stubEnv("OPENMELD_ENV_PRESET", "dev-local");
+    const env = buildDispatchOwnedRuntimeEnv({
+      dispatchId: "dispatch-first-wake",
+      targetProfileId: "agent-first-wake",
+      distribution: "binary",
+      env: { PROVIDER_SESSION: "session-1" },
+      spaceActionContextPath: join(openMeldHome, "action", "context.json"),
+    });
+    expect(env.OPENMELD_ENV_PRESET).toBe("dev-local");
+    expect(env.OPENMELD_HOME).toBe(openMeldHome);
+    const commandPath = env.OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH;
+    if (!commandPath) {
+      throw new Error("Dispatch reply command was not provided");
+    }
+    const shim = readFileSync(commandPath, "utf8");
+    expect(shim).toContain(
+      `exec '${join(openMeldHome, "bin", "openmeld")}' "$@"`
+    );
   });
 
   it("embeds dispatch identity and context into dispatch-scoped shims", () => {

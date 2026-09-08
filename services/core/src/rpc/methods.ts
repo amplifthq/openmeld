@@ -8504,6 +8504,7 @@ export async function rpcBeginLarkPlatformRegistration(
     const response = await beginRemoteAgentLarkPlatformRegistration({
       ...request,
       repairExisting: input.mode === "repair",
+      reauthorize: input.mode === "reauthorize",
       env,
       restartPending: input.mode === "restart",
     });

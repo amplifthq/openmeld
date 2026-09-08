@@ -86,6 +86,15 @@ over that same PID's managed executable path when classifying lifecycle owners.
 Using an installed binary does not itself mean the OS service manager started
 it. Other PIDs and an actually running manager remain independent evidence.
 
+Isolated Service smoke must use the development or Canary entry point, not
+borrow the installed Production binary with a different `OPENMELD_HOME` or
+environment preset. Service startup rejects that mixed launch before entering
+the carrier. This guard prevents an unsupported test launch from appearing in
+Production's process inventory; it is not a replacement for account, device,
+runtime, connection, or same-installation duplicate-owner checks. Normal
+Production startup and separately installed development/Canary lanes remain
+supported. A home override alone does not prove process or remote isolation.
+
 OpenMeld Service does not own:
 
 - Space truth
@@ -958,6 +967,17 @@ that decision.
   candidate. OpenMeld Service uses the committed Computer session when it starts
   at login. The handoff must not be used to add an
   agent-selection step to Web.
+  A missing or unreadable old bearer token does not veto a freshly authorized
+  handoff when the committed account metadata is intact. Metadata is used only
+  for account-switch consent and the locked identity comparison, never to
+  authorize execution. Rollback preserves the original payload, but does not
+  restart a Service with an unreadable credential. Recovery must not reread an
+  already revoked candidate token merely to finish local cleanup.
+  If the committed account cannot be identified, setup remains blocked with
+  an explicit local sign-out action. Explicit logout preserves malformed
+  session JSON in a uniquely named file in the same auth directory before
+  removing it from the active session path; it does not guess Keychain items
+  from damaged metadata or clear unrelated application data.
   A candidate Service may run from its prepared stable carrier before the OS
   service definition is committed. Setup repair and rollback must still drain
   and stop that process; an absent definition means there is no autostart state
@@ -1340,6 +1360,11 @@ it must not rebuild the device-scoped Binding answer from per-profile reads.
 
 Catalog consumption rules:
 
+- An explicit catalog-change signal starts the existing single-flight catalog
+  refresh independently of an in-flight heartbeat. New route registration
+  must not wait for old-lease renewal or its local maintenance inspection.
+  Changes arriving during a catalog refresh remain pending until that refresh
+  finishes; heartbeat completion must not consume that pending work.
 - The projection response is operation-scoped evidence. It is never persisted,
   and the route catalog cache remains a failure fallback only.
 - Carrier startup and periodic catalog refresh only check existing local
@@ -1941,6 +1966,13 @@ coordinator. The initiating browser or Terminal is not a lifecycle owner: it
 may close immediately after the durable handoff, and the OS worker must resume
 the same job after its own crash, sign-in, or computer restart.
 
+When the control endpoint is absent, the update worker delegates to the existing
+locked lifecycle checks rather than waiting forever for an absent Service to
+answer readiness. This does not authorize force-killing a live Service: controlled
+drain or verified runtime absence remains required. Setup joins pending updates;
+a newer Setup advances an older waiting job through that same coordinator before
+joining it, so an old worker cannot replace a newly connected Service afterward.
+
 That update job is the single operation truth. Its safe projection reports one
 of `waiting_for_work`, `updating`, `updated`, `restored`, or `needs_help` plus
 the opaque operation id, request source, target version, urgency, and
@@ -1959,6 +1991,12 @@ retain that exact operation and verify both CLI and Service at its target before
 presenting **Up to date** or allowing Setup or Prepare to report completion.
 Same-operation observations are ordered by `updatedAt` and phase, so a stale
 projection cannot move visible progress backward.
+An explicit later repair may establish a fresh running, anomaly-free Service at
+the current CLI version. Setup may use that verified replacement to recover
+from a completed historical failed update at that version or older; it must
+retain the historical failure and must not apply this exception to an in-flight
+update or merely installed artifacts. Account alignment remains independently
+required by the participation gate.
 Because runtime capability payloads are strict, rollout deploys the accepting
 Schemas and Core before publishing a Service that emits `updateOperation`.
 New Core accepts older Services that omit it; rollback removes the new local
@@ -2141,7 +2179,10 @@ evidence while background reconnect attempts continue.
 A Service advertises it only when it can keep a `post_message` result as an
 unpublished proposal, receive `review_required`, remove that proposal from the
 result outbox, read a bounded Space delta, and resume the exact Agent Controller
-conversation. The same execution slot stays active across review. Review never
+conversation. Each review carries the original source message, source signal ID,
+and target Profile alongside the bounded newer-message delta. The original Wake
+remains the assignment; another Agent's contribution is context, not a new
+activation or a transfer of task ownership. The same execution slot stays active across review. Review never
 starts a new Wake, repeats completed tools, or creates a second result store.
 Older Services omit the capability and must never receive the new response
 status.

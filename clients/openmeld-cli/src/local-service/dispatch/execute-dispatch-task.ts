@@ -3634,6 +3634,11 @@ async function coordinateConcurrentAgentReply(input: {
 
   const coordinated = await coordinateDispatchAgentReply({
     action: input.resolvedSpaceAction,
+    originalWake: {
+      sourceSignalId: input.parsedTask.sourceEventId,
+      targetProfileId: input.parsedTask.targetProfileId,
+      text: input.parsedTask.prompt,
+    },
     currentValue: {
       provenance: input.resolvedSpaceActionProvenance,
       runtimeResult: input.runtimeResult,

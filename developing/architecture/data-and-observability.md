@@ -2134,7 +2134,7 @@ Feishu are explicit provider values even though the repositories share the
 `openMeldRemoteAgent_lark_platform_*` table family.
 
 A short-lived registration-attempt row stores the encrypted device code,
-expected provider, current provider account domain, due time, interval, expiry,
+expected provider, current registration poll domain, due time, interval, expiry,
 poll lease, requested permission-bundle version, canonical lifecycle status,
 and bounded failure reason in the Core local-state domain. Core's independently
 isolated, bounded minute tick lists due attempts from that owner database, and
@@ -2145,6 +2145,22 @@ faster feedback, but the lease keeps the scheduler and Web on one write path.
 `slow_down` advances the interval; expiration, denial, brand mismatch, and
 unknown response fail closed. Web owns no in-memory poll process, and closing
 or reloading it cannot stop a durable attempt.
+
+The provider is selected before registration and never inferred as a routing
+choice from the logged-in identity. Both brands use the shared Feishu issuer;
+only an already selected Lark attempt may transition to Lark polling after a
+matching brand signal. Begin/resume retains pending legacy registrations;
+changing the browser launcher does not retire their codes or create another
+attempt. Only an explicit authorized restart uses atomic retirement/insertion.
+Credentials and connected channels are unchanged.
+
+Pending Lark attempts retain the shared-issuer URL in storage and HTTP so old
+readers and rolled-back Core remain compatible. Core validates stored URLs
+before HTTP projection; Web selects the Lark browser host without changing the
+user code or attempt. Corrupt ciphertext or a mismatched
+encryption key still raises its diagnostic error. Recovery uses an explicit,
+authorized pending restart; no catch converts a decryption failure into an
+automatic provider registration or conceals a key-configuration problem.
 
 Before each scheduled continuation, Core reads the canonical Organization
 Personal classification. An unavailable or malformed classification fails
@@ -2870,8 +2886,13 @@ kept), filtered daemon-system-service.log tail, inventory anomaly codes, and
 service-manager job evidence. The bundle is best-effort failure evidence for
 production diagnosis only:
 
-- Core emits it as one structured `[prepare.diagnostics]` Worker log line and
-  must not persist it. It never enters prepare-session snapshots, events, D1,
+- Core emits one JSON object with `message: "[prepare.diagnostics]"` and
+  `event: "core.openmeld.setup.step_failed"`, including failures without a bundle
+  (`diagnosticsAbsent: true`). Do not prepend text to serialized JSON: Workers
+  Logs must index the object's fields, not bury them in a message string.
+  Each event includes server-verified `ownerUserId`, `prepareSessionId`,
+  `connectionEpoch`, `sessionRevision`, `deviceId`, `stepId`, and `reasonCode`.
+  The bundle is not persisted. It never enters prepare-session snapshots, events, D1,
   or any projection.
 - It must never feed availability, readiness, or Wake decisions.
 - `packages/schemas` owns the diagnostics bundle content contract and shared
@@ -2901,6 +2922,27 @@ production diagnosis only:
   shared redaction again after validation and before logging.
 - The attach is best-effort end to end: the base step-failure report must not
   depend on diagnostics collection or delivery succeeding.
+
+Setup opens its Prepare diagnostic connection before waiting for maintenance or
+recovering an interrupted account transition. These early failures use the same
+failed-step write; they do not require the damaged old Computer credential.
+When available, `nativeFailure.osStatus` preserves the immediate macOS error
+through wrapped exceptions without uploading the exception text. This optional
+field is stripped safely by older Core versions.
+
+For support, resolve the reported email to its verified Auth user ID, then filter
+Workers Logs by `event = core.openmeld.setup.step_failed` and `ownerUserId`.
+Use the Prepare session and connection epoch to distinguish retries; inspect
+the reason code, native status, CLI version, inventory anomalies and lifecycle
+evidence together. Never infer revoked credentials from `session_token_unavailable`.
+For proactive triage, group this event by reason code and CLI version, then
+count affected owner/device IDs rather than heartbeat volume. No email is copied
+into the diagnostic event. Collection opt-out omits the bundle, not the ordinary
+server-side failure record. Failures before the bootstrap can contact Core, or
+while the network is entirely unavailable, cannot be claimed as cloud evidence.
+Workers Logs retention is bounded (currently up to seven days); it is not a
+permanent audit archive. Retain incident evidence through the approved diagnostic
+workflow before it expires.
 
 ## Cloudflare Runtime Evidence
 

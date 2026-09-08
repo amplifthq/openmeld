@@ -298,7 +298,7 @@ type SpaceThreadPanelProps = {
 export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 	return (
 		<SpaceWakeStopScope
-			key={input.activeThread?.threadId}
+			key={`${input.activeThread?.threadId}:${input.selfProfileId}`}
 			progressItems={input.ephemeralActivityItems}
 			stopRequestStatusBySelectorKey={input.wakeStopRequestStatusBySelectorKey}
 		>
@@ -693,7 +693,6 @@ function useThreadMessageDetailsController(input: {
 						item: messageDetailsItem,
 						stopRequestStatusBySelectorKey:
 							input.wakeStopRequestStatusBySelectorKey,
-						targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
 						timelineItems: input.rawThreadTimelineItems,
 						wakeOutcomeIndex: input.wakeOutcomeIndex,
 						wakeProgressItems: input.ephemeralActivityItems,
@@ -1358,7 +1357,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				item: wakePresentationItem,
 				stopRequestStatusBySelectorKey:
 					input.wakeStopRequestStatusBySelectorKey,
-				targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
 				timelineItems: input.allItems,
 				wakeOutcomeIndex: input.wakeOutcomeIndex,
 				wakeProgressItems: input.ephemeralActivityItems,

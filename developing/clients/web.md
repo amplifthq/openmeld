@@ -1194,6 +1194,20 @@ reads the canonical projection.
 
 Lark and Feishu use an in-page Personal Agent wizard:
 
+The selected entry fixes the provider. Setup copy asks for that provider's
+account; returned links must pass the shared-issuer/selected-provider schema.
+Web changes only the validated link's host to the selected platform for the
+browser. Shared-issuer HTTP URLs keep old Gateway and Web readers compatible,
+and new Web also handles old Core without a registration restart. A detected
+brand mismatch names the selected and returned brands and offers Start over
+after switching accounts. It must not silently change the selected provider or
+keep presenting a brand mismatch as approval still pending.
+
+If initial begin/resume fails before a registration can be displayed, the
+dialog preserves the error and offers managers an explicit Start over action.
+The action keeps the selected provider and uses the existing authorized restart
+mode. It never automatically retries a corrupt or unreadable registration.
+
 1. explain that this is a Channel connection, not access to Docs, Calendar,
    Mail, Tasks, or other business data;
 2. start a Core-owned resumable registration attempt;
@@ -1260,10 +1274,20 @@ While Core is retrying configuration, the dialog shows the latest bounded
 verification failure in plain language instead of presenting an unexplained
 spinner for the rest of the configuration window.
 When configuration requires additional setup permission, the dialog explicitly
-asks the manager to grant `application:application:patch` in the selected
-provider's Developer Console and provides that console link. It does not imply
-that waiting can grant permission. Core retains its existing bounded retries
-so setup can continue after the manager grants access.
+offers **Reauthorize Feishu** or **Reauthorize Lark**, which opens official
+consent for the existing app with the updated setup permission bundle. It does
+not send the user to Developer Console to edit permissions manually. Core
+retains its bounded retries and verifies configuration after consent.
+The Channel card must show **Authorization required** and **Review authorization**
+for this reason, rather than implying that passive waiting will finish setup.
+Non-managers see that a manager must approve it. The dialog explains the scope
+and offers **I've authorized, check again** using the existing poll action;
+the click itself is not proof of consent or connection. New setup links include
+the configuration scope in the provider's initial consent page, and the Web
+introduction discloses message and app-configuration permissions together.
+Managers can cancel an unfinished setup even when another manager started it;
+cancellation retires its Core-owned attempt and prevents late polls from
+reviving it. Expired attempts do not keep the Channel card in Connecting.
 
 The Lark and Feishu cards are enabled in local and production configuration
 for every Organization. Staging keeps both providers disabled.
@@ -3716,23 +3740,24 @@ A permanent hosted-publication ambiguity is presented as
 reply and spinner, shows that OpenMeld could not confirm whether the final reply
 was posted, and asks the user to inspect the Space before trying again.
 
-Web may expose a Wake Stop intent as soon as a sent structured Wake has a single
-Space-visible target selector. Web must still opt in to `wakeStopEligibility`
-when reading Wake progress and active Wake progress, and explicit not-eligible
-or unsupported Core projections remain fail-closed. A missing
-`wakeStopEligibility` projection is only a temporary visibility gap: Web may let
-the user request Stop through the normal selector, but Core remains the only
-authority that decides whether the request becomes OpenMeld-owned pre-agent Stop,
-controller-backed running Stop, retry-later, unsupported, or not-stoppable.
-Web must not infer stopped, cancelled, or controller support from local browser
-state, controller labels, or a previous Stop response.
+Web opts in to `wakeStopEligibility` when reading Wake progress and active Wake
+progress. This is a viewer-scoped Core projection: only the Wake requester's
+account or the target Agent Profile's owner, with writable Space access, may
+receive Stop eligibility. Null or missing eligibility hides Stop in the timeline,
+details, and multi-target controls. A sent message, its age, a previous Stop
+response, and other accounts signed in on the same computer never grant Stop
+authority. Progress caches remain scoped to the current acting Profile.
+Core rechecks the same authorization rule on every Stop request before any
+pre-agent, controller, or native-delivery cancellation. Web must not infer
+stopped, cancelled, or controller support from local browser state or labels.
 
 The Wake Stop request path is `POST /v1/spaces/:spaceId/wake-stop`. Web sends
 only `sourceSignalId` or `clientMessageId + targetProfileId`, never
 `dispatchId`, task ids, or RuntimeCoordinator execution ids. A typed
 `unsupported`, `not_stoppable`, `not_found`, or `retry_later` response is product
-state. A raw HTTP 404 is a route/deployment/proxy problem, not normal Wake Stop
-unsupported behavior.
+state. HTTP 403 with `space.wake_stop.forbidden` means the current account is
+neither the requester nor the Agent owner. A raw HTTP 404 is a route/deployment/proxy
+problem, not normal Wake Stop unsupported behavior.
 
 Web must not show `cancellation_requested` as stopped. It may show a low-noise
 stopping state while waiting for Core to project a stopped progress phase or a

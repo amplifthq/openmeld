@@ -92,6 +92,7 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
   nowMs?: number;
   provider: RemoteAgentLarkPlatformProvider;
   repairExisting?: boolean;
+  reauthorize?: boolean;
   restartPending?: boolean;
 }): Promise<LarkPlatformRegistrationResponse> {
   const nowMs = input.nowMs ?? Date.now();
@@ -102,6 +103,13 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
     provider: input.provider,
   });
   const createId = input.createId ?? (() => crypto.randomUUID());
+  if (input.reauthorize) {
+    return await reauthorizeExistingRegistration({
+      ...input,
+      cryptoKey: configuration.cryptoKey,
+      nowMs,
+    });
+  }
   let activeAttempt =
     await readActiveRemoteAgentLarkPlatformRegistrationAttempt({
       db: input.db,
@@ -122,9 +130,7 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
       attempt: activeAttempt,
       provider: input.provider,
     });
-    if (input.repairExisting && activeAttempt.connectionId === null) {
-      throw serviceError(input.provider, "repair_unavailable", 409);
-    }
+    assertRepairableAttempt(input.repairExisting, activeAttempt);
     if (
       !(input.restartPending && activeAttempt.status === "pending_registration")
     ) {
@@ -222,6 +228,75 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
     attempt,
     cryptoKey: configuration.cryptoKey,
     db: input.db,
+  });
+}
+
+function assertRepairableAttempt(
+  repairExisting: boolean | undefined,
+  attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord
+): void {
+  if (repairExisting && attempt.connectionId === null) {
+    throw serviceError(attempt.provider, "repair_unavailable", 409);
+  }
+}
+
+async function reauthorizeExistingRegistration(input: {
+  actor: RegistrationActor;
+  cryptoKey: string;
+  db: D1Database;
+  fetchImpl?: typeof fetch;
+  nowMs: number;
+  provider: RemoteAgentLarkPlatformProvider;
+}): Promise<LarkPlatformRegistrationResponse> {
+  const attempt = await readActiveRemoteAgentLarkPlatformRegistrationAttempt({
+    db: input.db,
+    organizationId: input.actor.organizationId,
+    provider: input.provider,
+  });
+  assertAttemptAuthority({
+    actor: input.actor,
+    attempt,
+    provider: input.provider,
+  });
+  if (
+    !attempt?.connectionId ||
+    attempt.status !== "configuring" ||
+    attempt.failureReasonCode !==
+      `${input.provider}.application_config_permission_required`
+  ) {
+    throw serviceError(input.provider, "repair_unavailable", 409);
+  }
+  const connection = await readRemoteAgentLarkPlatformChannelConnection({
+    db: input.db,
+    connectionId: attempt.connectionId,
+  });
+  if (
+    !connection ||
+    connection.organizationId !== input.actor.organizationId ||
+    connection.provider !== input.provider
+  ) {
+    throw serviceError(input.provider, "registration_connection_invalid", 503);
+  }
+  // Consent updates this existing app. Its stored credentials remain authoritative;
+  // the normal configuration worker verifies the grant before declaring success.
+  const started = await beginLarkPlatformRegistration({
+    appId: connection.appId,
+    appDescription:
+      "Connect your OpenMeld Center Agent to conversations in your workspace.",
+    appName: "OpenMeld Center Agent",
+    expectedProvider: input.provider,
+    fetchImpl: input.fetchImpl,
+    nowMs: input.nowMs,
+    source: "openmeld-core",
+  });
+  const response = await projectRegistrationResponse({
+    attempt,
+    cryptoKey: input.cryptoKey,
+    db: input.db,
+  });
+  return larkPlatformRegistrationResponseSchema.parse({
+    ...response,
+    attempt: { ...response.attempt, registrationUrl: started.registrationUrl },
   });
 }
 
@@ -330,6 +405,7 @@ export async function disconnectRemoteAgentLarkPlatformRegistration(input: {
 
 export async function listRemoteAgentActiveLarkPlatformRegistrations(input: {
   db: D1Database;
+  nowMs?: number;
   organizationId: string;
   providers: readonly RemoteAgentLarkPlatformProvider[];
   viewer: RegistrationActor & { canManage: boolean };
@@ -345,7 +421,7 @@ export async function listRemoteAgentActiveLarkPlatformRegistrations(input: {
     )
   );
   return attempts.flatMap((attempt) =>
-    attempt
+    attempt && attempt.expiresAtMs > (input.nowMs ?? Date.now())
       ? [
           larkPlatformActiveRegistrationProjectionSchema.parse({
             canResume:

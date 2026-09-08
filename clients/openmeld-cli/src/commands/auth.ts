@@ -973,6 +973,13 @@ export async function runAuthLogout(input?: {
     presenter,
   });
   const cleared = await clearAuthSession();
+  if (cleared.preservedSessionPath) {
+    presenter.line({
+      code: "auth.logout.damaged_session_preserved",
+      text: "The damaged sign-in record was saved locally for support. OpenMeld could not identify its old credential. You can review old sign-ins in Account sessions.",
+      data: { preservedSessionPath: cleared.preservedSessionPath },
+    });
+  }
   if (!cleared.hadLocalSession) {
     presenter.line({
       code: "auth.logout.no_session",
@@ -983,7 +990,7 @@ export async function runAuthLogout(input?: {
 
   presenter.line({
     code: "auth.logout.cleared",
-    text: "Signed out on this device.",
+    text: "Signed out on this device. To reconnect, get a new setup command from OpenMeld Web.",
   });
 }
 

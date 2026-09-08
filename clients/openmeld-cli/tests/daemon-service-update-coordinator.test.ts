@@ -43,7 +43,10 @@ const PREPARED_BUNDLE = {
 };
 
 describe("daemon service background update coordinator", () => {
-  it("upgrades an old 0.3.153 Service through the candidate CLI worker contract bridge", async () => {
+  it.each([
+    "daemon.control.contract_mismatch",
+    "daemon.control.endpoint_missing",
+  ])("delegates %s to guarded lifecycle instead of waiting forever", async (code) => {
     const pending: DaemonServiceUpdateJob = {
       v: 2,
       schema: "openmeld-daemon-service-update-job-v2",
@@ -67,8 +70,8 @@ describe("daemon service background update coordinator", () => {
     const requestReadiness = vi.fn(() =>
       Promise.reject(
         new LocalDaemonControlPlaneClientError(
-          "daemon.control.contract_mismatch",
-          "OpenMeld Service 0.3.153 predates service_update_readiness"
+          code,
+          "Service cannot answer readiness"
         )
       )
     );

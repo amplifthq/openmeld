@@ -2814,6 +2814,10 @@ const handleDedupedDispatchClaim = async (input: {
   message: QueueBatchMessage;
   queueAttempt: number;
 }): Promise<DispatchQueueMessageExecutionResult> => {
+  if (input.claimState.admissionInFlight) {
+    retryQueueMessage(input.message, { delaySeconds: 1 });
+    return { controllerWaitPromise: null, shouldAck: false };
+  }
   if (input.claimState.runtimeCoordinatorDecisionRequest) {
     const coordinatorDecision = await triggerRuntimeCoordinatorQueueDecision({
       claimState: input.claimState,

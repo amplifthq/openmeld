@@ -261,7 +261,9 @@ function resolveSpaceComposerBlockedWakeHint(
 ): string | null {
 	const blockedWakeTarget = targets.find(
 		(target) =>
-			target.relation === "wake" && target.wakeAvailability.status !== "ready"
+			target.relation === "wake" &&
+			target.wakeAvailability.status !== "ready" &&
+			target.wakeAvailability.status !== "preparing"
 	);
 	if (!blockedWakeTarget) {
 		return null;

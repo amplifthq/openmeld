@@ -2376,8 +2376,16 @@ rejects denied, duplicate, user-token, or unrelated business scopes. The one
 explicitly granted tenant scope `application:application:patch` may additionally
 be present for application configuration. It is setup authority only and never
 becomes a Center Agent tool grant or an App connection. The default registration
-bundle does not request it automatically; an operator must explicitly consent
-before it is granted.
+bundle remains limited to Channel capabilities. New registration links request
+this additional setup scope in the provider consent page, where the operator
+must explicitly confirm it before it is granted. Older applications missing
+the scope retain their credentials and require explicit additional consent.
+The additive `reauthorize` begin mode returns a fresh official launcher URL
+for the existing app (`clientID`, without `createOnly`). Only this explicit
+request may return a URL while configuring with the missing-permission reason.
+Normal poll/resume responses remain unchanged for older clients. The URL does
+not mark consent complete: the existing Core configurator still verifies the
+permission and Webhook delivery using the stored app credentials.
 
 Provider configuration refusal `99991672` becomes the bounded reason
 `<provider>.application_config_permission_required`, including when delivered
@@ -2459,7 +2467,9 @@ back in the reverse order.
 
 Lark-platform registration begin has three explicit modes: `resume`,
 `restart`, and `repair`. `resume` is the compatibility default and returns the
-current active attempt. `restart` may replace only a `pending_registration`
+current active attempt. A legacy shared-issuer launcher does not restart an
+attempt: Web selects the browser host while preserving its user code and all
+other URL parameters. `restart` may replace only a `pending_registration`
 attempt owned by the requesting Human Profile in the active Organization. It
 never replaces an attempt after credential receipt or while connection
 configuration is running. `repair` is accepted only for a `repair_required` or
@@ -2476,6 +2486,41 @@ without receiving the now-hidden setup URL. A repair attempt records that
 current manager as its initiator while connection installation ownership stays
 unchanged. The Gateway validates the mode before Core, and Core remains the
 only writer of attempt lifecycle state.
+
+The selected provider fixes registration routing. The shared
+`lark-platform-registration-domains.json` contract maps Feishu to
+`accounts.feishu.cn` and `open.feishu.cn`, and Lark to
+`accounts.larksuite.com` and `open.larksuite.com` for brand-specific polling and
+launcher destinations. Both providers begin at the shared issuer
+`accounts.feishu.cn`: direct Lark issuance still produces invalid launcher
+links in the real browser gate. Core validates the shared issuer's Feishu URL
+and user code, retaining the shared issuer URL in storage and HTTP responses.
+Web sets only the browser launcher host to the selected provider after response
+validation. This presentation does not change registration identity or authority.
+Polling starts at the shared issuer and may move to the Lark account host only
+after the returned brand matches an already selected Lark attempt. This is a
+protocol transport transition; it never changes the selected provider.
+Any reported conflicting brand is rejected before
+credentials are persisted, including a brand reported while authorization is
+still pending. Provider-side redirects remain an external behavior that requires
+real browser verification; changing the initial host is not proof that a
+provider's app-creation UI enforces the intended brand. The provider login UI
+offers a cross-brand sign-in link, so OpenMeld cannot claim that the external
+page prevents creation of a wrong-brand app. It must reject that app when the
+registration protocol reports the mismatch.
+
+Contract impact: payload fields and the emitted shared-issuer URL stay compatible
+with old Gateway, Web, and API-client readers. New readers accept that URL plus
+the selected provider's launcher, with the same HTTPS, path, user-code, and
+credential/fragment restrictions. Core validates stored URLs before returning
+them without host rewriting. New registrations store
+the shared issuer URL so rolling Core back does not strand pending attempts.
+Use the normal Web, Gateway, Core cloud order; either old/new reader/producer
+combination remains readable. Old browser tabs retain their previous launcher
+behavior until reloaded; new Web selects the correct launcher even with old Core.
+The early brand-mismatch refusal requires new Core. Existing
+connected-channel delivery, CLI setup, workstation Wake and Service contracts
+are unchanged; no daemon epoch change is implied by this URL contract.
 
 The runtime schema owns a discriminated locator for every provider. A new
 generic Message Channel delivery freezes that locator in Core and uses
@@ -4036,7 +4081,15 @@ RuntimeCoordinator, RuntimeTransportHub, and the local OpenMeld Service.
 
 `packages/schemas/src/schemas/http/space-wake-progress.ts` owns the Wake
 progress read model, including the optional `startedAtMs` timing projection and
-the optional `wakeStopEligibility` projection. A caller may also opt into
+the optional `wakeStopEligibility` projection. This existing nullable field is
+a viewer-scoped projection of authorization and stopping capability. Null means
+no Stop control is available to this viewer; omission means it was not projected
+and must not grant authority. Core filters eligibility through the same policy
+that protects `POST /v1/spaces/:spaceId/wake-stop`. Unauthorized Stop requests use
+the existing HTTP 403 error envelope with `space.wake_stop.forbidden`. No new
+runtime payload or local-component contract is introduced.
+
+A caller may also opt into
 `sourceContext`, which contains only the Space-owned requester Profile ID, kind,
 display name, sanitized public source-message preview, and nullable thread ID.
 Active reads may filter by one `sourceProfileId`. New dispatch-ledger and native
