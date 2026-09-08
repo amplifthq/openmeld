@@ -1,3 +1,4 @@
+import { isAgentWakeAdmissionPreparationPendingReason } from "@openmeld/agent-runtime";
 import {
   computeDispatchRetryDelaySeconds,
   DISPATCH_OFFLINE_RETRY_BACKOFF_SECONDS,
@@ -229,7 +230,10 @@ export const resolveDispatchRetryDelaySeconds = (input: {
 };
 
 export const isOfflineRetryErrorCode = (errorCode: string): boolean => {
-  return matchesErrorCode(errorCode, DISPATCH_OFFLINE_RETRY_ERROR_CODES);
+  return (
+    isAgentWakeAdmissionPreparationPendingReason(errorCode) ||
+    matchesErrorCode(errorCode, DISPATCH_OFFLINE_RETRY_ERROR_CODES)
+  );
 };
 
 const toErrorCode = (error: unknown): string | null => {

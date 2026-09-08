@@ -14,11 +14,11 @@ describe("resolveWakeProgressStatus", () => {
 		["sending", "Starting Wake for runner…", "starting"],
 		["request_sent", "Wake sent to runner", "sent"],
 		["queued", "runner is queued", "queued"],
-		["connecting", "Connecting to runner…", "connecting"],
+		["connecting", "Preparing runner…", "connecting"],
 		["retrying", "Trying to reach runner…", "retrying"],
 		["running", "runner is working", "working"],
 		["writing", "runner is replying", "replying"],
-		["publishing", "Posting reply from runner…", "posting"],
+		["publishing", "runner · Posting reply…", "posting"],
 	] as const)("maps %s without collapsing its meaning", (phase, label, kind) => {
 		expect(
 			resolveWakeProgressStatus(createWakeProgressItem({ phase }))
@@ -95,6 +95,22 @@ describe("resolveWakeProgressStatus", () => {
 	] satisfies WakeProgressItem["phase"][])("does not turn terminal %s into active progress", (phase) => {
 		expect(
 			resolveWakeProgressStatus(createWakeProgressItem({ phase }))
+		).toBeNull();
+	});
+
+	it.each([
+		"failed",
+		"publication_unknown",
+		"replied",
+		"stopped",
+	] as const)("does not revive terminal %s from an earlier controller wait", (phase) => {
+		expect(
+			resolveWakeProgressStatus(
+				createWakeProgressItem({
+					phase,
+					waitReasonCode: "runtime.agent_controller_conversation.occupied",
+				})
+			)
 		).toBeNull();
 	});
 });

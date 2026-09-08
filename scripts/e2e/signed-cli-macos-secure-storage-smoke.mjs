@@ -68,9 +68,11 @@ export async function smokeSignedMacOsSecureStorage(input) {
 
     const status = await runCli({
       args: ["auth", "status", "--view", "agent"],
-      command: input.outFile,
+      command: input.upgradedOutFile ?? input.outFile,
       env,
-      label: "reload the saved auth session in a new CLI process",
+      label: input.upgradedOutFile
+        ? "reload the previous version's secure session with the upgraded CLI"
+        : "reload the saved auth session in a new CLI process",
     });
     if (
       !(
