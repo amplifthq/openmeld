@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T05:09:05.493Z",
+  "updatedAt": "2026-09-08T08:44:46.636Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
-      "packageVersion": "0.3.170",
+      "packageVersion": "0.3.173",
       "updatePolicy": "available",
-      "reason": "Commands and external payloads remain compatible with both cloud versions; this release changes internal reply review context only."
+      "reason": "The additive Feishu and Lark reauthorization request is Web-only; existing CLI commands and all normal responses remain compatible."
     },
     "service": {
-      "bundleHash": "82a2d95f49e0ef5095755c1cc93d26b455cd7e3d09efbc83cbb0975ed3d601ba",
-      "bundleVersion": "0.3.170",
+      "bundleHash": "deae72dc1ce84dbfe0ab99c586d3f29cbf73435af65fa5787d92b68ddecf3f55",
+      "bundleVersion": "0.3.173",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services remain protocol-compatible and cloud finalization safely closes accepted results; new Services preserve original Wake ownership during concurrent reply review without changing execution authority."
+      "reason": "Shared-schema packaging changes only; existing Services retain the same Wake, transport, setup and reply contracts."
     },
     "skills": {
       "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",

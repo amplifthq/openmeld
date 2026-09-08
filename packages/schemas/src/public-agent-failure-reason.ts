@@ -1057,16 +1057,16 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "prepare_setup",
     },
     {
-      availabilityBadgeLabel: "Update",
+      availabilityBadgeLabel: "Needs attention",
       availabilitySummary:
-        "Update OpenMeld on your computer before this Agent can reply.",
-      availabilityTooltip: "Update OpenMeld on Computer",
+        "OpenMeld found a service problem on this computer. Open Computer details to check it.",
+      availabilityTooltip: "Check OpenMeld on Computer",
       body: (targetName) =>
-        `OpenMeld on ${formatPossessiveTargetName(targetName)} computer needs an update before it can receive local Wake work.`,
+        `OpenMeld found a service problem on ${formatPossessiveTargetName(targetName)} computer. Open Computer details to see what needs attention.`,
       kind: "local_service",
       patterns: ["=service.drifted"],
-      primaryActionId: "update_openmeld_service",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "check_status",
+      recoveryTarget: "computer",
     },
     {
       availabilityBadgeLabel: "Offline",

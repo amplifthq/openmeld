@@ -443,6 +443,7 @@ describe("Lark-platform registration service", () => {
 
       await expect(
         listRemoteAgentActiveLarkPlatformRegistrations({
+          nowMs: 1001,
           db: harness.db,
           organizationId: ACTOR.organizationId,
           providers: ["lark"],
@@ -461,6 +462,7 @@ describe("Lark-platform registration service", () => {
       ]);
       await expect(
         listRemoteAgentActiveLarkPlatformRegistrations({
+          nowMs: 1001,
           db: harness.db,
           organizationId: ACTOR.organizationId,
           providers: ["lark"],
@@ -477,6 +479,60 @@ describe("Lark-platform registration service", () => {
           id: "attempt_active_projection",
         }),
       ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("does not show expired setup and cannot revive cancelled setup through a late poll", async () => {
+    const harness = createRegistrationHarness();
+    try {
+      const started = await beginRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        createId: () => "attempt_cancelled",
+        db: harness.db,
+        env: ENV,
+        fetchImpl: jsonFetch(capturedBegin),
+        nowMs: 1000,
+        provider: "lark",
+      });
+      const expiresAtMs = Date.parse(started.attempt.expiresAt);
+      expect(
+        await listRemoteAgentActiveLarkPlatformRegistrations({
+          db: harness.db,
+          nowMs: expiresAtMs,
+          organizationId: ACTOR.organizationId,
+          providers: ["lark"],
+          viewer: { ...ACTOR, canManage: true },
+        })
+      ).toEqual([]);
+      await disconnectRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        db: harness.db,
+        nowMs: 2000,
+        provider: "lark",
+      });
+      const fetchImpl = jsonFetch(capturedBegin);
+      const result = await pollRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        attemptId: started.attempt.id,
+        db: harness.db,
+        env: ENV,
+        fetchImpl,
+        nowMs: 3000,
+        provider: "lark",
+      });
+      expect(result.attempt.status).toBe("disconnected");
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(
+        await listRemoteAgentActiveLarkPlatformRegistrations({
+          db: harness.db,
+          nowMs: 3000,
+          organizationId: ACTOR.organizationId,
+          providers: ["lark"],
+          viewer: { ...ACTOR, canManage: true },
+        })
+      ).toEqual([]);
     } finally {
       harness.close();
     }
@@ -1181,6 +1237,44 @@ describe("Lark-platform registration service", () => {
       );
 
       const configureFetch = configuredAppFetch();
+      harness.run({
+        sql: "UPDATE openMeldRemoteAgent_lark_platform_registration_attempts SET failure_reason_code = ? WHERE attempt_id = ?",
+        params: ["lark.application_config_permission_required", "attempt_1"],
+      });
+      const reauthorization = await beginRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        db: harness.db,
+        env: ENV,
+        fetchImpl: jsonFetch(capturedBegin),
+        nowMs: 1250,
+        provider: "lark",
+        reauthorize: true,
+      });
+      const authorizationUrl = new URL(
+        reauthorization.attempt.registrationUrl ?? ""
+      );
+      expect(authorizationUrl.searchParams.get("clientID")).toBe(
+        capturedSuccess.client_id
+      );
+      expect(authorizationUrl.searchParams.has("createOnly")).toBe(false);
+      expect(reauthorization.connection?.id).toBe("connection_1");
+      expect(
+        await readRemoteAgentLarkPlatformChannelCredentials({
+          connectionId: "connection_1",
+          db: harness.db,
+        })
+      ).toEqual(credentials);
+      await expect(
+        beginRemoteAgentLarkPlatformRegistration({
+          actor: { ...ACTOR, organizationId: "other_org" },
+          db: harness.db,
+          env: ENV,
+          fetchImpl: jsonFetch(capturedBegin),
+          nowMs: 1250,
+          provider: "lark",
+          reauthorize: true,
+        })
+      ).rejects.toBeInstanceOf(LarkPlatformRegistrationServiceError);
       const awaitingWebhook = await pollRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
         attemptId: "attempt_1",

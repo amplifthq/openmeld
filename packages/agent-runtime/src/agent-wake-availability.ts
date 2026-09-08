@@ -125,6 +125,10 @@ const exactWakeAdmissionTerminalDecisions: Readonly<
     publicationCategory: "update_required",
     userRecoveryAction: "update_openmeld_service",
   },
+  "service.drifted": {
+    publicationCategory: "agent_profile_unavailable",
+    userRecoveryAction: "check_status",
+  },
 };
 
 /**
@@ -202,7 +206,6 @@ export function resolveAgentWakeAdmissionTerminalDecision(
   if (
     normalizedReasonCode.startsWith("daemon.runtime_contract.") ||
     normalizedReasonCode === "service.not_installed" ||
-    normalizedReasonCode === "service.drifted" ||
     normalizedReasonCode === "background_helper.update_required"
   ) {
     return {
@@ -288,6 +291,7 @@ export function resolveAgentWakeAdmissionBlockReasonCode(
     reasonCodes.find((reasonCode) =>
       reasonCode.startsWith("working_folder.")
     ) ??
+    reasonCodes.find(isAgentWakeAdmissionPreparationPendingReason) ??
     "agent_execution.readiness_unconfirmed"
   );
 }

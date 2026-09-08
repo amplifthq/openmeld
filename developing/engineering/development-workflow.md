@@ -199,11 +199,12 @@ matters before publishing. Use published `openmeld` only when the question is wh
 real users get from the published package.
 
 The persistent Cloudflare staging environment is not a fourth local CLI lane.
-It is a remote internal environment deployed with `pnpm staging:deploy`. A
-staging-aligned CLI and Service lane is a separate release layer and must use
-its own `OPENMELD_HOME`; until that layer exists, do not point a development or
-production Service at staging by hand. See
-`developing/engineering/staging-environment.md`.
+It is a remote internal environment deployed with `pnpm staging:deploy`.
+Staging Computer Setup uses the Canary binary, Canary OS-service identity,
+and `~/.openmeld-canary`, with the Staging CLI manifest as its update source.
+Use `pnpm staging:smoke:computer -- plan` and the official Staging Setup
+runner documented in `developing/engineering/staging-environment.md`.
+Do not substitute a Production binary with hand-written endpoint overrides.
 
 ## Local Worker Persistence
 
@@ -493,6 +494,12 @@ local-state repair/reset, Prepare runtime reporting, or service state must use:
 Tests that mutate service state must assert the effective lane root before
 mutation and fail immediately if it resolves to the production lane
 unexpectedly.
+
+An independent `OPENMELD_HOME` isolates files, not every operating-system or
+remote resource. Service smoke must also align the CLI entry, environment
+preset, system-service identity, endpoints, and update manifest through the
+official development or Canary entry point. A Production executable with a
+temporary home is not the supported isolated Service smoke entry point.
 
 Fixture identities must stay inside isolated test stores.
 
