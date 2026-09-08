@@ -2958,6 +2958,7 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       db,
       env: this.env,
       input,
+      waitUntil: (promise) => this.ctx.waitUntil(promise),
     });
   }
 

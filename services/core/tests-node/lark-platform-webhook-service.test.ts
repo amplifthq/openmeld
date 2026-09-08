@@ -6,7 +6,7 @@ import {
   encryptLarkPlatformCredential,
   LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
 } from "../src/remote-agent/application/lark-platform-credential-crypto";
-import { verifyLarkPlatformWebhook } from "../src/remote-agent/application/lark-platform-webhook-service";
+import { verifyLarkPlatformWebhook as handleWebhook } from "../src/remote-agent/application/lark-platform-webhook-service";
 import { readRemoteAgentLarkPlatformChannelConnection } from "../src/remote-agent/infrastructure/d1/lark-platform-channel-connection-repo";
 import {
   applyDrizzleMigrationForTable,
@@ -51,6 +51,108 @@ const CARD_ACTION_FIXTURE = JSON.parse(
 ) as Record<string, unknown>;
 
 describe("Lark-platform Webhook verification", () => {
+  it.each([
+    "unchanged",
+    "disconnected",
+    "credentials_replaced",
+  ] as const)("answers before evidence persistence and fences a %s connection", async (change) => {
+    const harness = createSqliteD1Harness();
+    applyConnectionMigration(harness);
+    await seedConnection(harness, {
+      encryptKey: ENCRYPT_KEY,
+      provider: "feishu",
+      status: "configuring",
+      verificationToken: VERIFICATION_TOKEN,
+    });
+    const payload = await encryptWebhookPayload({
+      encryptKey: ENCRYPT_KEY,
+      payload: {
+        type: "url_verification",
+        token: VERIFICATION_TOKEN,
+        challenge: "deadline-proof",
+      },
+    });
+    const pending: Promise<unknown>[] = [];
+    let releaseWrite!: () => void;
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    const batch = harness.db.batch.bind(harness.db);
+    const blockedWrite = vi
+      .spyOn(harness.db, "batch")
+      .mockImplementation(async (statements) => {
+        await writeGate;
+        return batch(statements);
+      });
+    try {
+      await expect(
+        handleWebhook({
+          db: harness.db,
+          env: buildEnv({ feishuEnabled: true }),
+          waitUntil: (promise) => {
+            pending.push(promise);
+          },
+          input: {
+            connectionId: "connection_feishu_test",
+            gatewayRequestId: "gateway_deadline_test",
+            headers: { nonce: null, signature: null, timestamp: null },
+            provider: "feishu",
+            rawBody: JSON.stringify(payload),
+            receivedAtMs: 1_710_000_000_100,
+            surface: "events",
+          },
+        })
+      ).resolves.toEqual({ challenge: "deadline-proof", status: "challenge" });
+      expect(pending).toHaveLength(1);
+      expect(blockedWrite).toHaveBeenCalledOnce();
+      await expect(
+        readRemoteAgentLarkPlatformChannelConnection({
+          db: harness.db,
+          connectionId: "connection_feishu_test",
+        })
+      ).resolves.toMatchObject({
+        status: "configuring",
+        eventsWebhookVerifiedAtMs: null,
+      });
+      if (change === "disconnected") {
+        await harness.db
+          .prepare(
+            "UPDATE openMeldRemoteAgent_lark_platform_channel_connections SET status = 'disconnected' WHERE connection_id = ?"
+          )
+          .bind("connection_feishu_test")
+          .run();
+      } else if (change === "credentials_replaced") {
+        const replacement = await encryptLarkPlatformCredential({
+          credentialName: "verification token",
+          credential: "replacement-token",
+          cryptoKey: CRYPTO_KEY,
+        });
+        await harness.db
+          .prepare(
+            "UPDATE openMeldRemoteAgent_lark_platform_channel_credentials SET encrypted_verification_token = ? WHERE connection_id = ?"
+          )
+          .bind(replacement, "connection_feishu_test")
+          .run();
+      }
+      releaseWrite();
+      await Promise.all(pending);
+      await expect(
+        readRemoteAgentLarkPlatformChannelConnection({
+          db: harness.db,
+          connectionId: "connection_feishu_test",
+        })
+      ).resolves.toMatchObject({
+        status: change === "disconnected" ? "disconnected" : "configuring",
+        eventsWebhookVerifiedAtMs:
+          change === "unchanged" ? 1_710_000_000_100 : null,
+      });
+    } finally {
+      releaseWrite();
+      await Promise.all(pending);
+      blockedWrite.mockRestore();
+      harness.close();
+    }
+  });
   it("verifies and normalizes an encrypted signed Lark message event", async () => {
     const harness = createSqliteD1Harness();
     applyConnectionMigration(harness);
@@ -707,6 +809,20 @@ describe("Lark-platform Webhook verification", () => {
     }
   });
 });
+
+async function verifyLarkPlatformWebhook(
+  input: Omit<Parameters<typeof handleWebhook>[0], "waitUntil">
+) {
+  const pending: Promise<unknown>[] = [];
+  const result = await handleWebhook({
+    ...input,
+    waitUntil: (promise) => {
+      pending.push(promise);
+    },
+  });
+  await Promise.all(pending);
+  return result;
+}
 
 function buildEnv(input: {
   feishuEnabled?: boolean;
