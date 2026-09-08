@@ -689,6 +689,7 @@ describe("handleDispatchQueueBatch", () => {
       | "service.update_required"
       | "usage_checking"
       | "usage_exhausted"
+      | "working_folder.report_stale"
       | "working_folder.observation_coverage_invalid";
     targetProfileId: string;
   }): CoreAgentExecutionReadiness => {
@@ -10035,21 +10036,27 @@ describe("handleDispatchQueueBatch", () => {
         errorCode: "runtime_coordinator.device_waiting",
       })
     );
-    read.mockResolvedValueOnce(
-      createCanonicalWorkstationReadiness({
-        targetProfileId,
-        runtimeReasonCode: "usage_checking",
-      })
-    );
-    await expect(
-      runDispatchExecutionPreflightGate({
-        env: makeEnvWithBindings(),
-        message,
-      })
-    ).resolves.toMatchObject({
-      ok: true,
-      deviceWaitReason: "wake.device_wait.readiness_checking",
-    });
+    for (const runtimeReasonCode of [
+      "usage_checking",
+      "working_folder.observation_coverage_invalid",
+      "working_folder.report_stale",
+    ] as const) {
+      read.mockResolvedValueOnce(
+        createCanonicalWorkstationReadiness({
+          targetProfileId,
+          runtimeReasonCode,
+        })
+      );
+      await expect(
+        runDispatchExecutionPreflightGate({
+          env: makeEnvWithBindings(),
+          message,
+        })
+      ).resolves.toMatchObject({
+        ok: true,
+        deviceWaitReason: "wake.device_wait.readiness_checking",
+      });
+    }
     read.mockResolvedValueOnce(ready);
     const online = await runDispatchExecutionPreflightGate({
       env: makeEnvWithBindings(),

@@ -1,4 +1,5 @@
 import {
+  isAgentWakeAdmissionPreparationPendingReason,
   resolveAgentWakeAdmissionBlockReasonCode,
   resolveAgentWakeAvailability,
 } from "@openmeld/agent-runtime";
@@ -49,11 +50,14 @@ export function resolveDeviceWaitReason(
   ) {
     return "daemon.profile.pending_first_report";
   }
+  const blockReasonCode = resolveAgentWakeAdmissionBlockReasonCode(
+    readiness.agentExecutionReadiness
+  );
   if (
     (availability.category === "checking" && availability.isRefreshing) ||
-    resolveAgentWakeAdmissionBlockReasonCode(
-      readiness.agentExecutionReadiness
-    ) === "usage_checking"
+    blockReasonCode === "usage_checking" ||
+    (blockReasonCode &&
+      isAgentWakeAdmissionPreparationPendingReason(blockReasonCode))
   ) {
     return "wake.device_wait.readiness_checking";
   }
