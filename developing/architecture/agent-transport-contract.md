@@ -798,6 +798,11 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   Missing or invalid facts use the precise Project/workspace reason codes from
   the shared schema; local folder paths never cross the Service boundary.
   Historical Wake outcomes never substitute for this current observation.
+  A Space member/status snapshot shares one in-flight expected-routes read for
+  each owner, device, lane, and contract version. It does not reload the same
+  complete runtime once per member. This reuse is request-scoped only: each
+  member still passes the existing identity, revision, and freshness checks,
+  unavailable evidence fails closed, and the next snapshot reads fresh facts.
 - Controller target changes, Controller unbinding, and local working-folder
   changes use an owner-sharded RuntimeCoordinator execution-state read that
   spans every Space. Web may use that read to disable disruptive actions
