@@ -6,7 +6,10 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TestQueryClientProvider } from "#/test-support/query-client";
+import {
+	createTestQueryClient,
+	TestQueryClientProvider,
+} from "#/test-support/query-client";
 
 const copyTextToClipboardMock = vi.hoisted(() => vi.fn());
 const getOrganizationJoinLinkMock = vi.hoisted(() => vi.fn());
@@ -58,6 +61,56 @@ describe("OrganizationInviteLink", () => {
 	});
 
 	afterEach(cleanup);
+
+	it("keeps the last loaded link visible after a failed refresh and retries", async () => {
+		const queryClient = createTestQueryClient();
+		getOrganizationJoinLinkMock.mockResolvedValue(
+			joinLink({ id: "link-1", token: FIRST_TOKEN, url: FIRST_URL })
+		);
+		render(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<OrganizationInviteLink organizationId="org-acme" />
+			</TestQueryClientProvider>
+		);
+		expect(await screen.findByDisplayValue(FIRST_URL)).toBeTruthy();
+		getOrganizationJoinLinkMock.mockRejectedValue(
+			new Error("Internal server error")
+		);
+		await queryClient.invalidateQueries();
+		expect(
+			await screen.findByText(
+				"Could not refresh the invite link. Showing the last loaded link; its status could not be confirmed."
+			)
+		).toBeTruthy();
+		expect(screen.getByDisplayValue(FIRST_URL)).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+		await waitFor(() =>
+			expect(copyTextToClipboardMock).toHaveBeenCalledWith(FIRST_URL)
+		);
+		getOrganizationJoinLinkMock.mockResolvedValue(
+			joinLink({ id: "link-2", token: SECOND_TOKEN, url: SECOND_URL })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(await screen.findByDisplayValue(SECOND_URL)).toBeTruthy();
+		expect(screen.queryByDisplayValue(FIRST_URL)).toBeNull();
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+	});
+
+	it("shows a retry without a link when the first load fails", async () => {
+		getOrganizationJoinLinkMock.mockRejectedValue(
+			new Error("Internal server error")
+		);
+		render(
+			<TestQueryClientProvider>
+				<OrganizationInviteLink organizationId="org-acme" />
+			</TestQueryClientProvider>
+		);
+		expect(await screen.findByRole("button", { name: "Retry" })).toBeTruthy();
+		expect(screen.queryByLabelText("Invite link URL")).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Generate invite link" })
+		).toBeNull();
+	});
 
 	it("generates, copies, resets, and revokes an organization invite link", async () => {
 		render(
