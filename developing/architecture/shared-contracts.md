@@ -2564,7 +2564,9 @@ back in the reverse order.
 
 Lark-platform registration begin has three explicit modes: `resume`,
 `restart`, and `repair`. `resume` is the compatibility default and returns the
-current active attempt. `restart` may replace only a `pending_registration`
+current active attempt. A legacy shared-issuer launcher does not restart an
+attempt: Web selects the browser host while preserving its user code and all
+other URL parameters. `restart` may replace only a `pending_registration`
 attempt owned by the requesting Human Profile in the active Organization. It
 never replaces an attempt after credential receipt or while connection
 configuration is running. `repair` is accepted only for a `repair_required` or
@@ -2581,6 +2583,41 @@ without receiving the now-hidden setup URL. A repair attempt records that
 current manager as its initiator while connection installation ownership stays
 unchanged. The Gateway validates the mode before Core, and Core remains the
 only writer of attempt lifecycle state.
+
+The selected provider fixes registration routing. The shared
+`lark-platform-registration-domains.json` contract maps Feishu to
+`accounts.feishu.cn` and `open.feishu.cn`, and Lark to
+`accounts.larksuite.com` and `open.larksuite.com` for brand-specific polling and
+launcher destinations. Both providers begin at the shared issuer
+`accounts.feishu.cn`: direct Lark issuance still produces invalid launcher
+links in the real browser gate. Core validates the shared issuer's Feishu URL
+and user code, retaining the shared issuer URL in storage and HTTP responses.
+Web sets only the browser launcher host to the selected provider after response
+validation. This presentation does not change registration identity or authority.
+Polling starts at the shared issuer and may move to the Lark account host only
+after the returned brand matches an already selected Lark attempt. This is a
+protocol transport transition; it never changes the selected provider.
+Any reported conflicting brand is rejected before
+credentials are persisted, including a brand reported while authorization is
+still pending. Provider-side redirects remain an external behavior that requires
+real browser verification; changing the initial host is not proof that a
+provider's app-creation UI enforces the intended brand. The provider login UI
+offers a cross-brand sign-in link, so OpenMeld cannot claim that the external
+page prevents creation of a wrong-brand app. It must reject that app when the
+registration protocol reports the mismatch.
+
+Contract impact: payload fields and the emitted shared-issuer URL stay compatible
+with old Gateway, Web, and API-client readers. New readers accept that URL plus
+the selected provider's launcher, with the same HTTPS, path, user-code, and
+credential/fragment restrictions. Core validates stored URLs before returning
+them without host rewriting. New registrations store
+the shared issuer URL so rolling Core back does not strand pending attempts.
+Use the normal Web, Gateway, Core cloud order; either old/new reader/producer
+combination remains readable. Old browser tabs retain their previous launcher
+behavior until reloaded; new Web selects the correct launcher even with old Core.
+The early brand-mismatch refusal requires new Core. Existing
+connected-channel delivery, CLI setup, workstation Wake and Service contracts
+are unchanged; no daemon epoch change is implied by this URL contract.
 
 The runtime schema owns a discriminated locator for every provider. A new
 generic Message Channel delivery freezes that locator in Core and uses

@@ -5,16 +5,15 @@ import { gzipSync } from "node:zlib";
 import permissionBundleSource from "../../config/message-channels/lark-platform-channel-only-permission-bundle.json" with {
   type: "json",
 };
+import registrationDomains from "../../packages/schemas/src/schemas/http/lark-platform-registration-domains.json" with {
+  type: "json",
+};
 
 const REGISTRATION_PATH = "/oauth/v1/app/registration";
-const REGISTRATION_BEGIN_HOST = "accounts.feishu.cn";
-const PROVIDER_POLL_HOSTS = Object.freeze({
-  feishu: REGISTRATION_BEGIN_HOST,
-  lark: "accounts.larksuite.com",
-});
+const REGISTRATION_BEGIN_HOST = registrationDomains.feishu.accountDomain;
 const PRIVATE_IPV4_PREFIX_PATTERN = /^(?:10|127|169\.254|192\.168)\./u;
 const PRIVATE_172_PREFIX_PATTERN = /^172\.(?:1[6-9]|2\d|3[01])\./u;
-const SUPPORTED_PROVIDERS = new Set(Object.keys(PROVIDER_POLL_HOSTS));
+const SUPPORTED_PROVIDERS = new Set(Object.keys(registrationDomains));
 const SLOW_DOWN_INCREMENT_SECONDS = 5;
 
 export const CHANNEL_ONLY_PERMISSION_BUNDLE = Object.freeze({
@@ -117,11 +116,20 @@ export async function beginRegistration(input) {
 }
 
 export function buildRegistrationUrl(input) {
+  assertProvider(input.provider);
   const url = new URL(input.beginResponse.verification_uri_complete);
-  if (url.protocol !== "https:" || url.host !== "open.feishu.cn") {
-    throw new Error(
-      `Unexpected registration verification host ${url.host || "<missing>"}.`
-    );
+  if (
+    url.protocol !== "https:" ||
+    url.host !== registrationDomains.feishu.launcherHost ||
+    url.pathname !== "/page/launcher" ||
+    url.username ||
+    url.password ||
+    url.hash ||
+    url.searchParams.getAll("user_code").length !== 1 ||
+    !url.searchParams.get("user_code")?.trim() ||
+    url.searchParams.get("user_code") !== input.beginResponse.user_code
+  ) {
+    throw new Error("Unexpected registration verification details.");
   }
   assertNonEmptyString(input.appId, "development App ID");
   assertNonEmptyString(input.appName, "development app name");
@@ -131,6 +139,7 @@ export function buildRegistrationUrl(input) {
   url.searchParams.set("addons", encodeRegistrationAddons());
   url.searchParams.set("clientID", input.appId);
   url.searchParams.set("desc", input.appDescription);
+  url.hostname = registrationDomains[input.provider].launcherHost;
   url.searchParams.set("from", "sdk");
   url.searchParams.set("name", input.appName);
   url.searchParams.set("source", `node-sdk/${input.source}`);
@@ -183,18 +192,19 @@ export async function pollRegistration(input) {
   const appId = response.client_id;
   const appSecret = response.client_secret;
 
+  if (tenantBrand && tenantBrand !== state.expectedProvider) {
+    throw new Error(
+      `provider_brand_mismatch: expected ${state.expectedProvider} but received ${tenantBrand}.`
+    );
+  }
+
   if (tenantBrand === "lark" && state.pollHost === REGISTRATION_BEGIN_HOST) {
-    if (state.expectedProvider !== "lark") {
-      throw new Error(
-        `provider_brand_mismatch: expected ${state.expectedProvider} but received lark.`
-      );
-    }
     return {
       credential: null,
       state: {
         ...state,
         nextPollAtMs: input.nowMs,
-        pollHost: PROVIDER_POLL_HOSTS.lark,
+        pollHost: registrationDomains.lark.accountDomain,
       },
       status: "domain_switched",
     };
@@ -297,6 +307,7 @@ async function runProviderGateCli(rawArgs) {
       appId: target.expectedAppId,
       appName: "OpenMeld Center Agent Dev",
       beginResponse: result.beginResponse,
+      provider: target.provider,
       source: "openmeld-gate-0",
     });
     await writePrivateJson(options.stateFile, {
@@ -436,7 +447,10 @@ function validateRegistrationState(state) {
     throw new Error("Registration state is missing.");
   }
   assertProvider(state.expectedProvider);
-  if (!Object.values(PROVIDER_POLL_HOSTS).includes(state.pollHost)) {
+  if (
+    state.pollHost !== REGISTRATION_BEGIN_HOST &&
+    state.pollHost !== registrationDomains[state.expectedProvider].accountDomain
+  ) {
     throw new Error(`Unexpected registration poll host ${state.pollHost}.`);
   }
   for (const field of ["expiresAtMs", "intervalSeconds", "nextPollAtMs"]) {

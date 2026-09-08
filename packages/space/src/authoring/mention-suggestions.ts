@@ -106,7 +106,9 @@ export function listSpaceMentionRelationChoices(input: {
     }
 
     const wakeBlocked =
-      relation === "wake" && input.wakeAvailability.status !== "ready";
+      relation === "wake" &&
+      input.wakeAvailability.status !== "ready" &&
+      input.wakeAvailability.status !== "preparing";
     choices.push({
       canonicalLiteral: formatCanonicalMentionLiteral({
         name: input.primaryMentionLabel,

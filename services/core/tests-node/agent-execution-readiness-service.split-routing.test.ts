@@ -37,7 +37,7 @@ const AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE =
 // These readiness fixtures represent a supported Service. Keep the version
 // explicit so a release manifest that still describes the previous public
 // version cannot silently turn unrelated readiness tests into update tests.
-const CURRENT_SERVICE_VERSION = "0.3.153";
+const CURRENT_SERVICE_VERSION = "0.3.168";
 const COMPATIBLE_DAEMON_EXECUTION_CONTRACT = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,

@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T01:26:07.363Z",
+  "updatedAt": "2026-09-08T05:09:05.493Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
-      "packageVersion": "0.3.168",
-      "updatePolicy": "required",
-      "reason": "Critical setup and reconnect recovery must replace old credential inspection loops before new Wake work; existing cloud commands remain compatible."
+      "packageVersion": "0.3.170",
+      "updatePolicy": "available",
+      "reason": "Commands and external payloads remain compatible with both cloud versions; this release changes internal reply review context only."
     },
     "service": {
-      "bundleHash": "9f8bc8028befbd037790331ac34ef7af80527131a83167e2b425a26f5309ad7c",
-      "bundleVersion": "0.3.168",
+      "bundleHash": "82a2d95f49e0ef5095755c1cc93d26b455cd7e3d09efbc83cbb0975ed3d601ba",
+      "bundleVersion": "0.3.170",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
-      "updatePolicy": "required",
-      "reason": "Critical reply publication and setup-update coordination fixes are required before new Wake work; already accepted dispatches and recovery commands remain supported."
+      "updatePolicy": "available",
+      "reason": "Existing Services remain protocol-compatible and cloud finalization safely closes accepted results; new Services preserve original Wake ownership during concurrent reply review without changing execution authority."
     },
     "skills": {
       "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",

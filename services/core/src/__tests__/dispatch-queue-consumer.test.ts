@@ -4661,6 +4661,33 @@ describe("handleDispatchQueueBatch", () => {
     });
   });
 
+  it("retains the workstation conveyor when a concurrent intake has not handed off execution", async () => {
+    const message = createDispatchQueueMessage({
+      dispatchId: "dispatch-concurrent-intake",
+      sourceEventId: "evt-concurrent-intake",
+      targetProfileId: "agt-concurrent-intake",
+      visitedProfileIdsHash: "hash-concurrent-intake",
+    });
+    vi.mocked(claimDispatchAttempt).mockResolvedValueOnce({
+      status: "deduped",
+      admissionInFlight: true,
+    });
+    const outcome = await dispatchProductionOutboxMessageDirectly({
+      ctx: { waitUntil: vi.fn() },
+      env: makeEnvWithBindings(),
+      message: message.body as OpenMeldDaemonDispatchQueueMessage,
+    });
+    expect(outcome).toMatchObject({
+      status: "retry_scheduled",
+      recoveryTransport: "outbox",
+    });
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(markDispatchStatus).not.toHaveBeenCalled();
+    expect(rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
+  });
+
   it("acks deduped message without dispatch status update", async () => {
     const infoSpy = vi
       .spyOn(console, "info")
@@ -6708,7 +6735,7 @@ describe("handleDispatchQueueBatch", () => {
             purpose: "dispatch_activity_retrying",
             dispatchId: "dispatch-pending-first-report-1",
           }),
-          text: "Waiting for @Codex to become ready...",
+          text: "Preparing @Codex. Your message is saved; it will run when ready.",
         })
       );
     } finally {
@@ -10062,7 +10089,7 @@ describe("handleDispatchQueueBatch", () => {
     ).resolves.toMatchObject({ ok: true });
   });
 
-  it("does not accept workstation Wake while supported Usage is unavailable", async () => {
+  it("retains the request without executing while supported Usage is unavailable", async () => {
     const message = createDispatchBody({
       dispatchId: "dispatch-usage-checking-1",
       sourceEventId: "evt-usage-checking-1",
@@ -10085,7 +10112,8 @@ describe("handleDispatchQueueBatch", () => {
       })
     ).resolves.toMatchObject({
       errorCode: "usage_checking",
-      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      canonicalAdmissionBlock: false,
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
       ok: false,
     });
   });
@@ -10113,7 +10141,8 @@ describe("handleDispatchQueueBatch", () => {
       })
     ).resolves.toMatchObject({
       errorCode: "usage_checking",
-      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      canonicalAdmissionBlock: false,
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
       ok: false,
     });
   });
@@ -10141,13 +10170,15 @@ describe("handleDispatchQueueBatch", () => {
 
     expect(preflight).toMatchObject({
       errorCode: "usage_checking",
-      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      canonicalAdmissionBlock: false,
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
       ok: false,
     });
   });
 
   it.each([
     undefined,
+    "usage_checking",
     "working_folder.observation_coverage_invalid",
   ] as const)("retains a first Wake while readiness is unconfirmed (%s) without authorizing execution", async (runtimeReasonCode) => {
     const message = createDispatchBody({
@@ -10180,9 +10211,11 @@ describe("handleDispatchQueueBatch", () => {
   });
 
   it.each([
-    "ready",
-    "disabled",
-  ] as const)("redrives the same first Wake after preparation (%s) without publishing an early failure", async (nextState) => {
+    ["ready", "working_folder.observation_coverage_invalid"],
+    ["disabled", "working_folder.observation_coverage_invalid"],
+    ["ready", "usage_checking"],
+    ["disabled", "usage_checking"],
+  ] as const)("redrives the same first Wake after preparation (%s, %s) without publishing an early failure", async (nextState, preparationReason) => {
     const message = createDispatchQueueMessage({
       dispatchId: "dispatch-first-preparing",
       sourceEventId: "evt-first-preparing",
@@ -10195,7 +10228,7 @@ describe("handleDispatchQueueBatch", () => {
     ).mockResolvedValueOnce(
       createCanonicalWorkstationReadiness({
         runtimeDisplayState: "unknown",
-        runtimeReasonCode: "working_folder.observation_coverage_invalid",
+        runtimeReasonCode: preparationReason,
         targetProfileId: body.targetProfileId,
       })
     );

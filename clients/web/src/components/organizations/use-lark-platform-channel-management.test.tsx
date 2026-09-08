@@ -29,6 +29,50 @@ afterEach(() => {
 });
 
 describe("useLarkPlatformChannelManagement", () => {
+	it("explicitly restarts the same provider after resume fails without starting automatically", async () => {
+		const registration = {
+			organizationId: "org_1",
+			connection: null,
+			attempt: {
+				id: "attempt_restarted",
+				provider: "lark" as const,
+				status: "pending_registration" as const,
+				reasonCode: null,
+				registrationUrl:
+					"https://open.larksuite.com/page/launcher?user_code=test-code",
+				expiresAt: new Date(Date.now() + 60_000).toISOString(),
+				nextPollAt: new Date(Date.now() + 5000).toISOString(),
+			},
+		};
+		api.beginRegistration
+			.mockRejectedValueOnce(new Error("Saved setup could not be read."))
+			.mockResolvedValueOnce(registration);
+		api.pollRegistration.mockResolvedValue(registration);
+		const { result } = renderHook(
+			() =>
+				useLarkPlatformChannelManagement({
+					connections: [],
+					organizationId: "org_1",
+				}),
+			{ wrapper: TestQueryClientProvider }
+		);
+		act(() => result.current.manage("lark"));
+		await waitFor(() => expect(result.current.open).toBe(true));
+		expect(result.current.registration).toBeNull();
+		expect(result.current.errorMessage).toBeTruthy();
+		expect(api.beginRegistration).toHaveBeenCalledTimes(1);
+		act(() => result.current.startOver());
+		await waitFor(() =>
+			expect(result.current.registration?.attempt.id).toBe("attempt_restarted")
+		);
+		expect(api.beginRegistration).toHaveBeenLastCalledWith({
+			organizationId: "org_1",
+			provider: "lark",
+			mode: "restart",
+		});
+		expect(result.current.errorMessage).toBeNull();
+	});
+
 	it("repairs a saved app through the explicit repair mode", async () => {
 		const registration = {
 			attempt: {
