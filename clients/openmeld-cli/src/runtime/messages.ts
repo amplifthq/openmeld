@@ -204,7 +204,7 @@ const AGENT_MESSAGES = {
   "connect.connected_no_stdio": (params) =>
     formatConnectedNoStdioMessage("agent", params),
   "connect.chat_mention_hint": () =>
-    "use @Name(wake) or @Name(reference) for agents, and @Name(mention) for people",
+    "choose a member with @ in the interactive picker, or use space send --wake, --reference, or --mention with a full Profile ID; typed text is literal",
   "connect.chat_ready": () => "chat mode active; type a line to send",
   "connect.chat_exit_hint": () =>
     "enter sends; line ending with \\ continues draft; exit with /quit, :q, Ctrl+D, or Ctrl+C",

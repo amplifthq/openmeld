@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,6 +35,8 @@ const CURRENT_WORKER_VERSION_RE =
   /11111111-1111-1111-1111-111111111111 \(100%\)/u;
 const COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE = /requires the Remote Agent scope/u;
 const INBOX_SCOPE_ERROR_RE = /requires the Web, Gateway, and Core scopes/u;
+const MIXED_INBOX_RETIREMENT_ERROR_RE = /Mixed Inbox expansion/u;
+const INBOX_RETIREMENT_PRODUCER_ERROR_RE = /remove its producer/u;
 const LOCAL_SERVICE_CORE_SCOPE_ERROR_RE =
   /requires the Core scope before publishing CLI\/Service/u;
 const CORE_GATEWAY_HTTP_SCOPE_ERROR_RE =
@@ -1678,6 +1686,151 @@ test("composes Remote Agent and Inbox receiver-first constraints before Core", (
       "Verify Core deployment is visible",
     ]
   );
+});
+
+test("plans Task Inbox retirement from real Git content separately from expansion", () => {
+  const repositoryPath = mkdtempSync(
+    path.join(tmpdir(), "openmeld-inbox-retirement-")
+  );
+  const git = (...args) =>
+    execFileSync("git", args, {
+      cwd: repositoryPath,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  const schemaPath = "packages/schemas/src/schemas/http/inbox.ts";
+  const producerPath =
+    "services/core/src/center-agent-tasks/application/center-agent-task-inbox-producer.ts";
+  // Captured shapes of the three retired declarations; current members stay intact.
+  const before = `export const inboxItemKindSchema = z.enum([
+  "center_agent_update",
+  "center_agent_task",
+]);
+export const inboxSourceKindSchema = z.enum([
+  "remote_agent_native_delivery",
+  "center_agent_task_event",
+]);
+export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("center_agent_task"),
+    taskId: identifierSchema,
+  }),
+  centerAgentInboxSourceTargetSchema,
+]);
+`;
+  const after = `export const inboxItemKindSchema = z.enum([
+  "center_agent_update",
+]);
+export const inboxSourceKindSchema = z.enum([
+  "remote_agent_native_delivery",
+]);
+export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
+  centerAgentInboxSourceTargetSchema,
+]);
+`;
+  const write = (file, content) => {
+    const target = path.join(repositoryPath, file);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  };
+  const remotePaths = [
+    "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+    "services/remote-agent/.flue/agents/center-agent.ts",
+    "services/core/src/remote-agent/application/remote-agent-worker-admission.ts",
+    "services/core/src/remote-agent/application/native-delivery-service.ts",
+  ];
+  const plan = (
+    scope = "db,remote-agent,core,auth,gateway,web,cli",
+    sourceSha = null
+  ) =>
+    JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `
+    process.argv[1] = "readonly-plan-test";
+    const { buildProductionReleasePlan } = await import(${JSON.stringify(new URL("./production-release.mjs", import.meta.url).href)});
+    try {
+      const plan = buildProductionReleasePlan({ base: "retirement-base", scope: ${JSON.stringify(scope)}, sourceSha: ${JSON.stringify(sourceSha)} });
+      console.log(JSON.stringify({ profile: plan.deployOrderProfile, order: plan.deployScopeOrder }));
+    } catch (error) {
+      console.log(JSON.stringify({ error: error.message }));
+    }
+  `,
+        ],
+        { cwd: repositoryPath, encoding: "utf8" }
+      )
+    );
+  try {
+    git("init", "--quiet");
+    git("config", "user.email", "release-test@openmeld.ai");
+    git("config", "user.name", "Release test");
+    write(schemaPath, before);
+    write(producerPath, "old Task producer\n");
+    for (const file of remotePaths) {
+      write(file, "before\n");
+    }
+    git("add", ".");
+    git("commit", "--quiet", "-m", "base contracts");
+    git("tag", "retirement-base");
+    for (const file of remotePaths) {
+      write(file, "after\n");
+    }
+    write(schemaPath, after);
+    git("rm", "--quiet", producerPath);
+    git("add", ".");
+    git("commit", "--quiet", "-m", "retire Task and add personal Remote");
+    const retirementSha = git("rev-parse", "HEAD");
+    assert.deepEqual(plan(), {
+      profile: "remote-agent-and-inbox-task-retirement-first",
+      order: ["db", "remote-agent", "core", "auth", "gateway", "web", "cli"],
+    });
+    assert.match(
+      plan("core,auth,gateway,web,cli").error,
+      COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE
+    );
+    assert.match(plan("remote-agent,core").error, INBOX_SCOPE_ERROR_RE);
+
+    // A new kind alongside removal is not silently classified as retirement.
+    write(
+      schemaPath,
+      after.replace(
+        '  "center_agent_update",',
+        '  "center_agent_update",\n  "new_kind",'
+      )
+    );
+    assert.match(plan().error, MIXED_INBOX_RETIREMENT_ERROR_RE);
+
+    write(schemaPath, before.replace('  "center_agent_task",\n', ""));
+    assert.match(plan().error, MIXED_INBOX_RETIREMENT_ERROR_RE);
+
+    // Expansion preserves the old producer and old Task variants: readers first.
+    write(producerPath, "old Task producer\n");
+    write(
+      schemaPath,
+      before.replace(
+        '  "center_agent_update",',
+        '  "center_agent_update",\n  "new_kind",'
+      )
+    );
+    assert.deepEqual(plan(), {
+      profile: "remote-agent-and-inbox-receivers-first",
+      order: ["db", "remote-agent", "auth", "web", "gateway", "core", "cli"],
+    });
+    // An immutable release must not borrow the current checkout's different contract.
+    assert.deepEqual(plan(undefined, retirementSha), {
+      profile: "remote-agent-and-inbox-task-retirement-first",
+      order: ["db", "remote-agent", "core", "auth", "gateway", "web", "cli"],
+    });
+
+    // Deleting only the client contract cannot certify retirement of its writer.
+    write(schemaPath, after);
+    assert.match(plan().error, INBOX_RETIREMENT_PRODUCER_ERROR_RE);
+  } finally {
+    rmSync(repositoryPath, { recursive: true, force: true });
+  }
 });
 
 test("fails closed when a combined receiver-first release omits Remote Agent", () => {

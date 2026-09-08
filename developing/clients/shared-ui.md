@@ -219,8 +219,27 @@ label, icon, and visibility policy.
 
 `DitherAvatarBackground` owns only deterministic, decorative Canvas rendering
 at the requested display size and a bounded device pixel ratio. It does not own
-Profile seed construction, Human-versus-Center-Agent foregrounds, uploaded-image
+Profile seed construction, Human initials, uploaded-image
 priority, or any product identity rule; those remain client composition.
+
+`FluidAvatar` owns the decorative fluid avatar primitive, adapted from Rare UI's
+Fluid Orb. It is distinct from Web's `SpaceAgentOrb` working-status indicator.
+Its `animated` and `animateOnHover` props are independently opt-in. Reduced
+motion, offscreen visibility, and hidden documents suspend animation. Each
+avatar preserves its last frame and playback position when paused, and resumes
+from that position. The single-avatar creation preview opts into autoplay;
+other surfaces opt in through working state or hover. One
+128-pixel WebGL renderer serves the page; avatar instances retain small 2D
+frames. Static frames are cached by color with a 64-frame limit. Idle instances
+do not subscribe to animation frames. Context failure preserves a rendered
+frame or the supplied fallback without repeatedly allocating GPU contexts.
+
+Web's `RemoteAgentAvatar` supplies a normalized Profile name as the color seed,
+so creation previews and saved Profiles use the same restrained 36-color
+palette. Renaming changes the color; identical names share a color. Personal
+Remote Agents use rounded squares, Center Agents use circles, and Local Agents
+retain their harness logos. Web supplies authoritative working state; the
+primitive never infers work from presence or starts its own status queries.
 
 `SettingsAccountProfileCard` accepts an optional composed avatar node so each
 client can render its owned product identity without moving Profile rules into

@@ -5,6 +5,7 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY,
   REMOTE_AGENT_FAILURE_PURPOSE,
   REMOTE_AGENT_TRIGGER_TEXT_MAX_CHARS,
@@ -15,6 +16,7 @@ import {
   remoteAgentNativeDeliveryDeadlineProbeQueueMessageSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   resolveListSignalsReadQuerySemantics,
+  spaceMemberDirectorySchema,
 } from "@openmeld/schemas";
 import type {
   CenterAgentModelRoute,
@@ -25,10 +27,6 @@ import type {
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
-import {
-  activateAgentDelegationChildren,
-  createAgentDelegation,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
 import {
   readAgentTaskCompletionSubscription,
   readAgentTaskTerminalOutcome,
@@ -46,16 +44,6 @@ import {
   type CenterAgentMemoryService,
   createCenterAgentMemoryService,
 } from "../src/center-agent-memory/memory-service";
-import {
-  appendCenterAgentTaskEvent,
-  buildCenterAgentTaskReplacementStopIdempotencyKey,
-  createCenterAgentTask,
-  createCenterAgentTaskAttempt,
-  listCenterAgentTaskEvents,
-  readCenterAgentTask,
-  requestCenterAgentTaskStop,
-  transitionCenterAgentTaskAttempt,
-} from "../src/center-agent-tasks/infrastructure/d1/center-agent-task-repo";
 import { listRecentDispatchLedgerEntriesForSpace } from "../src/dispatch/infrastructure/d1/dispatch-ledger-d1";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as runtimeCoordinatorClient from "../src/dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
@@ -69,22 +57,19 @@ import {
   type MessageChannelProviderAdapter,
 } from "../src/remote-agent/application/message-channel-adapters";
 import { REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS } from "../src/remote-agent/application/native-delivery-admission-watchdog";
-import {
-  requestRemoteAgentNativeDeliveryStop,
-  stopRemoteAgentNativeDelivery,
-} from "../src/remote-agent/application/native-delivery-cancellation-service";
+import { stopRemoteAgentNativeDelivery } from "../src/remote-agent/application/native-delivery-cancellation-service";
 import {
   completeRemoteAgentNativeDelivery,
   processRemoteAgentNativeDeliveryDeadlineProbe,
   reconcileRemoteAgentRetainedResultPublication,
   retryMissingRemoteAgentAcceptedDeliveryProbes,
-  retryPendingCenterAgentTaskTerminalProjections,
-  submitRemoteAgentCenterAgentTaskTurn,
   submitRemoteAgentExecutionRecoveryTurn,
   submitRemoteAgentNativeDelivery,
   submitRemoteAgentSlackNativeDelivery,
   submitRemoteAgentTaskContinuationDelivery,
 } from "../src/remote-agent/application/native-delivery-service";
+import { requirePersonalRemoteAgentBinding } from "../src/remote-agent/application/personal-remote-agent-binding";
+import { runPersonalRemoteAgentSpaceTool } from "../src/remote-agent/application/personal-remote-agent-space-tools";
 import { attachCenterAgentMemoryToTurnEnvelope } from "../src/remote-agent/application/remote-agent-memory-context";
 import {
   claimRemoteAgentNativeDeliveryTerminalFailure,
@@ -103,7 +88,6 @@ import {
   rpcExecuteExecutionRecovery,
   rpcInspectExecutionRecovery,
 } from "../src/rpc/methods";
-import { RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE } from "../src/runtime-transport/application/runtime-coordinator-authority";
 import { createSpaceBootstrapTimingCollector } from "../src/space/application/space-bootstrap-timing";
 import { truncateSpaceTextToProtocolLimit } from "../src/space/application/space-text";
 import { TEST_CENTER_AGENT_MODEL_ROUTE } from "./helpers/center-agent-model-route.test-support";
@@ -126,6 +110,138 @@ const THREAD_CONTEXT: NonNullable<
   rootSignalId: "signal_thread_root",
 };
 describe("Remote Agent native delivery callback service", () => {
+  it("admits a personal Agent without Center designation and without Center memory", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    harness.run({
+      sql: "UPDATE openmeld_profiles SET managed_role = NULL WHERE profile_id = ?",
+      params: [AGENT_PROFILE_ID],
+    });
+    harness.run({ sql: "DELETE FROM center_agent_designations" });
+    harness.run({
+      sql: "UPDATE openMeldDaemon_agent_profile_bindings SET runtime_kind = 'hosted_remote_agent', agent_controller_ref = 'hosted:remote-agent', openmeld_service_runtime_id = 'hosted:remote-agent', hosted_runtime_identity_json = ? WHERE binding_id = 'binding_1'",
+      params: [JSON.stringify(HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY)],
+    });
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 2100,
+        requestId: "personal-request",
+        status: "pending" as const,
+        submissionId: "personal-submission",
+      })
+    );
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const directory = spaceMemberDirectorySchema.parse({
+      spaceId: SPACE_ID,
+      generatedAt: new Date().toISOString(),
+      members: [AGENT_PROFILE_ID, HUMAN_PROFILE_ID].map((profileId) => ({
+        profileId,
+        profileKind: profileId === AGENT_PROFILE_ID ? "agent" : "human",
+        displayName: profileId,
+        primaryMentionLabel: profileId,
+        mentionLabels: [profileId],
+        mentionAlias: null,
+        labelSource: "profile_id",
+        lookupTokens: [profileId],
+        preferredLookupToken: profileId,
+        profileIdShort: profileId.slice(0, 8),
+        allowedRelations: {
+          wake: profileId === AGENT_PROFILE_ID,
+          reference: false,
+          mention: profileId === HUMAN_PROFILE_ID,
+        },
+        ownerUserId: "user_1",
+        ownerName: "Ari",
+        agentCard: null,
+        spaceRole: null,
+      })),
+    });
+    const readDirectory = vi.fn(async () => directory);
+    Object.assign(env.__spaceStub, { rpcGetMemberDirectory: readDirectory });
+    try {
+      const result = await submitRemoteAgentNativeDelivery({
+        binding: { ...createBinding(), personalAgent: true },
+        db: harness.db,
+        env,
+        executionAttemptId: "attempt_1",
+        memoryService: null,
+        message: createDispatchMessage(),
+        nowMs: 1000,
+      });
+      expect(result.status).toBe("submitted");
+      const request = workerSubmit.mock.calls[0]?.[0];
+      expect(request).toMatchObject({
+        v: 4,
+        conversationIdentity: {
+          kind: "personal_agent",
+          agentProfileId: AGENT_PROFILE_ID,
+        },
+        organizationSkillReleases: [],
+      });
+      expect(request?.conversationId).not.toBe(SPACE_ID);
+      expect(request?.turnEnvelope.memory).toBeUndefined();
+      const messageRead = {
+        submissionId: "personal-submission",
+        operation: { kind: "messages" },
+      };
+      const history = await runPersonalRemoteAgentSpaceTool(env, messageRead);
+      expect(history).toMatchObject({
+        kind: "messages",
+        messages: [{ content: { text: "Please help." } }],
+      });
+      expect(env.__spaceStub.rpcListSignalsResult).toHaveBeenLastCalledWith(
+        expect.objectContaining({ spaceId: SPACE_ID, limit: 31, recent: true })
+      );
+      await expect(
+        runPersonalRemoteAgentSpaceTool(env, {
+          ...messageRead,
+          operation: { kind: "messages", spaceId: "another-space" },
+        })
+      ).rejects.toThrow();
+      const readsBeforeRevocation =
+        env.__spaceStub.rpcListSignalsResult.mock.calls.length;
+      readDirectory.mockResolvedValueOnce({ ...directory, members: [] });
+      await expect(
+        runPersonalRemoteAgentSpaceTool(env, messageRead)
+      ).rejects.toThrow("space_membership_revoked");
+      expect(env.__spaceStub.rpcListSignalsResult).toHaveBeenCalledTimes(
+        readsBeforeRevocation
+      );
+      if (!request?.agentProfileOwnerUserId) {
+        throw new Error("expected personal Agent owner");
+      }
+      const identity = {
+        db: harness.db,
+        agentProfileId: request.agentProfileId,
+        organizationId: request.organizationId,
+        ownerUserId: request.agentProfileOwnerUserId,
+      };
+      await expect(
+        requirePersonalRemoteAgentBinding({
+          ...identity,
+          bindingId: "replaced-binding",
+        })
+      ).rejects.toThrow("personal_binding_changed");
+      await expect(
+        requirePersonalRemoteAgentBinding({
+          ...identity,
+          organizationId: "another-organization",
+        })
+      ).rejects.toThrow("personal_profile_unavailable");
+      harness.run({
+        sql: "DELETE FROM members WHERE organization_id = ? AND user_id = ?",
+        params: [identity.organizationId, identity.ownerUserId],
+      });
+      await expect(requirePersonalRemoteAgentBinding(identity)).rejects.toThrow(
+        "personal_profile_unavailable"
+      );
+    } finally {
+      harness.close();
+    }
+  });
   it("continues the same delivery after a tool-budget checkpoint and publishes only the later final result", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -2431,221 +2547,6 @@ describe("Remote Agent native delivery callback service", () => {
         },
         state: "settled",
       });
-    } finally {
-      harness.close();
-    }
-  });
-
-  it("replays stopped parent propagation after its subscription is already cancelled", async () => {
-    const harness = createSqliteD1Harness();
-    applyRemoteAgentSubmitMigrations(harness);
-    applyMigrationForTable(harness, "inbox_items");
-    try {
-      await createAcceptedDelivery({
-        centerAgentTaskId: "stopped-parent-replay-task",
-        db: harness.db,
-        idempotencyKey: "stopped-parent-replay",
-        spaceId: SPACE_ID,
-        submissionId: "submission-stopped-parent-replay",
-      });
-      const parentDelivery = await readRemoteAgentNativeDeliveryBySubmissionId({
-        db: harness.db,
-        submissionId: "submission-stopped-parent-replay",
-      });
-      if (!parentDelivery) {
-        throw new Error("expected stopped parent delivery fixture");
-      }
-      const parentTask = {
-        deliveryId: parentDelivery.deliveryId,
-        kind: "native_delivery" as const,
-        v: 1 as const,
-      };
-      await createCenterAgentTask({
-        db: harness.db,
-        goal: "Coordinate owned Space work.",
-        idempotencyKey: "create-stopped-parent-replay-task",
-        nowMs: 980,
-        organizationId: "org_1",
-        origin: { kind: "open_meld" },
-        requesterUserId: "user_1",
-        taskId: "stopped-parent-replay-task",
-        title: "Coordinate owned work",
-      });
-      await appendCenterAgentTaskEvent({
-        actor: "requester",
-        attemptGeneration: null,
-        db: harness.db,
-        eventId: "stopped-parent-replay-created",
-        expectedTaskVersion: 1,
-        idempotencyKey: "stopped-parent-replay-created",
-        kind: "task_created",
-        observedAtMs: 980,
-        occurredAtMs: 980,
-        organizationId: "org_1",
-        taskId: "stopped-parent-replay-task",
-        text: "Coordinate owned Space work.",
-      });
-      await createCenterAgentTaskAttempt({
-        attemptId: "stopped-parent-replay-attempt",
-        db: harness.db,
-        expectedTaskVersion: 2,
-        idempotencyKey: "stopped-parent-replay-attempt",
-        nowMs: 990,
-        organizationId: "org_1",
-        taskHandle: parentTask,
-        taskId: "stopped-parent-replay-task",
-      });
-      const running = await transitionCenterAgentTaskAttempt({
-        db: harness.db,
-        expectedTaskVersion: 3,
-        failureCode: null,
-        generation: 1,
-        nowMs: 995,
-        organizationId: "org_1",
-        status: "running",
-        taskId: "stopped-parent-replay-task",
-      });
-      await requestCenterAgentTaskStop({
-        actor: "requester",
-        attemptGeneration: 1,
-        db: harness.db,
-        eventId: "stopped-parent-replay-stop-requested",
-        expectedTaskVersion: running.task.version,
-        idempotencyKey: "stopped-parent-replay-stop-requested",
-        nowMs: 999,
-        organizationId: "org_1",
-        taskId: "stopped-parent-replay-task",
-        text: "Stop requested. Waiting to confirm the current work has stopped.",
-      });
-      const childTask = {
-        kind: "space_wake" as const,
-        sourceClientMessageId: "client-stopped-parent-child",
-        spaceId: SPACE_ID,
-        targetProfileId: AGENT_PROFILE_ID,
-        v: 1 as const,
-      };
-      await createAgentDelegation({
-        children: [
-          {
-            agentProfileId: childTask.targetProfileId,
-            role: "primary",
-            task: childTask,
-          },
-        ],
-        completionPolicy: { mode: "child_reports_directly" },
-        db: harness.db,
-        delegationId: "delegation-stopped-parent-replay",
-        idempotencyKey: "delegation-key:stopped-parent-replay",
-        nowMs: 1000,
-        organizationId: "org_1",
-        parentTask,
-        spaceId: SPACE_ID,
-      });
-      await activateAgentDelegationChildren({
-        db: harness.db,
-        delegationId: "delegation-stopped-parent-replay",
-        nowMs: 1001,
-      });
-      await registerAgentTaskCompletionSubscription({
-        completionCondition: "terminal",
-        continuation: null,
-        db: harness.db,
-        idempotencyKey: "subscription-key:stopped-parent-replay",
-        nowMs: 1002,
-        observerTask: parentTask,
-        organizationId: "org_1",
-        subscriptionId: "subscription-stopped-parent-replay",
-        watchedTask: childTask,
-      });
-      await claimRemoteAgentNativeDeliveryTerminalFailure({
-        db: harness.db,
-        failureCode: "runtime_coordinator.pre_agent_stop_requested",
-        idempotencyKey: "stopped-parent-replay",
-        nowMs: 1100,
-        submissionId: "submission-stopped-parent-replay",
-      });
-      const env = buildEnv(harness.db);
-      env.__spaceStub.rpcPostWakeStop = vi.fn(() =>
-        Promise.reject(
-          new Error(
-            'The RPC receiver does not implement the method "rpcPostWakeStop".'
-          )
-        )
-      );
-      const callback = {
-        agentProfileId: AGENT_PROFILE_ID,
-        bindingId: "binding_1",
-        dispatchId: "dispatch_1",
-        idempotencyKey: "stopped-parent-replay",
-        organizationId: "org_1",
-        spaceId: SPACE_ID,
-        submissionId: "submission-stopped-parent-replay",
-        text: "Late result.",
-        triggerMessageId: "signal_1",
-      } as const;
-
-      await expect(
-        completeRemoteAgentNativeDelivery(env, callback)
-      ).rejects.toThrow("agent_task_parent_stop.space_unavailable");
-      await expect(
-        readCenterAgentTask({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "stopped-parent-replay-task",
-        })
-      ).resolves.toMatchObject({ status: "stopping" });
-      env.__spaceStub.rpcPostWakeStop = vi.fn(async () => ({
-        cancellationState: {
-          acceptedAtMs: 1200,
-          completedAtMs: null,
-          reason: "Parent task was stopped.",
-          requestedAtMs: 1200,
-          status: "requested" as const,
-        },
-        ok: true as const,
-        runtimeCoordinatorExecutionId: "execution-child-replay",
-        status: "cancellation_requested" as const,
-        stopMode: "controller_control" as const,
-        targetProfileId: childTask.targetProfileId,
-      }));
-      await expect(
-        completeRemoteAgentNativeDelivery(env, callback)
-      ).rejects.toThrow("agent_task_parent_stop.cancellation_requested");
-      await expect(
-        readCenterAgentTask({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "stopped-parent-replay-task",
-        })
-      ).resolves.toMatchObject({ status: "stopping" });
-      env.__spaceStub.rpcPostWakeStop = vi.fn(async () => ({
-        cancellationState: {
-          acceptedAtMs: 1200,
-          completedAtMs: 1250,
-          reason: "Parent task was stopped.",
-          requestedAtMs: 1200,
-          status: "cancelled" as const,
-        },
-        ok: true as const,
-        runtimeCoordinatorExecutionId: "execution-child-replay",
-        status: "cancelled" as const,
-        stopMode: "controller_control" as const,
-        targetProfileId: childTask.targetProfileId,
-      }));
-      await expect(
-        completeRemoteAgentNativeDelivery(env, callback)
-      ).resolves.toMatchObject({
-        reasonCode: "remote_agent.callback_failed_submission",
-        status: "duplicate_rejected",
-      });
-      expect(env.__spaceStub.rpcPostWakeStop).toHaveBeenCalledOnce();
-      await expect(
-        readCenterAgentTask({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "stopped-parent-replay-task",
-        })
-      ).resolves.toMatchObject({ status: "stopped" });
     } finally {
       harness.close();
     }
@@ -5151,7 +5052,6 @@ describe("Remote Agent native delivery callback service", () => {
             kind: "project",
             projectId: "project_123",
           },
-          centerAgentTaskReferences: [{ taskId: "task-1" }],
           text: "Done.",
           attachments: [
             {
@@ -5212,7 +5112,6 @@ describe("Remote Agent native delivery callback service", () => {
             },
           }),
           meta: expect.objectContaining({
-            centerAgentTaskReferences: [{ taskId: "task-1" }],
             clientMessageId: "sub_1",
             purpose: "agent_reply_final",
           }),
@@ -5300,108 +5199,6 @@ describe("Remote Agent native delivery callback service", () => {
             status: "succeeded",
           },
           status: "succeeded",
-        },
-      ]);
-    } finally {
-      harness.close();
-    }
-  });
-
-  it("projects the real Space callback result into its canonical Task conversation", async () => {
-    const harness = createSqliteD1Harness();
-    applyRemoteAgentSubmitMigrations(harness);
-    try {
-      await createAcceptedDelivery({
-        centerAgentTaskId: "space-result-task",
-        db: harness.db,
-        deliveryId: "space-task-result-delivery",
-        dispatchId: "space-task-result-delivery",
-        idempotencyKey: "space-task-result",
-        submissionId: "submission-space-task-result",
-        spaceId: SPACE_ID,
-      });
-      const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
-        db: harness.db,
-        submissionId: "submission-space-task-result",
-      });
-      if (!delivery) {
-        throw new Error("expected accepted Task delivery");
-      }
-      await createCenterAgentTask({
-        db: harness.db,
-        goal: "Return the complete onboarding comparison.",
-        idempotencyKey: "create-space-result-task",
-        nowMs: 1200,
-        organizationId: "org_1",
-        origin: { kind: "open_meld" },
-        requesterUserId: null,
-        taskId: "space-result-task",
-        title: "Compare onboarding",
-      });
-      await appendCenterAgentTaskEvent({
-        actor: "center_agent",
-        attemptGeneration: null,
-        db: harness.db,
-        eventId: "space-result-task-created",
-        expectedTaskVersion: 1,
-        idempotencyKey: "space-result-task-created",
-        kind: "task_created",
-        observedAtMs: 1200,
-        occurredAtMs: 1200,
-        organizationId: "org_1",
-        taskId: "space-result-task",
-        text: "Task created.",
-      });
-      await createCenterAgentTaskAttempt({
-        attemptId: "space-result-task-attempt",
-        db: harness.db,
-        expectedTaskVersion: 2,
-        idempotencyKey: "space-result-task-attempt",
-        nowMs: 1201,
-        organizationId: "org_1",
-        taskHandle: {
-          deliveryId: delivery.deliveryId,
-          kind: "native_delivery",
-          v: 1,
-        },
-        taskId: "space-result-task",
-      });
-      await transitionCenterAgentTaskAttempt({
-        db: harness.db,
-        expectedTaskVersion: 3,
-        failureCode: null,
-        generation: 1,
-        nowMs: 1202,
-        organizationId: "org_1",
-        status: "running",
-        taskId: "space-result-task",
-      });
-
-      await expect(
-        completeRemoteAgentNativeDelivery(buildEnv(harness.db), {
-          agentProfileId: AGENT_PROFILE_ID,
-          bindingId: "binding_1",
-          dispatchId: delivery.dispatchId,
-          idempotencyKey: delivery.idempotencyKey,
-          organizationId: "org_1",
-          spaceId: SPACE_ID,
-          submissionId: "submission-space-task-result",
-          text: "The onboarding comparison found three concrete gaps.",
-          triggerMessageId: delivery.triggerMessageId,
-        })
-      ).resolves.toMatchObject({ status: "accepted" });
-
-      await expect(
-        listCenterAgentTaskEvents({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "space-result-task",
-        })
-      ).resolves.toMatchObject([
-        { kind: "task_created" },
-        {
-          kind: "task_succeeded",
-          text: "The onboarding comparison found three concrete gaps.",
         },
       ]);
     } finally {
@@ -6427,6 +6224,7 @@ describe("Remote Agent native delivery callback service", () => {
             slackTeamId: "T123",
             slackThreadTs: "1700000000.000001",
             sourceText: "Remember that launch reviews happen on Fridays.",
+            triggerText: "Remember that launch reviews happen on Fridays.",
             triggerMessageId: "slack:T123:C123:1700000000.000001",
             turnEnvelope: {
               ...createSlackTurnEnvelope(),
@@ -6716,6 +6514,7 @@ describe("Remote Agent native delivery callback service", () => {
       slackTeamId: "T123",
       slackThreadTs: "1700000000.000001",
       sourceText: "Please retry this safely.",
+      triggerText: "Please retry this safely.",
       triggerMessageId: "slack:T123:C123:1700000000.000001",
       turnEnvelope: createSlackTurnEnvelope(),
     };
@@ -6743,7 +6542,10 @@ describe("Remote Agent native delivery callback service", () => {
           db: harness.db,
           env,
           nowMs: 4247,
-          request,
+          request: {
+            ...request,
+            sourceText: "New hydration observed during retry.",
+          },
         })
       ).resolves.toEqual({ shouldAck: true, status: "submitted" });
 
@@ -6816,888 +6618,6 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("rechecks runtime, Organization, Center Agent, and member authority before Task admission", async () => {
-    const scenarios = [
-      {
-        code: "remote_agent.runtime_disabled",
-        name: "runtime disabled",
-        remoteAgentBlockedOrganizationIds: null,
-        remoteAgentRuntimeEnabled: "false",
-        sql: null,
-      },
-      {
-        code: "remote_agent.organization_blocked",
-        name: "Organization blocked",
-        remoteAgentBlockedOrganizationIds: "org_1",
-        remoteAgentRuntimeEnabled: null,
-        sql: null,
-      },
-      {
-        code: "remote_agent.center_agent_paused",
-        name: "Center Agent paused",
-        remoteAgentBlockedOrganizationIds: null,
-        remoteAgentRuntimeEnabled: null,
-        sql: "UPDATE center_agent_designations SET operating_state = 'paused' WHERE organization_id = 'org_1'",
-      },
-      {
-        code: "center_agent_task.requester_membership_unavailable",
-        name: "requester membership removed",
-        remoteAgentBlockedOrganizationIds: null,
-        remoteAgentRuntimeEnabled: null,
-        sql: "DELETE FROM members WHERE organization_id = 'org_1' AND user_id = 'user_1'",
-      },
-    ] as const;
-
-    for (const scenario of scenarios) {
-      const harness = createSqliteD1Harness();
-      applyRemoteAgentSubmitMigrations(harness);
-      const workerSubmit = vi.fn();
-      const env = buildEnv(harness.db, {
-        dispatchQueueSend: vi.fn(async () => undefined),
-        ...(scenario.remoteAgentBlockedOrganizationIds
-          ? {
-              remoteAgentBlockedOrganizationIds:
-                scenario.remoteAgentBlockedOrganizationIds,
-            }
-          : {}),
-        ...(scenario.remoteAgentRuntimeEnabled
-          ? { remoteAgentRuntimeEnabled: scenario.remoteAgentRuntimeEnabled }
-          : {}),
-        remoteAgentWorker: { submitConversationTurn: workerSubmit },
-      });
-      try {
-        await createAcceptedContinuationObserver({
-          conversationKind: "slack",
-          db: harness.db,
-          idempotencyKey: `task-authority-source:${scenario.name}`,
-          slackChannelId: "C123",
-          slackTeamId: "T123",
-          slackThreadTs: "1700000000.000001",
-          submissionId: `task-authority-source-submission:${scenario.name}`,
-          triggerMessageId: "1700000000.000001",
-          turnEnvelope: createSlackTurnEnvelope(),
-        });
-        if (scenario.sql) {
-          harness.run({ sql: scenario.sql });
-        }
-
-        await expect(
-          submitRemoteAgentCenterAgentTaskTurn({
-            db: harness.db,
-            deliveryId: `task-authority-delivery:${scenario.name}`,
-            env,
-            idempotencyKey: `task-authority-attempt:${scenario.name}`,
-            instruction: "This Task must fail closed.",
-            nowMs: 2000,
-            parent: {
-              kind: "submission",
-              submissionId: `task-authority-source-submission:${scenario.name}`,
-            },
-            requesterUserId: "user_1",
-            taskEventId: `task-authority-event:${scenario.name}`,
-            taskId: `task-authority:${scenario.name}`,
-          })
-        ).rejects.toThrow(scenario.code);
-        expect(workerSubmit, scenario.name).not.toHaveBeenCalled();
-        await expect(
-          readRemoteAgentNativeDeliveryByIdempotencyKey({
-            db: harness.db,
-            idempotencyKey: `task-authority-attempt:${scenario.name}`,
-          })
-        ).resolves.toBeNull();
-      } finally {
-        harness.close();
-      }
-    }
-  });
-
-  it("runs a Center Agent Task in its own conversation while preserving the source destination", async () => {
-    const harness = createSqliteD1Harness();
-    applyRemoteAgentSubmitMigrations(harness);
-    const workerSubmit = vi.fn(
-      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
-        accepted: true,
-        createdAt: 2001,
-        requestId: "request-task-attempt-1",
-        status: "pending" as const,
-        submissionId: "submission-task-attempt-1",
-      })
-    );
-    const cancelExecution = vi.fn((input) => {
-      const { conversationId: _conversationId, reason, ...identity } = input;
-      return Promise.resolve({
-        execution: {
-          ...identity,
-          acceptedAtMs: 2001,
-          cancellationReason: reason ?? null,
-          completedAtMs: null,
-          lastProgressAtMs: 2100,
-          lastProgressKind: "cancellation_requested" as const,
-          status: "cancellation_requested" as const,
-        },
-        status: "cancellation_requested" as const,
-      });
-    });
-    const env = buildEnv(harness.db, {
-      dispatchQueueSend: vi.fn(async () => undefined),
-      remoteAgentWorker: {
-        cancelExecution,
-        submitConversationTurn: workerSubmit,
-      },
-    });
-    try {
-      await createAcceptedContinuationObserver({
-        conversationKind: "slack",
-        db: harness.db,
-        idempotencyKey: "task-source-delivery",
-        requestVersion: 4,
-        slackChannelId: "C123",
-        slackTeamId: "T123",
-        slackThreadTs: "1700000000.000001",
-        submissionId: "task-source-submission",
-        triggerMessageId: "1700000000.000001",
-        turnEnvelope: {
-          ...createSlackTurnEnvelope(),
-          centerAgentInteractionSource: {
-            client: "codex",
-            kind: "local_agent",
-            sessionId: "private-local-session",
-          },
-          channelContext: {
-            provider: "slack",
-            conversationId: "slack:T123:C123:1700000000.000001",
-            currentMessageId: "1700000000.000001",
-            messages: [
-              {
-                author: {
-                  displayName: "Ari",
-                  id: "U123",
-                  kind: "human",
-                },
-                id: "1699999999.000001",
-                sentAtMs: 1_699_999_999_000,
-                text: "Create another Task with this same request.",
-              },
-            ],
-            sync: { mode: "snapshot", status: "complete" },
-          },
-          memory: {
-            items: [
-              {
-                source: "ca_dm",
-                subject: "member",
-                text: "Create another Task with this same request.",
-              },
-            ],
-            truncated: false,
-          },
-        },
-      });
-
-      const result = await submitRemoteAgentCenterAgentTaskTurn({
-        db: harness.db,
-        deliveryId: "task-attempt-delivery-1",
-        env,
-        idempotencyKey: "task-attempt-1",
-        instruction: "Research competitor onboarding and report the findings.",
-        nowMs: 2000,
-        parent: { kind: "submission", submissionId: "task-source-submission" },
-        requesterUserId: "user_1",
-        taskEventId: "task-event-1",
-        taskId: "task-1",
-      });
-
-      expect(result).toMatchObject({
-        deliveryId: "task-attempt-delivery-1",
-        outcome: "accepted",
-        status: "submitted",
-      });
-      expect(workerSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: "center-agent-task:task-1",
-          conversationIdentity: {
-            kind: "center_agent_task",
-            taskId: "task-1",
-          },
-          dispatchId: "task-attempt-delivery-1",
-          idempotencyKey: "task-attempt-1",
-          messages: [
-            {
-              content:
-                "Research competitor onboarding and report the findings.",
-              role: "user",
-            },
-          ],
-          spaceId: expect.stringContaining("slack:"),
-          triggerMessageId: "1700000000.000001",
-          turnEnvelope: expect.objectContaining({
-            centerAgentInteractionSource: {
-              client: "codex",
-              kind: "local_agent",
-              sessionId: "private-local-session",
-            },
-          }),
-          v: 4,
-        })
-      );
-      const submittedRequest = workerSubmit.mock.calls[0]?.[0];
-      expect(submittedRequest?.turnEnvelope.memory).toBeUndefined();
-      expect(submittedRequest?.turnEnvelope.channelContext).toBeUndefined();
-      expect(submittedRequest?.turnEnvelope.contextScopePlan).toMatchObject({
-        interactionEnvironment: "externally_shared",
-        memberMemory: "use_privately",
-        requesterIdentity: "verified_member",
-        resultAudience: "external_conversation",
-        v: 1,
-      });
-      await expect(
-        readRemoteAgentNativeDeliveryByIdempotencyKey({
-          db: harness.db,
-          idempotencyKey: "task-attempt-1",
-        })
-      ).resolves.toMatchObject({
-        conversationKind: "slack",
-        deliveryId: "task-attempt-delivery-1",
-        onBehalfOfUserId: "user_1",
-        slackChannelId: "C123",
-        slackTeamId: "T123",
-        slackThreadTs: "1700000000.000001",
-        triggerMessageId: "1700000000.000001",
-      });
-      const taskDelivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: harness.db,
-        idempotencyKey: "task-attempt-1",
-      });
-      if (!taskDelivery) {
-        throw new Error("expected the Task delivery");
-      }
-      await stopRemoteAgentNativeDelivery({
-        db: harness.db,
-        delivery: taskDelivery,
-        env,
-        nowMs: 2100,
-      });
-      expect(cancelExecution).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: "center-agent-task:task-1",
-          submissionId: "submission-task-attempt-1",
-        })
-      );
-    } finally {
-      harness.close();
-    }
-  });
-
-  it("uses a deterministically failed pre-admission Task delivery as the parent of its retry", async () => {
-    const harness = createSqliteD1Harness();
-    applyRemoteAgentSubmitMigrations(harness);
-    const env = buildEnv(harness.db, {
-      dispatchQueueSend: vi.fn(async () => undefined),
-    });
-    try {
-      await createAcceptedContinuationObserver({
-        conversationKind: "slack",
-        db: harness.db,
-        idempotencyKey: "task-retry-source",
-        slackChannelId: "C123",
-        slackTeamId: "T123",
-        slackThreadTs: "1700000000.000001",
-        submissionId: "task-retry-source-submission",
-        triggerMessageId: "1700000000.000001",
-        turnEnvelope: createSlackTurnEnvelope(),
-      });
-
-      await expect(
-        submitRemoteAgentCenterAgentTaskTurn({
-          db: harness.db,
-          deliveryId: "task-failed-delivery-1",
-          env,
-          idempotencyKey: "task-failed-attempt-1",
-          instruction: "Research competitor onboarding.",
-          nowMs: 2000,
-          parent: {
-            kind: "submission",
-            submissionId: "task-retry-source-submission",
-          },
-          requesterUserId: "user_1",
-          taskEventId: "task-event-failed-1",
-          taskId: "task-retry-1",
-        })
-      ).rejects.toThrow("center_agent_task.worker_unavailable");
-      await expect(
-        readRemoteAgentNativeDeliveryByIdempotencyKey({
-          db: harness.db,
-          idempotencyKey: "task-failed-attempt-1",
-        })
-      ).resolves.toMatchObject({
-        deliveryId: "task-failed-delivery-1",
-        status: "submitted",
-        workerSubmitRequest: expect.objectContaining({
-          conversationId: "center-agent-task:task-retry-1",
-        }),
-      });
-
-      const workerSubmit = vi.fn(async () => ({
-        accepted: true,
-        createdAt: 2101,
-        requestId: "request-task-retry-2",
-        status: "pending" as const,
-        submissionId: "submission-task-retry-2",
-      }));
-      env.OPENMELD_REMOTE_AGENT_WORKER = {
-        submitConversationTurn: workerSubmit,
-      };
-      await expect(
-        submitRemoteAgentCenterAgentTaskTurn({
-          db: harness.db,
-          deliveryId: "task-retry-delivery-2",
-          env,
-          idempotencyKey: "task-retry-attempt-2",
-          instruction: "Retry the research without losing its context.",
-          nowMs: 2100,
-          parent: {
-            deliveryId: "task-failed-delivery-1",
-            kind: "delivery",
-          },
-          requesterUserId: "user_1",
-          taskEventId: "task-event-retry-2",
-          taskId: "task-retry-1",
-        })
-      ).resolves.toEqual({
-        deliveryId: "task-retry-delivery-2",
-        outcome: "accepted",
-        status: "submitted",
-      });
-      expect(workerSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: "center-agent-task:task-retry-1",
-          messages: [
-            {
-              content: "Retry the research without losing its context.",
-              role: "user",
-            },
-          ],
-        })
-      );
-    } finally {
-      harness.close();
-    }
-  });
-
-  it("keeps an ambiguous Task admission recoverable in the native delivery ledger", async () => {
-    const harness = createSqliteD1Harness();
-    applyRemoteAgentSubmitMigrations(harness);
-    const workerSubmit = vi.fn(() =>
-      Promise.reject(new Error("RPC disconnected after admission"))
-    );
-    const env = buildEnv(harness.db, {
-      dispatchQueueSend: vi.fn(async () => undefined),
-      remoteAgentWorker: { submitConversationTurn: workerSubmit },
-    });
-    try {
-      await createAcceptedContinuationObserver({
-        conversationKind: "slack",
-        db: harness.db,
-        idempotencyKey: "task-ambiguous-source",
-        slackChannelId: "C123",
-        slackTeamId: "T123",
-        slackThreadTs: "1700000000.000001",
-        submissionId: "task-ambiguous-source-submission",
-        triggerMessageId: "1700000000.000001",
-        turnEnvelope: createSlackTurnEnvelope(),
-      });
-
-      await expect(
-        submitRemoteAgentCenterAgentTaskTurn({
-          db: harness.db,
-          deliveryId: "task-ambiguous-delivery-1",
-          env,
-          idempotencyKey: "task-ambiguous-attempt-1",
-          instruction: "Research competitor onboarding.",
-          nowMs: 2000,
-          parent: {
-            kind: "submission",
-            submissionId: "task-ambiguous-source-submission",
-          },
-          requesterUserId: "user_1",
-          taskEventId: "task-event-ambiguous-1",
-          taskId: "task-ambiguous-1",
-        })
-      ).resolves.toEqual({
-        deliveryId: "task-ambiguous-delivery-1",
-        outcome: "unknown",
-      });
-      await expect(
-        readRemoteAgentNativeDeliveryByIdempotencyKey({
-          db: harness.db,
-          idempotencyKey: "task-ambiguous-attempt-1",
-        })
-      ).resolves.toMatchObject({
-        failureCode: null,
-        status: "submitted",
-        workerSubmitRequest: expect.objectContaining({
-          conversationId: "center-agent-task:task-ambiguous-1",
-        }),
-      });
-    } finally {
-      harness.close();
-    }
-  });
-
-  it("forwards a durable Task stop as soon as an ambiguous admission returns its ACK", async () => {
-    const nativeStore = createSqliteD1Harness();
-    const taskStore = createSqliteD1Harness();
-    applyRemoteAgentSubmitMigrations(nativeStore);
-    seedTaskIdentityTables(taskStore);
-    applyDrizzleMigrationsForTables(taskStore, [
-      "center_agent_tasks",
-      "center_agent_task_attempts",
-      "center_agent_task_events",
-    ]);
-    let resolveAdmission!: (value: {
-      accepted: true;
-      createdAt: number;
-      requestId: string;
-      status: "pending";
-      submissionId: string;
-    }) => void;
-    const workerSubmit = vi.fn(
-      () =>
-        new Promise<{
-          accepted: true;
-          createdAt: number;
-          requestId: string;
-          status: "pending";
-          submissionId: string;
-        }>((resolve) => {
-          resolveAdmission = resolve;
-        })
-    );
-    const cancelExecution = vi.fn((input) => {
-      const { conversationId: _conversationId, reason, ...identity } = input;
-      return Promise.resolve({
-        execution: {
-          ...identity,
-          acceptedAtMs: 2001,
-          cancellationReason: reason ?? null,
-          completedAtMs: null,
-          lastProgressAtMs: 2003,
-          lastProgressKind: "cancellation_requested" as const,
-          status: "cancellation_requested" as const,
-        },
-        status: "cancellation_requested" as const,
-      });
-    });
-    const dispatchQueueSend = vi.fn(
-      (message: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage) =>
-        Promise.resolve(message)
-    );
-    const env = buildEnv(nativeStore.db, {
-      deadlineProbeQueueSend: dispatchQueueSend,
-      remoteAgentWorker: {
-        cancelExecution,
-        submitConversationTurn: workerSubmit,
-      },
-    });
-    env.OPENMELD_LOCAL_STATE_DB = taskStore.db;
-    try {
-      await createAcceptedContinuationObserver({
-        conversationKind: "slack",
-        db: nativeStore.db,
-        idempotencyKey: "task-ambiguous-stop-source",
-        slackChannelId: "C123",
-        slackTeamId: "T123",
-        slackThreadTs: "1700000000.000001",
-        submissionId: "task-ambiguous-stop-source-submission",
-        triggerMessageId: "1700000000.000001",
-        turnEnvelope: createSlackTurnEnvelope(),
-      });
-      await createCenterAgentTask({
-        db: taskStore.db,
-        goal: "Research competitor onboarding.",
-        idempotencyKey: "create-task-ambiguous-stop",
-        nowMs: 1998,
-        organizationId: "org_1",
-        origin: { kind: "open_meld" },
-        requesterUserId: "user_1",
-        taskId: "task-ambiguous-stop",
-        title: "Research onboarding",
-      });
-      await appendCenterAgentTaskEvent({
-        actor: "requester",
-        attemptGeneration: null,
-        db: taskStore.db,
-        eventId: "task-ambiguous-stop-created",
-        expectedTaskVersion: 1,
-        idempotencyKey: "task-ambiguous-stop-created",
-        kind: "task_created",
-        observedAtMs: 1998,
-        occurredAtMs: 1998,
-        organizationId: "org_1",
-        taskId: "task-ambiguous-stop",
-        text: "Research competitor onboarding.",
-      });
-      await createCenterAgentTaskAttempt({
-        attemptId: "task-ambiguous-stop-attempt",
-        db: taskStore.db,
-        expectedTaskVersion: 2,
-        idempotencyKey: "task-ambiguous-stop-attempt",
-        nowMs: 1999,
-        organizationId: "org_1",
-        taskHandle: {
-          deliveryId: "task-ambiguous-stop-delivery",
-          kind: "native_delivery",
-          v: 1,
-        },
-        taskId: "task-ambiguous-stop",
-      });
-
-      const submission = submitRemoteAgentCenterAgentTaskTurn({
-        db: nativeStore.db,
-        deliveryId: "task-ambiguous-stop-delivery",
-        env,
-        idempotencyKey: "task-ambiguous-stop-delivery-key",
-        instruction: "Research competitor onboarding.",
-        nowMs: 2000,
-        parent: {
-          kind: "submission",
-          submissionId: "task-ambiguous-stop-source-submission",
-        },
-        requesterUserId: "user_1",
-        taskEventId: "task-ambiguous-stop-created",
-        taskId: "task-ambiguous-stop",
-      });
-      await vi.waitFor(() => expect(workerSubmit).toHaveBeenCalledOnce());
-      await requestCenterAgentTaskStop({
-        actor: "requester",
-        attemptGeneration: 1,
-        db: taskStore.db,
-        eventId: "task-ambiguous-stop-requested",
-        expectedTaskVersion: 3,
-        idempotencyKey: "task-ambiguous-stop-requested",
-        nowMs: 2002,
-        organizationId: "org_1",
-        taskId: "task-ambiguous-stop",
-        text: "Stop requested. Waiting to confirm the current work has stopped.",
-      });
-      resolveAdmission({
-        accepted: true,
-        createdAt: 2001,
-        requestId: "task-ambiguous-stop-request",
-        status: "pending",
-        submissionId: "task-ambiguous-stop-submission",
-      });
-
-      await expect(submission).resolves.toEqual({
-        deliveryId: "task-ambiguous-stop-delivery",
-        outcome: "accepted",
-        status: "submitted",
-      });
-      expect(cancelExecution).toHaveBeenCalledOnce();
-      expect(cancelExecution).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: "center-agent-task:task-ambiguous-stop",
-          submissionId: "task-ambiguous-stop-submission",
-        })
-      );
-      await expect(
-        readCenterAgentTask({
-          db: taskStore.db,
-          organizationId: "org_1",
-          taskId: "task-ambiguous-stop",
-        })
-      ).resolves.toMatchObject({ status: "stopping" });
-      const events = await listCenterAgentTaskEvents({
-        db: taskStore.db,
-        organizationId: "org_1",
-        taskId: "task-ambiguous-stop",
-      });
-      expect(events.map((event) => event.kind)).toEqual([
-        "task_created",
-        "stop_requested",
-      ]);
-
-      const admissionWatchdog = dispatchQueueSend.mock.calls[0]?.[0];
-      if (!admissionWatchdog) {
-        throw new Error("expected the Task admission watchdog probe");
-      }
-      cancelExecution.mockClear();
-      await expect(
-        processRemoteAgentNativeDeliveryDeadlineProbe({
-          db: nativeStore.db,
-          env,
-          nowMs: admissionWatchdog.deadlineAtMs,
-          probe: admissionWatchdog,
-        })
-      ).rejects.toThrow("center_agent_task.admission_stop_pending");
-      expect(cancelExecution).toHaveBeenCalledOnce();
-      expect(cancelExecution).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: "center-agent-task:task-ambiguous-stop",
-          submissionId: "task-ambiguous-stop-submission",
-        })
-      );
-      await expect(
-        listCenterAgentTaskEvents({
-          db: taskStore.db,
-          organizationId: "org_1",
-          taskId: "task-ambiguous-stop",
-        })
-      ).resolves.toMatchObject([
-        { kind: "task_created" },
-        { kind: "stop_requested" },
-      ]);
-    } finally {
-      nativeStore.close();
-      taskStore.close();
-    }
-  });
-
-  it("does not admit native work after the Task owner has persisted Stop", async () => {
-    const harness = createSqliteD1Harness();
-    applyRemoteAgentSubmitMigrations(harness);
-    applyMigrationForTable(harness, "inbox_items");
-    const workerSubmit = vi.fn(async () => ({
-      accepted: true,
-      createdAt: 2001,
-      requestId: "task-stop-retry-request",
-      status: "pending" as const,
-      submissionId: "task-stop-retry-submission",
-    }));
-    const cancelExecution = vi.fn();
-    const dispatchQueueSend = vi.fn(
-      (message: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage) =>
-        Promise.resolve(message)
-    );
-    const env = buildEnv(harness.db, {
-      deadlineProbeQueueSend: dispatchQueueSend,
-      remoteAgentWorker: {
-        cancelExecution,
-        submitConversationTurn: workerSubmit,
-      },
-    });
-    try {
-      await createAcceptedContinuationObserver({
-        conversationKind: "slack",
-        db: harness.db,
-        idempotencyKey: "task-stop-retry-source",
-        slackChannelId: "C123",
-        slackTeamId: "T123",
-        slackThreadTs: "1700000000.000001",
-        submissionId: "task-stop-retry-source-submission",
-        triggerMessageId: "1700000000.000001",
-        turnEnvelope: createSlackTurnEnvelope(),
-      });
-      await createCenterAgentTask({
-        db: harness.db,
-        goal: "Research competitor onboarding.",
-        idempotencyKey: "create-task-stop-retry",
-        nowMs: 1998,
-        organizationId: "org_1",
-        origin: { kind: "open_meld" },
-        requesterUserId: "user_1",
-        taskId: "task-stop-retry",
-        title: "Research onboarding",
-      });
-      await appendCenterAgentTaskEvent({
-        actor: "requester",
-        attemptGeneration: null,
-        db: harness.db,
-        eventId: "task-stop-retry-created",
-        expectedTaskVersion: 1,
-        idempotencyKey: "task-stop-retry-created",
-        kind: "task_created",
-        observedAtMs: 1998,
-        occurredAtMs: 1998,
-        organizationId: "org_1",
-        taskId: "task-stop-retry",
-        text: "Research competitor onboarding.",
-      });
-      await createCenterAgentTaskAttempt({
-        attemptId: "task-stop-retry-attempt",
-        db: harness.db,
-        expectedTaskVersion: 2,
-        idempotencyKey: "task-stop-retry-attempt",
-        nowMs: 1999,
-        organizationId: "org_1",
-        taskHandle: {
-          deliveryId: "task-stop-retry-delivery",
-          kind: "native_delivery",
-          v: 1,
-        },
-        taskId: "task-stop-retry",
-      });
-      await requestCenterAgentTaskStop({
-        actor: "requester",
-        attemptGeneration: 1,
-        db: harness.db,
-        eventId: "task-stop-retry-requested",
-        expectedTaskVersion: 3,
-        idempotencyKey: "task-stop-retry-requested",
-        nowMs: 2000,
-        organizationId: "org_1",
-        taskId: "task-stop-retry",
-        text: "Stop requested. Waiting to confirm the current work has stopped.",
-      });
-
-      await expect(
-        submitRemoteAgentCenterAgentTaskTurn({
-          db: harness.db,
-          deliveryId: "task-stop-retry-delivery",
-          env,
-          idempotencyKey: "task-stop-retry-delivery-key",
-          instruction: "Research competitor onboarding.",
-          nowMs: 2001,
-          parent: {
-            kind: "submission",
-            submissionId: "task-stop-retry-source-submission",
-          },
-          requesterUserId: "user_1",
-          taskEventId: "task-stop-retry-created",
-          taskId: "task-stop-retry",
-        })
-      ).resolves.toEqual({
-        deliveryId: "task-stop-retry-delivery",
-        outcome: "accepted",
-        status: "stopped_before_submission",
-      });
-      expect(workerSubmit).not.toHaveBeenCalled();
-      expect(cancelExecution).not.toHaveBeenCalled();
-      expect(dispatchQueueSend).toHaveBeenCalledOnce();
-      await expect(
-        readCenterAgentTask({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "task-stop-retry",
-        })
-      ).resolves.toMatchObject({ status: "stopped" });
-      await expect(
-        readRemoteAgentNativeDeliveryByIdempotencyKey({
-          db: harness.db,
-          idempotencyKey: "task-stop-retry-delivery-key",
-        })
-      ).resolves.toMatchObject({
-        failureCode: RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
-        status: "failed",
-      });
-    } finally {
-      harness.close();
-    }
-  });
-
-  it("settles a Task delivery only after worker cancellation is confirmed aborted", async () => {
-    const harness = createSqliteD1Harness();
-    applyRemoteAgentSubmitMigrations(harness);
-    const cancelExecution = vi
-      .fn()
-      .mockImplementationOnce((input) => {
-        const { conversationId: _conversationId, reason, ...identity } = input;
-        return Promise.resolve({
-          execution: {
-            ...identity,
-            acceptedAtMs: 2001,
-            cancellationReason: reason ?? null,
-            completedAtMs: null,
-            lastProgressAtMs: 2100,
-            lastProgressKind: "cancellation_requested" as const,
-            status: "cancellation_requested" as const,
-          },
-          status: "cancellation_requested" as const,
-        });
-      })
-      .mockImplementationOnce((input) => {
-        const { conversationId: _conversationId, reason, ...identity } = input;
-        return Promise.resolve({
-          execution: {
-            ...identity,
-            acceptedAtMs: 2001,
-            cancellationReason: reason ?? null,
-            completedAtMs: 2150,
-            lastProgressAtMs: 2150,
-            lastProgressKind: "prompt_completed" as const,
-            status: "completed" as const,
-          },
-          status: "not_stoppable" as const,
-        });
-      })
-      .mockImplementationOnce((input) => {
-        const { conversationId: _conversationId, reason, ...identity } = input;
-        return Promise.resolve({
-          execution: {
-            ...identity,
-            acceptedAtMs: 2001,
-            cancellationReason: reason ?? null,
-            completedAtMs: 2200,
-            lastProgressAtMs: 2200,
-            lastProgressKind: "aborted" as const,
-            status: "aborted" as const,
-          },
-          status: "already_cancelled" as const,
-        });
-      });
-    const env = buildEnv(harness.db, {
-      remoteAgentWorker: { cancelExecution },
-    });
-    try {
-      const delivery = await createAcceptedContinuationObserver({
-        conversationKind: "slack",
-        db: harness.db,
-        idempotencyKey: "task-cancellation-confirmation",
-        slackChannelId: "C123",
-        slackTeamId: "T123",
-        slackThreadTs: "1700000000.000001",
-        submissionId: "task-cancellation-submission",
-        triggerMessageId: "1700000000.000001",
-        turnEnvelope: createSlackTurnEnvelope(),
-      });
-
-      await expect(
-        requestRemoteAgentNativeDeliveryStop({
-          db: harness.db,
-          delivery,
-          env,
-          nowMs: 2100,
-        })
-      ).resolves.toBe("stop_requested");
-      await expect(
-        readRemoteAgentNativeDeliveryByIdempotencyKey({
-          db: harness.db,
-          idempotencyKey: delivery.idempotencyKey,
-        })
-      ).resolves.toMatchObject({ status: "accepted" });
-
-      await expect(
-        stopRemoteAgentNativeDelivery({
-          db: harness.db,
-          delivery,
-          env,
-          nowMs: 2150,
-        })
-      ).resolves.toBeNull();
-      await expect(
-        readRemoteAgentNativeDeliveryByIdempotencyKey({
-          db: harness.db,
-          idempotencyKey: delivery.idempotencyKey,
-        })
-      ).resolves.toMatchObject({ status: "accepted" });
-
-      await expect(
-        stopRemoteAgentNativeDelivery({
-          db: harness.db,
-          delivery,
-          env,
-          nowMs: 2200,
-        })
-      ).resolves.toMatchObject({
-        failureCode: RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
-        status: "failed",
-      });
-      expect(cancelExecution).toHaveBeenCalledTimes(3);
-    } finally {
-      harness.close();
-    }
-  });
-
   it("rejects a saved request for another Agent before sending a stop to the worker", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -7753,335 +6673,6 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("settles a trusted late Task callback as stopped after confirmation timeout without publishing its result", async () => {
-    const harness = createSqliteD1Harness();
-    applyRemoteAgentSubmitMigrations(harness);
-    const env = buildEnv(harness.db, {
-      postSignalId: "late-task-result-must-not-publish",
-    });
-    try {
-      await createAcceptedDelivery({
-        centerAgentTaskId: "stopping-task",
-        db: harness.db,
-        deliveryId: "stopping-task-delivery",
-        dispatchId: "stopping-task-delivery",
-        idempotencyKey: "stopping-task-delivery",
-        spaceId: SPACE_ID,
-        submissionId: "stopping-task-submission",
-      });
-      const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
-        db: harness.db,
-        submissionId: "stopping-task-submission",
-      });
-      if (!delivery) {
-        throw new Error("expected accepted stopping Task delivery");
-      }
-      expect(delivery).toMatchObject({
-        attemptId: null,
-        deliveryId: "stopping-task-delivery",
-        dispatchId: "stopping-task-delivery",
-        executionRecoverySubmitRequest: {
-          conversationId: "center-agent-task:stopping-task",
-          dispatchId: "stopping-task-delivery",
-          idempotencyKey: "stopping-task-delivery",
-        },
-      });
-      await createCenterAgentTask({
-        db: harness.db,
-        goal: "Research competitor onboarding.",
-        idempotencyKey: "create-stopping-task",
-        nowMs: 2000,
-        organizationId: "org_1",
-        origin: { kind: "open_meld" },
-        requesterUserId: null,
-        taskId: "stopping-task",
-        title: "Research onboarding",
-      });
-      await appendCenterAgentTaskEvent({
-        actor: "center_agent",
-        attemptGeneration: null,
-        db: harness.db,
-        eventId: "stopping-task-created",
-        expectedTaskVersion: 1,
-        idempotencyKey: "stopping-task-created",
-        kind: "task_created",
-        observedAtMs: 2000,
-        occurredAtMs: 2000,
-        organizationId: "org_1",
-        taskId: "stopping-task",
-        text: "Task created.",
-      });
-      await createCenterAgentTaskAttempt({
-        attemptId: "stopping-task-attempt",
-        db: harness.db,
-        expectedTaskVersion: 2,
-        idempotencyKey: "stopping-task-attempt",
-        nowMs: 2001,
-        organizationId: "org_1",
-        taskHandle: {
-          deliveryId: delivery.deliveryId,
-          kind: "native_delivery",
-          v: 1,
-        },
-        taskId: "stopping-task",
-      });
-      const running = await transitionCenterAgentTaskAttempt({
-        db: harness.db,
-        expectedTaskVersion: 3,
-        failureCode: null,
-        generation: 1,
-        nowMs: 2002,
-        organizationId: "org_1",
-        status: "running",
-        taskId: "stopping-task",
-      });
-      const stopRequested = await requestCenterAgentTaskStop({
-        actor: "requester",
-        attemptGeneration: 1,
-        db: harness.db,
-        eventId: "stopping-task-stop-requested",
-        expectedTaskVersion: running.task.version,
-        idempotencyKey: "stopping-task-stop-requested",
-        nowMs: 2003,
-        organizationId: "org_1",
-        taskId: "stopping-task",
-        text: "Stop requested. Waiting to confirm the current work has stopped.",
-      });
-      await transitionCenterAgentTaskAttempt({
-        db: harness.db,
-        expectedTaskVersion: stopRequested.task.version,
-        failureCode: null,
-        generation: 1,
-        nowMs: 2004,
-        organizationId: "org_1",
-        status: "needs_attention",
-        taskId: "stopping-task",
-      });
-
-      const callback = {
-        agentProfileId: AGENT_PROFILE_ID,
-        bindingId: "binding_1",
-        dispatchId: delivery.dispatchId,
-        idempotencyKey: delivery.idempotencyKey,
-        organizationId: "org_1",
-        spaceId: delivery.spaceId,
-        submissionId: "stopping-task-submission",
-        text: "This late result must remain sealed.",
-        triggerMessageId: delivery.triggerMessageId,
-      };
-      await expect(
-        completeRemoteAgentNativeDelivery(env, callback)
-      ).resolves.toEqual({
-        publishedSignalId: null,
-        reasonCode: RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
-        status: "accepted",
-      });
-      await expect(
-        completeRemoteAgentNativeDelivery(env, callback)
-      ).resolves.toEqual({
-        publishedSignalId: null,
-        reasonCode: "remote_agent.callback_failed_submission",
-        status: "duplicate_rejected",
-      });
-      expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
-      expect(
-        env.__spaceStub.rpcPostSignalOnceByClientMessageId
-      ).not.toHaveBeenCalled();
-      await expect(
-        readRemoteAgentNativeDeliveryBySubmissionId({
-          db: harness.db,
-          submissionId: "stopping-task-submission",
-        })
-      ).resolves.toMatchObject({
-        failureCode: RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
-        publishedSignalId: null,
-        status: "failed",
-      });
-      await expect(
-        readCenterAgentTask({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "stopping-task",
-        })
-      ).resolves.toMatchObject({ status: "stopped" });
-      const events = await listCenterAgentTaskEvents({
-        db: harness.db,
-        organizationId: "org_1",
-        taskId: "stopping-task",
-      });
-      expect(events.map((event) => event.kind)).toEqual([
-        "task_created",
-        "stop_requested",
-        "task_stopped",
-      ]);
-    } finally {
-      harness.close();
-    }
-  });
-
-  it("starts an accepted replacement after an asynchronous Task stop settles", async () => {
-    const harness = createSqliteD1Harness();
-    applyRemoteAgentSubmitMigrations(harness);
-    applyMigrationForTable(harness, "inbox_items");
-    const workerSubmit = vi.fn().mockResolvedValue({
-      accepted: true,
-      createdAt: 3001,
-      requestId: "replacement-request",
-      status: "pending" as const,
-      submissionId: "replacement-submission",
-    });
-    const env = buildEnv(harness.db, {
-      dispatchQueueSend: vi.fn(async () => undefined),
-      postSignalId: "replacement-result-must-not-publish",
-      remoteAgentWorker: { submitConversationTurn: workerSubmit },
-    });
-    try {
-      await createAcceptedDelivery({
-        centerAgentTaskId: "replacement-task",
-        db: harness.db,
-        deliveryId: "replacement-task-delivery",
-        dispatchId: "replacement-task-delivery",
-        idempotencyKey: "replacement-task-delivery",
-        onBehalfOfProfileId: HUMAN_PROFILE_ID,
-        onBehalfOfUserId: "user_1",
-        spaceId: SPACE_ID,
-        submissionId: "replacement-task-submission",
-      });
-      const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
-        db: harness.db,
-        submissionId: "replacement-task-submission",
-      });
-      if (!delivery) {
-        throw new Error("expected accepted replacement Task delivery");
-      }
-      await createCenterAgentTask({
-        db: harness.db,
-        goal: "Research competitor onboarding.",
-        idempotencyKey: "create-replacement-task",
-        nowMs: 2000,
-        organizationId: "org_1",
-        origin: { kind: "open_meld" },
-        requesterUserId: "user_1",
-        taskId: "replacement-task",
-        title: "Research onboarding",
-      });
-      await appendCenterAgentTaskEvent({
-        actor: "requester",
-        attemptGeneration: null,
-        db: harness.db,
-        eventId: "replacement-task-created",
-        expectedTaskVersion: 1,
-        idempotencyKey: "replacement-task-created",
-        kind: "task_created",
-        observedAtMs: 2000,
-        occurredAtMs: 2000,
-        organizationId: "org_1",
-        taskId: "replacement-task",
-        text: "Research competitor onboarding.",
-      });
-      await createCenterAgentTaskAttempt({
-        attemptId: "replacement-task-attempt",
-        db: harness.db,
-        expectedTaskVersion: 2,
-        idempotencyKey: "replacement-task-attempt",
-        nowMs: 2001,
-        organizationId: "org_1",
-        taskHandle: {
-          deliveryId: delivery.deliveryId,
-          kind: "native_delivery",
-          v: 1,
-        },
-        taskId: "replacement-task",
-      });
-      const running = await transitionCenterAgentTaskAttempt({
-        db: harness.db,
-        expectedTaskVersion: 3,
-        failureCode: null,
-        generation: 1,
-        nowMs: 2002,
-        organizationId: "org_1",
-        status: "running",
-        taskId: "replacement-task",
-      });
-      await requestCenterAgentTaskStop({
-        actor: "requester",
-        attemptGeneration: 1,
-        db: harness.db,
-        eventId: "replacement-task-stop-requested",
-        expectedTaskVersion: running.task.version,
-        idempotencyKey: buildCenterAgentTaskReplacementStopIdempotencyKey(
-          "replacement-task-instruction"
-        ),
-        nowMs: 2003,
-        organizationId: "org_1",
-        replacementInstruction: {
-          eventId: "replacement-task-instruction",
-          idempotencyKey: "replace-with-security-review",
-          occurredAtMs: 2004,
-          text: "Replace the current work with a security-focused review.",
-        },
-        taskId: "replacement-task",
-        text: "Stop requested before replacing the current instruction.",
-      });
-
-      await expect(
-        completeRemoteAgentNativeDelivery(env, {
-          agentProfileId: AGENT_PROFILE_ID,
-          bindingId: "binding_1",
-          dispatchId: delivery.dispatchId,
-          idempotencyKey: delivery.idempotencyKey,
-          organizationId: "org_1",
-          spaceId: delivery.spaceId,
-          submissionId: "replacement-task-submission",
-          text: "This replaced result must remain sealed.",
-          triggerMessageId: delivery.triggerMessageId,
-        })
-      ).resolves.toMatchObject({
-        publishedSignalId: null,
-        reasonCode: RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
-        status: "accepted",
-      });
-
-      expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
-      expect(workerSubmit).toHaveBeenCalledTimes(1);
-      expect(workerSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: "center-agent-task:replacement-task",
-          messages: [
-            {
-              content:
-                "Replace the current work with a security-focused review.",
-              role: "user",
-            },
-          ],
-        })
-      );
-      await expect(
-        readCenterAgentTask({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "replacement-task",
-        })
-      ).resolves.toMatchObject({
-        activeAttemptGeneration: 2,
-        status: "running",
-      });
-      const events = await listCenterAgentTaskEvents({
-        db: harness.db,
-        organizationId: "org_1",
-        taskId: "replacement-task",
-      });
-      expect(events.map((event) => event.kind)).toEqual([
-        "task_created",
-        "stop_requested",
-        "requester_message",
-        "task_stopped",
-      ]);
-    } finally {
-      harness.close();
-    }
-  });
-
   it("keeps a terminal hosted Slack failure fenced from outcome recovery", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -8123,6 +6714,7 @@ describe("Remote Agent native delivery callback service", () => {
       slackTeamId: "T123",
       slackThreadTs: "1700000000.000001",
       sourceText: "Prepare the launch review.",
+      triggerText: "Prepare the launch review.",
       triggerMessageId: "slack:T123:C123:1700000000.000001",
       turnEnvelope: createSlackTurnEnvelope(),
     };
@@ -8672,6 +7264,7 @@ describe("Remote Agent native delivery callback service", () => {
             slackTeamId: "T123",
             slackThreadTs: "1700000000.000001",
             sourceText: "Please help.",
+            triggerText: "Please help.",
             triggerMessageId: "slack:T123:C123:1700000000.000001",
             turnEnvelope: {
               ...createSlackTurnEnvelope(),
@@ -8758,6 +7351,7 @@ describe("Remote Agent native delivery callback service", () => {
             slackTeamId: "T123",
             slackThreadTs: "1700000000.000001",
             sourceText,
+            triggerText: sourceText,
             triggerMessageId: "slack:T123:C123:1700000000.000001",
             turnEnvelope: createSlackTurnEnvelope(),
           },
@@ -10161,879 +8755,6 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("rejects mismatched callback roots before writing a Space reply", async () => {
-    const harness = createSqliteD1Harness();
-    applyRemoteAgentSubmitMigrations(harness);
-    try {
-      await createAcceptedDelivery({
-        centerAgentTaskId: "callback-rejected-task",
-        db: harness.db,
-        deliveryId: "dispatch_1",
-        dispatchId: "dispatch_1",
-        idempotencyKey: "space_1:dispatch_1",
-        submissionId: "sub_1",
-      });
-      const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
-        db: harness.db,
-        submissionId: "sub_1",
-      });
-      if (!delivery) {
-        throw new Error("expected accepted delivery");
-      }
-      await createCenterAgentTask({
-        db: harness.db,
-        goal: "Research competitor onboarding.",
-        idempotencyKey: "create-callback-rejected-task",
-        nowMs: 1100,
-        organizationId: "org_1",
-        origin: { kind: "open_meld" },
-        requesterUserId: null,
-        taskId: "callback-rejected-task",
-        title: "Research onboarding",
-      });
-      await appendCenterAgentTaskEvent({
-        actor: "center_agent",
-        attemptGeneration: null,
-        db: harness.db,
-        eventId: "callback-rejected-task-created",
-        expectedTaskVersion: 1,
-        idempotencyKey: "callback-rejected-task-created",
-        kind: "task_created",
-        observedAtMs: 1100,
-        occurredAtMs: 1100,
-        organizationId: "org_1",
-        taskId: "callback-rejected-task",
-        text: "Task created.",
-      });
-      await createCenterAgentTaskAttempt({
-        attemptId: "callback-rejected-attempt",
-        db: harness.db,
-        expectedTaskVersion: 2,
-        idempotencyKey: "callback-rejected-attempt",
-        nowMs: 1101,
-        organizationId: "org_1",
-        taskHandle: {
-          deliveryId: delivery.deliveryId,
-          kind: "native_delivery",
-          v: 1,
-        },
-        taskId: "callback-rejected-task",
-      });
-      await transitionCenterAgentTaskAttempt({
-        db: harness.db,
-        expectedTaskVersion: 3,
-        failureCode: null,
-        generation: 1,
-        nowMs: 1102,
-        organizationId: "org_1",
-        status: "running",
-        taskId: "callback-rejected-task",
-      });
-
-      await expect(
-        completeRemoteAgentNativeDelivery(buildEnv(harness.db), {
-          submissionId: "sub_1",
-          idempotencyKey: "space_1:dispatch_1",
-          organizationId: "org_1",
-          spaceId: "space_1",
-          agentProfileId: AGENT_PROFILE_ID,
-          bindingId: "binding_other",
-          triggerMessageId: "signal_1",
-          dispatchId: "dispatch_1",
-          text: "Done.",
-        })
-      ).resolves.toEqual({
-        status: "rejected",
-        reasonCode: "remote_agent.callback_binding_mismatch",
-      });
-      await expect(
-        readRemoteAgentNativeDeliveryBySubmissionId({
-          db: harness.db,
-          submissionId: "sub_1",
-        })
-      ).resolves.toMatchObject({
-        status: "callback_rejected",
-        failureCode: "remote_agent.callback_binding_mismatch",
-      });
-      await expect(
-        readCenterAgentTask({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "callback-rejected-task",
-        })
-      ).resolves.toMatchObject({
-        status: "failed",
-      });
-      await expect(
-        listCenterAgentTaskEvents({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "callback-rejected-task",
-        })
-      ).resolves.toMatchObject([
-        { kind: "task_created" },
-        {
-          kind: "task_failed",
-          text: "Center Agent could not finish this Task. Retry it or open diagnostics.",
-        },
-      ]);
-    } finally {
-      harness.close();
-    }
-  });
-
-  it("projects a rejected Task callback across independent native, Task, and Inbox stores", async () => {
-    const nativeStore = createSqliteD1Harness();
-    const taskStore = createSqliteD1Harness();
-    const inboxStore = createSqliteD1Harness();
-    applyMigrationForTable(
-      nativeStore,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
-    seedTaskIdentityTables(taskStore);
-    applyDrizzleMigrationsForTables(taskStore, [
-      "center_agent_tasks",
-      "center_agent_task_attempts",
-      "center_agent_task_events",
-    ]);
-    seedTaskIdentityTables(inboxStore);
-    applyDrizzleMigrationsForTables(inboxStore, [
-      "space_index_spaces",
-      "space_index_memberships",
-      "center_agent_task_authorized_readers",
-      "inbox_items",
-      "inbox_email_deliveries",
-    ]);
-    try {
-      await createAcceptedDelivery({
-        centerAgentTaskId: "split-store-task",
-        db: nativeStore.db,
-        deliveryId: "dispatch_1",
-        dispatchId: "dispatch_1",
-        idempotencyKey: "split-task-delivery",
-        onBehalfOfProfileId: HUMAN_PROFILE_ID,
-        onBehalfOfUserId: "user_1",
-        submissionId: "split-task-submission",
-      });
-      const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
-        db: nativeStore.db,
-        submissionId: "split-task-submission",
-      });
-      if (!delivery) {
-        throw new Error("expected accepted split-store delivery");
-      }
-      await createCenterAgentTask({
-        db: taskStore.db,
-        goal: "Research competitor onboarding.",
-        idempotencyKey: "create-split-store-task",
-        nowMs: 1100,
-        organizationId: "org_1",
-        origin: { kind: "open_meld" },
-        requesterUserId: "user_1",
-        taskId: "split-store-task",
-        title: "Research onboarding",
-      });
-      await appendCenterAgentTaskEvent({
-        actor: "center_agent",
-        attemptGeneration: null,
-        db: taskStore.db,
-        eventId: "split-store-task-created",
-        expectedTaskVersion: 1,
-        idempotencyKey: "split-store-task-created",
-        kind: "task_created",
-        observedAtMs: 1100,
-        occurredAtMs: 1100,
-        organizationId: "org_1",
-        taskId: "split-store-task",
-        text: "Task created.",
-      });
-      await createCenterAgentTaskAttempt({
-        attemptId: "split-store-attempt",
-        db: taskStore.db,
-        expectedTaskVersion: 2,
-        idempotencyKey: "split-store-attempt",
-        nowMs: 1101,
-        organizationId: "org_1",
-        taskHandle: {
-          deliveryId: delivery.deliveryId,
-          kind: "native_delivery",
-          v: 1,
-        },
-        taskId: "split-store-task",
-      });
-      await transitionCenterAgentTaskAttempt({
-        db: taskStore.db,
-        expectedTaskVersion: 3,
-        failureCode: null,
-        generation: 1,
-        nowMs: 1102,
-        organizationId: "org_1",
-        status: "running",
-        taskId: "split-store-task",
-      });
-      const env = buildEnv(inboxStore.db);
-      env.OPENMELD_LOCAL_STATE_DB = taskStore.db;
-      env.OPENMELD_WAKE_EVIDENCE_DB = nativeStore.db;
-
-      await expect(
-        completeRemoteAgentNativeDelivery(env, {
-          agentProfileId: AGENT_PROFILE_ID,
-          bindingId: "binding_other",
-          dispatchId: "dispatch_1",
-          idempotencyKey: "split-task-delivery",
-          organizationId: "org_1",
-          spaceId: "space_1",
-          submissionId: "split-task-submission",
-          text: "Private mismatch detail must not be published.",
-          triggerMessageId: "signal_1",
-        })
-      ).resolves.toEqual({
-        reasonCode: "remote_agent.callback_binding_mismatch",
-        status: "rejected",
-      });
-
-      await expect(
-        readCenterAgentTask({
-          db: taskStore.db,
-          organizationId: "org_1",
-          taskId: "split-store-task",
-        })
-      ).resolves.toMatchObject({ status: "failed" });
-      expect(
-        inboxStore.queryAll<{
-          attention: string;
-          preview: string;
-          source_kind: string;
-        }>({
-          sql: "SELECT attention, preview, source_kind FROM inbox_items",
-        })
-      ).toEqual([
-        {
-          attention: "update",
-          preview:
-            "Center Agent could not finish this Task. Retry it or open diagnostics.",
-          source_kind: "center_agent_task_event",
-        },
-      ]);
-    } finally {
-      nativeStore.close();
-      taskStore.close();
-      inboxStore.close();
-    }
-  });
-
-  it("redrives the exact completed Task result after terminal projection is delayed", async () => {
-    const harness = createSqliteD1Harness();
-    seedTaskIdentityTables(harness);
-    applyRemoteAgentLedgerMigration(harness);
-    applyDrizzleMigrationsForTables(harness, [
-      "space_index_spaces",
-      "space_index_memberships",
-      "inbox_items",
-      "inbox_email_deliveries",
-    ]);
-    try {
-      await createAcceptedDelivery({
-        centerAgentTaskId: "delayed-terminal-task",
-        db: harness.db,
-        deliveryId: "delayed-terminal-delivery",
-        dispatchId: "delayed-terminal-delivery",
-        idempotencyKey: "delayed-terminal-delivery",
-        onBehalfOfProfileId: HUMAN_PROFILE_ID,
-        onBehalfOfUserId: "user_1",
-        spaceId: SPACE_ID,
-        submissionId: "delayed-terminal-submission",
-      });
-      const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
-        db: harness.db,
-        submissionId: "delayed-terminal-submission",
-      });
-      if (!delivery) {
-        throw new Error("expected accepted delayed-terminal delivery");
-      }
-      const env = buildEnv(harness.db);
-
-      await expect(
-        completeRemoteAgentNativeDelivery(env, {
-          agentProfileId: AGENT_PROFILE_ID,
-          bindingId: "binding_1",
-          dispatchId: delivery.dispatchId,
-          idempotencyKey: delivery.idempotencyKey,
-          organizationId: "org_1",
-          spaceId: delivery.spaceId,
-          submissionId: "delayed-terminal-submission",
-          text: "The onboarding research is complete.",
-          triggerMessageId: delivery.triggerMessageId,
-        })
-      ).resolves.toMatchObject({ status: "accepted" });
-      await expect(
-        readRemoteAgentNativeDeliveryBySubmissionId({
-          db: harness.db,
-          submissionId: "delayed-terminal-submission",
-        })
-      ).resolves.toMatchObject({
-        finalPublicationPayload: {
-          text: "The onboarding research is complete.",
-        },
-        status: "completed",
-      });
-      await expect(
-        retryPendingCenterAgentTaskTerminalProjections({
-          deliveryDb: harness.db,
-          env,
-          nowMs: 1199,
-        })
-      ).resolves.toEqual({
-        canonicalized: 0,
-        errors: 0,
-        ownerRejected: 0,
-        retained: 1,
-        scanned: 1,
-      });
-
-      await createCenterAgentTask({
-        db: harness.db,
-        goal: "Research competitor onboarding.",
-        idempotencyKey: "create-delayed-terminal-task",
-        nowMs: 1200,
-        organizationId: "org_1",
-        origin: { kind: "open_meld" },
-        requesterUserId: "user_1",
-        taskId: "delayed-terminal-task",
-        title: "Research onboarding",
-      });
-      await appendCenterAgentTaskEvent({
-        actor: "center_agent",
-        attemptGeneration: null,
-        db: harness.db,
-        eventId: "delayed-terminal-task-created",
-        expectedTaskVersion: 1,
-        idempotencyKey: "delayed-terminal-task-created",
-        kind: "task_created",
-        observedAtMs: 1200,
-        occurredAtMs: 1200,
-        organizationId: "org_1",
-        taskId: "delayed-terminal-task",
-        text: "Task created.",
-      });
-      await createCenterAgentTaskAttempt({
-        attemptId: "delayed-terminal-attempt",
-        db: harness.db,
-        expectedTaskVersion: 2,
-        idempotencyKey: "delayed-terminal-attempt",
-        nowMs: 1201,
-        organizationId: "org_1",
-        taskHandle: {
-          deliveryId: delivery.deliveryId,
-          kind: "native_delivery",
-          v: 1,
-        },
-        taskId: "delayed-terminal-task",
-      });
-      await transitionCenterAgentTaskAttempt({
-        db: harness.db,
-        expectedTaskVersion: 3,
-        failureCode: null,
-        generation: 1,
-        nowMs: 1202,
-        organizationId: "org_1",
-        status: "running",
-        taskId: "delayed-terminal-task",
-      });
-
-      await expect(
-        retryPendingCenterAgentTaskTerminalProjections({
-          deliveryDb: harness.db,
-          env,
-          nowMs: 1203,
-        })
-      ).resolves.toEqual({
-        canonicalized: 1,
-        errors: 0,
-        ownerRejected: 0,
-        retained: 0,
-        scanned: 1,
-      });
-      await expect(
-        listCenterAgentTaskEvents({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "delayed-terminal-task",
-        })
-      ).resolves.toMatchObject([
-        { kind: "task_created" },
-        {
-          kind: "task_succeeded",
-          text: "The onboarding research is complete.",
-        },
-      ]);
-      await expect(
-        readRemoteAgentNativeDeliveryBySubmissionId({
-          db: harness.db,
-          submissionId: "delayed-terminal-submission",
-        })
-      ).resolves.toMatchObject({
-        finalPublicationPayload: null,
-        status: "completed",
-      });
-      await expect(
-        retryPendingCenterAgentTaskTerminalProjections({
-          deliveryDb: harness.db,
-          env,
-          nowMs: 1204,
-        })
-      ).resolves.toEqual({
-        canonicalized: 0,
-        errors: 0,
-        ownerRejected: 0,
-        retained: 0,
-        scanned: 0,
-      });
-    } finally {
-      harness.close();
-    }
-  });
-
-  it("rotates retained Task results so one blocked batch cannot starve later work", async () => {
-    const harness = createSqliteD1Harness();
-    seedTaskIdentityTables(harness);
-    applyRemoteAgentLedgerMigration(harness);
-    applyDrizzleMigrationsForTables(harness, [
-      "space_index_spaces",
-      "space_index_memberships",
-      "inbox_items",
-      "inbox_email_deliveries",
-    ]);
-    try {
-      const env = buildEnv(harness.db);
-      for (let index = 0; index < 51; index += 1) {
-        const suffix = String(index).padStart(3, "0");
-        await createRetainedTaskResult({
-          centerAgentTaskId: `blocked-task-${suffix}`,
-          db: harness.db,
-          deliveryId: `blocked-delivery-${suffix}`,
-          submissionId: `blocked-submission-${suffix}`,
-        });
-      }
-      const readyDeliveryId = "ready-delivery-after-blocked-batch";
-      await createRetainedTaskResult({
-        centerAgentTaskId: "ready-task-after-blocked-batch",
-        db: harness.db,
-        deliveryId: readyDeliveryId,
-        submissionId: "ready-submission-after-blocked-batch",
-      });
-      await createCenterAgentTask({
-        db: harness.db,
-        goal: "Finish the result behind the blocked recovery batch.",
-        idempotencyKey: "create-ready-task-after-blocked-batch",
-        nowMs: 2000,
-        organizationId: "org_1",
-        origin: { kind: "open_meld" },
-        requesterUserId: "user_1",
-        taskId: "ready-task-after-blocked-batch",
-        title: "Finish queued result",
-      });
-      await createCenterAgentTaskAttempt({
-        attemptId: "ready-attempt-after-blocked-batch",
-        db: harness.db,
-        expectedTaskVersion: 1,
-        idempotencyKey: "ready-attempt-after-blocked-batch",
-        nowMs: 2001,
-        organizationId: "org_1",
-        taskHandle: {
-          deliveryId: readyDeliveryId,
-          kind: "native_delivery",
-          v: 1,
-        },
-        taskId: "ready-task-after-blocked-batch",
-      });
-      await transitionCenterAgentTaskAttempt({
-        db: harness.db,
-        expectedTaskVersion: 2,
-        failureCode: null,
-        generation: 1,
-        nowMs: 2002,
-        organizationId: "org_1",
-        status: "running",
-        taskId: "ready-task-after-blocked-batch",
-      });
-
-      await expect(
-        retryPendingCenterAgentTaskTerminalProjections({
-          deliveryDb: harness.db,
-          env,
-          limit: 50,
-          nowMs: 2003,
-        })
-      ).resolves.toMatchObject({ retained: 50, scanned: 50 });
-      await expect(
-        retryPendingCenterAgentTaskTerminalProjections({
-          deliveryDb: harness.db,
-          env,
-          limit: 50,
-          nowMs: 2004,
-        })
-      ).resolves.toEqual({
-        canonicalized: 1,
-        errors: 0,
-        ownerRejected: 0,
-        retained: 49,
-        scanned: 50,
-      });
-      await expect(
-        listCenterAgentTaskEvents({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "ready-task-after-blocked-batch",
-        })
-      ).resolves.toMatchObject([
-        {
-          kind: "task_succeeded",
-          text: "The exact retained Task result.",
-        },
-      ]);
-    } finally {
-      harness.close();
-    }
-  });
-
-  it("erases an exact completed result after the Task owner rejects terminal projection", async () => {
-    const harness = createSqliteD1Harness();
-    seedTaskIdentityTables(harness);
-    applyRemoteAgentLedgerMigration(harness);
-    applyDrizzleMigrationsForTables(harness, [
-      "space_index_spaces",
-      "space_index_memberships",
-      "inbox_items",
-      "inbox_email_deliveries",
-    ]);
-    try {
-      await createAcceptedDelivery({
-        centerAgentTaskId: "owner-rejected-task",
-        db: harness.db,
-        deliveryId: "owner-rejected-delivery",
-        dispatchId: "owner-rejected-delivery",
-        idempotencyKey: "owner-rejected-delivery",
-        onBehalfOfProfileId: HUMAN_PROFILE_ID,
-        onBehalfOfUserId: "user_1",
-        spaceId: SPACE_ID,
-        submissionId: "owner-rejected-submission",
-      });
-      const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
-        db: harness.db,
-        submissionId: "owner-rejected-submission",
-      });
-      if (!delivery) {
-        throw new Error("expected accepted owner-rejected delivery");
-      }
-      await createCenterAgentTask({
-        db: harness.db,
-        goal: "Research competitor onboarding.",
-        idempotencyKey: "create-owner-rejected-task",
-        nowMs: 1200,
-        organizationId: "org_1",
-        origin: { kind: "open_meld" },
-        requesterUserId: "user_1",
-        taskId: "owner-rejected-task",
-        title: "Research onboarding",
-      });
-      await appendCenterAgentTaskEvent({
-        actor: "center_agent",
-        attemptGeneration: null,
-        db: harness.db,
-        eventId: "owner-rejected-task-created",
-        expectedTaskVersion: 1,
-        idempotencyKey: "owner-rejected-task-created",
-        kind: "task_created",
-        observedAtMs: 1200,
-        occurredAtMs: 1200,
-        organizationId: "org_1",
-        taskId: "owner-rejected-task",
-        text: "Task created.",
-      });
-      await createCenterAgentTaskAttempt({
-        attemptId: "owner-rejected-attempt",
-        db: harness.db,
-        expectedTaskVersion: 2,
-        idempotencyKey: "owner-rejected-attempt",
-        nowMs: 1201,
-        organizationId: "org_1",
-        taskHandle: {
-          deliveryId: delivery.deliveryId,
-          kind: "native_delivery",
-          v: 1,
-        },
-        taskId: "owner-rejected-task",
-      });
-      const running = await transitionCenterAgentTaskAttempt({
-        db: harness.db,
-        expectedTaskVersion: 3,
-        failureCode: null,
-        generation: 1,
-        nowMs: 1202,
-        organizationId: "org_1",
-        status: "running",
-        taskId: "owner-rejected-task",
-      });
-      const waiting = await transitionCenterAgentTaskAttempt({
-        db: harness.db,
-        expectedTaskVersion: running.task.version,
-        failureCode: null,
-        generation: 1,
-        nowMs: 1203,
-        organizationId: "org_1",
-        status: "needs_attention",
-        taskId: "owner-rejected-task",
-      });
-      await appendCenterAgentTaskEvent({
-        actor: "center_agent",
-        attemptGeneration: 1,
-        db: harness.db,
-        eventId: "owner-rejected-needs-attention",
-        expectedTaskVersion: waiting.task.version,
-        idempotencyKey: "owner-rejected-needs-attention",
-        kind: "needs_attention",
-        observedAtMs: 1203,
-        occurredAtMs: 1203,
-        organizationId: "org_1",
-        taskId: "owner-rejected-task",
-        text: "Choose a release owner.",
-      });
-
-      await expect(
-        completeRemoteAgentNativeDelivery(buildEnv(harness.db), {
-          agentProfileId: AGENT_PROFILE_ID,
-          bindingId: "binding_1",
-          dispatchId: delivery.dispatchId,
-          idempotencyKey: delivery.idempotencyKey,
-          organizationId: "org_1",
-          spaceId: delivery.spaceId,
-          submissionId: "owner-rejected-submission",
-          text: "Sensitive exact result that the Task owner cannot accept.",
-          triggerMessageId: delivery.triggerMessageId,
-        })
-      ).resolves.toMatchObject({ status: "accepted" });
-      await expect(
-        readCenterAgentTask({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "owner-rejected-task",
-        })
-      ).resolves.toMatchObject({ status: "needs_attention" });
-      await expect(
-        listCenterAgentTaskEvents({
-          db: harness.db,
-          organizationId: "org_1",
-          taskId: "owner-rejected-task",
-        })
-      ).resolves.toMatchObject([
-        { kind: "task_created" },
-        { kind: "needs_attention", text: "Choose a release owner." },
-      ]);
-      await expect(
-        readRemoteAgentNativeDeliveryBySubmissionId({
-          db: harness.db,
-          submissionId: "owner-rejected-submission",
-        })
-      ).resolves.toMatchObject({
-        deliveryId: "owner-rejected-delivery",
-        finalPublicationPayload: null,
-        status: "completed",
-      });
-    } finally {
-      harness.close();
-    }
-  });
-
-  it("accepts a completed Task callback across independent native, Task, and owner stores", async () => {
-    const nativeStore = createSqliteD1Harness();
-    const taskStore = createSqliteD1Harness();
-    const ownerStore = createSqliteD1Harness();
-    applyMigrationForTable(
-      nativeStore,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
-    applyMigrationForTable(nativeStore, "openMeldDaemon_dispatch_ledger");
-    applyMigrationForTable(nativeStore, "openMeldDaemon_dispatch_attempts");
-    seedTaskIdentityTables(taskStore);
-    applyDrizzleMigrationsForTables(taskStore, [
-      "center_agent_tasks",
-      "center_agent_task_attempts",
-      "center_agent_task_events",
-    ]);
-    applyMigrationForTable(taskStore, "slack_workspace_tokens");
-    seedTaskIdentityTables(ownerStore);
-    applyDrizzleMigrationsForTables(ownerStore, [
-      "space_index_spaces",
-      "space_index_memberships",
-      "center_agent_task_authorized_readers",
-      "inbox_items",
-      "inbox_email_deliveries",
-    ]);
-    applyMigrationForTable(ownerStore, "agent_delegation_children");
-    applyMigrationForTable(ownerStore, "agent_delegations");
-    applyMigrationForTable(ownerStore, "agent_task_completion_subscriptions");
-    applyMigrationForTable(ownerStore, "agent_task_terminal_outcomes");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Response.json({ ok: true, ts: "1700000000.000099" }))
-    );
-    try {
-      const slackConversationId = "slack:T123:C123:1700000000.000001";
-      await createAcceptedDelivery({
-        centerAgentTaskId: "split-completed-task",
-        conversationKind: "slack",
-        db: nativeStore.db,
-        deliveryId: "split-completed-task-delivery",
-        dispatchId: "split-completed-task-delivery",
-        idempotencyKey: "split-completed-task-delivery",
-        onBehalfOfProfileId: HUMAN_PROFILE_ID,
-        onBehalfOfUserId: "user_1",
-        slackChannelId: "C123",
-        slackTeamId: "T123",
-        slackThreadTs: "1700000000.000001",
-        spaceId: slackConversationId,
-        submissionId: "split-completed-task-submission",
-        triggerMessageId: "1700000000.000001",
-      });
-      const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
-        db: nativeStore.db,
-        submissionId: "split-completed-task-submission",
-      });
-      if (!delivery) {
-        throw new Error("expected accepted split-store Task delivery");
-      }
-      await registerAgentTaskCompletionSubscription({
-        completionCondition: "terminal",
-        continuation: null,
-        db: ownerStore.db,
-        idempotencyKey: "split-completed-task-subscription-key",
-        nowMs: 1099,
-        observerTask: {
-          deliveryId: "split-completed-task-observer",
-          kind: "native_delivery",
-          v: 1,
-        },
-        organizationId: "org_1",
-        subscriptionId: "split-completed-task-subscription",
-        watchedTask: {
-          deliveryId: delivery.deliveryId,
-          kind: "native_delivery",
-          v: 1,
-        },
-      });
-      await createCenterAgentTask({
-        db: taskStore.db,
-        goal: "Research competitor onboarding.",
-        idempotencyKey: "create-split-completed-task",
-        nowMs: 1100,
-        organizationId: "org_1",
-        origin: { kind: "open_meld" },
-        requesterUserId: "user_1",
-        taskId: "split-completed-task",
-        title: "Research onboarding",
-      });
-      await appendCenterAgentTaskEvent({
-        actor: "center_agent",
-        attemptGeneration: null,
-        db: taskStore.db,
-        eventId: "split-completed-task-created",
-        expectedTaskVersion: 1,
-        idempotencyKey: "split-completed-task-created",
-        kind: "task_created",
-        observedAtMs: 1100,
-        occurredAtMs: 1100,
-        organizationId: "org_1",
-        taskId: "split-completed-task",
-        text: "Task created.",
-      });
-      await createCenterAgentTaskAttempt({
-        attemptId: "split-completed-task-attempt",
-        db: taskStore.db,
-        expectedTaskVersion: 2,
-        idempotencyKey: "split-completed-task-attempt",
-        nowMs: 1101,
-        organizationId: "org_1",
-        taskHandle: {
-          deliveryId: delivery.deliveryId,
-          kind: "native_delivery",
-          v: 1,
-        },
-        taskId: "split-completed-task",
-      });
-      await transitionCenterAgentTaskAttempt({
-        db: taskStore.db,
-        expectedTaskVersion: 3,
-        failureCode: null,
-        generation: 1,
-        nowMs: 1102,
-        organizationId: "org_1",
-        status: "running",
-        taskId: "split-completed-task",
-      });
-      const env = buildEnv(ownerStore.db, { slackBotToken: "xoxb-test" });
-      env.OPENMELD_LOCAL_STATE_DB = taskStore.db;
-      env.OPENMELD_WAKE_EVIDENCE_DB = nativeStore.db;
-
-      await expect(
-        completeRemoteAgentNativeDelivery(env, {
-          agentProfileId: AGENT_PROFILE_ID,
-          bindingId: "binding_1",
-          dispatchId: delivery.dispatchId,
-          idempotencyKey: delivery.idempotencyKey,
-          organizationId: "org_1",
-          spaceId: slackConversationId,
-          submissionId: "split-completed-task-submission",
-          text: "The onboarding research is complete.",
-          triggerMessageId: delivery.triggerMessageId,
-        })
-      ).resolves.toMatchObject({ status: "accepted" });
-
-      await expect(
-        readRemoteAgentNativeDeliveryBySubmissionId({
-          db: nativeStore.db,
-          submissionId: "split-completed-task-submission",
-        })
-      ).resolves.toMatchObject({ status: "completed" });
-      await expect(
-        readCenterAgentTask({
-          db: taskStore.db,
-          organizationId: "org_1",
-          taskId: "split-completed-task",
-        })
-      ).resolves.toMatchObject({ status: "succeeded" });
-      await expect(
-        readAgentTaskTerminalOutcome({
-          db: ownerStore.db,
-          taskKey: buildAgentTaskKey({
-            deliveryId: delivery.deliveryId,
-            kind: "native_delivery",
-            v: 1,
-          }),
-        })
-      ).resolves.toMatchObject({
-        outcome: { status: "succeeded" },
-      });
-      const inboxItems = ownerStore.queryAll<{
-        preview: string;
-        source_kind: string;
-      }>({
-        sql: "SELECT preview, source_kind FROM inbox_items",
-      });
-      expect(inboxItems).toEqual([
-        {
-          preview: "The onboarding research is complete.",
-          source_kind: "center_agent_task_event",
-        },
-      ]);
-    } finally {
-      vi.unstubAllGlobals();
-      nativeStore.close();
-      taskStore.close();
-      ownerStore.close();
-    }
-  });
-
   it("rejects completed callback retries without changing the completed outcome", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentLedgerMigration(harness);
@@ -11124,18 +8845,6 @@ function applyRemoteAgentSubmitMigrations(
   seedCenterAgentDesignation(input);
   seedRemoteAgentTurnEnvelopeFacts(input);
   seedCenterAgentTaskAdmissionAuthority(input);
-}
-
-function seedTaskIdentityTables(
-  input: Parameters<typeof applyMigrationForTable>[0]
-): void {
-  ensureTaskIdentityTables(input);
-  input.run({
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES ('org_1', 'OpenMeld Labs', 'openmeld-labs', 1000)",
-  });
-  input.run({
-    sql: "INSERT INTO users (id, name, email) VALUES ('user_1', 'Ari', 'ari@example.test')",
-  });
 }
 
 function ensureTaskIdentityTables(
@@ -12206,53 +9915,7 @@ function createFailedCallbackBody(input: {
   };
 }
 
-async function createRetainedTaskResult(input: {
-  centerAgentTaskId: string;
-  db: D1Database;
-  deliveryId: string;
-  submissionId: string;
-}): Promise<void> {
-  await createAcceptedDelivery({
-    centerAgentTaskId: input.centerAgentTaskId,
-    db: input.db,
-    deliveryId: input.deliveryId,
-    dispatchId: input.deliveryId,
-    idempotencyKey: input.deliveryId,
-    onBehalfOfProfileId: HUMAN_PROFILE_ID,
-    onBehalfOfUserId: "user_1",
-    spaceId: SPACE_ID,
-    submissionId: input.submissionId,
-    triggerMessageId: input.deliveryId,
-  });
-  await input.db
-    .prepare(
-      `
-        UPDATE openMeldRemoteAgent_native_delivery_ledger
-        SET
-          status = 'completed',
-          final_publication_payload_json = ?,
-          callback_received_at_ms = 1200,
-          completed_at_ms = 1200,
-          updated_at_ms = 1200
-        WHERE delivery_id = ?
-      `
-    )
-    .bind(
-      JSON.stringify({
-        attachments: [],
-        failureCode: null,
-        failureDetail: null,
-        resumeStatus: "accepted",
-        storageVersion: 2,
-        text: "The exact retained Task result.",
-      }),
-      input.deliveryId
-    )
-    .run();
-}
-
 async function createAcceptedDelivery(input: {
-  centerAgentTaskId?: string;
   db: D1Database;
   conversationKind?: "message_channel" | "space" | "slack";
   deliveryId?: string;
@@ -12288,7 +9951,7 @@ async function createAcceptedDelivery(input: {
     sourceClientMessageId: input.sourceClientMessageId ?? null,
     triggerText: input.triggerText ?? null,
     dispatchId: input.dispatchId ?? "dispatch_1",
-    attemptId: input.centerAgentTaskId ? null : "attempt_1",
+    attemptId: "attempt_1",
     idempotencyKey: input.idempotencyKey,
     messageChannelLocator: input.messageChannelLocator ?? null,
     onBehalfOfDisplayName: input.onBehalfOfDisplayName ?? null,
@@ -12302,12 +9965,10 @@ async function createAcceptedDelivery(input: {
     status: "submitted",
     threadContext: input.threadContext ?? null,
   });
-  if (input.modelRoute || input.centerAgentTaskId || input.turnEnvelope) {
+  if (input.modelRoute || input.turnEnvelope) {
     await persistTestCenterAgentWorkerSubmitRequest({
       bindingId: "binding_1",
-      conversationId: input.centerAgentTaskId
-        ? `center-agent-task:${input.centerAgentTaskId}`
-        : undefined,
+
       db: input.db,
       dispatchId: input.dispatchId ?? "dispatch_1",
       idempotencyKey: input.idempotencyKey,

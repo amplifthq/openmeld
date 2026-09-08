@@ -1,10 +1,3 @@
-import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
-import {
-  assertNoRemovedCcSpaceAddressingSyntax,
-  listSpaceBareMentionDiagnostics,
-  type PreparedSpaceComposerSubmission,
-  type SpaceBareMentionDiagnostic,
-} from "@openmeld/space";
 import { resolveBaseUrl } from "../config/base-url";
 import type { OpenMeldProfile } from "../config/openmeld-profiles-api";
 import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
@@ -14,7 +7,7 @@ import { resolveRuntimeContext } from "../runtime/context";
 import { assertDispatchOwnedRuntimePublicWriteAllowed } from "../runtime/dispatch-owned-runtime";
 import { formatMessage } from "../runtime/messages";
 import { createPresenter } from "../runtime/presenter/index";
-import { rethrowCanonicalMentionSnapshotLoadFailure } from "./canonical-mention-preflight";
+import { rethrowSpaceAddressingSnapshotLoadFailure } from "./addressing-preflight";
 import { createCliSpaceApi } from "./cli-space-api";
 import { assertFullSignalIdArgument } from "./command-context";
 import {
@@ -27,6 +20,9 @@ import {
 } from "./send-files";
 
 export async function runSend(input: {
+  wakeTargets?: readonly string[];
+  referenceTargets?: readonly string[];
+  mentionTargets?: readonly string[];
   profile?: string;
   baseUrl?: string;
   space: string;
@@ -41,6 +37,16 @@ export async function runSend(input: {
   assertDispatchOwnedRuntimePublicWriteAllowed({
     commandLabel: "openmeld space send",
   });
+  const hasRecipients = [
+    input.wakeTargets,
+    input.referenceTargets,
+    input.mentionTargets,
+  ].some((targets) => Boolean(targets?.length));
+  if (input.plainText && hasRecipients) {
+    throw new Error(
+      "--plain cannot be combined with --wake, --reference, or --mention."
+    );
+  }
 
   const runtime = await resolveRuntimeContext({
     profile: input.profile,
@@ -92,33 +98,27 @@ export async function runSend(input: {
   if (!text.ok) {
     throw new Error(text.reason);
   }
-  assertNoRemovedCcSpaceAddressingSyntax(text.value);
   emitAgentSendProgress({
     presenter,
     resolvedView: runtime.resolvedView,
     stage: "prepare_message",
-    summary: input.plainText
-      ? "Preparing message text without Space mention parsing."
-      : "Preparing message text and canonical Space mentions.",
+    summary: "Preparing message text and explicit recipients.",
     spaceId: space,
   });
   const { outboundMessageEnvelope, outboundText, resolvedAddressingTargets } =
-    text.value.length === 0
-      ? {
-          outboundMessageEnvelope: undefined,
-          outboundText: "",
-          resolvedAddressingTargets: [],
-        }
-      : await resolveOutboundSubmission({
-          openMeldProfile,
-          password: input.password,
-          plainText: input.plainText === true,
-          presenter,
-          resolvedView: runtime.resolvedView,
-          space,
-          spaceApi,
-          text: text.value,
-        });
+    await resolveOutboundSubmission({
+      wakeTargets: input.wakeTargets,
+      referenceTargets: input.referenceTargets,
+      mentionTargets: input.mentionTargets,
+      openMeldProfile,
+      password: input.password,
+      plainText: input.plainText === true,
+      presenter,
+      resolvedView: runtime.resolvedView,
+      space,
+      spaceApi,
+      text: text.value,
+    });
   emitSendAddressingSummary({
     outboundMessageEnvelope,
     presenter,
@@ -260,6 +260,9 @@ async function postReplyIntoThread(input: {
 }
 
 async function resolveOutboundSubmission(input: {
+  wakeTargets?: readonly string[];
+  referenceTargets?: readonly string[];
+  mentionTargets?: readonly string[];
   openMeldProfile: OpenMeldProfile;
   password?: string;
   plainText: boolean;
@@ -269,37 +272,27 @@ async function resolveOutboundSubmission(input: {
   spaceApi: ReturnType<typeof createCliSpaceApi>;
   text: string;
 }): Promise<{
-  bareMentionDiagnostics: readonly SpaceBareMentionDiagnostic[];
   outboundMessageEnvelope?: Awaited<
     ReturnType<typeof prepareCliSpaceComposerSubmission>
   >["outboundMessageEnvelope"];
   outboundText: string;
   resolvedAddressingTargets: readonly CliSpaceAddressingTarget[];
 }> {
-  if (input.plainText) {
-    return {
-      bareMentionDiagnostics: [],
-      outboundText: input.text,
-      resolvedAddressingTargets: [],
-    };
-  }
-
-  let loadedMembersSnapshot: SpaceMembersSnapshot | null = null;
   const preparedSubmission = await prepareCliSpaceComposerSubmission({
+    wakeTargets: input.wakeTargets,
+    referenceTargets: input.referenceTargets,
+    mentionTargets: input.mentionTargets,
     missingSnapshotMessage:
-      "Cannot validate mention labels right now because current space members could not be loaded.",
-    onMembersSnapshotLoaded: (snapshot) => {
-      loadedMembersSnapshot = snapshot;
-    },
+      "Cannot validate recipients because current Space members could not be loaded.",
     onSnapshotLoadFailure: (error) => {
-      rethrowCanonicalMentionSnapshotLoadFailure(error);
+      rethrowSpaceAddressingSnapshotLoadFailure(error);
     },
     loadMembersSnapshot: async () => {
       emitAgentSendProgress({
         presenter: input.presenter,
         resolvedView: input.resolvedView,
         stage: "load_members",
-        summary: "Loading current Space members to resolve canonical mentions.",
+        summary: "Loading current Space members to validate recipients.",
         spaceId: input.space,
       });
       const requestContext = buildOpenMeldRequestContextFromProfile({
@@ -315,118 +308,11 @@ async function resolveOutboundSubmission(input: {
     },
     text: input.text,
   });
-  const bareMentionDiagnostics = await resolveBareMentionDiagnostics({
-    openMeldProfile: input.openMeldProfile,
-    loadedMembersSnapshot,
-    password: input.password,
-    preparedSubmission: preparedSubmission.preparedSubmission,
-    presenter: input.presenter,
-    resolvedView: input.resolvedView,
-    space: input.space,
-    spaceApi: input.spaceApi,
-    text: input.text,
-  });
-  emitBareMentionDiagnostics({
-    diagnostics: bareMentionDiagnostics,
-    presenter: input.presenter,
-    resolvedView: input.resolvedView,
-  });
-
   return {
-    bareMentionDiagnostics,
     outboundMessageEnvelope: preparedSubmission.outboundMessageEnvelope,
     outboundText: preparedSubmission.outboundText,
     resolvedAddressingTargets: preparedSubmission.resolvedAddressingTargets,
   };
-}
-
-async function resolveBareMentionDiagnostics(input: {
-  openMeldProfile: OpenMeldProfile;
-  loadedMembersSnapshot: SpaceMembersSnapshot | null;
-  password?: string;
-  preparedSubmission: PreparedSpaceComposerSubmission;
-  presenter: ReturnType<typeof createPresenter>;
-  resolvedView: "human" | "agent";
-  space: string;
-  spaceApi: ReturnType<typeof createCliSpaceApi>;
-  text: string;
-}): Promise<readonly SpaceBareMentionDiagnostic[]> {
-  if (!input.text.includes("@")) {
-    return [];
-  }
-
-  const snapshot =
-    input.loadedMembersSnapshot ??
-    (await loadMembersSnapshotForBareMentionDiagnostics(input));
-  if (!snapshot) {
-    return [];
-  }
-
-  return listSpaceBareMentionDiagnostics({
-    ignoredRanges: resolveCanonicalMentionDiagnosticIgnoreRanges(
-      input.preparedSubmission
-    ),
-    snapshot,
-    text: input.preparedSubmission.text,
-  });
-}
-
-function resolveCanonicalMentionDiagnosticIgnoreRanges(
-  preparedSubmission: PreparedSpaceComposerSubmission
-): { end: number; start: number }[] {
-  const ranges: { end: number; start: number }[] = [];
-  let cursor = 0;
-
-  for (const mention of preparedSubmission.canonicalMentionsInTextOrder) {
-    const start = preparedSubmission.text.indexOf(mention.text, cursor);
-    if (start < 0) {
-      continue;
-    }
-    const end = start + mention.text.length;
-    ranges.push({ end, start });
-    cursor = end;
-  }
-
-  return ranges;
-}
-
-async function loadMembersSnapshotForBareMentionDiagnostics(input: {
-  openMeldProfile: OpenMeldProfile;
-  password?: string;
-  presenter: ReturnType<typeof createPresenter>;
-  resolvedView: "human" | "agent";
-  space: string;
-  spaceApi: ReturnType<typeof createCliSpaceApi>;
-}): Promise<SpaceMembersSnapshot | null> {
-  try {
-    emitAgentSendProgress({
-      presenter: input.presenter,
-      resolvedView: input.resolvedView,
-      stage: "load_members",
-      summary: "Checking whether bare @mentions match Space members.",
-      spaceId: input.space,
-    });
-    const requestContext = buildOpenMeldRequestContextFromProfile({
-      openMeldProfile: input.openMeldProfile,
-    });
-    return await input.spaceApi.getMembersSnapshot({
-      requestContext,
-      spaceId: input.space,
-      ...(input.password === undefined
-        ? {}
-        : { spacePassword: input.password }),
-    });
-  } catch (error) {
-    if (input.resolvedView === "agent") {
-      input.presenter.line({
-        code: "space.send.bare_mention_check_unavailable",
-        text: `bare @mention check unavailable: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      });
-    }
-    return null;
-  }
 }
 
 function emitSendAddressingSummary(input: {
@@ -457,53 +343,6 @@ function emitSendAddressingSummary(input: {
         : {}),
       wakeTargetCount: wakeCount,
     },
-  });
-}
-
-function emitBareMentionDiagnostics(input: {
-  diagnostics: readonly SpaceBareMentionDiagnostic[];
-  presenter: ReturnType<typeof createPresenter>;
-  resolvedView: "human" | "agent";
-}): void {
-  if (input.diagnostics.length === 0) {
-    return;
-  }
-
-  const first = input.diagnostics[0];
-  if (!first) {
-    return;
-  }
-  const suggestion =
-    first.suggestedWakeText ??
-    first.suggestedReferenceText ??
-    first.suggestedMentionText;
-  if (!suggestion) {
-    return;
-  }
-  const text = `Bare mention ${first.mentionText} is plain text and does not create a Wake. Use ${suggestion} when you want OpenMeld to address that profile.`;
-
-  if (input.resolvedView === "agent") {
-    input.presenter.line({
-      code: "space.send.bare_mention_warning",
-      text,
-      data: {
-        mentions: input.diagnostics.map((diagnostic) => ({
-          mentionText: diagnostic.mentionText,
-          profileId: diagnostic.profileId,
-          profileKind: diagnostic.profileKind,
-          profileName: diagnostic.profileName,
-          suggestedMentionText: diagnostic.suggestedMentionText,
-          suggestedReferenceText: diagnostic.suggestedReferenceText,
-          suggestedWakeText: diagnostic.suggestedWakeText,
-        })),
-      },
-    });
-    return;
-  }
-
-  input.presenter.line({
-    code: "space.send.bare_mention_warning",
-    text,
   });
 }
 

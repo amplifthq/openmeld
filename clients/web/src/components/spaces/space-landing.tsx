@@ -3,6 +3,7 @@ import {
 	createDirectMessageApi,
 	type StructuredApiClientFailure,
 } from "@openmeld/api-client";
+import { isHostedAgentControllerRef } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	ConvertDirectMessageToSpaceResponse,
@@ -1678,6 +1679,9 @@ function SpaceLandingReady({
 							}
 							isDeleteSpacePending={controller.isDeleteSpacePending}
 							isLeaveSpacePending={controller.isLeaveSpacePending}
+							isRemoteAgentDirectMessage={controller.membersSnapshot?.agents.some(
+								(agent) => isHostedAgentControllerRef(agent.agentControllerRef)
+							)}
 							isSpaceNamePending={controller.isSpaceNamePending}
 							leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
 							liveErrorMessage={controller.liveErrorMessage}

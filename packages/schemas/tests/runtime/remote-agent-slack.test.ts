@@ -47,6 +47,23 @@ describe("Remote Agent Slack contracts", () => {
     );
   });
 
+  it("keeps content-empty app mentions for provider history recovery", () => {
+    expect(
+      remoteAgentSlackAppMentionEventSchema.parse({
+        type: "app_mention",
+        user: "U123",
+        text: "",
+        ts: "1710000000.000100",
+        channel: "C123",
+        event_ts: "1710000000.000100",
+      })
+    ).toMatchObject({
+      type: "app_mention",
+      text: "",
+      ts: "1710000000.000100",
+    });
+  });
+
   it("accepts only human messages sent directly to the app", () => {
     const directMessage = {
       action_token: "event-bound-search-token",

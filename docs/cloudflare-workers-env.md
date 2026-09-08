@@ -145,6 +145,7 @@ Workers, and verifies the public entry points. See
   - `OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED`
   - `OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS`
   - `OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT`
+  - `OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED`
   - `OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED`
   - `OPENMELD_LARK_CHANNEL_ENABLED`
   - `OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS`
@@ -166,6 +167,11 @@ Workers, and verifies the public entry points. See
   destination-neutral subscription shape and execute its supported
   destinations. Set production back to `false` to stop new destination-neutral
   writes during rollback; Core continues reading both continuation shapes.
+- `OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED` defaults to `false`. Enable it
+  only for a bounded Slack forwarded-message reproduction, then disable it
+  after capture. The diagnostic records message identifiers, field names,
+  counts, lengths, and lookup status; it never records message text, URLs,
+  credentials, or raw provider response bodies.
 - `wrangler.jsonc` `workflows` / `env.prod.workflows`
   - `OPENMELD_ROUTINE_RUN_WORKFLOW` binds the `openmeld-routine-run` Workflow
     to `RoutineRunWorkflow`

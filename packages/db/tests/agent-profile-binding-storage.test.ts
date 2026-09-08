@@ -9,6 +9,7 @@ const repoRootDirectoryPath = path.resolve(
   "../../.."
 );
 const OWNER_KIND_ERROR_PATTERN = /owner_kind/;
+const HOSTED_IDENTITY_ERROR_PATTERN = /hosted_identity/;
 const LIFECYCLE_ERROR_PATTERN = /lifecycle/;
 const CANONICAL_ENABLED_ERROR_PATTERN =
   /agent_profile_binding_canonical_enabled_check/;
@@ -18,7 +19,9 @@ const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const SECOND_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const THIRD_AGENT_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 
-const readSharedMigrationStatements = (): readonly string[] => {
+const readSharedMigrationStatements = (
+  beforePersonalRemote = false
+): readonly string[] => {
   const migrationDirectoryPath = path.resolve(
     repoRootDirectoryPath,
     "packages/db/drizzle"
@@ -26,6 +29,7 @@ const readSharedMigrationStatements = (): readonly string[] => {
   return fs
     .readdirSync(migrationDirectoryPath)
     .filter((entry) => entry.endsWith(".sql"))
+    .filter((entry) => !beforePersonalRemote || entry < "0159_")
     .sort((left, right) => left.localeCompare(right))
     .map((entry) =>
       fs.readFileSync(path.resolve(migrationDirectoryPath, entry), "utf8")
@@ -60,6 +64,69 @@ const applyCanonicalEnabledBindingTriggers = (database: DatabaseSync) => {
 };
 
 describe("Agent Profile Binding storage schema", () => {
+  it("preserves existing Local and Center Bindings and ownership guards when enabling personal Remote Agents", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      for (const statement of readSharedMigrationStatements(true)) {
+        database.exec(statement);
+      }
+      insertBinding(database, {
+        bindingId: "local",
+        agentControllerConversationId: "existing-local-session",
+      });
+      insertBinding(database, {
+        bindingId: "center",
+        agentProfileId: SECOND_AGENT_PROFILE_ID,
+      });
+      database.exec(
+        `UPDATE openMeldDaemon_agent_profile_bindings SET runtime_kind = 'hosted_center_agent', hosted_runtime_identity_json = '{"kind":"hosted_center_agent"}', agent_controller_ref = 'hosted:center-agent' WHERE binding_id = 'center'`
+      );
+      const before = database
+        .prepare(
+          "SELECT * FROM openMeldDaemon_agent_profile_bindings ORDER BY binding_id"
+        )
+        .all();
+      const migration = fs.readFileSync(
+        path.join(
+          repoRootDirectoryPath,
+          "packages/db/drizzle/0159_lazy_ma_gnuci.sql"
+        ),
+        "utf8"
+      );
+      database.exec(migration);
+      expect(
+        database
+          .prepare(
+            "SELECT * FROM openMeldDaemon_agent_profile_bindings ORDER BY binding_id"
+          )
+          .all()
+      ).toEqual(before);
+      insertBinding(database, {
+        bindingId: "personal",
+        agentProfileId: THIRD_AGENT_PROFILE_ID,
+      });
+      database.exec(
+        `UPDATE openMeldDaemon_agent_profile_bindings SET runtime_kind = 'hosted_remote_agent', hosted_runtime_identity_json = '{"kind":"hosted_remote_agent"}', agent_controller_ref = 'hosted:remote-agent' WHERE binding_id = 'personal'`
+      );
+      expect(() =>
+        database.exec(
+          "UPDATE openMeldDaemon_agent_profile_bindings SET hosted_runtime_identity_json = NULL WHERE binding_id = 'personal'"
+        )
+      ).toThrow(HOSTED_IDENTITY_ERROR_PATTERN);
+      expect(() =>
+        database.exec(
+          "UPDATE openMeldDaemon_agent_profile_bindings SET owner_id = 'another-owner' WHERE binding_id = 'personal'"
+        )
+      ).toThrow(CANONICAL_ENABLED_ERROR_PATTERN);
+      expect(() =>
+        database.exec(
+          "UPDATE openMeldDaemon_agent_profile_bindings SET runtime_kind = 'unknown' WHERE binding_id = 'personal'"
+        )
+      ).toThrow();
+    } finally {
+      database.close();
+    }
+  });
   it("creates a dedicated Binding truth table with active-primary uniqueness and read indexes", () => {
     const database = new DatabaseSync(":memory:");
     try {

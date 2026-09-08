@@ -6,7 +6,6 @@ import {
 import type {
 	AgentStreamToolPart,
 	CenterAgentInteractionSource,
-	CenterAgentTaskReference,
 	ConversationCompactionMarker,
 	SignalEnvelope,
 	SpaceAgentActivity,
@@ -67,7 +66,6 @@ export type SpaceTimelineItem = {
 	agentWorkspace: string | null;
 	clientMessageId: string | null;
 	centerAgentInteractionSource?: CenterAgentInteractionSource;
-	centerAgentTaskReferences?: readonly CenterAgentTaskReference[];
 	conversationCompaction?: ConversationCompactionMarker;
 	isAgentFinalReply?: boolean;
 	newMessagesDuringComposition: number | null;
@@ -356,7 +354,6 @@ function buildSpaceTimelineItem(input: {
 			input.signal.type === "signal.text"
 				? input.signal.data.meta?.centerAgentInteractionSource
 				: undefined,
-		centerAgentTaskReferences: readCenterAgentTaskReferences(input.signal),
 		...readConversationCompaction(input.signal),
 		isAgentFinalReply: isAgentFinalReplySignal(input.signal),
 		newMessagesDuringComposition: readNewMessagesDuringComposition(
@@ -413,15 +410,6 @@ function readClientMessageId(
 		return null;
 	}
 	return normalizeOptionalText(signal.data.meta?.clientMessageId);
-}
-
-function readCenterAgentTaskReferences(
-	signal: SpaceTimelineVisibleEnvelope
-): readonly CenterAgentTaskReference[] {
-	if (signal.type !== "signal.text") {
-		return [];
-	}
-	return signal.data.meta?.centerAgentTaskReferences ?? [];
 }
 
 function readAgentActivity(

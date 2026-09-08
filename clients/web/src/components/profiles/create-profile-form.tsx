@@ -114,6 +114,13 @@ export type AgentProfileLocalAgentEmptyState = {
 // name input, the agent binding radio, and the recoverable error block. It
 // performs no navigation, no StartFlow reads/writes, and no mutation.
 export type CreateProfileFormProps = {
+	remoteAgentCreation?: {
+		onSubmit: (input: {
+			idempotencyKey: string;
+			modelId: string | null;
+			profileName: string;
+		}) => void;
+	};
 	additionalHumanProfileCreationEnabled: boolean;
 	additionalSubmitBlockReason?: string | null;
 	additionalSubmitBlockSection?: AgentProfileConfigurationSection;

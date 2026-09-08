@@ -1,4 +1,6 @@
-"use client";
+import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
+
+("use client");
 
 import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
@@ -26,7 +28,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
 import { AppPageHeader } from "#/components/app/app-page-header";
-import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import {
 	designateCurrentCenterAgent,
 	openCurrentCenterAgentDirectMessageSpace,
@@ -600,11 +601,10 @@ function CenterAgentConnectionSection(input: {
 			</div>
 			<div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
 				<div className="flex min-w-0 items-start gap-4">
-					<DitherProfileAvatar
+					<RemoteAgentAvatar
 						data-testid={`center-agent-profile-avatar-${input.profile.profileId}`}
-						profileId={input.profile.profileId}
-						profileKind="center-agent"
 						profileName={input.profile.profileName}
+						shape="circle"
 						size={40}
 					/>
 					<div className="min-w-0">

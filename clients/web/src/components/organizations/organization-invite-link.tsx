@@ -13,7 +13,7 @@ import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { CopyIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import {
 	getOrganizationJoinLink,
@@ -26,11 +26,15 @@ type CopyStatus = "copied" | "failed" | "idle";
 
 export function OrganizationInviteLink(input: { organizationId: string }) {
 	const queryClient = useQueryClient();
-	const queryKey = organizationQueryKeys.joinLink(input.organizationId);
+	const queryKey = [
+		...organizationQueryKeys.joinLink(input.organizationId),
+		"direct",
+	];
 	const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
 	const joinLinkQuery = useQuery({
 		queryFn: async () =>
 			await getOrganizationJoinLink({
+				mode: "direct",
 				organizationId: input.organizationId,
 			}),
 		queryKey,
@@ -41,6 +45,7 @@ export function OrganizationInviteLink(input: { organizationId: string }) {
 	const resetMutation = useMutation({
 		mutationFn: async () =>
 			await resetOrganizationJoinLink({
+				mode: "direct",
 				organizationId: input.organizationId,
 			}),
 		onSuccess: (joinLink) => {
@@ -51,6 +56,7 @@ export function OrganizationInviteLink(input: { organizationId: string }) {
 	const revokeMutation = useMutation({
 		mutationFn: async () =>
 			await revokeOrganizationJoinLink({
+				mode: "direct",
 				organizationId: input.organizationId,
 			}),
 		onSuccess: () => {
@@ -64,8 +70,8 @@ export function OrganizationInviteLink(input: { organizationId: string }) {
 			<CardHeader>
 				<CardTitle>Invite link</CardTitle>
 				<CardDescription>
-					Anyone with this link can request an invitation. Each person needs
-					approval before joining. Existing links now follow this rule too.
+					Anyone with this link can join as a member. No approval needed. The
+					link expires after 30 days.
 				</CardDescription>
 			</CardHeader>
 			<CardContent>
@@ -108,6 +114,7 @@ function OrganizationInviteLinkContent(input: {
 	resetError: Error | null;
 	revokeError: Error | null;
 }) {
+	const urlId = useId();
 	if (input.queryPending) {
 		return (
 			<p className="text-muted-foreground text-sm">Loading invite link.</p>
@@ -154,12 +161,8 @@ function OrganizationInviteLinkContent(input: {
 	return (
 		<div className="space-y-4">
 			<div className="grid gap-2">
-				<Label htmlFor="organization-invite-link-url">Invite link URL</Label>
-				<Input
-					id="organization-invite-link-url"
-					readOnly
-					value={joinLink.url}
-				/>
+				<Label htmlFor={urlId}>Invite link URL</Label>
+				<Input id={urlId} readOnly value={joinLink.url} />
 			</div>
 			<div className="flex flex-wrap gap-2">
 				<Button

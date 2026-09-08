@@ -4,10 +4,7 @@ import type {
   OpenMeldSpaceEgressAction,
   SpaceStatus,
 } from "@openmeld/schemas/types";
-import {
-  assertNoRemovedCcSpaceAddressingSyntax,
-  type SpaceMemberDirectorySendTargetEntry,
-} from "@openmeld/space";
+import type { SpaceMemberDirectorySendTargetEntry } from "@openmeld/space";
 import { resolveBaseUrl } from "../config/base-url";
 import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
 import { requireOpenMeldProfile } from "../config/resolve-openmeld-profile";
@@ -35,9 +32,6 @@ const FINAL_SAFE_STATUSES = new Set<SpaceStatus>([
   "needs_input",
 ]);
 
-const LEADING_AT_PATTERN = /^@/u;
-const TRAILING_RELATION_PATTERN = /\((wake|reference|mention)\)$/iu;
-const WHITESPACE_PATTERN = /\s+/g;
 const DISPATCH_ACTION_CLI_PLACEHOLDER = "<DISPATCH_ACTION_CLI>";
 const SPACE_ACTION_REPLY_TIMING_EVENT = "openmeld.space_action.reply_timing";
 
@@ -88,7 +82,6 @@ export function recordDispatchSpaceReply(input: {
   timing.emit("context_ready", context);
   assertAllowedAction(context, "post_message");
   const text = normalizeRequiredText(input.text, "Reply message is required.");
-  assertNoRemovedCcSpaceAddressingSyntax(text);
   const targetIds = resolveMessageEnvelopeTargetIds({
     context,
     mentionTargets: input.mentionTargets ?? [],
@@ -232,7 +225,6 @@ export function runSpaceActionWake(input: {
     input.messageParts,
     "Wake handoff message is required."
   );
-  assertNoRemovedCcSpaceAddressingSyntax(text);
   const action: OpenMeldSpaceEgressAction = {
     type: "post_message",
     messageEnvelope: {
@@ -359,28 +351,28 @@ export function runSpaceActionHelp(): void {
   outLine(
     formatSpaceActionHelpExample(
       "Handoff and wake another agent",
-      'wake "@Agent Name" "summary and request"',
+      'wake <agent-profile-id> "summary and request"',
       context
     )
   );
   outLine(
     formatSpaceActionHelpExample(
       "Reply and also wake another agent",
-      'reply --wake "@Agent Name" "message"',
+      'reply --wake <agent-profile-id> "message"',
       context
     )
   );
   outLine(
     formatSpaceActionHelpExample(
       "Reply and reference another agent",
-      'reply --reference "@Agent Name" "message"',
+      'reply --reference <agent-profile-id> "message"',
       context
     )
   );
   outLine(
     formatSpaceActionHelpExample(
       "Reply and mention a person",
-      'reply --mention "@Person Name" "message"',
+      'reply --mention <human-profile-id> "message"',
       context
     )
   );
@@ -602,7 +594,7 @@ function resolveTargetProfileIds(input: {
   relation: Relation;
   targets: readonly string[];
 }): string[] {
-  return input.targets.map((target) =>
+  return [...new Set(input.targets)].map((target) =>
     resolveTargetProfileId({
       context: input.context,
       relation: input.relation,
@@ -620,26 +612,12 @@ function resolveTargetProfileId(input: {
     input.context.sendTargetReference
   );
   const query = normalizeRequiredText(input.target, "Target is required.");
-  const candidates = targetReference.projection.filter((target) =>
-    targetMatchesQuery(target, query)
+  const selected = targetReference.projection.find(
+    (target) => target.profileId === query
   );
-  if (candidates.length === 0) {
-    throw new Error(
-      `No current Space target matches "${query}". Run \`${formatOpenMeldCliCommand(
-        "openmeld space action targets"
-      )}\` and choose a listed target.`
-    );
-  }
-  const exactProfileId = candidates.find(
-    (candidate) => candidate.profileId === query
-  );
-  const selected =
-    exactProfileId ?? (candidates.length === 1 ? candidates[0] : null);
   if (!selected) {
     throw new Error(
-      `Target "${query}" is ambiguous. Choose one of: ${candidates
-        .map((candidate) => candidate.primaryMentionLabel)
-        .join(", ")}.`
+      `No current Space target has Profile ID "${query}". Run openmeld space action targets and use the full Profile ID.`
     );
   }
   if (!selected.allowedRelations[input.relation]) {
@@ -659,37 +637,6 @@ function requireLoadedTargets(
   throw new Error(
     `Current Space targets are not available for this dispatch: ${targetReference.errorMessage}`
   );
-}
-
-function targetMatchesQuery(
-  target: SpaceMemberDirectorySendTargetEntry,
-  query: string
-): boolean {
-  const normalizedQuery = normalizeTargetQuery(query);
-  const candidates = [
-    target.profileId,
-    target.profileIdShort,
-    target.primaryMentionLabel,
-    `@${target.primaryMentionLabel}`,
-    target.mentionAlias,
-    ...(target.mentionLabels ?? []),
-    ...(target.lookupTokens ?? []),
-  ];
-  return candidates.some(
-    (candidate) =>
-      candidate !== null &&
-      candidate !== undefined &&
-      normalizeTargetQuery(candidate) === normalizedQuery
-  );
-}
-
-function normalizeTargetQuery(value: string): string {
-  return value
-    .trim()
-    .replace(LEADING_AT_PATTERN, "")
-    .replace(TRAILING_RELATION_PATTERN, "")
-    .replace(WHITESPACE_PATTERN, " ")
-    .toLowerCase();
 }
 
 function formatTargetLine(
