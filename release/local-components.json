@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T01:24:44.682Z",
+  "updatedAt": "2026-09-08T01:26:07.363Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
@@ -9,7 +9,7 @@
       "reason": "Critical setup and reconnect recovery must replace old credential inspection loops before new Wake work; existing cloud commands remain compatible."
     },
     "service": {
-      "bundleHash": "b50a860152edcd6fd8dcc42e34dfe5617bc2752593ea5f990586ee724a276195",
+      "bundleHash": "9f8bc8028befbd037790331ac34ef7af80527131a83167e2b425a26f5309ad7c",
       "bundleVersion": "0.3.168",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
