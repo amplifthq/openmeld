@@ -251,7 +251,7 @@ describe("AgentProfileGenerator", () => {
 		).toBe(true);
 		expect(
 			(
-				screen.getByRole("button", {
+				screen.getByRole("tab", {
 					name: REMOTE_AGENT_NAME,
 				}) as HTMLButtonElement
 			).disabled

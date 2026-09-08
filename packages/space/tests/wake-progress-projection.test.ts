@@ -866,7 +866,7 @@ describe("Wake progress projection", () => {
     expect(items[0]).toMatchObject({
       phase: "failed",
       message:
-        "This agent is connected to an older computer setup. Update setup on this computer, then try again.",
+        "This agent's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
       terminal: true,
     });
   });
@@ -1005,7 +1005,7 @@ describe("Wake progress projection", () => {
     ],
     [
       "claim_eligibility.openmeld_service_runtime_id_mismatch",
-      "This agent is connected to an older computer setup. Update setup on this computer, then try again.",
+      "This agent's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
     ],
     [
       "claim_eligibility.runtime_conflict",
