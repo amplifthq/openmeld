@@ -63,8 +63,8 @@ test("gives concurrent worktrees separate complete port blocks", async () => {
       new URL(buildIsolatedDevEnvironment(first).WEB_APP_URL).hostname,
       new URL(buildIsolatedDevEnvironment(second).WEB_APP_URL).hostname
     );
-    assert.equal(portValues(first).length, 9);
-    assert.equal(new Set(portValues(first)).size, 9);
+    assert.equal(portValues(first).length, 10);
+    assert.equal(new Set(portValues(first)).size, 10);
     assert.equal(
       portValues(first).some((port) => portValues(second).includes(port)),
       false
@@ -72,6 +72,11 @@ test("gives concurrent worktrees separate complete port blocks", async () => {
     assert.equal(first.ports.gateway, first.ports.web + 1);
     assert.equal(first.ports.auth, first.ports.web + 2);
     assert.equal(first.ports.remoteAgent, first.ports.web + 3);
+    assert.equal(first.ports.cliBinary, first.ports.web + 4);
+    assert.equal(
+      buildIsolatedDevEnvironment(first).VITE_OPENMELD_CLI_BINARY_MANIFEST_URL,
+      `http://127.0.0.1:${first.ports.cliBinary}/cli/manifest.json`
+    );
     assert.equal(first.ports.webInspector, first.ports.web + 8);
     assert.equal(first.ports.remoteAgentInspector, first.ports.web + 12);
   } finally {

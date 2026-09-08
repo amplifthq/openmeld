@@ -1740,11 +1740,18 @@ installation is fail-atomic: a failed install or verification attempts every
 platform cleanup step and rolls back the newly written definition so a later
 pass still observes missing drift rather than mistaking a partial repair for an
 explicit autostart-disable. If cleanup itself cannot remove the partial
-definition, the daemon keeps a preset-owned durable repair-pending marker and
+definition, the daemon keeps a service-owned durable repair-pending marker and
 continues the same repair on later passes. Because the OS registration is
-global per env preset, the repair marker and daemon lifecycle lock use one
-canonical preset-owned path that deliberately ignores `OPENMELD_HOME`
-overrides. Registration repair, install, start, stop, uninstall, alignment,
+global per service identity, the repair marker and daemon lifecycle lock use
+that same owner's path. Production and canary retain canonical preset-owned
+coordination independent of `OPENMELD_HOME` overrides. Development Service and
+maintenance identities instead use a stable suffix derived from the absolute
+effective `OPENMELD_HOME`, and their coordination remains inside that home.
+This completes worktree isolation without a second lane registry or transient
+identity variable. Existing development definitions with a mismatched home are
+not adopted. Old unsuffixed development registrations require separate,
+owner-verified retirement; new lanes do not clean them up automatically.
+Registration repair, install, start, stop, uninstall, alignment,
 auto-heal, and explicit autostart changes all reuse that one
 lock identity. Nested registration work in the same lifecycle command reuses
 the held lock; competing commands or roots cannot enter until it is released.
