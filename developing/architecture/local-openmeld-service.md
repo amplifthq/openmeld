@@ -256,6 +256,18 @@ standalone CLI package's release channel or offer that CLI package's update
 command. If the host application does not expose a stable update-status
 contract, ACI omits the version advisory instead of guessing across sources.
 
+OpenCode Wake execution validates the selected launch files and starts the real
+controller task without a separate `--version` process. Version and capability
+probes remain in discovery/Prepare; a slow version probe must not be turned into
+an invalid execution contract. This does not bypass permission capability
+attestation or the actual controller startup and execution errors.
+
+Concurrent controller cleanup shares an unfinished macOS process-table read,
+even after the short snapshot age has elapsed. Once the read settles, its
+original capture time still determines freshness; the existing bounded cleanup
+retry obtains a fresh snapshot. Sharing reads never shares process ownership or
+the decision to signal a particular execution.
+
 The same identity rule applies to standalone installs. Latest version and the
 update command must come from the selected install's channel: that controller's
 official native updater, npm/pnpm/bun, or the Homebrew formula actually
@@ -316,17 +328,20 @@ Wake admission, RuntimeCoordinator, routing, or agent selection from these
 states. Core applies the shared versioned capability matrix to the report it
 already holds; it never calls the provider on the Wake hot path. The Service
 stamps each current ACI report with `usageLimitsSupportMatrixVersion`; this
-explicitly tells Core that missing or unconfirmed native Usage evidence must
-fail closed. A legacy Service report without that optional declaration remains
+identifies the evidence contract Core may use to prove exhaustion. Missing or
+unconfirmed Usage does not block an otherwise ready Agent. A legacy Service
+report without that optional declaration remains
 valid during mixed-version rollout and does not acquire a new Usage admission
 condition solely from a newer Core matrix. When retrying against an older Core
 contract, the Service omits both the Usage projection and its support-matrix
 declaration. For a
 controller whose matrix entry declares native Usage support, a reliable fresh
-`available` observation permits Usage admission, a reliable fresh explicitly
-`exhausted` observation blocks the Wake as `Unavailable`, and missing, stale,
-expired, unavailable, or otherwise unconfirmed evidence blocks new Wake
-admission as `Checking`. A controller that explicitly reports Usage as
+`available` observation proves current capacity and a reliable fresh explicitly
+`exhausted` observation blocks the Wake as `Unavailable`. Missing, stale,
+expired, unavailable, or otherwise unconfirmed Usage does not add a block;
+the separate current Controller readiness and trust requirements still apply.
+Positive fresh capacity remains required for automatic recovery after an
+exhausted execution. A controller that explicitly reports Usage as
 `unsupported`, or whose matrix entry is passive, unsupported, or not evaluated,
 does not use Usage as a Wakeability condition. A separate structured
 provider-access evidence field may be emitted only after an ordinary Wake is

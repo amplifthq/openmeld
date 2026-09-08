@@ -1718,7 +1718,7 @@ describe("Core Agent Execution Readiness", () => {
     });
   });
 
-  it("projects supported but unavailable Usage as Checking and does not claim availability", async () => {
+  it("admits an otherwise ready target when its auxiliary Usage read is unavailable", async () => {
     mockReadyBindingAndRuntime("agt_usage_checking", "builtin:codex");
     mockOnlineRoute("device-1");
     vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
@@ -1742,9 +1742,8 @@ describe("Core Agent Execution Readiness", () => {
     });
 
     expect(readiness.agentExecutionReadiness).toMatchObject({
-      displayState: "not_ready",
-      primaryAction: "check_status",
-      reasonCodes: expect.arrayContaining(["usage_checking"]),
+      displayState: "ready",
+      primaryAction: "none",
     });
     expect(
       resolveAgentWakeAvailability({
@@ -1754,14 +1753,16 @@ describe("Core Agent Execution Readiness", () => {
         wakeRouteStatus: readiness.wakeRouteStatus,
       })
     ).toMatchObject({
-      category: "checking",
-      label: "Checking Usage",
-      reasonCode: "usage_checking",
-      status: "checking_connection",
+      status: "available_for_wake",
     });
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBeNull();
   });
 
-  it("treats an expired current Usage report as Checking and blocks Wake admission", async () => {
+  it("still blocks when the Controller readiness report itself has expired", async () => {
     const profileId = "agt_usage_expired";
     mockReadyBindingAndRuntime(profileId, "builtin:codex");
     mockOnlineRoute("device-1");
@@ -1791,7 +1792,9 @@ describe("Core Agent Execution Readiness", () => {
     expect(readiness.agentExecutionReadiness).toMatchObject({
       displayState: "not_ready",
       primaryAction: "check_status",
-      reasonCodes: expect.arrayContaining(["usage_checking"]),
+      reasonCodes: expect.arrayContaining([
+        "runtime.agent_controller_report_stale",
+      ]),
     });
     expect(
       resolveAgentWakeAvailability({
@@ -1802,13 +1805,13 @@ describe("Core Agent Execution Readiness", () => {
       })
     ).toMatchObject({
       category: "checking",
-      reasonCode: "usage_checking",
+      status: "checking_connection",
     });
     expect(
       resolveAgentWakeAdmissionBlockReasonCode(
         readiness.agentExecutionReadiness
       )
-    ).toBe("usage_checking");
+    ).toBe("agent_execution.readiness_unconfirmed");
   });
 
   it("keeps explicitly unsupported Usage out of Wakeability", async () => {
@@ -1960,7 +1963,7 @@ describe("Core Agent Execution Readiness", () => {
           source: "wake_failure",
         },
       },
-      primaryAction: "check_status",
+      primaryAction: "run_prepare",
     });
     expect(
       resolveAgentWakeAvailability({
