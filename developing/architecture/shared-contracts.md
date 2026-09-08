@@ -454,6 +454,20 @@ not authorize it to query Auth-private `users` or `members` tables.
 Web, future Desktop, and future Mobile clients consume the same list, direct
 item, count, preference, and mutation contracts. The source target is a
 discriminated, structured locator rather than an arbitrary or Web-only URL.
+
+Inbox summary version `1` adds `unreadUrgentUpdateCount`, disjoint from
+`unresolvedActionCount`. Core derives both from the same recipient/access-filtered
+query; clients never count a list page to reconstruct them. The additive field
+is optional only for receiver-first interoperability: absent means unknown.
+Current API clients send `x-openmeld-inbox-summary-version: 1`; Gateway removes
+the new field for older strict clients, including already-open Web tabs.
+Deploy compatible Gateway first, Core second, and Web last. New Gateway accepts
+old Core output; new Web reports unknown if the field is absent. The new
+`urgent_updates` and `recent_updates` preview list views are available only after Core and Gateway support them;
+unsupported queries fail visibly, with no empty-list fallback. Rollback Web
+before Core, then Gateway; retain the compatible Gateway while Core emits the
+field. CLI, Service, Skills, setup, Wake and Space action contracts are unchanged.
+
 Each client maps only supported targets to its canonical navigation surface.
 Unknown target kinds fail closed and remain visible without creating an
 arbitrary URL. A Slack `message_channel` target is the bounded exception for an

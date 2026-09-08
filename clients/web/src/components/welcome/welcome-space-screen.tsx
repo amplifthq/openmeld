@@ -9,8 +9,11 @@ import type {
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
+import { useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowRightIcon, PlusIcon } from "@phosphor-icons/react";
 import type { FormEvent, ReactNode } from "react";
@@ -176,7 +179,7 @@ function WelcomeSpaceModeContent(input: {
 		return <WelcomeJoinSpaceList {...input} />;
 	}
 	return (
-		<div className="grid gap-3">
+		<FluidCardGroup className="grid gap-3">
 			{input.props.computerSetupActions ? (
 				<AddComputerChoiceCard {...input.props.computerSetupActions} />
 			) : null}
@@ -194,7 +197,7 @@ function WelcomeSpaceModeContent(input: {
 				onClick={input.handleJoinChoice}
 				title="Join a Space"
 			/>
-		</div>
+		</FluidCardGroup>
 	);
 }
 
@@ -399,22 +402,32 @@ function SpaceChoiceCard(props: {
 	onClick: () => void;
 	disabled?: boolean;
 }) {
+	const surface = useSurface() + 2;
 	return (
-		<button
-			className="flex w-full items-start gap-3 rounded-md border border-border bg-muted/20 p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-muted/20"
+		<FluidCardItem
+			className={cn(
+				surfaceClasses(surface),
+				props.disabled && "cursor-not-allowed opacity-50"
+			)}
 			disabled={props.disabled}
-			onClick={props.onClick}
-			type="button"
+			itemId={props.title}
 		>
-			<span className="mt-0.5 text-muted-foreground">{props.icon}</span>
-			<span className="min-w-0">
-				<span className="block font-medium text-foreground text-sm">
-					{props.title}
+			<button
+				className="flex w-full items-start gap-3 rounded-md border border-transparent p-4 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed"
+				disabled={props.disabled}
+				onClick={props.onClick}
+				type="button"
+			>
+				<span className="mt-0.5 text-muted-foreground">{props.icon}</span>
+				<span className="min-w-0">
+					<span className="block font-medium text-foreground text-sm">
+						{props.title}
+					</span>
+					<span className="block text-muted-foreground text-xs leading-5">
+						{props.description}
+					</span>
 				</span>
-				<span className="block text-muted-foreground text-xs leading-5">
-					{props.description}
-				</span>
-			</span>
-		</button>
+			</button>
+		</FluidCardItem>
 	);
 }

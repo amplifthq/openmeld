@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   createContext,
   forwardRef,
@@ -16,7 +16,9 @@ import { useProximityHover } from "#hooks/use-proximity-hover";
 import { fontWeights } from "#lib/font-weight";
 import { useShape } from "#lib/shape-context";
 import { springs } from "#lib/springs";
+import { surfaceClasses } from "#lib/surface-classes";
 import { cn } from "#lib/utils";
+import { useSurface } from "../lib/surface-context";
 
 // Fluid Functionalism "radio-group" primitive, adapted for OpenMeld. Two deliberate
 // divergences from upstream:
@@ -84,6 +86,8 @@ const RadioGroup = forwardRef<HTMLDivElement, RadioGroupProps>(
     ref
   ) => {
     const containerRef = useRef<HTMLDivElement>(null);
+    const surface = useSurface() + 2;
+    const reduceMotion = useReducedMotion();
     const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
     const {
       activeIndex,
@@ -212,12 +216,17 @@ const RadioGroup = forwardRef<HTMLDivElement, RadioGroupProps>(
                 width: selectedRect.width,
               }}
               className={cn(
-                "pointer-events-none absolute border border-border bg-muted",
+                "pointer-events-none absolute",
+                surfaceClasses(surface),
                 shape.bg
               )}
               data-slot="radio-group-selected-indicator"
               initial={false}
-              transition={{ ...springs.moderate, opacity: { duration: 0.08 } }}
+              transition={
+                reduceMotion
+                  ? { duration: 0 }
+                  : { ...springs.moderate, opacity: { duration: 0.08 } }
+              }
             />
           ) : null}
 
@@ -232,7 +241,7 @@ const RadioGroup = forwardRef<HTMLDivElement, RadioGroupProps>(
                   width: activeRect.width,
                 }}
                 className={cn(
-                  "pointer-events-none absolute bg-muted/60",
+                  "pointer-events-none absolute bg-interaction-hover",
                   shape.bg
                 )}
                 data-slot="radio-group-hover-indicator"
@@ -245,7 +254,11 @@ const RadioGroup = forwardRef<HTMLDivElement, RadioGroupProps>(
                   width: activeRect.width,
                 }}
                 key={sessionRef.current}
-                transition={{ ...springs.fast, opacity: { duration: 0.08 } }}
+                transition={
+                  reduceMotion
+                    ? { duration: 0 }
+                    : { ...springs.fast, opacity: { duration: 0.08 } }
+                }
               />
             ) : null}
           </AnimatePresence>
@@ -265,7 +278,11 @@ const RadioGroup = forwardRef<HTMLDivElement, RadioGroupProps>(
                 )}
                 exit={{ opacity: 0, transition: { duration: 0.06 } }}
                 initial={false}
-                transition={{ ...springs.fast, opacity: { duration: 0.08 } }}
+                transition={
+                  reduceMotion
+                    ? { duration: 0 }
+                    : { ...springs.fast, opacity: { duration: 0.08 } }
+                }
               />
             ) : null}
           </AnimatePresence>

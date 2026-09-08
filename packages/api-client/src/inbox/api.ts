@@ -1,8 +1,10 @@
 import {
   OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
   OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
   OPENMELD_INBOX_ITEM_KIND_VERSION,
   OPENMELD_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_INBOX_SUMMARY_VERSION,
 } from "@openmeld/gateway-contract";
 import {
   centerAgentInboxSummaryResponseSchema,
@@ -109,6 +111,9 @@ export const createInboxApi: CreateInboxApi = (
     await client.requestJson({
       ...requestOptions(input),
       invalidMessage: "invalid Inbox summary response",
+      headers: {
+        [OPENMELD_HEADER_INBOX_SUMMARY_VERSION]: OPENMELD_INBOX_SUMMARY_VERSION,
+      },
       method: "GET",
       operation: "inbox.summary",
       schema: inboxSummaryResponseSchema,

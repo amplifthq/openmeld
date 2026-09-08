@@ -19,6 +19,7 @@ import {
 } from "@openmeld/ui/components/card";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import { LinkIcon, SignOutIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -370,11 +371,15 @@ function ChannelCard(input: {
 	});
 
 	return (
-		<FluidCardItem itemId={input.name.toLowerCase()} role="listitem">
-			<Card className="h-full bg-transparent" size="sm">
+		<FluidCardItem
+			className={surfaceClasses(2)}
+			itemId={input.name.toLowerCase()}
+			role="listitem"
+		>
+			<Card className="h-full bg-transparent shadow-none" size="sm">
 				<CardHeader>
 					<div className="flex min-w-0 items-center gap-4">
-						<AppLogo app={input.logo} size="lg" />
+						<AppLogo app={input.logo} size="lg" surfaceLevel={3} />
 						<div className="min-w-0">
 							<CardTitle className="text-base">
 								<h2>{input.name}</h2>

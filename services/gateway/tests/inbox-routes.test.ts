@@ -1,3 +1,4 @@
+import type { InboxSummaryResponse } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 
@@ -70,6 +71,54 @@ const HUMAN_MENTION_ITEM = {
 };
 
 describe("Inbox routes", () => {
+  it("keeps an absent count unknown when talking to old Core", async () => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.getInboxSummary.mockResolvedValue({
+      organizationId: "org-1",
+      totalUnreadCount: 8,
+      unresolvedActionCount: 2,
+    });
+    const response = await app.fetch(
+      new Request("http://local/v1/inbox/summary", {
+        headers: { "x-openmeld-inbox-summary-version": "1" },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      organizationId: "org-1",
+      totalUnreadCount: 8,
+      unresolvedActionCount: 2,
+    });
+  });
+  it("preserves old strict summaries and exposes urgent counts only to aware clients", async () => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.getInboxSummary.mockResolvedValue({
+      organizationId: "org-1",
+      totalUnreadCount: 8,
+      unresolvedActionCount: 2,
+      unreadUrgentUpdateCount: 3,
+    });
+    for (const version of [undefined, "1"]) {
+      const response = await app.fetch(
+        new Request("http://local/v1/inbox/summary", {
+          headers: version
+            ? { "x-openmeld-inbox-summary-version": version }
+            : {},
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        organizationId: "org-1",
+        totalUnreadCount: 8,
+        unresolvedActionCount: 2,
+        ...(version ? { unreadUrgentUpdateCount: 3 } : {}),
+      });
+    }
+  });
   it("forwards the complete member Inbox surface to Core", async () => {
     const { coreRpc, env } = makeEnv();
     const requests = [
@@ -464,11 +513,14 @@ function makeEnv() {
       updatedAt: null,
       urgentEmailEnabled: true,
     })),
-    getInboxSummary: vi.fn(async () => ({
-      organizationId: "org-1",
-      totalUnreadCount: 1,
-      unresolvedActionCount: 1,
-    })),
+    getInboxSummary: vi.fn(
+      async (): Promise<InboxSummaryResponse> => ({
+        organizationId: "org-1",
+        totalUnreadCount: 1,
+        unresolvedActionCount: 1,
+        unreadUrgentUpdateCount: 0,
+      })
+    ),
     getCenterAgentInboxSummary: vi.fn(async () => ({
       organizationId: "org-1",
       unreadCount: 1,
