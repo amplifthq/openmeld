@@ -899,8 +899,18 @@ describe("prepare session executor", () => {
         rawMessage: "OpenMeld Service refresh did not complete: start_failed",
       })
     ).toBe(
-      "OpenMeld couldn't update its background service. Restart your computer; OpenMeld will reconnect automatically after sign-in."
+      "OpenMeld couldn't finish connecting its background service. Run `openmeld service repair`, then get a new setup command from OpenMeld Web."
     );
+  });
+
+  it("preserves the update owner's recovery action instead of promising a restart will fix it", () => {
+    expect(
+      formatTerminalStepFailureMessage({
+        stepId: "refresh_service",
+        rawMessage:
+          "OpenMeld Service update failed. Run `openmeld service update`.",
+      })
+    ).toBe("OpenMeld Service update failed. Run `openmeld service update`.");
   });
 
   it("names the macOS Login Items block when a refresh fails with a never-spawned service", () => {
@@ -1093,6 +1103,9 @@ describe("prepare session executor", () => {
     expect(collectDiagnostics).toHaveBeenCalledWith({
       stepId: "report_runtime",
       supportCode: "prepare.report_runtime.failed",
+      error: expect.objectContaining({
+        message: "OpenMeld Service stopped before runtime reporting.",
+      }),
     });
     expect(writeTerminalStep).toHaveBeenNthCalledWith(
       2,

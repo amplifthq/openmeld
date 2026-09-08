@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   openMeldSpaceEgressActionSchema,
   spaceMemberDirectoryEntrySchema,
@@ -192,6 +193,17 @@ export function writeDispatchSpaceActionRecord(input: {
     writeJsonFileExclusive(input.context.actionRecordPath, record);
   } catch (error) {
     if (isNodeErrorCode(error, "EEXIST")) {
+      const existing = readDispatchSpaceActionRecord({
+        context: input.context,
+      });
+      // A lost acknowledgement may cause the same proposal to be submitted
+      // again. Acknowledge that record, never replace it or accept a new action.
+      if (
+        existing.status === "loaded" &&
+        isDeepStrictEqual(existing.record.action, parsedAction.data)
+      ) {
+        return existing.record;
+      }
       throw new Error(
         "An OpenMeld Space Action has already been recorded for this dispatch. A Wake can only have one final Space action."
       );

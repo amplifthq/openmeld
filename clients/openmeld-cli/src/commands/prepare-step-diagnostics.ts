@@ -46,6 +46,7 @@ const SERVICE_LOG_TAIL_MAX_LINES = 30;
 const SERVICE_LOG_LINE_MAX_CHARS = 320;
 const JOURNAL_ENTRY_MAX_CHARS = 700;
 const SOURCE_TIMEOUT_MS = 2000;
+const OS_STATUS_PATTERN = /OSStatus (-?\d+)/u;
 
 // Only these lifecycle journal metadata keys survive into the bundle. The
 // launchd wait_running failure event carries the highest-value evidence here
@@ -105,6 +106,7 @@ export function isPrepareStepDiagnosticsOptedOut(
 export async function collectPrepareStepDiagnostics(input: {
   stepId: string;
   supportCode: string;
+  error?: unknown;
   env?: NodeJS.ProcessEnv;
   sources?: PrepareStepDiagnosticsSources;
 }): Promise<string | null> {
@@ -161,10 +163,12 @@ export async function collectPrepareStepDiagnostics(input: {
         ? null
         : serviceLog.lines.map(boundServiceLogLine);
     const cliVersion = getCliVersionInfo().version;
+    const nativeFailure = resolveNativeFailure(input.error);
     const bundle: PrepareStepDiagnosticsBundle = {
       bundleVersion: PREPARE_STEP_DIAGNOSTICS_BUNDLE_VERSION,
       collectedAt: new Date().toISOString(),
       supportCode: input.supportCode,
+      ...(nativeFailure ? { nativeFailure } : {}),
       stepId: input.stepId,
       ...(deviceId ? { deviceId } : {}),
       cliVersion,
@@ -186,6 +190,18 @@ export async function collectPrepareStepDiagnostics(input: {
     // affect the setup flow or the base failure report.
     return null;
   }
+}
+
+function resolveNativeFailure(error: unknown): { osStatus: number } | null {
+  let current = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    const match = OS_STATUS_PATTERN.exec(current.message);
+    if (match && Number.isSafeInteger(Number(match[1]))) {
+      return { osStatus: Number(match[1]) };
+    }
+    current = current.cause;
+  }
+  return null;
 }
 
 export function serializeBoundedPrepareStepDiagnostics(

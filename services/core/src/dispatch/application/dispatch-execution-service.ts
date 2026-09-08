@@ -4,6 +4,7 @@ import {
   DEFAULT_TASK_PROGRESS_EVIDENCE_STALE_AFTER_MS,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   hasRuntimeAdapterCapabilityForRef,
+  isAgentWakeAdmissionPreparationPendingReason,
   parseAgentControllerRef,
   resolveAgentControllerUsageLimitSupport,
   resolveAgentWakeAdmissionBlockReasonCode,
@@ -352,7 +353,7 @@ export type DispatchExecutionPreflightResult =
     }
   | {
       ok: false;
-      canonicalAdmissionBlock?: true;
+      canonicalAdmissionBlock?: boolean;
       errorCode: string;
       errorMessage: string;
       finalStatus:
@@ -3283,15 +3284,19 @@ export const runDispatchExecutionPreflightGate = async (input: {
       canonicalReadinessResult.readiness.agentExecutionReadiness
     );
     if (blockReasonCode) {
+      const preparationPending =
+        isAgentWakeAdmissionPreparationPendingReason(blockReasonCode);
       return {
         ok: false,
-        canonicalAdmissionBlock: true,
+        canonicalAdmissionBlock: !preparationPending,
         errorCode: blockReasonCode,
         errorMessage:
           resolvePublicAgentAvailabilityCopy(blockReasonCode)
             ?.availabilitySummary ??
           "This Agent Profile is unavailable for a new Wake right now.",
-        finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+        finalStatus: preparationPending
+          ? OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable
+          : OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
         bindingSource: targetBindingResolution.source,
         targetOwnerUserId: targetBindingSnapshot.ownerUserId,
       };

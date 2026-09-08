@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  isAgentWakeAdmissionPreparationPendingReason,
   resolveWakeStopEligibility,
 } from "@openmeld/agent-runtime";
 import {
@@ -18755,7 +18756,13 @@ function resolveWakeProgressPhaseFromDispatchEvidence(input: {
     case "cancelled":
       return "stopped";
     case "failed_retryable":
-      return "retrying";
+      return isAgentWakeAdmissionPreparationPendingReason(
+        input.lookupMatch.latestAttemptErrorCode ??
+          input.trace?.latestAttempt?.errorCode ??
+          ""
+      )
+        ? "connecting"
+        : "retrying";
     case "dispatching":
       return "connecting";
     case "queued":

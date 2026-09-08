@@ -686,7 +686,8 @@ describe("handleDispatchQueueBatch", () => {
       | "controller.registry.disabled"
       | "service.update_required"
       | "usage_checking"
-      | "usage_exhausted";
+      | "usage_exhausted"
+      | "working_folder.observation_coverage_invalid";
     targetProfileId: string;
   }): CoreAgentExecutionReadiness => {
     const agentControllerRef = input.agentControllerRef ?? "builtin:codex";
@@ -10145,7 +10146,10 @@ describe("handleDispatchQueueBatch", () => {
     });
   });
 
-  it("does not authorize a workstation Wake from healthy partial facts without a canonical ready verdict", async () => {
+  it.each([
+    undefined,
+    "working_folder.observation_coverage_invalid",
+  ] as const)("retains a first Wake while readiness is unconfirmed (%s) without authorizing execution", async (runtimeReasonCode) => {
     const message = createDispatchBody({
       dispatchId: "dispatch-readiness-unconfirmed-1",
       sourceEventId: "evt-readiness-unconfirmed-1",
@@ -10157,6 +10161,7 @@ describe("handleDispatchQueueBatch", () => {
     ).mockResolvedValueOnce(
       createCanonicalWorkstationReadiness({
         runtimeDisplayState: "unknown",
+        runtimeReasonCode,
         targetProfileId: message.targetProfileId,
       })
     );
@@ -10167,10 +10172,81 @@ describe("handleDispatchQueueBatch", () => {
         message,
       })
     ).resolves.toMatchObject({
-      errorCode: "agent_execution.readiness_unconfirmed",
-      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      errorCode: runtimeReasonCode ?? "agent_execution.readiness_unconfirmed",
+      canonicalAdmissionBlock: false,
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
       ok: false,
     });
+  });
+
+  it.each([
+    "ready",
+    "disabled",
+  ] as const)("redrives the same first Wake after preparation (%s) without publishing an early failure", async (nextState) => {
+    const message = createDispatchQueueMessage({
+      dispatchId: "dispatch-first-preparing",
+      sourceEventId: "evt-first-preparing",
+      targetProfileId: "agt-first-preparing",
+      visitedProfileIdsHash: "hash-first-preparing",
+    });
+    const body = message.body as OpenMeldDaemonDispatchQueueMessage;
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        runtimeDisplayState: "unknown",
+        runtimeReasonCode: "working_folder.observation_coverage_invalid",
+        targetProfileId: body.targetProfileId,
+      })
+    );
+    await runDispatchQueueMessage(message);
+    expect(message.retry).toHaveBeenCalledTimes(1);
+    expect(message.ack).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
+
+    if (nextState === "disabled") {
+      vi.spyOn(
+        runtimeCoordinatorClient,
+        "readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace"
+      ).mockImplementation(async ({ request }) => ({
+        ok: true,
+        readStatus: "missing",
+        reasonCode: "runtime_coordinator.head_lifecycle_not_found",
+        targetWakeLifecycleId:
+          request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      }));
+      vi.mocked(
+        agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+      ).mockResolvedValueOnce(
+        createCanonicalWorkstationReadiness({
+          runtimeReasonCode: "controller.registry.disabled",
+          targetProfileId: body.targetProfileId,
+        })
+      );
+    }
+    await runDispatchQueueMessage(message);
+    if (nextState === "ready") {
+      expect(
+        runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+      ).toHaveBeenCalledTimes(1);
+    } else {
+      expect(
+        runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+      ).not.toHaveBeenCalled();
+      expect(
+        runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+      ).not.toHaveBeenCalled();
+      expect(rpcPostSystemNoticeSignal).toHaveBeenCalled();
+    }
   });
 
   it("retries when Core primary binding storage is unavailable", async () => {

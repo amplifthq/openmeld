@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { withTempHome } from "./helpers/fs";
@@ -17,7 +17,15 @@ vi.mock("../src/config/token-store", () => ({
   storeAccessToken: secureStorage.storeAccessToken,
 }));
 
-import { getAuthSession, setAuthSession } from "../src/config/auth-session";
+import {
+  beginAuthSessionTransition,
+  getAuthSession,
+  getAuthSessionMetadata,
+  getAuthSessionState,
+  getInterruptedComputerAuthSessionRecovery,
+  markInterruptedComputerAuthSessionRecovery,
+  setAuthSession,
+} from "../src/config/auth-session";
 
 const TOKEN_REF = {
   account: "openmeld-auth-test",
@@ -36,6 +44,104 @@ const FINAL_TOKEN_REF = {
 };
 
 describe("auth session secure storage boundary", () => {
+  it("finishes interrupted cleanup without reading an already revoked candidate credential", async () => {
+    await withTempHome(async () => {
+      const transition = await beginAuthSessionTransition(
+        {
+          accessToken: secureStorage.accessToken,
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "owner" },
+        },
+        { computerHandoff: { gatewayUrl: "https://gateway.openmeld.invalid" } }
+      );
+      await transition.rollback();
+      const recovery = await getInterruptedComputerAuthSessionRecovery();
+      expect(recovery).not.toBeNull();
+      if (!recovery) {
+        throw new Error("expected interrupted handoff");
+      }
+      await markInterruptedComputerAuthSessionRecovery({
+        id: recovery.id,
+        phase: "service",
+      });
+      await markInterruptedComputerAuthSessionRecovery({
+        id: recovery.id,
+        phase: "remote_session",
+      });
+      secureStorage.readAccessToken.mockClear();
+      secureStorage.readAccessToken.mockResolvedValue({
+        status: "unavailable",
+        errorMessage: "Keychain denied access",
+      });
+      await expect(
+        getInterruptedComputerAuthSessionRecovery()
+      ).resolves.toBeNull();
+      expect(secureStorage.readAccessToken).not.toHaveBeenCalled();
+      await expect(
+        getInterruptedComputerAuthSessionRecovery()
+      ).resolves.toBeNull();
+      secureStorage.readAccessToken.mockResolvedValue({
+        status: "found",
+        accessToken: "fresh",
+      });
+      const retry = await beginAuthSessionTransition({
+        accessToken: "fresh",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "owner" },
+      });
+      await retry.commit();
+      await expect(getAuthSession()).resolves.toMatchObject({
+        accessToken: "fresh",
+        user: { id: "owner" },
+      });
+    });
+  });
+  it("preserves an unreadable old session on rollback without blocking recovery cleanup", async () => {
+    await withTempHome(async (home) => {
+      await setAuthSession({
+        accessToken: secureStorage.accessToken,
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "owner" },
+      });
+      const path = join(home, ".openmeld", "auth", "session.json");
+      const original = JSON.parse(await readFile(path, "utf8"));
+      original.createdAt = "2026-01-01T00:00:00.000Z";
+      await writeFile(path, JSON.stringify(original));
+      secureStorage.readAccessToken.mockImplementation(async (ref) =>
+        ref.account === TOKEN_REF.account
+          ? { status: "unavailable", errorMessage: "Keychain denied access" }
+          : { status: "found", accessToken: "replacement" }
+      );
+      secureStorage.storeAccessToken.mockResolvedValue(REPLACEMENT_TOKEN_REF);
+      await expect(
+        getAuthSessionState({ validateRemote: false })
+      ).resolves.toMatchObject({ reasonCode: "session_token_unavailable" });
+      const metadata = await getAuthSessionMetadata();
+      const transition = await beginAuthSessionTransition(
+        {
+          accessToken: "replacement",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "owner" },
+        },
+        {
+          expectedPreviousSession: metadata,
+          computerHandoff: { gatewayUrl: "https://gateway.openmeld.invalid" },
+        }
+      );
+      await transition.rollback();
+      expect(JSON.parse(await readFile(path, "utf8"))).toEqual(original);
+      await expect(
+        getInterruptedComputerAuthSessionRecovery()
+      ).resolves.toMatchObject({
+        previousSession: null,
+        candidateSession: { accessToken: "replacement" },
+      });
+    });
+  });
   beforeEach(() => {
     secureStorage.deleteAccessToken.mockReset();
     secureStorage.readAccessToken.mockReset();
