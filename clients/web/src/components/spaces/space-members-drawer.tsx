@@ -1735,7 +1735,7 @@ function SpaceAddMembersPersonGroupView(input: {
 					</div>
 					{input.onCreate ? (
 						<Button
-							className="shrink-0"
+							className="mt-1 shrink-0 self-start"
 							onClick={input.onCreate}
 							size="xs"
 							type="button"
