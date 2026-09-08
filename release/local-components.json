@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T17:57:57.148Z",
+  "updatedAt": "2026-09-08T18:25:35.424Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.177",
+      "packageVersion": "0.3.178",
       "updatePolicy": "available",
-      "reason": "Existing commands and cloud contracts remain compatible; this release aligns bundled local Agent instructions and isolates development Service lanes."
+      "reason": "Existing CLI and cloud command contracts remain compatible; Core alone owns quota admission and the command surfaces are unchanged."
     },
     "service": {
-      "bundleHash": "0c9a15ebbcdfe9467e82211aa52818f6bbf338b15e0432b4299c651651ee5663",
-      "bundleVersion": "0.3.177",
+      "bundleHash": "3a25fad0546f03a6a92d222847781b6a80bc1cb3d3fa307fb894e2435317c2f3",
+      "bundleVersion": "0.3.178",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Old and new Services preserve identity, permissions, transport, Stop, and Space action contracts; updated instructions and development-lane isolation do not require blocking existing production Wakes."
+      "reason": "OpenCode skips a redundant version subprocess and cleanup shares pending scans; identity, permission attestation, process ownership, transport, Stop and result contracts remain compatible."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
