@@ -847,6 +847,12 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   indexes. Collection and page-apply failures share the same fail-closed,
   backoff-based state machine. Reference overflow is explicit and bounded, and
   the ready-state hot path never scans total account history.
+  Legacy active references without FIFO work metadata remain fail-closed for
+  that Profile's operational-context display. They are not an active-index
+  inconsistency when the Profile is correctly indexed: rebuilding active
+  references cannot reconstruct FIFO metadata and must not repeatedly make
+  every other Profile's mutation admission unavailable. Execution-state reads
+  continue to honor those canonical active references.
 - Removing a visibly settled execution head does not release duplicate
   protection. The deterministic terminal execution-token authority rejects an
   exact head and dispatch replay before admission; D1 history may explain the

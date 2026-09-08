@@ -8828,6 +8828,87 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
+  it("does not restart owner index repair for active legacy work without FIFO metadata", async () => {
+    const { hub, storageRecords } = createHarness();
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const admissionKey =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const admission = storageRecords.get(admissionKey) as Record<
+      string,
+      unknown
+    >;
+    const {
+      workItems: _workItems,
+      recoveryGate: _recoveryGate,
+      ...legacy
+    } = admission;
+    storageRecords.set(admissionKey, {
+      ...legacy,
+      modelVersion:
+        "openmeld.runtime_coordinator.agent_profile_execution_admission.v1",
+    });
+    const indexKey = "runtime-coordinator:agent-profile-execution-index:v1";
+    const reader = hub as unknown as {
+      rpcAcquireAgentProfileControllerMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+      rpcReadAgentProfileOperationalContexts: (input: {
+        includeWorkReferences: boolean;
+        ownerUserId: string;
+        targetProfileIds: string[];
+      }) => Promise<unknown>;
+      rpcReadAgentProfileExecutionState: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    await expect(
+      reader.rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "active" });
+    const readyIndex = storageRecords.get(indexKey);
+    for (let read = 0; read < 3; read += 1) {
+      await reader.rpcReadAgentProfileOperationalContexts({
+        includeWorkReferences: true,
+        ownerUserId: "owner-1",
+        targetProfileIds: [TARGET_AGENT_PROFILE_ID, OTHER_AGENT_PROFILE_ID],
+      });
+      expect(storageRecords.get(indexKey)).toEqual(readyIndex);
+      await expect(
+        reader.rpcReadAgentProfileExecutionState({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toEqual({ status: "active" });
+      await expect(
+        reader.rpcReadAgentProfileExecutionState({
+          ownerUserId: "owner-1",
+          targetProfileId: OTHER_AGENT_PROFILE_ID,
+        })
+      ).resolves.toEqual({ status: "inactive" });
+    }
+    await expect(
+      reader.rpcAcquireAgentProfileControllerMutation({
+        operationId: "new-profile-workspace",
+        ownerUserId: "owner-1",
+        targetProfileId: OTHER_AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({ status: "acquired" });
+    await expect(
+      reader.rpcAcquireAgentProfileControllerMutation({
+        operationId: "active-profile-workspace",
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({ status: "blocked" });
+  });
+
   it("rebuilds a stale active-profile projection from canonical execution truth", async () => {
     const { hub, storageRecords } = createHarness();
     storageRecords.set("runtime-coordinator:agent-profile-active-index:v1", [

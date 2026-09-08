@@ -524,7 +524,11 @@ function projectAgentProfileOperationalContextFromAdmission(input: {
     return inconsistent
       ? {
           operationalContext: checkingAgentProfileOperationalContext(),
-          repairRequired: true,
+          // Legacy executions can have active references without FIFO metadata.
+          // Rebuilding the active-reference index cannot create that metadata;
+          // repeatedly requesting it would block unrelated Profile mutations.
+          // Repair only an actual mismatch in the active-profile index.
+          repairRequired: !active,
         }
       : {
           operationalContext: idleAgentProfileOperationalContext(),
