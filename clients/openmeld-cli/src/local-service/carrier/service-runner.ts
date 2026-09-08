@@ -97,6 +97,7 @@ import {
   emitDaemonLifecycleEvent,
   resolveRecentDaemonSignalStopCause,
 } from "../lifecycle/daemon-lifecycle-journal";
+import { assertDaemonServiceLaunchScope } from "../lifecycle/daemon-service-launch-scope";
 import {
   journalDaemonStopSignalEvidence,
   startDaemonServiceRegistrationReconcileLoop,
@@ -542,6 +543,7 @@ async function runSocketSessionWithControlledShutdown(input: {
 export const runDaemonServiceLoop = async (
   input: DaemonServiceRunInput
 ): Promise<void> => {
+  await assertDaemonServiceLaunchScope();
   // OPENMELD_SERVICE_THIN_CORE: local-worker-carrier entrypoint.
   // This loop owns local service identity, adapter inventory, socket lifetime,
   // heartbeat, and delivery to local runtimes. It must not become a product
