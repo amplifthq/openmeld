@@ -4,7 +4,7 @@ import type { DaemonServiceController } from "../../config/daemon-state";
 import { daemonRuntimeStateRootPath } from "../../config/daemon-state";
 import {
   type OpenMeldPathResolutionInput,
-  resolveOpenMeldPresetOwnedPathInput,
+  resolveOpenMeldServiceOwnedPathInput,
 } from "../../config/paths";
 
 const REGISTRATION_REPAIR_STATE_SCHEMA =
@@ -92,7 +92,7 @@ export async function clearDaemonServiceRegistrationRepairPending(
 function registrationRepairStatePath(
   pathInput: OpenMeldPathResolutionInput
 ): string {
-  const ownerPathInput = resolveOpenMeldPresetOwnedPathInput(pathInput);
+  const ownerPathInput = resolveOpenMeldServiceOwnedPathInput(pathInput);
   return join(
     daemonRuntimeStateRootPath(ownerPathInput),
     REGISTRATION_REPAIR_STATE_FILENAME

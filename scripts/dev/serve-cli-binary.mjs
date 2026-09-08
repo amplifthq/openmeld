@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -10,12 +10,34 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { buildCliBinary } from "../release/build-cli-binary.mjs";
 import { buildCodeSignArgs } from "../release/macos-cli-signing.mjs";
+import { readCurrentIsolatedDevLane } from "./dev-isolated-lane.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const DEFAULT_PORT = 3197;
 
 async function main() {
+  // Start with an absolute argv path so dev:stop can prove worktree ownership.
+  // process.title is truncated to the original argv capacity on macOS.
+  if (!process.argv.includes("--absolute-entry")) {
+    const child = spawn(
+      process.execPath,
+      [
+        fileURLToPath(import.meta.url),
+        "--absolute-entry",
+        ...process.argv.slice(2),
+      ],
+      { stdio: "inherit" }
+    );
+    child.on("error", (error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+    child.on("exit", (code) => {
+      process.exitCode = code ?? 0;
+    });
+    return;
+  }
   const port = readPort();
   const built = buildCliBinary({
     outDir: path.join(REPO_ROOT, "clients", "openmeld-cli", "dist", "binary"),
@@ -141,8 +163,12 @@ async function main() {
       `- archiveSizeBytes: ${archive.byteLength}`,
       `- manifestUrl: ${origin}/cli/manifest.json`,
       "",
-      "Local dev-local setup uses this manifest URL by default. Start local Web with:",
-      "pnpm dev:web",
+      process.argv.includes("--worktree")
+        ? "This worktree's Web setup uses this exact build. Start Web with:"
+        : "Fixed-port local setup uses this build. Start Web with:",
+      process.argv.includes("--worktree")
+        ? "pnpm dev:web:worktree"
+        : "pnpm dev:web",
       "",
       "If you changed OPENMELD_CLI_BINARY_DEV_PORT, start local Web with:",
       `VITE_OPENMELD_CLI_BINARY_MANIFEST_URL=${origin}/cli/manifest.json pnpm dev:web`,
@@ -152,6 +178,9 @@ async function main() {
 }
 
 function readPort() {
+  if (process.argv.includes("--worktree")) {
+    return readCurrentIsolatedDevLane(REPO_ROOT).ports.cliBinary;
+  }
   const raw = process.env.OPENMELD_CLI_BINARY_DEV_PORT;
   if (!raw) {
     return DEFAULT_PORT;

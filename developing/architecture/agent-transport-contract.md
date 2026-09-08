@@ -1670,6 +1670,33 @@ bounded-work alarm retries the D1 projection and clears the index only after
 Core accepts it. A transient Core failure therefore cannot leave a visibly
 stopped child permanently invisible to its parent subscription.
 
+An accepted local result retires its execution token, but does not complete the
+Wake's cloud publication obligation. Stop for that accepted result runs through
+the same RuntimeCoordinator finalization serializer without contacting the old
+Service. RuntimeCoordinator verifies the exact accepted inbox result against its
+stored execution authority before reconstructing a missing legacy finalization
+command. It persists the command and retry before recording the Stop fence.
+Space elects the stopped notice through the same atomic final-outcome claim as
+reply publication; an already-persisted final outcome wins. Only that persisted
+claim permits RuntimeCoordinator to settle cancellation and project dependent
+task outcomes. An unavailable Space claim leaves durable repair pending; it
+must not become a successful Stop or trigger another Agent execution.
+
+The internal `rpcApplyRuntimeCoordinatorWakeStopCommand` uses the existing shared
+finalization-command and claim-read schemas. If that RPC is unavailable during
+a Core rollout, Stop returns `retry_later` and preserves the repair command.
+It does not require a CLI, Service, or Agent Controller protocol upgrade.
+
+For an accepted-but-unpublished execution, viewer-authorized Space progress
+reads ask RuntimeCoordinator for publication Stop eligibility. Its read-only
+endpoint checks the stored `result_received` lifecycle, nonterminal authority,
+and exact request scope; the absence of a current token run or fresh Controller
+report does not remove this server-owned capability. Missing or terminal
+authority returns no eligibility. An execution still running locally keeps the
+existing fresh cancel/interrupt report requirement. The existing Stop mutation
+continues to validate the accepted result and elect the final Space claim;
+eligibility cannot cancel work, publish a notice, or advance recovery.
+
 Wake execution invariants:
 
 - `dispatchId` is the logical Wake identity.
