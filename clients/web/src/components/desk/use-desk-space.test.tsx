@@ -138,13 +138,12 @@ it("does not create when the account Space index cannot be read", async () => {
 	expect(create).not.toHaveBeenCalled();
 });
 
-it("retries Welcome preparation without creating a second Space", async () => {
+it("creates a Welcome Space without looking up or adding Center Agent", async () => {
 	designation.mockRejectedValueOnce(new Error("Unavailable"));
 	const desk = openDesk();
-	await waitFor(() => expect(desk.result.current.error).toBe("Unavailable"));
-	await desk.result.current.retry();
 	await waitFor(() => expect(desk.result.current.ready).toBe(true));
 	expect(create).toHaveBeenCalledTimes(1);
+	expect(designation).not.toHaveBeenCalled();
 });
 
 it("starts a new tutorial without changing the old Space", async () => {

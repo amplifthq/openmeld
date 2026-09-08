@@ -121,8 +121,12 @@ forking its command, PrepareSession, or live-status behavior.
 The optional **Welcome Space tutorial** is a presentation layer over an ordinary
 Space, shared by Desk and the full Space page. Its single path is: understand
 Space, add people or agents through the existing member selector and New Agent
-flow, then send an editable introduction to those members. The initial Center
-Agent is a collaborator, not an alternative sample-task funnel. One dashed
+flow, then send an editable greeting to those members. New Welcome Spaces contain
+only their creator. Center Agent is recommended and preselected on the first
+Welcome picker opening, but membership changes only after Add selected. The user
+can deselect it, create another Agent, or add both. Ordinary Spaces never inherit
+that preselection. Existing Welcome members are preserved. Center Agent follows
+the same collaboration path as any other Agent. One dashed
 action card presents the next action; creating a local agent continues to use
 the existing computer setup flow. No tutorial code derives readiness or sends
 messages automatically.

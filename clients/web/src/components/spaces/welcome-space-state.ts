@@ -102,7 +102,6 @@ export function readWelcomeRecipients(
 export function resolveWelcomeRecipients<T extends WelcomeMember>(
 	members: readonly T[],
 	recipientIds: readonly string[],
-	centerAgentId: string | null | undefined,
 	selfId: string
 ): T[] {
 	if (recipientIds.length > 0) {
@@ -112,10 +111,7 @@ export function resolveWelcomeRecipients<T extends WelcomeMember>(
 		});
 	}
 	return members.filter(
-		(member) =>
-			member.profileKind === "agent" &&
-			member.profileId !== centerAgentId &&
-			member.profileId !== selfId
+		(member) => member.profileKind === "agent" && member.profileId !== selfId
 	);
 }
 
@@ -133,8 +129,7 @@ export function buildWelcomeSpaceDraft(members: readonly WelcomeMember[]) {
 		});
 		text += `${label} `;
 	}
-	text +=
-		"What can you help with in this Space, and what do you need from me to get started?";
+	text += "Hi! Please briefly introduce yourself and how you can help here.";
 	return {
 		text,
 		authoredMentions,

@@ -504,18 +504,22 @@ provisioning. A confirmed deleted Space is removed from Desk and is not recreate
 
 Welcome tutorial identity is browser-local, keyed by account scope and Space ID,
 independent of the editable name. The shared Space page and directory read this
-same marker. Preparation adds the designated Center Agent using the ordinary
-membership API. The guide reuses the existing setup card and member dialog;
+same marker. Creation adds only the acting human. The first Welcome member picker
+opening recommends and preselects the designated Center Agent, without adding it
+until Add selected. Deselecting or closing does not reapply that default. Ordinary
+Spaces never preselect it. Its shared picker description explains its workspace
+role. The guide reuses the existing setup card and member dialog;
 ordinary Spaces keep their existing setup guidance. Welcome Spaces show one
 centered dashed action card, first **Add your first agent**, opening the shared
 member selector. Welcome empty content uses the shared panel's start alignment
 so the action is visible in the initial Desk viewport; ordinary empty Spaces
-retain centered alignment. The preinstalled Center Agent does not advance this step.
+retain centered alignment. Center Agent can complete the same path as any other
+Agent; existing Welcome members are preserved and can start the conversation.
 Confirmed member additions
 prepare an editable draft only when the Composer has no text, files, or reply.
 Agents receive Wake mentions; people receive ordinary mentions. Nothing is sent
-automatically. The introductory message asks what the added members can help
-with and what context they need; it does not invent a business task. Clearing
+automatically. The introductory message greets the added members and asks for
+a brief introduction; it does not invent a business task. Clearing
 the draft exposes **Start a conversation** in the same card. Its saved recipient
 IDs are draft intent only and are reconciled against active Space members before
 restoring a draft, using current names. Existing text, files, and replies are

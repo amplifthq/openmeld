@@ -102,6 +102,7 @@ import {
 	applyWakeAvailabilityDisplayOverride,
 	type WakeDisplayOverrideByProfileId,
 } from "./use-wake-display-debounce";
+import { readWelcomeSpace } from "./welcome-space-state";
 
 export const SPACE_MEMBERS_SIDE_PANEL_QUERY = "(min-width: 1280px)";
 
@@ -962,6 +963,32 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		[candidateGroups]
 	);
 	const normalizedAddQuery = addQuery.trim().toLocaleLowerCase();
+	useEffect(() => {
+		const scope = organizationContext?.storageScope;
+		if (!(input.open && scope && activeSpaceId && input.snapshot)) {
+			return;
+		}
+		const center = allCandidates.find((candidate) => candidate.isCenterAgent);
+		if (!center || readWelcomeSpace(scope, activeSpaceId) !== "add") {
+			return;
+		}
+		const key = `openmeld.welcome-space:${scope}:${activeSpaceId}:recommendation-seen`;
+		if (localStorage.getItem(key)) {
+			return;
+		}
+		localStorage.setItem(key, "true");
+		if (!center.alreadyMember) {
+			setSelectedProfileIds(
+				(current) => new Set([...current, center.profileId])
+			);
+		}
+	}, [
+		input.open,
+		input.snapshot,
+		organizationContext?.storageScope,
+		activeSpaceId,
+		allCandidates,
+	]);
 	const visibleCandidateGroups = useMemo(
 		() => filterAddMemberGroups(candidateGroups, normalizedAddQuery),
 		[candidateGroups, normalizedAddQuery]
@@ -1833,13 +1860,13 @@ function SpaceAddMembersCandidateGroup(input: {
 						label={candidate.profileName}
 						labelAdornment={
 							candidate.isCenterAgent ? (
-								<Badge
+								<span className="inline-flex items-center gap-2"><Badge
 									className="bg-surface-2 px-1.5 text-[10px] shadow-surface-2"
 									variant="outline"
 								>
 									<CloudIcon aria-hidden="true" />
 									Remote
-								</Badge>
+								</Badge><Badge variant="outline">Recommended</Badge></span>
 							) : (
 								<RemoteAgentIndicator
 									agentControllerRef={candidate.agentControllerRef ?? null}
@@ -2265,6 +2292,9 @@ function resolvePersonActivityLabel(
 function resolveAgentCandidateDescription(
 	candidate: SpaceAddMembersCandidateSummary
 ): string | undefined {
+	if (candidate.isCenterAgent) {
+		return `${candidate.alreadyMember ? "In this Space. " : ""}Your workspace’s shared assistant. Helps coordinate work across Spaces.`;
+	}
 	if (candidate.alreadyMember) {
 		return "In this Space";
 	}

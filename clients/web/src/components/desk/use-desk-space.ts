@@ -1,8 +1,6 @@
 import type { AuthProfileView } from "@openmeld/schemas/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { readCurrentCenterAgentDesignation } from "#/lib/organizations/center-agent";
 import { listAccountSpaceItems } from "#/lib/spaces/account-spaces";
-import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
 import { createSpaceInOrganization } from "#/lib/spaces/create-space-in-organization";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
@@ -19,25 +17,12 @@ export function useDeskSpace(input: {
 	const client = useQueryClient();
 	const profile = input.profile;
 	const key = `openmeld.desk.space:${input.storageScope}:${input.organizationId}`;
-	async function prepareWelcome(spaceId: string) {
+	function prepareWelcome(spaceId: string) {
 		if (
 			!profile ||
 			readWelcomeSpace(input.storageScope, spaceId) !== "prepare"
 		) {
 			return;
-		}
-		const { designation } = await readCurrentCenterAgentDesignation({
-			organizationId: input.organizationId,
-		});
-		if (designation?.agentProfileId) {
-			await createOrganizationScopedWebSpaceApi({
-				organizationId: input.organizationId,
-				openMeldProfileId: profile.openMeldProfileId,
-			}).addOrganizationDirectoryProfilesToSpace({
-				spaceId,
-				directoryProfileIds: [designation.agentProfileId],
-				expectedCenterAgentProfileId: designation.agentProfileId,
-			});
 		}
 		saveWelcomeSpace(input.storageScope, spaceId, "add");
 	}
@@ -57,7 +42,7 @@ export function useDeskSpace(input: {
 					profileId: profile.openMeldProfileId,
 				});
 				if (saved && saved !== "creating") {
-					await prepareWelcome(saved);
+					prepareWelcome(saved);
 					return {
 						spaceId: saved,
 						profileId: profile.openMeldProfileId,
@@ -95,8 +80,7 @@ export function useDeskSpace(input: {
 					},
 				});
 				localStorage.setItem(key, created.spaceId);
-				saveWelcomeSpace(input.storageScope, created.spaceId, "prepare");
-				await prepareWelcome(created.spaceId);
+				saveWelcomeSpace(input.storageScope, created.spaceId, "add");
 				await client.invalidateQueries({ queryKey: accountSpaceQueryKeys.all });
 				return {
 					spaceId: created.spaceId,
@@ -121,7 +105,7 @@ export function useDeskSpace(input: {
 					},
 				});
 				localStorage.setItem(key, created.spaceId);
-				saveWelcomeSpace(input.storageScope, created.spaceId, "prepare");
+				saveWelcomeSpace(input.storageScope, created.spaceId, "add");
 				await client.invalidateQueries({ queryKey: accountSpaceQueryKeys.all });
 			});
 			await query.refetch({ throwOnError: true });

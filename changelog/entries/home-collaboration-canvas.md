@@ -23,8 +23,9 @@ icon and a raised surface to stay distinct from selected rows.
 Connecting a computer while creating an Agent stays in the same dialog, so you
 can return to creating your Agent without leaving the Space.
 
-Welcome Spaces include the workspace's Center Agent and a short guide to adding
-your own agent through one dashed action card. Adding members prepares an
+Welcome Spaces start with you and a short guide to adding an agent through one
+dashed action card. Center Agent is recommended and preselected the first time;
+you choose whether to add it, create your own Agent, or add both. Adding members prepares an
 editable introduction addressed to those members; you decide when to send it.
 If you clear it, the card lets you prepare it again. You can pause the tutorial
 or start a new Welcome Space. Tutorial progress and Welcome labels are remembered

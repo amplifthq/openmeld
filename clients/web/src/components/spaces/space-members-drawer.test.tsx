@@ -1319,7 +1319,16 @@ describe("SpaceMembersSidePanel", () => {
 	it.each([
 		false,
 		true,
-	])("adds workspace directory members and Center Agent atomically (personal=%s)", async (isPersonal) => {
+		"welcome",
+	])("adds workspace directory members and Center Agent atomically (scenario=%s)", async (scenario) => {
+		const isPersonal = scenario === true;
+		const isWelcome = scenario === "welcome";
+		if (isWelcome) {
+			localStorage.setItem(
+				"openmeld.welcome-space:user-felix:welcome-selection-test",
+				`add:${Date.now()}`
+			);
+		}
 		const centerAgentProfileId = "agt_44444444-4444-4444-8444-444444444444";
 		const humanProfileId = "22222222-2222-4222-8222-222222222222";
 		const onAddOrganizationDirectoryProfiles = vi
@@ -1358,6 +1367,7 @@ describe("SpaceMembersSidePanel", () => {
 						}),
 					],
 				})}
+				spaceId={isWelcome ? "welcome-selection-test" : undefined}
 			/>,
 			buildOrganizationDirectory({ centerAgentProfileId, humanProfileId }),
 			isPersonal
@@ -1366,6 +1376,25 @@ describe("SpaceMembersSidePanel", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
+		const centerChoice = screen.getByRole("checkbox", { name: "Center Agent" });
+		await waitFor(() =>
+			expect(centerChoice.getAttribute("aria-checked")).toBe(
+				isWelcome ? "true" : "false"
+			)
+		);
+		expect(onAddOrganizationDirectoryProfiles).not.toHaveBeenCalled();
+		if (isWelcome) {
+			fireEvent.click(centerChoice);
+			fireEvent.click(screen.getByRole("button", { name: "Close" }));
+			fireEvent.click(
+				screen.getByRole("button", { name: "Add People or Agents" })
+			);
+			expect(
+				screen
+					.getByRole("checkbox", { name: "Center Agent" })
+					.getAttribute("aria-checked")
+			).toBe("false");
+		}
 		expect(
 			screen.getByText("Choose people and their agents from Acme.")
 		).toBeTruthy();

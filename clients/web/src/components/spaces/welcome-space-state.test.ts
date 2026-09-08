@@ -11,7 +11,7 @@ import {
 } from "./welcome-space-state";
 
 beforeEach(() => localStorage.clear());
-it("does not count the preinstalled Center Agent as completing the add step", () => {
+it("lets an existing Center Agent start the conversation step", () => {
 	expect(
 		resolveWelcomeRecipients(
 			[
@@ -23,10 +23,11 @@ it("does not count the preinstalled Center Agent as completing the add step", ()
 				{ profileId: "self", profileName: "Me", profileKind: "human" },
 			],
 			[],
-			"center",
 			"self"
 		)
-	).toEqual([]);
+	).toEqual([
+		{ profileId: "center", profileName: "Center Agent", profileKind: "agent" },
+	]);
 });
 it("restores the selected batch from current members and excludes removed members", () => {
 	saveWelcomeRecipients("account-a", "space-a", ["agent", "person", "removed"]);
@@ -45,7 +46,6 @@ it("restores the selected batch from current members and excludes removed member
 			},
 		],
 		readWelcomeRecipients("account-a", "space-a"),
-		"center",
 		"self"
 	);
 	expect(recipients.map((member) => member.profileId)).toEqual([

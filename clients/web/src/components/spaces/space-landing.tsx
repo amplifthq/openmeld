@@ -2020,24 +2020,21 @@ function SpaceLandingConversation({
 	const welcomeStep = useWelcomeSpace(recovery.storageScope, input.spaceId);
 	const welcomeRecipients = useMemo(
 		() =>
-			!welcomeStep || centerAgentState.designationPending
-				? []
-				: resolveWelcomeRecipients(
+			welcomeStep
+				? resolveWelcomeRecipients(
 						[
 							...(controller.membersSnapshot?.humans ?? []),
 							...(controller.membersSnapshot?.agents ?? []),
 						].filter((member) => member.status === "active"),
 						readWelcomeRecipients(recovery.storageScope, input.spaceId),
-						centerAgentState.centerAgentProfileId,
 						input.profileId
-					),
+					)
+				: [],
 		[
 			controller.membersSnapshot,
 			welcomeStep,
 			recovery.storageScope,
 			input.spaceId,
-			centerAgentState.centerAgentProfileId,
-			centerAgentState.designationPending,
 			input.profileId,
 		]
 	);
