@@ -44,7 +44,7 @@ export function WelcomeSpaceGuide(input: {
 				<Button
 					onClick={() => resumeWelcomeSpace(input.scope, input.spaceId)}
 					size="sm"
-					variant="ghost"
+					variant="outline"
 				>
 					Resume tutorial
 				</Button>
@@ -63,7 +63,7 @@ export function WelcomeSpaceGuide(input: {
 				<Button
 					onClick={() => saveWelcomeSpace(input.scope, input.spaceId, "paused")}
 					size="sm"
-					variant="ghost"
+					variant="outline"
 				>
 					Skip tutorial
 				</Button>
@@ -80,12 +80,17 @@ export function WelcomeSpaceGuide(input: {
 				</FluidCardGroup>
 			) : (
 				<p className="text-muted-foreground text-sm">
-					Your members are added. Review the message below, or write your own,
-					then send it.
+					{input.onTryCenterAgent
+						? "Write a task and mention an agent, or try a suggested task below."
+						: "Review your message or write a task, mention an agent, then send it."}
 				</p>
 			)}
-			{step === "add" && input.onTryCenterAgent && (
-				<Button onClick={input.onTryCenterAgent} size="sm" variant="ghost">
+			{input.onTryCenterAgent && (
+				<Button
+					className="justify-self-center"
+					onClick={input.onTryCenterAgent}
+					variant={step === "add" ? "outline" : "default"}
+				>
 					Try a task with Center Agent
 				</Button>
 			)}
