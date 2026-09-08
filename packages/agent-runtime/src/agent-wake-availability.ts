@@ -1000,6 +1000,23 @@ function createUnavailableWakeAvailability(
     readiness.primaryAction === "reconnect_binding" ||
     readiness.primaryAction === "run_prepare"
   ) {
+    const connectionMismatchReasonCode = pickKnownReasonCode(readiness, [
+      "local_service.identity_mismatch",
+      "claim_eligibility.binding_runtime_mismatch",
+      "claim_eligibility.openmeld_service_runtime_id_mismatch",
+      "claim_eligibility.binding_capability_mismatch",
+    ]);
+    if (connectionMismatchReasonCode) {
+      return createAvailability(readiness, {
+        ...unavailableWakeAvailabilityFallbackCopy,
+        category: "unavailable",
+        isRefreshing: false,
+        label: "Connection mismatch",
+        phase: "unavailable",
+        reasonCode: connectionMismatchReasonCode,
+        status: "unavailable_for_wake",
+      });
+    }
     const controllerBlockerReasonCode = pickKnownReasonCode(readiness, [
       "controller.registry.disabled",
       "controller.bootstrap.failed",
