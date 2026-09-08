@@ -312,8 +312,8 @@ html[data-space-self-message-alignment="left"]
 html[data-space-conversation-layout] [data-desk-space-window]
   [data-space-conversation-content-width] {
   width: 100%;
-  max-width: 100%;
-  margin-inline: 0;
+  max-width: 60rem;
+  margin-inline: auto;
   padding-inline: 24px;
 }
 
