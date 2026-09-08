@@ -459,7 +459,22 @@ function Desk() {
 						}
 					}}
 					onKeyDownCapture={interrupt}
-					onPointerDownCapture={interrupt}
+					onPointerDownCapture={(event) => {
+						if (
+							isEntering.current &&
+							!(
+								event.target instanceof Element &&
+								event.target.closest(
+									'button, a, input, textarea, [role="button"], [contenteditable="true"]'
+								)
+							)
+						) {
+							event.preventDefault();
+							event.stopPropagation();
+							return;
+						}
+						interrupt();
+					}}
 					ref={region}
 					role="region"
 				>
