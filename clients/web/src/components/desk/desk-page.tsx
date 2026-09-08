@@ -294,11 +294,18 @@ function Desk() {
 											},
 								data: { kind: "welcome" as const },
 								width: greeting?.origin ? greeting.width : undefined,
+								height: Math.max(190, greeting?.height ?? 190),
 								style: greeting?.origin
-									? greeting.style
+									? {
+											...greeting.style,
+											height: Math.max(
+												190,
+												Number(greeting.style?.height) || 190
+											),
+										}
 									: {
 											width: "max-content",
-											height: 150,
+											height: 190,
 										},
 								dragHandle: ".desk-title",
 							},
@@ -422,7 +429,7 @@ function Desk() {
 				resizing: false,
 				style:
 					node.data.kind === "welcome"
-						? { width: "max-content", height: 150 }
+						? { width: "max-content", height: 190 }
 						: size,
 			}))
 		);
@@ -602,12 +609,12 @@ function DeskWindow({
 					isVisible={selected}
 					maxHeight={480}
 					maxWidth={2400}
-					minHeight={120}
+					minHeight={190}
 					minWidth={320}
 				/>
 				<section
 					aria-label="Welcome greeting"
-					className={`desk-title relative flex h-full cursor-grab flex-col items-center justify-center gap-3 rounded-lg border p-6 text-center ${selected ? "border-muted-foreground" : "border-transparent"}`}
+					className={`desk-title relative flex h-full min-h-[190px] cursor-grab flex-col items-center justify-center gap-3 rounded-lg border p-6 text-center ${selected ? "border-muted-foreground" : "border-transparent"}`}
 					data-desk-greeting=""
 				>
 					{selected && (
@@ -624,7 +631,10 @@ function DeskWindow({
 					<h2
 						className="max-w-full break-words font-medium leading-tight"
 						style={{
-							fontSize: Math.max(28, Math.min(96, (nodeHeight ?? 150) * 0.28)),
+							fontSize: Math.max(
+								28,
+								Math.min(96, ((nodeHeight ?? 190) - 40) * 0.28)
+							),
 						}}
 					>
 						Hello{context.name ? `, ${context.name}` : ""}.
@@ -635,7 +645,7 @@ function DeskWindow({
 					{
 						<svg
 							aria-hidden="true"
-							className="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 text-muted-foreground"
+							className="pointer-events-none shrink-0 text-muted-foreground"
 							data-desk-arrow=""
 							height="32"
 							viewBox="0 0 28 32"

@@ -65,7 +65,7 @@ export function useDeskEntrance<N extends Node>(input: {
 
 			const w = input.region.current?.clientWidth || input.width + 64;
 			const h = input.region.current?.clientHeight || input.height + 64;
-			const start = { x: (w - input.width) / 2, y: (h - 150) / 2, zoom: 1 };
+			const start = { x: (w - input.width) / 2, y: (h - 190) / 2, zoom: 1 };
 			if (input.region.current) {
 				input.region.current.dataset.deskEntrance = "pending";
 			}
