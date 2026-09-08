@@ -89,6 +89,17 @@ describe("dispatch Space file reader", () => {
         server.connect(serverTransport),
         client.connect(clientTransport),
       ]);
+      const catalog = await client.listTools();
+      expect(
+        catalog.tools.find((tool) => tool.name === "read_file")?.inputSchema
+      ).toMatchObject({
+        type: "object",
+        properties: {
+          fileId: { type: "string", minLength: 1, maxLength: 128 },
+          revision: { type: "integer", minimum: 1 },
+        },
+        required: ["fileId"],
+      });
       const result = await client.callTool({
         name: "read_file",
         arguments: {

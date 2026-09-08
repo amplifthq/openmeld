@@ -1,3 +1,4 @@
+import { z as eagerZod } from "zod/v4";
 import * as z from "../../lazy-zod";
 
 export const SPACE_FILE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
@@ -30,14 +31,16 @@ const MIME_TYPES_BY_EXTENSION: Readonly<Record<string, string>> = {
 };
 const scopeIdSchema = z.string().trim().min(1).max(512);
 
-export const spaceFileEntryIdSchema = z.string().trim().min(1).max(128);
+// MCP tool discovery traverses schema identity to generate JSON Schema. These
+// shared tool-input leaves must be concrete schemas, not lazy proxy identities.
+export const spaceFileEntryIdSchema = eagerZod.string().trim().min(1).max(128);
 export const spaceFileRevisionIdSchema = z.string().trim().min(1).max(128);
 export const spaceFileClientMutationIdSchema = z
   .string()
   .trim()
   .min(1)
   .max(128);
-export const spaceFileRevisionNumberSchema = z.number().int().min(1);
+export const spaceFileRevisionNumberSchema = eagerZod.number().int().min(1);
 export const spaceFileBaseRevisionSchema = z.number().int().min(1).nullable();
 export const spaceFileSizeBytesSchema = z
   .number()
