@@ -1533,10 +1533,20 @@ While Core is retrying configuration, the dialog shows the latest bounded
 verification failure in plain language instead of presenting an unexplained
 spinner for the rest of the configuration window.
 When configuration requires additional setup permission, the dialog explicitly
-asks the manager to grant `application:application:patch` in the selected
-provider's Developer Console and provides that console link. It does not imply
-that waiting can grant permission. Core retains its existing bounded retries
-so setup can continue after the manager grants access.
+offers **Reauthorize Feishu** or **Reauthorize Lark**, which opens official
+consent for the existing app with the updated setup permission bundle. It does
+not send the user to Developer Console to edit permissions manually. Core
+retains its bounded retries and verifies configuration after consent.
+The Channel card must show **Authorization required** and **Review authorization**
+for this reason, rather than implying that passive waiting will finish setup.
+Non-managers see that a manager must approve it. The dialog explains the scope
+and offers **I've authorized, check again** using the existing poll action;
+the click itself is not proof of consent or connection. New setup links include
+the configuration scope in the provider's initial consent page, and the Web
+introduction discloses message and app-configuration permissions together.
+Managers can cancel an unfinished setup even when another manager started it;
+cancellation retires its Core-owned attempt and prevents late polls from
+reviving it. Expired attempts do not keep the Channel card in Connecting.
 
 The Lark and Feishu cards are enabled in local and production configuration
 for every Organization. Staging keeps both providers disabled.

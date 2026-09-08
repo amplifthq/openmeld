@@ -86,6 +86,15 @@ over that same PID's managed executable path when classifying lifecycle owners.
 Using an installed binary does not itself mean the OS service manager started
 it. Other PIDs and an actually running manager remain independent evidence.
 
+Isolated Service smoke must use the development or Canary entry point, not
+borrow the installed Production binary with a different `OPENMELD_HOME` or
+environment preset. Service startup rejects that mixed launch before entering
+the carrier. This guard prevents an unsupported test launch from appearing in
+Production's process inventory; it is not a replacement for account, device,
+runtime, connection, or same-installation duplicate-owner checks. Normal
+Production startup and separately installed development/Canary lanes remain
+supported. A home override alone does not prove process or remote isolation.
+
 OpenMeld Service does not own:
 
 - Space truth
@@ -1351,6 +1360,11 @@ it must not rebuild the device-scoped Binding answer from per-profile reads.
 
 Catalog consumption rules:
 
+- An explicit catalog-change signal starts the existing single-flight catalog
+  refresh independently of an in-flight heartbeat. New route registration
+  must not wait for old-lease renewal or its local maintenance inspection.
+  Changes arriving during a catalog refresh remain pending until that refresh
+  finishes; heartbeat completion must not consume that pending work.
 - The projection response is operation-scoped evidence. It is never persisted,
   and the route catalog cache remains a failure fallback only.
 - Carrier startup and periodic catalog refresh only check existing local
