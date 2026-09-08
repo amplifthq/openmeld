@@ -2957,6 +2957,112 @@ describe("device waiting Wake lifecycle", () => {
         },
       },
     });
+  it.each([
+    "daemon.profile.offline",
+    "wake.device_wait.readiness_checking",
+  ] as const)("redrives %s on unchanged heartbeats when the first online event preceded waiting persistence", async (reasonCode) => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      const harness = createHarness();
+      const {
+        hub,
+        state,
+        socket,
+        spaceFetchRequests,
+        sentFrames,
+        waitUntilTasks,
+      } = harness;
+      configureCompatibleRoute({ state, socket });
+      const session = state.sessionsById.get("daemon-session-1");
+      const lease = state.profileLeasesByProfileId.get(TARGET_AGENT_PROFILE_ID);
+      if (!(session && lease)) {
+        throw new Error("Expected connected Service fixture");
+      }
+      session.lastHeartbeatMs = nowMs;
+      lease.lastHeartbeatMs = nowMs;
+      const accepted = request();
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        accepted
+      );
+      const heartbeat = async () => {
+        RuntimeTransportHub.prototype.webSocketMessage.call(
+          hub,
+          socket,
+          JSON.stringify({
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            code: "daemon.session.heartbeat",
+            payload: {
+              v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+              daemonSessionId: session.daemonSessionId,
+              deviceId: session.deviceId,
+              ownerUserId: "owner-1",
+              lane: session.lane,
+              leases: [
+                {
+                  profileId: TARGET_AGENT_PROFILE_ID,
+                  leaseEpoch: lease.leaseEpoch,
+                },
+              ],
+              sentAtMs: Date.now(),
+              capabilities: session.capabilities,
+              runtimeContract: {
+                epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+              },
+            } satisfies import("@openmeld/schemas/types").RuntimeTransportHeartbeatRequest,
+          })
+        );
+        await Promise.all(waitUntilTasks.splice(0));
+        expect(sentFrames).toContainEqual(
+          expect.objectContaining({
+            code: "daemon.session.heartbeat",
+            payload: expect.objectContaining({ ok: true }),
+          })
+        );
+      };
+      const redrives = () =>
+        spaceFetchRequests.filter(
+          (entry) => entry.path === "/internal/dispatches/dispatch-1/redrive"
+        );
+      await heartbeat();
+      expect(redrives()).toHaveLength(0);
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/waiting",
+        {
+          ...buildRuntimeCoordinatorHeadWaitingRequest({ observedAtMs: nowMs }),
+          reasonCode,
+          userRecoveryAction:
+            reasonCode === "daemon.profile.offline"
+              ? "start_or_restart_openmeld_service"
+              : "check_status",
+          waitingCategory:
+            reasonCode === "daemon.profile.offline"
+              ? "service_not_connected"
+              : "local_agent_unavailable",
+        }
+      );
+      for (const elapsedMs of [1000, 2000]) {
+        clock.mockReturnValue(nowMs + elapsedMs);
+        await heartbeat();
+      }
+      expect(redrives()).toEqual(
+        [1, 2].map(() => ({
+          path: "/internal/dispatches/dispatch-1/redrive",
+          body: {
+            reason: "runtime_coordinator_head_waiting_recovery",
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            targetWakeLifecycleId:
+              accepted.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+          },
+        }))
+      );
+      expect(sentFrames.filter(isDeliveryFrame)).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
   it("keeps post-reconnect readiness checks inside the original device deadline", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
@@ -3185,12 +3291,17 @@ describe("device waiting Wake lifecycle", () => {
     }
   });
 
-  it("expires a device waiting Wake even while earlier work owns the FIFO head", async () => {
+  it.each([
+    "accepted",
+    "queued",
+  ] as const)("expires a %s device wait without inventing an offline boundary", async (initialStatus) => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
       const { hub, state, storageRecords } = createHarness();
       state.pendingDispatches.clear();
-      await acceptDefaultRuntimeCoordinatorHead(hub);
+      if (initialStatus === "queued") {
+        await acceptDefaultRuntimeCoordinatorHead(hub);
+      }
       const queuedIdentity = projectTargetWakeLifecycleIdentity({
         clientMessageId: "client-queued-wait",
         dispatchId: "dispatch-queued-wait",
@@ -3212,7 +3323,7 @@ describe("device waiting Wake lifecycle", () => {
             queuedRequest
           )
         ).json()
-      ).toMatchObject({ status: "queued" });
+      ).toMatchObject({ status: initialStatus });
       clock.mockReturnValue(deadlineAtMs);
       await (
         hub as unknown as {
@@ -3228,7 +3339,15 @@ describe("device waiting Wake lifecycle", () => {
       );
       expect(expired).toMatchObject({
         status: "publication_intent_ready",
-        noExecutionDecision: { reasonCode: "wake.device_wait.expired" },
+        noExecutionDecision: {
+          reasonCode: "wake.device_wait.expired",
+          publicationCategory: "local_agent_unavailable",
+          userRecoveryAction: "check_status",
+        },
+        publicationIntent: {
+          reasonCode: "wake.device_wait.expired",
+          publicationCategory: "local_agent_unavailable",
+        },
       });
       expect(
         await (

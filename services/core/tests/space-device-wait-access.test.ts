@@ -132,6 +132,23 @@ describe("device waiting Wake Space authority", () => {
           openMeldProfileId: sourceProfileId,
           ownerUserId: "requester-owner",
         });
+        upsertSpaceMemberRecord(state.storage.sql, {
+          ...source,
+          ownerUserIdSnapshot: "refreshed-owner",
+        });
+        expect(await instance.rpcCheckDeviceWaitingWakeAccess(request)).toEqual(
+          { allowed: true }
+        );
+        const refreshedCall = authorize.mock.calls.at(-1);
+        if (!refreshedCall) {
+          throw new Error("Expected refreshed actor authorization");
+        }
+        expect(
+          getSpaceAccessRequestContext(refreshedCall[0])?.actorContext
+        ).toMatchObject({
+          openMeldProfileId: sourceProfileId,
+          ownerUserId: "refreshed-owner",
+        });
         permission = {
           ok: false,
           response: new Response(null, { status: 403 }),
@@ -139,6 +156,7 @@ describe("device waiting Wake Space authority", () => {
         expect(await instance.rpcCheckDeviceWaitingWakeAccess(request)).toEqual(
           { allowed: false }
         );
+        upsertSpaceMemberRecord(state.storage.sql, source);
         permission = {
           ok: false,
           response: new Response(null, { status: 503 }),

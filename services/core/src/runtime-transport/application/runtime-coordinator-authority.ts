@@ -643,24 +643,6 @@ export type RuntimeCoordinatorHeadLifecycleRecord = {
   waitingBoundary?: RuntimeCoordinatorHeadWaitingBoundary;
 };
 
-export function buildRuntimeCoordinatorDeviceWaitBoundary(input: {
-  deadlineAtMs: number;
-  nowMs: number;
-}): RuntimeCoordinatorHeadWaitingBoundary {
-  return {
-    ...resolveRuntimeCoordinatorHeadWaitingPolicy("daemon.profile.offline"),
-    deadlineAtMs: input.deadlineAtMs,
-    deadlineOutcome: "publication_intent_ready",
-    observedAtMs: input.nowMs,
-    softDeadlineAtMs: Math.min(
-      input.nowMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
-      input.deadlineAtMs
-    ),
-    triggerOwner: "runtime_coordinator",
-    waitingSinceMs: input.nowMs,
-  };
-}
-
 export function isRuntimeCoordinatorHeadWaitingForDevice(
   record: RuntimeCoordinatorHeadLifecycleRecord
 ): boolean {
@@ -939,7 +921,6 @@ export const resolveNextRuntimeCoordinatorFinalizationRetryAlarmAtMsFromEntries 
 export type RuntimeCoordinatorHeadWaitingAlarmWorkItem =
   RuntimeCoordinatorHeadLifecycleRecord & {
     status: "waiting" | "queued" | "accepted";
-    waitingBoundary: RuntimeCoordinatorHeadWaitingBoundary;
   };
 
 export const planRuntimeCoordinatorHeadWaitingAlarmWork = (input: {
@@ -961,17 +942,11 @@ export const planRuntimeCoordinatorHeadWaitingAlarmWork = (input: {
       ) {
         return [];
       }
-      const waitingBoundary =
-        record.waitingBoundary ??
-        (record.acceptedDispatchSnapshot?.deviceWait
-          ? buildRuntimeCoordinatorDeviceWaitBoundary({
-              deadlineAtMs:
-                record.acceptedDispatchSnapshot.deviceWait.deadlineAtMs,
-              nowMs: record.createdAtMs,
-            })
-          : null);
-      return waitingBoundary && waitingBoundary.deadlineAtMs <= input.nowMs
-        ? [{ ...record, status: record.status, waitingBoundary }]
+      const deadlineAtMs =
+        record.acceptedDispatchSnapshot?.deviceWait?.deadlineAtMs ??
+        record.waitingBoundary?.deadlineAtMs;
+      return deadlineAtMs !== undefined && deadlineAtMs <= input.nowMs
+        ? [{ ...record, status: record.status }]
         : [];
     }
   );

@@ -413,7 +413,6 @@ import {
   buildRuntimeCoordinatorCancelledExecutionRecord,
   buildRuntimeCoordinatorDecisionId,
   buildRuntimeCoordinatorDeliveryExpiredTerminalPlan,
-  buildRuntimeCoordinatorDeviceWaitBoundary,
   buildRuntimeCoordinatorExecutionRecordFromAuthority,
   buildRuntimeCoordinatorExecutionRecordFromCommandState,
   buildRuntimeCoordinatorExecutionRecordFromFinalizationCommand,
@@ -3316,6 +3315,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           })
         );
       }
+      // Repeat even without a readiness change: an earlier online event may
+      // have arrived before the durable waiting head was committed.
       this.ctx.waitUntil(
         this.triggerRuntimeCoordinatorHeadWaitingRecovery({
           ownerUserId: verifiedOwnerUserId,
@@ -12064,29 +12065,31 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       return;
     }
-    const waitingBoundary =
-      current.waitingBoundary ??
-      (current.acceptedDispatchSnapshot?.deviceWait
-        ? buildRuntimeCoordinatorDeviceWaitBoundary({
-            deadlineAtMs:
-              current.acceptedDispatchSnapshot.deviceWait.deadlineAtMs,
-            nowMs: current.createdAtMs,
-          })
-        : null);
-    if (!waitingBoundary || waitingBoundary.deadlineAtMs > input.nowMs) {
+    const deviceWait = current.acceptedDispatchSnapshot?.deviceWait;
+    const waitingBoundary = current.waitingBoundary;
+    const deadlineAtMs =
+      deviceWait?.deadlineAtMs ?? waitingBoundary?.deadlineAtMs;
+    if (deadlineAtMs === undefined || deadlineAtMs > input.nowMs) {
       return;
     }
-    const waitingPolicy = resolveRuntimeCoordinatorHeadWaitingPolicy(
-      waitingBoundary.reasonCode
-    );
+    // Accepted/FIFO-queued intent proves a deadline, not an offline computer.
+    // Preserve observed waiting evidence when present; otherwise classify the
+    // expired local task without inventing route or readiness facts.
+    const waitingPolicy = waitingBoundary
+      ? resolveRuntimeCoordinatorHeadWaitingPolicy(waitingBoundary.reasonCode)
+      : {
+          waitingCategory: "local_agent_unavailable" as const,
+          userRecoveryAction: "check_status" as const,
+          reasonCode: "wake.device_wait.expired" as const,
+        };
     const nextRecord = buildRuntimeCoordinatorHeadPublicationIntentReadyRecord({
       decisionSource: "runtime_coordinator_head_waiting_deadline",
       existing: current,
       nowMs: input.nowMs,
       publicationCategory: waitingPolicy.waitingCategory,
-      reasonCode: current.acceptedDispatchSnapshot?.deviceWait
+      reasonCode: deviceWait
         ? "wake.device_wait.expired"
-        : waitingBoundary.reasonCode,
+        : waitingPolicy.reasonCode,
       userRecoveryAction: waitingPolicy.userRecoveryAction,
     });
     const stored =

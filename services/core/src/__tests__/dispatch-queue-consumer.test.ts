@@ -10090,6 +10090,60 @@ describe("handleDispatchQueueBatch", () => {
     });
   });
 
+  it("does not admit execution when an offline refreshing projection falls through device waiting", async () => {
+    const targetProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const readiness = createCanonicalWorkstationReadiness({
+      targetProfileId,
+      runtimeReasonCode: "controller.registry.disabled",
+    });
+    const runtime = await import("@openmeld/agent-runtime");
+    const availability = runtime.resolveAgentWakeAvailability({
+      agentControllerRef: readiness.agentControllerRef,
+      agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+      readiness: readiness.agentExecutionReadiness,
+      wakeRouteStatus: readiness.wakeRouteStatus,
+    });
+    const projection = vi
+      .spyOn(runtime, "resolveAgentWakeAvailability")
+      .mockReturnValueOnce({
+        ...availability,
+        category: "offline",
+        isRefreshing: true,
+      });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(readiness);
+    try {
+      const message = createDispatchBody({
+        dispatchId: "refreshing-offline",
+        sourceEventId: "refreshing-offline-source",
+        targetProfileId,
+        visitedProfileIdsHash: "stable32:refreshing-offline",
+      });
+      const result = await runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(),
+        message: {
+          ...message,
+          deviceWait: {
+            bindingId: `binding-${targetProfileId}`,
+            openMeldServiceRuntimeId: `runtime-${targetProfileId}`,
+            targetProfileId,
+            deadlineAtMs: Date.now() + 60_000,
+          },
+        },
+      });
+      expect(projection).toHaveBeenCalledOnce();
+      expect(result).toMatchObject({
+        ok: false,
+        canonicalAdmissionBlock: true,
+        errorCode: "controller.registry.disabled",
+      });
+      expect(result).not.toHaveProperty("deviceWaitReason");
+    } finally {
+      projection.mockRestore();
+    }
+  });
+
   it("keeps an explicit wait parked when a connected Service has not opened dispatch admission", async () => {
     const targetProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const route = vi.mocked(daemonTransportClient.lookupRuntimeTransportRoute);

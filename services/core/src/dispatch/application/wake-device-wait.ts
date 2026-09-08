@@ -61,6 +61,8 @@ export function resolveDeviceWaitReason(
   ) {
     return "wake.device_wait.readiness_checking";
   }
+  // No device-wait exception: the caller must still enforce canonical
+  // admission. This is not permission to run a refreshing/offline projection.
   return null;
 }
 

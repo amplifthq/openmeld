@@ -6617,6 +6617,9 @@ export class Space extends DurableObject<CoreBindings> {
       return { allowed: false };
     }
     const source = record.sourceSignalSnapshot;
+    // The outbox fixes the source Profile, not a send-time owner permission.
+    // Re-read its current Space membership projection on every attempt; the
+    // owner snapshot only reconstructs the actor for the live access gate below.
     const sourceMember = source?.profileId
       ? readSpaceMemberRecord(this.ctx.storage.sql, source.profileId)
       : null;

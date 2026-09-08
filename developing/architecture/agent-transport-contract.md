@@ -218,6 +218,10 @@ The owner transaction fences first execution at the deadline and against Stop.
 An expired wait publishes `wake.device_wait.expired`; cancellation, failure, and
 execution linkage cannot transition back into pre-execution waiting. Deadline
 alarms reread authority and publish only the transaction's accepted decision.
+An accepted or FIFO-queued request without an observed waiting boundary carries
+only a start deadline. Expiration uses a generic local-Agent no-execution
+category and does not invent an offline route. Observed offline/readiness
+boundaries retain their corresponding failure classification.
 Once execution is linked, the start deadline no longer applies. Existing durable
 result recovery, exact-conversation answer recovery, `outcome_unknown`, and
 no-automatic-replay rules continue to govern interrupted work.

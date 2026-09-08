@@ -37,6 +37,25 @@ describe("Space device waiting authoring and progress", () => {
 		).toEqual([targetProfileId]);
 	});
 
+	it("formats queued device-wait deadlines for the user's locale", () => {
+		const status = resolveWakeProgressStatus({
+			phase: "queued",
+			targetLabel: "Runner",
+			deviceWait: {
+				deadlineAtMs: deviceWait.deadlineAtMs,
+				reason: "earlier_work",
+			},
+		});
+		expect(status).toMatchObject({ kind: "queued", label: "Runner is queued" });
+		expect(status?.description).toContain(
+			new Date(deviceWait.deadlineAtMs).toLocaleString()
+		);
+		expect(status?.description).not.toContain(
+			new Date(deviceWait.deadlineAtMs).toISOString()
+		);
+		expect(status?.description).toContain("Earlier work must finish first.");
+	});
+
 	it("presents waiting, its deadline and cause without showing running work", () => {
 		const status = resolveWakeProgressStatus({
 			phase: "request_sent",
