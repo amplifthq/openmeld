@@ -693,7 +693,7 @@ function DeskWindow({
 			/>
 			<section
 				aria-label="Desk Space"
-				className="flex h-full flex-col overflow-hidden rounded-lg border bg-background"
+				className="flex h-full cursor-default flex-col overflow-hidden rounded-lg border bg-background"
 				data-desk-space-window=""
 			>
 				<div className="desk-title flex h-8 shrink-0 cursor-grab items-center justify-end border-b px-2">

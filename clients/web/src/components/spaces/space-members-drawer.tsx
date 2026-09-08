@@ -239,7 +239,7 @@ export function SpaceMembersSidePanel(
 			<SpaceMembersAddDialog input={input} model={model} />
 			<SpaceInlineSidePanel
 				ariaLabel="Members"
-				className="hidden xl:flex"
+				className="flex"
 				id="space-members-panel"
 				maxWidth={widthMetrics.maxWidth}
 				minWidth={widthMetrics.minWidth}
