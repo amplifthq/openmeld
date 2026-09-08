@@ -175,7 +175,7 @@ function Desk() {
 				`openmeld.desk.space:${storageScope}:${currentOrganization.id}`,
 				created.spaceId
 			);
-			for (const key of [layoutKey, sizeKey, viewportKey]) {
+			for (const key of [layoutKey, sizeKey, viewportKey, greetingKey]) {
 				localStorage.removeItem(key);
 			}
 			location.reload();
@@ -287,15 +287,21 @@ function Desk() {
 								...greeting,
 								id: "welcome",
 								type: "desk" as const,
-								position: greeting?.position ?? {
-									x: 0,
-									y: 0,
-								},
+								origin: [0.5, 0] as [number, number],
+								position: greeting?.origin
+									? greeting.position
+									: {
+											x: width / 2,
+											y: 0,
+										},
 								data: { kind: "welcome" as const },
-								style: greeting?.style ?? {
-									width,
-									height: 150,
-								},
+								width: greeting?.origin ? greeting.width : undefined,
+								style: greeting?.origin
+									? greeting.style
+									: {
+											width: "max-content",
+											height: 150,
+										},
 								dragHandle: ".desk-title",
 							},
 						]),
@@ -409,14 +415,17 @@ function Desk() {
 				position: {
 					x:
 						node.data.kind === "welcome"
-							? 0
+							? width / 2
 							: (index - (greetingHidden ? 0 : 1)) * (width + 48),
 					y: node.data.kind === "welcome" ? 0 : 200,
 				},
 				width: undefined,
 				height: undefined,
 				resizing: false,
-				style: node.data.kind === "welcome" ? { width, height: 150 } : size,
+				style:
+					node.data.kind === "welcome"
+						? { width: "max-content", height: 150 }
+						: size,
 			}))
 		);
 		reset();
