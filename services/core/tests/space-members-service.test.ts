@@ -443,6 +443,7 @@ type RouteTruthD1Database = {
 type RouteTruthD1DatabaseInput = {
   agentProfileId: string;
   agentProfileIds?: readonly string[];
+  includeExpectedRouteBindings?: boolean;
   agentControllerRef?: string;
   agentControllerReport?: {
     reasonCodes: readonly string[];
@@ -550,6 +551,15 @@ function createRouteTruthD1Database(
   }
 
   function allForSql(sql: string): Record<string, unknown>[] {
+    if (
+      input.includeExpectedRouteBindings &&
+      FROM_AGENT_PROFILE_BINDINGS_SQL_REGEX.test(sql)
+    ) {
+      return agentProfileIds.map((profileId) => ({
+        ...firstForSql(sql, [profileId]),
+        configuration_revision: 1,
+      }));
+    }
     if (FROM_OWNED_DEVICES_SQL_REGEX.test(sql)) {
       return [
         {
@@ -2999,6 +3009,182 @@ describe("space-members-service", () => {
       },
       profileId: "agt_codex_sign_in_warning",
     });
+  });
+
+  it("reads a 65-profile runtime once per Space snapshot rather than once per member", async () => {
+    const sql = new MutableSqlStorage();
+    const profileIds = Array.from(
+      { length: 65 },
+      (_, index) => `agt_fanout_${index}`
+    );
+    const memberIds = profileIds.slice(0, 5);
+    const routeDb = createRouteTruthD1Database({
+      agentProfileId: "agt_fanout_0",
+      agentProfileIds: profileIds,
+      includeExpectedRouteBindings: true,
+    });
+    const runtimeTransportClient = await import(
+      "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
+    );
+    const expectedRoutesService = await import(
+      "../src/agent-profile-binding/application/local-runtime-expected-routes-service"
+    );
+    const expectedRoutesRead = vi.spyOn(
+      expectedRoutesService,
+      "readLocalRuntimeExpectedRoutes"
+    );
+    const resolveProfileById = vi.fn(
+      async (input: { openMeldProfileId: string }) => ({
+        ok: true as const,
+        profile: {
+          ownerUserId: "owner-1",
+          profileHandle: input.openMeldProfileId,
+          profileId: input.openMeldProfileId,
+          profileKind: "agent" as const,
+          profileName: input.openMeldProfileId,
+          status: "active" as const,
+          defaultProjectId: null,
+        },
+      })
+    );
+    const nowIso = "2026-03-06T13:11:00.000Z";
+    const report = {
+      daemonSessionId: "session-fanout",
+      deviceId: "device-1",
+      expectedRoutesContractVersion: "v4" as const,
+      includedProfileIds: profileIds,
+      lane: "dev-local" as const,
+      reportedAtMs: Date.parse(nowIso),
+      skippedProfiles: [],
+      workingFolderObservations: profileIds.map((profileId) => ({
+        bindingId: "binding-route-truth",
+        configurationRevision: 1,
+        defaultProjectId: null,
+        localProjectBindingGeneration: null,
+        observedAtMs: Date.parse(nowIso),
+        profileId,
+        reasonCode: null,
+        source: "profile_workspace" as const,
+        status: "ready" as const,
+      })),
+    };
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportRoutesBatch"
+    ).mockResolvedValue({
+      routes: Object.fromEntries(
+        memberIds.map((profileId) => [
+          profileId,
+          {
+            capabilities: {},
+            connectionGeneration: 1,
+            daemonSessionId: "session-fanout",
+            deviceId: "device-1",
+            lane: "dev-local" as const,
+            lastHeartbeatMs: Date.parse(nowIso),
+            leaseEpoch: 1,
+            online: true as const,
+            serviceVersion: "999.0.0",
+            localWakeRouteReport: report,
+            executionCompatibility: {
+              expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+              observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+              reasonCode: "daemon.runtime_contract.compatible",
+              status: "compatible" as const,
+            },
+          },
+        ])
+      ),
+    });
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportOwnerService"
+    ).mockResolvedValue({
+      online: false,
+      reasonCode: "daemon.session.not_found",
+    });
+    const env = {
+      OPENMELD_DB: routeDb.db,
+      OPENMELD_RUNTIME_TRANSPORT: TEST_RUNTIME_TRANSPORT,
+      OPENMELD_AUTH_WORKER: { resolveProfileById },
+    } as unknown as CoreBindings;
+    await addSpaceMembersUseCase({
+      sql: sql as unknown as SqlStorage,
+      env,
+      spaceId: "space-fanout",
+      members: memberIds.map((profileId) => ({
+        profileId,
+        profileName: profileId,
+        profileKind: "agent" as const,
+        ownerUserId: "owner-1",
+        ownerName: "Owner",
+        agentControllerRef: "builtin:ops-bot",
+      })),
+      actorProfileId: "human-fanout",
+      actorDisplayName: "Owner",
+      liveSessions: [],
+      nowIso,
+    });
+    resolveProfileById.mockClear();
+    const snapshotInput = {
+      sql: sql as unknown as SqlStorage,
+      env,
+      spaceId: "space-fanout",
+      liveSessions: [],
+      nowIso,
+    };
+    await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(expectedRoutesRead).toHaveBeenCalledTimes(1);
+    expect(resolveProfileById).toHaveBeenCalledTimes(65 + 5);
+    await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(expectedRoutesRead).toHaveBeenCalledTimes(2);
+    expect(resolveProfileById).toHaveBeenCalledTimes(2 * (65 + 5));
+
+    // One failed shared read must not trigger five independent retries. The
+    // next snapshot retries normally; a failure is not cached across requests.
+    expectedRoutesRead.mockRejectedValueOnce(new Error("Auth unavailable"));
+    await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(expectedRoutesRead).toHaveBeenCalledTimes(3);
+    await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(expectedRoutesRead).toHaveBeenCalledTimes(4);
+
+    const originalBatch: Awaited<
+      ReturnType<
+        typeof runtimeTransportClient.lookupRuntimeTransportRoutesBatch
+      >
+    > = await vi.mocked(
+      runtimeTransportClient.lookupRuntimeTransportRoutesBatch
+    ).mock.results[0]?.value;
+    if (!originalBatch) {
+      throw new Error("Expected the snapshot to read its route batch");
+    }
+    vi.mocked(
+      runtimeTransportClient.lookupRuntimeTransportRoutesBatch
+    ).mockResolvedValue({
+      routes: Object.fromEntries(
+        Object.entries(originalBatch.routes).map(
+          ([profileId, route], index) => [
+            profileId,
+            {
+              ...route,
+              deviceId: index === 0 ? "device-2" : "device-1",
+              lane: index === 1 ? "prod" : "dev-local",
+            },
+          ]
+        )
+      ),
+    });
+    await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(expectedRoutesRead).toHaveBeenCalledTimes(7);
+    expect(
+      expectedRoutesRead.mock.calls
+        .slice(4)
+        .map(([input]) => [input.deviceId, input.lane])
+    ).toEqual([
+      ["device-2", "dev-local"],
+      ["device-1", "prod"],
+      ["device-1", "dev-local"],
+    ]);
   });
 
   it("preloads route evidence for multiple agent members through one batch lookup", async () => {
