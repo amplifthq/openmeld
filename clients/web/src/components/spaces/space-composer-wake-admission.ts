@@ -59,7 +59,10 @@ export async function requireCurrentSpaceComposerWakeAdmission(input: {
 		if (!target || target.profileKind !== "agent") {
 			throw createWakeBlockedError(WAKEABILITY_CHECK_FAILED_MESSAGE);
 		}
-		if (target.wakeAvailability.status === "ready") {
+		if (
+			target.wakeAvailability.status === "ready" ||
+			target.wakeAvailability.status === "preparing"
+		) {
 			continue;
 		}
 		const member = membersSnapshot.agents.find(

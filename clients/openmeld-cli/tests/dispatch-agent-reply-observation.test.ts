@@ -133,6 +133,7 @@ describe("dispatch Agent reply observation", () => {
 
   it("builds a provider-neutral reconsideration prompt without rerunning work", () => {
     const prompt = buildAgentReplyReconsiderationPrompt({
+      originalWake: originalWake(),
       action: {
         type: "post_message",
         messageEnvelope: {
@@ -151,6 +152,15 @@ describe("dispatch Agent reply observation", () => {
     expect(prompt).toContain("does not mean the Space published it");
     expect(prompt).toContain("You still have one public reply available");
     expect(prompt).toContain("Keep the user's full request as the goal");
+    expect(prompt).toContain("not a new assignment");
+    expect(prompt).toContain(JSON.stringify(originalWake()));
+    expect(prompt).toContain(
+      "do not run activation-intent classification against the newer messages"
+    );
+    expect(prompt).toContain("does not turn you into a reference or candidate");
+    expect(prompt).toContain(
+      "A direct ping to multiple Agents asks each of them to acknowledge"
+    );
     expect(prompt).toContain(
       "only when no distinct, useful, non-duplicative contribution remains"
     );
@@ -164,6 +174,7 @@ describe("dispatch Agent reply observation", () => {
 
   it("states terminal outcomes as facts rather than peer contributions", () => {
     const prompt = buildAgentReplyReconsiderationPrompt({
+      originalWake: originalWake(),
       action: postMessageAction("My proposed contribution"),
       relevantSignals: [
         systemNotice({
@@ -197,6 +208,7 @@ describe("dispatch Agent reply observation", () => {
       value: { conversationId: "same-session-1" },
     }));
     const result = await coordinateDispatchAgentReply({
+      originalWake: originalWake(),
       action: {
         type: "post_message",
         messageEnvelope: {
@@ -217,6 +229,9 @@ describe("dispatch Agent reply observation", () => {
 
     expect(reconsider).toHaveBeenCalledOnce();
     expect(reconsider.mock.calls[0]?.[0]).toContain("Newer Space messages");
+    expect(reconsider.mock.calls[0]?.[0]).toContain(
+      JSON.stringify(originalWake())
+    );
     expect(result).toMatchObject({
       action: {
         messageEnvelope: { text: "2" },
@@ -246,6 +261,7 @@ describe("dispatch Agent reply observation", () => {
     );
 
     const result = await coordinateDispatchAgentReply({
+      originalWake: originalWake(),
       action: postMessageAction("Before peer reply"),
       currentValue: { status: "success" } as ReconsiderationState,
       observation: changedObservation("signal-peer-1"),
@@ -292,6 +308,7 @@ describe("dispatch Agent reply observation", () => {
       });
 
     const result = await coordinateDispatchAgentReply({
+      originalWake: originalWake(),
       action: postMessageAction("Before peers"),
       currentValue: { conversationId: "same-session-1" },
       observation: {
@@ -334,6 +351,7 @@ describe("dispatch Agent reply observation", () => {
       });
 
     const result = await coordinateDispatchAgentReply({
+      originalWake: originalWake(),
       action: postMessageAction("Before peers"),
       currentValue: { conversationId: "same-session-1" },
       observation: changedObservation("signal-peer-1"),
@@ -495,5 +513,13 @@ function replyToSource(signalId: string) {
     profileName: "Felix",
     previewText: "Original Wake",
     signalId,
+  };
+}
+
+function originalWake() {
+  return {
+    sourceSignalId: "signal-source",
+    targetProfileId: "agt-test-recipient",
+    text: "Each of you, please acknowledge with your own short pong.",
   };
 }

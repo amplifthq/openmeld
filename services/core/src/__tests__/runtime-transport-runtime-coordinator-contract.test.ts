@@ -1,3 +1,4 @@
+import { env, runInDurableObject } from "cloudflare:test";
 import {
   buildAgentTaskKey,
   buildRuntimeCoordinatorExecutionId,
@@ -83,7 +84,9 @@ import {
 import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
 import { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
 
-const HEX_SPACE_ID = "a".repeat(64);
+const HEX_SPACE_ID = (
+  env as unknown as CoreBindings
+).OPENMELD_SPACES.newUniqueId().toString();
 const TARGET_AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const OTHER_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const RUNTIME_COORDINATOR_EXECUTION_ID = buildRuntimeCoordinatorExecutionId({
@@ -23014,6 +23017,141 @@ describe("runtime transport runtime coordinator transport contract", () => {
         RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
       ) as unknown[] | undefined) ?? []
     ).toHaveLength(0);
+  });
+
+  it("ends an accepted stale reply through publication failure without waiting for the outage window", async () => {
+    const spaces = (env as unknown as CoreBindings).OPENMELD_SPACES;
+    const publicationSpace = spaces.get(spaces.idFromString(HEX_SPACE_ID));
+    await publicationSpace.rpcInitializeDirectMessageMeta({
+      spaceId: HEX_SPACE_ID,
+      name: "Accepted reply recovery",
+      purpose: "direct_message",
+      pairKey: "accepted-reply-recovery",
+      guide: "",
+      organizationId: "org-1",
+      visibility: "private",
+    });
+    const {
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    // Inject a context-review result at the publication boundary, but use the
+    // real Space failure publisher and SQL final claim, not a successful mock.
+    (
+      spaceStub.rpcApplyRuntimeCoordinatorPublicationExhaustionCommand as ReturnType<
+        typeof vi.fn
+      >
+    ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
+      publicationSpace.rpcApplyRuntimeCoordinatorPublicationExhaustionCommand(
+        command
+      )
+    );
+    (
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand as ReturnType<
+        typeof vi.fn
+      >
+    ).mockImplementation(
+      async (command: RuntimeCoordinatorFinalizationCommand) => ({
+        finalizationCommandId: command.finalizationCommandId,
+        ok: false as const,
+        publicationErrorCode: "space.agent_reply.context_changed" as const,
+        publishedSignalId: null,
+        publishState: "reply_review_required" as const,
+        status: "review_required" as const,
+      })
+    );
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          socket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        taskResult: buildSuccessfulPostMessageTaskResult(),
+      })
+    );
+    await Promise.all(waitUntilTasks.splice(0));
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.dispatch.accepted",
+        payload: expect.objectContaining({ ok: true }),
+      })
+    );
+    expect(
+      spaceStub.rpcApplyRuntimeCoordinatorPublicationExhaustionCommand
+    ).toHaveBeenCalledOnce();
+    await runInDurableObject(publicationSpace, (_instance, durableState) => {
+      const notices = durableState.storage.sql
+        .exec<{ payload_json: string }>(
+          "SELECT payload_json FROM space_signals"
+        )
+        .toArray();
+      expect(notices).toHaveLength(1);
+      const notice = notices[0];
+      if (!notice) {
+        throw new Error(
+          "Expected the actual Space publisher to persist a failure"
+        );
+      }
+      expect(JSON.parse(notice.payload_json)).toMatchObject({
+        type: "signal.system_notice",
+        data: { noticeType: "terminal_failure", failureStage: "publication" },
+      });
+    });
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({
+      status: "failed_terminal",
+    });
+    expect(
+      storageRecords.get(
+        RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
+      )
+    ).toEqual([]);
+    expect(
+      [...storageRecords.keys()].filter((key) =>
+        key.startsWith(
+          RUNTIME_COORDINATOR_FINALIZATION_COMMAND_STORAGE_KEY_PREFIX
+        )
+      )
+    ).toHaveLength(1);
+    // The same stale proposal must not be retried as if it could become valid.
+    // A later alarm cannot start a new execution or publish a second outcome.
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10_000);
+    try {
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      await Promise.all(waitUntilTasks.splice(0));
+      expect(
+        spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
+      ).toHaveBeenCalledOnce();
+      expect(
+        spaceStub.rpcApplyRuntimeCoordinatorPublicationExhaustionCommand
+      ).toHaveBeenCalledOnce();
+      expect(
+        storageRecords.get(
+          RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
+        )
+      ).toEqual([]);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("finalizes an accepted Agent reply from the same command without publishing it twice", async () => {
