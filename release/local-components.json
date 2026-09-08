@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T18:25:35.424Z",
+  "updatedAt": "2026-09-08T19:42:22.269Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.178",
+      "packageVersion": "0.3.179",
       "updatePolicy": "available",
-      "reason": "Existing CLI and cloud command contracts remain compatible; Core alone owns quota admission and the command surfaces are unchanged."
+      "reason": "The additive dispatch file tool reuses existing public CLI and cloud file contracts; setup, Wake and diagnostics remain compatible."
     },
     "service": {
-      "bundleHash": "3a25fad0546f03a6a92d222847781b6a80bc1cb3d3fa307fb894e2435317c2f3",
-      "bundleVersion": "0.3.178",
+      "bundleHash": "536fa9a06451ae2ab42c68003f133b34bcd8818f7b869929e3f2568f019c85c6",
+      "bundleVersion": "0.3.179",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "OpenCode skips a redundant version subprocess and cleanup shares pending scans; identity, permission attestation, process ownership, transport, Stop and result contracts remain compatible."
+      "reason": "Current-dispatch text file access preserves Agent identity and Space permissions without widening the controller sandbox; execution, Stop and reply contracts are unchanged."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
