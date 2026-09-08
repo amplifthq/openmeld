@@ -502,6 +502,11 @@ concurrent tabs from creating duplicates; a pending marker prevents blind
 retries after an uncertain creation result. This is not cross-device atomic
 provisioning. A confirmed deleted Space is removed from Desk and is not recreated.
 
+Desk Space windows use React Flow's native edge and corner resizing, bounded to
+720–2400 canvas pixels wide and 480–1800 high. Window dimensions are remembered
+per account and organization in this browser, independently of the viewport.
+Resizing changes only the canvas container, not the shared Space implementation.
+
 Desk and Space Graph share `WorkspaceCanvas`, with independent React Flow
 providers. Desk mounts the same full `SpaceLanding` as the Space route, including
 setup guidance, Messages, Graph, Files, members, sharing, and threads. The same

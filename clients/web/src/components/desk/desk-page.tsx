@@ -11,6 +11,7 @@ import {
 	applyNodeChanges,
 	type Node,
 	type NodeProps,
+	NodeResizer,
 	Panel,
 	type ReactFlowInstance,
 	type Viewport,
@@ -43,6 +44,12 @@ import { useDeskWheel } from "./use-desk-wheel";
 type DeskNode = Node<{ kind: "welcome" | "space" }, "desk">;
 const nodeTypes = { desk: memo(DeskWindow) };
 const edges: [] = [];
+const spaceSizeLimits = {
+	minWidth: 720,
+	maxWidth: 2400,
+	minHeight: 480,
+	maxHeight: 1800,
+};
 const DeskContext = createContext<{
 	name: string;
 	spaceId: string;
@@ -84,10 +91,33 @@ function Desk() {
 	const flow = useRef<ReactFlowInstance<DeskNode> | null>(null);
 	const [width, setWidth] = useState(1100);
 	const [nodes, setNodes] = useState<DeskNode[]>([]);
+	const sizeKey = `openmeld.desk.size:${storageScope}:${currentOrganization.id}`;
+	const savedSize = useRef<{ width: number; height: number } | null>(null);
 	const viewportKey = `openmeld.desk.viewport:${storageScope}:${currentOrganization.id}`;
 	const [savedViewport, setSavedViewport] = useState<Viewport | null>(null);
 	const [loaded, setLoaded] = useState(false);
 	useEffect(() => {
+		try {
+			const value = JSON.parse(localStorage.getItem(sizeKey) ?? "null");
+			if (
+				value &&
+				Number.isFinite(value.width) &&
+				Number.isFinite(value.height)
+			) {
+				savedSize.current = {
+					width: Math.min(
+						spaceSizeLimits.maxWidth,
+						Math.max(spaceSizeLimits.minWidth, value.width)
+					),
+					height: Math.min(
+						spaceSizeLimits.maxHeight,
+						Math.max(spaceSizeLimits.minHeight, value.height)
+					),
+				};
+			}
+		} catch {
+			/* Optional window preference. */
+		}
 		try {
 			const raw = localStorage.getItem(viewportKey);
 			if (raw) {
@@ -104,7 +134,7 @@ function Desk() {
 			/* A viewport preference never blocks the Space. */
 		}
 		setLoaded(true);
-	}, [viewportKey]);
+	}, [viewportKey, sizeKey]);
 	useEffect(() => {
 		const element = region.current;
 		if (!element) {
@@ -139,13 +169,38 @@ function Desk() {
 								y: 200,
 							},
 							data: { kind: "space" as const },
-							style: { width, height: 900 },
+							style: savedSize.current ?? {
+								width: Math.min(
+									spaceSizeLimits.maxWidth,
+									Math.max(spaceSizeLimits.minWidth, width)
+								),
+								height: 900,
+							},
 							dragHandle: ".desk-title",
 						},
 					]
 				: []),
 		]);
 	}, [space.spaceId, deleted, width]);
+	useEffect(() => {
+		const node = nodes.find((item) => item.id === "space");
+		if (!(node?.width && node.height) || node.resizing) {
+			return;
+		}
+		if (
+			savedSize.current?.width === node.width &&
+			savedSize.current?.height === node.height
+		) {
+			return;
+		}
+		// React Flow sets explicit dimensions when the user resizes the window.
+		savedSize.current = { width: node.width, height: node.height };
+		try {
+			localStorage.setItem(sizeKey, JSON.stringify(savedSize.current));
+		} catch {
+			/* Optional window preference. */
+		}
+	}, [nodes, sizeKey]);
 	useDeskWheel(region, flow);
 	const saveViewport = useCallback(
 		(viewport: Viewport) => {
@@ -296,33 +351,46 @@ function DeskWindow({ data }: NodeProps<DeskNode>) {
 		);
 	}
 	return (
-		<section
-			aria-label="Desk Space"
-			className="flex h-full flex-col overflow-hidden rounded-lg border bg-background"
-		>
-			<div className="desk-title flex h-8 shrink-0 cursor-grab items-center justify-end border-b px-2">
-				<Link
-					aria-label="Open Space full screen"
-					className="nodrag nopan rounded p-1 hover:bg-muted"
-					to={buildOrganizationSpacePath({
-						orgSlug: context.orgSlug,
-						spaceId: context.spaceId,
-						search: { profileId: context.profileId, view },
-					})}
-				>
-					<ArrowsOutSimpleIcon />
-				</Link>
-			</div>
-			<div className="nodrag nopan nowheel flex min-h-0 flex-1 flex-col">
-				<DeskSpace
-					accountProfiles={context.profiles}
-					initialView={view}
-					onViewChange={setView}
-					orgSlug={context.orgSlug}
-					profileId={context.profileId}
-					spaceId={context.spaceId}
-				/>
-			</div>
-		</section>
+		<>
+			<NodeResizer
+				{...spaceSizeLimits}
+				handleStyle={{
+					width: 8,
+					height: 8,
+					background: "var(--muted-foreground)",
+					border: "1px solid var(--background)",
+					borderRadius: 2,
+				}}
+				lineStyle={{ borderColor: "transparent", borderWidth: 4 }}
+			/>
+			<section
+				aria-label="Desk Space"
+				className="flex h-full flex-col overflow-hidden rounded-lg border bg-background"
+			>
+				<div className="desk-title flex h-8 shrink-0 cursor-grab items-center justify-end border-b px-2">
+					<Link
+						aria-label="Open Space full screen"
+						className="nodrag nopan rounded p-1 hover:bg-muted"
+						to={buildOrganizationSpacePath({
+							orgSlug: context.orgSlug,
+							spaceId: context.spaceId,
+							search: { profileId: context.profileId, view },
+						})}
+					>
+						<ArrowsOutSimpleIcon />
+					</Link>
+				</div>
+				<div className="nodrag nopan nowheel flex min-h-0 flex-1 flex-col">
+					<DeskSpace
+						accountProfiles={context.profiles}
+						initialView={view}
+						onViewChange={setView}
+						orgSlug={context.orgSlug}
+						profileId={context.profileId}
+						spaceId={context.spaceId}
+					/>
+				</div>
+			</section>
+		</>
 	);
 }
