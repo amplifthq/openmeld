@@ -795,6 +795,13 @@ same evidence through the existing safe original-error field. No environment
 values, prompts, credentials, raw stdout, or working-directory paths are logged.
 These observations do not establish why an external process failed to start.
 
+The separate OpenCode discovery/Prepare server probe retains its own bounded
+startup deadline. A timeout includes the child PID, actual elapsed time, output
+byte counts, and host load, plus startup output only when it passes the shared
+bounded original-error safety policy. These are diagnostic facts, not evidence
+of invalid credentials or a started Wake. Provider-status read timeouts remain
+distinct from server-start timeouts.
+
 Controller snapshots are local evidence. They may power Computer cards, CLI
 diagnostics, Desktop surfaces, and owner-self Agent details, but they must stay
 separate from Core-owned Wake readiness. A controller can be installed and
@@ -1465,6 +1472,11 @@ Catalog consumption rules:
   unchanged. Clearing, replacing, or editing that payload invalidates the
   in-process copy; a new Service process reloads it from secure storage. Remote
   authorization checks still decide whether the bearer session is valid.
+- Reading a committed local session does not acquire the account-transition
+  mutation lock when no durable transition journal exists. Recovery acquires
+  that lock only after observing a journal and rereads it under ownership before
+  changing anything. Pending candidate visibility, interrupted transition
+  recovery, and mutation serialization remain unchanged.
 - The managed CLI and its Service carrier own that local auth session. Future
   local clients reuse its status and actions through the Service contract; they
   do not read the bearer token through a shared Keychain access group or create
@@ -1711,6 +1723,13 @@ and task requirements. It must not overwrite an individual execution's outcome.
 Service freshness and execution compatibility are separate diagnostic concepts.
 Freshness says whether a newer Service bundle exists. Compatibility says whether
 the current Service is still eligible to receive new Wake work.
+
+An accepted Wake does not inspect Service installation, bundle, supervisor, or
+whole-machine process inventory merely to inject maintenance advice into the
+Agent's prompt. Service update and repair guidance belongs to maintenance and
+the diagnostic/product surfaces. Dispatch preparation retains its owning
+identity, route, workspace, permission, and execution checks; removing advisory
+maintenance work must not bypass those checks or alter reply-context review.
 
 For setup and local component alignment, OpenMeld Service version, bundle, lane, and
 runtime-contract drift should still collapse to one primary user action:

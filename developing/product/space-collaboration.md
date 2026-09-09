@@ -325,6 +325,15 @@ file back action, Space tabs, another file reference, an internal route, reload,
 or window close uses one save, discard, or cancel contract.
 Markdown files use the same WYSIWYG CommonMark + GFM editor as Organization
 Documents; this shared editing surface does not merge the two storage owners.
+HTML files open in a static preview, with source editing available under the
+ordinary text-editing limit. UTF-8 HTML previews are bounded to 2 MiB and support
+inline styles and embedded images. Scripts, external resources, forms, and
+links are disabled. **Open in new tab** opens the same isolated static preview
+of the selected saved revision at a normal Web URL. Every new page load checks
+Space access again; the link does not grant access or publish the file. Unsaved
+source edits can be previewed in Files, but must be saved to appear in a new tab.
+Current and historical revisions use the same preview policy. The original
+bytes remain unchanged and downloadable, including when preview is unavailable.
 CLI and Agent tools expose the same ids, paths, revisions, MIME inference, and
 error codes instead of maintaining a terminal-only filesystem model.
 
