@@ -3277,7 +3277,7 @@ function ReplyPreview(input: {
 	const content = (
 		<>
 			<p className="text-muted-foreground text-xs leading-5">{replyLabel}</p>
-			<p className="line-clamp-2 text-muted-foreground">
+			<p className="line-clamp-2 text-muted-foreground text-xs">
 				<SpaceMessageReferenceText
 					referencesById={spaceReferencesById}
 					text={previewText}
@@ -3322,7 +3322,7 @@ function ReplyPreview(input: {
 				>
 					{replyLabel}
 				</button>
-				<p className="line-clamp-2 text-muted-foreground">
+				<p className="line-clamp-2 text-muted-foreground text-xs">
 					<SpaceMessageReferenceText
 						referencesById={spaceReferencesById}
 						text={previewText}
