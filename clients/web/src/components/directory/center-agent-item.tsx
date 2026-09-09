@@ -1,3 +1,4 @@
+import { Badge } from "@openmeld/ui/components/badge";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { SidebarMenuButton } from "@openmeld/ui/fluid/sidebar-menu";
@@ -62,24 +63,24 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 							shape="circle"
 							size={56}
 						/>
-						<div className="min-w-0">
+						<div className="min-w-0 flex-1">
+							<div className="flex min-w-0 items-center gap-2">
+								<p
+									className="min-w-0 truncate font-medium text-sm"
+									title={profile.profileName}
+								>
+									{profile.profileName}
+								</p>
+								<Badge variant="secondary">
+									<CloudIcon aria-hidden="true" data-icon="inline-start" />
+									Center Agent
+								</Badge>
+							</div>
 							<p
-								className="truncate font-medium text-sm"
-								title={profile.profileName}
+								className="mt-0.5 truncate text-muted-foreground text-xs"
+								title={`Owned by ${currentOrganization.name}`}
 							>
-								{profile.profileName}
-							</p>
-							<p
-								className="mt-0.5 flex items-start gap-1 text-muted-foreground text-xs"
-								title="A cloud agent shared by everyone in your organization."
-							>
-								<CloudIcon
-									aria-hidden="true"
-									className="mt-0.5 size-3 shrink-0"
-								/>
-								<span className="line-clamp-2">
-									Center Agent · Shared by your organization
-								</span>
+								Owned by {currentOrganization.name}
 							</p>
 						</div>
 					</Link>

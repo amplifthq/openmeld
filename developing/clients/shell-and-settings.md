@@ -311,8 +311,9 @@ The Web shell is a stable two-layer composition built from the shared
   personal to the account and Organization. Moving a person changes only this
   sidebar arrangement; deleting a group returns its members to Computer online or
   Computer offline. Center Agent is the first item in Online, with no separate
-  group in either the sidebar or Team grid. Its card explains that it is shared
-  by the Organization without increasing the standard card height.
+  group in either the sidebar or Team grid. Its card shows a Center Agent badge
+  beside the name and identifies its owning Organization below, without
+  increasing the standard card height.
   The signed-in member defaults to Starred; explicit unstar or
   custom placement is preserved. Connection labels describe computers, not people.
   These sections are projections, not editable membership. Their ordering

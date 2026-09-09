@@ -244,58 +244,56 @@ export function PeopleSidebar(input: {
 					/>
 				),
 				content: (
-					<>
+					<SidebarDropSection
+						ids={members.map((m) => m.id)}
+						section={section.id}
+					>
 						{section.id === "online" && showCenterAgent && <CenterAgentItem />}
-						<SidebarDropSection
-							ids={members.map((m) => m.id)}
-							section={section.id}
+						<FluidNavMenu
+							activeLayoutId={`secondary-sidebar-selection-${presentation}`}
+							activeValue={input.selectedProfileId}
+							aria-label={section.label}
+							className="[&_[data-sidebar=menu]]:gap-0.5"
 						>
-							<FluidNavMenu
-								activeLayoutId={`secondary-sidebar-selection-${presentation}`}
-								activeValue={input.selectedProfileId}
-								aria-label={section.label}
-								className="[&_[data-sidebar=menu]]:gap-0.5"
-							>
-								{members.map((member, index) => (
-									<SortablePerson
-										actionsDisabled={sidebar.disabled || input.chatPending}
-										activityNowMs={input.activityNowMs}
-										computerGroup={computers.get(member.userId) ?? null}
-										disabled={sidebar.disabled}
-										index={index}
-										isActive={input.selectedProfileId === member.id}
-										key={member.id}
-										member={member}
-										onChat={
-											member.profileStatus === "active" && !member.isCurrentUser
-												? () => {
-														input
-															.onChat(member.id)
-															.catch((error) =>
-																toast.error(
-																	error instanceof Error
-																		? error.message
-																		: "Unable to open this conversation. Try again."
-																)
-															);
-													}
-												: undefined
-										}
-										onSelect={input.onSelect}
-										onToggleStar={() => toggleStar(member.id)}
-										section={section.id}
-										starred={starred.has(member.id)}
-									/>
-								))}
-							</FluidNavMenu>
-							{members.length === 0 &&
-								!(section.id === "online" && showCenterAgent) && (
-									<p className="px-2 py-2 text-muted-foreground text-xs">
-										{defaultSection ? "No people match." : "Drag people here."}
-									</p>
-								)}
-						</SidebarDropSection>
-					</>
+							{members.map((member, index) => (
+								<SortablePerson
+									actionsDisabled={sidebar.disabled || input.chatPending}
+									activityNowMs={input.activityNowMs}
+									computerGroup={computers.get(member.userId) ?? null}
+									disabled={sidebar.disabled}
+									index={index}
+									isActive={input.selectedProfileId === member.id}
+									key={member.id}
+									member={member}
+									onChat={
+										member.profileStatus === "active" && !member.isCurrentUser
+											? () => {
+													input
+														.onChat(member.id)
+														.catch((error) =>
+															toast.error(
+																error instanceof Error
+																	? error.message
+																	: "Unable to open this conversation. Try again."
+															)
+														);
+												}
+											: undefined
+									}
+									onSelect={input.onSelect}
+									onToggleStar={() => toggleStar(member.id)}
+									section={section.id}
+									starred={starred.has(member.id)}
+								/>
+							))}
+						</FluidNavMenu>
+						{members.length === 0 &&
+							!(section.id === "online" && showCenterAgent) && (
+								<p className="px-2 py-2 text-muted-foreground text-xs">
+									{defaultSection ? "No people match." : "Drag people here."}
+								</p>
+							)}
+					</SidebarDropSection>
 				),
 			};
 		});
