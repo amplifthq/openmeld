@@ -1472,6 +1472,11 @@ Catalog consumption rules:
   unchanged. Clearing, replacing, or editing that payload invalidates the
   in-process copy; a new Service process reloads it from secure storage. Remote
   authorization checks still decide whether the bearer session is valid.
+- Reading a committed local session does not acquire the account-transition
+  mutation lock when no durable transition journal exists. Recovery acquires
+  that lock only after observing a journal and rereads it under ownership before
+  changing anything. Pending candidate visibility, interrupted transition
+  recovery, and mutation serialization remain unchanged.
 - The managed CLI and its Service carrier own that local auth session. Future
   local clients reuse its status and actions through the Service contract; they
   do not read the bearer token through a shared Keychain access group or create
