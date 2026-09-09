@@ -33,6 +33,7 @@ import {
   AccordionTrigger,
 } from "#fluid/accordion";
 import { FluidCardGroup, FluidCardItem } from "#fluid/card";
+import { Surface } from "#fluid/surface";
 import {
   resolveStatusToneAdvisoryBadgeClassName,
   resolveStatusToneIndicatorClassName,
@@ -1411,7 +1412,9 @@ export function SettingsLocalAgentCardGrid({
       role="list"
     >
       {rows.map((row) => (
-        <SettingsLocalAgentCard key={row.id} row={row} />
+        <Surface key={row.id} role="listitem">
+          <SettingsLocalAgentCard row={row} />
+        </Surface>
       ))}
     </FluidCardGroup>
   );
@@ -1450,15 +1453,11 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
 
   return (
     <FluidCardItem
-      className={cn(
-        "rounded-md bg-card ring-1 ring-foreground/10 transition-colors",
-        hasDialog && "cursor-pointer"
-      )}
+      className={cn("rounded-md bg-transparent", hasDialog && "cursor-pointer")}
       data-muted={row.muted ? "true" : undefined}
       data-testid={`settings-local-agent-row-${row.id}`}
       itemId={row.id}
       onClick={hasDialog ? openDetails : undefined}
-      role="listitem"
     >
       <div className="flex min-w-0 gap-4 px-5 pt-5 pb-4">
         {/* The quiet account states (Off, Not signed in) are the only ones that
