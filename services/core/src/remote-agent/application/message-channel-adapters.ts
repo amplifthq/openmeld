@@ -77,6 +77,12 @@ type MessageChannelAdapterTarget = {
 
 export type MessageChannelProviderAdapter = {
   provider: LarkPlatformMessageChannelProvider;
+  publishFile(
+    input: MessageChannelAdapterTarget & {
+      bytes: Uint8Array;
+      fileName: string;
+    }
+  ): Promise<MessageChannelPublicationResult>;
   createWorkingCard(input: {
     connection: RemoteAgentLarkPlatformChannelConnectionRecord;
     initialText: string;

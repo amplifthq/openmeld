@@ -1711,6 +1711,89 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it.each([
+    "feishu",
+    "lark",
+  ] as const)("sends a Computer file only to the current %s conversation", async (provider) => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          source: "message_channel",
+          provider,
+          connectionId: "connection",
+          conversationId: "frozen-conversation",
+          filePublicationSupported: true,
+        },
+      },
+    });
+    const centerAgentPostChannelFile = vi.fn(async () => ({
+      fileName: "report.txt",
+      messageId: "om_sent",
+      provider,
+      sizeBytes: 5,
+    }));
+    const readBinaryFile = vi.fn(async () => ({
+      bytes: new TextEncoder().encode("hello"),
+      fileName: "report.txt",
+      path: "report.txt",
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentPostChannelFile },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+      computerFileHandoff: {
+        readBinaryFile,
+        readTextFiles: vi.fn(),
+        writeChannelFile: vi.fn(),
+      },
+    });
+    expect(
+      await executeTool(tools, "openmeld_send_channel_file", {
+        path: "report.txt",
+      })
+    ).toMatchObject({ messageId: "om_sent" });
+    expect(centerAgentPostChannelFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "frozen-conversation",
+        contentBase64: "aGVsbG8=",
+        contentSha256:
+          "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      })
+    );
+    await expect(
+      executeTool(tools, "openmeld_send_channel_file", {
+        path: "report.txt",
+        conversationId: "other-chat",
+      })
+    ).rejects.toThrow();
+    expect(centerAgentPostChannelFile).toHaveBeenCalledOnce();
+  });
+
+  it("hides channel file sending until Core advertises support", () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          source: "message_channel",
+          provider: "feishu",
+          connectionId: "connection",
+          conversationId: "conversation",
+        },
+      },
+    });
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      turnEnvelope: request.turnEnvelope,
+    });
+    expect(
+      tools.some((tool) => tool.name === "openmeld_send_channel_file")
+    ).toBe(false);
+  });
+
   it("sends one selected Computer file to the originating Slack thread", async () => {
     const request = createSubmitTurnRequest();
     const bytes = new TextEncoder().encode("release notes");

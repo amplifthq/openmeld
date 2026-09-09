@@ -760,6 +760,7 @@ function createProviderAdapter(
 ): MessageChannelProviderAdapter {
   return {
     createWorkingCard: vi.fn(),
+    publishFile: vi.fn(),
     downloadResource: vi.fn(),
     finalizeWorkingCard: vi.fn(),
     provider,

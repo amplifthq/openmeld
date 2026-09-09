@@ -11,7 +11,10 @@ import type {
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
 import { writeCenterAgentAuditEntry } from "../../center-agent/center-agent-audit";
-import { requireCurrentDesignatedCenterAgentCaller } from "../../center-agent/current-designated-center-agent";
+import {
+  type CurrentDesignatedCenterAgentAuthorization,
+  requireCurrentDesignatedCenterAgentCaller,
+} from "../../center-agent/current-designated-center-agent";
 import {
   type CoreBindings,
   localStateDb,
@@ -45,58 +48,17 @@ export async function rpcCenterAgentReadChannelFile(
     context: input.context,
     env,
   });
-  const db = wakeEvidenceDb(env);
-  const connectionDb = localStateDb(env);
-  const dispatchId = input.context.agentControllerConversationId;
-  if (!(db && connectionDb && dispatchId)) {
-    throw denied();
-  }
-  const delivery = await readRemoteAgentNativeDeliveryByDispatchAndConversation(
-    { db, dispatchId, conversationId: parsed.data.conversationId }
-  );
-  const request = delivery?.workerSubmitRequest;
-  const locator = delivery?.messageChannelLocator;
-  const trigger = request?.turnEnvelope?.trigger;
-  if (
-    !(delivery && request && locator) ||
-    (locator.provider !== "feishu" && locator.provider !== "lark") ||
-    trigger?.source !== "message_channel" ||
-    delivery.conversationKind !== "message_channel" ||
-    !["submitted", "accepted", "retry_observed"].includes(delivery.status) ||
-    delivery.organizationId !==
-      authorization.activeOrganization.organizationId ||
-    delivery.profileId !== authorization.actorProfileId ||
-    request.agentProfileOwnerUserId !==
-      authorization.actorProfile.ownerUserId ||
-    request.dispatchId !== dispatchId ||
-    trigger.conversationId !== parsed.data.conversationId ||
-    trigger.connectionId !== locator.connectionId ||
-    trigger.provider !== locator.provider
-  ) {
-    throw denied();
-  }
+  const { delivery, locator, trigger, connection, adapter } =
+    await resolveAdmittedMessageChannelRequest(env, {
+      authorization,
+      conversationId: parsed.data.conversationId,
+    });
   const resource = trigger.resources?.find(
     (item) => item.fileKey === parsed.data.fileKey
   );
   if (!resource || (resource.type !== "file" && resource.type !== "image")) {
     throw denied();
   }
-  const connection = await readRemoteAgentLarkPlatformChannelConnection({
-    db: connectionDb,
-    connectionId: locator.connectionId,
-  });
-  if (
-    !connection ||
-    connection.organizationId !== delivery.organizationId ||
-    connection.status !== "connected"
-  ) {
-    throw denied();
-  }
-  const adapter = createLarkPlatformMessageChannelAdapter({
-    db: connectionDb,
-    cryptoKey: env.LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY,
-    provider: locator.provider,
-  });
   const downloaded = await adapter.downloadResource({
     connection,
     locator,
@@ -140,12 +102,69 @@ export async function rpcCenterAgentReadChannelFile(
   return response;
 }
 
+export async function resolveAdmittedMessageChannelRequest(
+  env: CoreBindings,
+  input: {
+    authorization: CurrentDesignatedCenterAgentAuthorization;
+    conversationId: string;
+  }
+) {
+  const { authorization } = input;
+  const db = wakeEvidenceDb(env);
+  const connectionDb = localStateDb(env);
+  const dispatchId = authorization.context.agentControllerConversationId;
+  if (!(db && connectionDb && dispatchId)) {
+    throw denied();
+  }
+  const delivery = await readRemoteAgentNativeDeliveryByDispatchAndConversation(
+    { db, dispatchId, conversationId: input.conversationId }
+  );
+  const request = delivery?.workerSubmitRequest;
+  const locator = delivery?.messageChannelLocator;
+  const trigger = request?.turnEnvelope?.trigger;
+  if (
+    !(delivery && request && locator) ||
+    (locator.provider !== "feishu" && locator.provider !== "lark") ||
+    trigger?.source !== "message_channel" ||
+    delivery.conversationKind !== "message_channel" ||
+    !["submitted", "accepted", "retry_observed"].includes(delivery.status) ||
+    delivery.organizationId !==
+      authorization.activeOrganization.organizationId ||
+    delivery.profileId !== authorization.actorProfileId ||
+    request.agentProfileOwnerUserId !==
+      authorization.actorProfile.ownerUserId ||
+    request.dispatchId !== dispatchId ||
+    trigger.conversationId !== input.conversationId ||
+    trigger.connectionId !== locator.connectionId ||
+    trigger.provider !== locator.provider
+  ) {
+    throw denied();
+  }
+  const connection = await readRemoteAgentLarkPlatformChannelConnection({
+    db: connectionDb,
+    connectionId: locator.connectionId,
+  });
+  if (
+    !connection ||
+    connection.organizationId !== delivery.organizationId ||
+    connection.status !== "connected"
+  ) {
+    throw denied();
+  }
+  const adapter = createLarkPlatformMessageChannelAdapter({
+    db: connectionDb,
+    cryptoKey: env.LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY,
+    provider: locator.provider,
+  });
+  return { authorization, delivery, locator, trigger, connection, adapter };
+}
+
 function denied(): Error {
   return createCoreRpcHttpError({
     status: 403,
     code: "message_channel.file_evidence_required",
     reason:
-      "Only attachments from this admitted Feishu or Lark request can be read.",
+      "This file operation requires the current admitted Feishu or Lark request.",
   });
 }
 

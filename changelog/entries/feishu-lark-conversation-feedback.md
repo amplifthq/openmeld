@@ -22,3 +22,7 @@ saved there for further processing.
 
 Replies in a Feishu or Lark topic use that topic's conversation history instead
 of only the parent chat's topic roots.
+
+Linked members can ask the Center Agent to send a file from Computer back to the
+current Feishu or Lark conversation. Confirmed sends retain their receipt, and
+uncertain sends are not automatically repeated.

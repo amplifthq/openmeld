@@ -16,6 +16,7 @@ vi.mock("../src/center-agent/current-designated-center-agent", () => ({
     activeOrganization: { organizationId: "org" },
     actorProfileId: "agent",
     actorProfile: { ownerUserId: "owner" },
+    context: { agentControllerConversationId: "dispatch" },
   }),
 }));
 vi.mock("../src/center-agent/center-agent-audit", () => ({

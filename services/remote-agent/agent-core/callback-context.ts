@@ -446,6 +446,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadChannelFile?(
     input: CenterAgentReadChannelFileBody & { context: OpenMeldRequestContext }
   ): Promise<CenterAgentReadChannelFileResponse>;
+  centerAgentPostChannelFile?(
+    input: CenterAgentPostChannelFileBody & { context: OpenMeldRequestContext }
+  ): Promise<CenterAgentPostChannelFileResponse>;
   centerAgentSearchSlackMessages?(
     input: CenterAgentSearchSlackMessagesBody & {
       context: OpenMeldRequestContext;
@@ -1984,6 +1987,8 @@ function toOptionalErrorMessage(error: unknown): string | undefined {
 }
 
 import type {
+  CenterAgentPostChannelFileBody,
+  CenterAgentPostChannelFileResponse,
   CenterAgentReadChannelFileBody,
   CenterAgentReadChannelFileResponse,
 } from "@openmeld/schemas/types";

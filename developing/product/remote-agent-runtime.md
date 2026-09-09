@@ -617,6 +617,12 @@ the connected provider API.
    bounded preview; binary files require Computer inspection. Channel credentials
    are never exposed to the model or used as business-App consent. This read does
    not authorize arbitrary provider files or other conversations.
+   Verified members can explicitly request a Computer file to be sent back to
+   the admitted conversation using `openmeld_send_channel_file`. Core checks the
+   active represented delivery and digest, then uses the existing Center Agent
+   publication operation ledger. Completed attempts replay their receipt; unknown
+   outcomes cannot automatically republish. Upload credentials stay in Core.
+   This does not authorize other chats, Routine output, or business-App writes.
    After identity/admission validation, Core prepares the durable receipt card
    before fetching channel history or input attachments. This receipt means
    the request was received, not that execution has started. The existing

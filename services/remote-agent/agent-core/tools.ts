@@ -57,6 +57,7 @@ import {
   centerAgentManageSpaceFilesResponseSchema,
   centerAgentManageSpaceFilesRpcInputSchema,
   centerAgentMemberResearchReportSchema,
+  centerAgentPostChannelFileResponseSchema,
   centerAgentPostSlackChannelMessageResponseSchema,
   centerAgentPostSlackFileResponseSchema,
   centerAgentPostSpaceMessageResponseSchema,
@@ -1360,6 +1361,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
 export const REMOTE_AGENT_EVENT_AUTHORIZED_TOOL_NAMES = [
   "openmeld_search_slack_messages",
   "openmeld_read_channel_file",
+  "openmeld_send_channel_file",
 ] as const;
 
 export type RemoteAgentOpenMeldToolName =
@@ -3890,6 +3892,62 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       },
     }),
     toolDefinition({
+      name: "openmeld_send_channel_file",
+      description:
+        "Send one file from Computer to the current Feishu or Lark conversation, only when the verified member asks to send it. The destination is fixed by the admitted request. OpenMeld verifies the file digest and prevents duplicate sends. Never retry an unknown outcome automatically.",
+      input: strictObject({
+        path: pipe(string(), trim(), minLength(1), maxLength(4096)),
+      }),
+      execute: async (payload) => {
+        const request = parseValibot(
+          strictObject({
+            path: pipe(string(), trim(), minLength(1), maxLength(4096)),
+          }),
+          payload
+        );
+        if (!input.computerFileHandoff) {
+          throw new Error("Computer is required to send files.");
+        }
+        const toolContext = await buildOpenMeldToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_send_channel_file",
+        });
+        const trigger = toolContext.turnEnvelope?.trigger;
+        const speakerMember = resolveVerifiedTurnEnvelopeSpeaker(
+          toolContext.turnEnvelope
+        );
+        if (
+          trigger?.source !== "message_channel" ||
+          !trigger.filePublicationSupported ||
+          !speakerMember
+        ) {
+          throw new Error(
+            "File sending requires a verified member's current Feishu or Lark request."
+          );
+        }
+        const selected = await input.computerFileHandoff.readBinaryFile(
+          request.path
+        );
+        return centerAgentPostChannelFileResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentPostChannelFile",
+            {
+              context: toolContext.context,
+              conversationId: trigger.conversationId,
+              speakerMember,
+              fileName: selected.fileName,
+              contentBase64: encodeBytesAsBase64(selected.bytes),
+              contentSha256: await sha256Hex(selected.bytes),
+            },
+            (binding, requestInput) =>
+              binding.centerAgentPostChannelFile?.(requestInput)
+          )
+        );
+      },
+    }),
+    toolDefinition({
       name: "openmeld_send_slack_file",
       description:
         "Send one file or image from the current Center Agent Computer to Slack. Use currentThread for the originating Slack conversation, channelName for a top-level channel upload, or an exact trusted threadPermalink for another existing thread. Use only when the verified user explicitly asks to send the file. OpenMeld reads the selected Computer file, verifies its digest at Core, and uses Slack's external upload flow with durable duplicate/unknown-outcome protection.",
@@ -4912,7 +4970,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       (slackSearchAvailable ||
         definition.name !== "openmeld_search_slack_messages") &&
       (input.turnEnvelope?.trigger.source === "message_channel" ||
-        definition.name !== "openmeld_read_channel_file") &&
+        (definition.name !== "openmeld_read_channel_file" &&
+          definition.name !== "openmeld_send_channel_file")) &&
+      (definition.name !== "openmeld_send_channel_file" ||
+        (input.turnEnvelope?.trigger.source === "message_channel" &&
+          input.turnEnvelope.trigger.filePublicationSupported === true)) &&
       (input.turnEnvelope?.trigger.source !== "routine" ||
         !REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAME_SET.has(definition.name)) &&
       (organizationMemoryWriteAvailable ||

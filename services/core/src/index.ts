@@ -3047,6 +3047,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<CenterAgentReadChannelFileResponse> {
     return rpcCenterAgentReadChannelFile(this.env, input);
   }
+  centerAgentPostChannelFile(
+    input: CenterAgentPostChannelFileInput
+  ): Promise<CenterAgentPostChannelFileResponse> {
+    return rpcCenterAgentPostChannelFile(this.env, input);
+  }
 
   centerAgentSearchSlackMessages(
     input: CenterAgentSearchSlackMessagesInput
@@ -4826,6 +4831,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ): Promise<CenterAgentReadChannelFileResponse> {
     return super.centerAgentReadChannelFile(input);
   }
+  centerAgentPostChannelFile(
+    input: CenterAgentPostChannelFileInput
+  ): Promise<CenterAgentPostChannelFileResponse> {
+    return super.centerAgentPostChannelFile(input);
+  }
 
   centerAgentSearchSlackMessages(
     input: CenterAgentSearchSlackMessagesInput
@@ -5260,7 +5270,14 @@ export {
 export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export default CoreEntrypoint;
 
-import type { CenterAgentReadChannelFileResponse } from "@openmeld/schemas/types";
+import type {
+  CenterAgentPostChannelFileResponse,
+  CenterAgentReadChannelFileResponse,
+} from "@openmeld/schemas/types";
+import {
+  type CenterAgentPostChannelFileInput,
+  rpcCenterAgentPostChannelFile,
+} from "./remote-agent/application/message-channel-file-publication-service";
 import {
   type CenterAgentReadChannelFileInput,
   rpcCenterAgentReadChannelFile,

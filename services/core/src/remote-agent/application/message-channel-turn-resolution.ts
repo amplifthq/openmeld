@@ -347,6 +347,7 @@ export function buildMessageChannelTurnEnvelope(input: {
       connectionId: input.connectionId,
       conversationId: input.conversationId,
       ...(input.resources?.length ? { resources: input.resources } : {}),
+      filePublicationSupported: true,
     },
     channelContext: input.channelContext,
   });

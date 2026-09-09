@@ -10,6 +10,7 @@ import {
   decryptLarkPlatformCredential,
   LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
 } from "./lark-platform-credential-crypto";
+import { publishLarkPlatformFile } from "./lark-platform-file-publication";
 import {
   createLarkPlatformStreamingCard,
   downloadLarkPlatformMessageResource,
@@ -245,6 +246,38 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         };
       }
       return await publishText(publication);
+    },
+    async publishFile(publication) {
+      const locator = requireMatchingLocator({
+        connection: publication.connection,
+        locator: publication.locator,
+        provider: input.provider,
+      });
+      if (!locator) {
+        return {
+          status: "failed",
+          reasonCode: `${input.provider}.publication_target_mismatch`,
+        };
+      }
+      const appSecret = await readAppSecret(publication.connection);
+      if (!appSecret) {
+        return {
+          status: "failed",
+          reasonCode: `${input.provider}.connection_credentials_unavailable`,
+        };
+      }
+      return publishLarkPlatformFile({
+        appId: publication.connection.appId,
+        appSecret,
+        bytes: publication.bytes,
+        fileName: publication.fileName,
+        messageId: locator.rootMessageId,
+        provider: input.provider,
+        providerPublicationIdempotencyKey:
+          publication.providerPublicationIdempotencyKey,
+        replyInThread: locator.threadId !== null,
+        fetchImpl: input.fetchImpl,
+      });
     },
     async publishWorkingCard(publication) {
       const locator = requireMatchingLocator({

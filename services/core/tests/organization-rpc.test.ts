@@ -6443,7 +6443,10 @@ describe("organization Core RPC", () => {
     });
   });
 
-  it("keeps new channel-file audit actions out of older client projections", async () => {
+  it.each([
+    "read_channel_file",
+    "post_channel_file",
+  ] as const)("keeps %s out of older client projections", async (action) => {
     const db = createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
@@ -6463,7 +6466,7 @@ describe("organization Core RPC", () => {
         profileId: AGENT_PROFILE_ID,
         profileKind: "agent",
       }),
-      action: "read_channel_file",
+      action,
       resource: { id: "file", type: "feishu_file" },
     });
     const context = buildContext({
@@ -6476,7 +6479,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcListCenterAgentAuditJournal(env, { context, actionSet: "v22" })
     ).resolves.toMatchObject({
-      entries: [expect.objectContaining({ action: "read_channel_file" })],
+      entries: [expect.objectContaining({ action })],
     });
   });
 

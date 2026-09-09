@@ -149,6 +149,7 @@ export const centerAgentActionSchema = z.enum([
   "read_slack_channel_history",
   "read_slack_file",
   "read_channel_file",
+  "post_channel_file",
   "search_slack_messages",
   "post_space_message",
   "remove_agent_profiles_from_space",

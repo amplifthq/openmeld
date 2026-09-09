@@ -125,6 +125,7 @@ function createAdapter(
 ): MessageChannelProviderAdapter {
   return {
     createWorkingCard: vi.fn(),
+    publishFile: vi.fn(),
     downloadResource: vi.fn(() => Promise.resolve(download)),
     finalizeWorkingCard: vi.fn(),
     provider: "lark",

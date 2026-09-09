@@ -11057,7 +11057,7 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
   routineActions: readonly CenterAgentAction[];
 }): readonly CenterAgentAction[] {
   const channelFileCompatibilityActions: readonly CenterAgentAction[] =
-    input.actionSet === "v22" ? [] : ["read_channel_file"];
+    input.actionSet === "v22" ? [] : ["read_channel_file", "post_channel_file"];
   const localAgentCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v14" ||
     input.actionSet === "v15" ||

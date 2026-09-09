@@ -1250,6 +1250,7 @@ function createWorkingCardRegistry(
   overrides: Partial<MessageChannelProviderAdapter> = {}
 ) {
   const adapter: MessageChannelProviderAdapter = {
+    publishFile: vi.fn(),
     createWorkingCard: vi.fn(async () => ({
       cardId: "card_working_1",
       status: "created" as const,

@@ -1409,6 +1409,9 @@ function buildLarkPlatformHistoryUrl(
   apiHost: string,
   event: LarkPlatformMessageEvent
 ): URL {
+  if (event.locator.provider === "slack") {
+    throw new Error("Lark history requires a Feishu or Lark conversation.");
+  }
   const url = new URL("/open-apis/im/v1/messages", apiHost);
   const threadId = event.locator.threadId;
   url.searchParams.set("container_id_type", threadId ? "thread" : "chat");

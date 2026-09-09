@@ -50,29 +50,47 @@ upper bound up to retain earlier messages in the same second. The existing
 bounded history and frozen conversation checks remain in place. Both provider
 variants have focused coverage; this does not grant access to other chats.
 
+## Native file output
+
+`openmeld_send_channel_file` sends a selected Computer file only to the current
+admitted conversation. It follows the official [file upload example](https://open.feishu.cn/document/server-docs/im-v1/file/create)
+and native message reply contract. Core verifies the represented member, active
+delivery, destination and SHA-256 digest. Files remain bounded to 5 MiB. The
+existing Slack publication ledger owns claims and replay, extended with the
+`message_channel_file` destination. Private uploads precede visible publication;
+a lost, malformed or server-error reply response preserves an unknown outcome.
+Completed retries return the saved receipt without a second upload.
+
+This sends ordinary native file attachments, not inline image cards or automatic
+callback attachments. It does not grant arbitrary chat or Routine publication.
+Native client smoke remains pending.
+
 ## Contract impact and rollout
 
-The optional `trigger.resources` field and file RPC are shared cloud contracts.
+The optional `trigger.resources` and `trigger.filePublicationSupported` fields
+and file RPCs are shared cloud contracts.
 New readers accept old envelopes without resources. Old strict envelope readers
 do not accept the new field. Deploy the compatible Remote Agent reader first,
-then Core's RPC and resource-producing ingress together. Before new Core writes
-resource evidence, new Remote Agent cannot call this RPC: execution requires that
-evidence. Keep compatible readers when rolling back behavior; do not roll Core
+then apply migration 0162 and deploy Core's RPCs and producing ingress together.
+Before new Core writes resource/capability evidence, new Remote Agent cannot call
+the file RPCs. Keep compatible readers when rolling back behavior; do not roll Core
 back to a parser that rejects resource-bearing durable requests. Drain affected
 turns or use a reader-preserving revert.
 
 CLI, Service, managed Skills, Prepare, workstation Wake and diagnostic payloads
 keep their existing execution contracts, so their contract versions and published
-local artifacts need no bump. Audit action set v22 adds `read_channel_file`;
-all older action sets exclude that action before querying, preserving old audit
-readers. No migration or Cloudflare binding changes. Normal frozen result placement,
+local artifacts need no bump. Audit action set v22 adds `read_channel_file` and
+`post_channel_file`; older action sets exclude both before querying. Migration
+0162 preserves existing publication rows and widens the destination check; its
+table rebuild uses D1-compatible deferred foreign keys. No binding changes.
+Normal frozen result placement,
 RuntimeCoordinator ownership and separate business-App consent remain unchanged;
 this does not violate the scoped architecture contracts. Real native-client file
 smoke is pending and is not replaced by the permission and byte-handling tests.
 
 ## Pending sequence
 
-1. Native output files and authorized chat read/write tools.
+1. Broader authorized chat read/write tools and inline output images.
 2. Typed actions and current-chat Routine destinations through canonical owners.
 3. Separately consented business Apps and native workflow cards/forms.
 

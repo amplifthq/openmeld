@@ -192,6 +192,7 @@ export const remoteAgentTurnEnvelopeTriggerSchema = z.discriminatedUnion(
       provider: messageChannelProviderSchema,
       connectionId: nonEmptyStringSchema,
       conversationId: nonEmptyStringSchema,
+      filePublicationSupported: z.literal(true).optional(),
       resources: z
         .array(messageChannelResourceDescriptorSchema)
         .max(10)

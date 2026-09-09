@@ -1482,6 +1482,8 @@ export {
   setLocalRuntimeDisplayNameBodySchema,
 } from "./http/local-runtimes";
 export {
+  centerAgentPostChannelFileBodySchema,
+  centerAgentPostChannelFileResponseSchema,
   centerAgentReadChannelFileBodySchema,
   centerAgentReadChannelFileResponseSchema,
   MESSAGE_CHANNEL_FILE_MAX_SIZE_BYTES,
