@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-09T15:54:33.164Z",
+  "updatedAt": "2026-09-09T16:22:58.381Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.191",
+      "packageVersion": "0.3.192",
       "updatePolicy": "available",
-      "reason": "Space history retains attachment references and explicit acting identity; existing CLI commands and cloud contracts remain compatible in both directions."
+      "reason": "Optional diagnostic fields preserve old and new Core interoperability; command, setup, Wake and recovery contracts remain unchanged."
     },
     "service": {
-      "bundleHash": "aa1ffa3a83f90f60608249892f92c7c7e93ea22e35789279b79ee1e909994ce2",
-      "bundleVersion": "0.3.191",
+      "bundleHash": "1b9ee3c8a3a59c95e6237941fc39aa532a05e97bd48ea9a6973ba27aa36ee27d",
+      "bundleVersion": "0.3.192",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Only message-channel validator initialization is deferred; existing Services and both cloud versions retain the same setup, Wake, Space action, and diagnostic contracts."
+      "reason": "Process traversal preserves ownership and signalling semantics; existing Services remain safe for new and active Wake work."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
