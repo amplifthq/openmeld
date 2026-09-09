@@ -33,6 +33,35 @@ test("shares one async process-table snapshot across a simultaneous controller s
   assert.equal(readCount, 2);
 });
 
+test("shares a slow in-flight process scan after its snapshot age expires", async () => {
+  let nowMs = 0;
+  let readCount = 0;
+  let release;
+  const read = createAgentControllerProcessTableSnapshotReader({
+    maxAgeMs: 75,
+    now: () => nowMs,
+    readProcessTable: () => {
+      readCount += 1;
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    },
+  });
+  const first = read();
+  nowMs = 1000;
+  const follower = read();
+  assert.equal(readCount, 1);
+  release("old snapshot");
+  assert.deepEqual(await Promise.all([first, follower]), [
+    "old snapshot",
+    "old snapshot",
+  ]);
+  const fresh = read();
+  assert.equal(readCount, 2);
+  release("fresh snapshot");
+  assert.equal(await fresh, "fresh snapshot");
+});
+
 test("shares one async process-table timeout without suppressing the bounded retry", async () => {
   const timeoutError = Object.assign(new Error("spawnSync ps ETIMEDOUT"), {
     code: "ETIMEDOUT",

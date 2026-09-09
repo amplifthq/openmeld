@@ -624,8 +624,7 @@ function resolveFailureReason(
     return providerReason;
   }
   const reason = resolvePublicAgentFailureReason({
-    defaultReason:
-      "OpenMeld did not receive a message it could post in this space.",
+    defaultReason: "The task failed before a reply could be posted.",
     errorCode: payload.errorCode,
     errorMessage: payload.errorMessage,
     ...(isProjectLocalConnectionFailureReasonCode(payload.errorCode)

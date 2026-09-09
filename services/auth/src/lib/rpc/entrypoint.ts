@@ -34,6 +34,8 @@ import {
   authRpcResolveOrganizationDirectoryMembersResultSchema,
   authRpcResolveProfileInputSchema,
   authRpcResolveProfileResultSchema,
+  authRpcResolveProfilesByIdsInputSchema,
+  authRpcResolveProfilesByIdsResultSchema,
   authRpcResolveRequestAuthInputSchema,
   authRpcResolveRequestAuthResultSchema,
   authRpcResolveRequestAuthWithProfileInputSchema,
@@ -57,14 +59,18 @@ import {
 import type {
   AccountAvatarCommitRpcResponse,
   AccountAvatarPrepareRpcResponse,
+  AuthRpcProfileFact,
   AuthRpcResolveOrganizationAccountIdentityInput,
   AuthRpcResolveOrganizationAccountIdentityResult,
   AuthRpcResolveOrganizationDirectoryAgentProfilesInput,
   AuthRpcResolveOrganizationDirectoryAgentProfilesResult,
   AuthRpcResolveOrganizationDirectoryMembersInput,
   AuthRpcResolveOrganizationDirectoryMembersResult,
+  AuthRpcResolveProfileByIdResult,
   AuthRpcResolveProfileInput,
   AuthRpcResolveProfileResult,
+  AuthRpcResolveProfilesByIdsInput,
+  AuthRpcResolveProfilesByIdsResult,
   AuthRpcResolveRequestAuthWithProfileInput,
   AuthRpcResolveRequestAuthWithProfileResult,
   AuthRpcResolveUserDisplayNameInput,
@@ -179,25 +185,7 @@ type ResolveProfileByIdRpcInput = {
   openMeldProfileId?: string | null;
 };
 
-type ResolveProfileByIdRpcResult =
-  | {
-      ok: true;
-      profile: {
-        profileId: string;
-        profileName: string;
-        profileHandle: string;
-        profileKind: AuthProfileKind;
-        status: "active" | "disabled";
-        ownerUserId: string;
-        organizationId: string | null;
-        defaultProjectId?: string | null;
-      };
-    }
-  | {
-      ok: false;
-      code: string;
-      message: string;
-    };
+type ResolveProfileByIdRpcResult = AuthRpcResolveProfileByIdResult;
 
 type ListProfileLineageRpcInput = {
   ownerUserId?: string | null;
@@ -1277,24 +1265,45 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
 
       return {
         ok: true,
-        profile: {
-          profileId: profile.profileId,
-          profileName: profile.profileName,
-          profileHandle: profile.profileHandle,
-          profileKind: profile.profileKind,
-          status: profile.status,
-          ownerUserId: profile.ownerUserId,
-          organizationId: normalizeOptionalText(profile.organizationId),
-          ...(profile.profileKind === "agent" &&
-          normalizeProfileManagedRole(profile.managedRole) === null
-            ? {
-                defaultProjectId: normalizeOptionalText(
-                  profile.defaultProjectId
-                ),
-              }
-            : {}),
-        },
+        profile: toAuthRpcProfileFact(profile),
       };
+    } catch (error) {
+      const profileError = toProfileRpcError(error);
+      return {
+        ok: false,
+        code: profileError.code,
+        message: profileError.message,
+      };
+    }
+  }
+
+  async resolveProfilesByIds(
+    input: AuthRpcResolveProfilesByIdsInput
+  ): Promise<AuthRpcResolveProfilesByIdsResult> {
+    const parsed = authRpcResolveProfilesByIdsInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        code: "profile.invalid",
+        message: "Profile fact batch is invalid",
+      };
+    }
+    try {
+      const rows = await this.getProfileService().resolveProfilesByIds(
+        parsed.data.profileIds
+      );
+      const byId = new Map(
+        rows.map((profile) => [
+          profile.profileId,
+          toAuthRpcProfileFact(profile),
+        ])
+      );
+      return authRpcResolveProfilesByIdsResultSchema.parse({
+        ok: true,
+        profiles: Object.fromEntries(
+          parsed.data.profileIds.map((id) => [id, byId.get(id) ?? null])
+        ),
+      });
     } catch (error) {
       const profileError = toProfileRpcError(error);
       return {
@@ -2739,6 +2748,24 @@ function isTrustedDeletedByCurrentProfileInput(input: {
     deletedByProfileId === input.currentProfileId &&
     deletedByOwnerUserId === input.currentOwnerUserId
   );
+}
+
+function toAuthRpcProfileFact(
+  profile: AuthRpcProfileFact & { managedRole?: string | null }
+): AuthRpcProfileFact {
+  return {
+    profileId: profile.profileId,
+    profileName: profile.profileName,
+    profileHandle: profile.profileHandle,
+    profileKind: profile.profileKind,
+    status: profile.status,
+    ownerUserId: profile.ownerUserId,
+    organizationId: normalizeOptionalText(profile.organizationId),
+    ...(profile.profileKind === "agent" &&
+    normalizeProfileManagedRole(profile.managedRole) === null
+      ? { defaultProjectId: normalizeOptionalText(profile.defaultProjectId) }
+      : {}),
+  };
 }
 
 function normalizeOptionalText(value: unknown): string | null {

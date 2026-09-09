@@ -36,7 +36,7 @@ test("dispatch Space Action MCP config forwards only its bounded authority", asy
       OPENMELD_ENV_PRESET: "dev-local",
     },
     id: "openmeld_internal_dispatch_space_action",
-    toolNames: ["reply", "status", "stay_silent"],
+    toolNames: ["read_file", "reply", "status", "stay_silent"],
   });
 });
 

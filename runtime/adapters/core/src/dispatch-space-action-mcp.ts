@@ -8,6 +8,7 @@ const SPACE_ACTION_TOOL_COMMAND_PATH_ENV =
 export const OPENMELD_SPACE_ACTION_MCP_SERVER_ID =
   "openmeld_internal_dispatch_space_action";
 export const OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES = [
+  "read_file",
   "reply",
   "status",
   "stay_silent",

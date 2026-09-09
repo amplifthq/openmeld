@@ -1660,6 +1660,15 @@ constants are not evidence of compatibility. No D1 migration or new public R2
 bucket is introduced: each Space Durable Object lazily owns its SQLite tables,
 and immutable bytes use the existing private Space object-store binding.
 
+Workstation dispatch tools expose a bounded `read_file` operation for text
+attachments. Its input is the existing file ID and optional revision; its
+response follows `readSpaceFileTextResponseSchema`, the public CLI text-read
+shape. Space and acting Profile come from the active dispatch context, and the
+existing public file API still owns access checks. This additive local tool
+does not change cloud file routes, dispatch envelopes, or execution authority.
+Old CLI/Service installations retain their existing file commands; new local
+components interoperate with the existing Core and Gateway file receivers.
+
 #### Historical attachment rollout
 
 The first rollout is an explicit exception to the default cloud deploy order:
@@ -4935,6 +4944,18 @@ ids, or reinterpret `readOnly` as permission to mutate local state.
 
 ## Space Member Contracts
 
+Auth's internal `resolveProfilesByIds` RPC reads at most 64 requested Profile
+IDs per call. It returns the same minimal identity facts as
+`resolveProfileById`, with an explicit null for each absent ID. A database
+failure returns a failed envelope, never a partial successful set. Consumers
+reject missing keys, unrequested keys and Profile IDs that do not match their
+keys. This is an identity read, not authorization or a readiness projection.
+Core keeps ownership, Organization, Binding and execution policy checks.
+Deploy Auth before Core consumers; the scalar RPC remains available to old
+cloud callers. Roll back Core before removing the new Auth receiver. No public
+CLI, Service, Gateway, Web, setup or Wake payload shape changes, and no local
+compatibility floor changes are required.
+
 Auth owns current Profile names. Space member names are persisted display
 snapshots, not a second identity authority. Historical Signals and existing
 sessions must never rename an existing member, even when their names are
@@ -4946,6 +4967,14 @@ rewritten by a Profile rename. Authorized member-directory and active-Wake reads
 refresh active-member names through the Space-owned writer and existing Space
 Index projection outbox. Account working summaries resolve each distinct active
 Agent through Auth, without making the cross-Space index a membership writer.
+Space-wide name refresh uses bounded Auth fact batches instead of one RPC per
+member. It stops launching batches after the existing display-read deadline.
+Status and member snapshots reuse a successful refresh's validated Auth facts
+for Core readiness within that same request. Missing Profiles remain explicit
+nulls; a failed or timed-out display refresh provides no identity evidence and
+readiness performs its normal authoritative lookup. Nothing is cached across
+requests, and Wake admission still reads its own current facts. Reuse does not
+skip Core's identity, ownership, Organization, Binding or execution checks.
 Refresh preserves membership, ownership, removal and aliases. It re-reads the
 member after the Auth call so a concurrent removal or changed name wins. Failed
 or mismatched identity reads do not write names: the last known snapshot remains
@@ -4959,7 +4988,9 @@ a snapshot after the caller has timed out. Name-only index delivery runs in the
 background using the existing durable dirty mark and projection outbox, rather
 than delaying the reply or status response.
 Web treats old ID-valued progress labels as unnamed Agents during rollout.
-These corrections change no HTTP/RPC schema or local-component contract.
+The batch RPC is additive; public message and local-component contracts stay
+unchanged. Request-scoped reuse between name enrichment and Core readiness is
+separate from this batch transport and must not reuse stale cross-request facts.
 
 `getSpaceStatusResponseSchema` may expose the Organization's current
 `centerAgentProfileId` as an optional presentation identity. This lets public
@@ -5183,6 +5214,13 @@ new CLI consume an older Core response without repeating the full message in
 status output; it does not cache, omit authorization, or change Space history.
 The field name and wire shape remain unchanged, so old readers continue to
 accept a new Core response and no ordered rollout is required.
+
+The authorized latest-update summary selects only message ID, type, time,
+actor ID/name and bounded preview text from Space storage. It never returns
+Agent local directories or native conversation IDs, so it does not load Auth
+Profile ancestry to redact those absent fields. Detailed member and history
+reads retain their local-origin privacy checks. The summary is a synchronous
+Space SQL read; it needs no separate asynchronous bootstrap branch or Auth wait.
 
 `packages/space` owns reusable pure policy for turning Space identity and
 membership facts into mention labels, addressing support, and member directory

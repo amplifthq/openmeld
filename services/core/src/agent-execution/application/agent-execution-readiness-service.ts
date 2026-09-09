@@ -396,8 +396,9 @@ async function resolveAgentBindingSnapshot(
       input.timing,
       "profile_identity_lookup",
       () =>
-        authWorker.resolveProfileById({
-          openMeldProfileId: input.agent.profileId,
+        input.reads.resolveProfileById({
+          authWorker,
+          profileId: input.agent.profileId,
         })
     );
     if (!result.ok) {
@@ -1296,14 +1297,8 @@ async function resolveAgentRuntimeReadiness(input: {
     if (usageWakeability.status === "available") {
       return readiness;
     }
-    let displayState = readiness.displayState;
-    if (usageWakeability.status === "unavailable") {
-      displayState = "unavailable";
-    } else if (readiness.ready) {
-      displayState = "unknown";
-    }
     return {
-      displayState,
+      displayState: "unavailable",
       ready: false,
       reasonCodes: [
         ...new Set([...readiness.reasonCodes, usageWakeability.reasonCode]),
