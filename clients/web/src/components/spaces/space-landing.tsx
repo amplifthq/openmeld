@@ -1500,7 +1500,6 @@ function SpaceLandingReady({
 		organizationId,
 		setupRecallAction,
 		spaceFileNavigation,
-		spaceInboxReadPosition,
 		spaceView,
 		spaceViewIdPrefix,
 	} = state;
@@ -1708,7 +1707,6 @@ function SpaceLandingReady({
 							}
 							spaceNameErrorMessage={controller.spaceNameErrorMessage}
 							status={controller.status}
-							unreadCount={spaceInboxReadPosition.totalUnreadCount}
 							viewControl={
 								currentSpaceIsCenterAgentDirectMessage ? (
 									<CenterAgentHeaderTabs
