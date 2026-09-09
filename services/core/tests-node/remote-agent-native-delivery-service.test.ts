@@ -201,7 +201,7 @@ describe("Remote Agent native delivery callback service", () => {
         "personal-submission"
       );
       const sender = execution.request.turnEnvelope.sender;
-      if (sender.kind !== "member" || !sender.verified) {
+      if (sender.kind !== "member" || !sender.verified || !sender.ownerUserId) {
         throw new Error("Expected the admitted human requester");
       }
       await expect(
