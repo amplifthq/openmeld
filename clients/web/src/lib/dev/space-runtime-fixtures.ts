@@ -2,6 +2,7 @@ import type { createSpaceApi } from "@openmeld/api-client";
 import {
 	accountSpaceActiveWakeSummaryResponseSchema,
 	agentInteractionResolutionSchema,
+	postSpaceWakeStopResponseSchema,
 	wakeProgressItemSchema,
 } from "@openmeld/schemas";
 import type {
@@ -89,10 +90,10 @@ function fixture(spaceId: string, viewer?: string): WakeProgressItem | null {
 		phase: "running",
 		terminal: false,
 		wakeStopEligibility: {
-			status: "not_eligible",
-			controlMode: null,
-			reliability: "unsupported",
-			reasonCode: "agent_controller_interface.stop_unsupported",
+			status: "eligible",
+			controlMode: "cancel",
+			reliability: "native_cancel",
+			reasonCode: null,
 		},
 		message: "Checking the implementation and running focused checks.",
 		startedAtMs: now - 45_000,
@@ -191,6 +192,43 @@ export function withLocalSpaceRuntimeFixtures(
 ): SpaceApi {
 	return {
 		...api,
+		async postWakeStop(input) {
+			const item = fixture(input.spaceId, viewer);
+			const target = input.body.target;
+			const sourceId =
+				target.by === "source_signal"
+					? target.sourceSignalId
+					: target.clientMessageId;
+			if (
+				!item ||
+				target.targetProfileId !== item.targetProfileId ||
+				sourceId !== item.sourceSignalId
+			) {
+				return api.postWakeStop(input);
+			}
+			// Check real access; synthetic executions never reach runtime controls.
+			await api.getActiveWakeProgress({ spaceId: input.spaceId });
+			const now = Date.now();
+			states.set(`${viewer}:${input.spaceId}`, {
+				...item,
+				phase: "stopped",
+				terminal: true,
+				message: "Stopped",
+				pendingInteraction: null,
+				updatedAtMs: now,
+			});
+			return postSpaceWakeStopResponseSchema.parse({
+				ok: true,
+				status: "cancelled",
+				targetProfileId: item.targetProfileId,
+				runtimeCoordinatorExecutionId: item.runtimeCoordinatorExecutionId,
+				cancellationState: {
+					status: "cancelled",
+					reasonCode: null,
+					observedAtMs: now,
+				},
+			});
+		},
 		async getActiveWakeProgress(input) {
 			// The real read still owns authentication, membership, and failures.
 			const result = await api.getActiveWakeProgress(input);
