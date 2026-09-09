@@ -363,6 +363,7 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         providerPublicationIdempotencyKey:
           publication.providerPublicationIdempotencyKey,
         sequence: publication.sequence,
+        outcome: publication.outcome,
         text: publication.text,
       });
     },

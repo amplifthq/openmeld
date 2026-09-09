@@ -430,6 +430,7 @@ export async function finalizeLarkPlatformStreamingCard(input: {
   provider: LarkPlatformMessageChannelProvider;
   providerPublicationIdempotencyKey: string;
   sequence: number;
+  outcome: "completed" | "failed" | "stopped" | "continued";
   text: string;
 }): Promise<MessageChannelCardMutationResult> {
   const validationFailure = validateCardMutationInput(input);
@@ -440,7 +441,9 @@ export async function finalizeLarkPlatformStreamingCard(input: {
     ...input,
     body: {
       card: {
-        data: JSON.stringify(buildLarkPlatformTerminalCard(input.text)),
+        data: JSON.stringify(
+          buildLarkPlatformTerminalCard(input.text, input.outcome)
+        ),
         type: "card_json",
       },
       sequence: input.sequence,
@@ -845,14 +848,27 @@ function buildLarkPlatformStreamingCard(text: string): JsonObject {
         print_strategy: "fast",
       },
       streaming_mode: true,
-      summary: { content: "Working…" },
+      summary: { content: "Request received" },
     },
     schema: "2.0",
   };
 }
 
-function buildLarkPlatformTerminalCard(text: string): JsonObject {
+function buildLarkPlatformTerminalCard(
+  text: string,
+  outcome: "completed" | "failed" | "stopped" | "continued"
+): JsonObject {
+  const label = {
+    completed: "Response complete",
+    failed: "Could not complete this request",
+    stopped: "Stopped",
+    continued: "Response continues below",
+  }[outcome];
   return {
+    header: {
+      title: { tag: "plain_text", content: label },
+      template: outcome === "failed" ? "red" : "grey",
+    },
     body: {
       elements: [
         {
@@ -864,7 +880,11 @@ function buildLarkPlatformTerminalCard(text: string): JsonObject {
     },
     config: {
       streaming_mode: false,
-      summary: { content: buildCardSummary(text) },
+      summary: {
+        content: buildCardSummary(
+          outcome === "completed" ? text : `${label}: ${text}`
+        ),
+      },
     },
     schema: "2.0",
   };

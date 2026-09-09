@@ -141,6 +141,7 @@ export type MessageChannelProviderAdapter = {
     locator: MessageChannelConversationLocator;
     providerPublicationIdempotencyKey: string;
     sequence: number;
+    outcome: "completed" | "failed" | "stopped" | "continued";
     text: string;
   }): Promise<MessageChannelCardMutationResult>;
 };

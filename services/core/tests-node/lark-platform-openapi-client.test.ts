@@ -514,6 +514,7 @@ describe("Lark-platform OpenAPI publication", () => {
         providerPublicationIdempotencyKey:
           "8d4fb872-a1b1-5f1c-b192-b9dbadcc6869",
         sequence: 4,
+        outcome: "completed",
         text: "The final answer",
       })
     ).resolves.toEqual({ status: "published" });
@@ -553,12 +554,52 @@ describe("Lark-platform OpenAPI publication", () => {
       uuid: "8d4fb872-a1b1-5f1c-b192-b9dbadcc6869",
     });
     expect(JSON.parse(terminalBody.card.data)).toMatchObject({
+      header: { title: { content: "Response complete" } },
       body: {
         elements: [{ content: "The final answer" }],
       },
       config: {
         streaming_mode: false,
         summary: { content: "The final answer" },
+      },
+    });
+  });
+
+  it.each([
+    ["failed", "Could not complete this request"],
+    ["stopped", "Stopped"],
+    ["continued", "Response continues below"],
+  ] as const)("closes a %s card without a success label", async (outcome, label) => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          code: 0,
+          expire: 7200,
+          tenant_access_token: "tenant-token",
+        })
+      )
+      .mockResolvedValueOnce(Response.json({ code: 0, data: {} }));
+    await expect(
+      finalizeLarkPlatformStreamingCard({
+        appId: "cli_test",
+        appSecret: "app-secret",
+        cardId: "card_1",
+        fetchImpl,
+        provider: "feishu",
+        providerPublicationIdempotencyKey:
+          "8d4fb872-a1b1-5f1c-b192-b9dbadcc6869",
+        sequence: 4,
+        outcome,
+        text: "Details",
+      })
+    ).resolves.toEqual({ status: "published" });
+    const body = JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body));
+    expect(JSON.parse(body.card.data)).toMatchObject({
+      header: { title: { tag: "plain_text", content: label } },
+      config: {
+        streaming_mode: false,
+        summary: { content: `${label}: Details` },
       },
     });
   });
