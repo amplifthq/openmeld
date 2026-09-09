@@ -217,6 +217,7 @@ export type RemoteAgentCallbackContext = {
   organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
   requestId?: string;
   sourceClientMessageId: string | null;
+  sharedSpaceContextEnabled?: boolean;
   trustedSlackThreadPublicationTargetKeys?: string[];
   spaceId: string;
   submissionCreatedAt: number;
@@ -640,6 +641,9 @@ export function createRemoteAgentCallbackContext(input: {
       })) ?? [],
     requestId: input.ack.requestId,
     sourceClientMessageId: input.request.sourceClientMessageId ?? null,
+    sharedSpaceContextEnabled:
+      input.request.v === 4 &&
+      input.request.sourceMessageEnvelope !== undefined,
     trustedSlackThreadPublicationTargetKeys:
       extractSlackThreadPublicationTargetKeys(
         input.request.messages.map((message) => message.content)

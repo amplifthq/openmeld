@@ -764,6 +764,11 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   `503`. The projection must never degrade a lookup failure into
   `profile.inactive`: consumers keep their current catalog on a failed read,
   while a false inactive would deregister live routes.
+- Core obtains the target runtime's Profile facts from Auth's bounded
+  `resolveProfilesByIds` RPC. Every requested ID needs either its matching fact
+  or explicit absence. Missing response entries, identity mismatches and a
+  failure in any batch invalidate the whole catalog read. Batching does not
+  weaken the per-Profile owner, kind, status or runtime checks.
 - The projection is a read. It is not lease, registration, or deregistration
   authority. After a rebind, the next read stops including the route;
   in-flight lease arbitration stays with Runtime Transport.
@@ -798,10 +803,14 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   whether resolution used the Default Project or Profile workspace, and carries
   the local Project `bindingGeneration` (as
   `localProjectBindingGeneration`) when applicable. The Core trust matcher
-  accepts the set only while those current identities match and every
-  observation is fresh. The Core-owned Wakeability projection consumes that
-  matcher as its current working-folder gate; missing, legacy, partial, stale,
-  duplicated, or identity-mismatched evidence remains unknown and fails closed.
+  checks the requested Profile against its Auth-owned Default Project and the
+  Core-owned primary Binding already read for that readiness decision. Exactly
+  one matching observation must be fresh and belong to the current Service
+  session, device, and lane. Missing, legacy, stale, duplicated, or
+  identity-mismatched target evidence remains unknown and fails closed. An
+  unrelated Profile's missing or stale observation does not block this target.
+  Full expected-route reconciliation retains responsibility for catalog
+  completeness and registration; a readiness read does not reload the catalog.
   `localProjectBindingGeneration` is an opaque Service-owned local connection
   identity. Core does not compare it with a cloud generation; a later accepted
   current-session report replaces the earlier generation and triggers
@@ -809,11 +818,12 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   Missing or invalid facts use the precise Project/workspace reason codes from
   the shared schema; local folder paths never cross the Service boundary.
   Historical Wake outcomes never substitute for this current observation.
-  A Space member/status snapshot shares one in-flight expected-routes read for
-  each owner, device, lane, and contract version. It does not reload the same
-  complete runtime once per member. This reuse is request-scoped only: each
-  member still passes the existing identity, revision, and freshness checks,
-  unavailable evidence fails closed, and the next snapshot reads fresh facts.
+  Space member/status and Organization directory readiness use the same Core
+  decision. Profiles in one request share existing Runtime registry and
+  Controller report reads; no result survives into another request. Each
+  target still passes its own identity, revision, and freshness checks. A
+  failed target read fails closed for that target and the next request reads
+  fresh facts. Readiness does not grant an execution lease or publish a reply.
 - Controller target changes, Controller unbinding, and local working-folder
   changes use an owner-sharded RuntimeCoordinator execution-state read that
   spans every Space. Web may use that read to disable disruptive actions
@@ -942,31 +952,32 @@ drift.
 
 Core may project `Unavailable` before a new Wake when the exact current Agent
 Controller report contains a reliable, fresh Usage Limit that explicitly says
-Usage is exhausted. When the shared versioned Local Agent capability matrix
-declares native Usage support, a missing, stale, expired, unavailable, or
-otherwise unconfirmed current observation projects `Checking` and rejects new
-Wake admission. Core and the Local Service must consume that same matrix.
+Usage is exhausted. Missing, stale, expired, unavailable, or otherwise
+unconfirmed Usage does not add an admission block to an otherwise ready Agent.
+The provider owns actual capacity enforcement; its auxiliary quota endpoint is
+not an execution prerequisite. Core and the Local Service consume the same
+versioned capability matrix to interpret reliable exhaustion evidence.
 Explicitly unsupported Usage and Local Agents whose Usage reporting is passive
 or not evaluated do not use Usage as an admission condition. A provider-scoped
 controller is filtered by the provider prefix of the Binding's selected model
-before this verdict is computed. A supported selected provider therefore fails
-closed on missing or unconfirmed evidence, while an exhausted unselected
-provider cannot block that Agent Profile. A Binding whose provider cannot be
+before this verdict is computed. An exhausted unselected provider cannot block
+that Agent Profile. A Binding whose provider cannot be
 resolved remains compatible and does not gain a guessed Usage admission
 condition. An ACI report
 declares the matrix it implements through
 `usageLimitsSupportMatrixVersion`. If that optional field is absent, Core
-treats the report as a parseable legacy contract, but it cannot authorize new
-work for a controller whose reviewed matrix requires native Usage. Missing,
-mismatched, or unconfirmed Usage fails closed as bounded `Checking`. A
+treats the report as a parseable legacy contract and does not infer a new
+Usage-specific block from it. This does not relax authentication, permissions,
+current Controller readiness, or execution identity checks. A
 percentage alone, low-capacity warning, generic quota wording, or ordinary
-transient `429` is never proof of exhaustion. Core derives all three outcomes
+transient `429` is never proof of exhaustion. Core derives this additional block
 from the already-held structured report and does not call the provider on the
 Wake hot path.
 
 The same exact-version rule gates Usage recovery after an accepted Wake. A
-legacy report remains parseable, but it neither authorizes a new Wake nor
-triggers automatic continuation under a newer Core capability matrix.
+legacy report remains parseable, but cannot trigger automatic continuation
+under a newer Core capability matrix. Missing Usage must never release work
+already held after a proven exhausted execution.
 
 After a Wake is accepted, a provider failure changes later Wakeability only
 when the result carries fresh structured hard-blocker evidence for the exact
@@ -1664,6 +1675,33 @@ publication record and a pending terminal-projection index atomically. Its
 bounded-work alarm retries the D1 projection and clears the index only after
 Core accepts it. A transient Core failure therefore cannot leave a visibly
 stopped child permanently invisible to its parent subscription.
+
+An accepted local result retires its execution token, but does not complete the
+Wake's cloud publication obligation. Stop for that accepted result runs through
+the same RuntimeCoordinator finalization serializer without contacting the old
+Service. RuntimeCoordinator verifies the exact accepted inbox result against its
+stored execution authority before reconstructing a missing legacy finalization
+command. It persists the command and retry before recording the Stop fence.
+Space elects the stopped notice through the same atomic final-outcome claim as
+reply publication; an already-persisted final outcome wins. Only that persisted
+claim permits RuntimeCoordinator to settle cancellation and project dependent
+task outcomes. An unavailable Space claim leaves durable repair pending; it
+must not become a successful Stop or trigger another Agent execution.
+
+The internal `rpcApplyRuntimeCoordinatorWakeStopCommand` uses the existing shared
+finalization-command and claim-read schemas. If that RPC is unavailable during
+a Core rollout, Stop returns `retry_later` and preserves the repair command.
+It does not require a CLI, Service, or Agent Controller protocol upgrade.
+
+For an accepted-but-unpublished execution, viewer-authorized Space progress
+reads ask RuntimeCoordinator for publication Stop eligibility. Its read-only
+endpoint checks the stored `result_received` lifecycle, nonterminal authority,
+and exact request scope; the absence of a current token run or fresh Controller
+report does not remove this server-owned capability. Missing or terminal
+authority returns no eligibility. An execution still running locally keeps the
+existing fresh cancel/interrupt report requirement. The existing Stop mutation
+continues to validate the accepted result and elect the final Space claim;
+eligibility cannot cancel work, publish a notice, or advance recovery.
 
 Wake execution invariants:
 

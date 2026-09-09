@@ -471,13 +471,16 @@ There is no separate About surface or Slack shortcut; Center Agent identity,
 model, status, and Slack management remain available through Center Agent
 settings and Channels.
 
-The Inbox launcher is present across ordinary authorized routes, shows only the uncleared,
-unresolved action-required count (visually capped at `99+`), and opens a compact
-preview first. The preview shows unread context and a bounded list of recent
-items grouped as **Needs action** and **Recent updates**, preserves source
+The Inbox launcher is present across ordinary authorized routes and opens a compact
+preview first. The sidebar header alone shows the deduplicated attention count
+(visually capped at `99+`); the bottom-right launcher colors its icon and label
+without a number. Both consume the same Core summary: red for open actions,
+otherwise amber for unread urgent updates. Unknown summaries never become zero.
+The preview shows unread context and a bounded list of recent
+items grouped as **Needs action**, **Urgent updates**, and **Recent updates**, preserves source
 navigation and read-on-open behavior, and exposes a clearly labeled maximize
 action to `/o/{orgSlug}/inbox`. One group does not hide the other. Its width and
-height must remain usable in narrow viewports. Ordinary unread updates never
+height must remain usable in narrow viewports. Ordinary non-urgent unread updates never
 inflate the launcher badge. The far-right global control group contains a Center Agent
 launcher. The Center Agent launcher is hidden while full Chat
 is open. Elsewhere its compact view mounts the same `CenterAgentPage`,

@@ -1,9 +1,11 @@
 import {
   OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
   OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
   OPENMELD_INBOX_ITEM_KIND_VERSION,
   OPENMELD_INBOX_SOURCE_TARGET_THREAD_UNAWARE_VERSION,
   OPENMELD_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_INBOX_SUMMARY_VERSION,
 } from "@openmeld/gateway-contract";
 import {
   centerAgentInboxSummaryResponseSchema,
@@ -189,6 +191,17 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         }),
       method: "GET",
       responseSchema: inboxSummaryResponseSchema,
+      resolveSuccessPayload: (result) => {
+        const response = inboxSummaryResponseSchema.parse(result);
+        if (
+          c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ===
+          OPENMELD_INBOX_SUMMARY_VERSION
+        ) {
+          return response;
+        }
+        const { unreadUrgentUpdateCount: _urgentCount, ...legacy } = response;
+        return legacy;
+      },
       route: INBOX_SUMMARY_ROUTE,
     })
   );

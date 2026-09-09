@@ -93,6 +93,11 @@ function createInMemoryRepository(
   const profiles = initial.map(withProfileDefaults);
 
   const repository: OpenMeldProfileRepository = {
+    findFactsByProfileIds(profileIds) {
+      return Promise.resolve(
+        profiles.filter((profile) => profileIds.includes(profile.profileId))
+      );
+    },
     findByProfileId(profileId) {
       return Promise.resolve(
         profiles.find((profile) => profile.profileId === profileId) ?? null

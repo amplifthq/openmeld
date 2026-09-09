@@ -1,3 +1,4 @@
+import { env, runInDurableObject } from "cloudflare:test";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
@@ -147,6 +148,86 @@ const baseFinalizationCommand = {
 } satisfies RuntimeCoordinatorFinalizationCommand;
 
 describe("accepted dispatch finalization", () => {
+  it.each([
+    false,
+    true,
+  ])("elects one actual Space final claim when Stop races a reply (reply first: %s)", async (replyFirst) => {
+    const spaces = (
+      env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
+    ).OPENMELD_SPACES;
+    const id = spaces.newUniqueId();
+    const spaceId = id.toString();
+    const space = spaces.get(id);
+    await space.rpcInitializeDirectMessageMeta({
+      spaceId,
+      name: "Stop final claim",
+      purpose: "direct_message",
+      pairKey: spaceId,
+      guide: "",
+      organizationId: "org-1",
+      visibility: "private",
+    });
+    const command = {
+      ...baseFinalizationCommand,
+      spaceId,
+      dispatchFact: { ...baseFact, spaceId },
+    };
+    const reply: SignalEnvelope = {
+      ...sourceSignal,
+      spaceId,
+      id: "reply-before-stop",
+      profile: {
+        kind: "agent",
+        profileId: baseFact.targetProfileId,
+        profileName: "Test Agent",
+      },
+      data: {
+        text: "Done",
+        meta: {
+          purpose: AGENT_REPLY_FINAL_PURPOSE,
+          dispatchId: baseFact.dispatchId,
+          targetProfileId: baseFact.targetProfileId,
+        },
+      },
+    };
+    if (replyFirst) {
+      await runInDurableObject(space, (_instance, state) => {
+        insertSignalRecord(state.storage.sql, reply);
+      });
+    }
+    const outcome =
+      await space.rpcApplyRuntimeCoordinatorWakeStopCommand(command);
+    expect(outcome.status).toBe(
+      replyFirst ? "finalization_visible" : "wake_stopped_visible"
+    );
+    await expect(
+      space.rpcApplyRuntimeCoordinatorWakeStopCommand(command)
+    ).resolves.toEqual(outcome);
+    await runInDurableObject(space, (_instance, state) => {
+      expect(
+        insertSignalRecord(state.storage.sql, { ...reply, id: "late-reply" })
+          .duplicateFinalReplyBlocked
+      ).toBe(true);
+      const rows = state.storage.sql
+        .exec<{ payload_json: string }>(
+          "SELECT payload_json FROM space_signals"
+        )
+        .toArray();
+      expect(rows).toHaveLength(1);
+      expect(JSON.parse(rows[0]?.payload_json ?? "null")).toMatchObject(
+        replyFirst
+          ? { id: reply.id }
+          : {
+              type: "signal.system_notice",
+              data: {
+                noticeType: "wake_stopped",
+                dispatchId: baseFact.dispatchId,
+              },
+            }
+      );
+    });
+  });
+
   it("confirms the original final claim after recovering its historical mention label", () => {
     const stored = JSON.stringify({
       ...sourceSignal,

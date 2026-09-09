@@ -53,6 +53,50 @@ const authRpcResolveRequestAuthFailureSchema = z.strictObject({
   ok: z.literal(false),
 });
 
+// Internal Auth facts, not a grant of access or a readiness decision.
+export const AUTH_PROFILE_FACT_BATCH_SIZE = 64;
+export const authRpcProfileFactSchema = z.strictObject({
+  profileId: trimmedNonEmptyStringSchema.max(256),
+  profileName: z.string(),
+  profileHandle: z.string(),
+  profileKind: profileKindSchema,
+  status: z.enum(["active", "disabled"]),
+  ownerUserId: z.string(),
+  organizationId: z.string().nullable().optional(),
+  defaultProjectId: z.string().nullable().optional(),
+});
+
+export const authRpcResolveProfileByIdResultSchema = z.discriminatedUnion(
+  "ok",
+  [
+    z.strictObject({ ok: z.literal(true), profile: authRpcProfileFactSchema }),
+    authRpcResolveRequestAuthFailureSchema,
+  ]
+);
+
+export const authRpcResolveProfilesByIdsInputSchema = z.strictObject({
+  profileIds: z
+    .array(trimmedNonEmptyStringSchema.max(256))
+    .min(1)
+    .max(AUTH_PROFILE_FACT_BATCH_SIZE),
+});
+
+export const authRpcResolveProfilesByIdsResultSchema = z.discriminatedUnion(
+  "ok",
+  [
+    z.strictObject({
+      ok: z.literal(true),
+      // Every requested ID must have an entry. Only an explicit null means
+      // absent; an incomplete response or failed read is unavailable.
+      profiles: z.record(
+        z.string().min(1).max(256),
+        authRpcProfileFactSchema.nullable()
+      ),
+    }),
+    authRpcResolveRequestAuthFailureSchema,
+  ]
+);
+
 export const authRpcResolveRequestAuthResultSchema = z.discriminatedUnion(
   "ok",
   [

@@ -45,6 +45,12 @@ export const wakeStopEligibilityReasonCodeSchema = z.enum([
 
 export const wakeStopEligibilityReadModelSchema = z.union([
   z.strictObject({
+    controlMode: z.literal("openmeld_owned_publication_cancel"),
+    reasonCode: z.null(),
+    reliability: z.literal("openmeld_owned_publication"),
+    status: z.literal("eligible"),
+  }),
+  z.strictObject({
     controlMode: z.literal("openmeld_owned_pre_agent_cancel"),
     reasonCode: z.null(),
     reliability: z.literal("openmeld_owned_pre_agent"),

@@ -1,6 +1,7 @@
 import {
 	OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
 	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+	OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
 	OPENMELD_HEADER_PROFILE_ID,
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID,
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG,
@@ -42,6 +43,7 @@ const ALLOWED_PROXY_REQUEST_HEADERS = new Set([
 	"pragma",
 	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION.toLowerCase(),
 	OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION.toLowerCase(),
+	OPENMELD_HEADER_INBOX_SUMMARY_VERSION.toLowerCase(),
 	OPENMELD_HEADER_SPACE_ADDRESSING_VERSION.toLowerCase(),
 	OPENMELD_HEADER_PROFILE_ID.toLowerCase(),
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID.toLowerCase(),
@@ -91,34 +93,7 @@ export function buildOpenMeldGatewayUpstreamHeaders(input: {
 		const normalizedHeaderName = headerName.toLowerCase();
 		const isSpacePasswordHeader =
 			normalizedHeaderName === OPENMELD_HEADER_SPACE_PASSWORD.toLowerCase();
-		const isProfileIdHeader =
-			normalizedHeaderName === OPENMELD_HEADER_PROFILE_ID.toLowerCase();
-		const isOrganizationSelectorHeader =
-			normalizedHeaderName ===
-				OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID.toLowerCase() ||
-			normalizedHeaderName ===
-				OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG.toLowerCase();
-		const isInboxSourceTargetVersionHeader =
-			normalizedHeaderName ===
-			OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION.toLowerCase();
-		const isInboxItemKindVersionHeader =
-			normalizedHeaderName ===
-			OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION.toLowerCase();
-		const isSpaceAddressingVersionHeader =
-			normalizedHeaderName ===
-			OPENMELD_HEADER_SPACE_ADDRESSING_VERSION.toLowerCase();
-		if (
-			(normalizedHeaderName.startsWith("x-openmeld-") &&
-				!isSpacePasswordHeader &&
-				!isProfileIdHeader &&
-				!isOrganizationSelectorHeader &&
-				!isInboxSourceTargetVersionHeader &&
-				!isInboxItemKindVersionHeader &&
-				!isSpaceAddressingVersionHeader) ||
-			normalizedHeaderName.startsWith("x-forwarded-") ||
-			normalizedHeaderName === "authorization" ||
-			!ALLOWED_PROXY_REQUEST_HEADERS.has(normalizedHeaderName)
-		) {
+		if (!ALLOWED_PROXY_REQUEST_HEADERS.has(normalizedHeaderName)) {
 			continue;
 		}
 
