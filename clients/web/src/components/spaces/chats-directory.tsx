@@ -25,7 +25,6 @@ import { AppMainContent } from "#/components/app/app-main-content";
 import { AppSidebarGroup } from "#/components/app/app-sidebar-group";
 import { DirectoryRowActions } from "#/components/app/directory-row-actions";
 import { DirectorySearch } from "#/components/app/directory-search";
-import { useSidebarFilter } from "#/components/app/sidebar-filter";
 import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { SidebarSectionActions } from "#/components/app/sidebar-section-actions";
 import {
@@ -38,6 +37,7 @@ import { ChatIcon, resolvePreviewText } from "./chat-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
 import { SidebarConversationTime } from "./sidebar-conversation-time";
 import { SpaceWindowHeader } from "./space-header";
+import { useChatFilters } from "./use-chat-filters";
 import { useChats } from "./use-chats";
 
 export function ChatsDirectory() {
@@ -45,17 +45,11 @@ export function ChatsDirectory() {
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [tab, setTab] = useState(0);
 	const [search, setSearch] = useState("");
-	const filter = useSidebarFilter(
-		[
-			{ id: "human", label: "People" },
-			{ id: "agent", label: "Agents" },
-		],
-		"All chats"
-	);
+	const filter = useChatFilters(() => setSearchOpen(true));
 	const model = useChats({
 		currentSpaceId: "",
 		search,
-		archived: false,
+		archived: filter.archived,
 		includes: filter.includes,
 	});
 	const now = useNowMs(60_000);
@@ -81,6 +75,7 @@ export function ChatsDirectory() {
 			(section) =>
 				section.chats.length > 0 ||
 				(grouped &&
+					!filter.archived &&
 					section.id !== "pinned" &&
 					!search &&
 					!filter.selected.length)
@@ -100,6 +95,7 @@ export function ChatsDirectory() {
 		<SidebarSectionActions
 			alwaysVisible={alwaysVisible}
 			disabled={model.store.disabled}
+			filter={filter.sectionFilter}
 			label={section.name}
 			onDelete={
 				section.id !== "chats" && section.id !== "pinned"
@@ -215,15 +211,15 @@ export function ChatsDirectory() {
 				{!(pending || failed || model.sessions.hasNextPage) &&
 					sections.length === 0 && (
 						<AppEmptyState
-							actions={newChat}
+							actions={filter.archived ? undefined : newChat}
 							description={
-								search || filter.selected.length
+								search || filter.selected.length || filter.archived
 									? "Try another search or remove a filter."
 									: "Choose a person or agent to chat with, or select several to start a Space."
 							}
 							icon={<ChatCircleTextIcon />}
 							title={
-								search || filter.selected.length
+								search || filter.selected.length || filter.archived
 									? "No matching chats"
 									: "Start a conversation"
 							}

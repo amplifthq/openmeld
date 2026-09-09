@@ -11,5 +11,9 @@ page and jumping into a conversation. The list follows your sidebar groups and
 sorting preferences. Sidebar groups start collapsed and reveal the conversation
 you open, while remembering your manual choices.
 
+Pin chats or move them between groups directly from the list. Chats and Spaces
+now offer the same search, filters, and group settings in their lists and sidebars,
+including archived chat filters and Space activity filters.
+
 New chat uses the same people-and-agents picker as Space members. Choose one person
 or agent for a private chat, or choose several to create a private Space together.

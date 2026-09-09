@@ -7,9 +7,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import {
 	DropdownMenu,
-	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
@@ -20,8 +18,6 @@ import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout"
 import { ControlledSidebarGroupStateProvider } from "#/components/app/app-sidebar-group";
 import { SidebarDrag, SidebarDropSection } from "#/components/app/sidebar-drag";
 import { moveSidebarGroup } from "#/components/app/sidebar-drop-target";
-import { useSidebarFilter } from "#/components/app/sidebar-filter";
-import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { SidebarSectionActions } from "#/components/app/sidebar-section-actions";
 import { useSidebarDisclosure } from "#/components/app/use-sidebar-disclosure";
@@ -31,21 +27,16 @@ import { SidebarSearchInput } from "../app/sidebar-search-input";
 import type { Chat } from "./chat-sidebar-model";
 import { ChatRow } from "./chat-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
+import { useChatFilters } from "./use-chat-filters";
 import { useChats } from "./use-chats";
 
 export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 	const [search, setSearch] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
-	const categoryFilter = useSidebarFilter(
-		[
-			{ id: "human", label: "People" },
-			{ id: "agent", label: "Agents" },
-		],
-		"All chats"
-	);
+	const categoryFilter = useChatFilters(() => setSearchOpen(true));
+	const { archived } = categoryFilter;
 	const [creating, setCreating] = useState(false);
 	const [creatingGroup, setCreatingGroup] = useState<string>();
-	const [archived, setArchived] = useState(false);
 	const {
 		org,
 		owner,
@@ -142,16 +133,7 @@ export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 						<FunnelSimpleIcon />
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end" className="w-60">
-						<DropdownMenuItem onClick={() => setSearchOpen(true)}>
-							Search chats
-						</DropdownMenuItem>
 						{categoryFilter.menu}
-						<DropdownMenuCheckboxItem
-							checked={archived}
-							onCheckedChange={setArchived}
-						>
-							Archived chats
-						</DropdownMenuCheckboxItem>
 					</DropdownMenuContent>
 				</DropdownMenu>
 			</SidebarDestinationAction>
@@ -202,11 +184,7 @@ export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 									<SidebarSectionActions
 										addLabel="Add chat or group"
 										disabled={store.disabled || pin.arePinActionsPending}
-										filter={{
-											label: "Archived chats",
-											checked: archived,
-											onCheckedChange: setArchived,
-										}}
+										filter={categoryFilter.sectionFilter}
 										label={section.name}
 										newItemLabel="New chat"
 										onDelete={
@@ -310,11 +288,7 @@ export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 										<SidebarSectionActions
 											addLabel="Add chat or group"
 											disabled={store.disabled || pin.arePinActionsPending}
-											filter={{
-												label: "Archived chats",
-												checked: archived,
-												onCheckedChange: setArchived,
-											}}
+											filter={categoryFilter.sectionFilter}
 											label="Chats"
 											newItemLabel="New chat"
 											onNewGroup={addGroup}
@@ -325,14 +299,6 @@ export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 									</div>
 								)}
 								{categoryFilter.badges}
-								{archived && (
-									<div className="px-1 pt-1">
-										<SidebarFilterBadge
-											label="Archived"
-											onRemove={() => setArchived(false)}
-										/>
-									</div>
-								)}
 								{sessions.hasNextPage && (
 									<p
 										aria-live="polite"

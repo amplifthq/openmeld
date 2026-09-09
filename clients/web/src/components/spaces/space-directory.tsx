@@ -6,7 +6,6 @@ import type {
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
-	DropdownMenuCheckboxItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import {
@@ -27,9 +26,9 @@ import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
+	FunnelSimpleIcon,
 	HashIcon,
 	LockKeyIcon,
-	SlidersHorizontalIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -43,8 +42,6 @@ import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/
 import { AppSidebarGroup } from "../app/app-sidebar-group";
 import { DirectoryRowActions } from "../app/directory-row-actions";
 import { DirectorySearch } from "../app/directory-search";
-import { useSidebarGroupFilter } from "../app/sidebar-filter";
-import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import {
@@ -63,16 +60,10 @@ import {
 	type SpaceMemberAppearance,
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
+import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
 
 type DirectorySpace = OrganizationSpaceDirectoryWithMemberCountsItem;
-type StatusFilter = "unread" | "needs_input" | "working";
-const FILTERS: readonly [StatusFilter, string][] = [
-	["unread", "Unread"],
-	["needs_input", "Needs your input"],
-	["working", "Working"],
-];
-
 export function SpaceDirectory(input: {
 	accountProfiles: readonly AuthProfileView[];
 	tab: number;
@@ -96,7 +87,6 @@ export function SpaceDirectory(input: {
 	const preferences = sidebar.preferences;
 	const [searches, setSearches] = useState(["", ""]);
 	const [searchOpen, setSearchOpen] = useState([false, false]);
-	const [statusFilters, setStatusFilters] = useState<StatusFilter[]>([]);
 	const [preview, setPreview] = useState<DirectorySpace | null>(null);
 	const viewportRef = useRef<HTMLDivElement>(null);
 	const scrollPositions = useRef([0, 0]);
@@ -172,7 +162,12 @@ export function SpaceDirectory(input: {
 	];
 	const grouped =
 		(preferences?.groups.length ?? 0) > 0 || sections.pinnedItems.length > 0;
-	const groupFilter = useSidebarGroupFilter(groups);
+	const groupFilter = useSpaceDirectoryFilters(groups, () =>
+		setSearchOpen((current) =>
+			current.map((value, index) => (index === input.tab ? true : value))
+		)
+	);
+	const statusFilters = groupFilter.statuses;
 	const unindexed = input.spaces.filter(
 		(space) =>
 			space.joined &&
@@ -183,14 +178,12 @@ export function SpaceDirectory(input: {
 	const groupedIds = new Set(
 		preferences?.groups.flatMap((group) => group.spaceIds)
 	);
-	const statusSets = {
-		unread: unreadActivity,
-		needs_input: attention,
-		working,
-	};
 	const matches = (item: AccountSpaceItem) =>
 		item.spaceName.toLowerCase().includes(searchTerm) &&
-		statusFilters.every((filter) => statusSets[filter].has(item.spaceId));
+		groupFilter.matchesStatus(
+			indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0,
+			indicators.activeWakeSummaryBySpaceId.get(item.spaceId)
+		);
 	const entries = groups
 		.map((group) => {
 			const section =
@@ -254,12 +247,6 @@ export function SpaceDirectory(input: {
 			});
 		}
 	};
-	const toggleStatus = (filter: StatusFilter) =>
-		setStatusFilters((current) =>
-			current.includes(filter)
-				? current.filter((item) => item !== filter)
-				: [...current, filter]
-		);
 	return (
 		<div
 			aria-label={discovering ? "Discover" : "Your Spaces"}
@@ -300,20 +287,10 @@ export function SpaceDirectory(input: {
 									/>
 								}
 							>
-								<SlidersHorizontalIcon />
+								<FunnelSimpleIcon />
 							</DropdownMenuTrigger>
 							<FluidDropdownMenuContent align="end" className="w-56">
 								{groupFilter.menu}
-								{FILTERS.map(([id, label]) => (
-									<DropdownMenuCheckboxItem
-										checked={statusFilters.includes(id)}
-										closeOnClick={false}
-										key={id}
-										onCheckedChange={() => toggleStatus(id)}
-									>
-										{label}
-									</DropdownMenuCheckboxItem>
-								))}
 							</FluidDropdownMenuContent>
 						</DropdownMenu>
 					)}
@@ -335,15 +312,6 @@ export function SpaceDirectory(input: {
 				(groupFilter.selected.length > 0 || statusFilters.length > 0) && (
 					<div className="flex flex-wrap items-center gap-1 px-[var(--app-page-inline-padding)] pb-3">
 						{groupFilter.badges}
-						{FILTERS.filter(([id]) => statusFilters.includes(id)).map(
-							([id, label]) => (
-								<SidebarFilterBadge
-									key={id}
-									label={label}
-									onRemove={() => toggleStatus(id)}
-								/>
-							)
-						)}
 					</div>
 				)}
 			{input.savedViewWarning && (
