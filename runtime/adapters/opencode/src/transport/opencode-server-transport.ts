@@ -24,6 +24,7 @@ import type {
 } from "@openmeld/adapter-core";
 import {
   buildCliLaunchInvocation,
+  createProviderOriginalError,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
 import { isLikelyOpenCodeContextLostError } from "../context/opencode-context-heal.js";
@@ -35,8 +36,8 @@ import {
 
 const SERVER_HOSTNAME = "127.0.0.1";
 const SERVER_HEALTH_TIMEOUT_MS = 5000;
-const SERVER_INITIAL_STARTUP_TIMEOUT_MS = 5000;
 const SERVER_STARTUP_TIMEOUT_MS = 15_000;
+const SERVER_MAX_START_ATTEMPTS = 2;
 const SERVER_PROCESS_KILL_GRACE_MS = 1000;
 const SERVER_PROCESS_CLOSE_TIMEOUT_MS = 2000;
 const MAX_STDERR_CHARS = 16_000;
@@ -280,23 +281,20 @@ async function forkOpenCodeSessionWithClient(input: {
 async function startHealthyOpenCodeServer(
   input: OpenCodeServerLifecycleInput & { deadlineMs: number | null }
 ): Promise<{ server: OpenCodeServerProcess; serverUrl: string }> {
-  const startupTimeoutLimits = [
-    SERVER_INITIAL_STARTUP_TIMEOUT_MS,
-    SERVER_STARTUP_TIMEOUT_MS,
-  ];
   let lastError: OpenCodeServerTransportError | null = null;
 
-  for (const [
-    attemptIndex,
-    startupTimeoutLimitMs,
-  ] of startupTimeoutLimits.entries()) {
+  for (
+    let attemptIndex = 0;
+    attemptIndex < SERVER_MAX_START_ATTEMPTS;
+    attemptIndex += 1
+  ) {
     const remainingTimeoutMs = readRemainingTimeoutMs(input.deadlineMs);
     if (remainingTimeoutMs !== null && remainingTimeoutMs <= 0) {
       break;
     }
     const startupTimeoutMs = Math.min(
       remainingTimeoutMs ?? Number.POSITIVE_INFINITY,
-      startupTimeoutLimitMs
+      SERVER_STARTUP_TIMEOUT_MS
     );
     const attempt = await runOpenCodeServerStartAttempt({
       ...input,
@@ -306,11 +304,21 @@ async function startHealthyOpenCodeServer(
     if (attempt.status === "success") {
       return { server: attempt.server, serverUrl: attempt.serverUrl };
     }
-    lastError = attempt.error;
+    lastError = new OpenCodeServerTransportError({
+      ...attempt.error,
+      message: `${attempt.error.message} OpenCode server ${attempt.phase === "startup" ? "startup" : "health check"} failed on attempt ${attemptIndex + 1} of ${SERVER_MAX_START_ATTEMPTS}. No Agent task was sent.`,
+      originalError:
+        createProviderOriginalError(
+          [
+            `OpenCode server ${attempt.phase}, attempt ${attemptIndex + 1} of ${SERVER_MAX_START_ATTEMPTS}.`,
+            attempt.error.originalError ?? attempt.error.message,
+          ].join("\n")
+        ) ?? undefined,
+    });
     if (!attempt.serverExited) {
       throw createOpenCodeServerCleanupError();
     }
-    const hasNextAttempt = attemptIndex < startupTimeoutLimits.length - 1;
+    const hasNextAttempt = attemptIndex < SERVER_MAX_START_ATTEMPTS - 1;
     if (
       !shouldRetryOpenCodeServerStart({
         attempt,
@@ -440,6 +448,7 @@ function logOpenCodeServerStartRetry(input: {
   console.warn("[openmeld.opencode.server_start.retry]", {
     attempt: input.attemptIndex + 1,
     errorCode: input.attempt.error.code,
+    originalError: input.attempt.error.originalError ?? null,
     nextAttempt: input.attemptIndex + 2,
     phase: input.attempt.phase,
     reasonCode: startupTimedOut
@@ -1287,7 +1296,7 @@ class OpenCodeServerProcess {
       startup,
       timeoutAfter(
         this.#startupTimeoutMs,
-        "Timed out waiting for opencode serve to start."
+        `OpenCode did not open its local server within ${this.#startupTimeoutMs}ms.`
       ),
     ]);
   }
@@ -1582,7 +1591,16 @@ function toOpenCodeServerTransportError(
   stderr: string
 ): OpenCodeServerTransportError {
   if (error instanceof OpenCodeServerTransportError) {
-    return error;
+    const originalError = createProviderOriginalError(
+      [error.originalError ?? error.message, normalizeOptionalText(stderr)]
+        .filter(Boolean)
+        .join("\n")
+    );
+    return new OpenCodeServerTransportError({
+      ...error,
+      message: error.message,
+      originalError: originalError ?? undefined,
+    });
   }
   const message = [
     error instanceof Error ? error.message : String(error),
