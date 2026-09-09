@@ -71,6 +71,10 @@ brand mark, such as Codex, Claude Code, Grok Build, Cursor, or OpenCode, because
 recognize how that profile runs. Rebinding an ordinary Agent Profile updates
 that mark. An unbound or unknown controller uses the generic agent fallback;
 it must not invent Controller branding.
+Local Agent message headers show the owner's name after a middle dot, without
+an owner avatar or prefix. Profile popovers place availability beside the Agent
+name and show `Owned by` with the owner's small Human Profile avatar and name.
+Hosted Agents retain the `Hosted by OpenMeld` message attribution.
 
 OpenMeld also has Human Profiles. A default Human Profile is created for the
 signed-in user and is the right identity when a human or their current AI

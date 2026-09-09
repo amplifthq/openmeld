@@ -754,7 +754,7 @@ import {
   disablePrimaryAgentProfileBindingRecord,
   listEnabledPrimaryAgentProfileBindingRecordsForProfile,
   listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController,
-  listPrimaryAgentProfileBindingRecords,
+  listPrimaryAgentProfileControllerRefs,
   MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE,
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
@@ -6145,7 +6145,6 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
       agentProfiles: eligibleAgentProfiles,
       env,
       organizationId,
-      viewerUserId: activeOrganization.userId,
     });
   const response = {
     agentProfiles: eligibleAgentProfiles.map((profile) => ({
@@ -6296,34 +6295,19 @@ async function readProfileDirectoryAgentControllerRefs(input: {
   agentProfiles: readonly EligibleOrganizationAgentProfile[];
   env: CoreBindings;
   organizationId: string;
-  viewerUserId: string;
 }): Promise<ReadonlyMap<string, string>> {
-  const ownedProfileIds = input.agentProfiles
-    .filter((profile) => profile.ownerUserId === input.viewerUserId)
-    .map((profile) => profile.profileId);
-  if (ownedProfileIds.length === 0) {
-    return new Map();
-  }
   try {
-    const bindings = await listPrimaryAgentProfileBindingRecords({
-      agentProfileIds: ownedProfileIds,
+    return await listPrimaryAgentProfileControllerRefs({
+      profiles: input.agentProfiles,
       db: requireAgentProfileBindingDb(input.env),
-      owner: { id: input.viewerUserId, kind: "owner_account" },
     });
-    return new Map(
-      bindings.map((binding) => [
-        binding.agentProfileId,
-        binding.agentControllerRef,
-      ])
-    );
   } catch (error) {
     console.warn(
       "[core.organization_profile_directory.binding_summary_failed]",
       {
         error: error instanceof Error ? error.message : String(error),
         organizationId: input.organizationId,
-        ownerUserId: input.viewerUserId,
-        profileCount: ownedProfileIds.length,
+        profileCount: input.agentProfiles.length,
       }
     );
     return new Map();

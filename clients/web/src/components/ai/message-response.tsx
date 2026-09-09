@@ -7,8 +7,8 @@ import { defaultRemarkPlugins, Streamdown } from "streamdown";
 
 const ALLOWED_MARKDOWN_PROTOCOLS = new Set(["https:", "mailto:"]);
 const ALLOWED_INTERNAL_SPACE_PATH_PATTERN = /^\/spaces\/[0-9a-f]{64}$/;
-const ALLOWED_INTERNAL_AGENT_MENTION_PATH_PATTERN =
-	/^\/__openmeld\/message-agent-mentions\/[^/?#]+(?:\?relation=(?:wake|reference))?$/;
+const ALLOWED_INTERNAL_PROFILE_MENTION_PATH_PATTERN =
+	/^\/__openmeld\/message-profile-mentions\/[^/?#]+(?:\?relation=(?:wake|reference|mention))?$/;
 const MESSAGE_RESPONSE_STYLE = { overflowWrap: "anywhere" } as const;
 const STREAMDOWN_ANIMATION = { animation: "blurIn" } as const;
 const STREAMDOWN_DISALLOWED_ELEMENTS = ["img"];
@@ -200,7 +200,7 @@ function transformSafeMarkdownUrl(url: string) {
 function isAllowedInternalMessagePath(url: string): boolean {
 	return (
 		ALLOWED_INTERNAL_SPACE_PATH_PATTERN.test(url) ||
-		ALLOWED_INTERNAL_AGENT_MENTION_PATH_PATTERN.test(url)
+		ALLOWED_INTERNAL_PROFILE_MENTION_PATH_PATTERN.test(url)
 	);
 }
 

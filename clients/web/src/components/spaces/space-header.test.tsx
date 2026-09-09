@@ -205,21 +205,23 @@ describe("SpaceHeader", () => {
 		);
 	});
 
-	it("labels local Agent chats beside the live status", () => {
+	it("places viewer access beside the title instead of the tabs", () => {
 		render(
 			createSpaceHeader({
+				directMessageOwnerVisibilityLabel: "Mira can view",
 				memberCount: 2,
 				spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 			})
 		);
 
-		const directMessageLabel = screen.getByText("Local Agent");
+		const directMessageLabel = screen.getByText("Mira can view");
 		const titleRow = directMessageLabel.closest(
 			'[data-slot="space-window-header-title"]'
 		);
 
 		expect(titleRow).not.toBeNull();
-		expect(titleRow?.textContent).toContain("Local Agent");
+		expect(titleRow?.textContent).toContain("Mira can view");
+		expect(screen.queryByText("Local Agent")).toBeNull();
 		expect(screen.queryByText("Direct Message")).toBeNull();
 		expect(screen.queryByText("2 members")).toBeNull();
 		expect(screen.queryByText("1 human live")).toBeNull();
@@ -441,7 +443,7 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		expect(screen.getByText("Local Agent")).toBeTruthy();
+		expect(screen.queryByText("Local Agent")).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		const dialog = screen.getByRole("dialog");
@@ -990,6 +992,7 @@ function createSpaceHeader(
 	input: {
 		accessMode?: SpaceAccessMode;
 		currentProfileName?: string | null;
+		directMessageOwnerVisibilityLabel?: string | null;
 		onSetAccessMode?: (input: {
 			accessMode: SpaceAccessMode;
 			password?: string;
@@ -1020,6 +1023,9 @@ function createSpaceHeader(
 					canManageSpaceName={input.showDeleteSpaceAction ?? true}
 					currentProfileName={input.currentProfileName ?? null}
 					deleteSpaceErrorMessage={null}
+					directMessageOwnerVisibilityLabel={
+						input.directMessageOwnerVisibilityLabel
+					}
 					hideShareControl={input.isCenterAgentDirectMessage}
 					isAccessModePending={false}
 					isCenterAgentDirectMessage={input.isCenterAgentDirectMessage}
