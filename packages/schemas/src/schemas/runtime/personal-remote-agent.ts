@@ -7,6 +7,7 @@ const identifier = z.string().trim().min(1).max(256);
 export const personalRemoteAgentSpaceToolRequestSchema = z.strictObject({
   submissionId: identifier,
   operation: z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("authorize") }),
     z.strictObject({ kind: z.literal("members") }),
     z.strictObject({ kind: z.literal("messages") }),
     z.strictObject({ kind: z.literal("board") }),
@@ -25,6 +26,7 @@ export const personalRemoteAgentSpaceToolRequestSchema = z.strictObject({
 export const personalRemoteAgentSpaceToolResponseSchema = z.discriminatedUnion(
   "kind",
   [
+    z.strictObject({ kind: z.literal("authorize") }),
     z.strictObject({
       kind: z.literal("board"),
       board: spaceBoardResponseSchema,

@@ -341,10 +341,10 @@ digest-mismatched content.
 
 ## Center Agent And Flue Runtime
 
-Flue is the only model-visible Skill runtime for the hosted Center Agent.
+Flue is the only model-visible Skill runtime for hosted Center and personal Agents.
 OpenMeld does not also mount Cloudflare `agents/skills` tools in the same turn.
 
-For every admitted Center Agent turn or Routine Run:
+For every admitted Center Agent turn, personal Remote Agent turn, or Routine Run:
 
 1. the immutable execution context establishes Organization and represented
    member identity;
@@ -355,6 +355,11 @@ For every admitted Center Agent turn or Routine Run:
 5. the Flue adapter constructs definition-provided Skills through Flue's public
    API;
 6. Flue owns catalog disclosure, `activate_skill`, and lazy resource reads.
+
+Personal runtime reads and activation records validate the active native delivery,
+current membership, and Binding through the shared Remote tool caller. They do
+not require or acquire Center designation. Skill administration remains governed
+by the existing Center and human-management permissions.
 
 OpenMeld keeps Sandbox workspace discovery disabled. Files written by the model
 or tools into a long-lived Sandbox must not become later `AGENTS.md`,

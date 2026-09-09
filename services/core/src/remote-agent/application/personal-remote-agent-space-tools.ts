@@ -22,15 +22,18 @@ import {
   resolveFormalSpaceUpdateActorName,
   resolveFormalSpaceUpdateActorProfileId,
 } from "../../space/rules/formal-space-update";
-import { readRemoteAgentNativeDeliveryBySubmissionId } from "../infrastructure/d1/native-delivery-ledger-repo";
+import {
+  readRemoteAgentNativeDeliveryByIdempotencyKey,
+  readRemoteAgentNativeDeliveryBySubmissionId,
+} from "../infrastructure/d1/native-delivery-ledger-repo";
 import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 
-export async function runPersonalRemoteAgentSpaceTool(
+export async function requirePersonalRemoteAgentExecution(
   env: CoreBindings,
-  value: unknown
+  submissionId: string,
+  skillPreparationKey?: string
 ) {
-  const input = personalRemoteAgentSpaceToolRequestSchema.parse(value);
   const db = identityDb(env);
   if (!db) {
     throw new Error("remote_agent.identity_store_unavailable");
@@ -39,11 +42,27 @@ export async function runPersonalRemoteAgentSpaceTool(
   if (!evidenceDb) {
     throw new Error("remote_agent.execution_store_unavailable");
   }
-  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
-    db: evidenceDb,
-    submissionId: input.submissionId,
-  });
-  if (!delivery || delivery.status !== "accepted") {
+  const delivery = skillPreparationKey
+    ? await readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: evidenceDb,
+        idempotencyKey: skillPreparationKey,
+      })
+    : await readRemoteAgentNativeDeliveryBySubmissionId({
+        db: evidenceDb,
+        submissionId,
+      });
+  // Skill bytes are loaded before the worker acknowledgement reaches Core.
+  // Only that read-only preparation path may use a durable submitted request.
+  const preparingSkills =
+    skillPreparationKey &&
+    delivery?.status === "submitted" &&
+    !delivery.submissionId;
+  if (
+    !delivery ||
+    (!preparingSkills &&
+      (delivery.status !== "accepted" ||
+        delivery.submissionId !== submissionId))
+  ) {
     throw new Error("remote_agent.execution_not_active");
   }
   resolveRemoteAgentNativeDeliveryRuntimeConversationId(delivery);
@@ -75,10 +94,10 @@ export async function runPersonalRemoteAgentSpaceTool(
       ownerUserId: request.agentProfileOwnerUserId,
       openMeldProfileId: delivery.profileId,
       profileKind: "agent" as const,
-      requestId: `personal-agent-tool:${input.submissionId}`,
+      requestId: `personal-agent-tool:${submissionId}`,
       ...request.spaceDispatchContext,
     },
-    agentControllerConversationId: input.submissionId,
+    agentControllerConversationId: submissionId,
   };
   const directory = await rpcGetSpaceMemberDirectory(env, {
     context,
@@ -101,6 +120,29 @@ export async function runPersonalRemoteAgentSpaceTool(
     .first();
   if (!activeRequester) {
     throw new Error("remote_agent.requester_membership_revoked");
+  }
+  return {
+    context,
+    delivery,
+    directory,
+    request,
+    db,
+    agent,
+    spaceDispatchContext: request.spaceDispatchContext,
+  };
+}
+
+export async function runPersonalRemoteAgentSpaceTool(
+  env: CoreBindings,
+  value: unknown
+) {
+  const input = personalRemoteAgentSpaceToolRequestSchema.parse(value);
+  const { context, delivery, directory, request, agent, spaceDispatchContext } =
+    await requirePersonalRemoteAgentExecution(env, input.submissionId);
+  if (input.operation.kind === "authorize") {
+    return personalRemoteAgentSpaceToolResponseSchema.parse({
+      kind: "authorize",
+    });
   }
   if (input.operation.kind === "board") {
     return personalRemoteAgentSpaceToolResponseSchema.parse({
@@ -165,7 +207,7 @@ export async function runPersonalRemoteAgentSpaceTool(
       })),
     });
   }
-  if (request.spaceDispatchContext.autoRelayDepth >= 6) {
+  if (spaceDispatchContext.autoRelayDepth >= 6) {
     throw new Error("remote_agent.collaboration_limit_reached");
   }
   const operation = input.operation;
