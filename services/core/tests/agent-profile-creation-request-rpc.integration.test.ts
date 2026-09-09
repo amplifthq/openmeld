@@ -320,7 +320,7 @@ describe("Agent Profile creation request RPC", () => {
           lane: "dev-local",
           connectionGeneration: 1,
           lastHeartbeatMs: Date.now(),
-          serviceVersion: "0.3.164",
+          serviceVersion: "999.0.0",
           executionCompatibility: {
             status: "compatible",
             expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
