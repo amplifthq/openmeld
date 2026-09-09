@@ -75,7 +75,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
       ctx: this.ctx,
       loader: this.env.LOADER,
       browser: this.env.BROWSER,
-      name: `browser:${spaceId}`,
+      name: "agent-browser",
       session: { mode: "one-shot" },
       quickActions: false,
       timeout: 30_000,
