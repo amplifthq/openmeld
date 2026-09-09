@@ -511,6 +511,8 @@ ${args}
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
   <key>ThrottleInterval</key>
   <integer>${DAEMON_SERVICE_RESTART_BACKOFF_SECONDS}</integer>
   <key>EnvironmentVariables</key>

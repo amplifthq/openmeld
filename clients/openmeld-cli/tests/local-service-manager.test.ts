@@ -302,6 +302,11 @@ describe("local service manager helpers", () => {
     expect(plist).not.toContain(`<string>${process.execPath}</string>`);
     expect(plist).toContain("<key>RunAtLoad</key>\n  <true/>");
     expect(plist).toContain("<key>KeepAlive</key>\n  <true/>");
+    // A Space user is waiting on this process; macOS must not classify its
+    // execution carrier as discretionary background maintenance.
+    expect(plist).toContain(
+      "<key>ProcessType</key>\n  <string>Interactive</string>"
+    );
     expect(plist).toContain(
       "<key>ThrottleInterval</key>\n  <integer>60</integer>"
     );
