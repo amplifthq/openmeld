@@ -6,6 +6,7 @@ import type {
   SpaceMembersSnapshot,
   SpaceStatusMembersSummary,
 } from "@openmeld/schemas/types";
+import type { AuthProfileFacts } from "../../auth/application/profile-facts-reader";
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import { type CoreBindings, identityDb } from "../../lib/bindings";
 import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
@@ -29,6 +30,7 @@ type SpaceStatusSummaryTiming = {
 };
 
 export async function readSpaceStatusSummaryUseCase(input: {
+  profileFacts?: AuthProfileFacts | null;
   sql: SqlStorage;
   env: CoreBindings;
   spaceId: string;
@@ -63,6 +65,7 @@ export async function readSpaceStatusSummaryUseCase(input: {
     "read members summary",
     () =>
       readSpaceStatusMembersSummaryUseCase({
+        profileFacts: input.profileFacts,
         sql: input.sql,
         env: input.env,
         spaceId: input.spaceId,

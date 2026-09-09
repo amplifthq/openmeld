@@ -4963,6 +4963,12 @@ Index projection outbox. Account working summaries resolve each distinct active
 Agent through Auth, without making the cross-Space index a membership writer.
 Space-wide name refresh uses bounded Auth fact batches instead of one RPC per
 member. It stops launching batches after the existing display-read deadline.
+Status and member snapshots reuse a successful refresh's validated Auth facts
+for Core readiness within that same request. Missing Profiles remain explicit
+nulls; a failed or timed-out display refresh provides no identity evidence and
+readiness performs its normal authoritative lookup. Nothing is cached across
+requests, and Wake admission still reads its own current facts. Reuse does not
+skip Core's identity, ownership, Organization, Binding or execution checks.
 Refresh preserves membership, ownership, removal and aliases. It re-reads the
 member after the Auth call so a concurrent removal or changed name wins. Failed
 or mismatched identity reads do not write names: the last known snapshot remains
