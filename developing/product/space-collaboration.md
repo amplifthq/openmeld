@@ -777,6 +777,33 @@ active Space Wake children. Core attempts all of those targets before reporting
 an aggregate failure; retry reuses the same exact Task Handles and cannot
 publish a stopped continuation.
 
+## Message Reactions
+
+An active Human member can add standard Unicode emoji reactions to persisted
+Human or Agent text messages, including thread replies. Selecting the same emoji
+again removes only that person's reaction. Multiple people share an emoji count;
+each person can use more than one emoji, once per emoji per message.
+
+Reactions share one row with message actions beneath their source message, before
+its thread preview. On self-authored messages the row starts at the bubble’s left
+edge and stays within its width. Overflow reactions appear in a +N pill that
+opens on hover or click. Emoji groups retain their first-added order while any
+member still uses them; a fully removed group returns at the end if added again. The
+message action bar opens a compact set of common emoji and an optional full
+picker. Existing reactions show counts and the viewer's selected state. Members
+can inspect who reacted, including a paginated complete list when needed.
+
+Reactions are quiet feedback. They do not create messages, unread activity, Wakes,
+task completion, or execution approval. Removing the last reaction removes its
+chip. Failed changes restore the confirmed state and offer a retry.
+
+Authorized Human and Agent message reads include the current reaction state,
+participant identities, and explicit preview truncation. This applies to Local,
+Center, and personal Remote Agent context reads within their existing access
+boundaries. Reading new-message deltas alone does not discover changes to older
+messages; reread the source message to obtain its current reactions. Agents do
+not write reactions in this first version.
+
 ## Threads
 
 A Space Thread is conversation placement under one root Space message.

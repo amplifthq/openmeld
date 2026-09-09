@@ -168,6 +168,9 @@ async function materializeEntry(input: {
           input.signal.data.replyTo?.signalId ??
           null,
         text: originalText,
+        ...(input.signal.reactions
+          ? { reactions: input.signal.reactions }
+          : {}),
       },
       id: input.signal.id,
       profile: {
@@ -199,7 +202,15 @@ async function materializeEntry(input: {
       truncated: false,
       type: "text",
     },
-    materializedContentHash: await sha256(originalText),
+    ...(input.signal.reactions ? { reactions: input.signal.reactions } : {}),
+    materializedContentHash: await sha256(
+      input.signal.reactions
+        ? JSON.stringify({
+            text: originalText,
+            reactions: input.signal.reactions,
+          })
+        : originalText
+    ),
     occurredAt: new Date(input.signal.ts).toISOString(),
     redactions,
     ...((input.signal.data.messageEnvelope?.replyToSignalId ??
@@ -255,7 +266,11 @@ async function buildTruncatedEntry(
   return {
     ...entry,
     content: { ...entry.content, text, truncated: true },
-    materializedContentHash: await sha256(text),
+    materializedContentHash: await sha256(
+      entry.reactions
+        ? JSON.stringify({ text, reactions: entry.reactions })
+        : text
+    ),
     redactions: [
       ...entry.redactions,
       ...(entry.redactions.includes("message_content_budget")

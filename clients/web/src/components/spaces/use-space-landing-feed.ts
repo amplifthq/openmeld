@@ -37,6 +37,7 @@ import {
 } from "#/query/spaces/history";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import { messageReactionsKey } from "./space-message-reactions";
 import { useSpaceConversation } from "./use-space-conversation";
 
 const LIVE_RECONNECT_STATUS =
@@ -860,6 +861,13 @@ export function useSpaceLandingFeed(input: {
 			}
 
 			hasAcceptedLiveSession = true;
+			// A message cursor cannot recover reactions changed on older messages.
+			// Refresh mounted reaction snapshots only after reconnect, not every initial read.
+			if (reconnectKey > 0) {
+				queryClient
+					.invalidateQueries({ queryKey: messageReactionsKey(input.spaceId) })
+					.catch(() => undefined);
+			}
 			readySocketAttemptKeyRef.current = socketAttemptKey;
 			markConnected();
 			if (historyReadyRef.current) {
@@ -1144,6 +1152,14 @@ function handleLiveInvalidationMessage(
 		return;
 	}
 
+	if (frame.type === "space.reactions.changed") {
+		for (const signalId of frame.signalIds ?? []) {
+			input.queryClient.invalidateQueries({
+				queryKey: messageReactionsKey(input.spaceId, signalId),
+			});
+		}
+		return;
+	}
 	if (frame.type !== "wake.progress.changed") {
 		debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
 	}

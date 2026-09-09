@@ -18,6 +18,7 @@ import type {
   GetSpaceEntryResolutionInput,
   GetSpaceEntryResolutionResponse,
   GetSpaceMessageDetailsResponse,
+  GetSpaceMessageReactionsResponse,
   GetSpaceStatusResponse,
   GetSpaceThreadResponse,
   GetSpaceUpdatesResponse,
@@ -62,6 +63,10 @@ import type {
 import type { OpenMeldApiClientFoundation } from "../client";
 import type { UploadSpaceAttachmentInput } from "./attachments";
 import type { SpaceFileContent, SpaceFileContentBytes } from "./files";
+import type {
+  ReadMessageReactionsInput,
+  SetMessageReactionInput,
+} from "./message-reactions";
 
 export type {
   CreateSpaceDiagnosticReportBody,
@@ -124,6 +129,12 @@ export type SetSpaceAccessModeInput = SpaceRequestInput &
 export type UpdateSpaceMetaInput = SpaceRequestInput & PatchSpaceMetaBody;
 
 export type SpaceApi = {
+  getMessageReactions(
+    input: ReadMessageReactionsInput
+  ): Promise<GetSpaceMessageReactionsResponse>;
+  setMessageReaction(
+    input: SetMessageReactionInput
+  ): Promise<GetSpaceMessageReactionsResponse>;
   createSpace: (input: CreateSpaceInput) => Promise<CreateSpaceResponse>;
   deleteSpace: (input: SpaceRequestInput) => Promise<DeleteSpaceResponse>;
   joinSpace: (input: SpaceRequestInput) => Promise<PostSpaceMembersResponse>;

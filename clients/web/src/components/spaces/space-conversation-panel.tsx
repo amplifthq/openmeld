@@ -171,6 +171,7 @@ import {
 } from "./space-message-profile-mention";
 import { shouldPlaceSpaceMessageProgressInAnswer } from "./space-message-progress-placement";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
+import { resolveMessageReactionInput } from "./space-message-reactions";
 import {
 	EMPTY_SPACE_MESSAGE_REFERENCES,
 	hasResolvedSpaceMessageReference,
@@ -2666,6 +2667,18 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 											selfProfileId: input.selfProfileId,
 											threadsByRootSignalId: input.threadsByRootSignalId,
 										})}
+										<ThreadPreview
+											membersSnapshot={input.membersSnapshot}
+											onOpenThread={input.onOpenThread}
+											preview={
+												input.threadPreviewByThreadId.get(
+													input.threadsByRootSignalId.get(item.id)?.threadId ??
+														""
+												) ?? null
+											}
+											spaceReferencesById={input.spaceReferencesById}
+											thread={input.threadsByRootSignalId.get(item.id) ?? null}
+										/>
 									</div>
 								</BubbleGroup>
 							</MessageContent>
@@ -2789,17 +2802,6 @@ function ConversationBubbleContent(input: {
 				}),
 			})}
 			<ReplyStalenessMarker align={input.messageAlign} item={input.item} />
-			<ThreadPreview
-				membersSnapshot={parent.membersSnapshot}
-				onOpenThread={parent.onOpenThread}
-				preview={
-					parent.threadPreviewByThreadId.get(
-						parent.threadsByRootSignalId.get(input.item.id)?.threadId ?? ""
-					) ?? null
-				}
-				spaceReferencesById={parent.spaceReferencesById}
-				thread={parent.threadsByRootSignalId.get(input.item.id) ?? null}
-			/>
 			{renderAnchoredSpaceOutcomeRows({
 				align: input.messageAlign,
 				notices: input.anchoredOutcomeNotices,
@@ -3167,6 +3169,11 @@ function renderConversationMessageFooter(input: {
 					organizationSlug: input.orgSlug,
 				})
 			}
+			reaction={resolveMessageReactionInput(
+				input.item,
+				input.selfProfileId,
+				!input.canUseMessageActions
+			)}
 			reply={
 				canUseCollaborationActions
 					? {

@@ -296,6 +296,7 @@ async function readSpaceContinuityEntryDrafts(input: {
         text: entry.content.text,
         truncated: entry.content.truncated,
       },
+      ...(entry.reactions ? { reactions: entry.reactions } : {}),
       occurredAt: entry.occurredAt,
       source: {
         kind: "space_signal" as const,
@@ -388,7 +389,14 @@ async function boundContinuityEntries(
       ...draft,
       content: {
         ...draft.content,
-        materializedContentHash: await sha256(draft.content.text),
+        materializedContentHash: await sha256(
+          draft.reactions
+            ? JSON.stringify({
+                text: draft.content.text,
+                reactions: draft.reactions,
+              })
+            : draft.content.text
+        ),
       },
     }))
   );

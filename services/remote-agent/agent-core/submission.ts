@@ -478,6 +478,7 @@ function renderRemoteAgentConversationContinuityContext(
       occurredAt: entry.occurredAt,
       source: entry.source,
       text: entry.content.text,
+      ...(entry.reactions ? { reactions: entry.reactions } : {}),
       truncated: entry.content.truncated,
     })
   );

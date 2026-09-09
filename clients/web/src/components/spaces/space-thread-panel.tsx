@@ -135,6 +135,7 @@ import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import type { SpaceProfileTriggerRenderer } from "./space-message-profile-mention";
 import { shouldPlaceSpaceMessageProgressInAnswer } from "./space-message-progress-placement";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
+import { resolveMessageReactionInput } from "./space-message-reactions";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 import {
 	groupAnchoredOutcomeNotices,
@@ -1569,6 +1570,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						onOpenMessageDetails={input.onOpenMessageDetails}
 						openMeldProfileId={input.selfProfileId}
 						organizationSlug={input.orgSlug}
+						readOnly={input.readOnly}
 					/>
 				</MessageContent>
 			</Message>
@@ -1577,6 +1579,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 });
 
 function ThreadTimelineMessageFooter(input: {
+	readOnly?: boolean;
 	addressingTargets: ReturnType<
 		typeof resolveSpaceMessageFooterAddressingTargets
 	>;
@@ -1618,6 +1621,11 @@ function ThreadTimelineMessageFooter(input: {
 					organizationSlug: input.organizationSlug,
 				})
 			}
+			reaction={resolveMessageReactionInput(
+				input.item,
+				input.openMeldProfileId,
+				input.readOnly
+			)}
 			timestamp={THREAD_TIME_FORMATTER.format(input.item.createdAtMs)}
 		/>
 	);
