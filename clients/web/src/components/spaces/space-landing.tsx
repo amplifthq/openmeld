@@ -1701,6 +1701,7 @@ function SpaceLandingReady({
 							onLeaveSpace={currentProfileLeaveAction}
 							onReconnectLiveUpdates={controller.onReconnectLiveUpdates}
 							onSetAccessMode={controller.onSetAccessMode}
+							onSetVisibility={controller.onSetVisibility}
 							onUpdateSpaceName={controller.onUpdateSpaceName}
 							renderFrame={false}
 							setupRecallAction={setupRecallAction}

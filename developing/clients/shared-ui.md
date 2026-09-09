@@ -42,6 +42,13 @@ hover or keyboard focus, with open-menu and touch-device visibility preserved.
 
 ## Import Rule
 
+`fluid/dialog` adapts the official Fluid Functionalism Base UI Dialog registry
+(September 9, 2026). It owns the small/large/extra-large width ladder and elevated
+surface, while reusing `components/dialog` for portal, focus, dismissal, and CSS
+motion. It does not add a second state or animation engine. Reduced motion
+removes panel animation. Product settings compose the existing `SettingsNav`
+and `ScrollArea`; product sections and mutation rules remain Web-owned.
+
 ### Scroll ownership
 
 `@openmeld/ui/fluid/scroll-area` owns scroll presentation. It adapts Fluid

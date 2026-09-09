@@ -20,7 +20,7 @@ import {
 	SpaceHeaderNavigationMenu,
 	type SpaceHeaderNavigationMenuItem,
 } from "./space-header-navigation-menu";
-import { SpaceInfoDialog } from "./space-info-dialog";
+import { SpaceSettingsDialog } from "./space-settings-dialog";
 import { SpaceShareDialog } from "./space-share-dialog";
 
 export type SpaceWindowHeaderSubtitleItem = {
@@ -171,6 +171,7 @@ export function SpaceHeader(input: {
 		password?: string;
 	}) => Promise<void>;
 	onUpdateSpaceName: (name: string) => Promise<void>;
+	onSetVisibility?: (visibility: "public" | "private") => Promise<void>;
 	spaceNameErrorMessage: string | null;
 	status: GetSpaceStatusResponse;
 }) {
@@ -242,7 +243,7 @@ export function SpaceHeader(input: {
 								}}
 							/>
 						) : null}
-						<SpaceInfoDialog
+						<SpaceSettingsDialog
 							access={{
 								canManage: input.canManageSpaceAccess,
 								errorMessage: input.accessModeErrorMessage,
@@ -278,9 +279,11 @@ export function SpaceHeader(input: {
 							onOpenChange={
 								input.menuItems ? setSpaceInformationOpen : undefined
 							}
+							onSetVisibility={input.onSetVisibility}
 							open={input.menuItems ? spaceInformationOpen : undefined}
 							showTrigger={!input.menuItems}
 							spaceId={input.status.spaceId}
+							visibility={input.status.organizationVisibility}
 						/>
 					</div>
 				</>

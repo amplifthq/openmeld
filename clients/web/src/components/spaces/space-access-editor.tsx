@@ -25,10 +25,10 @@ export type SpaceAccessUpdateInput = {
 };
 
 export const PUBLIC_SPACE_ACCESS_JOIN_WARNING =
-	"Anyone with the Space ID can join.";
+	"Anyone with the link can join.";
 export const PUBLIC_SPACE_ACCESS_DESCRIPTION = `No password. ${PUBLIC_SPACE_ACCESS_JOIN_WARNING}`;
 export const PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP =
-	"This Space is public. Anyone with the Space ID can view and join.";
+	"Anyone with the link can view and join, including people outside your organization.";
 
 const SPACE_ACCESS_WARNING_TEXT_CLASS_NAME =
 	"text-amber-600 dark:text-amber-400";
@@ -134,7 +134,9 @@ export function SpaceAccessEditor(input: {
 }) {
 	return (
 		<div className={cn("min-w-0 space-y-4", input.className)}>
-			<SpaceAccessSummary accessMode={input.accessMode} />
+			{!input.canManageAccess && (
+				<SpaceAccessSummary accessMode={input.accessMode} />
+			)}
 
 			{input.canManageAccess ? (
 				<SpaceAccessControls

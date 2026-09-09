@@ -2772,7 +2772,14 @@ Auth, or hide the unfinished choice behind a completed badge.
 
 Web presents a Space as a collaboration room and visible outcome surface.
 
-**Space information** presents the canonical Space name. The creator profile,
+**Space settings** uses the shared Fluid Dialog and Settings navigation, with
+General, Access, and Advanced sections. General contains the canonical name and
+the existing global browser-notification control. Access separates organization
+directory listing from link access; changing either never implicitly changes the
+other. Advanced contains Space ID, CLI join command, joined profile, and existing
+confirmed leave/delete actions. **Chat settings** shares the same composition but
+omits Access, CLI join, and lifecycle mutations while the conversation is a DM.
+The creator profile,
 or the owning Human Profile for an Agent-created Space, gets an inline editor
 that trims the submitted value and enforces the shared non-empty 80-character
 contract. Other viewers see the name read-only. Center Agent Direct Messages

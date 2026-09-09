@@ -8,9 +8,9 @@ vi.mock("./space-access-editor", () => ({
 	PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP: "Public Space access warning.",
 }));
 
-vi.mock("./space-info-dialog", () => ({
-	SpaceInfoDialog: () => (
-		<button aria-label="Space information" type="button">
+vi.mock("./space-settings-dialog", () => ({
+	SpaceSettingsDialog: () => (
+		<button aria-label="Space settings" type="button">
 			Info
 		</button>
 	),
