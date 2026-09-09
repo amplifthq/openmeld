@@ -1998,6 +1998,67 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
+	it.each([
+		"wake",
+		"reference",
+	] as const)("offers computer recovery before sending a disconnected %s target", (relation) => {
+		const profileId = "agt_22222222-2222-4222-8222-222222222222";
+		renderSpaceConversationPanel({
+			allowedActions: ["post_message"],
+			readOnly: false,
+			composerText: "@Runner hello",
+			composerAddressingTargets: [
+				{
+					profileId,
+					profileName: "Runner",
+					primaryMentionLabel: "Runner",
+					relation,
+					allowedRelations: { mention: false, reference: true, wake: false },
+					wakeAvailability: {
+						status: "blocked",
+						reasonCodes: ["local_service.not_connected_for_account"],
+						reasonText: "Connect your computer before this Agent can reply.",
+					},
+				},
+			],
+			prepareSetupHref: "/o/acme/connect",
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					profileId,
+					{
+						kind: "review_computer",
+						profileId,
+						profileName: "Runner",
+						primaryActionId: "reconnect_openmeld_service",
+						primaryActionLabel: "Reconnect Computer",
+						recoveryReasonCode: "local_service.not_connected_for_account",
+						title: "Runner’s computer is disconnected",
+						secondaryLabel: "Computer not connected",
+						body: "Reconnect the computer so it can receive local Wake work.",
+					},
+				],
+			]),
+		});
+		const recovery = screen.queryByRole("link", { name: "Reconnect Computer" });
+		if (relation === "wake") {
+			expect(recovery?.getAttribute("href")).toBe("/o/acme/connect");
+			expect(screen.getByText("Computer not connected")).toBeTruthy();
+			expect(
+				screen
+					.getByRole("button", { name: "Send message" })
+					.hasAttribute("disabled")
+			).toBe(true);
+		} else {
+			expect(recovery).toBeNull();
+			expect(screen.queryByText("Computer not connected")).toBeNull();
+			expect(
+				screen
+					.getByRole("button", { name: "Send message" })
+					.hasAttribute("disabled")
+			).toBe(false);
+		}
+	});
+
 	it("shows the current recovery action beside a known blocked Wake", () => {
 		const blockedProfileId = "agt_22222222-2222-4222-8222-222222222222";
 		renderSpaceConversationPanel({

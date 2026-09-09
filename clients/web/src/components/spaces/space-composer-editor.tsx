@@ -42,6 +42,7 @@ import {
 import { Editor, EditorContainer } from "#/components/editor/ui/editor";
 import {
 	InlineCombobox,
+	InlineComboboxCancel,
 	InlineComboboxContent,
 	InlineComboboxEmpty,
 	InlineComboboxGroup,
@@ -125,12 +126,15 @@ type SpaceComposerEditorContextValue = Pick<
 const SpaceComposerEditorContext =
 	createContext<SpaceComposerEditorContextValue | null>(null);
 
-const SpaceComposerEditorKit = [
+export const SpaceComposerEditorKit = [
 	ParagraphPlugin.withComponent(SpaceComposerParagraphElement),
 	MentionPlugin.configure({
 		options: {
 			insertSpaceAfterMention: true,
 			trigger: "@",
+			// Allow natural CJK sentences and punctuation without intercepting email addresses.
+			triggerPreviousCharPattern:
+				/^$|^[\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}，。！？；：、（）【】《》「」『』“”‘’,;:!?()[\]{}<>"']$/u,
 		},
 	}),
 	MentionInputPlugin.withComponent(SpaceComposerMentionInput),
@@ -447,6 +451,12 @@ function SpaceComposerProfileToken(
 		: [];
 	const isRepeatedAgent =
 		profileKind === "agent" && isRepeatedProfileElement(editor, element);
+	const isBlockedWake =
+		profileKind === "agent" &&
+		element.relation === "wake" &&
+		!isRepeatedAgent &&
+		target?.wakeAvailability.status !== "ready" &&
+		target?.wakeAvailability.status !== "preparing";
 	let relationControl: ReactNode = null;
 	if (profileKind === "agent" && choices.length > 0 && !isRepeatedAgent) {
 		const selectedRelationLabel =
@@ -537,7 +547,8 @@ function SpaceComposerProfileToken(
 			<span
 				className={cn(
 					surfaceClasses(surface),
-					"group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 align-baseline text-foreground focus-within:ring-2 focus-within:ring-ring"
+					"group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 align-baseline focus-within:ring-2 focus-within:ring-ring",
+					isBlockedWake ? "text-muted-foreground" : "text-foreground"
 				)}
 				contentEditable={false}
 				data-mention-text={element.mentionText}
@@ -551,7 +562,10 @@ function SpaceComposerProfileToken(
 					@
 				</span>
 				<span
-					className="inline-flex shrink-0"
+					className={cn(
+						"inline-flex shrink-0",
+						isBlockedWake && "opacity-50 grayscale"
+					)}
 					data-slot="space-composer-profile-token-icon"
 				>
 					<SpaceProfileIcon
@@ -638,6 +652,7 @@ function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
 					aria-label="Member options"
 					className="w-[min(24rem,calc(100vw-1.5rem))]"
 				>
+					<InlineComboboxCancel label="Close mentions" />
 					<InlineComboboxEmpty>No matching members</InlineComboboxEmpty>
 					<SpaceComposerMentionGroup items={agentItems} title="Agents" />
 					<SpaceComposerMentionGroup items={humanItems} title="People" />

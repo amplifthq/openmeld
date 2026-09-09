@@ -686,6 +686,7 @@ function SpaceConversationPanelContent(
 						composerSendBlocked={composerSendBlocked}
 						composerTargetName={composerTargetName}
 						input={input}
+						profilePresentationsById={profilePresentationsById}
 						submitComposer={submitComposer}
 					/>
 				</>
@@ -1900,6 +1901,10 @@ function SpaceComposerSection(input: {
 	composerSendBlocked: boolean;
 	composerTargetName: string | null;
 	input: SpaceConversationPanelResolvedProps;
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
 	submitComposer: () => void;
 }) {
 	const panel = input.input;
@@ -1945,13 +1950,24 @@ function SpaceComposerSection(input: {
 						targetName: input.composerTargetName,
 					}}
 					presentation={{ errorClassName: "mt-3" }}
+					recovery={{
+						agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
+						isAgentRecoveryPending: panel.isAgentRecoveryPending,
+						onAgentRecoveryAction: panel.onAgentRecoveryAction,
+						orgSlug: panel.orgSlug,
+						prepareSetupHref: panel.prepareSetupHref,
+					}}
 					slots={{
 						beforePrimaryAction: (
 							<SpaceComposerActiveWakes placement="conversation" />
 						),
 						beforeInput: (
 							<ComposerReplyBanner
-								onClear={panel.onClearComposerReplyTo}
+								onClear={() => {
+									panel.onClearComposerReplyTo();
+									panel.textareaRef.current?.focus();
+								}}
+								profilePresentationsById={input.profilePresentationsById}
 								signalId={panel.composerReplyToSignalId}
 								timelineItems={panel.timelineItems}
 							/>
@@ -1970,29 +1986,35 @@ function SpaceComposerSection(input: {
 
 function ComposerReplyBanner(input: {
 	onClear: () => void;
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
 	signalId: string | null;
 	timelineItems: readonly SpaceTimelineItem[];
 }) {
 	if (!input.signalId) {
 		return null;
 	}
+	const item = input.timelineItems.find(
+		(candidate) => candidate.id === input.signalId
+	);
+	const preview = resolveReplyPreviewText(
+		item?.text ?? "",
+		item,
+		input.profilePresentationsById
+	)
+		.replace(/\s+/g, " ")
+		.trim();
+	const excerpt = preview.length > 100 ? `${preview.slice(0, 100)}…` : preview;
 	return (
 		<div
-			className="mb-2 flex items-center justify-between gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm"
+			className="mx-1 mb-2 flex min-w-0 items-center gap-2 border-border border-b pb-2 text-muted-foreground text-xs"
 			data-slot="composer-reply-banner"
 		>
-			<p className="min-w-0 truncate text-muted-foreground">
-				Replying to{" "}
-				<span className="font-bold text-foreground">
-					{resolveReplyToDisplayText({
-						signalId: input.signalId,
-						timelineItems: input.timelineItems,
-					})}
-				</span>
-			</p>
 			<Button
 				aria-label="Cancel reply"
-				className="size-7 shrink-0"
+				className="size-6 shrink-0 [&_svg]:size-3.5"
 				onClick={input.onClear}
 				size="icon-sm"
 				type="button"
@@ -2000,6 +2022,10 @@ function ComposerReplyBanner(input: {
 			>
 				<XIcon aria-hidden="true" />
 			</Button>
+			<p className="min-w-0 truncate border-border border-l pl-2">
+				Replying {item?.actorName ?? "earlier message"}
+				{excerpt ? `: ${excerpt}` : ""}
+			</p>
 		</div>
 	);
 }
@@ -3191,6 +3217,29 @@ function renderConversationMessageFooter(input: {
 	);
 }
 
+function resolveReplyPreviewText(
+	text: string,
+	sourceItem: SpaceTimelineItem | undefined,
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>
+) {
+	const profiles = buildSpaceMessageProfileMentionProfiles({
+		profilePresentationsById,
+		mentionTargetProfileIds: sourceItem?.mentionTargetProfileIds ?? [],
+		wakeTargetProfileIds: sourceItem?.wakeTargetProfileIds ?? [],
+		referenceTargetProfileIds: sourceItem?.referenceTargetProfileIds ?? [],
+	});
+	return splitSpaceMessageProfileMentionText(text, profiles)
+		.map((segment) =>
+			segment.kind === "text"
+				? segment.value
+				: `@${segment.profile.profileName}`
+		)
+		.join("");
+}
+
 function ReplyPreview(input: {
 	align: "start" | "end";
 	item: SpaceTimelineItem;
@@ -3206,23 +3255,11 @@ function ReplyPreview(input: {
 	if (!input.item.replyPreviewText) {
 		return null;
 	}
-	const profiles = buildSpaceMessageProfileMentionProfiles({
-		profilePresentationsById: input.profilePresentationsById,
-		mentionTargetProfileIds: input.sourceItem?.mentionTargetProfileIds ?? [],
-		wakeTargetProfileIds: input.sourceItem?.wakeTargetProfileIds ?? [],
-		referenceTargetProfileIds:
-			input.sourceItem?.referenceTargetProfileIds ?? [],
-	});
-	const previewText = splitSpaceMessageProfileMentionText(
+	const previewText = resolveReplyPreviewText(
 		input.item.replyPreviewText,
-		profiles
-	)
-		.map((segment) =>
-			segment.kind === "text"
-				? segment.value
-				: `@${segment.profile.profileName}`
-		)
-		.join("");
+		input.sourceItem,
+		input.profilePresentationsById
+	);
 
 	const replyToSignalId = input.item.replyToSignalId;
 	const canJump =
@@ -3247,7 +3284,7 @@ function ReplyPreview(input: {
 	const content = (
 		<>
 			<p className="text-muted-foreground text-xs leading-5">{replyLabel}</p>
-			<p className="line-clamp-2 text-foreground/78">
+			<p className="w-full truncate text-muted-foreground/80 text-xs">
 				<SpaceMessageReferenceText
 					referencesById={spaceReferencesById}
 					text={previewText}
@@ -3260,7 +3297,7 @@ function ReplyPreview(input: {
 		return (
 			<div
 				className={cn(
-					"flex flex-col gap-1 border-border text-sm",
+					"flex min-w-0 max-w-full flex-col gap-1 border-border text-sm",
 					input.align === "end"
 						? "items-end border-r pr-3 text-right"
 						: "border-l pl-3 text-left"
@@ -3276,7 +3313,7 @@ function ReplyPreview(input: {
 		return (
 			<div
 				className={cn(
-					"flex flex-col gap-1 border-border text-sm",
+					"flex min-w-0 max-w-full flex-col gap-1 border-border text-sm",
 					input.align === "end"
 						? "items-end border-r pr-3 text-right"
 						: "border-l pl-3 text-left"
@@ -3292,7 +3329,7 @@ function ReplyPreview(input: {
 				>
 					{replyLabel}
 				</button>
-				<p className="line-clamp-2 text-foreground/78">
+				<p className="w-full truncate text-muted-foreground/80 text-xs">
 					<SpaceMessageReferenceText
 						referencesById={spaceReferencesById}
 						text={previewText}
@@ -3306,7 +3343,7 @@ function ReplyPreview(input: {
 		<button
 			aria-label="Jump to original message"
 			className={cn(
-				"flex flex-col gap-1 border-border text-sm hover:border-foreground/50 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+				"flex min-w-0 max-w-full flex-col gap-1 border-border text-sm hover:border-foreground/50 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 				input.align === "end"
 					? "items-end border-r pr-3 text-right"
 					: "border-l pl-3 text-left"
@@ -3454,16 +3491,6 @@ function formatThreadReplyCount(replyCount: number): string {
 	return `${replyCount.toLocaleString("en-US")} ${
 		replyCount === 1 ? "reply" : "replies"
 	}`;
-}
-
-function resolveReplyToDisplayText(input: {
-	signalId: string;
-	timelineItems: readonly SpaceTimelineItem[];
-}): string {
-	const item = input.timelineItems.find(
-		(candidate) => candidate.id === input.signalId
-	);
-	return item?.actorName ?? "message";
 }
 
 function SystemEventRow(input: {

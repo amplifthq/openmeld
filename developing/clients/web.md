@@ -50,15 +50,15 @@ session links always select their exact identity, including after reload.
 
 Chats places Center Agent sessions in the Main Sidebar, reusing destination search
 and filters, collapsible groups, group actions and whole-row drag ordering.
-Pinned chats share one top-level group above Agents and People, including human,
+Pinned chats share one top-level group above Chats, including human,
 local Agent, and Center Agent conversations. Pins appear once; unpin restores
-their original group. Collapsing Pinned leaves the separate Agents and People
-groups visible. Empty built-in
+their original group. People and Agents are optional filters, not separate lists.
+Empty built-in
 sections are omitted. User-created groups remain visible with the same compact
 empty-state treatment as Spaces. A New chat entry remains available when no
 sections are visible. The old header New chat/Chats dropdown is removed.
 
-New chat opens a local `?draft=new` composer without creating a session or
+Selecting only Center Agent in New chat opens a local `?draft=new` composer without creating a session or
 waiting for a session-list request. The first send creates the session and
 hands its message to the existing Space composer. Creation identity survives
 uncertain failures and same-tab reloads until navigation succeeds. Draft text
@@ -522,8 +522,19 @@ inside Chats. Both routes support the existing `session`, `draft`, and view
 selectors and share the underlying conversation without copying history.
 
 Chats at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
-It opens the first conversation in sidebar section and sort order once the
-list is ready. An empty list offers New chat. New chat and participant filters
+It stays on a conversation directory, sharing sidebar grouping, sort order,
+previews, and unread projections. Loading never presents a false empty state
+or automatically opens a conversation. A genuinely empty list offers New chat.
+New chat and Space members share the people-and-agents picker, including search
+and nested agent ownership. One explicit selection opens a direct conversation;
+multiple selections create a new private, members-only Space through the existing
+Space creation and directory membership APIs. A successfully created Space is
+retained while retrying failed member additions. Selecting an agent alone does
+not implicitly turn the new chat into a group; ordinary Space membership still
+applies the server-owned agent-owner admission rules.
+Chats sidebar disclosure shares the Spaces policy: directory groups default to
+collapsed, entering a conversation reveals its group, and manual choices persist.
+New chat and participant filters
 live in the Chats destination action slot. Selected destinations keep their
 actions visible; Search manually inside filters reveals contextual search.
 Ordinary private conversations use `/chats/{spaceId}`. The old
@@ -2999,6 +3010,26 @@ The composer guidance follows the current conversation, not only the main
 timeline. In a one-to-one Agent Direct Message, both the main composer and its
 thread composer explain that `@` is optional and sending wakes the Agent.
 Ordinary Space threads keep the standard explicit-mention guidance.
+
+Mention suggestions open immediately after a typed `@` at a line start, after
+whitespace, CJK text, or supported sentence punctuation. Email addresses remain
+plain text. Escape and the visible **Close mentions** button use the same
+cancellation path: preserve the literal `@` and entered query, remove the
+transient picker input, and return focus to the composer.
+
+A pending reply appears as a compact single line inside the composer, with a
+leading **Cancel reply** button, a divider, and `Replying Name: preview`.
+The preview resolves profile mentions to names, is capped at 100 characters,
+and truncates to the available width. Canceling a reply preserves the draft.
+Sent-message quotes retain their original-message navigation and use muted
+text to distinguish quoted content from the new reply. Quote previews stay on
+one line and truncate with an ellipsis when they exceed the available width.
+
+A blocked Wake token uses a muted name and grayscale icon while keeping its
+remove and relation controls usable. The composer pairs compact availability
+copy with the current Agent recovery action, including computer connection,
+before submission. Reference targets do not block sending. Both main and thread
+composers consume the same Core availability and recovery projections.
 
 Every writable Space composer — ordinary Space, Direct Message, Center Agent
 Direct Message, and thread — uses the same file control. The former paperclip
