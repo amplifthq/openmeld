@@ -1706,9 +1706,10 @@ function toOpenCodeServerTransportError(
 ): OpenCodeServerTransportError {
   if (error instanceof OpenCodeServerTransportError) {
     const originalError = createProviderOriginalError(
-      [error.originalError ?? error.message, normalizeOptionalText(stderr)]
-        .filter(Boolean)
-        .join("\n")
+      error.originalError ??
+        [error.message, normalizeOptionalText(stderr)]
+          .filter(Boolean)
+          .join("\n")
     );
     return new OpenCodeServerTransportError({
       ...error,

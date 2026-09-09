@@ -2368,6 +2368,26 @@ test("claude cli transport maps quota and rate-limit failures", async () => {
   }
 });
 
+test("claude preserves an unfamiliar structured failure without exposing diagnostic stderr", async () => {
+  const { classifyClaudeFailure } = await import(
+    "../dist/transport/claude-cli-transport.js"
+  );
+  const message =
+    "The upstream service ended this request.\nReference: request-42.";
+  const result = classifyClaudeFailure({
+    providerErrorMessages: [message],
+    providerOriginalErrorMessages: [message],
+    stderrText: "stack: internal diagnostics",
+  });
+  assert.equal(result.originalError, message);
+  assert.equal(result.providerAccessEvidence, undefined);
+  const untrusted = classifyClaudeFailure({
+    providerErrorMessages: [],
+    stderrText: message,
+  });
+  assert.equal(untrusted.originalError, undefined);
+});
+
 test("claude invoke heals stale session by retrying once without resume", async () => {
   const { invokeClaudeWithSingleContextHeal } = await import(
     "../dist/index.js"

@@ -536,6 +536,8 @@ const PREPARE_TEXT = /prepare/i;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
 const RECENT_ACTIVITY_TS = Date.now();
 const TEST_FILE_EXTENSION_PATTERN = /\.[^.]+$/u;
+const MESSAGE_DETAILS_ACTION_NAME_PATTERN =
+	/^(?:Message details$|View error details:)/;
 const SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY =
 	"openmeld.space.members-panel.open:space-123";
 const OTHER_SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY =
@@ -4813,7 +4815,7 @@ describe("SpaceLanding", () => {
 		expect(sourceMessageRow).not.toBeNull();
 		fireEvent.click(
 			within(sourceMessageRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 			})
 		);
 		const failedAgentActivity = await screen.findByRole("region", {
@@ -15829,7 +15831,7 @@ describe("SpaceLanding", () => {
 		const sourceActionScope = within(sourceRow as HTMLElement);
 		const sourceMessageDetailsButton =
 			sourceRow?.querySelector<HTMLButtonElement>(
-				'[data-slot="message-footer"] button[aria-label="Message details"]'
+				'[data-slot="message-footer"] button[aria-label="View error details: Agent couldn’t reply"]'
 			);
 		if (!sourceMessageDetailsButton) {
 			throw new Error("Expected the source message footer details action.");
@@ -15842,11 +15844,11 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByRole("menuitem", { name: "Reply in thread" })
 		).toBeTruthy();
-		// The source footer keeps only the calm failure summary. The diagnostic
+		// The source footer keeps only the failure icon. The diagnostic
 		// body remains in Message details instead of extending the timeline.
 		expect(
-			within(sourceRow as HTMLElement).getByText("Agent couldn’t reply")
-		).toBeTruthy();
+			within(sourceRow as HTMLElement).queryByText("Agent couldn’t reply")
+		).toBeNull();
 		expect(
 			within(sourceRow as HTMLElement).queryByText(
 				"Watcher could not complete this Wake."
@@ -15927,7 +15929,9 @@ describe("SpaceLanding", () => {
 		);
 		// The persistent failure footer remains after Message details closes.
 		expect(
-			within(sourceRow as HTMLElement).getByText("Agent couldn’t reply")
+			within(sourceRow as HTMLElement).getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
 		).toBeTruthy();
 	});
 
@@ -16004,7 +16008,7 @@ describe("SpaceLanding", () => {
 		}
 		fireEvent.click(
 			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 			})
 		);
 		expect(
@@ -16098,7 +16102,7 @@ describe("SpaceLanding", () => {
 		}
 		fireEvent.click(
 			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 			})
 		);
 		await screen.findByRole("dialog", { name: "Message details" });
@@ -17503,7 +17507,7 @@ async function openHistoricalWakeFailure(input: {
 	}
 	fireEvent.click(
 		within(sourceRow as HTMLElement).getByRole("button", {
-			name: "Message details",
+			name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 		})
 	);
 	return await screen.findByRole("dialog", { name: "Message details" });
