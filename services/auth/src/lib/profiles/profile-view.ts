@@ -12,7 +12,8 @@ export function toProfileView(
     profileKind: AuthProfileKind;
     isDefault: boolean;
     status: "active" | "disabled";
-    ownerUserId: string;
+    ownerUserId: string | null;
+    organizationId?: string | null;
     source: string;
     managedRole?: unknown;
     defaultProjectId?: string | null;
@@ -35,7 +36,8 @@ export function toProfileView(
     isDefault: profile.isDefault,
     status: profile.status,
     ownerUserId: profile.ownerUserId,
-    ...(ownerName ? { ownerName } : {}),
+    organizationId: profile.organizationId ?? null,
+    ...(ownerName && profile.ownerUserId ? { ownerName } : {}),
     source: profile.source,
     managedRole,
     ...(profile.profileKind === "agent" && managedRole === null

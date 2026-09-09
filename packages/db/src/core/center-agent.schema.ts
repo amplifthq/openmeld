@@ -20,12 +20,14 @@ export const centerAgentDesignations = sqliteTable(
       .notNull()
       .references(() => openMeldProfiles.profileId, { onDelete: "cascade" }),
     duty: text("duty"),
-    designatedBy: text("designated_by")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    designatedBy: text("designated_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
     operatingState: text("operating_state").default("active").notNull(),
     pausedAt: integer("paused_at", { mode: "timestamp_ms" }),
-    pausedByUserId: text("paused_by_user_id").references(() => users.id),
+    pausedByUserId: text("paused_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),
@@ -59,7 +61,7 @@ export const centerAgentDesignations = sqliteTable(
       sql`(
         ("operating_state" = 'active' and "paused_at" is null and "paused_by_user_id" is null)
         or
-        ("operating_state" = 'paused' and "paused_at" is not null and "paused_by_user_id" is not null)
+        ("operating_state" = 'paused' and "paused_at" is not null)
       )`
     ),
     check("center_agent_designations_mvp_duty_null_check", sql`"duty" is null`),
