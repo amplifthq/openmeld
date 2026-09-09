@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LarkPlatformChannelDialog } from "./lark-platform-channel-dialog";
 
+const DID_NOT_ACCEPT_PATTERN = /did not accept/;
+
 afterEach(cleanup);
 
 describe("LarkPlatformChannelDialog", () => {
@@ -380,7 +382,7 @@ describe("LarkPlatformChannelDialog", () => {
 			)
 		).toBeTruthy();
 		expect(screen.getByRole("alert").textContent).toBe(errorMessage);
-		expect(screen.queryByText(/did not accept/)).toBeNull();
+		expect(screen.queryByText(DID_NOT_ACCEPT_PATTERN)).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Check again" }));
 		expect(onRetryPoll).toHaveBeenCalledOnce();
 	});
