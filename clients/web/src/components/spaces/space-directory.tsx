@@ -9,7 +9,6 @@ import {
 	DropdownMenuCheckboxItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { Input } from "@openmeld/ui/components/input";
 import {
 	Popover,
 	PopoverContent,
@@ -39,27 +38,20 @@ import {
 	DotsThreeIcon,
 	HashIcon,
 	LockKeyIcon,
-	MagnifyingGlassIcon,
 	PushPinIcon,
 	SlidersHorizontalIcon,
 	UsersThreeIcon,
-	XIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import {
-	useCallback,
-	useDeferredValue,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "react";
+import { useDeferredValue, useLayoutEffect, useRef, useState } from "react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { buildProfilePath } from "#/lib/profile-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { AppSidebarGroup } from "../app/app-sidebar-group";
+import { DirectorySearch } from "../app/directory-search";
 import { useSidebarGroupFilter } from "../app/sidebar-filter";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
@@ -122,10 +114,6 @@ export function SpaceDirectory(input: {
 			viewportRef.current.scrollTop = scrollPositions.current[input.tab] ?? 0;
 		}
 	}, [input.tab]);
-	const focusSearch = useCallback(
-		(node: HTMLInputElement | null) => node?.focus(),
-		[]
-	);
 	const search = searches[input.tab] ?? "";
 	const searchTerm = useDeferredValue(search.trim().toLowerCase());
 	const joinedIds = new Set(
@@ -289,66 +277,25 @@ export function SpaceDirectory(input: {
 		>
 			<div className="flex h-16 shrink-0 items-center justify-end gap-3 px-[var(--app-page-inline-padding)]">
 				<div className="flex h-11 min-w-0 items-center justify-end gap-1">
-					{searchOpen[input.tab] || search ? (
-						<div className="flex min-w-0 items-center gap-1">
-							<Input
-								aria-label="Search Spaces"
-								className="h-8 w-52 max-w-full"
-								onChange={(event) =>
-									setSearches((current) =>
-										current.map((value, index) =>
-											index === input.tab ? event.target.value : value
-										)
-									)
-								}
-								onKeyDown={(event) => {
-									if (event.key === "Escape" && !search) {
-										setSearchOpen((current) =>
-											current.map((value, index) =>
-												index === input.tab ? false : value
-											)
-										);
-									}
-								}}
-								placeholder="Search Spaces…"
-								ref={focusSearch}
-								type="search"
-								value={search}
-							/>
-							<Button
-								aria-label="Close search"
-								onClick={() => {
-									setSearches((current) =>
-										current.map((value, index) =>
-											index === input.tab ? "" : value
-										)
-									);
-									setSearchOpen((current) =>
-										current.map((value, index) =>
-											index === input.tab ? false : value
-										)
-									);
-								}}
-								size="icon-sm"
-								variant="ghost"
-							>
-								<XIcon />
-							</Button>
-						</div>
-					) : (
-						<DirectoryIcon
-							label="Search Spaces"
-							onClick={() =>
-								setSearchOpen((current) =>
-									current.map((value, index) =>
-										index === input.tab ? true : value
-									)
+					<DirectorySearch
+						label="Search Spaces"
+						onChange={(next) =>
+							setSearches((current) =>
+								current.map((value, index) =>
+									index === input.tab ? next : value
 								)
-							}
-						>
-							<MagnifyingGlassIcon />
-						</DirectoryIcon>
-					)}
+							)
+						}
+						onOpenChange={(next) =>
+							setSearchOpen((current) =>
+								current.map((value, index) =>
+									index === input.tab ? next : value
+								)
+							)
+						}
+						open={searchOpen[input.tab] ?? false}
+						value={search}
+					/>
 					{!discovering && (
 						<DropdownMenu>
 							<DropdownMenuTrigger

@@ -1,11 +1,9 @@
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
-	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { Input } from "@openmeld/ui/components/input";
 import {
 	Table,
 	TableBody,
@@ -14,18 +12,21 @@ import {
 	TableHeader,
 	TableRow,
 } from "@openmeld/ui/components/table";
+import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import {
 	ChatCircleTextIcon,
 	FunnelSimpleIcon,
 	PlusIcon,
-	SortAscendingIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppEmptyState } from "#/components/app/app-empty-state";
 import { AppMainContent } from "#/components/app/app-main-content";
+import { AppSidebarGroup } from "#/components/app/app-sidebar-group";
+import { DirectorySearch } from "#/components/app/directory-search";
 import { useSidebarFilter } from "#/components/app/sidebar-filter";
 import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
+import { SidebarSectionActions } from "#/components/app/sidebar-section-actions";
 import {
 	resolveInboxAttentionLabel,
 	resolveInboxAttentionTone,
@@ -40,6 +41,8 @@ import { useChats } from "./use-chats";
 
 export function ChatsDirectory() {
 	const [creating, setCreating] = useState(false);
+	const [searchOpen, setSearchOpen] = useState(false);
+	const [tab, setTab] = useState(0);
 	const [search, setSearch] = useState("");
 	const filter = useSidebarFilter(
 		[
@@ -68,11 +71,57 @@ export function ChatsDirectory() {
 		model.sessions.isError ||
 		model.directory.isError ||
 		model.store.isError;
+	const grouped =
+		model.preferences.groups.length > 0 ||
+		model.preferences.pinned.spaceIds.length > 0;
 	const sections = model.sections
 		.map((section) => ({ ...section, chats: model.rows(section.id) }))
-		.filter((section) => section.chats.length > 0);
+		.filter(
+			(section) =>
+				section.chats.length > 0 ||
+				(grouped &&
+					section.id !== "pinned" &&
+					!search &&
+					!filter.selected.length)
+		);
+	const addGroup = (name: string) =>
+		model.save({
+			...model.preferences,
+			groups: [
+				...model.preferences.groups,
+				{ id: crypto.randomUUID(), name, sort: "priority", spaceIds: [] },
+			],
+		});
+	const sectionActions = (
+		section: (typeof model.sections)[number],
+		alwaysVisible = false
+	) => (
+		<SidebarSectionActions
+			alwaysVisible={alwaysVisible}
+			disabled={model.store.disabled}
+			label={section.name}
+			onDelete={
+				section.id !== "chats" && section.id !== "pinned"
+					? () =>
+							model.save({
+								...model.preferences,
+								groups: model.preferences.groups.filter(
+									(group) => group.id !== section.id
+								),
+							})
+					: undefined
+			}
+			onNewGroup={addGroup}
+			onSort={(sort) => model.sortSection(section.id, sort)}
+			sort={section.sort}
+		/>
+	);
 	const newChat = (
-		<Button onClick={() => setCreating(true)} size="sm">
+		<Button
+			className="max-lg:min-h-8"
+			onClick={() => setCreating(true)}
+			size="sm"
+		>
 			<PlusIcon />
 			New chat
 		</Button>
@@ -86,194 +135,205 @@ export function ChatsDirectory() {
 					leadingControl={
 						<ChatCircleTextIcon className="size-4 text-muted-foreground" />
 					}
+					navigation={
+						<TabsSubtle
+							aria-label="Chats view"
+							className="h-full shrink-0 gap-5"
+							idPrefix="chats-directory"
+							onSelect={setTab}
+							selectedIndex={tab}
+							variant="underline"
+						>
+							<TabsSubtleItem
+								index={0}
+								label="Your Chats"
+								labelClassName="text-sm"
+							/>
+						</TabsSubtle>
+					}
 					renderFrame={false}
 					title="Chats"
 				/>
 			}
 			scroll
 		>
-			<div className="flex h-16 shrink-0 items-center justify-end gap-3">
-				<div className="flex h-11 min-w-0 items-center justify-end gap-1">
-					<Input
-						aria-label="Search chats"
-						className="h-8 w-52 max-w-full"
-						onChange={(event) => setSearch(event.target.value)}
-						placeholder="Search chats"
-						type="search"
-						value={search}
-					/>
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={
-								<Button
-									aria-label="Filter chats"
-									size="icon-sm"
-									variant="ghost"
-								/>
+			<div
+				aria-labelledby="chats-directory-tab-0"
+				id="chats-directory-panel-0"
+				role="tabpanel"
+			>
+				<div className="flex h-16 shrink-0 items-center justify-end gap-3">
+					<div className="flex h-11 min-w-0 items-center justify-end gap-1">
+						<DirectorySearch
+							label="Search chats"
+							onChange={setSearch}
+							onOpenChange={setSearchOpen}
+							open={searchOpen}
+							value={search}
+						/>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										aria-label="Filter chats"
+										size="icon-sm"
+										variant="ghost"
+									/>
+								}
+							>
+								<FunnelSimpleIcon />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								{filter.menu}
+							</DropdownMenuContent>
+						</DropdownMenu>
+						{!grouped &&
+							sectionActions(
+								{ id: "chats", name: "Chats", ...model.preferences.spaces },
+								true
+							)}
+					</div>
+				</div>
+				{filter.badges}
+				{failed && (
+					<Button
+						onClick={() => {
+							model.spaces.refetch();
+							model.sessions.refetch();
+							model.directory.refetch();
+							model.store.retry();
+						}}
+						variant="outline"
+					>
+						Could not load chats. Retry
+					</Button>
+				)}
+				{pending && sections.length === 0 && (
+					<SidebarListSkeleton label="Loading chats" rowCount={4} showPreview />
+				)}
+				{!(pending || failed || model.sessions.hasNextPage) &&
+					sections.length === 0 && (
+						<AppEmptyState
+							actions={newChat}
+							description={
+								search || filter.selected.length
+									? "Try another search or remove a filter."
+									: "Choose a person or agent to chat with, or select several to start a Space."
 							}
-						>
-							<FunnelSimpleIcon />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end">{filter.menu}</DropdownMenuContent>
-					</DropdownMenu>{" "}
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={
-								<Button
-									aria-label="Sort chats"
-									size="icon-sm"
-									variant="ghost"
-								/>
+							icon={<ChatCircleTextIcon />}
+							title={
+								search || filter.selected.length
+									? "No matching chats"
+									: "Start a conversation"
 							}
-						>
-							<SortAscendingIcon />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end">
-							{(
-								[
-									["priority", "Priority"],
-									["recent", "Recent activity"],
-									["manual", "Manual order"],
-								] as const
-							).map(([value, label]) => (
-								<DropdownMenuCheckboxItem
-									checked={model.sections.every(
-										(section) => section.sort === value
-									)}
-									key={value}
-									onCheckedChange={() =>
+						/>
+					)}
+				{sections.map((section) => (
+					<AppSidebarGroup
+						contentOnly={!grouped}
+						groupClassName="mb-8 p-0"
+						groupId={`chats-directory-${section.id}`}
+						key={section.id}
+						label={section.name}
+						labelAccessory={sectionActions(section)}
+						labelClassName="px-2"
+						labelText={section.name}
+						onRename={
+							section.id !== "chats" && section.id !== "pinned"
+								? (name) =>
 										model.save({
 											...model.preferences,
-											pinned: { ...model.preferences.pinned, sort: value },
-											spaces: { ...model.preferences.spaces, sort: value },
-											groups: model.preferences.groups.map((group) => ({
-												...group,
-												sort: value,
-											})),
+											groups: model.preferences.groups.map((group) =>
+												group.id === section.id ? { ...group, name } : group
+											),
 										})
-									}
-								>
-									{label}
-								</DropdownMenuCheckboxItem>
-							))}
-						</DropdownMenuContent>
-					</DropdownMenu>
-				</div>
-			</div>
-			{filter.badges}
-			{failed && (
-				<Button
-					onClick={() => {
-						model.spaces.refetch();
-						model.sessions.refetch();
-						model.directory.refetch();
-						model.store.retry();
-					}}
-					variant="outline"
-				>
-					Could not load chats. Retry
-				</Button>
-			)}
-			{pending && sections.length === 0 && (
-				<SidebarListSkeleton label="Loading chats" rowCount={4} showPreview />
-			)}
-			{!(pending || failed || model.sessions.hasNextPage) &&
-				sections.length === 0 && (
-					<AppEmptyState
-						actions={newChat}
-						description={
-							search || filter.selected.length
-								? "Try another search or remove a filter."
-								: "Choose a person or agent to chat with, or select several to start a Space."
+								: undefined
 						}
-						icon={<ChatCircleTextIcon />}
-						title={
-							search || filter.selected.length
-								? "No matching chats"
-								: "Start a conversation"
-						}
-					/>
-				)}
-			{sections.map((section) => (
-				<section className="mb-8" key={section.id}>
-					{section.id !== "chats" && (
-						<h2 className="mb-3 font-medium text-muted-foreground text-xs">
-							{section.name}
-						</h2>
-					)}
-					<Table>
-						<TableHeader>
-							<TableRow>
-								<TableHead>Chat</TableHead>
-								<TableHead className="w-40">Status</TableHead>
-								<TableHead className="w-28">Activity</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{section.chats.map((chat) => {
-								const unread =
-									model.indicators.unreadBySpaceId.get(chat.spaceId)
-										?.unreadCount ?? 0;
-								const tone = resolveInboxAttentionTone(
-									model.attentionById.get(chat.spaceId) ?? {}
-								);
-								const preview = previewById.get(chat.spaceId);
-								const time = model.activity.get(chat.spaceId);
-								return (
-									<TableRow className="border-0" key={chat.spaceId}>
-										<TableCell className="max-w-0 py-4">
-											<Link
-												className="flex items-center gap-3"
-												to={model.chatPath(chat)}
-											>
-												<ChatIcon
-													chat={chat}
-													summary={model.indicators.activeWakeSummaryBySpaceId.get(
-														chat.spaceId
-													)}
-													title={model.title(chat)}
-												/>
-												<span className="min-w-0">
-													<span
-														className={`text-sm ${unread ? "font-semibold" : "font-medium"}`}
-													>
-														{model.title(chat)}
-													</span>
-													<span className="mt-1 block truncate text-muted-foreground text-xs">
-														{preview
-															? resolvePreviewText(preview)
-															: "Loading message…"}
-													</span>
-												</span>
-											</Link>
-										</TableCell>
-										<TableCell>
-											{(unread > 0 || tone) && (
-												<span className="inline-flex items-center gap-2 text-muted-foreground text-xs">
-													<span
-														className={`status-dot ${resolveInboxIndicatorClassName(tone)}`}
-													/>
-													{resolveInboxAttentionLabel(tone) ??
-														`${unread} unread`}
-												</span>
-											)}
-										</TableCell>
-										<TableCell>
-											{time ? (
-												<SidebarConversationTime
-													className="text-xs"
-													now={new Date(now)}
-													timestamp={time}
-												/>
-											) : null}
+					>
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead>Chat</TableHead>
+									<TableHead className="w-40">Status</TableHead>
+									<TableHead className="w-28">Activity</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{section.chats.length === 0 && (
+									<TableRow>
+										<TableCell
+											className="py-4 text-muted-foreground text-xs"
+											colSpan={3}
+										>
+											No chats in this group yet.
 										</TableCell>
 									</TableRow>
-								);
-							})}
-						</TableBody>
-					</Table>
-				</section>
-			))}
+								)}
+								{section.chats.map((chat) => {
+									const unread =
+										model.indicators.unreadBySpaceId.get(chat.spaceId)
+											?.unreadCount ?? 0;
+									const tone = resolveInboxAttentionTone(
+										model.attentionById.get(chat.spaceId) ?? {}
+									);
+									const preview = previewById.get(chat.spaceId);
+									const time = model.activity.get(chat.spaceId);
+									return (
+										<TableRow className="border-0" key={chat.spaceId}>
+											<TableCell className="max-w-0 py-4">
+												<Link
+													className="flex items-center gap-3"
+													to={model.chatPath(chat)}
+												>
+													<ChatIcon
+														chat={chat}
+														summary={model.indicators.activeWakeSummaryBySpaceId.get(
+															chat.spaceId
+														)}
+														title={model.title(chat)}
+													/>
+													<span className="min-w-0">
+														<span
+															className={`text-sm ${unread ? "font-semibold" : "font-medium"}`}
+														>
+															{model.title(chat)}
+														</span>
+														<span className="mt-1 block truncate text-muted-foreground text-xs">
+															{preview
+																? resolvePreviewText(preview)
+																: "Loading message…"}
+														</span>
+													</span>
+												</Link>
+											</TableCell>
+											<TableCell>
+												{(unread > 0 || tone) && (
+													<span className="inline-flex items-center gap-2 text-muted-foreground text-xs">
+														<span
+															className={`status-dot ${resolveInboxIndicatorClassName(tone)}`}
+														/>
+														{resolveInboxAttentionLabel(tone) ??
+															`${unread} unread`}
+													</span>
+												)}
+											</TableCell>
+											<TableCell>
+												{time ? (
+													<SidebarConversationTime
+														className="text-xs"
+														now={new Date(now)}
+														timestamp={time}
+													/>
+												) : null}
+											</TableCell>
+										</TableRow>
+									);
+								})}
+							</TableBody>
+						</Table>
+					</AppSidebarGroup>
+				))}
+			</div>
 			<NewChatDialog onOpenChange={setCreating} open={creating} />
 		</AppMainContent>
 	);
