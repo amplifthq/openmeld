@@ -1,4 +1,5 @@
 import { defineTool } from "@flue/runtime";
+import { personalRemoteAgentSpaceToolResponseSchema } from "@openmeld/schemas";
 import type {
   CenterAgentModelRoute,
   RemoteAgentTurnEnvelope,
@@ -9,10 +10,12 @@ import type {
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import type { RemoteAgentExternalToolEnv } from "../agent-core/external-tools";
-import { getRemoteAgentExternalToolDefinitions } from "../agent-core/external-tools";
 import type { RemoteAgentConnectorExecutionConfig } from "../agent-core/github-tools";
 import type { RemoteAgentImagePreparer } from "../agent-core/image-understanding";
-import { getPersonalRemoteAgentTools } from "../agent-core/personal-remote-agent-tools";
+import {
+  getPersonalRemoteAgentTools,
+  isPersonalRemoteAgentProductTool,
+} from "../agent-core/personal-remote-agent-tools";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   getRemoteAgentOpenMeldToolDefinitions,
@@ -53,15 +56,40 @@ export async function getRemoteAgentFlueTools(input: {
   const unverifiedMember =
     input.turnEnvelope?.sender.kind === "member" &&
     !input.turnEnvelope.sender.verified;
-  const definitions = [
+  const availableDefinitions = [
     ...(input.personalAgent
       ? [
           ...getPersonalRemoteAgentTools(input),
-          ...getRemoteAgentExternalToolDefinitions(input),
+          ...getRemoteAgentOpenMeldToolDefinitions(input).filter((definition) =>
+            isPersonalRemoteAgentProductTool(definition.name)
+          ),
         ]
       : getRemoteAgentOpenMeldToolDefinitions(input)),
     ...(unverifiedMember ? [] : (input.sandboxDefinitions ?? [])),
   ];
+  const definitions = input.personalAgent
+    ? availableDefinitions.map((definition) => ({
+        ...definition,
+        execute: async (...args: Parameters<typeof definition.execute>) => {
+          const authorize = input.coreWorker.personalRemoteAgentSpaceTool;
+          if (!authorize) {
+            throw new Error(
+              "Remote Agent capability authorization is unavailable."
+            );
+          }
+          const authorized = personalRemoteAgentSpaceToolResponseSchema.parse(
+            await authorize({
+              submissionId: input.submissionId,
+              operation: { kind: "authorize" },
+            })
+          );
+          if (authorized.kind !== "authorize") {
+            throw new Error("Remote Agent capability authorization failed.");
+          }
+          return await definition.execute(...args);
+        },
+      }))
+    : availableDefinitions;
   const capabilityDiscoveryDefinitions =
     definitions.length > 0
       ? createRemoteAgentCapabilityDiscoveryDefinitions(

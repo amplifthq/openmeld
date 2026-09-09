@@ -140,7 +140,7 @@ async function prepareCenterAgentRender() {
     executionContext?.organizationSkillReleases ?? [];
   const materialization = await materializeCenterAgentRuntime({
     createSandbox: async () =>
-      executionContext && !personalAgent && isRemoteAgentComputerEnabled(env)
+      executionContext && isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
             context: executionContext,
             coreWorker,

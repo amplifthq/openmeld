@@ -19,9 +19,12 @@ import pythonModules from "@cloudflare/computer/shell/python";
 import sqliteModules from "@cloudflare/computer/shell/sqlite";
 import xanModules from "@cloudflare/computer/shell/xan";
 import yqModules from "@cloudflare/computer/shell/yq";
+import { agentComputerBrowserRequestSchema } from "@openmeld/schemas";
+import type { BrowserBinding } from "agents/browser";
+import { createBrowserTools } from "agents/browser/ai";
 
 /**
- * The Center Agent's computer: an org-level durable workspace backed by
+ * The hosted Agent's computer: an identity-scoped durable workspace backed by
  * the Durable Object's SQLite storage via `@cloudflare/computer`.
  *
  * Files live in the DO (durable across restarts and independent of any
@@ -51,7 +54,8 @@ export const AGENT_COMPUTER_LAYOUT_DIRECTORIES = [
 ] as const;
 
 type AgentComputerEnv = {
-  LOADER: unknown;
+  LOADER: WorkerLoader;
+  BROWSER?: BrowserBinding;
 };
 
 class AgentComputerBase extends DurableObject<AgentComputerEnv> {}
@@ -61,6 +65,43 @@ function workspaceRef(ctx: DurableObjectState) {
 }
 
 export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
+  private browserTool(spaceId: string) {
+    if (!(this.env.BROWSER && spaceId)) {
+      throw new Error(
+        "The Computer browser requires its binding and current Space."
+      );
+    }
+    const tools = createBrowserTools({
+      ctx: this.ctx,
+      loader: this.env.LOADER,
+      browser: this.env.BROWSER,
+      name: `browser:${spaceId}`,
+      session: { mode: "one-shot" },
+      quickActions: false,
+      timeout: 30_000,
+    });
+    const tool = tools.browser_execute;
+    if (!(tool?.execute && tool.description)) {
+      throw new Error("The Computer browser tool is unavailable.");
+    }
+    return { description: tool.description, execute: tool.execute };
+  }
+
+  describeBrowser(spaceId: string): string {
+    return this.browserTool(spaceId).description;
+  }
+
+  async executeBrowser(input: unknown): Promise<unknown> {
+    const { spaceId, code } = agentComputerBrowserRequestSchema.parse(input);
+    return await this.browserTool(spaceId).execute(
+      { code },
+      {
+        messages: [],
+        toolCallId: crypto.randomUUID(),
+      }
+    );
+  }
+
   readonly #containerBackend = new CloudflareContainerBackend({
     container: () => this,
     // Preserve the native Computer's existing public-network capability.
