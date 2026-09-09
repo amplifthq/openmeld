@@ -3,6 +3,10 @@ export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";
+export type {
+  SpaceHistoryNavigation,
+  SpaceHistoryNavigationQuery,
+} from "./http/space-history-navigation";
 
 // Type-query import keeps this entrypoint type-only while locking the version type to the schema export.
 export type OpenMeldSchemaVersion =

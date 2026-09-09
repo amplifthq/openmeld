@@ -27,7 +27,6 @@ const EMPTY_STICKY_DATE_STATE: StickyDateState = {
 export function SpaceConversationStickyDate(input: {
 	afterDate?: ReactNode;
 	loadedSignalCount: number;
-	onActiveDateMsChange: (dateMs: number | null) => void;
 	onJumpToDate?: (date: Date) => Promise<string | null>;
 	scrollElement: HTMLDivElement | null;
 	topOverlayElement: HTMLDivElement | null;
@@ -39,8 +38,7 @@ export function SpaceConversationStickyDate(input: {
 	const stickyDate = useStickyConversationDate(
 		input.scrollElement,
 		input.topOverlayElement,
-		datePillElement,
-		input.onActiveDateMsChange
+		datePillElement
 	);
 
 	if (stickyDate.activeDateMs === null && !input.afterDate) {
@@ -98,24 +96,31 @@ export function SpaceConversationStickyDate(input: {
 function useStickyConversationDate(
 	scrollElement: HTMLDivElement | null,
 	topOverlayElement: HTMLDivElement | null,
-	datePillElement: HTMLDivElement | null,
-	onActiveDateMsChange: (dateMs: number | null) => void
+	datePillElement: HTMLDivElement | null
 ) {
 	const [stickyDate, setStickyDate] = useState<StickyDateState>(
 		EMPTY_STICKY_DATE_STATE
 	);
-	const publishedActiveDateMsRef = useRef<number | null>(null);
+	const stuckPillRef = useRef<HTMLElement | null>(null);
 	const syncFrameRef = useRef<number | null>(null);
-	const publishActiveDateMs = useCallback(
-		(dateMs: number | null) => {
-			if (publishedActiveDateMsRef.current === dateMs) {
-				return;
-			}
-			publishedActiveDateMsRef.current = dateMs;
-			onActiveDateMsChange(dateMs);
-		},
-		[onActiveDateMsChange]
-	);
+	// The floating pill owns its counterpart in the flow. Crossing a date must
+	// not publish state to the entire transcript and rerender every message.
+	const setStuckMarker = useCallback((marker: HTMLElement | null) => {
+		const pill =
+			marker?.querySelector<HTMLElement>(
+				"[data-conversation-date-marker-pill]"
+			) ?? null;
+		if (stuckPillRef.current === pill) {
+			return;
+		}
+		if (stuckPillRef.current) {
+			stuckPillRef.current.hidden = false;
+		}
+		stuckPillRef.current = pill;
+		if (pill) {
+			pill.hidden = true;
+		}
+	}, []);
 	const syncStickyTop = useCallback(() => {
 		if (!scrollElement) {
 			return;
@@ -157,7 +162,7 @@ function useStickyConversationDate(
 
 	const syncStickyDate = useCallback(() => {
 		if (!scrollElement) {
-			publishActiveDateMs(null);
+			setStuckMarker(null);
 			setStickyDate(EMPTY_STICKY_DATE_STATE);
 			return;
 		}
@@ -166,7 +171,7 @@ function useStickyConversationDate(
 			scrollElement.querySelectorAll<HTMLElement>(DATE_MARKER_SELECTOR)
 		);
 		if (markers.length === 0) {
-			publishActiveDateMs(null);
+			setStuckMarker(null);
 			setStickyDate(EMPTY_STICKY_DATE_STATE);
 			return;
 		}
@@ -189,7 +194,7 @@ function useStickyConversationDate(
 			markerActivationTop
 		);
 		if (activeMarkerIndex < 0) {
-			publishActiveDateMs(null);
+			setStuckMarker(null);
 			setStickyDate(EMPTY_STICKY_DATE_STATE);
 			return;
 		}
@@ -198,7 +203,7 @@ function useStickyConversationDate(
 		if (activeDateMs === null) {
 			return;
 		}
-		publishActiveDateMs(activeDateMs);
+		setStuckMarker(markers[activeMarkerIndex] ?? null);
 		const nextMarker = markers[activeMarkerIndex + 1] ?? null;
 		const nextMarkerTop = nextMarker?.getBoundingClientRect().top ?? null;
 		const datePillHeightPx = resolveDatePillHeightPx(datePillElement);
@@ -221,7 +226,7 @@ function useStickyConversationDate(
 				? currentState
 				: nextState
 		);
-	}, [datePillElement, publishActiveDateMs, scrollElement]);
+	}, [datePillElement, setStuckMarker, scrollElement]);
 
 	const scheduleStickyDateSync = useCallback(() => {
 		if (syncFrameRef.current !== null) {
@@ -237,11 +242,12 @@ function useStickyConversationDate(
 		// Keep the reserved space through date-pill observer changes. Clearing it
 		// temporarily shrinks the scroll range and clamps the browser's position.
 		return () => {
+			setStuckMarker(null);
 			scrollElement?.style.removeProperty(STICKY_TOP_PROPERTY);
 			scrollElement?.parentElement?.style.removeProperty(STICKY_TOP_PROPERTY);
 			scrollElement?.style.removeProperty(TOP_OVERLAY_HEIGHT_PROPERTY);
 		};
-	}, [scrollElement]);
+	}, [scrollElement, setStuckMarker]);
 
 	useLayoutEffect(() => {
 		syncStickyTop();

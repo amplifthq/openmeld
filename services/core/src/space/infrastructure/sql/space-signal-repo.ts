@@ -27,6 +27,7 @@ type SqlSignalAnchorEntryRow = SqlSignalRow & {
   storage_order: number;
 };
 export type SpaceSignalEntryFilters = {
+  mainTimelineOnly?: boolean;
   profileIds?: readonly string[];
   signalTypes?: readonly string[];
 };
@@ -824,6 +825,11 @@ function buildSignalFilterWhereClause(
   const signalTypes = normalizeUniqueFilterValues(filters?.signalTypes ?? []);
   const profileIds = normalizeUniqueFilterValues(filters?.profileIds ?? []);
 
+  if (filters?.mainTimelineOnly) {
+    clauses.push(
+      "id NOT IN (SELECT signal_id FROM space_thread_signal_placements WHERE placement = 'thread')"
+    );
+  }
   if (signalTypes.length > 0) {
     clauses.push(`type IN (${signalTypes.map(() => "?").join(", ")})`);
     params.push(...signalTypes);

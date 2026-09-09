@@ -101,6 +101,7 @@ import {
   spaceFileAuditEventSchema,
   spaceFileClientMutationIdSchema,
   spaceFileEntryIdSchema,
+  spaceHistoryNavigationQuerySchema,
   spaceInvitationAccessInputSchema,
   spaceInvitationGrantInputSchema,
   spaceInvitationRevokeInputSchema,
@@ -182,6 +183,8 @@ import type {
   SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceFileMutationErrorCode,
+  SpaceHistoryNavigation,
+  SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
   SpaceLiveInvalidationFrame,
   SpaceLiveSignalFrame,
@@ -558,6 +561,7 @@ import {
   SpaceFileRepository,
   SpaceFileRepositoryError,
 } from "../../infrastructure/sql/space-file-repo";
+import { readSpaceHistoryNavigationGroups } from "../../infrastructure/sql/space-history-navigation-repo";
 import {
   insertSpaceInboxProjectionOutboxRecord,
   listDueSpaceInboxProjectionOutboxRecords,
@@ -6508,6 +6512,73 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  async rpcGetHistoryNavigation(
+    input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
+  ): Promise<SpaceHistoryNavigation> {
+    this.applySpaceRef(input.spaceId);
+    const request = this.buildDirectRpcRequest({
+      path: "/history-navigation",
+      method: "GET",
+      context: input.context,
+      ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
+      ...(input.password === undefined
+        ? {}
+        : { spacePassword: input.password }),
+    });
+    const resolved = this.resolveSpaceAccessFromRequest(request, {});
+    if (!resolved.ok) {
+      return readSpaceRpcJsonOrThrow(
+        this.unauthenticatedResponse(resolved.requestId)
+      );
+    }
+    const access = await this.authorizeSpaceAccess(resolved.spaceAccess);
+    if (!access.ok) {
+      return readSpaceRpcJsonOrThrow(access.response);
+    }
+    const range = spaceHistoryNavigationQuerySchema.parse({
+      ...(input.startSignalId ? { startSignalId: input.startSignalId } : {}),
+      ...(input.endSignalId ? { endSignalId: input.endSignalId } : {}),
+    });
+    const viewer = await this.resolveReadViewerIdentity(resolved.spaceAccess);
+    const groups = readSpaceHistoryNavigationGroups(
+      this.ctx.storage.sql,
+      range
+    );
+    const entries = groups.flatMap((group) => {
+      const stored = parseStoredSignal(group.payload_json);
+      if (!stored) {
+        return [];
+      }
+      const signal = redactSignalForViewer({
+        signal: stored,
+        viewerOwnerUserId: viewer.viewerOwnerUserId,
+        viewerProfileId: viewer.viewerProfileId,
+        creatorProfileIdByProfileId: viewer.creatorProfileIdByProfileId,
+      });
+      const text =
+        "text" in signal.data && typeof signal.data.text === "string"
+          ? signal.data.text
+          : "";
+      return [
+        {
+          signalId: group.signal_id,
+          endSignalId: group.end_signal_id,
+          startAt: group.start_at,
+          endAt: group.end_at,
+          count: group.count,
+          author: signal.profile?.profileName ?? "OpenMeld",
+          preview:
+            text.replace(/\s+/g, " ").trim().slice(0, 360) ||
+            "Message with attachments",
+        },
+      ];
+    });
+    return {
+      entries,
+      total: entries.reduce((sum, entry) => sum + entry.count, 0),
+    };
+  }
+
   async rpcGetIdentityDirectory(
     input: GetSpaceMembersInput
   ): Promise<SpaceIdentityDirectory> {
@@ -11630,7 +11701,10 @@ export class Space extends DurableObject<CoreBindings> {
       aroundSignalId: input.aroundSignalId,
       beforeCount: input.beforeCount,
       afterCount: input.afterCount,
-      filters: toSignalEntryFilters(input.filters),
+      filters: {
+        ...toSignalEntryFilters(input.filters),
+        mainTimelineOnly: true,
+      },
     });
     if (!entries) {
       throw new SpaceHistoryAnchorNotFoundError(input.aroundSignalId);

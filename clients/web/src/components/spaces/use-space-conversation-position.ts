@@ -2,6 +2,7 @@ import { useElementScrollRestoration } from "@tanstack/react-router";
 import {
 	type RefObject,
 	useCallback,
+	useEffectEvent,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -16,7 +17,9 @@ import {
 
 const TOP_OVERLAY_HEIGHT_PROPERTY = "--space-conversation-top-overlay-height";
 
-function getVisibleTop(viewport: HTMLDivElement): number {
+export function getSpaceConversationVisibleTop(
+	viewport: HTMLDivElement
+): number {
 	const height = Number.parseFloat(
 		window
 			.getComputedStyle(viewport)
@@ -28,25 +31,35 @@ function getVisibleTop(viewport: HTMLDivElement): number {
 	);
 }
 
-function resolvePosition(
-	viewport: HTMLDivElement,
-	elements: ReadonlyMap<string, HTMLElement>
+export function resolveSpaceConversationPosition(
+	viewport: HTMLDivElement
 ): SpaceConversationPosition | null {
-	const top = getVisibleTop(viewport);
+	const top = getSpaceConversationVisibleTop(viewport);
 	const bottom = viewport.getBoundingClientRect().bottom;
-	// Ref registration order is not timeline order after older pages are prepended.
-	let first: SpaceConversationPosition | null = null;
-	for (const [anchorSignalId, element] of elements) {
-		const bounds = element.getBoundingClientRect();
-		if (
-			bounds.bottom > top &&
-			bounds.top < bottom &&
-			(!first || bounds.top - top < first.offsetFromVisibleTop)
-		) {
-			first = { anchorSignalId, offsetFromVisibleTop: bounds.top - top };
+	// DOM order stays chronological after prepends. Only measure the binary
+	// search path, rather than forcing geometry reads for every old message.
+	const elements = viewport.querySelectorAll<HTMLElement>("[data-signal-id]");
+	let low = 0;
+	let high = elements.length;
+	while (low < high) {
+		const mid = Math.floor((low + high) / 2);
+		if (elements.item(mid).getBoundingClientRect().bottom <= top) {
+			low = mid + 1;
+		} else {
+			high = mid;
 		}
 	}
-	return first;
+	const element = elements[low];
+	if (!element?.dataset.signalId) {
+		return null;
+	}
+	const bounds = element.getBoundingClientRect();
+	return bounds.top < bottom
+		? {
+				anchorSignalId: element.dataset.signalId,
+				offsetFromVisibleTop: bounds.top - top,
+			}
+		: null;
 }
 
 export function useSpaceConversationPosition(input: {
@@ -55,6 +68,7 @@ export function useSpaceConversationPosition(input: {
 	isLoadingEarlierHistory: boolean;
 	historyVersion: unknown;
 	onLoadEarlierHistory: () => Promise<void>;
+	onLoadHistoryAround?: ((id: string) => Promise<boolean>) | undefined;
 	historyError: string | null;
 	hasExplicitFocus: boolean;
 	messageElementsRef: RefObject<Map<string, HTMLElement>>;
@@ -67,16 +81,27 @@ export function useSpaceConversationPosition(input: {
 		id: input.restorationId,
 	});
 	const positionKey = `${input.selfProfileId}:${input.restorationId}`;
+	// Restoration reads the entry at mount, not the cache updated by scrolling.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: A new viewport starts a new restoration session.
+	const initialRouterEntry = useMemo(
+		() => routerEntry,
+		[positionKey, input.viewport]
+	);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: A remounted viewport must read the position saved by its previous instance.
 	const rememberedPosition = useMemo(
 		() => readSpaceConversationPosition(positionKey),
 		[positionKey, input.viewport]
 	);
 	const shouldRestore =
-		!input.hasExplicitFocus && Boolean(rememberedPosition || routerEntry);
+		!input.hasExplicitFocus &&
+		Boolean(rememberedPosition || initialRouterEntry);
 	const saveRef = useRef<() => void>(() => undefined);
 	const releaseRef = useRef<() => void>(() => undefined);
 	const loadingRef = useRef(false);
+	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const loadHistory = useEffectEvent(() =>
+		loadSavedHistory(input, rememberedPosition)
+	);
 	const releasedKeyRef = useRef<string | null>(null);
 	const viewportRef = useRef<HTMLDivElement | null>(null);
 	const [followingViewport, setFollowingViewport] =
@@ -101,10 +126,7 @@ export function useSpaceConversationPosition(input: {
 			if (!ready || input.historyIsPending || protectedAnchor) {
 				return;
 			}
-			const position = resolvePosition(
-				viewport,
-				input.messageElementsRef.current
-			);
+			const position = resolveSpaceConversationPosition(viewport);
 			if (position) {
 				writeSpaceConversationPosition(positionKey, position);
 			}
@@ -119,8 +141,7 @@ export function useSpaceConversationPosition(input: {
 				return;
 			}
 			loadingRef.current = true;
-			input
-				.onLoadEarlierHistory()
+			loadHistory()
 				.catch((error: unknown) => {
 					console.error(
 						"Failed to load the saved Space reading position.",
@@ -155,7 +176,7 @@ export function useSpaceConversationPosition(input: {
 				viewport,
 				anchor,
 				rememberedPosition,
-				ready ? undefined : routerEntry?.scrollY
+				ready ? undefined : initialRouterEntry?.scrollY
 			);
 			ready = true;
 		};
@@ -197,6 +218,9 @@ export function useSpaceConversationPosition(input: {
 		window.addEventListener("pagehide", save);
 		schedule();
 		return () => {
+			if (saveTimerRef.current) {
+				clearTimeout(saveTimerRef.current);
+			}
 			save();
 			disposed = true;
 			window.cancelAnimationFrame(frame);
@@ -215,17 +239,20 @@ export function useSpaceConversationPosition(input: {
 		input.hasEarlierHistory,
 		input.isLoadingEarlierHistory,
 		input.historyVersion,
-		input.onLoadEarlierHistory,
 		input.historyError,
 		input.messageElementsRef,
 		positionKey,
 		rememberedPosition,
-		routerEntry,
+		initialRouterEntry,
 		shouldRestore,
 	]);
 
 	const save = useCallback(
 		(viewport: HTMLDivElement) => {
+			if (saveTimerRef.current) {
+				clearTimeout(saveTimerRef.current);
+			}
+			saveTimerRef.current = null;
 			saveRef.current();
 			if (
 				releasedKeyRef.current === positionKey &&
@@ -236,11 +263,22 @@ export function useSpaceConversationPosition(input: {
 		},
 		[positionKey]
 	);
+	const scheduleSave = useCallback(
+		(viewport: HTMLDivElement) => {
+			if (saveTimerRef.current) {
+				clearTimeout(saveTimerRef.current);
+			}
+			saveTimerRef.current = setTimeout(() => save(viewport), 120);
+		},
+		[save]
+	);
 	const followLatest = useCallback(() => {
 		releaseRef.current();
 		setFollowingViewport(input.viewport);
 	}, [input.viewport]);
+	const releaseReadingPosition = useCallback(() => releaseRef.current(), []);
 	return {
+		releaseReadingPosition,
 		followLatest,
 		autoScroll:
 			!shouldRestore ||
@@ -248,7 +286,7 @@ export function useSpaceConversationPosition(input: {
 		defaultScrollPosition: shouldRestore
 			? ("start" as const)
 			: ("end" as const),
-		onScroll: save,
+		onScroll: scheduleSave,
 		onScrollEnd: save,
 	};
 }
@@ -262,7 +300,7 @@ function alignReadingPosition(
 	if (anchor && position) {
 		viewport.scrollTop +=
 			anchor.getBoundingClientRect().top -
-			getVisibleTop(viewport) -
+			getSpaceConversationVisibleTop(viewport) -
 			position.offsetFromVisibleTop;
 		return;
 	}
@@ -272,4 +310,17 @@ function alignReadingPosition(
 			Math.max(0, viewport.scrollHeight - viewport.clientHeight)
 		);
 	}
+}
+
+function loadSavedHistory(
+	input: {
+		onLoadEarlierHistory: () => Promise<void>;
+		onLoadHistoryAround?: ((id: string) => Promise<boolean>) | undefined;
+	},
+	position: SpaceConversationPosition | null
+) {
+	if (position && input.onLoadHistoryAround) {
+		return input.onLoadHistoryAround(position.anchorSignalId);
+	}
+	return input.onLoadEarlierHistory();
 }

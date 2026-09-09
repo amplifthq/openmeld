@@ -134,7 +134,9 @@ function readPosixListeningTcpOwners(input) {
     "lsof",
     [
       "-nP",
-      ...input.ports.map((port) => `-iTCP:${String(port)}`),
+      // lsof caps repeated -i selectors; the isolated lane scans thousands of ports.
+      // Read listeners once and filter the bounded port set in the caller.
+      "-iTCP",
       "-sTCP:LISTEN",
       "-Fpcn",
     ],

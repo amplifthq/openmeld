@@ -142,6 +142,10 @@ import { persistSpaceNameUpdate } from "./space-name-update";
 import { usePublishSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import { useSpaceComposerSession } from "./use-space-composer-session";
 import {
+	type SpaceHistoryNavigationController,
+	useSpaceHistoryNavigation,
+} from "./use-space-history-navigation";
+import {
 	addSetValue,
 	areWakeProgressItemsEqual,
 	buildLocalWakeProgressItems,
@@ -1109,6 +1113,7 @@ export type SpaceLandingController =
 			ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 			presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 			ownActiveWakesHaveMore: boolean;
+			historyNavigation: SpaceHistoryNavigationController;
 			hasEarlierHistory: boolean;
 			historyActionErrorMessage: string | null;
 			historyError: StructuredApiClientFailure | null;
@@ -1521,6 +1526,7 @@ export function useSpaceLandingController(input: {
 		queryClient,
 		spaceId: input.spaceId,
 	});
+
 	const currentProfileId = input.profileId;
 	const currentSpaceId = input.spaceId;
 	const currentProfileMembershipState = useCurrentProfileSpaceMembershipState({
@@ -1575,6 +1581,13 @@ export function useSpaceLandingController(input: {
 			isError: historyQuery.isError,
 			...(historySnapshot ? { data: historySnapshot } : {}),
 		},
+	});
+	const historyNavigation = useSpaceHistoryNavigation({
+		liveEnvelopes: timelineEnvelopes,
+		spaceId: input.spaceId,
+		profileId: input.profileId,
+		enabled: statusReady,
+		accessRejected: Boolean(currentAccessRejection),
 	});
 	// Starts false: the unread watermark must not advance until the conversation
 	// panel reports a real "scrolled to latest" measurement (a fresh open scrolls
@@ -2132,10 +2145,16 @@ export function useSpaceLandingController(input: {
 	const timelinePresentationEnvelopes = useMemo(
 		() =>
 			mergePersistedAndPendingOutgoingSignals({
-				persisted: timelineEnvelopes,
-				pending: pendingOutgoingSignals,
+				persisted:
+					historyNavigation.activeWindow?.envelopes ??
+					historyNavigation.visibleLiveEnvelopes,
+				pending: historyNavigation.activeWindow ? [] : pendingOutgoingSignals,
 			}),
-		[timelineEnvelopes, pendingOutgoingSignals]
+		[
+			historyNavigation.visibleLiveEnvelopes,
+			pendingOutgoingSignals,
+			historyNavigation.activeWindow,
+		]
 	);
 	const pendingFilePreviewUrlsById = useMemo(() => {
 		const previewUrlsById = new Map<string, string>();
@@ -2149,7 +2168,9 @@ export function useSpaceLandingController(input: {
 	const timelineItems = useMemo(
 		() =>
 			buildSpaceTimelineItems({
-				agentStreams: agentStreamProjections,
+				agentStreams: historyNavigation.activeWindow
+					? []
+					: agentStreamProjections,
 				agentStreamScope: { kind: "main" },
 				envelopes: timelinePresentationEnvelopes,
 				membersSnapshot: presentationMembersSnapshot,
@@ -2160,6 +2181,7 @@ export function useSpaceLandingController(input: {
 			presentationMembersSnapshot,
 			pendingFilePreviewUrlsById,
 			timelinePresentationEnvelopes,
+			historyNavigation.activeWindow,
 		]
 	);
 	const isAgentRecoveryPending = useCallback(
@@ -2288,12 +2310,16 @@ export function useSpaceLandingController(input: {
 		composerHasAuthoredMentions: mentionAuthoring.hasAuthoredMentions,
 		composerReplyToSignalId: mentionAuthoring.replyTo?.signalId ?? null,
 		composerText: mentionAuthoring.composerText,
-		ephemeralActivityItems: presentedWakeProgressItems,
+		...resolveNavigationPresentation(historyNavigation, {
+			presentedWakeProgressItems,
+			hasEarlierHistory,
+			historyActionErrorMessage,
+			isLoadingEarlierHistory,
+		}),
 		presentedWakeProgressItems,
 		ownActiveWakesHaveMore:
 			ownActiveWakeProgressQuery.data?.pageInfo?.hasMore === true,
-		hasEarlierHistory,
-		historyActionErrorMessage,
+		historyNavigation,
 		historyError,
 		historyIsPending: historyPending,
 		accessModeErrorMessage,
@@ -2304,7 +2330,6 @@ export function useSpaceLandingController(input: {
 		isSpaceNamePending,
 		isLeaveSpacePending: isLeavingSpace,
 		isDeleteSpacePending: isDeletingSpace,
-		isLoadingEarlierHistory,
 		isAgentRecoveryPending,
 		isMembersLoading: membersLoading,
 		isMembersRefreshing: membersQuery.isFetching && !membersQuery.isPending,
@@ -2470,6 +2495,7 @@ export function useSpaceLandingController(input: {
 			options?.pendingMessage !== undefined &&
 			!options.pendingMessage.files?.length;
 
+		historyNavigation.latest();
 		composerSession.send.begin();
 
 		let postedMessage = false;
@@ -3130,6 +3156,14 @@ export function useSpaceLandingController(input: {
 	}
 
 	async function handleLoadEarlierHistory() {
+		if (historyNavigation.activeWindow) {
+			await historyNavigation.loadBefore();
+			return;
+		}
+		if (historyNavigation.hasHiddenLiveHistory) {
+			historyNavigation.revealCachedBefore();
+			return;
+		}
 		const earliestVisibleSignalId =
 			getEarliestVisibleTimelineSignalId(timelineEnvelopes);
 		if (!earliestVisibleSignalId) {
@@ -3176,8 +3210,11 @@ export function useSpaceLandingController(input: {
 					openMeldProfileId: input.profileId,
 				})
 			);
-			mergePersistedIncoming(history.envelopes);
-			return getEarliestVisibleTimelineSignalId(history.envelopes);
+			const anchor = getEarliestVisibleTimelineSignalId(history.envelopes);
+			if (anchor) {
+				await historyNavigation.open(anchor);
+			}
+			return anchor;
 		} catch (error) {
 			const failure = toStructuredApiClientFailure(error);
 			setHistoryActionErrorMessage(failure.message);
@@ -4029,4 +4066,28 @@ function useActiveSpaceHistorySync(input: {
 		input.spaceName,
 		shouldSync,
 	]);
+}
+
+function resolveNavigationPresentation(
+	navigation: SpaceHistoryNavigationController,
+	live: {
+		presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
+		hasEarlierHistory: boolean;
+		historyActionErrorMessage: string | null;
+		isLoadingEarlierHistory: boolean;
+	}
+) {
+	return {
+		ephemeralActivityItems: navigation.activeWindow
+			? []
+			: live.presentedWakeProgressItems,
+		hasEarlierHistory:
+			navigation.activeWindow?.hasBefore ??
+			(navigation.hasHiddenLiveHistory || live.hasEarlierHistory),
+		historyActionErrorMessage:
+			navigation.error ?? live.historyActionErrorMessage,
+		isLoadingEarlierHistory: navigation.activeWindow
+			? navigation.pending
+			: live.isLoadingEarlierHistory,
+	};
 }

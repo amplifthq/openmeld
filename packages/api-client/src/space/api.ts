@@ -28,6 +28,7 @@ import {
   updateSpaceFileEntry,
   uploadSpaceFile,
 } from "./files";
+import { getSpaceHistoryNavigation } from "./history-navigation";
 import { leaveSpace } from "./leave";
 import {
   addCenterAgentToSpace,
@@ -113,6 +114,8 @@ export const createSpaceApi: CreateSpaceApi = (
       await getSpaceMembersSnapshot(client, input),
     getMemberDirectory: async (input) =>
       await getSpaceMemberDirectory(client, input),
+    getHistoryNavigation: async (input) =>
+      await getSpaceHistoryNavigation(client, input),
     getIdentityDirectory: async (input) =>
       await getSpaceIdentityDirectory(client, input),
     getViewerMembership: async (input) =>

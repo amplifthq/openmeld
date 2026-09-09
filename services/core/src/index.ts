@@ -312,6 +312,8 @@ import type {
   SpaceContract,
   SpaceDispatchTraceResponse,
   SpaceFileDescriptor,
+  SpaceHistoryNavigation,
+  SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
@@ -854,6 +856,7 @@ import {
   rpcGetSpaceDispatchTrace,
   rpcGetSpaceEntryResolution,
   rpcGetSpaceFile,
+  rpcGetSpaceHistoryNavigation,
   rpcGetSpaceIdentityDirectory,
   rpcGetSpaceMemberDirectory,
   rpcGetSpaceMembers,
@@ -1723,6 +1726,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   getSpaceMembers(input: GetSpaceMembersInput): Promise<SpaceMembersSnapshot> {
     return rpcGetSpaceMembers(this.env, input);
+  }
+
+  getSpaceHistoryNavigation(
+    input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
+  ): Promise<SpaceHistoryNavigation> {
+    return rpcGetSpaceHistoryNavigation(this.env, input);
   }
 
   getSpaceIdentityDirectory(
@@ -3814,6 +3823,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   getSpaceMembers(input: GetSpaceMembersInput): Promise<SpaceMembersSnapshot> {
     return super.getSpaceMembers(input);
+  }
+
+  getSpaceHistoryNavigation(
+    input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
+  ): Promise<SpaceHistoryNavigation> {
+    return super.getSpaceHistoryNavigation(input);
   }
 
   getSpaceIdentityDirectory(

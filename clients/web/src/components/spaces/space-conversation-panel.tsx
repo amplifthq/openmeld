@@ -81,6 +81,7 @@ import {
 	type SpaceWakeOutcomeIndex,
 	type SpaceWakeStopRequestStatus,
 } from "#/lib/spaces/wake-stop-target";
+import { SPACE_INITIAL_HISTORY_MAX_MESSAGES } from "#/query/spaces/history";
 import {
 	type CenterAgentComputerSetupContext,
 	resolveLatestComputerSetupActionSignalId,
@@ -92,7 +93,6 @@ import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
 import { Message, MessageContent, MessageHeader } from "./primitives/message";
 import {
 	MessageScroller,
-	MessageScrollerButton,
 	MessageScrollerContent,
 	MessageScrollerItem,
 	MessageScrollerProvider,
@@ -146,6 +146,11 @@ import {
 } from "./space-execution-recovery-actions";
 import { SpaceGraph, type SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
+import { SpaceHistoryJumpControl } from "./space-history-jump-control";
+import {
+	type SpaceHistoryActions,
+	SpaceHistoryRail,
+} from "./space-history-rail";
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
@@ -207,6 +212,7 @@ import {
 } from "./space-wake-stop-control";
 import { useSpaceConversationPosition } from "./use-space-conversation-position";
 import { useSpaceGraphLayout } from "./use-space-graph-layout";
+import type { SpaceHistoryNavigationController } from "./use-space-history-navigation";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceMentionPickerItem,
@@ -214,6 +220,7 @@ import type {
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 
 type SpaceConversationPanelResolvedProps = {
+	historyNavigation?: SpaceHistoryNavigationController;
 	activeSpaceView: SpaceView;
 	allowedActions: readonly string[];
 	agentRecoveryPlansByProfileId: ReadonlyMap<
@@ -509,7 +516,6 @@ function SpaceConversationPanelContent(
 		setConversationTopOverlayElement,
 		setDismissedUnreadTargetKeys,
 		setMessageDetailsItem,
-		setStuckConversationDateMs,
 		showComposer,
 		showEarlierHistoryLoadingIndicator,
 		spaceGraph,
@@ -530,6 +536,7 @@ function SpaceConversationPanelContent(
 		isLoadingEarlierHistory: input.isLoadingEarlierHistory,
 		mainTimelineItems,
 		onLoadEarlierHistory: input.onLoadEarlierHistory,
+		onLoadHistoryAround: input.historyNavigation?.open,
 		onOpenThread,
 		onOpenUnreadThread: input.onOpenUnreadThread,
 		onSpaceViewChange: input.onSpaceViewChange,
@@ -548,6 +555,7 @@ function SpaceConversationPanelContent(
 		conversationDefaultScrollPosition,
 		conversationScrollElement,
 		followLatest,
+		releaseReadingPosition,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
 		onConversationScroll,
@@ -559,6 +567,9 @@ function SpaceConversationPanelContent(
 		threadFocusStatusMessage,
 		unreadNavigation,
 	} = navigation;
+	const showHistoryRail =
+		(input.historyNavigation?.directory?.total ?? 0) >
+		SPACE_INITIAL_HISTORY_MAX_MESSAGES;
 	const setupGuidance = resolveSpaceSetupGuidanceSlots({
 		hasConversationEntries: entries.length > 0,
 		renderSetupGuidance: input.renderSetupGuidance,
@@ -584,6 +595,7 @@ function SpaceConversationPanelContent(
 				"flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
 				input.className
 			)}
+			data-space-history-rail={showHistoryRail ? "true" : undefined}
 		>
 			{input.historyActionErrorMessage || input.historyErrorMessage ? (
 				<div className="border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm sm:px-5">
@@ -621,7 +633,11 @@ function SpaceConversationPanelContent(
 				idPrefix={input.spaceViewIdPrefix}
 				messages={
 					<MessageScrollerProvider
-						autoScroll={conversationAutoScroll}
+						autoScroll={
+							input.historyNavigation?.activeWindow
+								? false
+								: conversationAutoScroll
+						}
 						defaultScrollPosition={conversationDefaultScrollPosition}
 						key={buildSpaceConversationScrollRestorationId(
 							input.spaceId ?? input.spaceViewIdPrefix
@@ -632,8 +648,40 @@ function SpaceConversationPanelContent(
 							onSendStart={followLatest}
 						/>
 						<MessageScroller className="relative min-h-0 flex-1">
+							{input.historyNavigation && (
+								<SpaceHistoryRail
+									controller={input.historyNavigation}
+									items={mainTimelineItems}
+									onFollowLatest={followLatest}
+									onJumpToMessage={onJumpToMessage}
+									onNavigateStart={releaseReadingPosition}
+									renderNavigation={(history) => (
+										<ConversationJumpButton
+											dismissedTargetKeys={dismissedUnreadTargetKeys}
+											history={history}
+											navigation={unreadNavigation}
+											onDismissUnread={() =>
+												setDismissedUnreadTargetKeys((current) =>
+													mergeUnreadTargetKeys(
+														current,
+														unreadNavigation.belowTargetKeys
+													)
+												)
+											}
+											onNavigateUnread={revealUnreadTarget}
+										/>
+									)}
+									scrollElement={conversationScrollElement}
+									visible={showHistoryRail}
+								/>
+							)}
+
 							<ConversationLatestObserver
-								onChange={input.onViewingLatestChange}
+								onChange={(value) =>
+									input.onViewingLatestChange?.(
+										value && !input.historyNavigation?.activeWindow
+									)
+								}
 							/>
 							<SpaceConversationTopOverlay
 								overlayRef={setConversationTopOverlayElement}
@@ -691,7 +739,6 @@ function SpaceConversationPanelContent(
 										/>
 									}
 									loadedSignalCount={loadedMainTimelineSignalIds.size}
-									onActiveDateMsChange={setStuckConversationDateMs}
 									onJumpToDate={input.onJumpToDate}
 									scrollElement={conversationScrollElement}
 									topOverlayElement={conversationTopOverlayElement}
@@ -701,22 +748,34 @@ function SpaceConversationPanelContent(
 									data-space-conversation-content-width=""
 								>
 									{conversationBody}
+									{input.historyNavigation?.activeWindow?.hasAfter && (
+										<Button
+											className="mx-auto mt-4 mb-16"
+											disabled={input.historyNavigation.pending}
+											onClick={() => input.historyNavigation?.loadAfter()}
+											variant="ghost"
+										>
+											Load newer messages
+										</Button>
+									)}
 								</MessageScrollerContent>
 							</MessageScrollerViewport>
 
-							<ConversationJumpButton
-								dismissedTargetKeys={dismissedUnreadTargetKeys}
-								navigation={unreadNavigation}
-								onDismissUnread={() => {
-									setDismissedUnreadTargetKeys((current) =>
-										mergeUnreadTargetKeys(
-											current,
-											unreadNavigation.belowTargetKeys
-										)
-									);
-								}}
-								onNavigateUnread={revealUnreadTarget}
-							/>
+							{!input.historyNavigation && (
+								<ConversationJumpButton
+									dismissedTargetKeys={dismissedUnreadTargetKeys}
+									navigation={unreadNavigation}
+									onDismissUnread={() => {
+										setDismissedUnreadTargetKeys((current) =>
+											mergeUnreadTargetKeys(
+												current,
+												unreadNavigation.belowTargetKeys
+											)
+										);
+									}}
+									onNavigateUnread={revealUnreadTarget}
+								/>
+							)}
 						</MessageScroller>
 					</MessageScrollerProvider>
 				}
@@ -866,7 +925,6 @@ function renderPanelConversationBody(input: {
 		selfProfileId: panel.selfProfileId,
 		spaceId: panel.spaceId,
 		spaceReferencesById: panel.spaceReferencesById,
-		stuckDateMs: presentation.stuckConversationDateMs,
 		highlightedSignalId: navigation.highlightedSignalId,
 		timelineItems: presentation.mainTimelineItems,
 		wakeOutcomeIndex: presentation.wakeOutcomeIndex,
@@ -901,9 +959,6 @@ function useSpaceConversationPresentationController(
 		isReadOnly,
 		showComposerWhenReadOnly: input.readOnlyComposerPlaceholder !== undefined,
 	});
-	const [stuckConversationDateMs, setStuckConversationDateMs] = useState<
-		number | null
-	>(null);
 	const [conversationTopOverlayElement, setConversationTopOverlayElement] =
 		useState<HTMLDivElement | null>(null);
 	const graphFocusRequestIdRef = useRef(0);
@@ -1138,14 +1193,12 @@ function useSpaceConversationPresentationController(
 		setDismissedUnreadTargetKeys,
 		setMessageDetailsItem,
 		setStarterComputerSetupOpen,
-		setStuckConversationDateMs,
 		showComposer,
 		showEarlierHistoryLoadingIndicator,
 		spaceGraph,
 		spaceGraphFocusRequest,
 		spaceGraphLayout,
 		starterComputerSetupOpen,
-		stuckConversationDateMs,
 		threadPreviewByThreadId,
 		threadsByRootSignalId,
 		wakeOutcomeIndex,
@@ -1166,6 +1219,7 @@ function useSpaceConversationNavigationController(input: {
 	isLoadingEarlierHistory: boolean;
 	mainTimelineItems: readonly SpaceTimelineItem[];
 	onLoadEarlierHistory: () => Promise<void>;
+	onLoadHistoryAround?: ((id: string) => Promise<boolean>) | undefined;
 	onOpenThread: (threadId: string) => void;
 	onOpenUnreadThread?: SpaceConversationPanelResolvedProps["onOpenUnreadThread"];
 	onSpaceViewChange: (view: SpaceView) => void;
@@ -1193,6 +1247,7 @@ function useSpaceConversationNavigationController(input: {
 		isLoadingEarlierHistory: input.isLoadingEarlierHistory,
 		historyVersion: input.mainTimelineItems,
 		onLoadEarlierHistory: input.onLoadEarlierHistory,
+		onLoadHistoryAround: input.onLoadHistoryAround,
 		historyError: input.historyActionErrorMessage,
 		hasExplicitFocus: Boolean(
 			input.initialFocusSignalId ||
@@ -1496,6 +1551,7 @@ function useSpaceConversationNavigationController(input: {
 		conversationDefaultScrollPosition,
 		conversationScrollElement,
 		followLatest: conversationPosition.followLatest,
+		releaseReadingPosition: conversationPosition.releaseReadingPosition,
 		highlightedSignalId,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
@@ -1672,13 +1728,18 @@ function ConversationLatestObserver(input: {
 }
 
 function ConversationJumpButton(input: {
+	history?: SpaceHistoryActions;
 	dismissedTargetKeys: ReadonlySet<string>;
 	navigation: SpaceUnreadNavigationState;
 	onDismissUnread: () => void;
 	onNavigateUnread: (target: SpaceInboxUnreadTarget) => Promise<void>;
 }) {
-	const shouldReduceMotion = useReducedMotion();
 	const showUnread =
+		!(
+			input.history?.isHistorical ||
+			input.history?.onBack ||
+			input.history?.pending
+		) &&
 		input.navigation.belowCount > 0 &&
 		hasUndismissedUnreadTarget(
 			input.navigation.belowTargetKeys,
@@ -1702,19 +1763,7 @@ function ConversationJumpButton(input: {
 		);
 	}
 
-	return (
-		<MessageScrollerButton
-			aria-label="Jump to latest message"
-			behavior={shouldReduceMotion ? "auto" : "smooth"}
-			className="conversation-floating-surface z-20 rounded-full border border-transparent p-0 text-foreground"
-			direction="end"
-			size="icon"
-			type="button"
-			variant="secondary"
-		>
-			<CaretDoubleDownIcon aria-hidden="true" weight="bold" />
-		</MessageScrollerButton>
-	);
+	return <SpaceHistoryJumpControl history={input.history} />;
 }
 
 function SpaceUnreadAboveControl(input: {
@@ -2158,7 +2207,6 @@ function renderConversationBody(input: {
 	selfProfileId: string;
 	spaceId?: string;
 	spaceReferencesById?: SpaceMessageReferencesById;
-	stuckDateMs: number | null;
 	highlightedSignalId: string | null;
 	timelineItems: readonly SpaceTimelineItem[];
 	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
@@ -2286,7 +2334,6 @@ function renderConversationBody(input: {
 									date={date}
 									loadedSignalCount={input.loadedMainTimelineSignalIds.size}
 									onJumpToDate={input.onJumpToDate}
-									stuck={createdAtMs === input.stuckDateMs}
 								/>
 							</MessageScrollerItem>
 						) : null}

@@ -2052,6 +2052,7 @@ function SpaceLandingConversation({
 			firstUnreadSignalId={controller.firstUnreadSignalId}
 			historyActionErrorMessage={controller.historyActionErrorMessage}
 			historyErrorMessage={historyErrorMessage}
+			historyNavigation={controller.historyNavigation}
 			initialFocusInteractionId={input.initialFocusInteractionId}
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
