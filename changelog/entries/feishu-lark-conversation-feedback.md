@@ -19,3 +19,6 @@ embedded images, and retain rich-text content when reading conversation history.
 Files attached to the current Feishu or Lark request can be read up to 5 MB.
 Text files receive a preview; when Computer is available, original files are
 saved there for further processing.
+
+Replies in a Feishu or Lark topic use that topic's conversation history instead
+of only the parent chat's topic roots.

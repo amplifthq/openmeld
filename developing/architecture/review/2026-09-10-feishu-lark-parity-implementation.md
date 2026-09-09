@@ -39,6 +39,17 @@ No Computer means an explicit binary-inspection limitation. Image admission
 retains its existing magic-byte checks. Audio/video-specific processing is not
 implemented merely because an opaque file can be downloaded.
 
+## Exact thread history
+
+History uses the provider's `thread` container when the admitted event supplies a
+thread ID. The official [history API](https://open.feishu.cn/document/server-docs/im-v1/message/list)
+specifies that chat reads return only topic roots in ordinary groups. Thread
+reads do not support time filters, so later concurrent messages are excluded
+against the admitted event timestamp after retrieval. Chat reads round the
+upper bound up to retain earlier messages in the same second. The existing
+bounded history and frozen conversation checks remain in place. Both provider
+variants have focused coverage; this does not grant access to other chats.
+
 ## Contract impact and rollout
 
 The optional `trigger.resources` field and file RPC are shared cloud contracts.

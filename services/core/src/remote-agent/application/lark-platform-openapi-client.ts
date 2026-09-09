@@ -103,16 +103,7 @@ export async function readLarkPlatformChannelContext(input: {
     return unavailableContext("unavailable");
   }
 
-  const url = new URL("/open-apis/im/v1/messages", apiHost);
-  url.searchParams.set("container_id_type", "chat");
-  url.searchParams.set("container_id", input.currentEvent.locator.chatId);
-  url.searchParams.set(
-    "end_time",
-    String(Math.floor(input.currentEvent.sentAtMs / 1000))
-  );
-  url.searchParams.set("sort_type", "ByCreateTimeDesc");
-  url.searchParams.set("page_size", String(CHANNEL_CONTEXT_MAX_MESSAGES));
-  url.searchParams.set("with_sender_name", "true");
+  const url = buildLarkPlatformHistoryUrl(apiHost, input.currentEvent);
 
   let response: Response;
   try {
@@ -143,6 +134,12 @@ export async function readLarkPlatformChannelContext(input: {
       continue;
     }
     if (!belongsToCurrentConversation(rawItem, input.currentEvent)) {
+      continue;
+    }
+    if (
+      (readNonnegativeInteger(rawItem, "create_time") ?? 0) >
+      input.currentEvent.sentAtMs
+    ) {
       continue;
     }
     if (readString(rawItem, "message_id") === input.currentEvent.messageId) {
@@ -1406,6 +1403,24 @@ function readNestedString(
 ): string | null {
   const parent = body?.[parentKey];
   return isJsonObject(parent) ? readString(parent, key) : null;
+}
+
+function buildLarkPlatformHistoryUrl(
+  apiHost: string,
+  event: LarkPlatformMessageEvent
+): URL {
+  const url = new URL("/open-apis/im/v1/messages", apiHost);
+  const threadId = event.locator.threadId;
+  url.searchParams.set("container_id_type", threadId ? "thread" : "chat");
+  url.searchParams.set("container_id", threadId ?? event.locator.chatId);
+  // The provider does not support time-range parameters on thread reads.
+  if (!threadId) {
+    url.searchParams.set("end_time", String(Math.ceil(event.sentAtMs / 1000)));
+  }
+  url.searchParams.set("sort_type", "ByCreateTimeDesc");
+  url.searchParams.set("page_size", String(CHANNEL_CONTEXT_MAX_MESSAGES));
+  url.searchParams.set("with_sender_name", "true");
+  return url;
 }
 
 function belongsToCurrentConversation(

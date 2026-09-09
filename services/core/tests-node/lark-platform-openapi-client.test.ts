@@ -800,7 +800,10 @@ describe("Lark-platform OpenAPI publication", () => {
     });
   });
 
-  it("reads bounded conversation context without duplicating the current message", async () => {
+  it.each([
+    "feishu",
+    "lark",
+  ] as const)("reads exact %s thread context without current, future or other-thread messages", async (provider) => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -816,6 +819,17 @@ describe("Lark-platform OpenAPI publication", () => {
           data: {
             has_more: true,
             items: [
+              {
+                body: {
+                  content: JSON.stringify({ text: "Later concurrent reply" }),
+                },
+                chat_id: "oc_chat_test",
+                create_time: "1710000004000",
+                message_id: "om_later",
+                msg_type: "text",
+                root_id: "om_root",
+                sender: { id: "ou_member", sender_type: "user" },
+              },
               {
                 body: { content: JSON.stringify({ text: "Current request" }) },
                 chat_id: "oc_chat_test",
@@ -846,11 +860,16 @@ describe("Lark-platform OpenAPI publication", () => {
                 },
               },
               {
-                body: { content: JSON.stringify({ text: "Earlier question" }) },
+                body: {
+                  content: JSON.stringify({
+                    title: "Earlier question",
+                    content: [[{ tag: "text", text: "Details" }]],
+                  }),
+                },
                 chat_id: "oc_chat_test",
                 create_time: "1710000001000",
                 message_id: "om_earlier_1",
-                msg_type: "text",
+                msg_type: "post",
                 root_id: "om_root",
                 sender: {
                   id: "ou_member",
@@ -887,7 +906,7 @@ describe("Lark-platform OpenAPI publication", () => {
             appId: "cli_test",
             chatId: "oc_chat_test",
             connectionId: "connection",
-            provider: "lark",
+            provider,
             rootMessageId: "om_root",
             tenantKey: "tenant",
             threadId: "omt_thread",
@@ -900,7 +919,7 @@ describe("Lark-platform OpenAPI publication", () => {
           text: "Current request",
         },
         fetchImpl,
-        provider: "lark",
+        provider,
       })
     ).resolves.toEqual({
       conversationId: "lark:connection:oc_chat_test:om_root",
@@ -914,7 +933,7 @@ describe("Lark-platform OpenAPI publication", () => {
           },
           id: "om_earlier_1",
           sentAtMs: 1_710_000_001_000,
-          text: "Earlier question",
+          text: "Earlier question\nDetails",
         },
         {
           author: {
@@ -927,16 +946,20 @@ describe("Lark-platform OpenAPI publication", () => {
           text: "Center Agent Earlier answer",
         },
       ],
-      provider: "lark",
+      provider,
       sync: { mode: "snapshot", status: "truncated" },
     });
 
     const contextUrl = new URL(String(fetchImpl.mock.calls[1]?.[0]));
-    expect(contextUrl.origin).toBe("https://open.larksuite.com");
+    expect(contextUrl.origin).toBe(
+      provider === "lark"
+        ? "https://open.larksuite.com"
+        : "https://open.feishu.cn"
+    );
     expect(contextUrl.pathname).toBe("/open-apis/im/v1/messages");
-    expect(contextUrl.searchParams.get("container_id_type")).toBe("chat");
-    expect(contextUrl.searchParams.get("container_id")).toBe("oc_chat_test");
-    expect(contextUrl.searchParams.get("end_time")).toBe("1710000003");
+    expect(contextUrl.searchParams.get("container_id_type")).toBe("thread");
+    expect(contextUrl.searchParams.get("container_id")).toBe("omt_thread");
+    expect(contextUrl.searchParams.has("end_time")).toBe(false);
     expect(contextUrl.searchParams.get("page_size")).toBe("20");
   });
 });
