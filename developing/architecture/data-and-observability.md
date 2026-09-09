@@ -101,12 +101,13 @@ One physical storage binding can temporarily contain multiple domains. That does
 not create shared ownership. Logical ownership still decides who may write facts,
 who may project them, and who must repair them.
 
-Auth owns Organization membership removal. Its `beforeRemoveMember` guard may
-perform one read-only join from the Core-owned `center_agent_designations` row to
-the designated managed profile's owner in the shared D1 database. This bounded
-referential read exists only to prevent removal of the Center Agent execution
-host and must fail closed. It gives Auth no write authority over Center Agent or
-Agent Profile state; Core remains the only owner and writer of those facts.
+Auth owns Organization membership removal and managed Profile identity. A
+Center Agent belongs to the Organization, not a personal execution host;
+removing its creator does not remove the agent or its conversations. Core owns
+designation, operating state, and the organization-owned hosted Binding.
+Historical creation and designation actors are attribution, never an ownership
+guard or a grant of private Space access. See
+[Organization Agent ownership](organization-agent-ownership.md).
 
 ## Durable Data Domains
 

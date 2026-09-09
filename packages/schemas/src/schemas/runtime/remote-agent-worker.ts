@@ -364,7 +364,7 @@ const remoteAgentWorkerSubmitTurnRequestShape = {
   // result is published.
   conversationId: optionalNonEmptyStringSchema,
   agentProfileId: agentProfileIdSchema,
-  agentProfileOwnerUserId: nonEmptyStringSchema,
+  agentProfileOwnerUserId: nonEmptyStringSchema.nullable(),
   bindingId: nonEmptyStringSchema,
   triggerMessageId: nonEmptyStringSchema,
   dispatchId: nonEmptyStringSchema,

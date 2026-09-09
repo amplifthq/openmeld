@@ -128,12 +128,12 @@ describe("Remote Agent native delivery callback service", () => {
       params: [HUMAN_PROFILE_ID],
     });
     harness.run({
-      sql: "UPDATE openmeld_profiles SET managed_role = NULL WHERE profile_id = ?",
+      sql: "UPDATE openmeld_profiles SET managed_role = NULL, owner_user_id = 'user_1' WHERE profile_id = ?",
       params: [AGENT_PROFILE_ID],
     });
     harness.run({ sql: "DELETE FROM center_agent_designations" });
     harness.run({
-      sql: "UPDATE openMeldDaemon_agent_profile_bindings SET runtime_kind = 'hosted_remote_agent', agent_controller_ref = 'hosted:remote-agent', openmeld_service_runtime_id = 'hosted:remote-agent', hosted_runtime_identity_json = ? WHERE binding_id = 'binding_1'",
+      sql: "UPDATE openMeldDaemon_agent_profile_bindings SET owner_kind = 'owner_account', owner_id = 'user_1', runtime_kind = 'hosted_remote_agent', agent_controller_ref = 'hosted:remote-agent', openmeld_service_runtime_id = 'hosted:remote-agent', hosted_runtime_identity_json = ? WHERE binding_id = 'binding_1'",
       params: [JSON.stringify(HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY)],
     });
     const workerSubmit = vi.fn(
@@ -9224,7 +9224,7 @@ function applyRemoteAgentTurnEnvelopeFactMigrations(
         profile_handle TEXT NOT NULL,
         profile_kind TEXT NOT NULL,
         organization_id TEXT NOT NULL,
-        owner_user_id TEXT NOT NULL,
+        owner_user_id TEXT,
         managed_role TEXT,
         status TEXT NOT NULL
       )
@@ -9256,8 +9256,8 @@ function seedCenterAgentTaskAdmissionAuthority(
   input.run({
     params: [
       "binding_1",
-      "owner_account",
-      "user_1",
+      "organization",
+      "org_1",
       AGENT_PROFILE_ID,
       HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       "hosted_center_agent",
@@ -9362,7 +9362,7 @@ function seedRemoteAgentTurnEnvelopeFacts(
       "center-agent",
       "agent",
       "org_1",
-      "user_1",
+      null,
       "center_agent",
       "active",
     ],

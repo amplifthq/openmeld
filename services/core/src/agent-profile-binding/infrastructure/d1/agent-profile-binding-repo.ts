@@ -17,7 +17,7 @@ import type { AgentProfileBindingLookupStore } from "../../application/agent-pro
 
 export type AgentProfileBindingOwner = {
   id: string;
-  kind: "owner_account";
+  kind: "owner_account" | "organization";
 };
 
 export type EnabledPrimaryAgentProfileBindingInput = {
@@ -80,7 +80,7 @@ type AgentProfileBindingRow = {
   configuration_revision: number;
   disabled_at_ms: number | null;
   owner_id: string;
-  owner_kind: "owner_account";
+  owner_kind: "owner_account" | "organization";
   reason_code: string | null;
   openmeld_service_runtime_id: string;
   runtime_kind:
@@ -916,7 +916,12 @@ const PRIMARY_AGENT_PROFILE_CONTROLLER_LIST_BATCH_SIZE = 49;
 
 /** Public branding only. Callers must first authorize the exact Profile/owner pairs. */
 export async function listPrimaryAgentProfileControllerRefs(input: {
-  profiles: readonly { profileId: string; ownerUserId: string }[];
+  profiles: readonly {
+    profileId: string;
+    ownerUserId: string | null;
+    organizationId?: string;
+    managedRole?: string | null;
+  }[];
   db: D1Database;
 }): Promise<ReadonlyMap<string, string>> {
   const profiles = [
@@ -935,21 +940,32 @@ export async function listPrimaryAgentProfileControllerRefs(input: {
       start + PRIMARY_AGENT_PROFILE_CONTROLLER_LIST_BATCH_SIZE
     );
     const selectors = batch
-      .map(() => "(agent_profile_id = ? AND owner_id = ?)")
+      .map(() => "(agent_profile_id = ? AND owner_kind = ? AND owner_id = ?)")
       .join(" OR ");
     const result = await input.db
       .prepare(
         `
           SELECT agent_profile_id, agent_controller_ref
           FROM openMeldDaemon_agent_profile_bindings
-          WHERE owner_kind = 'owner_account'
-            AND (${selectors})
+          WHERE (${selectors})
             AND binding_state = 'enabled_primary'
           ORDER BY agent_profile_id ASC, binding_id ASC
         `
       )
       .bind(
-        ...batch.flatMap((profile) => [profile.profileId, profile.ownerUserId])
+        ...batch.flatMap((profile) => {
+          if (
+            profile.managedRole === "center_agent" &&
+            !profile.ownerUserId &&
+            profile.organizationId
+          ) {
+            return [profile.profileId, "organization", profile.organizationId];
+          }
+          if (!profile.ownerUserId) {
+            throw new Error("Agent Profile owner is missing");
+          }
+          return [profile.profileId, "owner_account", profile.ownerUserId];
+        })
       )
       .all<{ agent_profile_id: string; agent_controller_ref: string }>();
     for (const row of result.results ?? []) {

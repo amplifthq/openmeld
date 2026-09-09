@@ -763,10 +763,10 @@ import {
   createD1AgentProfileBindingCommandStore,
   createD1AgentProfileBindingLookupStore,
   disablePrimaryAgentProfileBindingRecord,
+  ensurePrimaryAgentProfileBindingRecord,
   listEnabledPrimaryAgentProfileBindingRecordsForProfile,
   listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController,
   listPrimaryAgentProfileControllerRefs,
-  MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE,
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
 } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
@@ -879,7 +879,6 @@ import {
   requireCurrentDesignatedCenterAgentCaller,
 } from "../center-agent/current-designated-center-agent";
 import type { CenterAgentWakePublicationCommand } from "../center-agent/infrastructure/d1/center-agent-wake-publication-repo";
-import { reconcileRemoteCenterAgentBindingRecord } from "../center-agent/infrastructure/d1/remote-center-agent-binding-repo";
 import { startCenterAgentMemberResearch } from "../center-agent-member-research/member-research-service";
 import type { CenterAgentMemoryEpisodeOrigin } from "../center-agent-memory/contract";
 import { createCoreCenterAgentMemoryService } from "../center-agent-memory/core-memory-service";
@@ -973,7 +972,6 @@ import {
 } from "../organizations/organization-computers-service";
 import {
   readOrganizationAccountIdentityProjection,
-  readOrganizationCreatorUserId,
   readOrganizationPersonalClassification,
   readOrganizationRouteSlug,
   resolveActiveOrganizationMembership,
@@ -6086,10 +6084,17 @@ export async function rpcGetCurrentOrganizationDirectory(
   input: GetCurrentOrganizationDirectoryInput
 ): Promise<OrganizationDirectoryResponse> {
   const context = requireRpcContext(input.context);
-  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
-    context,
-    env,
-  });
+  const organizationAgent =
+    context.actorContext.agentControllerRef ===
+    HOSTED_CENTER_AGENT_CONTROLLER_REF
+      ? await requireCurrentDesignatedCenterAgentCaller({ context, env })
+      : null;
+  const activeOrganization = organizationAgent
+    ? {
+        organizationId: organizationAgent.activeOrganization.organizationId,
+        userId: null,
+      }
+    : await requireActiveOrganizationMembershipOrThrow({ context, env });
   const generatedAt = new Date().toISOString();
   const organizationId = activeOrganization.organizationId;
   const requestId = context.actorContext.requestId;
@@ -6366,7 +6371,7 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
   env: CoreBindings;
   generatedAt: string;
   organizationId: string;
-  viewerUserId: string;
+  viewerUserId: string | null;
 }): Promise<OrganizationAgentRuntimeOverviewResponse> {
   const [readinessByProfileId, operationalContextsByProfileId] =
     await Promise.all([
@@ -6466,14 +6471,17 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
   env: CoreBindings;
   generatedAt: string;
   organizationId: string;
-  viewerUserId: string;
+  viewerUserId: string | null;
 }): Promise<
   ReadonlyMap<
     string,
     OrganizationDirectoryResponse["agentProfiles"][number]["readiness"]
   >
 > {
-  const profilesByOwner = new Map<string, EligibleOrganizationAgentProfile[]>();
+  const profilesByOwner = new Map<
+    string | null,
+    EligibleOrganizationAgentProfile[]
+  >();
   const reads = createAgentExecutionReadinessReads();
   for (const profile of input.eligibleAgentProfiles) {
     const profiles = profilesByOwner.get(profile.ownerUserId) ?? [];
@@ -6484,19 +6492,21 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
     [...profilesByOwner],
     ORGANIZATION_AGENT_RUNTIME_OWNER_CONCURRENCY,
     async ([ownerUserId, profiles]) => {
-      const [preloadedRoutes, preloadedOwnerService] = await Promise.all([
-        lookupRuntimeTransportRoutesBatch({
-          blockForgottenDevices: true,
-          env: input.env,
-          ownerUserId,
-          profileIds: profiles.map((profile) => profile.profileId),
-        }),
-        lookupRuntimeTransportOwnerService({
-          blockForgottenDevices: true,
-          env: input.env,
-          ownerUserId,
-        }).catch(() => null),
-      ]);
+      const [preloadedRoutes, preloadedOwnerService] = ownerUserId
+        ? await Promise.all([
+            lookupRuntimeTransportRoutesBatch({
+              blockForgottenDevices: true,
+              env: input.env,
+              ownerUserId,
+              profileIds: profiles.map((profile) => profile.profileId),
+            }),
+            lookupRuntimeTransportOwnerService({
+              blockForgottenDevices: true,
+              env: input.env,
+              ownerUserId,
+            }).catch(() => null),
+          ])
+        : [null, null];
       const onlineTargets = preloadedRoutes
         ? Object.values(preloadedRoutes.routes).flatMap((route) =>
             route.online
@@ -6504,13 +6514,14 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
               : []
           )
         : [];
-      const displayNames = preloadedRoutes
-        ? await preloadRuntimeDeviceDisplayNamesForOwner({
-            env: input.env,
-            ownerUserId,
-            targets: onlineTargets,
-          })
-        : null;
+      const displayNames =
+        preloadedRoutes && ownerUserId
+          ? await preloadRuntimeDeviceDisplayNamesForOwner({
+              env: input.env,
+              ownerUserId,
+              targets: onlineTargets,
+            })
+          : null;
       return await mapWithConcurrency(
         profiles,
         ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
@@ -6546,7 +6557,9 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             agent.profileId,
             buildOrganizationDirectoryAgentExecutionReadinessResponse({
               generatedAt: input.generatedAt,
-              isOwner: agent.ownerUserId === input.viewerUserId,
+              isOwner:
+                input.viewerUserId !== null &&
+                agent.ownerUserId === input.viewerUserId,
               readiness,
             }),
           ] as const;
@@ -6587,15 +6600,18 @@ type DirectoryOperationalContextRead = {
 async function readOrganizationDirectoryAgentProfileOperationalContexts(input: {
   eligibleAgentProfiles: readonly {
     managedRole: string | null;
-    ownerUserId: string;
+    ownerUserId: string | null;
     profileId: string;
   }[];
   env: CoreBindings;
-  viewerUserId: string;
+  viewerUserId: string | null;
 }): Promise<Map<string, DirectoryOperationalContextRead>> {
   const profileIdsByOwner = new Map<string, string[]>();
   for (const profile of input.eligibleAgentProfiles) {
-    if (profile.managedRole === CENTER_AGENT_MANAGED_ROLE) {
+    if (
+      profile.managedRole === CENTER_AGENT_MANAGED_ROLE ||
+      !profile.ownerUserId
+    ) {
       continue;
     }
     const profileIds = profileIdsByOwner.get(profile.ownerUserId) ?? [];
@@ -6994,16 +7010,26 @@ async function readCurrentOrganizationSpaceDirectoryWithMemberCounts(
   input: GetCurrentOrganizationSpaceDirectoryInput
 ): Promise<OrganizationSpaceDirectoryWithMemberCountsResponse> {
   const context = requireRpcContext(input.context);
-  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
-    context,
-    env,
-  });
+  const organizationAgent =
+    context.actorContext.agentControllerRef ===
+    HOSTED_CENTER_AGENT_CONTROLLER_REF
+      ? await requireCurrentDesignatedCenterAgentCaller({ context, env })
+      : null;
+  const directoryCaller = organizationAgent
+    ? {
+        organizationId: organizationAgent.activeOrganization.organizationId,
+        userId: null,
+      }
+    : await requireActiveOrganizationMembershipOrThrow({ context, env });
   const response = await listOrganizationSpacesFromSpaceIndex({
     db: requireSpaceIndexDb(env),
     generatedAt: new Date().toISOString(),
     limit: ORGANIZATION_SPACE_DIRECTORY_LIMIT,
-    organizationId: activeOrganization.organizationId,
-    ownerUserId: activeOrganization.userId,
+    organizationId: directoryCaller.organizationId,
+    ownerUserId: directoryCaller.userId,
+    ...(organizationAgent
+      ? { profileId: organizationAgent.actorProfileId }
+      : {}),
   });
 
   return response;
@@ -7928,16 +7954,10 @@ export async function rpcGetCenterAgentOperatingState(
     env,
   });
   const db = requireCenterAgentDb(env);
-  const [designation, creatorUserId] = await Promise.all([
-    readCenterAgentDesignationRecord({
-      db,
-      organizationId: activeOrganization.organizationId,
-    }),
-    readOrganizationCreatorUserId({
-      env,
-      organizationId: activeOrganization.organizationId,
-    }),
-  ]);
+  const designation = await readCenterAgentDesignationRecord({
+    db,
+    organizationId: activeOrganization.organizationId,
+  });
   if (!designation) {
     throw createCoreRpcHttpError({
       code: "center_agent.designation_required",
@@ -7946,7 +7966,10 @@ export async function rpcGetCenterAgentOperatingState(
     });
   }
   return getCenterAgentOperatingStateResponseSchema.parse({
-    canChangeOperatingState: creatorUserId === activeOrganization.userId,
+    canChangeOperatingState: memberRoleHasOrganizationPermission(
+      activeOrganization.role,
+      { centerAgent: ["update"] }
+    ),
     operatingState: designation.operatingState,
     organizationId: activeOrganization.organizationId,
     pausedAt:
@@ -9425,12 +9448,6 @@ async function assertCenterAgentDesignationVisibleForDispatch(input: {
   }
 }
 
-function isLocalAgentBackedCenterAgentRuntimeEnabled(
-  _env: CoreBindings
-): boolean {
-  return false;
-}
-
 function assertRemoteCenterAgentDesignationEnabled(env: CoreBindings): void {
   if (env.OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED === "true") {
     return;
@@ -9482,19 +9499,10 @@ export async function rpcDesignateCenterAgent(
       env,
     });
   } else {
-    // Local-agent-backed Center Agent is intentionally hidden pending the hosted-runtime feature bar (always-on, Slack, watchdog, cross-space context); to be redesigned together with bring-your-own-agent support.
-    if (!isLocalAgentBackedCenterAgentRuntimeEnabled(env)) {
-      throw createCoreRpcHttpError({
-        status: 403,
-        reason:
-          "Local-agent-backed Center Agent runtime is not available. Connect the hosted Remote Agent runtime instead.",
-        code: "center_agent.local_runtime_hidden",
-      });
-    }
-    await assertSelfHostedDesignatableCenterAgentProfile({
-      activeOrganization,
-      agentProfileId,
-      bindingDb,
+    throw createCoreRpcHttpError({
+      status: 403,
+      reason: "Organization Center Agents use the hosted runtime.",
+      code: "center_agent.local_runtime_hidden",
     });
   }
   const result = await upsertCenterAgentDesignationRecord({
@@ -9624,15 +9632,15 @@ export async function rpcUpdateCenterAgentOperatingState(
     env,
   });
   const db = requireCenterAgentDb(env);
-  const creatorUserId = await readOrganizationCreatorUserId({
-    env,
-    organizationId: activeOrganization.organizationId,
-  });
-  if (!creatorUserId || creatorUserId !== activeOrganization.userId) {
+  if (
+    !memberRoleHasOrganizationPermission(activeOrganization.role, {
+      centerAgent: ["update"],
+    })
+  ) {
     throw createCoreRpcHttpError({
-      code: "center_agent.creator_required",
+      code: "organization.role_required",
       reason:
-        "Only the Organization creator can pause or resume the Center Agent.",
+        "Only Organization owners and admins can pause or resume the Center Agent.",
       status: 403,
     });
   }
@@ -9642,8 +9650,7 @@ export async function rpcUpdateCenterAgentOperatingState(
   if (!(actorProfileId && context.actorContext.profileKind === "human")) {
     throw createCoreRpcHttpError({
       code: "center_agent.human_actor_required",
-      reason:
-        "Pause and Resume require the Organization creator's Human Profile.",
+      reason: "Use a Human Profile to pause or resume the Center Agent.",
       status: 403,
     });
   }
@@ -11993,9 +12000,14 @@ export async function rpcCenterAgentCreateAgentProfile(
     authorization,
     onBehalfOfProfileId: parsed.data.onBehalfOf?.profileId ?? null,
   });
-  const representedOwnerUserId =
-    requestedAttribution.onBehalfOf?.userId ??
-    authorization.activeOrganization.userId;
+  const representedOwnerUserId = requestedAttribution.onBehalfOf?.userId;
+  if (!representedOwnerUserId) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.represented_member_required",
+      reason: "Choose the member who will own this Agent.",
+      status: 403,
+    });
+  }
 
   const created = await callRequiredAuthWorkerRpc({
     authWorker: env.OPENMELD_AUTH_WORKER,
@@ -15492,10 +15504,19 @@ export async function rpcCenterAgentWatchAgentTask(
   env: CoreBindings,
   input: CenterAgentWatchAgentTaskInput
 ): Promise<CenterAgentWatchAgentTaskResponse> {
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
-    context: requireRpcContext(input.context),
-    env,
-  });
+  if (!input.speakerMember) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.represented_member_required",
+      reason: "This task requires a verified member request.",
+      status: 403,
+    });
+  }
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      requireRpcContext(input.context),
+      input.speakerMember
+    );
   const parsed = centerAgentWatchAgentTaskBodySchema.safeParse({
     completionCondition: input.completionCondition,
     instruction: input.instruction,
@@ -15571,7 +15592,7 @@ export async function rpcCenterAgentWatchAgentTask(
         !registeredTask ||
         registeredTask.organizationId !==
           authorization.activeOrganization.organizationId ||
-        registeredTask.ownerUserId !== authorization.activeOrganization.userId
+        registeredTask.ownerUserId !== representedHuman.userId
       ) {
         throw createCoreRpcHttpError({
           code: "center_agent.task_watch_target_not_found",
@@ -15715,10 +15736,19 @@ export async function rpcCenterAgentListAgentTasks(
   env: CoreBindings,
   input: CenterAgentListAgentTasksInput
 ): Promise<CenterAgentListAgentTasksResponse> {
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
-    context: requireRpcContext(input.context),
-    env,
-  });
+  if (!input.speakerMember) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.represented_member_required",
+      reason: "This task requires a verified member request.",
+      status: 403,
+    });
+  }
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      requireRpcContext(input.context),
+      input.speakerMember
+    );
   const parsed = centerAgentListAgentTasksBodySchema.safeParse({
     ...(input.agentControllerRef === undefined
       ? {}
@@ -15742,7 +15772,7 @@ export async function rpcCenterAgentListAgentTasks(
     db: requireAgentTaskCoordinationDb(env),
     limit: limit + 1,
     organizationId: authorization.activeOrganization.organizationId,
-    ownerUserId: authorization.activeOrganization.userId,
+    ownerUserId: representedHuman.userId,
   });
   await writeCenterAgentAuditEntry({
     action: "read_agent_tasks",
@@ -16422,13 +16452,7 @@ function buildCenterAgentActorContext(input: {
   return {
     activeOrganizationId: input.activeOrganization.organizationId,
     actorContext: {
-      callerPrincipalId:
-        input.centerAgentMember.ownerUserId ?? input.activeOrganization.userId,
-      ownerUserId:
-        input.centerAgentMember.ownerUserId ?? input.activeOrganization.userId,
-      ...(input.centerAgentMember.ownerName
-        ? { ownerName: input.centerAgentMember.ownerName }
-        : {}),
+      callerPrincipalId: input.centerAgentMember.profileId,
       profileKind: "agent",
       profileName: input.centerAgentMember.profileName,
       requestId: `${input.requestContext.actorContext.requestId}:center-agent-welcome`,
@@ -18726,7 +18750,7 @@ export async function rpcListAccountSpaceActiveWakeSummary(
 async function buildActiveWakeSummaryForSpaceIds(input: {
   env: CoreBindings;
   generatedAtMs?: number;
-  ownerUserId: string;
+  ownerUserId: string | null;
   spaceIds: readonly string[];
 }): Promise<AccountSpaceActiveWakeSummaryResponse> {
   const generatedAtMs = input.generatedAtMs ?? Date.now();
@@ -18839,7 +18863,7 @@ async function buildActiveWakeSummaryForSpaceIds(input: {
 async function readActiveWakeTargetProfileNameSnapshots(input: {
   db: D1Database | undefined;
   targets: readonly { profileId: string; spaceId: string }[];
-  viewerOwnerUserId: string;
+  viewerOwnerUserId: string | null;
 }): Promise<Map<string, string>> {
   const namesBySpaceAndProfileId = new Map<string, string>();
   if (!input.db || input.targets.length === 0) {
@@ -20597,6 +20621,7 @@ async function resolveAgentOwnerHumanMembers(input: {
     if (
       member.profileKind === "agent" &&
       profileContext?.profileKind === "agent" &&
+      profileContext.ownerUserId &&
       profileContext.managedRole === null &&
       member.profileId !== designation?.agentProfileId
     ) {
@@ -21720,12 +21745,8 @@ function requireActiveOrganizationMemberId(
 }
 
 type ManagedCenterAgentProfileRecord = {
-  ownerUserId: string;
+  organizationId: string;
   profileId: string;
-};
-
-type OrganizationOwnerRecord = {
-  userId: string;
 };
 
 async function requireOrganizationPermission(input: {
@@ -22137,10 +22158,6 @@ async function readOrInitializeCenterAgentDesignation(input: {
     return existing;
   }
 
-  const owner = await readOrganizationOwnerForCenterAgentBootstrap({
-    db,
-    organizationId: input.activeOrganization.organizationId,
-  });
   const managedProfile =
     (await readManagedCenterAgentProfileForOrganization({
       db,
@@ -22150,7 +22167,7 @@ async function readOrInitializeCenterAgentDesignation(input: {
       env: input.env,
       db,
       organizationId: input.activeOrganization.organizationId,
-      ownerUserId: owner.userId,
+      createdByUserId: input.activeOrganization.userId,
       requestId:
         normalizeOptionalText(input.context?.actorContext.requestId) ?? null,
     }));
@@ -22160,11 +22177,7 @@ async function readOrInitializeCenterAgentDesignation(input: {
     normalizeOptionalText(input.context?.actorContext.openMeldProfileId) ??
     managedProfile.profileId;
   await designateRemoteCenterAgentBinding({
-    activeOrganization: {
-      organizationId: input.activeOrganization.organizationId,
-      role: "owner",
-      userId: owner.userId,
-    },
+    activeOrganization: input.activeOrganization,
     actorProfileId,
     agentProfileId: managedProfile.profileId,
     bindingDb,
@@ -22174,48 +22187,18 @@ async function readOrInitializeCenterAgentDesignation(input: {
   const result = await upsertCenterAgentDesignationRecord({
     agentProfileId: managedProfile.profileId,
     db,
-    designatedBy: owner.userId,
+    designatedBy: input.activeOrganization.userId,
     nowMs: Date.now(),
     organizationId: input.activeOrganization.organizationId,
   });
   return result.designation;
 }
 
-async function readOrganizationOwnerForCenterAgentBootstrap(input: {
-  db: D1Database;
-  organizationId: string;
-}): Promise<OrganizationOwnerRecord> {
-  const row = await input.db
-    .prepare(
-      `
-        SELECT
-          user_id
-        FROM members
-        WHERE organization_id = ?
-          AND role = 'owner'
-        ORDER BY created_at ASC, id ASC
-        LIMIT 1
-      `
-    )
-    .bind(input.organizationId)
-    .first<{ user_id: string }>();
-  const userId = normalizeOptionalText(row?.user_id);
-  if (!userId) {
-    throw createCoreRpcHttpError({
-      status: 409,
-      reason:
-        "Center Agent initialization requires an Organization owner account.",
-      code: "center_agent.organization_owner_required",
-    });
-  }
-  return { userId };
-}
-
 async function ensureManagedCenterAgentProfileForOrganization(input: {
   db: D1Database;
   env: CoreBindings;
   organizationId: string;
-  ownerUserId: string;
+  createdByUserId: string;
   requestId: string | null;
 }): Promise<ManagedCenterAgentProfileRecord> {
   const authWorker = input.env.OPENMELD_AUTH_WORKER;
@@ -22228,7 +22211,7 @@ async function ensureManagedCenterAgentProfileForOrganization(input: {
       call: (requiredAuthWorker) =>
         requiredAuthWorker.ensureCenterAgentProfileInOrganization({
           organizationId: input.organizationId,
-          ownerUserId: input.ownerUserId,
+          createdByUserId: input.createdByUserId,
         }),
       unavailable: {
         code: "center_agent.profile_bootstrap_unavailable",
@@ -22240,7 +22223,7 @@ async function ensureManagedCenterAgentProfileForOrganization(input: {
       code: "center_agent.profile_bootstrap_unavailable",
       error: authWorker ? error : undefined,
       organizationId: input.organizationId,
-      ownerUserId: input.ownerUserId,
+      createdByUserId: input.createdByUserId,
       requestId: input.requestId,
       stage: authWorker ? "auth_rpc" : "binding_lookup",
     });
@@ -22251,7 +22234,7 @@ async function ensureManagedCenterAgentProfileForOrganization(input: {
       authCode: ensured.code,
       code: "center_agent.profile_bootstrap_failed",
       organizationId: input.organizationId,
-      ownerUserId: input.ownerUserId,
+      createdByUserId: input.createdByUserId,
       requestId: input.requestId,
       stage: "auth_result",
     });
@@ -22267,7 +22250,7 @@ async function ensureManagedCenterAgentProfileForOrganization(input: {
     logCenterAgentProfileBootstrapFailure({
       code: "center_agent.profile_bootstrap_failed",
       organizationId: input.organizationId,
-      ownerUserId: input.ownerUserId,
+      createdByUserId: input.createdByUserId,
       requestId: input.requestId,
       stage: "auth_response",
     });
@@ -22288,7 +22271,7 @@ async function ensureManagedCenterAgentProfileForOrganization(input: {
     logCenterAgentProfileBootstrapFailure({
       code: "center_agent.profile_bootstrap_failed",
       organizationId: input.organizationId,
-      ownerUserId: input.ownerUserId,
+      createdByUserId: input.createdByUserId,
       requestId: input.requestId,
       stage: "profile_readback",
     });
@@ -22309,7 +22292,7 @@ function logCenterAgentProfileBootstrapFailure(input: {
     | "center_agent.profile_bootstrap_unavailable";
   error?: unknown;
   organizationId: string;
-  ownerUserId: string;
+  createdByUserId: string;
   requestId: string | null;
   stage:
     | "auth_response"
@@ -22322,7 +22305,7 @@ function logCenterAgentProfileBootstrapFailure(input: {
   console.error(`[${event}]`, {
     event,
     organizationId: input.organizationId,
-    ownerUserId: input.ownerUserId,
+    createdByUserId: input.createdByUserId,
     requestId: input.requestId,
     stage: input.stage,
     ...(input.authCode ? { authCode: input.authCode } : {}),
@@ -22366,8 +22349,7 @@ async function readManagedCenterAgentProfileByIdForOrganization(input: {
       profile_id: string;
     }>();
   const profileId = normalizeOptionalText(row?.profile_id);
-  const ownerUserId = normalizeOptionalText(row?.owner_user_id);
-  return profileId && ownerUserId ? { ownerUserId, profileId } : null;
+  return profileId ? { organizationId: input.organizationId, profileId } : null;
 }
 
 async function readManagedCenterAgentProfileForOrganization(input: {
@@ -22395,8 +22377,7 @@ async function readManagedCenterAgentProfileForOrganization(input: {
       profile_id: string;
     }>();
   const profileId = normalizeOptionalText(row?.profile_id);
-  const ownerUserId = normalizeOptionalText(row?.owner_user_id);
-  return profileId && ownerUserId ? { ownerUserId, profileId } : null;
+  return profileId ? { organizationId: input.organizationId, profileId } : null;
 }
 
 async function readCenterAgentHostedBindingOrThrow(input: {
@@ -22432,8 +22413,8 @@ async function readCenterAgentHostedBindingOrThrow(input: {
     agentProfileId: managedProfile.profileId,
     db: requireAgentProfileBindingDb(input.env),
     owner: {
-      id: managedProfile.ownerUserId,
-      kind: "owner_account",
+      id: managedProfile.organizationId,
+      kind: "organization",
     },
   });
   if (
@@ -22500,9 +22481,9 @@ async function designateRemoteCenterAgentBinding(input: {
       code: "center_agent.profile_org_mismatch",
     });
   }
-  const owner: AgentProfileBindingOwner = {
-    id: profileOrganization.ownerUserId,
-    kind: "owner_account",
+  const owner = {
+    id: input.activeOrganization.organizationId,
+    kind: "organization" as const,
   };
 
   const nowMs = Date.now();
@@ -22516,174 +22497,65 @@ async function designateRemoteCenterAgentBinding(input: {
       code: "auth.unauthenticated",
     });
   }
-  const executionTargetMutationAdmissions = new Map<string, string>();
-  const acquireMutationAdmissionForOwner = async (
-    ownerUserId: string
-  ): Promise<void> => {
-    if (executionTargetMutationAdmissions.has(ownerUserId)) {
-      return;
-    }
-    const admission = await acquireAgentProfileExecutionTargetMutationAdmission(
-      {
-        agentProfileId: input.agentProfileId,
-        env: input.env,
-        ownerUserId,
-      }
-    );
-    if (admission.status !== "acquired") {
-      const reasonCode = resolveControllerChangeAdmissionReasonCode(admission);
-      throw createCoreRpcHttpError({
-        code: reasonCode,
-        reason:
-          admission.status === "blocked"
-            ? "Center Agent runtime cannot be changed while this Agent has active work."
-            : "Center Agent runtime change eligibility is temporarily unavailable.",
-        status: admission.status === "blocked" ? 409 : 503,
-      });
-    }
-    executionTargetMutationAdmissions.set(ownerUserId, admission.operationId);
-  };
-  const assertObservedOwnerLimit = (ownerUserIds: readonly string[]): void => {
-    const observedOwnerIds = new Set([
-      ...executionTargetMutationAdmissions.keys(),
-      ...ownerUserIds,
-    ]);
-    if (
-      observedOwnerIds.size >
-      MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE
-    ) {
-      throw createCoreRpcHttpError({
-        code: "center_agent.binding_owner_inventory_exceeded",
-        reason: "Center Agent runtime ownership requires operator review.",
-        status: 503,
-      });
-    }
-  };
-  let previousPrimaryBindingIds: string[] = [];
-  try {
-    let admittedEnabledPrimaryBindings =
-      await listCenterAgentEnabledPrimaryBindingsOrThrow({
-        agentProfileId: input.agentProfileId,
-        db: input.bindingDb,
-      });
-    for (
-      let inventoryAttempt = 0;
-      inventoryAttempt <= MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE;
-      inventoryAttempt += 1
-    ) {
-      previousPrimaryBindingIds = [
-        ...new Set([
-          ...previousPrimaryBindingIds,
-          ...admittedEnabledPrimaryBindings.map((binding) => binding.bindingId),
-        ]),
-      ];
-      if (
-        !remoteCenterAgentTargetNeedsMutation({
-          bindings: admittedEnabledPrimaryBindings,
-          canonicalOwnerId: owner.id,
-        })
-      ) {
-        break;
-      }
-      const ownerUserIds = [
-        ...new Set([
-          owner.id,
-          ...admittedEnabledPrimaryBindings.map((binding) => binding.owner.id),
-        ]),
-      ].sort();
-      assertObservedOwnerLimit(ownerUserIds);
-      for (const ownerUserId of ownerUserIds) {
-        await acquireMutationAdmissionForOwner(ownerUserId);
-      }
-      admittedEnabledPrimaryBindings =
-        await listCenterAgentEnabledPrimaryBindingsOrThrow({
-          agentProfileId: input.agentProfileId,
-          db: input.bindingDb,
-        });
-      const allObservedOwnersAdmitted = [
-        owner.id,
-        ...admittedEnabledPrimaryBindings.map((binding) => binding.owner.id),
-      ].every((ownerUserId) =>
-        executionTargetMutationAdmissions.has(ownerUserId)
-      );
-      if (allObservedOwnersAdmitted) {
-        break;
-      }
-      if (
-        inventoryAttempt ===
-        MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE
-      ) {
-        throw createCoreRpcHttpError({
-          code: "center_agent.binding_owner_inventory_changed",
-          reason: "Center Agent runtime ownership changed during admission.",
-          status: 503,
-        });
-      }
-    }
-    const canonicalPrimaryBinding = admittedEnabledPrimaryBindings.find(
-      (binding) => binding.owner.id === owner.id
-    );
-    if (canonicalPrimaryBinding) {
-      previousPrimaryBindingIds = [
-        canonicalPrimaryBinding.bindingId,
-        ...previousPrimaryBindingIds.filter(
-          (bindingId) => bindingId !== canonicalPrimaryBinding.bindingId
-        ),
-      ];
-    }
-    previousPrimaryBindingIds = [
-      ...new Set([
-        ...previousPrimaryBindingIds,
-        ...admittedEnabledPrimaryBindings.map((binding) => binding.bindingId),
-      ]),
-    ];
-    const writeResult = await reconcileRemoteCenterAgentBindingRecord({
-      currentBindings: admittedEnabledPrimaryBindings,
+  const admittedEnabledPrimaryBindings =
+    await listCenterAgentEnabledPrimaryBindingsOrThrow({
+      agentProfileId: input.agentProfileId,
       db: input.bindingDb,
-      noncanonicalDisabledReasonCode: "center_agent.binding_owner_reconciled",
-      record: {
-        agentProfileId: input.agentProfileId,
-        agentControllerConversationId: null,
-        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-        bindingId: `binding_${crypto.randomUUID()}`,
-        createdAtMs: nowMs,
-        createdByProfileId: actorProfileId,
-        hostedRuntimeIdentityJson: JSON.stringify(
-          HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
-        ),
-        owner,
-        reasonCode: "center_agent.remote_agent_designation",
-        runtimeKind: "hosted_center_agent",
-        updatedAtMs: nowMs,
-        openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
-      },
     });
-    await insertCenterAgentAuditJournalEntry({
-      action: "designate_remote_center_agent",
-      actorProfileId,
-      attribution: { actorProfileId, onBehalfOf: null },
-      db: input.bindingDb,
-      id: crypto.randomUUID(),
-      nowMs,
-      organizationId: input.activeOrganization.organizationId,
-      resource: {
-        id: writeResult.binding.bindingId,
-        type: "agent_profile_binding",
-      },
+  if (
+    admittedEnabledPrimaryBindings.some(
+      (binding) =>
+        binding.owner.kind !== "organization" ||
+        binding.owner.id !== owner.id ||
+        !isHostedCenterAgentExecutionTarget(binding)
+    )
+  ) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.binding_owner_invalid",
+      reason: "Center Agent runtime ownership requires migration.",
+      status: 409,
     });
-  } finally {
-    await Promise.all(
-      [...executionTargetMutationAdmissions.entries()].map(
-        ([ownerUserId, operationId]) =>
-          releaseAgentProfileExecutionTargetMutationAdmission({
-            agentProfileId: input.agentProfileId,
-            env: input.env,
-            operationId,
-            ownerUserId,
-          })
-      )
-    );
   }
+  const writeResult = await ensurePrimaryAgentProfileBindingRecord({
+    db: input.bindingDb,
+    record: {
+      agentProfileId: input.agentProfileId,
+      agentControllerConversationId: null,
+      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      bindingId: `binding_${crypto.randomUUID()}`,
+      createdAtMs: nowMs,
+      createdByProfileId: actorProfileId,
+      hostedRuntimeIdentityJson: JSON.stringify(
+        HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+      ),
+      owner,
+      reasonCode: "center_agent.remote_agent_designation",
+      runtimeKind: "hosted_center_agent",
+      updatedAtMs: nowMs,
+      openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+    },
+  });
+  if (writeResult.status !== "accepted") {
+    throw createCoreRpcHttpError({
+      code: "center_agent.binding_conflict",
+      reason:
+        "Center Agent runtime configuration conflicts with its Organization binding.",
+      status: 409,
+    });
+  }
+  await insertCenterAgentAuditJournalEntry({
+    action: "designate_remote_center_agent",
+    actorProfileId,
+    attribution: { actorProfileId, onBehalfOf: null },
+    db: input.bindingDb,
+    id: crypto.randomUUID(),
+    nowMs,
+    organizationId: input.activeOrganization.organizationId,
+    resource: {
+      id: writeResult.binding.bindingId,
+      type: "agent_profile_binding",
+    },
+  });
 }
 
 async function listCenterAgentEnabledPrimaryBindingsOrThrow(input: {
@@ -22701,76 +22573,6 @@ async function listCenterAgentEnabledPrimaryBindingsOrThrow(input: {
       });
     }
     throw error;
-  }
-}
-
-function remoteCenterAgentTargetNeedsMutation(input: {
-  bindings: readonly AgentProfileBindingRecord[];
-  canonicalOwnerId: string;
-}): boolean {
-  const canonicalBinding = input.bindings.find(
-    (binding) => binding.owner.id === input.canonicalOwnerId
-  );
-  return (
-    input.bindings.some(
-      (binding) => binding.owner.id !== input.canonicalOwnerId
-    ) ||
-    !canonicalBinding ||
-    !isHostedCenterAgentExecutionTarget(canonicalBinding)
-  );
-}
-
-async function assertSelfHostedDesignatableCenterAgentProfile(input: {
-  activeOrganization: ActiveOrganization;
-  agentProfileId: string;
-  bindingDb: D1Database;
-}): Promise<void> {
-  const profileOrganization = await readAgentProfileOrganizationContext({
-    db: input.bindingDb,
-    agentProfileId: input.agentProfileId,
-  });
-  if (!profileOrganization) {
-    throw createCoreRpcHttpError({
-      status: 404,
-      reason: "Agent Profile was not found.",
-      code: "center_agent.profile_not_found",
-    });
-  }
-  if (profileOrganization.profileKind !== "agent") {
-    throw createCoreRpcHttpError({
-      status: 400,
-      reason: "Only an Agent Profile can be designated as Center Agent.",
-      code: "center_agent.profile_invalid",
-    });
-  }
-  assertManagedCenterAgentProfile(profileOrganization);
-  if (
-    profileOrganization.organizationId !==
-    input.activeOrganization.organizationId
-  ) {
-    throw createCoreRpcHttpError({
-      status: 403,
-      reason:
-        "Center Agent designation requires the managed Center Agent profile for this Organization.",
-      code: "center_agent.profile_org_mismatch",
-    });
-  }
-  const owner: AgentProfileBindingOwner = {
-    id: profileOrganization.ownerUserId,
-    kind: "owner_account",
-  };
-  const binding = await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: input.agentProfileId,
-    db: input.bindingDb,
-    owner,
-  });
-  if (binding?.bindingState !== "enabled_primary") {
-    throw createCoreRpcHttpError({
-      status: 409,
-      reason:
-        "Designating a self-hosted Center Agent requires your enabled primary Binding.",
-      code: "center_agent.profile_binding_required",
-    });
   }
 }
 
