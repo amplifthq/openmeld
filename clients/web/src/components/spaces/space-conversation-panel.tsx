@@ -2002,7 +2002,7 @@ function ComposerReplyBanner(input: {
 	const excerpt = preview.length > 100 ? `${preview.slice(0, 100)}…` : preview;
 	return (
 		<div
-			className="mx-1 mb-1 flex min-w-0 items-center gap-2 text-muted-foreground text-xs"
+			className="-mx-2 mb-2 flex min-w-0 items-center gap-2 border-border border-b px-3 pb-2 text-muted-foreground text-xs"
 			data-slot="composer-reply-banner"
 		>
 			<Button

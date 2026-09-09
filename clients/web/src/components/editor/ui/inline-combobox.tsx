@@ -291,10 +291,10 @@ InlineComboboxInput.displayName = "InlineComboboxInput";
 function InlineComboboxCancel({ label }: { label: string }) {
 	const { cancelInput } = React.useContext(InlineComboboxContext);
 	return (
-		<div className="sticky top-0 z-10 flex justify-end bg-popover">
+		<div className="sticky top-0 z-10 h-0">
 			<button
 				aria-label={label}
-				className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				className="absolute top-0 right-0 flex size-6 items-center justify-center rounded bg-popover text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 				onClick={() => cancelInput("manual", true)}
 				onMouseDown={(event) => event.preventDefault()}
 				title={`${label} (Esc)`}
