@@ -80,7 +80,13 @@ export const wakeProgressItemSchema = z.strictObject({
   deviceWait: z
     .strictObject({
       deadlineAtMs: z.number().int().nonnegative(),
-      reason: z.enum(["device_offline", "agent_not_ready", "earlier_work"]),
+      reason: z.enum([
+        "device_offline",
+        "agent_not_ready",
+        "earlier_work",
+        "access_check_unavailable",
+        "service_draining",
+      ]),
     })
     .optional(),
   clientMessageId: clientMessageIdSchema.nullable(),

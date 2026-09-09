@@ -12172,7 +12172,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       storage: this.ctx.storage,
     });
     if (!("effectiveRecord" in result)) {
-      throw new Error("RuntimeCoordinator head transition was not accepted.");
+      throw new Error(
+        `RuntimeCoordinator head transition was not accepted: ${result.status}.`,
+        { cause: result }
+      );
     }
     const record = result.effectiveRecord;
     const pendingPromotion = result.pendingPromotion;
@@ -12233,9 +12236,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       existing: current,
       nowMs: input.nowMs,
       publicationCategory: waitingPolicy.waitingCategory,
-      reasonCode: deviceWait
-        ? "wake.device_wait.expired"
-        : waitingPolicy.reasonCode,
+      reasonCode: waitingPolicy.reasonCode,
       userRecoveryAction: waitingPolicy.userRecoveryAction,
     });
     const stored =

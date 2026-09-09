@@ -45,6 +45,8 @@ import { describe, expect, it, vi } from "vitest";
 import { handleDispatchQueueBatch } from "../src/dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../src/lib/bindings";
 import { resolveCoreLocalComponentsReleaseManifest } from "../src/local-components/update-projection";
+// biome-ignore lint/performance/noNamespaceImport: Spy on the authoritative transaction result in the worker graph.
+import * as executionAdmission from "../src/runtime-transport/application/agent-profile-execution-admission";
 import {
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission,
@@ -3088,7 +3090,32 @@ describe("device waiting Wake lifecycle", () => {
       clock.mockRestore();
     }
   });
-  it("keeps post-reconnect readiness checks inside the original device deadline", async () => {
+  it.each([
+    {
+      reasonCode: "daemon.profile.offline",
+      userRecoveryAction: "start_or_restart_openmeld_service",
+      waitingCategory: "service_not_connected",
+      waitingFor: "openmeld_service_route_connection",
+    },
+    {
+      reasonCode: "wake.device_wait.readiness_checking",
+      userRecoveryAction: "check_status",
+      waitingCategory: "local_agent_unavailable",
+      waitingFor: "agent_readiness_report",
+    },
+    {
+      reasonCode: "wake.device_wait.access_check_unavailable",
+      userRecoveryAction: "check_status",
+      waitingCategory: "space_access_unavailable",
+      waitingFor: "space_access_check",
+    },
+    {
+      reasonCode: "daemon.service.draining",
+      userRecoveryAction: "check_status",
+      waitingCategory: "local_agent_unavailable",
+      waitingFor: "agent_readiness_report",
+    },
+  ] as const)("preserves $reasonCode while waiting, then replaces its recovery action at expiry", async (waiting) => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
       const { hub, storageRecords } = createHarness();
@@ -3107,25 +3134,90 @@ describe("device waiting Wake lifecycle", () => {
           idempotencyKey: accepted.idempotencyKey,
           observedAtMs: nowMs + 60_000,
           ownerUserId: accepted.ownerUserId,
-          reasonCode: "wake.device_wait.readiness_checking",
-          userRecoveryAction: "check_status",
-          waitingCategory: "local_agent_unavailable",
+          reasonCode: waiting.reasonCode,
+          userRecoveryAction: waiting.userRecoveryAction,
+          waitingCategory: waiting.waitingCategory,
           targetWakeLifecycleIdentity: accepted.targetWakeLifecycleIdentity,
-        } satisfies RuntimeTransportRuntimeCoordinatorHeadWaitingRequest
+        }
       );
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toMatchObject({
         status: "waiting",
         deadlineAtMs,
-        reasonCode: "wake.device_wait.readiness_checking",
+        reasonCode: waiting.reasonCode,
       });
       expect(
         findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
       ).toMatchObject({
         status: "waiting",
         runtimeCoordinatorExecutionId: null,
-        waitingBoundary: { deadlineAtMs, waitingFor: "agent_readiness_report" },
+        waitingBoundary: { deadlineAtMs, waitingFor: waiting.waitingFor },
       });
+      nowSpy.mockReturnValue(deadlineAtMs);
+      const expired = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/waiting",
+        {
+          ...buildRuntimeCoordinatorHeadWaitingRequest({
+            observedAtMs: deadlineAtMs,
+          }),
+          reasonCode: waiting.reasonCode,
+          userRecoveryAction: waiting.userRecoveryAction,
+          waitingCategory: waiting.waitingCategory,
+        }
+      );
+      expect(await expired.json()).toMatchObject({
+        status: "publication_intent_ready",
+        reasonCode: "wake.device_wait.expired",
+      });
+      expect(
+        findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+      ).toMatchObject({
+        noExecutionDecision: {
+          reasonCode: "wake.device_wait.expired",
+          publicationCategory: "local_agent_unavailable",
+          userRecoveryAction: "send_new_wake",
+        },
+        publicationIntent: { userRecoveryAction: "send_new_wake" },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+  it("retains the exact admission rejection in a failed head write", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      const { hub, storageRecords } = createHarness();
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request()
+      );
+      const record = findRuntimeCoordinatorHeadLifecycleRecord(storageRecords);
+      const rejection = { status: "queue_full" as const, waitingCount: 50 };
+      const write = vi
+        .spyOn(
+          executionAdmission,
+          "writeRuntimeCoordinatorHeadLifecycleWithAdmission"
+        )
+        .mockResolvedValueOnce(rejection);
+      try {
+        await expect(
+          (
+            hub as unknown as {
+              writeRuntimeCoordinatorHeadLifecycleRecord: (
+                record: unknown
+              ) => Promise<unknown>;
+            }
+          ).writeRuntimeCoordinatorHeadLifecycleRecord(record)
+        ).rejects.toMatchObject({
+          message:
+            "RuntimeCoordinator head transition was not accepted: queue_full.",
+          cause: rejection,
+        });
+      } finally {
+        write.mockRestore();
+      }
     } finally {
       nowSpy.mockRestore();
     }
@@ -3367,7 +3459,7 @@ describe("device waiting Wake lifecycle", () => {
         noExecutionDecision: {
           reasonCode: "wake.device_wait.expired",
           publicationCategory: "local_agent_unavailable",
-          userRecoveryAction: "check_status",
+          userRecoveryAction: "send_new_wake",
         },
         publicationIntent: {
           reasonCode: "wake.device_wait.expired",

@@ -30,7 +30,10 @@ export function deviceWaitTargetMatches(input: {
 
 export function resolveDeviceWaitReason(
   readiness: CoreAgentExecutionReadiness
-): RuntimeTransportRuntimeCoordinatorHeadWaitingReasonCode | null {
+): Exclude<
+  RuntimeTransportRuntimeCoordinatorHeadWaitingReasonCode,
+  "wake.device_wait.access_check_unavailable" | "daemon.service.draining"
+> | null {
   const availability = resolveAgentWakeAvailability({
     agentControllerRef: readiness.agentControllerRef,
     agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,

@@ -10211,7 +10211,7 @@ describe("handleDispatchQueueBatch", () => {
       expect.objectContaining({
         waiting: expect.objectContaining({
           dispatchId: body.dispatchId,
-          reasonCode: "wake.device_wait.readiness_checking",
+          reasonCode: "wake.device_wait.access_check_unavailable",
         }),
       })
     );
@@ -10242,12 +10242,12 @@ describe("handleDispatchQueueBatch", () => {
           request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
         updatedAtMs: Date.now(),
         waitingBoundary: {
-          reasonCode: "wake.device_wait.readiness_checking",
-          trigger: "agent_readiness_reported",
+          reasonCode: "wake.device_wait.access_check_unavailable",
+          trigger: "space_access_rechecked",
           userRecoveryAction: "check_status",
-          userVisibleState: "waiting_for_agent_readiness",
-          waitingCategory: "local_agent_unavailable",
-          waitingFor: "agent_readiness_report",
+          userVisibleState: "waiting_for_space_access",
+          waitingCategory: "space_access_unavailable",
+          waitingFor: "space_access_check",
           deadlineAtMs: body.deviceWait.deadlineAtMs,
           deadlineOutcome: "publication_intent_ready",
           observedAtMs: Date.now(),
@@ -10330,7 +10330,7 @@ describe("handleDispatchQueueBatch", () => {
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         waiting: expect.objectContaining({
-          reasonCode: "wake.device_wait.readiness_checking",
+          reasonCode: "daemon.service.draining",
         }),
       })
     );

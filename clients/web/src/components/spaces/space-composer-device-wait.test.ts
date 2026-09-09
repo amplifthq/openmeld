@@ -12,6 +12,26 @@ const deviceWait = {
 };
 
 describe("Space device waiting authoring and progress", () => {
+	it.each([
+		{
+			reason: "access_check_unavailable" as const,
+			label: "Waiting to verify access for Runner",
+			cause: "Space access",
+		},
+		{
+			reason: "service_draining" as const,
+			label: "Waiting for Runner to accept new work",
+			cause: "finishing existing work",
+		},
+	])("preserves the $reason explanation", ({ reason, label, cause }) => {
+		const status = resolveWakeProgressStatus({
+			phase: "request_sent",
+			targetLabel: "Runner",
+			deviceWait: { deadlineAtMs: deviceWait.deadlineAtMs, reason },
+		});
+		expect(status?.label).toBe(label);
+		expect(status?.description).toContain(cause);
+	});
 	it("turns the explicitly selected Reference into one Wake and preserves the deadline", () => {
 		const original = {
 			text: "@Runner check the report",

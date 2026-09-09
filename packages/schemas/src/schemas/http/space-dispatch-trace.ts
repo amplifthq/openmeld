@@ -497,6 +497,7 @@ const publishedRuntimeCoordinatorHeadRecoveryActionV2Schema = z.enum([
 ]);
 
 const currentPublishedRuntimeCoordinatorHeadPublicationCategorySchema = z.enum([
+  "space_access_unavailable",
   "binding_required",
   "agent_profile_unavailable",
   "local_agent_unavailable",
@@ -514,6 +515,7 @@ const currentPublishedRuntimeCoordinatorHeadReasonCodeSchema = z
   .min(1)
   .max(160);
 const currentPublishedRuntimeCoordinatorHeadRecoveryActionSchema = z.enum([
+  "send_new_wake",
   "set_up_agent_binding",
   "enable_agent_binding",
   "repair_agent_binding",
@@ -702,7 +704,24 @@ const spaceDispatchTraceRuntimeCoordinatorHeadWaitingBoundarySchema =
       deadlineAt: ISO_DATE_TIME_SCHEMA,
       deadlineOutcome: z.literal("publication_intent_ready"),
       observedAt: ISO_DATE_TIME_SCHEMA,
-      reasonCode: z.literal("wake.device_wait.readiness_checking"),
+      reasonCode: z.literal("wake.device_wait.access_check_unavailable"),
+      softDeadlineAt: ISO_DATE_TIME_SCHEMA,
+      trigger: z.literal("space_access_rechecked"),
+      triggerOwner: z.literal("runtime_coordinator"),
+      userRecoveryAction: z.literal("check_status"),
+      userVisibleState: z.literal("waiting_for_space_access"),
+      waitingCategory: z.literal("space_access_unavailable"),
+      waitingFor: z.literal("space_access_check"),
+      waitingSince: ISO_DATE_TIME_SCHEMA,
+    }),
+    z.strictObject({
+      deadlineAt: ISO_DATE_TIME_SCHEMA,
+      deadlineOutcome: z.literal("publication_intent_ready"),
+      observedAt: ISO_DATE_TIME_SCHEMA,
+      reasonCode: z.enum([
+        "wake.device_wait.readiness_checking",
+        "daemon.service.draining",
+      ]),
       softDeadlineAt: ISO_DATE_TIME_SCHEMA,
       trigger: z.literal("agent_readiness_reported"),
       triggerOwner: z.literal("runtime_coordinator"),

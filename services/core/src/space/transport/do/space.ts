@@ -107,6 +107,7 @@ import {
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
+  toSpaceSignalReadWireValue,
   updateSpaceFileEntryBodySchema,
   validateSpaceSignalClientMessageIdPolicy,
   wakeDeviceWaitAccessRequestSchema,
@@ -1086,9 +1087,9 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
   return createDispatchOutboxRecord({
     bindingEnabled: true,
     ...(input.signal.type === "signal.text" &&
-    input.signal.data.meta?.deviceWait?.targetProfileId ===
+    input.signal.data.deviceWait?.targetProfileId ===
       input.decision.targetProfileId
-      ? { deviceWait: input.signal.data.meta.deviceWait }
+      ? { deviceWait: input.signal.data.deviceWait }
       : {}),
     bindingState: "bound",
     continuitySnapshot,
@@ -8911,6 +8912,7 @@ export class Space extends DurableObject<CoreBindings> {
         toProtocolProfile(input.context),
         parsed.data.text,
         {
+          deviceWait: parsed.data.deviceWait,
           ...(parsed.data.messageEnvelope
             ? { messageEnvelope: parsed.data.messageEnvelope }
             : {}),
@@ -8923,7 +8925,6 @@ export class Space extends DurableObject<CoreBindings> {
             : {}),
           meta: {
             clientMessageId: parsed.data.clientMessageId,
-            deviceWait: parsed.data.deviceWait,
             ...(parsed.data.authorHasRead
               ? { authorHasRead: true as const }
               : {}),
@@ -13686,6 +13687,7 @@ export class Space extends DurableObject<CoreBindings> {
       type: "signal.text",
       data: {
         text,
+        ...(options?.deviceWait ? { deviceWait: options.deviceWait } : {}),
         ...(options?.attachments ? { attachments: options.attachments } : {}),
         ...(options?.files ? { files: options.files } : {}),
         ...(options?.messageEnvelope
@@ -17048,9 +17050,7 @@ export class Space extends DurableObject<CoreBindings> {
     if (lifecycle.status === "queued") {
       return {
         errorCode: null,
-        message: input.outboxRecord.deviceWait
-          ? `Wake for ${targetLabel} is queued. Start deadline: ${new Date(input.outboxRecord.deviceWait.deadlineAtMs).toISOString()}.`
-          : buildWakeProgressMessage({ phase: "queued", targetLabel }),
+        message: buildWakeProgressMessage({ phase: "queued", targetLabel }),
         phase: "queued",
         terminal: false,
         updatedAtMs: lifecycle.updatedAtMs,
@@ -17074,15 +17074,11 @@ export class Space extends DurableObject<CoreBindings> {
         errorCode: null,
         message: buildDeviceWaitProgressMessage(
           targetLabel,
-          waitingBoundary.deadlineAtMs,
           waitingBoundary.reasonCode
         ),
         deviceWait: {
           deadlineAtMs: waitingBoundary.deadlineAtMs,
-          reason:
-            waitingBoundary.reasonCode === "daemon.profile.offline"
-              ? "device_offline"
-              : "agent_not_ready",
+          reason: resolveDeviceWaitProgressReason(waitingBoundary.reasonCode),
         },
         phase: "request_sent",
         terminal: false,
@@ -18002,9 +17998,10 @@ function spaceAddressingJsonResponse(
   value: unknown,
   init?: ResponseInit
 ): Response {
+  const readValue = toSpaceSignalReadWireValue(value);
   const responseValue = requestSupportsCurrentSpaceAddressing(request)
-    ? value
-    : toLegacySpaceAddressingWireValue(value);
+    ? readValue
+    : toLegacySpaceAddressingWireValue(readValue);
   return Response.json(responseValue, init);
 }
 
@@ -18019,9 +18016,10 @@ function spaceAddressingWireValueForSession(
   value: unknown,
   session: Session
 ): unknown {
+  const readValue = toSpaceSignalReadWireValue(value);
   return session.supportsSpaceMessageAddressing
-    ? value
-    : toLegacySpaceAddressingWireValue(value);
+    ? readValue
+    : toLegacySpaceAddressingWireValue(readValue);
 }
 
 function decodeMessage(msg: string | ArrayBuffer): string {
@@ -18686,9 +18684,9 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
     trace: input.trace,
     deviceWait:
       input.outboxRecord?.deviceWait ??
-      (input.sourceSignal?.data.meta?.deviceWait?.targetProfileId ===
+      (input.sourceSignal?.data.deviceWait?.targetProfileId ===
       input.lookupMatch.targetProfileId
-        ? input.sourceSignal.data.meta.deviceWait
+        ? input.sourceSignal.data.deviceWait
         : undefined),
   });
   const finalVisibleProgress =
@@ -18889,12 +18887,10 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
   if (headLifecycle.status === "queued") {
     return {
       errorCode: null,
-      message: input.deviceWait
-        ? `Wake for ${targetLabel} is queued. Start deadline: ${new Date(input.deviceWait.deadlineAtMs).toISOString()}.`
-        : buildWakeProgressMessage({
-            phase: "queued",
-            targetLabel,
-          }),
+      message: buildWakeProgressMessage({
+        phase: "queued",
+        targetLabel,
+      }),
       phase: "queued",
       terminal: false,
       ...(input.deviceWait
@@ -18962,15 +18958,11 @@ function buildWaitingHeadProgress(input: {
       errorCode: null,
       message: buildDeviceWaitProgressMessage(
         input.targetLabel,
-        input.deadlineAtMs,
         input.reasonCode
       ),
       deviceWait: {
         deadlineAtMs: input.deadlineAtMs,
-        reason:
-          input.reasonCode === "daemon.profile.offline"
-            ? "device_offline"
-            : "agent_not_ready",
+        reason: resolveDeviceWaitProgressReason(input.reasonCode),
       },
       phase: "request_sent",
       terminal: false,
@@ -18991,7 +18983,6 @@ function buildWaitingHeadProgress(input: {
 
 function buildDeviceWaitProgressMessage(
   targetLabel: string,
-  deadlineAtMs: number,
   reasonCode: string
 ): string {
   let reason =
@@ -19002,7 +18993,30 @@ function buildDeviceWaitProgressMessage(
     reason =
       "The computer is connected; the Agent's current readiness checks are still running";
   }
-  return `Waiting to start ${targetLabel}. Start deadline: ${new Date(deadlineAtMs).toISOString()}. ${reason}; no work has started.`;
+  if (reasonCode === "wake.device_wait.access_check_unavailable") {
+    reason =
+      "OpenMeld could not verify current Space access and will check again";
+  }
+  if (reasonCode === "daemon.service.draining") {
+    reason =
+      "OpenMeld on this computer is finishing existing work and is not accepting new tasks yet";
+  }
+  return `Waiting to start ${targetLabel}. ${reason}; no work has started.`;
+}
+
+function resolveDeviceWaitProgressReason(
+  reasonCode: string
+): NonNullable<WakeProgressItem["deviceWait"]>["reason"] {
+  if (reasonCode === "daemon.profile.offline") {
+    return "device_offline";
+  }
+  if (reasonCode === "wake.device_wait.access_check_unavailable") {
+    return "access_check_unavailable";
+  }
+  if (reasonCode === "daemon.service.draining") {
+    return "service_draining";
+  }
+  return "agent_not_ready";
 }
 
 function findWakeProgressTerminalFailureNotice(input: {

@@ -31,6 +31,8 @@ import type { CoreBindings } from "../lib/bindings";
 import type { ActiveRemoteAgentNativeDeliveryWakeProgressEvidence } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import { buildDefaultSpaceContract } from "../space/application/space-contract-service";
 import {
+  assertWakeDeviceWaitAuthoring,
+  buildSignalTextOptions,
   handlePostSignalUseCase,
   publishPresenceSignalUseCase,
   publishTextSignalUseCase,
@@ -1493,6 +1495,49 @@ async function readActiveWakeProgressForTest(input: {
 }
 
 describe("space signal service", () => {
+  it("builds and validates device waiting from the canonical top-level intent only", () => {
+    const wait = {
+      bindingId: "binding-1",
+      openMeldServiceRuntimeId: "runtime-1",
+      targetProfileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      deadlineAtMs: Date.now() + 60_000,
+    };
+    const options = buildSignalTextOptions({
+      text: "Check",
+      deviceWait: wait,
+      meta: {
+        clientMessageId: "client-1",
+        deviceWait: { ...wait, deadlineAtMs: 0 },
+      },
+    });
+    expect(options).toMatchObject({
+      deviceWait: wait,
+      meta: { clientMessageId: "client-1" },
+    });
+    expect(options?.meta).not.toHaveProperty("deviceWait");
+    const signal = createSignal();
+    signal.data = { ...signal.data, ...options };
+    expect(() =>
+      assertWakeDeviceWaitAuthoring({
+        signal,
+        targetProfileIds: [wait.targetProfileId],
+        nowMs: Date.now(),
+      })
+    ).not.toThrow();
+    signal.data.deviceWait = { ...wait, deadlineAtMs: 0 };
+    signal.data.meta = { ...signal.data.meta, deviceWait: wait };
+    expect(() =>
+      assertWakeDeviceWaitAuthoring({
+        signal,
+        targetProfileIds: [wait.targetProfileId],
+        nowMs: Date.now(),
+      })
+    ).toThrow("future deadline");
+    expect(
+      buildSignalTextOptions({ text: "Check", meta: { deviceWait: wait } })
+    ).toBeUndefined();
+  });
+
   it("rejects an unreadable final reply before reserving its publication claim", () => {
     const sql = { exec: vi.fn() } as unknown as SqlStorage;
     const signal = {
@@ -4355,7 +4400,11 @@ describe("space signal service", () => {
       openMeldServiceRuntimeId: "runtime-1",
       deadlineAtMs: Date.now() + 60_000,
     };
-    source.data.meta = { ...source.data.meta, deviceWait };
+    source.data.deviceWait = deviceWait;
+    source.data.meta = {
+      ...source.data.meta,
+      deviceWait: { ...deviceWait, targetProfileId: otherProfileId },
+    };
     const trace = {
       runtimeCoordinatorExecution: null,
       runtimeCoordinatorHeadLifecycle: {
@@ -4390,6 +4439,18 @@ describe("space signal service", () => {
     );
     expect(other).not.toHaveProperty("deviceWait");
     expect(other.message).toBe("Wake for @Codex Agent is queued.");
+    source.data.deviceWait = undefined;
+    const mirrorOnly = await buildWakeProgressItemFromLookupTrace(
+      trace,
+      [],
+      { targetProfileId: otherProfileId },
+      null,
+      false,
+      false,
+      undefined,
+      source
+    );
+    expect(mirrorOnly).not.toHaveProperty("deviceWait");
   });
 
   it("shows RuntimeCoordinator head no-execution in Wake progress without claiming final Space failure publication", async () => {

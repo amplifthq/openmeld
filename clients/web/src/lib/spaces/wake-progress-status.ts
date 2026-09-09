@@ -186,6 +186,14 @@ function resolveDeviceWaitStatus(
 	} else if (wait.reason === "agent_not_ready") {
 		label = `Waiting for ${targetName} to become ready`;
 		reason = "The computer is connected; the Agent is still getting ready.";
+	} else if (wait.reason === "access_check_unavailable") {
+		label = `Waiting to verify access for ${targetName}`;
+		reason =
+			"OpenMeld could not verify current Space access. It will check again before starting.";
+	} else if (wait.reason === "service_draining") {
+		label = `Waiting for ${targetName} to accept new work`;
+		reason =
+			"OpenMeld on this computer is finishing existing work and is not accepting new tasks yet.";
 	}
 	return {
 		kind: wait.reason === "earlier_work" ? "queued" : "waiting_for_device",

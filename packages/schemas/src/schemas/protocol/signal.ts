@@ -102,6 +102,7 @@ const legacySpaceAgentActivitySchema = spaceAgentActivitySchema.superRefine(
 );
 
 const signalTextMetaSchema = z.object({
+  // Read-only history compatibility mirror. Only data.deviceWait is authority.
   deviceWait: wakeDeviceWaitSchema.optional(),
   transient: z.literal(true).optional(),
   agentActivity: legacySpaceAgentActivitySchema.optional(),
@@ -235,6 +236,7 @@ const postedSignalTextMetaSchema = signalTextMetaSchema
     agentWorkSummary: true,
     conversationCompaction: true,
   })
+  .extend({ deviceWait: z.never().optional() })
   .superRefine(validateAuthoredSignalTextMeta);
 
 const systemEmittedSignalTextMetaSchema = signalTextMetaSchema

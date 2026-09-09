@@ -3908,8 +3908,19 @@ describe("space signal consistency matrix", () => {
     expect(dispatchMessages).toEqual([]);
   });
 
-  it("rejects a thread Wake authoring failure through the same user-authored publish path", async () => {
+  it.each([
+    false,
+    true,
+  ])("keeps thread waiting intent top-level and rejects authoring failures (waiting: %s)", async (waitForDevice) => {
     const missingTargetProfileId = "agt_99999999-9999-4999-8999-999999999999";
+    const deviceWait = waitForDevice
+      ? {
+          bindingId: "binding-1",
+          openMeldServiceRuntimeId: "runtime-1",
+          targetProfileId: missingTargetProfileId,
+          deadlineAtMs: Date.now() + 60_000,
+        }
+      : undefined;
     const message = `OpenMeld could not start this Wake for ${missingTargetProfileId}. That agent is not in this Space. The message was not sent. Choose an agent in this Space and try again.`;
     const sql = {
       exec: vi.fn((query: string) => {
@@ -4002,6 +4013,7 @@ describe("space signal consistency matrix", () => {
           method: "POST",
           body: JSON.stringify({
             clientMessageId: "client-thread-invalid-target",
+            ...(deviceWait ? { deviceWait } : {}),
             text,
             messageEnvelope: createMessageEnvelope({
               text,
@@ -4028,6 +4040,7 @@ describe("space signal consistency matrix", () => {
       }),
       text,
       expect.objectContaining({
+        ...(deviceWait ? { deviceWait } : {}),
         messageEnvelope: expect.objectContaining({
           activationTargets: [missingTargetProfileId],
         }),

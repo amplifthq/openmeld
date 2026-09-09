@@ -219,9 +219,15 @@ readiness. Local Service still validates the concrete working folder. A changed
 Binding or Runtime is a visible no-execution failure; reconnection cannot
 silently retarget work. Pending route registration may remain in the same bounded
 wait. A transport failure while reading authority is retryable, not permission.
-Transient checks after reconnection, including current Space access, fresh Usage
-and controller reports, remain under `wake.device_wait.readiness_checking` with
-the original deadline.
+Fresh Usage and controller checks remain under
+`wake.device_wait.readiness_checking`; a failed Space-access read uses
+`wake.device_wait.access_check_unavailable` and `space_access_unavailable`.
+Observed `daemon.service.draining` retains its original code in the same bounded
+waiting mechanism. All keep the original deadline. The ledger's
+`runtime_coordinator.device_waiting` error code is a conveyor-ownership marker;
+the Coordinator boundary and correlated `head_waiting_boundary_recorded` ops
+decision retain the actual cause. Service heartbeats/reports recheck access as
+part of the same admission path; the access boundary is not a new scheduler.
 The next accepted Service heartbeat or report rechecks the complete admission
 path. A definitive permission, identity, or readiness blocker still terminalizes
 the Wake; checking is not a successful admission decision.
@@ -239,8 +245,10 @@ execution linkage cannot transition back into pre-execution waiting. Deadline
 alarms reread authority and publish only the transaction's accepted decision.
 An accepted or FIFO-queued request without an observed waiting boundary carries
 only a start deadline. Expiration uses a generic local-Agent no-execution
-category and does not invent an offline route. Observed offline/readiness
-boundaries retain their corresponding failure classification.
+category and does not invent an offline route. Both alarm and waiting-request
+expiry write `wake.device_wait.expired` with `send_new_wake`; they never inherit
+the previous boundary's restart/repair action. Historical observed causes remain
+in the ledger and ops decision evidence.
 Once execution is linked, the start deadline no longer applies. Existing durable
 result recovery, exact-conversation answer recovery, `outcome_unknown`, and
 no-automatic-replay rules continue to govern interrupted work.

@@ -481,6 +481,15 @@ describe("rpc-http parsers", () => {
         meta: { clientMessageId: "device-wait-message" },
       })
     ).toMatchObject({ ok: true, value: { deviceWait } });
+    for (const topLevel of [undefined, deviceWait]) {
+      expect(
+        parsePostSignalBody({
+          text: "Check the report",
+          ...(topLevel ? { deviceWait: topLevel } : {}),
+          meta: { clientMessageId: "device-wait-message", deviceWait },
+        })
+      ).toMatchObject({ ok: false });
+    }
     const parsed = parsePostSignalBody({
       text: "hello",
       messageEnvelope: {

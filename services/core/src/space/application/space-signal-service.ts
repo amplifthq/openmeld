@@ -62,6 +62,7 @@ export class SpaceSignalAuthoringError extends Error {
 }
 
 export type SignalTextBuildOptions = {
+  deviceWait?: SignalTextData["deviceWait"];
   attachments?: SignalTextData["attachments"];
   files?: SignalTextData["files"];
   messageEnvelope?: SignalTextData["messageEnvelope"];
@@ -117,16 +118,13 @@ export function assertSpaceSignalNavigationActionPolicy(input: {
 export const buildSignalTextOptions = (
   data: SignalTextData
 ): SignalTextBuildOptions | undefined => {
-  const authoredMeta = omitReplyStalenessFromAuthoredMeta(data.meta);
-  // Persist this additive metadata so older history readers can still read the
-  // message. New senders use the strict top-level request field, which older
-  // receivers reject instead of silently dropping the wait instruction.
-  const meta = data.deviceWait
-    ? { ...authoredMeta, deviceWait: data.deviceWait }
-    : authoredMeta;
+  // Persist one authoritative field. The public read encoder alone creates a
+  // metadata mirror for old clients; a mirror is never an authoring input.
+  const meta = omitReadOnlySignalTextMeta(data.meta);
   if (
     !(
       data.attachments ||
+      data.deviceWait ||
       data.files ||
       data.messageEnvelope ||
       meta ||
@@ -137,6 +135,7 @@ export const buildSignalTextOptions = (
   }
 
   return {
+    ...(data.deviceWait ? { deviceWait: data.deviceWait } : {}),
     ...(data.attachments ? { attachments: data.attachments } : {}),
     ...(data.files ? { files: data.files } : {}),
     ...(data.messageEnvelope ? { messageEnvelope: data.messageEnvelope } : {}),
@@ -153,7 +152,7 @@ export function assertWakeDeviceWaitAuthoring(input: {
   if (input.signal.type !== "signal.text") {
     return;
   }
-  const wait = input.signal.data.meta?.deviceWait;
+  const wait = input.signal.data.deviceWait;
   if (!wait) {
     return;
   }
@@ -173,14 +172,14 @@ export function assertWakeDeviceWaitAuthoring(input: {
   }
 }
 
-function omitReplyStalenessFromAuthoredMeta(
+function omitReadOnlySignalTextMeta(
   meta: SignalTextData["meta"]
 ): SignalTextData["meta"] {
   if (!meta) {
     return meta;
   }
-  const { staleness, ...authoredMeta } = meta;
-  if (!staleness) {
+  const { staleness, deviceWait, ...authoredMeta } = meta;
+  if (!(staleness || deviceWait)) {
     return meta;
   }
   return Object.keys(authoredMeta).length > 0 ? authoredMeta : undefined;

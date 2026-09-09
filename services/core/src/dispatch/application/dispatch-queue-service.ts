@@ -1473,7 +1473,7 @@ const settleDeviceWaitingWakeBeforeExecution = async (input: {
 
   const waitingReason =
     deviceWaitAccess === null
-      ? "wake.device_wait.readiness_checking"
+      ? "wake.device_wait.access_check_unavailable"
       : preflightCheck.deviceWaitReason;
   if (waitingReason) {
     let errorMessage =
@@ -3905,13 +3905,21 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
   failureAtMs: number;
   message: QueueBatchMessage;
   queueAttempt: number;
+  runtimeExecutionDelivered: boolean;
 }): Promise<{ handled: boolean; shouldAck: boolean }> => {
   if (
     input.errorCode !== "daemon.profile.offline" &&
     input.errorCode !== "daemon.profile.pending_first_report" &&
     input.errorCode !== "wake.device_wait.readiness_checking" &&
+    input.errorCode !== "daemon.service.draining" &&
     input.errorCode !== "service.update_required" &&
     input.errorCode !== "local_service.identity_mismatch"
+  ) {
+    return { handled: false, shouldAck: true };
+  }
+  if (
+    input.errorCode === "daemon.service.draining" &&
+    (!input.dispatchMessage.deviceWait || input.runtimeExecutionDelivered)
   ) {
     return { handled: false, shouldAck: true };
   }
@@ -4132,6 +4140,8 @@ const recordPreExecutionHeadWaiting = async (input: {
   errorCode:
     | "daemon.profile.offline"
     | "daemon.profile.pending_first_report"
+    | "daemon.service.draining"
+    | "wake.device_wait.access_check_unavailable"
     | "wake.device_wait.readiness_checking";
   errorMessage: string;
   executionAttemptId: string;
@@ -4233,6 +4243,9 @@ const recordPreExecutionHeadWaiting = async (input: {
     db: input.db,
     idempotencyKey: input.dispatchMessage.idempotencyKey,
     status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+    // Routing/ownership marker for outbox redrive, not the observed cause.
+    // The exact cause remains in the Coordinator boundary and correlated
+    // head_waiting_boundary_recorded decision below; errorMessage is unchanged.
     errorCode: input.dispatchMessage.deviceWait
       ? RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE
       : input.errorCode,
@@ -4260,16 +4273,14 @@ const recordPreExecutionHeadWaiting = async (input: {
     source: "dispatch_queue",
     correlationId: input.dispatchMessage.dispatchId,
   });
-  if (!input.dispatchMessage.deviceWait) {
-    await emitRetryingActivitySignal({
-      env: input.env,
-      errorCode: input.errorCode,
-      message: input.dispatchMessage,
-    });
-  }
   if (input.dispatchMessage.deviceWait) {
     return { handled: true, shouldAck: true };
   }
+  await emitRetryingActivitySignal({
+    env: input.env,
+    errorCode: input.errorCode,
+    message: input.dispatchMessage,
+  });
   retryQueueMessageWithBackoff(
     input.message,
     input.queueAttempt,
@@ -5233,15 +5244,11 @@ const handleDispatchQueueProcessingFailure = async (input: {
 
   const preExecutionHeadLifecycleFailureHandled =
     await handlePreExecutionHeadLifecycleFailureIfNeeded({
+      runtimeExecutionDelivered: input.runtimeExecutionDelivered,
       db: input.db,
       dispatchMessage: input.dispatchMessage,
       env: input.env,
-      errorCode:
-        input.dispatchMessage.deviceWait &&
-        !input.runtimeExecutionDelivered &&
-        errorCode === "daemon.service.draining"
-          ? "wake.device_wait.readiness_checking"
-          : errorCode,
+      errorCode,
       errorMessage,
       executionAttemptId: input.executionAttemptId,
       failureAtMs,
