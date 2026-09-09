@@ -71,7 +71,10 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: useQueryMock,
+		useQuery: (options: { enabled?: boolean }) => {
+			const result = useQueryMock(options);
+			return options.enabled === false ? { data: undefined } : result;
+		},
 	};
 });
 
@@ -3258,6 +3261,57 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 	});
 
+	it.each([
+		false,
+		true,
+	])("keeps the same answer DOM row when a Local Agent finishes (DM=%s)", (isDirectMessage) => {
+		const streaming = createTimelineItem({
+			id: "stream:local-agent",
+			wakeDispatchId: "dispatch-1",
+			actorProfileKind: "agent",
+			actorProfileId: TARGET_PROFILE_ID,
+			actorName: "Runner",
+			text: "",
+			agentStreamState: {
+				reasonCode: null,
+				sequence: 1,
+				status: "streaming",
+				streamId: "local-agent:10:dispatch-1:9:attempt-1",
+			},
+		});
+		const rendered = renderSpaceConversationPanel({
+			isDirectMessage,
+			timelineItems: [streaming],
+		});
+		const row = screen
+			.getByRole("status", { name: "Agent is working" })
+			.closest("[data-message-id]");
+		expect(row).not.toBeNull();
+		rendered.rerender(
+			<SpaceConversationPanel
+				{...createSpaceConversationPanelProps({
+					isDirectMessage,
+					timelineItems: [
+						{
+							...streaming,
+							id: "durable-final",
+							text: "Ready to review.",
+							agentStreamState: undefined,
+							isAgentFinalReply: true,
+						},
+					],
+				})}
+			/>
+		);
+		expect(
+			screen.queryByRole("status", { name: "Agent is working" })
+		).toBeNull();
+		expect(
+			screen.getByText("Ready to review.").closest("[data-message-id]")
+		).toBe(row);
+		expect(row?.getAttribute("data-message-id")).toBe("durable-final");
+	});
+
 	it("aligns an empty local Agent working row with the profile name and separates it from the header", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
@@ -4122,7 +4176,7 @@ describe("SpaceConversationPanel", () => {
 		expect(dialog.queryByText("Now")).toBeNull();
 	});
 
-	it("shows agent controller metadata without owner repetition", () => {
+	it("attributes Local Agent messages to the owner", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -4146,9 +4200,7 @@ describe("SpaceConversationPanel", () => {
 			screen.getByTestId("space-agent-profile-avatar-agent-profile-1")
 		).toBeTruthy();
 		expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
-		expect(
-			screen.getByText("Controlled by Felix's MacBook Pro Codex")
-		).toBeTruthy();
+		expect(screen.getByText("Mira")).toBeTruthy();
 		expect(screen.queryByText("Owned by Mira")).toBeNull();
 		expect(
 			screen.queryByText(

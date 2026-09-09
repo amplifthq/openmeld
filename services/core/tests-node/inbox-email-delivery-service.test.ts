@@ -387,6 +387,12 @@ async function readDelivery(db: D1Database, deliveryId: string) {
 function createInboxHarness() {
   const harness = createSqliteD1Harness();
   harness.run({
+    sql: "CREATE TABLE openmeld_profiles (profile_id TEXT PRIMARY KEY NOT NULL, profile_kind TEXT NOT NULL, organization_id TEXT, owner_user_id TEXT NOT NULL, managed_role TEXT)",
+  });
+  harness.run({
+    sql: "CREATE TABLE center_agent_designations (organization_id TEXT PRIMARY KEY NOT NULL, agent_profile_id TEXT NOT NULL)",
+  });
+  harness.run({
     sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT NOT NULL, created_at INTEGER NOT NULL)",
   });
   harness.run({

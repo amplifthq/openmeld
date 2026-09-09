@@ -32,9 +32,8 @@ export function SpaceInfoNotificationsSection() {
 			<div className="mb-3 space-y-1">
 				<p className="font-medium text-sm">Notifications</p>
 				<p className="text-muted-foreground text-xs/relaxed">
-					Browser notifications for every Space and Direct Message in this
-					browser — not just this one. Same setting as Settings → Personal →
-					Notifications.
+					Applies to all your Spaces and chats in this browser. You can also
+					change this in Settings &gt; Notifications.
 				</p>
 			</div>
 			<div className="flex items-center justify-between gap-3">

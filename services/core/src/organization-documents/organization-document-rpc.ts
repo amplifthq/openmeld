@@ -64,7 +64,6 @@ import type {
   UpdateOrganizationDocumentResponse,
   UpdateOrganizationDocumentRpcInput,
 } from "@openmeld/schemas/types";
-import { prepareCenterAgentOrganizationMemberRequest } from "../center-agent/application/anonymous-member-request";
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import {
   resolveCenterAgentAuditAttribution,
@@ -88,6 +87,7 @@ import {
   observeOrganizationWorkingLanguage,
   prepareRequirePreviousStatementChangedOneRow,
 } from "../organizations/organization-working-language-repository";
+import { prepareRemoteAgentMemberRequest } from "../remote-agent/application/remote-agent-member-request";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   createOrganizationDocumentService,
@@ -291,12 +291,11 @@ export async function rpcCenterAgentReadOrganizationDocuments(
     centerAgentReadOrganizationDocumentsRpcInputSchema,
     input
   );
-  const { authorization, member } =
-    await prepareCenterAgentOrganizationMemberRequest(
-      env,
-      request.context,
-      request.speakerMember
-    );
+  const { authorization, member } = await prepareRemoteAgentMemberRequest(
+    env,
+    request.context,
+    request.speakerMember
+  );
   const service = createOrganizationDocumentService({
     db: requireStore(env),
   });

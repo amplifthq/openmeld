@@ -279,6 +279,7 @@ import {
 } from "../../../execution-recovery/application/execution-recovery-operation-identity";
 import { publishExecutionRecoveryToOrigin } from "../../../execution-recovery/application/execution-recovery-publication";
 import { inspectExecutionRecovery } from "../../../execution-recovery/application/execution-recovery-service";
+import { canReceivePersonalAgentActivity } from "../../../inbox/application/inbox-agent-owner-access";
 import {
   agentTaskCoordinationDb,
   type CoreBindings,
@@ -8192,12 +8193,11 @@ export class Space extends DurableObject<CoreBindings> {
     const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
       status: "active",
     });
-    const isCurrentDirectMessage = Boolean(
-      meta?.purpose === "openmeld_dm_space" &&
-        meta.directMessage &&
-        !meta.directMessage.convertedAt &&
-        activeMembers.length === 2
-    );
+    const isCurrentDirectMessage = isDirectMessageSpace({
+      purpose: meta?.purpose,
+      directMessageConvertedAt: meta?.directMessage?.convertedAt,
+      activeMemberCount: activeMembers.length,
+    });
     const isActiveProfile = Boolean(
       profileId &&
         activeMembers.some((member) => member.profileId === profileId)
@@ -12588,7 +12588,10 @@ export class Space extends DurableObject<CoreBindings> {
         "Space purpose is system-managed and cannot be changed through metadata updates."
       );
     }
-    if (existingMetaRecord && isSpaceNamePatchBody(body)) {
+    if (
+      existingMetaRecord &&
+      (isSpaceNamePatchBody(body) || Object.hasOwn(body ?? {}, "visibility"))
+    ) {
       const authorization = this.authorizeSpaceManagement(context);
       if (!authorization.ok) {
         return authorization.response;
@@ -12608,21 +12611,22 @@ export class Space extends DurableObject<CoreBindings> {
           upsertSpaceMetaRecord(this.ctx.storage.sql, record),
       },
     });
-    if (response.ok) {
-      upsertSpaceCreatorFromCurrentMeta({
-        sql: this.ctx.storage.sql,
-        spaceId: this.spaceId,
+    if (!response.ok) {
+      return response;
+    }
+    upsertSpaceCreatorFromCurrentMeta({
+      sql: this.ctx.storage.sql,
+      spaceId: this.spaceId,
+    });
+    await this.projectCurrentSpaceIndexSnapshot(
+      options.initializeIfAbsent ? "space.created" : "space.meta_updated"
+    );
+    if (!options.initializeIfAbsent) {
+      await this.broadcastSpaceMetaChanged({
+        reason: isSpaceNamePatchBody(body)
+          ? "space.name.updated"
+          : "space.meta.updated",
       });
-      await this.projectCurrentSpaceIndexSnapshot(
-        options.initializeIfAbsent ? "space.created" : "space.meta_updated"
-      );
-      if (!options.initializeIfAbsent) {
-        await this.broadcastSpaceMetaChanged({
-          reason: isSpaceNamePatchBody(body)
-            ? "space.name.updated"
-            : "space.meta.updated",
-        });
-      }
     }
     return response;
   }
@@ -12990,10 +12994,23 @@ export class Space extends DurableObject<CoreBindings> {
       const targetInboxDb = inboxDb(this.bindings);
       const result = await attemptSpaceInboxProjectionOutboxRecord({
         db: targetInboxDb,
+        canReceiveAgentActivity: (candidate) =>
+          canReceivePersonalAgentActivity({
+            db: this.requireSpaceIndexDb(),
+            organizationId: candidate.organizationId,
+            userId: candidate.recipientUserId,
+            agentProfileIds: listSpaceMemberRecords(this.ctx.storage.sql, {
+              status: "active",
+            })
+              .filter((member) => member.profileKindSnapshot === "agent")
+              .map((member) => member.profileId),
+          }),
         isRecipientEligible: async (candidate) =>
           await resolveSpaceInboxRecipientEligibility({
             candidate,
             hasActiveSpaceMembership:
+              (candidate.sourceTarget.kind === "space" &&
+                candidate.sourceTarget.agentOwnerActivity === true) ||
               hasActiveHumanSpaceMemberRecordForOwnerUserId(
                 this.ctx.storage.sql,
                 candidate.recipientUserId
@@ -14200,6 +14217,11 @@ export class Space extends DurableObject<CoreBindings> {
     });
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords,
+      directMessage: isDirectMessageSpace({
+        purpose: metaRecord.purpose,
+        directMessageConvertedAt: metaRecord.directMessage?.convertedAt,
+        activeMemberCount: activeMemberRecords.length,
+      }),
       nowMs: input.nowMs,
       organizationId: metaRecord.organizationId,
       signal: input.signal,
@@ -21424,3 +21446,5 @@ function toPublicSpaceCursor(cursor: SpaceCursorRecord): SpaceCursor {
     updatedAt: cursor.updatedAt,
   };
 }
+
+import { isDirectMessageSpace } from "@openmeld/space";

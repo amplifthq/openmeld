@@ -101,6 +101,23 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         }),
       method: "GET",
       responseSchema: spaceInboxSummaryResponseSchema,
+      resolveSuccessPayload: (result) => {
+        const response = spaceInboxSummaryResponseSchema.parse(result);
+        if (
+          c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ===
+          OPENMELD_INBOX_SUMMARY_VERSION
+        ) {
+          return response;
+        }
+        const {
+          chatUnreadCount: _unread,
+          chatUnresolvedActionCount: _actions,
+          chatUnreadUrgentUpdateCount: _urgent,
+          attention: _attention,
+          ...legacy
+        } = response;
+        return legacy;
+      },
       route: SPACE_INBOX_SUMMARY_ROUTE,
     })
   );
@@ -194,8 +211,9 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       resolveSuccessPayload: (result) => {
         const response = inboxSummaryResponseSchema.parse(result);
         if (
-          c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ===
-          OPENMELD_INBOX_SUMMARY_VERSION
+          ["1", OPENMELD_INBOX_SUMMARY_VERSION].includes(
+            c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ?? ""
+          )
         ) {
           return response;
         }
@@ -400,7 +418,12 @@ function resolveInboxItemResponse(input: {
 
 type InboxItem = z.infer<typeof listInboxItemsResponseSchema>["items"][number];
 type InboxItemKindClientVersion = "current" | "legacy";
-type InboxSourceTargetClientVersion = "current" | "legacy" | "thread_unaware";
+type InboxSourceTargetClientVersion =
+  | "owner_unaware"
+  | "current"
+  | "legacy"
+  | "thread_unaware"
+  | "conversation_unaware";
 
 function projectInboxItemForClient(input: {
   item: InboxItem;
@@ -421,7 +444,18 @@ function projectInboxItemForClient(input: {
     return kind === input.item.kind ? input.item : { ...input.item, kind };
   }
   let sourceTarget: InboxItem["sourceTarget"] = input.item.sourceTarget;
+  if (sourceTarget.kind === "space") {
+    const { agentOwnerActivity: _ownerActivity, ...oldTarget } = sourceTarget;
+    if (input.sourceTargetVersion === "owner_unaware") {
+      sourceTarget = oldTarget;
+    } else {
+      const { directMessage: _directMessage, ...olderTarget } = oldTarget;
+      sourceTarget = olderTarget;
+    }
+  }
   if (
+    (input.sourceTargetVersion === "legacy" ||
+      input.sourceTargetVersion === "thread_unaware") &&
     sourceTarget.kind === "agent_interaction" &&
     sourceTarget.threadRootSignalId !== undefined
   ) {
@@ -464,6 +498,12 @@ function resolveInboxSourceTargetVersion(
   const version = c.req.header(OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION);
   if (version === OPENMELD_INBOX_SOURCE_TARGET_VERSION) {
     return "current";
+  }
+  if (version === "5") {
+    return "owner_unaware";
+  }
+  if (version === "4") {
+    return "conversation_unaware";
   }
   if (version === OPENMELD_INBOX_SOURCE_TARGET_THREAD_UNAWARE_VERSION) {
     return "thread_unaware";

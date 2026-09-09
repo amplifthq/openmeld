@@ -2585,6 +2585,7 @@ export {
   TARGET_WAKE_LIFECYCLE_IDENTITY_MODEL_VERSION,
   targetWakeLifecycleIdentitySchema,
 } from "./protocol/target-wake-lifecycle";
+export { agentComputerBrowserRequestSchema } from "./runtime/agent-computer-browser";
 export {
   AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS,
   agentControllerInterfaceAuthSnapshotSchema,

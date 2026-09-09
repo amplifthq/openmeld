@@ -1,4 +1,5 @@
 "use client";
+import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 
 // Navigation position belongs to the section, not the currently open detail route.
 const sidebarScrollPositions = new Map<string, number>();
@@ -171,6 +172,13 @@ export function AppOuterRail({
 								centerAgentUnreadCount,
 								prefetchCenterAgentConversation,
 								spacesUnreadCount,
+								chatUnreadCount: spaceInboxSummary.data?.chatUnreadCount,
+								chatAttentionTone: resolveInboxAttentionTone({
+									unresolvedActionCount:
+										spaceInboxSummary.data?.chatUnresolvedActionCount,
+									unreadUrgentUpdateCount:
+										spaceInboxSummary.data?.chatUnreadUrgentUpdateCount,
+								}),
 							}).map((group, index) => (
 								<AppRailNavigationGroup
 									activeDestination={activeDestination}
