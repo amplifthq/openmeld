@@ -127,11 +127,10 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	const blockedWakeHint = resolveSpaceComposerBlockedWakeHint(
 		input.content.addressingTargets
 	);
+	const composerHint = blockedWakeHint ?? fileHint ?? policy.wakeTextHint;
 	const accessHint = input.availability.canSendMessage
 		? null
 		: policy.placeholder;
-	const composerHint =
-		accessHint ?? blockedWakeHint ?? fileHint ?? policy.wakeTextHint;
 	let composerHintClassName = "text-muted-foreground";
 	if (policy.wakeTextHint) {
 		composerHintClassName = "text-foreground";

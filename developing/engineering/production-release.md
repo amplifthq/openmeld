@@ -298,6 +298,23 @@ has reviewed hosted orchestration support.
 
 ### Inbox source-target receiver-first order
 
+Personal Remote Agent shared tools require Core's execution authorization and
+Skill preparation receiver before the new Remote tool callers. The
+`personal-remote-tools-receivers-first` profile recognizes that schema, Core
+authorization owner, and Remote tool owner together. Its order is Auth, Web,
+Gateway, Core, Remote Agent (Database first and CLI last when selected). This
+also installs Inbox source-target readers before Core's producer. The Remote
+entrypoint's browser facet export does not change the incoming request contract.
+An actual opposing Remote request receiver change fails closed for a split
+rollout; selecting Remote without Core is rejected.
+
+This cloud stage retains the immutable current published CLI projection, using
+the same guarded Core receiver deployment as other staged contract rollouts.
+The new shared schema also changes the packaged Service fingerprint, so prepare
+the base-aware available CLI/Service release separately and publish it through
+the signed GitHub CLI lane after the cloud receivers. This preserves current
+local clients without advertising an unpublished bundle or bypassing stamping.
+
 Task Inbox retirement reverses the writer/reader dependency. The planner proves
 this specific removal from Git: the Task Inbox producer must be deleted, and
 the Inbox schema must differ only by removing the Task item kind, source kind,

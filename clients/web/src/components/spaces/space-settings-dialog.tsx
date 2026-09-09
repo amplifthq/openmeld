@@ -4,18 +4,19 @@ import type { SpaceAccessMode } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
-	DialogContent,
 	DialogDescription,
 	DialogHeader,
 	DialogTitle,
 	DialogTrigger,
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
+import { SettingsNav } from "@openmeld/ui/components/settings-nav";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { CopyIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState } from "react";
@@ -27,6 +28,7 @@ import {
 } from "./space-access-editor";
 import { SpaceInfoNotificationsSection } from "./space-info-notifications-section";
 import { SpaceNameEditor } from "./space-name-editor";
+import { SpaceVisibilityEditor } from "./space-visibility-editor";
 
 type SpaceInfoLeaveAction = {
 	errorMessage: string | null;
@@ -34,7 +36,7 @@ type SpaceInfoLeaveAction = {
 	onLeave: () => Promise<void> | void;
 };
 
-export function SpaceInfoDialog(input: {
+export function SpaceSettingsDialog(input: {
 	access: {
 		canManage: boolean;
 		errorMessage: string | null;
@@ -63,7 +65,10 @@ export function SpaceInfoDialog(input: {
 	open?: boolean;
 	showTrigger?: boolean;
 	spaceId: string;
+	visibility?: "public" | "private";
+	onSetVisibility?: (visibility: "public" | "private") => Promise<void>;
 }) {
+	const [section, setSection] = useState("general");
 	const [isConfirmingLeave, setIsConfirmingLeave] = useState(false);
 	const cliJoinCommand = buildSpaceCliJoinCommand(input.spaceId);
 	const isDirectConversation =
@@ -74,6 +79,7 @@ export function SpaceInfoDialog(input: {
 		leaveAction: input.leaveAction,
 	});
 	const showSpaceAccessControls = !isDirectConversation;
+	const conversationLabel = isDirectConversation ? "Chat" : "Space";
 
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
@@ -84,7 +90,7 @@ export function SpaceInfoDialog(input: {
 							<DialogTrigger
 								render={
 									<Button
-										aria-label="Space information"
+										aria-label="Space settings"
 										size="icon-sm"
 										type="button"
 										variant="ghost"
@@ -95,63 +101,95 @@ export function SpaceInfoDialog(input: {
 							/>
 						}
 					/>
-					<TooltipContent side="bottom">Space information</TooltipContent>
+					<TooltipContent side="bottom">Space settings</TooltipContent>
 				</Tooltip>
 			)}
-			<DialogContent className="flex max-h-[min(42rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden bg-surface-1 sm:max-w-xl">
-				<DialogHeader className="shrink-0 pr-8">
-					<DialogTitle>Space information</DialogTitle>
-					<DialogDescription>
-						{isDirectConversation
-							? "Copy the Space ID for this conversation."
-							: "Copy the Space ID or the OpenMeld CLI command for joining this space."}
-					</DialogDescription>
-				</DialogHeader>
-
+			<DialogContent
+				className="flex h-[min(36rem,calc(100dvh-2rem))] min-w-0 flex-col gap-0 overflow-hidden p-0 sm:flex-row"
+				size="xl"
+			>
+				<aside className="shrink-0 border-border border-b p-4 sm:w-44 sm:border-r sm:border-b-0">
+					<DialogHeader className="mb-4 pr-6">
+						<DialogTitle>{conversationLabel} settings</DialogTitle>
+						<DialogDescription className="sr-only">
+							Manage this conversation.
+						</DialogDescription>
+					</DialogHeader>
+					<SettingsNav
+						activeSectionId={section}
+						items={[
+							{ id: "general", title: "General" },
+							...(isDirectConversation
+								? []
+								: [{ id: "access", title: "Access" }]),
+							{ id: "advanced", title: "Advanced" },
+						]}
+						onNavigate={setSection}
+					/>
+				</aside>
 				<ScrollArea
 					className="min-h-0 min-w-0 flex-1"
-					contentClassName="space-y-4 pr-1"
+					contentClassName="space-y-5 p-5 sm:p-6"
 					data-testid="space-info-dialog-scroll-area"
 					orientation="vertical"
 				>
-					{input.currentProfileName ? (
+					<h2 className="pr-8 font-medium text-base">
+						{
+							{ general: "General", access: "Access", advanced: "Advanced" }[
+								section
+							]
+						}
+					</h2>
+					{section === "advanced" && input.currentProfileName ? (
 						<SpaceInfoReadOnlyField
 							label="Joined profile"
 							value={input.currentProfileName}
 						/>
 					) : null}
-					{canManageName ? (
-						<SpaceNameEditor
-							currentName={input.name.value}
-							errorMessage={input.name.errorMessage}
-							isPending={input.name.isPending}
-							onSave={input.name.onSave}
-						/>
-					) : (
-						<SpaceInfoReadOnlyField
-							label="Space name"
-							value={input.name.value}
-						/>
+					{section === "general" &&
+						(canManageName ? (
+							<SpaceNameEditor
+								currentName={input.name.value}
+								errorMessage={input.name.errorMessage}
+								isPending={input.name.isPending}
+								onSave={input.name.onSave}
+							/>
+						) : (
+							<SpaceInfoReadOnlyField
+								label={`${conversationLabel} name`}
+								value={input.name.value}
+							/>
+						))}
+					{section === "advanced" && (
+						<>
+							<SpaceInfoCopyField
+								ariaLabel="Copy Space ID"
+								label="Space ID"
+								successMessage="Space ID copied."
+								value={input.spaceId}
+							/>
+							{showSpaceAccessControls ? (
+								<SpaceInfoCopyField
+									ariaLabel="Copy CLI join command"
+									label="CLI join command"
+									successMessage="CLI command copied."
+									value={cliJoinCommand}
+								/>
+							) : null}
+						</>
 					)}
-					<SpaceInfoCopyField
-						ariaLabel="Copy Space ID"
-						label="Space ID"
-						successMessage="Space ID copied."
-						value={input.spaceId}
-					/>
-					<SpaceInfoNotificationsSection />
-					{showSpaceAccessControls ? (
-						<SpaceInfoCopyField
-							ariaLabel="Copy CLI join command"
-							label="CLI join command"
-							successMessage="CLI command copied."
-							value={cliJoinCommand}
+					{section === "general" && <SpaceInfoNotificationsSection />}
+					{section === "access" && showSpaceAccessControls ? (
+						<SpaceVisibilityEditor
+							canManage={input.access.canManage}
+							onSave={input.onSetVisibility}
+							value={input.visibility}
 						/>
 					) : null}
-					{showSpaceAccessControls ? (
+					{section === "access" && showSpaceAccessControls ? (
 						<section className="min-w-0 border-border/60 border-t pt-4">
 							<div className="mb-3 space-y-1">
-								<p className="font-medium text-sm">Access</p>
+								<p className="font-medium text-sm">Link access</p>
 								<p className="text-muted-foreground text-xs/relaxed">
 									Manage how people can view or join this Space from shared
 									links.
@@ -167,7 +205,7 @@ export function SpaceInfoDialog(input: {
 							/>
 						</section>
 					) : null}
-					{showSpaceAccessControls ? (
+					{section === "advanced" && showSpaceAccessControls ? (
 						<SpaceInfoLeaveSection
 							action={input.leaveAction}
 							isConfirming={isConfirmingLeave}
@@ -175,7 +213,9 @@ export function SpaceInfoDialog(input: {
 							onConfirmingChange={setIsConfirmingLeave}
 						/>
 					) : null}
-					{showSpaceAccessControls && input.deleteAction.isVisible ? (
+					{section === "advanced" &&
+					showSpaceAccessControls &&
+					input.deleteAction.isVisible ? (
 						<SpaceInfoDeleteSection
 							deleteSpaceErrorMessage={input.deleteAction.errorMessage}
 							isDeleteSpacePending={input.deleteAction.isPending}

@@ -23,6 +23,7 @@ import type { AppShellSection } from "./shell-layout";
 vi.mock("./app-command-center", () => ({ AppCommandCenter: () => null }));
 
 const BETA_ORGANIZATION_NAME_PATTERN = /Beta/;
+const CHAT_ATTENTION_LABEL = /Chats, Needs action, 106/;
 const navigateMock = vi.fn();
 const routerInvalidateMock = vi.fn();
 const useAccountAvatarMock = vi.hoisted(() => vi.fn());
@@ -42,6 +43,11 @@ let routerLocation = {
 let appShellSection: AppShellSection = "space";
 let centerAgentUnreadCount = 0;
 let ordinarySpaceUnreadCount: number | undefined = 0;
+let chatCounts = {
+	chatUnreadCount: 0,
+	chatUnresolvedActionCount: 0,
+	chatUnreadUrgentUpdateCount: 0,
+};
 let appOrganization: {
 	activeOrganization: OrganizationSummary | null;
 	currentOrganization: OrganizationSummary;
@@ -134,6 +140,7 @@ vi.mock("#/lib/organizations/inbox", () => ({
 		unreadCount: centerAgentUnreadCount,
 	}),
 	getCurrentSpaceInboxSummary: async () => ({
+		...chatCounts,
 		...(ordinarySpaceUnreadCount === undefined
 			? {}
 			: { ordinarySpaceUnreadCount }),
@@ -271,6 +278,11 @@ describe("AppOuterRail", () => {
 		appShellSection = "space";
 		centerAgentUnreadCount = 0;
 		ordinarySpaceUnreadCount = 0;
+		chatCounts = {
+			chatUnreadCount: 0,
+			chatUnresolvedActionCount: 0,
+			chatUnreadUrgentUpdateCount: 0,
+		};
 		routerLocation = {
 			pathname: "/o/acme/spaces",
 			searchStr: "",
@@ -622,6 +634,21 @@ describe("AppOuterRail", () => {
 		expect(
 			link.querySelector('[data-app-rail-status-indicator="spaces-unread"]')
 		).toBeNull();
+	});
+
+	it("uses complete Chat counts and keeps read actions red", async () => {
+		chatCounts = {
+			chatUnreadCount: 106,
+			chatUnresolvedActionCount: 1,
+			chatUnreadUrgentUpdateCount: 1,
+		};
+		renderRail();
+		const link = await screen.findByRole("link", {
+			name: CHAT_ATTENTION_LABEL,
+		});
+		expect(
+			link.querySelector('[data-app-rail-status-indicator="chats-unread"]')
+		).toBeTruthy();
 	});
 
 	it.each([

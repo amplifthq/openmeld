@@ -390,13 +390,29 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    state uses Direct Messages geometry and never flashes the Spaces sidebar.
    Canonical classification reads the Space status projection; the Account
    Space Index is list data and cannot override a fresher status result.
-   In a one-Human/one-ordinary-Agent DM, the header tells both participants that
-   the named Agent owner can view. When that owner opens the DM through their
+   In a one-Human/one-ordinary-Agent DM, a badge beside the conversation title
+   tells other participants that the named Agent owner can view. The owner sees
+   `View only` while observing, and no self-visibility badge while participating.
+   Access labels never appear among navigation tabs. DM headers and new-chat
+   headers omit Local, Remote, and Center Agent type badges.
+   When that owner opens the DM through their
    own Human Profile, Web keeps the Composer and collaboration mutations
    read-only and offers **Join conversation**. Confirmation reuses the existing
    **Turn this Direct Message into a Space** flow and adds only that owner's
    Human Profile. Human-to-Human and Center Agent DMs never show this owner
    observer or join affordance.
+   The read-only Composer says `Join this conversation to send messages.` in
+   its input area once; the action row does not repeat the placeholder.
+   Chats and ordinary Spaces share the Members panel and its People & Agents
+   grouping. An Agent owner who has not joined appears as an identity heading
+   above their Agents, using the Organization Profile Directory name and avatar.
+   This heading does not create membership, count toward Members, or expose
+   member actions for that owner.
+   Message bodies use the same Profile Mention renderer for Human mention
+   targets and Agent Wake/Reference targets. Human tokens retain their avatar,
+   name, and Profile popover without an Agent action label. The timeline carries
+   all three existing addressing lists without changing notification or Wake
+   semantics.
 4. **People** — the first-level home for the Human teammates in the current
    workspace. Its Main Sidebar contextual list shows Human Profiles with search,
    computer-connection filters, personal Starred and named groups. Registered
@@ -514,16 +530,24 @@ Ordinary private conversations use `/chats/{spaceId}`. The old
 `/direct-messages` routes only redirect and preserve supported search fields.
 Team's Center Agent entry opens the canonical Center Agent chat.
 
-The shared Chats sidebar exposes Agents and People groups and filters. Agents
-comes first by default; dragging the category headings changes the order,
-saved in this browser per Organization and Human Profile. Center Agent sessions
-and local Agent conversations share Agents. Center Agent rows reuse the designated
-profile avatar; their conversation header adds a cloud-icon Center Agent badge
-after live status. Existing Center Agent
-session preferences and ordinary private-conversation preferences keep their
-existing owners and persisted groups, pinning, and sorting; this navigation
-change does not rewrite account preferences or introduce execution policy.
-Center Agent sessions are excluded from the ordinary conversation list.
+The shared Chats sidebar merges People, Local, Remote, and Center Agent
+conversations by Space identity before grouping and sorting. All chats appear
+together by default; People and Agents are optional multi-select filters using
+the same selection and removable badges as Spaces group filters. Selecting
+both includes both kinds; clearing all selections restores all chats. Priority is the
+default and uses the same attention, unread, working, and message-activity
+ordering as Spaces. Recent activity uses the last real message, not creation
+time or a separately sorted runtime family. Pinned and manual order remain
+explicit user choices. Existing `messages` and `chats` preferences are merged
+without losing pinned items, custom groups, titles, or archived conversations;
+the next write stores the unified `chats` preferences and retires `messages`.
+Ordinary DM pin membership remains Space Index-owned and uses the same pin
+mutation as Spaces; session pins and sidebar order remain account preferences.
+Center Agent rows reuse the designated profile avatar. Core's complete Inbox
+summary owns Chat unread and attention facts. Normal unread is blue, urgent
+updates are yellow, and open action requests are red with precedence over yellow.
+Reading clears unread updates, not unresolved requests. Counts never sum a loaded
+page. Notification targets preserve the exact conversation, message, and thread.
 New chat uses the existing participant picker. Choosing Center Agent opens a
 local draft; first send continues to own session creation. Its group actions,
 archive filter, title editing, previews, and drag ordering remain available.
@@ -2764,7 +2788,14 @@ Auth, or hide the unfinished choice behind a completed badge.
 
 Web presents a Space as a collaboration room and visible outcome surface.
 
-**Space information** presents the canonical Space name. The creator profile,
+**Space settings** uses the shared Fluid Dialog and Settings navigation, with
+General, Access, and Advanced sections. General contains the canonical name and
+the existing global browser-notification control. Access separates organization
+directory listing from link access; changing either never implicitly changes the
+other. Advanced contains Space ID, CLI join command, joined profile, and existing
+confirmed leave/delete actions. **Chat settings** shares the same composition but
+omits Access, CLI join, and lifecycle mutations while the conversation is a DM.
+The creator profile,
 or the owning Human Profile for an Agent-created Space, gets an inline editor
 that trims the submitted value and enforces the shared non-empty 80-character
 contract. Other viewers see the name read-only. Center Agent Direct Messages
@@ -3112,14 +3143,18 @@ agents and diagnostics. Message details remains the drill-in for complete
 execution and failure context.
 
 Each recorded message reserves one stable footer for its timestamp and actions.
-When a message has a failure, the visible footer keeps only Message details,
-the concise failure summary, More actions, and the timestamp at every width;
+When a message has a failure, the visible footer keeps only one red Message
+details icon, More actions, and the timestamp at every width;
 Copy, Reply, Thread, and Addressing move into More actions. Footer icon controls
 use a compact 28-pixel container with 6-pixel visual padding. A failure colors
 the Message details icon red but does not show a persistent hover or selected
 background; that background appears only through real interaction state. The
-concise failure summary opens the same Message details drawer and gains an
-underline on hover or keyboard focus.
+failure summary is available in the icon's accessible name and tooltip instead
+of repeating a red sentence in the conversation. Clicking or keyboard-activating
+the icon opens the Message details drawer. Owner-visible original Local Agent
+errors appear there immediately, labeled by Agent, with their original text and
+line breaks. They are not duplicated under Technical details. The existing
+bounded, owner-only error projection and sensitive-data exclusions still apply.
 
 Message rhythm follows the existing speaker grouping instead of the current
 member's alignment. Message content sits 2 pixels above its reserved footer. A
@@ -3311,6 +3346,12 @@ still hide secrets, stdout, stderr, stack traces, commands, local paths, and raw
 payloads. OpenMeld-owned identity, security, routing, queue, and publication
 failures continue to use precise OpenMeld-authored copy and one practical next
 action.
+
+Retaining a structured Local Agent error does not depend on OpenMeld recognizing
+its category. Adapters preserve the safe original message separately from error
+classification and diagnostic output; unrelated stderr must not erase an already
+retained original error. This does not change Wakeability, provider-access
+evidence, retry policy, or the execution's outcome.
 
 A terminal execution outcome does not show an inline action that starts another
 execution. Web exposes only exact result replay or exact conversation reply
@@ -3632,8 +3673,13 @@ Unfinished Agent replies follow the latest message in their owning conversation.
 Main Space and Thread use the same presentation-only ordering: published history
 keeps its server order, followed by active Wakes in request order. A public reply
 stream replaces its matching placeholder; it does not add another status row.
-The final durable reply takes its published position. Failures and stopped
-outcomes keep their original request context. Active rows expose a request link
+The final durable reply takes its published position. Durable outcomes and
+temporary streams reconcile by their shared
+`dispatchId`, never by guessing the stream ID from a client message ID. The
+placeholder, stream, and final answer keep one React display key for that Wake;
+durable Signal IDs remain unchanged for reply and message actions. Spaces,
+direct messages, and Threads consume this same timeline projection. Failures
+and stopped outcomes keep their original request context. Active rows expose a request link
 and reuse the shared status, Orb, preview, and Stop controls, without message
 timestamps or publication actions. Missing source history does not hide a Wake
 whose authoritative source context proves its conversation scope.
@@ -3641,6 +3687,11 @@ Core-published native failure and cancellation text (`remote_agent_failure`)
 replaces its exact submission's temporary stream, just as a successful final
 reply does. A late or stale stream must not retain a working or failed bubble
 beside that durable outcome. Other submissions remain visible.
+In local development, `message-state-preview=reply-race` replays placeholder,
+Local Agent stream, durable answer with a still-open stream, and stream cleanup
+at ten-second intervals through the shared timeline and conversation projection.
+It is presentation-only test data, available on Space and direct-message routes;
+it does not dispatch a Wake or change runtime state. Reload to replay it.
 All Web progress reads request `includeSourceContext=true`. Thread rendering
 uses the same recovered presentation snapshot as the main conversation, filtered
 to its own Thread; the root message does not import main-conversation controls.

@@ -6,6 +6,30 @@ import { object, optional, string } from "valibot";
 import type { RemoteAgentCoreWorkerBinding } from "./callback-context";
 import type { RemoteAgentToolDefinition } from "./tool-definition";
 
+// Share implementations, but never inherit the Center's organization duties.
+const PERSONAL_PRODUCT_TOOLS = new Set([
+  "web_search",
+  "web_fetch",
+  "browser_read_page",
+  "browser_get_links",
+  "browser_extract",
+  "browser_scrape",
+  "browser_screenshot",
+  "openmeld_read_org_documents",
+  "openmeld_list_projects",
+  "openmeld_list_space_files",
+  "openmeld_read_space_file",
+  "openmeld_save_space_file",
+  "openmeld_manage_space_files",
+  "openmeld_list_connected_apps",
+  "openmeld_list_app_actions",
+  "openmeld_execute_app_action",
+]);
+
+export function isPersonalRemoteAgentProductTool(name: string): boolean {
+  return PERSONAL_PRODUCT_TOOLS.has(name) || name.startsWith("github_");
+}
+
 export function getPersonalRemoteAgentTools(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   submissionId: string;

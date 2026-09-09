@@ -23,6 +23,7 @@ import type {
 import {
   AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION,
   classifyRuntimePermissionDenialMessage,
+  createProviderOriginalError,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
 import { classifyCodexProviderAccountFailure } from "../output/codex-provider-failure.js";
@@ -464,6 +465,8 @@ function requireSuccessfulCodexTurn(turn: AppServerTurn): void {
     return;
   }
   const failureMessage = readTurnFailureMessage(turn);
+  const originalError =
+    createProviderOriginalError(failureMessage) ?? undefined;
   const permissionDenial = classifyRuntimePermissionDenialMessage({
     message: failureMessage,
     source: "codex",
@@ -473,6 +476,7 @@ function requireSuccessfulCodexTurn(turn: AppServerTurn): void {
       code: permissionDenial.code,
       errorType: permissionDenial.errorType,
       message: permissionDenial.message,
+      originalError,
     });
   }
   const providerFailure = classifyCodexProviderAccountFailure({
@@ -492,6 +496,7 @@ function requireSuccessfulCodexTurn(turn: AppServerTurn): void {
     code: "runtime.turn.failed",
     errorType: "adapter",
     message: `runtime.turn.failed: ${failureMessage}`,
+    originalError,
   });
 }
 
@@ -2569,6 +2574,7 @@ function toJsonRpcTransportError(
 ): CodexAppServerTransportError {
   const message =
     normalizeOptionalText(error.message) ?? "codex app-server error";
+  const originalError = createProviderOriginalError(message) ?? undefined;
   const permissionDenial = classifyRuntimePermissionDenialMessage({
     message,
     source: "codex",
@@ -2578,6 +2584,7 @@ function toJsonRpcTransportError(
       code: permissionDenial.code,
       errorType: permissionDenial.errorType,
       message: permissionDenial.message,
+      originalError,
     });
   }
   const providerFailure = classifyCodexProviderAccountFailure({ message });
@@ -2601,6 +2608,7 @@ function toJsonRpcTransportError(
       code: "auth.required",
       errorType: "auth",
       message,
+      originalError,
     });
   }
   if (
@@ -2615,12 +2623,14 @@ function toJsonRpcTransportError(
       code: "context_not_found",
       errorType: "config",
       message,
+      originalError,
     });
   }
   return new CodexAppServerTransportError({
     code: "upstream_unreachable",
     errorType: "adapter",
     message,
+    originalError,
     ...(typeof error.code === "number" ? { rpcErrorCode: error.code } : {}),
   });
 }

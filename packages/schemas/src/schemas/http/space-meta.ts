@@ -84,6 +84,7 @@ export const getSpaceMetaResponseSchema = spaceMetaSchema;
 
 export const patchSpaceMetaBodySchema = z
   .strictObject({
+    visibility: spaceOrganizationVisibilitySchema.optional(),
     name: spaceNameSchema.optional(),
     purpose: z.string().optional(),
     guide: z.string().max(MAX_SPACE_GUIDE_LENGTH).optional(),
@@ -91,6 +92,7 @@ export const patchSpaceMetaBodySchema = z
   .superRefine((value, ctx) => {
     if (
       value.name !== undefined ||
+      value.visibility !== undefined ||
       value.purpose !== undefined ||
       value.guide !== undefined
     ) {
@@ -98,10 +100,11 @@ export const patchSpaceMetaBodySchema = z
     }
     ctx.addIssue({
       code: "custom",
-      message: "Expected name, purpose or guide",
+      message: "Expected name, purpose, guide or visibility",
     });
   })
   .transform((value) => ({
+    ...(value.visibility === undefined ? {} : { visibility: value.visibility }),
     ...(value.name === undefined ? {} : { name: value.name }),
     ...(value.purpose === undefined ? {} : { purpose: value.purpose }),
     ...(value.guide === undefined ? {} : { guide: value.guide }),

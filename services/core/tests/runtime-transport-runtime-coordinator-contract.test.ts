@@ -12034,6 +12034,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     [true, "unresolved"],
     [true, "identity_mismatch"],
     [false, "reply_wins"],
+    [false, "slow"],
   ] as const)("stops an accepted unpublished result without its old Service (legacy command missing: %s, first publication: %s)", async (removeCommand, firstPublication) => {
     const harness = createHarness();
     const {
@@ -12163,7 +12164,34 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(sentFrames).toEqual([]);
       return;
     }
-    if (firstPublication !== "none") {
+    if (firstPublication === "slow") {
+      const publishStop =
+        spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand.getMockImplementation();
+      if (!publishStop) {
+        throw new Error(
+          "Expected the Space stopped-publication implementation."
+        );
+      }
+      spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand.mockImplementationOnce(
+        async (command) => {
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+          return await publishStop(command);
+        }
+      );
+      // Both the active Stop and one waiting behind it must receive the actual
+      // outcome, even when publication exceeds the serializer's one-second wait.
+      const responses = await Promise.all([
+        requestRuntimeCoordinatorWakeStop(hub),
+        requestRuntimeCoordinatorWakeStop(hub),
+      ]);
+      const outcomes = await Promise.all(
+        responses.map((response) => response.json())
+      );
+      expect(outcomes).toEqual([
+        expect.objectContaining({ ok: true, status: "cancelled" }),
+        expect.objectContaining({ ok: true, status: "already_cancelled" }),
+      ]);
+    } else if (firstPublication !== "none") {
       if (firstPublication === "unavailable") {
         spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand.mockRejectedValueOnce(
           new Error("Space unavailable")

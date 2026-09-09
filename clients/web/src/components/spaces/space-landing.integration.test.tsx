@@ -536,6 +536,8 @@ const PREPARE_TEXT = /prepare/i;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
 const RECENT_ACTIVITY_TS = Date.now();
 const TEST_FILE_EXTENSION_PATTERN = /\.[^.]+$/u;
+const MESSAGE_DETAILS_ACTION_NAME_PATTERN =
+	/^(?:Message details$|View error details:)/;
 const SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY =
 	"openmeld.space.members-panel.open:space-123";
 const OTHER_SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY =
@@ -2311,7 +2313,8 @@ describe("SpaceLanding", () => {
 			)
 		).toBeNull();
 		expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		expect(screen.queryByRole("button", { name: "Leave space" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Delete space" })).toBeNull();
 		expect(screen.queryByText("Couldn't Load This Space")).toBeNull();
@@ -2800,7 +2803,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 		fireEvent.click(screen.getByRole("button", { name: "Confirm leave" }));
 
@@ -2868,7 +2872,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 		fireEvent.click(screen.getByRole("button", { name: "Confirm leave" }));
 
@@ -2917,7 +2922,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {
 			target: { value: "DELETE" },
@@ -2983,7 +2989,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {
 			target: { value: "DELETE" },
@@ -3048,7 +3055,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 
 		expect(screen.getByRole("button", { name: "Leave space" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Delete space" })).toBeNull();
@@ -4813,7 +4821,7 @@ describe("SpaceLanding", () => {
 		expect(sourceMessageRow).not.toBeNull();
 		fireEvent.click(
 			within(sourceMessageRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 			})
 		);
 		const failedAgentActivity = await screen.findByRole("region", {
@@ -5395,12 +5403,17 @@ describe("SpaceLanding", () => {
 			],
 		});
 
-		expect(screen.getByText("Mira can view")).toBeTruthy();
+		expect(screen.getByText("View only")).toBeTruthy();
+		expect(
+			screen
+				.getByText("View only")
+				.closest('[data-slot="space-window-header-title"]')
+		).not.toBeNull();
 		const composer = screen.getByRole("textbox", {
 			name: "Message Runner",
 		});
 		expect(composer.getAttribute("aria-placeholder")).toBe(
-			"You can view this Direct Message because you own Runner. Join to participate."
+			"Alice is chatting with your agent, Runner. Join this conversation to send messages."
 		);
 		expect(
 			screen.getByText("Join the conversation to send the first message.")
@@ -5413,6 +5426,11 @@ describe("SpaceLanding", () => {
 			'[data-slot="space-composer-section"]'
 		);
 		expect(composerSection).not.toBeNull();
+		expect(
+			within(composerSection as HTMLElement).queryByText(
+				"Alice is chatting with your agent, Runner. Join this conversation to send messages."
+			)
+		).toBeNull();
 		expect(
 			within(composerSection as HTMLElement).queryByRole("button", {
 				name: "Send message",
@@ -14957,7 +14975,7 @@ describe("SpaceLanding", () => {
 			expect(publishedMessage?.textContent).toContain("hello there");
 			expect(
 				publishedMessage?.querySelector(
-					'[data-slot="space-message-agent-mention"]'
+					'[data-slot="space-message-profile-mention"]'
 				)?.textContent
 			).toContain("Watcher");
 		});
@@ -15829,7 +15847,7 @@ describe("SpaceLanding", () => {
 		const sourceActionScope = within(sourceRow as HTMLElement);
 		const sourceMessageDetailsButton =
 			sourceRow?.querySelector<HTMLButtonElement>(
-				'[data-slot="message-footer"] button[aria-label="Message details"]'
+				'[data-slot="message-footer"] button[aria-label="View error details: Agent couldn’t reply"]'
 			);
 		if (!sourceMessageDetailsButton) {
 			throw new Error("Expected the source message footer details action.");
@@ -15842,11 +15860,11 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByRole("menuitem", { name: "Reply in thread" })
 		).toBeTruthy();
-		// The source footer keeps only the calm failure summary. The diagnostic
+		// The source footer keeps only the failure icon. The diagnostic
 		// body remains in Message details instead of extending the timeline.
 		expect(
-			within(sourceRow as HTMLElement).getByText("Agent couldn’t reply")
-		).toBeTruthy();
+			within(sourceRow as HTMLElement).queryByText("Agent couldn’t reply")
+		).toBeNull();
 		expect(
 			within(sourceRow as HTMLElement).queryByText(
 				"Watcher could not complete this Wake."
@@ -15927,7 +15945,9 @@ describe("SpaceLanding", () => {
 		);
 		// The persistent failure footer remains after Message details closes.
 		expect(
-			within(sourceRow as HTMLElement).getByText("Agent couldn’t reply")
+			within(sourceRow as HTMLElement).getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
 		).toBeTruthy();
 	});
 
@@ -16004,7 +16024,7 @@ describe("SpaceLanding", () => {
 		}
 		fireEvent.click(
 			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 			})
 		);
 		expect(
@@ -16098,7 +16118,7 @@ describe("SpaceLanding", () => {
 		}
 		fireEvent.click(
 			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 			})
 		);
 		await screen.findByRole("dialog", { name: "Message details" });
@@ -17503,7 +17523,7 @@ async function openHistoricalWakeFailure(input: {
 	}
 	fireEvent.click(
 		within(sourceRow as HTMLElement).getByRole("button", {
-			name: "Message details",
+			name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 		})
 	);
 	return await screen.findByRole("dialog", { name: "Message details" });

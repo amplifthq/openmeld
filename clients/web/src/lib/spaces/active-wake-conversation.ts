@@ -199,6 +199,7 @@ function createActiveWakePlaceholder(input: {
 		newMessagesDuringComposition: null,
 		activeWakeSourceItemId: sourceId,
 		activeWakeProgress: progress,
+		wakeDispatchId: progress.dispatchId ?? undefined,
 		replyPreviewText: null,
 		replyToProfileName: null,
 		replyToSignalId: null,
