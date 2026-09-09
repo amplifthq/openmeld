@@ -54,6 +54,17 @@ test("installs Inbox readers and Core tool authorization before personal Remote 
     "core",
     "remote-agent",
   ]);
+  assert.ok(
+    plan.deploySteps.some(
+      (step) =>
+        step.label === "Deploy Core with the current published CLI projection"
+    )
+  );
+  assert.ok(
+    !plan.preflightSteps.some(
+      (step) => step.label === "Verify Core CLI channel compatibility"
+    )
+  );
 });
 
 test("rejects personal Remote tool rollout without its Core receiver", () => {
