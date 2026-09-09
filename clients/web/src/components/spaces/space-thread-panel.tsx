@@ -113,8 +113,8 @@ import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
-	resolveSpaceMessageContentPaddingClassName,
 	resolveSpaceMessageRowLayoutClassName,
+	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
@@ -545,7 +545,6 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				}
 				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
 			/>
-			{input.pendingActionSurface}
 			{renderThreadComposer(input)}
 			<ThreadSelectedMessageDetails
 				activeThread={input.activeThread}
@@ -845,6 +844,7 @@ function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 			onRemoveComposerFile={input.onRemoveComposerFile}
 			onSend={input.onSend}
 			orgSlug={input.orgSlug}
+			pendingActionSurface={input.pendingActionSurface}
 			prepareSetupHref={input.prepareSetupHref}
 			profileControl={input.profileControl}
 			textareaRef={input.textareaRef}
@@ -1404,8 +1404,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	);
 	const selfMessageContentLayoutClassName =
 		resolveSpaceMessageContentLayoutClassName({ isSelf: isSelfMessage });
-	const messageContentPaddingClassName =
-		resolveSpaceMessageContentPaddingClassName({ isSelf: isSelfMessage });
 	const computerSetupPresentation = resolveThreadComputerSetupPresentation({
 		actionSignalId: input.computerSetupActionSignalId,
 		context: input.computerSetupContext,
@@ -1486,13 +1484,12 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						<BubbleContent
 							className={cn(
 								"group/thread-message relative flex w-full flex-col gap-2 transition-colors motion-reduce:transition-none",
-								messageContentPaddingClassName,
+								SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 								SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 								selfMessageContentLayoutClassName,
 								resolveSpaceMessageBubblePresentationClass({
 									isSelf: isSelfMessage,
 								}),
-								"data-[highlighted=true]:bg-muted/50",
 								input.item.deliveryState === "pending" ? "opacity-70" : null
 							)}
 							data-signal-id={input.item.id}
@@ -1714,6 +1711,7 @@ function resolveThreadMessageAvatarImageUrl(input: {
 }
 
 function ThreadComposer(input: {
+	pendingActionSurface?: ReactNode;
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
@@ -1807,6 +1805,7 @@ function ThreadComposer(input: {
 				prepareSetupHref: input.prepareSetupHref,
 			}}
 			slots={{
+				pendingActionSurface: input.pendingActionSurface,
 				beforePrimaryAction: <SpaceComposerActiveWakes placement="thread" />,
 				error: input.composerErrorMessage ? (
 					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">

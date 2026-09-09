@@ -34,6 +34,7 @@ import {
 } from "./center-agent-computer-setup-card";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
+import { collapseSpaceMessage } from "./space-message-collapse";
 import {
 	buildSpaceMessageProfileMentionProfiles,
 	createSpaceMessageProfileMentionRemarkPlugin,
@@ -53,7 +54,6 @@ import {
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
 
-export const SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS = 4000;
 export const SPACE_RESPONSE_TRUNCATED_MARKER =
 	"[Response truncated by OpenMeld]";
 export const SPACE_RESPONSE_TRUNCATED_SUFFIX = `\n\n${SPACE_RESPONSE_TRUNCATED_MARKER}`;
@@ -104,16 +104,22 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 		() => splitServerTruncationMarker(displayedText),
 		[displayedText]
 	);
-	const shouldCollapse =
-		textProjection.visibleText.length >
-		SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS;
+	const collapsedText = useMemo(
+		() =>
+			collapseSpaceMessage(
+				textProjection.visibleText,
+				input.item.actorProfileKind === "agent" ||
+					input.item.isAgentFinalReply === true
+			),
+		[
+			textProjection.visibleText,
+			input.item.actorProfileKind,
+			input.item.isAgentFinalReply,
+		]
+	);
+	const shouldCollapse = collapsedText !== textProjection.visibleText;
 	const renderedText =
-		shouldCollapse && !isExpanded
-			? textProjection.visibleText.slice(
-					0,
-					SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS
-				)
-			: textProjection.visibleText;
+		shouldCollapse && !isExpanded ? collapsedText : textProjection.visibleText;
 	return {
 		isExpanded,
 		isStreaming,
@@ -199,6 +205,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 	const references = useSpaceMessageReferencePresentation(input);
 	const className = cn(
 		"break-words content-space-message [overflow-wrap:anywhere]",
+		text.shouldCollapse && !text.isExpanded && "fluid-fade-bottom",
 		input.className
 	);
 	const shouldRenderMarkdown =
@@ -293,6 +300,11 @@ function SpaceMessageBodyContent(input: {
 			style={{ overflowWrap: "anywhere" }}
 		>
 			{input.body}
+			<SpaceMessageCollapseButton
+				isExpanded={input.isExpanded}
+				onToggle={input.onToggleExpanded}
+				visible={input.shouldCollapse}
+			/>
 			{input.navigationActionContent}
 
 			<SpaceMessageAttachmentGrid
@@ -305,11 +317,6 @@ function SpaceMessageBodyContent(input: {
 				files={input.files}
 				onOpenSpaceFile={input.onOpenSpaceFile}
 				spaceId={input.spaceId}
-			/>
-			<SpaceMessageCollapseButton
-				isExpanded={input.isExpanded}
-				onToggle={input.onToggleExpanded}
-				visible={input.shouldCollapse}
 			/>
 			<SpaceMessageServerTruncatedNote visible={input.serverTruncated} />
 		</div>
@@ -327,7 +334,7 @@ function SpaceMessageCollapseButton(input: {
 	return (
 		<button
 			aria-expanded={input.isExpanded}
-			className="w-fit text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+			className="w-fit text-muted-foreground text-xs underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
 			onClick={input.onToggle}
 			type="button"
 		>

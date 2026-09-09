@@ -413,6 +413,13 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    name, and Profile popover without an Agent action label. The timeline carries
    all three existing addressing lists without changing notification or Wake
    semantics.
+   Long message previews share one folding policy across Spaces, Chats, and
+   threads: finish the paragraph or Markdown block crossing the soft character
+   limit of 2,000 characters, then offer **Show more**. Folded text shares the
+   Scroll Area's bottom edge fade; the button stays outside the mask. Expansion
+   removes the fade and displays the original message;
+   local folding never cuts words, lists, tables, or code blocks. Server-side
+   truncation remains a separate, explicit condition.
 4. **People** — the first-level home for the Human teammates in the current
    workspace. Its Main Sidebar contextual list shows Human Profiles with search,
    computer-connection filters, personal Starred and named groups. Registered
@@ -429,6 +436,14 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    remains role-gated. The personal workspace shows the current member and the
    existing create-Organization guidance instead of pretending that invitations
    are available there.
+   The current user's profile places **Agent conversations** between Agents and
+   Computers. It filters the existing Account Space Index by currently owned
+   personal Agents, groups each conversation once, and supports an Agent filter.
+   The bounded Fluid Table uses the shared Scroll Area, scrollbar, and edge
+   fades. Links reuse the existing Chats/Spaces viewer identity and access
+   rules; this is not a separate interaction log or an Inbox history. Other
+   people's profiles do not show this section, and organization ownership does
+   not grant access to managed Center Agent private conversations.
 5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. Its Main Sidebar contextual list groups
@@ -722,13 +737,15 @@ every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
 trailing-aligned, content-sized bubble with a responsive maximum width; a
 message placed on the left uses the full available transcript width. Both
-placements keep their content leading-aligned and give the current member's
-messages the same muted, semantic-radius surface used to highlight any message
-on hover or keyboard focus. With right placement, the full transcript row stays
+placements keep their content leading-aligned. Every speaker's message uses
+the same semantic radius and content inset. Other speakers use a quiet muted
+surface; the current member uses a soft tint of the shared blue `unread` color,
+with theme-specific opacity. Message boundaries remain visible in either theme.
+With right placement, the full transcript row stays
 available as the hover and focus target, while the visible current-member
 surface and its actions stay anchored to the bounded bubble. With left
 placement, that surface remains full width. Agent and other-member messages
-remain transparent at rest and use the full-width row highlight. Product
+keep their existing leading alignment and full-width layout. Product
 surfaces declare current-member authorship once and must not reimplement
 placement, width, text alignment, resting background, action placement, or
 highlight geometry locally.

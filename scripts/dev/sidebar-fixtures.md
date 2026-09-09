@@ -36,7 +36,7 @@ and policy-blocked system notices. The following cases use production components
 
 | Space | Scenario |
 | --- | --- |
-| Design feedback | Agent working status and elapsed time in the conversation |
+| Design feedback | Agent working status, elapsed time, and Stop in the conversation |
 | Release coordination | Plan review in the normal Pending Agent actions surface |
 | Performance lab | Command permission in the normal Pending Agent actions surface |
 | Billing migration | Sandbox failure system message |
@@ -51,7 +51,8 @@ consume the same scenario state. Detail snapshots are available before the accou
 summary is published, so visiting a Space does not discover a new sorting priority.
 Running scenarios refresh progress evidence on reads while retaining their start
 time. Approvals validate through the shared interaction schema;
-responses change only disposable browser-memory scenario data. No runtime state
+Stop uses the normal confirmation dialog and resolves the synthetic Wake in memory.
+Interaction and Stop responses change only disposable browser-memory scenario data. No runtime state
 is written and no command runs. Reload resets transient scenarios. These cases
 validate production UI, not real Agent execution or cross-tab synchronization.
 

@@ -692,7 +692,10 @@ describe("SpaceConversationPanel", () => {
 			'[data-slot="space-composer-section"]'
 		);
 		expect(composer).not.toBeNull();
-		expect(surface.nextElementSibling).toBe(composer);
+		expect(composer?.contains(surface)).toBe(true);
+		expect(
+			surface.nextElementSibling?.contains(screen.getByRole("textbox"))
+		).toBe(true);
 	});
 
 	it("anchors the earlier-history loading header to the conversation content rail", () => {
@@ -1729,7 +1732,7 @@ describe("SpaceConversationPanel", () => {
 		expect(messageText.className).toContain("[overflow-wrap:anywhere]");
 	});
 
-	it("keeps agent messages transparent and gives self messages a readable surface", () => {
+	it("gives Agent messages a neutral surface and self messages a blue surface while preserving alignment", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -1755,12 +1758,13 @@ describe("SpaceConversationPanel", () => {
 			.closest("[data-signal-id]");
 		expect(agentBubble?.classList.contains("border")).toBe(true);
 		expect(agentBubble?.classList.contains("border-transparent")).toBe(true);
-		expect(agentBubble?.classList.contains("bg-transparent")).toBe(true);
+		expect(agentBubble?.classList.contains("bg-muted/35")).toBe(true);
 		expect(agentBubble?.classList.contains("max-w-full")).toBe(true);
 		expect(agentBubble?.classList.contains("max-w-[62ch]")).toBe(false);
 		expect(selfBubble?.classList.contains("border")).toBe(true);
 		expect(selfBubble?.classList.contains("border-transparent")).toBe(true);
-		expect(selfBubble?.classList.contains("bg-muted/35")).toBe(true);
+		expect(selfBubble?.classList.contains("bg-unread/12")).toBe(true);
+		expect(selfBubble?.classList.contains("dark:bg-unread/40")).toBe(true);
 		expect(selfBubble?.classList.contains("rounded-md")).toBe(true);
 		expect(selfBubble?.classList.contains("max-w-full")).toBe(true);
 		expect(selfBubble?.classList.contains("min-w-[16rem]")).toBe(false);
@@ -3055,9 +3059,6 @@ describe("SpaceConversationPanel", () => {
 			progressRow.querySelector('[data-space-agent-orb-state="connecting"]')
 		).toBeTruthy();
 		expect(progressInset).toBeNull();
-		expect(answerSurface?.className).toContain("px-0");
-		expect(answerSurface?.className).toContain("py-0");
-		expect(answerSurface?.className).toContain("sm:px-0");
 		expect(
 			answerSurface?.querySelector('[data-slot="space-message-body"]')
 		).toBeNull();
@@ -3491,9 +3492,6 @@ describe("SpaceConversationPanel", () => {
 			"I am working through the request"
 		);
 		expect(progressInset).toBeNull();
-		expect(messageBubble?.className).toContain("px-0");
-		expect(messageBubble?.className).toContain("py-0");
-		expect(messageBubble?.className).toContain("sm:px-0");
 		expect(screen.getByText("Agent is working")).toBeTruthy();
 		expect(messageBubble?.getAttribute("data-signal-id")).toBe(
 			"stream:submission-1"
