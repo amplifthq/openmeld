@@ -53,9 +53,10 @@ describe("Lark persistent connector durable handoff", () => {
       // biome-ignore lint/correctness/noUndeclaredVariables: Cloudflare runtime global provided by generated Worker types.
       const pair = new WebSocketPair();
       pair[1].accept();
+      let upgradeSignal: AbortSignal | null | undefined;
       const fetchSpy = vi
         .spyOn(globalThis, "fetch")
-        .mockImplementation((url) => {
+        .mockImplementation((url, init) => {
           if (String(url).endsWith("/callback/ws/endpoint")) {
             // Official WS endpoint contract: URL plus heartbeat configuration.
             return Promise.resolve(
@@ -68,6 +69,7 @@ describe("Lark persistent connector durable handoff", () => {
               })
             );
           }
+          upgradeSignal = init?.signal;
           return Promise.resolve(
             new Response(null, { status: 101, webSocket: pair[0] })
           );
@@ -87,6 +89,12 @@ describe("Lark persistent connector durable handoff", () => {
       } as unknown as CoreBindings);
       try {
         expect(await connector.ensureConnected(id)).toBe(true);
+        // The HTTP handshake deadline must not cancel an established channel.
+        // Keep this real-time boundary: a mocked fetch does not itself close
+        // its returned WebSocket when the request's signal later aborts.
+        await new Promise((resolve) => setTimeout(resolve, 15_100));
+        expect(upgradeSignal).toBeDefined();
+        expect(upgradeSignal?.aborted).toBe(false);
         const acknowledgement = new Promise<void>((resolve, reject) => {
           const timeout = setTimeout(
             () => reject(new Error("No provider ACK")),
@@ -179,5 +187,5 @@ describe("Lark persistent connector durable handoff", () => {
         await db.prepare("DELETE FROM users WHERE id = ?").bind(id).run();
       }
     });
-  });
+  }, 25_000);
 });
