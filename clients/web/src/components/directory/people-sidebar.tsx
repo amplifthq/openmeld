@@ -27,8 +27,8 @@ import {
 	useSortableSidebarItem,
 } from "../app/sidebar-drag";
 import { moveSidebarGroup } from "../app/sidebar-drop-target";
+import { useSidebarGroupFilter } from "../app/sidebar-filter";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
-import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
 import { SidebarListSkeleton } from "../app/sidebar-list-skeleton";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";

@@ -133,7 +133,6 @@ async function prepareCenterAgentRender() {
     executionContext?.conversationIdentity?.kind === "personal_agent";
   if (personalAgent) {
     runtimeContextPlan.includeOrganizationDocuments = false;
-    runtimeContextPlan.materializeOrganizationSkills = false;
   }
   const coreWorker =
     env.OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding;
@@ -141,7 +140,7 @@ async function prepareCenterAgentRender() {
     executionContext?.organizationSkillReleases ?? [];
   const materialization = await materializeCenterAgentRuntime({
     createSandbox: async () =>
-      executionContext && !personalAgent && isRemoteAgentComputerEnabled(env)
+      executionContext && isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
             context: executionContext,
             coreWorker,
@@ -212,6 +211,13 @@ async function prepareCenterAgentRender() {
                   `remote-agent-skills:${executionContext.submissionId}`
                 ),
                 releases: organizationSkillSelections,
+                ...(executionContext.conversationIdentity?.kind ===
+                "personal_agent"
+                  ? {
+                      preparationIdempotencyKey:
+                        executionContext.idempotencyKey,
+                    }
+                  : {}),
               },
               (binding, rpcInput) =>
                 binding.readOrganizationSkillRuntimeSnapshot?.(rpcInput)

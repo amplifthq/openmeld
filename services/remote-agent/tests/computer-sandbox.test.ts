@@ -244,6 +244,17 @@ describe("Agent computer identity", () => {
     expect(buildAgentComputerName("agt_123")).toBe("agent-computer:agt_123");
   });
 
+  it("keeps personal DM and Space files in different durable workspaces", () => {
+    const directMessage = buildAgentComputerName("agt_123", "dm_1");
+    expect(buildAgentComputerName("agt_123", "dm_1")).toBe(directMessage);
+    expect(buildAgentComputerName("agt_123", "space_1")).not.toBe(
+      directMessage
+    );
+    expect(buildAgentComputerName("agt_456", "dm_1")).not.toBe(directMessage);
+    expect(buildAgentComputerName("agt_123")).not.toBe(directMessage);
+    expect(() => buildAgentComputerName("agt_123", " ")).toThrow();
+  });
+
   it("rejects an empty agent profile id", () => {
     expect(() => buildAgentComputerName("  ")).toThrow(EMPTY_PROFILE_ID_RE);
   });

@@ -847,7 +847,6 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		localComponents,
 		targetVersion: updateTargetVersion,
 	});
-	const nextUpdateAvailable = hasActionableOpenMeldToolsUpdate(localComponents);
 	const updateIsActive =
 		!input.updateVerificationExhausted &&
 		(input.isUpdatingTools ||
@@ -971,7 +970,6 @@ function CurrentLocalRuntimeServiceFacts(input: {
 					confirmationPending={
 						input.pendingManagedUpdate?.kind === "confirmation"
 					}
-					nextUpdateAvailable={nextUpdateAvailable}
 					operation={updateOperation}
 					requestFailed={input.updateRequestFailed && updateOperation === null}
 					requesting={input.isUpdatingTools}
@@ -1636,7 +1634,6 @@ type OpenMeldToolsAction =
 
 function OpenMeldToolsUpdateFeedback(input: {
 	confirmationPending: boolean;
-	nextUpdateAvailable: boolean;
 	operation:
 		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
 		| null;
@@ -1668,7 +1665,6 @@ function OpenMeldToolsUpdateFeedback(input: {
 
 function resolveOpenMeldToolsUpdateStatus(input: {
 	confirmationPending: boolean;
-	nextUpdateAvailable: boolean;
 	operation:
 		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
 		| null;
@@ -1689,9 +1685,6 @@ function resolveOpenMeldToolsUpdateStatus(input: {
 	if (input.requesting) {
 		return "Checking…";
 	}
-	if (input.targetObserved && input.operation?.phase === "updated") {
-		return input.nextUpdateAvailable ? null : "Up to date";
-	}
 	return input.operation
 		? formatOpenMeldToolsUpdatePhase({
 				phase: input.operation.phase,
@@ -1705,14 +1698,14 @@ function formatOpenMeldToolsUpdatePhase(input: {
 		CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
 	>["phase"];
 	targetObserved: boolean;
-}): string {
+}): string | null {
 	switch (input.phase) {
 		case "waiting_for_work":
 			return "Finishing…";
 		case "updating":
 			return "Updating…";
 		case "updated":
-			return input.targetObserved ? "Up to date" : "Verifying…";
+			return input.targetObserved ? null : "Verifying…";
 		case "restored":
 			return "Update failed. Try again.";
 		case "needs_help":

@@ -1,4 +1,5 @@
 import { inboxItemKindSchema } from "@openmeld/schemas";
+import { personalAgentOwnerAccessSql } from "./inbox-agent-owner-access";
 
 type InboxItemSqlAlias = "inbox_items" | "items";
 
@@ -34,7 +35,8 @@ export function buildCurrentInboxSourceAccessSql(
               AND inbox_space.status = 'active'
               AND inbox_space_membership.owner_user_id_snapshot =
                 ${itemAlias}.recipient_user_id
-              AND inbox_space_membership.profile_kind_snapshot = 'human'
+              AND (inbox_space_membership.profile_kind_snapshot = 'human'
+                OR (json_extract(${itemAlias}.source_target_json, '$.agentOwnerActivity') = 1 AND ${personalAgentOwnerAccessSql(`json_extract(${itemAlias}.source_target_json, '$.spaceId')`, `${itemAlias}.recipient_user_id`)}))
               AND inbox_space_membership.status = 'active'
           )
       )

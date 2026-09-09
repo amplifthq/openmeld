@@ -497,6 +497,11 @@ Profile Directory does not call Runtime Transport, and Runtime Overview batches
 route, owner-Service, and display-inventory reads by owner before applying the
 same permission-scoped readiness projection used by the compatibility
 Directory.
+The Profile Directory includes the public Controller ref for every authorized
+Organization Agent Profile, including teammate-owned Profiles. Core reads only
+the Profile ID and Controller ref from enabled primary Bindings, scoped to the
+exact Profile/owner pairs admitted by Auth. This does not expose private Binding,
+Session, computer, or runtime details and does not require Runtime Transport.
 Core records the activity overlay only after Space accepts and persists a text
 Signal from an active Human Profile or after an authenticated Web request proves
 the active Organization member and that member's current active Human Profile.

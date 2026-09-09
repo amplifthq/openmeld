@@ -158,14 +158,17 @@ describe("WelcomeSpaceScreen", () => {
 		const directoryListingGroup = screen.getByRole("radiogroup", {
 			name: "Organization directory listing",
 		});
-		expect(directoryListingGroup.classList.contains("w-full")).toBe(true);
-		expect(directoryListingGroup.classList.contains("gap-1")).toBe(true);
-		expect(screen.getByRole("radio", { name: "Private" }).className).toContain(
-			"py-2.5"
-		);
-		expect(screen.getByRole("radio", { name: "Public" }).className).toContain(
-			"py-2.5"
-		);
+		expect(directoryListingGroup).toBeTruthy();
+		expect(
+			screen
+				.getByRole("radio", { name: "Private" })
+				.getAttribute("aria-checked")
+		).toBe("true");
+		expect(
+			screen
+				.getByRole("radio", { name: "Public in organization" })
+				.getAttribute("aria-checked")
+		).toBe("false");
 		const membersOnlyAccessRadio = screen.getByRole("radio", {
 			name: MEMBERS_ONLY_MODE_LABEL_TEXT,
 		});
