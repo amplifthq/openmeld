@@ -42,25 +42,25 @@ import type {
   RuntimeTransportSubmitTaskResultRequest,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
-import { handleDispatchQueueBatch } from "../dispatch/transport/queue/dispatch-queue-consumer";
-import type { CoreBindings } from "../lib/bindings";
-import { resolveCoreLocalComponentsReleaseManifest } from "../local-components/update-projection";
+import { handleDispatchQueueBatch } from "../src/dispatch/transport/queue/dispatch-queue-consumer";
+import type { CoreBindings } from "../src/lib/bindings";
+import { resolveCoreLocalComponentsReleaseManifest } from "../src/local-components/update-projection";
 import {
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission,
   runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys,
-} from "../runtime-transport/application/agent-profile-execution-admission";
+} from "../src/runtime-transport/application/agent-profile-execution-admission";
 import type {
   AgentProfileWorkCoordinatorItem,
   AgentProfileWorkRecoveryGate,
-} from "../runtime-transport/application/agent-profile-work-coordinator";
-import { buildPendingAgentProfileWorkPromotion } from "../runtime-transport/application/agent-profile-work-promotion";
+} from "../src/runtime-transport/application/agent-profile-work-coordinator";
+import { buildPendingAgentProfileWorkPromotion } from "../src/runtime-transport/application/agent-profile-work-promotion";
 import {
   buildAgentProfileWorkRecoveryInboxProjectionIntent,
   buildAgentProfileWorkRecoveryInboxProjectionStorageKey,
   parseAgentProfileWorkRecoveryInboxProjectionIntent,
-} from "../runtime-transport/application/agent-profile-work-recovery-inbox-projection";
-import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../runtime-transport/application/runtime-coordinator-agent-task-observation-delivery";
+} from "../src/runtime-transport/application/agent-profile-work-recovery-inbox-projection";
+import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../src/runtime-transport/application/runtime-coordinator-agent-task-observation-delivery";
 import {
   buildRuntimeCoordinatorFinalizationOutcomeStorageKey,
   buildRuntimeCoordinatorHeadLifecycleStorageKey,
@@ -73,17 +73,17 @@ import {
   RUNTIME_COORDINATOR_WAKE_STOPPED_NOTICE_PUBLICATION_MODEL_VERSION,
   type RuntimeCoordinatorHeadLifecycleRecord,
   type RuntimeCoordinatorRunCommandState,
-} from "../runtime-transport/application/runtime-coordinator-authority";
-import { retireRuntimeCoordinatorTokenRun } from "../runtime-transport/application/runtime-coordinator-execution-token";
+} from "../src/runtime-transport/application/runtime-coordinator-authority";
+import { retireRuntimeCoordinatorTokenRun } from "../src/runtime-transport/application/runtime-coordinator-execution-token";
 import {
   buildDispatchAttemptKey,
   type CompletedDispatchResultState,
   createRuntimeTransportMutableState,
   type PendingDispatchState,
   type RuntimeTransportMutableState,
-} from "../runtime-transport/application/runtime-transport-state";
-import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
-import { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
+} from "../src/runtime-transport/application/runtime-transport-state";
+import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../src/runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
+import { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 
 const HEX_SPACE_ID = (
   env as unknown as CoreBindings

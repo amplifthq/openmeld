@@ -2871,9 +2871,11 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() =>
 			expect(getAgentProfileCreationDefaultsMock).toHaveBeenCalled()
 		);
-		expect(
-			screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
-		).toBeNull();
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
+			).toBeNull()
+		);
 		const submitButton = screen.getByRole("button", {
 			name: "Create Agent",
 		}) as HTMLButtonElement;

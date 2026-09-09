@@ -11,29 +11,29 @@ import type {
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import { buildDefaultSpaceContract } from "@openmeld/space-mesh";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentTransportSpaceActionDeliveryInput } from "../dispatch/application/dispatch-execution-service";
-import { buildLocalAgentStreamId } from "../runtime-transport/application/local-agent-stream";
-import type { DispatchResultInboxRecord } from "../runtime-transport/infrastructure/d1/dispatch-result-inbox-repo";
-import { buildAcceptedDispatchFinalizationQueueMessage } from "../space/application/accepted-dispatch-finalization";
+import type { AgentTransportSpaceActionDeliveryInput } from "../src/dispatch/application/dispatch-execution-service";
+import { buildLocalAgentStreamId } from "../src/runtime-transport/application/local-agent-stream";
+import type { DispatchResultInboxRecord } from "../src/runtime-transport/infrastructure/d1/dispatch-result-inbox-repo";
+import { buildAcceptedDispatchFinalizationQueueMessage } from "../src/space/application/accepted-dispatch-finalization";
 import {
   type AgentStreamProjectionStorage,
   applyAgentStreamPart,
-} from "../space/application/agent-stream-projection";
+} from "../src/space/application/agent-stream-projection";
 import {
   type AcceptedDispatchFinalizationFact,
   listAcceptedDispatchResultInboxRefsForSpace,
-} from "../space/infrastructure/d1/accepted-dispatch-finalization-repo";
+} from "../src/space/infrastructure/d1/accepted-dispatch-finalization-repo";
 import {
   insertSignalRecord,
   readFinalReplyClaimSignalId,
-} from "../space/infrastructure/sql/space-signal-repo";
-import { parseStoredSignal } from "../space/rules/parsers/stored-signal";
+} from "../src/space/infrastructure/sql/space-signal-repo";
+import { parseStoredSignal } from "../src/space/rules/parsers/stored-signal";
 import {
   resolveConfirmedAcceptedDispatchOutcome,
   resolveRuntimeCoordinatorFinalizationClaimRead,
   resolveRuntimeCoordinatorFinalizationVisibleFinalMessage,
   Space,
-} from "../space/transport/do/space";
+} from "../src/space/transport/do/space";
 
 const sourceSignal = {
   v: 1,
