@@ -12,6 +12,7 @@ export async function updateSpaceMeta(
   input: UpdateSpaceMetaInput
 ): Promise<SpaceMeta> {
   const parsedBody = patchSpaceMetaBodySchema.safeParse({
+    ...(input.visibility === undefined ? {} : { visibility: input.visibility }),
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.purpose === undefined ? {} : { purpose: input.purpose }),
     ...(input.guide === undefined ? {} : { guide: input.guide }),

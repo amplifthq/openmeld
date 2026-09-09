@@ -50,7 +50,8 @@ const FROM_RUNTIME_EXECUTION_TARGETS_SQL_REGEX =
   /FROM\s+openMeldDaemon_runtime_registry_records\s+runtime/i;
 const TEST_RUNTIME_TRANSPORT = {
   get: () => ({
-    fetch: async () => new Response("{}", { status: 200 }),
+    fetch: async () =>
+      Response.json({ online: false, reasonCode: "daemon.session.not_found" }),
   }),
   idFromName: (name: string) => name,
 } as unknown as DurableObjectNamespace<RuntimeTransportHub>;
@@ -4567,7 +4568,7 @@ describe("space-members-service", () => {
       label: "Available for Wake",
       reasonCode: "remote_agent.available",
       status: "available_for_wake",
-      summary: "Center Agent can answer now.",
+      summary: "This Agent can answer now.",
     });
     expect(
       JSON.stringify(hostedCenterAgent?.agentWakeAvailability)

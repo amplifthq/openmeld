@@ -189,7 +189,7 @@ identity, runtime generation, and trusted Space dispatch context. Stop,
 reconciliation, and recovery resolve the persisted exact runtime conversation.
 They must not substitute the Space ID or Center Agent identity.
 
-Personal Agents receive only current-conversation message reading, member
+Personal Agents receive current-conversation message reading, member
 discovery, live Space Board and public update reading, and explicit same-Space
 Agent Wake tools. Board and updates reuse the same Core/Space readers as Local
 Agents. Updates default to the accepted Wake's source signal, return at most 20
@@ -207,10 +207,53 @@ return request; normal final replies do not trigger another Agent. A personal
 Agent stops initiating handoffs at six relay steps in the existing dispatch
 chain. Existing Organization daily admission limits also apply.
 
-The initial personal runtime does not materialize Computer workspaces,
-Organization documents, Skills, Apps, or Center Agent memory. Completion must
-not write personal conversation content into Center Agent memory. Shared
-infrastructure does not confer the Center Agent's responsibilities or tools.
+Personal Agents also reuse the hosted Computer, research, capability discovery,
+and Code Mode implementations. Each inner Code Mode call and direct tool call
+revalidates its active delivery before invoking a capability. Approved
+Organization Documents and Projects are available through ordinary member read
+tools. Enabled Organization Skill releases use the same immutable selection,
+materialization, and activation path as Center; installation and administration
+remain Center-only. Imported Skill scripts are not executed by this increment.
+Skill materialization may read the exact frozen releases from Core's durable
+submitted request before its worker acknowledgement is persisted. This read-only
+preparation uses the admission idempotency key and still checks current identity,
+binding and membership. It cannot authorize ordinary tools or read other releases;
+normal tool calls and activation recording still require an accepted delivery.
+
+Personal Apps use Organization-shared connections only, never the Agent owner's
+personal connection. Existing connector discovery, durable operation records,
+attribution, and destructive-action confirmation remain authoritative. Actions
+requiring a represented human still require the verified current human sender;
+an Agent-to-Agent handoff must not impersonate its owner to obtain those actions.
+General Computer, research, and current-Space collaboration tools remain usable
+on Agent handoffs. Delegated human authority is a separate follow-up.
+
+Personal Computers are durable per Agent Profile and Space (including DMs),
+keyed by the encoded pair, because a shell can traverse its entire filesystem.
+A working-directory convention alone cannot protect DM files from another
+Space. Center retains its existing profile-owned Computer and cross-Space
+continuity. Both roles share the same filesystem and execution implementation.
+Selected Space files, including binary files up to the existing 10 MiB limit,
+can be downloaded into the current Computer and published back through canonical
+Space Files. Published files attach their exact revision to the final reply.
+No bucket credentials or another conversation's Computer are exposed.
+
+`browser_execute` uses the Agents SDK browser tools with a native Code Mode
+facet in the existing Computer DO. Browser sessions are one-shot, closed by the
+SDK when the call completes, and bounded to 30 seconds per call. Multi-step
+navigation and interaction must occur in one call; persistent browser login,
+Live View, and human takeover are outside this increment. Existing browser
+Quick Actions remain available. The browser facet does not own Agent scheduling.
+
+Completion must not write personal conversation content into Center Agent
+memory. Organization administration, personal Channels, Routines, and Center
+memory remain excluded. Shared infrastructure does not confer Center duties.
+
+Rollout is Core first, then Remote Agent: the latter now uses the additive
+`authorize` personal-tool operation before invoking shared capabilities. Old
+Remote workers continue to work with the new Core; new Remote workers must not
+run against an older Core that cannot validate this operation. No workstation
+Wake or Local Agent harness contract changes.
 
 Personal turn context uses the shared Space Entry Brief, identity, and Wake
 participant renderers. Participant IDs come from the source message's canonical
@@ -1640,10 +1683,10 @@ surface adopts official features where they are free**:
     does not retain browser sessions, expose Live View, or implement human
     browser takeover. Browser screenshots use the existing private Space
     attachment contract and are attached to the final Space reply.
-    The computer is owned by the agent identity: one durable workspace per
+    The Center computer is owned by the agent identity: one durable workspace per
     Agent Profile, keyed `agent-computer:<agentProfileId>`. Org-level
     uniqueness follows from the Center Agent being unique per Organization; a
-    future second hosted agent gets its own computer. The computer does not
+    personal Agents use the conversation-scoped identity described above. The computer does not
     mount an OpenMeld host or user workstation. Files persist across
     conversations, Durable Object restarts, and deploys under the fixed layout
     `/computer/{org,projects,spaces,routines,home}`. Ordinary Space turns

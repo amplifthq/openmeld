@@ -31,6 +31,9 @@ export async function attemptSpaceInboxProjectionOutboxRecord(input: {
   db: D1Database | undefined;
   ensureItem?: typeof ensureInboxItem;
   isRecipientEligible: (candidate: InboxSourceCandidate) => Promise<boolean>;
+  canReceiveAgentActivity?: (
+    candidate: InboxSourceCandidate
+  ) => Promise<boolean>;
   nowMs?: number;
   prepareCandidate?: (
     candidate: InboxSourceCandidate
@@ -46,7 +49,11 @@ export async function attemptSpaceInboxProjectionOutboxRecord(input: {
     const ensureItem = input.ensureItem ?? ensureInboxItem;
     const failedCandidates: InboxSourceCandidate[] = [];
     const failures: Error[] = [];
-    for (const candidate of input.record.candidates) {
+    const candidates = await selectSpaceInboxRecipients(
+      input.record.candidates,
+      input.canReceiveAgentActivity
+    );
+    for (const candidate of candidates) {
       try {
         const compatibleCandidate =
           normalizeSpaceInboxProjectionCandidate(candidate);
@@ -101,6 +108,31 @@ export async function attemptSpaceInboxProjectionOutboxRecord(input: {
       status: "failed",
     };
   }
+}
+
+export async function selectSpaceInboxRecipients(
+  candidates: readonly InboxSourceCandidate[],
+  canReceiveAgentActivity?: (
+    candidate: InboxSourceCandidate
+  ) => Promise<boolean>
+): Promise<InboxSourceCandidate[]> {
+  const byRecipient = new Map<string, InboxSourceCandidate>();
+  for (const candidate of candidates) {
+    if (
+      candidate.sourceTarget.kind === "space" &&
+      candidate.sourceTarget.agentOwnerActivity === true
+    ) {
+      if (!canReceiveAgentActivity) {
+        throw new Error("Agent owner activity eligibility is unavailable");
+      }
+      if (await canReceiveAgentActivity(candidate)) {
+        byRecipient.set(candidate.recipientUserId, candidate);
+      }
+    } else if (!byRecipient.has(candidate.recipientUserId)) {
+      byRecipient.set(candidate.recipientUserId, candidate);
+    }
+  }
+  return [...byRecipient.values()];
 }
 
 function normalizeSpaceInboxProjectionCandidate(

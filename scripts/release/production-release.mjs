@@ -130,6 +130,7 @@ const CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER 
 const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
   CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
+  "personal-remote-tools-receivers-first": SCOPE_ORDER,
   "inbox-task-retirement-producer-first": [
     "db",
     "core",
@@ -461,6 +462,7 @@ export function buildProductionVerifyStepSpecs(input) {
       scope === "core" &&
       !input.scopes.includes("cli") &&
       !input.taskInboxRetired &&
+      !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
     ) {
       steps.push(coreCliChannelCompatibilityStep());
@@ -495,6 +497,7 @@ export function buildProductionPreflightStepSpecs(input) {
     input.scopes.includes("core") &&
     !input.scopes.includes("cli") &&
     !input.taskInboxRetired &&
+    !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
   ) {
@@ -684,6 +687,7 @@ function appendProductionDeployScopeSteps(input) {
       input.deployOrderProfile ===
         "remote-agent-and-inbox-task-retirement-first" ||
       input.deployOrderProfile === "people-computers-receivers-first" ||
+      input.deployOrderProfile === "personal-remote-tools-receivers-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
     ) {
       if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
@@ -768,6 +772,15 @@ function resolveProductionDeployScopeOrder(
   );
   const order = DEPLOY_SCOPE_ORDER_BY_PROFILE[profile];
   const selected = new Set(scopes);
+  if (
+    profile === "personal-remote-tools-receivers-first" &&
+    selected.has("remote-agent") &&
+    !selected.has("core")
+  ) {
+    throw new Error(
+      "Personal Remote Agent tools require the Core receiver before Remote Agent deployment."
+    );
+  }
   return order.filter((scope) => selected.has(scope));
 }
 
@@ -775,6 +788,31 @@ function resolveProductionDeployOrderProfile(
   changedPaths,
   taskInboxRetired = false
 ) {
+  if (isPersonalRemoteToolsReceiverFirstDiff(changedPaths)) {
+    // This entrypoint change exports the browser facet; it does not expand a
+    // Core-to-Remote request. Remote's tool calls require the Core receiver first.
+    const otherProfile = resolveProductionDeployOrderProfile(
+      changedPaths.filter(
+        (file) =>
+          file !== "services/remote-agent/.flue/cloudflare.ts" &&
+          file !==
+            "services/core/src/remote-agent/application/remote-agent-tool-caller.ts"
+      ),
+      taskInboxRetired
+    );
+    if (
+      ![
+        "default-auth-receiver-first",
+        "core-worker-response-reader-first",
+        "inbox-source-target-receiver-first",
+      ].includes(otherProfile)
+    ) {
+      throw new Error(
+        `Personal Remote Agent tools require Core before Remote and conflict with ${otherProfile}; split the release.`
+      );
+    }
+    return "personal-remote-tools-receivers-first";
+  }
   if (taskInboxRetired) {
     // The exact retired contract is proven against Git below. Other contracts
     // still select their ordinary profile and must be composable with Core first.
@@ -835,6 +873,14 @@ function isSpaceInvitationReceiverFirstDiff(changedPaths) {
     "services/core/src/organizations/space-invitations.ts",
     "services/auth/src/lib/hono/space-invitation-routes.ts",
   ].every((path) => changedPaths.includes(path));
+}
+
+function isPersonalRemoteToolsReceiverFirstDiff(changedPaths) {
+  return [
+    "packages/schemas/src/schemas/runtime/personal-remote-agent.ts",
+    "services/core/src/remote-agent/application/remote-agent-tool-caller.ts",
+    "services/remote-agent/agent-core/personal-remote-agent-tools.ts",
+  ].every((file) => changedPaths.includes(file));
 }
 
 function isPeopleComputersReceiverFirstDiff(changedPaths) {

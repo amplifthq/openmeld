@@ -71,7 +71,10 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: useQueryMock,
+		useQuery: (options: { enabled?: boolean }) => {
+			const result = useQueryMock(options);
+			return options.enabled === false ? { data: undefined } : result;
+		},
 	};
 });
 
@@ -3258,6 +3261,57 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 	});
 
+	it.each([
+		false,
+		true,
+	])("keeps the same answer DOM row when a Local Agent finishes (DM=%s)", (isDirectMessage) => {
+		const streaming = createTimelineItem({
+			id: "stream:local-agent",
+			wakeDispatchId: "dispatch-1",
+			actorProfileKind: "agent",
+			actorProfileId: TARGET_PROFILE_ID,
+			actorName: "Runner",
+			text: "",
+			agentStreamState: {
+				reasonCode: null,
+				sequence: 1,
+				status: "streaming",
+				streamId: "local-agent:10:dispatch-1:9:attempt-1",
+			},
+		});
+		const rendered = renderSpaceConversationPanel({
+			isDirectMessage,
+			timelineItems: [streaming],
+		});
+		const row = screen
+			.getByRole("status", { name: "Agent is working" })
+			.closest("[data-message-id]");
+		expect(row).not.toBeNull();
+		rendered.rerender(
+			<SpaceConversationPanel
+				{...createSpaceConversationPanelProps({
+					isDirectMessage,
+					timelineItems: [
+						{
+							...streaming,
+							id: "durable-final",
+							text: "Ready to review.",
+							agentStreamState: undefined,
+							isAgentFinalReply: true,
+						},
+					],
+				})}
+			/>
+		);
+		expect(
+			screen.queryByRole("status", { name: "Agent is working" })
+		).toBeNull();
+		expect(
+			screen.getByText("Ready to review.").closest("[data-message-id]")
+		).toBe(row);
+		expect(row?.getAttribute("data-message-id")).toBe("durable-final");
+	});
+
 	it("aligns an empty local Agent working row with the profile name and separates it from the header", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
@@ -3658,8 +3712,8 @@ describe("SpaceConversationPanel", () => {
 			"[data-slot='message-footer']"
 		) as HTMLElement;
 		expect(
-			within(footer).getByText("Codex 5.6 Sol couldn’t reply")
-		).toBeTruthy();
+			within(footer).queryByText("Codex 5.6 Sol couldn’t reply")
+		).toBeNull();
 		expect(
 			within(sourceMessage as HTMLElement).queryByText(detailedFailure)
 		).toBeNull();
@@ -3667,7 +3721,7 @@ describe("SpaceConversationPanel", () => {
 			within(sourceMessage as HTMLElement).queryByTestId("space-outcome-row")
 		).toBeNull();
 		const details = within(footer).getByRole("button", {
-			name: "Message details",
+			name: "View error details: Codex 5.6 Sol couldn’t reply",
 		});
 		expect(details.className).toContain("text-destructive");
 		fireEvent.click(details);
@@ -3726,7 +3780,11 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		);
 		await screen.findByRole("dialog", { name: "Message details" });
 		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
 		expect(
@@ -3766,7 +3824,12 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(screen.getByText("2 agents couldn’t reply")).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "View error details: 2 agents couldn’t reply",
+			})
+		).toBeTruthy();
+		expect(screen.queryByText("2 agents couldn’t reply")).toBeNull();
 		expect(screen.queryByTestId("space-outcome-row")).toBeNull();
 		expect(screen.queryByText("Codex 5.6 Sol couldn’t reply")).toBeNull();
 		expect(screen.queryByText("Claude Opus 4.8 couldn’t reply")).toBeNull();
@@ -3803,7 +3866,11 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(screen.getByText("Agent couldn’t reply")).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		).toBeTruthy();
 		expect(screen.getByText("Claude was stopped by the user.")).toBeTruthy();
 		expect(screen.getAllByTestId("space-outcome-row")).toHaveLength(1);
 		expect(
@@ -4109,7 +4176,7 @@ describe("SpaceConversationPanel", () => {
 		expect(dialog.queryByText("Now")).toBeNull();
 	});
 
-	it("shows agent controller metadata without owner repetition", () => {
+	it("attributes Local Agent messages to the owner", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -4133,9 +4200,7 @@ describe("SpaceConversationPanel", () => {
 			screen.getByTestId("space-agent-profile-avatar-agent-profile-1")
 		).toBeTruthy();
 		expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
-		expect(
-			screen.getByText("Controlled by Felix's MacBook Pro Codex")
-		).toBeTruthy();
+		expect(screen.getByText("Mira")).toBeTruthy();
 		expect(screen.queryByText("Owned by Mira")).toBeNull();
 		expect(
 			screen.queryByText(

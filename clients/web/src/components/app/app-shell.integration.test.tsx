@@ -21,6 +21,11 @@ const useRouterStateMock = vi.hoisted(() => vi.fn());
 const useNavigateMock = vi.hoisted(() => vi.fn());
 const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const listAccountSpaceItemsMock = vi.hoisted(() => vi.fn());
+vi.mock("#/components/inbox/inbox-browser-notification-prompt", () => ({
+	InboxBrowserNotificationPrompt: () => (
+		<div data-testid="notification-introduction" />
+	),
+}));
 
 const SPACES_TAB_NAME = /Spaces/;
 const SPACE_OR_SPACES_TAB_NAME = /^Spaces?$/;
@@ -70,9 +75,12 @@ vi.mock("@tanstack/react-router", () => ({
 		input?.select
 			? input.select(
 					routerMatchesMock().map(
-						(match: { staticData: { appShellSection?: AppShellSection } }) => ({
+						(match: {
+							staticData: { appShellSection?: AppShellSection };
+							params?: { spaceId?: string };
+						}) => ({
 							...match,
-							params: {},
+							params: match.params ?? {},
 						})
 					)
 				)
@@ -145,6 +153,29 @@ describe("AppShell", () => {
 		cleanup();
 		window.localStorage.clear();
 		window.sessionStorage.clear();
+	});
+
+	it.each([
+		"home",
+		"spaces",
+		"directMessages",
+		"space",
+	] as const)("introduces notifications only inside a Space, not on %s landing", (section) => {
+		routerMatchesMock.mockReturnValue([
+			{ staticData: { appShellSection: section }, params: {} },
+		]);
+		renderAppShell();
+		expect(screen.queryByTestId("notification-introduction")).toBeNull();
+	});
+	it("introduces notifications on the first actual Space entry after onboarding", () => {
+		routerMatchesMock.mockReturnValue([
+			{
+				staticData: { appShellSection: "space" },
+				params: { spaceId: "space-123" },
+			},
+		]);
+		renderAppShell();
+		expect(screen.getByTestId("notification-introduction")).toBeTruthy();
 	});
 
 	it("does not show profile or computer context in the header on start routes", () => {

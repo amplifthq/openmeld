@@ -391,6 +391,7 @@ function MessageDetailsBody(input: {
 	});
 	return (
 		<div className="flex flex-col gap-5">
+			<OriginalErrorsSection wakeContext={data.wakeContext} />
 			<ActivitySection
 				actionNotices={actionNotices}
 				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
@@ -1189,6 +1190,40 @@ function buildTechnicalDetailFields(input: {
 	return dedupeTechnicalDetailFields(candidates);
 }
 
+function OriginalErrorsSection(input: {
+	wakeContext: GetSpaceMessageDetailsResponse["wakeContext"];
+}) {
+	if (input.wakeContext.state !== "recorded") {
+		return null;
+	}
+	const targets = input.wakeContext.targets.filter(
+		(target) => target.originalError
+	);
+	if (targets.length === 0) {
+		return null;
+	}
+	return (
+		<DetailsSection
+			title={targets.length === 1 ? "Original error" : "Original errors"}
+		>
+			<div className="flex min-w-0 flex-col gap-4">
+				{targets.map((target) => (
+					<div className="min-w-0" key={target.targetProfileId}>
+						<p className="mb-2 font-medium text-sm">
+							{target.agentContext?.profileName.value ??
+								target.targetLabel ??
+								"Agent"}
+						</p>
+						<pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-3 font-mono text-foreground text-xs leading-5">
+							{target.originalError}
+						</pre>
+					</div>
+				))}
+			</div>
+		</DetailsSection>
+	);
+}
+
 function buildWakeTargetTechnicalDetailFields(
 	wakeContext: GetSpaceMessageDetailsResponse["wakeContext"]
 ): (TechnicalDetailField | null)[] {
@@ -1215,15 +1250,6 @@ function buildWakeTargetTechnicalDetailFields(
 			{ label: `${labelPrefix} profile ID`, value: target.targetProfileId },
 			target.reasonCode
 				? { label: `${labelPrefix} reason code`, value: target.reasonCode }
-				: null,
-			target.originalError
-				? {
-						label:
-							wakeContext.targets.length === 1
-								? "Original error"
-								: `${labelPrefix} original error`,
-						value: target.originalError,
-					}
 				: null,
 		];
 	});

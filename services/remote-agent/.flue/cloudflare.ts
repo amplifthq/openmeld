@@ -1,9 +1,10 @@
 import { env as workerEnv } from "cloudflare:workers";
 
+// biome-ignore lint/performance/noBarrelFile: Native browser code execution uses a Durable Object facet.
+export { CodemodeRuntime } from "@cloudflare/codemode";
 // The Center Agent's computer: org-level durable workspace DO, the
 // loopback WorkerEntrypoint its worker-shell isolate dials back through,
 // and the WorkspaceProxy that carries the container's /ws egress home.
-// biome-ignore lint/performance/noBarrelFile: Cloudflare requires the Worker entrypoint to export the WorkspaceServiceProxy WorkerEntrypoint class.
 export { WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";
 export { AgentComputer } from "../flue-adapter/computer-workspace";
 

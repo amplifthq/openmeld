@@ -17,6 +17,7 @@ import {
   ensurePrimaryAgentProfileBindingRecord,
   listEnabledPrimaryAgentProfileBindingRecordsForProfile,
   listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController,
+  listPrimaryAgentProfileControllerRefs,
   readPrimaryAgentProfileBindingRecord,
   reconnectPrimaryAgentProfileBindingRecord,
   updatePrimaryAgentProfileBindingAgentControllerCollaborationModeRecord,
@@ -45,6 +46,58 @@ const OWNER = {
 } as const;
 
 describe("Agent Profile Binding repo write-side", () => {
+  it("reads only public Controller refs for exact authorized Profile/owner pairs", async () => {
+    const harness = createSqliteD1Harness();
+    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    try {
+      await ensurePrimaryAgentProfileBindingRecord({
+        db: harness.db,
+        record: createBindingRecord({
+          bindingId: "branding-binding",
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: "runtime-1",
+          agentControllerConversationId: "private-session",
+        }),
+      });
+      const profiles = [
+        { profileId: AGENT_PROFILE_ID, ownerUserId: OWNER.id },
+        ...Array.from({ length: 100 }, (_, index) => ({
+          profileId: `missing-${index}`,
+          ownerUserId: OWNER.id,
+        })),
+      ];
+      expect([
+        ...(await listPrimaryAgentProfileControllerRefs({
+          db: harness.db,
+          profiles,
+        })),
+      ]).toEqual([[AGENT_PROFILE_ID, "builtin:codex"]]);
+      expect([
+        ...(await listPrimaryAgentProfileControllerRefs({
+          db: harness.db,
+          profiles: [
+            { profileId: AGENT_PROFILE_ID, ownerUserId: "wrong-owner" },
+          ],
+        })),
+      ]).toEqual([]);
+      await disablePrimaryAgentProfileBindingRecord({
+        db: harness.db,
+        owner: OWNER,
+        agentProfileId: AGENT_PROFILE_ID,
+        disabledAtMs: 2000,
+        reasonCode: "test",
+      });
+      expect([
+        ...(await listPrimaryAgentProfileControllerRefs({
+          db: harness.db,
+          profiles,
+        })),
+      ]).toEqual([]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("leaves every Binding unchanged when a same-millisecond writer makes admitted inventory stale", async () => {
     const harness = createSqliteD1Harness();
     applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");

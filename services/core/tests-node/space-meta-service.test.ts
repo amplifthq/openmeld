@@ -7,6 +7,31 @@ const ORGANIZATION_ID = "org-space-meta-test";
 const SPACE_ID = "space-meta-test";
 
 describe("Space metadata initialization", () => {
+  it("updates directory visibility without changing link access or organization", () => {
+    const existing = buildNextSpaceMetaRecord({
+      existing: null,
+      metaUpdate: initializationPatch({
+        visibility: "private",
+        accessMode: "members_only",
+      }),
+      now: NOW,
+      spaceId: SPACE_ID,
+    });
+    existing.directMessage = { pairKey: "converted-pair", convertedAt: NOW };
+    const record = buildNextSpaceMetaRecord({
+      existing,
+      metaUpdate: {
+        ...initializationPatch({ visibility: "public" }),
+        hasOrganizationId: false,
+      },
+      now: NOW,
+      spaceId: SPACE_ID,
+    });
+    expect(record.visibility).toBe("public");
+    expect(record.accessMode).toBe("members_only");
+    expect(record.organizationId).toBe(ORGANIZATION_ID);
+    expect(record.directMessage).toEqual(existing.directMessage);
+  });
   it("defaults a private Space to members-only access", () => {
     const record = buildNextSpaceMetaRecord({
       existing: null,
