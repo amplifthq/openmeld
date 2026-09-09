@@ -17,6 +17,13 @@
   conflicts with an owner doc means one of the two must be fixed in the same
   PR.
 
+2026-09-09: Every managed Center Agent, including Personal Workspace Center
+Agents, belongs to its Organization. Creating members are audit actors, and
+current owner/admin permissions govern configuration and Pause/Resume. This
+supersedes personal Binding ownership and creator-exclusive operating controls;
+it grants no inherited private-content access. See
+`product/organizations-and-center-agent.md` and `product/agent-profiles.md`.
+
 2026-09-08: Ordinary members may create personal Remote Agents with per-Agent
 model selection. They reuse Agent Profile identity, ordinary DM/Space
 membership, and the native execution service; they do not inherit Center Agent

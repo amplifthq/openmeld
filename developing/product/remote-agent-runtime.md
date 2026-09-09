@@ -2629,8 +2629,10 @@ worker callback contract.
   identity must not contain volatile data.
 - The managed Center Agent Profile and hosted Binding stay in their canonical
   Organization. Legacy Wake-access records are not an admission fact.
-- Binding owner is the designating owner/admin (consistent with the local
-  rule: designate only onto your own Binding).
+- The Center Agent Binding owner is its Organization. The designating member
+  is audit attribution only. Native delivery identifies the stable Organization,
+  Agent Profile, and Binding; member-scoped tools separately verify the person
+  represented by the current turn.
 
 ### Hosted readiness states
 
