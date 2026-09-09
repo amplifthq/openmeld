@@ -128,7 +128,6 @@ export type CreateProfileFormProps = {
 	agentBindingValue?: string;
 	agentOwnershipSlot?: ReactNode;
 	agentComputerSlot?: ReactNode;
-	agentComputerSummary?: string;
 	agentOwnershipSummary?: string;
 	agentOwnerAvatar?: { userId: string; imageUrl: string | null };
 	agentSessionSlot?: ReactNode;
