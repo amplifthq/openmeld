@@ -1,10 +1,10 @@
 import {
-  HOSTED_CENTER_AGENT_CONTROLLER_REF,
   resolveAgentWakeAvailability,
   resolveHostedAgentWakeAvailability,
 } from "@openmeld/agent-runtime";
 import type { Profile, SignalEnvelope, SpaceCreator } from "@openmeld/protocol";
 import {
+  isHostedAgentControllerRef,
   normalizeOptionalWorkingDirectory,
   SPACE_MEMBER_JOIN_NOTICE_PURPOSE,
   spaceMemberWebActivityWriteSchema,
@@ -1269,18 +1269,17 @@ async function buildAgentSnapshot(input: {
     viewerProfileId: input.viewerProfileId,
     creatorProfileIdByProfileId: input.viewerCreatorProfileIdsByProfileId,
   });
-  const agentWakeAvailability =
-    agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF
-      ? resolveHostedAgentWakeAvailability({
-          readiness: executionReadiness.spaceMemberAgentExecutionReadiness,
-        })
-      : resolveAgentWakeAvailability({
-          agentControllerRef,
-          agentWakeRouteRegistration:
-            executionReadiness.agentWakeRouteRegistration,
-          wakeRouteStatus: executionReadiness.wakeRouteStatus,
-          readiness: executionReadiness.spaceMemberAgentExecutionReadiness,
-        });
+  const agentWakeAvailability = isHostedAgentControllerRef(agentControllerRef)
+    ? resolveHostedAgentWakeAvailability({
+        readiness: executionReadiness.spaceMemberAgentExecutionReadiness,
+      })
+    : resolveAgentWakeAvailability({
+        agentControllerRef,
+        agentWakeRouteRegistration:
+          executionReadiness.agentWakeRouteRegistration,
+        wakeRouteStatus: executionReadiness.wakeRouteStatus,
+        readiness: executionReadiness.spaceMemberAgentExecutionReadiness,
+      });
   const canManageAgentProfile = isSameOwnerUserId({
     leftOwnerUserId: input.viewerOwnerUserId,
     rightOwnerUserId: ownerUserId,
@@ -1357,7 +1356,7 @@ function projectDeviceWaitTarget(
 ): SpaceMemberAgentSnapshot["deviceWaitTarget"] {
   const binding = readiness.primaryBinding;
   if (
-    agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF ||
+    isHostedAgentControllerRef(agentControllerRef) ||
     binding?.bindingState !== "enabled_primary" ||
     !binding.bindingId ||
     !binding.executionTarget

@@ -1,4 +1,5 @@
 import type { LocalDaemonAdapterContainer } from "@openmeld/local-service";
+import { reconcileNewRunnableBuiltinAgentRegistrations } from "../../agents/registry";
 import type { AgentControllerInterfaceProbePolicy } from "../inventory/agent-controller-interface";
 import {
   collectLocalAgentControllerInventory,
@@ -39,6 +40,11 @@ export async function syncLocalServiceRuntimeAgentControllerReports(input: {
     ReturnType<typeof collectLocalAgentControllerInventory>
   >;
   try {
+    // Discovery belongs to the existing background inventory pass, not route
+    // registration. Slow unrelated install probes must not strand new Wakes.
+    // Newly registered controllers notify the carrier through the normal
+    // lane-local catalog-change signal; explicit disabled choices stay intact.
+    await reconcileNewRunnableBuiltinAgentRegistrations();
     inventory = await collectLocalAgentControllerInventory({
       includeControllerInterface: true,
       localAdapterContainer: input.localAdapterContainer,

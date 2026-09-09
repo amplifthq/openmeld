@@ -1,0 +1,8 @@
+{
+  "device_code": "<redacted-device-code>",
+  "expires_in": 3600,
+  "interval": 5,
+  "user_code": "<redacted-user-code>",
+  "verification_uri": "https://open.feishu.cn/page/launcher",
+  "verification_uri_complete": "https://open.feishu.cn/page/launcher?user_code=<redacted-user-code>"
+}

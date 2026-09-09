@@ -25,6 +25,7 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { AppLogo } from "./app-logo";
 import { CenterAgentSlackConnectionDialog } from "./center-agent-slack-connection-dialog";
+import { requiresLarkPlatformSetupAuthorization } from "./lark-platform-setup-authorization";
 import {
 	FEISHU_CHANNEL_IDENTITY,
 	LARK_CHANNEL_IDENTITY,
@@ -52,6 +53,7 @@ export function CenterAgentMessageChannelsSection(input: {
 	onConnectSlackWorkspace: (input: { slackTeamId: string }) => void;
 	onDisconnectSlackWorkspace: () => void;
 	onManageLarkPlatform?: (provider: LarkPlatformProvider) => void;
+	onCancelLarkPlatformSetup?: (provider: LarkPlatformProvider) => void;
 	slackConnection?: CenterAgentSlackConnection;
 }) {
 	const slackProjection = input.connections?.find(
@@ -152,6 +154,7 @@ export function CenterAgentMessageChannelsSection(input: {
 							disabled={input.larkPlatformPendingProvider != null}
 							key={provider}
 							managementMode={managementMode}
+							onCancelSetup={input.onCancelLarkPlatformSetup}
 							onManage={input.onManageLarkPlatform}
 							organizationRequired={input.organizationRequired === true}
 							provider={provider}
@@ -172,6 +175,7 @@ function LarkPlatformCard(input: {
 	disabled: boolean;
 	managementMode: "cleanup" | "inline" | "read-only";
 	onManage?: (provider: LarkPlatformProvider) => void;
+	onCancelSetup?: (provider: LarkPlatformProvider) => void;
 	organizationRequired: boolean;
 	provider: LarkPlatformProvider;
 }) {
@@ -191,6 +195,12 @@ function LarkPlatformCard(input: {
 		status === "pending_registration" ||
 		status === "credentials_received" ||
 		status === "configuring";
+	const authorizationRequired = requiresLarkPlatformSetupAuthorization({
+		provider: input.provider,
+		reasonCode:
+			input.connection?.reasonCode ?? input.activeRegistration?.reasonCode,
+		status,
+	});
 	const needsRepair = status === "repair_required" || status === "revoked";
 	const canResume = input.activeRegistration?.canResume ?? true;
 	const accountName =
@@ -200,12 +210,14 @@ function LarkPlatformCard(input: {
 			? FEISHU_CHANNEL_IDENTITY
 			: LARK_CHANNEL_IDENTITY;
 	const actionLabel = resolveLarkPlatformActionLabel({
+		authorizationRequired,
 		connected,
 		needsRepair,
 		providerLabel,
 		setupInProgress,
 	});
 	const defaultOperationalSummary = resolveLarkPlatformOperationalSummary({
+		authorizationRequired,
 		activeRegistrationUnavailable,
 		canManage: input.canManage,
 		canResume,
@@ -222,6 +234,7 @@ function LarkPlatformCard(input: {
 				}
 			: defaultOperationalSummary;
 	const statusLabel = resolveLarkPlatformStatusLabel({
+		authorizationRequired,
 		checkingSetup,
 		connected,
 		hasExistingConnection,
@@ -280,10 +293,56 @@ function LarkPlatformCard(input: {
 			details={operationalSummary.details}
 			guidance={operationalSummary.guidance}
 			logo={logo}
-			managementControl={control}
+			managementControl={
+				<LarkPlatformSetupControls
+					canManage={input.canManage}
+					control={control}
+					disabled={input.disabled}
+					managementMode={input.managementMode}
+					onCancelSetup={input.onCancelSetup}
+					provider={input.provider}
+					setupInProgress={setupInProgress}
+				/>
+			}
 			name={providerLabel}
+			needsAttention={authorizationRequired && !input.organizationRequired}
 			statusLabel={statusLabel}
 		/>
+	);
+}
+
+function LarkPlatformSetupControls(input: {
+	canManage: boolean;
+	control: ReactNode;
+	disabled: boolean;
+	managementMode: "cleanup" | "inline" | "read-only";
+	onCancelSetup?: (provider: LarkPlatformProvider) => void;
+	provider: LarkPlatformProvider;
+	setupInProgress: boolean;
+}) {
+	if (
+		!(
+			input.managementMode === "inline" &&
+			input.canManage &&
+			input.setupInProgress &&
+			input.onCancelSetup
+		)
+	) {
+		return input.control;
+	}
+	return (
+		<div className="flex items-center gap-2">
+			{input.control}
+			<Button
+				disabled={input.disabled}
+				onClick={() => input.onCancelSetup?.(input.provider)}
+				size="sm"
+				type="button"
+				variant="outline"
+			>
+				Cancel setup
+			</Button>
+		</div>
 	);
 }
 
@@ -418,6 +477,7 @@ function resolveOrganizationRequiredStatusLabel(input: {
 }
 
 function resolveLarkPlatformStatusLabel(input: {
+	authorizationRequired: boolean;
 	checkingSetup: boolean;
 	connected: boolean;
 	hasExistingConnection: boolean;
@@ -437,10 +497,14 @@ function resolveLarkPlatformStatusLabel(input: {
 	if (input.checkingSetup) {
 		return "Checking";
 	}
+	if (input.authorizationRequired) {
+		return "Authorization required";
+	}
 	return resolveConnectionStatusLabel(input.status);
 }
 
 type LarkPlatformOperationalInput = {
+	authorizationRequired: boolean;
 	activeRegistrationUnavailable: boolean;
 	canManage: boolean;
 	canResume: boolean;
@@ -465,7 +529,7 @@ function resolveLarkPlatformOperationalSummary(
 		input.checkingSetup ||
 		input.status !== undefined;
 	return {
-		details,
+		details: input.authorizationRequired ? undefined : details,
 		guidance: hasOperationalState
 			? resolveLarkPlatformOperationalGuidance(input)
 			: undefined,
@@ -481,6 +545,11 @@ function resolveLarkPlatformOperationalGuidance(
 	}
 	if (input.checkingSetup) {
 		return "OpenMeld is checking whether setup is already in progress.";
+	}
+	if (input.authorizationRequired) {
+		return input.canManage && input.canResume
+			? `${input.providerLabel} needs your approval to let OpenMeld configure message delivery. Select Review authorization to finish connecting.`
+			: `An organization manager needs to approve app configuration in ${input.providerLabel} before this connection can finish.`;
 	}
 	if (input.status === "repair_required" && connection) {
 		return connection.reasonCode ===
@@ -499,7 +568,7 @@ function resolveLarkPlatformOperationalGuidance(
 			return "An organization manager is finishing this setup.";
 		}
 		if (!input.canResume) {
-			return "Setup is in progress. The person who started it can continue.";
+			return "Another manager started this setup. You can cancel it and connect again.";
 		}
 		return `Finish setup on the official ${input.providerLabel} page in this browser.`;
 	}
@@ -513,6 +582,7 @@ function resolveLarkPlatformOperationalGuidance(
 }
 
 function resolveLarkPlatformActionLabel(input: {
+	authorizationRequired: boolean;
 	connected: boolean;
 	needsRepair: boolean;
 	providerLabel: string;
@@ -520,6 +590,9 @@ function resolveLarkPlatformActionLabel(input: {
 }): string {
 	if (input.connected) {
 		return `Manage ${input.providerLabel}`;
+	}
+	if (input.authorizationRequired) {
+		return "Review authorization";
 	}
 	if (input.needsRepair) {
 		return `Repair ${input.providerLabel}`;

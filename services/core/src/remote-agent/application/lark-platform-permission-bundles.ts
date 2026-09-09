@@ -19,6 +19,11 @@ export type LarkPlatformChannelPermissionBundle =
 
 const BASE64_PADDING_PATTERN = /=+$/u;
 
+// Setup authority is requested in the provider's consent page, never granted
+// to the Center Agent as a runtime Channel capability.
+export const LARK_PLATFORM_APP_CONFIGURATION_SCOPE =
+  "application:application:patch";
+
 function requireExactBundleValue<const T extends boolean | string>(
   value: boolean | string,
   expected: T
@@ -45,7 +50,7 @@ export async function encodeLarkPlatformRegistrationAddons(
     },
     preset: bundle.preset,
     scopes: {
-      tenant: [...bundle.scopes],
+      tenant: [...bundle.scopes, LARK_PLATFORM_APP_CONFIGURATION_SCOPE],
     },
   });
   const compressed = await new Response(

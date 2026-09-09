@@ -100,6 +100,7 @@ import {
   type DaemonServiceInventory,
   inspectDaemonServiceInventory,
 } from "../local-service/lifecycle/daemon-service-inventory";
+import { assertDaemonServiceLaunchScope } from "../local-service/lifecycle/daemon-service-launch-scope";
 import { cleanupLegacySharedDaemonServiceState } from "../local-service/lifecycle/daemon-service-legacy-shared";
 import {
   DaemonServiceLifecycleDrainTimeoutError,
@@ -2663,6 +2664,7 @@ export async function runDaemonRun(
   input: DaemonRunInput,
   options: DaemonRunInternalOptions = {}
 ): Promise<DaemonRunResult> {
+  await assertDaemonServiceLaunchScope();
   const runtime = await resolveRuntimeContext({
     view: input.view,
   });

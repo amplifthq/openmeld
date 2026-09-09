@@ -98,7 +98,7 @@ describe("space recent mention state", () => {
         currentRecentProfileIds: ["11111111-1111-4111-8111-111111111111"],
         submittedText:
           "@Ops Bot(wake) sync with @Watcher(reference) and @Ops Bot(reference)",
-        canonicalMentionsInTextOrder: [
+        mentionsInTextOrder: [
           {
             profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
           },

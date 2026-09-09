@@ -1,4 +1,7 @@
-import { updateAgentProfileDefaultProjectResponseSchema } from "@openmeld/schemas";
+import {
+  isHostedAgentRuntimeKind,
+  updateAgentProfileDefaultProjectResponseSchema,
+} from "@openmeld/schemas";
 import type { UpdateAgentProfileDefaultProjectResponse } from "@openmeld/schemas/types";
 import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import {
@@ -63,7 +66,7 @@ export async function updateAgentProfileDefaultProjectForAuthority(input: {
       db,
       owner: { id: input.authority.userId, kind: "owner_account" },
     });
-    if (binding?.runtimeKind === "hosted_center_agent") {
+    if (isHostedAgentRuntimeKind(binding?.runtimeKind)) {
       throw createCoreRpcHttpError({
         code: "profile.default_project_not_supported",
         reason: "Default Project is only available for local Agent Profiles.",

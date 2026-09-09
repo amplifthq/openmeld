@@ -243,7 +243,9 @@ export function ProfileListItem(input: {
 					{input.profileNameAdornment ? (
 						<div className="inline-flex min-w-0 items-center gap-2">
 							{profileSummary}
-							<div className="shrink-0">{input.profileNameAdornment}</div>
+							<div className="inline-flex shrink-0 items-center gap-1.5">
+								{input.profileNameAdornment}
+							</div>
 						</div>
 					) : (
 						profileSummary

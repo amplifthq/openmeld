@@ -1,15 +1,14 @@
+import { LARK_PLATFORM_REGISTRATION_DOMAINS } from "@openmeld/schemas";
 import type { RemoteAgentLarkPlatformProvider } from "../infrastructure/d1/lark-platform-channel-connection-repo";
 import {
   encodeLarkPlatformRegistrationAddons,
   LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE,
 } from "./lark-platform-permission-bundles";
 
-const REGISTRATION_BEGIN_ACCOUNT_DOMAIN = "accounts.feishu.cn";
 const REGISTRATION_PATH = "/oauth/v1/app/registration";
-const REGISTRATION_POLL_ACCOUNT_DOMAINS = new Set([
-  REGISTRATION_BEGIN_ACCOUNT_DOMAIN,
-  "accounts.larksuite.com",
-]);
+// The shared issuer works for both brands; direct Lark issuance fails at the launcher.
+const REGISTRATION_BEGIN_ACCOUNT_DOMAIN =
+  LARK_PLATFORM_REGISTRATION_DOMAINS.feishu.accountDomain;
 const SLOW_DOWN_INCREMENT_MS = 5000;
 const FORM_HEADERS = {
   "content-type": "application/x-www-form-urlencoded",
@@ -43,6 +42,7 @@ export class LarkPlatformRegistrationError extends Error {
 }
 
 export async function beginLarkPlatformRegistration(input: {
+  appId?: string;
   appDescription: string;
   appName: string;
   expectedProvider: RemoteAgentLarkPlatformProvider;
@@ -62,9 +62,10 @@ export async function beginLarkPlatformRegistration(input: {
   assertNonEmpty(input.appDescription, input.expectedProvider);
   assertNonEmpty(input.source, input.expectedProvider);
   assertTimestamp(input.nowMs, input.expectedProvider);
+  const accountDomain = REGISTRATION_BEGIN_ACCOUNT_DOMAIN;
 
   const response = await requestRegistration({
-    accountDomain: REGISTRATION_BEGIN_ACCOUNT_DOMAIN,
+    accountDomain,
     fetchImpl: input.fetchImpl ?? fetch,
     parameters: new URLSearchParams({
       action: "begin",
@@ -93,9 +94,12 @@ export async function beginLarkPlatformRegistration(input: {
   const expiresInMs = readPositiveInteger(response, "expires_in", 600) * 1000;
   const registrationUrl = new URL(verificationUriComplete);
   if (
-    registrationUrl.protocol !== "https:" ||
-    registrationUrl.host !== "open.feishu.cn" ||
-    registrationUrl.pathname !== "/page/launcher"
+    !isLarkPlatformRegistrationRouteCompatible({
+      accountDomain,
+      provider: "feishu",
+      registrationUrl: verificationUriComplete,
+    }) ||
+    registrationUrl.searchParams.get("user_code") !== userCode
   ) {
     throw registrationError(
       input.expectedProvider,
@@ -108,7 +112,11 @@ export async function beginLarkPlatformRegistration(input: {
       LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE
     )
   );
-  registrationUrl.searchParams.set("createOnly", "true");
+  if (input.appId) {
+    registrationUrl.searchParams.set("clientID", input.appId);
+  } else {
+    registrationUrl.searchParams.set("createOnly", "true");
+  }
   registrationUrl.searchParams.set("desc", input.appDescription.trim());
   registrationUrl.searchParams.set("from", "sdk");
   registrationUrl.searchParams.set("name", input.appName.trim());
@@ -116,7 +124,7 @@ export async function beginLarkPlatformRegistration(input: {
   registrationUrl.searchParams.set("tp", "sdk");
 
   return {
-    accountDomain: REGISTRATION_BEGIN_ACCOUNT_DOMAIN,
+    accountDomain,
     deviceCode,
     expiresAtMs: input.nowMs + expiresInMs,
     nextPollAtMs: input.nowMs,
@@ -176,13 +184,16 @@ export async function pollLarkPlatformRegistration(input: {
   const appId = readString(response, "client_id");
   const appSecret = readString(response, "client_secret");
 
+  if (tenantBrand) {
+    assertExpectedBrand(input.expectedProvider, tenantBrand);
+  }
+
   if (
     tenantBrand === "lark" &&
     input.accountDomain === REGISTRATION_BEGIN_ACCOUNT_DOMAIN
   ) {
-    assertExpectedBrand(input.expectedProvider, tenantBrand);
     return {
-      accountDomain: "accounts.larksuite.com",
+      accountDomain: LARK_PLATFORM_REGISTRATION_DOMAINS.lark.accountDomain,
       credential: null,
       detectedBrand: tenantBrand,
       nextPollAtMs: input.nowMs,
@@ -284,10 +295,39 @@ async function requestRegistration(input: {
   return body;
 }
 
+function isLarkPlatformRegistrationRouteCompatible(input: {
+  accountDomain: string;
+  provider: RemoteAgentLarkPlatformProvider;
+  registrationUrl: string;
+}): boolean {
+  const domains = LARK_PLATFORM_REGISTRATION_DOMAINS[input.provider];
+  try {
+    const url = new URL(input.registrationUrl);
+    return (
+      (input.accountDomain === REGISTRATION_BEGIN_ACCOUNT_DOMAIN ||
+        input.accountDomain === domains.accountDomain) &&
+      url.protocol === "https:" &&
+      url.host === domains.launcherHost &&
+      url.pathname === "/page/launcher" &&
+      !url.username &&
+      !url.password &&
+      !url.hash &&
+      url.searchParams.getAll("user_code").length === 1 &&
+      Boolean(url.searchParams.get("user_code")?.trim())
+    );
+  } catch {
+    return false;
+  }
+}
+
 function validatePollInput(
   input: Parameters<typeof pollLarkPlatformRegistration>[0]
 ): void {
-  if (!REGISTRATION_POLL_ACCOUNT_DOMAINS.has(input.accountDomain)) {
+  if (
+    input.accountDomain !== REGISTRATION_BEGIN_ACCOUNT_DOMAIN &&
+    input.accountDomain !==
+      LARK_PLATFORM_REGISTRATION_DOMAINS[input.expectedProvider].accountDomain
+  ) {
     throw registrationError(
       input.expectedProvider,
       "registration_input_invalid"

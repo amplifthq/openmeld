@@ -1,4 +1,7 @@
-import { REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES } from "@openmeld/schemas";
+import {
+  buildPersonalRemoteAgentConversationId,
+  REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
+} from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   assertCoreOriginatedTurnContext,
@@ -15,10 +18,13 @@ import {
   RemoteAgentGuardrailError,
   readRemoteAgentCallbackContext,
   recordCallbackDeliveryFailure,
-  recordRemoteAgentCenterAgentTaskReference,
   redeliverDueRemoteAgentCallbacks,
 } from "../agent-core/callback-context";
-import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
+import {
+  createSubmitTurnRequest,
+  createSubmitTurnRequestV2,
+  TEST_NOW_MS,
+} from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const ACK = {
@@ -104,119 +110,8 @@ describe("remote agent callback context", () => {
     expect(completed).toMatchObject({ callbackStatus: "completed" });
   });
 
-  it("publishes the latest canonical callback context after tools add Task references", async () => {
-    const storage = new InMemoryDurableObjectStorage();
-    const staleContext = readyCallbackContext("Started the research Task.");
-    const canonicalContext: RemoteAgentCallbackContext = {
-      ...staleContext,
-      centerAgentTaskReferences: [{ taskId: "task-1" }],
-      conversationCompaction: {
-        completedAtMs: TEST_NOW_MS,
-        count: 1,
-        v: 1,
-      },
-      navigationTarget: {
-        kind: "project",
-        projectId: "project-1",
-      },
-      outputAttachments: [
-        {
-          fileName: "research.png",
-          id: "attachment-research-1",
-          mimeType: "image/png",
-          sizeBytes: 8,
-        },
-      ],
-    };
-    await putRemoteAgentCallbackContext(storage, canonicalContext);
-    const completeRemoteAgentSubmission = vi.fn(() =>
-      Promise.resolve({
-        publishedSignalId: "signal_task_reply_1",
-        status: "accepted" as const,
-      })
-    );
-
-    const completed = await attemptRemoteAgentCallbackDelivery({
-      context: staleContext,
-      coreWorker: { completeRemoteAgentSubmission },
-      nowMs: TEST_NOW_MS + 1000,
-      storage,
-    });
-
-    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
-      expect.objectContaining({
-        centerAgentTaskReferences: [{ taskId: "task-1" }],
-        conversationCompaction: {
-          completedAtMs: TEST_NOW_MS,
-          count: 1,
-          v: 1,
-        },
-        navigationTarget: {
-          kind: "project",
-          projectId: "project-1",
-        },
-        attachments: [expect.objectContaining({ id: "attachment-research-1" })],
-        text: "Started the research Task.",
-      })
-    );
-    expect(completed).toMatchObject({
-      callbackStatus: "completed",
-      centerAgentTaskReferences: [{ taskId: "task-1" }],
-      navigationTarget: {
-        kind: "project",
-        projectId: "project-1",
-      },
-      outputAttachments: [
-        expect.objectContaining({ id: "attachment-research-1" }),
-      ],
-    });
-    await expect(
-      readRemoteAgentCallbackContext(storage, ACK.submissionId)
-    ).resolves.toMatchObject({
-      callbackStatus: "completed",
-      centerAgentTaskReferences: [{ taskId: "task-1" }],
-      conversationCompaction: {
-        completedAtMs: TEST_NOW_MS,
-        count: 1,
-        v: 1,
-      },
-    });
-  });
-
-  it("durably carries a created Task reference into the final Core callback", async () => {
-    const storage = new InMemoryDurableObjectStorage();
-    const context = createRemoteAgentCallbackContext({
-      ack: ACK,
-      nowMs: TEST_NOW_MS,
-      request: createSubmitTurnRequest(),
-    });
-    await putRemoteAgentCallbackContext(storage, context);
-    expect(
-      await readRemoteAgentCallbackContext(storage, ACK.submissionId)
-    ).toEqual(context);
-
-    const updated = await recordRemoteAgentCenterAgentTaskReference({
-      storage,
-      submissionId: ACK.submissionId,
-      taskId: "task-1",
-    });
-    const replayed = await recordRemoteAgentCenterAgentTaskReference({
-      storage,
-      submissionId: ACK.submissionId,
-      taskId: "task-1",
-    });
-
-    expect(updated.centerAgentTaskReferences).toEqual([{ taskId: "task-1" }]);
-    expect(replayed.centerAgentTaskReferences).toEqual([{ taskId: "task-1" }]);
-    expect(
-      buildRemoteAgentCoreCallbackBody({ context: replayed, text: "Started." })
-    ).toMatchObject({
-      centerAgentTaskReferences: [{ taskId: "task-1" }],
-    });
-  });
-
-  it("preserves the canonical conversation identity for isolated Task execution", () => {
-    const conversationId = "center-agent-task:task_123";
+  it("preserves the canonical conversation ID", () => {
+    const conversationId = "space_123";
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
       nowMs: TEST_NOW_MS,
@@ -224,6 +119,33 @@ describe("remote agent callback context", () => {
     });
 
     expect(context.conversationId).toBe(conversationId);
+  });
+
+  it("retains personal Agent identity through durable callback storage", async () => {
+    const request = createSubmitTurnRequestV2();
+    const conversationId = buildPersonalRemoteAgentConversationId(request);
+    const conversationIdentity = {
+      kind: "personal_agent" as const,
+      agentProfileId: request.agentProfileId,
+    };
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: {
+        ...request,
+        v: 4,
+        conversationId,
+        conversationIdentity,
+        runtimeConversation: { generation: 0, id: conversationId },
+      },
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(storage, context);
+    const restored = await readRemoteAgentCallbackContext(
+      storage,
+      context.submissionId
+    );
+    expect(restored?.conversationIdentity).toEqual(conversationIdentity);
   });
 
   it("builds Core callback bodies only from stored R1a context and assistant text", () => {

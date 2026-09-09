@@ -99,21 +99,6 @@ describe("Inbox HTTP contracts", () => {
     ).toBe(true);
   });
 
-  it("targets an exact Center Agent Task without copying its state", () => {
-    expect(
-      inboxItemSchema.parse({
-        ...item,
-        kind: "center_agent_update",
-        sourceTarget: {
-          kind: "center_agent_task",
-          taskId: "task_1",
-        },
-      })
-    ).toMatchObject({
-      sourceTarget: { kind: "center_agent_task", taskId: "task_1" },
-    });
-  });
-
   it("accepts the minimal Agent Profile recovery target without copying work details", () => {
     expect(inboxSourceKindSchema.parse("agent_profile_work_recovery")).toBe(
       "agent_profile_work_recovery"
@@ -407,25 +392,6 @@ describe("Inbox producer and email contracts", () => {
         title: "Approval required",
       })
     ).toMatchObject({ sourceKey: "runtime_1:interaction_1" });
-  });
-
-  it("accepts a canonical Center Agent Task event as an Inbox source", () => {
-    expect(
-      inboxSourceCandidateSchema.parse({
-        attention: "update",
-        contextLabel: "Center Agent Task",
-        importance: "normal",
-        kind: "center_agent_update",
-        occurredAtMs: 1_722_736_800_000,
-        organizationId: "org_1",
-        preview: "The research is ready to review.",
-        recipientUserId: "user_1",
-        sourceKey: "task_1:event_4",
-        sourceKind: "center_agent_task_event",
-        sourceTarget: { kind: "center_agent_task", taskId: "task_1" },
-        title: "Research competitors",
-      })
-    ).toMatchObject({ sourceKind: "center_agent_task_event" });
   });
 
   it("keeps Auth email input limited to safe template variables", () => {

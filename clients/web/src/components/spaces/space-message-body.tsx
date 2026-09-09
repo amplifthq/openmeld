@@ -42,7 +42,6 @@ import {
 	type SpaceMessageAgentMentionProfilesById,
 } from "./space-message-agent-mention";
 import { SpaceMessageAgentMentionText } from "./space-message-agent-mention-view";
-import { SpaceMessageCenterAgentTaskReferences } from "./space-message-center-agent-task-references";
 import {
 	createSpaceMessageReferenceRemarkPlugin,
 	EMPTY_SPACE_MESSAGE_REFERENCES,
@@ -65,11 +64,7 @@ type SpaceMessageBodyProps = {
 	containerClassName?: string;
 	item: Pick<
 		SpaceTimelineItem,
-		| "agentStreamState"
-		| "centerAgentTaskReferences"
-		| "isAgentFinalReply"
-		| "navigationAction"
-		| "text"
+		"agentStreamState" | "isAgentFinalReply" | "navigationAction" | "text"
 	> &
 		Partial<
 			Pick<
@@ -228,7 +223,6 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 					}),
 		[input.openMeldProfileId, input.orgSlug]
 	);
-	const centerAgentTaskReferences = input.item.centerAgentTaskReferences ?? [];
 	const body = renderSpaceMessageTextContent({
 		additionalRemarkPlugins: references.additionalRemarkPlugins,
 		agentMentionProfilesById: references.agentMentionProfilesById,
@@ -244,7 +238,6 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 	const hasVisibleContent =
 		body !== null ||
 		Boolean(navigationActionContent) ||
-		centerAgentTaskReferences.length > 0 ||
 		attachments.length > 0 ||
 		files.length > 0 ||
 		text.textProjection.serverTruncated;
@@ -257,7 +250,6 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 			api={spaceApi}
 			attachments={attachments}
 			body={body}
-			centerAgentTaskReferences={centerAgentTaskReferences}
 			containerClassName={input.containerClassName}
 			files={files}
 			isExpanded={text.isExpanded}
@@ -276,9 +268,6 @@ function SpaceMessageBodyContent(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	attachments: SpaceTimelineItem["attachments"];
 	body: ReactNode;
-	centerAgentTaskReferences: NonNullable<
-		SpaceTimelineItem["centerAgentTaskReferences"]
-	>;
 	containerClassName?: string;
 	files: NonNullable<SpaceTimelineItem["files"]>;
 	isExpanded: boolean;
@@ -301,9 +290,7 @@ function SpaceMessageBodyContent(input: {
 		>
 			{input.body}
 			{input.navigationActionContent}
-			<SpaceMessageCenterAgentTaskReferenceList
-				references={input.centerAgentTaskReferences}
-			/>
+
 			<SpaceMessageAttachmentGrid
 				attachments={input.attachments}
 				organizationSlug={input.organizationSlug}
@@ -322,17 +309,6 @@ function SpaceMessageBodyContent(input: {
 			/>
 			<SpaceMessageServerTruncatedNote visible={input.serverTruncated} />
 		</div>
-	);
-}
-
-function SpaceMessageCenterAgentTaskReferenceList(input: {
-	references: NonNullable<SpaceTimelineItem["centerAgentTaskReferences"]>;
-}) {
-	if (input.references.length === 0) {
-		return null;
-	}
-	return (
-		<SpaceMessageCenterAgentTaskReferences references={input.references} />
 	);
 }
 

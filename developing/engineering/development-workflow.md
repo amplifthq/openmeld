@@ -199,11 +199,12 @@ matters before publishing. Use published `openmeld` only when the question is wh
 real users get from the published package.
 
 The persistent Cloudflare staging environment is not a fourth local CLI lane.
-It is a remote internal environment deployed with `pnpm staging:deploy`. A
-staging-aligned CLI and Service lane is a separate release layer and must use
-its own `OPENMELD_HOME`; until that layer exists, do not point a development or
-production Service at staging by hand. See
-`developing/engineering/staging-environment.md`.
+It is a remote internal environment deployed with `pnpm staging:deploy`.
+Staging Computer Setup uses the Canary binary, Canary OS-service identity,
+and `~/.openmeld-canary`, with the Staging CLI manifest as its update source.
+Use `pnpm staging:smoke:computer -- plan` and the official Staging Setup
+runner documented in `developing/engineering/staging-environment.md`.
+Do not substitute a Production binary with hand-written endpoint overrides.
 
 ## Local Worker Persistence
 
@@ -493,6 +494,12 @@ local-state repair/reset, Prepare runtime reporting, or service state must use:
 Tests that mutate service state must assert the effective lane root before
 mutation and fail immediately if it resolves to the production lane
 unexpectedly.
+
+An independent `OPENMELD_HOME` isolates files, not every operating-system or
+remote resource. Service smoke must also align the CLI entry, environment
+preset, system-service identity, endpoints, and update manifest through the
+official development or Canary entry point. A Production executable with a
+temporary home is not the supported isolated Service smoke entry point.
 
 Fixture identities must stay inside isolated test stores.
 
@@ -991,6 +998,35 @@ Prepare Session, dispatch-owned Space Action, diagnostic, or D1 schemas.
   already-running interaction must be stopped or allowed to reach an explicit
   terminal outcome; rollback must not strand a provider waiter or rewrite
   RuntimeCoordinator state.
+
+### Explicit Space Recipients Contract Impact Audit
+
+Space authoring uses selected Profile IDs and relations. CLI command behavior
+changes: generic sends and dispatch actions accept full Profile IDs through
+explicit recipient options, while old inline relation syntax is literal text.
+The CLI command and official Skill contracts advance together so a new CLI
+does not install old inline-authoring instructions from the signed Skill
+channel. Old CLIs keep their compatible Skill release; new CLIs use their
+bundled matching instructions until a matching signed release is published.
+
+The HTTP/WS message envelope, membership checks, Core Wakeability, dispatch
+authority, Service execution epoch, and final-result protocol do not change.
+Old clients already send structured targets, so new Core can continue existing
+setup, Wake, actions, status, trace, and recovery. New clients also send the same
+envelope to old cloud code. Deploy Core's source-text preservation before the
+new CLI/Web so literal examples are never stripped from a dispatched prompt.
+No running Wake or historical message is rewritten.
+
+Keep CLI and local-component manifests unchanged on this feature branch and
+use deferred release verification. The final clean-main release must stamp the
+new CLI/Skill contracts, publish the matching signed Skill channel with the new
+CLI version as its minimum, and preserve the previous signed contract release.
+The CLI and Skills updates are required because their command and Skill contracts
+advance. The Service update remains available because its execution contract is
+unchanged. Wire compatibility preserves accepted work during rollout; it does
+not waive the required update policy for changed contracts or force a Service
+restart. Scripts moving to the new CLI must migrate inline syntax to explicit
+recipient flags.
 
 ### Agent Reply Context Review Contract Impact Audit
 

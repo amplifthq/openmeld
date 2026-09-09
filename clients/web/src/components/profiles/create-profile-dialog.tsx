@@ -10,7 +10,11 @@ import {
 	resolveNativeAgentControllerCollaborationModeForController,
 } from "@openmeld/agent-runtime";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
-import { formatAgentRecoveryActionLabel } from "@openmeld/schemas";
+import {
+	DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+	formatAgentRecoveryActionLabel,
+	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "@openmeld/schemas";
 import type {
 	AgentActivityInventorySession,
 	AgentControllerCollaborationMode,
@@ -106,6 +110,7 @@ import { currentLocalRuntimeReplyReadinessQueryOptions } from "#/query/connect/l
 import { agentActivitySessionsQueryOptions } from "#/query/organizations/agent-activity";
 import {
 	organizationComputersQueryOptions,
+	organizationDirectoryQueryFilters,
 	organizationDirectoryQueryOptions,
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
@@ -339,6 +344,19 @@ function resolveInitialCreateProfileKind(input: {
 	hasSessionPreset: boolean;
 }): NewProfileKind | null {
 	return input.agentOnly || input.hasSessionPreset ? "agent" : null;
+}
+
+function resolvePersonalRemoteAgentCreation(
+	ownerMode: AgentProfileOwnerMode,
+	hasSessionPreset: boolean,
+	userId: string | null | undefined,
+	action: NonNullable<
+		ComponentProps<typeof CreateProfileForm>["remoteAgentCreation"]
+	>
+): ComponentProps<typeof CreateProfileForm>["remoteAgentCreation"] {
+	return ownerMode === "self" && !hasSessionPreset && userId
+		? action
+		: undefined;
 }
 
 function resolveAdditionalHumanProfileCreationEnabled(input: {
@@ -907,8 +925,31 @@ function useCreateProfileDialogController(
 	};
 
 	const createProfileMutation = useMutation({
-		mutationFn: (submission: { idempotencyKey: string }) =>
-			submitProfileCreation({
+		mutationFn: async (submission: {
+			idempotencyKey: string;
+			remote?: { modelId: string | null; profileName: string };
+		}) => {
+			if (submission.remote) {
+				const result = await createAgentProfileCreationRequest({
+					configuration: {
+						...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+						agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+						modelId: submission.remote.modelId,
+					},
+					idempotencyKey: submission.idempotencyKey,
+					organizationId,
+					profileName: submission.remote.profileName,
+					requestedSpaceId: spaceContext?.spaceId ?? null,
+					sessionStrategy: "new",
+					targetOwnerUserId: currentUserId,
+				});
+				return {
+					kind: "request" as const,
+					request: result.request,
+					customWorkingFolderIssue: null,
+				};
+			}
+			return submitProfileCreation({
 				agentControllerConversationId,
 				agentControllerCollaborationMode:
 					resolveCreateAgentControllerCollaborationMode({
@@ -947,7 +988,8 @@ function useCreateProfileDialogController(
 				sessionPresetBindingBlockReason,
 				spaceContext,
 				targetOwnerUserId,
-			}),
+			});
+		},
 		onError: (error) => {
 			const failure = toStructuredApiClientFailure(error);
 			setErrorState({
@@ -1151,6 +1193,8 @@ function useCreateProfileDialogController(
 	});
 
 	const canChooseComputer = canChooseCreationComputer(ownerMode, sessionPreset);
+	const agentOwnerUserId =
+		ownerMode === "teammate" ? targetOwnerUserId : currentUserId;
 	const formProps: ComponentProps<typeof CreateProfileForm> = {
 		agentComputerSummary: canChooseComputer
 			? selectedComputerChoice?.label
@@ -1201,12 +1245,10 @@ function useCreateProfileDialogController(
 		}),
 		agentOwnershipSlot: ownerChoice,
 		agentOwnerAvatar: {
-			userId: ownerMode === "teammate" ? targetOwnerUserId : currentUserId,
+			userId: agentOwnerUserId,
 			imageUrl:
 				organizationDirectoryQuery.data?.members.find(
-					(member) =>
-						member.userId ===
-						(ownerMode === "teammate" ? targetOwnerUserId : currentUserId)
+					(member) => member.userId === agentOwnerUserId
 				)?.user.image ?? null,
 		},
 		agentOwnershipSummary: resolveAgentOwnershipSummary({
@@ -1214,6 +1256,28 @@ function useCreateProfileDialogController(
 			targetOwnerName,
 		}),
 		agentSessionSlot: sessionChoice,
+		remoteAgentCreation: resolvePersonalRemoteAgentCreation(
+			ownerMode,
+			Boolean(sessionPreset),
+			currentUserId,
+			{
+				onSubmit: (remote: {
+					idempotencyKey: string;
+					modelId: string | null;
+					profileName: string;
+				}) => {
+					if (submissionInFlightRef.current) {
+						return;
+					}
+					submissionInFlightRef.current = true;
+					setErrorState(null);
+					createProfileMutation.mutate({
+						idempotencyKey: remote.idempotencyKey,
+						remote,
+					});
+				},
+			}
+		),
 		agentSessionSummary: resolveAgentSessionSummary({
 			sessionMode,
 			sessionPreset,
@@ -2100,6 +2164,12 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 }) {
 	const refreshes: Promise<unknown>[] = [
 		input.queryClient.invalidateQueries({
+			...organizationDirectoryQueryFilters({
+				organizationId: input.organizationId,
+			}),
+			refetchType: "active",
+		}),
+		input.queryClient.invalidateQueries({
 			queryKey: agentProfileCreationRequestQueryKeys.byOrganization(
 				input.organizationId
 			),
@@ -2111,10 +2181,6 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 		refreshes.push(
 			input.queryClient.invalidateQueries({
 				queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
-				refetchType: "active",
-			}),
-			input.queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.profileDirectory(input.organizationId),
 				refetchType: "active",
 			}),
 			refreshWebAgentReadinessSharedCaches({
@@ -2146,17 +2212,6 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 					})
 			);
 		}
-	} else {
-		refreshes.push(
-			input.queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.directory(input.organizationId),
-				refetchType: "active",
-			}),
-			input.queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.profileDirectory(input.organizationId),
-				refetchType: "active",
-			})
-		);
 	}
 	await Promise.all(refreshes);
 }

@@ -42,6 +42,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import {
@@ -52,6 +53,7 @@ import {
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
+import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
 import {
 	buildAnchoredSpaceOutcomeNoticesBySourceSignalId,
 	buildSpaceConversationEntries,
@@ -2843,10 +2845,14 @@ function ConversationSpeakerHeader(input: {
 				isCenterAgent={isCenterAgentRun}
 				profileId={input.run.speaker.profileId}
 				profileKind={input.run.speaker.profileKind}
+				working={input.run.items.some(isSpaceMessageAgentWorking)}
 			/>
 			<span className="min-w-0 break-words font-bold text-foreground text-sm">
 				{input.run.speaker.displayName}
 			</span>
+			<RemoteAgentIndicator
+				agentControllerRef={input.run.speaker.agentControllerRef}
+			/>
 			{agentControlLabel ? (
 				<>
 					<span className="shrink-0 text-muted-foreground">·</span>

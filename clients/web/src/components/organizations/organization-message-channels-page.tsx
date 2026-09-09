@@ -130,6 +130,7 @@ function PersonalWorkspaceMessageChannelsContent(input: {
 				errorMessage={larkPlatform.errorMessage}
 				onDisconnect={larkPlatform.disconnect}
 				onOpenChange={larkPlatform.setOpen}
+				onReauthorize={larkPlatform.reauthorize}
 				onRepair={larkPlatform.repair}
 				onRetryPoll={larkPlatform.retryPoll}
 				onStartOver={larkPlatform.startOver}
@@ -263,6 +264,7 @@ function OrganizationMessageChannelsContent(input: {
 					disableSlackDisconnect={disconnectSlackMutation.isPending}
 					larkPlatformPendingProvider={larkPlatform.beginPendingProvider}
 					managementMode={canManage ? "inline" : "read-only"}
+					onCancelLarkPlatformSetup={larkPlatform.cancelSetup}
 					onConnectSlackWorkspace={(variables) =>
 						connectSlackMutation.mutate(variables)
 					}
@@ -298,6 +300,7 @@ function OrganizationMessageChannelsContent(input: {
 				errorMessage={larkPlatform.errorMessage}
 				onDisconnect={larkPlatform.disconnect}
 				onOpenChange={larkPlatform.setOpen}
+				onReauthorize={larkPlatform.reauthorize}
 				onRepair={larkPlatform.repair}
 				onRetryPoll={larkPlatform.retryPoll}
 				onStartOver={larkPlatform.startOver}

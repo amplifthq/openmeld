@@ -47,6 +47,7 @@ import {
   getSpaceUpdatesInputSchema,
   getSpaceWakeProgressInputSchema,
   getSpaceWakeTraceWaterfallInputSchema,
+  isHostedAgentRuntimeKind,
   listSignalsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
   MENTION_DISPATCH_ERROR_CODES,
@@ -659,7 +660,6 @@ import {
   type DispatchReadyDecision,
   isDispatchReadyDecision,
   resolveDispatchPlannerDecisionsForSignal,
-  stripDispatchTargetMentionsFromText,
 } from "../../rules/mention/mention-dispatch-rules";
 import type { SpaceCursorRecord } from "../../rules/parsers/space-cursor";
 import { parseStoredSignal } from "../../rules/parsers/stored-signal";
@@ -1065,11 +1065,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     decision: input.decision,
     sourceText: input.sourceText,
   });
-  const normalizedSourceText = stripDispatchTargetMentionsFromText({
-    mentionTargetAliases: input.mentionTargetAliases,
-    targetProfileId: input.decision.targetProfileId,
-    text: directMessageSourceText,
-  });
+  const normalizedSourceText = directMessageSourceText.trim();
   const continuitySnapshot = resolveDispatchOutboxContinuitySnapshotForTarget({
     targetProfileId: input.decision.targetProfileId,
     continuitySnapshotByTargetProfileId:
@@ -5150,7 +5146,7 @@ export class Space extends DurableObject<CoreBindings> {
     if (
       !(
         binding &&
-        binding.runtimeKind !== "hosted_center_agent" &&
+        !isHostedAgentRuntimeKind(binding.runtimeKind) &&
         executionIdentity &&
         binding.bindingId === executionIdentity.bindingId &&
         binding.openMeldServiceRuntimeId ===
@@ -9873,8 +9869,7 @@ export class Space extends DurableObject<CoreBindings> {
       return true;
     }
     const auth = this.bindings.OPENMELD_AUTH_WORKER;
-    const resolveProfile = auth?.resolveProfileById?.bind(auth);
-    if (!resolveProfile) {
+    if (!auth?.resolveProfileById) {
       return false;
     }
     // Profile ownership comes from Auth, never client selectors or member names.
@@ -9887,12 +9882,14 @@ export class Space extends DurableObject<CoreBindings> {
       if (!profileOwnership.has(profileId)) {
         profileOwnership.set(
           profileId,
-          resolveProfile({ openMeldProfileId: profileId }).then(
-            (resolved) =>
-              resolved.ok &&
-              resolved.profile.status === "active" &&
-              resolved.profile.ownerUserId === ownerUserId
-          )
+          auth
+            .resolveProfileById({ openMeldProfileId: profileId })
+            .then(
+              (resolved) =>
+                resolved.ok &&
+                resolved.profile.status === "active" &&
+                resolved.profile.ownerUserId === ownerUserId
+            )
         );
       }
       if (await profileOwnership.get(profileId)) {
@@ -15819,7 +15816,7 @@ export class Space extends DurableObject<CoreBindings> {
           db: bindingDb,
           owner: { id: ownerUserId, kind: "owner_account" },
         });
-        return binding?.runtimeKind === "hosted_center_agent"
+        return isHostedAgentRuntimeKind(binding?.runtimeKind)
           ? "admission_incomplete"
           : "not_applicable";
       }
@@ -16644,13 +16641,14 @@ export class Space extends DurableObject<CoreBindings> {
       | WakeProgressItem["wakeStopEligibility"]
       | undefined;
     if (input.includeWakeStopEligibility === true) {
-      wakeStopEligibility =
-        await this.readWakeProgressPreAgentWakeStopEligibility({
-          clientMessageId: input.clientMessageId,
-          lookupMatch: input.lookupMatch,
-          outboxRecord: input.outboxRecord,
-          trace,
-        });
+      wakeStopEligibility = input.nativeDeliveryEvidence
+        ? nativeDeliveryWakeStopEligibility(input.nativeDeliveryEvidence)
+        : await this.readWakeProgressPreAgentWakeStopEligibility({
+            clientMessageId: input.clientMessageId,
+            lookupMatch: input.lookupMatch,
+            outboxRecord: input.outboxRecord,
+            trace,
+          });
     }
     const runtimeCoordinatorExecution =
       trace?.runtimeCoordinatorExecution ?? null;
@@ -16873,15 +16871,19 @@ export class Space extends DurableObject<CoreBindings> {
         outboxRecord: input.outboxRecord,
         targetLabel: input.targetLabel,
       });
-    const wakeStopEligibility =
-      input.includeWakeStopEligibility === true
-        ? await this.readWakeProgressPreAgentWakeStopEligibility({
+    let wakeStopEligibility:
+      | WakeProgressItem["wakeStopEligibility"]
+      | undefined;
+    if (input.includeWakeStopEligibility === true) {
+      wakeStopEligibility = input.nativeDeliveryEvidence
+        ? nativeDeliveryWakeStopEligibility(input.nativeDeliveryEvidence)
+        : await this.readWakeProgressPreAgentWakeStopEligibility({
             clientMessageId: input.clientMessageId,
             lookupMatch: null,
             outboxRecord: input.outboxRecord,
             trace: null,
-          })
-        : undefined;
+          });
+    }
     if (headLifecycleProgress) {
       return createWakeProgressItem({
         clientMessageId: input.clientMessageId,
@@ -18518,6 +18520,21 @@ function buildWakeProgressItemFromOutbox(input: {
       ? {}
       : { wakeStopEligibility: input.wakeStopEligibility }),
   });
+}
+
+function nativeDeliveryWakeStopEligibility(
+  evidence: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence
+): WakeProgressItem["wakeStopEligibility"] {
+  // The accepted native delivery owns this execution, not a workstation head.
+  // Viewer authorization and the mutation's current delivery check still apply.
+  return evidence.phase === "running"
+    ? {
+        controlMode: "cancel",
+        reasonCode: null,
+        reliability: "native_cancel",
+        status: "eligible",
+      }
+    : null;
 }
 
 function preAgentWakeStopEligible(): WakeProgressItem["wakeStopEligibility"] {

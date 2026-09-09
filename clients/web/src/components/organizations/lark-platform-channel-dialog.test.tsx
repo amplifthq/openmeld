@@ -2,15 +2,52 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LarkPlatformChannelDialog } from "./lark-platform-channel-dialog";
 
-const CREATE_APP_COPY_PATTERN = /create a new Lark app/i;
-
 afterEach(cleanup);
 
 describe("LarkPlatformChannelDialog", () => {
 	it.each([
-		["lark", "Lark", "https://open.larksuite.com/app"],
-		["feishu", "Feishu", "https://open.feishu.cn/app"],
-	] as const)("shows the %s permission recovery action instead of indefinite verification", (provider, label, consoleUrl) => {
+		true,
+		false,
+	])("preserves a setup read error and gates restart by management permission (%s)", (canManage) => {
+		const onStartOver = vi.fn();
+		render(
+			<LarkPlatformChannelDialog
+				canManage={canManage}
+				connection={null}
+				disconnectPending={false}
+				errorMessage="Saved setup could not be read."
+				onDisconnect={vi.fn()}
+				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
+				onRepair={vi.fn()}
+				onRetryPoll={vi.fn()}
+				onStartOver={onStartOver}
+				open
+				pollPending={false}
+				provider="lark"
+				registration={null}
+				repairPending={false}
+				startOverPending={false}
+			/>
+		);
+		expect(screen.getByRole("alert").textContent).toContain(
+			"Saved setup could not be read."
+		);
+		const restart = screen.queryByRole("button", { name: "Start over" });
+		if (canManage) {
+			expect(restart).not.toBeNull();
+			fireEvent.click(restart as HTMLElement);
+			expect(onStartOver).toHaveBeenCalledOnce();
+		} else {
+			expect(restart).toBeNull();
+		}
+	});
+
+	it.each([
+		["lark", "Lark", "Feishu"],
+		["feishu", "Feishu", "Lark"],
+	] as const)("explains a %s brand mismatch and restarts the selected provider", (provider, label, otherLabel) => {
+		const onStartOver = vi.fn();
 		render(
 			<LarkPlatformChannelDialog
 				canManage
@@ -19,8 +56,57 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={vi.fn()}
 				onRetryPoll={vi.fn()}
+				onStartOver={onStartOver}
+				open
+				pollPending={false}
+				provider={provider}
+				registration={{
+					organizationId: "org_1",
+					connection: null,
+					attempt: {
+						id: "attempt_wrong_brand",
+						provider,
+						status: "repair_required",
+						reasonCode: `${provider}.registration_provider_brand_mismatch`,
+						registrationUrl: null,
+						expiresAt: "2026-09-08T09:00:00Z",
+						nextPollAt: "2026-09-08T08:00:00Z",
+					},
+				}}
+				repairPending={false}
+				startOverPending={false}
+			/>
+		);
+		expect(
+			screen.getByText(
+				`You selected ${label}, but the platform returned a ${otherLabel} account. Switch to a ${label} account before starting over.`
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Waiting for approval")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Start over" }));
+		expect(onStartOver).toHaveBeenCalledOnce();
+	});
+
+	it.each([
+		["lark", "Lark"],
+		["feishu", "Feishu"],
+	] as const)("shows the %s permission recovery action instead of indefinite verification", (provider, label) => {
+		const onRetryPoll = vi.fn();
+		const onReauthorize = vi.fn();
+		render(
+			<LarkPlatformChannelDialog
+				canManage
+				connection={null}
+				disconnectPending={false}
+				errorMessage={null}
+				onDisconnect={vi.fn()}
+				onOpenChange={vi.fn()}
+				onReauthorize={onReauthorize}
+				onRepair={vi.fn()}
+				onRetryPoll={onRetryPoll}
 				onStartOver={vi.fn()}
 				open
 				pollPending={false}
@@ -42,20 +128,25 @@ describe("LarkPlatformChannelDialog", () => {
 				startOverPending={false}
 			/>
 		);
-		expect(
-			screen.getByText("Allow OpenMeld to configure the app")
-		).toBeTruthy();
-		expect(
-			screen
-				.getByRole("link", { name: `Open ${label} Developer Console` })
-				.getAttribute("href")
-		).toBe(consoleUrl);
+		expect(screen.getByText("Authorization required")).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: `Reauthorize ${label}` })
+		);
+		expect(onReauthorize).toHaveBeenCalledOnce();
 		expect(
 			screen.queryByText("Verifying permissions and Webhook delivery")
 		).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "I've authorized, check again" })
+		);
+		expect(onRetryPoll).toHaveBeenCalledOnce();
 	});
 
-	it("hands the user to the official setup page and can start over", () => {
+	it.each([
+		["lark", "Lark", "open.feishu.cn", "open.larksuite.com"],
+		["lark", "Lark", "open.larksuite.com", "open.larksuite.com"],
+		["feishu", "Feishu", "open.feishu.cn", "open.feishu.cn"],
+	] as const)("opens %s setup from a compatible response and can start over", (provider, label, host, destination) => {
 		const onStartOver = vi.fn();
 		const props = {
 			canManage: true,
@@ -64,21 +155,21 @@ describe("LarkPlatformChannelDialog", () => {
 			errorMessage: null,
 			onDisconnect: vi.fn(),
 			onOpenChange: vi.fn(),
+			onReauthorize: vi.fn(),
 			onRepair: vi.fn(),
 			onRetryPoll: vi.fn(),
 			onStartOver,
 			open: true,
 			pollPending: false,
-			provider: "lark" as const,
+			provider,
 			registration: {
 				attempt: {
 					expiresAt: "2026-07-18T01:00:00.000Z",
 					id: "attempt_1",
 					nextPollAt: "2026-07-18T00:00:05.000Z",
-					provider: "lark" as const,
+					provider,
 					reasonCode: null,
-					registrationUrl:
-						"https://open.feishu.cn/page/launcher?device_code=redacted",
+					registrationUrl: `https://${host}/page/launcher?user_code=redacted&name=Existing+app`,
 					status: "pending_registration" as const,
 				},
 				connection: null,
@@ -90,12 +181,14 @@ describe("LarkPlatformChannelDialog", () => {
 		render(<LarkPlatformChannelDialog {...props} />);
 
 		const setupLink = screen.getByRole("link", {
-			name: "Open Lark setup",
+			name: `Open ${label} setup`,
 		});
 		expect(setupLink.getAttribute("href")).toBe(
-			"https://open.feishu.cn/page/launcher?device_code=redacted"
+			`https://${destination}/page/launcher?user_code=redacted&name=Existing+app`
 		);
-		expect(screen.getByText(CREATE_APP_COPY_PATTERN)).toBeTruthy();
+		expect(
+			screen.getByText(`Sign in with your ${label} account.`, { exact: false })
+		).toBeTruthy();
 		expect(screen.getByText("Waiting for approval")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Start over" }));
 		expect(onStartOver).toHaveBeenCalledOnce();
@@ -122,6 +215,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={onDisconnect}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={vi.fn()}
 				onRetryPoll={vi.fn()}
 				onStartOver={vi.fn()}
@@ -161,6 +255,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={onRepair}
 				onRetryPoll={vi.fn()}
 				onStartOver={vi.fn()}
@@ -207,6 +302,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={onRepair}
 				onRetryPoll={vi.fn()}
 				onStartOver={vi.fn()}
@@ -246,6 +342,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={vi.fn()}
 				onRetryPoll={vi.fn()}
 				onStartOver={vi.fn()}

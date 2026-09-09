@@ -18,8 +18,7 @@
 - Do not use this for: Wake execution mechanics
   (`developing/architecture/agent-transport-contract.md`), daemon lifecycle
   (`developing/architecture/local-openmeld-service.md`), current Space
-  semantics (`developing/product/space-collaboration.md`), Center Agent Task
-  product semantics (`developing/product/center-agent-tasks.md`), or
+  semantics (`developing/product/space-collaboration.md`), or runtime
   implementation details that belong in code and scoped owner docs once built.
 - Source of truth: This file owns the Organization/Center Agent direction,
   shipped MVP baseline, deferred scope, and red lines until narrower
@@ -33,9 +32,7 @@ This approved design baseline was settled with Felix on 2026-07-04 (strategy
 sessions in the pre-migration ATS repo). Shipped on main: Organization
 foundation, hosted Center Agent MVP surfaces, and Remote Agent R1 on the Flue
 harness with native delivery, Space reply streaming, Slack channel support, and
-Center Agent memory. The approved first-class Center Agent Tasks target is owned
-by `developing/product/center-agent-tasks.md`; its presence in this target model
-is not a production-release claim. Center Agent Routines are a separate
+Center Agent memory. Center Agent Routines are a separate
 first-class product surface owned by
 `developing/product/center-agent-routines.md`. The former Session Sync
 direction is now the Agent Activity product owned by
@@ -74,13 +71,9 @@ infrastructure**:
 
 Anti-goals that guard the other edge:
 
-- Do not build a heavyweight task/workflow system (Jira-clone death). The
-  conversation-first Center Agent Task product is intentionally limited to
-  durable work, re-entry, coordination, attention, and recovery; it does not add
-  custom workflows, backlogs, planning, sprints, estimates, or drag-to-transition
-  authority. The lower Agent Task Coordination records still exist only to
+- Do not build a heavyweight task/workflow system. Agent Task Coordination records exist only to
   connect exact executions, terminal outcomes, and declared continuations; they
-  are not the Center Agent Task registry or a general workflow engine.
+  are not a product task registry or a general workflow engine.
 - Do not add agent features for their own sake; every pillar must shorten or
   strengthen a real organization's work loop.
 
@@ -166,7 +159,7 @@ The hosted Center Agent freezes one executable capability catalog at turn
 start. When that catalog has progressive discovery and Code Mode, every
 tool-capable primary model receives the same small bootstrap: typed search and
 describe tools, Code Mode, the generic Connected App entry points, and the
-bounded read-only member and Center Agent Task list/detail tools. The
+bounded read-only member tools. The
 foundational reads keep current OpenMeld state directly inspectable for models
 that do not begin with a meta-discovery call. The worker never reads the user's
 words to preselect a hidden business-tool slice, and it does not maintain
@@ -329,26 +322,36 @@ docs directly readable against our schema.
   the current active link through a private Core RPC without a second
   confirmation. On an explicit share request, the Center Agent may also ensure
   that an active link exists on behalf of that verified member. Auth reads the
-  member's current server-side role and permits verified members to ensure a
-  request link. Possession of a link never grants membership: each signed-in,
-  verified recipient requests an invitation and needs individual approval.
-  Ensure returns the current active link when one exists and creates one only
-  when none exists. It never resets or revokes an existing link. Owner and admin
+  member's current server-side role. Owners and admins ensure a direct link;
+  ordinary members ensure a request link. A direct link lets a signed-in,
+  verified recipient explicitly join as a member. A request link requires an
+  owner or admin's decision. Mode belongs to the stored link, not its bearer.
+  Ensure reuses an unexpired link of the same scope and mode, or replaces an
+  expired one. It never rotates another live link. Owner and admin
   management surfaces are Web Settings and `openmeld org invite-link`: both may
-  read the current link, reset it through `create`, or revoke it, while Auth
-  remains the permission authority and writer. Members may read and share links,
+  manage links while Auth remains the permission authority and writer.
+  Legacy management clients without an explicit mode continue managing request
+  links. Web Settings and the avatar Invite dialog use direct links for admins.
+  Members may read and share request links,
   but cannot reset or revoke them. The Center Agent cannot email
   invitations. Personal organizations reject both join-link creation and
   acceptance.
 - Core owns `organization_join_requests`, shared by email and link entry, with
-  an optional ordinary Space target. Approval creates no membership; Auth sends
-  the existing email-bound invitation and the recipient accepts it. Owners and
-  admins receive an Inbox action and transactional review email through the
-  existing delivery ledger. Approval remains actionable until invitation delivery
-  succeeds; failed delivery is explicitly retryable. No configurable policy,
+  an optional ordinary Space target. For a member's email request, approval sends
+  the existing email-bound invitation for the recipient to accept. For an explicit
+  verified recipient request, Core records `applicantUserId`; after approval Auth
+  fulfills membership and optional Space access before Core records `joinedAt`.
+  No second invitation acceptance is required. Owners and admins all receive an
+  urgent Inbox action and transactional review email through the existing delivery
+  ledger. Any one may approve; another may retry incomplete fulfillment. Approval
+  remains actionable until delivery or joining succeeds, then all reviewer items
+  resolve. No configurable policy,
   multi-stage approval, or guest role is part of this batch.
 - Links are scoped to the Organization or one Space, with one active link per
-  scope. Existing links now request approval rather than enrolling a bearer.
+  scope and mode. New links expire after 30 days and can be revoked. Existing
+  links retain request mode. Direct links require their creator to remain an owner
+  or admin; ordinary members cannot retrieve or create a direct link. Unattributed
+  Center Agent read/share operations only expose request links.
   Space sponsorship is checked separately from Organization reviewer authority,
   both at approval and at Space invitation fulfillment.
 - Mail infrastructure is required for invitations; org-foundation implementation
@@ -548,9 +551,8 @@ The Center Agent has one Web product home with complementary destinations:
 
 - **Center Agent** is the product home for the workspace's managed agent and
   owns no secondary sidebar. Its stable header navigation is **Messages,
-  Graph, Files, Tasks, Routines, Skills, Plugins, Channels**. The first three preserve the everyday
-  conversation surface; Tasks owns durable parallel work and conversation-first
-  re-entry; Routines owns scheduled work. One compact header menu preserves
+  Graph, Files, Routines, Skills, Plugins, Channels**. The first three preserve the selected
+  conversation surface; Routines owns scheduled work. One compact header menu preserves
   **Memory, Center Agent settings** and, on the
   conversation, **Conversation information**. There is no separate About
   surface or Slack shortcut. Identity and configuration live in Center Agent
@@ -562,20 +564,25 @@ The Center Agent has one Web product home with complementary destinations:
   identity. Owners/admins may retain their separately authorized configuration
   actions, but role alone never grants operating-state authority.
 
-### Center Agent Tasks
+### Center Agent sessions
 
-One resident Center Agent may coordinate several independent Tasks at the same
-time while Chat remains available. Each Task has isolated versioned context and
-one ordered mutation lane; independent Tasks may run in parallel. Task detail is
-a conversation surface, not another Center Agent identity or a user-managed chat
-session. The Tasks board is a read-only projection, and Agent Task Handles remain
-internal exact execution selectors.
+One Center Agent supports multiple independent chat sessions on the same Computer.
+The session selects conversational context; it does not create another Agent or
+Computer. Existing Space/session authorization, execution controls, and native
+delivery own admission, steering, stopping, and results.
 
-The canonical model, access rules, cross-channel continuity, concurrency,
-Stop/Retry/Recovery semantics, Inbox projection, and Web presentation are owned
-by `developing/product/center-agent-tasks.md`. This file continues to own the
-resident Center Agent identity, designation, operating state, Organization
-authority, and delegation policy.
+The separate Center Agent Task product is retired: no Task creation/discovery
+tools, board, detail route, HTTP/RPC API, recovery scheduler, or Inbox producer
+remain. Local Agent Task Handles and Agent Task Coordination are execution
+selectors and callbacks, not this retired product, and remain supported.
+Historical Task data is not migrated into sessions. Ordinary Space messages
+remain readable; old Task links do not revive a Task.
+
+Task tables and their schema declarations are retained only for safe deployment
+ordering. No active product code reads or writes them. Inbox reads filter to
+currently supported item kinds, including counts and notification delivery.
+Physical deletion must follow deployment of all retiring producers; do not put
+destructive table removal into the ordinary database-before-Core release.
 
 The Audit Log records Center Agent tool calls and externally carried Local Agent
 requests, authorized Center Agent Context Manifest reads, and verified Context
@@ -1360,13 +1367,6 @@ output, a conversation-id prefix, or a second connected provider cannot
 redirect the normal result. Current provider transcripts also remain separate:
 using the same Center Agent does not automatically copy Slack, Lark, or Feishu
 history into another provider conversation.
-
-When that turn explicitly creates or continues a first-class Center Agent Task,
-Core also records the canonical Task event and exact Task context revision under
-`developing/product/center-agent-tasks.md`. The frozen provider locator still
-owns native publication. Web may render the same authorized Task event without
-another model turn or provider write; it does not copy the provider transcript or
-retarget the original result.
 
 An active human participant whose internal relationship to the current
 Organization is established by its connected Slack, Lark, or Feishu workspace
@@ -2538,14 +2538,25 @@ and a concrete next step; it does not manufacture a Working profile or
 Observed activity from identity facts and missing-source notices. Invalid or
 incomplete evidence packets are rejected before they enter document review.
 
-### User-profile remote agents (explicitly deferred)
+### Personal Remote Agents
 
-Once the remote controller type exists, any Agent Profile could technically
-bind to a remote runtime. Product-wise this is **not exposed in MVP**:
-offering it means operating a hosted-compute product (sandboxing, workspace
-persistence, secrets, billing). Keep the schema and controller abstraction
-free of "Center-Agent-only" hardcoding so this later becomes an opening, not a
-rework — but build no product entry now.
+Members may create their own ordinary Remote Agent Profiles in their current
+Organization, with a name and a per-Agent model selected at creation. They use
+the existing Agent directory, Direct Messages, Space membership, and native
+delivery. They do not require a Computer or a personal Center Agent designation.
+The Organization's Center Agent remains its one designated coordinator.
+
+The initial personal Remote Agent can converse and explicitly ask another
+eligible Agent in its current Space for work, including another Agent owned by
+the same member. It has no Center Agent administration, member memory, Apps,
+Organization document, Computer, or filesystem tools. Conversation state is
+isolated by Organization, Agent Profile, and Space. Existing owner-observer DM
+visibility remains visible to participants.
+
+Creation is self-owned only. Local session attachment, Local/Remote rebinding,
+forking, personal Channels, and personal Routines are outside this release.
+Native runtime authority and collaboration limits are owned by
+`remote-agent-runtime.md`.
 
 ## Agent Activity
 
@@ -2643,10 +2654,6 @@ Generic shareable invite links were removed from this out-of-scope list by the
    Claude-task success conditions; unsupported controllers and conditions,
    including current controller `failed` and `needs_attention` watches, fail
    closed.
-7. **Center Agent Tasks** — target product and architecture are owned by
-   `developing/product/center-agent-tasks.md`. Implementation is in progress;
-   owner docs and partial schemas or routes are not evidence that Task creation,
-   cross-channel continuity, realtime refresh, or recovery is released.
 8. **Agent Activity** — implementation is in progress under the first-class
    Project, privacy, ingestion, presence, retention, and read contracts in
    `developing/product/agent-activity.md`.
@@ -2706,9 +2713,7 @@ A coding agent working in this scope must not:
 11. Expose user-profile remote-agent binding as a product surface.
 12. Ship org routes without the `/o/{orgSlug}` scope.
 13. Start building billing, SSO, custom roles, or cross-org guests.
-14. Turn Center Agent Tasks into a second Agent Task Coordination registry, a
-    transcript mirror, or a general backlog/workflow engine. Follow
-    `developing/product/center-agent-tasks.md`.
+14. Reintroduce the retired Center Agent Task product beside chat sessions.
 
 If a task seems to require crossing one of these, stop and surface it to
 Felix; do not "helpfully" cross it.

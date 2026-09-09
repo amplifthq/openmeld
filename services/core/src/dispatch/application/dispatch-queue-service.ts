@@ -6,6 +6,7 @@ import {
   DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
   DISPATCH_ACTIVITY_FAILED_PURPOSE,
   DISPATCH_ACTIVITY_RETRYING_PURPOSE,
+  isHostedAgentRuntimeKind,
   OPENMELD_DAEMON_DISPATCH_CONTRACT_VERSION,
   parseOpenMeldDaemonDispatchQueueIngress,
   projectTargetWakeLifecycleIdentity,
@@ -876,8 +877,10 @@ export const dispatchHostedOutboxMessageDirectly = async (input: {
   }
   const snapshot = preflightCheck.effectiveTargetBindingSnapshot;
   if (
-    snapshot.runtimeKind !== "hosted_center_agent" ||
-    !snapshot.hostedRuntimeIdentity
+    !(
+      isHostedAgentRuntimeKind(snapshot.runtimeKind) &&
+      snapshot.hostedRuntimeIdentity
+    )
   ) {
     logDispatchQueueServerTiming({
       deliveryPath: "direct",
@@ -945,8 +948,9 @@ export const dispatchProductionOutboxMessageDirectly = async (input: {
 
   const recoveryTransport =
     preflightCheck.ok &&
-    preflightCheck.effectiveTargetBindingSnapshot.runtimeKind ===
-      "hosted_center_agent" &&
+    isHostedAgentRuntimeKind(
+      preflightCheck.effectiveTargetBindingSnapshot.runtimeKind
+    ) &&
     preflightCheck.effectiveTargetBindingSnapshot.hostedRuntimeIdentity
       ? "queue"
       : "outbox";
@@ -1305,8 +1309,9 @@ const processDispatchQueueMessageExecution = async (input: {
   }
 
   if (
-    preflightCheck.effectiveTargetBindingSnapshot.runtimeKind ===
-    "hosted_center_agent"
+    isHostedAgentRuntimeKind(
+      preflightCheck.effectiveTargetBindingSnapshot.runtimeKind
+    )
   ) {
     const result = await handleHostedCenterAgentNativeDelivery({
       ctx: input.ctx,
@@ -2049,7 +2054,11 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   executionAttemptId: string;
   nowMs: number;
   openMeldServiceRuntimeId?: string | null;
-  runtimeKind?: "hosted_center_agent" | "openmeld_service" | null;
+  runtimeKind?:
+    | "hosted_center_agent"
+    | "hosted_remote_agent"
+    | "openmeld_service"
+    | null;
   targetOwnerUserId: string;
 }): Promise<RuntimeCoordinatorHeadAcceptanceOutcome> => {
   const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
@@ -2709,10 +2718,13 @@ const handleHostedCenterAgentNativeDelivery = async (input: {
 }): Promise<DispatchQueueMessageExecutionResult> => {
   const { bindingId, modelRoute, organizationId } = input.snapshot;
   if (
-    !(bindingId && organizationId) ||
-    input.snapshot.runtimeKind !== "hosted_center_agent" ||
-    !input.snapshot.hostedRuntimeIdentity ||
-    !modelRoute
+    !(
+      bindingId &&
+      organizationId &&
+      isHostedAgentRuntimeKind(input.snapshot.runtimeKind) &&
+      input.snapshot.hostedRuntimeIdentity &&
+      modelRoute
+    )
   ) {
     throw new DispatchExecutionValidationError({
       code: "remote_agent.hosted_binding_invalid",
@@ -2763,6 +2775,7 @@ const handleHostedCenterAgentNativeDelivery = async (input: {
         submitRemoteAgentNativeDelivery({
           binding: {
             bindingId,
+            personalAgent: input.snapshot.runtimeKind === "hosted_remote_agent",
             controllerNormalization: input.snapshot.controllerNormalization,
             modelRoute,
             organizationId,
@@ -2930,6 +2943,10 @@ const handleDedupedDispatchClaim = async (input: {
   message: QueueBatchMessage;
   queueAttempt: number;
 }): Promise<DispatchQueueMessageExecutionResult> => {
+  if (input.claimState.admissionInFlight) {
+    retryQueueMessage(input.message, { delaySeconds: 1 });
+    return { controllerWaitPromise: null, shouldAck: false };
+  }
   if (input.claimState.runtimeCoordinatorDecisionRequest) {
     const coordinatorDecision = await triggerRuntimeCoordinatorQueueDecision({
       claimState: input.claimState,

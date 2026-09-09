@@ -1,4 +1,5 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import { isHostedAgentControllerRef } from "@openmeld/schemas";
 import type {
 	AgentProfileBindingModelSelection,
 	ModelCatalog,
@@ -14,7 +15,9 @@ export function resolveAgentProfileControllerModelDetail(input: {
 	modelSelection?: AgentProfileBindingModelSelection | null;
 }): string | null {
 	const controllerDisplayName = normalizeDisplayPart(
-		input.controllerDisplayName
+		isHostedAgentControllerRef(input.agentControllerRef)
+			? "Remote"
+			: input.controllerDisplayName
 	);
 	const effectiveModel = resolveEffectiveModel({
 		agentControllerRef: input.agentControllerRef ?? null,
@@ -88,7 +91,13 @@ function resolveControllerCatalog(input: {
 	if (!parsedRef) {
 		return null;
 	}
-	return input.modelCatalog?.agentControllers?.[parsedRef.id] ?? null;
+	return (
+		input.modelCatalog?.agentControllers?.[
+			isHostedAgentControllerRef(input.agentControllerRef)
+				? "center-agent"
+				: parsedRef.id
+		] ?? null
+	);
 }
 
 function normalizeDisplayPart(value: string | null | undefined): string | null {

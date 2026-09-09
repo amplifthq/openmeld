@@ -14,6 +14,7 @@ import {
   builtinAgentControllerAllowsDistinctConversationId,
   CONVERSATION_CONTINUITY_WARNING_PURPOSE,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
+  HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
   hostedCenterAgentRuntimeIdentitySchema,
   LEGACY_RUNTIME_DISPATCH_POLICY,
   normalizeKnownBuiltinAgentControllerId,
@@ -30,6 +31,7 @@ import type {
   CenterAgentModelRoute,
   DispatchExecution,
   DispatchResult,
+  HostedAgentRuntimeIdentity,
   HostedCenterAgentRuntimeIdentity,
   MessageEnvelope,
   OpenMeldDaemonAcceptedDispatchSnapshot,
@@ -70,6 +72,7 @@ import {
   readOrganizationWorkingLanguagePreferenceForSpace,
   toWorkingLanguageGuidance,
 } from "../../organizations/organization-working-language-repository";
+import { isPersonalRemoteAgentBinding } from "../../remote-agent/application/personal-remote-agent-binding";
 import {
   emitSpaceStatusSignal,
   emitSpaceSystemNoticeSignal,
@@ -248,8 +251,12 @@ export type EffectiveTargetBindingSnapshot = {
   } | null;
   ownerUserId: string | null;
   organizationId: string | null;
-  runtimeKind: "openmeld_service" | "hosted_center_agent" | null;
-  hostedRuntimeIdentity: HostedCenterAgentRuntimeIdentity | null;
+  runtimeKind:
+    | "openmeld_service"
+    | "hosted_center_agent"
+    | "hosted_remote_agent"
+    | null;
+  hostedRuntimeIdentity: HostedAgentRuntimeIdentity | null;
   modelRoute?: CenterAgentModelRoute | null;
   openMeldServiceRuntimeId: string | null;
 };
@@ -5628,6 +5635,31 @@ const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
   }
 
   const runtimeKind = binding.runtimeKind ?? "openmeld_service";
+  if (runtimeKind === "hosted_remote_agent") {
+    if (!isPersonalRemoteAgentBinding(binding)) {
+      throw new Error("remote_agent.personal_binding_invalid");
+    }
+    const bindingEnabled = binding.bindingState === "enabled_primary";
+    return {
+      bindingState: "bound",
+      bindingEnabled,
+      bindingId: binding.bindingId,
+      configurationRevision: binding.configurationRevision,
+      agentControllerRef: binding.agentControllerRef,
+      controllerNormalization: null,
+      hostedRuntimeIdentity: HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
+      modelRoute: bindingEnabled
+        ? resolveCenterAgentModelRouteForBinding({
+            binding,
+            catalog: readModelCatalog(),
+          })
+        : null,
+      openMeldServiceRuntimeId: binding.openMeldServiceRuntimeId,
+      organizationId: null,
+      ownerUserId: input.ownerUserId,
+      runtimeKind,
+    };
+  }
   const agentControllerRef =
     runtimeKind === "hosted_center_agent"
       ? null

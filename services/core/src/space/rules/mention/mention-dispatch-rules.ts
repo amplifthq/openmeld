@@ -1,7 +1,5 @@
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import {
-  collectCanonicalMentionTextFragments,
-  formatCanonicalMentionLiteral,
   MENTION_DISPATCH_ERROR_CODES,
   planTargetDispatchDecisions,
 } from "@openmeld/schemas";
@@ -252,45 +250,6 @@ export function buildEffectiveMentionLabelByProfileIdForDispatch(
   });
 }
 
-export function stripDispatchTargetMentionsFromText(input: {
-  mentionTargetAliases?: Map<string, Set<string>>;
-  targetProfileId: string;
-  text: string;
-}): string {
-  const sourceText = input.text.trim();
-  const targetProfileId = input.targetProfileId.trim();
-  if (sourceText.length === 0 || targetProfileId.length === 0) {
-    return sourceText;
-  }
-
-  const mentions = collectCanonicalMentionTextFragments(sourceText).filter(
-    (fragment) => fragment.parsedLiteral?.type === "wake"
-  );
-  if (mentions.length === 0) {
-    return sourceText;
-  }
-
-  let nextText = sourceText;
-  for (let index = mentions.length - 1; index >= 0; index -= 1) {
-    const mention = mentions[index];
-    if (!mention?.parsedLiteral) {
-      continue;
-    }
-    const resolvedTargetProfileId = resolveTargetProfileIdFromMentionLabel({
-      mentionLabel: mention.parsedLiteral.name,
-      mentionTargetAliases: input.mentionTargetAliases,
-    });
-    if (resolvedTargetProfileId !== targetProfileId) {
-      continue;
-    }
-    nextText = `${nextText.slice(0, mention.start)}${nextText.slice(
-      mention.end
-    )}`;
-  }
-
-  return nextText.replace(/\s{2,}/g, " ").trim();
-}
-
 function readSignalActivationTargets(signal: SignalEnvelope): string[] | null {
   if (signal.type !== "signal.text") {
     return null;
@@ -317,47 +276,11 @@ function readSignalActivationTargets(signal: SignalEnvelope): string[] | null {
   return normalizeTargets(messageEnvelope.activationTargets);
 }
 
-function looksLikeProfileIdToken(value: string): boolean {
-  const normalized = value.toLowerCase();
-  return normalized.startsWith("agt_") || normalized.startsWith("agt-");
-}
-
 function buildMentionFailureHintLine(input: {
   decision: MentionDispatchFailureDecision;
   mentionTargetAliases: Map<string, Set<string>>;
 }): string {
-  const { decision } = input;
-  if (decision.errorCode === MENTION_DISPATCH_ERROR_CODES.selfTrigger) {
-    return `You mentioned yourself ("${decision.targetProfileId}"). Mention another target with the exact @Name(wake) label shown in this space. If needed, use @ProfileID(wake).`;
-  }
-
-  if (decision.errorCode === MENTION_DISPATCH_ERROR_CODES.invalidTarget) {
-    const mentionLabel = decision.targetProfileId.trim();
-    const aliasCandidates = input.mentionTargetAliases.get(mentionLabel);
-    if (
-      !looksLikeProfileIdToken(mentionLabel) &&
-      aliasCandidates &&
-      aliasCandidates.size > 1
-    ) {
-      const sortedCandidates = [...aliasCandidates].sort();
-      const visibleCandidates = sortedCandidates.slice(0, 3).map((candidate) =>
-        formatCanonicalMentionLiteral({
-          name: candidate,
-          type: "wake",
-        })
-      );
-      const remainingCount = sortedCandidates.length - visibleCandidates.length;
-      const candidatesLabel =
-        remainingCount > 0
-          ? `${visibleCandidates.join(", ")} (+${remainingCount} more)`
-          : visibleCandidates.join(", ");
-      return `Mention label "${mentionLabel}" matches multiple profiles: ${candidatesLabel}. Use the exact @Name(wake) label shown in this space, or fall back to @ProfileID(wake).`;
-    }
-
-    return `Mention skipped for "${mentionLabel}" (may be expected). If you intended to mention someone, use the exact @Name(wake) label shown in this space. If needed, use @ProfileID(wake).`;
-  }
-
-  return `Dispatch blocked for "${decision.targetProfileId}" (${decision.errorCode}). Try the exact @Name(wake) label shown in this space first. If needed, use @ProfileID(wake).`;
+  return `Wake could not be sent to Profile ID "${input.decision.targetProfileId}" (${input.decision.errorCode}). Select a current Agent in the Space, or use --wake with its full Profile ID from openmeld space members.`;
 }
 
 function shouldSuppressMentionFailureHint(input: {
@@ -372,26 +295,4 @@ function shouldSuppressMentionFailureHint(input: {
     return false;
   }
   return input.suppressInvalidTargetMentionTokens?.has(mentionLabel) ?? false;
-}
-
-function resolveTargetProfileIdFromMentionLabel(input: {
-  mentionLabel: string;
-  mentionTargetAliases?: Map<string, Set<string>>;
-}): string | null {
-  const mentionLabel = String(input.mentionLabel ?? "").trim();
-  if (mentionLabel.length === 0) {
-    return null;
-  }
-
-  if (looksLikeProfileIdToken(mentionLabel)) {
-    return mentionLabel;
-  }
-  const aliasCandidates = input.mentionTargetAliases?.get(mentionLabel);
-  if (aliasCandidates && aliasCandidates.size === 1) {
-    const [resolvedTargetProfileId] = aliasCandidates;
-    if (resolvedTargetProfileId?.length) {
-      return resolvedTargetProfileId;
-    }
-  }
-  return null;
 }

@@ -21,18 +21,16 @@ export function RequestDetails({
 			<p>Status: {request.status}</p>
 			{request.status === "approved" ? (
 				<p className="text-muted-foreground text-sm">
-					{request.invitationSentAt
-						? "Invitation sent. The recipient must accept it before joining."
-						: "Approved. The invitation still needs to be sent."}
+					{approvalOutcome(request)}
 				</p>
 			) : null}
 			{request.canReview &&
+			!request.joinedAt &&
+			!request.invitationSentAt &&
 			(request.status === "pending" || request.status === "approved") ? (
 				<div className="flex flex-wrap gap-2">
 					<Button disabled={pending} onClick={() => onReview("approve")}>
-						{request.status === "approved"
-							? "Send invitation again"
-							: "Approve and send invitation"}
+						{approvalAction(request)}
 					</Button>
 					{request.status === "pending" ? (
 						<Button
@@ -47,4 +45,27 @@ export function RequestDetails({
 			) : null}
 		</>
 	);
+}
+
+function approvalOutcome(request: OrganizationJoinRequest): string {
+	if (request.joinedAt) {
+		return "Approved. The applicant has joined.";
+	}
+	if (request.applicantUserId) {
+		return "Approved. An owner or admin still needs to complete joining.";
+	}
+	return request.invitationSentAt
+		? "Invitation sent. The recipient must accept it before joining."
+		: "Approved. The invitation still needs to be sent.";
+}
+
+function approvalAction(request: OrganizationJoinRequest): string {
+	if (request.applicantUserId) {
+		return request.status === "approved"
+			? "Complete joining"
+			: "Approve and add member";
+	}
+	return request.status === "approved"
+		? "Retry invitation"
+		: "Approve and send invitation";
 }

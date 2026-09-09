@@ -1,3 +1,5 @@
+import { inboxItemKindSchema } from "@openmeld/schemas";
+
 type InboxItemSqlAlias = "inbox_items" | "items";
 
 export function buildCurrentInboxSourceAccessSql(
@@ -5,20 +7,8 @@ export function buildCurrentInboxSourceAccessSql(
 ): string {
   return `
     (
-      CASE
-        WHEN json_extract(${itemAlias}.source_target_json, '$.kind') =
-          'center_agent_task'
-        THEN EXISTS (
-          SELECT 1
-          FROM center_agent_task_authorized_readers AS task_reader
-          WHERE task_reader.task_id = json_extract(
-              ${itemAlias}.source_target_json,
-              '$.taskId'
-            )
-            AND task_reader.organization_id = ${itemAlias}.organization_id
-            AND task_reader.user_id = ${itemAlias}.recipient_user_id
-        )
-        ELSE (
+      ${itemAlias}.kind IN (${inboxItemKindSchema.options.map((kind) => `'${kind}'`).join(", ")})
+      AND (
           NOT (
             json_extract(${itemAlias}.source_target_json, '$.kind') IN (
               'space',
@@ -47,8 +37,7 @@ export function buildCurrentInboxSourceAccessSql(
               AND inbox_space_membership.profile_kind_snapshot = 'human'
               AND inbox_space_membership.status = 'active'
           )
-        )
-      END
+      )
     )
   `;
 }

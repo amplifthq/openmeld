@@ -57,7 +57,7 @@ owners.
   preflight, a workstation Wake goes directly from that outbox to
   RuntimeCoordinator and the current local OpenMeld Service. A retryable
   workstation admission remains in the same outbox and is redriven by the
-  Space alarm. An authoritatively identified hosted Center Agent may use Queue
+  Space alarm. An authoritatively identified hosted Agent may use Queue
   as a recovery transport after a retryable or outcome-ambiguous direct native
   delivery. Queue also remains the conveyor for its other queue message
   families; it is not RuntimeCoordinator authority or the default workstation
@@ -244,7 +244,10 @@ bounded preflight retry policy and Space outbox; no execution is authorized.
 Each retry rereads canonical readiness and authorization. A ready verdict may
 continue the original Wake once, while a definitive blocker or exhausted retry
 budget produces its visible failure. No second user message is required, and
-no already-terminal Wake is revived. The gate reads current Core-held facts only. It does
+no already-terminal Wake is revived. A duplicate intake reservation is not a
+successful execution handoff: concurrent outbox flushes must retain recovery
+while the original admission is still in flight, without executing it twice.
+The gate reads current Core-held facts only. It does
 not poll the Local Service, call a provider, scan Profiles, enumerate
 owner-wide device inventories for presentation enrichment, sleep, or add a
 second readiness projection to the dispatch path.
@@ -496,7 +499,9 @@ Important execution rules:
   terminalizing, or successfully settled row is not failure evidence.
 - Hosted direct-first transport is allowed only after the Space durable outbox
   write and an authoritative Core Binding preflight confirms
-  `hosted_center_agent`. If that check no longer holds, or direct admission
+  `hosted_center_agent` or `hosted_remote_agent`. Personal hosted Agents must
+  also pass current owner, Organization membership, and Binding checks; they
+  do not require or inherit Center Agent designation. If that check no longer holds, or direct admission
   needs retry, Core enqueues the exact same idempotent dispatch. Queue recovery
   must resume the native-delivery ledger/request; it must not fork the Wake into
   RuntimeCoordinator or create a second worker submission.

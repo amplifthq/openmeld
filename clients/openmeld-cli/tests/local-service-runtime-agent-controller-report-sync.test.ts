@@ -1,15 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  reconcileControllersMock,
   collectLocalAgentControllerInventoryMock,
   notifyRuntimeReportingAttemptObserverMock,
   submitRuntimeAgentControllerReportsMock,
 } = vi.hoisted(() => ({
+  reconcileControllersMock: vi.fn(async () => undefined),
   collectLocalAgentControllerInventoryMock: vi.fn(),
   notifyRuntimeReportingAttemptObserverMock: vi.fn(
     async (observer, attempt) => await observer?.(attempt)
   ),
   submitRuntimeAgentControllerReportsMock: vi.fn(),
+}));
+
+vi.mock("../src/agents/registry", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agents/registry")>()),
+  reconcileNewRunnableBuiltinAgentRegistrations: reconcileControllersMock,
 }));
 
 vi.mock(
@@ -69,6 +76,7 @@ describe("local service runtime agent controller report sync", () => {
   };
 
   beforeEach(() => {
+    reconcileControllersMock.mockClear();
     collectLocalAgentControllerInventoryMock.mockReset();
     notifyRuntimeReportingAttemptObserverMock.mockClear();
     submitRuntimeAgentControllerReportsMock.mockReset();
@@ -144,6 +152,15 @@ describe("local service runtime agent controller report sync", () => {
       includeControllerInterface: true,
       localAdapterContainer,
     });
+    expect(reconcileControllersMock).toHaveBeenCalledWith();
+    const [inventoryOrder] =
+      collectLocalAgentControllerInventoryMock.mock.invocationCallOrder;
+    if (inventoryOrder === undefined) {
+      throw new Error("Controller inventory was not collected");
+    }
+    expect(reconcileControllersMock.mock.invocationCallOrder[0]).toBeLessThan(
+      inventoryOrder
+    );
     expect(submitRuntimeAgentControllerReportsMock).toHaveBeenCalledWith({
       reports: [
         {

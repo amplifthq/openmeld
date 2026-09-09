@@ -1,5 +1,4 @@
 import {
-  collectCanonicalMentionTextFragments,
   MESSAGE_MENTION_TYPE_VALUES,
   type MessageEnvelope,
   type MessageMentionType,
@@ -16,9 +15,6 @@ const DUPLICATE_TARGET_ISSUE_PATTERN =
   /^(activationTargets|referenceTargets|mentionTargets) must not contain duplicate profileId$/u;
 const DISTINCT_TARGET_ISSUE_PATTERN =
   /^(activationTargets|referenceTargets|mentionTargets) must not reuse profileId from (activationTargets|referenceTargets|mentionTargets)$/u;
-const REMOVED_CC_RELATION_SUFFIX_PATTERN = /\(cc\)$/u;
-const INVALID_MENTION_GUIDANCE =
-  "That mention is not valid. Type @ and choose a member from the list.";
 const MISSING_MENTION_TARGET_GUIDANCE =
   "That mention does not match a current member. Type @ and choose a member from the list.";
 const INVALID_MENTION_ACTION_GUIDANCE =
@@ -29,7 +25,7 @@ export function formatRemovedCcRelationMessage(
   return `CC has been removed from Space Message Addressing. Use ${replacement} instead.`;
 }
 
-type CanonicalMentionTargetField = keyof Pick<
+type MessageTargetField = keyof Pick<
   MessageEnvelope,
   "activationTargets" | "referenceTargets" | "mentionTargets"
 >;
@@ -42,7 +38,7 @@ type MessageEnvelopeInput = {
   text: string;
 };
 
-export type SpaceCanonicalMentionInTextOrder = {
+export type SpaceAuthoredMentionInTextOrder = {
   profileId: string;
   text: string;
   type: MessageMentionType;
@@ -61,16 +57,15 @@ type PositionedSpaceComposerAuthoredMention =
   };
 
 type StructuredMentionCandidate = {
-  canonicalMention?: SpaceCanonicalMentionInTextOrder;
+  text: string;
   profileId: string;
   relation: MessageMentionType;
   sequence: number;
-  sourcePriority: 0 | 1;
   start: number;
 };
 
 export type SpaceResolvedStructuredTargetSet = {
-  canonicalMentionsInTextOrder: readonly SpaceCanonicalMentionInTextOrder[];
+  mentionsInTextOrder: readonly SpaceAuthoredMentionInTextOrder[];
   profileIdsInTextOrder: readonly string[];
 };
 
@@ -80,7 +75,7 @@ export type SpaceComposerReplyTarget = {
 
 export type PreparedSpaceComposerSubmission = {
   authoredMentionsInTextOrder: readonly SpaceComposerAuthoredMentionInTextOrder[];
-  canonicalMentionsInTextOrder: readonly SpaceCanonicalMentionInTextOrder[];
+  mentionsInTextOrder: readonly SpaceAuthoredMentionInTextOrder[];
   hasStructuredTargets: boolean;
   messageEnvelope: MessageEnvelope | null;
   replyTo: SpaceComposerReplyTarget | null;
@@ -90,7 +85,6 @@ export type PreparedSpaceComposerSubmission = {
 
 export type SpaceComposerSubmissionErrorCode =
   | "addressing.duplicate_target"
-  | "addressing.invalid_canonical_mention_syntax"
   | "addressing.invalid_message_envelope"
   | "addressing.invalid_reply_target"
   | "addressing.members_snapshot_missing"
@@ -119,7 +113,6 @@ export class SpaceComposerSubmissionError extends Error {
 
 const SPACE_COMPOSER_SUBMISSION_ERROR_CODES = new Set<string>([
   "addressing.duplicate_target",
-  "addressing.invalid_canonical_mention_syntax",
   "addressing.invalid_message_envelope",
   "addressing.invalid_reply_target",
   "addressing.members_snapshot_missing",
@@ -150,7 +143,6 @@ export function prepareSpaceComposerSubmission(input: {
   snapshot: SpaceMembersSnapshot | null;
   text: string;
 }): PreparedSpaceComposerSubmission {
-  const canonicalFragments = collectCanonicalMentionTextFragments(input.text);
   const authoredMentionsInTextOrder = normalizeAuthoredMentionsInTextOrder({
     mentions: input.authoredMentionsInTextOrder,
     text: input.text,
@@ -158,7 +150,7 @@ export function prepareSpaceComposerSubmission(input: {
   const replyToSignalId = normalizeReplyToSignalId(input.replyTo);
   const replyTo = replyToSignalId ? { signalId: replyToSignalId } : null;
 
-  if (hasNoAuthoredMentions(canonicalFragments, authoredMentionsInTextOrder)) {
+  if (authoredMentionsInTextOrder.length === 0) {
     const normalizedText = normalizePlainTextOrThrow(input.text);
     const messageEnvelope = createMessageEnvelopeOrNull({
       activationTargets: [],
@@ -169,7 +161,7 @@ export function prepareSpaceComposerSubmission(input: {
     });
     return {
       authoredMentionsInTextOrder: [],
-      canonicalMentionsInTextOrder: [],
+      mentionsInTextOrder: [],
       hasStructuredTargets: false,
       messageEnvelope,
       replyTo,
@@ -177,8 +169,6 @@ export function prepareSpaceComposerSubmission(input: {
       text: normalizedText,
     };
   }
-
-  validateCanonicalMentionSyntaxOrThrow(canonicalFragments);
 
   if (!input.snapshot) {
     throw createSubmissionError(
@@ -191,53 +181,9 @@ export function prepareSpaceComposerSubmission(input: {
 
   const catalog = createSpaceTargetCatalog(input.snapshot);
   const envelopeInput = createEnvelopeInput(input.text, replyToSignalId);
-  const canonicalMentionsInTextOrder: SpaceCanonicalMentionInTextOrder[] = [];
   const profileIdsInTextOrder: string[] = [];
   const structuredTargetProfileIds = new Set<string>();
   const structuredMentionCandidates: StructuredMentionCandidate[] = [];
-
-  for (const fragment of canonicalFragments) {
-    const parsedLiteral = fragment.parsedLiteral;
-    if (!parsedLiteral) {
-      throw createSubmissionError(
-        "addressing.invalid_canonical_mention_syntax",
-        buildInvalidCanonicalMentionSyntaxMessage(fragment.text)
-      );
-    }
-
-    const target = catalog.byExactMentionLabel.get(parsedLiteral.name);
-    if (!target) {
-      throw createSubmissionError(
-        "addressing.target_not_in_current_space",
-        MISSING_MENTION_TARGET_GUIDANCE
-      );
-    }
-
-    if (!target.allowedRelations[parsedLiteral.type]) {
-      throw createSubmissionError(
-        "addressing.relation_incompatible",
-        buildInvalidCanonicalMentionRelationMessage({
-          mentionText: fragment.text,
-          relation: parsedLiteral.type,
-        })
-      );
-    }
-
-    const canonicalMention = {
-      profileId: target.profileId,
-      text: fragment.text,
-      type: parsedLiteral.type,
-    } satisfies SpaceCanonicalMentionInTextOrder;
-    canonicalMentionsInTextOrder.push(canonicalMention);
-    structuredMentionCandidates.push({
-      canonicalMention,
-      profileId: target.profileId,
-      relation: parsedLiteral.type,
-      sequence: structuredMentionCandidates.length,
-      sourcePriority: 0,
-      start: fragment.start,
-    });
-  }
 
   for (const authoredMention of authoredMentionsInTextOrder) {
     const target = catalog.byProfileId.get(authoredMention.profileId);
@@ -251,7 +197,7 @@ export function prepareSpaceComposerSubmission(input: {
     if (!target.allowedRelations[authoredMention.relation]) {
       throw createSubmissionError(
         "addressing.relation_incompatible",
-        buildInvalidCanonicalMentionRelationMessage({
+        buildInvalidMentionRelationMessage({
           mentionText: authoredMention.text,
           relation: authoredMention.relation,
         })
@@ -262,39 +208,31 @@ export function prepareSpaceComposerSubmission(input: {
       profileId: target.profileId,
       relation: authoredMention.relation,
       sequence: structuredMentionCandidates.length,
-      sourcePriority: 1,
+      text: authoredMention.text,
       start: authoredMention.start,
     });
   }
 
-  const resolvedCanonicalMentionsInTextOrder =
-    appendStructuredMentionCandidates({
-      candidates: structuredMentionCandidates,
-      envelopeInput,
-      profileIdsInTextOrder,
-      structuredTargetProfileIds,
-    });
+  const resolvedMentionsInTextOrder = appendStructuredMentionCandidates({
+    candidates: structuredMentionCandidates,
+    envelopeInput,
+    profileIdsInTextOrder,
+    structuredTargetProfileIds,
+  });
 
   const messageEnvelope = createMessageEnvelopeOrNull(envelopeInput);
   return {
     authoredMentionsInTextOrder,
-    canonicalMentionsInTextOrder,
+    mentionsInTextOrder: resolvedMentionsInTextOrder,
     hasStructuredTargets: profileIdsInTextOrder.length > 0,
     messageEnvelope,
     replyTo,
     resolvedStructuredTargets: {
-      canonicalMentionsInTextOrder: resolvedCanonicalMentionsInTextOrder,
+      mentionsInTextOrder: resolvedMentionsInTextOrder,
       profileIdsInTextOrder,
     },
     text: messageEnvelope?.text ?? normalizePlainTextOrThrow(input.text),
   };
-}
-
-function hasNoAuthoredMentions(
-  canonicalFragments: ReturnType<typeof collectCanonicalMentionTextFragments>,
-  authoredMentions: readonly SpaceComposerAuthoredMentionInTextOrder[]
-): boolean {
-  return canonicalFragments.length === 0 && authoredMentions.length === 0;
 }
 
 function appendStructuredTarget(input: {
@@ -310,7 +248,7 @@ function appendStructuredTarget(input: {
   input.structuredTargetProfileIds.add(input.profileId);
   const fieldName = resolveMessageEnvelopeTargetField(
     input.relation
-  ) as CanonicalMentionTargetField;
+  ) as MessageTargetField;
   input.envelopeInput[fieldName].push(input.profileId);
   input.profileIdsInTextOrder.push(input.profileId);
   return true;
@@ -320,11 +258,7 @@ function compareStructuredMentionCandidates(
   left: StructuredMentionCandidate,
   right: StructuredMentionCandidate
 ): number {
-  return (
-    left.start - right.start ||
-    left.sourcePriority - right.sourcePriority ||
-    left.sequence - right.sequence
-  );
+  return left.start - right.start || left.sequence - right.sequence;
 }
 
 function appendStructuredMentionCandidates(input: {
@@ -332,9 +266,8 @@ function appendStructuredMentionCandidates(input: {
   envelopeInput: MessageEnvelopeInput;
   profileIdsInTextOrder: string[];
   structuredTargetProfileIds: Set<string>;
-}): SpaceCanonicalMentionInTextOrder[] {
-  const resolvedCanonicalMentionsInTextOrder: SpaceCanonicalMentionInTextOrder[] =
-    [];
+}): SpaceAuthoredMentionInTextOrder[] {
+  const resolvedMentionsInTextOrder: SpaceAuthoredMentionInTextOrder[] = [];
   input.candidates.sort(compareStructuredMentionCandidates);
   for (const candidate of input.candidates) {
     const appended = appendStructuredTarget({
@@ -344,11 +277,15 @@ function appendStructuredMentionCandidates(input: {
       relation: candidate.relation,
       structuredTargetProfileIds: input.structuredTargetProfileIds,
     });
-    if (appended && candidate.canonicalMention) {
-      resolvedCanonicalMentionsInTextOrder.push(candidate.canonicalMention);
+    if (appended) {
+      resolvedMentionsInTextOrder.push({
+        profileId: candidate.profileId,
+        text: candidate.text,
+        type: candidate.relation,
+      });
     }
   }
-  return resolvedCanonicalMentionsInTextOrder;
+  return resolvedMentionsInTextOrder;
 }
 
 export function prepareSpaceFileOnlySubmission(input?: {
@@ -357,7 +294,7 @@ export function prepareSpaceFileOnlySubmission(input?: {
   const replyToSignalId = normalizeReplyToSignalId(input?.replyTo);
   return {
     authoredMentionsInTextOrder: [],
-    canonicalMentionsInTextOrder: [],
+    mentionsInTextOrder: [],
     hasStructuredTargets: false,
     messageEnvelope: null,
     replyTo: replyToSignalId ? { signalId: replyToSignalId } : null,
@@ -399,6 +336,9 @@ function normalizeAuthoredMentionsInTextOrder(input: {
       (declaredStart ?? -1) >= searchStart &&
       input.text.slice(declaredStart, (declaredStart ?? 0) + text.length) ===
         text;
+    if (declaredStart !== undefined && !hasValidDeclaredStart) {
+      continue;
+    }
     const start = hasValidDeclaredStart
       ? (declaredStart as number)
       : input.text.indexOf(text, searchStart);
@@ -418,45 +358,9 @@ function normalizeAuthoredMentionsInTextOrder(input: {
   return normalizedMentions;
 }
 
-export function assertValidSpaceCanonicalMentionSyntax(text: string): void {
-  validateCanonicalMentionSyntaxOrThrow(
-    collectCanonicalMentionTextFragments(text)
-  );
-}
-
-export function assertNoRemovedCcSpaceAddressingSyntax(text: string): void {
-  const removedCcMention = collectCanonicalMentionTextFragments(text).find(
-    (fragment) => REMOVED_CC_RELATION_SUFFIX_PATTERN.test(fragment.text.trim())
-  );
-  if (removedCcMention) {
-    throw createSubmissionError(
-      "addressing.invalid_canonical_mention_syntax",
-      formatRemovedCcRelationMessage("Reference")
-    );
-  }
-}
-
-export function spaceTextHasCanonicalMentionAttempts(text: string): boolean {
-  return collectCanonicalMentionTextFragments(text).length > 0;
-}
-
-function validateCanonicalMentionSyntaxOrThrow(
-  canonicalFragments: ReturnType<typeof collectCanonicalMentionTextFragments>
-): void {
-  for (const fragment of canonicalFragments) {
-    if (fragment.parsedLiteral) {
-      continue;
-    }
-    throw createSubmissionError(
-      "addressing.invalid_canonical_mention_syntax",
-      buildInvalidCanonicalMentionSyntaxMessage(fragment.text)
-    );
-  }
-}
-
 function emptyResolvedStructuredTargets(): SpaceResolvedStructuredTargetSet {
   return {
-    canonicalMentionsInTextOrder: [],
+    mentionsInTextOrder: [],
     profileIdsInTextOrder: [],
   };
 }
@@ -589,51 +493,11 @@ function createMessageEnvelopeOrNull(
   return normalizeEnvelopeOrThrow(input);
 }
 
-function buildInvalidCanonicalMentionSyntaxMessage(
-  mentionText: string
-): string {
-  const trimmedMentionText = mentionText.trim();
-  const openParenIndex = trimmedMentionText.lastIndexOf("(");
-
-  if (
-    !trimmedMentionText.startsWith("@") ||
-    openParenIndex <= 1 ||
-    !trimmedMentionText.endsWith(")")
-  ) {
-    return INVALID_MENTION_GUIDANCE;
-  }
-
-  const rawName = trimmedMentionText.slice(1, openParenIndex);
-  const rawType = trimmedMentionText.slice(
-    openParenIndex + 1,
-    trimmedMentionText.length - 1
-  );
-
-  if (rawName.trim() !== rawName) {
-    return INVALID_MENTION_GUIDANCE;
-  }
-
-  const normalizedName = rawName.replaceAll(/\s+/g, " ").trim();
-  if (normalizedName.includes("(") || normalizedName.includes(")")) {
-    return INVALID_MENTION_GUIDANCE;
-  }
-
-  if (rawType === "cc") {
-    return formatRemovedCcRelationMessage("Reference");
-  }
-
-  if (!CANONICAL_MENTION_TYPES.has(rawType as MessageMentionType)) {
-    return INVALID_MENTION_ACTION_GUIDANCE;
-  }
-
-  return INVALID_MENTION_GUIDANCE;
-}
-
-function buildInvalidCanonicalMentionRelationMessage(input: {
+function buildInvalidMentionRelationMessage(input: {
   mentionText: string;
   relation: MessageMentionType;
 }): string {
-  return `Invalid canonical mention "${input.mentionText}": ${input.relation} is only allowed for ${describeRelationSupport(
+  return `Invalid mention "${input.mentionText}": ${input.relation} is only allowed for ${describeRelationSupport(
     input.relation
   )} in this space.`;
 }

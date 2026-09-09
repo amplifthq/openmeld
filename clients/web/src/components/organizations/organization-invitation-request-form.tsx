@@ -2,7 +2,7 @@ import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { requestOrganizationJoinRequests } from "#/lib/organizations/organization-join-requests";
 import { invitationRequestQueryKey } from "#/query/organizations/invitation-requests";
@@ -11,6 +11,7 @@ import { InvitationRequestLink } from "./invitation-request-link";
 export function OrganizationInvitationRequestForm(input: {
 	organizationId: string;
 }) {
+	const emailId = useId();
 	const [email, setEmail] = useState("");
 	const client = useQueryClient();
 	const { currentOrganization } = useAppOrganization();
@@ -28,6 +29,7 @@ export function OrganizationInvitationRequestForm(input: {
 	});
 	return (
 		<div className="space-y-4">
+			<h3 className="font-medium text-sm">Invite members</h3>
 			<form
 				className="space-y-2"
 				onSubmit={(event) => {
@@ -36,16 +38,14 @@ export function OrganizationInvitationRequestForm(input: {
 				}}
 			>
 				<p className="text-muted-foreground text-sm">
-					An owner or admin must approve your invitation before it is sent.
+					We’ll notify all owners and admins by email and in their Inbox. Once
+					one approves, we’ll email your teammate an invitation.
 				</p>
-				<label
-					className="text-sm"
-					htmlFor="organization-invitation-request-email"
-				>
+				<label className="text-sm" htmlFor={emailId}>
 					Email address
 				</label>
 				<Input
-					id="organization-invitation-request-email"
+					id={emailId}
 					onChange={(event) => setEmail(event.target.value)}
 					placeholder="name@example.com"
 					required

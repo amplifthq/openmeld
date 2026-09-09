@@ -42,8 +42,6 @@ type RemoteAgentWorkerSubmitTurnRequestV1Schema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerSubmitTurnRequestV1Schema"];
 type RemoteAgentWorkerSubmitTurnRequestV2Schema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerSubmitTurnRequestV2Schema"];
-type RemoteAgentWorkerSubmitTurnRequestV3Schema =
-  typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerSubmitTurnRequestV3Schema"];
 type RemoteAgentWorkerSubmitTurnRequestV4Schema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerSubmitTurnRequestV4Schema"];
 type RemoteAgentConversationContinuityContextSchema =
@@ -52,8 +50,6 @@ type RemoteAgentConversationContinuityEntrySchema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentConversationContinuityEntrySchema"];
 type RemoteAgentRuntimeConversationSchema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentRuntimeConversationSchema"];
-type RemoteAgentWorkerConversationIdentitySchema =
-  typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerConversationIdentitySchema"];
 type RemoteAgentWorkerSubmitTurnResponseSchema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerSubmitTurnResponseSchema"];
 type RemoteAgentRuntimeEvidenceOutcomeReasonCodeSchema =
@@ -121,8 +117,6 @@ export type RemoteAgentWorkerSubmitTurnRequestV1 =
   z.infer<RemoteAgentWorkerSubmitTurnRequestV1Schema>;
 export type RemoteAgentWorkerSubmitTurnRequestV2 =
   z.infer<RemoteAgentWorkerSubmitTurnRequestV2Schema>;
-export type RemoteAgentWorkerSubmitTurnRequestV3 =
-  z.infer<RemoteAgentWorkerSubmitTurnRequestV3Schema>;
 export type RemoteAgentWorkerSubmitTurnRequestV4 =
   z.infer<RemoteAgentWorkerSubmitTurnRequestV4Schema>;
 export type RemoteAgentConversationContinuityContext =
@@ -131,8 +125,6 @@ export type RemoteAgentConversationContinuityEntry =
   z.infer<RemoteAgentConversationContinuityEntrySchema>;
 export type RemoteAgentRuntimeConversation =
   z.infer<RemoteAgentRuntimeConversationSchema>;
-export type RemoteAgentWorkerConversationIdentity =
-  z.infer<RemoteAgentWorkerConversationIdentitySchema>;
 export type RemoteAgentWorkerSubmitTurnResponse =
   z.infer<RemoteAgentWorkerSubmitTurnResponseSchema>;
 export type RemoteAgentRuntimeEvidenceOutcomeReasonCode =

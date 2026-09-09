@@ -1,4 +1,5 @@
 import { env, runInDurableObject, SELF } from "cloudflare:test";
+import { RpcStub, RpcTarget } from "cloudflare:workers";
 import { createHash, randomUUID } from "node:crypto";
 import {
   applyOpenMeldRequestContextHeaders,
@@ -911,7 +912,10 @@ describe("OpenMeld Core", () => {
     expect(payload.message).toBe("authentication required");
   });
 
-  it("authorizes Wake Stop and its progress projection for the requester or agent owner only", async () => {
+  it.each([
+    "human",
+    "agent",
+  ] as const)("authorizes %s-requested Wake Stop through Auth RPC for the requester or agent owner only", async (sourceKind) => {
     // The unrelated account creates the Space: creation must not grant Stop.
     const spaceId = await createSpace(undefined, {
       profileId: THIRD_HUMAN_PROFILE_ID,
@@ -923,6 +927,10 @@ describe("OpenMeld Core", () => {
     await runInDurableObject(stub, async (_instance, state) => {
       const sourceSignalId = `wake-stop-source-${randomUUID()}`;
       const targetProfileId = `agt_${randomUUID()}`;
+      const sourceProfileId =
+        sourceKind === "agent"
+          ? `agt_${randomUUID()}`
+          : DEFAULT_HUMAN_PROFILE_ID;
       insertSignalRecord(state.storage.sql, {
         v: 1,
         id: sourceSignalId,
@@ -930,34 +938,48 @@ describe("OpenMeld Core", () => {
         ts: Date.now(),
         type: "signal.text",
         profile: {
-          kind: "human",
-          profileId: DEFAULT_HUMAN_PROFILE_ID,
-          profileName: "Requester",
+          kind: sourceKind,
+          profileId: sourceProfileId,
+          profileName: sourceKind === "agent" ? "Center Agent" : "Requester",
         },
         data: { text: "Run this task." },
       });
-      const resolveProfileById = vi.fn(
-        async ({ openMeldProfileId }: { openMeldProfileId: string }) => ({
-          ok: true as const,
-          profile: {
-            profileId: openMeldProfileId,
-            profileKind:
-              openMeldProfileId === targetProfileId
-                ? ("agent" as const)
-                : ("human" as const),
-            profileName: "Test profile",
-            profileHandle: "test-profile",
-            status: "active" as const,
-            ownerUserId:
-              openMeldProfileId === targetProfileId
-                ? "agent-owner"
-                : "owner-test-default",
-          },
-        })
-      );
+      // Use workerd's RPC proxy: ordinary function mocks incorrectly support .bind().
+      class AuthProfiles extends RpcTarget {
+        resolveProfileById({
+          openMeldProfileId,
+        }: {
+          openMeldProfileId: string;
+        }) {
+          const sourceOwnerUserId =
+            sourceKind === "agent"
+              ? "center-agent-owner"
+              : "owner-test-default";
+          return {
+            ok: true as const,
+            profile: {
+              profileId: openMeldProfileId,
+              profileKind:
+                openMeldProfileId === targetProfileId ||
+                (sourceKind === "agent" &&
+                  openMeldProfileId === sourceProfileId)
+                  ? ("agent" as const)
+                  : ("human" as const),
+              profileName: "Test profile",
+              profileHandle: "test-profile",
+              status: "active" as const,
+              ownerUserId:
+                openMeldProfileId === targetProfileId
+                  ? "agent-owner"
+                  : sourceOwnerUserId,
+            },
+          };
+        }
+      }
+      using auth = new RpcStub(new AuthProfiles());
       const space = new Space(state, {
         ...env,
-        OPENMELD_AUTH_WORKER: { resolveProfileById },
+        OPENMELD_AUTH_WORKER: auth,
       } as unknown as CoreBindings);
       const stop = {
         ok: true as const,
@@ -1021,10 +1043,18 @@ describe("OpenMeld Core", () => {
         nativeStop.mockResolvedValue(native ? stop : null);
         for (const by of ["source_signal", "client_message"] as const) {
           for (const [profileId, ownerUserId, allowed] of [
-            [DEFAULT_HUMAN_PROFILE_ID, "owner-test-default", true],
+            [
+              DEFAULT_HUMAN_PROFILE_ID,
+              "owner-test-default",
+              sourceKind === "human",
+            ],
             [SECOND_HUMAN_PROFILE_ID, "agent-owner", true],
             [THIRD_HUMAN_PROFILE_ID, "unrelated-owner", false],
-            [FOURTH_HUMAN_PROFILE_ID, "owner-test-default", true],
+            [
+              FOURTH_HUMAN_PROFILE_ID,
+              "owner-test-default",
+              sourceKind === "human",
+            ],
           ] as const) {
             nativeStop.mockClear();
             preAgentStop.mockClear();
@@ -6989,50 +7019,6 @@ describe("OpenMeld Core", () => {
     observer.close(1000, "done");
   });
 
-  it("does not let an ordinary user forge durable Center Agent Task references", async () => {
-    const spaceId = await createSpace();
-    const text = "I created a Task that does not exist.";
-    const postResponse = await fetchWithOpenMeldAuth(
-      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "signal.text",
-          data: {
-            text,
-            meta: {
-              centerAgentTaskReferences: [{ taskId: "forged-task-1" }],
-            },
-          },
-        }),
-      }
-    );
-
-    expect(postResponse.status).toBe(200);
-    const posted = parseEnvelope(await postResponse.json());
-    if (!isTextSignalEnvelope(posted)) {
-      throw new Error("Expected signal.text envelope from POST /signals");
-    }
-    expect(posted.data.meta?.centerAgentTaskReferences).toBeUndefined();
-
-    const historyResponse = await fetchWithOpenMeldAuth(
-      `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`
-    );
-    expect(historyResponse.status).toBe(200);
-    const history = (await historyResponse.json()) as {
-      signals?: SignalEnvelope[];
-    };
-    const persisted = history.signals?.find(
-      (signal) => signal.type === "signal.text" && signal.data.text === text
-    );
-    expect(
-      persisted?.type === "signal.text"
-        ? persisted.data.meta?.centerAgentTaskReferences
-        : undefined
-    ).toBeUndefined();
-  });
-
   it("preserves signal replyTo across HTTP post, websocket live, and stored history", async () => {
     const spaceId = await createSpace();
     const observer = await openSpaceSocket(spaceId, {
@@ -8389,42 +8375,18 @@ describe("OpenMeld Core", () => {
     expect(posted.profile?.profileId).toBe(
       rpcContext.actorContext.openMeldProfileId
     );
-    expect(posted.data?.meta?.centerAgentTaskReferences).toEqual([
-      { taskId: "task-direct-rpc-1" },
-    ]);
 
     const listed = await stub.rpcListSignals({
       spaceId,
       context: rpcContext,
     });
-    expect(
-      listed.signals.some(
-        (signal) =>
-          signal.type === "signal.text" &&
-          signal.data?.text === "hello from direct do rpc" &&
-          signal.data.meta?.centerAgentTaskReferences?.[0]?.taskId ===
-            "task-direct-rpc-1"
-      )
-    ).toBe(true);
     expect(listed.nextCursor).toBeNull();
 
     const historyResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`
     );
     expect(historyResponse.status).toBe(200);
-    const history = (await historyResponse.json()) as {
-      signals?: SignalEnvelope[];
-    };
-    const persistedTaskReply = history.signals?.find(
-      (signal) =>
-        signal.type === "signal.text" &&
-        signal.data.text === "hello from direct do rpc"
-    );
-    expect(
-      persistedTaskReply?.type === "signal.text"
-        ? persistedTaskReply.data.meta?.centerAgentTaskReferences
-        : undefined
-    ).toEqual([{ taskId: "task-direct-rpc-1" }]);
+    expect(await historyResponse.json()).toHaveProperty("signals");
 
     const patchedCursor = await stub.rpcPatchCursor({
       spaceId,

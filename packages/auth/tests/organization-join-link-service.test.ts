@@ -39,7 +39,8 @@ describe("organization join link concurrent creation", () => {
     expect(repository.findActiveByOrganizationId).toHaveBeenCalledOnce();
     expect(repository.findActiveByOrganizationId).toHaveBeenCalledWith(
       ORGANIZATION_ID,
-      undefined
+      undefined,
+      insertPath === "ensure" ? "direct" : "request"
     );
   });
 
@@ -252,6 +253,8 @@ function createJoinLinkRecord(
     id: "link-created",
     organizationId: ORGANIZATION_ID,
     revokedAt: null,
+    mode: "request",
+    expiresAt: null,
     spaceId: null,
     role: "member",
     token: `joinlink_${"a".repeat(64)}`,

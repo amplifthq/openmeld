@@ -9,8 +9,6 @@ import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentRoutinesPath,
 	buildOrganizationCenterAgentSettingsPath,
-	buildOrganizationCenterAgentTaskPath,
-	buildOrganizationCenterAgentTasksPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationComputerPath,
 	buildOrganizationComputersPath,
@@ -170,18 +168,6 @@ describe("primary organization routes", () => {
 		);
 	});
 
-	it("keeps Tasks and immutable Task details inside the Center Agent product", () => {
-		expect(buildOrganizationCenterAgentTasksPath("acme")).toBe(
-			"/o/acme/center-agent/tasks"
-		);
-		expect(
-			buildOrganizationCenterAgentTaskPath({
-				orgSlug: "acme",
-				taskId: "task/one",
-			})
-		).toBe("/o/acme/center-agent/tasks/task%2Fone");
-	});
-
 	it("keeps Organization Skills inside the Center Agent route family", () => {
 		expect(buildOrganizationSkillsPath("acme")).toBe(
 			"/o/acme/center-agent/skills"
@@ -224,16 +210,6 @@ describe("resolveOrganizationSwitchPath", () => {
 			"Center Agent Routines",
 			"/o/acme/center-agent/routines",
 			"/o/beta/center-agent/routines",
-		],
-		[
-			"Center Agent Tasks",
-			"/o/acme/center-agent/tasks",
-			"/o/beta/center-agent/tasks",
-		],
-		[
-			"Center Agent Task detail",
-			"/o/acme/center-agent/tasks/task-acme",
-			"/o/beta/center-agent/tasks",
 		],
 		[
 			"Center Agent Skills",

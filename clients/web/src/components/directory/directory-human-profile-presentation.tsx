@@ -10,6 +10,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { CaretRightIcon, DesktopTowerIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
+import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import {
 	resolveDirectoryComputerStatusTone,
 	resolveDirectoryComputerToneClassName,
@@ -331,8 +332,11 @@ function AgentProfileSummaryCard(input: {
 		>
 			<AgentProfileSummaryAvatar profile={input.profile} />
 			<span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
-				<span className="truncate font-medium text-sm">
-					{input.profile.name}
+				<span className="flex min-w-0 items-center gap-1.5 font-medium text-sm">
+					<span className="truncate">{input.profile.name}</span>
+					<RemoteAgentIndicator
+						agentControllerRef={input.profile.agentControllerRef}
+					/>
 				</span>
 				{controllerModelDetail ? (
 					<span className="truncate text-muted-foreground text-xs">
@@ -364,6 +368,7 @@ function AgentProfileSummaryAvatar(input: {
 		<AgentProfileControllerAvatar
 			agentControllerRef={input.profile.agentControllerRef}
 			profileId={input.profile.id}
+			profileName={input.profile.name}
 			size={32}
 		/>
 	);

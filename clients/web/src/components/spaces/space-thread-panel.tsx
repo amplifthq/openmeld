@@ -31,6 +31,7 @@ import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-int
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
+import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
 import {
 	buildAnchoredSpaceOutcomeNoticesBySourceSignalId,
 	buildSpaceConversationEntries,
@@ -1466,6 +1467,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							}
 							profileId={input.item.actorProfileId}
 							profileKind={input.item.actorProfileKind}
+							working={isSpaceMessageAgentWorking(input.item)}
 						/>
 						<span className="min-w-0 truncate font-bold text-foreground text-sm">
 							{input.item.actorName}

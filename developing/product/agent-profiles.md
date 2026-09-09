@@ -22,6 +22,14 @@
 
 An Agent Profile is the AI teammate identity users collaborate with in OpenMeld.
 
+Personal Remote Agents use this same identity. Creation offers Local or Remote;
+Remote asks only for a name and model and belongs to the signed-in member in the
+current Organization. It requires no Computer, local working directory, native
+session identifier, or local controller permission settings. The initial model
+is stored on that Agent's Binding, independently of Center Agent settings.
+Each Space, including a Direct Message, has a separate persistent conversation
+for that Remote Agent. This does not add a multi-chat management surface.
+
 Users should understand it as the named AI collaborator they can invite into a
 Space, address in conversation, Wake for work, and recognize across replies.
 

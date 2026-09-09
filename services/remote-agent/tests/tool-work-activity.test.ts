@@ -190,17 +190,6 @@ describe("Remote Agent user-visible work semantics", () => {
     });
   });
 
-  it("describes canonical Center Agent Task creation without using execution-handle semantics", () => {
-    expect(
-      resolveRemoteAgentToolWorkActivity("openmeld_create_task", {
-        title: "Research onboarding",
-      })
-    ).toEqual({
-      key: "center_agent.task.create",
-      v: 1,
-    });
-  });
-
   it("describes Organization Skill work precisely", () => {
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_read_organization_skills", {
