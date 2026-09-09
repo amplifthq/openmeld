@@ -9,6 +9,7 @@ import type {
   MessageEnvelope,
   SpaceIdentityDirectory,
   SpaceMembersSnapshot,
+  SpaceMessageReactions,
   SpaceThreadContext,
 } from "@openmeld/schemas/types";
 import {
@@ -54,6 +55,7 @@ export type SpaceMessageReplyContext = {
 export type SpaceMessageThreadRef = SpaceThreadContext;
 
 export type SpaceMessageReadProjection = {
+  reactions?: SpaceMessageReactions;
   navigationAction: NavigationAction | null;
   text: string;
   threadRef: SpaceMessageThreadRef | null;
@@ -93,6 +95,9 @@ export function buildSignalMessageReadProjection(input: {
   return {
     navigationAction: envelope?.navigationAction ?? null,
     text: readSignalText(input.signal),
+    ...(input.signal.type === "signal.text" && input.signal.reactions
+      ? { reactions: input.signal.reactions }
+      : {}),
     threadRef: input.threadRef ?? null,
     wakeTargets: resolveTargetRefs(
       envelope?.activationTargets,

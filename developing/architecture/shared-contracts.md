@@ -5027,6 +5027,39 @@ CLI presenters must validate emitted `setup.plan` payloads through this schema.
 They must not hand-write a parallel setup-plan shape, mint client-only action
 ids, or reinterpret `readOnly` as permission to mutate local state.
 
+## Space Message Reaction Contracts
+
+The Space owns persisted message reactions. `GET` and `PUT` on
+`/v1/spaces/:spaceId/message-reactions` use the shared reaction schemas. Writes
+take `signalId`, a supported Unicode `emoji`, and the desired `active` boolean;
+the authenticated request context supplies the actor. A write requires an active
+Human member with writable Space access and a persisted non-system text message.
+Reads preserve the existing Space access boundary.
+
+The unique identity is `(signalId, emoji, profileId)`. Retrying the same desired
+state is idempotent. Mutation and per-message revision increment are atomic.
+Supported aliases resolve to one canonical Unicode sequence; skin tones and
+joined emoji remain distinct. At most 30 distinct emoji groups may be active on
+one message.
+
+Text-envelope `reactions` is additive and optional for existing clients. Its
+`version` and `groups` describe current state. Each group includes the emoji,
+label, count, `reactedByMe`, an actor preview, and `actorsHasMore`. Actor records
+include profile identity, display name, and kind. The focused GET accepts `emoji`
+and `afterProfileId` to read actors in pages of 50, returning `nextCursor`.
+An actor preview must never be represented as the complete list when truncated.
+
+Only a changed mutation emits `space.reactions.changed` with affected
+`signalIds`. Clients invalidate reaction reads without creating a timeline
+signal or refreshing unread/Wake status; reconnect also refreshes mounted
+reaction reads. Revision checks prevent older responses replacing newer state.
+
+Shared message projections, CLI history, Center context manifests, and Remote
+Agent continuity preserve reaction metadata. Materialized-context hashes include
+the reaction state. Personal Remote Agent reads use the existing execution and
+Space-scoped tool authorization, without granting Center administration access.
+New-message delta cursors remain message cursors, not reaction-change cursors.
+
 ## Space Member Contracts
 
 Auth's internal `resolveProfilesByIds` RPC reads at most 64 requested Profile

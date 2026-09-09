@@ -39,6 +39,10 @@ import {
   joinSpace,
 } from "./members";
 import { getSpaceMessageDetails } from "./message-details";
+import {
+  getSpaceMessageReactions,
+  setSpaceMessageReaction,
+} from "./message-reactions";
 import { updateSpaceMeta } from "./meta";
 import { mutateSpaceMessage } from "./mutate-message";
 import { postSpaceNormalMessage } from "./post-normal-message";
@@ -129,6 +133,8 @@ export const createSpaceApi: CreateSpaceApi = (
     getWakeProgress: async (input) => await getSpaceWakeProgress(client, input),
     getWakeTraceWaterfall: async (input) =>
       await getSpaceWakeTraceWaterfall(client, input),
+    getMessageReactions: (input) => getSpaceMessageReactions(client, input),
+    setMessageReaction: (input) => setSpaceMessageReaction(client, input),
     getMessageDetails: async (input) =>
       await getSpaceMessageDetails(client, input),
     createDiagnosticReport: async (input) =>

@@ -25,4 +25,5 @@ export type * from "./protocol/index";
 export type { AgentControllerSessionTitle } from "./runtime/agent-controller-session";
 export type * from "./runtime/index";
 export type * from "./space-mesh/index";
+export type * from "./space-mesh/message-reaction";
 export type * from "./start/index";

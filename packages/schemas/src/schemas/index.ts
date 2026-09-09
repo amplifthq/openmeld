@@ -2789,6 +2789,14 @@ export {
 } from "./space-mesh/dispatch-result";
 export { entryBriefSchema } from "./space-mesh/entry-brief";
 export {
+  getSpaceMessageReactionsInputSchema,
+  getSpaceMessageReactionsResponseSchema,
+  setSpaceMessageReactionInputSchema,
+  spaceMessageReactionsSchema,
+  spaceReactionActorSchema,
+  spaceReactionGroupSchema,
+} from "./space-mesh/message-reaction";
+export {
   openMeldSpaceActionReadResultBySchema,
   openMeldSpaceActionReadUpdatesFromSchema,
   openMeldSpaceActionReplyToSchema,

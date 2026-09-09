@@ -14,6 +14,7 @@ import type {
 	SpaceMembersSnapshot,
 	SpaceMessageAttachment,
 	SpaceMessageFileReference,
+	SpaceMessageReactions,
 	SpaceStatus,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
@@ -46,6 +47,7 @@ export type SpaceTimelineItem = {
 	editedAt?: number;
 	recalledAt?: number;
 	repostedAt?: number;
+	reactions?: SpaceMessageReactions;
 	id: string;
 	spaceId: string;
 	signalType: VisibleTimelineSignalType;
@@ -354,6 +356,8 @@ function buildSpaceTimelineItem(input: {
 		wakeDispatchId: readFinalizedAgentDispatchId(input.signal) ?? undefined,
 		spaceId: input.signal.spaceId,
 		signalType: input.signal.type,
+		reactions:
+			input.signal.type === "signal.text" ? input.signal.reactions : undefined,
 		...(input.signal.type === "signal.status"
 			? { spaceStatus: input.signal.data.status }
 			: {}),

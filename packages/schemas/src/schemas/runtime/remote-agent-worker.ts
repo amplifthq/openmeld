@@ -26,6 +26,7 @@ import {
   spaceMessageAttachmentSchema,
   spaceMessageAttachmentsSchema,
 } from "../protocol/space-attachment";
+import { spaceMessageReactionsSchema } from "../space-mesh/message-reaction";
 import { centerAgentModelRouteSchema } from "./center-agent-model";
 import {
   remoteAgentTurnEnvelopeSchema,
@@ -120,6 +121,7 @@ export const remoteAgentConversationContinuityEntrySchema = z
         .max(REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS * 2),
       truncated: z.boolean(),
     }),
+    reactions: spaceMessageReactionsSchema.optional(),
     occurredAt: isoDateTimeSchema,
     source: remoteAgentConversationContinuityEntrySourceSchema,
   })

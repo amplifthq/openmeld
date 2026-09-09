@@ -638,6 +638,7 @@ import {
   type GetSpaceFileInput,
   type GetSpaceMembersInput,
   type GetSpaceMessageDetailsInput,
+  type GetSpaceMessageReactionsInput,
   type GetSpaceMetaInput,
   type GetSpaceStatusInput,
   type GetSpaceThreadInput,
@@ -857,6 +858,7 @@ import {
   rpcGetSpaceMemberDirectory,
   rpcGetSpaceMembers,
   rpcGetSpaceMessageDetails,
+  rpcGetSpaceMessageReactions,
   rpcGetSpaceMeta,
   rpcGetSpaceStatus,
   rpcGetSpaceThread,
@@ -951,6 +953,7 @@ import {
   rpcSetPeopleComputerLocalAgentEnabled,
   rpcSetPeopleComputerOpenMeldToolsMaintenance,
   rpcSetSpaceAccessMode,
+  rpcSetSpaceMessageReaction,
   rpcStageSpaceComposerUpload,
   rpcSubmitAgentActivityEvents,
   rpcSubmitAgentActivitySessionReconciliation,
@@ -991,6 +994,7 @@ import {
   type SetLocalRuntimeDisplayNameInput,
   type SetOrganizationInformationProtectionPolicyInput,
   type SetSpaceAccessModeInput,
+  type SetSpaceMessageReactionInput,
   type SpaceAccessModeStateResult,
   type SpaceFileWriteInput,
   type SpacePasswordStateResult,
@@ -1935,6 +1939,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetSpaceWakeTraceWaterfallInput
   ): Promise<GetSpaceWakeTraceWaterfallResponse> {
     return rpcGetSpaceWakeTraceWaterfall(this.env, input);
+  }
+
+  getSpaceMessageReactions(input: GetSpaceMessageReactionsInput) {
+    return rpcGetSpaceMessageReactions(this.env, input);
+  }
+  setSpaceMessageReaction(input: SetSpaceMessageReactionInput) {
+    return rpcSetSpaceMessageReaction(this.env, input);
   }
 
   getSpaceMessageDetails(
@@ -3983,6 +3994,13 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetSpaceWakeTraceWaterfallInput
   ): Promise<GetSpaceWakeTraceWaterfallResponse> {
     return super.getSpaceWakeTraceWaterfall(input);
+  }
+
+  getSpaceMessageReactions(input: GetSpaceMessageReactionsInput) {
+    return super.getSpaceMessageReactions(input);
+  }
+  setSpaceMessageReaction(input: SetSpaceMessageReactionInput) {
+    return super.setSpaceMessageReaction(input);
   }
 
   getSpaceMessageDetails(

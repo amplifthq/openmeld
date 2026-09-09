@@ -195,6 +195,7 @@ import {
   getSpaceEntryResolutionInputSchema,
   getSpaceEntryResolutionResponseSchema,
   getSpaceMessageDetailsInputSchema,
+  getSpaceMessageReactionsInputSchema,
   getSpaceStatusInputSchema,
   getSpaceUpdatesInputSchema,
   getSpaceWakeProgressInputSchema,
@@ -284,6 +285,7 @@ import {
   setCurrentOpenMeldToolsMaintenanceBodySchema,
   setCurrentOpenMeldToolsMaintenanceResponseSchema,
   setLocalRuntimeDisplayNameBodySchema,
+  setSpaceMessageReactionInputSchema,
   slackChannelHistoryResponseSchema,
   slackChannelListResponseSchema,
   slackChannelMembersResponseSchema,
@@ -525,6 +527,7 @@ import type {
   GetSpaceEntryResolutionInput,
   GetSpaceEntryResolutionResponse,
   GetSpaceMessageDetailsResponse,
+  GetSpaceMessageReactionsResponse,
   GetSpaceStatusResponse,
   GetSpaceThreadResponse,
   GetSpaceUpdatesResponse,
@@ -604,6 +607,8 @@ import type {
   PostSpaceWakeStopResponse,
   PrepareSpaceFileWriteResponse,
   PutSpaceContractBody,
+  GetSpaceMessageReactionsInput as ReactionReadInput,
+  SetSpaceMessageReactionInput as ReactionWriteInput,
   RecordSpaceAttachmentPayload,
   RefreshCurrentLocalAgentCatalogResponse,
   RemoveSpaceMembersResponse,
@@ -1989,6 +1994,12 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcGetWakeTraceWaterfall(
     input: GetSpaceWakeTraceWaterfallInput
   ): Promise<GetSpaceWakeTraceWaterfallResponse>;
+  rpcGetMessageReactions(
+    input: GetSpaceMessageReactionsInput & { spaceAccess: SpaceAccessContext }
+  ): Promise<GetSpaceMessageReactionsResponse>;
+  rpcSetMessageReaction(
+    input: SetSpaceMessageReactionInput & { spaceAccess: SpaceAccessContext }
+  ): Promise<GetSpaceMessageReactionsResponse>;
   rpcGetMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse>;
@@ -13790,7 +13801,7 @@ export async function rpcCenterAgentReadSpaceContext(
   env: CoreBindings,
   input: CenterAgentReadSpaceContextInput
 ): Promise<CenterAgentReadSpaceContextResponse> {
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+  const authorization = await requireRemoteAgentToolCaller({
     context: requireRpcContext(input.context),
     env,
   });
@@ -13853,12 +13864,14 @@ export async function rpcCenterAgentReadSpaceContext(
       spaceId: parsed.data.spaceId,
     };
   }
-  await writeCenterAgentAuditEntry({
-    action: "read_space_context",
-    authorization,
-    onBehalfOfProfileId: null,
-    resource: { type: "space", id: parsed.data.spaceId },
-  });
+  if (!("personalExecution" in authorization)) {
+    await writeCenterAgentAuditEntry({
+      action: "read_space_context",
+      authorization,
+      onBehalfOfProfileId: null,
+      resource: { type: "space", id: parsed.data.spaceId },
+    });
+  }
   const validated =
     centerAgentReadSpaceContextResponseSchema.safeParse(response);
   if (!validated.success) {
@@ -24462,4 +24475,27 @@ function toSpaceCreator(context: CoreRpcContextInput): SpaceCreator {
       : {}),
     ...(actorContext.ownerName ? { ownerName: actorContext.ownerName } : {}),
   };
+}
+
+export type GetSpaceMessageReactionsInput = ReactionReadInput &
+  CoreRpcSpaceAccessInput;
+export type SetSpaceMessageReactionInput = ReactionWriteInput &
+  CoreRpcSpaceAccessInput;
+export async function rpcGetSpaceMessageReactions(
+  env: CoreBindings,
+  input: GetSpaceMessageReactionsInput
+): Promise<GetSpaceMessageReactionsResponse> {
+  const query = getSpaceMessageReactionsInputSchema.parse(input);
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcGetMessageReactions({ ...query, spaceAccess });
+}
+export async function rpcSetSpaceMessageReaction(
+  env: CoreBindings,
+  input: SetSpaceMessageReactionInput
+): Promise<GetSpaceMessageReactionsResponse> {
+  const body = setSpaceMessageReactionInputSchema.parse(input);
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcSetMessageReaction({ ...body, spaceAccess });
 }
