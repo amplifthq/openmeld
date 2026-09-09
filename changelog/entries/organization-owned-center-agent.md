@@ -14,5 +14,8 @@ and conversations.
 A Center Agent's Space membership no longer gives its original creator access
 to a private Space. Members keep their own conversations and Space permissions.
 
+Team lists the Center Agent first under Online instead of in a separate group.
+Its card identifies it as shared by the organization without adding height.
+
 This change requires an updated CLI to read organization directories containing
 Center Agents.

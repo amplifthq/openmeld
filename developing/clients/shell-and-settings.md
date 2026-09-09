@@ -310,8 +310,10 @@ The Web shell is a stable two-layer composition built from the shared
   and revision-checked preference hook. Starred and named People groups are
   personal to the account and Organization. Moving a person changes only this
   sidebar arrangement; deleting a group returns its members to Computer online or
-  Computer offline. Center Agent occupies the first group, before Starred and
-  custom groups. The signed-in member defaults to Starred; explicit unstar or
+  Computer offline. Center Agent is the first item in Online, with no separate
+  group in either the sidebar or Team grid. Its card explains that it is shared
+  by the Organization without increasing the standard card height.
+  The signed-in member defaults to Starred; explicit unstar or
   custom placement is preserved. Connection labels describe computers, not people.
   These sections are projections, not editable membership. Their ordering
   preference is shared across both sections; named groups and Starred each

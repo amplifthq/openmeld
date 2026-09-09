@@ -14,10 +14,7 @@ import { CheckIcon, FunnelSimpleIcon } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import {
-	type AppContextualNavGroup,
-	AppContextualSidebarNav,
-} from "../app/app-contextual-layout";
+import { AppContextualSidebarNav } from "../app/app-contextual-layout";
 import { useAppNavigationPresentation } from "../app/app-navigation-presentation";
 import { ControlledSidebarGroupStateProvider } from "../app/app-sidebar-group";
 import { SidebarDestinationAction } from "../app/sidebar-destination-actions";
@@ -60,31 +57,12 @@ const SORTS = [
 	["manual", "Manual order"],
 ] as const;
 
-function includeCenterAgent(
-	groups: AppContextualNavGroup[],
-	filters: {
-		included: boolean;
-		filter: PeopleFilter;
-		recentlyActive: boolean;
-		search: string;
-	}
+function matchesCenterAgentFilters(
+	filter: PeopleFilter,
+	recentlyActive: boolean,
+	search: string
 ) {
-	if (
-		!filters.included ||
-		filters.filter !== "all" ||
-		filters.recentlyActive ||
-		filters.search.trim()
-	) {
-		return groups;
-	}
-	const result = [...groups];
-	result.unshift({
-		id: "center-agent",
-		label: "Center Agent",
-		ariaLabel: "Center Agent",
-		content: <CenterAgentItem />,
-	});
-	return result;
+	return filter === "all" && !recentlyActive && !search.trim();
 }
 
 export function PeopleSidebar(input: {
@@ -114,7 +92,6 @@ export function PeopleSidebar(input: {
 	const groupFilter = useSidebarGroupFilter([
 		{ id: "starred", label: "Starred" },
 		...preferences.groups.map((g) => ({ id: g.id, label: g.name })),
-		{ id: "center-agent", label: "Center Agent" },
 		{ id: "online", label: "Online" },
 		{ id: "offline", label: "Offline" },
 	]);
@@ -146,7 +123,12 @@ export function PeopleSidebar(input: {
 	}, [input.members, input.activityNowMs, search, filter, recentlyActive]);
 	const contentReady = !(loading || input.error);
 	const starred = new Set(preferences.starred.itemIds);
-	const sections = resolvePeopleSections(filtered, preferences);
+	const showCenterAgent =
+		matchesCenterAgentFilters(filter, recentlyActive, search) &&
+		groupFilter.includes("online");
+	const sections = resolvePeopleSections(filtered, preferences, {
+		includeOnline: showCenterAgent,
+	});
 	const activeGroupId =
 		sections.find((section) =>
 			section.members.some((member) => member.id === input.selectedProfileId)
@@ -185,7 +167,8 @@ export function PeopleSidebar(input: {
 					recentlyActive ||
 					groupFilter.selected.length > 0
 				) ||
-					section.members.length > 0)
+					section.members.length > 0 ||
+					(section.id === "online" && showCenterAgent))
 		)
 		.map((section, sectionIndex) => {
 			const members = section.members;
@@ -225,7 +208,7 @@ export function PeopleSidebar(input: {
 							})
 					: undefined,
 				labelTooltip: new Map([
-					["online", "Computer online"],
+					["online", "Center Agent and people with online computers"],
 					["offline", "Computer offline"],
 				]).get(section.id),
 				ariaLabel: section.label,
@@ -261,63 +244,61 @@ export function PeopleSidebar(input: {
 					/>
 				),
 				content: (
-					<SidebarDropSection
-						ids={members.map((m) => m.id)}
-						section={section.id}
-					>
-						<FluidNavMenu
-							activeLayoutId={`secondary-sidebar-selection-${presentation}`}
-							activeValue={input.selectedProfileId}
-							aria-label={section.label}
-							className="[&_[data-sidebar=menu]]:gap-0.5"
+					<>
+						{section.id === "online" && showCenterAgent && <CenterAgentItem />}
+						<SidebarDropSection
+							ids={members.map((m) => m.id)}
+							section={section.id}
 						>
-							{members.map((member, index) => (
-								<SortablePerson
-									actionsDisabled={sidebar.disabled || input.chatPending}
-									activityNowMs={input.activityNowMs}
-									computerGroup={computers.get(member.userId) ?? null}
-									disabled={sidebar.disabled}
-									index={index}
-									isActive={input.selectedProfileId === member.id}
-									key={member.id}
-									member={member}
-									onChat={
-										member.profileStatus === "active" && !member.isCurrentUser
-											? () => {
-													input
-														.onChat(member.id)
-														.catch((error) =>
-															toast.error(
-																error instanceof Error
-																	? error.message
-																	: "Unable to open this conversation. Try again."
-															)
-														);
-												}
-											: undefined
-									}
-									onSelect={input.onSelect}
-									onToggleStar={() => toggleStar(member.id)}
-									section={section.id}
-									starred={starred.has(member.id)}
-								/>
-							))}
-						</FluidNavMenu>
-						{members.length === 0 && (
-							<p className="px-2 py-2 text-muted-foreground text-xs">
-								{defaultSection ? "No people match." : "Drag people here."}
-							</p>
-						)}
-					</SidebarDropSection>
+							<FluidNavMenu
+								activeLayoutId={`secondary-sidebar-selection-${presentation}`}
+								activeValue={input.selectedProfileId}
+								aria-label={section.label}
+								className="[&_[data-sidebar=menu]]:gap-0.5"
+							>
+								{members.map((member, index) => (
+									<SortablePerson
+										actionsDisabled={sidebar.disabled || input.chatPending}
+										activityNowMs={input.activityNowMs}
+										computerGroup={computers.get(member.userId) ?? null}
+										disabled={sidebar.disabled}
+										index={index}
+										isActive={input.selectedProfileId === member.id}
+										key={member.id}
+										member={member}
+										onChat={
+											member.profileStatus === "active" && !member.isCurrentUser
+												? () => {
+														input
+															.onChat(member.id)
+															.catch((error) =>
+																toast.error(
+																	error instanceof Error
+																		? error.message
+																		: "Unable to open this conversation. Try again."
+																)
+															);
+													}
+												: undefined
+										}
+										onSelect={input.onSelect}
+										onToggleStar={() => toggleStar(member.id)}
+										section={section.id}
+										starred={starred.has(member.id)}
+									/>
+								))}
+							</FluidNavMenu>
+							{members.length === 0 &&
+								!(section.id === "online" && showCenterAgent) && (
+									<p className="px-2 py-2 text-muted-foreground text-xs">
+										{defaultSection ? "No people match." : "Drag people here."}
+									</p>
+								)}
+						</SidebarDropSection>
+					</>
 				),
 			};
 		});
-	const displayGroups = includeCenterAgent(groups, {
-		included: groupFilter.includes("center-agent"),
-		filter,
-		recentlyActive,
-		search,
-	});
 	return (
 		<ControlledSidebarGroupStateProvider value={disclosure}>
 			<SidebarDrag
@@ -362,7 +343,7 @@ export function PeopleSidebar(input: {
 				<AppContextualSidebarNav
 					activeItemId={input.selectedProfileId}
 					ariaLabel="People"
-					groups={contentReady ? displayGroups : []}
+					groups={contentReady ? groups : []}
 					leadingContent={
 						<>
 							<div className="flex items-center gap-1 px-1">
@@ -464,14 +445,7 @@ export function PeopleSidebar(input: {
 							{loading && (
 								<SidebarListSkeleton label="Loading people" showPreview />
 							)}
-							{!(
-								!contentReady ||
-								sections.some(
-									(section) =>
-										groupFilter.includes(section.id) &&
-										section.members.length > 0
-								)
-							) && (
+							{contentReady && groups.length === 0 && (
 								<p className="px-2 py-2 text-muted-foreground text-xs">
 									{search.trim() ||
 									filter !== "all" ||

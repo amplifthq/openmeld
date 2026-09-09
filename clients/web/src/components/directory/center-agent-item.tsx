@@ -1,6 +1,7 @@
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { SidebarMenuButton } from "@openmeld/ui/fluid/sidebar-menu";
+import { CloudIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
@@ -52,7 +53,7 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 				>
 					<Link
 						aria-label={`Open ${profile.profileName}`}
-						className="flex min-h-24 items-center gap-3 rounded-md p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						className="flex h-24 items-center gap-3 rounded-md p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
 						params={{ orgSlug: currentOrganization.slug }}
 						to="/o/$orgSlug/chats/center-agent"
 					>
@@ -61,9 +62,26 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 							shape="circle"
 							size={56}
 						/>
-						<span className="min-w-0 font-medium text-sm">
-							{profile.profileName}
-						</span>
+						<div className="min-w-0">
+							<p
+								className="truncate font-medium text-sm"
+								title={profile.profileName}
+							>
+								{profile.profileName}
+							</p>
+							<p
+								className="mt-0.5 flex items-start gap-1 text-muted-foreground text-xs"
+								title="A cloud agent shared by everyone in your organization."
+							>
+								<CloudIcon
+									aria-hidden="true"
+									className="mt-0.5 size-3 shrink-0"
+								/>
+								<span className="line-clamp-2">
+									Center Agent · Shared by your organization
+								</span>
+							</p>
+						</div>
 					</Link>
 				</FluidCardItem>
 			</FluidCardGroup>
