@@ -795,6 +795,13 @@ same evidence through the existing safe original-error field. No environment
 values, prompts, credentials, raw stdout, or working-directory paths are logged.
 These observations do not establish why an external process failed to start.
 
+The separate OpenCode discovery/Prepare server probe retains its own bounded
+startup deadline. A timeout includes the child PID, actual elapsed time, output
+byte counts, and host load, plus startup output only when it passes the shared
+bounded original-error safety policy. These are diagnostic facts, not evidence
+of invalid credentials or a started Wake. Provider-status read timeouts remain
+distinct from server-start timeouts.
+
 Controller snapshots are local evidence. They may power Computer cards, CLI
 diagnostics, Desktop surfaces, and owner-self Agent details, but they must stay
 separate from Core-owned Wake readiness. A controller can be installed and
