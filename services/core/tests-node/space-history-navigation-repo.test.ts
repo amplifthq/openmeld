@@ -5,9 +5,11 @@ import { listSignalEntriesAroundAnchor } from "../src/space/infrastructure/sql/s
 
 function fixture() {
   const db = new DatabaseSync(":memory:");
-  db.exec(`CREATE TABLE space_signals (id TEXT PRIMARY KEY, ts INTEGER, type TEXT, payload_json TEXT);
+  db.exec(`CREATE TABLE space_signals (id TEXT PRIMARY KEY, ts INTEGER, type TEXT, payload_json TEXT, profile_kind TEXT DEFAULT 'human');
     CREATE TABLE space_thread_signal_placements (signal_id TEXT PRIMARY KEY, placement TEXT);`);
-  const insert = db.prepare("INSERT INTO space_signals VALUES (?, ?, ?, ?)");
+  const insert = db.prepare(
+    "INSERT INTO space_signals (id, ts, type, payload_json) VALUES (?, ?, ?, ?)"
+  );
   for (let index = 0; index < 480; index += 1) {
     // Equal timestamps deliberately exercise durable insertion order.
     insert.run(
@@ -24,6 +26,19 @@ function fixture() {
       ).run(id);
     }
     insert.run(`presence-${index}`, 100, "signal.presence", "{}");
+    db.prepare(
+      "INSERT INTO space_signals VALUES (?, 100, 'signal.text', ?, 'system')"
+    ).run(
+      `mutation-${index}`,
+      JSON.stringify({
+        data: {
+          meta: {
+            purpose: "space_message_changed",
+            changedMessageId: `main-${index}`,
+          },
+        },
+      })
+    );
   }
   const sql = {
     exec: (query: string, ...params: (string | number | null)[]) => ({

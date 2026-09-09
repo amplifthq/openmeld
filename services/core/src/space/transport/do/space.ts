@@ -4178,6 +4178,7 @@ export class Space extends DurableObject<CoreBindings> {
       if (result.change) {
         this.broadcastSignal(result.change, signalContext, { persisted: true });
       }
+      await this.broadcastSpaceMetaChanged({ reason: "space.message.updated" });
       this.ctx.waitUntil(this.syncSpaceBackgroundAlarm());
     }
     return { message: result.message };

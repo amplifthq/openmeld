@@ -1175,6 +1175,16 @@ function handleLiveInvalidationMessage(
 	}
 	if (frame.type === "space.meta.changed") {
 		input.queryClient
+			.invalidateQueries({
+				predicate: (query) =>
+					query.queryKey[0] === "spaces" &&
+					query.queryKey[1] === input.spaceId &&
+					query.queryKey.includes("history-navigation"),
+			})
+			.catch((error) =>
+				console.warn("Failed to refresh history navigation.", error)
+			);
+		input.queryClient
 			.invalidateQueries({ queryKey: ["space-file-pins", input.spaceId] })
 			.catch((error) => console.warn("Failed to refresh pinned files.", error));
 		input.queryClient

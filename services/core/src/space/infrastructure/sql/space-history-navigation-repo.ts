@@ -21,6 +21,7 @@ export function readSpaceHistoryNavigationGroups(
       FROM space_signals s
       LEFT JOIN space_thread_signal_placements p ON p.signal_id = s.id
       WHERE s.type IN ('signal.text', 'signal.status', 'signal.system_notice')
+        AND NOT (s.profile_kind = 'system' AND COALESCE(json_extract(s.payload_json, '$.data.meta.purpose'), '') = 'space_message_changed')
         AND (p.placement IS NULL OR p.placement != 'thread')
         AND (? IS NULL OR s.rowid >= (SELECT rowid FROM space_signals WHERE id = ?))
         AND (? IS NULL OR s.rowid <= (SELECT rowid FROM space_signals WHERE id = ?))

@@ -55,7 +55,21 @@ export function useSpaceHistoryNavigation(input: {
 		staleTime: 30_000,
 		gcTime: 60_000,
 	});
-	const activeWindow = window?.identity === identity ? window : null;
+	// Live edits and recalls also replace messages in an already-open old window.
+	// Keep its boundaries: a new live message must not pull the reader to latest.
+	const activeWindow = useMemo(() => {
+		if (window?.identity !== identity) {
+			return null;
+		}
+		const ids = new Set(window.envelopes.map((item) => item.id));
+		return {
+			...window,
+			envelopes: mergeSpaceTimelineEnvelopes({
+				current: window.envelopes,
+				incoming: input.liveEnvelopes.filter((item) => ids.has(item.id)),
+			}),
+		};
+	}, [identity, window, input.liveEnvelopes]);
 	const readWindow = async (
 		signalId: string,
 		direction?: "before" | "after"
