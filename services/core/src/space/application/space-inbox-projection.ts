@@ -24,6 +24,7 @@ const DEFAULT_UPDATE_PREVIEW = "There is a new update in this Space.";
 
 export function buildSpaceInboxProjectionOutboxRecord(input: {
   activeMemberRecords: readonly SpaceMemberRecord[];
+  directMessage?: boolean;
   nowMs: number;
   organizationId: string;
   signal: SignalEnvelope;
@@ -56,6 +57,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   const explicitlyTargetedRecipientUserIds =
     resolveExplicitlyTargetedRecipientUserIds({
       activeMemberRecords: input.activeMemberRecords,
+      directMessage: input.directMessage,
       mentionedProfileIds,
       threadRootAuthorUserId: input.threadRootAuthorUserId ?? null,
     });
@@ -105,6 +107,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
         sourceKey: requireText(signal.id, "signal.id"),
         sourceKind: "space_signal",
         sourceTarget: {
+          directMessage: input.directMessage,
           kind: "space",
           signalId: focusSignalId,
           spaceId: signal.spaceId,
@@ -277,6 +280,7 @@ function resolveAudience(input: {
 }
 
 function resolveExplicitlyTargetedRecipientUserIds(input: {
+  directMessage?: boolean;
   activeMemberRecords: readonly SpaceMemberRecord[];
   mentionedProfileIds: ReadonlySet<string>;
   threadRootAuthorUserId: string | null;
@@ -292,7 +296,7 @@ function resolveExplicitlyTargetedRecipientUserIds(input: {
       member.status === "active" &&
       member.profileKindSnapshot === "human" &&
       ownerUserId &&
-      input.mentionedProfileIds.has(member.profileId)
+      (input.directMessage || input.mentionedProfileIds.has(member.profileId))
     ) {
       recipientUserIds.add(ownerUserId);
     }

@@ -8192,12 +8192,11 @@ export class Space extends DurableObject<CoreBindings> {
     const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
       status: "active",
     });
-    const isCurrentDirectMessage = Boolean(
-      meta?.purpose === "openmeld_dm_space" &&
-        meta.directMessage &&
-        !meta.directMessage.convertedAt &&
-        activeMembers.length === 2
-    );
+    const isCurrentDirectMessage = isDirectMessageSpace({
+      purpose: meta?.purpose,
+      directMessageConvertedAt: meta?.directMessage?.convertedAt,
+      activeMemberCount: activeMembers.length,
+    });
     const isActiveProfile = Boolean(
       profileId &&
         activeMembers.some((member) => member.profileId === profileId)
@@ -14200,6 +14199,11 @@ export class Space extends DurableObject<CoreBindings> {
     });
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords,
+      directMessage: isDirectMessageSpace({
+        purpose: metaRecord.purpose,
+        directMessageConvertedAt: metaRecord.directMessage?.convertedAt,
+        activeMemberCount: activeMemberRecords.length,
+      }),
       nowMs: input.nowMs,
       organizationId: metaRecord.organizationId,
       signal: input.signal,
@@ -21424,3 +21428,5 @@ function toPublicSpaceCursor(cursor: SpaceCursorRecord): SpaceCursor {
     updatedAt: cursor.updatedAt,
   };
 }
+
+import { isDirectMessageSpace } from "@openmeld/space";

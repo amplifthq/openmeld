@@ -71,6 +71,72 @@ const HUMAN_MENTION_ITEM = {
 };
 
 describe("Inbox routes", () => {
+  it("exposes complete conversation counts only to summary-aware clients", async () => {
+    const { coreRpc, env } = makeEnv();
+    const legacy = {
+      organizationId: "org-1",
+      ordinarySpaceUnreadCount: 4,
+      spaces: [],
+    };
+    const current = {
+      ...legacy,
+      chatUnreadCount: 106,
+      chatUnresolvedActionCount: 1,
+      chatUnreadUrgentUpdateCount: 1,
+      attention: [
+        { spaceId: "dm", unresolvedActionCount: 1, unreadUrgentUpdateCount: 1 },
+      ],
+    };
+    coreRpc.getSpaceInboxSummary.mockResolvedValue(current);
+    for (const version of ["1", "2"]) {
+      const response = await app.fetch(
+        new Request("http://local/v1/inbox/spaces/summary", {
+          headers: { "x-openmeld-inbox-summary-version": version },
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(version === "2" ? current : legacy);
+    }
+  });
+
+  it("keeps thread routing for version 4 and adds DM routing for version 5", async () => {
+    const { coreRpc, env } = makeEnv();
+    const sourceTarget = {
+      kind: "space" as const,
+      spaceId: "dm",
+      signalId: "reply",
+      threadRootSignalId: "root",
+      directMessage: true,
+    };
+    coreRpc.listInboxItems.mockResolvedValue({
+      items: [{ ...HUMAN_MENTION_ITEM, sourceTarget }],
+      nextCursor: null,
+      organizationId: "org-1",
+    });
+    for (const version of ["4", "5"]) {
+      const response = await app.fetch(
+        new Request("http://local/v1/inbox", {
+          headers: { "x-openmeld-inbox-source-target-version": version },
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        items: { sourceTarget: unknown }[];
+      };
+      expect(body.items[0]?.sourceTarget).toEqual({
+        kind: "space",
+        spaceId: "dm",
+        signalId: "reply",
+        threadRootSignalId: "root",
+        ...(version === "5" ? { directMessage: true } : {}),
+      });
+    }
+  });
+
   it("keeps an absent count unknown when talking to old Core", async () => {
     const { coreRpc, env } = makeEnv();
     coreRpc.getInboxSummary.mockResolvedValue({

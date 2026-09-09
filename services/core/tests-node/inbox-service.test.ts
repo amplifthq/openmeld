@@ -8,6 +8,71 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox service", () => {
+  it("keeps complete Chat counts and read action requests distinct", async () => {
+    const harness = createInboxHarness();
+    try {
+      seedCenterAgentDirectMessageSpace(harness, {
+        recipientProfileId: "profile_one",
+        spaceId: "space_one",
+      });
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const action = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "space_one",
+        sourceKey: "dm-action",
+      });
+      await harness.db
+        .prepare(
+          "UPDATE inbox_items SET attention = 'action_required', resolution_status = 'open', importance = 'urgent', read_at_ms = 1500 WHERE id = ?"
+        )
+        .bind(action.itemId)
+        .run();
+      const urgent = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "space_one",
+        sourceKey: "dm-urgent",
+      });
+      await harness.db
+        .prepare("UPDATE inbox_items SET importance = 'urgent' WHERE id = ?")
+        .bind(urgent.itemId)
+        .run();
+      for (let i = 0; i < 105; i++) {
+        await seedSpaceItem(harness.db, {
+          recipientUserId: "user_one",
+          spaceId: "space_one",
+          sourceKey: `dm-message-${i}`,
+        });
+      }
+      const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
+      expect(await service.spaceSummary(identity)).toMatchObject({
+        chatUnreadCount: 106,
+        chatUnresolvedActionCount: 1,
+        chatUnreadUrgentUpdateCount: 1,
+        attention: [
+          {
+            spaceId: "space_one",
+            unresolvedActionCount: 1,
+            unreadUrgentUpdateCount: 1,
+          },
+        ],
+      });
+      await service.markRead({
+        ...identity,
+        itemId: urgent.itemId,
+        read: true,
+      });
+      expect(await service.spaceSummary(identity)).toMatchObject({
+        chatUnreadCount: 105,
+        chatUnresolvedActionCount: 1,
+        chatUnreadUrgentUpdateCount: 0,
+      });
+    } finally {
+      harness.close();
+    }
+  });
   it("counts urgent updates and open actions once across the full recipient Inbox", async () => {
     const harness = createInboxHarness();
     try {
@@ -608,6 +673,16 @@ describe("Inbox service", () => {
         })
       ).resolves.toEqual({
         ordinarySpaceUnreadCount: 4,
+        chatUnreadCount: 0,
+        chatUnresolvedActionCount: 0,
+        chatUnreadUrgentUpdateCount: 0,
+        attention: [
+          {
+            spaceId: "space_one",
+            unresolvedActionCount: 1,
+            unreadUrgentUpdateCount: 0,
+          },
+        ],
         organizationId: "org_one",
         spaces: [
           {
@@ -773,6 +848,16 @@ describe("Inbox service", () => {
         })
       ).resolves.toEqual({
         ordinarySpaceUnreadCount: 1,
+        chatUnreadCount: 0,
+        chatUnresolvedActionCount: 0,
+        chatUnreadUrgentUpdateCount: 0,
+        attention: [
+          {
+            spaceId: "space_one",
+            unresolvedActionCount: 2,
+            unreadUrgentUpdateCount: 0,
+          },
+        ],
         organizationId: "org_one",
         spaces: [
           {
@@ -823,6 +908,16 @@ describe("Inbox service", () => {
       ).resolves.toEqual({
         ordinarySpaceUnreadCount: 1,
         organizationId: "org_one",
+        chatUnreadCount: 0,
+        chatUnresolvedActionCount: 0,
+        chatUnreadUrgentUpdateCount: 0,
+        attention: [
+          {
+            spaceId: "space_one",
+            unresolvedActionCount: 2,
+            unreadUrgentUpdateCount: 0,
+          },
+        ],
         spaces: [
           {
             latestUnreadOccurredAtMs: 1100,

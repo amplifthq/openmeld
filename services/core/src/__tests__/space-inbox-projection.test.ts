@@ -700,9 +700,41 @@ describe("Space Inbox projection", () => {
     const failureUpdate = executions.find(({ statement }) =>
       statement.includes("status = 'failed'")
     );
+
     expect(failureUpdate?.bindings[0]).toBe(
       JSON.stringify([candidate("user-poison")])
     );
+  });
+
+  it("addresses an unthreaded Agent DM reply to its human member without a Wake correlation", () => {
+    const input = {
+      activeMemberRecords: [
+        member("human", "reader", "human"),
+        member("agent", "owner", "agent"),
+      ],
+      nowMs: 2000,
+      organizationId: "org-1",
+      spaceName: "Private chat",
+      signal: textSignal({
+        authorKind: "agent",
+        authorName: "Agent",
+        authorProfileId: "agent",
+        text: "Here is the result.",
+      }),
+    };
+    expect(buildSpaceInboxProjectionOutboxRecord(input)).toBeNull();
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      ...input,
+      directMessage: true,
+    });
+    expect(record?.candidates).toEqual([
+      expect.objectContaining({
+        recipientUserId: "reader",
+        kind: "agent_reply",
+        importance: "normal",
+        sourceTarget: expect.objectContaining({ directMessage: true }),
+      }),
+    ]);
   });
 
   it("suppresses a delayed candidate that no longer has active Space access", async () => {

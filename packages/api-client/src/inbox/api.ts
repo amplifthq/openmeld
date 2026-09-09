@@ -179,6 +179,9 @@ export const createInboxApi: CreateInboxApi = (
       invalidMessage: "invalid Space Inbox summary response",
       method: "GET",
       operation: "inbox.space.summary",
+      headers: {
+        [OPENMELD_HEADER_INBOX_SUMMARY_VERSION]: OPENMELD_INBOX_SUMMARY_VERSION,
+      },
       schema: spaceInboxSummaryResponseSchema,
       url: buildSpaceInboxSummaryPath(),
     }),

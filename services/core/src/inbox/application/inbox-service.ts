@@ -218,7 +218,47 @@ export function createInboxService(input: {
           OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
         )
         .first<{ unread_count: number }>();
+      const attentionResult = await input.db
+        .prepare(`
+        SELECT json_extract(source_target_json, '$.spaceId') AS space_id,
+          sum(CASE WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
+          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} THEN 1 ELSE 0 END) AS urgent
+        FROM inbox_items
+        WHERE organization_id = ? AND recipient_user_id = ?
+          AND cleared_at_ms IS NULL AND ${CURRENT_SOURCE_ACCESS_FILTER}
+          AND json_extract(source_target_json, '$.spaceId') IS NOT NULL
+          AND ((attention = 'action_required' AND resolution_status = 'open')
+            OR (${UNREAD_URGENT_UPDATE_FILTER}))
+        GROUP BY json_extract(source_target_json, '$.spaceId')
+      `)
+        .bind(summaryInput.organizationId, summaryInput.recipientUserId)
+        .all<{ space_id: string; actions: number; urgent: number }>();
+      const chatCounts = await input.db
+        .prepare(`
+        SELECT
+          sum(CASE WHEN read_at_ms IS NULL AND ${INBOX_SPACE_MESSAGE_FILTER} THEN 1 ELSE 0 END) AS unread,
+          sum(CASE WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
+          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} THEN 1 ELSE 0 END) AS urgent
+        FROM inbox_items
+        WHERE organization_id = ? AND recipient_user_id = ?
+          AND cleared_at_ms IS NULL AND ${CURRENT_SOURCE_ACCESS_FILTER}
+          AND ${INBOX_CURRENT_DIRECT_MESSAGE_SPACE_FILTER}
+      `)
+        .bind(
+          summaryInput.organizationId,
+          summaryInput.recipientUserId,
+          OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
+        )
+        .first<{ unread: number; actions: number; urgent: number }>();
       return {
+        chatUnreadCount: countValue(chatCounts?.unread),
+        chatUnresolvedActionCount: countValue(chatCounts?.actions),
+        chatUnreadUrgentUpdateCount: countValue(chatCounts?.urgent),
+        attention: (attentionResult.results ?? []).map((row) => ({
+          spaceId: row.space_id,
+          unresolvedActionCount: countValue(row.actions),
+          unreadUrgentUpdateCount: countValue(row.urgent),
+        })),
         ordinarySpaceUnreadCount: countValue(
           ordinarySpaceUnreadRow?.unread_count
         ),
