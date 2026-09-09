@@ -111,7 +111,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		useQueryMock.mockReset();
 	});
 
-	it("shows the owner-visible Local Agent original error only in Technical details", () => {
+	it("shows the owner-visible Local Agent original error without opening Technical details", () => {
 		const details = createHumanMessageDetails();
 		details.wakeContext = {
 			clientMessageId: notApplicableFact(),
@@ -128,14 +128,14 @@ describe("SpaceMessageDetailsDrawer", () => {
 		useQueryMock.mockReturnValue(createQueryResult({ data: details }));
 
 		renderMessageDetailsPanel();
-		const technicalDetails = openTechnicalDetails();
-
-		expect(within(technicalDetails).getByText("Original error")).toBeTruthy();
 		expect(
-			within(technicalDetails).getByText(
-				"You've hit your usage limit. Try again at 2:03 AM."
-			)
+			screen.getByRole("heading", { name: "Original error" })
 		).toBeTruthy();
+		expect(
+			screen.getByText("You've hit your usage limit. Try again at 2:03 AM.")
+		).toBeTruthy();
+		const technicalDetails = openTechnicalDetails();
+		expect(within(technicalDetails).queryByText("Original error")).toBeNull();
 	});
 
 	it("renders a human message from the backend Message Details model", () => {

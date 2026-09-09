@@ -23,12 +23,14 @@ export function MessageActionTooltip(input: {
 export function MessageDetailsActionButton(input: {
 	buttonClassName?: string;
 	hasWakeProblem: boolean;
+	label?: string;
 	onClick: () => void;
 }) {
+	const label = input.label ?? "Message details";
 	return (
-		<MessageActionTooltip label="Message details">
+		<MessageActionTooltip label={label}>
 			<Button
-				aria-label="Message details"
+				aria-label={label}
 				className={cn(
 					"size-7 p-1.5 shadow-none max-lg:min-h-7 max-lg:min-w-7",
 					input.buttonClassName,

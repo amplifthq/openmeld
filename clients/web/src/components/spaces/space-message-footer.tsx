@@ -22,6 +22,7 @@ import {
 	CopyIcon,
 	DotsThreeIcon,
 	TargetIcon,
+	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
@@ -103,13 +104,12 @@ export function SpaceMessageFooter(input: {
 	const hasOverflowActions =
 		persistent ||
 		Boolean(input.reply || input.thread || input.addressingTargets.length > 0);
-	const detailsButton = input.details ? (
-		<MessageDetailsActionButton
-			buttonClassName={FOOTER_BUTTON_CLASS_NAME}
-			hasWakeProblem={input.details.hasProblem}
-			onClick={input.details.onSelect}
+	const detailsButton = (
+		<MessageFooterDetailsAction
+			details={input.details}
+			failureSummary={input.failureSummary}
 		/>
-	) : null;
+	);
 
 	return (
 		<div
@@ -129,10 +129,6 @@ export function SpaceMessageFooter(input: {
 				data-slot="message-footer-primary-actions"
 			>
 				{persistent ? detailsButton : null}
-				<MessageFooterFailureSummary
-					details={input.details}
-					failureSummary={input.failureSummary}
-				/>
 				{persistent ? null : (
 					<MessageFooterIconAction
 						disabled={input.copyDisabled}
@@ -183,34 +179,33 @@ export function SpaceMessageFooter(input: {
 	);
 }
 
-function MessageFooterFailureSummary(input: {
+function MessageFooterDetailsAction(input: {
 	details?: SpaceMessageFooterDetailsAction;
 	failureSummary?: string | null;
 }) {
-	if (!input.failureSummary) {
-		return null;
-	}
-	if (!input.details) {
+	if (input.details) {
 		return (
-			<span
-				className="mx-1 min-w-0 max-w-72 truncate text-destructive"
-				data-slot="message-footer-failure"
-			>
-				{input.failureSummary}
-			</span>
+			<MessageDetailsActionButton
+				buttonClassName={FOOTER_BUTTON_CLASS_NAME}
+				hasWakeProblem={
+					Boolean(input.failureSummary) || input.details.hasProblem
+				}
+				label={
+					input.failureSummary
+						? `View error details: ${input.failureSummary}`
+						: undefined
+				}
+				onClick={input.details.onSelect}
+			/>
 		);
 	}
-	return (
-		<button
-			aria-label={`Open message details: ${input.failureSummary}`}
-			className="mx-1 min-w-0 max-w-72 cursor-pointer truncate rounded-sm border-0 bg-transparent p-0 text-left text-destructive hover:underline focus-visible:underline focus-visible:outline-2 focus-visible:outline-offset-2"
-			data-slot="message-footer-failure"
-			onClick={input.details.onSelect}
-			type="button"
-		>
-			{input.failureSummary}
-		</button>
-	);
+	return input.failureSummary ? (
+		<WarningCircleIcon
+			aria-label={input.failureSummary}
+			className="mx-1.5 size-4 text-destructive"
+			role="img"
+		/>
+	) : null;
 }
 
 function MessageFooterIconAction(input: {
