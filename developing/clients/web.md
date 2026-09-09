@@ -3637,6 +3637,19 @@ Wake details and waterfalls help the user understand what happened to one Wake.
 They must show evidence as evidence: queued, routed, delivered, running,
 replied, failed, missing, pending, or degraded.
 
+Offline computer waiting uses progressive disclosure in both composers:
+**Send and wait** appears only for one current offline/reconnecting target, with
+a fixed 24-hour explanation. The current Agent Binding supplies the computer;
+there is no device or deadline form. The deadline starts when the action is
+clicked. Current admission still rechecks the frozen selector before publication.
+Ordinary online Send and Reference-only authoring retain their existing meaning.
+The timeline keeps waiting copy short, while Message details show its reason and
+exact local expiry. **Cancel waiting** uses the existing projected Stop authority
+and confirmation. Expired waits expose **Send again**, which prepares a draft
+referencing the original message for only the expired Agent, without overwriting
+another draft. A later send uses ordinary new-message admission and identity;
+this UI does not redrive an expired or partly executed Wake.
+
 Active Wake progress must survive browser refreshes by reading the Core/Space
 Wake progress read model. Browser-local progress state may provide immediate
 feedback for a just-submitted Wake, but it must not be the only source for an

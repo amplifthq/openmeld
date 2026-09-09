@@ -46,7 +46,7 @@ export async function requireCurrentSpaceComposerWakeAdmission(input: {
 			)
 		) {
 			throw createWakeBlockedError(
-				"The selected computer or deadline changed. Choose the waiting option again.",
+				"This Agent’s computer changed or the wait expired. Check the Agent and choose Send and wait again.",
 				wait.targetProfileId
 			);
 		}

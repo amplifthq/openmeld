@@ -27,6 +27,7 @@ import {
 import type { ReactNode } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
+import { SpaceDeviceWaitOutcome } from "./space-device-wait-outcome";
 import {
 	MessageActionTooltip,
 	MessageDetailsActionButton,
@@ -69,6 +70,9 @@ export function resolveSpaceMessageFooterFailureSummary(input: {
 		return `${String(failures.length)} agents couldn’t reply`;
 	}
 	const targetProfileId = failures[0]?.systemNoticeTargetProfileId;
+	if (failures[0]?.systemNoticeReasonCode === "wake.device_wait.expired") {
+		return "Wait expired. Task did not run.";
+	}
 	const targetLabel = targetProfileId
 		? input.resolveTargetLabel(targetProfileId)
 		: null;
@@ -90,6 +94,10 @@ const FOOTER_BUTTON_CLASS_NAME =
 	"size-7 border-0 bg-transparent p-1.5 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground focus-visible:border-0 max-lg:min-h-7 max-lg:min-w-7";
 
 export function SpaceMessageFooter(input: {
+	deviceWaitOutcome?: {
+		notices: readonly SpaceTimelineItem[];
+		sourceItem: SpaceTimelineItem;
+	};
 	addressingTargets: readonly SpaceMessageFooterAddressingTarget[];
 	align?: "end" | "start";
 	details?: SpaceMessageFooterDetailsAction;
@@ -128,6 +136,9 @@ export function SpaceMessageFooter(input: {
 				)}
 				data-slot="message-footer-primary-actions"
 			>
+				{input.deviceWaitOutcome ? (
+					<SpaceDeviceWaitOutcome {...input.deviceWaitOutcome} />
+				) : null}
 				{persistent ? detailsButton : null}
 				{persistent ? null : (
 					<MessageFooterIconAction

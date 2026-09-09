@@ -285,6 +285,44 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				start: nextText.length,
 			};
 		},
+		composeExpiredDeviceWait: (request: {
+			sourceSignalId: string;
+			targetProfileId: string;
+		}) => {
+			if (currentComposerHasDraftRef.current) {
+				throw new Error(
+					"Send or clear your current draft before starting this task again."
+				);
+			}
+			const target = input.snapshot
+				? createSpaceTargetCatalog(input.snapshot).byProfileId.get(
+						request.targetProfileId
+					)
+				: undefined;
+			if (target?.profileKind !== "agent") {
+				throw new Error(
+					"This Agent is no longer available in the Space. Choose an Agent to send a new task."
+				);
+			}
+			const mention: SpaceComposerAuthoredMentionInTextOrder = {
+				profileId: target.profileId,
+				relation:
+					target.wakeAvailability.status === "ready" ? "wake" : "reference",
+				text: `@${target.profileName}`,
+			};
+			const text = `${mention.text} Please carry out the request in the referenced message.`;
+			composerDraft.setContent({
+				authoredMentions: trackAuthoredMentionsInText({
+					mentions: [mention],
+					text,
+				}),
+				replyToSignalId: request.sourceSignalId,
+				text,
+			});
+			currentComposerHasDraftRef.current = true;
+			pendingSelectionRef.current = { start: text.length, end: text.length };
+			textareaRef.current?.focus();
+		},
 		prepareSubmission: (missingSnapshotMessage: string) =>
 			prepareSpaceComposerSubmission({
 				authoredMentionsInTextOrder: authoredMentions.map(

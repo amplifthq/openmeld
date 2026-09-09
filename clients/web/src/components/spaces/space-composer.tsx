@@ -2,7 +2,7 @@ import type { WakeDeviceWait } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowUpIcon } from "@phosphor-icons/react";
-import { type ReactNode, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import {
 	PromptInput,
 	PromptInputAction,
@@ -26,6 +26,7 @@ import {
 } from "./space-composer-copy";
 import {
 	canSubmitSpaceComposerDeviceWait,
+	createSpaceComposerDeviceWait,
 	type SpaceComposerSendOptions,
 } from "./space-composer-device-wait";
 import { SpaceComposerDeviceWaitControl } from "./space-composer-device-wait-control";
@@ -97,32 +98,14 @@ const ignoreFiles = (_files: readonly File[]): Promise<void> =>
 	Promise.resolve();
 const ignoreFileRemoval = (_localId: string): void => undefined;
 
-function useDeviceWaitDraft(
-	text: string,
-	targets: readonly SpaceComposerAddressingTarget[]
-) {
-	const [deviceWait, setDeviceWait] = useState<WakeDeviceWait>();
-	const hasDeviceWaitTarget = targets.some(
-		(target) => target.profileId === deviceWait?.targetProfileId
-	);
-	useEffect(() => {
-		if (!(text && hasDeviceWaitTarget)) {
-			setDeviceWait(undefined);
-		}
-	}, [text, hasDeviceWaitTarget]);
-	return {
-		deviceWait: hasDeviceWaitTarget ? deviceWait : undefined,
-		setDeviceWait,
-	};
-}
-
 export function SpaceComposer(input: SpaceComposerProps) {
-	const { deviceWait, setDeviceWait } = useDeviceWaitDraft(
-		input.content.text,
-		input.content.addressingTargets
-	);
-	const submit = () =>
-		input.actions.onSubmit(deviceWait ? { deviceWait } : undefined);
+	const submit = () => {
+		if (!resolveSpaceComposerBlockedWakeHint(input.content.addressingTargets)) {
+			input.actions.onSubmit();
+		}
+	};
+	const deviceWaitPresentation =
+		buildSpaceComposerDeviceWaitPresentation(input);
 
 	const policy = resolveSpaceComposerPolicy({
 		canSendMessage: input.availability.canSendMessage,
@@ -157,10 +140,10 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		uploadInProgress,
 	});
 	const blockedWakeHint = resolveSpaceComposerBlockedWakeHint(
-		input.content.addressingTargets,
-		deviceWait
+		input.content.addressingTargets
 	);
-	const composerHint = blockedWakeHint ?? fileHint ?? policy.wakeTextHint;
+	const composerHint =
+		deviceWaitPresentation.hint ?? fileHint ?? policy.wakeTextHint;
 	const accessHint = input.availability.canSendMessage
 		? null
 		: policy.placeholder;
@@ -171,27 +154,14 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	if (blockedWakeHint) {
 		composerHintClassName = "text-destructive";
 	}
-	const primaryAction = input.slots?.primaryAction ?? (
-		<PromptInputAction
-			className="hidden sm:inline-flex"
-			tooltip={policy.sendButtonTooltip}
-		>
-			<Button
-				aria-label={policy.sendButtonLabel}
-				disabled={
-					input.availability.isSendingMessage ||
-					!input.availability.canSendMessage ||
-					blockedWakeHint !== null ||
-					input.availability.sendBlocked
-				}
-				onClick={submit}
-				size="icon-sm"
-				type="button"
-			>
-				<ArrowUpIcon aria-hidden="true" weight="bold" />
-			</Button>
-		</PromptInputAction>
-	);
+	const primaryAction = renderSpaceComposerSendAction({
+		availability: input.availability,
+		blockedWakeHint,
+		deviceWaitControl: deviceWaitPresentation.control,
+		onSubmit: submit,
+		override: input.slots?.primaryAction,
+		policy,
+	});
 
 	return (
 		<div
@@ -232,12 +202,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						placeholder={policy.placeholder}
 						text={input.content.text}
 					/>
-					<SpaceComposerDeviceWaitControl
-						disabled={uploadsDisabled}
-						onChange={setDeviceWait}
-						targets={input.content.addressingTargets}
-						value={deviceWait}
-					/>
+					{deviceWaitPresentation.control}
 					<PromptInputActions className="min-w-0 justify-between gap-3 pt-2">
 						<div className="flex flex-1 items-center gap-0">
 							{input.capabilities?.attachments !== false ? (
@@ -316,6 +281,89 @@ function resolveSpaceComposerBlockedWakeHint(
 		reason ||
 		`${blockedWakeTarget.profileName} can't reply right now. Change Wake to Reference or try again.`
 	);
+}
+
+function renderSpaceComposerSendAction(input: {
+	availability: SpaceComposerProps["availability"];
+	blockedWakeHint: string | null;
+	deviceWaitControl: ReactNode;
+	onSubmit: () => void;
+	override: ReactNode;
+	policy: ReturnType<typeof resolveSpaceComposerPolicy>;
+}): ReactNode {
+	if (input.override) {
+		return input.override;
+	}
+	if (input.deviceWaitControl && input.blockedWakeHint) {
+		return null;
+	}
+	return (
+		<PromptInputAction
+			className="hidden sm:inline-flex"
+			tooltip={input.policy.sendButtonTooltip}
+		>
+			<Button
+				aria-label={input.policy.sendButtonLabel}
+				disabled={
+					input.availability.isSendingMessage ||
+					!input.availability.canSendMessage ||
+					input.blockedWakeHint !== null ||
+					input.availability.sendBlocked
+				}
+				onClick={input.onSubmit}
+				size="icon-sm"
+				type="button"
+			>
+				<ArrowUpIcon aria-hidden="true" weight="bold" />
+			</Button>
+		</PromptInputAction>
+	);
+}
+
+function buildSpaceComposerDeviceWaitPresentation(input: SpaceComposerProps): {
+	control: ReactNode;
+	hint: string | null;
+} {
+	const ordinary = {
+		control: null,
+		hint: resolveSpaceComposerBlockedWakeHint(input.content.addressingTargets),
+	};
+	if (!input.availability.canSendMessage) {
+		return ordinary;
+	}
+	const targets = input.content.addressingTargets.filter((target) =>
+		Boolean(createSpaceComposerDeviceWait(target))
+	);
+	// A wait covers one target. Never silently choose between offline Agents
+	// or admit another blocked Wake in the same message.
+	if (targets.length > 1) {
+		return {
+			control: null,
+			hint: "To wait for a computer, send to one offline Agent at a time.",
+		};
+	}
+	const target = targets[0];
+	if (!target) {
+		return ordinary;
+	}
+	const hint = resolveSpaceComposerBlockedWakeHint(
+		input.content.addressingTargets,
+		createSpaceComposerDeviceWait(target)
+	);
+	return {
+		hint,
+		control: (
+			<SpaceComposerDeviceWaitControl
+				disabled={
+					input.availability.isSendingMessage ||
+					input.availability.sendBlocked ||
+					hint !== null
+				}
+				onSubmit={input.actions.onSubmit}
+				target={target}
+			/>
+		),
+	};
 }
 
 function SpaceComposerFileDropOverlay(input: { visible: boolean }) {

@@ -106,6 +106,10 @@ import type {
 } from "./space-composer-editor";
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
 import {
+	type ComposeExpiredDeviceWait,
+	SpaceDeviceWaitOutcomeScope,
+} from "./space-device-wait-outcome";
+import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	type SpaceExecutionRecoveryHandler,
 } from "./space-execution-recovery-actions";
@@ -264,6 +268,7 @@ type SpaceThreadPanelProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
 	onClose: () => void;
+	onComposeExpiredDeviceWait?: ComposeExpiredDeviceWait;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
@@ -306,7 +311,13 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 			progressItems={input.ephemeralActivityItems}
 			stopRequestStatusBySelectorKey={input.wakeStopRequestStatusBySelectorKey}
 		>
-			<SpaceThreadPanelContent {...input} />
+			<SpaceDeviceWaitOutcomeScope
+				onComposeAgain={
+					input.readOnly ? undefined : input.onComposeExpiredDeviceWait
+				}
+			>
+				<SpaceThreadPanelContent {...input} />
+			</SpaceDeviceWaitOutcomeScope>
 		</SpaceWakeStopScope>
 	);
 }
@@ -1563,6 +1574,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 					<ThreadTimelineMessageFooter
 						addressingTargets={addressingTargets}
 						align={messageAlign}
+						anchoredOutcomeNotices={anchoredOutcomeNotices}
 						failureSummary={failureSummary}
 						hasWakeProblem={hasWakeProblem}
 						item={input.item}
@@ -1578,6 +1590,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 });
 
 function ThreadTimelineMessageFooter(input: {
+	anchoredOutcomeNotices: readonly SpaceTimelineItem[];
 	addressingTargets: ReturnType<
 		typeof resolveSpaceMessageFooterAddressingTargets
 	>;
@@ -1611,6 +1624,10 @@ function ThreadTimelineMessageFooter(input: {
 			align={input.align}
 			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={details}
+			deviceWaitOutcome={{
+				notices: input.anchoredOutcomeNotices,
+				sourceItem: input.item,
+			}}
 			failureSummary={input.failureSummary}
 			onCopy={() =>
 				copySpaceTimelineItemWithFeedback({

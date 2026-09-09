@@ -76,6 +76,10 @@ export function resolveHistoricalWakeFailureBody(input: {
 	)?.toLowerCase();
 	const targetName = formatTargetName(input.targetLabel);
 
+	if (reasonCode === "wake.device_wait.expired") {
+		return "Wait expired. Task did not run.";
+	}
+
 	if (reasonCode === "cursor.plan_upgrade_required") {
 		return `${targetName} stopped this Wake because the Cursor plan had reached its usage limit.`;
 	}

@@ -169,6 +169,7 @@ import {
 	removeSetValue,
 	removeWakeProgressItemsForClientMessageId,
 	resolveBlockedWakeProfileIdFromSubmissionError,
+	resolveComposerAddressingTargets,
 	resolveComposerWakeProgressTargetProfileIds,
 	resolveDeleteSpaceErrorMessage,
 	resolveDiagnosticReportProblemType,
@@ -1190,6 +1191,14 @@ export type SpaceLandingController =
 			onThreadMentionButtonClick: () => void;
 			onThreadSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 			onThreadSendText: (text: string) => Promise<void>;
+			onComposeExpiredDeviceWait: (request: {
+				sourceSignalId: string;
+				targetProfileId: string;
+			}) => void;
+			onThreadComposeExpiredDeviceWait: (request: {
+				sourceSignalId: string;
+				targetProfileId: string;
+			}) => void;
 			onAddThreadComposerFiles: (files: readonly File[]) => Promise<void>;
 			onRemoveThreadComposerFile: (localId: string) => void;
 			onReplyToMessage: (item: SpaceTimelineItem) => void;
@@ -2299,7 +2308,12 @@ export function useSpaceLandingController(input: {
 	return {
 		activeThread: threadController.activeThread,
 		agentStreams: agentStreamProjections,
-		composerAddressingTargets: mentionAuthoring.addressingTargets,
+		composerAddressingTargets: resolveComposerAddressingTargets({
+			addressingTargets: mentionAuthoring.addressingTargets,
+			membersSnapshot,
+			senderProfileId: input.profileId,
+			status: statusSnapshot,
+		}),
 		composerAuthoredMentions: mentionAuthoring.authoredMentions,
 		composerMentionPickerItems: mentionAuthoring.mentionPickerItems,
 		composerFiles: composerFilesController.files,
@@ -2401,6 +2415,24 @@ export function useSpaceLandingController(input: {
 		onThreadMentionButtonClick: threadController.onThreadMentionButtonClick,
 		onThreadSend: threadController.onThreadSend,
 		onThreadSendText: threadController.onThreadSendText,
+		onThreadComposeExpiredDeviceWait:
+			threadController.onComposeExpiredDeviceWait,
+		onComposeExpiredDeviceWait: (request) => {
+			try {
+				if (composerFilesController.files.length > 0 || isSendingMessage) {
+					throw new Error(
+						"Send or clear your current draft before starting this task again."
+					);
+				}
+				mentionAuthoring.composeExpiredDeviceWait(request);
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Could not prepare a new task."
+				);
+			}
+		},
 		onAddThreadComposerFiles: threadController.onAddThreadComposerFiles,
 		onRemoveThreadComposerFile: threadController.onRemoveThreadComposerFile,
 		onReplyToMessage: (item: SpaceTimelineItem) => {
@@ -3373,10 +3405,34 @@ function useSpaceThreadController(input: {
 		onThreadMentionButtonClick: mentionAuthoring.onMentionButtonClick,
 		onThreadSend: sendMessage,
 		onThreadSendText: sendTextMessage,
+		onComposeExpiredDeviceWait: (request: {
+			sourceSignalId: string;
+			targetProfileId: string;
+		}) => {
+			try {
+				if (composerFilesController.files.length > 0 || isSendingMessage) {
+					throw new Error(
+						"Send or clear your current draft before starting this task again."
+					);
+				}
+				mentionAuthoring.composeExpiredDeviceWait(request);
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Could not prepare a new task."
+				);
+			}
+		},
 		onAddThreadComposerFiles: composerFilesController.addFiles,
 		onRemoveThreadComposerFile: composerFilesController.removeFile,
 		threadComposerBlockedWakeProfileId: composerBlockedWakeProfileId,
-		threadComposerAddressingTargets: mentionAuthoring.addressingTargets,
+		threadComposerAddressingTargets: resolveComposerAddressingTargets({
+			addressingTargets: mentionAuthoring.addressingTargets,
+			membersSnapshot: input.membersSnapshot,
+			senderProfileId: input.profileId,
+			status: input.status,
+		}),
 		threadComposerAuthoredMentions: mentionAuthoring.authoredMentions,
 		threadComposerMentionPickerItems: mentionAuthoring.mentionPickerItems,
 		threadComposerErrorMessage: composerErrorMessage,

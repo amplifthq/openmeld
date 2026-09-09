@@ -1,4 +1,5 @@
 import {
+	DEFAULT_WAKE_DEVICE_WAIT_MS,
 	MAX_WAKE_DEVICE_WAIT_MS,
 	normalizeMessageEnvelope,
 } from "@openmeld/schemas";
@@ -14,6 +15,20 @@ type DeviceWaitMember = Pick<
 	SpaceMemberAgentSnapshot,
 	"profileId" | "deviceWaitTarget" | "agentWakeAvailability"
 >;
+
+export function createSpaceComposerDeviceWait(
+	member: DeviceWaitMember
+): WakeDeviceWait | undefined {
+	if (!member.deviceWaitTarget) {
+		return undefined;
+	}
+	const wait = {
+		...member.deviceWaitTarget,
+		targetProfileId: member.profileId,
+		deadlineAtMs: Date.now() + DEFAULT_WAKE_DEVICE_WAIT_MS,
+	};
+	return canSubmitSpaceComposerDeviceWait(member, wait) ? wait : undefined;
+}
 
 export function isCurrentSpaceComposerDeviceWait(
 	member: DeviceWaitMember | undefined,

@@ -138,6 +138,10 @@ import { buildSpaceConversationScrollRestorationId } from "./space-conversation-
 import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
 import {
+	type ComposeExpiredDeviceWait,
+	SpaceDeviceWaitOutcomeScope,
+} from "./space-device-wait-outcome";
+import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	type SpaceExecutionRecoveryHandler,
 } from "./space-execution-recovery-actions";
@@ -279,6 +283,7 @@ type SpaceConversationPanelResolvedProps = {
 	}) => boolean | Promise<boolean>;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
+	onComposeExpiredDeviceWait?: ComposeExpiredDeviceWait;
 	onRemoveComposerFile: (localId: string) => void;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -430,7 +435,15 @@ export function SpaceConversationPanel(
 				publicInput.wakeStopRequestStatusBySelectorKey
 			}
 		>
-			<SpaceConversationPanelContent {...publicInput} />
+			<SpaceDeviceWaitOutcomeScope
+				onComposeAgain={
+					publicInput.viewState.readOnly
+						? undefined
+						: publicInput.onComposeExpiredDeviceWait
+				}
+			>
+				<SpaceConversationPanelContent {...publicInput} />
+			</SpaceDeviceWaitOutcomeScope>
 		</SpaceWakeStopScope>
 	);
 }
@@ -3160,6 +3173,10 @@ function renderConversationMessageFooter(input: {
 						}
 					: undefined
 			}
+			deviceWaitOutcome={{
+				notices: input.anchoredOutcomeNotices,
+				sourceItem: input.item,
+			}}
 			failureSummary={failureSummary}
 			onCopy={() =>
 				copySpaceTimelineItemWithFeedback({

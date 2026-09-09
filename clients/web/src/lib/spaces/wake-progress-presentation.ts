@@ -232,9 +232,7 @@ export function resolveWakeProgressThinkingEntry(input: {
 			phase: item.phase,
 			step,
 			targetProfileId: item.targetProfileId,
-			text:
-				item.previewText ??
-				(item.deviceWait ? `${step.label}. ${step.description}` : step.label),
+			text: item.previewText ?? step.label,
 		},
 	];
 }

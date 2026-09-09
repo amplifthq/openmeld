@@ -190,7 +190,7 @@ function resolveDeviceWaitStatus(
 	return {
 		kind: wait.reason === "earlier_work" ? "queued" : "waiting_for_device",
 		label,
-		description: `Start by ${new Date(wait.deadlineAtMs).toLocaleString()}. ${reason} No work has started.`,
+		description: `${reason} No work has started. Waiting expires ${new Date(wait.deadlineAtMs).toLocaleString()}.`,
 		status: "pending",
 	};
 }
