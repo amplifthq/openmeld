@@ -122,6 +122,43 @@ export const prepareStepDiagnosticsBundleSchema = z.object({
   supportCode: PREPARE_STEP_DIAGNOSTICS_SHORT_TEXT_SCHEMA,
   // The immediate native failure, without copying arbitrary exception text.
   nativeFailure: z.object({ osStatus: z.int() }).optional(),
+  // Additive and independent of nativeFailure for older Core receivers.
+  operationFailure: z
+    .object({
+      code: z
+        .string()
+        .regex(/^E[A-Z]+$/u)
+        .max(32),
+      errno: z.int().optional(),
+      syscall: z
+        .string()
+        .regex(/^[a-z]+$/u)
+        .max(32)
+        .optional(),
+      pathCategory: z.enum([
+        "app_bundle",
+        "absolute_other",
+        "relative",
+        "unknown",
+      ]),
+      destinationCategory: z
+        .enum(["app_bundle", "absolute_other", "relative", "unknown"])
+        .optional(),
+    })
+    .optional(),
+  evidenceWindow: z
+    .object({
+      startedAt: PREPARE_ISO_DATE_TIME_SCHEMA,
+      endedAt: PREPARE_ISO_DATE_TIME_SCHEMA,
+    })
+    .optional(),
+  serviceLogWindow: z
+    .object({
+      excludedUndatedLines: z.int().nonnegative(),
+      excludedOutsideWindowLines: z.int().nonnegative(),
+      sourceTruncated: z.boolean(),
+    })
+    .optional(),
   stepId: PREPARE_STEP_DIAGNOSTICS_SHORT_TEXT_SCHEMA,
   // Stable OpenMeld-internal device UUID read from the local service contract. It
   // is not user-identifying data; it lets Workers Logs correlate a machine's
@@ -134,6 +171,17 @@ export const prepareStepDiagnosticsBundleSchema = z.object({
     .min(1)
     .max(PREPARE_STEP_DIAGNOSTICS_CLI_VERSION_MAX_CHARS),
   os: z.object({
+    // release remains the kernel release; these are macOS product/build facts.
+    productVersion: z
+      .string()
+      .regex(/^[0-9]+(?:\.[0-9]+){1,3}$/u)
+      .max(64)
+      .optional(),
+    buildVersion: z
+      .string()
+      .regex(/^[A-Za-z0-9.]+$/u)
+      .max(64)
+      .optional(),
     platform: z
       .string()
       .trim()
