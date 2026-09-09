@@ -42,6 +42,7 @@ import {
 import { Editor, EditorContainer } from "#/components/editor/ui/editor";
 import {
 	InlineCombobox,
+	InlineComboboxCancel,
 	InlineComboboxContent,
 	InlineComboboxEmpty,
 	InlineComboboxGroup,
@@ -125,12 +126,15 @@ type SpaceComposerEditorContextValue = Pick<
 const SpaceComposerEditorContext =
 	createContext<SpaceComposerEditorContextValue | null>(null);
 
-const SpaceComposerEditorKit = [
+export const SpaceComposerEditorKit = [
 	ParagraphPlugin.withComponent(SpaceComposerParagraphElement),
 	MentionPlugin.configure({
 		options: {
 			insertSpaceAfterMention: true,
 			trigger: "@",
+			// Allow natural CJK sentences and punctuation without intercepting email addresses.
+			triggerPreviousCharPattern:
+				/^$|^[\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}，。！？；：、（）【】《》「」『』“”‘’,;:!?()[\]{}<>"']$/u,
 		},
 	}),
 	MentionInputPlugin.withComponent(SpaceComposerMentionInput),
@@ -638,6 +642,7 @@ function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
 					aria-label="Member options"
 					className="w-[min(24rem,calc(100vw-1.5rem))]"
 				>
+					<InlineComboboxCancel label="Close mentions" />
 					<InlineComboboxEmpty>No matching members</InlineComboboxEmpty>
 					<SpaceComposerMentionGroup items={agentItems} title="Agents" />
 					<SpaceComposerMentionGroup items={humanItems} title="People" />

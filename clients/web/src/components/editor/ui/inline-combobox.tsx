@@ -18,6 +18,7 @@ import {
 	SharedLayoutItem,
 } from "@openmeld/ui/fluid/shared-layout-group";
 import { cn } from "@openmeld/ui/lib/utils";
+import { XIcon } from "@phosphor-icons/react";
 import { filterWords } from "@platejs/combobox";
 import {
 	type UseComboboxInputResult,
@@ -35,6 +36,7 @@ type FilterFn = (
 ) => boolean;
 
 type InlineComboboxContextValue = {
+	cancelInput: UseComboboxInputResult["cancelInput"];
 	filter: FilterFn | false;
 	inputProps: UseComboboxInputResult["props"];
 	inputRef: React.RefObject<HTMLInputElement | null>;
@@ -147,7 +149,11 @@ const InlineCombobox = ({
 		};
 	}, [editor, element]);
 
-	const { props: inputProps, removeInput } = useComboboxInput({
+	const {
+		props: inputProps,
+		removeInput,
+		cancelInput,
+	} = useComboboxInput({
 		cancelInputOnBlur: true,
 		cursorState,
 		autoFocus: isCreator,
@@ -171,6 +177,7 @@ const InlineCombobox = ({
 
 	const contextValue: InlineComboboxContextValue = React.useMemo(
 		() => ({
+			cancelInput,
 			filter,
 			inputProps,
 			inputRef,
@@ -180,6 +187,7 @@ const InlineCombobox = ({
 			trigger,
 		}),
 		[
+			cancelInput,
 			trigger,
 			showTrigger,
 			filter,
@@ -279,6 +287,24 @@ const InlineComboboxInput = ({
 };
 
 InlineComboboxInput.displayName = "InlineComboboxInput";
+
+function InlineComboboxCancel({ label }: { label: string }) {
+	const { cancelInput } = React.useContext(InlineComboboxContext);
+	return (
+		<div className="sticky top-0 z-10 flex justify-end bg-popover">
+			<button
+				aria-label={label}
+				className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				onClick={() => cancelInput("manual", true)}
+				onMouseDown={(event) => event.preventDefault()}
+				title={`${label} (Esc)`}
+				type="button"
+			>
+				<XIcon aria-hidden="true" className="size-3.5" />
+			</button>
+		</div>
+	);
+}
 
 const InlineComboboxContent: typeof ComboboxPopover = ({
 	children,
@@ -463,6 +489,7 @@ function InlineComboboxGroupLabel({
 
 export {
 	InlineCombobox,
+	InlineComboboxCancel,
 	InlineComboboxContent,
 	InlineComboboxEmpty,
 	InlineComboboxGroup,
