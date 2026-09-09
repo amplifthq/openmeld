@@ -1,4 +1,8 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
+export {
+  spaceHistoryNavigationQuerySchema,
+  spaceHistoryNavigationSchema,
+} from "./http/space-history-navigation";
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 

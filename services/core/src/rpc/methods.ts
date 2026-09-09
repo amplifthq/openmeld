@@ -654,6 +654,8 @@ import type {
   SpaceDispatchTraceResponseContractVersion,
   SpaceFileAuditEvent,
   SpaceFileDescriptor,
+  SpaceHistoryNavigation,
+  SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
@@ -1930,6 +1932,9 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcGetCursor(input: GetSpaceCursorInput): Promise<SpaceCursor>;
   rpcPatchCursor(input: UpdateSpaceCursorInput): Promise<SpaceCursor>;
   rpcGetMembers(input: GetSpaceMembersInput): Promise<SpaceMembersSnapshot>;
+  rpcGetHistoryNavigation(
+    input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
+  ): Promise<SpaceHistoryNavigation>;
   rpcGetIdentityDirectory(
     input: GetSpaceMembersInput
   ): Promise<SpaceIdentityDirectory>;
@@ -24445,4 +24450,13 @@ function toSpaceCreator(context: CoreRpcContextInput): SpaceCreator {
       : {}),
     ...(actorContext.ownerName ? { ownerName: actorContext.ownerName } : {}),
   };
+}
+
+export function rpcGetSpaceHistoryNavigation(
+  env: CoreBindings,
+  input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
+): Promise<SpaceHistoryNavigation> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return stub.rpcGetHistoryNavigation({ ...input, spaceId, spaceAccess });
 }

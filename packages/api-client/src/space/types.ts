@@ -51,6 +51,8 @@ import type {
   SpaceComposerUploadDescriptor,
   SpaceFileDescriptor,
   SpaceFileEntry,
+  SpaceHistoryNavigation,
+  SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
@@ -240,6 +242,9 @@ export type SpaceApi = {
   getMemberDirectory: (
     input: SpaceRequestInput
   ) => Promise<SpaceMemberDirectory>;
+  getHistoryNavigation: (
+    input: SpaceRequestInput & SpaceHistoryNavigationQuery
+  ) => Promise<SpaceHistoryNavigation>;
   getIdentityDirectory: (
     input: SpaceRequestInput
   ) => Promise<SpaceIdentityDirectory>;

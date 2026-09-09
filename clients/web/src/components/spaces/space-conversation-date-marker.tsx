@@ -48,7 +48,6 @@ export function SpaceConversationDateMarker(input: {
 	date: Date;
 	loadedSignalCount: number;
 	onJumpToDate?: (date: Date) => Promise<string | null>;
-	stuck?: boolean;
 }) {
 	const label = formatConversationDateLabel(input.date);
 
@@ -59,15 +58,13 @@ export function SpaceConversationDateMarker(input: {
 			role="separator"
 			variant="separator"
 		>
-			{input.stuck ? null : (
-				<MarkerContent data-conversation-date-marker-pill="">
-					<SpaceConversationDatePill
-						date={input.date}
-						loadedSignalCount={input.loadedSignalCount}
-						onJumpToDate={input.onJumpToDate}
-					/>
-				</MarkerContent>
-			)}
+			<MarkerContent data-conversation-date-marker-pill="">
+				<SpaceConversationDatePill
+					date={input.date}
+					loadedSignalCount={input.loadedSignalCount}
+					onJumpToDate={input.onJumpToDate}
+				/>
+			</MarkerContent>
 		</Marker>
 	);
 }

@@ -9,7 +9,7 @@ account credentials. Python 3 uses only its standard library.
 | Test credentials | `accounts.py` | Random local accounts, credential retrieval, explicit new account creation; shared by `dev:account` and `dev:seed` |
 | Organization and local environment | `context.py` | Organization, authentication, backup, strict local lane selection |
 | People, Agents, Computers | `people.py` | 18 teammates, 42 Agents, multiple owners/controllers, disabled and unbound Agents, historical computer records |
-| Spaces and Inbox | `spaces.py` | 28 Spaces, long names, public/private, pins, mixed membership, unread records |
+| Spaces and Inbox | `spaces.py` | 28 Spaces, long names, public/private, pins, mixed membership, unread records; Product planning has 480 messages spanning 120 days, Design feedback has 90, Website refresh has 31 to exercise the navigation threshold |
 | Messages | `messages.py` | Six DMs, mixed peers, recent/older/long/multiline and outgoing-only previews |
 | Personal grouping | `sidebar.py` | Starter stars and custom People/Agents groups, existing arrangements preserved |
 

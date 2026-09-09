@@ -1,4 +1,8 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
+export type {
+  SpaceHistoryNavigation,
+  SpaceHistoryNavigationQuery,
+} from "./http/space-history-navigation";
 
 // Type-query import keeps this entrypoint type-only while locking the version type to the schema export.
 export type OpenMeldSchemaVersion =

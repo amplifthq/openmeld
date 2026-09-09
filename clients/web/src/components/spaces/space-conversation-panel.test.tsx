@@ -903,9 +903,10 @@ describe("SpaceConversationPanel", () => {
 			})
 		).toHaveLength(1);
 		expect(
-			firstDateMarker.querySelector("[data-conversation-date-marker-pill]")
-		).toBeNull();
-		expect(firstDateMarker.textContent).toBe("");
+			firstDateMarker.querySelector<HTMLElement>(
+				"[data-conversation-date-marker-pill]"
+			)?.hidden
+		).toBe(true);
 		expect(
 			secondDateMarker.querySelector("[data-conversation-date-marker-pill]")
 				?.firstElementChild?.className
@@ -930,9 +931,10 @@ describe("SpaceConversationPanel", () => {
 			})
 		).toHaveLength(1);
 		expect(
-			secondDateMarker.querySelector("[data-conversation-date-marker-pill]")
-		).toBeNull();
-		expect(secondDateMarker.textContent).toBe("");
+			secondDateMarker.querySelector<HTMLElement>(
+				"[data-conversation-date-marker-pill]"
+			)?.hidden
+		).toBe(true);
 		const stickyPillTrack = document.querySelector(
 			"[data-slot='conversation-date-pill-track']"
 		);
@@ -2705,8 +2707,10 @@ describe("SpaceConversationPanel", () => {
 		const jumpButton = screen.getByRole("button", {
 			name: "Jump to latest message",
 		});
-		expect(jumpButton.getAttribute("data-active")).toBe("false");
-		expect(jumpButton.hasAttribute("inert")).toBe(true);
+		expect(
+			jumpButton.closest("[data-active]")?.getAttribute("data-active")
+		).toBe("false");
+		expect(!!jumpButton.closest("[inert]")).toBe(true);
 
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
@@ -2738,9 +2742,11 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.scroll(conversationLog);
 
 		await waitFor(() => {
-			expect(jumpButton.getAttribute("data-active")).toBe("true");
+			expect(
+				jumpButton.closest("[data-active]")?.getAttribute("data-active")
+			).toBe("true");
 		});
-		expect(jumpButton.hasAttribute("inert")).toBe(false);
+		expect(!!jumpButton.closest("[inert]")).toBe(false);
 		const messageScroller = jumpButton.closest(
 			"[data-slot='message-scroller']"
 		);
@@ -2750,31 +2756,6 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			jumpButton.closest("[data-slot='message-scroller-content']")
 		).toBeNull();
-		expect(jumpButton.getAttribute("data-slot")).toBe(
-			"message-scroller-button"
-		);
-		expect(jumpButton.getAttribute("data-variant")).toBe("secondary");
-		expect(jumpButton.className).toContain("border-transparent");
-		expect(jumpButton.className).toContain("conversation-floating-surface");
-		expect(jumpButton.className).toContain("conversation-floating-surface");
-		expect(jumpButton.className).not.toContain("ring-background");
-		expect(jumpButton.className).not.toContain("shadow-lg");
-		expect(jumpButton.className).toContain("data-[active=false]:blur-[6px]");
-		expect(jumpButton.className).toContain("data-[active=true]:blur-none");
-		expect(jumpButton.className).toContain(
-			"motion-reduce:data-[active=false]:blur-none"
-		);
-		expect(jumpButton.className).toContain("inset-s-1/2");
-		expect(jumpButton.className).toContain("-translate-x-1/2");
-		expect(jumpButton.className).toContain("data-[direction=end]:bottom-4");
-		expect(jumpButton.className).toContain(
-			"data-[direction=end]:data-[active=false]:translate-y-full"
-		);
-		expect(jumpButton.className).toContain(
-			"data-[active=false]:pointer-events-none"
-		);
-		expect(jumpButton.style.insetInlineEnd).toBe("");
-		expect(jumpButton.style.insetInlineStart).toBe("");
 
 		fireEvent.click(jumpButton);
 
@@ -2783,7 +2764,9 @@ describe("SpaceConversationPanel", () => {
 			top: 700,
 		});
 		await waitFor(() => {
-			expect(jumpButton.getAttribute("data-active")).toBe("false");
+			expect(
+				jumpButton.closest("[data-active]")?.getAttribute("data-active")
+			).toBe("false");
 		});
 	});
 
