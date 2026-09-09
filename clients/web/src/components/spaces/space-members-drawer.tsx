@@ -6,6 +6,7 @@ import { resolveAgentWakeAvailabilityDisplayCategory } from "@openmeld/agent-run
 import type {
 	AuthProfileView,
 	ModelCatalog,
+	OrganizationProfileDirectoryResponse,
 	SpaceMembersSnapshot,
 } from "@openmeld/schemas/types";
 import {
@@ -70,6 +71,7 @@ import { toast } from "sonner";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { resolveDirectoryHumanProfileActivityLabel } from "#/components/directory/directory-human-profile-format";
+import { ProfileListItem } from "#/components/profiles/profile-list-item";
 import { SpacePickerCreateAgent } from "#/components/profiles/space-picker-create-agent";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
@@ -79,6 +81,7 @@ import {
 } from "#/lib/spaces/presentation";
 import {
 	type OrganizationSpaceProfileCandidates,
+	organizationProfileDirectoryQueryOptions,
 	organizationSpaceProfileCandidatesQueryOptions,
 } from "#/query/organizations/organization-directory";
 import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
@@ -2328,6 +2331,13 @@ function SpaceMembersList(input: {
 	query: string;
 	snapshot: SpaceMembersSnapshot | null;
 }) {
+	const organization = useOptionalAppOrganization();
+	const profileDirectory = useQuery(
+		organizationProfileDirectoryQueryOptions({
+			enabled: Boolean(organization),
+			organizationId: organization?.currentOrganization.id ?? "",
+		})
+	);
 	const [isRetryPending, setIsRetryPending] = useState(false);
 	const [collapsedPersonProfileIds, setCollapsedPersonProfileIds] = useState<
 		ReadonlySet<string>
@@ -2351,6 +2361,7 @@ function SpaceMembersList(input: {
 				centerAgentProfileId: input.centerAgentProfileId,
 				directory,
 				filteredDirectory: input.filteredDirectory,
+				owners: profileDirectory.data?.members,
 				searchActive: input.query.trim().length > 0,
 			}),
 		[
@@ -2358,6 +2369,7 @@ function SpaceMembersList(input: {
 			directory,
 			input.filteredDirectory,
 			input.query,
+			profileDirectory.data?.members,
 		]
 	);
 	const activeWakeDisplayTargetProfileIds =
@@ -2520,25 +2532,43 @@ function SpaceMembersList(input: {
 							{roster.personGroups.map((group) => {
 								const expanded =
 									input.query.trim().length > 0 ||
-									!collapsedPersonProfileIds.has(group.humanEntry.profileId);
+									!collapsedPersonProfileIds.has(group.id);
 								return (
 									<SpacePersonAgentGroup
-										agentsId={`space-members-person-${group.humanEntry.profileId}-agents`}
+										agentsId={`space-members-person-${group.id}-agents`}
 										expanded={expanded}
 										header={
 											<div className="min-w-0 flex-1">
-												{renderMemberRow(group.humanEntry)}
+												{group.humanEntry ? (
+													renderMemberRow(group.humanEntry)
+												) : (
+													<ProfileListItem
+														className="px-1.5 py-2"
+														compact
+														icon={
+															<SpaceProfileIcon
+																agentControllerRef={null}
+																avatarImageUrl={group.avatarUrl}
+																profileId={group.id}
+																profileKind="human"
+																profileName={group.name}
+															/>
+														}
+														profileName={group.name}
+														profileNameClassName="text-[13px] sm:text-[13px]"
+													/>
+												)}
 											</div>
 										}
-										key={group.humanEntry.profileId}
-										name={group.humanEntry.profileName}
+										key={group.id}
+										name={group.name}
 										onExpandedChange={(nextExpanded) => {
 											setCollapsedPersonProfileIds((current) => {
 												const next = new Set(current);
 												if (nextExpanded) {
-													next.delete(group.humanEntry.profileId);
+													next.delete(group.id);
 												} else {
-													next.add(group.humanEntry.profileId);
+													next.add(group.id);
 												}
 												return next;
 											});
@@ -2600,7 +2630,10 @@ function canShowRemoveMemberAction(input: {
 
 type SpaceMembersPersonGroup = {
 	agentEntries: readonly SpaceMemberDirectoryEntry[];
-	humanEntry: SpaceMemberDirectoryEntry;
+	humanEntry: SpaceMemberDirectoryEntry | null;
+	id: string;
+	name: string;
+	avatarUrl: string | null;
 };
 
 type SpaceMembersRoster = {
@@ -2614,6 +2647,7 @@ function buildSpaceMembersRoster(input: {
 	directory: SpaceMemberDirectory | null;
 	filteredDirectory: SpaceMemberDirectory | null;
 	searchActive: boolean;
+	owners?: OrganizationProfileDirectoryResponse["members"];
 }): SpaceMembersRoster {
 	const emptyRoster: SpaceMembersRoster = {
 		organizationEntries: [],
@@ -2665,6 +2699,9 @@ function buildSpaceMembersRoster(input: {
 				{
 					agentEntries: visibleAgentEntries,
 					humanEntry,
+					id: humanEntry.profileId,
+					name: humanEntry.profileName,
+					avatarUrl: humanEntry.avatarUrl,
 				},
 			];
 		}
@@ -2674,7 +2711,42 @@ function buildSpaceMembersRoster(input: {
 			entry.profileId === input.centerAgentProfileId &&
 			(!input.searchActive || visibleProfileIds.has(entry.profileId))
 	);
-	const ungroupedAgentEntries = regularAgentEntries.filter(
+	const unmatchedAgentEntries = regularAgentEntries.filter(
+		(entry) => !assignedAgentProfileIds.has(entry.profileId)
+	);
+	const ownerGroups = new Map<string, SpaceMembersPersonGroup>();
+	for (const entry of unmatchedAgentEntries) {
+		if (!entry.ownerUserId) {
+			continue;
+		}
+		const owner = input.owners?.find(
+			(member) => member.userId === entry.ownerUserId
+		);
+		const name = owner?.humanProfile?.profileName ?? entry.ownerName;
+		if (!name) {
+			continue;
+		}
+		const existing = ownerGroups.get(entry.ownerUserId);
+		ownerGroups.set(entry.ownerUserId, {
+			agentEntries: [...(existing?.agentEntries ?? []), entry],
+			humanEntry: null,
+			id: owner?.humanProfile?.profileId ?? entry.ownerUserId,
+			name,
+			avatarUrl: owner?.user.image ?? null,
+		});
+		assignedAgentProfileIds.add(entry.profileId);
+	}
+	for (const group of ownerGroups.values()) {
+		const agentEntries = input.searchActive
+			? group.agentEntries.filter((entry) =>
+					visibleProfileIds.has(entry.profileId)
+				)
+			: group.agentEntries;
+		if (agentEntries.length > 0) {
+			personGroups.push({ ...group, agentEntries });
+		}
+	}
+	const ungroupedAgentEntries = unmatchedAgentEntries.filter(
 		(entry) =>
 			!assignedAgentProfileIds.has(entry.profileId) &&
 			(!input.searchActive || visibleProfileIds.has(entry.profileId))

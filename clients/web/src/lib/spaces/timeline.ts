@@ -72,6 +72,7 @@ export type SpaceTimelineItem = {
 	navigationAction?: NavigationAction | null;
 	activeWakeSourceItemId?: string;
 	activeWakeProgress?: WakeProgressItem;
+	wakeDispatchId?: string;
 	replyPreviewText: string | null;
 	replyToProfileName: string | null;
 	replyToSignalId: string | null;
@@ -207,10 +208,10 @@ export function buildSpaceTimelineItems(input: {
 				targetCatalog,
 			})
 	);
-	const finalizedStreamIds = new Set(
+	const finalizedDispatchIds = new Set(
 		input.envelopes.flatMap((signal) => {
-			const streamId = readFinalizedAgentStreamId(signal);
-			return streamId ? [streamId] : [];
+			const dispatchId = readFinalizedAgentDispatchId(signal);
+			return dispatchId ? [dispatchId] : [];
 		})
 	);
 	const streamItems = (input.agentStreams ?? []).flatMap((stream) => {
@@ -220,11 +221,7 @@ export function buildSpaceTimelineItems(input: {
 				signalIndex,
 				stream,
 			}) ||
-			finalizedStreamIds.has(stream.streamId) ||
-			hasDurableAgentTerminalNotice({
-				dispatchId: stream.dispatchId,
-				envelopes: input.envelopes,
-			})
+			finalizedDispatchIds.has(stream.dispatchId)
 		) {
 			return [];
 		}
@@ -240,6 +237,7 @@ export function buildSpaceTimelineItems(input: {
 		return [
 			{
 				...timelineItem,
+				wakeDispatchId: stream.dispatchId,
 				agentStreamState: {
 					reasonCode: stream.reasonCode,
 					sequence: stream.sequence,
@@ -318,6 +316,7 @@ function buildSpaceTimelineItem(input: {
 
 	return {
 		id: input.signal.id,
+		wakeDispatchId: readFinalizedAgentDispatchId(input.signal) ?? undefined,
 		spaceId: input.signal.spaceId,
 		signalType: input.signal.type,
 		...(input.signal.type === "signal.status"
@@ -734,7 +733,19 @@ function isAgentFinalReplySignal(
 	);
 }
 
-function readFinalizedAgentStreamId(signal: SignalEnvelope): string | null {
+export function resolveSpaceConversationItemKey(
+	item: SpaceTimelineItem
+): string {
+	return item.wakeDispatchId ? `wake-answer:${item.wakeDispatchId}` : item.id;
+}
+
+function readFinalizedAgentDispatchId(signal: SignalEnvelope): string | null {
+	if (signal.type === "signal.system_notice") {
+		return signal.data.noticeType === "terminal_failure" ||
+			signal.data.noticeType === "wake_stopped"
+			? normalizeOptionalText(signal.data.dispatchId)
+			: null;
+	}
 	if (signal.type !== "signal.text" || signal.profile.kind !== "agent") {
 		return null;
 	}
@@ -745,21 +756,7 @@ function readFinalizedAgentStreamId(signal: SignalEnvelope): string | null {
 	) {
 		return null;
 	}
-	const submissionId = normalizeOptionalText(signal.data.meta?.clientMessageId);
-	return submissionId ? `stream:${submissionId}` : null;
-}
-
-function hasDurableAgentTerminalNotice(input: {
-	dispatchId: string;
-	envelopes: readonly SignalEnvelope[];
-}): boolean {
-	return input.envelopes.some(
-		(signal) =>
-			signal.type === "signal.system_notice" &&
-			(signal.data.noticeType === "terminal_failure" ||
-				signal.data.noticeType === "wake_stopped") &&
-			normalizeOptionalText(signal.data.dispatchId) === input.dispatchId
-	);
+	return normalizeOptionalText(signal.data.meta?.dispatchId);
 }
 
 function normalizeUniqueNonEmptyStrings(values: readonly unknown[]): string[] {

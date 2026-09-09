@@ -436,7 +436,10 @@ describe("organization Core RPC", () => {
     ).toBe(AGENT_PROFILE_ID);
   });
 
-  it("reads the lightweight Profile Directory without touching Runtime Transport", async () => {
+  it.each([
+    "user-a",
+    "user-b",
+  ])("shows Controller branding to Organization member %s without private runtime reads", async (viewerUserId) => {
     const env = buildEnv({
       agentProfiles: [
         {
@@ -448,7 +451,10 @@ describe("organization Core RPC", () => {
           status: "active",
         },
       ],
-      members: [memberRow("member-a", "org-a", "user-a")],
+      members: [
+        memberRow("member-a", "org-a", "user-a"),
+        memberRow("member-b", "org-a", "user-b"),
+      ],
     });
     const lookupRoutes = vi.spyOn(
       runtimeTransportClient,
@@ -466,7 +472,7 @@ describe("organization Core RPC", () => {
     const response = await rpcGetCurrentOrganizationProfileDirectory(env, {
       context: buildContext({
         activeOrganizationId: "org-a",
-        userId: "user-a",
+        userId: viewerUserId,
       }),
     });
 
@@ -479,7 +485,9 @@ describe("organization Core RPC", () => {
           profileName: "Codex",
         },
       ],
-      members: [expect.objectContaining({ userId: "user-a" })],
+      members: expect.arrayContaining([
+        expect.objectContaining({ userId: viewerUserId }),
+      ]),
     });
     expect(lookupRoutes).not.toHaveBeenCalled();
     expect(lookupOwnerService).not.toHaveBeenCalled();
@@ -13693,44 +13701,27 @@ function resolveAllRows(input: {
     input.normalizedSql.includes(
       "from openmelddaemon_agent_profile_bindings"
     ) &&
-    input.normalizedSql.includes("agent_profile_id in") &&
+    input.normalizedSql.includes(
+      "select agent_profile_id, agent_controller_ref"
+    ) &&
     input.normalizedSql.includes("binding_state = 'enabled_primary'")
   ) {
-    const ownerId = String(input.args[1] ?? "");
-    const requestedProfileIds = new Set(
-      input.args.slice(2).map((value) => String(value))
-    );
     return input.agentProfiles
       .filter(
         (profile) =>
-          profile.ownerUserId === ownerId &&
-          requestedProfileIds.has(profile.profileId) &&
+          input.args.some(
+            (value, index) =>
+              index % 2 === 0 &&
+              value === profile.profileId &&
+              input.args[index + 1] === profile.ownerUserId
+          ) &&
           profile.status === "active" &&
           profile.hasBinding !== false
       )
       .sort((left, right) => left.profileId.localeCompare(right.profileId))
       .map((profile) => ({
-        agent_controller_collaboration_mode: null,
-        agent_controller_conversation_id: null,
-        agent_controller_permission_mode: "ask",
         agent_controller_ref: "builtin:codex",
         agent_profile_id: profile.profileId,
-        binding_id: `binding-${profile.profileId}`,
-        binding_state: "enabled_primary",
-        configuration_revision: 0,
-        created_at_ms: profile.createdAt ?? 1_700_000_000_000,
-        created_by_profile_id: HUMAN_PROFILE_ID,
-        disabled_at_ms: null,
-        hosted_runtime_identity_json: null,
-        model_id: null,
-        opencode_permission: null,
-        owner_id: ownerId,
-        owner_kind: "owner_account",
-        reason_code: null,
-        reasoning_level: null,
-        runtime_kind: "openmeld_service",
-        updated_at_ms: profile.updatedAt ?? 1_700_000_000_000,
-        openmeld_service_runtime_id: `runtime-${profile.profileId}`,
       }));
   }
 

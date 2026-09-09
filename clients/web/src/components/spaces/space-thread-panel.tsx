@@ -41,6 +41,7 @@ import {
 	buildSpaceTimelineItems,
 	isSpaceOutcomeNoticeItem,
 	resolveRecordedSpaceMessageDetailsItem,
+	resolveSpaceConversationItemKey,
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
 import type { WakeFailureTargetContext } from "#/lib/spaces/wake-failure-display";
@@ -72,7 +73,7 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
-import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
+import { formatSpaceAgentAttribution } from "./space-agent-attribution";
 import {
 	SpaceAgentInteractionCard,
 	type SpaceAgentInteractionResponseHandler,
@@ -1134,7 +1135,7 @@ function ThreadTimeline(input: {
 								messageGroupPositionBySignalId.get(item.id) ??
 								SINGLE_MESSAGE_GROUP_POSITION;
 							return (
-								<Fragment key={item.id}>
+								<Fragment key={resolveSpaceConversationItemKey(item)}>
 									{item.id === input.firstUnreadSignalId ? (
 										<div className="my-2 flex items-center gap-3 text-foreground text-xs before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
 											<span>New messages</span>
@@ -1391,11 +1392,10 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				item: input.item,
 				timelineItems: input.allItems,
 			});
-	const agentControlLabel = formatSpaceAgentControlLabel({
+	const agentAttribution = formatSpaceAgentAttribution({
 		agentControllerRef: input.item.actorAgentControllerRef,
-		controllerDisplay: input.item.actorControllerDisplay,
+		ownerName: input.item.actorOwnerName,
 		profileKind: input.item.actorProfileKind,
-		runtimeDeviceDisplayName: input.item.actorRuntimeDeviceDisplayName,
 	});
 	const isSelfMessage = input.item.actorProfileId === input.selfProfileId;
 	const messageAlign = resolveThreadMessageDirectionalAlign(isSelfMessage);
@@ -1473,11 +1473,11 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						<span className="min-w-0 truncate font-bold text-foreground text-sm">
 							{input.item.actorName}
 						</span>
-						{agentControlLabel ? (
+						{agentAttribution ? (
 							<>
 								<span className="shrink-0 text-muted-foreground">·</span>
 								<span className="min-w-0 text-muted-foreground">
-									{agentControlLabel}
+									{agentAttribution}
 								</span>
 							</>
 						) : null}

@@ -14,7 +14,6 @@ import {
 } from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
-import { AgentChatBadge } from "./agent-chat-badge";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import {
 	SpaceHeaderNavigationMenu,
@@ -140,7 +139,6 @@ export function SpaceHeader(input: {
 	isLeaveSpacePending: boolean;
 	isSpaceNamePending: boolean;
 	isCenterAgentDirectMessage?: boolean;
-	isRemoteAgentDirectMessage?: boolean;
 	leaveSpaceErrorMessage: string | null;
 	// Realtime stream health for this browser's live connection. Drives the
 	// status dot pinned after the space name; defaults to "connected" so static
@@ -185,12 +183,6 @@ export function SpaceHeader(input: {
 		purpose: input.status.spacePurpose,
 	});
 	const subtitleItems: SpaceWindowHeaderSubtitleItem[] = [];
-	if (input.directMessageOwnerVisibilityLabel) {
-		subtitleItems.push({
-			key: "agent-owner-visibility",
-			node: <span>{input.directMessageOwnerVisibilityLabel}</span>,
-		});
-	}
 	const unreadCount = input.unreadCount ?? 0;
 	if (unreadCount > 0) {
 		subtitleItems.push({
@@ -307,12 +299,11 @@ export function SpaceHeader(input: {
 						liveState={input.liveState ?? "connected"}
 						onReconnectNow={input.onReconnectLiveUpdates}
 					/>
-					{renderAgentChatBadge(
-						input.isCenterAgentDirectMessage,
-						input.isRemoteAgentDirectMessage,
-						isDirectMessage,
-						input.status.members.agentCount
-					)}
+					{input.directMessageOwnerVisibilityLabel ? (
+						<span className="inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 font-normal text-[10px] leading-none">
+							{input.directMessageOwnerVisibilityLabel}
+						</span>
+					) : null}
 				</span>
 			}
 		/>
@@ -331,21 +322,6 @@ export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
 			weight="regular"
 		/>
 	);
-}
-
-function renderAgentChatBadge(
-	isCenterAgent: boolean | undefined,
-	isRemoteAgent: boolean | undefined,
-	isDirectMessage: boolean,
-	agentCount: number
-) {
-	if (isCenterAgent) {
-		return <AgentChatBadge kind="center" />;
-	}
-	if (isDirectMessage && agentCount === 1) {
-		return <AgentChatBadge kind={isRemoteAgent ? "remote" : "local"} />;
-	}
-	return null;
 }
 
 function renderSpaceAccessModeHeaderLabel(

@@ -49,11 +49,13 @@ import {
 	DirectoryAgentProfilesSummary,
 	DirectoryHumanProfileComputerSummary,
 } from "#/components/directory/directory-human-profile-presentation";
+import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { ProfileDetailsCurrentSession } from "#/components/profiles/profile-details-current-session";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { resolveSpaceMemberInlineStatusTextClassName } from "#/components/spaces/space-member-status-tone";
 import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
 import { copyTextToClipboard } from "#/lib/clipboard";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { useMemberActivityTime } from "#/lib/spaces/use-member-activity-time";
 import {
 	organizationAgentRuntimeOverviewQueryOptions,
@@ -174,25 +176,26 @@ function AgentProfileDetailsHeader(input: {
 				/>
 			)}
 			<div className="min-w-0 flex-1 pt-0.5">
-				<p className="flex items-center gap-1.5 font-semibold text-base text-foreground">
+				<p className="break-words font-semibold text-base text-foreground">
 					<span className="min-w-0 break-words">{input.entry.profileName}</span>
 					<RemoteAgentIndicator
 						agentControllerRef={input.entry.agentControllerRef}
 					/>
+					{presenceSummary ? (
+						<span
+							className={cn(
+								"ml-1.5 inline-block font-normal text-xs",
+								resolveSpaceMemberInlineStatusTextClassName(input.entry)
+							)}
+						>
+							{presenceSummary}
+						</span>
+					) : null}
 				</p>
 				<p className="mt-1 break-words text-muted-foreground text-sm">
 					{modelSummary}
 				</p>
-				{presenceSummary ? (
-					<p
-						className={cn(
-							"mt-2 text-xs",
-							resolveSpaceMemberInlineStatusTextClassName(input.entry)
-						)}
-					>
-						{presenceSummary}
-					</p>
-				) : null}
+				{!input.isCenterAgent && <AgentProfileOwner entry={input.entry} />}
 				{showAvailabilitySummary ? (
 					<p className="mt-1 text-muted-foreground text-xs">
 						{input.entry.availabilitySummary}
@@ -205,6 +208,38 @@ function AgentProfileDetailsHeader(input: {
 				profileName={input.entry.profileName}
 			/>
 		</div>
+	);
+}
+
+function AgentProfileOwner({ entry }: { entry: SpaceMemberDirectoryEntry }) {
+	const organization = useOptionalAppOrganization();
+	const directory = useQuery(
+		organizationProfileDirectoryQueryOptions({
+			enabled: Boolean(organization && entry.ownerUserId),
+			organizationId: organization?.currentOrganization.id ?? "",
+		})
+	);
+	const owner = directory.data?.members.find(
+		(member) => member.userId === entry.ownerUserId
+	);
+	const name = owner?.humanProfile?.profileName ?? entry.ownerName;
+	if (!name) {
+		return null;
+	}
+	return (
+		<p className="mt-2 flex items-center gap-1.5 text-muted-foreground text-xs">
+			<span>Owned by</span>
+			{owner?.humanProfile && (
+				<DitherProfileAvatar
+					avatarImageUrl={owner.user.image}
+					profileId={owner.humanProfile.profileId}
+					profileKind="human"
+					profileName={name}
+					size={16}
+				/>
+			)}
+			<span className="min-w-0 break-words text-foreground">{name}</span>
+		</p>
 	);
 }
 

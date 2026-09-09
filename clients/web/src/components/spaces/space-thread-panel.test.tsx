@@ -59,7 +59,10 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: useQueryMock,
+		useQuery: (options: { enabled?: boolean }) => {
+			const result = useQueryMock(options);
+			return options.enabled === false ? { data: undefined } : result;
+		},
 	};
 });
 

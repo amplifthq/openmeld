@@ -3,7 +3,6 @@ import {
 	createDirectMessageApi,
 	type StructuredApiClientFailure,
 } from "@openmeld/api-client";
-import { isHostedAgentControllerRef } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	ConvertDirectMessageToSpaceResponse,
@@ -1677,9 +1676,6 @@ function SpaceLandingReady({
 							}
 							isDeleteSpacePending={controller.isDeleteSpacePending}
 							isLeaveSpacePending={controller.isLeaveSpacePending}
-							isRemoteAgentDirectMessage={controller.membersSnapshot?.agents.some(
-								(agent) => isHostedAgentControllerRef(agent.agentControllerRef)
-							)}
 							isSpaceNamePending={controller.isSpaceNamePending}
 							leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
 							liveErrorMessage={controller.liveErrorMessage}
@@ -1830,6 +1826,8 @@ function useSpaceLandingViewerState({
 		agentOwnerDirectMessageJoin,
 		agentOwnerDirectMessageObserver,
 		agentOwnerVisibilityLabel: resolveAgentOwnerVisibilityLabel({
+			currentOwnerUserId: state.currentOwnerUserId,
+			isObserver: Boolean(agentOwnerDirectMessageObserver),
 			isCenterAgentDirectMessage: state.currentSpaceIsCenterAgentDirectMessage,
 			isDirectMessage: state.isDirectMessage,
 			snapshot: controller.membersSnapshot,
@@ -2008,7 +2006,8 @@ function SpaceLandingConversation({
 	} = state;
 	let readOnlyComposerPlaceholder: string | undefined;
 	if (agentOwnerDirectMessageObserver) {
-		readOnlyComposerPlaceholder = `You can view this Direct Message because you own ${agentOwnerDirectMessageObserver.agentProfileName}. Join to participate.`;
+		readOnlyComposerPlaceholder =
+			agentOwnerDirectMessageObserver.composerPlaceholder;
 	} else if (controller.isCurrentAccessConfirmed) {
 		readOnlyComposerPlaceholder = `Join as ${currentProfileName ?? "your profile"} to participate in this Space.`;
 	}
@@ -2256,7 +2255,7 @@ function resolveAgentOwnerDirectMessageObserver(input: {
 	isDirectMessage: boolean;
 	snapshot: SpaceMembersSnapshot | null;
 }): {
-	agentProfileName: string;
+	composerPlaceholder: string;
 	humanProfile: AuthProfileView;
 	snapshot: SpaceMembersSnapshot;
 } | null {
@@ -2278,9 +2277,14 @@ function resolveAgentOwnerDirectMessageObserver(input: {
 				ownerUserId: agent.ownerUserId,
 			})
 	);
+	const participant = input.snapshot.humans.find(
+		(human) => human.status === "active"
+	);
 	return ownedAgent
 		? {
-				agentProfileName: ownedAgent.profileName,
+				composerPlaceholder: participant
+					? `${participant.profileName} is chatting with your agent, ${ownedAgent.profileName}. Join this conversation to send messages.`
+					: `This conversation is with your agent, ${ownedAgent.profileName}. Join this conversation to send messages.`,
 				humanProfile: input.humanProfile,
 				snapshot: input.snapshot,
 			}
@@ -2288,6 +2292,8 @@ function resolveAgentOwnerDirectMessageObserver(input: {
 }
 
 function resolveAgentOwnerVisibilityLabel(input: {
+	currentOwnerUserId: string | null;
+	isObserver: boolean;
 	isCenterAgentDirectMessage: boolean;
 	isDirectMessage: boolean;
 	snapshot: SpaceMembersSnapshot | null;
@@ -2303,6 +2309,12 @@ function resolveAgentOwnerVisibilityLabel(input: {
 		(agent) => agent.status === "active"
 	);
 	if (!activeAgent) {
+		return null;
+	}
+	if (input.isObserver) {
+		return "View only";
+	}
+	if (activeAgent.ownerUserId === input.currentOwnerUserId) {
 		return null;
 	}
 	const ownerName = activeAgent.ownerName?.trim();

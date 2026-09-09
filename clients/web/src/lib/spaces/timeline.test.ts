@@ -510,7 +510,10 @@ describe("space timeline helpers", () => {
 		});
 	});
 
-	it("lets the authoritative durable final message replace mismatched best-effort streamed text", () => {
+	it.each([
+		"stream:submission-1",
+		"local-agent:10:dispatch-1:9:attempt-1",
+	])("replaces %s as soon as its durable reply arrives, before stream closure", (streamId) => {
 		const items = buildSpaceTimelineItems({
 			envelopes: [
 				createTextSignal({
@@ -531,7 +534,9 @@ describe("space timeline helpers", () => {
 							],
 							truncated: false,
 						},
-						clientMessageId: "submission-1",
+						...(streamId.startsWith("local-agent:")
+							? {}
+							: { clientMessageId: "submission-1" }),
 						dispatchId: "dispatch-1",
 						purpose: AGENT_REPLY_FINAL_PURPOSE,
 						targetProfileId: "agt_33333333-3333-3333-3333-333333333333",
@@ -549,6 +554,7 @@ describe("space timeline helpers", () => {
 			membersSnapshot: createMembersSnapshot(),
 			agentStreams: [
 				createAgentStreamProjection({
+					streamId,
 					sequence: 4,
 					text: "Different best-effort partial",
 				}),
@@ -1494,6 +1500,7 @@ function createMembersSnapshot(
 }
 
 function createAgentStreamProjection(input: {
+	streamId?: string;
 	sequence: number;
 	text: string;
 }): SpaceConversationVisibleStreamProjection {
@@ -1506,7 +1513,7 @@ function createAgentStreamProjection(input: {
 		sequence: input.sequence,
 		spaceId: "space-123",
 		status: "streaming",
-		streamId: "stream:submission-1",
+		streamId: input.streamId ?? "stream:submission-1",
 		text: input.text,
 		textSequence: input.sequence,
 		triggerMessageId: "signal-trigger-1",
