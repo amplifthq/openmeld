@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-09T04:33:07.700Z",
+  "updatedAt": "2026-09-09T07:09:37.858Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.184",
+      "packageVersion": "0.3.185",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands and cloud contracts are unchanged; the bundled OpenCode adapter remains compatible with old and new cloud services."
+      "reason": "Existing CLI commands and wire contracts remain compatible; only OpenCode startup diagnostic evidence changes."
     },
     "service": {
-      "bundleHash": "418e109f084425861864b85197f6235c09295036ee10f6f343e6afe6748ccb2e",
-      "bundleVersion": "0.3.184",
+      "bundleHash": "a22de56d48da964ddf3f2cba3c1f8faf4c07130ddbb3fb66fade6e9cfef0c8cb",
+      "bundleVersion": "0.3.185",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Only pre-task OpenCode startup budgets and safe error details change; existing Service instances remain compatible and accepted Wakes keep their current lifecycle."
+      "reason": "Startup evidence is diagnostic only; execution, readiness, retry budgets, and Space publication contracts remain unchanged."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",

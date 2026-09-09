@@ -208,7 +208,7 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "  }",
       "  sendJson(response, 404, { name: 'NotFoundError', data: { message: 'not found: ' + url.pathname } });",
       "});",
-      "server.listen(port, host, () => {",
+      "if (process.env.OPENMELD_FAKE_OPENCODE_NO_LISTENER !== '1') server.listen(port, host, () => {",
       "  if (!stalledStart) setTimeout(() => console.log('opencode server listening on http://' + host + ':' + port), Number(process.env.OPENMELD_FAKE_OPENCODE_START_DELAY_MS ?? 0));",
       "});",
       "const shutdown = () => {",
@@ -218,6 +218,7 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "};",
       "process.on('SIGTERM', () => { if (!ignoreSigterm) shutdown(); });",
       "process.on('SIGINT', shutdown);",
+      "if (process.env.OPENMELD_FAKE_OPENCODE_NO_LISTENER === '1') setInterval(() => {}, 1000);",
     ].join("\n"),
     "utf8"
   );
@@ -426,7 +427,10 @@ test("OpenCode carries permission approval through its official server API", asy
   });
 });
 
-test("OpenCode lets a slow healthy server start without discarding its progress", async () => {
+// biome-ignore lint/style/noDoneCallback: node:test passes TestContext, not a completion callback.
+test("OpenCode lets a slow healthy server start without discarding its progress", async (t) => {
+  const warnings = [];
+  t.mock.method(console, "warn", (...args) => warnings.push(args));
   const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
   await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
     const result = await invokeOpenCodeServerTransport({
@@ -441,6 +445,17 @@ test("OpenCode lets a slow healthy server start without discarding its progress"
       sessionId: null,
     });
     assert.equal(result.output, "OpenCode server reply");
+    const slow = warnings.find(
+      ([name]) => name === "[openmeld.opencode.server_start.slow]"
+    )?.[1];
+    assert.ok(
+      slow,
+      "a slow listener must leave evidence before it is terminated"
+    );
+    assert.equal(slow.portProbe.status, "connected");
+    assert.equal(slow.stdoutBytes, 0);
+    assert.equal(slow.readyLineObserved, false);
+    assert.ok(slow.processId > 0);
     const log = await readLog(logPath);
     assert.equal(
       log.filter((entry) => Array.isArray(entry.argv)).length,
@@ -557,6 +572,9 @@ test("OpenCode startup recovery stays inside the configured turn timeout", async
         assert.ok(error.message.includes("No Agent task was sent"));
         assert.ok(error.originalError.includes("bootstrapping local OpenCode"));
         assert.ok(error.originalError.includes("attempt 1 of 2"));
+        assert.ok(
+          error.originalError.includes('"portProbe":{"status":"not_sampled"}')
+        );
         return true;
       }
     );
@@ -567,6 +585,36 @@ test("OpenCode startup recovery stays inside the configured turn timeout", async
       log.filter((entry) => Array.isArray(entry.argv)).length,
       1,
       "an exhausted turn budget must not start a replacement process"
+    );
+  });
+});
+
+test("OpenCode distinguishes an unopened port from a missing listener announcement", async () => {
+  const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
+  await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    await assert.rejects(
+      invokeOpenCodeServerTransport({
+        env: {
+          OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath,
+          OPENMELD_FAKE_OPENCODE_NO_LISTENER: "1",
+          OPENMELD_FAKE_OPENCODE_START_STDERR: "Starting synthetic controller",
+        },
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        openCodeTimeoutMs: 6500,
+        openCodeWorkdir: fixtureDir,
+        prompt: "Never submit before readiness",
+        sessionId: null,
+      }),
+      (error) => {
+        assert.equal(error.code, "process.timeout");
+        assert.ok(error.originalError.includes('"status":"refused"'));
+        assert.ok(error.originalError.includes('"readyLineObserved":false'));
+        return true;
+      }
+    );
+    assert.equal(
+      (await readLog(logPath)).filter((entry) => entry.path).length,
+      0
     );
   });
 });
@@ -593,6 +641,9 @@ test("OpenCode stops after one replacement without sending a task or exposing un
         assert.equal(error.code, "process.timeout");
         assert.ok(error.message.includes("attempt 2 of 2"));
         assert.ok(error.message.includes("No Agent task was sent"));
+        assert.ok(error.originalError.includes("Startup evidence, attempt 1"));
+        assert.ok(error.originalError.includes("Startup evidence, attempt 2"));
+        assert.ok(error.originalError.includes('"status":"connected"'));
         assert.ok(
           !JSON.stringify(error).includes("private-startup-test-token")
         );
