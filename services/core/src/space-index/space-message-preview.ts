@@ -21,6 +21,7 @@ export function captureSpaceMessagePreview(sql: SqlStorage): {
     }>(`
     SELECT rowid AS storage_order, id, ts, profile_id, payload_json
     FROM space_signals WHERE type = 'signal.text'
+      AND COALESCE(json_extract(payload_json, '$.data.meta.purpose'), '') != 'space_message_changed'
     ORDER BY ts DESC, id DESC LIMIT 1
   `)
     .toArray()[0];

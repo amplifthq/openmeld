@@ -1,7 +1,6 @@
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
-	DropdownMenuContent,
 	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuSub,
@@ -15,6 +14,10 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@openmeld/ui/components/popover";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowBendUpLeftIcon,
@@ -31,6 +34,7 @@ import {
 	MessageActionTooltip,
 	MessageDetailsActionButton,
 } from "./space-message-actions";
+import { useSpaceMessageEditing } from "./space-message-editing";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 
 export type SpaceMessageFooterAddressingTarget = {
@@ -89,7 +93,8 @@ type SpaceMessageFooterDetailsAction = {
 const FOOTER_BUTTON_CLASS_NAME =
 	"size-7 border-0 bg-transparent p-1.5 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground focus-visible:border-0 max-lg:min-h-7 max-lg:min-w-7";
 
-export function SpaceMessageFooter(input: {
+type SpaceMessageFooterProps = {
+	item?: SpaceTimelineItem;
 	addressingTargets: readonly SpaceMessageFooterAddressingTarget[];
 	align?: "end" | "start";
 	details?: SpaceMessageFooterDetailsAction;
@@ -99,11 +104,39 @@ export function SpaceMessageFooter(input: {
 	reply?: SpaceMessageFooterAction;
 	thread?: SpaceMessageFooterAction;
 	timestamp: string;
-}) {
+};
+
+export function SpaceMessageFooter(input: SpaceMessageFooterProps) {
+	const editing = useSpaceMessageEditing();
+	const editableItem =
+		input.item &&
+		input.item.actorProfileKind === "human" &&
+		input.item.actorProfileId === editing?.selfProfileId &&
+		input.item.deliveryState === "sent"
+			? input.item
+			: null;
+	if (
+		input.item?.recalledAt ||
+		(input.item?.id && editing?.edit?.id === input.item.id)
+	) {
+		return null;
+	}
+	return (
+		<SpaceMessageFooterContent
+			{...input}
+			onEdit={editableItem ? () => editing?.beginEdit(editableItem) : undefined}
+			onRecall={editableItem ? () => editing?.recall(editableItem) : undefined}
+		/>
+	);
+}
+
+function SpaceMessageFooterContent(
+	input: SpaceMessageFooterProps & {
+		onEdit?: () => void;
+		onRecall?: () => void;
+	}
+) {
 	const persistent = Boolean(input.failureSummary);
-	const hasOverflowActions =
-		persistent ||
-		Boolean(input.reply || input.thread || input.addressingTargets.length > 0);
 	const detailsButton = (
 		<MessageFooterDetailsAction
 			details={input.details}
@@ -139,7 +172,6 @@ export function SpaceMessageFooter(input: {
 				)}
 				{input.reply && !persistent ? (
 					<MessageFooterIconAction
-						className="@max-[36rem]:hidden"
 						disabled={input.reply.disabled}
 						icon={<ArrowBendUpLeftIcon aria-hidden="true" />}
 						label={input.reply.label}
@@ -148,7 +180,6 @@ export function SpaceMessageFooter(input: {
 				) : null}
 				{input.thread && !persistent ? (
 					<MessageFooterIconAction
-						className="@max-[36rem]:hidden"
 						disabled={input.thread.disabled}
 						icon={<ChatCircleIcon aria-hidden="true" />}
 						label={input.thread.label}
@@ -156,26 +187,36 @@ export function SpaceMessageFooter(input: {
 					/>
 				) : null}
 				{input.addressingTargets.length > 0 && !persistent ? (
-					<MessageAddressingPopover
-						className="@max-[36rem]:hidden"
-						targets={input.addressingTargets}
-					/>
+					<MessageAddressingPopover targets={input.addressingTargets} />
 				) : null}
 				{persistent ? null : detailsButton}
-				{hasOverflowActions ? (
-					<MessageFooterMoreMenu
-						addressingTargets={input.addressingTargets}
-						alwaysVisible={persistent}
-						onCopy={
-							persistent && !input.copyDisabled ? input.onCopy : undefined
-						}
-						reply={input.reply}
-						thread={input.thread}
-					/>
-				) : null}
+				{renderFooterMoreMenu(input, persistent)}
 				<time className="ml-1 shrink-0 tabular-nums">{input.timestamp}</time>
 			</div>
 		</div>
+	);
+}
+
+function renderFooterMoreMenu(
+	input: SpaceMessageFooterProps & {
+		onEdit?: () => void;
+		onRecall?: () => void;
+	},
+	persistent: boolean
+) {
+	if (!(input.onEdit || persistent)) {
+		return null;
+	}
+	return (
+		<MessageFooterMoreMenu
+			addressingTargets={persistent ? input.addressingTargets : []}
+			alwaysVisible
+			edit={input.onEdit}
+			onCopy={persistent && !input.copyDisabled ? input.onCopy : undefined}
+			recall={input.onRecall}
+			reply={persistent ? input.reply : undefined}
+			thread={persistent ? input.thread : undefined}
+		/>
 	);
 }
 
@@ -256,6 +297,8 @@ function MessageAddressingPopover(input: {
 }
 
 function MessageFooterMoreMenu(input: {
+	edit?: () => void;
+	recall?: () => void;
 	addressingTargets: readonly SpaceMessageFooterAddressingTarget[];
 	alwaysVisible?: boolean;
 	onCopy?: () => void;
@@ -276,8 +319,27 @@ function MessageFooterMoreMenu(input: {
 					<DotsThreeIcon aria-hidden="true" />
 				</DropdownMenuTrigger>
 			</MessageActionTooltip>
-			<DropdownMenuContent align="start" className="w-52" sideOffset={6}>
-				<DropdownMenuGroup>
+			<FluidDropdownMenuContent align="start" className="w-52" sideOffset={6}>
+				<DropdownMenuGroup className="flex w-full flex-col">
+					{input.edit ? (
+						<FluidDropdownMenuItem
+							className="w-full"
+							index={0}
+							onClick={input.edit}
+						>
+							Edit message
+						</FluidDropdownMenuItem>
+					) : null}
+					{input.recall ? (
+						<FluidDropdownMenuItem
+							className="w-full"
+							index={1}
+							onClick={input.recall}
+							variant="destructive"
+						>
+							Recall message
+						</FluidDropdownMenuItem>
+					) : null}
 					{input.onCopy ? (
 						<DropdownMenuItem onClick={input.onCopy}>
 							<CopyIcon aria-hidden="true" />
@@ -316,7 +378,7 @@ function MessageFooterMoreMenu(input: {
 						</DropdownMenuSub>
 					) : null}
 				</DropdownMenuGroup>
-			</DropdownMenuContent>
+			</FluidDropdownMenuContent>
 		</DropdownMenu>
 	);
 }

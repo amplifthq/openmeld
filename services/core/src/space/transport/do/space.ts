@@ -82,6 +82,7 @@ import {
   runtimeCoordinatorFinalizationCommandSchema,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
+  SPACE_MESSAGE_CHANGED_PURPOSE,
   SPACE_PASSWORD_MIN_LENGTH,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_MESSAGE,
   type SpaceInvitationAccessInput,
@@ -103,6 +104,7 @@ import {
   spaceInvitationAccessInputSchema,
   spaceInvitationGrantInputSchema,
   spaceInvitationRevokeInputSchema,
+  spaceMessageMutationBodySchema,
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
@@ -582,6 +584,10 @@ import {
   readSpaceMemberRecord,
   type SpaceMemberRecord,
 } from "../../infrastructure/sql/space-member-repo";
+import {
+  completeRecalledMessageRepost,
+  mutateSpaceMessage,
+} from "../../infrastructure/sql/space-message-mutation-repo";
 import {
   initializeSpaceMetaRecordIfAbsent,
   readSpaceMetaRecordFromSql,
@@ -4047,6 +4053,107 @@ export class Space extends DurableObject<CoreBindings> {
       ok: true,
       status: "quarantined",
     };
+  }
+
+  async rpcMutateSpaceMessage(
+    input: import("../../../rpc/methods").MutateSpaceMessageInput
+  ) {
+    this.applySpaceRef(input.spaceId);
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeWritableSpaceAccess(input.spaceAccess)
+    );
+    const actor = toProtocolProfile(
+      requireWritableSpaceActor(input.spaceAccess)
+    );
+    const member = readSpaceMemberRecord(this.ctx.storage.sql, actor.profileId);
+    if (member?.status !== "active" || actor.kind !== "human") {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space.message.author_required",
+        reason: "Only the sender can change this message.",
+      });
+    }
+    const parsed = spaceMessageMutationBodySchema.safeParse(input.body);
+    if (!parsed.success) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        reason: "Invalid message change.",
+      });
+    }
+    const nowMs = Date.now();
+    const result = this.ctx.storage.transactionSync(() => {
+      const outcome = mutateSpaceMessage({
+        sql: this.ctx.storage.sql,
+        signalId: input.signalId,
+        actorProfileId: actor.profileId,
+        actorKind: actor.kind,
+        body: parsed.data,
+        nowMs,
+      });
+      if (!outcome.changed) {
+        return { ...outcome, change: null };
+      }
+      const change: SignalEnvelope = {
+        v: 1,
+        id: crypto.randomUUID(),
+        spaceId: this.spaceId,
+        ts: nowMs,
+        profile: {
+          profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
+          profileName: DISPATCH_HINT_SYSTEM_PROFILE_NAME,
+          kind: "system",
+        },
+        type: "signal.text",
+        data: {
+          text: `Message ${input.signalId} was ${parsed.data.action === "recall" ? "recalled" : "edited"}. Read the current message before replying.`,
+          meta: {
+            purpose: SPACE_MESSAGE_CHANGED_PURPOSE,
+            changedMessageId: input.signalId,
+          },
+        },
+      };
+      insertSignalRecord(this.ctx.storage.sql, change);
+      const placement = readSpaceThreadSignalPlacementBySignalId(
+        this.ctx.storage.sql,
+        input.signalId
+      );
+      if (placement) {
+        insertSpaceThreadSignalPlacement(this.ctx.storage.sql, {
+          ...placement,
+          signalId: change.id,
+          createdAt: new Date(nowMs).toISOString(),
+        });
+      }
+      insertSpaceIndexProjectionOutboxRecord(
+        this.ctx.storage.sql,
+        this.createCurrentMessagePreviewProjection()
+      );
+      return { ...outcome, change };
+    });
+    if (result.changed) {
+      const placement = readSpaceThreadSignalPlacementBySignalId(
+        this.ctx.storage.sql,
+        input.signalId
+      );
+      const thread = placement
+        ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+        : null;
+      const signalContext: SignalPublishContext | undefined = thread
+        ? {
+            threadContext: {
+              rootSignalId: thread.rootSignalId,
+              threadId: thread.threadId,
+            },
+            threadPlacement: placement?.placement,
+          }
+        : undefined;
+      this.broadcastSignal(result.message, signalContext, { persisted: true });
+      if (result.change) {
+        this.broadcastSignal(result.change, signalContext, { persisted: true });
+      }
+      this.ctx.waitUntil(this.syncSpaceBackgroundAlarm());
+    }
+    return { message: result.message };
   }
 
   async rpcPostSignal(input: PostSignalInput): Promise<SignalEnvelope> {
@@ -8534,6 +8641,13 @@ export class Space extends DurableObject<CoreBindings> {
       if (!signal) {
         continue;
       }
+      if (
+        signal.type === "signal.text" &&
+        signal.profile.kind === "system" &&
+        signal.data.meta?.purpose === SPACE_MESSAGE_CHANGED_PURPOSE
+      ) {
+        continue;
+      }
       const entries = entriesByThreadId.get(entry.placement.threadId) ?? [];
       entries.push({ placement: entry.placement, signal });
       entriesByThreadId.set(entry.placement.threadId, entries);
@@ -8849,6 +8963,7 @@ export class Space extends DurableObject<CoreBindings> {
             : {}),
           meta: {
             clientMessageId: parsed.data.clientMessageId,
+            restoredFromSignalId: parsed.data.restoredFromSignalId,
             ...(parsed.data.authorHasRead
               ? { authorHasRead: true as const }
               : {}),
@@ -13923,6 +14038,10 @@ export class Space extends DurableObject<CoreBindings> {
     const dispatchMessages: OpenMeldDaemonDispatchQueueMessage[] = [];
     let duplicateFinalReplyBlocked = false;
     let persistedSignal = false;
+    let repostedSource: Extract<
+      SignalEnvelope,
+      { type: "signal.text" }
+    > | null = null;
     const persistNowMs = Date.now();
     if (signal.type === "signal.text") {
       assertCurrentSpaceAddressingTargetsAreActiveMembers({
@@ -13963,6 +14082,10 @@ export class Space extends DurableObject<CoreBindings> {
               return;
             }
             this.insertThreadPlacementForPublishedSignal(signal, signalContext);
+            repostedSource = completeRecalledMessageRepost(
+              this.ctx.storage.sql,
+              signal
+            );
             this.insertSpaceInboxProjectionForPublishedSignal({
               nowMs: persistNowMs,
               signal,
@@ -14007,6 +14130,7 @@ export class Space extends DurableObject<CoreBindings> {
         );
       },
     });
+    this.broadcastRepostedSource(repostedSource);
     this.maybeEmitRetentionWarningSignal({
       signal,
       createOutboxRecord,
@@ -14036,6 +14160,31 @@ export class Space extends DurableObject<CoreBindings> {
     };
   }
 
+  private broadcastRepostedSource(repostedSource: SignalEnvelope | null) {
+    if (repostedSource) {
+      const placement = readSpaceThreadSignalPlacementBySignalId(
+        this.ctx.storage.sql,
+        repostedSource.id
+      );
+      const thread = placement
+        ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+        : null;
+      this.broadcastSignal(
+        repostedSource,
+        thread
+          ? {
+              threadContext: {
+                rootSignalId: thread.rootSignalId,
+                threadId: thread.threadId,
+              },
+              threadPlacement: placement?.placement,
+            }
+          : undefined,
+        { persisted: true }
+      );
+    }
+  }
+
   private persistTextSignalWithOptionalOutbox(
     signal: SignalEnvelope,
     createOutboxRecord: boolean,
@@ -14058,6 +14207,7 @@ export class Space extends DurableObject<CoreBindings> {
     const dispatchMessages: OpenMeldDaemonDispatchQueueMessage[] = [];
     let duplicateFinalReplyBlocked = false;
     let persistedSignal = false;
+    let repostedSource: SignalEnvelope | null = null;
     const persistNowMs = Date.now();
     if (signal.type === "signal.text") {
       assertCurrentSpaceAddressingTargetsAreActiveMembers({
@@ -14093,6 +14243,10 @@ export class Space extends DurableObject<CoreBindings> {
               return;
             }
             this.insertThreadPlacementForPublishedSignal(signal, signalContext);
+            repostedSource = completeRecalledMessageRepost(
+              this.ctx.storage.sql,
+              signal
+            );
             this.insertSpaceInboxProjectionForPublishedSignal({
               nowMs: persistNowMs,
               signal,
@@ -14137,6 +14291,7 @@ export class Space extends DurableObject<CoreBindings> {
         );
       },
     });
+    this.broadcastRepostedSource(repostedSource);
     this.maybeEmitRetentionWarningSignal({
       signal,
       createOutboxRecord,

@@ -40,6 +40,7 @@ import {
 } from "./members";
 import { getSpaceMessageDetails } from "./message-details";
 import { updateSpaceMeta } from "./meta";
+import { mutateSpaceMessage } from "./mutate-message";
 import { postSpaceNormalMessage } from "./post-normal-message";
 import { removeSpaceMembers } from "./remove-members";
 import { listSpaceSignalEnvelopes, listSpaceSignals } from "./signals";
@@ -132,6 +133,7 @@ export const createSpaceApi: CreateSpaceApi = (
       await getSpaceMessageDetails(client, input),
     createDiagnosticReport: async (input) =>
       await createSpaceDiagnosticReport(client, input),
+    mutateMessage: (input) => mutateSpaceMessage(client, input),
     postNormalMessage: async (input) =>
       await postSpaceNormalMessage(client, input),
     createThread: async (input) => await createSpaceThread(client, input),

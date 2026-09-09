@@ -202,7 +202,7 @@ type PendingComposerSubmission = ReturnType<
 
 type PreparedSpaceMessageSubmission = Pick<
 	PendingComposerSubmission,
-	"messageEnvelope" | "text"
+	"messageEnvelope" | "text" | "restoredFromSignalId"
 >;
 
 type SpaceComposerSendBoundary =
@@ -417,6 +417,7 @@ function resolveCenterAgentExecutionInput(input: {
 }
 
 function buildNormalMessagePostInput(input: {
+	restoredFromSignalId?: string;
 	centerAgentExecutionInput?: NonNullable<
 		TextSignalEnvelope["data"]["meta"]
 	>["centerAgentExecutionInput"];
@@ -432,6 +433,9 @@ function buildNormalMessagePostInput(input: {
 			? { messageEnvelope: input.messageEnvelope }
 			: {}),
 		meta: {
+			...(input.restoredFromSignalId
+				? { restoredFromSignalId: input.restoredFromSignalId }
+				: {}),
 			...(input.centerAgentExecutionInput
 				? { centerAgentExecutionInput: input.centerAgentExecutionInput }
 				: {}),
@@ -2747,6 +2751,7 @@ export function useSpaceLandingController(input: {
 				openMeldProfileId: input.profileId,
 			});
 			const postInput = buildNormalMessagePostInput({
+				restoredFromSignalId: sendInput.preparedSubmission.restoredFromSignalId,
 				centerAgentExecutionInput,
 				files: sendInput.files,
 				clientMessageId: sendInput.clientMessageId,
@@ -3693,6 +3698,8 @@ function useSpaceThreadController(input: {
 			const postInput = {
 				body: {
 					clientMessageId,
+					restoredFromSignalId:
+						sendInput.preparedSubmission.restoredFromSignalId,
 					authorHasRead: true as const,
 					...(publishedFiles?.messageFiles.length
 						? { files: publishedFiles.messageFiles }

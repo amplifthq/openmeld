@@ -187,7 +187,11 @@ export function resolveReplyToContext(input: {
         ),
         memberIdentityIndex: input.memberIdentityIndex ?? null,
       }),
-      previewText: sanitizeSignalTextPreview(readSignalText(referencedSignal)),
+      previewText:
+        referencedSignal.type === "signal.text" &&
+        referencedSignal.data.meta?.recalledAt
+          ? "Message recalled"
+          : sanitizeSignalTextPreview(readSignalText(referencedSignal)),
       relationSummary: buildSignalRelationSummary({
         signal: referencedSignal,
         memberIdentityIndex: input.memberIdentityIndex ?? null,

@@ -889,6 +889,7 @@ import {
   rpcListSpaceThreadEvents,
   rpcListSpaceThreadSignals,
   rpcListSpaceThreads,
+  rpcMutateSpaceMessage,
   rpcNotifyAgentProfileRouteCatalogChanged,
   rpcNotifyAgentProfilesRouteCatalogChanged,
   rpcOpenCenterAgentDirectMessageSpace,
@@ -1641,6 +1642,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcListSignals(this.env, input),
       spaceAddressingVersion
     );
+  }
+
+  mutateSpaceMessage(input: import("./rpc/methods").MutateSpaceMessageInput) {
+    return rpcMutateSpaceMessage(this.env, input);
   }
 
   async postSignal(
@@ -3786,6 +3791,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     spaceAddressingVersion?: string
   ): Promise<SignalEnvelope> {
     return super.postSignal(input, spaceAddressingVersion);
+  }
+
+  mutateSpaceMessage(input: import("./rpc/methods").MutateSpaceMessageInput) {
+    return super.mutateSpaceMessage(input);
   }
 
   postTransientSignal(input: PostTransientSignalInput): Promise<void> {
