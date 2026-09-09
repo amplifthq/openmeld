@@ -1,8 +1,4 @@
-import { createCenterAgentApi } from "@openmeld/api-client";
-import type {
-	AccountSidebarPreferences,
-	ListCenterAgentSessionsResponse,
-} from "@openmeld/schemas";
+import type { AccountSidebarPreferences } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -20,9 +16,7 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { FunnelSimpleIcon, PlusIcon } from "@phosphor-icons/react";
-import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout";
 import { SidebarDrag, SidebarDropSection } from "#/components/app/sidebar-drag";
 import { moveSidebarGroup } from "#/components/app/sidebar-drop-target";
@@ -31,40 +25,16 @@ import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { moveSidebarItemIds } from "#/components/app/sidebar-order";
 import { SidebarSectionActions } from "#/components/app/sidebar-section-actions";
-import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
-import { useSpaceListIndicators } from "#/components/spaces/use-space-list-indicators";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
-import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
-import { useAppOrganization } from "#/lib/organizations/organization-context";
-import {
-	buildOrganizationCenterAgentChatPath,
-	buildOrganizationDirectMessagePath,
-	buildOrganizationDirectMessagesPath,
-} from "#/lib/organizations/organization-routes";
-import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
-import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
-import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
-import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import { SidebarDestinationAction } from "../app/sidebar-destination-actions";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
-import {
-	resolveAccountSpaceViewerProfileId,
-	selectAccountSpaceSections,
-} from "./account-space-sections";
 import type { Chat } from "./chat-sidebar-model";
-import { mergeChatPreferences } from "./chat-sidebar-model";
 import { ChatRow } from "./chat-sidebar-row";
-import { resolveDirectMessagePeer } from "./direct-message-peer";
-import { spaceMessagePreviewQueryOptions } from "./direct-message-preview";
 import { NewDirectMessageDialog } from "./new-direct-message-dialog";
-import {
-	resolveSidebarAttentionSpaceIds,
-	sortSidebarSpaces,
-} from "./sidebar-space-order";
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
+import { useChats } from "./use-chats";
 
 type Preferences = NonNullable<AccountSidebarPreferences["chats"]>;
-const TRAILING_SLASH = /\/$/;
 
 export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 	const [search, setSearch] = useState("");
@@ -78,201 +48,32 @@ export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 	);
 	const [creating, setCreating] = useState(false);
 	const [creatingGroup, setCreatingGroup] = useState<string>();
-	const { currentOrganization: org } = useAppOrganization();
-	const { defaultHumanProfile } = useDefaultHumanProfile();
-	const profileId = defaultHumanProfile?.openMeldProfileId ?? "";
-	const store = useSidebarPreferences(profileId, org.id);
-	const spaces = useQuery(
-		accountSpaceItemsQueryOptions({
-			enabled: !!profileId,
-			profileId,
-			scope: "account",
-		})
-	);
-	const directory = useQuery(
-		organizationProfileDirectoryQueryOptions({
-			enabled: !!profileId,
-			organizationId: org.id,
-		})
-	);
-	const accountItems = spaces.data
-		? selectAccountSpaceSections({
-				currentOrganizationId: org.id,
-				sections: spaces.data,
-			}).directMessageItems
-		: [];
+	const [archived, setArchived] = useState(false);
+	const {
+		profileId,
+		store,
+		spaces,
+		directory,
+		sessions,
+		ordinaryAccountItems,
+		preferences,
+		chatPath,
+		attentionById,
+		indicators,
+		selected,
+		save,
+		sections,
+		title,
+		rows,
+	} = useChats({
+		...input,
+		search,
+		archived,
+		includes: categoryFilter.includes,
+	});
 	const pin = useAccountSpacePinMutation({ currentProfileId: profileId });
 	const [renaming, setRenaming] = useState<Chat | null>(null);
 	const [name, setName] = useState("");
-	const [archived, setArchived] = useState(false);
-	const navigate = useNavigate();
-	const pathname = useRouterState({
-		select: (state) => state.location.pathname,
-	});
-	const selected = useRouterState({
-		select: (state) =>
-			input.currentSpaceId ??
-			new URLSearchParams(state.location.searchStr).get("session"),
-	});
-	const sessions = useInfiniteQuery({
-		queryKey: ["center-agent", org.id, profileId, "sessions", "sidebar"],
-		enabled: !!profileId,
-		initialPageParam: undefined as string | undefined,
-		getNextPageParam: (page: ListCenterAgentSessionsResponse) =>
-			page.nextCursor ?? undefined,
-		queryFn: ({ signal, pageParam }) => {
-			const api = createCenterAgentApi(
-				createOrganizationScopedWebOpenMeldApiFoundation({
-					organizationId: org.id,
-				})
-			);
-			return api.listSessions({ limit: 100, cursor: pageParam, signal });
-		},
-		staleTime: 30_000,
-	});
-	const chatsById = new Map<string, Chat>(
-		accountItems.map((item) => {
-			const viewerProfileId = resolveAccountSpaceViewerProfileId({
-				currentProfileId: profileId,
-				item,
-			});
-			const peer = resolveDirectMessagePeer({
-				item,
-				profileDirectory: directory.data,
-				viewerProfileId,
-			});
-			return [
-				item.spaceId,
-				{
-					spaceId: item.spaceId,
-					name: peer?.profileName ?? item.spaceName,
-					createdAt: item.spaceCreatedAt ?? null,
-					viewerProfileId,
-					peer,
-				},
-			];
-		})
-	);
-	for (const session of sessions.data?.pages.flatMap((page) => page.sessions) ??
-		[]) {
-		chatsById.set(session.spaceId, {
-			...chatsById.get(session.spaceId),
-			...session,
-			session: true,
-		});
-	}
-	const chats = [...chatsById.values()];
-	const ordinaryAccountItems = accountItems.filter(
-		(item) => !chatsById.get(item.spaceId)?.session
-	);
-	const preferences = mergeChatPreferences(
-		store.preferences,
-		ordinaryAccountItems
-	);
-	const previews = useQueries({
-		queries: chats.map((chat) =>
-			spaceMessagePreviewQueryOptions({
-				spaceId: chat.spaceId,
-				viewerProfileId: chat.viewerProfileId ?? profileId,
-				enabled: !!profileId,
-			})
-		),
-	});
-	const activity = new Map(
-		chats.map((chat, index) => [
-			chat.spaceId,
-			previews[index]?.data?.timestamp ??
-				(Date.parse(chat.createdAt ?? "") || 0),
-		])
-	);
-	const chatPath = (chat: Chat) =>
-		chat.session
-			? buildOrganizationCenterAgentChatPath(org.slug, {
-					session: chat.spaceId,
-				})
-			: buildOrganizationDirectMessagePath({
-					orgSlug: org.slug,
-					spaceId: chat.spaceId,
-					search: { profileId: chat.viewerProfileId ?? profileId },
-				});
-	const inbox = useQuery(
-		spaceInboxSummaryQueryOptions({ organizationId: org.id })
-	);
-	const attentionById = new Map(
-		(inbox.data?.attention ?? []).map((item) => [item.spaceId, item])
-	);
-	const indicators = useSpaceListIndicators({
-		currentProfileId: profileId,
-		currentSpaceId: selected ?? "",
-		organizationId: org.id,
-		spaceIds: chats.map((chat) => chat.spaceId),
-	});
-	// Publish each page immediately; searching and saved groups include older chats
-	// as subsequent pages arrive, without holding the first page behind them.
-	useEffect(() => {
-		if (sessions.hasNextPage && !sessions.isFetching && !sessions.isError) {
-			sessions.fetchNextPage();
-		}
-	}, [
-		sessions.hasNextPage,
-		sessions.isFetching,
-		sessions.isError,
-		sessions.fetchNextPage,
-	]);
-	const save = (chats: Preferences) => {
-		if (store.preferences) {
-			store.save({ ...store.preferences, messages: undefined, chats });
-		}
-	};
-	const sections = [
-		{ id: "pinned", name: "Pinned", ...preferences.pinned },
-		...preferences.groups,
-		{ id: "chats", name: "Chats", ...preferences.spaces },
-	];
-	const title = (chat: Chat) =>
-		preferences.titles[chat.spaceId] ?? chat.name ?? "New chat";
-	const owner = (id: string) =>
-		preferences.pinned.spaceIds.includes(id)
-			? "pinned"
-			: (preferences.groups.find((g) => g.spaceIds.includes(id))?.id ??
-				"chats");
-	const rows = (section: string) => {
-		const config = sections.find((s) => s.id === section);
-		if (!config) {
-			return [];
-		}
-		const items = chats.filter(
-			(chat) =>
-				owner(chat.spaceId) === section &&
-				categoryFilter.includes(
-					chat.session ? "agent" : (chat.peer?.profileKind ?? "unknown")
-				) &&
-				preferences.archivedIds.includes(chat.spaceId) === archived &&
-				title(chat).toLocaleLowerCase().includes(search.toLocaleLowerCase())
-		);
-		return sortSidebarSpaces(
-			items.map((chat) => ({
-				...chat,
-				pinnedAt: null,
-				lastJoinedAt: "",
-				spaceCreatedAt: chat.createdAt,
-				spaceUpdatedAt: chat.createdAt,
-			})),
-			config,
-			resolveSidebarAttentionSpaceIds(
-				indicators.activeWakeSummaryBySpaceId,
-				inbox.data?.attention
-			),
-			new Map(
-				[...indicators.unreadBySpaceId].map(([id, value]) => [
-					id,
-					value.latestUnreadOccurredAtMs,
-				])
-			),
-			new Set(indicators.activeWakeSummaryBySpaceId.keys()),
-			activity
-		);
-	};
 	const move = async (section: string, id: string, before?: string) => {
 		const target = sections.find((s) => s.id === section);
 		if (!target || store.disabled) {
@@ -340,31 +141,6 @@ export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 			(section.id !== "pinned" && section.id !== "chats") ||
 			rows(section.id).length > 0
 	);
-	const firstChat = visibleSections.flatMap((section) => rows(section.id))[0];
-	const firstChatPath = firstChat ? chatPath(firstChat) : null;
-	const firstChatReady = !(
-		spaces.isPending ||
-		directory.isPending ||
-		spaces.isError ||
-		directory.isError ||
-		sessions.isPending ||
-		sessions.hasNextPage ||
-		sessions.isError ||
-		store.isPending ||
-		store.isError ||
-		previews.some((preview) => preview.isPending) ||
-		inbox.isPending
-	);
-	useEffect(() => {
-		if (
-			firstChatReady &&
-			firstChatPath &&
-			pathname.replace(TRAILING_SLASH, "") ===
-				buildOrganizationDirectMessagesPath(org.slug)
-		) {
-			navigate({ to: firstChatPath, replace: true });
-		}
-	}, [navigate, org.slug, firstChatReady, firstChatPath, pathname]);
 	const addGroup = (name: string) =>
 		save({
 			...preferences,

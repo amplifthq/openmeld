@@ -522,8 +522,10 @@ inside Chats. Both routes support the existing `session`, `draft`, and view
 selectors and share the underlying conversation without copying history.
 
 Chats at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
-It opens the first conversation in sidebar section and sort order once the
-list is ready. An empty list offers New chat. New chat and participant filters
+It stays on a conversation directory, sharing sidebar grouping, sort order,
+previews, and unread projections. Loading never presents a false empty state
+or automatically opens a conversation. A genuinely empty list offers New chat.
+New chat and participant filters
 live in the Chats destination action slot. Selected destinations keep their
 actions visible; Search manually inside filters reveals contextual search.
 Ordinary private conversations use `/chats/{spaceId}`. The old

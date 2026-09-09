@@ -231,7 +231,7 @@ export function ChatRow(input: {
 	);
 }
 
-function resolvePreviewText(
+export function resolvePreviewText(
 	preview: ReturnType<typeof useSpaceMessagePreview>
 ): string {
 	if (preview.data) {
@@ -246,7 +246,7 @@ function resolvePreviewText(
 	return "No messages yet";
 }
 
-function ChatIcon(input: {
+export function ChatIcon(input: {
 	chat: Chat;
 	title: string;
 	summary?: SpaceSidebarActiveWakeSummary;
