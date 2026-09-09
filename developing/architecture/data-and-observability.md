@@ -2285,6 +2285,16 @@ supported for its explicitly selected transport, and fails closed after that
 connection becomes persistent. No bulk mutation or automatic fallback changes
 live organizations' selected transport.
 
+The persistent connector adds optional `connectionGeneration` to the shared
+Message Channel Queue envelope. Old queued Webhook envelopes remain readable.
+The new producer and its generation-aware consumer ship in the same Core
+release; do not gradually mix it with old Core Queue consumers. Before
+rolling back to a Core version without this field/connector, stop persistent
+producers and drain their Queue work, or retain the compatible receiver and
+Durable Object class in the rollback. CLI, local Service, managed skills,
+workstation Wake/Space actions, Gateway HTTP payloads, and Remote Agent
+submission contracts are unchanged. No local-component contract floor is raised.
+
 The App Secret, Webhook verification token, and event encryption key live in a
 separate encrypted credential row. The connection and credential write is one
 D1 batch, so failed encryption or persistence cannot produce a connected
