@@ -1,4 +1,5 @@
 import type {
+  AgentProfileCreationExecutionMessage,
   AgentTaskContinuationQueueMessage,
   AgentTaskObservationRedriveQueueMessage,
   AuthRpcResolveOrganizationAccountIdentityInput,
@@ -231,6 +232,7 @@ export type CoreBindings = {
   WEB_APP_URL?: string;
   ZEP_OPENMELD_API_KEY?: string;
   OPENMELD_DAEMON_DISPATCH_QUEUE?: Queue<
+    | AgentProfileCreationExecutionMessage
     | AgentTaskContinuationQueueMessage
     | AgentTaskObservationRedriveQueueMessage
     | RemoteAgentNativeDeliveryDeadlineProbeQueueMessage

@@ -5,7 +5,7 @@ import {
 } from "../agent-activity/activity-retention-service";
 import { retryAgentActivitySessionInventoryMemberCleanups } from "../agent-activity/activity-session-inventory-member-cleanup-service";
 import { retryAgentProfileCreationRequestInboxProjections } from "../agent-profile-creation-request/agent-profile-creation-request-inbox-projection";
-import { recoverStaleAgentProfileCreationRequests } from "../agent-profile-creation-request/agent-profile-creation-request-recovery";
+import { recoverAgentProfileCreationRequests } from "../agent-profile-creation-request/agent-profile-creation-request-recovery";
 import { retryReadyAgentTaskContinuations } from "../agent-task-coordination/application/agent-task-terminal-outcome-service";
 import { runAgentControllerTaskRetention } from "../agent-task-coordination/infrastructure/d1/agent-controller-task-retention";
 import { retryPendingCenterAgentWakePublications } from "../center-agent/application/center-agent-wake-publication-service";
@@ -96,7 +96,7 @@ export async function runCoreScheduledTasks(input: {
   reconcileSlackNativeDeliveryInbox?: typeof reconcileLinkedSlackNativeDeliveryInbox;
   retryInboxEmailDeliveries?: typeof retryInboxUrgentEmailDeliveries;
   retryAgentProfileCreationRequestInboxProjections?: typeof retryAgentProfileCreationRequestInboxProjections;
-  recoverStaleAgentProfileCreationRequests?: typeof recoverStaleAgentProfileCreationRequests;
+  recoverAgentProfileCreationRequests?: typeof recoverAgentProfileCreationRequests;
   retrySessionInventoryMemberCleanups?: typeof retryAgentActivitySessionInventoryMemberCleanups;
   deleteExpiredComposerUploads?: typeof deleteExpiredSpaceComposerUploads;
 }): Promise<void> {
@@ -109,7 +109,7 @@ export async function runCoreScheduledTasks(input: {
   }
 
   if (input.cron === ROUTINE_TICK_CRON) {
-    await runStaleAgentProfileCreationRequestRecovery(input);
+    await runAgentProfileCreationRequestRecovery(input);
     await runAgentProfileCreationRequestInboxProjectionRedrive(input);
     await runAgentActivitySessionInventoryMemberCleanup(input);
     await runLarkPlatformRegistrationContinuation(input);
@@ -268,7 +268,7 @@ async function runSpaceComposerUploadCleanup(input: {
   }
 }
 
-async function runStaleAgentProfileCreationRequestRecovery(
+async function runAgentProfileCreationRequestRecovery(
   input: Parameters<typeof runCoreScheduledTasks>[0]
 ): Promise<void> {
   const db = identityDb(input.env);
@@ -277,22 +277,21 @@ async function runStaleAgentProfileCreationRequestRecovery(
   }
   try {
     const result = await (
-      input.recoverStaleAgentProfileCreationRequests ??
-      recoverStaleAgentProfileCreationRequests
-    )({ db, nowMs: input.nowMs });
-    if (result.scanned > 0) {
+      input.recoverAgentProfileCreationRequests ??
+      recoverAgentProfileCreationRequests
+    )({ db, env: input.env, nowMs: input.nowMs });
+    if (result.scanned > 0 || result.redelivered > 0) {
       console.log(
         JSON.stringify({
-          event: "core.agent_profile_creation_request.stale_recovery",
+          event: "core.agent_profile_creation_request.recovery",
           ...result,
         })
       );
     }
   } catch (error) {
-    console.error(
-      "[core.agent_profile_creation_request.stale_recovery_failed]",
-      { error: error instanceof Error ? error.message : String(error) }
-    );
+    console.error("[core.agent_profile_creation_request.recovery_failed]", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 

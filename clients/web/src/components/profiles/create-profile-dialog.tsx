@@ -3514,6 +3514,13 @@ function showCreatedAgentRequestToast(input: {
 			}
 			toast.error("OpenMeld couldn't create this Agent.");
 			return;
+		case "approved":
+			toast.info(
+				input.request.createdAgentProfileId
+					? "Agent created. Finishing setup in the background."
+					: "Creating Agent. You can check progress in Agent requests."
+			);
+			return;
 		default:
 			toast.success("Request sent.");
 	}

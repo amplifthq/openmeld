@@ -3,6 +3,13 @@ import type { z } from "zod/v4";
 type Schemas =
   typeof import("../../schemas/http/agent-profile-creation-request");
 
+export type AgentProfileCreationExecutionMessage = z.infer<
+  Schemas["agentProfileCreationExecutionMessageSchema"]
+>;
+export type AgentProfileCreationRequestSelector = z.infer<
+  Schemas["agentProfileCreationRequestSelectorSchema"]
+>;
+
 export type AgentProfileCreationApprovalPolicy = z.infer<
   Schemas["agentProfileCreationApprovalPolicySchema"]
 >;

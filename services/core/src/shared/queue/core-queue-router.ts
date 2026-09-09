@@ -1,3 +1,4 @@
+import { handleAgentProfileCreationMessage } from "../../agent-profile-creation-request/agent-profile-creation-execution";
 import { handleDispatchQueueBatch } from "../../dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../../lib/bindings";
 import { handleRemoteAgentMessageChannelEventQueueMessage } from "../../remote-agent/transport/queue/message-channel-event-queue-consumer";
@@ -9,8 +10,18 @@ export async function handleCoreQueueBatch(input: {
   env: CoreBindings;
 }): Promise<void> {
   const dispatchMessages: Message<unknown>[] = [];
+  const creationMessages: Message<unknown>[] = [];
 
   for (const message of input.batch.messages) {
+    if (
+      message.body &&
+      typeof message.body === "object" &&
+      "kind" in message.body &&
+      message.body.kind === "agent_profile_creation"
+    ) {
+      creationMessages.push(message);
+      continue;
+    }
     const handled = await handleRemoteAgentSlackEventQueueMessage({
       env: input.env,
       message,
@@ -28,19 +39,24 @@ export async function handleCoreQueueBatch(input: {
     }
   }
 
-  if (dispatchMessages.length === 0) {
-    return;
-  }
-
-  await handleDispatchQueueBatch({
-    batch: createFilteredMessageBatch({
-      messages: dispatchMessages,
-      metadata: input.batch.metadata,
-      queue: input.batch.queue,
-    }),
-    ctx: input.ctx,
-    env: input.env,
-  });
+  await Promise.all([
+    ...creationMessages.map((message) =>
+      handleAgentProfileCreationMessage({ env: input.env, message })
+    ),
+    ...(dispatchMessages.length === 0
+      ? []
+      : [
+          handleDispatchQueueBatch({
+            batch: createFilteredMessageBatch({
+              messages: dispatchMessages,
+              metadata: input.batch.metadata,
+              queue: input.batch.queue,
+            }),
+            ctx: input.ctx,
+            env: input.env,
+          }),
+        ]),
+  ]);
 }
 
 function createFilteredMessageBatch(input: {
