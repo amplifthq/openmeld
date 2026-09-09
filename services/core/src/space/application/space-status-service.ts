@@ -85,16 +85,13 @@ export async function readSpaceStatusSummaryUseCase(input: {
           : {}),
       })
   );
-  const latestVisibleUpdate = await measureSpaceStatusSummaryTimingAsync(
+  const latestVisibleUpdate = measureSpaceStatusSummaryTiming(
     input.timing,
     "latest_visible_update",
     "read latest visible update",
     () =>
       readLatestVisibleFormalUpdate({
         sql: input.sql,
-        env: input.env,
-        viewerOwnerUserId: input.viewerOwnerUserId,
-        viewerProfileId: input.viewerProfileId,
       })
   );
 
@@ -119,19 +116,11 @@ export async function readSpaceStatusSummaryFromMembersSnapshotUseCase(input: {
   spaceId: string;
   metaRecord: SpaceMetaRecord;
   membersSnapshot: SpaceMembersSnapshot;
-  viewerOwnerUserId?: string;
-  viewerProfileId?: string;
   nowIso?: string;
   timing?: SpaceStatusSummaryTiming;
   contractStore: {
     readSpaceContract: () => SpaceContract | null;
   };
-  // Optional pre-started read: bootstrap kicks this off in parallel with the
-  // members branch (it never depended on members), so awaiting it here no
-  // longer serializes it behind the members snapshot.
-  latestVisibleUpdate?: Promise<
-    GetSpaceStatusResponse["latestVisibleUpdate"] | undefined
-  >;
 }): Promise<GetSpaceStatusResponse> {
   const generatedAt = input.nowIso ?? input.membersSnapshot.generatedAt;
   const centerAgentProfileIdPromise = readCenterAgentProfileId({
@@ -154,20 +143,12 @@ export async function readSpaceStatusSummaryFromMembersSnapshotUseCase(input: {
     "derive members summary from bootstrap members snapshot",
     () => buildSpaceStatusMembersSummaryFromSnapshot(input.membersSnapshot)
   );
-  const latestVisibleUpdate = input.latestVisibleUpdate
-    ? await input.latestVisibleUpdate
-    : await measureSpaceStatusSummaryTimingAsync(
-        input.timing,
-        "latest_visible_update",
-        "read latest visible update",
-        () =>
-          readLatestVisibleFormalUpdate({
-            sql: input.sql,
-            env: input.env,
-            viewerOwnerUserId: input.viewerOwnerUserId,
-            viewerProfileId: input.viewerProfileId,
-          })
-      );
+  const latestVisibleUpdate = measureSpaceStatusSummaryTiming(
+    input.timing,
+    "latest_visible_update",
+    "read latest visible update",
+    () => readLatestVisibleFormalUpdate({ sql: input.sql })
+  );
 
   return buildSpaceStatusSummaryResponse({
     accessMode: input.metaRecord.accessMode,

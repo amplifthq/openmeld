@@ -5209,6 +5209,13 @@ status output; it does not cache, omit authorization, or change Space history.
 The field name and wire shape remain unchanged, so old readers continue to
 accept a new Core response and no ordered rollout is required.
 
+The authorized latest-update summary selects only message ID, type, time,
+actor ID/name and bounded preview text from Space storage. It never returns
+Agent local directories or native conversation IDs, so it does not load Auth
+Profile ancestry to redact those absent fields. Detailed member and history
+reads retain their local-origin privacy checks. The summary is a synchronous
+Space SQL read; it needs no separate asynchronous bootstrap branch or Auth wait.
+
 `packages/space` owns reusable pure policy for turning Space identity and
 membership facts into mention labels, addressing support, and member directory
 send targets. Clients, Core, and dispatch prompts may adapt source facts before
