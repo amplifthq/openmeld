@@ -26,6 +26,7 @@ import { useEffect, useState } from "react";
 import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout";
 import { SidebarDrag, SidebarDropSection } from "#/components/app/sidebar-drag";
 import { moveSidebarGroup } from "#/components/app/sidebar-drop-target";
+import { useSidebarFilter } from "#/components/app/sidebar-filter";
 import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { moveSidebarItemIds } from "#/components/app/sidebar-order";
@@ -68,7 +69,13 @@ const TRAILING_SLASH = /\/$/;
 export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 	const [search, setSearch] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
-	const [category, setCategory] = useState<"all" | "people" | "agents">("all");
+	const categoryFilter = useSidebarFilter(
+		[
+			{ id: "human", label: "People" },
+			{ id: "agent", label: "Agents" },
+		],
+		"All chats"
+	);
 	const [creating, setCreating] = useState(false);
 	const [creatingGroup, setCreatingGroup] = useState<string>();
 	const { currentOrganization: org } = useAppOrganization();
@@ -237,10 +244,9 @@ export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 		const items = chats.filter(
 			(chat) =>
 				owner(chat.spaceId) === section &&
-				(category === "all" ||
-					(category === "people"
-						? chat.peer?.profileKind === "human"
-						: chat.session || chat.peer?.profileKind === "agent")) &&
+				categoryFilter.includes(
+					chat.session ? "agent" : (chat.peer?.profileKind ?? "unknown")
+				) &&
 				preferences.archivedIds.includes(chat.spaceId) === archived &&
 				title(chat).toLocaleLowerCase().includes(search.toLocaleLowerCase())
 		);
@@ -413,25 +419,11 @@ export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 					>
 						<FunnelSimpleIcon />
 					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end">
+					<DropdownMenuContent align="end" className="w-60">
 						<DropdownMenuItem onClick={() => setSearchOpen(true)}>
 							Search chats
 						</DropdownMenuItem>
-						{(
-							[
-								["all", "All chats"],
-								["people", "People"],
-								["agents", "Agents"],
-							] as const
-						).map(([value, label]) => (
-							<DropdownMenuCheckboxItem
-								checked={category === value}
-								key={value}
-								onCheckedChange={() => setCategory(value)}
-							>
-								{label}
-							</DropdownMenuCheckboxItem>
-						))}
+						{categoryFilter.menu}
 						<DropdownMenuCheckboxItem
 							checked={archived}
 							onCheckedChange={setArchived}
@@ -601,6 +593,7 @@ export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 									/>
 								</div>
 							)}
+							{categoryFilter.badges}
 							{archived && (
 								<div className="px-1 pt-1">
 									<SidebarFilterBadge

@@ -7,7 +7,8 @@ audiences: ["members"]
 ---
 
 People and agent chats share one list, with Priority sorting by default and
-optional People and Agents filters. Recent activity follows the latest message
+optional People and Agents filters that can be combined and removed using badges.
+Recent activity follows the latest message
 across conversation types. Private replies participate in Inbox, unread
 indicators, and eligible browser notifications, with distinct urgent and
 needs-action indicators. Reading a request does not mark it handled.

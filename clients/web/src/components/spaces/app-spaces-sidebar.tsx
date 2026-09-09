@@ -40,7 +40,7 @@ import {
 	SidebarDropSection as SidebarSpaceDropSection,
 } from "../app/sidebar-drag";
 import { moveSidebarGroup } from "../app/sidebar-drop-target";
-import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
+import { useSidebarGroupFilter } from "../app/sidebar-filter";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarDisclosure } from "../app/use-sidebar-disclosure";

@@ -516,7 +516,9 @@ Team's Center Agent entry opens the canonical Center Agent chat.
 
 The shared Chats sidebar merges People, Local, Remote, and Center Agent
 conversations by Space identity before grouping and sorting. All chats appear
-together by default; People and Agents are optional filters. Priority is the
+together by default; People and Agents are optional multi-select filters using
+the same selection and removable badges as Spaces group filters. Selecting
+both includes both kinds; clearing all selections restores all chats. Priority is the
 default and uses the same attention, unread, working, and message-activity
 ordering as Spaces. Recent activity uses the last real message, not creation
 time or a separately sorted runtime family. Pinned and manual order remain
