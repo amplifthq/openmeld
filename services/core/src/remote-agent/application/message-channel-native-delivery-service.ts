@@ -117,14 +117,21 @@ export class RemoteAgentMessageChannelSubmissionOutcomeUnknownError extends Erro
   }
 }
 
-export async function submitRemoteAgentMessageChannelNativeDelivery(input: {
+export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput: {
   db: D1Database;
   env: CoreBindings;
   memoryService?: CenterAgentMemoryService | null;
   nowMs: number;
   registry: MessageChannelProviderRegistry;
   request: RemoteAgentMessageChannelNativeDeliveryInput;
+  prepareInput?: () => Promise<
+    Pick<
+      RemoteAgentMessageChannelNativeDeliveryInput,
+      "attachments" | "inputFailure" | "turnEnvelope"
+    >
+  >;
 }): Promise<RemoteAgentMessageChannelNativeDeliveryResult> {
+  let input = initialInput;
   assertMessageChannelDeliveryAuthority(input.request);
   const { centerAgent, connection } = input.request.target;
   const identity = await buildRemoteAgentMessageChannelDeliveryIdentity(
@@ -184,6 +191,14 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(input: {
       provider: connection.provider,
       reasonCode: workingCard.reasonCode,
     });
+  }
+  // The durable receipt and its visible card precede history and file I/O.
+  // Replayed accepted deliveries return above without repeating preparation.
+  if (input.prepareInput) {
+    input = {
+      ...input,
+      request: { ...input.request, ...(await input.prepareInput()) },
+    };
   }
   if (input.request.inputFailure) {
     return await failMessageChannelDelivery({
