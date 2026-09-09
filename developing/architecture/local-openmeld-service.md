@@ -1712,6 +1712,13 @@ Service freshness and execution compatibility are separate diagnostic concepts.
 Freshness says whether a newer Service bundle exists. Compatibility says whether
 the current Service is still eligible to receive new Wake work.
 
+An accepted Wake does not inspect Service installation, bundle, supervisor, or
+whole-machine process inventory merely to inject maintenance advice into the
+Agent's prompt. Service update and repair guidance belongs to maintenance and
+the diagnostic/product surfaces. Dispatch preparation retains its owning
+identity, route, workspace, permission, and execution checks; removing advisory
+maintenance work must not bypass those checks or alter reply-context review.
+
 For setup and local component alignment, OpenMeld Service version, bundle, lane, and
 runtime-contract drift should still collapse to one primary user action:
 
