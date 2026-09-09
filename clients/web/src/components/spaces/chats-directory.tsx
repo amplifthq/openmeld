@@ -79,7 +79,7 @@ export function ChatsDirectory() {
 	);
 	return (
 		<AppMainContent
-			bodyClassName="p-6"
+			bodyClassName="px-[var(--app-page-inline-padding)] pb-6"
 			header={
 				<SpaceWindowHeader
 					actions={newChat}
@@ -92,16 +92,11 @@ export function ChatsDirectory() {
 			}
 			scroll
 		>
-			<div className="mb-6 flex items-center justify-between gap-3">
-				<span className="text-muted-foreground text-sm">
-					{pending || model.sessions.hasNextPage
-						? "Loading chats…"
-						: `${model.chats.filter((chat) => !model.preferences.archivedIds.includes(chat.spaceId)).length} chats`}
-				</span>
-				<div className="flex items-center gap-2">
+			<div className="flex h-16 shrink-0 items-center justify-end gap-3">
+				<div className="flex h-11 min-w-0 items-center justify-end gap-1">
 					<Input
 						aria-label="Search chats"
-						className="max-w-64"
+						className="h-8 w-52 max-w-full"
 						onChange={(event) => setSearch(event.target.value)}
 						placeholder="Search chats"
 						type="search"
@@ -120,6 +115,48 @@ export function ChatsDirectory() {
 							<FunnelSimpleIcon />
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="end">{filter.menu}</DropdownMenuContent>
+					</DropdownMenu>{" "}
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							render={
+								<Button
+									aria-label="Sort chats"
+									size="icon-sm"
+									variant="ghost"
+								/>
+							}
+						>
+							<SortAscendingIcon />
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end">
+							{(
+								[
+									["priority", "Priority"],
+									["recent", "Recent activity"],
+									["manual", "Manual order"],
+								] as const
+							).map(([value, label]) => (
+								<DropdownMenuCheckboxItem
+									checked={model.sections.every(
+										(section) => section.sort === value
+									)}
+									key={value}
+									onCheckedChange={() =>
+										model.save({
+											...model.preferences,
+											pinned: { ...model.preferences.pinned, sort: value },
+											spaces: { ...model.preferences.spaces, sort: value },
+											groups: model.preferences.groups.map((group) => ({
+												...group,
+												sort: value,
+											})),
+										})
+									}
+								>
+									{label}
+								</DropdownMenuCheckboxItem>
+							))}
+						</DropdownMenuContent>
 					</DropdownMenu>
 				</div>
 			</div>
@@ -159,42 +196,11 @@ export function ChatsDirectory() {
 				)}
 			{sections.map((section) => (
 				<section className="mb-8" key={section.id}>
-					<div className="mb-3 flex items-center justify-between">
-						<h2 className="text-muted-foreground text-sm">
-							{section.name}{" "}
-							<span className="ml-1">{section.chats.length}</span>
+					{section.id !== "chats" && (
+						<h2 className="mb-3 font-medium text-muted-foreground text-xs">
+							{section.name}
 						</h2>
-						<DropdownMenu>
-							<DropdownMenuTrigger
-								render={
-									<Button
-										aria-label={`Sort ${section.name}`}
-										size="icon-sm"
-										variant="ghost"
-									/>
-								}
-							>
-								<SortAscendingIcon />
-							</DropdownMenuTrigger>
-							<DropdownMenuContent align="end">
-								{(
-									[
-										["priority", "Priority"],
-										["recent", "Recent activity"],
-										["manual", "Manual order"],
-									] as const
-								).map(([value, label]) => (
-									<DropdownMenuCheckboxItem
-										checked={section.sort === value}
-										key={value}
-										onCheckedChange={() => model.sortSection(section.id, value)}
-									>
-										{label}
-									</DropdownMenuCheckboxItem>
-								))}
-							</DropdownMenuContent>
-						</DropdownMenu>
-					</div>
+					)}
 					<Table>
 						<TableHeader>
 							<TableRow>
@@ -214,10 +220,10 @@ export function ChatsDirectory() {
 								const preview = previewById.get(chat.spaceId);
 								const time = model.activity.get(chat.spaceId);
 								return (
-									<TableRow key={chat.spaceId}>
-										<TableCell className="max-w-0">
+									<TableRow className="border-0" key={chat.spaceId}>
+										<TableCell className="max-w-0 py-4">
 											<Link
-												className="flex items-center gap-3 py-2"
+												className="flex items-center gap-3"
 												to={model.chatPath(chat)}
 											>
 												<ChatIcon
@@ -229,11 +235,11 @@ export function ChatsDirectory() {
 												/>
 												<span className="min-w-0">
 													<span
-														className={unread ? "font-semibold" : "font-medium"}
+														className={`text-sm ${unread ? "font-semibold" : "font-medium"}`}
 													>
 														{model.title(chat)}
 													</span>
-													<span className="mt-1 block truncate text-muted-foreground text-sm">
+													<span className="mt-1 block truncate text-muted-foreground text-xs">
 														{preview
 															? resolvePreviewText(preview)
 															: "Loading message…"}
@@ -243,7 +249,7 @@ export function ChatsDirectory() {
 										</TableCell>
 										<TableCell>
 											{(unread > 0 || tone) && (
-												<span className="inline-flex items-center gap-2 text-muted-foreground text-sm">
+												<span className="inline-flex items-center gap-2 text-muted-foreground text-xs">
 													<span
 														className={`status-dot ${resolveInboxIndicatorClassName(tone)}`}
 													/>
@@ -255,7 +261,7 @@ export function ChatsDirectory() {
 										<TableCell>
 											{time ? (
 												<SidebarConversationTime
-													className="text-sm"
+													className="text-xs"
 													now={new Date(now)}
 													timestamp={time}
 												/>

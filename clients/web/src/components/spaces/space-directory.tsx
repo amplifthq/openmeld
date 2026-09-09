@@ -287,12 +287,7 @@ export function SpaceDirectory(input: {
 			id={`spaces-directory-panel-${input.tab}`}
 			role="tabpanel"
 		>
-			<div className="flex h-16 shrink-0 items-center justify-between gap-3 px-[var(--app-page-inline-padding)]">
-				<p className="min-w-0 truncate text-muted-foreground text-xs">
-					{discovering
-						? ""
-						: `${joinedIds.size} ${joinedIds.size === 1 ? "Space" : "Spaces"}`}
-				</p>
+			<div className="flex h-16 shrink-0 items-center justify-end gap-3 px-[var(--app-page-inline-padding)]">
 				<div className="flex h-11 min-w-0 items-center justify-end gap-1">
 					{searchOpen[input.tab] || search ? (
 						<div className="flex min-w-0 items-center gap-1">
@@ -471,14 +466,7 @@ export function SpaceDirectory(input: {
 									groupClassName="p-0"
 									groupId={`directory-${group.id}`}
 									key={group.id}
-									label={
-										<span>
-											{group.label}
-											<span className="ml-2 text-muted-foreground/60">
-												{group.items.length + group.unindexed.length}
-											</span>
-										</span>
-									}
+									label={<span>{group.label}</span>}
 									labelAccessory={
 										<DirectoryGroupActions
 											group={group}
