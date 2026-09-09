@@ -67,6 +67,7 @@ const OPENMELD_SPACE_DEFINITION = buildAgentFacingMentalModelLines()
 const OPENMELD_WAKE_WORKFLOW = `OpenMeld Wake workflow:
 - Apply this workflow to OpenMeld Wakes; preserve native behavior for other work.
 - ${SPACE_COLLABORATION_CONTEXT_RULE}
+- Consider incorporating the requester's clear follow-ups to the current task before finishing, within the current permissions and execution mode. Keep separate assignments separate, and state what remains undone rather than merely promising action.
 - Follow the current Wake's completion contract. When a Space Action is required, a private answer is insufficient. OpenMeld validates and publishes the proposal.`;
 const ENTRY_BRIEF_TEMPLATE_VERSION = "space-mesh-entry-brief-v2" as const;
 export const COMPACT_DISPATCH_BOOTSTRAP_TEMPLATE_VERSION =

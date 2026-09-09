@@ -806,6 +806,10 @@ If a user Wakes an Agent Profile from a thread, the Agent Profile's reply should
 default back to that same thread. The user asked from that local conversation,
 so the visible answer belongs there.
 
+Opening a thread under a main-timeline Wake does not move the running Wake's
+reply or its message-review scope into that thread. The root remains a main
+message, while also being a valid starting point for reading its thread.
+
 If the hosted runtime rolls a Space conversation to a fresh internal generation,
 the Space owner uses the exact dispatch's frozen thread placement to rebuild the
 bounded continuity prefix. A thread Wake receives only that thread's root and

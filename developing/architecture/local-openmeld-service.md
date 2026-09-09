@@ -2403,6 +2403,13 @@ cannot expose **Continue conversation**. Because older Core uses strict
 Runtime Transport schemas, the cloud receiver must deploy before a Service
 that emits the new capability, heartbeat drain fields, or recovery frames.
 
+The shared Wake workflow may suggest incorporating the requester's clear
+follow-ups to the current task within existing permissions and execution mode.
+This guidance creates no Wake, queue entry, automatic rerun, or guarantee of
+model behavior. A final-action review cannot perform new implementation work;
+its reply should identify unfinished requests without implying that an
+acknowledgement started or queued them.
+
 Every local adapter repair turn must preserve the validated canonical
 conversation identity and the Binding's controller-native permission intent.
 When repair needs temporary controller settings, the adapter must use a native

@@ -8918,7 +8918,9 @@ export class Space extends DurableObject<CoreBindings> {
       this.ctx.storage.sql,
       signalId
     );
-    if (!placement) {
+    // A root is still a main-timeline message. Opening a thread beneath an
+    // in-flight Wake must not move its reply or change its observation scope.
+    if (!placement || placement.placement === "root") {
       return null;
     }
     const thread = readSpaceThread(this.ctx.storage.sql, placement.threadId);

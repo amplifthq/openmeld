@@ -1196,6 +1196,14 @@ Runtime results use the Space action contract:
   Claude Code, Cursor, Grok Build, OpenCode, and future controllers use the same Space
   action boundary rather than provider-specific coordination prompts.
 
+Reply publication and observation use the source message's conversation scope.
+A main-timeline source remains in the main scope when a thread is opened beneath
+it; a `root` placement does not move that Wake into the thread. Only a source
+posted inside a thread defaults its outcome to that thread. Thread reads and
+the atomic reply guard both accept that thread's root as an observation cursor,
+including when there are no replies yet. Other threads' cursors remain invalid,
+and newer messages in the observed scope still require review.
+
 ACP is an adapter transport, not a second execution lane. Cursor and Grok Build
 may share JSON-RPC/session/process mechanics inside adapter core, but each
 adapter owns its vendor launch, authentication, model, interaction, and error

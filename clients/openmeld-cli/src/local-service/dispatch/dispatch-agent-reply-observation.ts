@@ -137,6 +137,7 @@ export function buildAgentReplyReconsiderationPrompt(input: {
     "Do not redo completed work or repeat external side effects.",
     "A failed, stopped, or silent outcome is not a public contribution. Use it only as truthful availability and coordination context.",
     "Keep the user's full request as the goal. Reconsider only the final Space action in light of these newer messages.",
+    "If a follow-up needs work that this review cannot perform, say what remains undone; do not imply that acknowledging it starts or queues that work.",
     SPACE_PERSONAL_CONTRIBUTION_RULE,
     "For dependent contributions, follow the user's shared constraints and confirmed contributions. In an ordered sequence, contribute only the next valid step, not a future step with unpublished prerequisites. A participant list or proposed division of work is not evidence that earlier steps happened. Avoid duplicating completed work, not requested personal answers.",
     "Call exactly one dispatch-scoped OpenMeld Space Action tool for the final action and inspect its acknowledgement. Discover the tool before concluding it is unavailable; use the provided CLI only if unavailable. Answer text never becomes an action.",
