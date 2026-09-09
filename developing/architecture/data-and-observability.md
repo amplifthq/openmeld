@@ -3005,6 +3005,38 @@ When available, `nativeFailure.osStatus` preserves the immediate macOS error
 through wrapped exceptions without uploading the exception text. This optional
 field is stripped safely by older Core versions.
 
+Version 3 adds a 15-minute evidence window ending at collection start.
+The Service log reader reads at most the last 256 KiB and includes only complete,
+timestamped lines in that window. `serviceLogWindow` counts excluded undated and
+out-of-window lines and marks a truncated source; an empty tail means no eligible
+evidence in the inspected suffix, not that no failure occurred. Missing/empty
+files keep their existing notes; unreadable files are collection errors.
+Lifecycle entries are filtered to the same window before applying payload caps.
+
+`os.release` remains the kernel release. Optional `os.productVersion` and
+`os.buildVersion` come from a bounded macOS `sw_vers` query, not from the kernel
+version shown by older device metadata. `operationFailure` preserves allowlisted
+native code/errno/syscall and path categories from the immediate error or its
+bounded cause chain. It does not upload exception text or actual paths and never
+interprets EPERM/EACCES as proof of TCC or App Management denial.
+
+Carrier lifecycle evidence retains operation, distribution, actual actor PID,
+parent PID, target category, and structured operation failure in the uploaded
+projection. Exact executable/target paths and carrier exception messages remain
+local. These process IDs describe the OpenMeld operation, not an inferred macOS
+responsible/accessing process. No macOS unified logs are collected automatically.
+System-only notices still require narrowly scoped local evidence.
+
+Contract impact: all new top-level and OS fields are optional; bundle version is
+not a discriminator. New Core accepts v1/v2 producers; old Core strips unknown
+v3 fields and keeps the legacy bundle. Existing Service/CLI setup, Wake, status,
+Space actions, Skills, Gateway, and Web remain compatible, with no epoch bump or
+database migration. Deploy the Core schema before publishing CLI/Service to retain
+the richer evidence; reverse order only loses optional evidence. The feature PR
+defers version/manifest stamping; the eventual local release is advisory
+`available`. Diagnostics remain logs-only and never change lifecycle or execution
+authority.
+
 For support, resolve the reported email to its verified Auth user ID, then filter
 Workers Logs by `event = core.openmeld.setup.step_failed` and `ownerUserId`.
 Use the Prepare session and connection epoch to distinguish retries; inspect
