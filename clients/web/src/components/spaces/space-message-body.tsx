@@ -33,6 +33,7 @@ import {
 	type ComputerSetupTarget,
 } from "./center-agent-computer-setup-card";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
+import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import {
 	buildSpaceMessageAgentMentionProfiles,
 	createSpaceMessageAgentMentionRemarkPlugin,
@@ -523,7 +524,7 @@ function SpaceMessageFileList(input: {
 							}
 							type="button"
 						>
-							<SpaceMessageFileIcon />
+							<SpaceMessageFileIcon mimeType={file.mimeType} />
 							<div className="min-w-0 flex-1">
 								<p className="truncate font-medium text-sm">{file.name}</p>
 								<p className="mt-0.5 truncate text-muted-foreground text-xs">
@@ -542,10 +543,14 @@ function SpaceMessageFileList(input: {
 	);
 }
 
-function SpaceMessageFileIcon() {
+function SpaceMessageFileIcon(input: { mimeType: string }) {
 	return (
 		<div className="flex size-11 shrink-0 items-center justify-center rounded-sm border border-border bg-muted text-muted-foreground">
-			<FileIcon aria-hidden="true" className="size-5" />
+			{input.mimeType === "text/html" ? (
+				<SpaceFileHtmlBadge />
+			) : (
+				<FileIcon aria-hidden="true" className="size-5" />
+			)}
 		</div>
 	);
 }
