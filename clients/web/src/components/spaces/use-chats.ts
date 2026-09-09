@@ -227,6 +227,20 @@ export function useChats(input: {
 			activity
 		);
 	};
+	const sortSection = (id: string, sort: Preferences["spaces"]["sort"]) => {
+		if (id === "pinned") {
+			save({ ...preferences, pinned: { ...preferences.pinned, sort } });
+		} else if (id === "chats") {
+			save({ ...preferences, spaces: { ...preferences.spaces, sort } });
+		} else {
+			save({
+				...preferences,
+				groups: preferences.groups.map((g) =>
+					g.id === id ? { ...g, sort } : g
+				),
+			});
+		}
+	};
 	return {
 		org,
 		profileId,
@@ -246,6 +260,7 @@ export function useChats(input: {
 		selected,
 		save,
 		sections,
+		sortSection,
 		title,
 		owner,
 		rows,

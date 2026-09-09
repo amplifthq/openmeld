@@ -1,6 +1,7 @@
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
+	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
@@ -17,6 +18,7 @@ import {
 	ChatCircleTextIcon,
 	FunnelSimpleIcon,
 	PlusIcon,
+	SortAscendingIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -31,7 +33,7 @@ import {
 } from "#/lib/inbox/attention";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { ChatIcon, resolvePreviewText } from "./chat-sidebar-row";
-import { NewDirectMessageDialog } from "./new-direct-message-dialog";
+import { NewChatDialog } from "./new-chat-dialog";
 import { SidebarConversationTime } from "./sidebar-conversation-time";
 import { SpaceWindowHeader } from "./space-header";
 import { useChats } from "./use-chats";
@@ -53,6 +55,9 @@ export function ChatsDirectory() {
 		includes: filter.includes,
 	});
 	const now = useNowMs(60_000);
+	const previewById = new Map(
+		model.chats.map((chat, index) => [chat.spaceId, model.previews[index]])
+	);
 	const pending =
 		model.spaces.isPending ||
 		model.sessions.isPending ||
@@ -154,9 +159,42 @@ export function ChatsDirectory() {
 				)}
 			{sections.map((section) => (
 				<section className="mb-8" key={section.id}>
-					<h2 className="mb-3 text-muted-foreground text-sm">
-						{section.name} <span className="ml-1">{section.chats.length}</span>
-					</h2>
+					<div className="mb-3 flex items-center justify-between">
+						<h2 className="text-muted-foreground text-sm">
+							{section.name}{" "}
+							<span className="ml-1">{section.chats.length}</span>
+						</h2>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										aria-label={`Sort ${section.name}`}
+										size="icon-sm"
+										variant="ghost"
+									/>
+								}
+							>
+								<SortAscendingIcon />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								{(
+									[
+										["priority", "Priority"],
+										["recent", "Recent activity"],
+										["manual", "Manual order"],
+									] as const
+								).map(([value, label]) => (
+									<DropdownMenuCheckboxItem
+										checked={section.sort === value}
+										key={value}
+										onCheckedChange={() => model.sortSection(section.id, value)}
+									>
+										{label}
+									</DropdownMenuCheckboxItem>
+								))}
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
 					<Table>
 						<TableHeader>
 							<TableRow>
@@ -173,12 +211,7 @@ export function ChatsDirectory() {
 								const tone = resolveInboxAttentionTone(
 									model.attentionById.get(chat.spaceId) ?? {}
 								);
-								const preview =
-									model.previews[
-										model.chats.findIndex(
-											(item) => item.spaceId === chat.spaceId
-										)
-									];
+								const preview = previewById.get(chat.spaceId);
 								const time = model.activity.get(chat.spaceId);
 								return (
 									<TableRow key={chat.spaceId}>
@@ -235,7 +268,7 @@ export function ChatsDirectory() {
 					</Table>
 				</section>
 			))}
-			<NewDirectMessageDialog onOpenChange={setCreating} open={creating} />
+			<NewChatDialog onOpenChange={setCreating} open={creating} />
 		</AppMainContent>
 	);
 }
