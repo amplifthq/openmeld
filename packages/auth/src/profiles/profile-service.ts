@@ -810,7 +810,11 @@ export function createOpenMeldProfileService(
               profileKind: "agent",
               profileName,
             })
-          : "center-agent";
+          : resolveAvailableProfileHandle({
+              profileName,
+              profileKind: "agent",
+              takenHandles: [],
+            });
 
         await repository.insertAgentProfile({
           profileId,
@@ -1013,7 +1017,14 @@ export function createOpenMeldProfileService(
       await repository.updateManagedProfileIdentityForOrganization(
         organizationId,
         profileId,
-        { profileName }
+        {
+          profileName,
+          profileHandle: resolveAvailableProfileHandle({
+            profileName,
+            profileKind: "agent",
+            takenHandles: [],
+          }),
+        }
       );
 
       const updated = await repository.findByProfileId(profileId);

@@ -530,6 +530,7 @@ import {
   readDispatchOutboxRecordByDispatchId,
   recordDispatchOutboxCandidateFailure,
 } from "../../infrastructure/outbox/dispatch-outbox-repo";
+import { reconcileOrganizationAgentOwnership } from "../../infrastructure/sql/organization-agent-ownership";
 import {
   readSpaceContractRecordStateFromSql,
   repairSpaceContractRecordIfNeeded,
@@ -2307,6 +2308,28 @@ export class Space extends DurableObject<CoreBindings> {
         initialize: () => ensureSpaceSqlSchema(this.ctx.storage.sql),
         spaceId: this.spaceId,
       });
+      const ownershipMigrationKey = "organization-agent-ownership-v1";
+      const ownershipMeta = this.readSpaceMetaRecord();
+      if (
+        ownershipMeta &&
+        !(await this.ctx.storage.get<boolean>(ownershipMigrationKey))
+      ) {
+        const db = identityDb(this.bindings);
+        if (!db) {
+          throw new Error(
+            "Organization Agent ownership migration requires identity storage"
+          );
+        }
+        const changed = await reconcileOrganizationAgentOwnership({
+          db,
+          organizationId: ownershipMeta.organizationId,
+          sql: this.ctx.storage.sql,
+        });
+        if (changed) {
+          this.closeAllSessions("space_access_changed");
+        }
+        await this.ctx.storage.put(ownershipMigrationKey, true);
+      }
       const persistedClock = this.ctx.storage.sql
         .exec<{ max_ts: number | null }>(
           "SELECT MAX(ts) AS max_ts FROM space_signals"
@@ -11928,6 +11951,7 @@ export class Space extends DurableObject<CoreBindings> {
         if (
           !profileContext ||
           profileContext.profileKind !== "agent" ||
+          !profileContext.ownerUserId ||
           profileContext.managedRole !== null ||
           agent.profileId === designatedCenterAgentProfileId ||
           profileContext.organizationId !== metaRecord.organizationId
@@ -12876,7 +12900,7 @@ export class Space extends DurableObject<CoreBindings> {
       metaRecord: existing,
     });
 
-    this.closeAllSessionsForSpaceDeletion();
+    this.closeAllSessions("space_deleted");
     deleteAllSqlSpaceData(this.ctx.storage.sql);
     await this.ctx.storage.deleteAll();
     ensureSpaceSqlSchema(this.ctx.storage.sql);
@@ -13892,16 +13916,18 @@ export class Space extends DurableObject<CoreBindings> {
     this.broadcast(frame);
   }
 
-  private closeAllSessionsForSpaceDeletion(): void {
+  private closeAllSessions(
+    reason: "space_deleted" | "space_access_changed"
+  ): void {
     for (const session of this.sessions.values()) {
       session.quit = true;
     }
 
     for (const socket of this.ctx.getWebSockets()) {
       try {
-        socket.close(1008, "space_deleted");
+        socket.close(1008, reason);
       } catch {
-        // Best-effort websocket shutdown before durable object data deletion.
+        // The runtime may already have closed this socket.
       }
     }
     this.sessions.clear();

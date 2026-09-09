@@ -56,7 +56,7 @@ export type RemoteAgentAdmissionImage =
 
 export type RemoteAgentSubmissionMetadata = {
   agentProfileId: string;
-  agentProfileOwnerUserId: string;
+  agentProfileOwnerUserId: string | null;
   authorDisplayName: string | null;
   bindingId: string;
   dispatchId: string;

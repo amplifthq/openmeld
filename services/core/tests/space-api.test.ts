@@ -446,14 +446,13 @@ async function insertTestManagedCenterAgentProfile(input: {
         created_at,
         updated_at
       )
-      VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, NULL, 'auth_bootstrap', 'center_agent', NULL, ?, ?)
+      VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, NULL, 'auth_bootstrap', 'center_agent', NULL, ?, ?)
     `
   )
     .bind(
       input.agentProfileId,
       `center-agent-${randomUUID()}`,
       input.organizationId,
-      input.ownerUserId,
       input.ownerUserId,
       nowMs,
       nowMs
@@ -8174,7 +8173,7 @@ describe("OpenMeld Core", () => {
         >[0]
       ) => {
         const bootstrapOrganizationId = input.organizationId?.trim();
-        const bootstrapOwnerUserId = input.ownerUserId?.trim();
+        const bootstrapOwnerUserId = input.createdByUserId?.trim();
         if (!(bootstrapOrganizationId && bootstrapOwnerUserId)) {
           throw new Error(
             "Center Agent profile bootstrap requires Organization and owner IDs."

@@ -7,6 +7,7 @@ export async function pauseActiveCenterAgentNativeDeliveries(input: {
   env: CoreBindings;
   organizationId: string;
   profileId: string;
+  reason?: string;
 }): Promise<number> {
   const targets = await listActiveCenterAgentNativeDeliveryCancellationTargets({
     db: input.db,
@@ -30,7 +31,9 @@ export async function pauseActiveCenterAgentNativeDeliveries(input: {
             : {}),
           idempotencyKey: target.idempotencyKey,
           organizationId: target.organizationId,
-          reason: "Center Agent was paused by the Organization creator.",
+          reason:
+            input.reason ??
+            "Center Agent was paused by an Organization owner or admin.",
           spaceId: target.spaceId,
           submissionId: target.submissionId,
           v: 1,

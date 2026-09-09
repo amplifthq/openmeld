@@ -319,7 +319,9 @@ function buildContinuityRequestContext(
         request.conversationIdentity?.kind === "personal_agent"
           ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
           : HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      ownerUserId: request.agentProfileOwnerUserId,
+      ...(request.agentProfileOwnerUserId
+        ? { ownerUserId: request.agentProfileOwnerUserId }
+        : {}),
       profileKind: "agent",
       profileName: request.turnEnvelope.centerAgent.profileName,
       requestId: `remote-agent-continuity-${request.dispatchId}`,

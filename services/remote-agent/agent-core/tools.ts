@@ -4012,7 +4012,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         limit: optional(pipe(number(), integer(), minValue(1), maxValue(20))),
       }),
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildVerifiedMemberToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_list_agent_tasks",
@@ -4026,7 +4026,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             ...(payload.agentControllerRef === undefined
               ? {}
               : { agentControllerRef: payload.agentControllerRef }),
-            context,
+            ...toolContext,
             ...(payload.limit === undefined ? {} : { limit: payload.limit }),
           })
         );
@@ -4052,7 +4052,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         return parsed.success && parsed.data.status !== "condition_not_met";
       },
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildVerifiedMemberToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_watch_agent_task",
@@ -4064,7 +4064,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         return centerAgentWatchAgentTaskResponseSchema.parse(
           await rpc({
             completionCondition: payload.completionCondition,
-            context,
+            ...toolContext,
             instruction: payload.instruction,
             task: agentTaskHandleSchema.parse(payload.task),
           })

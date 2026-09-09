@@ -116,6 +116,22 @@ describe("Auth Profile fact RPC with real SQLite and Drizzle", () => {
     expect(result.profiles[profileId(2)]).not.toHaveProperty(
       "defaultProjectId"
     );
+    const directory = await rpc.resolveOrganizationDirectoryAgentProfiles({
+      organizationId: "org",
+      additionalAgentProfileIds: [],
+    });
+    if (!directory.ok) {
+      throw new Error(directory.message);
+    }
+    const centerAgent = directory.organizationAgentProfiles.find(
+      (profile) => profile.profileId === profileId(2)
+    );
+    expect(centerAgent).toMatchObject({
+      managedRole: "center_agent",
+      organizationId: "org",
+      ownerUserId: null,
+    });
+    expect(centerAgent).not.toHaveProperty("ownerName");
   });
 
   it("rejects oversized input before touching storage and never turns a database failure into missing profiles", async () => {

@@ -519,7 +519,7 @@ type OrganizationDirectoryAgentProfileIdentityRow = {
   managed_role: OpenMeldProfileManagedRole | null;
   organization_id: string;
   owner_name: string | null;
-  owner_user_id: string;
+  owner_user_id: string | null;
   profile_handle: string;
   profile_id: string;
   profile_name: string;

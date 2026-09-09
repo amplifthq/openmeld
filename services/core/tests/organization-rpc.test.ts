@@ -1058,7 +1058,7 @@ describe("organization Core RPC", () => {
       },
       db,
     });
-    const context = buildContext({
+    const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
       profileId: AGENT_PROFILE_ID,
@@ -1365,7 +1365,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentReadMemberOpenMeldServiceStatus(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -1487,7 +1487,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentReadMemberOpenMeldServiceStatus(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -1551,7 +1551,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentListComputers(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -1606,7 +1606,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentListComputers(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -1659,7 +1659,7 @@ describe("organization Core RPC", () => {
       "getCurrentLocalRuntimeReplyReadinessUseCase"
     ).mockResolvedValue(createMissingCurrentComputerReadiness());
     const request = {
-      context: buildContext({
+      context: buildCenterAgentContext({
         activeOrganizationId: "org-a",
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
         profileId: AGENT_PROFILE_ID,
@@ -1762,7 +1762,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentReadMemberComputers(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -1844,7 +1844,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentListComputers(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -1883,7 +1883,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentReadMemberOpenMeldServiceStatus(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -1922,7 +1922,7 @@ describe("organization Core RPC", () => {
       "manageRuntimeTransportLocalAgentInstallation"
     );
     const request = {
-      context: buildContext({
+      context: buildCenterAgentContext({
         activeOrganizationId: "org-a",
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
         profileId: AGENT_PROFILE_ID,
@@ -1982,7 +1982,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentReadMemberComputers(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -2023,7 +2023,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentReadMemberOpenMeldServiceStatus(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -2119,7 +2119,6 @@ describe("organization Core RPC", () => {
         },
         managedCenterAgentProfileRow({
           organizationId: "org-personal",
-          ownerUserId: "user-a",
           profileId: SECOND_AGENT_PROFILE_ID,
         }),
       ],
@@ -2192,7 +2191,7 @@ describe("organization Core RPC", () => {
     const agentProfiles = [
       {
         organizationId: "org-a",
-        ownerUserId: "user-a",
+        ownerUserId: null,
         profileHandle: "codex",
         profileId: AGENT_PROFILE_ID,
         profileName: "Codex",
@@ -2521,7 +2520,7 @@ describe("organization Core RPC", () => {
       agentProfiles: [
         {
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -2561,7 +2560,8 @@ describe("organization Core RPC", () => {
         hostedRuntimeIdentityJson: JSON.stringify(
           HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
         ),
-        ownerId: "user-a",
+        ownerId: "org-a",
+        ownerKind: "organization",
         runtimeKind: "hosted_center_agent",
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       }),
@@ -2574,10 +2574,7 @@ describe("organization Core RPC", () => {
   it("pauses only Remote Agent designation behind the rollout gate", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
-        managedCenterAgentProfileRow({
-          organizationId: "org-a",
-          ownerUserId: "owner-user",
-        }),
+        managedCenterAgentProfileRow({ organizationId: "org-a" }),
       ],
       members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
     });
@@ -2609,10 +2606,7 @@ describe("organization Core RPC", () => {
   it("does not let lazy Center Agent setup bypass the rollout gate", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
-        managedCenterAgentProfileRow({
-          organizationId: "org-a",
-          ownerUserId: "owner-user",
-        }),
+        managedCenterAgentProfileRow({ organizationId: "org-a" }),
       ],
       members: [
         memberRow("member-owner", "org-a", "owner-user", "owner"),
@@ -2650,13 +2644,10 @@ describe("organization Core RPC", () => {
     expect(db.spaces).toEqual([]);
   });
 
-  it("rejects Remote Agent Center Agent designation while the current execution target has active work", async () => {
+  it("rejects unmigrated personal bindings without entering personal runtime admission", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
-        managedCenterAgentProfileRow({
-          organizationId: "org-a",
-          ownerUserId: "owner-user",
-        }),
+        managedCenterAgentProfileRow({ organizationId: "org-a" }),
       ],
       members: [
         memberRow("member-owner", "org-a", "owner-user", "owner"),
@@ -2712,15 +2703,10 @@ describe("organization Core RPC", () => {
         runtime: "remote_agent",
       })
     ).rejects.toMatchObject({
-      code: "agent_profile_binding.controller_change_blocked_active_execution",
+      code: "center_agent.binding_owner_invalid",
       status: 409,
     });
-    expect(acquireMutation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ownerUserId: "owner-user",
-        targetProfileId: AGENT_PROFILE_ID,
-      })
-    );
+    expect(acquireMutation).not.toHaveBeenCalled();
     expect(db.bindingRows).toEqual(new Map([[ownerBindingKey, ownerBinding]]));
     expect(db.centerAgentAuditRows).toEqual([]);
   });
@@ -2729,17 +2715,14 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
-          ...managedCenterAgentProfileRow({
-            organizationId: "org-a",
-            ownerUserId: "owner-user",
-          }),
+          ...managedCenterAgentProfileRow({ organizationId: "org-a" }),
           hasBinding: false,
         },
       ],
       members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
     });
     db.bindingRows.set(
-      bindingKey("owner_account", "owner-user", AGENT_PROFILE_ID),
+      bindingKey("organization", "org-a", AGENT_PROFILE_ID),
       agentProfileBindingTestRow({
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
         bindingId: "binding-hosted-current",
@@ -2747,7 +2730,8 @@ describe("organization Core RPC", () => {
           HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
         ),
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
-        ownerId: "owner-user",
+        ownerId: "org-a",
+        ownerKind: "organization",
         runtimeKind: "hosted_center_agent",
       })
     );
@@ -2782,17 +2766,14 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
-          ...managedCenterAgentProfileRow({
-            organizationId: "org-a",
-            ownerUserId: "owner-user",
-          }),
+          ...managedCenterAgentProfileRow({ organizationId: "org-a" }),
           hasBinding: false,
         },
       ],
       members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
     });
     db.bindingRows.set(
-      bindingKey("owner_account", "owner-user", AGENT_PROFILE_ID),
+      bindingKey("organization", "org-a", AGENT_PROFILE_ID),
       agentProfileBindingTestRow({
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
         bindingId: "binding-hosted-corrupted",
@@ -2801,7 +2782,8 @@ describe("organization Core RPC", () => {
           logicalRuntimeId: "hosted:wrong",
         }),
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
-        ownerId: "owner-user",
+        ownerId: "org-a",
+        ownerKind: "organization",
         runtimeKind: "hosted_center_agent",
       })
     );
@@ -2828,335 +2810,11 @@ describe("organization Core RPC", () => {
         }
       )
     ).rejects.toMatchObject({
-      code: "agent_profile_binding.controller_change_blocked_active_execution",
+      code: "center_agent.binding_owner_invalid",
       status: 409,
     });
-    expect(acquireMutation).toHaveBeenCalledOnce();
+    expect(acquireMutation).not.toHaveBeenCalled();
     expect(db.bindingWriteEvents).toEqual([]);
-  });
-
-  it("reconciles a legacy admin-owned Binding without rebuilding retired Wake authorization", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          ...managedCenterAgentProfileRow({
-            organizationId: "org-a",
-            ownerUserId: "owner-user",
-          }),
-          hasBinding: false,
-        },
-      ],
-      members: [
-        memberRow("member-owner", "org-a", "owner-user", "owner"),
-        memberRow("member-admin", "org-a", "admin-user", "admin"),
-      ],
-    });
-    db.bindingRows.set(
-      bindingKey("owner_account", "admin-user", AGENT_PROFILE_ID),
-      {
-        agentControllerConversationId: "legacy-admin-session",
-        agentControllerPermissionMode: "codex:fullAccess",
-        agentControllerRef: "builtin:codex",
-        agentProfileId: AGENT_PROFILE_ID,
-        bindingId: "binding-legacy-admin",
-        bindingState: "enabled_primary",
-        configurationRevision: 1,
-        createdAtMs: 1_700_000_000_000,
-        createdByProfileId: HUMAN_PROFILE_ID,
-        disabledAtMs: null,
-        hostedRuntimeIdentityJson: null,
-        modelId: "gpt-5.6-sol",
-        openCodePermission: null,
-        ownerId: "admin-user",
-        ownerKind: "owner_account",
-        reasonCode: "center_agent.remote_agent_designation",
-        reasoningLevel: "high",
-        runtimeKind: "openmeld_service",
-        updatedAtMs: 1_700_000_000_000,
-        openMeldServiceRuntimeId: "runtime-admin",
-      }
-    );
-    const acquireMutation = vi
-      .spyOn(
-        runtimeTransportClient,
-        "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
-      )
-      .mockImplementation((request) => {
-        db.bindingWriteEvents.push(`acquire:${request.ownerUserId}`);
-        return Promise.resolve({
-          expiresAtMs: TEST_NOW_MS + 30_000,
-          operationId: `operation-${request.ownerUserId}`,
-          status: "acquired",
-        });
-      });
-    const releaseMutation = vi
-      .spyOn(
-        runtimeTransportClient,
-        "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
-      )
-      .mockResolvedValue({ status: "released" });
-    const env = buildEnv({ db, remoteAgentRuntimeEnabled: "true" });
-
-    await expect(
-      rpcDesignateCenterAgent(env, {
-        agentProfileId: AGENT_PROFILE_ID,
-        context: buildContext({
-          activeOrganizationId: "org-a",
-          userId: "admin-user",
-        }),
-        runtime: "remote_agent",
-      })
-    ).resolves.toMatchObject({ status: "designated" });
-
-    expect([...db.bindingRows.values()]).toEqual([
-      expect.objectContaining({
-        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-        agentProfileId: AGENT_PROFILE_ID,
-        bindingState: "enabled_primary",
-        ownerId: "owner-user",
-        runtimeKind: "hosted_center_agent",
-      }),
-    ]);
-    expect([...db.authorizationRows.values()]).toEqual([]);
-    expect(
-      acquireMutation.mock.calls.map(([request]) => request.ownerUserId)
-    ).toEqual(["admin-user", "owner-user"]);
-    expect(
-      releaseMutation.mock.calls.map(([request]) => request.ownerUserId).sort()
-    ).toEqual(["admin-user", "owner-user"]);
-    expect(db.bindingWriteEvents).toEqual([
-      "acquire:admin-user",
-      "acquire:owner-user",
-      "insert:owner-user",
-      "disable:admin-user",
-    ]);
-  });
-
-  it("does not carry retired Wake authorization while leaving legacy evidence untouched", async () => {
-    const legacyBindingId = "binding-legacy-hosted-admin";
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          ...managedCenterAgentProfileRow({
-            organizationId: "org-a",
-            ownerUserId: "owner-user",
-          }),
-          hasBinding: false,
-        },
-      ],
-      authorizations: [
-        authorizationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "legacy-authorizer",
-          bindingId: legacyBindingId,
-          createdAtMs: 1_700_000_000_000,
-          organizationId: "org-a",
-        }),
-      ],
-      members: [
-        memberRow("member-owner", "org-a", "owner-user", "owner"),
-        memberRow("member-admin", "org-a", "admin-user", "admin"),
-      ],
-    });
-    db.bindingRows.set(
-      bindingKey("owner_account", "admin-user", AGENT_PROFILE_ID),
-      agentProfileBindingTestRow({
-        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-        bindingId: legacyBindingId,
-        hostedRuntimeIdentityJson: JSON.stringify(
-          HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
-        ),
-        openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
-        ownerId: "admin-user",
-        runtimeKind: "hosted_center_agent",
-      })
-    );
-    vi.spyOn(
-      runtimeTransportClient,
-      "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
-    ).mockImplementation((request) =>
-      Promise.resolve({
-        expiresAtMs: TEST_NOW_MS + 30_000,
-        operationId: `operation-${request.ownerUserId}`,
-        status: "acquired",
-      })
-    );
-    vi.spyOn(
-      runtimeTransportClient,
-      "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
-    ).mockResolvedValue({ status: "released" });
-
-    await expect(
-      rpcDesignateCenterAgent(
-        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          context: buildContext({
-            activeOrganizationId: "org-a",
-            userId: "admin-user",
-          }),
-          runtime: "remote_agent",
-        }
-      )
-    ).resolves.toMatchObject({ status: "designated" });
-
-    const canonicalBinding = [...db.bindingRows.values()].find(
-      (binding) => binding.ownerId === "owner-user"
-    );
-    expect(canonicalBinding).toMatchObject({
-      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      agentControllerPermissionMode: "codex:fullAccess",
-      bindingState: "enabled_primary",
-      modelId: "gpt-5.6-sol",
-      reasoningLevel: "high",
-      runtimeKind: "hosted_center_agent",
-    });
-    expect([...db.authorizationRows.values()]).toEqual([
-      expect.objectContaining({
-        authorizedBy: "legacy-authorizer",
-        bindingId: legacyBindingId,
-        organizationId: "org-a",
-      }),
-    ]);
-  });
-
-  it("releases every owner admission after designation", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          ...managedCenterAgentProfileRow({
-            organizationId: "org-a",
-            ownerUserId: "owner-user",
-          }),
-          hasBinding: false,
-        },
-      ],
-      members: [
-        memberRow("member-owner", "org-a", "owner-user", "owner"),
-        memberRow("member-admin", "org-a", "admin-user", "admin"),
-      ],
-    });
-    db.bindingRows.set(
-      bindingKey("owner_account", "admin-user", AGENT_PROFILE_ID),
-      agentProfileBindingTestRow({
-        bindingId: "binding-legacy-admin-auth-failure",
-        ownerId: "admin-user",
-      })
-    );
-    vi.spyOn(
-      runtimeTransportClient,
-      "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
-    ).mockImplementation((request) =>
-      Promise.resolve({
-        expiresAtMs: TEST_NOW_MS + 30_000,
-        operationId: `operation-${request.ownerUserId}`,
-        status: "acquired",
-      })
-    );
-    const releaseMutation = vi
-      .spyOn(
-        runtimeTransportClient,
-        "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
-      )
-      .mockResolvedValue({ status: "released" });
-
-    await expect(
-      rpcDesignateCenterAgent(
-        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          context: buildContext({
-            activeOrganizationId: "org-a",
-            userId: "admin-user",
-          }),
-          runtime: "remote_agent",
-        }
-      )
-    ).resolves.toMatchObject({ status: "designated" });
-    expect(
-      releaseMutation.mock.calls.map(([request]) => request.ownerUserId).sort()
-    ).toEqual(["admin-user", "owner-user"]);
-  });
-
-  it("does not change D1 state when a legacy owner shard blocks reconciliation", async () => {
-    const centerAgentAuditJournal: CenterAgentAuditJournalTestRow[] = [];
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          ...managedCenterAgentProfileRow({
-            organizationId: "org-a",
-            ownerUserId: "owner-user",
-          }),
-          hasBinding: false,
-        },
-      ],
-      centerAgentAuditJournal,
-      members: [
-        memberRow("member-owner", "org-a", "owner-user", "owner"),
-        memberRow("member-admin", "org-a", "admin-user", "admin"),
-      ],
-    });
-    const legacyBinding = agentProfileBindingTestRow({
-      bindingId: "binding-legacy-admin-blocked",
-      ownerId: "admin-user",
-    });
-    db.bindingRows.set(
-      bindingKey("owner_account", "admin-user", AGENT_PROFILE_ID),
-      legacyBinding
-    );
-    const originalBindings = new Map(
-      [...db.bindingRows].map(([key, binding]) => [key, { ...binding }])
-    );
-    const acquireMutation = vi
-      .spyOn(
-        runtimeTransportClient,
-        "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
-      )
-      .mockImplementation((request) =>
-        Promise.resolve(
-          request.ownerUserId === "admin-user"
-            ? {
-                reasonCode: "runtime_coordinator.active_execution" as const,
-                status: "blocked" as const,
-              }
-            : {
-                expiresAtMs: TEST_NOW_MS + 30_000,
-                operationId: `operation-${request.ownerUserId}`,
-                status: "acquired" as const,
-              }
-        )
-      );
-    const releaseMutation = vi
-      .spyOn(
-        runtimeTransportClient,
-        "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
-      )
-      .mockResolvedValue({ status: "released" });
-
-    await expect(
-      rpcDesignateCenterAgent(
-        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          context: buildContext({
-            activeOrganizationId: "org-a",
-            userId: "admin-user",
-          }),
-          runtime: "remote_agent",
-        }
-      )
-    ).rejects.toMatchObject({
-      code: "agent_profile_binding.controller_change_blocked_active_execution",
-      status: 409,
-    });
-    expect(
-      acquireMutation.mock.calls.map(([request]) => request.ownerUserId)
-    ).toEqual(["admin-user"]);
-    expect(releaseMutation).not.toHaveBeenCalled();
-    expect(db.bindingRows).toEqual(originalBindings);
-    expect(db.bindingWriteEvents).toEqual([]);
-    expect(db.authorizationRows.size).toBe(0);
-    expect(centerAgentAuditJournal).toEqual([]);
   });
 
   it("fails closed before admission or writes when Binding owner inventory exceeds the safety limit", async () => {
@@ -3164,10 +2822,7 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
-          ...managedCenterAgentProfileRow({
-            organizationId: "org-a",
-            ownerUserId: "owner-user",
-          }),
+          ...managedCenterAgentProfileRow({ organizationId: "org-a" }),
           hasBinding: false,
         },
       ],
@@ -3228,86 +2883,10 @@ describe("organization Core RPC", () => {
     expect(centerAgentAuditJournal).toEqual([]);
   });
 
-  it("bounds the cumulative owner inventory across repeated admission rescans", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          ...managedCenterAgentProfileRow({
-            organizationId: "org-a",
-            ownerUserId: "owner-user",
-          }),
-          hasBinding: false,
-        },
-      ],
-      members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
-    });
-    const installLegacyOwner = (index: number): void => {
-      for (const [key, binding] of db.bindingRows) {
-        if (binding.ownerId.startsWith("rotating-owner-")) {
-          db.bindingRows.delete(key);
-        }
-      }
-      const ownerId = `rotating-owner-${index.toString().padStart(2, "0")}`;
-      db.bindingRows.set(
-        bindingKey("owner_account", ownerId, AGENT_PROFILE_ID),
-        agentProfileBindingTestRow({
-          bindingId: `binding-${ownerId}`,
-          ownerId,
-        })
-      );
-    };
-    installLegacyOwner(0);
-    let nextOwnerIndex = 1;
-    vi.spyOn(
-      runtimeTransportClient,
-      "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
-    ).mockImplementation((request) => {
-      if (request.ownerUserId.startsWith("rotating-owner-")) {
-        installLegacyOwner(nextOwnerIndex);
-        nextOwnerIndex += 1;
-      }
-      return Promise.resolve({
-        expiresAtMs: TEST_NOW_MS + 30_000,
-        operationId: `operation-${request.ownerUserId}`,
-        status: "acquired",
-      });
-    });
-    const releaseMutation = vi
-      .spyOn(
-        runtimeTransportClient,
-        "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
-      )
-      .mockResolvedValue({ status: "released" });
-
-    await expect(
-      rpcDesignateCenterAgent(
-        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          context: buildContext({
-            activeOrganizationId: "org-a",
-            userId: "owner-user",
-          }),
-          runtime: "remote_agent",
-        }
-      )
-    ).rejects.toMatchObject({
-      code: "center_agent.binding_owner_inventory_exceeded",
-      status: 503,
-    });
-    expect(releaseMutation).toHaveBeenCalledTimes(
-      MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE
-    );
-    expect(db.bindingWriteEvents).toEqual([]);
-  });
-
   it("lets every member read the Center Agent model while only owners and admins can change it", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
-        managedCenterAgentProfileRow({
-          organizationId: "org-a",
-          ownerUserId: "owner-user",
-        }),
+        managedCenterAgentProfileRow({ organizationId: "org-a" }),
       ],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -3322,33 +2901,30 @@ describe("organization Core RPC", () => {
         memberRow("member-ordinary", "org-a", "member-user", "member"),
       ],
     });
-    db.bindingRows.set(
-      bindingKey("owner_account", "owner-user", AGENT_PROFILE_ID),
-      {
-        agentControllerConversationId: null,
-        agentControllerPermissionMode: null,
-        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-        agentProfileId: AGENT_PROFILE_ID,
-        bindingId: "binding-center-agent",
-        bindingState: "enabled_primary",
-        configurationRevision: 4,
-        createdAtMs: 1_700_000_000_000,
-        createdByProfileId: HUMAN_PROFILE_ID,
-        disabledAtMs: null,
-        hostedRuntimeIdentityJson: JSON.stringify(
-          HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
-        ),
-        modelId: null,
-        openCodePermission: null,
-        ownerId: "owner-user",
-        ownerKind: "owner_account",
-        reasonCode: null,
-        reasoningLevel: null,
-        runtimeKind: "hosted_center_agent",
-        updatedAtMs: 1_700_000_000_000,
-        openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
-      }
-    );
+    db.bindingRows.set(bindingKey("organization", "org-a", AGENT_PROFILE_ID), {
+      agentControllerConversationId: null,
+      agentControllerPermissionMode: null,
+      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      agentProfileId: AGENT_PROFILE_ID,
+      bindingId: "binding-center-agent",
+      bindingState: "enabled_primary",
+      configurationRevision: 4,
+      createdAtMs: 1_700_000_000_000,
+      createdByProfileId: HUMAN_PROFILE_ID,
+      disabledAtMs: null,
+      hostedRuntimeIdentityJson: JSON.stringify(
+        HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+      ),
+      modelId: null,
+      openCodePermission: null,
+      ownerId: "org-a",
+      ownerKind: "organization",
+      reasonCode: null,
+      reasoningLevel: null,
+      runtimeKind: "hosted_center_agent",
+      updatedAtMs: 1_700_000_000_000,
+      openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+    });
     const env = buildEnv({ db, remoteAgentRuntimeEnabled: "true" });
     const memberContext = buildContext({
       activeOrganizationId: "org-a",
@@ -3429,10 +3005,7 @@ describe("organization Core RPC", () => {
     const previousBindingId = `binding-${AGENT_PROFILE_ID}`;
     const db = createOrganizationRpcDb({
       agentProfiles: [
-        managedCenterAgentProfileRow({
-          organizationId: "org-a",
-          ownerUserId: "user-a",
-        }),
+        managedCenterAgentProfileRow({ organizationId: "org-a" }),
       ],
       authorizations: [
         authorizationRow({
@@ -3497,7 +3070,7 @@ describe("organization Core RPC", () => {
           isDefault: false,
           lastUsedAt: null,
           managedRole: "center_agent",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "operations-center-agent",
           profileKind: "agent",
           profileName: "Operations Center Agent",
@@ -3624,8 +3197,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -3653,7 +3227,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentCreateSpace(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: SECOND_AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -3671,7 +3245,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentCreateSpace(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -3701,7 +3275,7 @@ describe("organization Core RPC", () => {
     });
     await expect(
       rpcCenterAgentCreateSpace(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -3729,82 +3303,21 @@ describe("organization Core RPC", () => {
     });
   });
 
-  it("allows only the Organization creator to pause or resume the Center Agent", async () => {
+  it.each([
+    ["owner", true],
+    ["admin", true],
+    ["member", false],
+  ] as const)("uses current %s membership for pause authority after the creator is gone", async (role, allowed) => {
     const db = createOrganizationRpcDb({
-      agentProfiles: [managedCenterAgentProfileRow({ ownerUserId: "creator" })],
+      agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
           agentProfileId: AGENT_PROFILE_ID,
-          designatedBy: "creator",
+          designatedBy: "deleted-creator",
           organizationId: "org-a",
         }),
       ],
-      members: [
-        memberRow("member-creator", "org-a", "creator", "owner"),
-        memberRow("member-admin", "org-a", "admin-user", "admin"),
-      ],
-      organizations: [
-        {
-          createdByUserId: "creator",
-          name: "Acme",
-          organizationId: "org-a",
-          slug: "acme",
-        },
-      ],
-    });
-    const env = buildEnv({ db });
-
-    await expect(
-      rpcGetCenterAgentOperatingState(env, {
-        context: buildContext({
-          activeOrganizationId: "org-a",
-          userId: "admin-user",
-        }),
-      })
-    ).resolves.toMatchObject({
-      canChangeOperatingState: false,
-      operatingState: "active",
-    });
-    await expect(
-      rpcUpdateCenterAgentOperatingState(env, {
-        context: buildContext({
-          activeOrganizationId: "org-a",
-          userId: "admin-user",
-        }),
-        operatingState: "paused",
-      })
-    ).rejects.toMatchObject({
-      code: "center_agent.creator_required",
-      status: 403,
-    });
-    await expect(
-      rpcUpdateCenterAgentOperatingState(env, {
-        context: buildContext({
-          activeOrganizationId: "org-a",
-          userId: "creator",
-        }),
-        operatingState: "paused",
-      })
-    ).resolves.toMatchObject({
-      canChangeOperatingState: true,
-      changed: true,
-      operatingState: "paused",
-    });
-  });
-
-  it("fails closed when Organization creator evidence is missing", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        managedCenterAgentProfileRow({ ownerUserId: "admin-user" }),
-      ],
-      centerAgentDesignations: [
-        centerAgentDesignationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          designatedBy: "admin-user",
-          organizationId: "org-a",
-        }),
-      ],
-      members: [memberRow("member-admin", "org-a", "admin-user", "admin")],
+      members: [memberRow("current-member", "org-a", "user-a", role)],
       organizations: [
         {
           createdByUserId: null,
@@ -3815,35 +3328,41 @@ describe("organization Core RPC", () => {
       ],
     });
     const env = buildEnv({ db });
-
-    await expect(
-      rpcGetCenterAgentOperatingState(env, {
-        context: buildContext({
-          activeOrganizationId: "org-a",
-          userId: "admin-user",
-        }),
-      })
-    ).resolves.toMatchObject({ canChangeOperatingState: false });
-    await expect(
-      rpcUpdateCenterAgentOperatingState(env, {
-        context: buildContext({
-          activeOrganizationId: "org-a",
-          userId: "admin-user",
-        }),
-        operatingState: "paused",
-      })
-    ).rejects.toMatchObject({
-      code: "center_agent.creator_required",
-      status: 403,
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
     });
+    await expect(
+      rpcGetCenterAgentOperatingState(env, { context })
+    ).resolves.toMatchObject({
+      canChangeOperatingState: allowed,
+      operatingState: "active",
+    });
+    const result = rpcUpdateCenterAgentOperatingState(env, {
+      context,
+      operatingState: "paused",
+    });
+    if (allowed) {
+      await expect(result).resolves.toMatchObject({
+        canChangeOperatingState: true,
+        changed: true,
+        operatingState: "paused",
+      });
+    } else {
+      await expect(result).rejects.toMatchObject({
+        code: "organization.role_required",
+        status: 403,
+      });
+    }
   });
 
   it("records Center Agent audit entries with on-behalf-of attribution", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -3869,7 +3388,7 @@ describe("organization Core RPC", () => {
       visibility: request.visibility ?? "private",
     }));
     const env = buildEnv({ db, spaceStub });
-    const agentContext = buildContext({
+    const agentContext = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       profileId: AGENT_PROFILE_ID,
       profileKind: "agent",
@@ -3934,8 +3453,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "owner-user",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -3979,7 +3499,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentCreateAgentProfile(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -4022,8 +3542,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -4049,12 +3570,13 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentCreateAgentProfile(buildEnv({ authWorker, db }), {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
           userId: "user-a",
         }),
+        onBehalfOf: { profileId: HUMAN_PROFILE_ID },
         profileName: "Release Agent",
       })
     ).rejects.toMatchObject({
@@ -4074,8 +3596,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -4113,7 +3636,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentAddAgentProfilesToSpace(env, {
         agentProfileIds: [SECOND_AGENT_PROFILE_ID],
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -4175,7 +3698,7 @@ describe("organization Core RPC", () => {
         {
           managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "center-agent",
           profileId: AGENT_PROFILE_ID,
           profileName: "Center Agent",
@@ -4207,7 +3730,7 @@ describe("organization Core RPC", () => {
       spaces: db.spaces,
     });
     const env = buildEnv({ db, spaceStub });
-    const context = buildContext({
+    const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
       profileId: AGENT_PROFILE_ID,
@@ -4368,7 +3891,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentAddMembersToSpace(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -4405,8 +3928,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -4436,7 +3960,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentRemoveAgentProfilesFromSpace(env, {
         agentProfileIds: [SECOND_AGENT_PROFILE_ID],
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -4483,8 +4007,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -4514,7 +4039,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentUpdateSpaceSettings(env, {
         accessMode: "protected",
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -4578,8 +4103,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "center-agent",
           profileId: AGENT_PROFILE_ID,
           profileName: "Center Agent",
@@ -4611,7 +4137,7 @@ describe("organization Core RPC", () => {
       spaces: db.spaces,
     });
     const env = buildEnv({ db, spaceStub });
-    const context = buildContext({
+    const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       profileId: AGENT_PROFILE_ID,
       profileKind: "agent",
@@ -4742,7 +4268,7 @@ describe("organization Core RPC", () => {
       v: 1 as const,
     }));
     const env = buildEnv({ db, spaceStub });
-    const context = buildContext({
+    const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       profileId: AGENT_PROFILE_ID,
       profileKind: "agent",
@@ -4814,7 +4340,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentPostSpaceMessage(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -4861,7 +4387,7 @@ describe("organization Core RPC", () => {
     });
 
     await rpcCenterAgentPostSpaceMessage(buildEnv({ db, spaceStub }), {
-      context: buildContext({
+      context: buildCenterAgentContext({
         activeOrganizationId: "org-a",
         profileId: AGENT_PROFILE_ID,
         profileKind: "agent",
@@ -4931,7 +4457,7 @@ describe("organization Core RPC", () => {
     vi.stubGlobal("fetch", slackFetch);
     const env = buildEnv({ db, slackBotToken: "xoxb-test" });
 
-    const context = buildContext({
+    const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       agentControllerConversationId: "remote_agent_submission_release",
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -5146,7 +4672,7 @@ describe("organization Core RPC", () => {
     });
     vi.stubGlobal("fetch", slackFetch);
     const env = buildEnv({ db, slackBotToken: "xoxb-test" });
-    const context = buildContext({
+    const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       agentControllerConversationId: "remote_agent_submission_release",
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -5316,7 +4842,7 @@ describe("organization Core RPC", () => {
     const env = buildEnv({ db, slackBotToken: "xoxb-test" });
     const request = {
       channelName: "ok8-okok",
-      context: buildContext({
+      context: buildCenterAgentContext({
         activeOrganizationId: "org-a",
         agentControllerConversationId: "remote_agent_submission_proposal",
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -5388,7 +4914,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentPostSlackThreadMessage(env, {
         ...request,
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerConversationId:
             "remote_agent_submission_routine_proposal",
@@ -5504,7 +5030,7 @@ describe("organization Core RPC", () => {
     const request = {
       contentBase64: btoa(String.fromCharCode(...bytes)),
       contentSha256,
-      context: buildContext({
+      context: buildCenterAgentContext({
         activeOrganizationId: "org-a",
         agentControllerConversationId: "remote_agent_submission_slack_file",
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -5624,7 +5150,7 @@ describe("organization Core RPC", () => {
     const env = buildEnv({ db, slackBotToken: "xoxb-test" });
     const request = {
       channelName: "#Release",
-      context: buildContext({
+      context: buildCenterAgentContext({
         activeOrganizationId: "org-a",
         agentControllerConversationId: "remote_agent_submission_retry",
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -5678,7 +5204,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentReadSlackWorkspaceDirectory(buildEnv({ db }), {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -5778,7 +5304,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentReadSlackWorkspaceDirectory(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -5897,7 +5423,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentListSlackChannels(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -6043,7 +5569,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentReadSlackChannelMembers(env, {
         channelName: "#ok8-okok",
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -6185,7 +5711,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentReadSlackChannelHistory(env, {
         channelName: "ok8-okok",
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -6204,7 +5730,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentReadSlackChannelHistory(env, {
         channelName: "ok8-okok",
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -6254,7 +5780,7 @@ describe("organization Core RPC", () => {
     const legacyCompatibleResponse =
       await rpcCenterAgentReadSlackChannelHistory(env, {
         channelName: "ok8-okok",
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -6360,7 +5886,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentReadSlackFile(env, {
         channelName: "ok8-okok",
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -6385,7 +5911,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentReadSlackFile(env, {
         channelId: "C_OK8",
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -6519,7 +6045,7 @@ describe("organization Core RPC", () => {
       slackBotToken: "xoxb-test",
       slackTokenCryptoKey: cryptoKey,
     });
-    const context = buildContext({
+    const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
       profileId: AGENT_PROFILE_ID,
@@ -6684,7 +6210,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentSearchSlackMessages(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -6763,7 +6289,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentSearchSlackMessages(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
           profileId: AGENT_PROFILE_ID,
@@ -6798,7 +6324,7 @@ describe("organization Core RPC", () => {
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
     const env = buildEnv({ db });
-    const context = buildContext({
+    const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
       profileId: AGENT_PROFILE_ID,
@@ -6816,7 +6342,7 @@ describe("organization Core RPC", () => {
         speakerMember: { memberId: "member-missing", userId: "user-a" },
       })
     ).rejects.toMatchObject({
-      code: "center_agent.connector_action_speaker_required",
+      code: "center_agent.member_actor_required",
       status: 403,
     });
 
@@ -6887,8 +6413,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "center-agent",
           profileId: AGENT_PROFILE_ID,
           profileName: "Center Agent",
@@ -6935,7 +6462,7 @@ describe("organization Core RPC", () => {
 
     const wakeInput = {
       agentProfileIds: [SECOND_AGENT_PROFILE_ID],
-      context: buildContext({
+      context: buildCenterAgentContext({
         activeOrganizationId: "org-a",
         profileId: AGENT_PROFILE_ID,
         profileKind: "agent" as const,
@@ -7130,7 +6657,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentWakeAgentProfilesInSpace(buildEnv({ db, spaceStub }), {
         agentProfileIds: [SECOND_AGENT_PROFILE_ID],
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -7257,7 +6784,7 @@ describe("organization Core RPC", () => {
       agentProfileIds: [SECOND_AGENT_PROFILE_ID],
       completionMode: "resume_parent_when_all_terminal",
       context: {
-        ...buildContext({
+        ...buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -7333,7 +6860,7 @@ describe("organization Core RPC", () => {
       clientMessageId: "ca-wake:delegated-reference",
       completionMode: "resume_parent_when_all_terminal",
       context: {
-        ...buildContext({
+        ...buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -7419,8 +6946,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "center-agent",
           profileId: AGENT_PROFILE_ID,
           profileName: "Center Agent",
@@ -7458,7 +6986,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentWakeAgentProfilesInSpace(env, {
         agentProfileIds: [SECOND_AGENT_PROFILE_ID],
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -7480,8 +7008,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -7510,7 +7039,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentReadSpaceContext(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -7590,7 +7119,7 @@ describe("organization Core RPC", () => {
         spaces: db.spaces,
       }),
     });
-    const context = buildContext({
+    const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       profileId: AGENT_PROFILE_ID,
       profileKind: "agent",
@@ -7644,8 +7173,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -7674,7 +7204,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentListSpaceFiles(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -7712,8 +7242,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -7742,7 +7273,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentReadSpaceContext(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -7761,8 +7292,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -7792,7 +7324,7 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentReadSpaceContext(env, {
         afterSignalId: "signal-anchor",
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -7826,8 +7358,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -7917,7 +7450,7 @@ describe("organization Core RPC", () => {
       spaces: db.spaces,
     });
     const env = buildEnv({ db, spaceStub });
-    const context = buildContext({
+    const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       profileId: AGENT_PROFILE_ID,
       profileKind: "agent",
@@ -8001,8 +7534,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -8048,7 +7582,7 @@ describe("organization Core RPC", () => {
     const env = buildEnv({ db, spaceStub });
 
     const response = await rpcCenterAgentReadDispatchHistory(env, {
-      context: buildContext({
+      context: buildCenterAgentContext({
         activeOrganizationId: "org-a",
         profileId: AGENT_PROFILE_ID,
         profileKind: "agent",
@@ -8091,8 +7625,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -8121,7 +7656,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentReadDispatchHistory(env, {
-        context: buildContext({
+        context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -8140,8 +7675,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -8309,9 +7845,7 @@ describe("organization Core RPC", () => {
     });
     const authWorker = {
       ensureCenterAgentProfileInOrganization: vi.fn(() => {
-        agentProfiles.push(
-          managedCenterAgentProfileRow({ ownerUserId: "owner-user" })
-        );
+        agentProfiles.push(managedCenterAgentProfileRow({}));
         return {
           ok: true,
           profile: {
@@ -8321,7 +7855,7 @@ describe("organization Core RPC", () => {
             isDefault: false,
             lastUsedAt: null,
             managedRole: "center_agent",
-            ownerUserId: "owner-user",
+            ownerUserId: null,
             profileHandle: "center-agent",
             profileKind: "agent",
             profileName: "Center Agent",
@@ -8373,7 +7907,7 @@ describe("organization Core RPC", () => {
     expect(designationAfterInviteeOpen).toMatchObject({
       designation: {
         agentProfileId: AGENT_PROFILE_ID,
-        designatedBy: "owner-user",
+        designatedBy: "user-a",
         organizationId: "org-a",
       },
       organizationId: "org-a",
@@ -8392,7 +7926,8 @@ describe("organization Core RPC", () => {
         hostedRuntimeIdentityJson: JSON.stringify(
           HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
         ),
-        ownerId: "owner-user",
+        ownerId: "org-a",
+        ownerKind: "organization",
         runtimeKind: "hosted_center_agent",
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       }),
@@ -8407,7 +7942,7 @@ describe("organization Core RPC", () => {
       authWorker.ensureCenterAgentProfileInOrganization
     ).toHaveBeenCalledWith({
       organizationId: "org-a",
-      ownerUserId: "owner-user",
+      createdByUserId: "user-a",
     });
     expect(spaceStub.rpcPostSignalOnceByClientMessageId).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -8438,9 +7973,7 @@ describe("organization Core RPC", () => {
     });
     const authWorker = {
       ensureCenterAgentProfileInOrganization: vi.fn(() => {
-        agentProfiles.push(
-          managedCenterAgentProfileRow({ ownerUserId: "owner-user" })
-        );
+        agentProfiles.push(managedCenterAgentProfileRow({}));
         return {
           ok: true,
           profile: {
@@ -8450,7 +7983,7 @@ describe("organization Core RPC", () => {
             isDefault: false,
             lastUsedAt: null,
             managedRole: "center_agent",
-            ownerUserId: "owner-user",
+            ownerUserId: null,
             profileHandle: "center-agent",
             profileKind: "agent",
             profileName: "Center Agent",
@@ -8486,7 +8019,8 @@ describe("organization Core RPC", () => {
       expect.objectContaining({
         agentProfileId: AGENT_PROFILE_ID,
         createdByProfileId: HUMAN_PROFILE_ID,
-        ownerId: "owner-user",
+        ownerId: "org-a",
+        ownerKind: "organization",
         runtimeKind: "hosted_center_agent",
       }),
     ]);
@@ -8545,7 +8079,7 @@ describe("organization Core RPC", () => {
         expect.objectContaining({
           event: "core.center_agent.profile_bootstrap_unavailable",
           organizationId: "org-a",
-          ownerUserId: "owner-user",
+          createdByUserId: "owner-user",
           requestId: context.actorContext.requestId,
           stage: "auth_rpc",
         })
@@ -8599,7 +8133,7 @@ describe("organization Core RPC", () => {
           errorName: "Error",
           event: "core.center_agent.profile_bootstrap_unavailable",
           organizationId: "org-a",
-          ownerUserId: "owner-user",
+          createdByUserId: "owner-user",
           requestId: context.actorContext.requestId,
           stage: "auth_rpc",
         })
@@ -8656,7 +8190,7 @@ describe("organization Core RPC", () => {
           authCode: "profile.internal_error",
           event: "core.center_agent.profile_bootstrap_failed",
           organizationId: "org-a",
-          ownerUserId: "owner-user",
+          createdByUserId: "owner-user",
           requestId: context.actorContext.requestId,
           stage: "auth_result",
         })
@@ -8667,9 +8201,7 @@ describe("organization Core RPC", () => {
   });
 
   it("preserves the Center Agent designation and DM while paused", async () => {
-    const agentProfiles = [
-      managedCenterAgentProfileRow({ ownerUserId: "owner-user" }),
-    ];
+    const agentProfiles = [managedCenterAgentProfileRow({})];
     const db = createOrganizationRpcDb({
       agentProfiles,
       centerAgentDesignations: [
@@ -8694,7 +8226,7 @@ describe("organization Core RPC", () => {
           isDefault: false,
           lastUsedAt: null,
           managedRole: "center_agent",
-          ownerUserId: "owner-user",
+          ownerUserId: null,
           profileHandle: "center-agent",
           profileKind: "agent",
           profileName: "Center Agent",
@@ -8768,8 +8300,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-personal",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "center",
           profileId: AGENT_PROFILE_ID,
           profileName: "Center Agent",
@@ -8836,8 +8369,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -8930,8 +8464,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-personal",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "center",
           profileId: AGENT_PROFILE_ID,
           profileName: "Center Agent",
@@ -8987,8 +8522,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -9047,8 +8583,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -9141,9 +8678,7 @@ describe("organization Core RPC", () => {
     });
     const authWorker = {
       ensureCenterAgentProfileInOrganization: vi.fn(() => {
-        agentProfiles.push(
-          managedCenterAgentProfileRow({ ownerUserId: "owner-user" })
-        );
+        agentProfiles.push(managedCenterAgentProfileRow({}));
         return {
           ok: true,
           profile: {
@@ -9153,7 +8688,7 @@ describe("organization Core RPC", () => {
             isDefault: false,
             lastUsedAt: null,
             managedRole: "center_agent",
-            ownerUserId: "owner-user",
+            ownerUserId: null,
             profileHandle: "center-agent",
             profileKind: "agent",
             profileName: "Center Agent",
@@ -9205,8 +8740,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -9536,7 +9072,7 @@ describe("organization Core RPC", () => {
         {
           managedRole: "center_agent",
           organizationId: "org-a",
-          ownerUserId: "user-b",
+          ownerUserId: null,
           profileHandle: "center-agent",
           profileId: AGENT_PROFILE_ID,
           profileName: "Center Agent",
@@ -10412,8 +9948,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-personal",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -10462,8 +9999,9 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
+          managedRole: "center_agent",
           organizationId: "org-personal",
-          ownerUserId: "user-a",
+          ownerUserId: null,
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -10698,9 +10236,7 @@ describe("organization Core RPC", () => {
 
   it("atomically adds active human and agent profiles from the Organization Directory", async () => {
     const db = createOrganizationRpcDb({
-      agentProfiles: [
-        managedCenterAgentProfileRow({ ownerUserId: "owner-user" }),
-      ],
+      agentProfiles: [managedCenterAgentProfileRow({})],
       members: [
         memberRow("member-owner", "org-a", "owner-user", "owner"),
         memberRow("member-a", "org-a", "user-a", "member"),
@@ -10740,7 +10276,7 @@ describe("organization Core RPC", () => {
             profileKind: "human",
           }),
           expect.objectContaining({
-            ownerUserId: "owner-user",
+            ownerUserId: null,
             profileId: AGENT_PROFILE_ID,
             profileKind: "agent",
           }),
@@ -10829,7 +10365,6 @@ describe("organization Core RPC", () => {
       agentProfiles: [
         managedCenterAgentProfileRow({
           organizationId: "org-b",
-          ownerUserId: "user-b",
           profileId: SECOND_AGENT_PROFILE_ID,
         }),
       ],
@@ -10867,7 +10402,6 @@ describe("organization Core RPC", () => {
       agentProfiles: [
         managedCenterAgentProfileRow({
           organizationId: "org-personal",
-          ownerUserId: "user-a",
           profileId: SECOND_AGENT_PROFILE_ID,
         }),
       ],
@@ -10913,7 +10447,7 @@ describe("organization Core RPC", () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
-          ...managedCenterAgentProfileRow({ ownerUserId: "owner-user" }),
+          ...managedCenterAgentProfileRow({}),
           status: "disabled",
         },
       ],
@@ -10951,9 +10485,7 @@ describe("organization Core RPC", () => {
 
   it("rejects stale Center Agent identity before adding a Directory batch", async () => {
     const db = createOrganizationRpcDb({
-      agentProfiles: [
-        managedCenterAgentProfileRow({ ownerUserId: "owner-user" }),
-      ],
+      agentProfiles: [managedCenterAgentProfileRow({})],
       centerAgentDesignations: [
         centerAgentDesignationRow({
           agentProfileId: AGENT_PROFILE_ID,
@@ -10996,9 +10528,7 @@ describe("organization Core RPC", () => {
 
   it("adds the designated Center Agent to an ordinary Space a member belongs to", async () => {
     const db = createOrganizationRpcDb({
-      agentProfiles: [
-        managedCenterAgentProfileRow({ ownerUserId: "owner-user" }),
-      ],
+      agentProfiles: [managedCenterAgentProfileRow({})],
       centerAgentDesignations: [
         centerAgentDesignationRow({
           agentProfileId: AGENT_PROFILE_ID,
@@ -11052,9 +10582,7 @@ describe("organization Core RPC", () => {
 
   it("rejects a stale displayed Center Agent identity before writing Space membership", async () => {
     const db = createOrganizationRpcDb({
-      agentProfiles: [
-        managedCenterAgentProfileRow({ ownerUserId: "owner-user" }),
-      ],
+      agentProfiles: [managedCenterAgentProfileRow({})],
       centerAgentDesignations: [
         centerAgentDesignationRow({
           agentProfileId: AGENT_PROFILE_ID,
@@ -11096,9 +10624,7 @@ describe("organization Core RPC", () => {
 
   it("rejects adding the Center Agent to a Space in a different Organization", async () => {
     const db = createOrganizationRpcDb({
-      agentProfiles: [
-        managedCenterAgentProfileRow({ ownerUserId: "owner-user" }),
-      ],
+      agentProfiles: [managedCenterAgentProfileRow({})],
       centerAgentDesignations: [
         centerAgentDesignationRow({
           agentProfileId: AGENT_PROFILE_ID,
@@ -11140,9 +10666,7 @@ describe("organization Core RPC", () => {
 
   it("keeps Center Agent identity management available while paused", async () => {
     const db = createOrganizationRpcDb({
-      agentProfiles: [
-        managedCenterAgentProfileRow({ ownerUserId: "owner-user" }),
-      ],
+      agentProfiles: [managedCenterAgentProfileRow({})],
       centerAgentDesignations: [
         centerAgentDesignationRow({
           agentProfileId: AGENT_PROFILE_ID,
@@ -11390,6 +10914,21 @@ function buildOrganizationDirectoryAgentProfileIdentity(input: {
   };
 }
 
+function buildCenterAgentContext(
+  input: Parameters<typeof buildContext>[0]
+): OpenMeldRequestContext {
+  const context = buildContext(input);
+  const { ownerUserId: _auditOnlyUserId, ...actor } = context.actorContext;
+  return {
+    ...context,
+    actorContext: {
+      ...actor,
+      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      callerPrincipalId: actor.openMeldProfileId,
+    },
+  };
+}
+
 function buildContext(input: {
   activeOrganizationId: string;
   agentControllerRef?: OpenMeldRequestContext["actorContext"]["agentControllerRef"];
@@ -11542,12 +11081,11 @@ function centerAgentDesignationRow(input: {
 
 function managedCenterAgentProfileRow(input?: {
   organizationId?: string;
-  ownerUserId?: string;
   profileId?: string;
 }) {
   return {
     organizationId: input?.organizationId ?? "org-a",
-    ownerUserId: input?.ownerUserId ?? "user-a",
+    ownerUserId: null,
     profileHandle: "center-agent",
     profileId: input?.profileId ?? AGENT_PROFILE_ID,
     profileName: "Center Agent",
@@ -11631,7 +11169,7 @@ type AgentProfileBindingTestRow = {
   modelId: string | null;
   openCodePermission: string | null;
   ownerId: string;
-  ownerKind: "owner_account";
+  ownerKind: "owner_account" | "organization";
   reasonCode: string | null;
   reasoningLevel: string | null;
   runtimeKind: "openmeld_service" | "hosted_center_agent";
@@ -11641,9 +11179,7 @@ type AgentProfileBindingTestRow = {
 
 function agentProfileBindingTestRow(
   input: Pick<AgentProfileBindingTestRow, "bindingId" | "ownerId"> &
-    Partial<
-      Omit<AgentProfileBindingTestRow, "bindingId" | "ownerId" | "ownerKind">
-    >
+    Partial<Omit<AgentProfileBindingTestRow, "bindingId" | "ownerId">>
 ): AgentProfileBindingTestRow {
   return {
     agentControllerConversationId: null,
@@ -11766,7 +11302,7 @@ function createOrganizationRpcDb(input: {
     lastUsedAt?: number | null;
     managedRole?: string | null;
     organizationId: string;
-    ownerUserId: string;
+    ownerUserId: string | null;
     profileHandle: string;
     profileId: string;
     profileName: string;
@@ -12521,7 +12057,7 @@ function buildOrganizationDirectoryAgentProfileRow(input: {
     lastUsedAt?: number | null;
     managedRole?: string | null;
     organizationId: string;
-    ownerUserId: string;
+    ownerUserId: string | null;
     profileHandle: string;
     profileId: string;
     profileName: string;
@@ -12968,7 +12504,11 @@ function resolveFirstRow(input: {
     const ownerId = String(input.args[1] ?? "");
     const profileId = String(input.args[2] ?? "");
     const storedBinding = input.bindingRows.get(
-      bindingKey("owner_account", ownerId, profileId)
+      bindingKey(
+        input.args[0] as "owner_account" | "organization",
+        ownerId,
+        profileId
+      )
     );
     if (storedBinding) {
       return mapAgentProfileBindingTestRow(storedBinding);
@@ -13571,8 +13111,9 @@ function resolveAllRows(input: {
 
   if (input.normalizedSql.includes("from space_index_spaces s")) {
     const ownerUserId = String(input.args[0] ?? "");
-    const organizationId = String(input.args[1] ?? "");
-    const limit = Number(input.args[2] ?? 500);
+    const profileId = input.args[1];
+    const organizationId = String(input.args[2] ?? "");
+    const limit = Number(input.args[3] ?? 500);
     return (input.spaces ?? [])
       .filter(
         (space) =>
@@ -13583,7 +13124,8 @@ function resolveAllRows(input: {
           .filter(
             (membership) =>
               membership.spaceId === space.spaceId &&
-              membership.ownerUserId === ownerUserId &&
+              (membership.ownerUserId === ownerUserId ||
+                membership.profileId === profileId) &&
               membership.status === "active"
           )
           .map((membership) => membership.addedAtMs);
@@ -13659,9 +13201,14 @@ function resolveAllRows(input: {
     );
     const implicitBindings = input.agentProfiles
       .filter(
+        (profile): profile is typeof profile & { ownerUserId: string } =>
+          profile.ownerUserId !== null
+      )
+      .filter(
         (profile) =>
           profile.profileId === agentProfileId &&
           profile.status === "active" &&
+          profile.managedRole !== "center_agent" &&
           profile.hasBinding !== false &&
           !explicitOwners.has(profile.ownerUserId)
       )
@@ -13711,9 +13258,9 @@ function resolveAllRows(input: {
         (profile) =>
           input.args.some(
             (value, index) =>
-              index % 2 === 0 &&
+              index % 3 === 0 &&
               value === profile.profileId &&
-              input.args[index + 1] === profile.ownerUserId
+              input.args[index + 2] === profile.ownerUserId
           ) &&
           profile.status === "active" &&
           profile.hasBinding !== false
@@ -13836,7 +13383,7 @@ function authorizationKey(organizationId: string, bindingId: string): string {
 }
 
 function bindingKey(
-  ownerKind: "owner_account",
+  ownerKind: "owner_account" | "organization",
   ownerId: string,
   agentProfileId: string
 ): string {

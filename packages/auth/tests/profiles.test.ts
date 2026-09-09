@@ -291,6 +291,7 @@ function createInMemoryRepository(
       );
       if (target) {
         target.profileName = input.profileName;
+        target.profileHandle = input.profileHandle;
       }
       return Promise.resolve();
     },
@@ -1040,6 +1041,15 @@ describe("OpenMeld profile service", () => {
     expect(createdForFirstOrg.createdByUserId).toBe("user_1");
     expect(createdForFirstOrg.organizationId).toBe(TEST_ORGANIZATION_ID);
     expect(createdForSecondOrg.managedRole).toBe("center_agent");
+    const renamed = await service.updateManagedAgentProfileInOrganization({
+      organizationId: TEST_ORGANIZATION_ID,
+      profileId: createdForFirstOrg.profileId,
+      managedRole: "center_agent",
+      profileName: "Organization Coordinator",
+    });
+    expect(renamed.profileId).toBe(createdForFirstOrg.profileId);
+    expect(renamed.ownerUserId).toBeNull();
+    expect(renamed.profileHandle).toBe("organization-coordinator");
     expect(
       repository.profiles.filter(
         (profile) =>

@@ -91,7 +91,7 @@ export type OpenMeldProfileRepository = {
   updateManagedProfileIdentityForOrganization: (
     organizationId: string,
     profileId: string,
-    input: { profileName: string }
+    input: { profileName: string; profileHandle: string }
   ) => Promise<void>;
   updateProfileIdentityForOwner: (
     ownerUserId: string,
@@ -349,7 +349,11 @@ export function createDrizzleOpenMeldProfileRepository(
     ) {
       await db
         .update(openMeldProfiles)
-        .set({ profileName: input.profileName, updatedAt: new Date() })
+        .set({
+          profileName: input.profileName,
+          profileHandle: input.profileHandle,
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(openMeldProfiles.organizationId, organizationId),
