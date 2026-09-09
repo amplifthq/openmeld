@@ -101,7 +101,15 @@ export async function requirePersonalRemoteAgentExecution(
   if (!activeRequester) {
     throw new Error("remote_agent.requester_membership_revoked");
   }
-  return { context, delivery, directory, request, db, agent };
+  return {
+    context,
+    delivery,
+    directory,
+    request,
+    db,
+    agent,
+    spaceDispatchContext: request.spaceDispatchContext,
+  };
 }
 
 export async function runPersonalRemoteAgentSpaceTool(
@@ -109,8 +117,13 @@ export async function runPersonalRemoteAgentSpaceTool(
   value: unknown
 ) {
   const input = personalRemoteAgentSpaceToolRequestSchema.parse(value);
-  const { context, delivery, directory, request, agent } =
+  const { context, delivery, directory, request, agent, spaceDispatchContext } =
     await requirePersonalRemoteAgentExecution(env, input.submissionId);
+  if (input.operation.kind === "authorize") {
+    return personalRemoteAgentSpaceToolResponseSchema.parse({
+      kind: "authorize",
+    });
+  }
   if (input.operation.kind === "board") {
     return personalRemoteAgentSpaceToolResponseSchema.parse({
       kind: "board",
@@ -174,7 +187,7 @@ export async function runPersonalRemoteAgentSpaceTool(
       })),
     });
   }
-  if (request.spaceDispatchContext.autoRelayDepth >= 6) {
+  if (spaceDispatchContext.autoRelayDepth >= 6) {
     throw new Error("remote_agent.collaboration_limit_reached");
   }
   const operation = input.operation;

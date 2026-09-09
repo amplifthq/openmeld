@@ -110,13 +110,22 @@ const THREAD_CONTEXT: NonNullable<
   rootSignalId: "signal_thread_root",
 };
 
+import { requireCurrentDesignatedCenterAgentCaller } from "../src/center-agent/current-designated-center-agent";
 import { requirePersonalRemoteAgentExecution } from "../src/remote-agent/application/personal-remote-agent-space-tools";
+import { prepareRemoteAgentMemberRequest } from "../src/remote-agent/application/remote-agent-member-request";
 import { requireRemoteAgentToolCaller } from "../src/remote-agent/application/remote-agent-tool-caller";
 
 describe("Remote Agent native delivery callback service", () => {
   it("admits a personal Agent without Center designation and without Center memory", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
+    harness.run({
+      sql: "ALTER TABLE openmeld_profiles ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0",
+    });
+    harness.run({
+      sql: "UPDATE openmeld_profiles SET is_default = 1 WHERE profile_id = ?",
+      params: [HUMAN_PROFILE_ID],
+    });
     harness.run({
       sql: "UPDATE openmeld_profiles SET managed_role = NULL WHERE profile_id = ?",
       params: [AGENT_PROFILE_ID],
@@ -191,6 +200,28 @@ describe("Remote Agent native delivery callback service", () => {
         env,
         "personal-submission"
       );
+      const sender = execution.request.turnEnvelope.sender;
+      if (sender.kind !== "member" || !sender.verified) {
+        throw new Error("Expected the admitted human requester");
+      }
+      await expect(
+        prepareRemoteAgentMemberRequest(env, execution.context, {
+          memberId: sender.id,
+          userId: sender.ownerUserId,
+        })
+      ).resolves.toMatchObject({ member: { userId: sender.ownerUserId } });
+      await expect(
+        prepareRemoteAgentMemberRequest(env, execution.context, {
+          memberId: "another-member",
+          userId: sender.ownerUserId,
+        })
+      ).rejects.toThrow("verified requester");
+      await expect(
+        requireCurrentDesignatedCenterAgentCaller({
+          env,
+          context: execution.context,
+        })
+      ).rejects.toThrow();
       await expect(
         requireRemoteAgentToolCaller({ env, context: execution.context })
       ).resolves.toMatchObject({
@@ -234,7 +265,7 @@ describe("Remote Agent native delivery callback service", () => {
           limit: 20,
         })
       );
-      for (const kind of ["board", "updates"] as const) {
+      for (const kind of ["board", "updates", "authorize"] as const) {
         readDirectory.mockResolvedValueOnce({ ...directory, members: [] });
         await expect(
           runPersonalRemoteAgentSpaceTool(env, {

@@ -1032,10 +1032,12 @@ import {
 } from "../remote-agent/application/message-channel-setup-request-service";
 import { REMOTE_AGENT_ACTIVE_EXECUTION_EVIDENCE_FRESHNESS_MS } from "../remote-agent/application/native-delivery-execution-evidence";
 import { continueSlackIdentityOnboardingRequest } from "../remote-agent/application/native-delivery-service";
+import { prepareRemoteAgentMemberRequest } from "../remote-agent/application/remote-agent-member-request";
 import {
   type RemoteAgentRuntimeAvailability,
   resolveRemoteAgentRuntimeAvailability,
 } from "../remote-agent/application/remote-agent-runtime-policy";
+import { requireRemoteAgentToolCaller } from "../remote-agent/application/remote-agent-tool-caller";
 import { resolveSlackBotToken } from "../remote-agent/application/slack-bot-token";
 import {
   getSlackMessagePermalink,
@@ -7619,14 +7621,16 @@ export async function rpcCenterAgentResolveConnectorConnection(
   input: CenterAgentResolveConnectorConnectionInput
 ): Promise<CenterAgentConnectorConnectionSelection> {
   const context = requireRpcContext(input.context);
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+  const authorization = await requireRemoteAgentToolCaller({
     context,
     env,
   });
   const service = requireConnectorService(input.service);
-  const connectionPreference = requireConnectorConnectionPreference(
+  const requestedPreference = requireConnectorConnectionPreference(
     input.connectionPreference
   );
+  const personal = "personalExecution" in authorization;
+  const connectionPreference = personal ? "shared" : requestedPreference;
   if (service === "github" && connectionPreference === "automatic") {
     throw createCoreRpcHttpError({
       code: "connector.github_identity_required",
@@ -7635,7 +7639,9 @@ export async function rpcCenterAgentResolveConnectorConnection(
       status: 400,
     });
   }
-  const requesterUserId = normalizeOptionalText(input.requesterUserId);
+  const requesterUserId = personal
+    ? null
+    : normalizeOptionalText(input.requesterUserId);
   if (requesterUserId) {
     await requireConnectorRequesterMembership({
       env,
@@ -13864,7 +13870,7 @@ export async function rpcCenterAgentListSpaceFiles(
     throwInvalidCenterAgentSpaceFilePayload(parsed.error.issues[0]?.message);
   }
   const request = parsed.data;
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+  const authorization = await requireRemoteAgentToolCaller({
     context: request.context,
     env,
   });
@@ -13894,7 +13900,7 @@ export async function rpcCenterAgentReadSpaceFile(
     throwInvalidCenterAgentSpaceFilePayload(parsed.error.issues[0]?.message);
   }
   const request = parsed.data;
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+  const authorization = await requireRemoteAgentToolCaller({
     context: request.context,
     env,
   });
@@ -13962,7 +13968,7 @@ export async function rpcCenterAgentSaveSpaceFile(
     throwInvalidCenterAgentSpaceFilePayload(parsed.error.issues[0]?.message);
   }
   const request = parsed.data;
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+  const authorization = await requireRemoteAgentToolCaller({
     context: request.context,
     env,
   });
@@ -14032,7 +14038,7 @@ export async function rpcCenterAgentManageSpaceFiles(
     throwInvalidCenterAgentSpaceFilePayload(parsed.error.issues[0]?.message);
   }
   const request = parsed.data;
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+  const authorization = await requireRemoteAgentToolCaller({
     context: request.context,
     env,
   });
@@ -14885,27 +14891,29 @@ export async function rpcCenterAgentRecordConnectorActionAudit(
     });
   }
 
-  const { authorization, representedHuman, sourceNativeDeliveryId } =
-    await prepareCenterAgentRepresentedMemberRequest(
-      env,
-      requireRpcContext(input.context),
-      parsed.data.speakerMember,
-      {
-        code: "center_agent.connector_action_speaker_required",
-        reason:
-          "Connector actions require a verified active human Organization member.",
-      }
-    );
+  const { authorization, member } = await prepareRemoteAgentMemberRequest(
+    env,
+    requireRpcContext(input.context),
+    parsed.data.speakerMember
+  );
+  if (!(member.profileId && member.userId)) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.connector_action_speaker_required",
+      reason:
+        "Connector actions require a verified active human Organization member.",
+      status: 403,
+    });
+  }
   const action = resolveCenterAgentConnectorAuditAction(parsed.data.outcome);
   const attribution = await writeCenterAgentAuditEntry({
     action,
     authorization,
-    onBehalfOfProfileId: representedHuman.profileId,
+    onBehalfOfProfileId: member.profileId,
     resource: {
       type: "connector_action",
       id: `${parsed.data.service}:${parsed.data.actionId}:${parsed.data.operationId}`,
     },
-    sourceNativeDeliveryId,
+    sourceNativeDeliveryId: member.sourceNativeDeliveryId,
   });
   return centerAgentRecordConnectorActionAuditResponseSchema.parse({
     attribution,
@@ -14933,7 +14941,7 @@ export async function rpcCenterAgentReadConnectorActionOperation(
     });
   }
 
-  const prepared = await prepareCenterAgentOrganizationMemberRequest(
+  const prepared = await prepareRemoteAgentMemberRequest(
     env,
     requireRpcContext(input.context),
     parsed.data.speakerMember
@@ -14988,7 +14996,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     });
   }
 
-  const prepared = await prepareCenterAgentOrganizationMemberRequest(
+  const prepared = await prepareRemoteAgentMemberRequest(
     env,
     requireRpcContext(input.context),
     parsed.data.speakerMember
@@ -15021,6 +15029,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     if (
       connection.status !== "active" ||
       connection.service !== parsed.data.service ||
+      ("personalExecution" in authorization && connection.scope !== "shared") ||
       (connection.scope === "member" && connection.userId !== member.userId)
     ) {
       throw createCoreRpcHttpError({
@@ -16117,10 +16126,20 @@ export async function rpcCenterAgentUpdateSpaceSettings(
 }
 
 async function requireCenterAgentSpaceInActiveOrganization(input: {
-  authorization: CurrentDesignatedCenterAgentAuthorization;
+  authorization: Awaited<ReturnType<typeof requireRemoteAgentToolCaller>>;
   env: CoreBindings;
   spaceId: string;
 }): Promise<void> {
+  if (
+    "personalExecution" in input.authorization &&
+    input.authorization.personalExecution.delivery.spaceId !== input.spaceId
+  ) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      reason: "This Remote Agent tool can only access its current Space.",
+      code: "remote_agent.space_mismatch",
+    });
+  }
   const spaceTarget = await readSpaceIndexOrganizationJoinTarget({
     db: requireSpaceIndexDb(input.env),
     spaceId: input.spaceId,

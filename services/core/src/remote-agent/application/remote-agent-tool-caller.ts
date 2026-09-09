@@ -50,6 +50,8 @@ export async function requireRemoteAgentToolCaller(input: {
       userId: execution.request.agentProfileOwnerUserId,
     },
     context: execution.context,
+    db: execution.db,
+    actorProfileId: execution.delivery.profileId,
     personalExecution: execution,
   };
 }
