@@ -4120,6 +4120,12 @@ describe("SpaceLanding", () => {
 				if (!Array.isArray(options.queryKey)) {
 					throw new Error("Unexpected non-array query key");
 				}
+				const directoryResult = resolveEmptyOrganizationDirectoryQueryResult(
+					options.queryKey
+				);
+				if (directoryResult) {
+					return directoryResult;
+				}
 				const modelCatalogResult = resolveModelCatalogQueryResult(
 					options.queryKey
 				);
@@ -9837,6 +9843,12 @@ describe("SpaceLanding", () => {
 		useQueryMock.mockImplementation(
 			(options: { queryKey: readonly unknown[] }) => {
 				const queryKey = JSON.stringify(options.queryKey);
+				const directoryResult = resolveEmptyOrganizationDirectoryQueryResult(
+					options.queryKey
+				);
+				if (directoryResult) {
+					return directoryResult;
+				}
 				const modelCatalogResult = resolveModelCatalogQueryResult(
 					options.queryKey
 				);
@@ -18439,6 +18451,21 @@ function createOrganizationDirectoryFixture(input: {
 		],
 		organizationId: "org-acme",
 	};
+}
+
+function resolveEmptyOrganizationDirectoryQueryResult(
+	queryKey: readonly unknown[]
+) {
+	return queryKey[0] === "organizations" && queryKey[2] === "directory"
+		? createQueryResult({
+				isSuccess: true,
+				data: {
+					agentProfiles: [],
+					members: [],
+					organizationId: "org-acme",
+				} satisfies OrganizationSpaceProfileCandidates,
+			})
+		: null;
 }
 
 function resolveModelCatalogQueryResult(queryKey: readonly unknown[]) {
