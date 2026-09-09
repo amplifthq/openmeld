@@ -1868,8 +1868,10 @@ Center execution or guarantee conflict-free multi-agent execution. Personal
 Remote Agents now consume these renderers and expose authorized Board and
 bounded public update tools through the personal Space-tool RPC. Version 4
 submission optionally carries the existing canonical message envelope for Wake
-participant context. Deploy the updated Core and Remote Agent together: older
-strict receivers do not accept the new operations or submission field. No
+participant context. Deploy Remote Agent before Core: older strict receivers
+reject the new submission field. The admitted field's presence enables the new
+read tools; requests admitted by older Core retain the existing tools, so the
+new runtime does not call unsupported Core operations during rollout. No
 workstation protocol, permission, or local-component version changes.
 
 `packages/schemas/src/schemas/http/space-board.ts` owns the strict Space Board

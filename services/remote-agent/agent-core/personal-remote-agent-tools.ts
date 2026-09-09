@@ -9,6 +9,7 @@ import type { RemoteAgentToolDefinition } from "./tool-definition";
 export function getPersonalRemoteAgentTools(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   submissionId: string;
+  sharedSpaceContextEnabled?: boolean;
 }): RemoteAgentToolDefinition[] {
   const execute = async (operation: Record<string, unknown>) => {
     if (!input.coreWorker.personalRemoteAgentSpaceTool) {
@@ -22,7 +23,7 @@ export function getPersonalRemoteAgentTools(input: {
       await input.coreWorker.personalRemoteAgentSpaceTool(request)
     );
   };
-  return [
+  const sharedContextTools: RemoteAgentToolDefinition[] = [
     {
       name: "openmeld_read_space_board",
       description:
@@ -38,6 +39,9 @@ export function getPersonalRemoteAgentTools(input: {
       execute: async (operation) =>
         await execute({ ...operation, kind: "updates" }),
     },
+  ];
+  return [
+    ...(input.sharedSpaceContextEnabled ? sharedContextTools : []),
     {
       name: "openmeld_read_space_messages",
       description:

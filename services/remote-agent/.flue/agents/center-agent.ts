@@ -160,6 +160,8 @@ async function prepareCenterAgentRender() {
       executionContext
         ? await getRemoteAgentFlueTools({
             personalAgent,
+            sharedSpaceContextEnabled:
+              executionContext.sharedSpaceContextEnabled,
             agentActivityReadEnabled:
               env.OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED === "true",
             connectorExecution: {

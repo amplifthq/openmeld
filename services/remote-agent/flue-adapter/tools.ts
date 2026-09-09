@@ -32,6 +32,7 @@ import {
 
 export async function getRemoteAgentFlueTools(input: {
   personalAgent?: boolean;
+  sharedSpaceContextEnabled?: boolean;
   agentActivityReadEnabled?: boolean;
   codeModeRuntime?: RemoteAgentCodeModeRuntime;
   computerFileHandoff?: RemoteAgentComputerFileHandoff;

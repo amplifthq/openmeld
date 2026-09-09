@@ -28,8 +28,9 @@ export function renderPersonalRemoteAgentCollaborationContext(
       }),
       thisSpace: `${space.name} (${space.id}); ${space.kind}`,
       spaceGuide: space.guide,
-      needMore:
-        "Use openmeld_read_space_board for live members, working now, and recent outcomes; openmeld_read_space_messages for earlier conversation text; openmeld_read_space_updates for new public signals after the current Wake or a returned signal ID.",
+      needMore: request.sourceMessageEnvelope
+        ? "Use openmeld_read_space_board for live members, working now, and recent outcomes; openmeld_read_space_messages for earlier conversation text; openmeld_read_space_updates for new public signals after the current Wake or a returned signal ID."
+        : "Use openmeld_read_space_messages for earlier conversation text and openmeld_read_space_members for teammate identities.",
     }),
     ...buildSpaceWakeParticipantLines({
       targetProfileId: request.agentProfileId,
