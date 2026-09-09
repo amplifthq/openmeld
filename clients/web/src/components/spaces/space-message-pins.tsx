@@ -22,6 +22,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useState } from "react";
 import { toast } from "sonner";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import {
+	hasUnseenPinnedFileUpdate,
+	useSeenFileRevision,
+} from "#/lib/spaces/file-update-seen";
 import { MessageActionTooltip } from "./space-message-actions";
 
 type PinsContextValue = {
@@ -33,6 +37,8 @@ type PinsContextValue = {
 };
 const PinsContext = createContext<PinsContextValue | null>(null);
 type FilePinsContextValue = Omit<PinsContextValue, "pins" | "mutate"> & {
+	spaceId: string;
+	organizationSlug: string;
 	pins: SpaceFilePinsResponse["pins"];
 	mutate: (input: SpaceFilePinMutation) => void;
 };
@@ -108,6 +114,8 @@ export function SpaceMessagePinsProvider(input: {
 	return (
 		<FilePinsContext.Provider
 			value={{
+				spaceId: input.spaceId,
+				organizationSlug: input.organizationSlug,
 				pins: fileQuery.data?.pins ?? [],
 				profileId: input.profileId,
 				canPin: input.canPin && !fileQuery.isError && !fileQuery.isPending,
@@ -176,7 +184,12 @@ export function SpacePinnedFileBar(input: {
 					}
 					type="button"
 				>
-					<p className="truncate font-medium text-sm">{pin.file.name}</p>
+					<div className="flex min-w-0 items-center gap-1.5">
+						<span className="min-w-0 truncate font-medium text-sm">
+							{pin.file.name}
+						</span>
+						<PinnedFileUpdateBadge pin={pin} scope={context} />
+					</div>
 					<p className="truncate text-muted-foreground text-xs">
 						Pinned file · {pin.pinnedByName}
 					</p>
@@ -232,6 +245,37 @@ export function SpacePinnedFileBar(input: {
 				) : null}
 			</Surface>
 		</div>
+	);
+}
+
+function PinnedFileUpdateBadge(input: {
+	pin: SpaceFilePinsResponse["pins"][number];
+	scope: Pick<
+		FilePinsContextValue,
+		"profileId" | "organizationSlug" | "spaceId"
+	>;
+}) {
+	const seenRevision = useSeenFileRevision({
+		...input.scope,
+		fileId: input.pin.file.id,
+	});
+	if (
+		!hasUnseenPinnedFileUpdate({
+			pinnedAt: input.pin.pinnedAt,
+			revisionCreatedAt: input.pin.file.latestRevision.createdAt,
+			latestRevision: input.pin.file.latestRevision.revision,
+			seenRevision,
+		})
+	) {
+		return null;
+	}
+	return (
+		<Surface
+			className="shrink-0 px-1.5 py-0.5 font-medium text-[10px] leading-3"
+			data-slot="pinned-file-update-badge"
+		>
+			New updates
+		</Surface>
 	);
 }
 

@@ -18,6 +18,13 @@ identity and latest revision, including renames, rather than copying its content
 Trashed files are omitted. Pinning a message with attachments does not pin those
 files, and unpinning a file never unpins its surrounding message.
 
+When a pinned file receives a newer revision after it was pinned, its title shows
+a compact `New updates` badge until the current reader opens that revision.
+The badge uses a nested Fluid Surface (Surface 2). Read progress is scoped to
+organization, profile, Space, and file in the current browser; it does not sync
+between devices. Opening older history never moves the read revision backwards.
+Failed content loads do not acknowledge a previewable file as read.
+
 Only the original pinner can remove a pin, including through the API. The close
 button means shared unpin, not personal dismissal, and requires no confirmation.
 Pinning an already pinned message does not transfer ownership. Pins whose source
