@@ -1688,6 +1688,13 @@ claim permits RuntimeCoordinator to settle cancellation and project dependent
 task outcomes. An unavailable Space claim leaves durable repair pending; it
 must not become a successful Stop or trigger another Agent execution.
 
+The Stop request waits for its serialized finalization operation, including
+work already ahead of it. The serializer's short observation window is not a
+Stop rejection or evidence that execution state changed. Return the operation's
+actual result; a published stopped notice permits success, while unavailable
+publication keeps the existing retryable failure. The transport request deadline
+still applies and does not imply that cancellation failed or completed.
+
 The internal `rpcApplyRuntimeCoordinatorWakeStopCommand` uses the existing shared
 finalization-command and claim-read schemas. If that RPC is unavailable during
 a Core rollout, Stop returns `retry_later` and preserves the repair command.

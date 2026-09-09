@@ -13494,29 +13494,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
     const acceptedResultStop =
-      await this.runSerializedRuntimeCoordinatorFinalization({
+      await this.runSerializedRuntimeCoordinatorFinalizationToCompletion({
         runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
         run: () =>
           this.stopAcceptedRuntimeCoordinatorResult({ db, input, nowMs }),
-      }).catch(() => null);
-    if (!acceptedResultStop) {
-      return buildWakeStopFailureResponse({
-        reasonCode: "runtime_coordinator.wake_stop_store_unavailable",
-        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
-        status: "retry_later",
-        targetProfileId: input.targetProfileId,
-      });
-    }
-    if (acceptedResultStop.status === "in_flight") {
-      return buildWakeStopFailureResponse({
-        reasonCode: "runtime_coordinator.wake_stop_state_changed",
-        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
-        status: "retry_later",
-        targetProfileId: input.targetProfileId,
-      });
-    }
-    if (acceptedResultStop.value) {
-      return acceptedResultStop.value;
+      }).catch(() =>
+        buildWakeStopFailureResponse({
+          reasonCode: "runtime_coordinator.wake_stop_store_unavailable",
+          runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+          status: "retry_later",
+          targetProfileId: input.targetProfileId,
+        })
+      );
+    if (acceptedResultStop) {
+      return acceptedResultStop;
     }
     const preparedStop =
       await this.prepareRuntimeCoordinatorWakeStopCommandState({
