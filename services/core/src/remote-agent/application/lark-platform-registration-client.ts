@@ -114,8 +114,6 @@ export async function beginLarkPlatformRegistration(input: {
   );
   if (input.appId) {
     registrationUrl.searchParams.set("clientID", input.appId);
-  } else {
-    registrationUrl.searchParams.set("createOnly", "true");
   }
   registrationUrl.searchParams.set("desc", input.appDescription.trim());
   registrationUrl.searchParams.set("from", "sdk");

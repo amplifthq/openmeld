@@ -622,17 +622,19 @@ the connected provider API.
    remain available while worker admission is ambiguous, but a replay that
    resolves to an already accepted delivery removes the newly prepared
    duplicate object.
-   Lark/Feishu use Webhook only after real application-config Patch and receipt
-   plus separate Event Subscription URL and Message Card Request URL
-   verification pass. A persistent WebSocket connector remains an explicit
-   connection-scoped transport option, never an automatic retry or a second
-   simultaneous producer. Provider device-flow expiry ends only credential
-   acquisition: once Core saves the App credentials, it owns a bounded
-   configuration window. A connection that reaches `repair_required` or
-   `revoked` offers an explicit Repair action that reconfigures and re-verifies
-   the same saved App without starting another provider device flow. Feishu
-   remains disabled until a qualified
-   mainland tenant/network gate passes. Slack ingress, Queue, orchestration,
+   New Lark/Feishu connections use the official Personal Agent launcher's
+   persistent WebSocket configuration. Core verifies the Channel permission
+   bundle and bot identity, then completes the current setup claim only after
+   the connection's authenticated socket handshake succeeds. The connector
+   persists complete events before acknowledging them; Queue delivery and
+   Center Agent execution run outside the provider acknowledgement deadline.
+   Existing Webhook connections remain readable and operational until an
+   explicit Repair migrates that same app to persistent events and card
+   callbacks. There is never a second simultaneous ingress producer or an
+   automatic transport fallback. Device-flow expiry ends credential acquisition;
+   saved credentials retain the bounded Core-owned configuration window.
+   A failed or revoked connection offers Repair without creating another app.
+   Slack ingress, Queue, orchestration,
    credential storage, and publication remain unchanged through the first
    Lark/Feishu releases; Slack moves behind the generic seam only in its
    separate parity-gated release.

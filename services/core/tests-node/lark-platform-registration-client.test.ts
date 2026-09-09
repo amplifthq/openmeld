@@ -150,7 +150,7 @@ describe("Lark-platform Personal Agent registration client", () => {
 
     const registrationUrl = new URL(result.registrationUrl);
     expect(registrationUrl.host).toBe("open.feishu.cn");
-    expect(registrationUrl.searchParams.get("createOnly")).toBe("true");
+    expect(registrationUrl.searchParams.has("createOnly")).toBe(false);
     expect(registrationUrl.searchParams.get("from")).toBe("sdk");
     expect(registrationUrl.searchParams.get("source")).toBe(
       "node-sdk/openmeld-core"

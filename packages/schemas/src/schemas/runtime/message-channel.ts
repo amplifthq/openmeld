@@ -239,6 +239,9 @@ export const messageChannelIngressEnvelopeSchema = z
     provider: messageChannelProviderSchema,
     connectionId: providerIdSchema,
     providerEventId: providerIdSchema,
+    // Persistent ingress pins accepted work to its connection incarnation.
+    // Optional for Webhook events already queued before connector rollout.
+    connectionGeneration: z.number().int().positive().optional(),
     receivedAtMs: timestampMsSchema,
     gatewayRequestId: providerIdSchema,
     event: normalizedMessageChannelEventSchema,

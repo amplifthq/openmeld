@@ -8511,7 +8511,13 @@ export async function rpcDisconnectLarkPlatformRegistration(
     allowPersonalWorkspace: true,
   });
   try {
-    await disconnectRemoteAgentLarkPlatformRegistration(request);
+    const disconnected =
+      await disconnectRemoteAgentLarkPlatformRegistration(request);
+    if (disconnected) {
+      await env.OPENMELD_LARK_CHANNEL_CONNECTOR?.getByName(
+        disconnected.id
+      ).disconnect();
+    }
   } catch (error) {
     throwLarkPlatformRegistrationRpcError(error, request.provider);
   }
