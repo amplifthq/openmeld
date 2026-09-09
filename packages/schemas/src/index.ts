@@ -158,6 +158,7 @@ export {
   sidebarSortSchema,
 } from "./schemas/account-sidebar";
 export * from "./schemas/index";
+export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
 export {
   ORGANIZATION_INVITATION_LIFETIME_SECONDS,
   type SpaceInvitation,

@@ -394,6 +394,15 @@ substitute transcript token/cost estimates.
 
 ### Agent Instruction Delivery
 
+For a new Codex Session created by an ordinary Wake, Service derives an optional
+bounded title from the Agent Profile name and the current Wake text, before
+bootstrap instructions are rendered. After Codex accepts the first turn, its
+adapter attempts native naming once on the existing connection without awaiting
+the response, adding an execution-fatal timeout, or delaying connection cleanup.
+Naming failure is diagnostic only. Resumed Sessions and temporary reply-repair
+forks keep their native titles; there is no historical backfill, retry queue, or
+parallel title store. A native title change remains provider-owned Session truth.
+
 Runtime-independent Space identity, task-material trust, and current-Wake
 participant rendering are consumed from `packages/space-mesh`, together with
 its existing Entry Brief and continuity helpers. Local supplies CLI read
@@ -2393,6 +2402,13 @@ keeps ordinary Wake, result replay, setup, status, and diagnostics behavior but
 cannot expose **Continue conversation**. Because older Core uses strict
 Runtime Transport schemas, the cloud receiver must deploy before a Service
 that emits the new capability, heartbeat drain fields, or recovery frames.
+
+The shared Wake workflow may suggest incorporating the requester's clear
+follow-ups to the current task within existing permissions and execution mode.
+This guidance creates no Wake, queue entry, automatic rerun, or guarantee of
+model behavior. A final-action review cannot perform new implementation work;
+its reply should identify unfinished requests without implying that an
+acknowledgement started or queued them.
 
 Every local adapter repair turn must preserve the validated canonical
 conversation identity and the Binding's controller-native permission intent.

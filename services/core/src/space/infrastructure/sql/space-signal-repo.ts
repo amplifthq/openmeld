@@ -560,7 +560,7 @@ export const readAgentReplyObservationState = (
               OR (
                 ? IS NOT NULL
                 AND observed_placement.thread_id = ?
-                AND observed_placement.placement = 'thread'
+                AND observed_placement.placement IN ('root', 'thread')
               )
             )
           LIMIT 1
