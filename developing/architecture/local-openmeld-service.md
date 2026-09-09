@@ -394,6 +394,15 @@ substitute transcript token/cost estimates.
 
 ### Agent Instruction Delivery
 
+For a new Codex Session created by an ordinary Wake, Service derives an optional
+bounded title from the Agent Profile name and the current Wake text, before
+bootstrap instructions are rendered. After Codex accepts the first turn, its
+adapter attempts native naming once on the existing connection without awaiting
+the response, adding an execution-fatal timeout, or delaying connection cleanup.
+Naming failure is diagnostic only. Resumed Sessions and temporary reply-repair
+forks keep their native titles; there is no historical backfill, retry queue, or
+parallel title store. A native title change remains provider-owned Session truth.
+
 Runtime-independent Space identity, task-material trust, and current-Wake
 participant rendering are consumed from `packages/space-mesh`, together with
 its existing Entry Brief and continuity helpers. Local supplies CLI read

@@ -11,6 +11,7 @@ import {
   SPACE_ACTION_CONTEXT_GUIDANCE_LINES,
 } from "@openmeld/local-service";
 import {
+  agentControllerSessionTitleSchema,
   collectCanonicalMentionTextFragments,
   resolveSingleSpaceMentionLabels,
 } from "@openmeld/schemas";
@@ -72,6 +73,7 @@ export const COMPACT_DISPATCH_BOOTSTRAP_TEMPLATE_VERSION =
   ENTRY_BRIEF_TEMPLATE_VERSION;
 const LOCAL_AGENT_INSTRUCTION_CONTRACT_VERSION =
   "openmeld-native-instructions-v1" as const;
+const TRAILING_TITLE_SURROGATE = /\p{Surrogate}$/u;
 
 export type DispatchPromptPlan = {
   developerInstructions: string;
@@ -92,6 +94,38 @@ type DispatchTaskRequiredFields = {
 type DispatchTaskControllerSelection = {
   agentControllerRef: string;
 };
+
+export function buildDispatchSessionTitle(
+  input: Pick<ParsedDispatchTask, "prompt" | "targetProfileName">
+): string | undefined {
+  const clean = (value: string) =>
+    value
+      .slice(0, 256)
+      .replace(/[\p{Cc}\p{Cf}\s]+/gu, " ")
+      .trim();
+  const request = clean(input.prompt);
+  if (!request) {
+    return undefined;
+  }
+  const title = [
+    "OpenMeld",
+    clean(input.targetProfileName ?? "")
+      .slice(0, 40)
+      .replace(TRAILING_TITLE_SURROGATE, ""),
+    request,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const bounded =
+    title.length > 120
+      ? `${title
+          .slice(0, 119)
+          .replace(TRAILING_TITLE_SURROGATE, "")
+          .trimEnd()}…`
+      : title;
+  const parsed = agentControllerSessionTitleSchema.safeParse(bounded);
+  return parsed.success ? parsed.data : undefined;
+}
 
 export function parseDispatchTask(
   input: DispatchTaskParseInput

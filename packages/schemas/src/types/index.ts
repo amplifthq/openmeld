@@ -18,6 +18,7 @@ export type * from "./open-code-permission";
 export type * from "./prepare/index";
 export type * from "./profile-details";
 export type * from "./protocol/index";
+export type { AgentControllerSessionTitle } from "./runtime/agent-controller-session";
 export type * from "./runtime/index";
 export type * from "./space-mesh/index";
 export type * from "./start/index";
