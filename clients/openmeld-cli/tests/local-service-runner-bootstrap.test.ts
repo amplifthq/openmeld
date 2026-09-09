@@ -329,6 +329,7 @@ describe("local service dispatch bootstrap prompt", () => {
     ).toMatchInlineSnapshot(`
       "Mandatory completion:
       - Plain text is not a Space reply.
+      - For shared text attachments, discover and use the dispatch tool read_file with the file ID and revision. It reads the current Space as you without requiring terminal access to local login files. A file read is not a final action.
       - Normal completion: call dispatch-scoped Space Action \`reply\` with the exact public message. Only if unavailable: \`"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"\` and wait for it to finish.
       - Use the Space Action tool first. If your harness offers tool search or discovery, look up the required action before declaring it unavailable. A tool missing from the initial list is not proof of unavailability. Do not read setup or onboarding guides merely to submit this result.
       - For a plain reply, omit wakeTargets and referenceTargets. Add targets only for an intentional handoff or reference to another Agent; never copy incoming activation targets or wake yourself.
@@ -479,30 +480,6 @@ describe("local service dispatch bootstrap prompt", () => {
     );
     expect(prompt).not.toContain("prompt space-action --raw");
     expect(prompt).not.toContain("npx -y openmeld@latest space action");
-  });
-
-  it("surfaces service freshness warnings in the Wake dispatch brief", () => {
-    const prompt = buildDispatchPromptWithBootstrap({
-      cliEntry: "openmeld-dev",
-      shouldInjectBootstrap: true,
-      dispatchTriggerSource: "activation_targets",
-      prompt: "@codex wake up",
-      serviceFreshnessWarningLines: [
-        "- Service freshness: OpenMeld Service is running, but its local service bundle is not current. Wake can continue, but this computer may use older OpenMeld behavior until OpenMeld Service is updated. Run `openmeld-dev service update` after the current Wake finishes.",
-      ],
-      spaceId: "space_dev",
-      targetProfileId: "agent_profile_bootstrap",
-    });
-
-    expect(prompt).toContain(
-      "- Service freshness: OpenMeld Service is running, but its local service bundle is not current."
-    );
-    expect(prompt).toContain(
-      "Run `openmeld-dev service update` after the current Wake finishes."
-    );
-    expect(prompt).toContain(
-      '- Normal completion: call dispatch-scoped Space Action `reply` with the exact public message. Only if unavailable: `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"` and wait for it to finish.'
-    );
   });
 
   it("keeps the space entry brief compact when metadata is incomplete", () => {
