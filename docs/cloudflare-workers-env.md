@@ -155,12 +155,11 @@ Workers, and verifies the public entry points. See
   - `OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED`
   - `OPENMELD_ROUTINE_ENGINE_DEFAULT`
   - `OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS`
-- Local and production set `OPENMELD_LARK_CHANNEL_ENABLED=true` and
-  `OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS=*`, which keeps Lark setup visible and
-  available to every Organization in both product environments. Feishu remains
-  disabled in both environments. A Lark connection is not reported connected
-  until its application configuration, Event Subscription URL, and Message
-  Card Request URL pass the Core-owned connection checks.
+- Local and production enable Lark and Feishu for all Organizations through
+  their existing provider gates. Staging keeps both gates disabled unless its
+  release lane explicitly enables a qualified test Organization. New setup
+  verifies permissions and an authenticated persistent connection rather than
+  public Webhook URLs.
 - Local and production set
   `OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED=true`. Production was
   enabled only after every serving Core version could read the
@@ -196,10 +195,14 @@ Workers, and verifies the public entry points. See
     Organization member
   - `OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE` consumes and
     redrives verified Lark and Feishu event envelopes
-- Live Lark or Feishu app configuration requires `OPENMELD_GATEWAY_URL` to be
-  a public HTTPS Gateway origin. The checked-in local value keeps normal local
-  routing aligned, but a tunnel or shared dev Gateway override is required
-  before a real provider can deliver Webhooks.
+- `OPENMELD_LARK_CHANNEL_CONNECTOR` binds the connection-named
+  `LarkChannelConnector` SQLite Durable Object in Core. Core migration `v5`
+  creates its namespace independently in local, staging, and production.
+  Standard Core config deployment/type generation owns this resource; no
+  external connector service or additional secret sync is needed.
+- New Lark/Feishu setup uses outbound WebSockets and works from localhost
+  without a public tunnel. `OPENMELD_GATEWAY_URL` still owns normal Gateway
+  routing and existing Webhook callback URLs.
 - Scripts
   - `pnpm -C services/core run cf-typegen`
   - `pnpm -C services/core run sync:secrets:prod`
@@ -286,6 +289,7 @@ This matrix records Cloudflare resource ownership. Keep it in sync with
 | Worker vars | `OPENMELD_ROUTINE_ENGINE_DEFAULT`, `OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS` | Core Center Agent Routine engine selection | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | Workflow is the normal default. The global `legacy` value or an Organization override affects only newly claimed Runs; an existing Workflow-owned Run never crosses engines. |
 | Durable Object | `OPENMELD_SPACES` | Core Space domain | `services/core/wrangler.jsonc` | Space truth and message state. |
 | Durable Object | `OPENMELD_RUNTIME_TRANSPORT` | Core runtime transport hub | `services/core/wrangler.jsonc` | Low-latency runtime transport and Wake delivery. |
+| Durable Object | `OPENMELD_LARK_CHANNEL_CONNECTOR` | Core Message Channels | `services/core/wrangler.jsonc` | One persistent Lark/Feishu socket and bounded durable pending-event outbox per connection; migration v5. |
 | Durable Object | `FLUE_CENTER_AGENT_AGENT`, `FLUE_REGISTRY` | Remote Agent Flue runtime | `services/remote-agent/wrangler.jsonc`, `services/remote-agent/worker-configuration.d.ts` | Hosted Center Agent conversation instances and the Flue registry. |
 | Durable Object and Container | `SANDBOX`, `Sandbox` | Remote Agent Cloudflare Sandbox | `services/remote-agent/wrangler.jsonc`, `services/remote-agent/Dockerfile`, `services/remote-agent/worker-configuration.d.ts` | Each admitted submission receives an isolated Cloudflare Sandbox container through Flue's official adapter. The Docker image version must match `@cloudflare/sandbox`; no host or user-workstation mount is configured. |
 | Browser Run | `BROWSER` | Remote Agent rendered web tools | `services/remote-agent/wrangler.jsonc`, `services/remote-agent/worker-configuration.d.ts` | Stateless Quick Actions provide rendered Markdown, links, structured extraction, selector scraping, and screenshots. `remote: true` is required for local Wrangler development. The current runtime has no retained browser session, Live View, or human takeover surface. |

@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-09T09:33:23.939Z",
+  "updatedAt": "2026-09-09T12:32:04.856Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.187",
+      "packageVersion": "0.3.190",
       "updatePolicy": "available",
-      "reason": "Optional Inbox and Remote tool schema additions remain compatible with existing cloud setup, Space and diagnostic contracts."
+      "reason": "Space history retains attachment references and explicit acting identity; existing CLI commands and cloud contracts remain compatible in both directions."
     },
     "service": {
-      "bundleHash": "576814bcc4c6843f203cd03203117f92a669f8a628fab8f7d6df9a38a0c32a6d",
-      "bundleVersion": "0.3.187",
+      "bundleHash": "50a4fd96f83da77c7d973e73474e91f29db4e38cab3efd07116cfbca46c15dee",
+      "bundleVersion": "0.3.190",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "The shared schema build changed; current Services can safely continue accepted and new Wakes without a floor increase."
+      "reason": "Collaboration review and handoff context improve without changing Wake or Space-action contracts; existing Services remain compatible with persistent-channel Core delivery."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",

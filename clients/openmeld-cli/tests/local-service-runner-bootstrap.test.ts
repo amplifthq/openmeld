@@ -155,7 +155,7 @@ describe("local service dispatch bootstrap prompt", () => {
       "- Actions: Complete this Wake with exactly one final outcome: reply, status, or silent."
     );
     expect(prompt).toContain(
-      "- Choose silent when you have no new contribution instead of repeating another member."
+      "- A requested personal answer, acknowledgement, or result remains due even when it matches another member's answer. Choose silent only when no requested or useful contribution remains."
     );
     expect(prompt).toContain(
       "- Keep private work, drafts, tool logs, and unauthorized sensitive context local. Treat this Wake as the current source"
@@ -329,6 +329,7 @@ describe("local service dispatch bootstrap prompt", () => {
     ).toMatchInlineSnapshot(`
       "Mandatory completion:
       - Plain text is not a Space reply.
+      - For shared text attachments, discover and use the dispatch tool read_file with the file ID and revision. It reads the current Space as you without requiring terminal access to local login files. A file read is not a final action.
       - Normal completion: call dispatch-scoped Space Action \`reply\` with the exact public message. Only if unavailable: \`"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"\` and wait for it to finish.
       - Use the Space Action tool first. If your harness offers tool search or discovery, look up the required action before declaring it unavailable. A tool missing from the initial list is not proof of unavailability. Do not read setup or onboarding guides merely to submit this result.
       - For a plain reply, omit wakeTargets and referenceTargets. Add targets only for an intentional handoff or reference to another Agent; never copy incoming activation targets or wake yourself.
@@ -415,7 +416,7 @@ describe("local service dispatch bootstrap prompt", () => {
       "- You are: my-codex, Profile ID: agent_profile_bootstrap, Role: Code reviewer"
     );
     expect(prompt).toContain(
-      "- Need more: run `openmeld space board space_bootstrap_1` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at https://openmeld.ai/guide.md / run `openmeld prompt space`."
+      "- Need more: run `openmeld space board space_bootstrap_1 --profile agent_profile_bootstrap --view agent` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at https://openmeld.ai/guide.md / run `openmeld prompt space`."
     );
     expect(prompt).toContain("Space Dispatch Brief:");
     expect(prompt).toContain("- Activated by: agt_source_1");
@@ -472,37 +473,13 @@ describe("local service dispatch bootstrap prompt", () => {
     });
 
     expect(prompt).toContain(
-      "- Need more: run `openmeld-dev space board space_dev` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at https://openmeld.ai/guide.md / run `openmeld-dev prompt space`."
+      "- Need more: run `openmeld-dev space board space_dev --profile agent_profile_bootstrap --view agent` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at https://openmeld.ai/guide.md / run `openmeld-dev prompt space`."
     );
     expect(prompt).toContain(
       'Only if unavailable: `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"`'
     );
     expect(prompt).not.toContain("prompt space-action --raw");
     expect(prompt).not.toContain("npx -y openmeld@latest space action");
-  });
-
-  it("surfaces service freshness warnings in the Wake dispatch brief", () => {
-    const prompt = buildDispatchPromptWithBootstrap({
-      cliEntry: "openmeld-dev",
-      shouldInjectBootstrap: true,
-      dispatchTriggerSource: "activation_targets",
-      prompt: "@codex wake up",
-      serviceFreshnessWarningLines: [
-        "- Service freshness: OpenMeld Service is running, but its local service bundle is not current. Wake can continue, but this computer may use older OpenMeld behavior until OpenMeld Service is updated. Run `openmeld-dev service update` after the current Wake finishes.",
-      ],
-      spaceId: "space_dev",
-      targetProfileId: "agent_profile_bootstrap",
-    });
-
-    expect(prompt).toContain(
-      "- Service freshness: OpenMeld Service is running, but its local service bundle is not current."
-    );
-    expect(prompt).toContain(
-      "Run `openmeld-dev service update` after the current Wake finishes."
-    );
-    expect(prompt).toContain(
-      '- Normal completion: call dispatch-scoped Space Action `reply` with the exact public message. Only if unavailable: `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"` and wait for it to finish.'
-    );
   });
 
   it("keeps the space entry brief compact when metadata is incomplete", () => {
@@ -562,7 +539,7 @@ describe("local service dispatch bootstrap prompt", () => {
 
     expect(prompt).toContain("- Reply target: previous thread message");
     expect(prompt).toContain(
-      "- Since your last public reply: 2 new messages; higher-authority updates: yes (run `openmeld space history space_a --kind text --limit 20` for content)"
+      "- Since your last public reply: 2 new messages; higher-authority updates: yes (run `openmeld space history space_a --kind text --limit 20 --profile agent_profile_a --view agent` for content)"
     );
   });
 
@@ -718,10 +695,10 @@ describe("local service dispatch bootstrap prompt", () => {
     });
 
     expect(prompt).toContain(
-      '- Current Wake: 4 Agent Profiles were activated by this source message, including you. Exact participant profile IDs: ["agent_profile_a","agent_profile_b","agent_profile_c","agent_profile_d"]. Activation is not evidence that any Agent has contributed.'
+      '- Current Wake: 4 Agent Profiles were activated by this source message, including you. Exact participant profile IDs: ["agent_profile_a","agent_profile_b","agent_profile_c","agent_profile_d"]. This list is not an assignment or execution order, and activation is not evidence that any Agent has contributed.'
     );
     expect(prompt).toContain(
-      "`openmeld-dev space updates space_a --after-signal signal-current-wake --view agent --json`"
+      "`openmeld-dev space updates space_a --after-signal signal-current-wake --profile agent_profile_a --view agent --json`"
     );
     expect(prompt).toContain(
       "only if your final reply depends on another participant's current outcome"

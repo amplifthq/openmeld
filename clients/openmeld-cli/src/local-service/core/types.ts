@@ -272,7 +272,6 @@ export type DispatchPromptBootstrapInput = {
   spaceFiles?: readonly SpaceMessageFileReference[] | null;
   organizationProtectedInformation?: string | null;
   workingLanguage?: WorkingLanguageGuidance | null;
-  serviceFreshnessWarningLines?: string[] | null;
   sendTargetReferenceLines?: string[] | null;
   shouldInjectBootstrap: boolean;
   mentionSourceProfileId?: string | null;

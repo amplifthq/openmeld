@@ -31,7 +31,7 @@ allowBuilds:
 
 catalog:
   '@cloudflare/workers-types': 5.20260708.1
-  wrangler: 4.110.0
+  wrangler: 4.130.0
 
 minimumReleaseAgeExclude:
   - '@cloudflare/workers-types@5.20260708.1'

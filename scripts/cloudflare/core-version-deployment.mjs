@@ -19,6 +19,10 @@ export function buildCoreVersionReleaseStepSpecs(input) {
     throw new Error("Core release requires an exact Cloudflare version ID");
   }
   validateCoreVersionReleaseConfig(input.wranglerConfigSource);
+  // Atomic migration deployment already applied this version and its triggers.
+  if (input.trafficPercent === 100) {
+    return [];
+  }
   const wranglerPrefix = [
     "--dir",
     "services/core",

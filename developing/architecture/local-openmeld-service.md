@@ -427,6 +427,12 @@ context reads or other business tools. When a context read fails before any
 Space Action submission, the Agent should report the blocker through the
 permitted completion action rather than invent results or silently finish.
 Shared text attachments use the dispatch `read_file` tool when available.
+Dispatch MCP tool processes retain the carrier's `OPENMELD_HOME`,
+`OPENMELD_AUTH_URL` and `OPENMELD_GATEWAY_URL` when present, alongside its
+environment preset. The shared adapter configuration forwards these non-secret
+environment selectors so filtered harness environments cannot silently resolve
+a different lane's login state or endpoints. No credentials are embedded in
+instructions or added to the tool environment by this projection.
 Other context-reading commands use the existing dispatch-scoped absolute CLI entry
 from `OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH`, so a provider's login shell
 cannot redirect them to an unrelated installation through PATH. Human-facing
@@ -794,6 +800,13 @@ dispatch process events by PID and spawn timestamp; final errors retain the
 same evidence through the existing safe original-error field. No environment
 values, prompts, credentials, raw stdout, or working-directory paths are logged.
 These observations do not establish why an external process failed to start.
+
+The separate OpenCode discovery/Prepare server probe retains its own bounded
+startup deadline. A timeout includes the child PID, actual elapsed time, output
+byte counts, and host load, plus startup output only when it passes the shared
+bounded original-error safety policy. These are diagnostic facts, not evidence
+of invalid credentials or a started Wake. Provider-status read timeouts remain
+distinct from server-start timeouts.
 
 Controller snapshots are local evidence. They may power Computer cards, CLI
 diagnostics, Desktop surfaces, and owner-self Agent details, but they must stay
@@ -1465,6 +1478,11 @@ Catalog consumption rules:
   unchanged. Clearing, replacing, or editing that payload invalidates the
   in-process copy; a new Service process reloads it from secure storage. Remote
   authorization checks still decide whether the bearer session is valid.
+- Reading a committed local session does not acquire the account-transition
+  mutation lock when no durable transition journal exists. Recovery acquires
+  that lock only after observing a journal and rereads it under ownership before
+  changing anything. Pending candidate visibility, interrupted transition
+  recovery, and mutation serialization remain unchanged.
 - The managed CLI and its Service carrier own that local auth session. Future
   local clients reuse its status and actions through the Service contract; they
   do not read the bearer token through a shared Keychain access group or create
@@ -1711,6 +1729,13 @@ and task requirements. It must not overwrite an individual execution's outcome.
 Service freshness and execution compatibility are separate diagnostic concepts.
 Freshness says whether a newer Service bundle exists. Compatibility says whether
 the current Service is still eligible to receive new Wake work.
+
+An accepted Wake does not inspect Service installation, bundle, supervisor, or
+whole-machine process inventory merely to inject maintenance advice into the
+Agent's prompt. Service update and repair guidance belongs to maintenance and
+the diagnostic/product surfaces. Dispatch preparation retains its owning
+identity, route, workspace, permission, and execution checks; removing advisory
+maintenance work must not bypass those checks or alter reply-context review.
 
 For setup and local component alignment, OpenMeld Service version, bundle, lane, and
 runtime-contract drift should still collapse to one primary user action:
@@ -2226,6 +2251,17 @@ version in addition to the current and rollback versions.
 An installation without independent maintenance must copy and verify its worker
 and establish the OS registration before publishing the initial pending job.
 An existing independent worker stays in place until the target Service is verified.
+
+Package version alone does not prove that the installed OS startup policy is
+current. Service inventory observes the owned macOS scheduling policy, and
+repair/alignment must recognize a same-version mismatch. This is advisory for
+Wake admission. When automatic maintenance finds no package update, a worker
+matching the installed Service version checks this policy and schedules any
+correction through the existing available-update safe switch. It does not
+restart an explicitly stopped Service, apply an older worker's policy to a
+newer Service, or inspect the process inventory on each Wake. The recovery
+carrier replacement ordering above remains unchanged.
+
 When replacing a pending target, every resource referenced by the current
 durable job remains recoverable until the replacement job is atomically
 committed; replacement must not disruptively re-register the already-owned OS

@@ -35,6 +35,11 @@ A Space owns collaboration meaning:
 - where replies and thread messages belong
 - what final outcome the user can see
 
+An explicit request to coordinate with another member assigns work to the
+addressed Agent. Delegating, contacting a teammate, checking progress, and
+collecting results are contributions in their own right; the person performing
+the underlying task does not make the coordinator merely a reference or candidate.
+
 A Space member directory is a read projection of Space participation plus the
 mention and addressing labels needed by clients and dispatch prompts. It helps
 users and agents choose valid send targets; it does not create membership,
@@ -325,6 +330,15 @@ file back action, Space tabs, another file reference, an internal route, reload,
 or window close uses one save, discard, or cancel contract.
 Markdown files use the same WYSIWYG CommonMark + GFM editor as Organization
 Documents; this shared editing surface does not merge the two storage owners.
+HTML files open in a static preview, with source editing available under the
+ordinary text-editing limit. UTF-8 HTML previews are bounded to 2 MiB and support
+inline styles and embedded images. Scripts, external resources, forms, and
+links are disabled. **Open in new tab** opens the same isolated static preview
+of the selected saved revision at a normal Web URL. Every new page load checks
+Space access again; the link does not grant access or publish the file. Unsaved
+source edits can be previewed in Files, but must be saved to appear in a new tab.
+Current and historical revisions use the same preview policy. The original
+bytes remain unchanged and downloadable, including when preview is unavailable.
 CLI and Agent tools expose the same ids, paths, revisions, MIME inference, and
 error codes instead of maintaining a terminal-only filesystem model.
 
@@ -1159,9 +1173,15 @@ Use scoped owner documents for details:
   same Agent conversation decides how to adapt; the sibling does not assign the
   current Agent's work or automatically suppress its reply.
 - Context review has no fixed business-count limit. Every review advances from
-  the latest observed Space cursor and carries only a bounded public delta; it
+  the latest observed Space cursor and carries a bounded public view retaining
+  earlier observed facts across isolated review forks. Omitted messages and
+  truncated excerpts are explicit, with original history available on demand; it
   never replays completed tools, external side effects, or an unbounded room
   transcript.
+- A requested personal answer or acknowledgement remains due even when its
+  content matches another member's answer. Activated participants are not an
+  assigned execution order or evidence of completed work; dependent contributions
+  follow the request's constraints and actual published outcomes.
 - This concurrent-reply guard does not assign subtasks or turn independent
   multi-target Wakes into a hidden delegation. Planned ownership, completion
   barriers, fallback, and parent synthesis use declared Center Agent delegation
