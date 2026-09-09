@@ -147,7 +147,7 @@ describe("Center Agent organization invite-link RPC", () => {
     ).resolves.toEqual({
       active: false,
       generationGuidance: {
-        requiredRole: "owner_or_admin",
+        requiredRole: "member",
         settingsLocation: "Settings → Workspace → General",
         settingsSection: "Invite link",
       },
@@ -169,7 +169,7 @@ describe("Center Agent organization invite-link RPC", () => {
     ).resolves.toEqual({
       active: false,
       generationGuidance: {
-        requiredRole: "owner_or_admin",
+        requiredRole: "member",
         settingsLocation: "Settings → Workspace → General",
         settingsSection: "Invite link",
       },

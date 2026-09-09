@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-09T04:33:07.700Z",
+  "updatedAt": "2026-09-09T08:17:55.555Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.184",
+      "packageVersion": "0.3.186",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands and cloud contracts are unchanged; the bundled OpenCode adapter remains compatible with old and new cloud services."
+      "reason": "CLI commands and shared wire contracts remain compatible; this release preserves original Agent error details and corrects the macOS Service job classification."
     },
     "service": {
-      "bundleHash": "418e109f084425861864b85197f6235c09295036ee10f6f343e6afe6748ccb2e",
-      "bundleVersion": "0.3.184",
+      "bundleHash": "4193e5d636f08c84c01df7292758a6afa2cf819c2950b78ca602b3e078e58772",
+      "bundleVersion": "0.3.186",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Only pre-task OpenCode startup budgets and safe error details change; existing Service instances remain compatible and accepted Wakes keep their current lifecycle."
+      "reason": "Existing cloud clients accept the same lifecycle and bounded originalError fields; older Services remain compatible and retain explicit failure outcomes. No runtime contract or minimum version changes."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",

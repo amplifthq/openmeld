@@ -469,7 +469,7 @@ function createPeopleComputersResponse(): PeopleComputersResponse {
           daemonSessionId: "session_1",
           deviceId: "device_1",
           lane: "dev-local",
-          serviceVersion: "0.3.163",
+          serviceVersion: "999.0.0",
           connectionGeneration: 1,
           lastHeartbeatMs: 1000,
           capabilities: {},

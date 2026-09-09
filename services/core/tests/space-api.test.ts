@@ -10446,29 +10446,43 @@ describe("OpenMeld Core", () => {
     });
     const startedAt = Date.now();
     const name = await runInDurableObject(stub, async (_instance, state) => {
+      const resolveProfile = async () => {
+        if (failure === "stalled") {
+          await new Promise(() => {
+            /* Simulate an Auth RPC that never settles. */
+          });
+        }
+        if (failure === "unavailable") {
+          throw new Error("Auth unavailable");
+        }
+        return {
+          profileId,
+          profileKind: "agent" as const,
+          profileName: "Amplift Center Agent",
+          profileHandle: "amplift-center-agent",
+          ownerUserId: "name-repair-owner",
+          status: "active" as const,
+        };
+      };
       const repairedSpace = new Space(state, {
         ...(env as unknown as CoreBindings),
         OPENMELD_AUTH_WORKER: {
-          resolveProfileById: () => {
-            if (failure === "stalled") {
-              return new Promise(() => {
-                /* Simulate an Auth RPC that never settles. */
-              });
-            }
-            if (failure === "unavailable") {
-              return Promise.reject(new Error("Auth unavailable"));
-            }
-            return Promise.resolve({
+          resolveProfileById: async () => ({
+            ok: true,
+            profile: await resolveProfile(),
+          }),
+          resolveProfilesByIds: async ({
+            profileIds,
+          }: {
+            profileIds: string[];
+          }) => {
+            const profile = await resolveProfile();
+            return {
               ok: true,
-              profile: {
-                profileId,
-                profileKind: "agent",
-                profileName: "Amplift Center Agent",
-                profileHandle: "amplift-center-agent",
-                ownerUserId: "name-repair-owner",
-                status: "active",
-              },
-            });
+              profiles: Object.fromEntries(
+                profileIds.map((id) => [id, id === profileId ? profile : null])
+              ),
+            };
           },
         },
       } as unknown as CoreBindings);
