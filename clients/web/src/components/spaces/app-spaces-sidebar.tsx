@@ -31,6 +31,7 @@ import type {
 	AccountSpaceItem,
 	AccountSpaceSections,
 } from "#/lib/spaces/account-spaces";
+import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import { SidebarDestinationAction } from "../app/sidebar-destination-actions";
@@ -48,7 +49,11 @@ import {
 	type SpaceUnreadById,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
-import { moveSidebarSpace, sortSidebarSpaces } from "./sidebar-space-order";
+import {
+	moveSidebarSpace,
+	resolveSidebarAttentionSpaceIds,
+	sortSidebarSpaces,
+} from "./sidebar-space-order";
 import { SortableSpaceSidebarItem } from "./sortable-space-sidebar-item";
 import type { SpaceSidebarActiveWakeSummary } from "./space-active-wake-presentation";
 import {
@@ -129,6 +134,9 @@ export function AppSpacesSidebar(input: {
 		})
 	);
 	const sections = spacesQuery.data ?? EMPTY_ACCOUNT_SPACE_SECTIONS;
+	const inboxSummary = useQuery(
+		spaceInboxSummaryQueryOptions({ organizationId: currentOrganizationId })
+	);
 	const {
 		activeWakeSummaryBySpaceId,
 		unreadBySpaceId,
@@ -307,15 +315,9 @@ export function AppSpacesSidebar(input: {
 		/>
 	);
 	const sidebarGroups: AppContextualNavGroup[] = [];
-	const attention = new Set(
-		[...activeWakeSummaryBySpaceId]
-			.filter(([, summary]) =>
-				summary.statuses?.some(
-					(status) =>
-						status.kind === "needs_input" || status.kind === "waiting_for_owner"
-				)
-			)
-			.map(([id]) => id)
+	const attention = resolveSidebarAttentionSpaceIds(
+		activeWakeSummaryBySpaceId,
+		inboxSummary.data?.attention
 	);
 	const unreadActivity = new Map(
 		[...unreadBySpaceId]

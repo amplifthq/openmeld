@@ -1,4 +1,7 @@
-import type { InboxSummaryResponse } from "@openmeld/schemas/types";
+import type {
+  InboxSummaryResponse,
+  ListInboxItemsResponse,
+} from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 
@@ -614,11 +617,13 @@ function makeEnv() {
       ],
       totalUnreadCount: 1,
     })),
-    listInboxItems: vi.fn(async () => ({
-      items: [ITEM, MESSAGE_CHANNEL_ITEM],
-      nextCursor: "next-page" as string | null,
-      organizationId: "org-1",
-    })),
+    listInboxItems: vi.fn(
+      async (): Promise<ListInboxItemsResponse> => ({
+        items: [ITEM, MESSAGE_CHANNEL_ITEM],
+        nextCursor: "next-page" as string | null,
+        organizationId: "org-1",
+      })
+    ),
     markAllInboxItemsRead: vi.fn(async () => ({ markedReadCount: 1 })),
     markCenterAgentInboxReadThrough: vi.fn(async () => ({
       markedReadCount: 1,

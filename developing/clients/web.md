@@ -514,16 +514,22 @@ Ordinary private conversations use `/chats/{spaceId}`. The old
 `/direct-messages` routes only redirect and preserve supported search fields.
 Team's Center Agent entry opens the canonical Center Agent chat.
 
-The shared Chats sidebar exposes Agents and People groups and filters. Agents
-comes first by default; dragging the category headings changes the order,
-saved in this browser per Organization and Human Profile. Center Agent sessions
-and local Agent conversations share Agents. Center Agent rows reuse the designated
-profile avatar; their conversation header adds a cloud-icon Center Agent badge
-after live status. Existing Center Agent
-session preferences and ordinary private-conversation preferences keep their
-existing owners and persisted groups, pinning, and sorting; this navigation
-change does not rewrite account preferences or introduce execution policy.
-Center Agent sessions are excluded from the ordinary conversation list.
+The shared Chats sidebar merges People, Local, Remote, and Center Agent
+conversations by Space identity before grouping and sorting. All chats appear
+together by default; People and Agents are optional filters. Priority is the
+default and uses the same attention, unread, working, and message-activity
+ordering as Spaces. Recent activity uses the last real message, not creation
+time or a separately sorted runtime family. Pinned and manual order remain
+explicit user choices. Existing `messages` and `chats` preferences are merged
+without losing pinned items, custom groups, titles, or archived conversations;
+the next write stores the unified `chats` preferences and retires `messages`.
+Ordinary DM pin membership remains Space Index-owned and uses the same pin
+mutation as Spaces; session pins and sidebar order remain account preferences.
+Center Agent rows reuse the designated profile avatar. Core's complete Inbox
+summary owns Chat unread and attention facts. Normal unread is blue, urgent
+updates are yellow, and open action requests are red with precedence over yellow.
+Reading clears unread updates, not unresolved requests. Counts never sum a loaded
+page. Notification targets preserve the exact conversation, message, and thread.
 New chat uses the existing participant picker. Choosing Center Agent opens a
 local draft; first send continues to own session creation. Its group actions,
 archive filter, title editing, previews, and drag ordering remain available.

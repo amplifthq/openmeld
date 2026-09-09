@@ -83,6 +83,9 @@ export function readInboxBrowserNotificationPromptDismissed(input: {
 	if (typeof window === "undefined") {
 		return false;
 	}
+	if (readInboxBrowserPreference(input) !== null) {
+		return true;
+	}
 	try {
 		return (
 			window.localStorage.getItem(
@@ -169,7 +172,12 @@ export function isInboxBrowserNotificationEligible(item: InboxItem): boolean {
 	) {
 		return true;
 	}
-	return isDirectlyAddressedInboxUpdate(item.kind);
+	return (
+		isDirectlyAddressedInboxUpdate(item.kind) ||
+		(item.kind === "space_message" &&
+			item.sourceTarget.kind === "space" &&
+			item.sourceTarget.directMessage === true)
+	);
 }
 
 /** Updates addressed to the member, including mentions, replies and Wake outcomes. */

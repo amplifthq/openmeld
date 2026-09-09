@@ -459,8 +459,14 @@ Inbox summary version `1` adds `unreadUrgentUpdateCount`, disjoint from
 `unresolvedActionCount`. Core derives both from the same recipient/access-filtered
 query; clients never count a list page to reconstruct them. The additive field
 is optional only for receiver-first interoperability: absent means unknown.
-Current API clients send `x-openmeld-inbox-summary-version: 1`; Gateway removes
-the new field for older strict clients, including already-open Web tabs.
+Current API clients send `x-openmeld-inbox-summary-version: 2`; Gateway keeps
+the urgent summary field for versions `1` and `2` and removes it for older strict clients,
+including already-open Web tabs. Version `2` also exposes `chatUnreadCount`,
+`chatUnresolvedActionCount`, `chatUnreadUrgentUpdateCount`, and grouped `attention`
+on Space summaries. These are recipient/access-filtered Core aggregates across
+all current DMs; the three totals do not inherit the unread grouped-row limit.
+Missing fields mean unknown, not zero. Gateway strips the four additions for
+older summary clients. The UI waits for known values without a Checking badge.
 Deploy compatible Gateway first, Core second, and Web last. New Gateway accepts
 old Core output; new Web reports unknown if the field is absent. The new
 `urgent_updates` and `recent_updates` preview list views are available only after Core and Gateway support them;
@@ -511,14 +517,24 @@ Interaction writers, adds all three scopes automatically, and rejects an
 explicit scope that omits any one of them. New receivers continue to accept
 every older target before the writer changes; after Core changes, every deployed
 strict receiver accepts both old and new rows. An already-loaded Web tab is a
-separate mixed-version reader: source-target version `4` receives the complete
-current target, version `3` receives Agent Interaction targets without the
+separate mixed-version reader: source-target version `5` receives the complete
+current target, including the optional `directMessage` flag on Space targets.
+Version `4` keeps thread locators but omits that flag; version `3` receives Agent Interaction targets without the
 thread locator, and missing or older versions retain the legacy projection.
 That legacy projection maps unsupported `message_channel` and Agent Profile
 creation targets to `{ kind: "center_agent" }`. Gateway applies the projection
 after validating Core's current response for list, direct-item, and read-mutation
 operations. The projection never rewrites the durable row or weakens the
 canonical schema.
+
+The DM target flag is emitted only from the Space-owned current DM classification
+(purpose, conversion state, and active member count), never from message wording.
+Its rollout follows Web, Gateway, Core. Old CLI, Service, and Skills continue
+through Gateway's version projection; setup, Wake, Space actions, runtime transport,
+status, and diagnostics contracts are unchanged. No local-component release or
+required-version floor change is needed. Retain compatible Core and Gateway
+readers while durable rows contain the additive flag; do not roll them back to
+strict readers that cannot parse those rows.
 
 The Human Mention Inbox kind follows the same receiver-first rule without
 reusing source-target versioning. The additive Database migration accepts both

@@ -73,9 +73,11 @@ export function AppShell(input: {
 							organizations={input.organizationScope.organizations}
 							storageScope={input.storageScope}
 						>
-							<InboxBrowserNotificationPrompt
-								userId={input.organizationScope.currentUserId}
-							/>
+							{currentSection === "space" && activeSpaceId ? (
+								<InboxBrowserNotificationPrompt
+									userId={input.organizationScope.currentUserId}
+								/>
+							) : null}
 							<AppShellScaffold currentSection={currentSection} />
 						</OnboardingEntryGate>
 					</InboxVisibleConversationProvider>

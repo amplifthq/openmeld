@@ -111,6 +111,38 @@ describe("Inbox browser notifications", () => {
 		expect(window.localStorage.getItem(PREFERENCE_KEY)).toBeNull();
 	});
 
+	it("does not introduce notifications after an explicit off choice", () => {
+		disableInboxBrowserNotifications({ userId: USER_ID });
+		expect(
+			readInboxBrowserNotificationPromptDismissed({ userId: USER_ID })
+		).toBe(true);
+	});
+
+	it("notifies ordinary direct messages without promoting group messages", () => {
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					attention: "update",
+					importance: "normal",
+					resolutionStatus: "not_applicable",
+					kind: "space_message",
+					sourceTarget: { kind: "space", spaceId: "dm", directMessage: true },
+				})
+			)
+		).toBe(true);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					attention: "update",
+					importance: "normal",
+					resolutionStatus: "not_applicable",
+					kind: "space_message",
+					sourceTarget: { kind: "space", spaceId: "group" },
+				})
+			)
+		).toBe(false);
+	});
+
 	it("remembers when this browser's notification introduction is dismissed", () => {
 		expect(
 			readInboxBrowserNotificationPromptDismissed({ userId: USER_ID })
