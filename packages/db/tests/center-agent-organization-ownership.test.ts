@@ -8,12 +8,19 @@ const migrations = fs
   .sort();
 function migrate(db: DatabaseSync, names: string[]) {
   for (const name of names) {
-    for (const statement of fs
-      .readFileSync(new URL(`../drizzle/${name}`, import.meta.url), "utf8")
-      .split("--> statement-breakpoint")) {
-      if (statement.trim()) {
-        db.exec(statement);
+    db.exec("BEGIN");
+    try {
+      for (const statement of fs
+        .readFileSync(new URL(`../drizzle/${name}`, import.meta.url), "utf8")
+        .split("--> statement-breakpoint")) {
+        if (statement.trim()) {
+          db.exec(statement);
+        }
       }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
     }
   }
 }
@@ -22,6 +29,7 @@ describe("Center Agent Organization ownership migration", () => {
   it("preserves identity, bindings, preferences and designation when the creator is deleted", () => {
     const db = new DatabaseSync(":memory:");
     try {
+      db.exec("PRAGMA foreign_keys = ON");
       migrate(
         db,
         migrations.filter((name) => name < "0162_")
@@ -38,13 +46,49 @@ describe("Center Agent Organization ownership migration", () => {
         VALUES ('22222222-2222-4222-8222-222222222222', 'localhost', 'private-space', 1000, 1000, 1000, 1000);
         INSERT INTO openMeldDaemon_agent_profile_bindings (binding_id, owner_kind, owner_id, agent_profile_id, openmeld_service_runtime_id, runtime_kind, hosted_runtime_identity_json, agent_controller_ref, binding_state, created_at_ms, updated_at_ms)
         VALUES ('binding-stable', 'owner_account', 'creator', 'agt_11111111-1111-4111-8111-111111111111', 'hosted', 'hosted_center_agent', '{"kind":"hosted_center_agent"}', 'hosted:center-agent', 'enabled_primary', 1000, 1000);
+        INSERT INTO center_agent_audit_journal (id, organization_id, actor_profile_id, action, created_at)
+        VALUES ('audit-stable', 'org', 'agt_11111111-1111-4111-8111-111111111111', 'read_context', 1000);
+        INSERT INTO center_agent_context_manifests (id, organization_id, requested_by_profile_id, actor_profile_id, conversation_space_id, client_name, view, schema_version, requested_token_budget, estimated_token_count, included_message_count, truncated, truncation_reasons_json, source_refs_json, audit_entry_id, created_at)
+        VALUES ('manifest-stable', 'org', '22222222-2222-4222-8222-222222222222', 'agt_11111111-1111-4111-8111-111111111111', 'private-space', 'test-client', 'messages', 'center_agent_context_manifest.v1', 256, 0, 0, 0, '[]', '[]', 'audit-stable', 1000);
+        INSERT INTO openMeldRemoteAgent_conversation_generations (organization_id, logical_conversation_id, active_generation, started_at_ms, rollover_delivery_id, created_at_ms, updated_at_ms)
+        VALUES ('org', 'conversation-stable', 2, 1000, 'delivery-stable', 1000, 1000);
       `);
-      db.exec("BEGIN");
       migrate(
         db,
         migrations.filter((name) => name >= "0162_")
       );
-      db.exec("COMMIT");
+      expect(
+        db
+          .prepare(
+            "SELECT id, audit_entry_id, conversation_space_id FROM center_agent_context_manifests"
+          )
+          .get()
+      ).toEqual({
+        id: "manifest-stable",
+        audit_entry_id: "audit-stable",
+        conversation_space_id: "private-space",
+      });
+      expect(
+        db
+          .prepare(
+            "SELECT id, actor_profile_id FROM center_agent_audit_journal"
+          )
+          .get()
+      ).toEqual({
+        id: "audit-stable",
+        actor_profile_id: "agt_11111111-1111-4111-8111-111111111111",
+      });
+      expect(
+        db
+          .prepare(
+            "SELECT logical_conversation_id, active_generation, rollover_delivery_id FROM openMeldRemoteAgent_conversation_generations"
+          )
+          .get()
+      ).toEqual({
+        logical_conversation_id: "conversation-stable",
+        active_generation: 2,
+        rollover_delivery_id: "delivery-stable",
+      });
       expect(
         db
           .prepare(

@@ -3301,6 +3301,19 @@ describe("organization Core RPC", () => {
       changed: true,
       operatingState: "active",
     });
+    await expect(
+      rpcCenterAgentCreateSpace(env, {
+        context: buildCenterAgentContext({
+          activeOrganizationId: "org-a",
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          profileName: "Codex",
+          userId: "user-a",
+        }),
+        name: "After resume",
+        visibility: "private",
+      })
+    ).resolves.toMatchObject({ organizationId: "org-a" });
   });
 
   it.each([

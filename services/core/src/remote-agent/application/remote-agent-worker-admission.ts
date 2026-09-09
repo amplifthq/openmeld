@@ -421,8 +421,7 @@ async function requestCancellationWhenPausedAfterAdmission(input: {
   ) {
     return null;
   }
-  const cancelExecution = input.worker.cancelExecution?.bind(input.worker);
-  if (!cancelExecution) {
+  if (!input.worker.cancelExecution) {
     return {
       error: new Error(
         "remote_agent.center_agent_pause_cancellation_receiver_unavailable"
@@ -432,7 +431,7 @@ async function requestCancellationWhenPausedAfterAdmission(input: {
   }
   try {
     const cancellation = remoteAgentWorkerCancellationResponseSchema.parse(
-      await cancelExecution({
+      await input.worker.cancelExecution({
         ...(resolveRemoteAgentRuntimeConversationId(input.request)
           ? {
               conversationId: resolveRemoteAgentRuntimeConversationId(

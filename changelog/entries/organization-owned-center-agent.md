@@ -11,6 +11,9 @@ Current organization owners and admins can manage, pause, and resume them.
 Removing the person who originally created the agent preserves its identity
 and conversations.
 
+Pausing a Center Agent now correctly stops its running tasks. Resuming it allows
+new work without restarting cancelled tasks.
+
 A Center Agent's Space membership no longer gives its original creator access
 to a private Space. Members keep their own conversations and Space permissions.
 
