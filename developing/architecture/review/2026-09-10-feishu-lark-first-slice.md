@@ -49,10 +49,14 @@ in their later roadmap steps.
 Focused Core tests cover receipt ordering, accepted replay, preparation failure
 recovery scheduling, terminal publication, rollover, provider errors and CardKit
 payloads. Core and Remote Agent typechecks and the existing prompt suite pass.
-No localhost, staging, production or competitor browser smoke has been performed
-for this change. The user requested one confirmation before localhost smoke.
+Localhost Feishu acceptance passed on `2af8d033c`: a fresh bot was created using
+the Codex Chrome extension and connected through Web. Two real native-client
+messages showed a receipt followed by a completed card, including a precise reply
+and a formatted heading/list. Screenshots are retained in the task's local smoke
+artifacts. This is not Lark, failure/stop, latency-SLO, or production acceptance.
+The user accepted this first slice and authorized subsequent draft-PR work.
 
-Once authorized, use the supported local entry point with an isolated lane:
+Remaining acceptance uses the supported local entry point with an isolated lane:
 
 1. Feishu and Lark separately: DM and addressed group/thread receipt and final placement.
 2. A self-contained exact reply and an explicit no-tools/no-delegation request.

@@ -10,6 +10,7 @@ import type {
   ChannelContextMessage,
   NormalizedMessageChannelEvent,
 } from "@openmeld/schemas/types";
+import { readLarkPlatformPostContent } from "./lark-platform-post-content";
 import type {
   LarkPlatformMessageChannelProvider,
   MessageChannelCardCreationResult,
@@ -1431,18 +1432,18 @@ function normalizeHistoricalMessage(
   const sentAtMs = readNonnegativeInteger(item, "create_time");
   const body = readObject(item, "body");
   const content = parseJsonObject(readString(body, "content"));
-  const rawText =
-    readString(item, "msg_type") === "text"
-      ? readString(content, "text")
-      : null;
+  let rawText: string | null | undefined = null;
+  if (readString(item, "msg_type") === "text") {
+    rawText = readString(content, "text");
+  } else if (readString(item, "msg_type") === "post") {
+    rawText = readLarkPlatformPostContent(content)?.text;
+  }
   if (!(id && sentAtMs !== null && rawText)) {
     return null;
   }
   const sender = readObject(item, "sender");
   const senderType = readString(sender, "sender_type");
-  const text = replaceMentionKeys(rawText, readArray(item, "mentions"))
-    .replace(/\s+/gu, " ")
-    .trim();
+  const text = replaceMentionKeys(rawText, readArray(item, "mentions")).trim();
   if (!text) {
     return null;
   }

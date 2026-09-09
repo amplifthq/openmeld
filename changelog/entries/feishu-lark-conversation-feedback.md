@@ -12,3 +12,6 @@ and identify when a long response continues in another card.
 
 The Center Agent's instructions also clarify that a self-contained answer should
 stay in the current conversation, respecting requests to avoid tools or delegation.
+
+The Center Agent can read rich-text messages with titles, links, code blocks and
+embedded images, and retain rich-text content when reading conversation history.
