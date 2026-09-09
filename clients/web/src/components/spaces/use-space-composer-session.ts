@@ -44,9 +44,10 @@ export function useSpaceComposerSession(input: {
 		return true;
 	}, [clearFeedback]);
 	const finishSend = useCallback(() => {
+		files.finishSubmission();
 		sendInFlightRef.current = false;
 		setIsSending(false);
-	}, []);
+	}, [files.finishSubmission]);
 
 	return {
 		authoring,
@@ -59,6 +60,12 @@ export function useSpaceComposerSession(input: {
 			setErrorMessage,
 		},
 		onEditorChange,
+		recordPendingSubmission: (includeFiles = true) => {
+			authoring.recordPendingSubmission();
+			if (includeFiles) {
+				files.beginSubmission();
+			}
+		},
 		send: {
 			begin: beginSend,
 			finish: finishSend,

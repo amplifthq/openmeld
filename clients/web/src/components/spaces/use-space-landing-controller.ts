@@ -618,11 +618,8 @@ function restoreFailedPendingSubmission(input: {
 
 function settleSpaceComposerSendFailure(input: {
 	onRejected: () => void;
-	clearFiles: () => void;
 	clientMessageId: string;
 	consumePublishedFiles: (publishedLocalIds: readonly string[]) => void;
-	hasPublishedFiles: boolean;
-	isPendingMessage: boolean;
 	mentionAuthoring: SpaceMentionAuthoringController;
 	outcomeUnknown: boolean;
 	pendingSubmission: PendingComposerSubmission | null;
@@ -654,12 +651,7 @@ function settleSpaceComposerSendFailure(input: {
 		input.setPendingSignals,
 		input.clientMessageId
 	);
-	if (input.hasPublishedFiles) {
-		clearManualComposerFiles({
-			clearFiles: input.clearFiles,
-			isPendingMessage: input.isPendingMessage,
-		});
-	}
+	input.consumePublishedFiles(input.publishedLocalIds);
 }
 
 function createSpaceMessageSendSeed(input: {
@@ -739,15 +731,6 @@ function resolveThreadComposerBlockedReason(input: {
 		return "Enter a reply or add a file before sending.";
 	}
 	return null;
-}
-
-function clearManualComposerFiles(input: {
-	clearFiles: () => void;
-	isPendingMessage: boolean;
-}): void {
-	if (!input.isPendingMessage) {
-		input.clearFiles();
-	}
 }
 
 function hasNoPublishedComposerContent(input: {
@@ -2486,7 +2469,6 @@ export function useSpaceLandingController(input: {
 		composerSession.send.begin();
 
 		let postedMessage = false;
-		let hasPublishedFiles = false;
 		let publishedLocalIds: readonly string[] = [];
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		try {
@@ -2499,7 +2481,7 @@ export function useSpaceLandingController(input: {
 				pendingMessage: options?.pendingMessage,
 			});
 			pendingSubmission = preparedSubmission;
-			mentionAuthoring.recordPendingSubmission();
+			composerSession.recordPendingSubmission(!isTextOnlyPendingMessage);
 			// Local feedback precedes every network admission or publication step.
 			stagePreparedSpaceMessage({
 				composerFiles: options?.pendingMessage
@@ -2531,7 +2513,6 @@ export function useSpaceLandingController(input: {
 			const publishedFiles = await publishComposerFilesForSend(
 				isTextOnlyPendingMessage
 			);
-			hasPublishedFiles = publishedFiles.messageFiles.length > 0;
 			publishedLocalIds = publishedFiles.publishedLocalIds;
 			if (
 				hasNoPublishedComposerContent({
@@ -2553,10 +2534,7 @@ export function useSpaceLandingController(input: {
 			});
 			postedMessage = true;
 			mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
-			clearManualComposerFiles({
-				clearFiles: composerFilesController.clearFiles,
-				isPendingMessage: isTextOnlyPendingMessage,
-			});
+			composerFilesController.consumePublishedFiles(publishedLocalIds);
 			setComposerBlockedWakeProfileId(null);
 			Promise.all([membersQuery.refetch(), statusQuery.refetch()]).catch(
 				(error) => {
@@ -2573,11 +2551,8 @@ export function useSpaceLandingController(input: {
 			settleSpaceComposerSendFailure({
 				onRejected: () =>
 					removeRejectedWakeProgress(messageSeed.clientMessageId),
-				clearFiles: composerFilesController.clearFiles,
 				clientMessageId: messageSeed.clientMessageId,
 				consumePublishedFiles: composerFilesController.consumePublishedFiles,
-				hasPublishedFiles,
-				isPendingMessage: isTextOnlyPendingMessage,
 				mentionAuthoring,
 				outcomeUnknown: sendError.outcomeUnknown,
 				pendingSubmission,
@@ -3496,7 +3471,7 @@ function useSpaceThreadController(input: {
 						)
 					: mentionAuthoring.prepareFileOnlySubmission();
 			pendingSubmission = preparedSubmission;
-			mentionAuthoring.recordPendingSubmission();
+			composerSession.recordPendingSubmission();
 			await sendPreparedThreadMessage({
 				composerFiles: composerFilesController.files,
 				prepareFiles: async () => {
@@ -3515,7 +3490,7 @@ function useSpaceThreadController(input: {
 				},
 				onPosted: () => {
 					mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
-					composerFilesController.clearFiles();
+					composerFilesController.consumePublishedFiles(publishedLocalIds);
 					setComposerBlockedWakeProfileId(null);
 				},
 				preparedSubmission,
@@ -3584,7 +3559,9 @@ function useSpaceThreadController(input: {
 					setPendingOutgoingSignals,
 					sendError.clientMessageId
 				);
-				composerFilesController.clearFiles();
+				composerFilesController.consumePublishedFiles(
+					failureInput.publishedLocalIds
+				);
 			}
 		}
 		reportComposerSendFailure({
