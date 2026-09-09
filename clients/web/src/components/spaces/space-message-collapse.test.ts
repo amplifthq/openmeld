@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { collapseSpaceMessage } from "./space-message-collapse";
 
 describe("long message previews", () => {
-	const introduction = `${"A complete sentence. ".repeat(180)}\n\n`;
+	const introduction = `${"A complete sentence. ".repeat(90)}\n\n`;
+	it("starts folding after 2,000 characters", () => {
+		const paragraph = "字".repeat(2000);
+		expect(collapseSpaceMessage(`${paragraph}\n\nMore to read`, false)).toBe(
+			paragraph
+		);
+		expect(collapseSpaceMessage(paragraph, false)).toBe(paragraph);
+	});
 	it("finishes the word and paragraph at the fold in Human messages", () => {
 		const paragraph = `${"A sentence. ".repeat(333)}Tomorrow`;
 		expect(

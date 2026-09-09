@@ -415,7 +415,9 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    semantics.
    Long message previews share one folding policy across Spaces, Chats, and
    threads: finish the paragraph or Markdown block crossing the soft character
-   limit, then offer **Show more**. Expansion displays the original message;
+   limit of 2,000 characters, then offer **Show more**. Folded text shares the
+   Scroll Area's bottom edge fade; the button stays outside the mask. Expansion
+   removes the fade and displays the original message;
    local folding never cuts words, lists, tables, or code blocks. Server-side
    truncation remains a separate, explicit condition.
 4. **People** — the first-level home for the Human teammates in the current

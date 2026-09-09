@@ -402,40 +402,45 @@
   }
 }
 
-/* Base UI owns edge measurements, including streamed content and resize. */
+/* Folded content and scrollable content share the same edge fade. */
+.fluid-fade-bottom,
 .fluid-scroll-viewport[data-fade] {
-  --scroll-fade-top: 0px;
-  --scroll-fade-bottom: 0px;
-  --scroll-fade-left: 0px;
-  --scroll-fade-right: 0px;
+  --fluid-fade-top: 0px;
+  --fluid-fade-bottom: 0px;
+  --fluid-fade-left: 0px;
+  --fluid-fade-right: 0px;
   mask-image:
     linear-gradient(
       to bottom,
       transparent,
-      black var(--scroll-fade-top),
-      black calc(100% - var(--scroll-fade-bottom)),
+      black var(--fluid-fade-top),
+      black calc(100% - var(--fluid-fade-bottom)),
       transparent
     ),
     linear-gradient(
       to right,
       transparent,
-      black var(--scroll-fade-left),
-      black calc(100% - var(--scroll-fade-right)),
+      black var(--fluid-fade-left),
+      black calc(100% - var(--fluid-fade-right)),
       transparent
     );
   mask-composite: intersect;
 }
+.fluid-fade-bottom {
+  --fluid-fade-bottom: 24px;
+}
+/* Base UI owns scroll edge measurements, including streamed content and resize. */
 .fluid-scroll-viewport[data-fade][data-overflow-y-start] {
-  --scroll-fade-top: 12px;
+  --fluid-fade-top: 12px;
 }
 .fluid-scroll-viewport[data-fade][data-overflow-y-end] {
-  --scroll-fade-bottom: 12px;
+  --fluid-fade-bottom: 12px;
 }
 .fluid-scroll-viewport[data-fade][data-overflow-x-start] {
-  --scroll-fade-left: 12px;
+  --fluid-fade-left: 12px;
 }
 .fluid-scroll-viewport[data-fade][data-overflow-x-end] {
-  --scroll-fade-right: 12px;
+  --fluid-fade-right: 12px;
 }
 @media (pointer: coarse) {
   .fluid-scroll-viewport {

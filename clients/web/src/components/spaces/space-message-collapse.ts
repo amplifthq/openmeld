@@ -1,6 +1,6 @@
 import { parseMarkdownIntoBlocks } from "streamdown";
 
-export const SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS = 4000;
+export const SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS = 2000;
 const REFERENCE_DEFINITION = /^ {0,3}\[[^\]\n]+\]:/;
 const PARAGRAPH_BOUNDARY = /(?<=\n\n)/;
 

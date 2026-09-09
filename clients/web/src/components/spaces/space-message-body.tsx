@@ -205,6 +205,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 	const references = useSpaceMessageReferencePresentation(input);
 	const className = cn(
 		"break-words content-space-message [overflow-wrap:anywhere]",
+		text.shouldCollapse && !text.isExpanded && "fluid-fade-bottom",
 		input.className
 	);
 	const shouldRenderMarkdown =
@@ -299,6 +300,11 @@ function SpaceMessageBodyContent(input: {
 			style={{ overflowWrap: "anywhere" }}
 		>
 			{input.body}
+			<SpaceMessageCollapseButton
+				isExpanded={input.isExpanded}
+				onToggle={input.onToggleExpanded}
+				visible={input.shouldCollapse}
+			/>
 			{input.navigationActionContent}
 
 			<SpaceMessageAttachmentGrid
@@ -311,11 +317,6 @@ function SpaceMessageBodyContent(input: {
 				files={input.files}
 				onOpenSpaceFile={input.onOpenSpaceFile}
 				spaceId={input.spaceId}
-			/>
-			<SpaceMessageCollapseButton
-				isExpanded={input.isExpanded}
-				onToggle={input.onToggleExpanded}
-				visible={input.shouldCollapse}
 			/>
 			<SpaceMessageServerTruncatedNote visible={input.serverTruncated} />
 		</div>
