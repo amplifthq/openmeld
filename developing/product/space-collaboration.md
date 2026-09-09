@@ -62,6 +62,43 @@ semantics for listing, addressing, Wake, removal, and degraded Direct Message
 behavior. This does not create another Space kind or apply the locked Center
 Agent Direct Message mutation rules to an ordinary Space.
 
+## Editing and Recalling Messages
+
+An active Human member can edit or recall their own sent messages, without a
+time limit. This does not grant permission to change another Human's messages,
+Agent replies, or system notices.
+
+Editing replaces the message in its original position, preserving its identity,
+timestamp, reply links, and thread. Show `(edited)` only when content changes.
+The editor lives directly in the existing bubble and preserves the bottom
+composer draft. Existing message attachments can be kept or removed. Removing
+all text while keeping attachments remains a valid message; removing all
+content asks for recall confirmation.
+
+Recall replaces the original row with a small system-style notice naming the
+sender. Original text and attachments are absent from the public message and
+quoted previews, while existing threads remain accessible. Recall is not file
+deletion: independently stored Space Files retain their own lifecycle.
+
+Only the sender can choose **Edit again** to recover the last successfully saved
+version into the appropriate composer. This creates a draft, never an automatic
+send or resurrection of the old message. Protect an existing draft with a
+replacement confirmation and do not overwrite text entered while recovery is
+loading. The draft retains its source message identity across refreshes and
+failed sends. Only successful publication consumes recovery: keep the divider
+notice, remove **Edit again**, and release the private recovery snapshot in the
+same transaction as the new message. Sending unrelated identical text does not
+consume recovery. Recovery otherwise lasts as long as the underlying message is
+retained; this is not a browsable edit-history feature.
+
+Editing and recall update the initiating client's view optimistically. A failed
+write restores the authoritative message and preserves the edit for retry.
+Concurrent stale edits must not overwrite a newer version. Existing Wake and
+mention delivery remain historical actions: editing does not issue another Wake
+or notification, and recall does not stop already-running work. Agents reading
+current conversation context must detect message changes before publishing a
+reply based on an obsolete observation.
+
 ## Email Invitations Into A Space
 
 An Organization owner or admin who is an active member of an ordinary team

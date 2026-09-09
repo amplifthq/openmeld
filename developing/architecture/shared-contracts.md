@@ -677,6 +677,42 @@ result containing no address. Core never copies Auth's user table or logs email
 content. The receiver must be deployed before Core begins calling the additive
 method; during rollback, stop the Core caller before removing the Auth method.
 
+## Space Message Mutation Contract
+
+`POST /v1/spaces/:spaceId/messages/:signalId` and `SpaceApi.mutateMessage` share
+`spaceMessageMutationBodySchema` / `spaceMessageMutationResponseSchema`.
+The body discriminates `edit`, `recall`, and `restore_draft`. Edit and recall
+require the caller's `expectedRevision` (zero for old messages). Core checks
+writable Space access, active Human membership, and exact sender identity.
+Clients cannot author `messageRevision`, `editedAt`, `recalledAt`, or
+`changedMessageId` through normal message posting.
+
+The Space owner changes the existing signal and version atomically. Recall
+keeps only a safe tombstone in its public payload, and stores the last published
+content in `space_recalled_message_drafts`, accessible only through the
+sender-authorized recovery action. Message retention cleans up this private
+snapshot. Legacy quote previews are updated in the same transaction.
+
+Restored composer drafts persist `restoredFromSignalId` and include it in the
+normal message metadata or thread reply body. Both publication paths validate
+the recalled source's sender and consume recovery in the publication transaction:
+mark the source with server-owned `repostedAt`, increment its revision, and delete
+the private draft. The new persisted message also lets live/catch-up clients hide
+the recovery action before the source's refreshed history arrives. Pending or
+failed outgoing messages never consume recovery.
+
+A durable system `signal.text` with purpose `space_message_changed` records only
+the affected message ID, never a content revision. It advances incremental
+readers and Agent observation guards without adding a conversation row, thread
+reply count, Inbox notification, or sidebar message preview. Incremental Space
+updates return the current affected message alongside this cursor event.
+Visible history pages exclude cursor events. Web merges message versions
+monotonically so stale history responses cannot resurrect recalled content.
+
+Mutation broadcasts preserve original thread placement. Existing dispatch
+records remain execution history; edits do not rewrite or restart executed
+work. This contract covers native Space messages, not Slack/Lark message sync.
+
 ## Web Organization Request Context
 
 An Organization-scoped Web request uses a two-stage contract: the browser

@@ -2199,6 +2199,23 @@ export type ListSignalsResult = {
   nextCursor: string | null;
 };
 
+export type MutateSpaceMessageInput = {
+  spaceId: string;
+  signalId: string;
+  body: import("@openmeld/schemas/types").SpaceMessageMutationBody;
+  spaceAccess: SpaceAccessContext;
+  context?: CoreRpcContextInput;
+};
+
+export async function rpcMutateSpaceMessage(
+  env: CoreBindings,
+  input: MutateSpaceMessageInput
+) {
+  requireWritableRpcSpaceAccessContext(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcMutateSpaceMessage(input);
+}
+
 export type PostSignalInput = {
   agentStreamId?: string;
   spaceId: string;

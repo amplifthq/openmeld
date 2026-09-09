@@ -1,6 +1,6 @@
 import type { SpaceApi } from "@openmeld/api-client";
 import type { NavigationAction } from "@openmeld/schemas";
-import { buttonVariants } from "@openmeld/ui/components/button";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	MorphingDialog,
 	MorphingDialogClose,
@@ -9,6 +9,7 @@ import {
 	MorphingDialogImage,
 	MorphingDialogTrigger,
 } from "@openmeld/ui/components/morphing-dialog";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import { FileIcon, ImageIcon, XIcon } from "@phosphor-icons/react";
 import { useReducedMotionConfig } from "framer-motion";
@@ -17,7 +18,9 @@ import {
 	memo,
 	type ReactNode,
 	useCallback,
+	useLayoutEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { MessageResponse } from "#/components/ai/message-response";
@@ -32,8 +35,13 @@ import {
 	type CenterAgentComputerSetupContext,
 	type ComputerSetupTarget,
 } from "./center-agent-computer-setup-card";
+import { Marker, MarkerContent } from "./primitives/marker";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
+import {
+	SpaceInlineMessageEditor,
+	useSpaceMessageEditing,
+} from "./space-message-editing";
 import {
 	buildSpaceMessageProfileMentionProfiles,
 	createSpaceMessageProfileMentionRemarkPlugin,
@@ -71,6 +79,13 @@ type SpaceMessageBodyProps = {
 			Pick<
 				SpaceTimelineItem,
 				| "actorProfileKind"
+				| "id"
+				| "recalledAt"
+				| "repostedAt"
+				| "editedAt"
+				| "actorProfileId"
+				| "actorName"
+				| "messageRevision"
 				| "attachments"
 				| "files"
 				| "referenceTargetProfileIds"
@@ -193,6 +208,89 @@ function useSpaceMessageReferencePresentation(input: SpaceMessageBodyProps) {
 }
 
 export const SpaceMessageBody = memo(function SpaceMessageBody(
+	input: SpaceMessageBodyProps
+) {
+	const editing = useSpaceMessageEditing();
+	const bodyRef = useRef<HTMLDivElement | null>(null);
+	const [bodySize, setBodySize] = useState<{
+		width: number;
+		height: number;
+	} | null>(null);
+	const isEditing = Boolean(
+		input.item.id && editing?.edit?.id === input.item.id
+	);
+	const canEdit =
+		input.item.actorProfileKind === "human" &&
+		input.item.actorProfileId === editing?.selfProfileId;
+	useLayoutEffect(() => {
+		const body = bodyRef.current;
+		if (!body || isEditing || !canEdit) {
+			return;
+		}
+		const observer = new ResizeObserver(() => {
+			const { width, height } = body.getBoundingClientRect();
+			setBodySize((previous) =>
+				previous?.width === width && previous.height === height
+					? previous
+					: { width, height }
+			);
+		});
+		observer.observe(body);
+		return () => observer.disconnect();
+	}, [isEditing, canEdit]);
+	if (input.item.recalledAt) {
+		return (
+			<Marker
+				className="max-w-full gap-2 py-2 text-xs leading-6 before:min-w-6 after:min-w-6"
+				data-slot="message-recalled"
+				variant="separator"
+			>
+				<MarkerContent className="flex max-w-[80%] flex-wrap items-center justify-center gap-2 whitespace-normal">
+					<span>
+						{input.item.actorProfileId === editing?.selfProfileId
+							? "You recalled a message."
+							: input.item.text}
+					</span>
+					{editing &&
+					!input.item.repostedAt &&
+					input.item.actorProfileId === editing.selfProfileId ? (
+						<Button
+							className={cn(
+								surfaceClasses(2),
+								"rounded-full text-foreground max-lg:min-h-6 max-lg:min-w-0"
+							)}
+							disabled={editing.busy}
+							onClick={() => editing.restore(input.item as SpaceTimelineItem)}
+							size="xs"
+							variant="ghost"
+						>
+							Edit again
+						</Button>
+					) : null}
+				</MarkerContent>
+			</Marker>
+		);
+	}
+	if (isEditing && editing?.edit) {
+		return (
+			<SpaceInlineMessageEditor
+				bodySize={bodySize}
+				item={editing.edit}
+				key={editing.edit.id}
+			/>
+		);
+	}
+	return (
+		<div className="flex min-w-0 max-w-full flex-col gap-2" ref={bodyRef}>
+			<SpaceMessageBodyDisplay {...input} />
+			{input.item.editedAt ? (
+				<span className="text-muted-foreground text-xs">(edited)</span>
+			) : null}
+		</div>
+	);
+});
+
+const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 	input: SpaceMessageBodyProps
 ) {
 	const text = useSpaceMessageTextPresentation(input);

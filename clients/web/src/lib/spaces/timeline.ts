@@ -42,6 +42,10 @@ export type SpaceTimelineVisibleEnvelope = Extract<
 >;
 
 export type SpaceTimelineItem = {
+	messageRevision?: number;
+	editedAt?: number;
+	recalledAt?: number;
+	repostedAt?: number;
 	id: string;
 	spaceId: string;
 	signalType: VisibleTimelineSignalType;
@@ -169,7 +173,18 @@ export function mergeSpaceTimelineEnvelopes(input: {
 		byId.set(envelope.id, envelope);
 	}
 	for (const envelope of input.incoming) {
-		byId.set(envelope.id, envelope);
+		const previous = byId.get(envelope.id);
+		const revision =
+			envelope.type === "signal.text"
+				? (envelope.data.meta?.messageRevision ?? 0)
+				: 0;
+		const previousRevision =
+			previous?.type === "signal.text"
+				? (previous.data.meta?.messageRevision ?? 0)
+				: 0;
+		if (revision >= previousRevision) {
+			byId.set(envelope.id, envelope);
+		}
 	}
 
 	return [...byId.values()].sort(compareSignalEnvelopeOrder);
@@ -194,6 +209,18 @@ export function buildSpaceTimelineItems(input: {
 	pendingFilePreviewUrlsById?: ReadonlyMap<string, string>;
 }): readonly SpaceTimelineItem[] {
 	const signalIndex = buildSignalIndex(input.envelopes);
+	const completedReposts = new Map(
+		input.envelopes.flatMap((signal) => {
+			if (
+				signal.type !== "signal.text" ||
+				signal.id.startsWith("pending:") ||
+				!signal.data.meta?.restoredFromSignalId
+			) {
+				return [];
+			}
+			return [[signal.data.meta.restoredFromSignalId, signal] as const];
+		})
+	);
 	const targetCatalog = input.membersSnapshot
 		? createSpaceTargetCatalog(input.membersSnapshot)
 		: null;
@@ -256,7 +283,14 @@ export function buildSpaceTimelineItems(input: {
 	});
 
 	return mergeSpaceTimelineItems({
-		current: durableItems,
+		current: durableItems.map((item) => {
+			const repost = completedReposts.get(item.id);
+			return item.recalledAt &&
+				!item.repostedAt &&
+				repost?.profile.profileId === item.actorProfileId
+				? { ...item, repostedAt: repost.ts }
+				: item;
+		}),
 		incoming: streamItems,
 	});
 }
@@ -333,6 +367,14 @@ function buildSpaceTimelineItem(input: {
 			signal: input.signal,
 		}),
 		createdAtMs: input.signal.ts,
+		...(input.signal.type === "signal.text"
+			? {
+					messageRevision: input.signal.data.meta?.messageRevision,
+					editedAt: input.signal.data.meta?.editedAt,
+					recalledAt: input.signal.data.meta?.recalledAt,
+					repostedAt: input.signal.data.meta?.repostedAt,
+				}
+			: {}),
 		actorControllerDisplay: actor.controllerDisplay,
 		actorAgentControllerRef: actor.agentControllerRef,
 		actorAgentControllerPending: actor.agentControllerPending,
@@ -553,6 +595,13 @@ export function isSpaceExecutionRecoveryNoticeItem(
 function isVisibleTimelineEnvelope(
 	envelope: SignalEnvelope
 ): envelope is SpaceTimelineVisibleEnvelope {
+	if (
+		envelope.type === "signal.text" &&
+		envelope.profile.kind === "system" &&
+		envelope.data.meta?.purpose === "space_message_changed"
+	) {
+		return false;
+	}
 	if (isSpaceTransientActivityEnvelope(envelope)) {
 		return false;
 	}

@@ -98,6 +98,10 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
+import {
+	readRecalledReplyTarget,
+	restoreRecalledMessage,
+} from "./restore-recalled-message";
 import { formatSpaceAgentAttribution } from "./space-agent-attribution";
 import {
 	SpaceAgentInteractionCard,
@@ -158,6 +162,10 @@ import {
 } from "./space-message-copy";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
+import {
+	SpaceMessageEditingScope,
+	useOptimisticSpaceMessages,
+} from "./space-message-editing";
 import {
 	resolveSpaceMessageFooterAddressingTargets,
 	resolveSpaceMessageFooterFailureSummary,
@@ -429,7 +437,39 @@ export function SpaceConversationPanel(
 				publicInput.wakeStopRequestStatusBySelectorKey
 			}
 		>
-			<SpaceConversationPanelContent {...publicInput} />
+			<SpaceMessageEditingScope
+				draftKey={JSON.stringify([
+					publicInput.composerText,
+					publicInput.composerFiles,
+					publicInput.composerReplyToSignalId,
+				])}
+				hasDraft={Boolean(
+					publicInput.composerText ||
+						publicInput.composerFiles.length ||
+						publicInput.composerReplyToSignalId
+				)}
+				onRestore={async (message, canReplaceDraft) => {
+					const target = await readRecalledReplyTarget(
+						message,
+						publicInput.selfProfileId,
+						publicInput.timelineItems
+					);
+					await restoreRecalledMessage({
+						...publicInput,
+						message,
+						canReplaceDraft,
+					});
+					if (target) {
+						publicInput.onReplyToMessage(target);
+					} else {
+						publicInput.onClearComposerReplyTo();
+					}
+				}}
+				readOnly={publicInput.viewState.readOnly}
+				selfProfileId={publicInput.selfProfileId}
+			>
+				<SpaceConversationPanelContent {...publicInput} />
+			</SpaceMessageEditingScope>
 		</SpaceWakeStopScope>
 	);
 }
@@ -438,7 +478,12 @@ function SpaceConversationPanelContent(
 	publicInput: SpaceConversationPanelProps
 ) {
 	const { viewState, ...props } = publicInput;
-	const input: SpaceConversationPanelResolvedProps = { ...props, ...viewState };
+	const timelineItems = useOptimisticSpaceMessages(props.timelineItems);
+	const input: SpaceConversationPanelResolvedProps = {
+		...props,
+		...viewState,
+		timelineItems,
+	};
 	const presentation = useSpaceConversationPresentationController(input);
 	const {
 		canSendMessage,
@@ -2465,6 +2510,32 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 	return (
 		<>
 			{input.run.items.map((item, index) => {
+				if (item.recalledAt) {
+					const thread = input.threadsByRootSignalId.get(item.id);
+					return (
+						<MessageScrollerItem key={item.id} messageId={item.id}>
+							<div
+								className="flex flex-col items-center gap-1 py-2"
+								data-signal-id={item.id}
+								ref={(element) =>
+									input.registerMessageElement(item.id, element)
+								}
+								tabIndex={-1}
+							>
+								<SpaceMessageBody item={item} />
+								{thread ? (
+									<Button
+										onClick={() => input.onOpenThread?.(thread.threadId)}
+										size="sm"
+										variant="ghost"
+									>
+										View thread
+									</Button>
+								) : null}
+							</div>
+						</MessageScrollerItem>
+					);
+				}
 				const anchoredOutcomeNotices =
 					input.anchoredOutcomeNoticesBySourceSignalId.get(item.id) ??
 					EMPTY_ANCHORED_OUTCOME_NOTICES;
@@ -3160,6 +3231,7 @@ function renderConversationMessageFooter(input: {
 					: undefined
 			}
 			failureSummary={failureSummary}
+			item={input.item}
 			onCopy={() =>
 				copySpaceTimelineItemWithFeedback({
 					item: input.item,
@@ -3363,9 +3435,11 @@ function ThreadPreview(input: {
 							className="flex min-w-0 items-start gap-2 overflow-hidden"
 							key={item.id}
 						>
-							<span className="max-w-[40%] shrink-0 truncate font-bold text-foreground/88 text-xs leading-5">
-								{item.actorName}
-							</span>
+							{!item.recalledAt && (
+								<span className="max-w-[40%] shrink-0 truncate font-bold text-foreground/88 text-xs leading-5">
+									{item.actorName}
+								</span>
+							)}
 							<span className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-5">
 								<SpaceMessageReferenceText
 									referencesById={spaceReferencesById}

@@ -73,6 +73,7 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
+import { restoreRecalledMessage } from "./restore-recalled-message";
 import { formatSpaceAgentAttribution } from "./space-agent-attribution";
 import {
 	SpaceAgentInteractionCard,
@@ -125,6 +126,10 @@ import {
 } from "./space-message-copy";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
+import {
+	SpaceMessageEditingScope,
+	useOptimisticSpaceMessages,
+} from "./space-message-editing";
 import {
 	resolveSpaceMessageFooterAddressingTargets,
 	resolveSpaceMessageFooterFailureSummary,
@@ -305,7 +310,18 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 			progressItems={input.ephemeralActivityItems}
 			stopRequestStatusBySelectorKey={input.wakeStopRequestStatusBySelectorKey}
 		>
-			<SpaceThreadPanelContent {...input} />
+			<SpaceMessageEditingScope
+				draftKey={JSON.stringify([input.composerText, input.composerFiles])}
+				hasDraft={Boolean(input.composerText || input.composerFiles.length)}
+				onRestore={(message, canReplaceDraft) =>
+					restoreRecalledMessage({ ...input, message, canReplaceDraft })
+				}
+				readOnly={input.readOnly}
+				selfProfileId={input.selfProfileId}
+				threadRootSignalId={input.activeThread?.rootSignalId}
+			>
+				<SpaceThreadPanelContent {...input} />
+			</SpaceMessageEditingScope>
 		</SpaceWakeStopScope>
 	);
 }
@@ -330,7 +346,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				: undefined,
 		[activeThreadId, activeThreadRootSignalId, input.onRecoverExecution]
 	);
-	const rawThreadTimelineItems = useMemo(
+	const storedThreadTimelineItems = useMemo(
 		() =>
 			buildSpaceTimelineItems({
 				agentStreams: input.agentStreams,
@@ -351,6 +367,9 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 			input.signals,
 			input.filePreviewUrlsById,
 		]
+	);
+	const rawThreadTimelineItems = useOptimisticSpaceMessages(
+		storedThreadTimelineItems
 	);
 	const profileEntriesById = useMemo(
 		() => buildSpaceMemberDirectoryEntryByProfileId(input.membersSnapshot),
@@ -1424,6 +1443,22 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				messageDetailsItem,
 				onOpenMessageDetails: input.onOpenMessageDetails,
 			});
+	if (input.item.recalledAt) {
+		return (
+			<MessageScrollerItem messageId={input.item.id}>
+				<div
+					className="flex justify-center py-2"
+					data-signal-id={input.item.id}
+					ref={(element) =>
+						input.registerMessageElement(input.item.id, element)
+					}
+					tabIndex={-1}
+				>
+					<SpaceMessageBody item={input.item} />
+				</div>
+			</MessageScrollerItem>
+		);
+	}
 	return (
 		<MessageScrollerItem
 			className={
@@ -1611,6 +1646,7 @@ function ThreadTimelineMessageFooter(input: {
 			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={details}
 			failureSummary={input.failureSummary}
+			item={input.item}
 			onCopy={() =>
 				copySpaceTimelineItemWithFeedback({
 					item: input.item,

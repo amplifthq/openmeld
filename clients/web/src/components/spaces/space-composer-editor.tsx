@@ -90,6 +90,7 @@ export type SpaceComposerInputRef =
 	MutableRefObject<SpaceComposerEditorHandle | null>;
 
 export type SpaceComposerEditorChange = {
+	restoredFromSignalId?: string;
 	authoredMentions: ComposerDraftAuthoredMention[];
 	selection: SpaceComposerSelection;
 	text: string;
@@ -102,6 +103,7 @@ type SpaceComposerEditorProps = {
 	centerAgentProfileId?: string | null;
 	composerRef?: SpaceComposerInputRef;
 	disabled?: boolean;
+	inline?: boolean;
 	maxHeight?: number;
 	mentionPickerItems: readonly SpaceMentionPickerItem[];
 	onChange: (change: SpaceComposerEditorChange) => void;
@@ -113,6 +115,7 @@ type SpaceComposerEditorProps = {
 	onFocus?: FocusEventHandler<HTMLDivElement>;
 	onPaste?: (event: ClipboardEvent<HTMLDivElement>) => void;
 	onSend: () => void;
+	onCancel?: () => void;
 	placeholder: string;
 	text: string;
 };
@@ -353,7 +356,11 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 					<Editor
 						aria-label={input.ariaLabel}
 						aria-placeholder={input.placeholder}
-						className="min-h-11 px-1 py-2 text-sm leading-6"
+						className={
+							input.inline
+								? "min-h-[26px] rounded-none p-0 text-base leading-[26px]"
+								: "min-h-11 px-1 py-2 text-sm leading-6"
+						}
 						disabled={input.disabled}
 						onBlurCapture={input.onBlur}
 						onCopyCapture={(event) => handleCopy(event, editor)}
@@ -368,9 +375,14 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 						}
 						onDropCapture={(event) => handleDragCapture(event, input.onDrop)}
 						onFocusCapture={input.onFocus}
-						onKeyDownCapture={(event) =>
-							handleKeyDown(event, editor, input.onSend)
-						}
+						onKeyDownCapture={(event) => {
+							if (event.key === "Escape" && input.onCancel) {
+								event.stopPropagation();
+								input.onCancel();
+								return;
+							}
+							handleKeyDown(event, editor, input.onSend);
+						}}
 						onPasteCapture={(event) =>
 							handlePaste(
 								event,

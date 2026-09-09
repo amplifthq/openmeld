@@ -101,6 +101,12 @@ const legacySpaceAgentActivitySchema = spaceAgentActivitySchema.superRefine(
 );
 
 const signalTextMetaSchema = z.object({
+  restoredFromSignalId: z.string().min(1).optional(),
+  repostedAt: z.number().int().nonnegative().optional(),
+  messageRevision: z.number().int().nonnegative().optional(),
+  editedAt: z.number().int().nonnegative().optional(),
+  recalledAt: z.number().int().nonnegative().optional(),
+  changedMessageId: z.string().min(1).optional(),
   transient: z.literal(true).optional(),
   agentActivity: legacySpaceAgentActivitySchema.optional(),
   agentWorkSummary: spaceAgentActivitySchema.optional(),
@@ -229,6 +235,11 @@ const validateAuthoredSignalTextMeta = (
 
 const postedSignalTextMetaSchema = signalTextMetaSchema
   .omit({
+    repostedAt: true,
+    messageRevision: true,
+    editedAt: true,
+    recalledAt: true,
+    changedMessageId: true,
     agentActivity: true,
     agentWorkSummary: true,
     conversationCompaction: true,
@@ -280,12 +291,17 @@ const addSignalTextMessageEnvelopeIssues = (
 
 const addSignalTextContentIssues = (
   input: {
+    attachments?: readonly unknown[];
     files?: readonly unknown[];
     text: string;
   },
   context: z.RefinementCtx
 ) => {
-  if (input.text.length > 0 || (input.files?.length ?? 0) > 0) {
+  if (
+    input.text.length > 0 ||
+    (input.files?.length ?? 0) > 0 ||
+    (input.attachments?.length ?? 0) > 0
+  ) {
     return;
   }
   context.addIssue({

@@ -322,6 +322,12 @@ export type SpaceApi = {
       body: CreateSpaceDiagnosticReportBodyFromSchemas;
     }
   ) => Promise<CreateSpaceDiagnosticReportResponseFromSchemas>;
+  mutateMessage: (
+    input: SpaceRequestInput & {
+      signalId: string;
+      body: import("@openmeld/schemas/types").SpaceMessageMutationBody;
+    }
+  ) => Promise<import("@openmeld/schemas/types").SpaceMessageMutationResponse>;
   postNormalMessage: (
     input: SpaceRequestInput & {
       text: PostNormalMessageBody["text"];

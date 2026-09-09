@@ -87,6 +87,12 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   `);
   ensureSpaceSignalsClientMessageIdColumn(sql);
   sql.exec(`
+    CREATE TABLE IF NOT EXISTS space_recalled_message_drafts (
+      signal_id TEXT PRIMARY KEY,
+      payload_json TEXT NOT NULL
+    )
+  `);
+  sql.exec(`
     CREATE TABLE IF NOT EXISTS space_message_preview_revision (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
       revision INTEGER NOT NULL
