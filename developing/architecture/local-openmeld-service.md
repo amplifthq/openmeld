@@ -1753,6 +1753,15 @@ Scheduler's registered action is the source for command and environment diagnost
 new installs do not maintain a parallel batch-file configuration.
 
 On macOS, the managed LaunchAgent uses `RunAtLoad=true` and `KeepAlive=true`.
+It declares `ProcessType=Interactive` because people are waiting for its Wake
+execution and replies. Omitting that classification allows macOS to throttle
+the carrier's CPU and I/O as background work; child controller processes can
+inherit lower-priority execution even when their task-level nice value is zero.
+The Service receives user work through Runtime Transport rather than macOS XPC,
+so `Adaptive` cannot infer that a remote Space user is waiting. Use the OS job
+classification instead of per-runtime priority wrappers or longer startup
+deadlines. Installation and normal Service updates write the same lane-owned
+definition; Linux and Windows keep their platform-specific scheduling defaults.
 The npm distribution invokes its generated OpenMeld-owned wrapper through
 `/bin/sh`. The binary distribution keeps its versioned, signed managed binaries
 as the update and rollback sources, but launchd executes an exact copy from one

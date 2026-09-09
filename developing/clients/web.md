@@ -3112,14 +3112,18 @@ agents and diagnostics. Message details remains the drill-in for complete
 execution and failure context.
 
 Each recorded message reserves one stable footer for its timestamp and actions.
-When a message has a failure, the visible footer keeps only Message details,
-the concise failure summary, More actions, and the timestamp at every width;
+When a message has a failure, the visible footer keeps only one red Message
+details icon, More actions, and the timestamp at every width;
 Copy, Reply, Thread, and Addressing move into More actions. Footer icon controls
 use a compact 28-pixel container with 6-pixel visual padding. A failure colors
 the Message details icon red but does not show a persistent hover or selected
 background; that background appears only through real interaction state. The
-concise failure summary opens the same Message details drawer and gains an
-underline on hover or keyboard focus.
+failure summary is available in the icon's accessible name and tooltip instead
+of repeating a red sentence in the conversation. Clicking or keyboard-activating
+the icon opens the Message details drawer. Owner-visible original Local Agent
+errors appear there immediately, labeled by Agent, with their original text and
+line breaks. They are not duplicated under Technical details. The existing
+bounded, owner-only error projection and sensitive-data exclusions still apply.
 
 Message rhythm follows the existing speaker grouping instead of the current
 member's alignment. Message content sits 2 pixels above its reserved footer. A
@@ -3311,6 +3315,12 @@ still hide secrets, stdout, stderr, stack traces, commands, local paths, and raw
 payloads. OpenMeld-owned identity, security, routing, queue, and publication
 failures continue to use precise OpenMeld-authored copy and one practical next
 action.
+
+Retaining a structured Local Agent error does not depend on OpenMeld recognizing
+its category. Adapters preserve the safe original message separately from error
+classification and diagnostic output; unrelated stderr must not erase an already
+retained original error. This does not change Wakeability, provider-access
+evidence, retry policy, or the execution's outcome.
 
 A terminal execution outcome does not show an inline action that starts another
 execution. Web exposes only exact result replay or exact conversation reply

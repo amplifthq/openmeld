@@ -137,6 +137,10 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "    promptSessionID = url.pathname.includes('/session/' + forkSessionID + '/') ? forkSessionID : sessionID;",
       "    promptMessageID = body.messageID ?? 'msg_server_generated_current';",
       "    sendJson(response, 204);",
+      "    if (process.env.OPENMELD_FAKE_OPENCODE_SESSION_ERROR) {",
+      "      emit({ type: 'session.error', properties: { sessionID: promptSessionID, error: { name: 'UnknownError', data: { message: process.env.OPENMELD_FAKE_OPENCODE_SESSION_ERROR } } } });",
+      "      return;",
+      "    }",
       "    emit({ id: 'event-user', type: 'message.updated', properties: { sessionID: promptSessionID, info: { id: promptMessageID, sessionID: promptSessionID, role: 'user' } } });",
       "    if (staleIdleOnResume) {",
       "      setTimeout(() => emit({ id: 'event-stale-idle', type: 'session.idle', properties: { sessionID: promptSessionID } }), 10);",
@@ -224,6 +228,33 @@ async function writeFakeOpenCodeServer(fixturePath) {
   );
   await chmod(fixturePath, 0o755);
 }
+
+test("preserves the structured OpenCode error independently of diagnostic stderr", async () => {
+  const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
+  const message =
+    "The upstream service ended this request.\nReference: request-42.";
+  await withServerFixture(async ({ fixtureDir, fixturePath }) => {
+    await assert.rejects(
+      invokeOpenCodeServerTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        openCodeTimeoutMs: 5000,
+        openCodeWorkdir: fixtureDir,
+        prompt: "reply",
+        sessionId: null,
+        env: {
+          OPENMELD_FAKE_OPENCODE_SESSION_ERROR: message,
+          OPENMELD_FAKE_OPENCODE_START_STDERR:
+            "stack: private internal diagnostics",
+        },
+      }),
+      (error) => {
+        assert.equal(error.originalError, message);
+        assert.equal(error.providerAccessEvidence, undefined);
+        return true;
+      }
+    );
+  });
+});
 
 async function readLog(logPath) {
   return (await readFile(logPath, "utf8"))
