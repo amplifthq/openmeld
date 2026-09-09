@@ -1,5 +1,5 @@
 export const SPACE_MESSAGE_SURFACE_WIDTH_CLASS = "w-full max-w-full";
-// Every speaker uses the same quiet surface and inset in multiplayer conversations.
+// Every speaker uses the same inset in multiplayer conversations.
 export const SPACE_MESSAGE_CONTENT_PADDING_CLASS = "px-3 py-2 sm:px-4";
 // Padding shared by every message row/run container. Layout-only: it carries
 // no hover coloring so callers can apply SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS
@@ -27,12 +27,12 @@ export function resolveSpaceMessageRowLayoutClassName(input: {
 export const SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS =
 	"rounded-md transition-colors hover:bg-transparent focus-within:bg-transparent";
 export function resolveSpaceMessageBubblePresentationClass(input: {
-	isHighlighted?: boolean;
+	isSelf: boolean;
 }): string {
-	if (input.isHighlighted) {
-		return "rounded-md border border-transparent bg-muted/50";
+	if (input.isSelf) {
+		return "rounded-md border border-transparent bg-unread/12 data-[highlighted=true]:bg-unread/20 dark:bg-unread/20 dark:data-[highlighted=true]:bg-unread/30";
 	}
-	return "rounded-md border border-transparent bg-muted/35";
+	return "rounded-md border border-transparent bg-muted/35 data-[highlighted=true]:bg-muted/50";
 }
 
 export function resolveSpaceMessageContentLayoutClassName(input: {

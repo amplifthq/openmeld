@@ -1487,8 +1487,9 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 								SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 								selfMessageContentLayoutClassName,
-								resolveSpaceMessageBubblePresentationClass({}),
-								"data-[highlighted=true]:bg-muted/50",
+								resolveSpaceMessageBubblePresentationClass({
+									isSelf: isSelfMessage,
+								}),
 								input.item.deliveryState === "pending" ? "opacity-70" : null
 							)}
 							data-signal-id={input.item.id}

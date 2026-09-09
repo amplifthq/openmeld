@@ -727,8 +727,9 @@ renders the shared message primitives. A message placed on the right uses a
 trailing-aligned, content-sized bubble with a responsive maximum width; a
 message placed on the left uses the full available transcript width. Both
 placements keep their content leading-aligned. Every speaker's message uses
-the same quiet muted surface, semantic radius, and content inset, so message
-boundaries remain visible in multiplayer conversations in either theme.
+the same semantic radius and content inset. Other speakers use a quiet muted
+surface; the current member uses a soft tint of the shared blue `unread` color,
+with theme-specific opacity. Message boundaries remain visible in either theme.
 With right placement, the full transcript row stays
 available as the hover and focus target, while the visible current-member
 surface and its actions stay anchored to the bounded bubble. With left

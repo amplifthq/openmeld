@@ -2535,7 +2535,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 				});
 				const bubblePresentationClass =
 					resolveSpaceMessageBubblePresentationClass({
-						isHighlighted,
+						isSelf: input.run.isSelf,
 					});
 				const showProgressInAnswerArea =
 					shouldPlaceSpaceMessageProgressInAnswer(item);

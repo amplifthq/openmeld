@@ -1729,7 +1729,7 @@ describe("SpaceConversationPanel", () => {
 		expect(messageText.className).toContain("[overflow-wrap:anywhere]");
 	});
 
-	it("gives Agent and self messages the same readable surface while preserving alignment", () => {
+	it("gives Agent messages a neutral surface and self messages a blue surface while preserving alignment", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -1760,7 +1760,8 @@ describe("SpaceConversationPanel", () => {
 		expect(agentBubble?.classList.contains("max-w-[62ch]")).toBe(false);
 		expect(selfBubble?.classList.contains("border")).toBe(true);
 		expect(selfBubble?.classList.contains("border-transparent")).toBe(true);
-		expect(selfBubble?.classList.contains("bg-muted/35")).toBe(true);
+		expect(selfBubble?.classList.contains("bg-unread/12")).toBe(true);
+		expect(selfBubble?.classList.contains("dark:bg-unread/20")).toBe(true);
 		expect(selfBubble?.classList.contains("rounded-md")).toBe(true);
 		expect(selfBubble?.classList.contains("max-w-full")).toBe(true);
 		expect(selfBubble?.classList.contains("min-w-[16rem]")).toBe(false);
