@@ -3,6 +3,17 @@ import { getPersonalRemoteAgentTools } from "../agent-core/personal-remote-agent
 import { buildRemoteAgentSystemPrompt } from "../agent-core/prompt";
 
 describe("personal Remote Agent capabilities", () => {
+  it("keeps old Core submissions on the existing tool contract during rollout", () => {
+    const tools = getPersonalRemoteAgentTools({
+      coreWorker: {},
+      submissionId: "older-submission",
+    });
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_read_space_messages",
+      "openmeld_read_space_members",
+      "openmeld_wake_agent_in_space",
+    ]);
+  });
   it("exposes only current conversation reading and explicit same-Space handoffs", async () => {
     const call = vi.fn(
       async (_request: unknown): Promise<unknown> => ({
@@ -13,13 +24,16 @@ describe("personal Remote Agent capabilities", () => {
     const tools = getPersonalRemoteAgentTools({
       coreWorker: { personalRemoteAgentSpaceTool: call },
       submissionId: "accepted-submission",
+      sharedSpaceContextEnabled: true,
     });
     expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_read_space_board",
+      "openmeld_read_space_updates",
       "openmeld_read_space_messages",
       "openmeld_read_space_members",
       "openmeld_wake_agent_in_space",
     ]);
-    const [messages, members, wake] = tools;
+    const [, , messages, members, wake] = tools;
     if (!(messages && members && wake)) {
       throw new Error("expected personal collaboration tools");
     }

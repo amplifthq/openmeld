@@ -11,10 +11,17 @@ import {
   wakeEvidenceDb,
 } from "../../lib/bindings";
 import {
+  rpcGetSpaceBoard,
   rpcGetSpaceMemberDirectory,
+  rpcGetSpaceUpdates,
   rpcListSignals,
   rpcPostSignalOnceByClientMessageId,
 } from "../../rpc/methods";
+import {
+  isFormalSpaceUpdateSignal,
+  resolveFormalSpaceUpdateActorName,
+  resolveFormalSpaceUpdateActorProfileId,
+} from "../../space/rules/formal-space-update";
 import { readRemoteAgentNativeDeliveryBySubmissionId } from "../infrastructure/d1/native-delivery-ledger-repo";
 import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
@@ -94,6 +101,36 @@ export async function runPersonalRemoteAgentSpaceTool(
     .first();
   if (!activeRequester) {
     throw new Error("remote_agent.requester_membership_revoked");
+  }
+  if (input.operation.kind === "board") {
+    return personalRemoteAgentSpaceToolResponseSchema.parse({
+      kind: "board",
+      board: await rpcGetSpaceBoard(env, {
+        context,
+        spaceId: delivery.spaceId,
+      }),
+    });
+  }
+  if (input.operation.kind === "updates") {
+    const updates = await rpcGetSpaceUpdates(env, {
+      context,
+      spaceId: delivery.spaceId,
+      afterSignalId: input.operation.afterSignalId ?? delivery.triggerMessageId,
+      limit: 20,
+    });
+    return personalRemoteAgentSpaceToolResponseSchema.parse({
+      kind: "updates",
+      signals: updates.signals
+        .filter(isFormalSpaceUpdateSignal)
+        .map((signal) => ({
+          id: signal.id,
+          profileId: resolveFormalSpaceUpdateActorProfileId(signal),
+          profileName: resolveFormalSpaceUpdateActorName(signal),
+          type: signal.type,
+          text: (signal.data.text ?? "").slice(0, 4000),
+          truncated: (signal.data.text?.length ?? 0) > 4000,
+        })),
+    });
   }
   if (input.operation.kind === "messages") {
     const page = await rpcListSignals(env, {

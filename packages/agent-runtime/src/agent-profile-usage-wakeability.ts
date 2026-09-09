@@ -9,9 +9,6 @@ import type { RuntimeAgentControllerReportStatus } from "./runtime-registry-cont
 
 export const AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE =
   "usage_exhausted" as const;
-export const AGENT_PROFILE_USAGE_CHECKING_REASON_CODE =
-  "usage_checking" as const;
-
 export type AgentProfileUsageWakeabilityReport = {
   expiresAtMs: number;
   status: RuntimeAgentControllerReportStatus;
@@ -24,11 +21,6 @@ export type AgentProfileUsageWakeability =
       blocksNewWork: true;
       reasonCode: "usage_exhausted";
       status: "unavailable";
-    }
-  | {
-      blocksNewWork: true;
-      reasonCode: "usage_checking";
-      status: "checking";
     }
   | { blocksNewWork: false; reasonCode: null; status: "available" };
 
@@ -62,21 +54,19 @@ export function resolveAgentProfileUsageWakeability(input: {
     }
   }
   const report = input.report;
-  if (!report) {
-    return CHECKING_USAGE;
-  }
+  // Usage is an auxiliary observation, not execution authority. A slow or
+  // unavailable quota endpoint must not stop an otherwise authorized Wake.
+  // Runtime readiness is checked separately; only proven current exhaustion
+  // adds a Usage-specific admission block. Recovery of already exhausted work
+  // still requires positive capacity evidence below.
   if (
+    !report ||
     report.usageLimitsSupportMatrixVersion !==
-    AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION
+      AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION ||
+    report.expiresAtMs <= input.nowMs ||
+    report.status !== "ready"
   ) {
-    return CHECKING_USAGE;
-  }
-  // Usage is one current owner fact, not the owner of the entire Wakeability
-  // answer. Controllers whose reviewed matrix requires native Usage must
-  // provide the exact current contract before Core can authorize new work.
-  // Legacy reports remain parseable, but they cannot prove current capacity.
-  if (report.expiresAtMs <= input.nowMs) {
-    return CHECKING_USAGE;
+    return ALLOWS_NEW_WORK;
   }
   const supportedUsageLimits = report.usageLimits?.filter(
     (usageLimit) =>
@@ -84,22 +74,7 @@ export function resolveAgentProfileUsageWakeability(input: {
       (support !== "provider_scoped" ||
         usageLimit.provider?.id === input.providerId)
   );
-  if (
-    support === "native" &&
-    report.usageLimits?.length &&
-    !supportedUsageLimits?.length
-  ) {
-    return ALLOWS_NEW_WORK;
-  }
-  if (!supportedUsageLimits?.length) {
-    return CHECKING_USAGE;
-  }
-
-  if (report.status !== "ready") {
-    return CHECKING_USAGE;
-  }
-
-  const usageExhausted = supportedUsageLimits.some((usageLimit) =>
+  const usageExhausted = supportedUsageLimits?.some((usageLimit) =>
     isReliableFreshExhaustedUsage({
       nowMs: input.nowMs,
       usageLimit,
@@ -112,13 +87,7 @@ export function resolveAgentProfileUsageWakeability(input: {
       status: "unavailable",
     };
   }
-  const allSupportedUsageAvailable = supportedUsageLimits.every((usageLimit) =>
-    isReliableFreshAvailableUsage({
-      nowMs: input.nowMs,
-      usageLimit,
-    })
-  );
-  return allSupportedUsageAvailable ? ALLOWS_NEW_WORK : CHECKING_USAGE;
+  return ALLOWS_NEW_WORK;
 }
 
 export function resolveAgentProfileUsageRecoveryAvailability(input: {
@@ -172,11 +141,6 @@ const ALLOWS_NEW_WORK = {
   blocksNewWork: false,
   reasonCode: null,
   status: "available",
-} as const;
-const CHECKING_USAGE = {
-  blocksNewWork: true,
-  reasonCode: AGENT_PROFILE_USAGE_CHECKING_REASON_CODE,
-  status: "checking",
 } as const;
 const USAGE_RECOVERY_AVAILABLE = { available: true } as const;
 const USAGE_RECOVERY_UNAVAILABLE = { available: false } as const;

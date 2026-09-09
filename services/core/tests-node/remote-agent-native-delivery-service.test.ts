@@ -195,6 +195,30 @@ describe("Remote Agent native delivery callback service", () => {
       expect(env.__spaceStub.rpcListSignalsResult).toHaveBeenLastCalledWith(
         expect.objectContaining({ spaceId: SPACE_ID, limit: 31, recent: true })
       );
+      const readUpdates = vi.fn(async () => ({ signals: [] }));
+      Object.assign(env.__spaceStub, { rpcGetUpdates: readUpdates });
+      const updates = await runPersonalRemoteAgentSpaceTool(env, {
+        submissionId: "personal-submission",
+        operation: { kind: "updates" },
+      });
+      expect(updates).toEqual({ kind: "updates", signals: [] });
+      expect(readUpdates).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spaceId: SPACE_ID,
+          afterSignalId: request?.triggerMessageId,
+          limit: 20,
+        })
+      );
+      for (const kind of ["board", "updates"] as const) {
+        readDirectory.mockResolvedValueOnce({ ...directory, members: [] });
+        await expect(
+          runPersonalRemoteAgentSpaceTool(env, {
+            submissionId: "personal-submission",
+            operation: { kind },
+          })
+        ).rejects.toThrow("space_membership_revoked");
+      }
+      expect(readUpdates).toHaveBeenCalledTimes(1);
       await expect(
         runPersonalRemoteAgentSpaceTool(env, {
           ...messageRead,

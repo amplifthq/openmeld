@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T17:57:57.148Z",
+  "updatedAt": "2026-09-09T01:42:11.341Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.177",
+      "packageVersion": "0.3.182",
       "updatePolicy": "available",
-      "reason": "Existing commands and cloud contracts remain compatible; this release aligns bundled local Agent instructions and isolates development Service lanes."
+      "reason": "Shared Remote Agent schemas change the packaged fingerprint; existing CLI commands and cloud contracts remain compatible."
     },
     "service": {
-      "bundleHash": "0c9a15ebbcdfe9467e82211aa52818f6bbf338b15e0432b4299c651651ee5663",
-      "bundleVersion": "0.3.177",
+      "bundleHash": "e5561a5b32fb8d445fd975f921f756c5fdb4941bd059226e8c2399350d49c932",
+      "bundleVersion": "0.3.182",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Old and new Services preserve identity, permissions, transport, Stop, and Space action contracts; updated instructions and development-lane isolation do not require blocking existing production Wakes."
+      "reason": "Personal Remote context does not change workstation Wake contracts; existing Services remain compatible with both cloud versions."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",

@@ -1815,9 +1815,16 @@ identity. Existing request retries and intentional CLI manual profiles retain
 their contracts. The single-page form places the editable generated Agent name
 after local agent selection, followed by **Advanced Agent Settings**, collapsed
 by default. It submits directly with **Create Agent**; there is no review step or
-duplicate selected-model summary card. A single Computer target needs no selector;
-multiple computers use the shared Fluid selector, with ambiguous connections
-kept explicit in advanced details so creation cannot silently change targets.
+duplicate selected-model summary card. One available Computer target is selected
+automatically without showing a computer name, status, summary, or selector.
+Only two or more available computers expose computer selection, using the
+shared Fluid selector. Zero available computers also show no selector.
+Offline, reconnect-required, unknown,
+and update-blocked connections do not count as choices. Availability here uses
+Core's live connection and compatibility projection, not historical execution
+targets, and does not imply Agent Wakeability. Ambiguous live connections remain
+explicit in advanced details; automatic selection never overrides a Session
+preset or guesses between multiple connections on one Computer.
 While local agents are loading, the heading
 reports checking instead of prematurely asking the user to connect a computer.
 The form keeps its actions separate through spacing without a footer divider.

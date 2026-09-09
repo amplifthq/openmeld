@@ -717,6 +717,31 @@ describe("dispatch publication policy", () => {
   });
 
   it.each([
+    "process.timeout",
+    "protocol.invalid",
+    "future.failure",
+    undefined,
+  ])("reports task failure without inventing a missing reply cause (%s)", (errorCode) => {
+    const plan = resolveDispatchPublicationPlan({
+      actorName: "Test Agent",
+      dispatchMessage: createDispatchMessage(),
+      payload: {
+        status: "failed",
+        errorCode,
+        errorMessage: "private runtime diagnostic sk-private",
+      },
+      replyText: null,
+    });
+    expect(plan).toMatchObject({
+      kind: "system_notice",
+      noticeType: "terminal_failure",
+      reason: "The task failed before a reply could be posted.",
+      reasonCode: errorCode ?? null,
+    });
+    expect(JSON.stringify(plan)).not.toContain("sk-private");
+  });
+
+  it.each([
     "private prompt with invalid_request_error and unsupported_value",
     JSON.stringify({ error: { code: "unknown_code", message: "sk-private" } }),
     JSON.stringify({
@@ -740,7 +765,7 @@ describe("dispatch publication policy", () => {
     });
     expect(plan).toMatchObject({
       kind: "system_notice",
-      reason: "OpenMeld did not receive a message it could post in this space.",
+      reason: "The task failed before a reply could be posted.",
     });
     expect(JSON.stringify(plan)).not.toContain("sk-private");
   });

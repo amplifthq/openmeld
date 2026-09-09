@@ -16,6 +16,7 @@ import {
 } from "../protocol/agent-stream";
 import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import { conversationCompactionMarkerSchema } from "../protocol/conversation-compaction";
+import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import {
   agentProfileIdSchema,
   openMeldRuntimeProfileIdSchema,
@@ -412,6 +413,7 @@ export const remoteAgentWorkerSubmitTurnRequestV4Schema = z
     ),
     continuityContext:
       remoteAgentConversationContinuityContextSchema.optional(),
+    sourceMessageEnvelope: messageEnvelopeSchema.optional(),
     modelRoute: centerAgentModelRouteSchema,
     runtimeConversation: remoteAgentRuntimeConversationSchema,
     spaceDispatchContext: z
