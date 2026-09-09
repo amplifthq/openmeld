@@ -1761,7 +1761,7 @@ describe("SpaceConversationPanel", () => {
 		expect(selfBubble?.classList.contains("border")).toBe(true);
 		expect(selfBubble?.classList.contains("border-transparent")).toBe(true);
 		expect(selfBubble?.classList.contains("bg-unread/12")).toBe(true);
-		expect(selfBubble?.classList.contains("dark:bg-unread/20")).toBe(true);
+		expect(selfBubble?.classList.contains("dark:bg-unread/40")).toBe(true);
 		expect(selfBubble?.classList.contains("rounded-md")).toBe(true);
 		expect(selfBubble?.classList.contains("max-w-full")).toBe(true);
 		expect(selfBubble?.classList.contains("min-w-[16rem]")).toBe(false);

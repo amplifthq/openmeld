@@ -207,7 +207,7 @@
 }
 
 .dark {
-  --unread: var(--color-blue-400);
+  --unread: #0169cc;
   /* Canonical dark app and platform-chrome background. */
   --background: #111110;
   /* Primitive dark surface ramp. Semantic surfaces reference this scale. */

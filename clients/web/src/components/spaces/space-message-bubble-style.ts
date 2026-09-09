@@ -30,7 +30,7 @@ export function resolveSpaceMessageBubblePresentationClass(input: {
 	isSelf: boolean;
 }): string {
 	if (input.isSelf) {
-		return "rounded-md border border-transparent bg-unread/12 data-[highlighted=true]:bg-unread/20 dark:bg-unread/20 dark:data-[highlighted=true]:bg-unread/30";
+		return "rounded-md border border-transparent bg-unread/12 data-[highlighted=true]:bg-unread/20 dark:bg-unread/40 dark:data-[highlighted=true]:bg-unread/50";
 	}
 	return "rounded-md border border-transparent bg-muted/35 data-[highlighted=true]:bg-muted/50";
 }
