@@ -1950,6 +1950,13 @@ function SpaceComposerSection(input: {
 						targetName: input.composerTargetName,
 					}}
 					presentation={{ errorClassName: "mt-3" }}
+					recovery={{
+						agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
+						isAgentRecoveryPending: panel.isAgentRecoveryPending,
+						onAgentRecoveryAction: panel.onAgentRecoveryAction,
+						orgSlug: panel.orgSlug,
+						prepareSetupHref: panel.prepareSetupHref,
+					}}
 					slots={{
 						beforePrimaryAction: (
 							<SpaceComposerActiveWakes placement="conversation" />
@@ -3277,7 +3284,7 @@ function ReplyPreview(input: {
 	const content = (
 		<>
 			<p className="text-muted-foreground text-xs leading-5">{replyLabel}</p>
-			<p className="line-clamp-2 text-muted-foreground/80 text-xs">
+			<p className="w-full truncate text-muted-foreground/80 text-xs">
 				<SpaceMessageReferenceText
 					referencesById={spaceReferencesById}
 					text={previewText}
@@ -3290,7 +3297,7 @@ function ReplyPreview(input: {
 		return (
 			<div
 				className={cn(
-					"flex flex-col gap-1 border-border text-sm",
+					"flex min-w-0 max-w-full flex-col gap-1 border-border text-sm",
 					input.align === "end"
 						? "items-end border-r pr-3 text-right"
 						: "border-l pl-3 text-left"
@@ -3306,7 +3313,7 @@ function ReplyPreview(input: {
 		return (
 			<div
 				className={cn(
-					"flex flex-col gap-1 border-border text-sm",
+					"flex min-w-0 max-w-full flex-col gap-1 border-border text-sm",
 					input.align === "end"
 						? "items-end border-r pr-3 text-right"
 						: "border-l pl-3 text-left"
@@ -3322,7 +3329,7 @@ function ReplyPreview(input: {
 				>
 					{replyLabel}
 				</button>
-				<p className="line-clamp-2 text-muted-foreground/80 text-xs">
+				<p className="w-full truncate text-muted-foreground/80 text-xs">
 					<SpaceMessageReferenceText
 						referencesById={spaceReferencesById}
 						text={previewText}
@@ -3336,7 +3343,7 @@ function ReplyPreview(input: {
 		<button
 			aria-label="Jump to original message"
 			className={cn(
-				"flex flex-col gap-1 border-border text-sm hover:border-foreground/50 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+				"flex min-w-0 max-w-full flex-col gap-1 border-border text-sm hover:border-foreground/50 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 				input.align === "end"
 					? "items-end border-r pr-3 text-right"
 					: "border-l pl-3 text-left"

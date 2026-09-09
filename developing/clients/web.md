@@ -3022,7 +3022,14 @@ leading **Cancel reply** button, a divider, and `Replying Name: preview`.
 The preview resolves profile mentions to names, is capped at 100 characters,
 and truncates to the available width. Canceling a reply preserves the draft.
 Sent-message quotes retain their original-message navigation and use muted
-text to distinguish quoted content from the new reply.
+text to distinguish quoted content from the new reply. Quote previews stay on
+one line and truncate with an ellipsis when they exceed the available width.
+
+A blocked Wake token uses a muted name and grayscale icon while keeping its
+remove and relation controls usable. The composer pairs compact availability
+copy with the current Agent recovery action, including computer connection,
+before submission. Reference targets do not block sending. Both main and thread
+composers consume the same Core availability and recovery projections.
 
 Every writable Space composer — ordinary Space, Direct Message, Center Agent
 Direct Message, and thread — uses the same file control. The former paperclip

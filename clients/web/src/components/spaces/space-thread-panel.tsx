@@ -1799,6 +1799,13 @@ function ThreadComposer(input: {
 				errorClassName: "mt-3",
 				maxHeight: 180,
 			}}
+			recovery={{
+				agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
+				isAgentRecoveryPending: input.isAgentRecoveryPending,
+				onAgentRecoveryAction: input.onAgentRecoveryAction,
+				orgSlug: input.orgSlug,
+				prepareSetupHref: input.prepareSetupHref,
+			}}
 			slots={{
 				beforePrimaryAction: <SpaceComposerActiveWakes placement="thread" />,
 				error: input.composerErrorMessage ? (

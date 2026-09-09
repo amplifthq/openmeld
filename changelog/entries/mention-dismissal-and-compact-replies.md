@@ -12,4 +12,7 @@ suggestions and keep your `@` and entered text as ordinary text, just like Escap
 
 Reply context now sits inside the composer as a compact line with the person's
 name, a short message preview, and a leading cancel button. Quotes in sent
-messages use quieter text so the new reply is easier to distinguish.
+messages use quieter, single-line previews so the new reply is easier to distinguish.
+
+Unavailable Wake targets now appear muted in the composer, with a shorter
+explanation and an action to reconnect the computer or resolve the current issue.

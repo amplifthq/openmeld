@@ -451,6 +451,12 @@ function SpaceComposerProfileToken(
 		: [];
 	const isRepeatedAgent =
 		profileKind === "agent" && isRepeatedProfileElement(editor, element);
+	const isBlockedWake =
+		profileKind === "agent" &&
+		element.relation === "wake" &&
+		!isRepeatedAgent &&
+		target?.wakeAvailability.status !== "ready" &&
+		target?.wakeAvailability.status !== "preparing";
 	let relationControl: ReactNode = null;
 	if (profileKind === "agent" && choices.length > 0 && !isRepeatedAgent) {
 		const selectedRelationLabel =
@@ -541,7 +547,8 @@ function SpaceComposerProfileToken(
 			<span
 				className={cn(
 					surfaceClasses(surface),
-					"group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 align-baseline text-foreground focus-within:ring-2 focus-within:ring-ring"
+					"group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 align-baseline focus-within:ring-2 focus-within:ring-ring",
+					isBlockedWake ? "text-muted-foreground" : "text-foreground"
 				)}
 				contentEditable={false}
 				data-mention-text={element.mentionText}
@@ -555,7 +562,10 @@ function SpaceComposerProfileToken(
 					@
 				</span>
 				<span
-					className="inline-flex shrink-0"
+					className={cn(
+						"inline-flex shrink-0",
+						isBlockedWake && "opacity-50 grayscale"
+					)}
 					data-slot="space-composer-profile-token-icon"
 				>
 					<SpaceProfileIcon
