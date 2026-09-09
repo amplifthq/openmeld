@@ -135,7 +135,6 @@ describe("local service inventory", () => {
           createServiceManager({
             ...EXTERNAL_MANAGER_STATUS,
             definitionPath,
-            startupPolicyCurrent: false,
           }),
         listOwnedProcesses: async () => [],
       });

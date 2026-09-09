@@ -33,6 +33,7 @@ import {
 import {
   type DaemonServiceManager,
   type DaemonServiceManagerRuntimeStatus,
+  readDaemonServiceStartupPolicyCurrent,
   resolveDaemonServiceManager,
 } from "./daemon-service-manager";
 import { matchesExpectedDaemonServiceManagerDefinition } from "./daemon-service-manager-command-match";
@@ -243,6 +244,20 @@ export async function inspectDaemonServiceInventory(input: {
     serviceManagerDefinitionMatchesCurrentRoot:
       scopedServiceManager.serviceManagerDefinitionMatchesCurrentRoot,
   });
+
+  if (
+    installStatus.installed &&
+    (await readDaemonServiceStartupPolicyCurrent({
+      controller: scopedServiceManager.serviceManager?.controller ?? null,
+      status: scopedServiceManager.serviceManagerStatus,
+    })) === false
+  ) {
+    anomalies.push({
+      code: "service_manager_startup_policy_drift",
+      message:
+        "The installed macOS Service still uses an outdated scheduling policy.",
+    });
+  }
 
   return {
     expectedVersion: input.expectedVersion,
@@ -464,17 +479,6 @@ function buildRuntimeHealthAnomalies(input: {
     effectiveRuntimeStatus: input.effectiveRuntimeStatus,
     ownedProcesses: input.ownedProcesses,
   });
-
-  if (
-    input.serviceManagerStatus?.installed &&
-    input.serviceManagerStatus.startupPolicyCurrent === false
-  ) {
-    anomalies.push({
-      code: "service_manager_startup_policy_drift",
-      message:
-        "The installed macOS Service still uses an outdated scheduling policy.",
-    });
-  }
 
   if (input.runtimeStatus.status === "stale") {
     anomalies.push({

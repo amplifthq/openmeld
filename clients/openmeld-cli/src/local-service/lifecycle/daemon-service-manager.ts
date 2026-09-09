@@ -64,8 +64,6 @@ export type DaemonServiceManagerRuntimeStatus = {
    * did not contain one complete, valid target.
    */
   environmentTarget?: OpenMeldEnvironmentTarget | null;
-  /** Owned scheduling policy in the OS definition; never a Wake admission gate. */
-  startupPolicyCurrent?: boolean;
 };
 
 export type DaemonServiceJobDiagnostics = {
@@ -484,6 +482,32 @@ export function matchesLaunchdServiceStartupPolicy(
     LAUNCHD_PROCESS_TYPE_PATTERN.exec(definition)?.[1] ===
     LAUNCHD_SERVICE_PROCESS_TYPE
   );
+}
+
+/** Reads only the owned definition; callers report drift through existing diagnostics. */
+export async function readDaemonServiceStartupPolicyCurrent(input: {
+  controller: DaemonServiceController | null;
+  status: DaemonServiceManagerRuntimeStatus | null;
+}): Promise<boolean | null> {
+  if (
+    input.controller !== "launchd" ||
+    !input.status?.installed ||
+    !input.status.definitionPath
+  ) {
+    return null;
+  }
+  const definition = await readFile(input.status.definitionPath, "utf8").catch(
+    (error: NodeJS.ErrnoException) => {
+      // An uninstalled definition is not evidence of a scheduling-policy mismatch.
+      if (error.code === "ENOENT") {
+        return null;
+      }
+      throw error;
+    }
+  );
+  return definition === null
+    ? null
+    : matchesLaunchdServiceStartupPolicy(definition);
 }
 
 export function buildLaunchdPlist(
@@ -1152,13 +1176,6 @@ function buildLaunchdManager(
         running: LAUNCHD_STATE_PATTERN.test(output),
         enabled: enabledFromDisabledServices ?? parseLaunchdEnabled(output),
         definitionPath: installed ? plistPath : null,
-        ...(installed
-          ? {
-              startupPolicyCurrent: matchesLaunchdServiceStartupPolicy(
-                await readFile(plistPath, "utf8")
-              ),
-            }
-          : {}),
         commandSummary: installed
           ? await readLaunchdProgramArguments(plistPath)
           : null,

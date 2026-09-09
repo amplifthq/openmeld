@@ -7,7 +7,10 @@ import {
 } from "../../config/lock";
 import { OPENMELD_VERSION } from "../../runtime/version";
 import { maintainOfficialCliSkill } from "../../skills/maintenance";
-import { resolveDaemonServiceManager } from "../lifecycle/daemon-service-manager";
+import {
+  readDaemonServiceStartupPolicyCurrent,
+  resolveDaemonServiceManager,
+} from "../lifecycle/daemon-service-manager";
 import { assertDaemonMaintenanceInstallationOwnership } from "../lifecycle/daemon-service-manager-command-match";
 import {
   runPendingDaemonServiceUpdate,
@@ -105,8 +108,12 @@ async function reconcileCurrentServiceStartupPolicy(
     return;
   }
   const manager = await resolveDaemonServiceManager();
-  const status = await manager?.status();
-  if (status?.installed && status.startupPolicyCurrent === false) {
+  if (
+    (await readDaemonServiceStartupPolicyCurrent({
+      controller: manager?.controller ?? null,
+      status: (await manager?.status()) ?? null,
+    })) === false
+  ) {
     await scheduleDaemonServiceUpdate({
       targetVersion: contract.daemonVersion,
       urgency: "available",

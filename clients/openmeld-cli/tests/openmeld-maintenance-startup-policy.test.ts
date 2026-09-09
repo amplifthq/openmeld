@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   contract: vi.fn(),
   status: vi.fn(),
+  policyCurrent: vi.fn(),
   requestUpdate: vi.fn(),
   pending: vi.fn(),
   schedule: vi.fn(),
@@ -31,7 +32,11 @@ vi.mock(
   })
 );
 vi.mock("../src/local-service/lifecycle/daemon-service-manager", () => ({
-  resolveDaemonServiceManager: async () => ({ status: mocks.status }),
+  resolveDaemonServiceManager: async () => ({
+    controller: "launchd",
+    status: mocks.status,
+  }),
+  readDaemonServiceStartupPolicyCurrent: mocks.policyCurrent,
 }));
 vi.mock("../src/local-service/lifecycle/daemon-service-update-state", () => ({
   readPendingDaemonServiceUpdate: mocks.pending,
@@ -82,10 +87,8 @@ describe("maintenance of the installed Service scheduling policy", () => {
       desiredState: "background",
       daemonVersion: "0.2.2",
     });
-    mocks.status.mockResolvedValue({
-      installed: true,
-      startupPolicyCurrent: false,
-    });
+    mocks.status.mockResolvedValue({ installed: true });
+    mocks.policyCurrent.mockResolvedValue(false);
     mocks.requestUpdate.mockResolvedValue({
       status: "current",
       currentVersion: "0.2.2",
@@ -104,11 +107,10 @@ describe("maintenance of the installed Service scheduling policy", () => {
   });
 
   it.each([
-    { installed: true, startupPolicyCurrent: true },
-    { installed: true },
-    { installed: false },
-  ])("leaves current, unsupported, and absent definitions alone: %j", async (status) => {
-    mocks.status.mockResolvedValue(status);
+    true,
+    null,
+  ])("leaves current or inapplicable policies alone: %j", async (policyCurrent) => {
+    mocks.policyCurrent.mockResolvedValue(policyCurrent);
     await runOpenMeldMaintenanceWorker();
     expect(mocks.schedule).not.toHaveBeenCalled();
   });
