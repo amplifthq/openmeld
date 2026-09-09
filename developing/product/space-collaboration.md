@@ -1,10 +1,5 @@
 # Space Collaboration
 
-An explicit request to coordinate with another member assigns work to the
-addressed Agent. Delegating, contacting a teammate, checking progress, and
-collecting results are contributions in their own right; the person performing
-the underlying task does not make the coordinator merely a reference or candidate.
-
 ## Agent Context
 
 - Purpose: Define how OpenMeld Spaces support collaboration between Humans and Agent
@@ -39,6 +34,11 @@ A Space owns collaboration meaning:
 - how a message addresses Humans or Agent Profiles
 - where replies and thread messages belong
 - what final outcome the user can see
+
+An explicit request to coordinate with another member assigns work to the
+addressed Agent. Delegating, contacting a teammate, checking progress, and
+collecting results are contributions in their own right; the person performing
+the underlying task does not make the coordinator merely a reference or candidate.
 
 A Space member directory is a read projection of Space participation plus the
 mention and addressing labels needed by clients and dispatch prompts. It helps

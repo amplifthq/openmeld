@@ -1,5 +1,16 @@
 # Collaboration review context
 
+## Agent Context
+
+- Purpose: Record the contract audit and focused evidence for collaboration context improvements.
+- Read this when: Reviewing this candidate or preparing its local-component release.
+- Update this when: The candidate scope, compatibility decision, or delivery evidence changes.
+- Do not use this for: Runtime authority, general model-performance claims, or production acceptance.
+- Source of truth: This review owns candidate evidence; the linked product and architecture owners define current behavior.
+
+Status: Implementation and localhost smoke complete; production delivery pending.
+Remove after the change is delivered and its release evidence is preserved in the PR and Changelog.
+
 ## Scope and ownership
 
 The local reply coordinator retains the latest 20 distinct observed public
