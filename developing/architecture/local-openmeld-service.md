@@ -773,6 +773,15 @@ initialization succeeds, ordinary long-running work remains governed by fresh
 execution progress, explicit cancellation, and terminal results rather than a
 fixed wall-clock deadline.
 
+OpenCode server initialization gives each process the same bounded 15-second
+listener budget. A slow first process must not be killed at an earlier
+five-second threshold merely to repeat initialization. One replacement remains
+allowed before any provider session or turn command, after confirmed process
+exit, within an explicitly configured task budget when present. Health checks
+remain bounded separately. Timeout diagnostics preserve the phase, attempt and
+safe retained startup stderr without reclassifying informational log text as
+an authentication failure. They do not claim that a provider task began.
+
 Controller snapshots are local evidence. They may power Computer cards, CLI
 diagnostics, Desktop surfaces, and owner-self Agent details, but they must stay
 separate from Core-owned Wake readiness. A controller can be installed and
