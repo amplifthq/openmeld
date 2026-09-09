@@ -109,6 +109,10 @@ const THREAD_CONTEXT: NonNullable<
   threadId: "thr_11111111-1111-4111-8111-111111111111",
   rootSignalId: "signal_thread_root",
 };
+
+import { requirePersonalRemoteAgentExecution } from "../src/remote-agent/application/personal-remote-agent-space-tools";
+import { requireRemoteAgentToolCaller } from "../src/remote-agent/application/remote-agent-tool-caller";
+
 describe("Remote Agent native delivery callback service", () => {
   it("admits a personal Agent without Center designation and without Center memory", async () => {
     const harness = createSqliteD1Harness();
@@ -183,6 +187,27 @@ describe("Remote Agent native delivery callback service", () => {
       });
       expect(request?.conversationId).not.toBe(SPACE_ID);
       expect(request?.turnEnvelope.memory).toBeUndefined();
+      const execution = await requirePersonalRemoteAgentExecution(
+        env,
+        "personal-submission"
+      );
+      await expect(
+        requireRemoteAgentToolCaller({ env, context: execution.context })
+      ).resolves.toMatchObject({
+        activeOrganization: { organizationId: request?.organizationId },
+      });
+      await expect(
+        requireRemoteAgentToolCaller({
+          env,
+          context: {
+            ...execution.context,
+            actorContext: {
+              ...execution.context.actorContext,
+              openMeldProfileId: "another-agent",
+            },
+          },
+        })
+      ).rejects.toThrow("does not match");
       const messageRead = {
         submissionId: "personal-submission",
         operation: { kind: "messages" },

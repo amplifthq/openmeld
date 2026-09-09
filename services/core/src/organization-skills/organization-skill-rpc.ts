@@ -47,10 +47,10 @@ import type {
   UpdateOrganizationSkillResponse,
   UpdateOrganizationSkillRpcInput,
 } from "@openmeld/schemas/types";
-import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
 import { type CoreBindings, organizationSkillsDb } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
+import { requireRemoteAgentToolCaller } from "../remote-agent/application/remote-agent-tool-caller";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   createOrganizationSkillService,
@@ -231,7 +231,7 @@ export async function rpcReadOrganizationSkillRuntimeSnapshot(
     readOrganizationSkillRuntimeSnapshotRpcInputSchema,
     input
   );
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+  const authorization = await requireRemoteAgentToolCaller({
     context: request.context,
     env,
   });
@@ -253,7 +253,7 @@ export async function rpcRecordOrganizationSkillActivation(
     recordOrganizationSkillActivationRpcInputSchema,
     input
   );
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+  const authorization = await requireRemoteAgentToolCaller({
     context: request.context,
     env,
   });

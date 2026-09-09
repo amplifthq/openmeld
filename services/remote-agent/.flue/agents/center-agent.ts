@@ -133,7 +133,6 @@ async function prepareCenterAgentRender() {
     executionContext?.conversationIdentity?.kind === "personal_agent";
   if (personalAgent) {
     runtimeContextPlan.includeOrganizationDocuments = false;
-    runtimeContextPlan.materializeOrganizationSkills = false;
   }
   const coreWorker =
     env.OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding;

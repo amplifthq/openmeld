@@ -26,11 +26,10 @@ import { readRemoteAgentNativeDeliveryBySubmissionId } from "../infrastructure/d
 import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 
-export async function runPersonalRemoteAgentSpaceTool(
+export async function requirePersonalRemoteAgentExecution(
   env: CoreBindings,
-  value: unknown
+  submissionId: string
 ) {
-  const input = personalRemoteAgentSpaceToolRequestSchema.parse(value);
   const db = identityDb(env);
   if (!db) {
     throw new Error("remote_agent.identity_store_unavailable");
@@ -41,7 +40,7 @@ export async function runPersonalRemoteAgentSpaceTool(
   }
   const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
     db: evidenceDb,
-    submissionId: input.submissionId,
+    submissionId,
   });
   if (!delivery || delivery.status !== "accepted") {
     throw new Error("remote_agent.execution_not_active");
@@ -75,10 +74,10 @@ export async function runPersonalRemoteAgentSpaceTool(
       ownerUserId: request.agentProfileOwnerUserId,
       openMeldProfileId: delivery.profileId,
       profileKind: "agent" as const,
-      requestId: `personal-agent-tool:${input.submissionId}`,
+      requestId: `personal-agent-tool:${submissionId}`,
       ...request.spaceDispatchContext,
     },
-    agentControllerConversationId: input.submissionId,
+    agentControllerConversationId: submissionId,
   };
   const directory = await rpcGetSpaceMemberDirectory(env, {
     context,
@@ -102,6 +101,16 @@ export async function runPersonalRemoteAgentSpaceTool(
   if (!activeRequester) {
     throw new Error("remote_agent.requester_membership_revoked");
   }
+  return { context, delivery, directory, request, db, agent };
+}
+
+export async function runPersonalRemoteAgentSpaceTool(
+  env: CoreBindings,
+  value: unknown
+) {
+  const input = personalRemoteAgentSpaceToolRequestSchema.parse(value);
+  const { context, delivery, directory, request, agent } =
+    await requirePersonalRemoteAgentExecution(env, input.submissionId);
   if (input.operation.kind === "board") {
     return personalRemoteAgentSpaceToolResponseSchema.parse({
       kind: "board",

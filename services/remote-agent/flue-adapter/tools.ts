@@ -9,6 +9,7 @@ import type {
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import type { RemoteAgentExternalToolEnv } from "../agent-core/external-tools";
+import { getRemoteAgentExternalToolDefinitions } from "../agent-core/external-tools";
 import type { RemoteAgentConnectorExecutionConfig } from "../agent-core/github-tools";
 import type { RemoteAgentImagePreparer } from "../agent-core/image-understanding";
 import { getPersonalRemoteAgentTools } from "../agent-core/personal-remote-agent-tools";
@@ -49,20 +50,16 @@ export async function getRemoteAgentFlueTools(input: {
   submissionId: string;
   turnEnvelope?: RemoteAgentTurnEnvelope | null;
 }) {
-  if (input.personalAgent) {
-    return getPersonalRemoteAgentTools(input).map((definition) =>
-      toFlueTool({
-        definition,
-        storage: input.storage,
-        submissionId: input.submissionId,
-      })
-    );
-  }
   const unverifiedMember =
     input.turnEnvelope?.sender.kind === "member" &&
     !input.turnEnvelope.sender.verified;
   const definitions = [
-    ...getRemoteAgentOpenMeldToolDefinitions(input),
+    ...(input.personalAgent
+      ? [
+          ...getPersonalRemoteAgentTools(input),
+          ...getRemoteAgentExternalToolDefinitions(input),
+        ]
+      : getRemoteAgentOpenMeldToolDefinitions(input)),
     ...(unverifiedMember ? [] : (input.sandboxDefinitions ?? [])),
   ];
   const capabilityDiscoveryDefinitions =
