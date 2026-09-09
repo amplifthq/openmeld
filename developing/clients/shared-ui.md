@@ -42,6 +42,13 @@ hover or keyboard focus, with open-menu and touch-device visibility preserved.
 
 ## Import Rule
 
+`fluid/dialog` adapts the official Fluid Functionalism Base UI Dialog registry
+(September 9, 2026). It owns the small/large/extra-large width ladder and elevated
+surface, while reusing `components/dialog` for portal, focus, dismissal, and CSS
+motion. It does not add a second state or animation engine. Reduced motion
+removes panel animation. Product settings compose the existing `SettingsNav`
+and `ScrollArea`; product sections and mutation rules remain Web-owned.
+
 ### Scroll ownership
 
 `@openmeld/ui/fluid/scroll-area` owns scroll presentation. It adapts Fluid
@@ -196,6 +203,28 @@ surfaces do not acquire interactive card hover behavior.
 combobox compositions. Controlled consumers must feed pointer and delegated
 focus changes back into the same owning selection store; they must not add a
 second local hover background beside the shared indicator.
+
+`Tabs`, `TabsList`, `TabItem`, and `TabPanel` are the vendored Fluid Base UI
+Tabs composition. They reuse the shared proximity hook and surface tokens,
+with raised selection at two levels above the surrounding substrate.
+`TabsList background={false}` removes the track without flattening selection.
+The upstream hover color maps to the existing `interaction-hover` token.
+Tab content inherits its selected substrate so nested badges can rise one step.
+The eight-level context and paired class resolver live in `@openmeld/ui/lib`;
+Web's `Elevated` consumes those same primitives.
+
+Agent configuration cards use that same substrate-relative surface at offset
+two, matching the runtime Tabs selection. Cards and their shared hover
+indicators use `rounded-md`; editor popovers rise one further surface level.
+Do not reintroduce card-local border/shadow recipes or oversized radius overrides.
+
+Welcome Create/Join actions reuse Fluid Card shared-layout hover with disabled
+items excluded from highlighting. Radio selection uses the same offset-two
+surface recipe as Tabs. Web composers share `PromptInput` and a dedicated
+`styles/composer.css` finish: fixed light/dark backgrounds, one quiet inset edge,
+a small outer shadow, and `rounded-2xl` corners. Shared card token changes must
+not change this finish. Its content retains level-two context so Wake/Reference
+tokens use level three. These changes do not alter access policy or send behavior.
 
 `TabsSubtle` also exposes an `underline` variant for flat navigation embedded
 against a structural divider. It keeps selection rectangular, uses the owning

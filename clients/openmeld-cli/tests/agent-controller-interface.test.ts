@@ -30,6 +30,9 @@ import {
 } from "./fixtures/opencode-npm-latest";
 import { OPENCODE_CONNECTED_PROVIDER_LIST_RESPONSE } from "./fixtures/opencode-provider-list";
 
+const STARTUP_TIMEOUT_EVIDENCE_RE =
+  /pid=\d+, elapsedMs=\d+, stdoutBytes=0, stderrBytes=[1-9]\d*, load1m=/u;
+
 const { createOpencodeClientMock, warnDaemonEventMock } = vi.hoisted(() => ({
   createOpencodeClientMock: vi.fn(),
   warnDaemonEventMock: vi.fn(),
@@ -815,6 +818,40 @@ describe("agent controller interface inventory", () => {
       }
     }
   );
+
+  it.each([
+    { output: "Loading provider configuration", visible: true },
+    { output: "Authorization: Bearer synthetic-secret-token", visible: false },
+  ])("preserves safe startup timeout evidence ($visible)", async ({
+    output,
+    visible,
+  }) => {
+    const home = await mkdtemp(
+      join(tmpdir(), "openmeld-aci-startup-evidence-")
+    );
+    try {
+      const binPath = join(home, "opencode");
+      await writeFile(
+        binPath,
+        `#!/bin/sh\nprintf '%s\\n' '${output}' >&2\nexec sleep 60\n`,
+        "utf8"
+      );
+      await chmod(binPath, 0o755);
+      const result = await probeOpenCodeReadiness({
+        launchContract: { commandPath: binPath, kind: "executable" },
+        timeoutMs: 3000,
+      });
+      expect(result).toMatchObject({
+        auth: { status: "unknown" },
+        probeCompleted: false,
+        status: "unknown",
+      });
+      expect(result.message).toMatch(STARTUP_TIMEOUT_EVIDENCE_RE);
+      expect(result.message?.includes(output)).toBe(visible);
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
 
   it("keeps an unfinished OpenCode provider probe out of the error state", async () => {
     const home = await mkdtemp(join(tmpdir(), "openmeld-aci-opencode-error-"));

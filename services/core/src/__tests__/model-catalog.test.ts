@@ -11,7 +11,7 @@ describe("model catalog config", () => {
 
     expect(catalog.agentControllers.codex?.defaultModelId).toBe("gpt-5.6-sol");
     expect(catalog.agentControllers["claude-code"]?.defaultModelId).toBe(
-      "claude-opus-4-8"
+      "claude-opus-5"
     );
     expect(catalog.agentControllers["center-agent"]?.defaultModelId).toBe(
       "z-ai/glm-5.3-flash"

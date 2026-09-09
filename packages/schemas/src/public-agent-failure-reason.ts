@@ -810,13 +810,27 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: null,
     },
     {
+      availabilityBadgeLabel: "Connection mismatch",
+      availabilitySummary:
+        "This Agent's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
+      availabilityTooltip: "Agent connection does not match this setup",
+      body: (targetName) =>
+        `${targetName}'s saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.`,
+      kind: "system_retry",
+      patterns: [
+        "claim_eligibility.binding_runtime_mismatch",
+        "claim_eligibility.openmeld_service_runtime_id_mismatch",
+        "claim_eligibility.binding_capability_mismatch",
+        "=local_service.identity_mismatch",
+      ],
+      recoveryTarget: null,
+    },
+    {
       body: (targetName) =>
         `${targetName} is connected to an older computer setup. Update setup on this computer, then try again.`,
       kind: "local_agent_prepare",
       patterns: [
-        "claim_eligibility.binding_runtime_mismatch",
         "claim_eligibility.openmeld_service_runtime_id_missing",
-        "claim_eligibility.openmeld_service_runtime_id_mismatch",
         "claim_eligibility.openmeld_service_runtime_id_not_opaque",
         "claim_eligibility.openmeld_service_runtime_identity_invalid",
         "claim_eligibility.runtime_missing",
@@ -827,14 +841,6 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         "claim_eligibility.agent_controller_report_disabled",
         "claim_eligibility.agent_controller_report_unavailable",
       ],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
-    },
-    {
-      body: (targetName) =>
-        `${targetName} is connected to a different local agent setup. Update setup on this computer, then try again.`,
-      kind: "local_agent_prepare",
-      patterns: ["claim_eligibility.binding_capability_mismatch"],
       primaryActionId: "connect_local_agent",
       recoveryTarget: "prepare_setup",
     },
@@ -1076,17 +1082,6 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         `${targetName}'s computer is not connected to the current OpenMeld account. Reconnect the computer.`,
       kind: "local_service",
       patterns: ["=local_service.not_connected_for_account"],
-      primaryActionId: "reconnect_openmeld_service",
-      recoveryTarget: "prepare_setup",
-    },
-    {
-      availabilityBadgeLabel: "Offline",
-      availabilitySummary: "Connect your computer before this Agent can reply.",
-      availabilityTooltip: "Computer not connected",
-      body: (targetName) =>
-        `${targetName}'s computer connection does not match this Agent. Reconnect the computer.`,
-      kind: "local_service",
-      patterns: ["=local_service.identity_mismatch"],
       primaryActionId: "reconnect_openmeld_service",
       recoveryTarget: "prepare_setup",
     },

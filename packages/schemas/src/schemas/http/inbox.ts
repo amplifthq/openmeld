@@ -26,6 +26,8 @@ export const inboxViewSchema = z.enum([
   "unread",
   "needs_action",
   "updates",
+  "urgent_updates",
+  "recent_updates",
 ]);
 export const inboxAttentionSchema = z.enum(["update", "action_required"]);
 export const inboxImportanceSchema = z.enum(["normal", "urgent"]);
@@ -123,6 +125,8 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({
     kind: z.literal("space"),
+    directMessage: z.boolean().optional(),
+    agentOwnerActivity: z.boolean().optional(),
     signalId: identifierSchema.optional(),
     spaceId: identifierSchema,
     threadRootSignalId: identifierSchema.optional(),
@@ -207,6 +211,8 @@ export const inboxSummaryResponseSchema = z.strictObject({
   organizationId: identifierSchema,
   totalUnreadCount: z.number().int().nonnegative(),
   unresolvedActionCount: z.number().int().nonnegative(),
+  // Absent during receiver-first rollout means unknown, never zero.
+  unreadUrgentUpdateCount: z.number().int().nonnegative().optional(),
 });
 
 export const centerAgentInboxSummaryResponseSchema = z.strictObject({
@@ -221,6 +227,18 @@ export const spaceInboxSummaryItemSchema = z.strictObject({
 });
 
 export const spaceInboxSummaryResponseSchema = z.strictObject({
+  chatUnreadCount: z.number().int().nonnegative().optional(),
+  chatUnresolvedActionCount: z.number().int().nonnegative().optional(),
+  chatUnreadUrgentUpdateCount: z.number().int().nonnegative().optional(),
+  attention: z
+    .array(
+      z.strictObject({
+        spaceId: identifierSchema,
+        unresolvedActionCount: z.number().int().nonnegative(),
+        unreadUrgentUpdateCount: z.number().int().nonnegative(),
+      })
+    )
+    .optional(),
   // Optional for consumer-first rollout: older Core deployments omit this
   // aggregate while newer Web and Gateway readers already accept the shape.
   ordinarySpaceUnreadCount: z.number().int().nonnegative().optional(),

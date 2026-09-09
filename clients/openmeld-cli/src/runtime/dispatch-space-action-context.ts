@@ -161,6 +161,7 @@ export function readDispatchSpaceActionContextFromEnv(
   }
   const context = readDispatchSpaceActionContext(contextPath);
   assertDispatchRuntimeEnvMatchesContext({ context, env });
+  assertContextActive(context, Date.now());
   return context;
 }
 

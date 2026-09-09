@@ -173,6 +173,9 @@ export function buildNextSpaceMetaRecord(input: {
     ...(purpose ? { purpose } : {}),
     ...(creator ? { creator } : {}),
     ...(guide ? { guide } : {}),
+    ...(input.existing?.directMessage
+      ? { directMessage: input.existing.directMessage }
+      : {}),
     accessMode: resolveSpaceMetaAccessMode(input, visibility),
     ...(input.existing?.passwordProof
       ? { passwordProof: input.existing.passwordProof }
@@ -218,11 +221,8 @@ function resolveSpaceMetaVisibility(input: {
   existing: SpaceMetaRecord | null;
   metaUpdate: SpaceMetaUpdatePatch;
 }): SpaceMetaRecord["visibility"] | undefined {
-  if (input.existing?.visibility) {
-    return input.existing.visibility;
-  }
   if (input.metaUpdate.hasVisibility) {
     return input.metaUpdate.visibility;
   }
-  return undefined;
+  return input.existing?.visibility;
 }

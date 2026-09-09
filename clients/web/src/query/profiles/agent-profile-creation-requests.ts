@@ -43,6 +43,12 @@ export function agentProfileCreationRequestsQueryOptions(input: {
 			input.organizationId
 		),
 		refetchOnWindowFocus: true,
+		refetchInterval: (query) =>
+			query.state.data?.requests.some(
+				(request) => request.status === "approved"
+			)
+				? 5000
+				: false,
 		retry: baseQueryOptions.retry,
 		staleTime: 5000,
 	});

@@ -6,6 +6,7 @@ import {
 import type {
 	AgentProfileCreationApprovalPolicy,
 	AgentProfileCreationConfiguration,
+	AgentProfileCreationRequest,
 	AgentProfileCreationRequestMutationResponse,
 	CreateAgentProfileCreationRequestResponse,
 	GetAgentProfileCreationApprovalPreferenceResponse,
@@ -33,7 +34,7 @@ export async function createAgentProfileCreationRequest(input: {
 	targetOwnerUserId: string;
 }): Promise<CreateAgentProfileCreationRequestResponse> {
 	try {
-		return await createApi(
+		const result = await createApi(
 			input.organizationId
 		).createAgentProfileCreationRequest({
 			configuration: input.configuration,
@@ -46,9 +47,47 @@ export async function createAgentProfileCreationRequest(input: {
 			source: "web",
 			targetOwnerUserId: input.targetOwnerUserId,
 		});
+		return { ...result, request: await waitForCreationResult(result.request) };
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}
+}
+
+async function waitForCreationResult(
+	initial: AgentProfileCreationRequest
+): Promise<AgentProfileCreationRequest> {
+	let current = initial;
+	const deadline = Date.now() + 60_000;
+	let delayMs = 1000;
+	while (current.status === "approved" && Date.now() < deadline) {
+		await new Promise((resolve) =>
+			setTimeout(resolve, Math.min(delayMs, deadline - Date.now()))
+		);
+		if (Date.now() >= deadline) {
+			break;
+		}
+		try {
+			const response = await createApi(
+				initial.organizationId
+			).listAgentProfileCreationRequests({
+				organizationId: initial.organizationId,
+				requestId: initial.id,
+				timeoutMs: Math.max(1, Math.min(10_000, deadline - Date.now())),
+			});
+			current =
+				response.requests.find((request) => request.id === initial.id) ??
+				current;
+		} catch (error) {
+			// Losing a status read cannot turn the accepted creation into a failure.
+			console.warn(
+				"Could not refresh the accepted Agent creation request.",
+				toStructuredApiClientFailure(error).code
+			);
+			return current;
+		}
+		delayMs = Math.min(5000, delayMs + 1000);
+	}
+	return current;
 }
 
 export async function listAgentProfileCreationRequests(input: {
@@ -99,9 +138,10 @@ export async function retryAgentProfileCreationRequest(input: {
 	requestId: string;
 }): Promise<AgentProfileCreationRequestMutationResponse> {
 	try {
-		return await createApi(
+		const result = await createApi(
 			input.organizationId
 		).retryAgentProfileCreationRequest(input);
+		return { request: await waitForCreationResult(result.request) };
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}

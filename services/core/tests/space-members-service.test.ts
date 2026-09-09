@@ -3,7 +3,6 @@ import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
-import type { RuntimeTransportLookupOwnerServiceResponse } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeTransportHub } from "../src";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -51,33 +50,8 @@ const FROM_RUNTIME_EXECUTION_TARGETS_SQL_REGEX =
   /FROM\s+openMeldDaemon_runtime_registry_records\s+runtime/i;
 const TEST_RUNTIME_TRANSPORT = {
   get: () => ({
-    fetch: (url: string) => {
-      if (new URL(url).pathname !== "/lookup-owner-service") {
-        return Promise.resolve(new Response("{}", { status: 200 }));
-      }
-      return Promise.resolve(
-        Response.json({
-          online: true,
-          sessions: [
-            {
-              daemonSessionId: "session-1",
-              deviceId: "device-1",
-              lane: "dev-local",
-              connectionGeneration: 1,
-              lastHeartbeatMs: Date.now(),
-              serviceVersion: "999.0.0",
-              capabilities: {},
-              executionCompatibility: {
-                expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-                observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-                reasonCode: "daemon.runtime_contract.compatible",
-                status: "compatible",
-              },
-            },
-          ],
-        } satisfies RuntimeTransportLookupOwnerServiceResponse)
-      );
-    },
+    fetch: async () =>
+      Response.json({ online: false, reasonCode: "daemon.session.not_found" }),
   }),
   idFromName: (name: string) => name,
 } as unknown as DurableObjectNamespace<RuntimeTransportHub>;
@@ -470,6 +444,7 @@ type RouteTruthD1Database = {
 type RouteTruthD1DatabaseInput = {
   agentProfileId: string;
   agentProfileIds?: readonly string[];
+  includeExpectedRouteBindings?: boolean;
   agentControllerRef?: string;
   agentControllerReport?: {
     reasonCodes: readonly string[];
@@ -542,6 +517,7 @@ function createRouteTruthD1Database(
         agent_profile_id: queriedAgentProfileId,
         binding_id: "binding-route-truth",
         binding_state: "enabled_primary",
+        configuration_revision: 1,
         agent_controller_ref: agentControllerRef,
         created_at_ms: 1,
         created_by_profile_id: null,
@@ -577,6 +553,18 @@ function createRouteTruthD1Database(
   }
 
   function allForSql(sql: string): Record<string, unknown>[] {
+    if (sql.includes("GROUP BY runtime.device_id, runtime.lane")) {
+      return [{ device_id: deviceId, lane: runtimeLane, last_active_ms: 1 }];
+    }
+    if (
+      input.includeExpectedRouteBindings &&
+      FROM_AGENT_PROFILE_BINDINGS_SQL_REGEX.test(sql)
+    ) {
+      return agentProfileIds.map((profileId) => ({
+        ...firstForSql(sql, [profileId]),
+        configuration_revision: 1,
+      }));
+    }
     if (FROM_OWNED_DEVICES_SQL_REGEX.test(sql)) {
       return [
         {
@@ -1332,26 +1320,28 @@ describe("space-members-service", () => {
         profileName: "Previous Center Agent",
       },
     });
-    const resolveProfileById = vi.fn(() =>
+    const resolveProfilesByIds = vi.fn(() =>
       Promise.resolve({
         ok: true,
-        profile: {
-          profileId,
-          profileKind: "agent",
-          profileName: "Amplift Center Agent",
-          profileHandle: "amplift-center-agent",
-          ownerUserId: "owner-1",
-          status: "active",
+        profiles: {
+          [profileId]: {
+            profileId,
+            profileKind: "agent",
+            profileName: "Amplift Center Agent",
+            profileHandle: "amplift-center-agent",
+            ownerUserId: "owner-1",
+            status: "active",
+          },
         },
       })
     );
     const input = {
       sql: sql as unknown as SqlStorage,
       env: {
-        OPENMELD_AUTH_WORKER: { resolveProfileById },
+        OPENMELD_AUTH_WORKER: { resolveProfilesByIds },
       } as unknown as CoreBindings,
     };
-    expect(await refreshSpaceMemberNamesFromAuth(input)).toBe(true);
+    expect((await refreshSpaceMemberNamesFromAuth(input)).changed).toBe(true);
     sql.seedSignal(
       createTextSignal({
         signalId: "old-id-name",
@@ -1379,8 +1369,8 @@ describe("space-members-service", () => {
       ],
     });
     expect(JSON.stringify(directory)).toContain("Amplift Center Agent");
-    expect(await refreshSpaceMemberNamesFromAuth(input)).toBe(false);
-    expect(resolveProfileById).toHaveBeenCalledTimes(2);
+    expect((await refreshSpaceMemberNamesFromAuth(input)).changed).toBe(false);
+    expect(resolveProfilesByIds).toHaveBeenCalledTimes(2);
     upsertJoinedSpaceMember({
       sql: input.sql,
       spaceId: "repair-name",
@@ -1409,20 +1399,25 @@ describe("space-members-service", () => {
         },
       });
     }
-    const resolveProfileById = vi.fn(
-      ({ openMeldProfileId }: { openMeldProfileId: string }) =>
+    const resolveProfilesByIds = vi.fn(
+      ({ profileIds }: { profileIds: string[] }) =>
         new Promise((resolve) => {
           lateReplies.push(() =>
             resolve({
               ok: true,
-              profile: {
-                profileId: openMeldProfileId,
-                profileKind: "agent",
-                profileName: "Late Name",
-                profileHandle: "late-agent",
-                ownerUserId: "owner",
-                status: "active",
-              },
+              profiles: Object.fromEntries(
+                profileIds.map((profileId) => [
+                  profileId,
+                  {
+                    profileId,
+                    profileKind: "agent",
+                    profileName: "Late Name",
+                    profileHandle: "late-agent",
+                    ownerUserId: "owner",
+                    status: "active",
+                  },
+                ])
+              ),
             })
           );
         })
@@ -1432,12 +1427,13 @@ describe("space-members-service", () => {
       await refreshSpaceMemberNamesFromAuth({
         sql: sql as unknown as SqlStorage,
         env: {
-          OPENMELD_AUTH_WORKER: { resolveProfileById },
+          OPENMELD_AUTH_WORKER: { resolveProfilesByIds },
         } as unknown as CoreBindings,
       })
-    ).toBe(false);
+    ).toEqual({ changed: false, profileFacts: null });
     expect(Date.now() - startedAt).toBeLessThan(2000);
-    expect(resolveProfileById.mock.calls.length).toBeLessThanOrEqual(8);
+    expect(resolveProfilesByIds).toHaveBeenCalledTimes(1);
+    expect(resolveProfilesByIds.mock.calls[0]?.[0].profileIds).toHaveLength(17);
     const member = readSpaceMemberRecord(
       sql as unknown as SqlStorage,
       "agt_deadline_0"
@@ -1476,7 +1472,7 @@ describe("space-members-service", () => {
     if (!member) {
       throw new Error("Missing fixture member");
     }
-    const resolveProfileById = vi.fn(() => {
+    const resolveProfilesByIds = vi.fn(() => {
       if (scenario === "unavailable") {
         throw new Error("Auth unavailable");
       }
@@ -1494,13 +1490,15 @@ describe("space-members-service", () => {
       }
       return Promise.resolve({
         ok: true,
-        profile: {
-          profileId: scenario === "mismatch" ? "agt_other" : profileId,
-          profileKind: "agent",
-          profileName: "Center Agent",
-          profileHandle: "center-agent",
-          ownerUserId: "owner-1",
-          status: "active",
+        profiles: {
+          [profileId]: {
+            profileId: scenario === "mismatch" ? "agt_other" : profileId,
+            profileKind: "agent",
+            profileName: "Center Agent",
+            profileHandle: "center-agent",
+            ownerUserId: "owner-1",
+            status: "active",
+          },
         },
       });
     });
@@ -1508,10 +1506,10 @@ describe("space-members-service", () => {
       await refreshSpaceMemberNamesFromAuth({
         sql: sql as unknown as SqlStorage,
         env: {
-          OPENMELD_AUTH_WORKER: { resolveProfileById },
+          OPENMELD_AUTH_WORKER: { resolveProfilesByIds },
         } as unknown as CoreBindings,
       })
-    ).toBe(false);
+    ).toMatchObject({ changed: false });
     if (scenario === "concurrent rename") {
       expect(
         readSpaceMemberRecord(sql as unknown as SqlStorage, profileId)
@@ -3028,6 +3026,239 @@ describe("space-members-service", () => {
     });
   });
 
+  it.each([
+    65, 250,
+  ])("reads only five Space member Profiles on a %i-profile runtime", async (runtimeProfileCount) => {
+    const sql = new MutableSqlStorage();
+    const profileIds = Array.from(
+      { length: runtimeProfileCount },
+      (_, index) => `agt_fanout_${index}`
+    );
+    const memberIds = profileIds.slice(0, 5);
+    const routeDb = createRouteTruthD1Database({
+      agentProfileId: "agt_fanout_0",
+      agentProfileIds: profileIds,
+      includeExpectedRouteBindings: true,
+      agentControllerReport: { status: "ready", reasonCodes: [] },
+    });
+    const runtimeTransportClient = await import(
+      "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
+    );
+    const expectedRoutesService = await import(
+      "../src/agent-profile-binding/application/local-runtime-expected-routes-service"
+    );
+    const expectedRoutesRead = vi.spyOn(
+      expectedRoutesService,
+      "readLocalRuntimeExpectedRoutes"
+    );
+    const resolveProfileById = vi.fn(
+      async (input: { openMeldProfileId: string }) => ({
+        ok: true as const,
+        profile: {
+          ownerUserId: "owner-1",
+          profileHandle: input.openMeldProfileId,
+          profileId: input.openMeldProfileId,
+          profileKind: "agent" as const,
+          profileName: input.openMeldProfileId,
+          status: "active" as const,
+          defaultProjectId: null,
+        },
+      })
+    );
+    const nowIso = "2026-03-06T13:11:00.000Z";
+    const report = {
+      daemonSessionId: "session-fanout",
+      deviceId: "device-1",
+      expectedRoutesContractVersion: "v4" as const,
+      includedProfileIds: profileIds,
+      lane: "dev-local" as const,
+      reportedAtMs: Date.parse(nowIso),
+      skippedProfiles: [],
+      workingFolderObservations: profileIds.map((profileId) => ({
+        bindingId: "binding-route-truth",
+        configurationRevision: 1,
+        defaultProjectId: null,
+        localProjectBindingGeneration: null,
+        observedAtMs: Date.parse(nowIso),
+        profileId,
+        reasonCode: null,
+        source: "profile_workspace" as const,
+        status: "ready" as const,
+      })),
+    };
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportRoutesBatch"
+    ).mockResolvedValue({
+      routes: Object.fromEntries(
+        memberIds.map((profileId) => [
+          profileId,
+          {
+            capabilities: {},
+            connectionGeneration: 1,
+            daemonSessionId: "session-fanout",
+            deviceId: "device-1",
+            lane: "dev-local" as const,
+            lastHeartbeatMs: Date.parse(nowIso),
+            leaseEpoch: 1,
+            online: true as const,
+            serviceVersion: "999.0.0",
+            localWakeRouteReport: report,
+            executionCompatibility: {
+              expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+              observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+              reasonCode: "daemon.runtime_contract.compatible",
+              status: "compatible" as const,
+            },
+          },
+        ])
+      ),
+    });
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportOwnerService"
+    ).mockResolvedValue({
+      online: false,
+      reasonCode: "daemon.session.not_found",
+    });
+    const env = {
+      OPENMELD_DB: routeDb.db,
+      OPENMELD_RUNTIME_TRANSPORT: TEST_RUNTIME_TRANSPORT,
+      OPENMELD_AUTH_WORKER: { resolveProfileById },
+    } as unknown as CoreBindings;
+    await addSpaceMembersUseCase({
+      sql: sql as unknown as SqlStorage,
+      env,
+      spaceId: "space-fanout",
+      members: memberIds.map((profileId) => ({
+        profileId,
+        profileName: profileId,
+        profileKind: "agent" as const,
+        ownerUserId: "owner-1",
+        ownerName: "Owner",
+        agentControllerRef: "builtin:ops-bot",
+      })),
+      actorProfileId: "human-fanout",
+      actorDisplayName: "Owner",
+      liveSessions: [],
+      nowIso,
+    });
+    resolveProfileById.mockClear();
+    vi.mocked(routeDb.db.prepare).mockClear();
+    const snapshotInput = {
+      sql: sql as unknown as SqlStorage,
+      env,
+      spaceId: "space-fanout",
+      metaRecord: createReadinessMetaRecord("space-fanout", "human-fanout"),
+      viewerOwnerUserId: "owner-1",
+      liveSessions: [],
+      nowIso,
+    };
+    const first = await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(first.agents).toHaveLength(5);
+    expect(
+      first.agents.map((agent) => agent.agentWakeAvailability?.status)
+    ).toEqual(Array.from({ length: 5 }, () => "available_for_wake"));
+    expect(expectedRoutesRead).not.toHaveBeenCalled();
+    expect(
+      resolveProfileById.mock.calls
+        .map(([input]) => input.openMeldProfileId)
+        .sort()
+    ).toEqual([...memberIds].sort());
+    const queries = vi
+      .mocked(routeDb.db.prepare)
+      .mock.calls.map(([sql]) => sql);
+    expect(
+      queries.filter(
+        (sql) =>
+          FROM_RUNTIME_REGISTRY_SQL_REGEX.test(sql) &&
+          !FROM_RUNTIME_EXECUTION_TARGETS_SQL_REGEX.test(sql)
+      )
+    ).toHaveLength(2);
+    expect(
+      queries.filter((sql) =>
+        FROM_RUNTIME_AGENT_CONTROLLER_REPORTS_SQL_REGEX.test(sql)
+      )
+    ).toHaveLength(1);
+
+    // One target's temporary lookup failure must not block its siblings or
+    // survive into the next request as a cached failure.
+    resolveProfileById.mockRejectedValueOnce(
+      new Error("temporary Auth read failure")
+    );
+    const interrupted = await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(
+      interrupted.agents.filter(
+        (agent) => agent.agentWakeAvailability?.status === "available_for_wake"
+      )
+    ).toHaveLength(4);
+    const failed = interrupted.agents.find(
+      (agent) => agent.agentWakeAvailability?.status !== "available_for_wake"
+    );
+    expect(
+      failed?.ownerWakeDiagnostics?.agentExecutionReadiness?.facts.profile
+    ).toMatchObject({
+      active: false,
+      reasonCodes: ["agent_profile.identity_lookup_failed"],
+    });
+    expect(failed?.agentWakeAvailability?.badgeLabel).toBe("Unavailable");
+    const recovered = await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(
+      recovered.agents.map((agent) => agent.agentWakeAvailability?.status)
+    ).toEqual(Array.from({ length: 5 }, () => "available_for_wake"));
+    expect(expectedRoutesRead).not.toHaveBeenCalled();
+    expect(resolveProfileById).toHaveBeenCalledTimes(15);
+    const resolveProfilesByIds = vi.fn(
+      async ({ profileIds }: { profileIds: string[] }) => ({
+        ok: true as const,
+        profiles: Object.fromEntries(
+          profileIds.map((profileId) => [
+            profileId,
+            {
+              profileId,
+              profileKind:
+                profileId === "human-fanout"
+                  ? ("human" as const)
+                  : ("agent" as const),
+              profileName: `Current ${profileId}`,
+              profileHandle: profileId,
+              ownerUserId: "owner-1",
+              status: "active" as const,
+              defaultProjectId: null,
+            },
+          ])
+        ),
+      })
+    );
+    if (!env.OPENMELD_AUTH_WORKER) {
+      throw new Error("Missing Auth test binding");
+    }
+    Object.assign(env.OPENMELD_AUTH_WORKER, { resolveProfilesByIds });
+    const refreshed = await refreshSpaceMemberNamesFromAuth({
+      sql: snapshotInput.sql,
+      env,
+    });
+    resolveProfileById.mockClear();
+    const withNames = await listSpaceMembersSnapshotUseCase({
+      ...snapshotInput,
+      profileFacts: refreshed.profileFacts,
+    });
+    expect(resolveProfilesByIds).toHaveBeenCalledTimes(1);
+    expect(resolveProfilesByIds.mock.calls[0]?.[0].profileIds.sort()).toEqual(
+      [...memberIds, "human-fanout"].sort()
+    );
+    expect(resolveProfileById).not.toHaveBeenCalled();
+    expect(
+      withNames.agents.map((agent) => agent.agentWakeAvailability?.status)
+    ).toEqual(Array.from({ length: 5 }, () => "available_for_wake"));
+    expect(withNames.agents.map((agent) => agent.profileName).sort()).toEqual(
+      memberIds.map((id) => `Current ${id}`).sort()
+    );
+    // A later request must read Auth again, not retain the previous snapshot.
+    await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(resolveProfileById).toHaveBeenCalledTimes(5);
+  });
+
   it("preloads route evidence for multiple agent members through one batch lookup", async () => {
     const sql = new MutableSqlStorage();
     const runtimeTransportClient = await import(
@@ -4337,7 +4568,7 @@ describe("space-members-service", () => {
       label: "Available for Wake",
       reasonCode: "remote_agent.available",
       status: "available_for_wake",
-      summary: "Center Agent can answer now.",
+      summary: "This Agent can answer now.",
     });
     expect(
       JSON.stringify(hostedCenterAgent?.agentWakeAvailability)

@@ -59,7 +59,10 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: useQueryMock,
+		useQuery: (options: { enabled?: boolean }) => {
+			const result = useQueryMock(options);
+			return options.enabled === false ? { data: undefined } : result;
+		},
 	};
 });
 
@@ -248,16 +251,17 @@ describe("SpaceThreadPanel", () => {
 		const mentionButton = screen.getByRole("button", {
 			name: "Mention a member",
 		});
-		const addButton = screen.getByRole("button", { name: "Add to message" });
+		const addButton = screen.getByRole("button", { name: "Add" });
 		expect(mentionButton.parentElement?.className).toContain("gap-0");
 		expect(addButton).toHaveProperty("disabled", false);
 		expect(mentionButton).toHaveProperty("disabled", false);
 
 		view.rerenderThreadPanel({ isSendingMessage: true });
 
-		expect(
-			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", false);
+		expect(screen.getByRole("button", { name: "Add" })).toHaveProperty(
+			"disabled",
+			false
+		);
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
 		).toHaveProperty("disabled", false);
@@ -732,8 +736,8 @@ describe("SpaceThreadPanel", () => {
 		const footer = sourceMessage?.querySelector("[data-slot='message-footer']");
 		expect(footer).not.toBeNull();
 		expect(
-			within(footer as HTMLElement).getByText("Codex 5.6 Sol couldn’t reply")
-		).toBeTruthy();
+			within(footer as HTMLElement).queryByText("Codex 5.6 Sol couldn’t reply")
+		).toBeNull();
 		expect(
 			within(sourceMessage as HTMLElement).queryByText(detailedFailure)
 		).toBeNull();
@@ -742,7 +746,7 @@ describe("SpaceThreadPanel", () => {
 		).toBeNull();
 		expect(
 			within(footer as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: "View error details: Codex 5.6 Sol couldn’t reply",
 			})
 		).toBeTruthy();
 	});
@@ -769,7 +773,11 @@ describe("SpaceThreadPanel", () => {
 		expect(
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		);
 		await screen.findByRole("dialog", { name: "Message details" });
 		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
 		expect(
@@ -826,7 +834,11 @@ describe("SpaceThreadPanel", () => {
 		});
 
 		expect(screen.queryByRole("button", { name: "Recover result" })).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		);
 		const recoverButton = await screen.findByRole("button", {
 			name: "Recover result",
 		});

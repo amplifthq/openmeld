@@ -742,6 +742,7 @@ function createRuntimeAgentControllerReportDb(input: {
 async function readWakeProgressWakeStopEligibilityForTest(input: {
   db: D1Database;
   trace: SpaceDispatchTraceSnapshot;
+  publicationEligibility?: WakeStopEligibilityReadModel | null;
 }): Promise<WakeProgressItem["wakeStopEligibility"]> {
   const space = Object.create(Space.prototype) as unknown as {
     readWakeProgressWakeStopEligibility: (
@@ -751,6 +752,13 @@ async function readWakeProgressWakeStopEligibilityForTest(input: {
   Object.defineProperty(space, "bindings", {
     value: { OPENMELD_DB: input.db },
   });
+  Object.defineProperty(
+    space,
+    "readWakeProgressPublicationWakeStopEligibility",
+    {
+      value: () => Promise.resolve(input.publicationEligibility ?? null),
+    }
+  );
   return await space.readWakeProgressWakeStopEligibility(input.trace);
 }
 
@@ -4734,6 +4742,123 @@ describe("space signal service", () => {
         reliability: "unsupported",
         status: "not_eligible",
       },
+    });
+  });
+
+  it.each([
+    "result_accepted",
+    "failed_retryable",
+  ] as const)("uses Coordinator publication eligibility for %s with an expired controller report", async (status) => {
+    const trace = createRunningRuntimeCoordinatorTrace();
+    if (!trace.runtimeCoordinatorExecution) {
+      throw new Error("Missing execution fixture");
+    }
+    trace.runtimeCoordinatorExecution.status = status;
+    const db = createRuntimeAgentControllerReportDb({
+      agentControllerInterface: createAgentControllerInterfaceSnapshot({
+        cancel: false,
+        interrupt: false,
+      }),
+      expiresAtMs: Date.now() - 60_000,
+    });
+    const publicationEligibility = {
+      controlMode: "openmeld_owned_publication_cancel",
+      reasonCode: null,
+      reliability: "openmeld_owned_publication",
+      status: "eligible",
+    } satisfies WakeStopEligibilityReadModel;
+    expect(
+      await readWakeProgressWakeStopEligibilityForTest({
+        db,
+        trace,
+        publicationEligibility,
+      })
+    ).toEqual(publicationEligibility);
+    expect(db.prepare).not.toHaveBeenCalled();
+    expect(
+      await readWakeProgressWakeStopEligibilityForTest({
+        db,
+        trace,
+        publicationEligibility: null,
+      })
+    ).toBeNull();
+    expect(db.prepare).not.toHaveBeenCalled();
+  });
+
+  it("routes publication eligibility to the execution owner's Coordinator and fails closed on an older receiver", async () => {
+    const execution =
+      createRunningRuntimeCoordinatorTrace().runtimeCoordinatorExecution;
+    if (!execution) {
+      throw new Error("Missing execution fixture");
+    }
+    execution.status = "result_accepted";
+    const eligibility = {
+      controlMode: "openmeld_owned_publication_cancel",
+      reasonCode: null,
+      reliability: "openmeld_owned_publication",
+      status: "eligible",
+    } satisfies WakeStopEligibilityReadModel;
+    const fetch = vi.fn((_url: string, _init: RequestInit) =>
+      Promise.resolve(Response.json(eligibility))
+    );
+    const idFromName = vi.fn((owner: string) => owner);
+    const readRuntimeOwnerUserId = vi.fn((_runtimeId: string) =>
+      Promise.resolve("owner-1")
+    );
+    const space = Object.create(Space.prototype) as {
+      readWakeProgressWakeStopEligibility(
+        trace: SpaceDispatchTraceSnapshot
+      ): Promise<WakeStopEligibilityReadModel | null>;
+    };
+    Object.defineProperties(space, {
+      bindings: {
+        value: {
+          OPENMELD_RUNTIME_TRANSPORT: { idFromName, get: () => ({ fetch }) },
+        },
+      },
+      readRuntimeOwnerUserId: { value: readRuntimeOwnerUserId },
+    });
+    const trace = {
+      ...createRunningRuntimeCoordinatorTrace(),
+      runtimeCoordinatorExecution: execution,
+    };
+    expect(await space.readWakeProgressWakeStopEligibility(trace)).toEqual(
+      eligibility
+    );
+    expect(readRuntimeOwnerUserId).toHaveBeenCalledWith(
+      execution.openMeldServiceRuntimeId.value
+    );
+    expect(idFromName).toHaveBeenCalledWith("owner-1");
+    expect(fetch.mock.calls[0]?.[0]).toBe(
+      "https://runtime-transport.internal/runtime-coordinator/wake-stop/publication-eligibility"
+    );
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1].body))).toMatchObject({
+      ownerUserId: "owner-1",
+      runtimeCoordinatorExecutionId: execution.runtimeCoordinatorExecutionId,
+      dispatchId: execution.dispatchId,
+      targetProfileId: execution.targetProfileId,
+      sourceClientMessageId: execution.sourceClientMessageId,
+      spaceId: execution.spaceId,
+    });
+    fetch.mockResolvedValue(
+      Response.json({ ok: false, code: "not_found" }, { status: 404 })
+    );
+    expect(await space.readWakeProgressWakeStopEligibility(trace)).toBeNull();
+  });
+
+  it("keeps a running Wake ineligible when its controller report expires", async () => {
+    const eligibility = await readWakeProgressWakeStopEligibilityForTest({
+      db: createRuntimeAgentControllerReportDb({
+        agentControllerInterface: createAgentControllerInterfaceSnapshot({
+          cancel: true,
+        }),
+        expiresAtMs: Date.now() - 60_000,
+      }),
+      trace: createRunningRuntimeCoordinatorTrace(),
+    });
+    expect(eligibility).toMatchObject({
+      status: "not_eligible",
+      reasonCode: "agent_controller_interface.missing",
     });
   });
 

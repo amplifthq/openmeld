@@ -141,11 +141,13 @@ describe("HumanProfileDetailsPopover", () => {
 
 	it("uses the same compact avatar and primary action for Agent details", () => {
 		render(
-			<AgentProfileDetailsContent
-				chatHref="/o/acme/direct-messages/agent-codex"
-				details={buildAgentDetails()}
-				entry={buildAgentEntry()}
-			/>
+			<QueryClientProvider client={new QueryClient()}>
+				<AgentProfileDetailsContent
+					chatHref="/o/acme/direct-messages/agent-codex"
+					details={buildAgentDetails()}
+					entry={buildAgentEntry()}
+				/>
+			</QueryClientProvider>
 		);
 
 		const avatar = screen.getByTestId(

@@ -90,6 +90,7 @@ import type {
 	SpaceWakeStopRequestStatus,
 	SpaceWakeStopTargetResolution,
 } from "#/lib/spaces/wake-stop-target";
+import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
@@ -1184,6 +1185,7 @@ export type SpaceLandingController =
 				password?: string;
 			}) => Promise<void>;
 			onUpdateSpaceName: (name: string) => Promise<void>;
+			onSetVisibility: (visibility: "public" | "private") => Promise<void>;
 			onThreadComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 			onThreadMentionButtonClick: () => void;
 			onThreadSend: (options?: SpaceComposerSendOptions) => Promise<void>;
@@ -2378,6 +2380,22 @@ export function useSpaceLandingController(input: {
 			});
 		},
 		onSetAccessMode: handleSetAccessMode,
+		onSetVisibility: async (visibility) => {
+			await createUnscopedWebSpaceApi({
+				openMeldProfileId: input.profileId,
+			}).updateMeta({ spaceId: input.spaceId, visibility });
+			await Promise.all([
+				statusQuery.refetch(),
+				queryClient.invalidateQueries({ queryKey: accountSpaceQueryKeys.all }),
+				...(input.organizationId
+					? [
+							queryClient.invalidateQueries({
+								queryKey: organizationQueryKeys.spaces(input.organizationId),
+							}),
+						]
+					: []),
+			]);
+		},
 		onUpdateSpaceName: handleUpdateSpaceName,
 		onThreadComposerEditorChange: threadController.onThreadComposerEditorChange,
 		onThreadMentionButtonClick: threadController.onThreadMentionButtonClick,

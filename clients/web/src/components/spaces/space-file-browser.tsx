@@ -36,6 +36,7 @@ import {
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { type DragEvent, type RefObject, useState } from "react";
+import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import {
 	formatFileSize,
 	formatShortDate,
@@ -608,6 +609,9 @@ function renderSpaceFileEntryIcon(entry: SpaceFileEntry) {
 		return (
 			<FolderIcon aria-hidden="true" className="size-4.5" weight="duotone" />
 		);
+	}
+	if (entry.latestRevision.mimeType === "text/html") {
+		return <SpaceFileHtmlBadge />;
 	}
 	if (isSpaceFileTextEditable(entry.latestRevision)) {
 		return (

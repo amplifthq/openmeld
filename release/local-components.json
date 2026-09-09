@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T09:46:57.676Z",
+  "updatedAt": "2026-09-09T12:32:04.856Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.174",
-      "updatePolicy": "required",
-      "reason": "The explicit Space recipient command contract replaces inline recipient instructions. Upgrade the CLI to use the current authoring contract; structured transport remains compatible during the staged rollout."
+      "packageVersion": "0.3.190",
+      "updatePolicy": "available",
+      "reason": "Space history retains attachment references and explicit acting identity; existing CLI commands and cloud contracts remain compatible in both directions."
     },
     "service": {
-      "bundleHash": "9b5b9c989419d8664eb16553e5299e831fc09861aa61598d9dae1793ac29a047",
-      "bundleVersion": "0.3.174",
+      "bundleHash": "50a4fd96f83da77c7d973e73474e91f29db4e38cab3efd07116cfbca46c15dee",
+      "bundleVersion": "0.3.190",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Route registration and discovery are decoupled without changing the workstation execution epoch, Task Handle callbacks, or final outcome protocol; old and new Service versions remain interoperable."
+      "reason": "Collaboration review and handoff context improve without changing Wake or Space-action contracts; existing Services remain compatible with persistent-channel Core delivery."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",

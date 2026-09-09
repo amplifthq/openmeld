@@ -9,13 +9,17 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { userInfo } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { WindowsUserTaskRequest } from "@openmeld/schemas";
 import { sleep } from "@openmeld/utils";
 import type { DaemonServiceController } from "../../config/daemon-state";
 import { daemonRuntimeRootPath } from "../../config/daemon-state";
 import type { OpenMeldEnvironmentTarget } from "../../config/openmeld-environment-target";
 import type { OpenMeldPathResolutionInput } from "../../config/paths";
+import {
+  resolveOpenMeldEnvPreset,
+  resolveOpenMeldRootDir,
+} from "../../config/paths";
 import { assertSafePublishedProductionServiceRegistrationMutation } from "../../config/published-production-safety";
 import { resolveDaemonServiceIdentity } from "./daemon-service-identity";
 import {
@@ -138,6 +142,9 @@ const LAUNCHD_STATE_PATTERN = /state\s*=\s*running/i;
 const LAUNCHD_DISABLED_SERVICES_ENTRY_PATTERN =
   /"([^"]+)"\s*=>\s*(enabled|disabled)/i;
 const LAUNCHD_STRING_PATTERN = /<string>([^<]+)<\/string>/g;
+const LAUNCHD_SERVICE_PROCESS_TYPE = "Interactive";
+const LAUNCHD_PROCESS_TYPE_PATTERN =
+  /<key>ProcessType<\/key>\s*<string>([^<]+)<\/string>/;
 const LAUNCHD_ENVIRONMENT_BLOCK_PATTERN =
   /<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/;
 const WINDOWS_LINE_SEPARATOR_PATTERN = /\r?\n/;
@@ -353,6 +360,26 @@ function isLaunchdServiceMissing(result: RunCommandResult): boolean {
   );
 }
 
+export async function waitForLaunchdJobUnloaded(
+  serviceKey: string
+): Promise<void> {
+  await waitForCondition({
+    until: async () => {
+      const result = await runCommand({
+        command: "launchctl",
+        args: ["print", serviceKey],
+        throwOnError: false,
+      });
+      if (result.exitCode !== 0 && !isLaunchdServiceMissing(result)) {
+        throw buildServiceManagerProbeError("launchctl print", result);
+      }
+      return isLaunchdServiceMissing(result);
+    },
+    onTimeout: () =>
+      new Error(`Timed out waiting for launchd job ${serviceKey} to unload.`),
+  });
+}
+
 function formatManagerStatusDetails(
   status: DaemonServiceManagerRuntimeStatus
 ): string {
@@ -448,6 +475,41 @@ function sanitizeControlCharacters(value: string): string {
   return sanitized;
 }
 
+export function matchesLaunchdServiceStartupPolicy(
+  definition: string
+): boolean {
+  return (
+    LAUNCHD_PROCESS_TYPE_PATTERN.exec(definition)?.[1] ===
+    LAUNCHD_SERVICE_PROCESS_TYPE
+  );
+}
+
+/** Reads only the owned definition; callers report drift through existing diagnostics. */
+export async function readDaemonServiceStartupPolicyCurrent(input: {
+  controller: DaemonServiceController | null;
+  status: DaemonServiceManagerRuntimeStatus | null;
+}): Promise<boolean | null> {
+  if (
+    input.controller !== "launchd" ||
+    !input.status?.installed ||
+    !input.status.definitionPath
+  ) {
+    return null;
+  }
+  const definition = await readFile(input.status.definitionPath, "utf8").catch(
+    (error: NodeJS.ErrnoException) => {
+      // An uninstalled definition is not evidence of a scheduling-policy mismatch.
+      if (error.code === "ENOENT") {
+        return null;
+      }
+      throw error;
+    }
+  );
+  return definition === null
+    ? null
+    : matchesLaunchdServiceStartupPolicy(definition);
+}
+
 export function buildLaunchdPlist(
   spec: DaemonServiceCommandSpec,
   pathInput: OpenMeldPathResolutionInput = {}
@@ -487,6 +549,8 @@ ${args}
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>ProcessType</key>
+  <string>${LAUNCHD_SERVICE_PROCESS_TYPE}</string>
   <key>ThrottleInterval</key>
   <integer>${DAEMON_SERVICE_RESTART_BACKOFF_SECONDS}</integer>
   <key>EnvironmentVariables</key>
@@ -1174,8 +1238,15 @@ function buildLaunchdManager(
     waitUntilStopped: async () => {
       await waitForCondition({
         until: async () => {
-          const status = await buildLaunchdManager(pathInput).status();
-          return !status.running;
+          const result = await runCommand({
+            command: "launchctl",
+            args: ["print", launchdServiceKey],
+            throwOnError: false,
+          });
+          if (result.exitCode !== 0 && !isLaunchdServiceMissing(result)) {
+            throw buildServiceManagerProbeError("launchctl print", result);
+          }
+          return isLaunchdServiceMissing(result);
         },
         onTimeout: async () => {
           const status = await buildLaunchdManager(pathInput).status();
@@ -1561,40 +1632,64 @@ export function guardDaemonServiceManagerMutations(
   manager: DaemonServiceManager,
   pathInput: OpenMeldPathResolutionInput = {}
 ): DaemonServiceManager {
-  const assertMutationAllowed = (operation: string): void => {
+  const assertMutationAllowed = async (operation: string): Promise<void> => {
     assertSafePublishedProductionServiceRegistrationMutation(
       operation,
       pathInput
     );
+    if (resolveOpenMeldEnvPreset(pathInput) !== "dev-local") {
+      return;
+    }
+    const status = await manager.status();
+    if (!status.installed) {
+      return;
+    }
+    const env =
+      status.commandSpec?.env ??
+      (status.definitionPath
+        ? parseDaemonServiceEnvironmentFromDefinition({
+            controller: manager.controller,
+            definition: await readFile(status.definitionPath, "utf8"),
+          })
+        : {});
+    if (
+      env.OPENMELD_ENV_PRESET !== "dev-local" ||
+      !env.OPENMELD_HOME ||
+      resolve(env.OPENMELD_HOME) !== resolve(resolveOpenMeldRootDir(pathInput))
+    ) {
+      throw new Error(
+        `Cannot ${operation} OpenMeld Service: its registered development home does not match this environment.`
+      );
+    }
   };
   return {
     ...manager,
     install: async (spec) => {
-      assertMutationAllowed("install");
+      await assertMutationAllowed("install");
       await manager.install(spec);
     },
     uninstall: async () => {
-      assertMutationAllowed("uninstall");
+      await assertMutationAllowed("uninstall");
       await manager.uninstall();
     },
     enableAutostart: async () => {
-      assertMutationAllowed("enable autostart for");
+      await assertMutationAllowed("enable autostart for");
       await manager.enableAutostart();
     },
     disableAutostart: async () => {
-      assertMutationAllowed("disable autostart for");
+      await assertMutationAllowed("disable autostart for");
       await manager.disableAutostart();
     },
     start: async () => {
-      assertMutationAllowed("start");
+      await assertMutationAllowed("start");
       await manager.start();
     },
     stop: async () => {
-      assertMutationAllowed("stop");
+      await assertMutationAllowed("stop");
       await manager.stop();
     },
     deactivate: async () => {
-      assertMutationAllowed("deactivate");
+      await assertMutationAllowed("deactivate");
       await manager.deactivate();
     },
   };

@@ -71,7 +71,10 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: useQueryMock,
+		useQuery: (options: { enabled?: boolean }) => {
+			const result = useQueryMock(options);
+			return options.enabled === false ? { data: undefined } : result;
+		},
 	};
 });
 
@@ -764,10 +767,10 @@ describe("SpaceConversationPanel", () => {
 			if (inFlowPill) {
 				expect(inFlowPill.className).not.toContain("sr-only");
 				expect(inFlowPill.firstElementChild?.className).toContain(
-					"bg-popover/60"
+					"conversation-floating-surface"
 				);
 				expect(inFlowPill.firstElementChild?.className).toContain(
-					"backdrop-blur-sm"
+					"conversation-floating-surface"
 				);
 			}
 			expect(
@@ -780,11 +783,9 @@ describe("SpaceConversationPanel", () => {
 		);
 		expect(stickyDatePills).toHaveLength(1);
 		for (const pillItem of stickyDatePills) {
-			expect(pillItem?.className).toContain("sticky");
+			expect(pillItem?.className).toContain("absolute");
 			expect(pillItem?.className).toContain("h-8");
-			expect(pillItem?.className).toContain("-mb-8");
 			expect(pillItem?.className).toContain("max-lg:h-11");
-			expect(pillItem?.className).toContain("max-lg:-mb-11");
 			expect(pillItem?.className).toContain(
 				"top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)]"
 			);
@@ -794,20 +795,20 @@ describe("SpaceConversationPanel", () => {
 		const stickyPillViewport = document.querySelector(
 			"[data-slot='conversation-date-pill-viewport']"
 		);
-		expect(stickyPillViewport?.className).toContain("h-[calc(100%+0.125rem)]");
-		expect(stickyPillViewport?.className).toContain("pb-0.5");
+		expect(stickyPillViewport?.className).toContain("h-[calc(100%+0.25rem)]");
+		expect(stickyPillViewport?.className).toContain("py-0.5");
 		expect(stickyPillViewport?.className).toContain("overflow-hidden");
 		expect(stickyDatePills[0]?.className).not.toContain("overflow-clip");
 		expect(
 			document.querySelector(
 				"[data-slot='conversation-date-pill-track'] > :first-child > *"
 			)?.className
-		).toContain("bg-popover/60");
+		).toContain("conversation-floating-surface");
 		expect(
 			document.querySelector(
 				"[data-slot='conversation-date-pill-track'] > :first-child > *"
 			)?.className
-		).toContain("backdrop-blur-sm");
+		).toContain("conversation-floating-surface");
 
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
@@ -908,7 +909,7 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			secondDateMarker.querySelector("[data-conversation-date-marker-pill]")
 				?.firstElementChild?.className
-		).toContain("bg-popover/60");
+		).toContain("conversation-floating-surface");
 
 		secondDateMarkerTop = 10;
 		fireEvent.scroll(conversationLog);
@@ -939,7 +940,7 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			firstDateMarker.querySelector("[data-conversation-date-marker-pill]")
 				?.firstElementChild?.className
-		).toContain("bg-popover/60");
+		).toContain("conversation-floating-surface");
 
 		const unreadBoundary = screen.getByRole("separator", {
 			name: "New messages",
@@ -1150,14 +1151,17 @@ describe("SpaceConversationPanel", () => {
 			name: OPEN_DATE_NAVIGATION_NAME_PATTERN,
 		});
 		fireEvent.click(stickyDateNavigationButton);
-		expect(stickyDateNavigationButton.className).toContain("bg-popover/60");
-		expect(stickyDateNavigationButton.className).toContain("backdrop-blur-sm");
 		expect(stickyDateNavigationButton.className).toContain(
-			"hover:bg-popover/80"
+			"conversation-floating-surface"
 		);
-		expect(stickyDateNavigationButton.className).not.toContain(
-			"hover:bg-muted"
+		expect(stickyDateNavigationButton.className).toContain(
+			"conversation-floating-surface"
 		);
+		expect(
+			stickyDateNavigationButton.closest(
+				'[data-slot="message-scroller-viewport"]'
+			)
+		).toBeNull();
 		const lastWeekButton = screen.getByRole("button", { name: "Last week" });
 		const chooseDateButton = screen.getByRole("button", {
 			name: "Choose a date…",
@@ -1810,8 +1814,8 @@ describe("SpaceConversationPanel", () => {
 		expect(agentMessage?.textContent).toContain("Agent reply");
 		expect(agentHeader?.className ?? "").toContain("mb-1.5");
 		expect(agentHeader?.className ?? "").not.toContain("hover:bg-muted/35");
-		expect(agentRow?.className).toContain("hover:bg-muted/35");
-		expect(agentRow?.className).toContain("focus-within:bg-muted/35");
+		expect(agentRow?.className).toContain("hover:bg-transparent");
+		expect(agentRow?.className).toContain("focus-within:bg-transparent");
 		expect(agentRow?.className).toContain("rounded-md");
 		expect(selfMessage?.className).not.toContain("hover:bg-muted/35");
 		expect(selfMessage?.className).not.toContain("focus-within:bg-muted/35");
@@ -1823,8 +1827,8 @@ describe("SpaceConversationPanel", () => {
 		expect(selfMessage?.getAttribute("data-space-self-message")).toBe("true");
 		expect(selfMessage?.textContent).toContain("Felix");
 		expect(selfMessage?.textContent).toContain("Self message");
-		expect(selfRow?.className).toContain("hover:bg-muted/35");
-		expect(selfRow?.className).toContain("focus-within:bg-muted/35");
+		expect(selfRow?.className).toContain("hover:bg-transparent");
+		expect(selfRow?.className).toContain("focus-within:bg-transparent");
 		expect(selfRow?.className).toContain("rounded-md");
 		expect(
 			screen.getByRole("log", { name: "Conversation history" }).className
@@ -2073,9 +2077,23 @@ describe("SpaceConversationPanel", () => {
 			readOnly: false,
 		});
 
-		fireEvent.click(screen.getByRole("button", { name: "Add to message" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add" }));
 
 		expect(await screen.findByRole("menuitem", { name: "Files" })).toBeTruthy();
+	});
+
+	it("opens the existing member picker from Add", async () => {
+		const onAddPeopleOrAgents = vi.fn();
+		renderSpaceConversationPanel({
+			allowedActions: ["post_message"],
+			onAddPeopleOrAgents,
+			readOnly: false,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Add" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "People or agents" })
+		);
+		expect(onAddPeopleOrAgents).toHaveBeenCalledOnce();
 	});
 
 	it("opens a conversation file in the same Space Files view", () => {
@@ -2129,7 +2147,7 @@ describe("SpaceConversationPanel", () => {
 		const mentionButton = screen.getByRole("button", {
 			name: "Mention a member",
 		});
-		const addButton = screen.getByRole("button", { name: "Add to message" });
+		const addButton = screen.getByRole("button", { name: "Add" });
 		expect(mentionButton.parentElement?.className).toContain("gap-0");
 		expect(addButton).toHaveProperty("disabled", false);
 		expect(mentionButton).toHaveProperty("disabled", false);
@@ -2146,9 +2164,10 @@ describe("SpaceConversationPanel", () => {
 			/>
 		);
 
-		expect(
-			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", false);
+		expect(screen.getByRole("button", { name: "Add" })).toHaveProperty(
+			"disabled",
+			false
+		);
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
 		).toHaveProperty("disabled", false);
@@ -2735,10 +2754,9 @@ describe("SpaceConversationPanel", () => {
 			"message-scroller-button"
 		);
 		expect(jumpButton.getAttribute("data-variant")).toBe("secondary");
-		expect(jumpButton.className).toContain("border-border");
-		expect(jumpButton.className).toContain("bg-popover/60");
-		expect(jumpButton.className).toContain("backdrop-blur-sm");
-		expect(jumpButton.className).toContain("shadow-xs");
+		expect(jumpButton.className).toContain("border-transparent");
+		expect(jumpButton.className).toContain("conversation-floating-surface");
+		expect(jumpButton.className).toContain("conversation-floating-surface");
 		expect(jumpButton.className).not.toContain("ring-background");
 		expect(jumpButton.className).not.toContain("shadow-lg");
 		expect(jumpButton.className).toContain("data-[active=false]:blur-[6px]");
@@ -3243,6 +3261,57 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 	});
 
+	it.each([
+		false,
+		true,
+	])("keeps the same answer DOM row when a Local Agent finishes (DM=%s)", (isDirectMessage) => {
+		const streaming = createTimelineItem({
+			id: "stream:local-agent",
+			wakeDispatchId: "dispatch-1",
+			actorProfileKind: "agent",
+			actorProfileId: TARGET_PROFILE_ID,
+			actorName: "Runner",
+			text: "",
+			agentStreamState: {
+				reasonCode: null,
+				sequence: 1,
+				status: "streaming",
+				streamId: "local-agent:10:dispatch-1:9:attempt-1",
+			},
+		});
+		const rendered = renderSpaceConversationPanel({
+			isDirectMessage,
+			timelineItems: [streaming],
+		});
+		const row = screen
+			.getByRole("status", { name: "Agent is working" })
+			.closest("[data-message-id]");
+		expect(row).not.toBeNull();
+		rendered.rerender(
+			<SpaceConversationPanel
+				{...createSpaceConversationPanelProps({
+					isDirectMessage,
+					timelineItems: [
+						{
+							...streaming,
+							id: "durable-final",
+							text: "Ready to review.",
+							agentStreamState: undefined,
+							isAgentFinalReply: true,
+						},
+					],
+				})}
+			/>
+		);
+		expect(
+			screen.queryByRole("status", { name: "Agent is working" })
+		).toBeNull();
+		expect(
+			screen.getByText("Ready to review.").closest("[data-message-id]")
+		).toBe(row);
+		expect(row?.getAttribute("data-message-id")).toBe("durable-final");
+	});
+
 	it("aligns an empty local Agent working row with the profile name and separates it from the header", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
@@ -3643,8 +3712,8 @@ describe("SpaceConversationPanel", () => {
 			"[data-slot='message-footer']"
 		) as HTMLElement;
 		expect(
-			within(footer).getByText("Codex 5.6 Sol couldn’t reply")
-		).toBeTruthy();
+			within(footer).queryByText("Codex 5.6 Sol couldn’t reply")
+		).toBeNull();
 		expect(
 			within(sourceMessage as HTMLElement).queryByText(detailedFailure)
 		).toBeNull();
@@ -3652,7 +3721,7 @@ describe("SpaceConversationPanel", () => {
 			within(sourceMessage as HTMLElement).queryByTestId("space-outcome-row")
 		).toBeNull();
 		const details = within(footer).getByRole("button", {
-			name: "Message details",
+			name: "View error details: Codex 5.6 Sol couldn’t reply",
 		});
 		expect(details.className).toContain("text-destructive");
 		fireEvent.click(details);
@@ -3711,7 +3780,11 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		);
 		await screen.findByRole("dialog", { name: "Message details" });
 		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
 		expect(
@@ -3751,7 +3824,12 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(screen.getByText("2 agents couldn’t reply")).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "View error details: 2 agents couldn’t reply",
+			})
+		).toBeTruthy();
+		expect(screen.queryByText("2 agents couldn’t reply")).toBeNull();
 		expect(screen.queryByTestId("space-outcome-row")).toBeNull();
 		expect(screen.queryByText("Codex 5.6 Sol couldn’t reply")).toBeNull();
 		expect(screen.queryByText("Claude Opus 4.8 couldn’t reply")).toBeNull();
@@ -3788,7 +3866,11 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(screen.getByText("Agent couldn’t reply")).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		).toBeTruthy();
 		expect(screen.getByText("Claude was stopped by the user.")).toBeTruthy();
 		expect(screen.getAllByTestId("space-outcome-row")).toHaveLength(1);
 		expect(
@@ -4094,7 +4176,7 @@ describe("SpaceConversationPanel", () => {
 		expect(dialog.queryByText("Now")).toBeNull();
 	});
 
-	it("shows agent controller metadata without owner repetition", () => {
+	it("attributes Local Agent messages to the owner", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -4118,9 +4200,7 @@ describe("SpaceConversationPanel", () => {
 			screen.getByTestId("space-agent-profile-avatar-agent-profile-1")
 		).toBeTruthy();
 		expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
-		expect(
-			screen.getByText("Controlled by Felix's MacBook Pro Codex")
-		).toBeTruthy();
+		expect(screen.getByText("Mira")).toBeTruthy();
 		expect(screen.queryByText("Owned by Mira")).toBeNull();
 		expect(
 			screen.queryByText(

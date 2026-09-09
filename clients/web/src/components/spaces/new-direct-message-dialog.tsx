@@ -25,6 +25,8 @@ import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SpaceProfileIcon } from "./space-profile-icon";
 
 export function NewDirectMessageDialog(input: {
+	groupId?: string;
+	onCreated?: (spaceId: string) => void | Promise<void>;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
@@ -47,6 +49,7 @@ export function NewDirectMessageDialog(input: {
 		onError: (error) =>
 			toast.error(resolveDirectMessageOpenErrorMessage(error)),
 		onSuccess: async (response) => {
+			await input.onCreated?.(response.spaceId);
 			await client.invalidateQueries({
 				queryKey: accountSpaceQueryKeys.all,
 				refetchType: "none",
@@ -105,7 +108,7 @@ export function NewDirectMessageDialog(input: {
 						navigate({
 							to: buildOrganizationCenterAgentChatPath(
 								currentOrganization.slug,
-								{ draft: "new" }
+								{ draft: "new", group: input.groupId }
 							),
 						});
 					}}

@@ -20,6 +20,7 @@ import { Route as ChangelogRouteImport } from './routes/changelog'
 import { Route as CheckEmailRouteImport } from './routes/check-email'
 import { Route as DesktopRouteImport } from './routes/desktop'
 import { Route as DeviceRouteImport } from './routes/device'
+import { Route as FilePreviewRouteImport } from './routes/file-preview'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as GuideDotmdRouteImport } from './routes/guide[.md]'
 import { Route as InvitationRequestsRouteImport } from './routes/invitation-requests'
@@ -184,6 +185,11 @@ const DesktopRoute = DesktopRouteImport.update({
 const DeviceRoute = DeviceRouteImport.update({
   id: '/device',
   path: '/device',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FilePreviewRoute = FilePreviewRouteImport.update({
+  id: '/file-preview',
+  path: '/file-preview',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
@@ -789,6 +795,7 @@ export interface FileRoutesByFullPath {
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
   '/device': typeof DeviceRouteWithChildren
+  '/file-preview': typeof FilePreviewRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
   '/invitation-requests': typeof InvitationRequestsRoute
@@ -911,6 +918,7 @@ export interface FileRoutesByTo {
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
   '/device': typeof DeviceRouteWithChildren
+  '/file-preview': typeof FilePreviewRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
   '/invitation-requests': typeof InvitationRequestsRoute
@@ -1025,6 +1033,7 @@ export interface FileRoutesById {
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
   '/device': typeof DeviceRouteWithChildren
+  '/file-preview': typeof FilePreviewRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
   '/invitation-requests': typeof InvitationRequestsRoute
@@ -1150,6 +1159,7 @@ export interface FileRouteTypes {
     | '/check-email'
     | '/desktop'
     | '/device'
+    | '/file-preview'
     | '/forgot-password'
     | '/guide.md'
     | '/invitation-requests'
@@ -1272,6 +1282,7 @@ export interface FileRouteTypes {
     | '/check-email'
     | '/desktop'
     | '/device'
+    | '/file-preview'
     | '/forgot-password'
     | '/guide.md'
     | '/invitation-requests'
@@ -1385,6 +1396,7 @@ export interface FileRouteTypes {
     | '/check-email'
     | '/desktop'
     | '/device'
+    | '/file-preview'
     | '/forgot-password'
     | '/guide.md'
     | '/invitation-requests'
@@ -1509,6 +1521,7 @@ export interface RootRouteChildren {
   CheckEmailRoute: typeof CheckEmailRoute
   DesktopRoute: typeof DesktopRouteWithChildren
   DeviceRoute: typeof DeviceRouteWithChildren
+  FilePreviewRoute: typeof FilePreviewRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   GuideDotmdRoute: typeof GuideDotmdRoute
   InvitationRequestsRoute: typeof InvitationRequestsRoute
@@ -1623,6 +1636,13 @@ declare module '@tanstack/react-router' {
       path: '/device'
       fullPath: '/device'
       preLoaderRoute: typeof DeviceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/file-preview': {
+      id: '/file-preview'
+      path: '/file-preview'
+      fullPath: '/file-preview'
+      preLoaderRoute: typeof FilePreviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/forgot-password': {
@@ -2759,6 +2779,7 @@ const rootRouteChildren: RootRouteChildren = {
   CheckEmailRoute: CheckEmailRoute,
   DesktopRoute: DesktopRouteWithChildren,
   DeviceRoute: DeviceRouteWithChildren,
+  FilePreviewRoute: FilePreviewRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   GuideDotmdRoute: GuideDotmdRoute,
   InvitationRequestsRoute: InvitationRequestsRoute,

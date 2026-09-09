@@ -28,7 +28,8 @@ export async function saveAgentProfileConnection(input: {
 		deviceId: input.deviceId,
 		organizationId: input.organizationId,
 		runtimeLane: input.runtimeLane,
-		writeMode: input.action.intent === "reconnect" ? "reconnect" : "ensure",
+		// Recovery can finish first setup, never replace an existing execution target.
+		writeMode: "ensure",
 	});
 	if (bindingResult.status !== "accepted") {
 		throw new Error(formatWebAgentProfileRuntimeBindingFailure(bindingResult));

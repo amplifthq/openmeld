@@ -40,6 +40,7 @@ export async function verifyLarkPlatformWebhook(input: {
   input: LarkPlatformWebhookVerificationInput;
   waitUntil: (promise: Promise<unknown>) => void;
 }): Promise<LarkPlatformWebhookVerificationResponse> {
+  const startedAtMs = Date.now();
   const request = larkPlatformWebhookVerificationInputSchema.safeParse(
     input.input
   );
@@ -61,6 +62,7 @@ export async function verifyLarkPlatformWebhook(input: {
     connectionId: request.data.connectionId,
     db: input.db,
   });
+  const contextReadAtMs = Date.now();
   const connection = context?.connection;
   if (
     !connection ||
@@ -147,6 +149,14 @@ export async function verifyLarkPlatformWebhook(input: {
         });
       })
     );
+    console.info("[core.message_channel.webhook.challenge_timing]", {
+      gatewayRequestId: request.data.gatewayRequestId,
+      provider: request.data.provider,
+      surface: request.data.surface,
+      contextReadMs: contextReadAtMs - startedAtMs,
+      verificationMs: Date.now() - contextReadAtMs,
+      responseReadyMs: Date.now() - startedAtMs,
+    });
     return response({ challenge, status: "challenge" });
   }
   if (connection.status !== "connected") {

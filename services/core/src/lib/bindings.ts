@@ -1,4 +1,5 @@
 import type {
+  AgentProfileCreationExecutionMessage,
   AgentTaskContinuationQueueMessage,
   AgentTaskObservationRedriveQueueMessage,
   AuthRpcResolveOrganizationAccountIdentityInput,
@@ -7,6 +8,9 @@ import type {
   AuthRpcResolveOrganizationDirectoryAgentProfilesResult,
   AuthRpcResolveOrganizationDirectoryMembersInput,
   AuthRpcResolveOrganizationDirectoryMembersResult,
+  AuthRpcResolveProfileByIdResult,
+  AuthRpcResolveProfilesByIdsInput,
+  AuthRpcResolveProfilesByIdsResult,
   AuthRpcResolveUserDisplayNameInput,
   AuthRpcResolveUserDisplayNameResult,
   AuthRpcSendInboxUrgentEmailInput,
@@ -28,6 +32,7 @@ import type {
   SummarizeAgentActivityDigestRpcResponse,
 } from "@openmeld/schemas/types";
 import type { PrepareSessionHub } from "../prepare-session/transport/do/prepare-session-hub";
+import type { LarkChannelConnector } from "../remote-agent/transport/lark/lark-channel-connector";
 import type { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
 import type { Space } from "../space/transport/do/space";
 
@@ -133,26 +138,12 @@ type CoreAuthDispatchBindingRpc = {
         message: string;
       }
   >;
-  resolveProfileById?(input: { openMeldProfileId?: string | null }): Promise<
-    | {
-        ok: true;
-        profile: {
-          profileId: string;
-          profileName: string;
-          profileHandle: string;
-          profileKind: "human" | "agent" | "system";
-          status: "active" | "disabled";
-          ownerUserId: string;
-          organizationId?: string | null;
-          defaultProjectId?: string | null;
-        };
-      }
-    | {
-        ok: false;
-        code: string;
-        message: string;
-      }
-  >;
+  resolveProfileById?(input: {
+    openMeldProfileId?: string | null;
+  }): Promise<AuthRpcResolveProfileByIdResult>;
+  resolveProfilesByIds?(
+    input: AuthRpcResolveProfilesByIdsInput
+  ): Promise<AuthRpcResolveProfilesByIdsResult>;
 };
 
 export type RemoteAgentWorkerBindingRpc = {
@@ -202,6 +193,7 @@ export type RemoteAgentWorkerBindingRpc = {
 // CloudflareBindings. Gateway typegen imports core source for service RPC
 // typing; using a global env type here causes cross-worker type collisions.
 export type CoreBindings = {
+  OPENMELD_LARK_CHANNEL_CONNECTOR?: DurableObjectNamespace<LarkChannelConnector>;
   OPENMELD_SPACES: DurableObjectNamespace<Space>;
   OPENMELD_RUNTIME_TRANSPORT?: DurableObjectNamespace<RuntimeTransportHub>;
   OPENMELD_PREPARE_SESSION_HUB?: DurableObjectNamespace<PrepareSessionHub>;
@@ -242,6 +234,7 @@ export type CoreBindings = {
   WEB_APP_URL?: string;
   ZEP_OPENMELD_API_KEY?: string;
   OPENMELD_DAEMON_DISPATCH_QUEUE?: Queue<
+    | AgentProfileCreationExecutionMessage
     | AgentTaskContinuationQueueMessage
     | AgentTaskObservationRedriveQueueMessage
     | RemoteAgentNativeDeliveryDeadlineProbeQueueMessage

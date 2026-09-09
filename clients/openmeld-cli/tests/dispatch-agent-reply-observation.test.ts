@@ -147,7 +147,9 @@ describe("dispatch Agent reply observation", () => {
     });
 
     expect(prompt).toContain("Do not redo completed work");
-    expect(prompt).toContain("Avoid duplicating work");
+    expect(prompt).toContain(
+      "Avoid duplicating completed work, not requested personal answers"
+    );
     expect(prompt).toContain("is an unpublished proposal");
     expect(prompt).toContain("does not mean the Space published it");
     expect(prompt).toContain("You still have one public reply available");
@@ -159,13 +161,13 @@ describe("dispatch Agent reply observation", () => {
     );
     expect(prompt).toContain("does not turn you into a reference or candidate");
     expect(prompt).toContain(
-      "A direct ping to multiple Agents asks each of them to acknowledge"
+      "remains due even when it matches another member's answer"
     );
     expect(prompt).toContain(
-      "only when no distinct, useful, non-duplicative contribution remains"
+      "only when no requested or useful contribution remains"
     );
     expect(prompt).toContain(
-      "Call exactly one dispatch-scoped OpenMeld Space Action tool for the final action. Use the CLI only if the tool is unavailable."
+      "Discover the tool before concluding it is unavailable"
     );
     expect(prompt).toContain('"signalId":"signal-agent-reply"');
     expect(prompt).not.toContain("Codex");
@@ -228,7 +230,7 @@ describe("dispatch Agent reply observation", () => {
     });
 
     expect(reconsider).toHaveBeenCalledOnce();
-    expect(reconsider.mock.calls[0]?.[0]).toContain("Newer Space messages");
+    expect(reconsider.mock.calls[0]?.[0]).toContain("Observed Space messages");
     expect(reconsider.mock.calls[0]?.[0]).toContain(
       JSON.stringify(originalWake())
     );
@@ -322,6 +324,12 @@ describe("dispatch Agent reply observation", () => {
     });
 
     expect(reconsider).toHaveBeenCalledTimes(2);
+    // Repair adapters may fork both reviews from the canonical parent. The
+    // second input must stand alone; the returned session ID proves no memory.
+    const secondReview = reconsider.mock.calls[1]?.[0] as string;
+    expect(secondReview).toContain('"signalId":"signal-peer-1"');
+    expect(secondReview).toContain('"signalId":"signal-peer-2"');
+    expect(secondReview).toContain('"text":"After A"');
     expect(refreshObservation).toHaveBeenNthCalledWith(1, firstPeerResult.id);
     expect(refreshObservation).toHaveBeenNthCalledWith(2, secondPeerResult.id);
     expect(result).toMatchObject({
@@ -332,6 +340,56 @@ describe("dispatch Agent reply observation", () => {
       reconsiderationCount: 2,
       reconsidered: true,
     });
+  });
+
+  it("deduplicates the bounded view and discloses omitted and truncated facts without limiting reviews", async () => {
+    const prompts: string[] = [];
+    let step = 0;
+    await coordinateDispatchAgentReply({
+      originalWake: originalWake(),
+      action: postMessageAction("Proposal"),
+      currentValue: "canonical-session",
+      observation: changedObservation("signal-0"),
+      spaceId: "space-1",
+      reconsider: (prompt) => {
+        prompts.push(prompt);
+        return Promise.resolve({
+          action: postMessageAction("Reviewed"),
+          value: "canonical-session",
+        });
+      },
+      refreshObservation: () => {
+        step += 1;
+        return Promise.resolve(
+          step <= 21
+            ? {
+                status: "changed",
+                observedThroughSignalId: `signal-${step}`,
+                relevantSignals: [
+                  textSignal({
+                    id: `signal-${step - 1}`,
+                    text: "Previously observed",
+                  }),
+                  textSignal({ id: `signal-${step}`, text: "x".repeat(2100) }),
+                ],
+              }
+            : {
+                status: "current",
+                observedThroughSignalId: "signal-21",
+                relevantSignals: [],
+              }
+        );
+      },
+    });
+    const last = prompts.at(-1) ?? "";
+    expect(prompts).toHaveLength(22);
+    expect(last.match(/"signalId":/gu)).toHaveLength(20);
+    expect(last).not.toContain('"signalId":"signal-0"');
+    expect(last).toContain('through signal "signal-1" were omitted');
+    expect(last).toContain('"signalId":"signal-2"');
+    expect(last).toContain('"signalId":"signal-21"');
+    expect(last).toContain('"truncated":true');
+    expect(last).not.toContain("x".repeat(2001));
   });
 
   it("keeps reviewing bounded deltas beyond two changes until the Space is current", async () => {

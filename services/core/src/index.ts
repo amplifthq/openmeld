@@ -5261,4 +5261,6 @@ export {
   RuntimeTransportHub,
   Space,
 };
+// biome-ignore lint/performance/noBarrelFile: Wrangler requires the Durable Object class export.
+export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export default CoreEntrypoint;

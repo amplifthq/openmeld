@@ -67,7 +67,12 @@ const CREATE_SPACE_ALLOWED_FIELDS = new Set([
   "accessMode",
   "password",
 ]);
-const PATCH_SPACE_META_ALLOWED_FIELDS = new Set(["name", "purpose", "guide"]);
+const PATCH_SPACE_META_ALLOWED_FIELDS = new Set([
+  "name",
+  "purpose",
+  "guide",
+  "visibility",
+]);
 
 export async function readJsonRequestBody(
   request: Request,

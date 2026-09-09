@@ -276,7 +276,7 @@ function RegistrationProgress(input: {
 				errorMessage={input.errorMessage}
 				label={
 					attempt.status === "configuring"
-						? "Verifying permissions and Webhook delivery"
+						? "Checking permissions and connecting your bot"
 						: "Securing the new app credentials"
 				}
 				onRetryPoll={input.onRetryPoll}
@@ -422,8 +422,23 @@ function resolveConfigurationRetryMessage(input: {
 	if (!input.reasonCode) {
 		return null;
 	}
+	if (input.reasonCode.endsWith(".application_publication_pending")) {
+		return `${input.providerLabel} is reviewing the app update. The connection will be ready after approval. OpenMeld will check automatically.`;
+	}
+	if (input.reasonCode.endsWith(".application_publication_rejected")) {
+		return `${input.providerLabel} did not approve the app update. The bot is not connected. Contact your workspace administrator to review the rejection.`;
+	}
+	if (input.reasonCode.endsWith(".application_publish_failed")) {
+		return `OpenMeld could not publish the app update to ${input.providerLabel}. The bot is not connected yet. OpenMeld will retry automatically.`;
+	}
 	if (input.reasonCode.endsWith(".application_config_failed")) {
-		return `${input.providerLabel} did not accept the latest app configuration. OpenMeld will retry automatically.`;
+		return `OpenMeld could not finish configuring the ${input.providerLabel} app. It will retry automatically.`;
+	}
+	if (
+		input.reasonCode.endsWith(".persistent_connection_failed") ||
+		input.reasonCode.endsWith(".persistent_connector_unavailable")
+	) {
+		return `OpenMeld could not connect to ${input.providerLabel}. It will retry automatically.`;
 	}
 	if (
 		input.reasonCode.endsWith(".registration_transport_failed") ||
@@ -487,6 +502,12 @@ function ConnectionSummary(input: {
 		) : null;
 	}
 	const connected = input.connection.status === "connected";
+	const needsPublication =
+		input.connection.reasonCode ===
+		`${input.connection.provider}.application_publication_required`;
+	const repairLabel = needsPublication
+		? `Reconnect ${input.providerLabel}`
+		: `Repair ${input.providerLabel}`;
 	const needsRepair =
 		input.connection.status === "repair_required" ||
 		input.connection.status === "revoked";
@@ -527,7 +548,7 @@ function ConnectionSummary(input: {
 						>
 							{input.repairPending
 								? `Repairing ${input.providerLabel}`
-								: `Repair ${input.providerLabel}`}
+								: repairLabel}
 						</Button>
 					) : null}
 				</div>
@@ -545,8 +566,14 @@ function resolveRepairExplanation(
 	connection: MessageChannelConnectionProjection,
 	providerLabel: string
 ): string {
+	if (
+		connection.reasonCode ===
+		`${connection.provider}.application_publication_required`
+	) {
+		return `Reconnect this bot and approve the updated permissions in ${providerLabel}. OpenMeld needs to publish its message-delivery settings before you can use the Center Agent here.`;
+	}
 	if (connection.reasonCode === `${connection.provider}.registration_expired`) {
-		return "Setup expired before OpenMeld could verify this app’s permissions and Webhook delivery. Repair retries the existing app; it does not create another one.";
+		return "Setup expired before OpenMeld could verify this app’s permissions and establish a connection. Repair retries the existing app; it does not create another one.";
 	}
 	if (connection.status === "revoked") {
 		return `${providerLabel} stopped authorizing this app. Repair checks the existing app again; if access was permanently revoked, disconnect it and connect a new app.`;

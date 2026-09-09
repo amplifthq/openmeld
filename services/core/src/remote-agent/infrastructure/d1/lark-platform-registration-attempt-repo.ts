@@ -13,6 +13,7 @@ export type RemoteAgentLarkPlatformPermissionMode =
   | "official_preset";
 
 export type RemoteAgentLarkPlatformRegistrationAttemptRecord = {
+  applicationVersionId: string | null;
   accountDomain: string;
   attemptId: string;
   connectionId: string | null;
@@ -39,6 +40,7 @@ export type RemoteAgentLarkPlatformRegistrationAttemptRecord = {
 };
 
 type RemoteAgentLarkPlatformRegistrationAttemptRow = {
+  application_version_id: string | null;
   account_domain: string;
   attempt_id: string;
   connection_id: string | null;
@@ -66,6 +68,7 @@ type RemoteAgentLarkPlatformRegistrationAttemptRow = {
 
 const REGISTRATION_SELECT = `
   SELECT
+    application_version_id,
     attempt_id,
     organization_id,
     initiated_by_user_id,
@@ -93,6 +96,36 @@ const REGISTRATION_SELECT = `
 `;
 
 const CAPABILITY_GROUP_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
+
+export async function recordClaimedLarkPlatformApplicationVersion(input: {
+  attemptId: string;
+  claimId: string;
+  db: D1Database;
+  nowMs: number;
+  versionId: string;
+}): Promise<void> {
+  const result = await input.db
+    .prepare(`
+    UPDATE openMeldRemoteAgent_lark_platform_registration_attempts
+    SET application_version_id = ?, updated_at_ms = ?
+    WHERE attempt_id = ? AND poll_claim_id = ?
+      AND poll_claim_expires_at_ms > ? AND expires_at_ms > ?
+      AND consumed_at_ms IS NULL AND status = 'configuring'
+      AND application_version_id IS NULL
+  `)
+    .bind(
+      input.versionId,
+      input.nowMs,
+      input.attemptId,
+      input.claimId,
+      input.nowMs,
+      input.nowMs
+    )
+    .run();
+  if (result.meta.changes !== 1) {
+    throw new Error("Lark-platform publication claim lost");
+  }
+}
 
 type CreateRemoteAgentLarkPlatformRegistrationAttemptInput = {
   accountDomain: string;
@@ -508,80 +541,6 @@ export async function repairRemoteAgentLarkPlatformRegistrationAttempt(input: {
     attemptId: input.attemptId,
     db: input.db,
   });
-}
-
-export async function replaceClaimedLarkPlatformCallbackCredentials(input: {
-  attemptId: string;
-  claimId: string;
-  connectionId: string;
-  db: D1Database;
-  encryptedEventEncryptKey: string;
-  encryptedVerificationToken: string;
-  previousEncryptedEventEncryptKey: string | null;
-  previousEncryptedVerificationToken: string | null;
-  nowMs: number;
-}): Promise<boolean> {
-  const replaceCredentials = input.db
-    .prepare(`
-    UPDATE openMeldRemoteAgent_lark_platform_channel_credentials
-    SET encrypted_event_encrypt_key = ?, encrypted_verification_token = ?, updated_at_ms = ?
-    WHERE connection_id = ?
-      AND encrypted_event_encrypt_key = ? AND encrypted_verification_token = ?
-      AND EXISTS (
-        SELECT 1 FROM openMeldRemoteAgent_lark_platform_registration_attempts attempt
-        JOIN openMeldRemoteAgent_lark_platform_channel_connections connection
-          ON connection.connection_id = attempt.connection_id
-          AND connection.organization_id = attempt.organization_id
-          AND connection.provider = attempt.provider
-        WHERE attempt.attempt_id = ? AND attempt.connection_id = ?
-          AND attempt.poll_claim_id = ? AND attempt.poll_claim_expires_at_ms > ?
-          AND attempt.expires_at_ms > ? AND attempt.consumed_at_ms IS NULL
-          AND attempt.status = 'configuring' AND connection.status = 'configuring'
-          AND connection.bot_open_id IS NULL
-      )
-  `)
-    .bind(
-      input.encryptedEventEncryptKey,
-      input.encryptedVerificationToken,
-      input.nowMs,
-      input.connectionId,
-      input.previousEncryptedEventEncryptKey,
-      input.previousEncryptedVerificationToken,
-      input.attemptId,
-      input.connectionId,
-      input.claimId,
-      input.nowMs,
-      input.nowMs
-    );
-  // Only the successful preceding replacement may invalidate proof in this transaction.
-  const clearProofs = input.db
-    .prepare(`
-    UPDATE openMeldRemoteAgent_lark_platform_channel_connections
-    SET events_webhook_verified_at_ms = NULL, callbacks_webhook_verified_at_ms = NULL,
-      last_verified_at_ms = NULL, updated_at_ms = ?
-    WHERE connection_id = ? AND status = 'configuring' AND bot_open_id IS NULL
-      AND changes() = 1
-      AND EXISTS (
-        SELECT 1 FROM openMeldRemoteAgent_lark_platform_channel_credentials credentials
-        WHERE credentials.connection_id = openMeldRemoteAgent_lark_platform_channel_connections.connection_id
-          AND credentials.encrypted_event_encrypt_key = ?
-          AND credentials.encrypted_verification_token = ?
-      )
-  `)
-    .bind(
-      input.nowMs,
-      input.connectionId,
-      input.encryptedEventEncryptKey,
-      input.encryptedVerificationToken
-    );
-  const [credentialsResult, proofsResult] = await input.db.batch([
-    replaceCredentials,
-    clearProofs,
-  ]);
-  return (
-    Number(credentialsResult?.meta?.changes ?? 0) === 1 &&
-    Number(proofsResult?.meta?.changes ?? 0) === 1
-  );
 }
 
 export async function claimRemoteAgentLarkPlatformRegistrationAttempt(input: {
@@ -1619,6 +1578,7 @@ function mapRegistrationAttemptRow(
   row: RemoteAgentLarkPlatformRegistrationAttemptRow
 ): RemoteAgentLarkPlatformRegistrationAttemptRecord {
   return {
+    applicationVersionId: row.application_version_id,
     accountDomain: row.account_domain,
     attemptId: row.attempt_id,
     connectionId: row.connection_id,

@@ -218,6 +218,18 @@ missing or stale intent left by mixed-version writers and redrives the
 idempotent Inbox projection; this operational state is not a second request or
 Inbox authority.
 
+An approved, unclaimed creation row is also the durable execution intent. Core
+acknowledges it before running setup and sends a versioned
+`agent_profile_creation` reference through the existing shared Core Queue.
+The minute scheduler redelivers unclaimed rows if enqueue or notification was
+lost. The Queue consumer reloads and atomically claims the same row, checks
+current membership, and runs the existing checkpointed executor. It does not
+use HTTP `waitUntil` as durable execution, copy configuration into a second
+outbox, or create a second execution owner. Claimed attempts retain the bounded
+stale-failure policy; recovery never blindly replays uncertain local effects.
+Exact request-ID reads remain participant-scoped; idempotency-key recovery
+also requires the original requesting actor. Neither reads all owner Profiles.
+
 Start is orchestration. It is not a permanent data owner and must not become a
 long-term database domain.
 
@@ -485,6 +497,11 @@ Profile Directory does not call Runtime Transport, and Runtime Overview batches
 route, owner-Service, and display-inventory reads by owner before applying the
 same permission-scoped readiness projection used by the compatibility
 Directory.
+The Profile Directory includes the public Controller ref for every authorized
+Organization Agent Profile, including teammate-owned Profiles. Core reads only
+the Profile ID and Controller ref from enabled primary Bindings, scoped to the
+exact Profile/owner pairs admitted by Auth. This does not expose private Binding,
+Session, computer, or runtime details and does not require Runtime Transport.
 Core records the activity overlay only after Space accepts and persists a text
 Signal from an active Human Profile or after an authenticated Web request proves
 the active Organization member and that member's current active Human Profile.
@@ -1239,7 +1256,8 @@ Cloudflare Queue carried a workstation Wake.
 
 The shared `openmeld-daemon-dispatch` Queue resource remains required by hosted
 native-delivery recovery, Remote Agent deadline probes, Agent Task
-continuations, and Agent Task observation redrive. Removing workstation Wake
+continuations, Agent Task observation redrive, and accepted Agent Profile
+creation. Removing workstation Wake
 messages from Queue is not permission to delete that shared resource or any of
 those independent consumers.
 
@@ -2222,7 +2240,7 @@ bot/capability projection and Webhook proof so the first repair poll must
 reconfigure and verify the provider App. It neither creates a second connection
 nor calls the provider device-registration endpoint. The new attempt records
 the manager who initiated this repair; the connection keeps its original
-installer identity. Configuration and Webhook-wait retries use bounded
+installer identity. Configuration and connection retries use bounded
 exponential backoff from five seconds to five minutes across the seven-day
 window. Missing credentials, a different current connection state, or another
 unrelated active attempt fails closed. A stale Repair request after another
@@ -2232,16 +2250,50 @@ unrepairable App. Retry projections retain the latest bounded failure reason so
 clients can explain continued automatic verification without creating a second
 retry authority.
 
-Before configuring an unconnected App, the live configuration-claim owner
-replaces only callback secrets exceeding the provider's 32-character limit.
-The encrypted replacement and clearing both URL-verification proofs are one
-guarded D1 batch. A lost or expired claim, changed credentials, or a connected
-App prevents replacement and provider configuration. The App Secret and valid
-callback secret values are preserved. This also repairs legacy credentials
-when an existing App re-enters configuration through Repair; it is not a bulk
-credential migration. URL-verification writes compare the encrypted token used
-to authenticate the challenge with the current credential row, so an in-flight
-challenge authenticated before replacement cannot restore obsolete proof.
+New registrations keep the launcher's persistent configuration and store only
+an encrypted App Secret; unused callback credentials remain null. Core checks
+the exact Channel permission bundle and bot identity, prepares the current
+connection under its live registration claim, and asks the connection-named
+`LarkChannelConnector` Durable Object to open an authenticated provider socket.
+Only a successful handshake followed by the same unexpired claim can atomically
+mark the connection and attempt connected. A claim lost during the handshake,
+disconnection, or changed Organization/provider cannot activate the connection.
+No synthetic Webhook proofs are written.
+
+The connector owns the live socket and a bounded SQLite pending-event outbox;
+D1 remains the owner of connection identity, generation, and authorization.
+Complete authenticated events are persisted with their generation before the
+provider receives code 200. Fragment assembly is bounded and incomplete frames
+are not acknowledged. Queue delivery runs afterward, checks the current D1
+connection, binds the tenant when needed, and retains the event on failure.
+Queue consumers reject a mismatched connection generation before reading
+conversation context or starting a turn. Event IDs still deduplicate through
+the existing ingress ledger; the outbox does not own execution outcomes.
+Disconnect closes the socket and discards pending revoked work. Recovery uses
+Durable Object alarms and provider heartbeat/reconnect configuration. Idle
+connected bots do not poll D1. Outbound sockets use standard Worker WebSocket
+APIs and the official Lark protobuf codec; the Node SDK's `ws`/HTTP-upgrade
+transport is not compatible with this runtime. Outbound sockets do not
+hibernate, so per-connection Durable Object duration must be included in
+capacity and cost planning.
+
+Repairing an existing Webhook connection publishes persistent event and card
+callback configuration for the same app before activating its connector.
+The claimed attempt retains the publication version so pending provider review
+does not create repeated publications. Existing Webhook ingress remains
+supported for its explicitly selected transport, and fails closed after that
+connection becomes persistent. No bulk mutation or automatic fallback changes
+live organizations' selected transport.
+
+The persistent connector adds optional `connectionGeneration` to the shared
+Message Channel Queue envelope. Old queued Webhook envelopes remain readable.
+The new producer and its generation-aware consumer ship in the same Core
+release; do not gradually mix it with old Core Queue consumers. Before
+rolling back to a Core version without this field/connector, stop persistent
+producers and drain their Queue work, or retain the compatible receiver and
+Durable Object class in the rollback. CLI, local Service, managed skills,
+workstation Wake/Space actions, Gateway HTTP payloads, and Remote Agent
+submission contracts are unchanged. No local-component contract floor is raised.
 
 The App Secret, Webhook verification token, and event encryption key live in a
 separate encrypted credential row. The connection and credential write is one
@@ -2249,7 +2301,9 @@ D1 batch, so failed encryption or persistence cannot produce a connected
 projection. Tenant access tokens are minted and cached only within their
 provider lifetime inside one Worker isolate and are never stored in D1.
 
-Webhook readiness is connection-owned evidence, not a generic provider flag.
+Legacy Webhook readiness remains connection-owned evidence. Existing Webhook
+connections retain their authenticated challenge and event handling during the
+migration window; new setup does not depend on public callback reachability.
 The provider's encrypted URL-verification challenge may omit all three
 signature headers. Core may decrypt that envelope only into a URL-verification
 challenge and must match its verification token before recording reachability.

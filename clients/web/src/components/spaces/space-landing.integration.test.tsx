@@ -536,6 +536,8 @@ const PREPARE_TEXT = /prepare/i;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
 const RECENT_ACTIVITY_TS = Date.now();
 const TEST_FILE_EXTENSION_PATTERN = /\.[^.]+$/u;
+const MESSAGE_DETAILS_ACTION_NAME_PATTERN =
+	/^(?:Message details$|View error details:)/;
 const SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY =
 	"openmeld.space.members-panel.open:space-123";
 const OTHER_SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY =
@@ -2275,7 +2277,7 @@ describe("SpaceLanding", () => {
 			name: "Find a member to mention",
 		});
 		fireEvent.keyDown(mentionSearch, { key: "Escape" });
-		fireEvent.click(screen.getByRole("button", { name: "Add to message" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add" }));
 		const filesItem = await screen.findByRole("menuitem", { name: "Files" });
 		expect(filesItem.getAttribute("aria-disabled")).toBe("true");
 		expect(
@@ -2311,7 +2313,8 @@ describe("SpaceLanding", () => {
 			)
 		).toBeNull();
 		expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		expect(screen.queryByRole("button", { name: "Leave space" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Delete space" })).toBeNull();
 		expect(screen.queryByText("Couldn't Load This Space")).toBeNull();
@@ -2800,7 +2803,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 		fireEvent.click(screen.getByRole("button", { name: "Confirm leave" }));
 
@@ -2868,7 +2872,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 		fireEvent.click(screen.getByRole("button", { name: "Confirm leave" }));
 
@@ -2917,7 +2922,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {
 			target: { value: "DELETE" },
@@ -2983,7 +2989,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {
 			target: { value: "DELETE" },
@@ -3048,7 +3055,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 
 		expect(screen.getByRole("button", { name: "Leave space" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Delete space" })).toBeNull();
@@ -4120,6 +4128,12 @@ describe("SpaceLanding", () => {
 				if (!Array.isArray(options.queryKey)) {
 					throw new Error("Unexpected non-array query key");
 				}
+				const directoryResult = resolveEmptyOrganizationDirectoryQueryResult(
+					options.queryKey
+				);
+				if (directoryResult) {
+					return directoryResult;
+				}
 				const modelCatalogResult = resolveModelCatalogQueryResult(
 					options.queryKey
 				);
@@ -4807,7 +4821,7 @@ describe("SpaceLanding", () => {
 		expect(sourceMessageRow).not.toBeNull();
 		fireEvent.click(
 			within(sourceMessageRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 			})
 		);
 		const failedAgentActivity = await screen.findByRole("region", {
@@ -5196,7 +5210,10 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows both empty Space setup cards and opens Add People or Agents", () => {
+	it.each([
+		"setup",
+		"composer",
+	])("opens Add People or Agents from %s without opening Members", async (entry) => {
 		useLocalAgentRecoveryControllerMock.mockReturnValue({
 			localRuntimesQuery: {
 				data: { localRuntimes: [] },
@@ -5254,11 +5271,18 @@ describe("SpaceLanding", () => {
 			})
 		).toBeTruthy();
 
-		fireEvent.click(
-			within(setupActions).getByRole("button", {
-				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
-			})
-		);
+		if (entry === "setup") {
+			fireEvent.click(
+				within(setupActions).getByRole("button", {
+					name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
+				})
+			);
+		} else {
+			fireEvent.click(screen.getByRole("button", { name: "Add" }));
+			fireEvent.click(
+				await screen.findByRole("menuitem", { name: "People or agents" })
+			);
+		}
 		const addMembersDialog = screen.getByRole("dialog", {
 			name: "Add People or Agents",
 		});
@@ -5270,6 +5294,8 @@ describe("SpaceLanding", () => {
 		expect(
 			within(addMembersDialog).getByRole("button", { name: "New Agent" })
 		).toBeTruthy();
+		expect(screen.queryByRole("complementary", { name: "Members" })).toBeNull();
+		expect(screen.queryByRole("dialog", { name: "Members" })).toBeNull();
 	});
 
 	it("does not show ordinary setup guidance in a direct conversation with an agent", () => {
@@ -5377,12 +5403,17 @@ describe("SpaceLanding", () => {
 			],
 		});
 
-		expect(screen.getByText("Mira can view")).toBeTruthy();
+		expect(screen.getByText("View only")).toBeTruthy();
+		expect(
+			screen
+				.getByText("View only")
+				.closest('[data-slot="space-window-header-title"]')
+		).not.toBeNull();
 		const composer = screen.getByRole("textbox", {
 			name: "Message Runner",
 		});
 		expect(composer.getAttribute("aria-placeholder")).toBe(
-			"You can view this Direct Message because you own Runner. Join to participate."
+			"Alice is chatting with your agent, Runner. Join this conversation to send messages."
 		);
 		expect(
 			screen.getByText("Join the conversation to send the first message.")
@@ -5395,6 +5426,11 @@ describe("SpaceLanding", () => {
 			'[data-slot="space-composer-section"]'
 		);
 		expect(composerSection).not.toBeNull();
+		expect(
+			within(composerSection as HTMLElement).queryByText(
+				"Alice is chatting with your agent, Runner. Join this conversation to send messages."
+			)
+		).toBeNull();
 		expect(
 			within(composerSection as HTMLElement).queryByRole("button", {
 				name: "Send message",
@@ -6407,7 +6443,7 @@ describe("SpaceLanding", () => {
 		expect(
 			within(dialog).getByRole("heading", { name: "People & Agents" })
 		).toBeTruthy();
-		expect(within(dialog).getByText("@runner(wake)")).toBeTruthy();
+		expect(within(dialog).getByText("@Runner")).toBeTruthy();
 
 		fireEvent.click(
 			within(dialog).getByRole("button", { name: "Search members" })
@@ -6481,7 +6517,7 @@ describe("SpaceLanding", () => {
 		expect(
 			within(panel).getByRole("heading", { name: "Members" })
 		).toBeTruthy();
-		expect(within(panel).getByText("@runner(wake)")).toBeTruthy();
+		expect(within(panel).getByText("@Runner")).toBeTruthy();
 
 		fireEvent.click(
 			within(panel).getByRole("button", { name: "Search members" })
@@ -9160,7 +9196,7 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("turns an exact pasted Agent name into a visible Wake", async () => {
+	it("keeps an exact pasted Agent name literal until a recipient is selected", async () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -9186,11 +9222,8 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(textarea, "@Runner wake please reply");
 
-		const token = screen.getByTestId("space-composer-profile-token");
-		const relation = within(token).getByRole("combobox", {
-			name: "Change relation for Runner",
-		});
-		expect(relation.textContent).toBe("Wake");
+		expect(screen.queryByTestId("space-composer-profile-token")).toBeNull();
+		expect(readComposerValue(textarea)).toBe("@Runner wake please reply");
 		expect(screen.queryByText("Waking 1 agent")).toBeNull();
 	});
 
@@ -9828,6 +9861,12 @@ describe("SpaceLanding", () => {
 		useQueryMock.mockImplementation(
 			(options: { queryKey: readonly unknown[] }) => {
 				const queryKey = JSON.stringify(options.queryKey);
+				const directoryResult = resolveEmptyOrganizationDirectoryQueryResult(
+					options.queryKey
+				);
+				if (directoryResult) {
+					return directoryResult;
+				}
 				const modelCatalogResult = resolveModelCatalogQueryResult(
 					options.queryKey
 				);
@@ -13829,9 +13868,10 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(screen.getAllByText("Ready")).toHaveLength(10);
 		});
-		expect(
-			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", false);
+		expect(screen.getByRole("button", { name: "Add" })).toHaveProperty(
+			"disabled",
+			false
+		);
 		expect(screen.getByText("You can add up to 10 files.")).toBeTruthy();
 	});
 
@@ -14935,7 +14975,7 @@ describe("SpaceLanding", () => {
 			expect(publishedMessage?.textContent).toContain("hello there");
 			expect(
 				publishedMessage?.querySelector(
-					'[data-slot="space-message-agent-mention"]'
+					'[data-slot="space-message-profile-mention"]'
 				)?.textContent
 			).toContain("Watcher");
 		});
@@ -15807,7 +15847,7 @@ describe("SpaceLanding", () => {
 		const sourceActionScope = within(sourceRow as HTMLElement);
 		const sourceMessageDetailsButton =
 			sourceRow?.querySelector<HTMLButtonElement>(
-				'[data-slot="message-footer"] button[aria-label="Message details"]'
+				'[data-slot="message-footer"] button[aria-label="View error details: Agent couldn’t reply"]'
 			);
 		if (!sourceMessageDetailsButton) {
 			throw new Error("Expected the source message footer details action.");
@@ -15820,11 +15860,11 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByRole("menuitem", { name: "Reply in thread" })
 		).toBeTruthy();
-		// The source footer keeps only the calm failure summary. The diagnostic
+		// The source footer keeps only the failure icon. The diagnostic
 		// body remains in Message details instead of extending the timeline.
 		expect(
-			within(sourceRow as HTMLElement).getByText("Agent couldn’t reply")
-		).toBeTruthy();
+			within(sourceRow as HTMLElement).queryByText("Agent couldn’t reply")
+		).toBeNull();
 		expect(
 			within(sourceRow as HTMLElement).queryByText(
 				"Watcher could not complete this Wake."
@@ -15905,7 +15945,9 @@ describe("SpaceLanding", () => {
 		);
 		// The persistent failure footer remains after Message details closes.
 		expect(
-			within(sourceRow as HTMLElement).getByText("Agent couldn’t reply")
+			within(sourceRow as HTMLElement).getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
 		).toBeTruthy();
 	});
 
@@ -15982,7 +16024,7 @@ describe("SpaceLanding", () => {
 		}
 		fireEvent.click(
 			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 			})
 		);
 		expect(
@@ -16076,7 +16118,7 @@ describe("SpaceLanding", () => {
 		}
 		fireEvent.click(
 			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 			})
 		);
 		await screen.findByRole("dialog", { name: "Message details" });
@@ -16398,7 +16440,7 @@ describe("SpaceLanding", () => {
 				})
 		);
 		const outgoingText = wake
-			? "@runner(wake) Optimistic thread reply"
+			? "@Runner Optimistic thread reply"
 			: "Optimistic thread reply";
 		const postThreadSignalMock = vi.fn().mockImplementation(
 			() =>
@@ -16488,7 +16530,16 @@ describe("SpaceLanding", () => {
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
-		await setComposerValue(threadComposer, outgoingText);
+		if (wake) {
+			await insertComposerMember(RUNNER_OPTION_NAME, "", threadPanel);
+			await appendComposerText(
+				threadComposer,
+				"Optimistic thread reply",
+				outgoingText
+			);
+		} else {
+			await setComposerValue(threadComposer, outgoingText);
+		}
 		fireEvent.click(
 			within(threadPanel).getByRole("button", { name: "Send reply" })
 		);
@@ -16497,7 +16548,10 @@ describe("SpaceLanding", () => {
 			await waitFor(() => expect(readSpaceMembersMock).toHaveBeenCalled());
 			expect(readComposerValue(threadComposer)).toBe("");
 			expect(
-				within(threadPanel).getByText(outgoingText, { selector: "p" })
+				within(threadPanel).getByText("Optimistic thread reply", {
+					exact: false,
+					selector: "p",
+				})
 			).toBeTruthy();
 			expect(postThreadSignalMock).not.toHaveBeenCalled();
 			await act(async () => releaseAdmission?.());
@@ -16508,7 +16562,8 @@ describe("SpaceLanding", () => {
 		});
 		expect(readComposerValue(threadComposer)).toBe("");
 		expect(
-			within(threadPanel).getByText(outgoingText, {
+			within(threadPanel).getByText("Optimistic thread reply", {
+				exact: false,
 				selector: "p",
 			})
 		).toBeTruthy();
@@ -17080,7 +17135,16 @@ describe("SpaceLanding", () => {
 		const threadComposer = screen.getByRole("textbox", {
 			name: "Reply in thread",
 		});
-		await setComposerValue(threadComposer, "@runner(wake) keep going");
+		await insertComposerMember(
+			RUNNER_OPTION_NAME,
+			"",
+			screen.getByLabelText("Thread")
+		);
+		await appendComposerText(
+			threadComposer,
+			"keep going",
+			"@Runner keep going"
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
 
 		await waitFor(() => {
@@ -17091,7 +17155,7 @@ describe("SpaceLanding", () => {
 					messageEnvelope: expect.objectContaining({
 						activationTargets: [DEFAULT_AGENT_PROFILE_ID],
 					}),
-					text: "@runner(wake) keep going",
+					text: "@Runner keep going",
 				}),
 				spaceId: "space-123",
 				threadId: "thread-1",
@@ -17459,7 +17523,7 @@ async function openHistoricalWakeFailure(input: {
 	}
 	fireEvent.click(
 		within(sourceRow as HTMLElement).getByRole("button", {
-			name: "Message details",
+			name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 		})
 	);
 	return await screen.findByRole("dialog", { name: "Message details" });
@@ -18407,6 +18471,21 @@ function createOrganizationDirectoryFixture(input: {
 		],
 		organizationId: "org-acme",
 	};
+}
+
+function resolveEmptyOrganizationDirectoryQueryResult(
+	queryKey: readonly unknown[]
+) {
+	return queryKey[0] === "organizations" && queryKey[2] === "directory"
+		? createQueryResult({
+				isSuccess: true,
+				data: {
+					agentProfiles: [],
+					members: [],
+					organizationId: "org-acme",
+				} satisfies OrganizationSpaceProfileCandidates,
+			})
+		: null;
 }
 
 function resolveModelCatalogQueryResult(queryKey: readonly unknown[]) {

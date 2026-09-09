@@ -49,6 +49,7 @@
     "@openmeld/space-mesh": "workspace:*",
     "@openmeld/start": "workspace:*",
     "hono": "^4.11.7",
+    "protobufjs": "7.5.4",
     "slackify-markdown": "5.0.0",
     "yaml": "2.8.2"
   },

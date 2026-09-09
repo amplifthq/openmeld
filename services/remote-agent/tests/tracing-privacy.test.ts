@@ -30,7 +30,13 @@ vi.mock("cloudflare:workers", async (importOriginal) => ({
         isTraced: true,
         setAttribute(key, value) {
           captured.attributes[key] = value;
+          return this;
         },
+        setAttributes(attributes) {
+          Object.assign(captured.attributes, attributes);
+          return this;
+        },
+        recordException: vi.fn(),
         end() {
           captured.ended = true;
         },

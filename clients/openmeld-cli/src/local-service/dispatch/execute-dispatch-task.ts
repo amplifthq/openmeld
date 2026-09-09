@@ -82,16 +82,8 @@ import {
   resolveDispatchWorkingFolderRuntimeContext,
 } from "../../local-service/execution/dispatch-runtime-preparation";
 import { toTaskExecutionError as toTaskExecutionErrorInternal } from "../../local-service/execution/task-execution-error";
-import { resolveCurrentDaemonExpectedVersion } from "../../local-service/lifecycle/current-daemon-version";
-import {
-  buildDaemonServiceFreshnessPromptLines,
-  resolveDaemonServiceFreshnessWarning,
-} from "../../local-service/lifecycle/daemon-service-freshness";
-import { inspectDaemonServiceInventory } from "../../local-service/lifecycle/daemon-service-inventory";
-import {
-  buildDispatchOwnedRuntimeEnv,
-  resolveDispatchOwnedRuntimeActionCliEntryCommand,
-} from "../../runtime/dispatch-owned-runtime";
+import { buildDispatchOwnedRuntimeEnv } from "../../runtime/dispatch-owned-runtime";
+import { DISPATCH_SPACE_ACTION_CLI_FALLBACK_COMMAND } from "../../runtime/dispatch-runtime-env";
 import {
   createDispatchSpaceActionContext,
   type DispatchSpaceActionContext,
@@ -2343,7 +2335,6 @@ type DispatchBootstrapContext = {
   mentionSourceMentionLabel: string | null;
   mentionSourceProfileName: string | null;
   sendTargetReferencePromise: Promise<DispatchSendTargetReferenceLoadResult>;
-  serviceFreshnessWarningLines: string[];
   spaceGuide: string | null;
   spaceName: string | null;
   spaceOwnerProfileId: string | null;
@@ -2447,9 +2438,7 @@ async function resolveDispatchBootstrapContext(input: {
     });
     return sendTargetReference;
   });
-  const cliEntry = resolveDispatchOwnedRuntimeActionCliEntryCommand();
-  const serviceFreshnessWarningLines =
-    await resolveDispatchServiceFreshnessWarningLines({ cliEntry });
+  const cliEntry = DISPATCH_SPACE_ACTION_CLI_FALLBACK_COMMAND;
   const bootstrapTemplateFacts = buildDispatchBootstrapTemplateFacts({
     dispatchTriggerSource: input.parsedTask.dispatchTriggerSource,
     mentionSourceProfileId: input.parsedTask.mentionSourceProfileId,
@@ -2464,7 +2453,6 @@ async function resolveDispatchBootstrapContext(input: {
     ...targetProfileContext,
     targetProfileId: input.parsedTask.targetProfileId,
     cliEntry,
-    serviceFreshnessWarningLines,
   });
 
   return {
@@ -2474,7 +2462,6 @@ async function resolveDispatchBootstrapContext(input: {
       mentionSourceContext.mentionSourceMentionLabel ?? null,
     mentionSourceProfileName: mentionSourceContext.mentionSourceProfileName,
     sendTargetReferencePromise,
-    serviceFreshnessWarningLines,
     spaceGuide: spaceMetaContext.spaceGuide,
     spaceName: spaceMetaContext.spaceName,
     spaceOwnerProfileId,
@@ -2531,19 +2518,6 @@ async function resolveDispatchSpaceMetaContext(input: {
   }
 }
 
-async function resolveDispatchServiceFreshnessWarningLines(input: {
-  cliEntry: string | null;
-}): Promise<string[]> {
-  const inventory = await inspectDaemonServiceInventory({
-    expectedVersion: resolveCurrentDaemonExpectedVersion(),
-  }).catch(() => null);
-  const warning = resolveDaemonServiceFreshnessWarning({
-    cliEntry: input.cliEntry,
-    inventory,
-  });
-  return buildDaemonServiceFreshnessPromptLines(warning);
-}
-
 function buildDispatchRuntimePrompt(input: {
   bootstrapContext: DispatchBootstrapContext;
   imageAttachmentPreparation: DispatchImageAttachmentPreparation;
@@ -2576,8 +2550,6 @@ function buildDispatchRuntimePrompt(input: {
     sourceSignalId: input.parsedTask.sourceEventId,
     sourceMessageEnvelope: input.parsedTask.sourceMessageEnvelope,
     sendTargetReferenceLines: input.sendTargetReference.referenceLines,
-    serviceFreshnessWarningLines:
-      input.bootstrapContext.serviceFreshnessWarningLines,
     spaceId: input.parsedTask.spaceId,
     spaceGuide: input.bootstrapContext.spaceGuide,
     spaceName: input.bootstrapContext.spaceName,

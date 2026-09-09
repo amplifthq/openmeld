@@ -57,6 +57,11 @@ import {
 	spaceFileQueryKeys,
 } from "#/query/spaces/space-files";
 import {
+	buildSpaceFileHtmlPreviewPath,
+	isSpaceFileHtml,
+} from "./space-file-html-document";
+import { SpaceFileHtmlPreview } from "./space-file-html-preview";
+import {
 	downloadContent,
 	formatFileDateTime,
 	formatFileSize,
@@ -75,6 +80,8 @@ export function SpaceFileDetail(input: {
 	canWrite: boolean;
 	file: SpaceFileDescriptor;
 	initialRevision?: number;
+	openMeldProfileId?: string;
+	organizationSlug?: string;
 	onLeaveGuardChange?: (guard: SpaceFileLeaveGuard | null) => void;
 	onBack: () => void;
 	onFileChanged: (file: SpaceFileDescriptor) => void;
@@ -138,10 +145,11 @@ export function SpaceFileDetail(input: {
 		displayedMimeType === "text/markdown" ||
 		displayedMimeType === "text/x-markdown";
 	const imagePreviewable = displayedMimeType.startsWith("image/");
+	const html = isSpaceFileHtml(displayedMimeType);
 	const contentQuery = useQuery(
 		spaceFileContentQueryOptions({
 			api: input.api,
-			enabled: editable || imagePreviewable || previewRevision !== null,
+			enabled: editable || html || imagePreviewable || previewRevision !== null,
 			fileId: input.file.id,
 			revision: displayedRevision,
 			spaceId: input.spaceId,
@@ -338,6 +346,19 @@ export function SpaceFileDetail(input: {
 			editorKey={`${input.file.id}:${loadedRevision ?? "loading"}`}
 			fileName={input.file.name}
 			hasUnsavedChanges={hasUnsavedChanges}
+			html={html}
+			htmlBytes={contentQuery.data?.bytes ?? null}
+			htmlDraft={
+				loadedRevision === displayedRevision && editable ? draft : null
+			}
+			htmlNewTabUrl={buildSpaceFileHtmlPreviewPath({
+				spaceId: input.spaceId,
+				fileId: input.file.id,
+				revision: displayedRevision,
+				profileId: input.openMeldProfileId,
+				organizationSlug: input.organizationSlug,
+			})}
+			htmlPreviewKey={`${input.file.id}:${displayedRevision}`}
 			imagePreviewable={imagePreviewable}
 			imagePreviewUrl={imagePreviewUrl}
 			isError={contentQuery.isError}
@@ -621,6 +642,11 @@ function SpaceFileContent(input: {
 	editorKey: string;
 	fileName: string;
 	hasUnsavedChanges: boolean;
+	html: boolean;
+	htmlBytes: ArrayBuffer | null;
+	htmlDraft: string | null;
+	htmlPreviewKey: string;
+	htmlNewTabUrl: string;
 	imagePreviewable: boolean;
 	imagePreviewUrl: string | null;
 	isError: boolean;
@@ -633,6 +659,23 @@ function SpaceFileContent(input: {
 	saveBlockedByConflict: boolean;
 	saving: boolean;
 }): ReactNode {
+	if (input.html) {
+		return (
+			<SpaceFileHtmlPreview
+				bytes={input.htmlBytes}
+				draft={input.htmlDraft}
+				fileName={input.fileName}
+				hasUnsavedChanges={input.hasUnsavedChanges}
+				isError={input.isError}
+				isLoading={input.isLoading}
+				key={input.htmlPreviewKey}
+				newTabUrl={input.htmlNewTabUrl}
+				onDownload={input.onDownload}
+				onRetry={input.onRetry}
+				sourceEditor={input.editable ? <FileTextEditor {...input} /> : null}
+			/>
+		);
+	}
 	if (input.editable) {
 		return (
 			<FileTextEditor
