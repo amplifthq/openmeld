@@ -118,7 +118,7 @@ export async function runProfileCreationRequestCreate(
         message:
           "The request may have been accepted. Its final status could not be checked.",
         details: [{ label: "Idempotency key", value: idempotencyKey }],
-        nextStep: `Run openmeld profile requests list to check progress. To submit this same intent again, repeat the command with --idempotency-key ${idempotencyKey}.`,
+        nextStep: `Run openmeld profile requests list to check progress. To submit this same intent again, repeat the command with --request-key ${idempotencyKey}.`,
       });
       return;
     }
