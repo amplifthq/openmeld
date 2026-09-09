@@ -4,6 +4,9 @@ title: Invite teammates with fewer steps
 kind: fixed
 areas: ["onboarding", "organizations", "inbox"]
 audiences: ["users", "admins"]
+publishedAt: 2026-09-08
+release: v0.3.174
+evidence: ["pr:755", "pr:759", "workflow:34213867447", "https://github.com/amplifthq/openmeld/pull/759#issuecomment-5583540970"]
 ---
 
 Open Invite people from your avatar menu to send an email invitation or share a

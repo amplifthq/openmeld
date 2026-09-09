@@ -218,6 +218,18 @@ missing or stale intent left by mixed-version writers and redrives the
 idempotent Inbox projection; this operational state is not a second request or
 Inbox authority.
 
+An approved, unclaimed creation row is also the durable execution intent. Core
+acknowledges it before running setup and sends a versioned
+`agent_profile_creation` reference through the existing shared Core Queue.
+The minute scheduler redelivers unclaimed rows if enqueue or notification was
+lost. The Queue consumer reloads and atomically claims the same row, checks
+current membership, and runs the existing checkpointed executor. It does not
+use HTTP `waitUntil` as durable execution, copy configuration into a second
+outbox, or create a second execution owner. Claimed attempts retain the bounded
+stale-failure policy; recovery never blindly replays uncertain local effects.
+Exact request-ID reads remain participant-scoped; idempotency-key recovery
+also requires the original requesting actor. Neither reads all owner Profiles.
+
 Start is orchestration. It is not a permanent data owner and must not become a
 long-term database domain.
 
@@ -485,6 +497,11 @@ Profile Directory does not call Runtime Transport, and Runtime Overview batches
 route, owner-Service, and display-inventory reads by owner before applying the
 same permission-scoped readiness projection used by the compatibility
 Directory.
+The Profile Directory includes the public Controller ref for every authorized
+Organization Agent Profile, including teammate-owned Profiles. Core reads only
+the Profile ID and Controller ref from enabled primary Bindings, scoped to the
+exact Profile/owner pairs admitted by Auth. This does not expose private Binding,
+Session, computer, or runtime details and does not require Runtime Transport.
 Core records the activity overlay only after Space accepts and persists a text
 Signal from an active Human Profile or after an authenticated Web request proves
 the active Organization member and that member's current active Human Profile.
@@ -1239,7 +1256,8 @@ Cloudflare Queue carried a workstation Wake.
 
 The shared `openmeld-daemon-dispatch` Queue resource remains required by hosted
 native-delivery recovery, Remote Agent deadline probes, Agent Task
-continuations, and Agent Task observation redrive. Removing workstation Wake
+continuations, Agent Task observation redrive, and accepted Agent Profile
+creation. Removing workstation Wake
 messages from Queue is not permission to delete that shared resource or any of
 those independent consumers.
 
@@ -2250,6 +2268,20 @@ projection. Tenant access tokens are minted and cached only within their
 provider lifetime inside one Worker isolate and are never stored in D1.
 
 Webhook readiness is connection-owned evidence, not a generic provider flag.
+Core publishes the configured provider application before recording its bot
+identity as configured. The claimed registration attempt stores the exact
+provider application version ID; later polls verify that version without
+repeating the configuration PATCH or submitting another publication. Core
+requires the matching application and version, approved provider status, and
+the required event subscriptions before settling configuration. A submitted
+version still under review is not a connected Channel. Setup consent includes
+application self-management solely to read the application's own version;
+it does not add a Center Agent runtime capability.
+The publication rollout marks earlier connected Webhook rows as requiring
+repair, preserving their apps and credentials. The existing authorized repair
+flow reconfigures and publishes the same app and requests updated consent when
+needed. Disconnected rows and active attempts are unchanged; active legacy
+attempts cannot use a saved bot identity to skip publication verification.
 The provider's encrypted URL-verification challenge may omit all three
 signature headers. Core may decrypt that envelope only into a URL-verification
 challenge and must match its verification token before recording reachability.

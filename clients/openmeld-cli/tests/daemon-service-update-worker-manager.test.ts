@@ -25,6 +25,7 @@ vi.mock("../src/local-service/lifecycle/daemon-service-bundle", () => ({
 }));
 vi.mock("../src/local-service/lifecycle/daemon-service-manager", () => ({
   resolveDaemonServiceManager: vi.fn(),
+  waitForLaunchdJobUnloaded: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../src/local-components/managed-install", () => ({
   pruneManagedInstallVersions: (...args: unknown[]) =>

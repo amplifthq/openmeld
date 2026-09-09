@@ -8,6 +8,7 @@ import {
   type OpenMeldPathResolutionInput,
   resolveOpenMeldEnvPreset,
   resolveOpenMeldRootDir,
+  resolveOpenMeldServiceScope,
 } from "./paths";
 
 const MANAGED_VERSION_FROM_EXECUTABLE_PATTERN =
@@ -77,8 +78,11 @@ export function resolveDaemonServiceUpdateWorkerIdentity(
   pathInput: OpenMeldPathResolutionInput = {}
 ): DaemonServiceUpdateWorkerIdentity {
   const preset = resolveOpenMeldEnvPreset(pathInput);
-  const suffix = preset === "prod" ? "" : `-${preset}`;
-  const dotSuffix = preset === "prod" ? "" : `.${preset}`;
+  const scope = resolveOpenMeldServiceScope(pathInput);
+  const suffix =
+    (preset === "prod" ? "" : `-${preset}`) + (scope ? `-${scope}` : "");
+  const dotSuffix =
+    (preset === "prod" ? "" : `.${preset}`) + (scope ? `.${scope}` : "");
   return {
     launchdLabel: `com.openmeld.openmeld-service-update${dotSuffix}`,
     serviceName: `openmeld-service-update${suffix}`,

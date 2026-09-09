@@ -79,6 +79,7 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
       ).resolves.toEqual({
         organizationId: "org_one",
         totalUnreadCount: 0,
+        unreadUrgentUpdateCount: 0,
         unresolvedActionCount: 0,
       });
     } finally {
@@ -135,6 +136,7 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
       ).resolves.toEqual({
         organizationId: "org_one",
         totalUnreadCount: 1,
+        unreadUrgentUpdateCount: 0,
         unresolvedActionCount: 0,
       });
     } finally {

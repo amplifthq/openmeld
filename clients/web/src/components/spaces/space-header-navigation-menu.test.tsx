@@ -54,7 +54,7 @@ describe("SpaceHeaderNavigationMenu", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Center Agent menu" }));
 		const conversationInformation = await screen.findByRole("menuitem", {
-			name: "Conversation information",
+			name: "Chat settings",
 		});
 		expect(screen.queryByRole("separator")).toBeNull();
 		fireEvent.click(conversationInformation);

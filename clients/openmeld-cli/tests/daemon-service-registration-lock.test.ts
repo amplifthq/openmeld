@@ -14,6 +14,23 @@ import {
 import { withTempHome } from "./helpers/fs";
 
 describe("daemon service registration mutation lock", () => {
+  it("allows independent development homes while serializing writers in one home", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_ENV_PRESET = "dev-local";
+      process.env.OPENMELD_HOME = join(home, "a");
+      const a = await acquireDaemonServiceLifecycleLock();
+      try {
+        await expect(acquireDaemonServiceLifecycleLock()).rejects.toMatchObject(
+          { contentionState: "active" }
+        );
+        process.env.OPENMELD_HOME = join(home, "b");
+        const b = await acquireDaemonServiceLifecycleLock();
+        await releaseDaemonServiceLifecycleLock(b);
+      } finally {
+        await releaseDaemonServiceLifecycleLock(a);
+      }
+    });
+  });
   it("serializes registration repair and stop across alternate OPENMELD_HOME roots", async () => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_ENV_PRESET = "prod";

@@ -3191,7 +3191,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
-	it("keeps bulk reconnect available in a selected Agent detail", async () => {
+	it("does not offer migration for old bindings in a selected Agent detail", async () => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
 		const codexProfile = createAgentProfile({
 			openMeldProfileId: "agt-codex-old-runtime",
@@ -3239,64 +3239,23 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			}
 		);
 
+		await screen.findByText("Codex Agent");
 		expect(
-			(
-				await screen.findByRole("region", {
-					name: "Reconnect Agents",
-				})
-			).textContent
-		).toContain("Reconnect 2 Agents");
+			screen.queryByRole("region", { name: "Reconnect Agents" })
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Reconnect all" })).toBeNull();
 		expect(
-			screen.getByRole("button", { name: "Connect local agent" })
-		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Reconnect all" }));
-		expect(
-			screen.getByRole("heading", { name: "Reconnect 2 Agents?" })
-		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Reconnect Agents" }));
-
-		await waitFor(() => {
-			expect(ensureRuntimeBindingMock).toHaveBeenCalledTimes(2);
-		});
-		expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
-			expect.objectContaining({
-				agentControllerRef: "builtin:codex",
-				agentProfileId: codexProfile.openMeldProfileId,
-				writeMode: "reconnect",
-			})
-		);
-		expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
-			expect.objectContaining({
-				agentControllerRef: "builtin:claude-code",
-				agentProfileId: claudeProfile.openMeldProfileId,
-				writeMode: "reconnect",
-			})
-		);
-		await waitFor(() => {
-			expect(refreshReadinessFactsMock).toHaveBeenCalledWith(
-				expect.objectContaining({
-					agentProfileIds: expect.arrayContaining([
-						codexProfile.openMeldProfileId,
-						claudeProfile.openMeldProfileId,
-					]),
-				})
-			);
-			expect(refreshAll).not.toHaveBeenCalled();
-			expect(toastMock.success).toHaveBeenCalledWith(
-				"Reconnected 2 Agents to this computer. OpenMeld is checking whether they can reply."
-			);
-		});
+			screen.queryByRole("button", { name: "Connect local agent" })
+		).toBeNull();
+		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
 	});
 
-	it("keeps an accepted reconnect saved when the follow-up status refresh fails", async () => {
+	it("keeps an accepted first connection saved when the follow-up status refresh fails", async () => {
 		const profile = createAgentProfile({
-			openMeldProfileId: "agt-codex-old-runtime",
+			openMeldProfileId: AGENT_PROFILE_ID,
 			profileName: "Codex Agent",
 		});
-		const readiness = createReconnectBindingReadiness(
-			profile.openMeldProfileId,
-			"builtin:codex"
-		);
+		const readiness = createUnboundAgentReadiness();
 		readPrimaryBindingMock.mockRejectedValueOnce(new Error("read unavailable"));
 
 		renderAgentProfilesCard(
@@ -3325,11 +3284,11 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
 				expect.objectContaining({
 					agentProfileId: profile.openMeldProfileId,
-					writeMode: "reconnect",
+					writeMode: "ensure",
 				})
 			);
 			expect(toastMock.warning).toHaveBeenCalledWith(
-				"Codex Agent was reconnected, but OpenMeld could not refresh its status. Refresh this page to check it again."
+				"Codex Agent was connected, but OpenMeld could not refresh its status. Refresh this page to check it again."
 			);
 			expect(toastMock.error).not.toHaveBeenCalled();
 		});

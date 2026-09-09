@@ -36,6 +36,10 @@ import { useAppNavigationPresentation } from "#/components/app/app-navigation-pr
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
 import type { AppOuterRailDestination } from "#/components/app/shell-layout";
 import {
+	resolveInboxAttentionLabel,
+	resolveInboxIndicatorClassName,
+} from "#/lib/inbox/attention";
+import {
 	buildOrganizationAgentCreationPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationPeoplePath,
@@ -47,6 +51,7 @@ import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
 type AppRailDestinationId = AppOuterRailDestination;
 
 type AppRailDestination = {
+	attentionTone?: "danger" | "warning" | null;
 	attentionCount?: number;
 	icon: ReactNode;
 	id: AppRailDestinationId;
@@ -63,6 +68,8 @@ type AppRailGroup = {
 };
 
 export function buildAppRailGroups(input: {
+	chatUnreadCount?: number;
+	chatAttentionTone?: "danger" | "warning" | null;
 	orgSlug: string;
 	centerAgentUnreadCount: number;
 	prefetchCenterAgentConversation: () => void;
@@ -104,7 +111,8 @@ export function buildAppRailGroups(input: {
 					id: "directMessages",
 					label: "Chats",
 					onIntentPrefetch: input.prefetchCenterAgentConversation,
-					unreadCount: input.centerAgentUnreadCount,
+					unreadCount: input.chatUnreadCount,
+					attentionTone: input.chatAttentionTone,
 					to: buildOrganizationDirectMessagesPath(input.orgSlug),
 					icon: <ChatCircleTextIcon aria-hidden="true" className="size-4" />,
 				},
@@ -181,15 +189,24 @@ export function AppRailLink(input: {
 	const unreadIndicatorKind = resolveAppRailUnreadIndicatorKind(
 		input.destination.id
 	);
-	if (unreadCount > 0 && unreadIndicatorKind) {
+	if (
+		(unreadCount > 0 || input.destination.attentionTone) &&
+		unreadIndicatorKind
+	) {
 		statusIndicator = {
 			kind: unreadIndicatorKind,
+			tone: input.destination.attentionTone,
 		};
 	}
 	const accessibleLabel = buildAppRailAccessibleLabel({
 		attentionCount,
 		destinationId: input.destination.id,
-		label: input.destination.label,
+		label: [
+			input.destination.label,
+			resolveInboxAttentionLabel(input.destination.attentionTone),
+		]
+			.filter(Boolean)
+			.join(", "),
 		unreadCount,
 	});
 	const children = (
@@ -353,9 +370,13 @@ function AppRailAttentionBadge(input: {
 	);
 }
 
-type AppRailStatusIndicatorKind = "center-agent-unread" | "spaces-unread";
+type AppRailStatusIndicatorKind =
+	| "center-agent-unread"
+	| "spaces-unread"
+	| "chats-unread";
 
 type AppRailStatusIndicator = {
+	tone?: "danger" | "warning" | null;
 	kind: AppRailStatusIndicatorKind;
 };
 
@@ -368,7 +389,7 @@ function AppRailStatusDot(input: {
 			aria-hidden="true"
 			className={cn(
 				"status-dot",
-				"bg-unread",
+				resolveInboxIndicatorClassName(input.indicator.tone),
 				input.placement === "overlay" && "absolute -end-1.5 -top-1.5"
 			)}
 			data-app-rail-status-indicator={input.indicator.kind}
@@ -405,6 +426,9 @@ function resolveAppRailUnreadIndicatorKind(
 	}
 	if (destinationId === "spaces") {
 		return "spaces-unread";
+	}
+	if (destinationId === "directMessages") {
+		return "chats-unread";
 	}
 	return null;
 }

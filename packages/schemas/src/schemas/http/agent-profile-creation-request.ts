@@ -9,6 +9,24 @@ const identifierSchema = z.string().trim().min(1).max(256);
 const profileNameSchema = z.string().trim().min(1).max(80);
 const isoDateTimeSchema = z.iso.datetime({ offset: true });
 
+export const agentProfileCreationRequestSelectorSchema = z
+  .object({
+    requestId: identifierSchema.optional(),
+    idempotencyKey: identifierSchema.optional(),
+  })
+  .refine((value) => !(value.requestId && value.idempotencyKey), {
+    message: "Select a request by its ID or idempotency key, not both.",
+  });
+
+// A notification to execute the existing durable request, never a copy of its
+// authorization or creation configuration.
+export const agentProfileCreationExecutionMessageSchema = z.strictObject({
+  kind: z.literal("agent_profile_creation"),
+  v: z.literal(1),
+  organizationId: identifierSchema,
+  requestId: identifierSchema,
+});
+
 export const agentProfileCreationApprovalPolicySchema = z.enum([
   "never_allow",
   "ask_every_time",
@@ -265,8 +283,25 @@ export const createAgentProfileCreationRequestResponseSchema = z.strictObject({
   request: agentProfileCreationRequestSchema,
 });
 
+// Compare the creation intent, not JSON field order or the transport envelope.
+// Both the durable record and a validated command normalize through this shape.
+export const agentProfileCreationIntentSchema = z
+  .object(createAgentProfileCreationRequestBodySchema.shape)
+  .transform((intent) => ({
+    configuration: agentProfileCreationConfigurationSchema.parse(
+      intent.configuration ?? DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION
+    ),
+    nativeSessionId: intent.nativeSessionId ?? null,
+    profileName: intent.profileName,
+    requestedSpaceId: intent.requestedSpaceId ?? null,
+    sessionStrategy: intent.sessionStrategy,
+    source: intent.source,
+    targetOwnerUserId: intent.targetOwnerUserId,
+  }));
+
 export const listAgentProfileCreationRequestsResponseSchema = z.strictObject({
   organizationId: identifierSchema,
+  matchedIdempotencyKey: identifierSchema.optional(),
   requests: z.array(agentProfileCreationRequestSchema).max(200),
 });
 

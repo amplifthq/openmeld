@@ -92,6 +92,7 @@ import {
   buildDispatchOwnedRuntimeEnv,
   resolveDispatchOwnedRuntimeActionCliEntryCommand,
 } from "../../runtime/dispatch-owned-runtime";
+import { DISPATCH_SPACE_ACTION_CLI_FALLBACK_COMMAND } from "../../runtime/dispatch-runtime-env";
 import {
   createDispatchSpaceActionContext,
   type DispatchSpaceActionContext,
@@ -2447,9 +2448,11 @@ async function resolveDispatchBootstrapContext(input: {
     });
     return sendTargetReference;
   });
-  const cliEntry = resolveDispatchOwnedRuntimeActionCliEntryCommand();
+  const cliEntry = DISPATCH_SPACE_ACTION_CLI_FALLBACK_COMMAND;
   const serviceFreshnessWarningLines =
-    await resolveDispatchServiceFreshnessWarningLines({ cliEntry });
+    await resolveDispatchServiceFreshnessWarningLines({
+      cliEntry: resolveDispatchOwnedRuntimeActionCliEntryCommand(),
+    });
   const bootstrapTemplateFacts = buildDispatchBootstrapTemplateFacts({
     dispatchTriggerSource: input.parsedTask.dispatchTriggerSource,
     mentionSourceProfileId: input.parsedTask.mentionSourceProfileId,

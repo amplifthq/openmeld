@@ -40,6 +40,32 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 	it.each([
 		"timeline",
 		"details",
+	] as const)("uses server publication eligibility for %s Stop", (variant) => {
+		const item = createWakeProgressItem({
+			phase: "publishing",
+			wakeStopEligibility: {
+				controlMode: "openmeld_owned_publication_cancel",
+				reasonCode: null,
+				reliability: "openmeld_owned_publication",
+				status: "eligible",
+			},
+		});
+		const target = resolveSpaceMessageWakeStopTarget({
+			item: createTimelineItem(),
+			wakeProgressItems: [item],
+		});
+		expect(target.canStop).toBe(true);
+		expect(shouldRenderSpaceWakeStopControl(target, variant)).toBe(true);
+		const unavailable = resolveSpaceMessageWakeStopTarget({
+			item: createTimelineItem(),
+			wakeProgressItems: [{ ...item, wakeStopEligibility: null }],
+		});
+		expect(unavailable.canStop).toBe(false);
+		expect(shouldRenderSpaceWakeStopControl(unavailable, variant)).toBe(false);
+	});
+	it.each([
+		"timeline",
+		"details",
 	] as const)("hides %s Stop when Core withholds viewer eligibility", (variant) => {
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: createTimelineItem(),

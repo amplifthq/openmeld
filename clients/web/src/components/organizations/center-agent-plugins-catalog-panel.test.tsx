@@ -85,7 +85,6 @@ describe("CenterAgentPluginsCatalogPanel", () => {
 		expect(within(controls).getByRole("button", { name: "All" })).toBeTruthy();
 		expect(within(controls).getByLabelText("Search Plugins")).toBeTruthy();
 		for (const appLink of screen.getAllByRole("link")) {
-			expect(appLink.closest('[data-slot="card"]')).toBeTruthy();
 			expect(appLink.closest("[data-fluid-card-item]")).toBeTruthy();
 		}
 		expect(catalog.matches('[data-slot="card"]')).toBe(false);

@@ -43,7 +43,9 @@ const ROOT_DEV_TURBO_FILTERS = [
   "--filter=!@openmeld/core",
   "--filter=!@openmeld/desktop",
 ];
-const SHARED_DB_PREFLIGHT_TIMEOUT_MS = 30_000;
+// Cold workspace builds are part of this check; allow them to finish on busy
+// development machines without weakening the migration verification itself.
+const SHARED_DB_PREFLIGHT_TIMEOUT_MS = 120_000;
 const STANDARD_DEV_TURBO_FLAGS = new Set([
   "--concurrency",
   "--output-logs",

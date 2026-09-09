@@ -17,6 +17,7 @@ import {
   buildProviderExitError,
   classifyCliDriverTimeoutFailure,
   classifyRuntimePermissionDenialMessage,
+  createProviderOriginalError,
   looksLikeRuntimePermissionDenialMessage,
 } from "@openmeld/adapter-core";
 import {
@@ -624,6 +625,10 @@ const classifyCodexFailure = (input: {
   providerAccessEvidence?: AdapterProviderAccessEvidence;
 } => {
   const providerMessage = resolveProviderFailureMessage(input);
+  const originalError =
+    providerMessage && input.providerErrorMessages.includes(providerMessage)
+      ? (createProviderOriginalError(providerMessage) ?? undefined)
+      : undefined;
   if (providerMessage) {
     const lowered = providerMessage.toLowerCase();
     const permissionDenial = classifyRuntimePermissionDenialMessage({
@@ -635,6 +640,7 @@ const classifyCodexFailure = (input: {
         code: permissionDenial.code,
         errorType: permissionDenial.errorType,
         message: permissionDenial.message,
+        originalError,
       };
     }
     if (isControllerClientUpgradeRequiredFailure(lowered)) {
@@ -642,6 +648,7 @@ const classifyCodexFailure = (input: {
         code: "controller.client.upgrade_required",
         errorType: "config",
         message: toControllerClientUpgradeRequiredMessage(providerMessage),
+        originalError,
       };
     }
     const providerFailure = classifyCodexProviderAccountFailure({
@@ -658,6 +665,7 @@ const classifyCodexFailure = (input: {
         code: "config.invalid",
         errorType: "config",
         message: toConfigInvalidMessage(providerMessage),
+        originalError,
       };
     }
   }
@@ -668,6 +676,7 @@ const classifyCodexFailure = (input: {
       code: "upstream_unreachable",
       errorType: "adapter",
       message: `upstream_unreachable: ${stderrText}`,
+      originalError,
     };
   }
 
@@ -675,6 +684,7 @@ const classifyCodexFailure = (input: {
     ...buildProviderExitError({
       providerLabel: "codex",
     }),
+    originalError,
   };
 };
 

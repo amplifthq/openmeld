@@ -27,6 +27,78 @@ import {
 } from "./production-release.mjs";
 
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
+const PERSONAL_CORE_RECEIVER_ERROR = /require the Core receiver/u;
+const PERSONAL_RECEIVER_CONFLICT_ERROR = /conflict with/u;
+const PERSONAL_TOOLS_PATHS = [
+  "packages/schemas/src/schemas/runtime/personal-remote-agent.ts",
+  "services/core/src/remote-agent/application/remote-agent-tool-caller.ts",
+  "services/remote-agent/agent-core/personal-remote-agent-tools.ts",
+  "services/remote-agent/.flue/cloudflare.ts",
+];
+
+test("installs Inbox readers and Core tool authorization before personal Remote tools", () => {
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    sourceSha: REMOTE_SOURCE_SHA,
+    scope: "web,gateway,core,remote-agent",
+    changedPaths: [
+      ...PERSONAL_TOOLS_PATHS,
+      "packages/schemas/src/schemas/http/inbox.ts",
+      "services/core/src/remote-agent/application/native-delivery-inbox-producer.ts",
+    ],
+  });
+  assert.deepEqual(plan.deployScopeOrder, [
+    "web",
+    "gateway",
+    "core",
+    "remote-agent",
+  ]);
+  assert.ok(
+    plan.deploySteps.some(
+      (step) =>
+        step.label === "Deploy Core with the current published CLI projection"
+    )
+  );
+  assert.ok(
+    !plan.preflightSteps.some(
+      (step) => step.label === "Verify Core CLI channel compatibility"
+    )
+  );
+});
+
+test("rejects personal Remote tool rollout without its Core receiver", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        sourceSha: REMOTE_SOURCE_SHA,
+        scope: "remote-agent",
+        changedPaths: PERSONAL_TOOLS_PATHS,
+      }),
+    PERSONAL_CORE_RECEIVER_ERROR
+  );
+});
+
+test("rejects opposing Remote request and personal tool rollout dependencies", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        sourceSha: REMOTE_SOURCE_SHA,
+        scope: "core,remote-agent",
+        changedPaths: [
+          ...PERSONAL_TOOLS_PATHS,
+          "packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts",
+          "services/core/src/remote-agent/application/remote-agent-worker-admission.ts",
+          "services/remote-agent/.flue/agents/center-agent.ts",
+        ],
+      }),
+    PERSONAL_RECEIVER_CONFLICT_ERROR
+  );
+});
 const INDEPENDENT_SKILL_BRIDGE_ERROR_RE = /independent Skill bridge/u;
 const SPACE_INVITATION_ORDER_ERROR = /Space invitation/u;
 const PEOPLE_COMPUTERS_ORDER_ERROR =

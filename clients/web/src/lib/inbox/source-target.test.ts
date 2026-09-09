@@ -6,6 +6,52 @@ import {
 } from "./source-target";
 
 describe("buildInboxItemSourceNavigation", () => {
+	it("keeps a Direct Message in Chats with its exact thread and signal", () => {
+		expect(
+			buildInboxItemSourceNavigation({
+				orgSlug: "amplift",
+				item: createInboxItem({
+					kind: "space",
+					spaceId: "dm-123",
+					signalId: "reply-123",
+					threadRootSignalId: "root-123",
+					directMessage: true,
+				}),
+			})
+		).toEqual({
+			href: "/o/amplift/chats/dm-123?focusSignalId=reply-123&focusThreadRootSignalId=root-123",
+			openInNewTab: false,
+		});
+	});
+	it("suppresses only the exact visible Center Agent session", () => {
+		const item = createInboxItem({
+			kind: "center_agent",
+			spaceId: "session-one",
+			signalId: "reply",
+		});
+		for (const spaceId of ["session-one", "session-two"]) {
+			expect(
+				isInboxItemSourceLocation({
+					item,
+					orgSlug: "amplift",
+					pathname: "/o/amplift/chats/center-agent",
+					visibleConversation: {
+						kind: "space",
+						spaceId,
+						threadRootSignalId: null,
+					},
+				})
+			).toBe(spaceId === "session-one");
+		}
+		expect(
+			isInboxItemSourceLocation({
+				item,
+				orgSlug: "amplift",
+				pathname: "/o/amplift/chats/center-agent",
+				visibleConversation: null,
+			})
+		).toBe(false);
+	});
 	it("preserves the exact Space signal and thread target", () => {
 		expect(
 			buildInboxItemSourceNavigation({
@@ -53,7 +99,7 @@ describe("buildInboxItemSourceNavigation", () => {
 				orgSlug: "amplift",
 			})
 		).toEqual({
-			href: "/o/amplift/chats/center-agent?focusSignalId=signal-123",
+			href: "/o/amplift/chats/center-agent?session=space-123&focusSignalId=signal-123",
 			openInNewTab: false,
 		});
 	});

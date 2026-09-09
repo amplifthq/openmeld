@@ -21,6 +21,7 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
+import vendorModelCatalog from "../../../../../release/vendor-models.json";
 import {
 	LegacyCreateProfileDialog as CreateProfileDialog,
 	CreateProfileDialog as CurrentCreateProfileDialog,
@@ -34,6 +35,7 @@ const CREATING_PROFILE_BUTTON_PATTERN = /creating profile/i;
 const CHOOSE_LATER_PATTERN = /Choose later/i;
 const HUMAN_PROFILE_CARD_PATTERN = /Person/i;
 const AGENT_PROFILE_CARD_PATTERN = /Agent profile/i;
+const REMOTE_AGENT_CARD_PATTERN = /Remote Agent/;
 const OPENCODE_AGENT_PATTERN = /opencode/i;
 const BORDER_CLASS_PATTERN = /\bborder\b/;
 const ASHLEY_RELEASE_SESSION_PATTERN = /Prepare the release · Codex · OpenMeld/;
@@ -225,6 +227,7 @@ vi.mock("#/query/config/model-catalog", () => ({
 			schemaVersion: 1,
 			updatedAt: "2026-06-18T00:00:00.000Z",
 			agentControllers: {
+				"center-agent": vendorModelCatalog.agentControllers["center-agent"],
 				codex: {
 					defaultModelId: "gpt-5.5",
 					models: [
@@ -768,6 +771,134 @@ describe("CreateProfileDialog", () => {
 		toastErrorMock.mockReset();
 		toastSuccessMock.mockReset();
 		toastWarningMock.mockReset();
+	});
+
+	it.each([
+		0, 1, 2,
+	])("shows a computer selector only when needed (%i connected)", async (connectedCount) => {
+		const recovery = buildFakeRecovery();
+		const inventory = recovery.localRuntimesQuery.data?.peopleComputers;
+		const computer = inventory?.computers[0];
+		if (!(inventory && computer)) {
+			throw new Error("Expected the fixture Computer inventory.");
+		}
+		inventory.computers = [
+			{
+				...computer,
+				deviceId: "online-device",
+				deviceDisplayName: "Online laptop",
+				executionTargets: [],
+				connection: {
+					status: "connected",
+					reasonCodes: [],
+					sessions: [
+						{
+							deviceId: "online-device",
+							runtimeLane: "dev-local",
+							lastHeartbeatMs: Date.now(),
+							serviceVersion: "0.3.165",
+							executionCompatibility: {
+								status: "compatible",
+								expectedEpoch:
+									"runtime-transport-epoch-2026-07-default-project",
+								observedEpoch:
+									"runtime-transport-epoch-2026-07-default-project",
+								reasonCode: "daemon.runtime_contract.compatible",
+							},
+							serviceUpdate: { wakeBlocked: false, reasonCodes: [] },
+						},
+					],
+				},
+			},
+			{
+				...computer,
+				deviceDisplayName: "Offline laptop",
+				connection: {
+					status: "disconnected",
+					sessions: [],
+					reasonCodes: ["daemon.session.stale_lease"],
+				},
+			},
+			{
+				...computer,
+				deviceId: "reconnect-device",
+				deviceDisplayName: "Reconnect laptop",
+				connection: {
+					status: "unknown",
+					sessions: [],
+					reasonCodes: ["daemon.session.reject_conflict"],
+				},
+			},
+			{
+				...computer,
+				deviceId: "unknown-device",
+				deviceDisplayName: "Unknown laptop",
+				connection: {
+					status: "unknown",
+					sessions: [],
+					reasonCodes: ["computer.connection.lookup_failed"],
+				},
+			},
+		];
+		const onlineComputer = inventory.computers[0];
+		if (!onlineComputer) {
+			throw new Error("Expected the online Computer fixture.");
+		}
+		if (connectedCount === 0) {
+			inventory.computers.shift();
+		}
+		if (connectedCount === 2) {
+			inventory.computers.push({
+				...onlineComputer,
+				deviceId: "second-online-device",
+				deviceDisplayName: "Online desktop",
+				connection: {
+					...onlineComputer.connection,
+					sessions: onlineComputer.connection.sessions.map((session) => ({
+						...session,
+						deviceId: "second-online-device",
+					})),
+				},
+			});
+		}
+		recovery.selectComputer = vi.fn((target) => {
+			recovery.deviceId = target.deviceId;
+			recovery.runtimeLane = target.runtimeLane;
+		});
+		renderCurrentCreateProfileDialog({ recovery });
+		if (connectedCount < 2) {
+			expect(screen.queryByRole("combobox", { name: "Computer" })).toBeNull();
+			expect(screen.queryByText("Computer", { exact: true })).toBeNull();
+			expect(screen.queryByText("Online laptop · Connected")).toBeNull();
+			expect(screen.queryByText("Advanced connection selection")).toBeNull();
+			if (connectedCount === 1) {
+				expect(recovery.selectComputer).toHaveBeenCalledWith({
+					deviceId: "online-device",
+					runtimeLane: "dev-local",
+				});
+			} else {
+				expect(recovery.selectComputer).not.toHaveBeenCalled();
+			}
+			return;
+		}
+		fireEvent.click(await screen.findByRole("combobox", { name: "Computer" }));
+		for (const name of [
+			"Offline laptop · Offline",
+			"Reconnect laptop · Reconnect required",
+			"Unknown laptop · Status unavailable",
+		]) {
+			expect(screen.queryByRole("option", { name })).toBeNull();
+		}
+		expect(recovery.selectComputer).not.toHaveBeenCalled();
+		const online = screen.getByRole("option", {
+			name: "Online laptop · Connected",
+		});
+		expect(online.getAttribute("aria-disabled")).not.toBe("true");
+		fireEvent.click(online);
+		expect(recovery.selectComputer).toHaveBeenCalledWith({
+			deviceId: "online-device",
+			runtimeLane: "dev-local",
+		});
 	});
 
 	it("uses the new Agent-first flow and preserves a manually edited name", async () => {
@@ -1337,6 +1468,27 @@ describe("CreateProfileDialog", () => {
 		});
 	});
 
+	it("refreshes the organization member directory after creating a Remote Agent", async () => {
+		renderCurrentCreateProfileDialog();
+		await waitFor(() => {
+			expect(readOrganizationDirectoryMock).toHaveBeenCalled();
+		});
+		fireEvent.click(
+			await screen.findByRole("tab", { name: REMOTE_AGENT_CARD_PATTERN })
+		);
+		fireEvent.change(screen.getByRole("textbox", { name: "Agent name" }), {
+			target: { value: "New Remote Partner" },
+		});
+		const readsBeforeCreation = readOrganizationDirectoryMock.mock.calls.length;
+		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalled();
+			expect(readOrganizationDirectoryMock.mock.calls.length).toBeGreaterThan(
+				readsBeforeCreation
+			);
+		});
+	});
+
 	it("refreshes the new Agent and its readiness after a completed Fork request", async () => {
 		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
 		const onAfterJoin = vi.fn().mockResolvedValue(undefined);
@@ -1826,9 +1978,9 @@ describe("CreateProfileDialog", () => {
 		expect(recordProfileSpaceHistoryMock).not.toHaveBeenCalled();
 	});
 
-	it("refreshes the created Agent before opening its Profile Details", async () => {
+	it("opens the committed Agent without waiting for background cache refreshes", async () => {
 		const onAgentRequestCreated = vi.fn();
-		const { queryClient } = renderCreateProfileDialog({
+		const { queryClient, onOpenChange } = renderCreateProfileDialog({
 			onAgentRequestCreated,
 			organizationId: "organization-123",
 		});
@@ -1846,14 +1998,16 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledTimes(1);
 		});
-		expect(onAgentRequestCreated).not.toHaveBeenCalled();
-
-		finishRefresh();
-		await waitFor(() => {
-			expect(onAgentRequestCreated).toHaveBeenCalledWith(
-				expect.objectContaining({ createdAgentProfileId: NEW_AGENT_ID })
-			);
-		});
+		try {
+			await waitFor(() => {
+				expect(onAgentRequestCreated).toHaveBeenCalledWith(
+					expect.objectContaining({ createdAgentProfileId: NEW_AGENT_ID })
+				);
+				expect(onOpenChange).toHaveBeenCalledWith(false);
+			});
+		} finally {
+			finishRefresh();
+		}
 	});
 
 	it("reports Core's partial result without repeating local Binding or Space writes", async () => {
@@ -2717,9 +2871,11 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() =>
 			expect(getAgentProfileCreationDefaultsMock).toHaveBeenCalled()
 		);
-		expect(
-			screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
-		).toBeNull();
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
+			).toBeNull()
+		);
 		const submitButton = screen.getByRole("button", {
 			name: "Create Agent",
 		}) as HTMLButtonElement;

@@ -1,3 +1,7 @@
+import type {
+  InboxSummaryResponse,
+  ListInboxItemsResponse,
+} from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 
@@ -70,6 +74,122 @@ const HUMAN_MENTION_ITEM = {
 };
 
 describe("Inbox routes", () => {
+  it("exposes complete conversation counts only to summary-aware clients", async () => {
+    const { coreRpc, env } = makeEnv();
+    const legacy = {
+      organizationId: "org-1",
+      ordinarySpaceUnreadCount: 4,
+      spaces: [],
+    };
+    const current = {
+      ...legacy,
+      chatUnreadCount: 106,
+      chatUnresolvedActionCount: 1,
+      chatUnreadUrgentUpdateCount: 1,
+      attention: [
+        { spaceId: "dm", unresolvedActionCount: 1, unreadUrgentUpdateCount: 1 },
+      ],
+    };
+    coreRpc.getSpaceInboxSummary.mockResolvedValue(current);
+    for (const version of ["1", "2"]) {
+      const response = await app.fetch(
+        new Request("http://local/v1/inbox/spaces/summary", {
+          headers: { "x-openmeld-inbox-summary-version": version },
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(version === "2" ? current : legacy);
+    }
+  });
+
+  it("preserves thread and DM routing while gating owner activity to version 6", async () => {
+    const { coreRpc, env } = makeEnv();
+    const sourceTarget = {
+      kind: "space" as const,
+      spaceId: "dm",
+      signalId: "reply",
+      threadRootSignalId: "root",
+      directMessage: true,
+      agentOwnerActivity: true,
+    };
+    coreRpc.listInboxItems.mockResolvedValue({
+      items: [{ ...HUMAN_MENTION_ITEM, sourceTarget }],
+      nextCursor: null,
+      organizationId: "org-1",
+    });
+    for (const version of ["4", "5", "6"]) {
+      const response = await app.fetch(
+        new Request("http://local/v1/inbox", {
+          headers: { "x-openmeld-inbox-source-target-version": version },
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        items: { sourceTarget: unknown }[];
+      };
+      expect(body.items[0]?.sourceTarget).toEqual({
+        kind: "space",
+        spaceId: "dm",
+        signalId: "reply",
+        threadRootSignalId: "root",
+        ...(version !== "4" ? { directMessage: true } : {}),
+        ...(version === "6" ? { agentOwnerActivity: true } : {}),
+      });
+    }
+  });
+
+  it("keeps an absent count unknown when talking to old Core", async () => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.getInboxSummary.mockResolvedValue({
+      organizationId: "org-1",
+      totalUnreadCount: 8,
+      unresolvedActionCount: 2,
+    });
+    const response = await app.fetch(
+      new Request("http://local/v1/inbox/summary", {
+        headers: { "x-openmeld-inbox-summary-version": "1" },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      organizationId: "org-1",
+      totalUnreadCount: 8,
+      unresolvedActionCount: 2,
+    });
+  });
+  it("preserves old strict summaries and exposes urgent counts only to aware clients", async () => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.getInboxSummary.mockResolvedValue({
+      organizationId: "org-1",
+      totalUnreadCount: 8,
+      unresolvedActionCount: 2,
+      unreadUrgentUpdateCount: 3,
+    });
+    for (const version of [undefined, "1"]) {
+      const response = await app.fetch(
+        new Request("http://local/v1/inbox/summary", {
+          headers: version
+            ? { "x-openmeld-inbox-summary-version": version }
+            : {},
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        organizationId: "org-1",
+        totalUnreadCount: 8,
+        unresolvedActionCount: 2,
+        ...(version ? { unreadUrgentUpdateCount: 3 } : {}),
+      });
+    }
+  });
   it("forwards the complete member Inbox surface to Core", async () => {
     const { coreRpc, env } = makeEnv();
     const requests = [
@@ -464,11 +584,14 @@ function makeEnv() {
       updatedAt: null,
       urgentEmailEnabled: true,
     })),
-    getInboxSummary: vi.fn(async () => ({
-      organizationId: "org-1",
-      totalUnreadCount: 1,
-      unresolvedActionCount: 1,
-    })),
+    getInboxSummary: vi.fn(
+      async (): Promise<InboxSummaryResponse> => ({
+        organizationId: "org-1",
+        totalUnreadCount: 1,
+        unresolvedActionCount: 1,
+        unreadUrgentUpdateCount: 0,
+      })
+    ),
     getCenterAgentInboxSummary: vi.fn(async () => ({
       organizationId: "org-1",
       unreadCount: 1,
@@ -496,11 +619,13 @@ function makeEnv() {
       ],
       totalUnreadCount: 1,
     })),
-    listInboxItems: vi.fn(async () => ({
-      items: [ITEM, MESSAGE_CHANNEL_ITEM],
-      nextCursor: "next-page" as string | null,
-      organizationId: "org-1",
-    })),
+    listInboxItems: vi.fn(
+      async (): Promise<ListInboxItemsResponse> => ({
+        items: [ITEM, MESSAGE_CHANNEL_ITEM],
+        nextCursor: "next-page" as string | null,
+        organizationId: "org-1",
+      })
+    ),
     markAllInboxItemsRead: vi.fn(async () => ({ markedReadCount: 1 })),
     markCenterAgentInboxReadThrough: vi.fn(async () => ({
       markedReadCount: 1,

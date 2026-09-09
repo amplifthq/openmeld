@@ -7,7 +7,6 @@ import {
 	formatAgentWakeAvailabilityCheckedAt,
 	resolveAgentProfileAutoRefreshDelayMs,
 	resolveAgentProfileAvailabilityFilterState,
-	resolveAgentProfileBulkReconnectCandidates,
 	resolveAgentProfileRepairActions,
 	resolveAgentProfileRowWakeAvailability,
 	resolveAgentProfileSetupAction,
@@ -218,112 +217,14 @@ describe("Agent Profile availability presentation", () => {
 		).toEqual([]);
 	});
 
-	it("offers one explicit bulk reconnect only for manageable profiles with a matching local agent", () => {
-		const codexProfile = createExpiredWakeRouteProfile(
-			"agt-codex-old-runtime",
-			"Codex Agent"
-		);
-		const claudeProfile = createExpiredWakeRouteProfile(
-			"agt-claude-old-runtime",
-			"Claude Agent"
-		);
-		const unmanagedProfile = createExpiredWakeRouteProfile(
-			"agt-unmanaged-old-runtime",
-			"Unmanaged Agent"
-		);
-		const unavailableControllerProfile = createExpiredWakeRouteProfile(
-			"agt-cursor-old-runtime",
-			"Cursor Agent"
-		);
-		const profiles = [
-			codexProfile,
-			claudeProfile,
-			unmanagedProfile,
-			unavailableControllerProfile,
-		];
-
+	it("does not offer to move an existing Agent through connection recovery", () => {
 		expect(
-			resolveAgentProfileBulkReconnectCandidates({
-				canManageProfile: (profile) =>
-					profile.openMeldProfileId !== unmanagedProfile.openMeldProfileId,
-				currentLocalRuntimeCanReply: true,
-				isCurrentComputer: true,
-				localAgentCatalogEntries: [
-					createLocalAgentCatalogEntry("codex", "Codex"),
-					createLocalAgentCatalogEntry("claude-code", "Claude Code"),
-				],
-				profiles,
-				readinessByProfileId: new Map([
-					[
-						codexProfile.openMeldProfileId,
-						createReconnectBindingReadiness(
-							codexProfile.openMeldProfileId,
-							"builtin:codex"
-						),
-					],
-					[
-						claudeProfile.openMeldProfileId,
-						createReconnectBindingReadiness(
-							claudeProfile.openMeldProfileId,
-							"builtin:claude-code"
-						),
-					],
-					[
-						unmanagedProfile.openMeldProfileId,
-						createReconnectBindingReadiness(
-							unmanagedProfile.openMeldProfileId,
-							"builtin:codex"
-						),
-					],
-					[
-						unavailableControllerProfile.openMeldProfileId,
-						createReconnectBindingReadiness(
-							unavailableControllerProfile.openMeldProfileId,
-							"builtin:cursor"
-						),
-					],
-				]),
-			})
-		).toEqual([
-			{
-				action: {
-					agentControllerRef: "builtin:codex",
-					agentDisplayName: "Codex",
-					intent: "reconnect",
-				},
-				profile: codexProfile,
-			},
-			{
-				action: {
-					agentControllerRef: "builtin:claude-code",
-					agentDisplayName: "Claude Code",
-					intent: "reconnect",
-				},
-				profile: claudeProfile,
-			},
-		]);
-	});
-
-	it("does not offer bulk reconnect until the current runtime can receive Wake work", () => {
-		const profile = createExpiredWakeRouteProfile();
-		expect(
-			resolveAgentProfileBulkReconnectCandidates({
-				canManageProfile: () => true,
-				currentLocalRuntimeCanReply: false,
+			resolveAgentProfileRepairActions({
 				isCurrentComputer: true,
 				localAgentCatalogEntries: [
 					createLocalAgentCatalogEntry("codex", "Codex"),
 				],
-				profiles: [profile],
-				readinessByProfileId: new Map([
-					[
-						profile.openMeldProfileId,
-						createReconnectBindingReadiness(
-							profile.openMeldProfileId,
-							"builtin:codex"
-						),
-					],
-				]),
+				readiness: createReconnectBindingReadiness("agt-old", "builtin:codex"),
 			})
 		).toEqual([]);
 	});

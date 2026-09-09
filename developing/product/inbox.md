@@ -272,21 +272,54 @@ A resolved action is no longer presented as actively urgent. Its historical
 title and preview may remain visible in **Updates**, but an `Urgent` treatment
 must not imply that the member still has an outstanding decision.
 
-The global Inbox launcher's badge counts uncleared, unresolved `action_required`
-items, whether or not they have been read. Ordinary unread updates remain
-visible in Inbox but do not inflate this high-attention badge. Reading an item
-never makes unfinished work disappear from the badge. The count is capped
-visually at `99+`; the server response retains the exact count.
+The sidebar header Inbox badge counts two disjoint sets: uncleared, unresolved
+`action_required` items (read or unread), plus uncleared, unread urgent `update`
+items. Resolved actions never contribute. An urgent action counts once, as an
+action. Ordinary unread updates do not inflate this count. Reading an urgent
+update clears its contribution; reading an action does not resolve it. Dismiss
+removes either contribution without changing source business state.
+Core computes both exact counts over the complete accessible recipient Inbox,
+independently of list pagination. Web caps only the displayed sum at `99+`.
 
-The compact preview uses that same attention fact: when unresolved actions
-exist, its status names the action count. The preview renders unresolved items
-under **Needs action** and ordinary unread items under **Recent updates** at the
-same time; one section never hides the other. When there are no unresolved
-actions, the bounded preview may use the full available item allowance for
-recent updates. It may say **All caught up** only when there are no unresolved
-actions and no unread items.
+An open action makes the badge red; otherwise unread urgent updates make it
+amber. Red means a human action is outstanding, not that every action is urgent.
+The bottom-right Inbox launcher uses the same tone on its icon and label, with
+no number. Both entry points expose the exact action/urgent-update breakdown in
+their accessible names and hover descriptions. Missing or failed summaries are
+unknown, never zero; the header renders no badge without a confirmed count.
+Initial loading retains the plain Inbox label without a checking message or
+placeholder badge. Background refreshes and read/dismiss mutations retain the
+last confirmed count until Core returns the updated summary, without an
+intermediate visual change or an optimistic count.
+Failed summaries still expose their unavailable status. Entry activation alone
+never clears an item.
+
+The compact preview uses the same summary breakdown. It separately queries
+**Needs action**, **Urgent updates**, and unread **Recent updates**, in that
+order, without duplicating an item across groups. The `urgent_updates` list view
+uses the same predicate as the urgent update count, so older urgent updates
+cannot be displaced by a page of newer ordinary messages. The `recent_updates`
+view independently selects unread items outside both attention groups so a
+page of actions or urgent updates cannot starve ordinary updates either. The bounded preview
+reserves room for each group; full Inbox remains the complete list. It may say
+**All caught up** only when there are no unresolved actions and no unread items.
 
 ### Space message unread behavior
+
+New Human-authored messages in conversations containing an ordinary personal
+Agent also address that Agent's current owner, even without Human membership.
+Self-authored messages do not generate this owner alert. Core validates current
+personal ownership and excludes managed Agents and the designated Center Agent.
+The owner receives one urgent `space_message` update per source message with
+`sourceTarget.agentOwnerActivity: true`; overlapping member delivery is deduplicated.
+This marker describes owner awareness, not an action request. It counts in the
+existing Inbox urgent badge, but contributes only ordinary unread state to
+Chats/Spaces navigation. Owner reads use the existing Space read watermark.
+Current ownership and membership are rechecked on delivery and reads; alerts
+never add Human membership or grant write access. No historical backfill occurs.
+Browser delivery retains its permission/visible-conversation gates and groups
+owner alerts by conversation and source minute. These awareness updates do not
+generate urgent email.
 
 Authorship does not establish reading. Web composer sends confirm only their
 exact authored message with `authorHasRead: true`; Core omits that author's
@@ -304,16 +337,16 @@ Every Inbox message projection backed by a Space carries its canonical source
 Space id and Signal occurrence time. Web reads one Core summary of at most 500
 unread message projections grouped by Space. Approval, question, and plan-review
 requests remain action items in Inbox; they do not masquerade as unread Space
-messages. The Spaces secondary sidebar shows a static amber dot and stronger
+messages. The Spaces secondary sidebar shows a static blue dot and stronger
 name treatment for every visible ordinary or pinned Space with unread messages.
 Unpinned Spaces with unread messages sort before read Spaces, newest unread
 first; pinned Spaces keep the member's explicit pin order. The indicator is
 accessible without color and does not pulse. Direct Messages remain in their
 owning navigation surface instead of reappearing in the Spaces sidebar; each
-unread Direct Message shows the same static amber indicator on its exact
+unread Direct Message shows the same static blue indicator on its exact
 conversation row so the member can identify what needs attention.
 While any ordinary Space message remains unread, the Spaces destination in the
-outer app rail shows one static amber dot across OpenMeld. Its accessible label
+outer app rail shows one static blue dot across OpenMeld. Its accessible label
 reports the complete unread ordinary Space message count. Core derives that
 aggregate before the grouped summary's 500-Space presentation limit and
 excludes current Direct Messages and legacy welcoming Spaces through the Space
@@ -322,11 +355,18 @@ outer dot does not identify a second unread owner or replace the per-Space
 indicators; it guides the member into Spaces, where the secondary sidebar shows
 which exact Spaces are unread.
 
+Chats uses complete Core aggregates for unread messages, open action requests,
+and unread urgent updates across current DMs, including Center Agent sessions.
+The Chat row and destination use red for open actions, yellow for unread urgent
+updates, then blue for ordinary unread. Grouped attention has no unread-page
+limit, and reading a request does not resolve it. Only the Inbox icon carries
+the numeric attention badge; Chat indicators remain dots with accessible labels.
+
 Every final Center Agent reply in its current, unconverted member Direct Message
 is projected as an ordinary Inbox update with a canonical Center Agent target
 containing both the source Space id and source Signal id. While any such item is
 unread, the Center Agent destination in the outer rail independently shows one
-static amber dot. Conversion makes the Space Index classify that conversation
+static blue dot. Conversion makes the Space Index classify that conversation
 as an ordinary Space, so its unread items contribute only to the Spaces
 destination even when their durable target remains `center_agent`. The dot sits
 immediately after the label in the full rail and on the icon corner in compact
@@ -381,18 +421,24 @@ two optional delivery channels:
 
 - **Browser notifications** are browser-local and become enabled when the
   browser grants permission unless the member has explicitly turned them off
-  in this browser. When permission is still undecided, OpenMeld shows one
-  concise introduction after Account Setup Studio and waits for the member to
+  in this browser. When permission is still undecided and the member has never
+  enabled, disabled, or dismissed notifications in this browser, OpenMeld shows
+  one concise introduction on entering an actual Space, after onboarding. It
+  does not show on initial landing, Home, or the Space directory, and waits for the member to
   choose **Enable notifications** before requesting native browser permission.
   **Not now** dismisses that introduction for this member in this browser; it
-  never grants, denies, or changes browser permission. The switch remains
+  never grants, denies, or changes browser permission. The introduction explains
+  that notifications can be enabled later in Settings > Notifications. The switch remains
   global for all Spaces and Direct Messages and is reachable from Settings ->
   Personal -> Notifications and from any Space Info. Phase 1 delivers newly
   observed unread items that are urgent, open action-required, or directly
   addressed to the member: references of that member, replies intended for them (a
   successful Wake reaches its requester through its final reply item), their
   system-owned Wake endings addressed to that requester (visible failure,
-  stopped, `stay_silent`, policy-blocked action, or explicit final status). Ordinary
+  stopped, `stay_silent`, policy-blocked action, or explicit final status), and
+  messages in a current Direct Message. Formal Agent DM replies address the
+  active human participant even without a Wake correlation; ordinary Space
+  replies retain explicit-recipient rules. Ordinary
   Space message updates stay in Inbox without a system notification. A visible
   tab suppresses delivery only for the conversation it is currently showing;
   a hidden tab can deliver any eligible item. Current-conversation suppression

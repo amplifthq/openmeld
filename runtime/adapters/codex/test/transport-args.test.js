@@ -308,7 +308,7 @@ describe("Codex Space Action MCP config", () => {
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.required=true",
         "-c",
-        'mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=["reply","status","stay_silent"]',
+        'mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=["read_file","reply","status","stay_silent"]',
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.disabled_tools=[]",
         "-c",

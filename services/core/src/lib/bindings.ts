@@ -1,4 +1,5 @@
 import type {
+  AgentProfileCreationExecutionMessage,
   AgentTaskContinuationQueueMessage,
   AgentTaskObservationRedriveQueueMessage,
   AuthRpcResolveOrganizationAccountIdentityInput,
@@ -7,6 +8,9 @@ import type {
   AuthRpcResolveOrganizationDirectoryAgentProfilesResult,
   AuthRpcResolveOrganizationDirectoryMembersInput,
   AuthRpcResolveOrganizationDirectoryMembersResult,
+  AuthRpcResolveProfileByIdResult,
+  AuthRpcResolveProfilesByIdsInput,
+  AuthRpcResolveProfilesByIdsResult,
   AuthRpcResolveUserDisplayNameInput,
   AuthRpcResolveUserDisplayNameResult,
   AuthRpcSendInboxUrgentEmailInput,
@@ -133,26 +137,12 @@ type CoreAuthDispatchBindingRpc = {
         message: string;
       }
   >;
-  resolveProfileById?(input: { openMeldProfileId?: string | null }): Promise<
-    | {
-        ok: true;
-        profile: {
-          profileId: string;
-          profileName: string;
-          profileHandle: string;
-          profileKind: "human" | "agent" | "system";
-          status: "active" | "disabled";
-          ownerUserId: string;
-          organizationId?: string | null;
-          defaultProjectId?: string | null;
-        };
-      }
-    | {
-        ok: false;
-        code: string;
-        message: string;
-      }
-  >;
+  resolveProfileById?(input: {
+    openMeldProfileId?: string | null;
+  }): Promise<AuthRpcResolveProfileByIdResult>;
+  resolveProfilesByIds?(
+    input: AuthRpcResolveProfilesByIdsInput
+  ): Promise<AuthRpcResolveProfilesByIdsResult>;
 };
 
 export type RemoteAgentWorkerBindingRpc = {
@@ -242,6 +232,7 @@ export type CoreBindings = {
   WEB_APP_URL?: string;
   ZEP_OPENMELD_API_KEY?: string;
   OPENMELD_DAEMON_DISPATCH_QUEUE?: Queue<
+    | AgentProfileCreationExecutionMessage
     | AgentTaskContinuationQueueMessage
     | AgentTaskObservationRedriveQueueMessage
     | RemoteAgentNativeDeliveryDeadlineProbeQueueMessage

@@ -60,8 +60,8 @@ import { buildProfilePath } from "#/lib/profile-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { AppSidebarGroup } from "../app/app-sidebar-group";
+import { useSidebarGroupFilter } from "../app/sidebar-filter";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
-import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import {

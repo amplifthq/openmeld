@@ -81,11 +81,6 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 		pending ||
 		input.profile.defaultProjectId === undefined ||
 		input.executionTargetChangeEligibilityStatus !== "allowed";
-	const changed =
-		projectId !== initialProjectId ||
-		(!projectId &&
-			(fallback !== initialFallback ||
-				(fallback === "advanced" && path.trim() !== initialPath)));
 	const valid = isWorkingFolderDraftValid({
 		projectId,
 		connection,
@@ -93,7 +88,9 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 		path,
 	});
 	const save = async () => {
-		if (disabled || !changed || !valid) {
+		// The displayed choice does not prove that the Service has a usable
+		// workspace. Explicit Save may reapply it to initialize or repair it.
+		if (disabled || !valid) {
 			return;
 		}
 		setPending(true);
@@ -231,7 +228,7 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 					>
 						Cancel
 					</Button>
-					<Button disabled={disabled || !changed || !valid} onClick={save}>
+					<Button disabled={disabled || !valid} onClick={save}>
 						{pending ? "Saving…" : "Save changes"}
 					</Button>
 				</DialogFooter>

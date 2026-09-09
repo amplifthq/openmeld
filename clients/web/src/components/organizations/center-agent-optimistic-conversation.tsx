@@ -114,7 +114,7 @@ export function CenterAgentOptimisticConversation(input: {
 								}}
 								placeholder="Tell Center Agent what you need…"
 							/>
-							<PromptInputActions className="min-w-0 justify-between border-border border-t pt-2">
+							<PromptInputActions className="min-w-0 justify-between pt-2">
 								<div>{input.composerAccessory}</div>
 								<PromptInputAction
 									tooltip={isSending ? "Sending…" : "Send message"}
