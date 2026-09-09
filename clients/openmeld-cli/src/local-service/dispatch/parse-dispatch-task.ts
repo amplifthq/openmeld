@@ -647,7 +647,6 @@ function renderDispatchBriefSection(
     `- Actions: ${dispatchBrief.whatYouCanDoNow}`,
     ...buildProgressiveContextGuidanceLines(input),
     ...buildActionGuidanceLines(input),
-    ...buildServiceFreshnessWarningLines(input),
     ...buildSendTargetReferenceLines(input),
   ];
 
@@ -717,12 +716,6 @@ function buildMandatoryCompletionActionLine(
     )}\` and wait for it to finish.`;
   }
   return "- No permitted OpenMeld Space action is available. Do not invent one in answer text.";
-}
-
-function buildServiceFreshnessWarningLines(
-  input: Pick<DispatchPromptBootstrapInput, "serviceFreshnessWarningLines">
-): string[] {
-  return input.serviceFreshnessWarningLines?.filter(Boolean) ?? [];
 }
 
 function buildThisSpaceLine(
