@@ -301,6 +301,7 @@ describe("SpaceMembersSidePanel", () => {
 				snapshot={createSpaceMembersSnapshot({
 					humans: [
 						createSpaceMemberHumanSnapshot({
+							ownerUserId: "user_felix",
 							profileName: "Felix",
 							profileId: "11111111-1111-4111-8111-111111111111",
 						}),
@@ -954,9 +955,12 @@ describe("SpaceMembersSidePanel", () => {
 			"A Offline Agent",
 			"F Offline Agent",
 		];
-		expect(readTextOrder(getMembersSection("Agents"), expectedOrder)).toEqual(
-			expectedOrder
-		);
+		expect(
+			readTextOrder(getMembersSection("People & Agents"), expectedOrder)
+		).toEqual(expectedOrder);
+		expect(screen.getByText("Felix")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Collapse Felix" })).toBeTruthy();
+		expect(screen.queryByRole("heading", { name: "Agents" })).toBeNull();
 	});
 
 	it("keeps live human profiles before inactive human profiles", () => {

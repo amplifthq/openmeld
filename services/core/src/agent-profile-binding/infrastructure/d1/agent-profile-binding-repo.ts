@@ -912,63 +912,51 @@ export async function readPrimaryAgentProfileBindingRecord(input: {
   return row ? mapAgentProfileBindingRow(row) : null;
 }
 
-const PRIMARY_AGENT_PROFILE_BINDING_LIST_BATCH_SIZE = 100;
+const PRIMARY_AGENT_PROFILE_CONTROLLER_LIST_BATCH_SIZE = 49;
 
-export async function listPrimaryAgentProfileBindingRecords(input: {
-  agentProfileIds: readonly string[];
+/** Public branding only. Callers must first authorize the exact Profile/owner pairs. */
+export async function listPrimaryAgentProfileControllerRefs(input: {
+  profiles: readonly { profileId: string; ownerUserId: string }[];
   db: D1Database;
-  owner: AgentProfileBindingOwner;
-}): Promise<AgentProfileBindingRecord[]> {
-  const agentProfileIds = [...new Set(input.agentProfileIds)];
-  const records: AgentProfileBindingRecord[] = [];
+}): Promise<ReadonlyMap<string, string>> {
+  const profiles = [
+    ...new Map(
+      input.profiles.map((profile) => [profile.profileId, profile])
+    ).values(),
+  ];
+  const refs = new Map<string, string>();
   for (
     let start = 0;
-    start < agentProfileIds.length;
-    start += PRIMARY_AGENT_PROFILE_BINDING_LIST_BATCH_SIZE
+    start < profiles.length;
+    start += PRIMARY_AGENT_PROFILE_CONTROLLER_LIST_BATCH_SIZE
   ) {
-    const batch = agentProfileIds.slice(
+    const batch = profiles.slice(
       start,
-      start + PRIMARY_AGENT_PROFILE_BINDING_LIST_BATCH_SIZE
+      start + PRIMARY_AGENT_PROFILE_CONTROLLER_LIST_BATCH_SIZE
     );
-    const placeholders = batch.map(() => "?").join(", ");
+    const selectors = batch
+      .map(() => "(agent_profile_id = ? AND owner_id = ?)")
+      .join(" OR ");
     const result = await input.db
       .prepare(
         `
-          SELECT
-            binding_id,
-            owner_kind,
-            owner_id,
-            agent_profile_id,
-            openmeld_service_runtime_id,
-            runtime_kind,
-            hosted_runtime_identity_json,
-            agent_controller_ref,
-            agent_controller_conversation_id,
-            binding_state,
-            created_at_ms,
-            updated_at_ms,
-            disabled_at_ms,
-            created_by_profile_id,
-            reason_code,
-            agent_controller_collaboration_mode,
-            agent_controller_permission_mode,
-            configuration_revision,
-            model_id,
-            opencode_permission,
-            reasoning_level
+          SELECT agent_profile_id, agent_controller_ref
           FROM openMeldDaemon_agent_profile_bindings
-          WHERE owner_kind = ?
-            AND owner_id = ?
-            AND agent_profile_id IN (${placeholders})
+          WHERE owner_kind = 'owner_account'
+            AND (${selectors})
             AND binding_state = 'enabled_primary'
           ORDER BY agent_profile_id ASC, binding_id ASC
         `
       )
-      .bind(input.owner.kind, input.owner.id, ...batch)
-      .all<AgentProfileBindingRow>();
-    records.push(...(result.results ?? []).map(mapAgentProfileBindingRow));
+      .bind(
+        ...batch.flatMap((profile) => [profile.profileId, profile.ownerUserId])
+      )
+      .all<{ agent_profile_id: string; agent_controller_ref: string }>();
+    for (const row of result.results ?? []) {
+      refs.set(row.agent_profile_id, row.agent_controller_ref);
+    }
   }
-  return records;
+  return refs;
 }
 
 export async function listEnabledPrimaryAgentProfileBindingRecordsForProfile(input: {

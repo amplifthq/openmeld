@@ -13,6 +13,7 @@ const SLACK_FILES_DIRECTORY = "slack-files";
  * The receiving workstation never mounts or receives access to the Computer.
  */
 export function createAgentComputerFileHandoff(input: {
+  maxBinaryFileBytes?: number;
   workingDirectory: string;
   workspace: Pick<WorkspaceClient, "fs">;
 }): RemoteAgentComputerFileHandoff {
@@ -31,9 +32,11 @@ export function createAgentComputerFileHandoff(input: {
         workingDirectory,
         workspace: input.workspace,
       });
-      if (declaredSize > CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES) {
+      const maxBytes =
+        input.maxBinaryFileBytes ?? CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES;
+      if (declaredSize > maxBytes) {
         throw new Error(
-          `${resolved.relativePath} is larger than the ${CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES}-byte Slack file limit.`
+          `${resolved.relativePath} is larger than the ${maxBytes}-byte file limit.`
         );
       }
       const bytes = await readWorkspaceFileBytes(

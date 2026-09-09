@@ -80,8 +80,9 @@ export function InboxBrowserNotificationPrompt(input: { userId: string }) {
 					<AlertDialogTitle>Stay on top of important work</AlertDialogTitle>
 					<AlertDialogDescription>
 						Get a browser notification when someone directly addresses you,
-						something needs your action, or work you requested finishes. You can
-						turn this off anytime.
+						something needs your action, or work you requested finishes. If you
+						choose Not now, you can enable notifications later in Settings &gt;
+						Notifications.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				{error ? (

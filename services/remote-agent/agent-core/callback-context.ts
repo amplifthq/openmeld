@@ -132,6 +132,8 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkLoopCheckpoint,
+  ResolveSpaceFileContentInput,
+  ResolveSpaceFileContentResponse,
   ResumeCenterAgentRoutineResponse,
   SpaceAttachmentDescriptor,
   SpaceFileDescriptor,
@@ -540,6 +542,11 @@ export type RemoteAgentCoreWorkerBinding = {
     spaceId: string;
     write: CommitSpaceFileWriteInput;
   }): Promise<SpaceFileDescriptor>;
+  readSpaceFileContent?(input: {
+    context: OpenMeldRequestContext;
+    spaceId: string;
+    content: ResolveSpaceFileContentInput;
+  }): Promise<ResolveSpaceFileContentResponse & { bytes: ArrayBuffer }>;
   deleteSpaceAttachmentRecord?(input: {
     attachmentId: string;
   }): Promise<{ deleted: boolean }>;

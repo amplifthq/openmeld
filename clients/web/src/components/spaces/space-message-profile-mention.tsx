@@ -1,15 +1,15 @@
 import type { ReactElement, ReactNode } from "react";
 
-export type SpaceAgentProfileTriggerRenderer = (
+export type SpaceProfileTriggerRenderer = (
 	profileId: string,
 	trigger: ReactElement
 ) => ReactNode;
 
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
-import { SpaceMessageAgentMention } from "./space-message-agent-mention-view";
+import { SpaceMessageProfileMention } from "./space-message-profile-mention-view";
 
-const SPACE_MESSAGE_AGENT_MENTION_PATH_PREFIX =
-	"/__openmeld/message-agent-mentions/";
+const SPACE_MESSAGE_PROFILE_MENTION_PATH_PREFIX =
+	"/__openmeld/message-profile-mentions/";
 const ID_MENTION_LEFT_CONTINUATION = /[\p{L}\p{N}_@.-]/u;
 const ID_MENTION_RIGHT_CONTINUATION = /[\p{L}\p{N}_-]/u;
 const MARKDOWN_MENTION_DESCENT_BLOCKLIST = new Set([
@@ -19,17 +19,17 @@ const MARKDOWN_MENTION_DESCENT_BLOCKLIST = new Set([
 	"linkReference",
 ]);
 
-type SpaceMessageAgentMentionIdentity = Pick<
+type SpaceMessageProfileMentionIdentity = Pick<
 	SpaceCollaborationProfilePresentation,
 	"profileId" | "profileName"
 >;
 
-type SpaceMessageAgentMentionSegment<
-	TProfile extends SpaceMessageAgentMentionIdentity,
+type SpaceMessageProfileMentionSegment<
+	TProfile extends SpaceMessageProfileMentionIdentity,
 > =
 	| { kind: "text"; value: string }
 	| {
-			kind: "agent_mention";
+			kind: "profile_mention";
 			offset: number;
 			profile: TProfile;
 	  };
@@ -41,44 +41,51 @@ type MarkdownNode = {
 	value?: string;
 };
 
-type SpaceMessageAgentRelation = "reference" | "wake";
+type SpaceMessageProfileRelation = "reference" | "wake" | "mention";
 
-export type SpaceMessageAgentMentionPresentation =
+export type SpaceMessageProfileMentionPresentation =
 	SpaceCollaborationProfilePresentation & {
-		relation: SpaceMessageAgentRelation;
+		relation: SpaceMessageProfileRelation;
 	};
 
-type SpaceMessageAgentMentionRemarkOptions = {
-	profiles: readonly SpaceMessageAgentMentionPresentation[];
+type SpaceMessageProfileMentionRemarkOptions = {
+	profiles: readonly SpaceMessageProfileMentionPresentation[];
 };
 
-export type SpaceMessageAgentMentionProfilesById = ReadonlyMap<
+export type SpaceMessageProfileMentionProfilesById = ReadonlyMap<
 	string,
-	SpaceMessageAgentMentionPresentation
+	SpaceMessageProfileMentionPresentation
 >;
 
-export const EMPTY_SPACE_MESSAGE_AGENT_MENTION_PROFILES: SpaceMessageAgentMentionProfilesById =
+export const EMPTY_SPACE_MESSAGE_PROFILE_MENTION_PROFILES: SpaceMessageProfileMentionProfilesById =
 	new Map();
 
-export function buildSpaceMessageAgentMentionProfiles(input: {
+export function buildSpaceMessageProfileMentionProfiles(input: {
 	profilePresentationsById: ReadonlyMap<
 		string,
 		SpaceCollaborationProfilePresentation
 	>;
 	referenceTargetProfileIds: readonly string[];
+	mentionTargetProfileIds: readonly string[];
 	wakeTargetProfileIds: readonly string[];
-}): SpaceMessageAgentMentionProfilesById {
-	const profilesById = new Map<string, SpaceMessageAgentMentionPresentation>();
+}): SpaceMessageProfileMentionProfilesById {
+	const profilesById = new Map<
+		string,
+		SpaceMessageProfileMentionPresentation
+	>();
 	const addProfile = (
 		profileId: string,
-		relation: SpaceMessageAgentRelation
+		relation: SpaceMessageProfileRelation
 	) => {
 		if (profilesById.has(profileId)) {
 			return;
 		}
 
 		const profile = input.profilePresentationsById.get(profileId);
-		if (profile?.profileKind === "agent") {
+		if (
+			profile &&
+			(relation === "mention" || profile.profileKind === "agent")
+		) {
 			profilesById.set(profileId, { ...profile, relation });
 		}
 	};
@@ -89,32 +96,35 @@ export function buildSpaceMessageAgentMentionProfiles(input: {
 	for (const profileId of input.referenceTargetProfileIds) {
 		addProfile(profileId, "reference");
 	}
+	for (const profileId of input.mentionTargetProfileIds) {
+		addProfile(profileId, "mention");
+	}
 
 	return profilesById;
 }
 
-export function createSpaceMessageAgentMentionRemarkPlugin(
-	profilesById: SpaceMessageAgentMentionProfilesById
+export function createSpaceMessageProfileMentionRemarkPlugin(
+	profilesById: SpaceMessageProfileMentionProfilesById
 ) {
 	const plugin: [
-		typeof spaceMessageAgentMentionRemarkPlugin,
-		SpaceMessageAgentMentionRemarkOptions,
+		typeof spaceMessageProfileMentionRemarkPlugin,
+		SpaceMessageProfileMentionRemarkOptions,
 	] = [
-		spaceMessageAgentMentionRemarkPlugin,
+		spaceMessageProfileMentionRemarkPlugin,
 		{
 			profiles: [...profilesById.values()],
-		} satisfies SpaceMessageAgentMentionRemarkOptions,
+		} satisfies SpaceMessageProfileMentionRemarkOptions,
 	];
 	return plugin;
 }
 
-export function renderSpaceMessageAgentMentionInternalLink(input: {
+export function renderSpaceMessageProfileMentionInternalLink(input: {
 	href: string;
-	onOpenAgentProfile?: (profileId: string) => void;
-	profilesById: SpaceMessageAgentMentionProfilesById;
-	renderAgentProfileTrigger?: SpaceAgentProfileTriggerRenderer;
+	onOpenProfile?: (profileId: string) => void;
+	profilesById: SpaceMessageProfileMentionProfilesById;
+	renderProfileTrigger?: SpaceProfileTriggerRenderer;
 }): ReactNode | null {
-	const parsedMention = parseSpaceMessageAgentMentionPath(input.href);
+	const parsedMention = parseSpaceMessageProfileMentionPath(input.href);
 	const baseProfile = parsedMention
 		? input.profilesById.get(parsedMention.profileId)
 		: null;
@@ -126,22 +136,22 @@ export function renderSpaceMessageAgentMentionInternalLink(input: {
 		: baseProfile;
 
 	return (
-		<SpaceMessageAgentMention
-			onOpenAgentProfile={input.onOpenAgentProfile}
+		<SpaceMessageProfileMention
+			onOpenProfile={input.onOpenProfile}
 			profile={profile}
-			renderAgentProfileTrigger={input.renderAgentProfileTrigger}
+			renderProfileTrigger={input.renderProfileTrigger}
 		/>
 	);
 }
 
-export const SPACE_MESSAGE_AGENT_MENTION_TOKEN_CLASS_NAME =
+export const SPACE_MESSAGE_PROFILE_MENTION_TOKEN_CLASS_NAME =
 	"inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-baseline text-foreground ring-1 ring-border/70";
 
-export function splitSpaceMessageAgentMentionText(
+export function splitSpaceMessageProfileMentionText(
 	text: string,
-	profilesById: SpaceMessageAgentMentionProfilesById,
+	profilesById: SpaceMessageProfileMentionProfilesById,
 	occurrenceCountByProfileId = new Map<string, number>()
-): readonly SpaceMessageAgentMentionSegment<SpaceMessageAgentMentionPresentation>[] {
+): readonly SpaceMessageProfileMentionSegment<SpaceMessageProfileMentionPresentation>[] {
 	const candidates = [...profilesById.values()]
 		.flatMap((profile) =>
 			[...new Set([profile.profileName, profile.profileId])].flatMap(
@@ -150,7 +160,7 @@ export function splitSpaceMessageAgentMentionText(
 					const matches: Array<{
 						end: number;
 						mentionText: string;
-						profile: SpaceMessageAgentMentionPresentation;
+						profile: SpaceMessageProfileMentionPresentation;
 						start: number;
 					}> = [];
 					let start = text.indexOf(mentionText);
@@ -181,7 +191,7 @@ export function splitSpaceMessageAgentMentionText(
 				left.start - right.start ||
 				right.mentionText.length - left.mentionText.length
 		);
-	const segments: SpaceMessageAgentMentionSegment<SpaceMessageAgentMentionPresentation>[] =
+	const segments: SpaceMessageProfileMentionSegment<SpaceMessageProfileMentionPresentation>[] =
 		[];
 	let cursor = 0;
 
@@ -206,7 +216,7 @@ export function splitSpaceMessageAgentMentionText(
 				? { ...candidate.profile, relation: "reference" as const }
 				: candidate.profile;
 		segments.push({
-			kind: "agent_mention",
+			kind: "profile_mention",
 			offset: candidate.start,
 			profile,
 		});
@@ -220,20 +230,20 @@ export function splitSpaceMessageAgentMentionText(
 	return segments;
 }
 
-function spaceMessageAgentMentionRemarkPlugin(
-	options: SpaceMessageAgentMentionRemarkOptions
+function spaceMessageProfileMentionRemarkPlugin(
+	options: SpaceMessageProfileMentionRemarkOptions
 ) {
 	const profilesById = new Map(
 		options.profiles.map((profile) => [profile.profileId, profile])
 	);
 	return (tree: MarkdownNode) => {
-		transformMarkdownAgentMentions(tree, profilesById, new Map());
+		transformMarkdownProfileMentions(tree, profilesById, new Map());
 	};
 }
 
-function transformMarkdownAgentMentions(
+function transformMarkdownProfileMentions(
 	node: MarkdownNode,
-	profilesById: SpaceMessageAgentMentionProfilesById,
+	profilesById: SpaceMessageProfileMentionProfilesById,
 	occurrenceCountByProfileId: Map<string, number>
 ): void {
 	if (MARKDOWN_MENTION_DESCENT_BLOCKLIST.has(node.type) || !node.children) {
@@ -243,7 +253,7 @@ function transformMarkdownAgentMentions(
 	const transformedChildren: MarkdownNode[] = [];
 	for (const child of node.children) {
 		if (child.type === "text" && typeof child.value === "string") {
-			for (const segment of splitSpaceMessageAgentMentionText(
+			for (const segment of splitSpaceMessageProfileMentionText(
 				child.value,
 				profilesById,
 				occurrenceCountByProfileId
@@ -261,7 +271,7 @@ function transformMarkdownAgentMentions(
 						},
 					],
 					type: "link",
-					url: buildSpaceMessageAgentMentionPath({
+					url: buildSpaceMessageProfileMentionPath({
 						profileId: segment.profile.profileId,
 						relation: segment.profile.relation,
 					}),
@@ -270,7 +280,7 @@ function transformMarkdownAgentMentions(
 			continue;
 		}
 
-		transformMarkdownAgentMentions(
+		transformMarkdownProfileMentions(
 			child,
 			profilesById,
 			occurrenceCountByProfileId
@@ -281,23 +291,23 @@ function transformMarkdownAgentMentions(
 	node.children = transformedChildren;
 }
 
-function buildSpaceMessageAgentMentionPath(input: {
+function buildSpaceMessageProfileMentionPath(input: {
 	profileId: string;
-	relation: SpaceMessageAgentRelation;
+	relation: SpaceMessageProfileRelation;
 }): string {
-	return `${SPACE_MESSAGE_AGENT_MENTION_PATH_PREFIX}${encodeURIComponent(input.profileId)}?relation=${input.relation}`;
+	return `${SPACE_MESSAGE_PROFILE_MENTION_PATH_PREFIX}${encodeURIComponent(input.profileId)}?relation=${input.relation}`;
 }
 
-function parseSpaceMessageAgentMentionPath(href: string): {
+function parseSpaceMessageProfileMentionPath(href: string): {
 	profileId: string;
-	relation: SpaceMessageAgentRelation | null;
+	relation: SpaceMessageProfileRelation | null;
 } | null {
-	if (!href.startsWith(SPACE_MESSAGE_AGENT_MENTION_PATH_PREFIX)) {
+	if (!href.startsWith(SPACE_MESSAGE_PROFILE_MENTION_PATH_PREFIX)) {
 		return null;
 	}
 
 	const encodedTarget = href.slice(
-		SPACE_MESSAGE_AGENT_MENTION_PATH_PREFIX.length
+		SPACE_MESSAGE_PROFILE_MENTION_PATH_PREFIX.length
 	);
 	const [encodedProfileId, rawQuery = ""] = encodedTarget.split("?", 2);
 	if (!encodedProfileId || encodedProfileId.includes("/")) {
@@ -308,7 +318,9 @@ function parseSpaceMessageAgentMentionPath(href: string): {
 		const profileId = decodeURIComponent(encodedProfileId);
 		const rawRelation = new URLSearchParams(rawQuery).get("relation");
 		const relation =
-			rawRelation === "wake" || rawRelation === "reference"
+			rawRelation === "wake" ||
+			rawRelation === "reference" ||
+			rawRelation === "mention"
 				? rawRelation
 				: null;
 		return { profileId, relation };

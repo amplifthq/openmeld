@@ -4,6 +4,7 @@ import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationComputersPath,
+	buildOrganizationDirectMessagePath,
 	buildOrganizationDocumentPath,
 	buildOrganizationNotificationsSettingsPath,
 	buildOrganizationSpacePath,
@@ -44,6 +45,19 @@ export function buildInboxItemSourceNavigation(input: {
 				openInNewTab: false,
 			};
 		case "space":
+			if (target.directMessage) {
+				return {
+					href: buildOrganizationDirectMessagePath({
+						orgSlug: input.orgSlug,
+						spaceId: target.spaceId,
+						search: {
+							focusSignalId: target.signalId,
+							focusThreadRootSignalId: target.threadRootSignalId,
+						},
+					}),
+					openInNewTab: false,
+				};
+			}
 			return {
 				href: buildOrganizationSpacePath({
 					orgSlug: input.orgSlug,
@@ -79,6 +93,7 @@ export function buildInboxItemSourceNavigation(input: {
 		case "center_agent":
 			return {
 				href: buildOrganizationCenterAgentChatPath(input.orgSlug, {
+					session: target.spaceId,
 					focusSignalId: target.signalId,
 				}),
 				openInNewTab: false,
@@ -127,6 +142,14 @@ export function isInboxItemSourceLocation(input: {
 	visibleConversation: InboxVisibleConversation | null;
 }): boolean {
 	const target = input.item.sourceTarget;
+	if (target.kind === "center_agent") {
+		return Boolean(
+			target.spaceId &&
+				input.visibleConversation?.kind === "space" &&
+				input.visibleConversation.spaceId === target.spaceId &&
+				input.visibleConversation.threadRootSignalId === null
+		);
+	}
 	if (target.kind === "space") {
 		return (
 			input.visibleConversation?.kind === "space" &&

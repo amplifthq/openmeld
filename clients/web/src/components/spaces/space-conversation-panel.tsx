@@ -64,6 +64,7 @@ import {
 	buildSpaceTimelineItems,
 	isSpaceOutcomeNoticeItem,
 	resolveRecordedSpaceMessageDetailsItem,
+	resolveSpaceConversationItemKey,
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
 import type { WakeFailureTargetContext } from "#/lib/spaces/wake-failure-display";
@@ -97,7 +98,7 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
-import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
+import { formatSpaceAgentAttribution } from "./space-agent-attribution";
 import {
 	SpaceAgentInteractionCard,
 	type SpaceAgentInteractionResponseHandler,
@@ -141,10 +142,6 @@ import {
 } from "./space-execution-recovery-actions";
 import { SpaceGraph, type SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
-import {
-	buildSpaceMessageAgentMentionProfiles,
-	splitSpaceMessageAgentMentionText,
-} from "./space-message-agent-mention";
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
@@ -168,6 +165,10 @@ import {
 } from "./space-message-footer";
 import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
+import {
+	buildSpaceMessageProfileMentionProfiles,
+	splitSpaceMessageProfileMentionText,
+} from "./space-message-profile-mention";
 import { shouldPlaceSpaceMessageProgressInAnswer } from "./space-message-progress-placement";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
 import {
@@ -894,6 +895,7 @@ function useSpaceConversationPresentationController(
 	);
 	const messageStateTuningPreviewItems = useSpaceMessageStateTuningPreviewItems(
 		{
+			membersSnapshot: input.membersSnapshot,
 			centerAgentProfileId: input.centerAgentProfileId,
 			profileEntriesById,
 			selfProfileId: input.selfProfileId,
@@ -2581,7 +2583,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 								? "[content-visibility:visible]"
 								: undefined
 						}
-						key={item.id}
+						key={resolveSpaceConversationItemKey(item)}
 						messageId={item.id}
 					>
 						<Message
@@ -2757,7 +2759,7 @@ function ConversationBubbleContent(input: {
 				openMeldProfileId={parent.selfProfileId}
 				orgSlug={parent.orgSlug}
 				profilePresentationsById={parent.profilePresentationsById}
-				renderAgentProfileTrigger={
+				renderProfileTrigger={
 					input.detailsDialog.profileDetailsPopoverTriggerById
 				}
 				spaceReferencesById={parent.spaceReferencesById}
@@ -2820,11 +2822,10 @@ function ConversationSpeakerHeader(input: {
 	selfAvatarImageUrl: string | null;
 	selfProfileId: string;
 }) {
-	const agentControlLabel = formatSpaceAgentControlLabel({
+	const agentAttribution = formatSpaceAgentAttribution({
 		agentControllerRef: input.run.speaker.agentControllerRef,
-		controllerDisplay: input.run.speaker.controllerDisplay,
+		ownerName: input.run.items[0]?.actorOwnerName ?? null,
 		profileKind: input.run.speaker.profileKind,
-		runtimeDeviceDisplayName: input.run.speaker.runtimeDeviceDisplayName,
 	});
 	const isCenterAgentRun = resolveIsCenterAgentConversationRun({
 		centerAgentProfileId: input.centerAgentProfileId,
@@ -2854,11 +2855,11 @@ function ConversationSpeakerHeader(input: {
 			<RemoteAgentIndicator
 				agentControllerRef={input.run.speaker.agentControllerRef}
 			/>
-			{agentControlLabel ? (
+			{agentAttribution ? (
 				<>
 					<span className="shrink-0 text-muted-foreground">·</span>
 					<span className="min-w-0 text-muted-foreground">
-						{agentControlLabel}
+						{agentAttribution}
 					</span>
 				</>
 			) : null}
@@ -3205,13 +3206,14 @@ function ReplyPreview(input: {
 	if (!input.item.replyPreviewText) {
 		return null;
 	}
-	const profiles = buildSpaceMessageAgentMentionProfiles({
+	const profiles = buildSpaceMessageProfileMentionProfiles({
 		profilePresentationsById: input.profilePresentationsById,
+		mentionTargetProfileIds: input.sourceItem?.mentionTargetProfileIds ?? [],
 		wakeTargetProfileIds: input.sourceItem?.wakeTargetProfileIds ?? [],
 		referenceTargetProfileIds:
 			input.sourceItem?.referenceTargetProfileIds ?? [],
 	});
-	const previewText = splitSpaceMessageAgentMentionText(
+	const previewText = splitSpaceMessageProfileMentionText(
 		input.item.replyPreviewText,
 		profiles
 	)
