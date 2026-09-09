@@ -212,6 +212,7 @@ import {
   recordRuntimeCoordinatorFailureTaskOutcome,
   recordRuntimeCoordinatorFinalizationTaskOutcome,
 } from "../../../agent-task-coordination/application/runtime-coordinator-task-outcome";
+import type { AuthProfileFacts } from "../../../auth/application/profile-facts-reader";
 import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
 import {
   readCenterAgentDesignationRecord,
@@ -438,7 +439,6 @@ import {
   attemptSpaceInboxProjectionOutboxRecord,
   resolveSpaceInboxRecipientEligibility,
 } from "../../application/space-inbox-projection-outbox-service";
-import { readLatestVisibleFormalUpdate } from "../../application/space-latest-visible-update-service";
 import {
   addSpaceMembersUseCase,
   ensureSpaceMembersBackfilled,
@@ -4342,23 +4342,23 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
 
-  private async refreshMemberNamesFromAuth(): Promise<void> {
+  private async refreshMemberNamesFromAuth(): Promise<AuthProfileFacts | null> {
     ensureSpaceMembersBackfilled({
       sql: this.ctx.storage.sql,
       spaceId: this.spaceId,
       liveSessions: this.sessions.values(),
       metaRecord: this.readSpaceMetaRecord(),
     });
-    if (
-      await refreshSpaceMemberNamesFromAuth({
-        sql: this.ctx.storage.sql,
-        env: this.bindings,
-      })
-    ) {
+    const result = await refreshSpaceMemberNamesFromAuth({
+      sql: this.ctx.storage.sql,
+      env: this.bindings,
+    });
+    if (result.changed) {
       this.ctx.waitUntil(
         this.projectCurrentSpaceIndexSnapshot("space.members_updated")
       );
     }
+    return result.profileFacts;
   }
 
   private resolveSpaceMemberProfileNameForPublication(
@@ -6124,27 +6124,6 @@ export class Space extends DurableObject<CoreBindings> {
           },
           () => this.rpcGetMembersForBootstrap(input, collector, lineageLoader)
         );
-        // The latest-visible-update read never depended on the members
-        // snapshot; start it alongside the members branch instead of behind
-        // it. The status branch awaits this promise.
-        const viewerIdentity = this.resolveBootstrapViewerIdentity(input);
-        const latestVisibleUpdatePromise = collector.measure(
-          {
-            name: "openmeld_bootstrap_status_latest_visible_update",
-            description:
-              "OpenMeld space bootstrap status latest visible update",
-          },
-          () =>
-            readLatestVisibleFormalUpdate({
-              sql: this.ctx.storage.sql,
-              env: this.bindings,
-              ...viewerIdentity,
-              lineageLoader,
-            })
-        );
-        // Guard against an unhandled rejection if the status branch fails
-        // before awaiting; the awaited promise still rejects for the caller.
-        latestVisibleUpdatePromise.catch(() => undefined);
         return Promise.all([
           collector.measure(
             {
@@ -6153,10 +6132,8 @@ export class Space extends DurableObject<CoreBindings> {
             },
             () =>
               this.rpcGetStatusForBootstrapFromMembersSnapshot(
-                input,
                 collector,
-                membersPromise,
-                latestVisibleUpdatePromise
+                membersPromise
               )
           ),
           membersPromise,
@@ -6222,12 +6199,8 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   private async rpcGetStatusForBootstrapFromMembersSnapshot(
-    input: GetSpaceBootstrapInput,
     collector: SpaceBootstrapTimingCollector,
-    membersSnapshotPromise: Promise<SpaceMembersSnapshot>,
-    latestVisibleUpdatePromise?: Promise<
-      GetSpaceStatusResponse["latestVisibleUpdate"] | undefined
-    >
+    membersSnapshotPromise: Promise<SpaceMembersSnapshot>
   ): Promise<GetSpaceStatusResponse> {
     const metaRecordPromise = this.readSpaceMetaRecord();
     const membersSnapshot = await membersSnapshotPromise;
@@ -6248,17 +6221,12 @@ export class Space extends DurableObject<CoreBindings> {
       );
     }
 
-    const viewerIdentity = this.resolveBootstrapViewerIdentity(input);
     return await readSpaceStatusSummaryFromMembersSnapshotUseCase({
       sql: this.ctx.storage.sql,
       env: this.bindings,
       spaceId: parsed.data.spaceId,
       metaRecord,
       membersSnapshot,
-      ...(latestVisibleUpdatePromise
-        ? { latestVisibleUpdate: latestVisibleUpdatePromise }
-        : {}),
-      ...viewerIdentity,
       contractStore: {
         readSpaceContract: () => this.readSpaceContractRecord(),
       },
@@ -6268,24 +6236,6 @@ export class Space extends DurableObject<CoreBindings> {
         metricPrefix: "openmeld_bootstrap_status",
       },
     });
-  }
-
-  private resolveBootstrapViewerIdentity(input: GetSpaceBootstrapInput): {
-    viewerOwnerUserId?: string;
-    viewerProfileId?: string;
-  } {
-    const requestContext = input.spaceAccess
-      ? getSpaceAccessRequestContext(input.spaceAccess)
-      : (input.context ?? null);
-    if (!requestContext) {
-      return {};
-    }
-    return {
-      ...(requestContext.actorContext.ownerUserId
-        ? { viewerOwnerUserId: requestContext.actorContext.ownerUserId }
-        : {}),
-      viewerProfileId: requestContext.actorContext.openMeldProfileId,
-    };
   }
 
   private async rpcGetMembersForBootstrap(
@@ -11709,7 +11659,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     await this.ensureAgentOwnerMembershipPolicy(metaRecord);
-    await this.refreshMemberNamesFromAuth();
+    const profileFacts = await this.refreshMemberNamesFromAuth();
 
     const parsed = getSpaceStatusInputSchema.safeParse({
       spaceId: this.spaceId,
@@ -11722,6 +11672,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     const summary = await readSpaceStatusSummaryUseCase({
+      profileFacts,
       sql: this.ctx.storage.sql,
       env: this.bindings,
       spaceId: parsed.data.spaceId,
@@ -11887,8 +11838,9 @@ export class Space extends DurableObject<CoreBindings> {
 
     await this.ensureAgentOwnerMembershipPolicy(metaRecord);
 
-    await this.refreshMemberNamesFromAuth();
+    const profileFacts = await this.refreshMemberNamesFromAuth();
     const snapshot = await listSpaceMembersSnapshotUseCase({
+      profileFacts,
       sql: this.ctx.storage.sql,
       env: this.bindings,
       spaceId: this.spaceId,

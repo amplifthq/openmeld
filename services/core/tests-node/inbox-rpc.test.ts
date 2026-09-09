@@ -43,6 +43,7 @@ describe("Inbox Core RPC", () => {
       ).resolves.toEqual({
         organizationId: "org-1",
         totalUnreadCount: 0,
+        unreadUrgentUpdateCount: 0,
         unresolvedActionCount: 0,
       });
       await expect(

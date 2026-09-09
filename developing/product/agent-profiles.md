@@ -206,6 +206,26 @@ unclaimed for 30 minutes, or a claimed attempt has no terminal result for that
 long, Core changes the durable request to an explicit retryable failure. Retry
 makes a new fenced attempt instead of leaving the request permanently stuck.
 
+Creation, approval, and retry return the durable request after acceptance; they
+do not hold the response open until local setup finishes. Core delivers an
+execution notification through the existing shared Core Queue and re-delivers
+unclaimed approved rows from its minute scheduler. The Queue carries only the
+Organization and request IDs. The request row owns intent, claim, identity
+checkpoint, and terminal result; the Queue never authorizes creation. Duplicate
+notifications cannot re-claim a started or terminal request. Execution rechecks
+current Organization membership and the selected Computer before identity or
+setup effects. This replaces execution inside the initiating RPC, rather than
+adding another creation implementation or a client-owned continuation.
+
+If a creation response is lost, clients query the exact requester/actor-scoped
+idempotency key once and verify the original normalized intent. A missing or
+unreadable result remains unknown, never a failed creation or permission to
+mint another identity. Web waits on the exact request for up to one minute,
+then hands the accepted state to Agent requests; the server continues without
+the page. The CLI prints the accepted request and preserves the idempotency key
+when its outcome cannot be read. Request views refresh only while creation is
+active. JSON field order and omitted default fields are not changes of intent.
+
 If Auth has already committed the Agent Profile identity when a later Space,
 Binding, working-folder, or Default Project step fails, the durable request
 keeps that `createdAgentProfileId`. The compatible public combination
@@ -847,19 +867,14 @@ Usage participates in Wakeability only when the Local Agent exposes structured,
 reliable Usage Limits. A Local Agent that explicitly reports Usage as
 unsupported, or that has no reliable Usage capability because reporting is
 passive or not evaluated, does not use Usage as an admission condition. Once a
-Local Agent's versioned capability matrix declares native Usage support, a
-missing, stale, expired, or currently unavailable observation projects
-`Checking` and blocks execution of a new Wake. The user's request may be durably
-submitted while this observation catches up, through the same bounded Core
-preflight recovery as first-report preparation. Submission is not execution
-admission: OpenMeld must not claim the Agent is ready or start it before the
-required fact is known. During a mixed-version rollout, Core continues
-to parse a legacy Local Agent report that omits the Usage support-matrix
-version, but that report cannot prove current capacity for a controller whose
-reviewed matrix requires native Usage. The public verdict remains bounded
-`Checking` and execution admission stays closed until a current report arrives.
-The original request either continues once, is cancelled, or reaches an explicit
-failure when a definitive blocker or the preparation retry limit is reached. A
+Local Agent's versioned capability matrix declares native Usage support,
+missing, stale, expired, or currently unavailable Usage remains an observation,
+not an execution prerequisite. Otherwise ready Agents may attempt a new Wake;
+the provider remains responsible for enforcing its actual capacity. This avoids
+making a healthy account unusable when its quota endpoint is slow. Existing
+authentication, permission, current Controller report, and execution identity
+requirements remain mandatory. During a mixed-version rollout, legacy Usage
+reports remain parseable without adding a guessed admission block. A
 fresh exhausted Usage Limit projects `Unavailable` and blocks the Wake before
 admission. These decisions use the current report already held by Core and must
 not add a provider call to the Wake hot path. Core and the Local Service consume

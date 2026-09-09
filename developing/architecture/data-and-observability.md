@@ -218,6 +218,18 @@ missing or stale intent left by mixed-version writers and redrives the
 idempotent Inbox projection; this operational state is not a second request or
 Inbox authority.
 
+An approved, unclaimed creation row is also the durable execution intent. Core
+acknowledges it before running setup and sends a versioned
+`agent_profile_creation` reference through the existing shared Core Queue.
+The minute scheduler redelivers unclaimed rows if enqueue or notification was
+lost. The Queue consumer reloads and atomically claims the same row, checks
+current membership, and runs the existing checkpointed executor. It does not
+use HTTP `waitUntil` as durable execution, copy configuration into a second
+outbox, or create a second execution owner. Claimed attempts retain the bounded
+stale-failure policy; recovery never blindly replays uncertain local effects.
+Exact request-ID reads remain participant-scoped; idempotency-key recovery
+also requires the original requesting actor. Neither reads all owner Profiles.
+
 Start is orchestration. It is not a permanent data owner and must not become a
 long-term database domain.
 
@@ -1239,7 +1251,8 @@ Cloudflare Queue carried a workstation Wake.
 
 The shared `openmeld-daemon-dispatch` Queue resource remains required by hosted
 native-delivery recovery, Remote Agent deadline probes, Agent Task
-continuations, and Agent Task observation redrive. Removing workstation Wake
+continuations, Agent Task observation redrive, and accepted Agent Profile
+creation. Removing workstation Wake
 messages from Queue is not permission to delete that shared resource or any of
 those independent consumers.
 

@@ -1,5 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  spaceFileEntryIdSchema,
+  spaceFileRevisionNumberSchema,
+} from "@openmeld/schemas";
 import { z } from "zod/v4";
 import type { DispatchSpaceActionRecord } from "../runtime/dispatch-space-action-context";
 import { readDispatchSpaceActionContextFromEnv } from "../runtime/dispatch-space-action-context";
@@ -8,6 +12,7 @@ import {
   recordDispatchSpaceSilent,
   recordDispatchSpaceStatus,
 } from "./action-command";
+import { readDispatchSpaceFile } from "./dispatch-file-read";
 
 const FINAL_STATUS_SCHEMA = z.enum([
   "done",
@@ -24,7 +29,44 @@ export function createSpaceActionMcpServer(): McpServer {
     },
     {
       instructions:
-        "Choose exactly one final OpenMeld Space Action for the current Wake. Use reply for the exact public message, status for a final visible status, or stay_silent when no public message is needed. Private assistant output is not posted to the Space.",
+        "Use read_file to read shared text files in the current Space. Then choose exactly one final OpenMeld Space Action for the current Wake: reply for the exact public message, status for a final visible status, or stay_silent when no public message is needed. Private assistant output is not posted to the Space.",
+    }
+  );
+
+  server.registerTool(
+    "read_file",
+    {
+      title: "Read a file in the current OpenMeld Space",
+      description:
+        "Read a shared text file as the Agent in the current Wake. Use this for attached CSV, text, Markdown, or JSON files instead of running the CLI in a terminal. Pass the attachment's file ID and revision. This is a context read; it does not submit a reply or close the Wake.",
+      inputSchema: {
+        fileId: spaceFileEntryIdSchema,
+        revision: spaceFileRevisionNumberSchema.optional(),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      try {
+        const result = await readDispatchSpaceFile(input);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result) }],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: error instanceof Error ? error.message : String(error),
+            },
+          ],
+          isError: true,
+        };
+      }
     }
   );
 

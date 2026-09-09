@@ -773,6 +773,134 @@ describe("CreateProfileDialog", () => {
 		toastWarningMock.mockReset();
 	});
 
+	it.each([
+		0, 1, 2,
+	])("shows a computer selector only when needed (%i connected)", async (connectedCount) => {
+		const recovery = buildFakeRecovery();
+		const inventory = recovery.localRuntimesQuery.data?.peopleComputers;
+		const computer = inventory?.computers[0];
+		if (!(inventory && computer)) {
+			throw new Error("Expected the fixture Computer inventory.");
+		}
+		inventory.computers = [
+			{
+				...computer,
+				deviceId: "online-device",
+				deviceDisplayName: "Online laptop",
+				executionTargets: [],
+				connection: {
+					status: "connected",
+					reasonCodes: [],
+					sessions: [
+						{
+							deviceId: "online-device",
+							runtimeLane: "dev-local",
+							lastHeartbeatMs: Date.now(),
+							serviceVersion: "0.3.165",
+							executionCompatibility: {
+								status: "compatible",
+								expectedEpoch:
+									"runtime-transport-epoch-2026-07-default-project",
+								observedEpoch:
+									"runtime-transport-epoch-2026-07-default-project",
+								reasonCode: "daemon.runtime_contract.compatible",
+							},
+							serviceUpdate: { wakeBlocked: false, reasonCodes: [] },
+						},
+					],
+				},
+			},
+			{
+				...computer,
+				deviceDisplayName: "Offline laptop",
+				connection: {
+					status: "disconnected",
+					sessions: [],
+					reasonCodes: ["daemon.session.stale_lease"],
+				},
+			},
+			{
+				...computer,
+				deviceId: "reconnect-device",
+				deviceDisplayName: "Reconnect laptop",
+				connection: {
+					status: "unknown",
+					sessions: [],
+					reasonCodes: ["daemon.session.reject_conflict"],
+				},
+			},
+			{
+				...computer,
+				deviceId: "unknown-device",
+				deviceDisplayName: "Unknown laptop",
+				connection: {
+					status: "unknown",
+					sessions: [],
+					reasonCodes: ["computer.connection.lookup_failed"],
+				},
+			},
+		];
+		const onlineComputer = inventory.computers[0];
+		if (!onlineComputer) {
+			throw new Error("Expected the online Computer fixture.");
+		}
+		if (connectedCount === 0) {
+			inventory.computers.shift();
+		}
+		if (connectedCount === 2) {
+			inventory.computers.push({
+				...onlineComputer,
+				deviceId: "second-online-device",
+				deviceDisplayName: "Online desktop",
+				connection: {
+					...onlineComputer.connection,
+					sessions: onlineComputer.connection.sessions.map((session) => ({
+						...session,
+						deviceId: "second-online-device",
+					})),
+				},
+			});
+		}
+		recovery.selectComputer = vi.fn((target) => {
+			recovery.deviceId = target.deviceId;
+			recovery.runtimeLane = target.runtimeLane;
+		});
+		renderCurrentCreateProfileDialog({ recovery });
+		if (connectedCount < 2) {
+			expect(screen.queryByRole("combobox", { name: "Computer" })).toBeNull();
+			expect(screen.queryByText("Computer", { exact: true })).toBeNull();
+			expect(screen.queryByText("Online laptop · Connected")).toBeNull();
+			expect(screen.queryByText("Advanced connection selection")).toBeNull();
+			if (connectedCount === 1) {
+				expect(recovery.selectComputer).toHaveBeenCalledWith({
+					deviceId: "online-device",
+					runtimeLane: "dev-local",
+				});
+			} else {
+				expect(recovery.selectComputer).not.toHaveBeenCalled();
+			}
+			return;
+		}
+		fireEvent.click(await screen.findByRole("combobox", { name: "Computer" }));
+		for (const name of [
+			"Offline laptop · Offline",
+			"Reconnect laptop · Reconnect required",
+			"Unknown laptop · Status unavailable",
+		]) {
+			expect(screen.queryByRole("option", { name })).toBeNull();
+		}
+		expect(recovery.selectComputer).not.toHaveBeenCalled();
+		const online = screen.getByRole("option", {
+			name: "Online laptop · Connected",
+		});
+		expect(online.getAttribute("aria-disabled")).not.toBe("true");
+		fireEvent.click(online);
+		expect(recovery.selectComputer).toHaveBeenCalledWith({
+			deviceId: "online-device",
+			runtimeLane: "dev-local",
+		});
+	});
+
 	it("uses the new Agent-first flow and preserves a manually edited name", async () => {
 		renderCurrentCreateProfileDialog({
 			recovery: buildFakeRecovery([
@@ -2743,9 +2871,11 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() =>
 			expect(getAgentProfileCreationDefaultsMock).toHaveBeenCalled()
 		);
-		expect(
-			screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
-		).toBeNull();
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
+			).toBeNull()
+		);
 		const submitButton = screen.getByRole("button", {
 			name: "Create Agent",
 		}) as HTMLButtonElement;

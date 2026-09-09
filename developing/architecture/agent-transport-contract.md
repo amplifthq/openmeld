@@ -764,6 +764,11 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   `503`. The projection must never degrade a lookup failure into
   `profile.inactive`: consumers keep their current catalog on a failed read,
   while a false inactive would deregister live routes.
+- Core obtains the target runtime's Profile facts from Auth's bounded
+  `resolveProfilesByIds` RPC. Every requested ID needs either its matching fact
+  or explicit absence. Missing response entries, identity mismatches and a
+  failure in any batch invalidate the whole catalog read. Batching does not
+  weaken the per-Profile owner, kind, status or runtime checks.
 - The projection is a read. It is not lease, registration, or deregistration
   authority. After a rebind, the next read stops including the route;
   in-flight lease arbitration stays with Runtime Transport.
@@ -947,31 +952,32 @@ drift.
 
 Core may project `Unavailable` before a new Wake when the exact current Agent
 Controller report contains a reliable, fresh Usage Limit that explicitly says
-Usage is exhausted. When the shared versioned Local Agent capability matrix
-declares native Usage support, a missing, stale, expired, unavailable, or
-otherwise unconfirmed current observation projects `Checking` and rejects new
-Wake admission. Core and the Local Service must consume that same matrix.
+Usage is exhausted. Missing, stale, expired, unavailable, or otherwise
+unconfirmed Usage does not add an admission block to an otherwise ready Agent.
+The provider owns actual capacity enforcement; its auxiliary quota endpoint is
+not an execution prerequisite. Core and the Local Service consume the same
+versioned capability matrix to interpret reliable exhaustion evidence.
 Explicitly unsupported Usage and Local Agents whose Usage reporting is passive
 or not evaluated do not use Usage as an admission condition. A provider-scoped
 controller is filtered by the provider prefix of the Binding's selected model
-before this verdict is computed. A supported selected provider therefore fails
-closed on missing or unconfirmed evidence, while an exhausted unselected
-provider cannot block that Agent Profile. A Binding whose provider cannot be
+before this verdict is computed. An exhausted unselected provider cannot block
+that Agent Profile. A Binding whose provider cannot be
 resolved remains compatible and does not gain a guessed Usage admission
 condition. An ACI report
 declares the matrix it implements through
 `usageLimitsSupportMatrixVersion`. If that optional field is absent, Core
-treats the report as a parseable legacy contract, but it cannot authorize new
-work for a controller whose reviewed matrix requires native Usage. Missing,
-mismatched, or unconfirmed Usage fails closed as bounded `Checking`. A
+treats the report as a parseable legacy contract and does not infer a new
+Usage-specific block from it. This does not relax authentication, permissions,
+current Controller readiness, or execution identity checks. A
 percentage alone, low-capacity warning, generic quota wording, or ordinary
-transient `429` is never proof of exhaustion. Core derives all three outcomes
+transient `429` is never proof of exhaustion. Core derives this additional block
 from the already-held structured report and does not call the provider on the
 Wake hot path.
 
 The same exact-version rule gates Usage recovery after an accepted Wake. A
-legacy report remains parseable, but it neither authorizes a new Wake nor
-triggers automatic continuation under a newer Core capability matrix.
+legacy report remains parseable, but cannot trigger automatic continuation
+under a newer Core capability matrix. Missing Usage must never release work
+already held after a proven exhausted execution.
 
 After a Wake is accepted, a provider failure changes later Wakeability only
 when the result carries fresh structured hard-blocker evidence for the exact

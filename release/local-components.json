@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T17:57:57.148Z",
+  "updatedAt": "2026-09-09T03:20:35.051Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.177",
+      "packageVersion": "0.3.183",
       "updatePolicy": "available",
-      "reason": "Existing commands and cloud contracts remain compatible; this release aligns bundled local Agent instructions and isolates development Service lanes."
+      "reason": "Existing clients remain compatible; the new CLI recovers accepted Agent creation without resubmitting."
     },
     "service": {
-      "bundleHash": "0c9a15ebbcdfe9467e82211aa52818f6bbf338b15e0432b4299c651651ee5663",
-      "bundleVersion": "0.3.177",
+      "bundleHash": "5d83e04bdd2bc99cdda98e68ad13aa65f84c414a0be118eef1846876494ee0fe",
+      "bundleVersion": "0.3.183",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Old and new Services preserve identity, permissions, transport, Stop, and Space action contracts; updated instructions and development-lane isolation do not require blocking existing production Wakes."
+      "reason": "Shared package changes preserve Service setup, Wake, Stop, and Space action contracts for existing and new cloud versions."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
