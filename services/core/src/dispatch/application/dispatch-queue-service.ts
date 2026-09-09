@@ -160,26 +160,6 @@ export type DispatchOutboxDirectDeliveryOutcome =
     }
   | {
       reasonCode:
-        | "dispatch_direct_preflight_unavailable"
-        | "dispatch_direct_target_not_hosted";
-      retryDelaySeconds: null;
-      status: "queue_required";
-    }
-  | {
-      reasonCode:
-        | "dispatch_direct_retry_requested"
-        | "missing_dispatch_runtime_binding";
-      retryDelaySeconds: number | null;
-      status: "retry_scheduled";
-    };
-
-export type DispatchOutboxProductionDeliveryOutcome =
-  | {
-      retryDelaySeconds: null;
-      status: "submitted";
-    }
-  | {
-      reasonCode:
         | "dispatch_direct_retry_requested"
         | "missing_dispatch_runtime_binding";
       recoveryTransport: "outbox" | "queue";
@@ -823,88 +803,13 @@ const processDispatchQueueMessage = async (input: {
   };
 };
 
+// The Space outbox uses this entry point in every environment. Runtime
+// classification and recovery ownership stay together with the preflight.
 export const dispatchOutboxMessageDirectly = async (input: {
   ctx: DispatchQueueWaitContext;
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
 }): Promise<DispatchOutboxDirectDeliveryOutcome> => {
-  return await dispatchOutboxMessageDirectlyWithPreflight(input);
-};
-
-export const dispatchHostedOutboxMessageDirectly = async (input: {
-  ctx: DispatchQueueWaitContext;
-  env: CoreBindings;
-  message: OpenMeldDaemonDispatchQueueMessage;
-}): Promise<DispatchOutboxDirectDeliveryOutcome> => {
-  const db = wakeEvidenceDb(input.env);
-  const recoveryDb = dispatchRecoveryDb(input.env);
-  if (!(db && recoveryDb && input.env.OPENMELD_SPACES)) {
-    return {
-      reasonCode: "missing_dispatch_runtime_binding",
-      retryDelaySeconds: null,
-      status: "retry_scheduled",
-    };
-  }
-
-  const timing = createSpaceBootstrapTimingCollector();
-  const preflightCheck = await timing.measure(
-    {
-      description:
-        "Confirm the authoritative target Binding is hosted before direct delivery",
-      name: "openmeld_dispatch_direct_eligibility",
-    },
-    () =>
-      runDispatchExecutionPreflightGate({
-        env: input.env,
-        message: input.message,
-        timing,
-      })
-  );
-  if (!preflightCheck.ok) {
-    logDispatchQueueServerTiming({
-      deliveryPath: "direct",
-      dispatchMessage: input.message,
-      env: input.env,
-      metrics: timing.metrics(),
-    });
-    return {
-      reasonCode: "dispatch_direct_preflight_unavailable",
-      retryDelaySeconds: null,
-      status: "queue_required",
-    };
-  }
-  const snapshot = preflightCheck.effectiveTargetBindingSnapshot;
-  if (
-    !(
-      isHostedAgentRuntimeKind(snapshot.runtimeKind) &&
-      snapshot.hostedRuntimeIdentity
-    )
-  ) {
-    logDispatchQueueServerTiming({
-      deliveryPath: "direct",
-      dispatchMessage: input.message,
-      env: input.env,
-      metrics: timing.metrics(),
-    });
-    return {
-      reasonCode: "dispatch_direct_target_not_hosted",
-      retryDelaySeconds: null,
-      status: "queue_required",
-    };
-  }
-
-  return await dispatchOutboxMessageDirectlyWithPreflight({
-    ...input,
-    preflightCheck,
-    timing,
-  });
-};
-
-export const dispatchProductionOutboxMessageDirectly = async (input: {
-  ctx: DispatchQueueWaitContext;
-  env: CoreBindings;
-  message: OpenMeldDaemonDispatchQueueMessage;
-}): Promise<DispatchOutboxProductionDeliveryOutcome> => {
   const db = wakeEvidenceDb(input.env);
   const recoveryDb = dispatchRecoveryDb(input.env);
   if (!(db && recoveryDb && input.env.OPENMELD_SPACES)) {
@@ -920,7 +825,7 @@ export const dispatchProductionOutboxMessageDirectly = async (input: {
   const preflightCheck = await timing.measure(
     {
       description:
-        "Resolve the authoritative target runtime before production direct delivery",
+        "Resolve the authoritative target runtime before direct delivery",
       name: "openmeld_dispatch_direct_eligibility",
     },
     () =>
@@ -930,51 +835,6 @@ export const dispatchProductionOutboxMessageDirectly = async (input: {
         timing,
       })
   );
-  const outcome = await dispatchOutboxMessageDirectlyWithPreflight({
-    ...input,
-    preflightCheck,
-    timing,
-  });
-  if (outcome.status === "submitted") {
-    return outcome;
-  }
-  if (outcome.status === "queue_required") {
-    throw new Error(
-      `production direct dispatch returned an invalid queue-only outcome: ${input.message.dispatchId}`
-    );
-  }
-
-  const recoveryTransport =
-    preflightCheck.ok &&
-    isHostedAgentRuntimeKind(
-      preflightCheck.effectiveTargetBindingSnapshot.runtimeKind
-    ) &&
-    preflightCheck.effectiveTargetBindingSnapshot.hostedRuntimeIdentity
-      ? "queue"
-      : "outbox";
-  return {
-    ...outcome,
-    recoveryTransport,
-  };
-};
-
-const dispatchOutboxMessageDirectlyWithPreflight = async (input: {
-  ctx: DispatchQueueWaitContext;
-  env: CoreBindings;
-  message: OpenMeldDaemonDispatchQueueMessage;
-  preflightCheck?: DispatchExecutionPreflightResult;
-  timing?: SpaceBootstrapTimingCollector;
-}): Promise<DispatchOutboxDirectDeliveryOutcome> => {
-  const db = wakeEvidenceDb(input.env);
-  const recoveryDb = dispatchRecoveryDb(input.env);
-  if (!(db && recoveryDb && input.env.OPENMELD_SPACES)) {
-    return {
-      reasonCode: "missing_dispatch_runtime_binding",
-      retryDelaySeconds: null,
-      status: "retry_scheduled",
-    };
-  }
-
   const directMessage = createDirectDispatchQueueMessage(input.message);
   const preparedMessage = prepareQueueBatchMessage({
     fallbackKey: `direct:${input.message.dispatchId}`,
@@ -985,14 +845,24 @@ const dispatchOutboxMessageDirectlyWithPreflight = async (input: {
     ctx: input.ctx,
     deliveryPath: "direct",
     env: input.env,
-    preflightCheck: input.preflightCheck,
+    preflightCheck,
     preparedMessage,
-    timing: input.timing,
+    timing,
   });
 
   if (directMessage.retryRequested || !outcome.shouldAck) {
     return {
       reasonCode: "dispatch_direct_retry_requested",
+      // Workstation recovery stays with the Space outbox. Only an
+      // authoritatively identified hosted target can hand recovery to Queue.
+      recoveryTransport:
+        preflightCheck.ok &&
+        isHostedAgentRuntimeKind(
+          preflightCheck.effectiveTargetBindingSnapshot.runtimeKind
+        ) &&
+        preflightCheck.effectiveTargetBindingSnapshot.hostedRuntimeIdentity
+          ? "queue"
+          : "outbox",
       retryDelaySeconds: directMessage.retryDelaySeconds,
       status: "retry_scheduled",
     };

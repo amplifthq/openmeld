@@ -1246,13 +1246,14 @@ execution authority, or replacement canonical conversation. RuntimeCoordinator S
 transport failure remain the terminal controls; context review is not a new
 Wake, retry of external work, or unbounded transcript replay.
 
-An unavailable pre-publication read records diagnostic evidence and carries the
-dispatch source signal as the conservative observation cursor. The Space atomic
-check remains the final safety boundary and rejects the action if collaboration
-actually changed. This optimization helps later-finishing parallel Agents adapt;
-it does not serialize execution or replace explicit Center Agent delegation and
-Agent Task Coordination when work needs planned ownership, completion barriers,
-or parent synthesis.
+An unavailable pre-publication read records diagnostic evidence and fails the
+Wake explicitly with `dispatch.agent_reply_observation.unavailable`; it does not
+invent an empty delta or a successful observation cursor. The recorded action
+remains an unpublished proposal. After a successful read, the Space atomic check
+still rejects publication if collaboration advanced again. Context review helps
+later-finishing parallel Agents adapt; it does not serialize execution or replace
+explicit Center Agent delegation and Agent Task Coordination when work needs
+planned ownership, completion barriers, or parent synthesis.
 
 ### Agent Transport Space Action Delivery
 

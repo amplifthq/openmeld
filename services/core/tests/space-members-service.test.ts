@@ -3254,6 +3254,42 @@ describe("space-members-service", () => {
     expect(withNames.agents.map((agent) => agent.profileName).sort()).toEqual(
       memberIds.map((id) => `Current ${id}`).sort()
     );
+    resolveProfilesByIds.mockRejectedValueOnce(
+      new Error("D1_ERROR: D1 DB is overloaded. Requests queued for too long.")
+    );
+    const unavailable = await refreshSpaceMemberNamesFromAuth({
+      sql: snapshotInput.sql,
+      env,
+    });
+    const afterBatchFailure = await listSpaceMembersSnapshotUseCase({
+      ...snapshotInput,
+      profileFacts: unavailable.profileFacts,
+    });
+    expect(resolveProfileById).not.toHaveBeenCalled();
+    for (const agent of afterBatchFailure.agents) {
+      expect(
+        agent.ownerWakeDiagnostics?.agentExecutionReadiness?.facts.profile
+      ).toMatchObject({
+        active: false,
+        reasonCodes: ["agent_profile.identity_lookup_failed"],
+        source: "unavailable",
+      });
+      expect(
+        readSpaceMemberRecord(snapshotInput.sql, agent.profileId)?.status
+      ).toBe("active");
+    }
+    const retry = await refreshSpaceMemberNamesFromAuth({
+      sql: snapshotInput.sql,
+      env,
+    });
+    const afterRecovery = await listSpaceMembersSnapshotUseCase({
+      ...snapshotInput,
+      profileFacts: retry.profileFacts,
+    });
+    expect(resolveProfileById).not.toHaveBeenCalled();
+    expect(
+      afterRecovery.agents.map((agent) => agent.agentWakeAvailability?.status)
+    ).toEqual(Array.from({ length: 5 }, () => "available_for_wake"));
     // A later request must read Auth again, not retain the previous snapshot.
     await listSpaceMembersSnapshotUseCase(snapshotInput);
     expect(resolveProfileById).toHaveBeenCalledTimes(5);
