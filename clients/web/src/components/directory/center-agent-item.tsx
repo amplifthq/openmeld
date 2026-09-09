@@ -56,7 +56,7 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 				>
 					<Link
 						aria-label={`Open ${profile.profileName}`}
-						className="flex h-24 items-center gap-3 rounded-md p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						className="relative flex h-24 items-center gap-3 rounded-md p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
 						params={{ orgSlug: currentOrganization.slug }}
 						to="/o/$orgSlug/chats/center-agent"
 					>
@@ -66,24 +66,22 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 							size={56}
 						/>
 						<div className="min-w-0 flex-1">
-							<div className="flex min-w-0 items-center gap-2">
-								<p
-									className="min-w-0 truncate font-medium text-sm"
-									title={profile.profileName}
-								>
-									{profile.profileName}
-								</p>
-								<Badge
-									className={cn(
-										surfaceClasses(2),
-										"h-4 gap-1 px-1.5 py-0 text-[10px] [&>svg]:size-2.5!"
-									)}
-									variant="secondary"
-								>
-									<CloudIcon aria-hidden="true" />
-									Center Agent
-								</Badge>
-							</div>
+							<p
+								className="min-w-0 truncate font-medium text-sm"
+								title={profile.profileName}
+							>
+								{profile.profileName}
+							</p>
+							<Badge
+								className={cn(
+									surfaceClasses(2),
+									"absolute top-2 right-2 h-4 gap-1 px-1.5 py-0 text-[10px] [&>svg]:size-2.5!"
+								)}
+								variant="secondary"
+							>
+								<CloudIcon aria-hidden="true" />
+								Center Agent
+							</Badge>
 							<p
 								className="mt-0.5 truncate text-muted-foreground text-xs"
 								title={`Owned by ${currentOrganization.name}`}
