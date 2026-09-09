@@ -22,13 +22,17 @@ import {
   resolveFormalSpaceUpdateActorName,
   resolveFormalSpaceUpdateActorProfileId,
 } from "../../space/rules/formal-space-update";
-import { readRemoteAgentNativeDeliveryBySubmissionId } from "../infrastructure/d1/native-delivery-ledger-repo";
+import {
+  readRemoteAgentNativeDeliveryByIdempotencyKey,
+  readRemoteAgentNativeDeliveryBySubmissionId,
+} from "../infrastructure/d1/native-delivery-ledger-repo";
 import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 
 export async function requirePersonalRemoteAgentExecution(
   env: CoreBindings,
-  submissionId: string
+  submissionId: string,
+  skillPreparationKey?: string
 ) {
   const db = identityDb(env);
   if (!db) {
@@ -38,11 +42,27 @@ export async function requirePersonalRemoteAgentExecution(
   if (!evidenceDb) {
     throw new Error("remote_agent.execution_store_unavailable");
   }
-  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
-    db: evidenceDb,
-    submissionId,
-  });
-  if (!delivery || delivery.status !== "accepted") {
+  const delivery = skillPreparationKey
+    ? await readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: evidenceDb,
+        idempotencyKey: skillPreparationKey,
+      })
+    : await readRemoteAgentNativeDeliveryBySubmissionId({
+        db: evidenceDb,
+        submissionId,
+      });
+  // Skill bytes are loaded before the worker acknowledgement reaches Core.
+  // Only that read-only preparation path may use a durable submitted request.
+  const preparingSkills =
+    skillPreparationKey &&
+    delivery?.status === "submitted" &&
+    !delivery.submissionId;
+  if (
+    !delivery ||
+    (!preparingSkills &&
+      (delivery.status !== "accepted" ||
+        delivery.submissionId !== submissionId))
+  ) {
     throw new Error("remote_agent.execution_not_active");
   }
   resolveRemoteAgentNativeDeliveryRuntimeConversationId(delivery);

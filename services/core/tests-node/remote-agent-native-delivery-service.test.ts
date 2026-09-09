@@ -111,6 +111,7 @@ const THREAD_CONTEXT: NonNullable<
 };
 
 import { requireCurrentDesignatedCenterAgentCaller } from "../src/center-agent/current-designated-center-agent";
+import { rpcReadOrganizationSkillRuntimeSnapshot } from "../src/organization-skills/organization-skill-rpc";
 import { requirePersonalRemoteAgentExecution } from "../src/remote-agent/application/personal-remote-agent-space-tools";
 import { prepareRemoteAgentMemberRequest } from "../src/remote-agent/application/remote-agent-member-request";
 import { requireRemoteAgentToolCaller } from "../src/remote-agent/application/remote-agent-tool-caller";
@@ -174,6 +175,42 @@ describe("Remote Agent native delivery callback service", () => {
     });
     const readDirectory = vi.fn(async () => directory);
     Object.assign(env.__spaceStub, { rpcGetMemberDirectory: readDirectory });
+    workerSubmit.mockImplementationOnce(async (request) => {
+      // Worker preparation can run before Core has persisted its acknowledgement.
+      await expect(
+        requirePersonalRemoteAgentExecution(env, "personal-submission")
+      ).rejects.toThrow("execution_not_active");
+      const prepared = await requirePersonalRemoteAgentExecution(
+        env,
+        "personal-submission",
+        request.idempotencyKey
+      );
+      expect(prepared.request).toMatchObject({
+        agentProfileId: AGENT_PROFILE_ID,
+      });
+      expect(prepared.delivery.status).toBe("submitted");
+      await expect(
+        rpcReadOrganizationSkillRuntimeSnapshot(env, {
+          context: prepared.context,
+          preparationIdempotencyKey: request.idempotencyKey,
+          releases: [
+            {
+              skillId: "skill_other",
+              releaseId: "release_other",
+              name: "other-skill",
+              digest: "a".repeat(64),
+            },
+          ],
+        })
+      ).rejects.toThrow("prepared_release_mismatch");
+      return {
+        accepted: true,
+        createdAt: 2100,
+        requestId: "personal-request",
+        status: "pending" as const,
+        submissionId: "personal-submission",
+      };
+    });
     try {
       const result = await submitRemoteAgentNativeDelivery({
         binding: { ...createBinding(), personalAgent: true },

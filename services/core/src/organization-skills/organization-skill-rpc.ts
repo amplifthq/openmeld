@@ -234,7 +234,27 @@ export async function rpcReadOrganizationSkillRuntimeSnapshot(
   const authorization = await requireRemoteAgentToolCaller({
     context: request.context,
     env,
+    skillPreparationKey: request.preparationIdempotencyKey,
   });
+  if ("personalExecution" in authorization) {
+    const selected =
+      authorization.personalExecution.request.organizationSkillReleases ?? [];
+    if (
+      request.releases.length !== selected.length ||
+      request.releases.some(
+        (release) =>
+          !selected.some(
+            (frozen) =>
+              frozen.skillId === release.skillId &&
+              frozen.releaseId === release.releaseId &&
+              frozen.digest === release.digest &&
+              frozen.name === release.name
+          )
+      )
+    ) {
+      throw new Error("organization_skill.prepared_release_mismatch");
+    }
+  }
   const { db, bucket } = requireStores(env);
   return parseResponse(
     organizationSkillRuntimeSnapshotResponseSchema,

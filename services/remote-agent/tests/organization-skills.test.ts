@@ -17,7 +17,7 @@ import {
 } from "../flue-adapter/organization-skills";
 
 describe("Organization Skill Flue adapter", () => {
-  it.each([
+  it.each<Record<string, string>>([
     {},
     { owner: "Release Engineering" },
   ])("loads the exact verified release with metadata %j", async (metadata) => {

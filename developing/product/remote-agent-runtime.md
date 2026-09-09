@@ -214,6 +214,11 @@ Organization Documents and Projects are available through ordinary member read
 tools. Enabled Organization Skill releases use the same immutable selection,
 materialization, and activation path as Center; installation and administration
 remain Center-only. Imported Skill scripts are not executed by this increment.
+Skill materialization may read the exact frozen releases from Core's durable
+submitted request before its worker acknowledgement is persisted. This read-only
+preparation uses the admission idempotency key and still checks current identity,
+binding and membership. It cannot authorize ordinary tools or read other releases;
+normal tool calls and activation recording still require an accepted delivery.
 
 Personal Apps use Organization-shared connections only, never the Agent owner's
 personal connection. Existing connector discovery, durable operation records,

@@ -11,6 +11,7 @@ import { requirePersonalRemoteAgentExecution } from "./personal-remote-agent-spa
 export async function requireRemoteAgentToolCaller(input: {
   context: OpenMeldRequestContext;
   env: CoreBindings;
+  skillPreparationKey?: string;
 }) {
   if (
     input.context.actorContext.agentControllerRef !==
@@ -28,7 +29,8 @@ export async function requireRemoteAgentToolCaller(input: {
   }
   const execution = await requirePersonalRemoteAgentExecution(
     input.env,
-    submissionId
+    submissionId,
+    input.skillPreparationKey
   );
   const actor = input.context.actorContext;
   if (

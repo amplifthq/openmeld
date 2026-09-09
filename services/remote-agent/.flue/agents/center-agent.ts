@@ -211,6 +211,13 @@ async function prepareCenterAgentRender() {
                   `remote-agent-skills:${executionContext.submissionId}`
                 ),
                 releases: organizationSkillSelections,
+                ...(executionContext.conversationIdentity?.kind ===
+                "personal_agent"
+                  ? {
+                      preparationIdempotencyKey:
+                        executionContext.idempotencyKey,
+                    }
+                  : {}),
               },
               (binding, rpcInput) =>
                 binding.readOrganizationSkillRuntimeSnapshot?.(rpcInput)
