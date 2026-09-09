@@ -146,8 +146,8 @@ import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
-	resolveSpaceMessageContentPaddingClassName,
 	resolveSpaceMessageRowLayoutClassName,
+	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
@@ -2445,8 +2445,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 	const messageAlign = resolveSpaceMessageDirectionalAlign(input.run.isSelf);
 	const selfMessageContentLayoutClassName =
 		resolveSpaceMessageContentLayoutClassName({ isSelf: input.run.isSelf });
-	const messageContentPaddingClassName =
-		resolveSpaceMessageContentPaddingClassName({ isSelf: input.run.isSelf });
 	const detailsDialog = useSpaceProfileDetailsPopover({
 		centerAgentProfileId: input.centerAgentProfileId,
 		currentOwnerUserId: input.currentOwnerUserId,
@@ -2538,7 +2536,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 				const bubblePresentationClass =
 					resolveSpaceMessageBubblePresentationClass({
 						isHighlighted,
-						isSelf: input.run.isSelf,
 					});
 				const showProgressInAnswerArea =
 					shouldPlaceSpaceMessageProgressInAnswer(item);
@@ -2638,9 +2635,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 												isHighlighted={isHighlighted}
 												item={item}
 												messageAlign={messageAlign}
-												messageContentPaddingClassName={
-													messageContentPaddingClassName
-												}
 												parent={input}
 												selfMessageContentLayoutClassName={
 													selfMessageContentLayoutClassName
@@ -2717,7 +2711,6 @@ function ConversationBubbleContent(input: {
 	isHighlighted: boolean;
 	item: SpaceTimelineItem;
 	messageAlign: "start" | "end";
-	messageContentPaddingClassName: string;
 	parent: ConversationBubbleRunInput;
 	selfMessageContentLayoutClassName?: string;
 }) {
@@ -2726,7 +2719,7 @@ function ConversationBubbleContent(input: {
 		<BubbleContent
 			className={cn(
 				"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
-				input.messageContentPaddingClassName,
+				SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 				SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 				input.selfMessageContentLayoutClassName,
 				input.bubblePresentationClass,

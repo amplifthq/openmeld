@@ -726,13 +726,14 @@ every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
 trailing-aligned, content-sized bubble with a responsive maximum width; a
 message placed on the left uses the full available transcript width. Both
-placements keep their content leading-aligned and give the current member's
-messages the same muted, semantic-radius surface used to highlight any message
-on hover or keyboard focus. With right placement, the full transcript row stays
+placements keep their content leading-aligned. Every speaker's message uses
+the same quiet muted surface, semantic radius, and content inset, so message
+boundaries remain visible in multiplayer conversations in either theme.
+With right placement, the full transcript row stays
 available as the hover and focus target, while the visible current-member
 surface and its actions stay anchored to the bounded bubble. With left
 placement, that surface remains full width. Agent and other-member messages
-remain transparent at rest and use the full-width row highlight. Product
+keep their existing leading alignment and full-width layout. Product
 surfaces declare current-member authorship once and must not reimplement
 placement, width, text alignment, resting background, action placement, or
 highlight geometry locally.

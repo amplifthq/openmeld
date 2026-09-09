@@ -113,8 +113,8 @@ import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
-	resolveSpaceMessageContentPaddingClassName,
 	resolveSpaceMessageRowLayoutClassName,
+	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
@@ -1404,8 +1404,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	);
 	const selfMessageContentLayoutClassName =
 		resolveSpaceMessageContentLayoutClassName({ isSelf: isSelfMessage });
-	const messageContentPaddingClassName =
-		resolveSpaceMessageContentPaddingClassName({ isSelf: isSelfMessage });
 	const computerSetupPresentation = resolveThreadComputerSetupPresentation({
 		actionSignalId: input.computerSetupActionSignalId,
 		context: input.computerSetupContext,
@@ -1486,12 +1484,10 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						<BubbleContent
 							className={cn(
 								"group/thread-message relative flex w-full flex-col gap-2 transition-colors motion-reduce:transition-none",
-								messageContentPaddingClassName,
+								SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 								SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 								selfMessageContentLayoutClassName,
-								resolveSpaceMessageBubblePresentationClass({
-									isSelf: isSelfMessage,
-								}),
+								resolveSpaceMessageBubblePresentationClass({}),
 								"data-[highlighted=true]:bg-muted/50",
 								input.item.deliveryState === "pending" ? "opacity-70" : null
 							)}
