@@ -71,7 +71,9 @@ describe("resolveDispatchFailureHintText", () => {
         errorCode: "daemon.profile.pending_first_report",
         targetProfileLabel: "ops-bot",
       })
-    ).toBe("Waiting for @ops-bot to become ready...");
+    ).toBe(
+      "Preparing @ops-bot. Your message is saved; it will run when ready."
+    );
     expect(
       buildRetryingActivityText({
         errorCode: "daemon.profile.offline",
