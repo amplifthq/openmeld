@@ -2824,6 +2824,24 @@ describe("OpenMeld Core", () => {
       message: "Center Agent Direct Messages cannot change metadata.",
       status: 403,
     });
+    await expect(
+      readCenterAgentDirectMessageHttpForbidden(
+        await fetchWithOpenMeldAuth(
+          `${BASE_URL}/v1/spaces/${opened.spaceId}/meta`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ visibility: "public" }),
+          },
+          memberProfile,
+          { activeOrganizationId: organizationId }
+        )
+      )
+    ).resolves.toEqual({
+      code: "space.forbidden",
+      message: "Center Agent Direct Messages cannot change metadata.",
+      status: 403,
+    });
   });
 
   it("removes active members through POST /members/remove and hides them from snapshots", async () => {
@@ -4034,6 +4052,59 @@ describe("OpenMeld Core", () => {
     };
     expect(payload.code).toBe("auth.unauthenticated");
     expect(payload.message).toBe("authentication required");
+  });
+
+  it("lets the creator change directory visibility without changing link access and rejects other actors", async () => {
+    const creatorProfile: Partial<TestAuthProfile> = {
+      profileId: SECOND_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Space Host",
+      ownerUserId: "visibility-owner",
+      openMeldProfileId: SECOND_HUMAN_PROFILE_ID,
+    };
+    const spaceId = await createSpace(
+      {
+        name: "Directory visibility",
+        visibility: "private",
+        accessMode: "members_only",
+      },
+      creatorProfile
+    );
+    const request = {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ visibility: "public" }),
+    };
+    const denied = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/meta`,
+      request,
+      {
+        profileId: THIRD_HUMAN_PROFILE_ID,
+        profileKind: "human",
+        ownerUserId: "visibility-other",
+        openMeldProfileId: THIRD_HUMAN_PROFILE_ID,
+      }
+    );
+    expect(denied.status).toBe(403);
+    const saved = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/meta`,
+      request,
+      creatorProfile
+    );
+    expect(saved.status).toBe(200);
+    await expect(saved.json()).resolves.toMatchObject({
+      visibility: "public",
+      accessMode: "members_only",
+    });
+    const status = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/status`,
+      undefined,
+      creatorProfile
+    );
+    await expect(status.json()).resolves.toMatchObject({
+      organizationVisibility: "public",
+      accessMode: "members_only",
+    });
   });
 
   it("lets the creator rename a Space, rejects other actors, and broadcasts metadata invalidation", async () => {

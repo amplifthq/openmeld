@@ -2315,6 +2315,7 @@ export type GetSpaceMetaInput = {
 
 export type UpdateSpaceMetaInput = {
   spaceId: string;
+  visibility?: SpaceMeta["visibility"];
   name?: string;
   purpose?: string;
   guide?: string;
@@ -18503,6 +18504,7 @@ export async function rpcUpdateSpaceMeta(
 ): Promise<SpaceMeta> {
   const context = requireRpcContext(input.context);
   const parsedBody = patchSpaceMetaBodySchema.safeParse({
+    ...(input.visibility === undefined ? {} : { visibility: input.visibility }),
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.purpose === undefined ? {} : { purpose: input.purpose }),
     ...(input.guide === undefined ? {} : { guide: input.guide }),

@@ -27,6 +27,24 @@
 
 ## Boundary
 
+### Space directory visibility
+
+The shared Space metadata PATCH schema accepts optional `visibility` (`private`
+or `public`). The Space Durable Object owns this setting and requires the same
+Space management authority as renaming. Direct Messages reject metadata changes.
+Changing visibility preserves link access, organization identity, and converted
+Direct Message metadata. Web refreshes the owning status and directory queries
+after saving; it does not infer access from directory visibility.
+
+This is an additive Web/API-client/Gateway/Core mutation. Existing clients and
+CLI/Service/Skills setup, Wake, Space actions, and diagnostics remain compatible;
+no storage migration or local component release is needed. Older Gateway/Core
+receivers reject the new field, so the new control works only after both are
+updated. For a combined Inbox release, preserve its documented receiver-first
+ordering; the visibility control must not be treated as available until its
+receivers are current. Reverting Web is safe; reverting a receiver makes new
+visibility writes unavailable without changing saved access policy.
+
 Personal native Agent creation and the Core/Remote private collaboration RPC
 use shared schemas, including the explicit `personal_agent` V4 identity. See
 the [personal Remote Agent contract audit](review/2026-09-08-personal-remote-agent-contract-impact-audit.md)

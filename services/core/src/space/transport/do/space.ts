@@ -12587,7 +12587,10 @@ export class Space extends DurableObject<CoreBindings> {
         "Space purpose is system-managed and cannot be changed through metadata updates."
       );
     }
-    if (existingMetaRecord && isSpaceNamePatchBody(body)) {
+    if (
+      existingMetaRecord &&
+      (isSpaceNamePatchBody(body) || Object.hasOwn(body ?? {}, "visibility"))
+    ) {
       const authorization = this.authorizeSpaceManagement(context);
       if (!authorization.ok) {
         return authorization.response;
@@ -12607,21 +12610,22 @@ export class Space extends DurableObject<CoreBindings> {
           upsertSpaceMetaRecord(this.ctx.storage.sql, record),
       },
     });
-    if (response.ok) {
-      upsertSpaceCreatorFromCurrentMeta({
-        sql: this.ctx.storage.sql,
-        spaceId: this.spaceId,
+    if (!response.ok) {
+      return response;
+    }
+    upsertSpaceCreatorFromCurrentMeta({
+      sql: this.ctx.storage.sql,
+      spaceId: this.spaceId,
+    });
+    await this.projectCurrentSpaceIndexSnapshot(
+      options.initializeIfAbsent ? "space.created" : "space.meta_updated"
+    );
+    if (!options.initializeIfAbsent) {
+      await this.broadcastSpaceMetaChanged({
+        reason: isSpaceNamePatchBody(body)
+          ? "space.name.updated"
+          : "space.meta.updated",
       });
-      await this.projectCurrentSpaceIndexSnapshot(
-        options.initializeIfAbsent ? "space.created" : "space.meta_updated"
-      );
-      if (!options.initializeIfAbsent) {
-        await this.broadcastSpaceMetaChanged({
-          reason: isSpaceNamePatchBody(body)
-            ? "space.name.updated"
-            : "space.meta.updated",
-        });
-      }
     }
     return response;
   }

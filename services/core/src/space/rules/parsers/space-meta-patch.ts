@@ -158,8 +158,9 @@ function resolveSpaceMetaPatchFieldPresence(input: {
     "purpose",
     "guide",
     "creator",
+    "visibility",
     ...(input.allowAccessMode ? ["accessMode"] : []),
-    ...(input.allowOrganizationFields ? ["organizationId", "visibility"] : []),
+    ...(input.allowOrganizationFields ? ["organizationId"] : []),
   ];
   const unknownFields = listUnknownObjectFields(input.body, allowedFields);
   if (unknownFields.length > 0) {
@@ -181,8 +182,7 @@ function resolveSpaceMetaPatchFieldPresence(input: {
       input.allowOrganizationFields &&
       Object.hasOwn(input.body, "organizationId"),
     hasPurpose: Object.hasOwn(input.body, "purpose"),
-    hasVisibility:
-      input.allowOrganizationFields && Object.hasOwn(input.body, "visibility"),
+    hasVisibility: Object.hasOwn(input.body, "visibility"),
   };
 
   if (!hasAnySpaceMetaPatchField(presence)) {
