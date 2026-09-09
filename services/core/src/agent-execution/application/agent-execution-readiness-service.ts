@@ -396,8 +396,9 @@ async function resolveAgentBindingSnapshot(
       input.timing,
       "profile_identity_lookup",
       () =>
-        authWorker.resolveProfileById({
-          openMeldProfileId: input.agent.profileId,
+        input.reads.resolveProfileById({
+          authWorker,
+          profileId: input.agent.profileId,
         })
     );
     if (!result.ok) {

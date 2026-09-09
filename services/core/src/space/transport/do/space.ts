@@ -212,6 +212,7 @@ import {
   recordRuntimeCoordinatorFailureTaskOutcome,
   recordRuntimeCoordinatorFinalizationTaskOutcome,
 } from "../../../agent-task-coordination/application/runtime-coordinator-task-outcome";
+import type { AuthProfileFacts } from "../../../auth/application/profile-facts-reader";
 import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
 import {
   readCenterAgentDesignationRecord,
@@ -4342,23 +4343,23 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
 
-  private async refreshMemberNamesFromAuth(): Promise<void> {
+  private async refreshMemberNamesFromAuth(): Promise<AuthProfileFacts | null> {
     ensureSpaceMembersBackfilled({
       sql: this.ctx.storage.sql,
       spaceId: this.spaceId,
       liveSessions: this.sessions.values(),
       metaRecord: this.readSpaceMetaRecord(),
     });
-    if (
-      await refreshSpaceMemberNamesFromAuth({
-        sql: this.ctx.storage.sql,
-        env: this.bindings,
-      })
-    ) {
+    const result = await refreshSpaceMemberNamesFromAuth({
+      sql: this.ctx.storage.sql,
+      env: this.bindings,
+    });
+    if (result.changed) {
       this.ctx.waitUntil(
         this.projectCurrentSpaceIndexSnapshot("space.members_updated")
       );
     }
+    return result.profileFacts;
   }
 
   private resolveSpaceMemberProfileNameForPublication(
@@ -11709,7 +11710,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     await this.ensureAgentOwnerMembershipPolicy(metaRecord);
-    await this.refreshMemberNamesFromAuth();
+    const profileFacts = await this.refreshMemberNamesFromAuth();
 
     const parsed = getSpaceStatusInputSchema.safeParse({
       spaceId: this.spaceId,
@@ -11722,6 +11723,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     const summary = await readSpaceStatusSummaryUseCase({
+      profileFacts,
       sql: this.ctx.storage.sql,
       env: this.bindings,
       spaceId: parsed.data.spaceId,
@@ -11887,8 +11889,9 @@ export class Space extends DurableObject<CoreBindings> {
 
     await this.ensureAgentOwnerMembershipPolicy(metaRecord);
 
-    await this.refreshMemberNamesFromAuth();
+    const profileFacts = await this.refreshMemberNamesFromAuth();
     const snapshot = await listSpaceMembersSnapshotUseCase({
+      profileFacts,
       sql: this.ctx.storage.sql,
       env: this.bindings,
       spaceId: this.spaceId,
