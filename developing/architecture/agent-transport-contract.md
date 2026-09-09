@@ -219,11 +219,19 @@ readiness. Local Service still validates the concrete working folder. A changed
 Binding or Runtime is a visible no-execution failure; reconnection cannot
 silently retarget work. Pending route registration may remain in the same bounded
 wait. A transport failure while reading authority is retryable, not permission.
-Transient checks after reconnection, including fresh Usage and controller reports,
-remain under `wake.device_wait.readiness_checking` with the original deadline.
+Transient checks after reconnection, including current Space access, fresh Usage
+and controller reports, remain under `wake.device_wait.readiness_checking` with
+the original deadline.
 The next accepted Service heartbeat or report rechecks the complete admission
 path. A definitive permission, identity, or readiness blocker still terminalizes
 the Wake; checking is not a successful admission decision.
+
+Ordinary Wake preparation and explicit device waiting share the canonical
+preparation-reason policy, existing Service reports, and Coordinator recovery.
+The opt-in adds a selected device and an immutable user start deadline; it does
+not introduce a second preparation or retry policy. Once a head is accepted,
+temporary access-read outages use that same durable wait rather than an
+independent Queue retry. Every recovery attempt rechecks access before execution.
 
 The owner transaction fences first execution at the deadline and against Stop.
 An expired wait publishes `wake.device_wait.expired`; cancellation, failure, and

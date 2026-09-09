@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import {
   fetchCliChannelManifest,
   isEnvFlagEnabled,
@@ -354,15 +355,16 @@ export async function assertChannelReadyForVersionOnlyRelease(input = {}) {
 }
 
 /**
- * Routes the Core deploy through deploy:core:local-components (rather than a
- * bare `pnpm --filter @openmeld/core run deploy`) so it inherits the same
+ * Uses the Core guard from the same trusted control checkout as this publisher,
+ * so recovery can fix deployment controls without changing immutable product
+ * source or republishing an artifact. --verify-local-components retains the same
  * release-ready + channel-sync gate as a manual Core deploy. The step 1
  * "Verify local-components release manifest" step above runs BEFORE any
  * binary upload, so it cannot channel-sync-check; this final step is the one
  * that actually deploys Core and must not bypass the gate.
  *
  * Consequently verify-release-ready.mjs runs twice per CLI release: once in
- * step 1, once inside deploy:core:local-components here. By the time this
+ * step 1, once inside the Core guard here. By the time this
  * second run happens, publishCliReleaseTag() above has already tagged HEAD and
  * published that exact tag to origin, so resolveEffectiveReleaseBase() resolves
  * the brand-new local tag as the base — it diffs empty against HEAD, so this
@@ -376,11 +378,11 @@ export async function assertChannelReadyForVersionOnlyRelease(input = {}) {
 export function buildCoreDeployStepSpec(input = {}) {
   return {
     args: [
-      "run",
-      "deploy:core:local-components",
+      fileURLToPath(new URL("./deploy-core-worker.mjs", import.meta.url)),
+      "--verify-local-components",
       ...(input.targetTag ? ["--tag", input.targetTag] : []),
     ],
-    command: "pnpm",
+    command: "node",
     label: "Deploy Core with the published local-components manifest",
   };
 }

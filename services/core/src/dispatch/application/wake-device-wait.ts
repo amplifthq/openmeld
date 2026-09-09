@@ -55,7 +55,6 @@ export function resolveDeviceWaitReason(
   );
   if (
     (availability.category === "checking" && availability.isRefreshing) ||
-    blockReasonCode === "usage_checking" ||
     (blockReasonCode &&
       isAgentWakeAdmissionPreparationPendingReason(blockReasonCode))
   ) {

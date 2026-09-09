@@ -6,6 +6,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { gzipSync } from "node:zlib";
 
@@ -489,25 +490,28 @@ test("fails a conflicting release tag before starting network probes", async () 
   }
 });
 
-test("routes the Core deploy step through deploy:core:local-components so it inherits the channel-sync gate", () => {
+test("uses the current release control guard and preserves the channel-sync gate", () => {
   assert.deepEqual(buildCoreDeployStepSpec(), {
-    args: ["run", "deploy:core:local-components"],
-    command: "pnpm",
+    args: [
+      fileURLToPath(new URL("./deploy-core-worker.mjs", import.meta.url)),
+      "--verify-local-components",
+    ],
+    command: "node",
     label: "Deploy Core with the published local-components manifest",
   });
 });
 
-test("passes the Core release tag through pnpm run so Wrangler receives it", () => {
+test("passes the immutable release tag to the current control guard", () => {
   assert.deepEqual(
     buildCoreDeployStepSpec({ targetTag: "openmeld-release-target" }),
     {
       args: [
-        "run",
-        "deploy:core:local-components",
+        fileURLToPath(new URL("./deploy-core-worker.mjs", import.meta.url)),
+        "--verify-local-components",
         "--tag",
         "openmeld-release-target",
       ],
-      command: "pnpm",
+      command: "node",
       label: "Deploy Core with the published local-components manifest",
     }
   );

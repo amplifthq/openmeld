@@ -1448,25 +1448,7 @@ const settleDeviceWaitingWakeBeforeExecution = async (input: {
         return null;
       })
     : true;
-  if (deviceWaitAccess === null) {
-    await markDispatchStatus({
-      db: input.db,
-      attemptId: executionAttemptId,
-      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
-      idempotencyKey: effectiveDispatchMessage.idempotencyKey,
-      nowMs: input.nowMs,
-      errorCode: "wake.device_wait.access_unavailable",
-      errorMessage: "The waiting Wake's current access could not be verified.",
-    });
-    retryQueueMessageWithBackoff(
-      input.message,
-      executionAttemptNo,
-      "wake.device_wait.access_unavailable"
-    );
-    return { controllerWaitPromise: null, shouldAck: false };
-  }
-  if (!deviceWaitAccess) {
+  if (deviceWaitAccess === false) {
     const outcome =
       await handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded({
         db: input.db,
@@ -1489,16 +1471,25 @@ const settleDeviceWaitingWakeBeforeExecution = async (input: {
     return { controllerWaitPromise: null, shouldAck: outcome.shouldAck };
   }
 
-  if (preflightCheck.deviceWaitReason) {
+  const waitingReason =
+    deviceWaitAccess === null
+      ? "wake.device_wait.readiness_checking"
+      : preflightCheck.deviceWaitReason;
+  if (waitingReason) {
+    let errorMessage =
+      waitingReason === "daemon.profile.offline"
+        ? "Waiting for the specified computer to come online. No work has started."
+        : "Waiting for the Agent's current readiness checks. No work has started.";
+    if (deviceWaitAccess === null) {
+      errorMessage =
+        "Waiting to verify the Wake's current Space access. No work has started.";
+    }
     const waiting = await recordPreExecutionHeadWaiting({
       db: input.db,
       dispatchMessage: effectiveDispatchMessage,
       env: input.env,
-      errorCode: preflightCheck.deviceWaitReason,
-      errorMessage:
-        preflightCheck.deviceWaitReason === "daemon.profile.offline"
-          ? "Waiting for the specified computer to come online. No work has started."
-          : "Waiting for the Agent's current readiness checks. No work has started.",
+      errorCode: waitingReason,
+      errorMessage,
       executionAttemptId,
       failureAtMs: input.nowMs,
       message: input.message,

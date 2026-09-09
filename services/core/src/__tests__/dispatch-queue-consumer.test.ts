@@ -10171,6 +10171,118 @@ describe("handleDispatchQueueBatch", () => {
     }
   });
 
+  it.each([
+    true,
+    false,
+  ])("retains access-check outages in the Coordinator wait and rechecks access on redrive (allowed: %s)", async (allowed) => {
+    const targetProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const body = {
+      ...createDispatchBody({
+        dispatchId: "device-wait-access-outage",
+        sourceEventId: "device-wait-access-source",
+        targetProfileId,
+        visitedProfileIdsHash: "stable32:device-wait-access",
+      }),
+      deviceWait: {
+        bindingId: `binding-${targetProfileId}`,
+        openMeldServiceRuntimeId: `runtime-${targetProfileId}`,
+        targetProfileId,
+        deadlineAtMs: Date.now() + 60_000,
+      },
+    };
+    const access = vi
+      .spyOn(deviceWaitAccess, "checkDeviceWaitingWakeAccess")
+      .mockRejectedValueOnce(new Error("Space access temporarily unavailable"))
+      .mockResolvedValueOnce(allowed);
+    const first = createQueueMessage(body, 1);
+    const env = makeEnvWithBindings();
+    await handleDispatchQueueBatch({
+      batch: { messages: [first] } as unknown as MessageBatch<unknown>,
+      env,
+    });
+    expect(first.ack).toHaveBeenCalledOnce();
+    expect(first.retry).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadWaiting
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        waiting: expect.objectContaining({
+          dispatchId: body.dispatchId,
+          reasonCode: "wake.device_wait.readiness_checking",
+        }),
+      })
+    );
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: "runtime_coordinator.device_waiting",
+      })
+    );
+    vi.spyOn(
+      runtimeCoordinatorClient,
+      "readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace"
+    ).mockImplementation(async ({ request }) => ({
+      ok: true,
+      readStatus: "found",
+      lifecycle: {
+        createdAtMs: Date.now(),
+        duplicateDispatchCount: 0,
+        executionLinkedAtMs: null,
+        modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+        noExecutionDecision: null,
+        ownerUserId: "owner-default",
+        primaryDispatchId: body.dispatchId,
+        publicationIntent: null,
+        runtimeCoordinatorExecutionId: null,
+        status: "waiting",
+        targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+        targetWakeLifecycleId:
+          request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+        updatedAtMs: Date.now(),
+        waitingBoundary: {
+          reasonCode: "wake.device_wait.readiness_checking",
+          trigger: "agent_readiness_reported",
+          userRecoveryAction: "check_status",
+          userVisibleState: "waiting_for_agent_readiness",
+          waitingCategory: "local_agent_unavailable",
+          waitingFor: "agent_readiness_report",
+          deadlineAtMs: body.deviceWait.deadlineAtMs,
+          deadlineOutcome: "publication_intent_ready",
+          observedAtMs: Date.now(),
+          softDeadlineAtMs: Date.now() + 30_000,
+          triggerOwner: "runtime_coordinator",
+          waitingSinceMs: Date.now(),
+        },
+      },
+    }));
+    const redrive = createQueueMessage(
+      { ...body, deliveryRecoveryReason: "route_lost" },
+      2
+    );
+    await handleDispatchQueueBatch({
+      batch: { messages: [redrive] } as unknown as MessageBatch<unknown>,
+      env,
+    });
+    expect(access).toHaveBeenCalledTimes(2);
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    expect(redrive.ack).toHaveBeenCalledOnce();
+    if (!allowed) {
+      expect(
+        runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          noExecution: expect.objectContaining({
+            reasonCode: "wake.device_wait.access_revoked",
+          }),
+        })
+      );
+    }
+  });
+
   it("keeps an explicit wait parked when a connected Service has not opened dispatch admission", async () => {
     const targetProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const route = vi.mocked(daemonTransportClient.lookupRuntimeTransportRoute);
