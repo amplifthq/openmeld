@@ -149,6 +149,7 @@ function buildReplyRacePreview(input: {
 	if (!(dispatchId && clientMessageId && sourceSignalId)) {
 		throw new Error("Reply replay requires complete Wake correlation.");
 	}
+	const text = `@${input.human.profileName} @${input.agent.profileName} UI replay: the answer arrives before the stream closes.`;
 	const source: SignalEnvelope = {
 		v: 1,
 		id: sourceSignalId,
@@ -160,7 +161,15 @@ function buildReplyRacePreview(input: {
 			profileName: input.human.profileName,
 		},
 		type: "signal.text",
-		data: { text: "UI replay: the answer arrives before the stream closes." },
+		data: {
+			text,
+			messageEnvelope: {
+				text,
+				activationTargets: [input.agent.profileId],
+				referenceTargets: [],
+				mentionTargets: [input.human.profileId],
+			},
+		},
 	};
 	const final: SignalEnvelope = {
 		v: 1,

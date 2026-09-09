@@ -408,6 +408,11 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    above their Agents, using the Organization Profile Directory name and avatar.
    This heading does not create membership, count toward Members, or expose
    member actions for that owner.
+   Message bodies use the same Profile Mention renderer for Human mention
+   targets and Agent Wake/Reference targets. Human tokens retain their avatar,
+   name, and Profile popover without an Agent action label. The timeline carries
+   all three existing addressing lists without changing notification or Wake
+   semantics.
 4. **People** — the first-level home for the Human teammates in the current
    workspace. Its Main Sidebar contextual list shows Human Profiles with search,
    computer-connection filters, personal Starred and named groups. Registered

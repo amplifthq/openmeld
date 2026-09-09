@@ -94,6 +94,7 @@ export type SpaceTimelineItem = {
 	text: string;
 	wakeClientMessageId: string | null;
 	referenceTargetProfileIds?: readonly string[];
+	mentionTargetProfileIds?: readonly string[];
 	wakeSourceSignalId: string | null;
 	wakeTargetProfileIds: readonly string[];
 	agentStreamState?: {
@@ -586,6 +587,7 @@ function readNewMessagesDuringComposition(
 function readSourceMessageAddressingDetails(
 	signal: SpaceTimelineVisibleEnvelope
 ): {
+	mentionTargetProfileIds: readonly string[];
 	referenceTargetProfileIds: readonly string[];
 	wakeClientMessageId: string | null;
 	wakeSourceSignalId: string | null;
@@ -593,6 +595,7 @@ function readSourceMessageAddressingDetails(
 } {
 	if (signal.type !== "signal.text") {
 		return {
+			mentionTargetProfileIds: [],
 			referenceTargetProfileIds: [],
 			wakeClientMessageId: null,
 			wakeSourceSignalId: null,
@@ -600,6 +603,9 @@ function readSourceMessageAddressingDetails(
 		};
 	}
 
+	const mentionTargetProfileIds = normalizeUniqueNonEmptyStrings(
+		signal.data.messageEnvelope?.mentionTargets ?? []
+	);
 	const wakeTargetProfileIds = normalizeUniqueNonEmptyStrings(
 		signal.data.messageEnvelope?.activationTargets ?? []
 	);
@@ -612,6 +618,7 @@ function readSourceMessageAddressingDetails(
 	);
 	if (wakeTargetProfileIds.length === 0) {
 		return {
+			mentionTargetProfileIds,
 			referenceTargetProfileIds,
 			wakeClientMessageId: null,
 			wakeSourceSignalId: null,
@@ -620,6 +627,7 @@ function readSourceMessageAddressingDetails(
 	}
 
 	return {
+		mentionTargetProfileIds,
 		referenceTargetProfileIds,
 		wakeClientMessageId: clientMessageId,
 		wakeSourceSignalId: signal.id,

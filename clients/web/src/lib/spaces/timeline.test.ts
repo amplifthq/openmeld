@@ -891,7 +891,7 @@ describe("space timeline helpers", () => {
 		});
 	});
 
-	it("preserves Agent Reference targets without inventing Wake details", () => {
+	it("preserves Human mentions and Agent references without inventing Wake details", () => {
 		const items = buildSpaceTimelineItems({
 			envelopes: [
 				createTextSignal({
@@ -900,6 +900,7 @@ describe("space timeline helpers", () => {
 					text: "@watcher context only",
 					messageEnvelope: {
 						activationTargets: [],
+						mentionTargets: ["11111111-1111-4111-8111-111111111111"],
 						referenceTargets: ["agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
 						text: "@watcher context only",
 					},
@@ -913,6 +914,7 @@ describe("space timeline helpers", () => {
 
 		expect(items[0]).toMatchObject({
 			referenceTargetProfileIds: ["agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
+			mentionTargetProfileIds: ["11111111-1111-4111-8111-111111111111"],
 			wakeClientMessageId: null,
 			wakeSourceSignalId: null,
 			wakeTargetProfileIds: [],
@@ -1616,6 +1618,7 @@ function createTextSignal(input: {
 	id: string;
 	messageEnvelope?: {
 		activationTargets: string[];
+		mentionTargets?: string[];
 		navigationAction?: {
 			label: string;
 			target:

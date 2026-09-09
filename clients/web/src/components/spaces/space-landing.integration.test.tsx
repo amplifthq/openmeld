@@ -14967,7 +14967,7 @@ describe("SpaceLanding", () => {
 			expect(publishedMessage?.textContent).toContain("hello there");
 			expect(
 				publishedMessage?.querySelector(
-					'[data-slot="space-message-agent-mention"]'
+					'[data-slot="space-message-profile-mention"]'
 				)?.textContent
 			).toContain("Watcher");
 		});

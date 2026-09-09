@@ -142,10 +142,6 @@ import {
 } from "./space-execution-recovery-actions";
 import { SpaceGraph, type SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
-import {
-	buildSpaceMessageAgentMentionProfiles,
-	splitSpaceMessageAgentMentionText,
-} from "./space-message-agent-mention";
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
@@ -169,6 +165,10 @@ import {
 } from "./space-message-footer";
 import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
+import {
+	buildSpaceMessageProfileMentionProfiles,
+	splitSpaceMessageProfileMentionText,
+} from "./space-message-profile-mention";
 import { shouldPlaceSpaceMessageProgressInAnswer } from "./space-message-progress-placement";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
 import {
@@ -2759,7 +2759,7 @@ function ConversationBubbleContent(input: {
 				openMeldProfileId={parent.selfProfileId}
 				orgSlug={parent.orgSlug}
 				profilePresentationsById={parent.profilePresentationsById}
-				renderAgentProfileTrigger={
+				renderProfileTrigger={
 					input.detailsDialog.profileDetailsPopoverTriggerById
 				}
 				spaceReferencesById={parent.spaceReferencesById}
@@ -3206,13 +3206,14 @@ function ReplyPreview(input: {
 	if (!input.item.replyPreviewText) {
 		return null;
 	}
-	const profiles = buildSpaceMessageAgentMentionProfiles({
+	const profiles = buildSpaceMessageProfileMentionProfiles({
 		profilePresentationsById: input.profilePresentationsById,
+		mentionTargetProfileIds: input.sourceItem?.mentionTargetProfileIds ?? [],
 		wakeTargetProfileIds: input.sourceItem?.wakeTargetProfileIds ?? [],
 		referenceTargetProfileIds:
 			input.sourceItem?.referenceTargetProfileIds ?? [],
 	});
-	const previewText = splitSpaceMessageAgentMentionText(
+	const previewText = splitSpaceMessageProfileMentionText(
 		input.item.replyPreviewText,
 		profiles
 	)

@@ -109,7 +109,6 @@ import {
 	type SpaceExecutionRecoveryHandler,
 } from "./space-execution-recovery-actions";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
-import type { SpaceAgentProfileTriggerRenderer } from "./space-message-agent-mention";
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
@@ -133,6 +132,7 @@ import {
 } from "./space-message-footer";
 import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
+import type { SpaceProfileTriggerRenderer } from "./space-message-profile-mention";
 import { shouldPlaceSpaceMessageProgressInAnswer } from "./space-message-progress-placement";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
@@ -530,7 +530,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				readOnly={input.readOnly === true}
 				readScopeKey={activeThreadRootSignalId ?? ""}
 				registerMessageElement={registerMessageElement}
-				renderAgentProfileTrigger={
+				renderProfileTrigger={
 					profileDetailsDialog.profileDetailsPopoverTriggerById
 				}
 				selfAvatarImageUrl={input.selfAvatarImageUrl ?? null}
@@ -1024,8 +1024,8 @@ function ThreadTimeline(input: {
 	readScopeKey: string;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
-	onOpenAgentProfile?: (profileId: string) => void;
-	renderAgentProfileTrigger: SpaceAgentProfileTriggerRenderer;
+	onOpenProfile?: (profileId: string) => void;
+	renderProfileTrigger: SpaceProfileTriggerRenderer;
 	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
@@ -1171,8 +1171,8 @@ function ThreadTimeline(input: {
 											input.onAgentInteractionResponse
 										}
 										onJumpToMessage={input.onJumpToMessage}
-										onOpenAgentProfile={input.onOpenAgentProfile}
 										onOpenMessageDetails={input.onOpenMessageDetails}
+										onOpenProfile={input.onOpenProfile}
 										onOpenSpaceFile={input.onOpenSpaceFile}
 										onRecoverExecution={input.onRecoverExecution}
 										onWakeStopRequest={input.onWakeStopRequest}
@@ -1180,7 +1180,7 @@ function ThreadTimeline(input: {
 										profilePresentationsById={input.profilePresentationsById}
 										readOnly={input.readOnly}
 										registerMessageElement={input.registerMessageElement}
-										renderAgentProfileTrigger={input.renderAgentProfileTrigger}
+										renderProfileTrigger={input.renderProfileTrigger}
 										selfAvatarImageUrl={input.selfAvatarImageUrl}
 										selfProfileId={input.selfProfileId}
 										spaceReferencesById={input.spaceReferencesById}
@@ -1291,8 +1291,8 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	isPersonalContext: boolean;
 	item: SpaceTimelineItem;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
-	onOpenAgentProfile?: (profileId: string) => void;
-	renderAgentProfileTrigger: SpaceAgentProfileTriggerRenderer;
+	onOpenProfile?: (profileId: string) => void;
+	renderProfileTrigger: SpaceProfileTriggerRenderer;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -1506,12 +1506,12 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								computerSetupSourceSignalId={input.item.id}
 								containerClassName={selfMessageContentLayoutClassName}
 								item={input.item}
-								onOpenAgentProfile={input.onOpenAgentProfile}
+								onOpenProfile={input.onOpenProfile}
 								onOpenSpaceFile={input.onOpenSpaceFile}
 								openMeldProfileId={input.selfProfileId}
 								orgSlug={input.orgSlug}
 								profilePresentationsById={input.profilePresentationsById}
-								renderAgentProfileTrigger={input.renderAgentProfileTrigger}
+								renderProfileTrigger={input.renderProfileTrigger}
 								spaceReferencesById={input.spaceReferencesById}
 							/>
 							<SpaceMessageInteractionSource

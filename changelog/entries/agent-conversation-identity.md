@@ -14,3 +14,5 @@ Chat headers show viewing access beside the title, and read-only composers
 explain how to join without repeating the same instruction.
 Members panels group Agents under their owners, including owners who have not
 joined the conversation.
+Human mentions retain their avatar and clickable profile token after sending,
+using the same message rendering as Agent mentions.
