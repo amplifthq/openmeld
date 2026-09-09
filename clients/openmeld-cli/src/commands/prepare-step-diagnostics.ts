@@ -1,4 +1,3 @@
-import { stat } from "node:fs/promises";
 import os from "node:os";
 import process from "node:process";
 import {
@@ -18,13 +17,14 @@ import {
 import { inspectDaemonServiceInventory } from "../local-service/lifecycle/daemon-service-inventory";
 import {
   type DaemonServiceJobDiagnostics,
-  getDaemonSystemServiceLogPath,
   isDaemonServiceJobNeverSpawned,
   readDaemonServiceJobCrashExitCode,
   resolveDaemonServiceManager,
 } from "../local-service/lifecycle/daemon-service-manager";
-import { readDaemonStartFailureLogTailLines } from "../local-service/lifecycle/daemon-start-failure-log";
+import { readDaemonIncidentLogTail } from "../local-service/lifecycle/daemon-start-failure-log";
 import { getCliVersionInfo } from "../runtime/cli-version";
+import { collectLocalOperationFailure } from "../system/local-operation-diagnostics";
+import { readMacOSVersion } from "../system/macos-version";
 
 // Serialized payload budget. Stays below the schema cap
 // (PREPARE_STEP_DIAGNOSTICS_MAX_CHARS) so the bundle can never be rejected
@@ -35,11 +35,9 @@ export const PREPARE_STEP_DIAGNOSTICS_PAYLOAD_MAX_CHARS = Math.min(
 );
 export const OPENMELD_NO_DIAGNOSTICS_ENV = "OPENMELD_NO_DIAGNOSTICS";
 
-// Enriched bundle format: adds the contract deviceId, a whitelisted lifecycle
-// journal metadata projection, and an explicit serviceLogNote for a
-// missing/empty service log. The schema accepts any positive integer, so an
-// older CLI still emitting version 1 keeps validating on a newer core.
-const PREPARE_STEP_DIAGNOSTICS_BUNDLE_VERSION = 2;
+// Additive v3 evidence: incident window, native operation and macOS versions.
+const PREPARE_STEP_DIAGNOSTICS_BUNDLE_VERSION = 3;
+const INCIDENT_WINDOW_MS = 15 * 60 * 1000;
 
 const LIFECYCLE_JOURNAL_TAIL_MAX_ENTRIES = 10;
 const SERVICE_LOG_TAIL_MAX_LINES = 30;
@@ -65,6 +63,12 @@ const LIFECYCLE_JOURNAL_METADATA_WHITELIST = [
   "failureStage",
   "reasonCodes",
   "processUptimeMs",
+  "operation",
+  "distribution",
+  "actorPid",
+  "parentPid",
+  "targetCategory",
+  "operationFailure",
 ] as const;
 
 // jobDiagnostics is the heaviest whitelisted field, and the failure
@@ -82,6 +86,7 @@ const LIFECYCLE_JOURNAL_METADATA_COMPACT_WHITELIST =
 export type PrepareStepServiceLogTail = {
   lines: string[];
   note: "file_missing" | "file_empty" | null;
+  window?: PrepareStepDiagnosticsBundle["serviceLogWindow"];
 };
 
 // The bundle is whitelist-only: every field is either derived from the failed
@@ -95,6 +100,7 @@ export type PrepareStepDiagnosticsSources = {
   readInventoryAnomalyCodes?: () => Promise<string[]>;
   readServiceJobDiagnostics?: () => Promise<DaemonServiceJobDiagnostics | null>;
   readDeviceId?: () => Promise<string | null>;
+  readMacOSVersion?: typeof readMacOSVersion;
 };
 
 export function isPrepareStepDiagnosticsOptedOut(
@@ -109,12 +115,18 @@ export async function collectPrepareStepDiagnostics(input: {
   error?: unknown;
   env?: NodeJS.ProcessEnv;
   sources?: PrepareStepDiagnosticsSources;
+  now?: Date;
 }): Promise<string | null> {
   try {
     if (isPrepareStepDiagnosticsOptedOut(input.env)) {
       return null;
     }
     const sources = input.sources ?? {};
+    const now = input.now ?? new Date();
+    const evidenceWindow = {
+      startedAt: new Date(now.getTime() - INCIDENT_WINDOW_MS).toISOString(),
+      endedAt: now.toISOString(),
+    };
     const collectionErrors: string[] = [];
     const [
       lifecycleJournalTail,
@@ -122,6 +134,7 @@ export async function collectPrepareStepDiagnostics(input: {
       inventoryAnomalies,
       serviceJob,
       deviceId,
+      macOSVersion,
     ] = await Promise.all([
       collectDiagnosticsSource({
         collectionErrors,
@@ -130,13 +143,19 @@ export async function collectPrepareStepDiagnostics(input: {
           sources.readLifecycleJournalTail ??
           (() =>
             readRecentDaemonLifecycleEvents({
-              maxEntries: LIFECYCLE_JOURNAL_TAIL_MAX_ENTRIES,
+              maxEntries: 100,
             })),
       }),
       collectDiagnosticsSource({
         collectionErrors,
         sourceName: "service_log",
-        read: sources.readServiceLogTail ?? readServiceLogTailWithPresence,
+        read:
+          sources.readServiceLogTail ??
+          (() =>
+            readDaemonIncidentLogTail({
+              ...evidenceWindow,
+              maxLines: SERVICE_LOG_TAIL_MAX_LINES,
+            })),
       }),
       collectDiagnosticsSource({
         collectionErrors,
@@ -153,6 +172,11 @@ export async function collectPrepareStepDiagnostics(input: {
         sourceName: "device_id",
         read: sources.readDeviceId ?? readDaemonServiceContractDeviceId,
       }),
+      collectDiagnosticsSource({
+        collectionErrors,
+        sourceName: "macos_version",
+        read: sources.readMacOSVersion ?? readMacOSVersion,
+      }),
     ]);
     // A note (file_missing/file_empty) or a failed collection both leave
     // serviceLogTail null; the note carries the reason without polluting
@@ -164,21 +188,37 @@ export async function collectPrepareStepDiagnostics(input: {
         : serviceLog.lines.map(boundServiceLogLine);
     const cliVersion = getCliVersionInfo().version;
     const nativeFailure = resolveNativeFailure(input.error);
+    const operationFailure = collectLocalOperationFailure(input.error);
     const bundle: PrepareStepDiagnosticsBundle = {
       bundleVersion: PREPARE_STEP_DIAGNOSTICS_BUNDLE_VERSION,
-      collectedAt: new Date().toISOString(),
+      collectedAt: now.toISOString(),
       supportCode: input.supportCode,
       ...(nativeFailure ? { nativeFailure } : {}),
+      ...(operationFailure ? { operationFailure } : {}),
+      evidenceWindow,
+      ...(serviceLog?.window ? { serviceLogWindow: serviceLog.window } : {}),
       stepId: input.stepId,
       ...(deviceId ? { deviceId } : {}),
       cliVersion,
-      os: { platform: process.platform, release: os.release() },
+      os: {
+        platform: process.platform,
+        release: os.release(),
+        ...macOSVersion,
+      },
       inventoryAnomalies,
       serviceJob,
       lifecycleJournalTail:
         lifecycleJournalTail === null
           ? null
-          : lifecycleJournalTail.map(boundLifecycleJournalEntry),
+          : lifecycleJournalTail
+              .filter((entry) => {
+                const timestamp = Date.parse(entry.timestamp);
+                return (
+                  timestamp >= Date.parse(evidenceWindow.startedAt) &&
+                  timestamp <= now.getTime()
+                );
+              })
+              .map(boundLifecycleJournalEntry),
       serviceLogTail,
       ...(serviceLogNote ? { serviceLogNote } : {}),
       collectionErrors,
@@ -337,24 +377,6 @@ async function readDaemonServiceContractDeviceId(): Promise<string | null> {
   return contract?.deviceId ?? null;
 }
 
-// Distinguishes an absent or empty daemon-system-service.log from one that was
-// read normally. A missing file is the decisive evidence for a never-spawned
-// service, so it must not collapse into the same empty array as an
-// all-noise-filtered log.
-async function readServiceLogTailWithPresence(): Promise<PrepareStepServiceLogTail> {
-  const stats = await stat(getDaemonSystemServiceLogPath()).catch(() => null);
-  if (!stats?.isFile()) {
-    return { lines: [], note: "file_missing" };
-  }
-  if (stats.size === 0) {
-    return { lines: [], note: "file_empty" };
-  }
-  const lines = await readDaemonStartFailureLogTailLines({
-    maxLines: SERVICE_LOG_TAIL_MAX_LINES,
-  });
-  return { lines, note: null };
-}
-
 function selectWhitelistedJournalMetadata(
   metadata: Record<string, unknown>,
   keys: readonly string[]
@@ -381,6 +403,14 @@ function boundLifecycleJournalEntry(
       LIFECYCLE_JOURNAL_METADATA_WHITELIST
     ),
   }) as DaemonLifecycleEvent;
+  // Carrier errors can embed exact source/destination paths. The local journal
+  // retains those; the uploaded operation evidence uses path categories.
+  if (
+    entry.command === "openmeld service carrier mutation" &&
+    whitelisted.metadata
+  ) {
+    whitelisted.metadata.errorMessage = undefined;
+  }
   if (JSON.stringify(whitelisted).length <= JOURNAL_ENTRY_MAX_CHARS) {
     return whitelisted;
   }
@@ -393,7 +423,7 @@ function boundLifecycleJournalEntry(
     ...entry,
     metadata: {
       ...selectWhitelistedJournalMetadata(
-        entry.metadata,
+        whitelisted.metadata ?? {},
         LIFECYCLE_JOURNAL_METADATA_COMPACT_WHITELIST
       ),
       truncated: true,

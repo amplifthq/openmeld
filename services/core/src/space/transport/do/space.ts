@@ -232,7 +232,7 @@ import {
   buildDispatchTargetSummaryLabel,
   type DispatchHumanLogContext,
 } from "../../../dispatch/application/dispatch-log-context";
-import { dispatchProductionOutboxMessageDirectly } from "../../../dispatch/application/dispatch-queue-service";
+import { dispatchOutboxMessageDirectly } from "../../../dispatch/application/dispatch-queue-service";
 import {
   buildDispatchPublishedAgentProfile,
   buildDispatchReplyContext,
@@ -4343,7 +4343,9 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
 
-  private async refreshMemberNamesFromAuth(): Promise<AuthProfileFacts | null> {
+  private async refreshMemberNamesFromAuth(): Promise<
+    AuthProfileFacts | null | undefined
+  > {
     ensureSpaceMembersBackfilled({
       sql: this.ctx.storage.sql,
       spaceId: this.spaceId,
@@ -14755,7 +14757,7 @@ export class Space extends DurableObject<CoreBindings> {
     // Local and staging acceptance must exercise the production ownership
     // boundary: workstation retries stay in this outbox, hosted recovery may
     // use Queue only after authoritative runtime classification.
-    const outcome = await dispatchProductionOutboxMessageDirectly({
+    const outcome = await dispatchOutboxMessageDirectly({
       ctx: this.ctx,
       env: this.bindings,
       message,
