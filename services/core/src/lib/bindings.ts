@@ -32,6 +32,7 @@ import type {
   SummarizeAgentActivityDigestRpcResponse,
 } from "@openmeld/schemas/types";
 import type { PrepareSessionHub } from "../prepare-session/transport/do/prepare-session-hub";
+import type { LarkChannelConnector } from "../remote-agent/transport/lark/lark-channel-connector";
 import type { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
 import type { Space } from "../space/transport/do/space";
 
@@ -192,6 +193,7 @@ export type RemoteAgentWorkerBindingRpc = {
 // CloudflareBindings. Gateway typegen imports core source for service RPC
 // typing; using a global env type here causes cross-worker type collisions.
 export type CoreBindings = {
+  OPENMELD_LARK_CHANNEL_CONNECTOR?: DurableObjectNamespace<LarkChannelConnector>;
   OPENMELD_SPACES: DurableObjectNamespace<Space>;
   OPENMELD_RUNTIME_TRANSPORT?: DurableObjectNamespace<RuntimeTransportHub>;
   OPENMELD_PREPARE_SESSION_HUB?: DurableObjectNamespace<PrepareSessionHub>;
