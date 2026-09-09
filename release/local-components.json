@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-09T10:49:53.530Z",
+  "updatedAt": "2026-09-09T11:15:30.189Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.188",
+      "packageVersion": "0.3.189",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible; retain safe OpenCode preparation diagnostics."
+      "reason": "Committed-session reads avoid unnecessary recovery locking; authentication and CLI commands remain compatible in both directions."
     },
     "service": {
-      "bundleHash": "3f074cf7b760cb9b34701182d2d0d6a3289cf7c8f065135a94fb9ee593bfe8fa",
-      "bundleVersion": "0.3.188",
+      "bundleHash": "5db2e0d6e86bc8e047aaed909299a7ea20c37a3663298d173ad7127dc841df64",
+      "bundleVersion": "0.3.189",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services can continue Wake safely; reconcile owned scheduling policy and remove maintenance inventory from Wake."
+      "reason": "Existing Services remain compatible; remove unnecessary account recovery lock contention from normal requests while retaining transition safeguards."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
