@@ -2478,6 +2478,14 @@ Rules:
 
 ### Message Channel Contracts
 
+The optional Message Channel turn-trigger `resources` field contains Core-frozen
+descriptors for the admitted message, never bytes or credentials. The shared
+`centerAgentReadChannelFileBodySchema` and response schema own current-message
+file RPC payloads. Core checks the durable request and current connection before
+downloading; the model never supplies a new resource authorization. Remote Agent
+must read the new optional field before Core produces it. Rollbacks must retain
+read compatibility for durable resource-bearing requests.
+
 `packages/schemas/src/schemas/http/message-channels.ts` owns the canonical
 Organization Channels projection.
 `packages/schemas/src/schemas/runtime/message-channel.ts` owns provider

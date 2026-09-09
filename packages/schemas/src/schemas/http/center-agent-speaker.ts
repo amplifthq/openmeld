@@ -17,6 +17,7 @@ export const CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES = [
   "openmeld_read_member_computers",
   "openmeld_read_member_openmeld_service_status",
   "openmeld_read_org_documents",
+  "openmeld_read_channel_file",
   "openmeld_read_organization_skills",
   "openmeld_list_spaces",
   "openmeld_list_projects",

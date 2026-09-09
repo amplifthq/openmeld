@@ -1094,6 +1094,74 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it.each([
+    "feishu",
+    "lark",
+  ] as const)("reads a current %s file into Computer and keeps encoded bytes out of the model result", async (provider) => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          source: "message_channel",
+          provider,
+          connectionId: "connection",
+          conversationId: "conversation",
+          resources: [
+            {
+              fileKey: "file_1",
+              fileName: "report.csv",
+              mimeType: null,
+              sizeBytes: null,
+              type: "file",
+            },
+          ],
+        },
+      },
+    });
+    const centerAgentReadChannelFile = vi.fn(async () => ({
+      contentBase64: "YSxiCjEsMg==",
+      fileKey: "file_1",
+      fileName: "report.csv",
+      mimeType: "text/csv",
+      sizeBytes: 7,
+      provider,
+    }));
+    const writeChannelFile = vi.fn(async () => ({
+      path: `${provider}-files/report.csv`,
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentReadChannelFile },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+      computerFileHandoff: {
+        readBinaryFile: vi.fn(),
+        readTextFiles: vi.fn(),
+        writeChannelFile,
+      },
+    });
+    const result = await executeTool(tools, "openmeld_read_channel_file", {
+      fileKey: "file_1",
+    });
+    expect(result).toMatchObject({
+      text: "a,b\n1,2",
+      savedPath: `${provider}-files/report.csv`,
+    });
+    expect(result).not.toHaveProperty("contentBase64");
+    expect(writeChannelFile).toHaveBeenCalledWith({
+      bytes: new TextEncoder().encode("a,b\n1,2"),
+      fileId: "file_1",
+      fileName: "report.csv",
+      provider,
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_channel_file", {
+        fileKey: "other_file",
+      })
+    ).rejects.toThrow("Choose a fileKey");
+    expect(centerAgentReadChannelFile).toHaveBeenCalledOnce();
+  });
+
   it("reads only a Slack file ID observed in channel history and keeps private bytes out of the model result", async () => {
     const request = createSubmitTurnRequest();
     const bytes = new TextEncoder().encode("release notes");
@@ -1125,14 +1193,14 @@ describe("remote agent OpenMeld tool catalog", () => {
       file: observedFile,
       organizationId: "org_123",
     }));
-    const writeSlackFile = vi.fn(async () => ({
+    const writeChannelFile = vi.fn(async () => ({
       path: "slack-files/F_RELEASE_NOTES-release-notes.md",
     }));
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       computerFileHandoff: {
         readBinaryFile: vi.fn(),
         readTextFiles: vi.fn(),
-        writeSlackFile,
+        writeChannelFile,
       },
       coreWorker: {
         centerAgentReadSlackChannelHistory,
@@ -1166,7 +1234,8 @@ describe("remote agent OpenMeld tool catalog", () => {
       ),
       fileId: "F_RELEASE_NOTES",
     });
-    expect(writeSlackFile).toHaveBeenCalledWith({
+    expect(writeChannelFile).toHaveBeenCalledWith({
+      provider: "slack",
       bytes,
       fileId: "F_RELEASE_NOTES",
       fileName: "release-notes.md",
@@ -1247,7 +1316,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       file: imageFile,
       organizationId: "org_123",
     }));
-    const writeSlackFile = vi.fn(async () => ({
+    const writeChannelFile = vi.fn(async () => ({
       path: "slack-files/F_SCREENSHOT-status.png",
     }));
     const imageFetch = vi.fn(async () =>
@@ -1272,7 +1341,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       computerFileHandoff: {
         readBinaryFile: vi.fn(),
         readTextFiles: vi.fn(),
-        writeSlackFile,
+        writeChannelFile,
       },
       coreWorker: {
         centerAgentReadSlackChannelHistory,
@@ -1671,7 +1740,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       computerFileHandoff: {
         readBinaryFile,
         readTextFiles: vi.fn(),
-        writeSlackFile: vi.fn(),
+        writeChannelFile: vi.fn(),
       },
       coreWorker: { centerAgentPostSlackFile },
       storage: await createStorageWithPendingContext(request),
@@ -3101,7 +3170,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       computerFileHandoff: {
         readBinaryFile: vi.fn(),
         readTextFiles,
-        writeSlackFile: vi.fn(),
+        writeChannelFile: vi.fn(),
       },
       coreWorker: { centerAgentWakeAgentProfilesInSpace },
       storage: await createStorageWithPendingContext(request),

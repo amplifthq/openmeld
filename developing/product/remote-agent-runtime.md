@@ -610,6 +610,13 @@ the connected provider API.
    generated-image delivery notice, removes the unsupported attachment
    references from provider publication, and terminates the durable callback
    successfully instead of retrying forever or silently discarding the fact.
+   Current-message files are read on demand through Core-frozen resource
+   descriptors in the admitted turn. Core rechecks the current designation,
+   Organization, profile, dispatch, conversation and connected provider before
+   downloading the exact original-message resource, bounded to 5 MiB. Text has a
+   bounded preview; binary files require Computer inspection. Channel credentials
+   are never exposed to the model or used as business-App consent. This read does
+   not authorize arbitrary provider files or other conversations.
    After identity/admission validation, Core prepares the durable receipt card
    before fetching channel history or input attachments. This receipt means
    the request was received, not that execution has started. The existing

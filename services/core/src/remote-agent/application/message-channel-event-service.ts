@@ -416,6 +416,7 @@ async function processClaimedMessageChannelEvent(input: {
     provider: connection.provider,
   });
   const turnEnvelope = buildMessageChannelTurnEnvelope({
+    resources: readAdmittedResources(admittedEvent),
     centerAgent,
     channelContext,
     connectionId: connection.connectionId,
@@ -546,6 +547,10 @@ async function publishTargetResolutionFailure(input: {
       { retryAfterMs: publication.retryAfterMs }
     );
   }
+}
+
+function readAdmittedResources(event: AdmittedMessageChannelEvent) {
+  return event.kind === "message" ? event.resources : undefined;
 }
 
 async function prepareAdmittedEventInput(input: {

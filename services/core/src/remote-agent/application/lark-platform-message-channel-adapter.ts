@@ -144,7 +144,11 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         locator: download.locator,
         provider: input.provider,
       });
-      if (!locator || download.resource.type !== "image") {
+      if (
+        !locator ||
+        (download.resource.type !== "image" &&
+          download.resource.type !== "file")
+      ) {
         return {
           reasonCode: `${input.provider}.message_resource_unsupported`,
           status: "failed",
@@ -165,7 +169,7 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         maxBytes: download.maxBytes,
         messageId: download.messageId,
         provider: input.provider,
-        resourceType: "image",
+        resourceType: download.resource.type,
       });
     },
     async publishIdentityLinkGuidance(publication) {

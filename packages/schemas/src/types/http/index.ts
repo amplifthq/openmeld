@@ -567,6 +567,7 @@ export type {
   SetCurrentOpenMeldToolsMaintenanceResponse,
   SetLocalRuntimeDisplayNameBody,
 } from "./local-runtimes";
+export type * from "./message-channel-files";
 export type {
   LarkPlatformActiveRegistrationListResponse,
   LarkPlatformActiveRegistrationProjection,

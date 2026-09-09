@@ -3042,6 +3042,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentReadSlackFile(this.env, input);
   }
 
+  centerAgentReadChannelFile(
+    input: CenterAgentReadChannelFileInput
+  ): Promise<CenterAgentReadChannelFileResponse> {
+    return rpcCenterAgentReadChannelFile(this.env, input);
+  }
+
   centerAgentSearchSlackMessages(
     input: CenterAgentSearchSlackMessagesInput
   ): Promise<CenterAgentSearchSlackMessagesResponse> {
@@ -4815,6 +4821,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.centerAgentReadSlackFile(input);
   }
 
+  centerAgentReadChannelFile(
+    input: CenterAgentReadChannelFileInput
+  ): Promise<CenterAgentReadChannelFileResponse> {
+    return super.centerAgentReadChannelFile(input);
+  }
+
   centerAgentSearchSlackMessages(
     input: CenterAgentSearchSlackMessagesInput
   ): Promise<CenterAgentSearchSlackMessagesResponse> {
@@ -5247,3 +5259,9 @@ export {
 // biome-ignore lint/performance/noBarrelFile: Wrangler requires the Durable Object class export.
 export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export default CoreEntrypoint;
+
+import type { CenterAgentReadChannelFileResponse } from "@openmeld/schemas/types";
+import {
+  type CenterAgentReadChannelFileInput,
+  rpcCenterAgentReadChannelFile,
+} from "./remote-agent/application/message-channel-file-service";

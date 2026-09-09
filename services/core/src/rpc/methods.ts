@@ -10773,16 +10773,16 @@ const CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS: readonly CenterAgentAction[] = [
   "read_slack_file",
 ];
 const CENTER_AGENT_AUDIT_ACTION_SETS_WITH_CONTEXT_DETAILS: ReadonlySet<string> =
-  new Set(["v16", "v17", "v18", "v19", "v20", "v21"]);
+  new Set(["v16", "v17", "v18", "v19", "v20", "v21", "v22"]);
 const CENTER_AGENT_AUDIT_ACTION_SETS_WITH_INTERACTION_SOURCE: ReadonlySet<string> =
-  new Set(["v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21"]);
+  new Set(["v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22"]);
 const CENTER_AGENT_AUDIT_ACTION_SETS_WITH_SOURCE_SPACE: ReadonlySet<string> =
-  new Set(["v20", "v21"]);
+  new Set(["v20", "v21", "v22"]);
 
 function initialCenterAgentAuditExcludedActions(
   actionSet: ListCenterAgentAuditJournalQuery["actionSet"]
 ): readonly CenterAgentAction[] | undefined {
-  return actionSet === "v21"
+  return actionSet === "v21" || actionSet === "v22"
     ? undefined
     : CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS;
 }
@@ -11046,7 +11046,8 @@ function isCurrentCenterAgentAuditActionSet(
     actionSet === "v18" ||
     actionSet === "v19" ||
     actionSet === "v20" ||
-    actionSet === "v21"
+    actionSet === "v21" ||
+    actionSet === "v22"
   );
 }
 
@@ -11055,6 +11056,8 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
   excludedActions: readonly CenterAgentAction[] | undefined;
   routineActions: readonly CenterAgentAction[];
 }): readonly CenterAgentAction[] {
+  const channelFileCompatibilityActions: readonly CenterAgentAction[] =
+    input.actionSet === "v22" ? [] : ["read_channel_file"];
   const localAgentCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v14" ||
     input.actionSet === "v15" ||
@@ -11063,7 +11066,8 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v18" ||
     input.actionSet === "v19" ||
     input.actionSet === "v20" ||
-    input.actionSet === "v21"
+    input.actionSet === "v21" ||
+    input.actionSet === "v22"
       ? []
       : ["receive_local_agent_request"];
   const contextCompatibilityActions: readonly CenterAgentAction[] =
@@ -11073,7 +11077,8 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v18" ||
     input.actionSet === "v19" ||
     input.actionSet === "v20" ||
-    input.actionSet === "v21"
+    input.actionSet === "v21" ||
+    input.actionSet === "v22"
       ? []
       : ["read_center_agent_context"];
   const contextLoadCompatibilityActions: readonly CenterAgentAction[] =
@@ -11082,7 +11087,8 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v18" ||
     input.actionSet === "v19" ||
     input.actionSet === "v20" ||
-    input.actionSet === "v21"
+    input.actionSet === "v21" ||
+    input.actionSet === "v22"
       ? []
       : ["load_center_agent_context"];
   const routineCompatibilityActions: readonly CenterAgentAction[] =
@@ -11090,14 +11096,16 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v18" ||
     input.actionSet === "v19" ||
     input.actionSet === "v20" ||
-    input.actionSet === "v21"
+    input.actionSet === "v21" ||
+    input.actionSet === "v22"
       ? []
       : input.routineActions;
   const workingLanguageCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v18" ||
     input.actionSet === "v19" ||
     input.actionSet === "v20" ||
-    input.actionSet === "v21"
+    input.actionSet === "v21" ||
+    input.actionSet === "v22"
       ? []
       : ["set_working_language", "observe_working_language"];
   if (
@@ -11109,10 +11117,12 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v18" ||
     input.actionSet === "v19" ||
     input.actionSet === "v20" ||
-    input.actionSet === "v21"
+    input.actionSet === "v21" ||
+    input.actionSet === "v22"
   ) {
     return [
       ...(input.excludedActions ?? []),
+      ...channelFileCompatibilityActions,
       ...localAgentCompatibilityActions,
       ...contextCompatibilityActions,
       ...contextLoadCompatibilityActions,
@@ -11123,6 +11133,7 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
   }
   return [
     ...(input.excludedActions ?? []),
+    ...channelFileCompatibilityActions,
     ...localAgentCompatibilityActions,
     ...contextCompatibilityActions,
     ...contextLoadCompatibilityActions,

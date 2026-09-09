@@ -1482,6 +1482,11 @@ export {
   setLocalRuntimeDisplayNameBodySchema,
 } from "./http/local-runtimes";
 export {
+  centerAgentReadChannelFileBodySchema,
+  centerAgentReadChannelFileResponseSchema,
+  MESSAGE_CHANNEL_FILE_MAX_SIZE_BYTES,
+} from "./http/message-channel-files";
+export {
   LARK_PLATFORM_REGISTRATION_DOMAINS,
   LARK_PLATFORM_WEBHOOK_RAW_BODY_MAX_BYTES,
   LARK_PLATFORM_WEBHOOK_RAW_BODY_MAX_CHARS,
