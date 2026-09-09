@@ -3011,6 +3011,19 @@ timeline. In a one-to-one Agent Direct Message, both the main composer and its
 thread composer explain that `@` is optional and sending wakes the Agent.
 Ordinary Space threads keep the standard explicit-mention guidance.
 
+Mention suggestions open immediately after a typed `@` at a line start, after
+whitespace, CJK text, or supported sentence punctuation. Email addresses remain
+plain text. Escape and the visible **Close mentions** button use the same
+cancellation path: preserve the literal `@` and entered query, remove the
+transient picker input, and return focus to the composer.
+
+A pending reply appears as a compact single line inside the composer, with a
+leading **Cancel reply** button, a divider, and `Replying Name: preview`.
+The preview resolves profile mentions to names, is capped at 100 characters,
+and truncates to the available width. Canceling a reply preserves the draft.
+Sent-message quotes retain their original-message navigation and use muted
+text to distinguish quoted content from the new reply.
+
 Every writable Space composer — ordinary Space, Direct Message, Center Agent
 Direct Message, and thread — uses the same file control. The former paperclip
 is a Plus button labeled **Add to message**. It opens the shared Fluid dropdown

@@ -167,13 +167,13 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		>
 			<div className="relative">
 				<SpaceComposerFileDropOverlay visible={isDraggingFiles} />
-				{input.slots?.beforeInput}
 				<PromptInput
 					className="w-full"
 					maxHeight={input.presentation?.maxHeight ?? 240}
 					onSubmit={input.actions.onSubmit}
 					value={input.content.text}
 				>
+					{input.slots?.beforeInput}
 					<SpaceComposerFileTray
 						disabled={input.availability.isSendingMessage}
 						files={input.content.files}
