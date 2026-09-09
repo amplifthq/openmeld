@@ -222,7 +222,7 @@ describe("Agent Profile creation request CLI", () => {
           error: expect.objectContaining({
             message:
               "The request may have been accepted. Its final status could not be checked.",
-            nextStep: expect.stringContaining(`--idempotency-key ${key}`),
+            nextStep: expect.stringContaining(`--request-key ${key}`),
           }),
         }),
       })
