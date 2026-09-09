@@ -279,6 +279,7 @@ import {
 } from "../../../execution-recovery/application/execution-recovery-operation-identity";
 import { publishExecutionRecoveryToOrigin } from "../../../execution-recovery/application/execution-recovery-publication";
 import { inspectExecutionRecovery } from "../../../execution-recovery/application/execution-recovery-service";
+import { canReceivePersonalAgentActivity } from "../../../inbox/application/inbox-agent-owner-access";
 import {
   agentTaskCoordinationDb,
   type CoreBindings,
@@ -12993,10 +12994,23 @@ export class Space extends DurableObject<CoreBindings> {
       const targetInboxDb = inboxDb(this.bindings);
       const result = await attemptSpaceInboxProjectionOutboxRecord({
         db: targetInboxDb,
+        canReceiveAgentActivity: (candidate) =>
+          canReceivePersonalAgentActivity({
+            db: this.requireSpaceIndexDb(),
+            organizationId: candidate.organizationId,
+            userId: candidate.recipientUserId,
+            agentProfileIds: listSpaceMemberRecords(this.ctx.storage.sql, {
+              status: "active",
+            })
+              .filter((member) => member.profileKindSnapshot === "agent")
+              .map((member) => member.profileId),
+          }),
         isRecipientEligible: async (candidate) =>
           await resolveSpaceInboxRecipientEligibility({
             candidate,
             hasActiveSpaceMembership:
+              (candidate.sourceTarget.kind === "space" &&
+                candidate.sourceTarget.agentOwnerActivity === true) ||
               hasActiveHumanSpaceMemberRecordForOwnerUserId(
                 this.ctx.storage.sql,
                 candidate.recipientUserId

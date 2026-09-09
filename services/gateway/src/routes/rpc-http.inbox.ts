@@ -419,6 +419,7 @@ function resolveInboxItemResponse(input: {
 type InboxItem = z.infer<typeof listInboxItemsResponseSchema>["items"][number];
 type InboxItemKindClientVersion = "current" | "legacy";
 type InboxSourceTargetClientVersion =
+  | "owner_unaware"
   | "current"
   | "legacy"
   | "thread_unaware"
@@ -444,11 +445,17 @@ function projectInboxItemForClient(input: {
   }
   let sourceTarget: InboxItem["sourceTarget"] = input.item.sourceTarget;
   if (sourceTarget.kind === "space") {
-    const { directMessage: _directMessage, ...oldTarget } = sourceTarget;
-    sourceTarget = oldTarget;
+    const { agentOwnerActivity: _ownerActivity, ...oldTarget } = sourceTarget;
+    if (input.sourceTargetVersion === "owner_unaware") {
+      sourceTarget = oldTarget;
+    } else {
+      const { directMessage: _directMessage, ...olderTarget } = oldTarget;
+      sourceTarget = olderTarget;
+    }
   }
   if (
-    input.sourceTargetVersion !== "conversation_unaware" &&
+    (input.sourceTargetVersion === "legacy" ||
+      input.sourceTargetVersion === "thread_unaware") &&
     sourceTarget.kind === "agent_interaction" &&
     sourceTarget.threadRootSignalId !== undefined
   ) {
@@ -491,6 +498,9 @@ function resolveInboxSourceTargetVersion(
   const version = c.req.header(OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION);
   if (version === OPENMELD_INBOX_SOURCE_TARGET_VERSION) {
     return "current";
+  }
+  if (version === "5") {
+    return "owner_unaware";
   }
   if (version === "4") {
     return "conversation_unaware";

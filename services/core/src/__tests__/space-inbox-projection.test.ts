@@ -9,6 +9,7 @@ import { buildSpaceInboxProjectionOutboxRecord } from "../space/application/spac
 import {
   attemptSpaceInboxProjectionOutboxRecord,
   resolveSpaceInboxRecipientEligibility,
+  selectSpaceInboxRecipients,
 } from "../space/application/space-inbox-projection-outbox-service";
 import {
   listDueSpaceInboxProjectionOutboxRecords,
@@ -48,6 +49,62 @@ const publishTextSignal = (
 ).publishTextSignal;
 
 describe("Space Inbox projection", () => {
+  it("notifies an absent personal Agent owner once and preserves normal recipients for managed Agents", async () => {
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("author", "sender", "human"),
+        member("agent", "owner", "agent"),
+        member("agent-2", "owner", "agent"),
+      ],
+      directMessage: true,
+      nowMs: 2000,
+      organizationId: "org-1",
+      spaceName: "Chat",
+      signal: textSignal({
+        authorKind: "human",
+        authorName: "Alex",
+        authorProfileId: "author",
+        authorHasRead: true,
+        text: "Hello",
+      }),
+    });
+    expect(record?.candidates).toHaveLength(1);
+    expect(record?.candidates[0]).toMatchObject({
+      recipientUserId: "owner",
+      kind: "space_message",
+      importance: "urgent",
+      sourceTarget: {
+        agentOwnerActivity: true,
+        directMessage: true,
+        signalId: "signal-1",
+      },
+    });
+    expect(
+      await selectSpaceInboxRecipients(
+        record?.candidates ?? [],
+        async () => false
+      )
+    ).toEqual([]);
+    const owner = record?.candidates[0];
+    if (!owner) {
+      throw new Error("Expected an owner activity candidate");
+    }
+    const ordinary = {
+      ...owner,
+      importance: "normal" as const,
+      sourceTarget: {
+        kind: "space" as const,
+        spaceId: "space-1",
+        signalId: "signal-1",
+      },
+    };
+    expect(
+      await selectSpaceInboxRecipients([ordinary, owner], async () => true)
+    ).toEqual([owner]);
+    expect(
+      await selectSpaceInboxRecipients([ordinary, owner], async () => false)
+    ).toEqual([ordinary]);
+  });
   it("keeps an unconfirmed Human author's CLI update unread without turning self references into notifications", () => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
@@ -197,7 +254,7 @@ describe("Space Inbox projection", () => {
       spaceName: "Launch Room",
     });
 
-    expect(record?.candidates).toHaveLength(2);
+    expect(record?.candidates).toHaveLength(3);
     expect(record?.candidates).toEqual([
       expect.objectContaining({
         kind: "space_mention",
@@ -215,6 +272,11 @@ describe("Space Inbox projection", () => {
         kind: "space_message",
         recipientUserId: "user-second",
       }),
+      expect.objectContaining({
+        kind: "space_message",
+        recipientUserId: "user-agent-owner",
+        importance: "urgent",
+      }),
     ]);
     expect(
       record?.candidates.some(
@@ -225,7 +287,7 @@ describe("Space Inbox projection", () => {
       record?.candidates.some(
         (candidate) => candidate.recipientUserId === "user-agent-owner"
       )
-    ).toBe(false);
+    ).toBe(true);
     expect(
       record?.candidates.some(
         (candidate) => candidate.recipientUserId === "user-removed"

@@ -33,6 +33,48 @@ const PREFERENCE_KEY = `openmeld.inbox.browser-notifications.enabled:${USER_ID}`
 const PROMPT_DISMISSED_KEY = `openmeld.inbox.browser-notifications.prompt-dismissed:${USER_ID}`;
 
 describe("Inbox browser notifications", () => {
+	it("coalesces personal Agent owner alerts without suppressing another conversation", async () => {
+		await enableInboxBrowserNotifications({ userId: USER_ID });
+		const item = createInboxItem({
+			kind: "space_message",
+			attention: "update",
+			resolutionStatus: "not_applicable",
+			sourceTarget: {
+				kind: "space",
+				agentOwnerActivity: true,
+				spaceId: "owner-chat",
+				signalId: "one",
+				directMessage: true,
+			},
+		});
+		const send = (value: InboxItem) =>
+			showInboxBrowserNotification({
+				item: value,
+				sourcePath: "/chats/owner-chat",
+				userId: USER_ID,
+				viewingSourceSession: false,
+			});
+		expect((await send(item)).status).toBe("delivered");
+		expect((await send({ ...item, id: "second-message" })).status).toBe(
+			"already_delivered"
+		);
+		expect(
+			(
+				await send({
+					...item,
+					id: "another-chat",
+					sourceTarget: {
+						kind: "space",
+						agentOwnerActivity: true,
+						spaceId: "other-chat",
+						signalId: "two",
+					},
+				})
+			).status
+		).toBe("delivered");
+		expect(notificationConstructorMock).toHaveBeenCalledTimes(2);
+		expect(queueSoundMock).toHaveBeenCalledTimes(2);
+	});
 	let notificationConstructorMock: ReturnType<typeof vi.fn>;
 	let requestPermissionMock: ReturnType<typeof vi.fn>;
 

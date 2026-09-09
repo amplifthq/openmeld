@@ -25,6 +25,7 @@ import {
   OPENMELD_WELCOMING_SPACE_PURPOSE,
 } from "@openmeld/space";
 import { isReadPositionWithinAllowedFutureSkew } from "../../shared/read-position";
+import { personalAgentOwnerAccessSql } from "./inbox-agent-owner-access";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
 
 const INBOX_ITEM_NOT_FOUND_CODE = "inbox.item_not_found";
@@ -222,7 +223,7 @@ export function createInboxService(input: {
         .prepare(`
         SELECT json_extract(source_target_json, '$.spaceId') AS space_id,
           sum(CASE WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
-          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} THEN 1 ELSE 0 END) AS urgent
+          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} AND COALESCE(json_extract(source_target_json, '$.agentOwnerActivity'), 0) != 1 THEN 1 ELSE 0 END) AS urgent
         FROM inbox_items
         WHERE organization_id = ? AND recipient_user_id = ?
           AND cleared_at_ms IS NULL AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -238,7 +239,7 @@ export function createInboxService(input: {
         SELECT
           sum(CASE WHEN read_at_ms IS NULL AND ${INBOX_SPACE_MESSAGE_FILTER} THEN 1 ELSE 0 END) AS unread,
           sum(CASE WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
-          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} THEN 1 ELSE 0 END) AS urgent
+          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} AND COALESCE(json_extract(source_target_json, '$.agentOwnerActivity'), 0) != 1 THEN 1 ELSE 0 END) AS urgent
         FROM inbox_items
         WHERE organization_id = ? AND recipient_user_id = ?
           AND cleared_at_ms IS NULL AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -829,7 +830,8 @@ async function markSpaceInboxReadThrough(input: {
           AND inbox_space.organization_id = ?
           AND inbox_space.status = 'active'
           AND inbox_space_membership.owner_user_id_snapshot = ?
-          AND inbox_space_membership.profile_kind_snapshot = 'human'
+          AND (inbox_space_membership.profile_kind_snapshot = 'human'
+            OR (${input.itemScope === "space" ? personalAgentOwnerAccessSql("inbox_space.space_id", "inbox_space_membership.owner_user_id_snapshot") : "0"}))
           AND inbox_space_membership.status = 'active'
           AND ${centerAgentSpaceFilter}
         LIMIT 1

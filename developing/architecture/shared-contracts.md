@@ -27,6 +27,19 @@
 
 ## Boundary
 
+### Personal Agent owner Inbox activity
+
+Inbox source-target version 6 adds optional `agentOwnerActivity` to Space targets.
+Version 5 retains DM routing but omits this marker; earlier readers retain their
+existing projected shapes. Deploy Web, Gateway, then Core before the producer
+writes this additive field. Core owns recipient qualification and unread totals:
+only current personal Agent ownership qualifies, never managed-role or Center
+Agent administrative ownership. Space canonical members supply delivery candidates;
+Space Index and current identity authorize subsequent Inbox reads. No database
+migration or CLI/Service contract change is required. Older API clients receive
+compatible projected targets. Preserve upgraded receivers when rolling back a
+producer after version 6 rows exist.
+
 ### Space directory visibility
 
 The shared Space metadata PATCH schema accepts optional `visibility` (`private`

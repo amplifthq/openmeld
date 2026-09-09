@@ -126,6 +126,7 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("space"),
     directMessage: z.boolean().optional(),
+    agentOwnerActivity: z.boolean().optional(),
     signalId: identifierSchema.optional(),
     spaceId: identifierSchema,
     threadRootSignalId: identifierSchema.optional(),

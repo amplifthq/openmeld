@@ -306,6 +306,21 @@ reserves room for each group; full Inbox remains the complete list. It may say
 
 ### Space message unread behavior
 
+New Human-authored messages in conversations containing an ordinary personal
+Agent also address that Agent's current owner, even without Human membership.
+Self-authored messages do not generate this owner alert. Core validates current
+personal ownership and excludes managed Agents and the designated Center Agent.
+The owner receives one urgent `space_message` update per source message with
+`sourceTarget.agentOwnerActivity: true`; overlapping member delivery is deduplicated.
+This marker describes owner awareness, not an action request. It counts in the
+existing Inbox urgent badge, but contributes only ordinary unread state to
+Chats/Spaces navigation. Owner reads use the existing Space read watermark.
+Current ownership and membership are rechecked on delivery and reads; alerts
+never add Human membership or grant write access. No historical backfill occurs.
+Browser delivery retains its permission/visible-conversation gates and groups
+owner alerts by conversation and source minute. These awareness updates do not
+generate urgent email.
+
 Authorship does not establish reading. Web composer sends confirm only their
 exact authored message with `authorHasRead: true`; Core omits that author's
 Inbox candidate while preserving all other recipients. The confirmation is

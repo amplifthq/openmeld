@@ -104,7 +104,7 @@ describe("Inbox routes", () => {
     }
   });
 
-  it("keeps thread routing for version 4 and adds DM routing for version 5", async () => {
+  it("preserves thread and DM routing while gating owner activity to version 6", async () => {
     const { coreRpc, env } = makeEnv();
     const sourceTarget = {
       kind: "space" as const,
@@ -112,13 +112,14 @@ describe("Inbox routes", () => {
       signalId: "reply",
       threadRootSignalId: "root",
       directMessage: true,
+      agentOwnerActivity: true,
     };
     coreRpc.listInboxItems.mockResolvedValue({
       items: [{ ...HUMAN_MENTION_ITEM, sourceTarget }],
       nextCursor: null,
       organizationId: "org-1",
     });
-    for (const version of ["4", "5"]) {
+    for (const version of ["4", "5", "6"]) {
       const response = await app.fetch(
         new Request("http://local/v1/inbox", {
           headers: { "x-openmeld-inbox-source-target-version": version },
@@ -135,7 +136,8 @@ describe("Inbox routes", () => {
         spaceId: "dm",
         signalId: "reply",
         threadRootSignalId: "root",
-        ...(version === "5" ? { directMessage: true } : {}),
+        ...(version !== "4" ? { directMessage: true } : {}),
+        ...(version === "6" ? { agentOwnerActivity: true } : {}),
       });
     }
   });

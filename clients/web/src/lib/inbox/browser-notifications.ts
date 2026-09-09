@@ -210,7 +210,13 @@ export async function showInboxBrowserNotification(input: {
 	if (document.visibilityState === "visible" && input.viewingSourceSession) {
 		return { reason: "source_visible", status: "deferred" };
 	}
-	return await withInboxBrowserNotificationClaim(input.item.id, async () => {
+	// Coalesce owner awareness alerts within each minute without changing unread counts.
+	const deliveryKey =
+		input.item.sourceTarget.kind === "space" &&
+		input.item.sourceTarget.agentOwnerActivity === true
+			? `agent-owner:${input.userId}:${input.item.sourceTarget.spaceId}:${Math.floor(Date.parse(input.item.occurredAt) / 60_000)}`
+			: input.item.id;
+	return await withInboxBrowserNotificationClaim(deliveryKey, async () => {
 		const currentReadiness = (await input.resolveCurrentReadiness?.()) ?? {
 			item: input.item,
 			status: "eligible",
@@ -233,7 +239,11 @@ export async function showInboxBrowserNotification(input: {
 				currentItem.importance === "urgent" ||
 				(currentItem.attention === "action_required" &&
 					currentItem.resolutionStatus === "open"),
-			tag: `openmeld-inbox:${currentItem.id}`,
+			tag:
+				currentItem.sourceTarget.kind === "space" &&
+				currentItem.sourceTarget.agentOwnerActivity === true
+					? `openmeld-agent-owner:${input.userId}:${currentItem.sourceTarget.spaceId}`
+					: `openmeld-inbox:${currentItem.id}`,
 		});
 		notification.onclick = () => {
 			window.focus();
@@ -241,6 +251,9 @@ export async function showInboxBrowserNotification(input: {
 			notification.close();
 		};
 		recordInboxBrowserNotificationDelivered(currentItem.id);
+		if (deliveryKey !== currentItem.id) {
+			recordInboxBrowserNotificationDelivered(deliveryKey);
+		}
 		try {
 			queueInboxBrowserNotificationSound({
 				item: currentItem,
