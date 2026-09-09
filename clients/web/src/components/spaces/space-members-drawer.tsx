@@ -1924,7 +1924,7 @@ function buildOrganizationDirectoryAddCandidates(input: {
 					profileId: agent.profileId,
 					profileKind: "agent",
 					profileName: agent.profileName,
-					ownerUserId: agent.ownerUserId,
+					ownerUserId: agent.ownerUserId ?? undefined,
 					searchText: normalizeAddMembersSearchText([
 						agent.profileName,
 						agent.profileHandle,
