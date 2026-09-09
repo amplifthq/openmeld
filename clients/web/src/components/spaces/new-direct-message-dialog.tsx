@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
+import { resolveDirectoryHumanProfileActivityLabel } from "#/components/directory/directory-human-profile-format";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationCenterAgentChatPath,
@@ -28,12 +29,38 @@ export function NewDirectMessageDialog(input: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
+	return (
+		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
+			<DialogContent className="sm:max-w-md">
+				<DialogHeader>
+					<DialogTitle>New chat</DialogTitle>
+				</DialogHeader>
+				<DirectMessagePicker
+					enabled={input.open}
+					onDone={() => input.onOpenChange(false)}
+				/>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+export function DirectMessagePicker(input: {
+	enabled: boolean;
+	includeSelf?: boolean;
+	onDone?: () => void;
+	onOpenChat?: (chat: {
+		spaceId: string;
+		profileId: string;
+		title: string;
+	}) => void;
+	onOpenCenterAgent?: () => void;
+}) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const [search, setSearch] = useState("");
 	const directory = useQuery(
 		organizationProfileDirectoryQueryOptions({
 			organizationId: currentOrganization.id,
-			enabled: input.open,
+			enabled: input.enabled,
 		})
 	);
 	const navigate = useNavigate();
@@ -46,24 +73,40 @@ export function NewDirectMessageDialog(input: {
 			}),
 		onError: (error) =>
 			toast.error(resolveDirectMessageOpenErrorMessage(error)),
-		onSuccess: async (response) => {
+		onSuccess: async (response, targetProfileId) => {
 			await client.invalidateQueries({
 				queryKey: accountSpaceQueryKeys.all,
 				refetchType: "none",
 			});
-			await navigate({
-				to: buildOrganizationDirectMessagePath({
-					orgSlug: currentOrganization.slug,
+			if (input.onOpenChat) {
+				input.onOpenChat({
 					spaceId: response.spaceId,
-					search: { profileId: response.memberProfileId },
-				}),
-			});
-			input.onOpenChange(false);
+					profileId: response.memberProfileId,
+					title:
+						directory.data?.agentProfiles.find(
+							(p) => p.profileId === targetProfileId
+						)?.profileName ??
+						directory.data?.members.find(
+							(m) => m.humanProfile?.profileId === targetProfileId
+						)?.humanProfile?.profileName ??
+						"Chat",
+				});
+			} else {
+				await navigate({
+					to: buildOrganizationDirectMessagePath({
+						orgSlug: currentOrganization.slug,
+						spaceId: response.spaceId,
+						search: { profileId: response.memberProfileId },
+					}),
+				});
+			}
+			input.onDone?.();
 			setSearch("");
 		},
 	});
 	const people = (directory.data?.members ?? []).flatMap((m) =>
-		m.user.id !== currentUserId && m.humanProfile?.status === "active"
+		(input.includeSelf || m.user.id !== currentUserId) &&
+		m.humanProfile?.status === "active"
 			? [
 					{
 						id: m.humanProfile.profileId,
@@ -71,7 +114,14 @@ export function NewDirectMessageDialog(input: {
 						kind: "human" as const,
 						avatar: m.user.image,
 						controller: null,
-						owner: "",
+						owner:
+							m.user.id === currentUserId
+								? "You"
+								: (resolveDirectoryHumanProfileActivityLabel({
+										lastActiveAt: m.lastActiveAt ?? null,
+										profileStatus: m.humanProfile.status,
+									}) ?? ""),
+						isSelf: m.user.id === currentUserId,
 					},
 				]
 			: []
@@ -87,6 +137,7 @@ export function NewDirectMessageDialog(input: {
 			id: p.profileId,
 			name: p.profileName,
 			kind: "agent" as const,
+			isSelf: false,
 			avatar: p.avatarUrl,
 			controller: p.agentControllerRef,
 			owner:
@@ -94,101 +145,99 @@ export function NewDirectMessageDialog(input: {
 					?.humanProfile?.profileName ?? "",
 		}));
 	return (
-		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
-			<DialogContent className="sm:max-w-md">
-				<DialogHeader>
-					<DialogTitle>New chat</DialogTitle>
-				</DialogHeader>
-				<Button
-					onClick={() => {
-						input.onOpenChange(false);
-						navigate({
-							to: buildOrganizationCenterAgentChatPath(
-								currentOrganization.slug,
-								{ draft: "new" }
-							),
-						});
-					}}
-					variant="outline"
-				>
-					Center Agent
-				</Button>
-				<SidebarSearchInput
-					label="Search People or Agents"
-					onValueChange={setSearch}
-					value={search}
-				/>
-				<ScrollArea className="max-h-80">
-					{directory.isPending && (
-						<p className="p-2 text-muted-foreground text-sm">
-							Loading People and Agents…
-						</p>
-					)}
-					{directory.isError && (
-						<Button onClick={() => directory.refetch()} variant="outline">
-							Retry
-						</Button>
-					)}
-					{!(directory.isPending || directory.isError) && (
-						<>
-							{[
-								{ label: "People", items: people },
-								{ label: "Local agents", items: agents },
-							].map((group) => {
-								const items = group.items.filter((p) =>
-									`${p.name} ${p.owner}`
-										.toLowerCase()
-										.includes(search.trim().toLowerCase())
-								);
-								return items.length ? (
-									<div className="mb-3" key={group.label}>
-										<p className="px-2 py-2 text-muted-foreground text-xs">
-											{group.label}
-										</p>
-										{items.map((p) => (
-											<Button
-												className="w-full justify-start gap-2"
-												disabled={chat.isPending}
-												key={p.id}
-												onClick={() => chat.mutate(p.id)}
-												variant="ghost"
-											>
-												<SpaceProfileIcon
-													agentControllerRef={p.controller}
-													avatarImageUrl={
-														p.kind === "human" ? p.avatar : undefined
-													}
-													profileId={p.id}
-													profileKind={p.kind}
-													profileName={p.name}
-													size="sm"
-												/>
-												<span className="min-w-0 flex-1 truncate text-left">
-													{p.name}
-												</span>
-												{p.owner && (
-													<span className="max-w-28 truncate text-muted-foreground text-xs">
-														{p.owner}
-													</span>
-												)}
-											</Button>
-										))}
-									</div>
-								) : null;
-							})}
-							{![...people, ...agents].some((p) =>
+		<div className="flex min-h-0 flex-col gap-3">
+			<Button
+				onClick={() => {
+					input.onDone?.();
+					if (input.onOpenCenterAgent) {
+						input.onOpenCenterAgent();
+						return;
+					}
+					navigate({
+						to: buildOrganizationCenterAgentChatPath(currentOrganization.slug, {
+							draft: "new",
+						}),
+					});
+				}}
+				variant="outline"
+			>
+				Center Agent
+			</Button>
+			<SidebarSearchInput
+				label="Search People or Agents"
+				onValueChange={setSearch}
+				value={search}
+			/>
+			<ScrollArea className="max-h-80">
+				{directory.isPending && (
+					<p className="p-2 text-muted-foreground text-sm">
+						Loading People and Agents…
+					</p>
+				)}
+				{directory.isError && (
+					<Button onClick={() => directory.refetch()} variant="outline">
+						Retry
+					</Button>
+				)}
+				{!(directory.isPending || directory.isError) && (
+					<>
+						{[
+							{ label: "People", items: people },
+							{ label: "Agents", items: agents },
+						].map((group) => {
+							const items = group.items.filter((p) =>
 								`${p.name} ${p.owner}`
 									.toLowerCase()
 									.includes(search.trim().toLowerCase())
-							) && (
-								<p className="p-2 text-muted-foreground text-sm">
-									No matching People or Agents.
-								</p>
-							)}
-						</>
-					)}
-				</ScrollArea>
-			</DialogContent>
-		</Dialog>
+							);
+							return items.length ? (
+								<div className="mb-3" key={group.label}>
+									<p className="px-2 py-2 text-muted-foreground text-xs">
+										{group.label}
+									</p>
+									{items.map((p) => (
+										<Button
+											className="w-full justify-start gap-2"
+											disabled={chat.isPending || p.isSelf}
+											key={p.id}
+											onClick={() => chat.mutate(p.id)}
+											variant="ghost"
+										>
+											<SpaceProfileIcon
+												agentControllerRef={p.controller}
+												avatarImageUrl={
+													p.kind === "human" ? p.avatar : undefined
+												}
+												profileId={p.id}
+												profileKind={p.kind}
+												profileName={p.name}
+												size="sm"
+											/>
+											<span className="min-w-0 flex-1 truncate text-left">
+												{p.name}
+											</span>
+											{p.owner && (
+												<span className="max-w-28 truncate text-muted-foreground text-xs">
+													{p.owner}
+												</span>
+											)}
+										</Button>
+									))}
+								</div>
+							) : null;
+						})}
+						{![...people, ...agents].some((p) =>
+							`${p.name} ${p.owner}`
+								.toLowerCase()
+								.includes(search.trim().toLowerCase())
+						) && (
+							<p className="p-2 text-muted-foreground text-sm">
+								No matching People or Agents.
+							</p>
+						)}
+					</>
+				)}
+			</ScrollArea>
+		</div>
 	);
 }

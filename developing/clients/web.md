@@ -363,8 +363,8 @@ The visible entries resolve in this order: **New Agent**, **Desk**, **Spaces**,
 1. **Desk** — renders ordinary Space windows and a greeting on the shared infinite
    React Flow canvas. See **Desk and Chats** below for selection, creation,
    persistence, and viewport behavior. Space interactions use the full Space
-   owner without a separate canvas presentation branch. There is no widget
-   picker, standalone Center Agent window, or header shortcut list.
+   owner. A bottom-right Add to Desk button opens a categorized widget dialog;
+   shared compact conversations provide Chat windows, including Center Agent.
 2. **Spaces** — the current workspace's Space collaboration surface.
    Spaces, Direct Messages, and People place their contextual lists
    below the fixed destinations in the Main Sidebar. Only these contextual
@@ -492,6 +492,41 @@ are separate controls and truths, and at most one compact panel is open at a
 time.
 
 ### Desk and Chats
+
+The Add to Desk dialog groups Spaces, Chats, Updates, People, and Computers in
+a sidebar. New accounts do not automatically receive additional widgets.
+Chats reuse the same DirectMessagePicker as the Chats page;
+opening a conversation on Desk changes its presentation, not membership or
+message ownership. Inbox, Center Agent, and Computer cards reuse their existing
+product components. Existing singleton widgets are focused instead of duplicated.
+Window titles, geometry, and text are browser-local per account and Organization.
+Titles sit immediately above their window and move with it. Dragging a title
+moves the window; clicking it enters editing. Text uses the same interaction and
+starts at its content size. New information cards use intrinsic height, while
+conversation windows retain a bounded viewport. Manual resizing remains available.
+Desk Inbox shows the six most recent items, including read records, using the
+shared Inbox list and read mutation. The Toolbar preview remains an attention
+view of unread updates and unresolved requests, with a link to full history.
+People & Agents embeds the Space candidate selector, with independent selection
+of each person or agent. Each selection adds a Profile card instead of a directory
+widget. The card uses the shared Profile identity header and offers a Chat action.
+Visible Profile IDs are the source of truth for the picker's checked, disabled
+state; closing the card makes that identity selectable again. Selection does not
+add anyone to a Space or implicitly select an agent's owner. Profile cards read
+current readiness and operational status from the authorized directory, including
+reported queue counts; they do not infer activity from presence or local sessions.
+Closing a window removes only its Desk placement. It does not delete its source.
+Text is a canvas tool available from the context menu, not a widget category;
+users edit it directly and resize it. Layout changes can be undone locally.
+
+Active agents reads the existing authorized active-Wake summaries for accessible
+Spaces and chats. Reads run four at a time and refresh every minute while the
+widget is mounted and the browser is active. They do not infer execution from
+presence or expose local coding-session observation. Partial read failures are
+visible and never reported as an empty work list. This first version is an
+active-work view, not a history or an organization-wide private-conversation feed.
+Each row identifies the Agent, its owner when available, its Space, and progress.
+No membership, Wakeability, execution, or permission owner changes are introduced.
 
 The authorized Organization root `/o/{orgSlug}` renders **Desk**. It remembers
 its visible Space windows in this browser per account and Organization. Without a

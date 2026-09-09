@@ -60,6 +60,7 @@ import {
 	organizationComputersQueryOptions,
 	organizationProfileDirectoryQueryOptions,
 } from "#/query/organizations/organization-directory";
+import { ProfileCardHeader } from "./profile-card-header";
 
 const AGENT_WORKSPACE_TECHNICAL_SECTION_IDS: ReadonlySet<ProfileDetailsSectionId> =
 	new Set(["connection", "agent_controller_permission_mode", "advanced"]);
@@ -155,56 +156,59 @@ function AgentProfileDetailsHeader(input: {
 		input.entry.availabilitySummary &&
 		input.entry.availabilitySummary !== presenceSummary;
 	return (
-		<div className="flex min-w-0 items-start gap-3">
-			{input.isCenterAgent ? (
-				<SpaceProfileIcon
-					agentControllerRef={input.entry.agentControllerRef}
-					isCenterAgent
-					profileId={input.entry.profileId}
-					profileKind="agent"
+		<ProfileCardHeader
+			action={
+				<AgentProfileDetailsAction
+					canEdit={input.canEdit}
+					href={input.moreDetailsHref}
 					profileName={input.entry.profileName}
-					size="md"
 				/>
-			) : (
-				<AgentProfileControllerAvatar
-					agentControllerRef={input.entry.agentControllerRef}
-					profileId={input.entry.profileId}
-					profileName={input.entry.profileName}
-					size={48}
-				/>
-			)}
-			<div className="min-w-0 flex-1 pt-0.5">
-				<p className="flex items-center gap-1.5 font-semibold text-base text-foreground">
-					<span className="min-w-0 break-words">{input.entry.profileName}</span>
-					<RemoteAgentIndicator
+			}
+			avatar={
+				input.isCenterAgent ? (
+					<SpaceProfileIcon
 						agentControllerRef={input.entry.agentControllerRef}
+						isCenterAgent
+						profileId={input.entry.profileId}
+						profileKind="agent"
+						profileName={input.entry.profileName}
+						size="md"
 					/>
+				) : (
+					<AgentProfileControllerAvatar
+						agentControllerRef={input.entry.agentControllerRef}
+						profileId={input.entry.profileId}
+						profileName={input.entry.profileName}
+						size={48}
+					/>
+				)
+			}
+			badge={
+				<RemoteAgentIndicator
+					agentControllerRef={input.entry.agentControllerRef}
+				/>
+			}
+			name={input.entry.profileName}
+		>
+			<p className="mt-1 break-words text-muted-foreground text-sm">
+				{modelSummary}
+			</p>
+			{presenceSummary ? (
+				<p
+					className={cn(
+						"mt-2 text-xs",
+						resolveSpaceMemberInlineStatusTextClassName(input.entry)
+					)}
+				>
+					{presenceSummary}
 				</p>
-				<p className="mt-1 break-words text-muted-foreground text-sm">
-					{modelSummary}
+			) : null}
+			{showAvailabilitySummary ? (
+				<p className="mt-1 text-muted-foreground text-xs">
+					{input.entry.availabilitySummary}
 				</p>
-				{presenceSummary ? (
-					<p
-						className={cn(
-							"mt-2 text-xs",
-							resolveSpaceMemberInlineStatusTextClassName(input.entry)
-						)}
-					>
-						{presenceSummary}
-					</p>
-				) : null}
-				{showAvailabilitySummary ? (
-					<p className="mt-1 text-muted-foreground text-xs">
-						{input.entry.availabilitySummary}
-					</p>
-				) : null}
-			</div>
-			<AgentProfileDetailsAction
-				canEdit={input.canEdit}
-				href={input.moreDetailsHref}
-				profileName={input.entry.profileName}
-			/>
-		</div>
+			) : null}
+		</ProfileCardHeader>
 	);
 }
 

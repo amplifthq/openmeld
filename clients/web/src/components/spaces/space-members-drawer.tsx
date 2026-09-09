@@ -1266,7 +1266,7 @@ function SpaceAddProfilesSectionView({
 	);
 }
 
-type SpaceAddMembersCandidateSummary = {
+export type SpaceAddMembersCandidateSummary = {
 	alreadyMember?: boolean;
 	agentControllerRef?: string | null;
 	availabilityCategory?: "available" | "checking" | "offline" | "unavailable";
@@ -1573,7 +1573,8 @@ function SpaceAddProfilesFooter(input: {
 	);
 }
 
-function SpaceAddMembersCandidates(input: {
+export function SpaceAddMembersCandidates(input: {
+	selectionScope?: "space" | "desk";
 	currentOwnerUserId: string | null;
 	onCreate?: () => void;
 	candidateGroups: SpaceAddMembersCandidateGroups;
@@ -1609,6 +1610,7 @@ function SpaceAddMembersCandidates(input: {
 				label="Organization"
 				onToggle={input.onToggle}
 				selectedProfileIds={input.selectedProfileIds}
+				selectionScope={input.selectionScope}
 			/>
 			{input.candidateGroups.personGroups.length > 0 ? (
 				<section aria-labelledby="space-add-members-people-heading">
@@ -1645,6 +1647,7 @@ function SpaceAddMembersCandidates(input: {
 									}}
 									onToggle={input.onToggle}
 									selectedProfileIds={input.selectedProfileIds}
+									selectionScope={input.selectionScope}
 								/>
 							);
 						})}
@@ -1656,6 +1659,7 @@ function SpaceAddMembersCandidates(input: {
 }
 
 function SpaceAddMembersPersonGroupView(input: {
+	selectionScope?: "space" | "desk";
 	onCreate?: () => void;
 	expanded: boolean;
 	group: SpaceAddMembersPersonGroup;
@@ -1669,9 +1673,14 @@ function SpaceAddMembersPersonGroupView(input: {
 			input.selectedProfileIds.has(candidate.profileId)
 	).length;
 	let humanDescription = resolvePersonActivityLabel(input.group.lastActiveAt);
-	if (input.group.humanAlreadyMember) {
+	if (
+		input.selectionScope === "desk" &&
+		input.group.humanCandidate?.alreadyMember
+	) {
+		humanDescription = "On your Desk";
+	} else if (input.group.humanAlreadyMember) {
 		humanDescription = "In this Space";
-	} else if (selectedAgentCount > 0) {
+	} else if (selectedAgentCount > 0 && input.selectionScope !== "desk") {
 		humanDescription = `Joins with ${selectedAgentCount === 1 ? "selected Agent" : `${String(selectedAgentCount)} selected Agents`}`;
 	}
 	return (
@@ -1707,6 +1716,7 @@ function SpaceAddMembersPersonGroupView(input: {
 										input.group.humanCandidate.profileId
 									)}
 									description={humanDescription}
+									disabled={input.group.humanCandidate.alreadyMember}
 									index={0}
 									label={input.group.name}
 									onToggle={() =>
@@ -1757,6 +1767,7 @@ function SpaceAddMembersPersonGroupView(input: {
 						candidates={input.group.agentCandidates}
 						onToggle={input.onToggle}
 						selectedProfileIds={input.selectedProfileIds}
+						selectionScope={input.selectionScope}
 					/>
 				</div>
 			) : null}
@@ -1801,6 +1812,7 @@ function SpacePersonAgentGroup(input: {
 }
 
 function SpaceAddMembersCandidateGroup(input: {
+	selectionScope?: "space" | "desk";
 	candidates: readonly SpaceAddMembersCandidateSummary[];
 	label?: string;
 	onToggle: (profileId: string) => void;
@@ -1856,7 +1868,8 @@ function SpaceAddMembersCandidateGroup(input: {
 						}
 						description={resolveAgentCandidateDescription(
 							candidate,
-							organization?.isPersonal === true
+							organization?.isPersonal === true,
+							input.selectionScope
 						)}
 						disabled={candidate.alreadyMember}
 						index={index}
@@ -1945,7 +1958,7 @@ function toSpaceProfileAddProfile(
 
 type OrganizationDirectoryAddCandidates = SpaceAddMembersCandidateGroups;
 
-function buildOrganizationDirectoryAddCandidates(input: {
+export function buildOrganizationDirectoryAddCandidates(input: {
 	directory: OrganizationSpaceProfileCandidates | null;
 	organizationName: string;
 	snapshot: SpaceMembersSnapshot | null;
@@ -2241,7 +2254,7 @@ function buildPersonalAddMemberGroups(input: {
 	};
 }
 
-function filterAddMemberGroups(
+export function filterAddMemberGroups(
 	groups: SpaceAddMembersCandidateGroups,
 	query: string
 ): SpaceAddMembersCandidateGroups {
@@ -2298,8 +2311,12 @@ function resolvePersonActivityLabel(
 
 function resolveAgentCandidateDescription(
 	candidate: SpaceAddMembersCandidateSummary,
-	isPersonal: boolean
+	isPersonal: boolean,
+	selectionScope?: "space" | "desk"
 ): string | undefined {
+	if (selectionScope === "desk" && candidate.alreadyMember) {
+		return "On your Desk";
+	}
 	if (candidate.isCenterAgent) {
 		const description = isPersonal
 			? "Your workspace’s assistant. Helps coordinate work across apps."

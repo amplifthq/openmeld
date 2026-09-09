@@ -16,6 +16,7 @@ import type {
 } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalInboxLauncher } from "./global-inbox-launcher";
+import { OrganizationInboxRecentItems } from "./organization-inbox-preview";
 
 const getCurrentInboxSummaryMock = vi.hoisted(() => vi.fn());
 const listCurrentInboxItemsMock = vi.hoisted(() => vi.fn());
@@ -120,6 +121,35 @@ describe("GlobalInboxLauncher", () => {
 
 		expect(rendered.container.childElementCount).toBe(0);
 		expect(getCurrentInboxSummaryMock).not.toHaveBeenCalled();
+	});
+	it("keeps read records visible in the Desk recent-items view", async () => {
+		listCurrentInboxItemsMock.mockResolvedValue({
+			items: [{ ...createInboxItem(), readAt: "2026-08-04T03:00:00.000Z" }],
+			nextCursor: null,
+			organizationId: "organization-123",
+		});
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		render(
+			<QueryClientProvider client={client}>
+				<TooltipProvider>
+					<OrganizationInboxRecentItems
+						currentOrganization={
+							useOptionalAppOrganizationMock().currentOrganization
+						}
+					/>
+				</TooltipProvider>
+			</QueryClientProvider>
+		);
+		expect(
+			await screen.findByRole("link", { name: NEW_SPACE_MESSAGE_NAME_PATTERN })
+		).toBeTruthy();
+		expect(listCurrentInboxItemsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ view: "all" })
+		);
+		expect(markCurrentInboxItemReadMock).not.toHaveBeenCalled();
+		client.clear();
 	});
 
 	it("opens a compact Inbox preview and exposes the full Inbox", async () => {

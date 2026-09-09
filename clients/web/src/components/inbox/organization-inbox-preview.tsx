@@ -5,7 +5,10 @@ import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { TrayIcon } from "@phosphor-icons/react";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { useId } from "react";
 import { StaleDataNotice } from "#/components/stale-data-notice";
+import { buildOrganizationInboxPath } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { inboxItemsInfiniteQueryOptions } from "#/query/organizations/inbox";
 import { InboxItemsList } from "./inbox-list";
@@ -14,6 +17,37 @@ import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
 const INBOX_PREVIEW_LIMIT = 6;
 const INBOX_PREVIEW_ACTION_LIMIT = 3;
 const INBOX_PREVIEW_SKELETON_IDS = ["first", "second", "third"] as const;
+
+export function OrganizationInboxRecentItems(input: {
+	currentOrganization: OrganizationSummary;
+}) {
+	const query = useInfiniteQuery(
+		inboxItemsInfiniteQueryOptions({
+			organizationId: input.currentOrganization.id,
+			view: "all",
+		})
+	);
+	const { setRead } = useInboxItemReadMutation({
+		organizationId: input.currentOrganization.id,
+	});
+	return (
+		<InboxPreviewContent
+			actionItems={[]}
+			includesRead
+			isError={query.isError && !query.data}
+			isLoading={query.isPending}
+			isStale={query.isError && !!query.data}
+			onOpenItem={(item) => setRead(item, true)}
+			onRetry={() => query.refetch()}
+			onSetRead={setRead}
+			organizationSlug={input.currentOrganization.slug}
+			updateItems={
+				query.data?.pages.flatMap((page) => page.items).slice(0, 6) ?? []
+			}
+			urgentItems={[]}
+		/>
+	);
+}
 
 export function OrganizationInboxPreview(input: {
 	actionLimit?: number;
@@ -96,6 +130,7 @@ export function OrganizationInboxPreview(input: {
 }
 
 function InboxPreviewContent(input: {
+	includesRead?: boolean;
 	urgentItems: readonly InboxItem[];
 	actionItems: readonly InboxItem[];
 	isError: boolean;
@@ -152,17 +187,22 @@ function InboxPreviewContent(input: {
 				/>
 			) : null}
 			{isEmpty && !input.isStale ? (
-				<div className="flex min-h-36 flex-col items-center justify-center px-4 py-6 text-center">
+				<div className="flex flex-col items-center justify-center px-4 py-4 text-center">
 					<TrayIcon
 						aria-hidden="true"
 						className="size-5 text-muted-foreground"
 					/>
 					<p className="mt-3 font-medium text-foreground text-sm">
-						You’re all caught up
+						{input.includesRead
+							? "No updates yet"
+							: "No unread updates or pending requests"}
 					</p>
-					<p className="mt-1 text-muted-foreground text-xs">
-						New updates and requests will appear here.
-					</p>
+					<Link
+						className="mt-2 text-xs underline underline-offset-4"
+						to={buildOrganizationInboxPath(input.organizationSlug)}
+					>
+						Open full Inbox
+					</Link>
 				</div>
 			) : null}
 			{!isEmpty && input.actionItems.length > 0 ? (
@@ -192,6 +232,14 @@ function InboxPreviewContent(input: {
 					organizationSlug={input.organizationSlug}
 				/>
 			) : null}
+			{input.includesRead && !isEmpty && (
+				<Link
+					className="inline-block px-2 text-xs underline underline-offset-4"
+					to={buildOrganizationInboxPath(input.organizationSlug)}
+				>
+					Open full Inbox
+				</Link>
+			)}
 		</div>
 	);
 }
@@ -203,7 +251,7 @@ function InboxPreviewSection(input: {
 	onSetRead: (item: InboxItem, read: boolean) => void;
 	organizationSlug: string;
 }) {
-	const sectionId = `inbox-preview-${input.label.replace(" ", "-")}`;
+	const sectionId = useId();
 	return (
 		<section aria-labelledby={sectionId}>
 			<h3

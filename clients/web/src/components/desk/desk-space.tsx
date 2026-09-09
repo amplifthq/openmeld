@@ -16,6 +16,7 @@ export function DeskSpace(input: {
 	accountProfiles: readonly AuthProfileView[];
 	onViewChange?: (view: SpaceView) => void;
 	initialView?: SpaceView;
+	compact?: boolean;
 }) {
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -39,7 +40,7 @@ export function DeskSpace(input: {
 							membersPresentation="inline"
 							onSpaceViewCommitted={input.onViewChange}
 							orgSlug={input.orgSlug}
-							presentation="full"
+							presentation={input.compact ? "compact" : "full"}
 							profileId={input.profileId}
 							spaceId={input.spaceId}
 						/>
