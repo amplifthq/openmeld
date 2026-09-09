@@ -17,6 +17,7 @@ export {
   buildSpaceAgentIdentityLine,
   buildSpaceWakeParticipantLines,
   SPACE_COLLABORATION_CONTEXT_RULE,
+  SPACE_PERSONAL_CONTRIBUTION_RULE,
 } from "./collaboration-context";
 export { deriveContinuity } from "./continuity";
 export {

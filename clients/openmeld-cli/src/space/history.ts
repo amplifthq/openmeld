@@ -562,6 +562,9 @@ function buildSpaceHistoryBriefMessage(input: {
     text: briefText.text,
     textOriginalCharacters: briefText.originalCharacters,
     textTruncated: briefText.truncated,
+    ...(input.event.type === "signal.text" && input.event.data.files?.length
+      ? { files: input.event.data.files }
+      : {}),
     ...(briefText.truncated
       ? {
           fullTextCommand: formatOpenMeldCliCommand(

@@ -1,5 +1,6 @@
 import { dispatchBriefSchema } from "@openmeld/schemas";
 import type { DispatchBrief, SpaceContract } from "@openmeld/schemas/types";
+import { SPACE_PERSONAL_CONTRIBUTION_RULE } from "./collaboration-context";
 
 const ACTION_LABEL_BY_TYPE = {
   post_message: "reply",
@@ -36,7 +37,7 @@ export function buildCompactDispatchActionGuidanceLines(input: {
   }
   return [
     `Complete this Wake with exactly one final outcome: ${formatChoiceList(choices)}.`,
-    "Choose silent when you have no new contribution instead of repeating another member.",
+    SPACE_PERSONAL_CONTRIBUTION_RULE,
   ];
 }
 

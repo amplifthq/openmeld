@@ -427,6 +427,12 @@ context reads or other business tools. When a context read fails before any
 Space Action submission, the Agent should report the blocker through the
 permitted completion action rather than invent results or silently finish.
 Shared text attachments use the dispatch `read_file` tool when available.
+Dispatch MCP tool processes retain the carrier's `OPENMELD_HOME`,
+`OPENMELD_AUTH_URL` and `OPENMELD_GATEWAY_URL` when present, alongside its
+environment preset. The shared adapter configuration forwards these non-secret
+environment selectors so filtered harness environments cannot silently resolve
+a different lane's login state or endpoints. No credentials are embedded in
+instructions or added to the tool environment by this projection.
 Other context-reading commands use the existing dispatch-scoped absolute CLI entry
 from `OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH`, so a provider's login shell
 cannot redirect them to an unrelated installation through PATH. Human-facing
