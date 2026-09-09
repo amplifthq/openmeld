@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-09T02:51:03.876Z",
+  "updatedAt": "2026-09-09T03:09:20.005Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
@@ -9,7 +9,7 @@
       "reason": "Existing clients remain compatible; the new CLI recovers accepted Agent creation without resubmitting."
     },
     "service": {
-      "bundleHash": "735a70654de481b3f21190d792c57e8b85006869242889b24c4e658b132c350f",
+      "bundleHash": "5d83e04bdd2bc99cdda98e68ad13aa65f84c414a0be118eef1846876494ee0fe",
       "bundleVersion": "0.3.183",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
