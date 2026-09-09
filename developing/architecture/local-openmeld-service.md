@@ -2226,6 +2226,17 @@ version in addition to the current and rollback versions.
 An installation without independent maintenance must copy and verify its worker
 and establish the OS registration before publishing the initial pending job.
 An existing independent worker stays in place until the target Service is verified.
+
+Package version alone does not prove that the installed OS startup policy is
+current. Service inventory observes the owned macOS scheduling policy, and
+repair/alignment must recognize a same-version mismatch. This is advisory for
+Wake admission. When automatic maintenance finds no package update, a worker
+matching the installed Service version checks this policy and schedules any
+correction through the existing available-update safe switch. It does not
+restart an explicitly stopped Service, apply an older worker's policy to a
+newer Service, or inspect the process inventory on each Wake. The recovery
+carrier replacement ordering above remains unchanged.
+
 When replacing a pending target, every resource referenced by the current
 durable job remains recoverable until the replacement job is atomically
 committed; replacement must not disruptively re-register the already-owned OS

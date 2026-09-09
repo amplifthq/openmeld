@@ -64,6 +64,8 @@ export type DaemonServiceManagerRuntimeStatus = {
    * did not contain one complete, valid target.
    */
   environmentTarget?: OpenMeldEnvironmentTarget | null;
+  /** Owned scheduling policy in the OS definition; never a Wake admission gate. */
+  startupPolicyCurrent?: boolean;
 };
 
 export type DaemonServiceJobDiagnostics = {
@@ -142,6 +144,9 @@ const LAUNCHD_STATE_PATTERN = /state\s*=\s*running/i;
 const LAUNCHD_DISABLED_SERVICES_ENTRY_PATTERN =
   /"([^"]+)"\s*=>\s*(enabled|disabled)/i;
 const LAUNCHD_STRING_PATTERN = /<string>([^<]+)<\/string>/g;
+const LAUNCHD_SERVICE_PROCESS_TYPE = "Interactive";
+const LAUNCHD_PROCESS_TYPE_PATTERN =
+  /<key>ProcessType<\/key>\s*<string>([^<]+)<\/string>/;
 const LAUNCHD_ENVIRONMENT_BLOCK_PATTERN =
   /<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/;
 const WINDOWS_LINE_SEPARATOR_PATTERN = /\r?\n/;
@@ -472,6 +477,15 @@ function sanitizeControlCharacters(value: string): string {
   return sanitized;
 }
 
+export function matchesLaunchdServiceStartupPolicy(
+  definition: string
+): boolean {
+  return (
+    LAUNCHD_PROCESS_TYPE_PATTERN.exec(definition)?.[1] ===
+    LAUNCHD_SERVICE_PROCESS_TYPE
+  );
+}
+
 export function buildLaunchdPlist(
   spec: DaemonServiceCommandSpec,
   pathInput: OpenMeldPathResolutionInput = {}
@@ -512,7 +526,7 @@ ${args}
   <key>KeepAlive</key>
   <true/>
   <key>ProcessType</key>
-  <string>Interactive</string>
+  <string>${LAUNCHD_SERVICE_PROCESS_TYPE}</string>
   <key>ThrottleInterval</key>
   <integer>${DAEMON_SERVICE_RESTART_BACKOFF_SECONDS}</integer>
   <key>EnvironmentVariables</key>
@@ -1138,6 +1152,13 @@ function buildLaunchdManager(
         running: LAUNCHD_STATE_PATTERN.test(output),
         enabled: enabledFromDisabledServices ?? parseLaunchdEnabled(output),
         definitionPath: installed ? plistPath : null,
+        ...(installed
+          ? {
+              startupPolicyCurrent: matchesLaunchdServiceStartupPolicy(
+                await readFile(plistPath, "utf8")
+              ),
+            }
+          : {}),
         commandSummary: installed
           ? await readLaunchdProgramArguments(plistPath)
           : null,

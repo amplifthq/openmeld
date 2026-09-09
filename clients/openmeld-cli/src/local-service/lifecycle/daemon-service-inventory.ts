@@ -74,6 +74,7 @@ export type DaemonServiceAnomalyCode =
   | "bundle_path_invalid"
   | "service_manager_path_drift"
   | "service_manager_environment_drift"
+  | "service_manager_startup_policy_drift"
   | "duplicate_owned_processes"
   | "foreground_background_conflict"
   | "background_foreground_conflict"
@@ -463,6 +464,17 @@ function buildRuntimeHealthAnomalies(input: {
     effectiveRuntimeStatus: input.effectiveRuntimeStatus,
     ownedProcesses: input.ownedProcesses,
   });
+
+  if (
+    input.serviceManagerStatus?.installed &&
+    input.serviceManagerStatus.startupPolicyCurrent === false
+  ) {
+    anomalies.push({
+      code: "service_manager_startup_policy_drift",
+      message:
+        "The installed macOS Service still uses an outdated scheduling policy.",
+    });
+  }
 
   if (input.runtimeStatus.status === "stale") {
     anomalies.push({
