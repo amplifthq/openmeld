@@ -860,6 +860,16 @@ export function useSpaceLandingFeed(input: {
 			}
 
 			hasAcceptedLiveSession = true;
+			queryClient
+				.invalidateQueries({
+					predicate: (query) =>
+						(query.queryKey[0] === "space-message-pins" ||
+							query.queryKey[0] === "space-file-pins") &&
+						query.queryKey[1] === input.spaceId,
+				})
+				.catch((error) =>
+					console.warn("Failed to refresh Space pins after reconnect.", error)
+				);
 			readySocketAttemptKeyRef.current = socketAttemptKey;
 			markConnected();
 			if (historyReadyRef.current) {
@@ -1148,8 +1158,21 @@ function handleLiveInvalidationMessage(
 		debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
 	}
 	if (frame.type === "space.meta.changed") {
+		input.queryClient
+			.invalidateQueries({ queryKey: ["space-file-pins", input.spaceId] })
+			.catch((error) => console.warn("Failed to refresh pinned files.", error));
+		input.queryClient
+			.invalidateQueries({
+				queryKey: ["space-message-pins", input.spaceId],
+			})
+			.catch((error) =>
+				console.warn("Failed to refresh pinned messages.", error)
+			);
 		invalidateSpaceMetadata(input.queryClient, input.spaceId, frame.reason);
 	} else if (frame.type === "space.files.changed") {
+		input.queryClient
+			.invalidateQueries({ queryKey: ["space-file-pins", input.spaceId] })
+			.catch((error) => console.warn("Failed to refresh pinned files.", error));
 		invalidateSpaceFiles(input.queryClient, input.spaceId, frame.reason);
 	} else if (
 		frame.type === "space.members.changed" ||

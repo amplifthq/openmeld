@@ -312,11 +312,13 @@ import type {
   SpaceContract,
   SpaceDispatchTraceResponse,
   SpaceFileDescriptor,
+  SpaceFilePinsResponse,
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
+  SpaceMessagePinsResponse,
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
   StartCenterAgentMemberResearchRpcInput,
@@ -950,6 +952,8 @@ import {
   rpcSetPeopleComputerLocalAgentEnabled,
   rpcSetPeopleComputerOpenMeldToolsMaintenance,
   rpcSetSpaceAccessMode,
+  rpcSpaceFilePins,
+  rpcSpaceMessagePins,
   rpcStageSpaceComposerUpload,
   rpcSubmitAgentActivityEvents,
   rpcSubmitAgentActivitySessionReconciliation,
@@ -991,7 +995,9 @@ import {
   type SetOrganizationInformationProtectionPolicyInput,
   type SetSpaceAccessModeInput,
   type SpaceAccessModeStateResult,
+  type SpaceFilePinsInput,
   type SpaceFileWriteInput,
+  type SpaceMessagePinsInput,
   type SpacePasswordStateResult,
   type StageSpaceComposerUploadRpcInput,
   type SubmitAgentActivityEventsInput,
@@ -2011,6 +2017,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   getSpaceMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
     return rpcGetSpaceMeta(this.env, input);
+  }
+
+  spaceFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
+    return rpcSpaceFilePins(this.env, input);
+  }
+
+  spaceMessagePins(
+    input: SpaceMessagePinsInput
+  ): Promise<SpaceMessagePinsResponse> {
+    return rpcSpaceMessagePins(this.env, input);
   }
 
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {
@@ -4006,6 +4022,16 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   getSpaceMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
     return super.getSpaceMeta(input);
+  }
+
+  spaceFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
+    return super.spaceFilePins(input);
+  }
+
+  spaceMessagePins(
+    input: SpaceMessagePinsInput
+  ): Promise<SpaceMessagePinsResponse> {
+    return super.spaceMessagePins(input);
   }
 
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {

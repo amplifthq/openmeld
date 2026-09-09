@@ -100,9 +100,13 @@ import {
   spaceFileAuditEventSchema,
   spaceFileClientMutationIdSchema,
   spaceFileEntryIdSchema,
+  spaceFilePinMutationSchema,
+  spaceFilePinsResponseSchema,
   spaceInvitationAccessInputSchema,
   spaceInvitationGrantInputSchema,
   spaceInvitationRevokeInputSchema,
+  spaceMessagePinMutationSchema,
+  spaceMessagePinsResponseSchema,
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
@@ -179,11 +183,13 @@ import type {
   SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceFileMutationErrorCode,
+  SpaceFilePinsResponse,
   SpaceIdentityDirectory,
   SpaceLiveInvalidationFrame,
   SpaceLiveSignalFrame,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
+  SpaceMessagePinsResponse,
   SpaceSignalAuthoringPolicy,
   SpaceThread,
   SpaceThreadContext,
@@ -204,6 +210,7 @@ import {
   createWakeProgressItem,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
+  isDirectMessageSpace,
   type SpaceAccessContext,
 } from "@openmeld/space";
 import { buildSystemNoticeText } from "@openmeld/space-mesh";
@@ -355,6 +362,8 @@ import type {
   RemoveSpaceMembersInput,
   SetSpaceAccessModeInput,
   SpaceAccessModeStateResult,
+  SpaceFilePinsInput,
+  SpaceMessagePinsInput,
   SpacePasswordStateResult,
   StartUsageExhaustedContinuationInput,
   StartUsageExhaustedContinuationResponse,
@@ -582,6 +591,10 @@ import {
   readSpaceMemberRecord,
   type SpaceMemberRecord,
 } from "../../infrastructure/sql/space-member-repo";
+import {
+  listSpaceMessagePins,
+  mutateSpaceMessagePin,
+} from "../../infrastructure/sql/space-message-pin-repo";
 import {
   initializeSpaceMetaRecordIfAbsent,
   readSpaceMetaRecordFromSql,
@@ -5885,6 +5898,208 @@ export class Space extends DurableObject<CoreBindings> {
       pickSpaceDispatchAccessOptions(input)
     );
     return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcMessagePins(
+    input: SpaceMessagePinsInput
+  ): Promise<SpaceMessagePinsResponse> {
+    this.applySpaceRef(input.spaceId);
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: "/message-pins",
+        method: input.mutation ? "PATCH" : "GET",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        GET: () => Response.json(this.readMessagePins()),
+        PATCH: ({ context }) =>
+          this.handleMessagePinMutation(input.mutation, context),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
+    this.applySpaceRef(input.spaceId);
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: "/file-pins",
+        method: input.mutation ? "PATCH" : "GET",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        GET: () => Response.json(this.readFilePins()),
+        PATCH: ({ context }) =>
+          this.handleFilePinMutation(input.mutation, context),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
+  private readFilePins(): SpaceFilePinsResponse {
+    const pins = listSpaceMessagePins(
+      this.ctx.storage.sql,
+      "space_file_pins"
+    ).flatMap((pin) => {
+      try {
+        const file = this.spaceFileRepository.getFile(pin.signalId);
+        const member = readSpaceMemberRecord(
+          this.ctx.storage.sql,
+          pin.pinnedByProfileId
+        );
+        return [
+          {
+            file,
+            pinnedByProfileId: pin.pinnedByProfileId,
+            pinnedAt: pin.pinnedAt,
+            pinnedByName: member?.profileNameSnapshot ?? "Former member",
+          },
+        ];
+      } catch (error) {
+        if (
+          error instanceof SpaceFileRepositoryError &&
+          error.code === "space_file.not_found"
+        ) {
+          return [];
+        }
+        throw error;
+      }
+    });
+    return spaceFilePinsResponseSchema.parse({ pins });
+  }
+
+  private async handleFilePinMutation(
+    body: unknown,
+    context: CoreRpcContextInput
+  ): Promise<Response> {
+    const parsed = spaceFilePinMutationSchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        { message: "Invalid file pin request." },
+        { status: 400 }
+      );
+    }
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      context.actorContext.openMeldProfileId
+    );
+    if (
+      !member ||
+      member.status !== "active" ||
+      member.profileKindSnapshot !== "human" ||
+      member.ownerUserIdSnapshot !== context.actorContext.ownerUserId
+    ) {
+      return Response.json(
+        { message: "Join this Space as yourself to pin files." },
+        { status: 403 }
+      );
+    }
+    if (parsed.data.action === "pin") {
+      this.runSpaceFileRepositoryOperation(() =>
+        this.spaceFileRepository.getFile(parsed.data.fileId)
+      );
+    }
+    const result = mutateSpaceMessagePin(
+      this.ctx.storage.sql,
+      {
+        signalId: parsed.data.fileId,
+        action: parsed.data.action,
+        pinnedByProfileId: member.profileId,
+        pinnedAt: new Date().toISOString(),
+      },
+      "space_file_pins"
+    );
+    if (result === "forbidden") {
+      return Response.json(
+        { message: "Only the person who pinned this file can unpin it." },
+        { status: 403 }
+      );
+    }
+    await this.broadcastSpaceMetaChanged({ reason: "space.file_pins.updated" });
+    return Response.json(this.readFilePins());
+  }
+
+  private readMessagePins(): SpaceMessagePinsResponse {
+    const pins = listSpaceMessagePins(this.ctx.storage.sql).flatMap((pin) => {
+      const signal = this.readSignalById(pin.signalId);
+      if (!signal || signal.type !== "signal.text") {
+        return [];
+      }
+      const member = readSpaceMemberRecord(
+        this.ctx.storage.sql,
+        pin.pinnedByProfileId
+      );
+      return [
+        {
+          ...pin,
+          pinnedByName: member?.profileNameSnapshot ?? "Former member",
+          authorName: signal.profile.profileName ?? "Member",
+          preview: signal.data.text.replace(/\s+/gu, " ").slice(0, 500),
+        },
+      ];
+    });
+    return spaceMessagePinsResponseSchema.parse({ pins });
+  }
+
+  private async handleMessagePinMutation(
+    body: unknown,
+    context: CoreRpcContextInput
+  ): Promise<Response> {
+    const parsed = spaceMessagePinMutationSchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        { message: "Invalid pin request." },
+        { status: 400 }
+      );
+    }
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      context.actorContext.openMeldProfileId
+    );
+    if (
+      !member ||
+      member.status !== "active" ||
+      member.profileKindSnapshot !== "human" ||
+      member.ownerUserIdSnapshot !== context.actorContext.ownerUserId
+    ) {
+      return Response.json(
+        {
+          code: "space.membership_required",
+          message: "Join this Space as yourself to pin messages.",
+        },
+        { status: 403 }
+      );
+    }
+    const signal = this.readSignalById(parsed.data.signalId);
+    if (
+      parsed.data.action === "pin" &&
+      (!signal || signal.type !== "signal.text")
+    ) {
+      return Response.json(
+        { message: "This message is no longer available." },
+        { status: 404 }
+      );
+    }
+    const result = mutateSpaceMessagePin(this.ctx.storage.sql, {
+      ...parsed.data,
+      pinnedByProfileId: member.profileId,
+      pinnedAt: new Date().toISOString(),
+    });
+    if (result === "forbidden") {
+      return Response.json(
+        {
+          code: "space.pin_owner_required",
+          message: "Only the person who pinned this message can unpin it.",
+        },
+        { status: 403 }
+      );
+    }
+    await this.broadcastSpaceMetaChanged({
+      reason: "space.message_pins.updated",
+    });
+    return Response.json(this.readMessagePins());
   }
 
   async rpcGetContract(input: GetSpaceContractInput): Promise<SpaceContract> {
@@ -21448,5 +21663,3 @@ function toPublicSpaceCursor(cursor: SpaceCursorRecord): SpaceCursor {
     updatedAt: cursor.updatedAt,
   };
 }
-
-import { isDirectMessageSpace } from "@openmeld/space";

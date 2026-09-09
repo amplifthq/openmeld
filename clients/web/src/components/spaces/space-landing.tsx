@@ -137,6 +137,7 @@ import {
 	type SpaceRemoveMemberResult,
 } from "./space-members-drawer";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
+import { SpaceMessagePinsProvider } from "./space-message-pins";
 import {
 	SetupRecallButton,
 	SpaceConversationRecoveryBanner,
@@ -2084,6 +2085,19 @@ function SpaceLandingConversation({
 			onWakeStopRequest={controller.onWakeStopRequest}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}
+			pinnedMessageProvider={(children) => (
+				<SpaceMessagePinsProvider
+					canPin={
+						currentProfileIsActiveSpaceMember &&
+						!controller.profileId.startsWith("agt_")
+					}
+					organizationSlug={input.orgSlug}
+					profileId={controller.profileId}
+					spaceId={controller.spaceId}
+				>
+					{children}
+				</SpaceMessagePinsProvider>
+			)}
 			prepareSetupHref={prepareSetupHref}
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}

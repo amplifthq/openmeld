@@ -10,6 +10,7 @@ import type {
 	SpaceThreadPreview,
 } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
+import { buildPublicSpaceEntryPath } from "@openmeld/space";
 import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
 import { ProgressiveBlur } from "@openmeld/ui/components/progressive-blur";
@@ -164,6 +165,10 @@ import {
 	SpaceMessageFooter,
 } from "./space-message-footer";
 import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
+import {
+	SpacePinnedFileBar,
+	SpacePinnedMessageBar,
+} from "./space-message-pins";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import {
 	buildSpaceMessageProfileMentionProfiles,
@@ -205,6 +210,7 @@ import type {
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 
 type SpaceConversationPanelResolvedProps = {
+	pinnedMessageProvider?: (children: ReactNode) => ReactNode;
 	activeSpaceView: SpaceView;
 	allowedActions: readonly string[];
 	agentRecoveryPlansByProfileId: ReadonlyMap<
@@ -421,7 +427,7 @@ function resolveConversationComposerContext(input: {
 export function SpaceConversationPanel(
 	publicInput: SpaceConversationPanelProps
 ) {
-	return (
+	const content = (
 		<SpaceWakeStopScope
 			key={`${publicInput.spaceId}:${publicInput.selfProfileId}`}
 			progressItems={publicInput.ephemeralActivityItems}
@@ -432,6 +438,9 @@ export function SpaceConversationPanel(
 			<SpaceConversationPanelContent {...publicInput} />
 		</SpaceWakeStopScope>
 	);
+	return publicInput.pinnedMessageProvider
+		? publicInput.pinnedMessageProvider(content)
+		: content;
 }
 
 function SpaceConversationPanelContent(
@@ -548,6 +557,12 @@ function SpaceConversationPanelContent(
 				mainMessage: mainFocusStatusMessage,
 				threadMessage: threadFocusStatusMessage,
 			})}
+			{input.activeSpaceView === "messages" ? (
+				<>
+					<SpacePinnedFileBar onOpen={input.onOpenSpaceFile} />
+					<SpacePinnedMessageBar onJump={navigation.onJumpToPinnedMessage} />
+				</>
+			) : null}
 
 			<SpacePrimaryView
 				activeView={input.activeSpaceView}
@@ -1225,6 +1240,16 @@ function useSpaceConversationNavigationController(input: {
 		input.onSpaceViewChange("messages");
 		window.requestAnimationFrame(() => jumpToMessage(signalId));
 	});
+	const onJumpToPinnedMessage = useLatestCallback((signalId: string) => {
+		if (messageElementsBySignalIdRef.current.has(signalId)) {
+			onJumpToMessage(signalId);
+		} else if (input.spaceId) {
+			// Shared entry resolution locates unloaded history and thread messages.
+			window.location.assign(
+				buildPublicSpaceEntryPath({ spaceId: input.spaceId, signalId })
+			);
+		}
+	});
 	const loadEarlierHistory = useCallback(async () => {
 		if (!input.hasEarlierHistory || input.isLoadingEarlierHistory) {
 			return;
@@ -1460,6 +1485,7 @@ function useSpaceConversationNavigationController(input: {
 		onJumpToMessage,
 		registerConversationScrollElement,
 		registerMessageElement,
+		onJumpToPinnedMessage,
 		requestUnreadMeasurement,
 		revealUnreadTarget,
 		threadFocusStatusMessage,
@@ -3175,6 +3201,7 @@ function renderConversationMessageFooter(input: {
 						}
 					: undefined
 			}
+			signalId={canUseCollaborationActions ? input.item.id : undefined}
 			thread={
 				canUseCollaborationActions
 					? resolveConversationMessageFooterThreadAction({

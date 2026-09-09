@@ -2210,6 +2210,12 @@ export {
   spaceMessageDetailsWorkingDetailsSchema,
 } from "./http/space-message-details";
 export {
+  spaceFilePinMutationSchema,
+  spaceFilePinsResponseSchema,
+  spaceMessagePinMutationSchema,
+  spaceMessagePinsResponseSchema,
+} from "./http/space-message-pins";
+export {
   getSpaceMetaResponseSchema,
   MAX_SPACE_GUIDE_LENGTH,
   patchSpaceMetaBodySchema,

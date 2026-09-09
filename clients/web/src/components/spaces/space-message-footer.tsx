@@ -1,9 +1,7 @@
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
-	DropdownMenuContent,
 	DropdownMenuGroup,
-	DropdownMenuItem,
 	DropdownMenuSub,
 	DropdownMenuSubContent,
 	DropdownMenuSubTrigger,
@@ -15,22 +13,28 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@openmeld/ui/components/popover";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowBendUpLeftIcon,
 	ChatCircleIcon,
 	CopyIcon,
 	DotsThreeIcon,
+	PushPinIcon,
 	TargetIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import {
 	MessageActionTooltip,
 	MessageDetailsActionButton,
 } from "./space-message-actions";
+import { useSpaceMessagePinAction } from "./space-message-pins";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 
 export type SpaceMessageFooterAddressingTarget = {
@@ -90,6 +94,7 @@ const FOOTER_BUTTON_CLASS_NAME =
 	"size-7 border-0 bg-transparent p-1.5 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground focus-visible:border-0 max-lg:min-h-7 max-lg:min-w-7";
 
 export function SpaceMessageFooter(input: {
+	signalId?: string;
 	addressingTargets: readonly SpaceMessageFooterAddressingTarget[];
 	align?: "end" | "start";
 	details?: SpaceMessageFooterDetailsAction;
@@ -101,9 +106,17 @@ export function SpaceMessageFooter(input: {
 	timestamp: string;
 }) {
 	const persistent = Boolean(input.failureSummary);
-	const hasOverflowActions =
-		persistent ||
-		Boolean(input.reply || input.thread || input.addressingTargets.length > 0);
+	const [menuOpen, setMenuOpen] = useState(false);
+	const pin = useSpaceMessagePinAction(input.signalId);
+	const hasOverflowActions = persistent || Boolean(pin);
+	const overflowActions = persistent
+		? {
+				addressingTargets: input.addressingTargets,
+				onCopy: input.copyDisabled ? undefined : input.onCopy,
+				reply: input.reply,
+				thread: input.thread,
+			}
+		: { addressingTargets: [] };
 	const detailsButton = (
 		<MessageFooterDetailsAction
 			details={input.details}
@@ -124,7 +137,7 @@ export function SpaceMessageFooter(input: {
 			<div
 				className={cn(
 					"flex min-w-0 max-w-full items-center gap-0.5 text-muted-foreground text-xs opacity-0 transition-opacity duration-100 ease-out group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 motion-reduce:transition-none [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
-					persistent && "pointer-events-auto opacity-100"
+					(persistent || menuOpen) && "pointer-events-auto opacity-100"
 				)}
 				data-slot="message-footer-primary-actions"
 			>
@@ -139,7 +152,6 @@ export function SpaceMessageFooter(input: {
 				)}
 				{input.reply && !persistent ? (
 					<MessageFooterIconAction
-						className="@max-[36rem]:hidden"
 						disabled={input.reply.disabled}
 						icon={<ArrowBendUpLeftIcon aria-hidden="true" />}
 						label={input.reply.label}
@@ -148,7 +160,6 @@ export function SpaceMessageFooter(input: {
 				) : null}
 				{input.thread && !persistent ? (
 					<MessageFooterIconAction
-						className="@max-[36rem]:hidden"
 						disabled={input.thread.disabled}
 						icon={<ChatCircleIcon aria-hidden="true" />}
 						label={input.thread.label}
@@ -156,21 +167,16 @@ export function SpaceMessageFooter(input: {
 					/>
 				) : null}
 				{input.addressingTargets.length > 0 && !persistent ? (
-					<MessageAddressingPopover
-						className="@max-[36rem]:hidden"
-						targets={input.addressingTargets}
-					/>
+					<MessageAddressingPopover targets={input.addressingTargets} />
 				) : null}
 				{persistent ? null : detailsButton}
 				{hasOverflowActions ? (
 					<MessageFooterMoreMenu
-						addressingTargets={input.addressingTargets}
+						{...overflowActions}
 						alwaysVisible={persistent}
-						onCopy={
-							persistent && !input.copyDisabled ? input.onCopy : undefined
-						}
-						reply={input.reply}
-						thread={input.thread}
+						onOpenChange={setMenuOpen}
+						open={menuOpen}
+						pin={pin}
 					/>
 				) : null}
 				<time className="ml-1 shrink-0 tabular-nums">{input.timestamp}</time>
@@ -256,6 +262,9 @@ function MessageAddressingPopover(input: {
 }
 
 function MessageFooterMoreMenu(input: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	pin?: SpaceMessageFooterAction;
 	addressingTargets: readonly SpaceMessageFooterAddressingTarget[];
 	alwaysVisible?: boolean;
 	onCopy?: () => void;
@@ -263,44 +272,56 @@ function MessageFooterMoreMenu(input: {
 	thread?: SpaceMessageFooterAction;
 }) {
 	return (
-		<DropdownMenu>
+		<DropdownMenu onOpenChange={input.onOpenChange} open={input.open}>
 			<MessageActionTooltip label="More actions">
 				<DropdownMenuTrigger
 					aria-label="More actions"
 					className={cn(
 						FOOTER_BUTTON_CLASS_NAME,
-						input.alwaysVisible ? null : "@min-[36rem]:hidden"
+						input.alwaysVisible || input.pin ? null : "@min-[36rem]:hidden"
 					)}
 					render={<Button size="icon-sm" type="button" variant="ghost" />}
 				>
 					<DotsThreeIcon aria-hidden="true" />
 				</DropdownMenuTrigger>
 			</MessageActionTooltip>
-			<DropdownMenuContent align="start" className="w-52" sideOffset={6}>
-				<DropdownMenuGroup>
+			<FluidDropdownMenuContent align="start" className="w-52" sideOffset={6}>
+				<DropdownMenuGroup className="w-full [&>[data-slot=dropdown-menu-item]]:w-full">
+					{input.pin ? (
+						<FluidDropdownMenuItem
+							disabled={input.pin.disabled}
+							index={0}
+							onClick={input.pin.onSelect}
+						>
+							<PushPinIcon aria-hidden="true" />
+							{input.pin.label}
+						</FluidDropdownMenuItem>
+					) : null}
 					{input.onCopy ? (
-						<DropdownMenuItem onClick={input.onCopy}>
+						<FluidDropdownMenuItem index={1} onClick={input.onCopy}>
 							<CopyIcon aria-hidden="true" />
 							Copy message
-						</DropdownMenuItem>
+						</FluidDropdownMenuItem>
 					) : null}
 					{input.reply ? (
-						<DropdownMenuItem
+						<FluidDropdownMenuItem
 							disabled={input.reply.disabled}
+							index={2}
 							onClick={input.reply.onSelect}
 						>
 							<ArrowBendUpLeftIcon aria-hidden="true" />
 							{input.reply.label}
-						</DropdownMenuItem>
+						</FluidDropdownMenuItem>
 					) : null}
 					{input.thread ? (
-						<DropdownMenuItem
+						<FluidDropdownMenuItem
 							disabled={input.thread.disabled}
+							index={3}
 							onClick={input.thread.onSelect}
 						>
 							<ChatCircleIcon aria-hidden="true" />
 							{input.thread.label}
-						</DropdownMenuItem>
+						</FluidDropdownMenuItem>
 					) : null}
 					{input.addressingTargets.length > 0 ? (
 						<DropdownMenuSub>
@@ -316,7 +337,7 @@ function MessageFooterMoreMenu(input: {
 						</DropdownMenuSub>
 					) : null}
 				</DropdownMenuGroup>
-			</DropdownMenuContent>
+			</FluidDropdownMenuContent>
 		</DropdownMenu>
 	);
 }

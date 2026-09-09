@@ -1,5 +1,15 @@
 # Data And Observability
 
+## Space pin ownership
+
+Space Durable Object SQLite owns message and file pins, in separate
+`space_message_pins` and `space_file_pins` tables (schema version 35). Records
+contain the source identifier, pinner profile, and timestamp. Original messages,
+file metadata, and file revisions remain authoritative; pin reads resolve them
+instead of persisting copied previews. Missing messages and trashed files are
+omitted. Retrying a pin preserves its original owner and timestamp, and unpin
+ownership is checked synchronously before deletion in the owning Space.
+
 ## Agent Context
 
 - Purpose: Define durable data ownership, projections, correlation keys, trace

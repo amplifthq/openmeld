@@ -654,10 +654,14 @@ import type {
   SpaceDispatchTraceResponseContractVersion,
   SpaceFileAuditEvent,
   SpaceFileDescriptor,
+  SpaceFilePinMutation,
+  SpaceFilePinsResponse,
   SpaceIdentityDirectory,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMessageAttachment,
+  SpaceMessagePinMutation,
+  SpaceMessagePinsResponse,
   SpaceSignalAuthoringPolicy,
   SpaceThreadContext,
   SpaceViewerMembershipResponse,
@@ -1862,6 +1866,10 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   ): Promise<StartUsageExhaustedContinuationResponse>;
   rpcPostTransientSignal(input: PostTransientSignalInput): Promise<void>;
   rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta>;
+  rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse>;
+  rpcMessagePins(
+    input: SpaceMessagePinsInput
+  ): Promise<SpaceMessagePinsResponse>;
   rpcGetBoard(input: GetSpaceBoardInput): Promise<SpaceBoardRoomProjection>;
   rpcGetBoardResult(
     input: GetSpaceBoardInput
@@ -24445,4 +24453,30 @@ function toSpaceCreator(context: CoreRpcContextInput): SpaceCreator {
       : {}),
     ...(actorContext.ownerName ? { ownerName: actorContext.ownerName } : {}),
   };
+}
+
+export type SpaceMessagePinsInput = GetSpaceMetaInput & {
+  mutation?: SpaceMessagePinMutation;
+};
+
+export type SpaceFilePinsInput = GetSpaceMetaInput & {
+  mutation?: SpaceFilePinMutation;
+};
+
+export async function rpcSpaceFilePins(
+  env: CoreBindings,
+  input: SpaceFilePinsInput
+): Promise<SpaceFilePinsResponse> {
+  const context = requireRpcContext(input.context);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcFilePins({ ...input, spaceId, context });
+}
+
+export async function rpcSpaceMessagePins(
+  env: CoreBindings,
+  input: SpaceMessagePinsInput
+): Promise<SpaceMessagePinsResponse> {
+  const context = requireRpcContext(input.context);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcMessagePins({ ...input, spaceId, context });
 }
