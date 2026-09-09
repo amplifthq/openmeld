@@ -1,8 +1,8 @@
 import { ensureSpaceExecutionInputOutbox } from "./space-execution-input-repo";
 import { ensureSpaceReactionTables } from "./space-reaction-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 34;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v34";
+export const SPACE_SQL_SCHEMA_VERSION = 36;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v36";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -25,6 +25,16 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   }
   ensureSpaceExecutionInputOutbox(sql);
   ensureSpaceReactionTables(sql);
+  sql.exec(`CREATE TABLE IF NOT EXISTS space_file_pins (
+    signal_id TEXT PRIMARY KEY,
+    pinned_by_profile_id TEXT NOT NULL,
+    pinned_at TEXT NOT NULL
+  )`);
+  sql.exec(`CREATE TABLE IF NOT EXISTS space_message_pins (
+    signal_id TEXT PRIMARY KEY,
+    pinned_by_profile_id TEXT NOT NULL,
+    pinned_at TEXT NOT NULL
+  )`);
   sql.exec(`CREATE TABLE IF NOT EXISTS space_invitation_receipts (
     invitation_id TEXT PRIMARY KEY,
     profile_id TEXT,

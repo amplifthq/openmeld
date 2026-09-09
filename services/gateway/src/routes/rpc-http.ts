@@ -25,6 +25,7 @@ import { registerInboxRoutes } from "./rpc-http.inbox";
 import { registerLocalRuntimeExpectedRoutesRoutes } from "./rpc-http.local-runtime-expected-routes";
 import { registerMessageChannelRoutes } from "./rpc-http.message-channels";
 import { registerMessageDetailsRoutes } from "./rpc-http.message-details";
+import { registerMessagePinRoutes } from "./rpc-http.message-pins";
 import { registerMessageReactionRoutes } from "./rpc-http.message-reactions";
 import { registerMetaRoutes } from "./rpc-http.meta";
 import { registerOrganizationDocumentRoutes } from "./rpc-http.organization-documents";
@@ -88,6 +89,7 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerDispatchLookupRoutes(app);
   registerDispatchTraceRoutes(app);
   registerMetaRoutes(app);
+  registerMessagePinRoutes(app);
   registerContractRoutes(app);
   registerUpdatesRoutes(app);
   registerMessageDetailsRoutes(app);
