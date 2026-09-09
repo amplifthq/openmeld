@@ -677,18 +677,15 @@ function SpaceConversationPanelContent(
 			/>
 
 			{showComposer ? (
-				<>
-					{input.pendingActionSurface}
-					<SpaceComposerSection
-						canSendMessage={canSendMessage}
-						canUploadFiles={canUploadFiles}
-						composerContext={composerContext}
-						composerSendBlocked={composerSendBlocked}
-						composerTargetName={composerTargetName}
-						input={input}
-						submitComposer={submitComposer}
-					/>
-				</>
+				<SpaceComposerSection
+					canSendMessage={canSendMessage}
+					canUploadFiles={canUploadFiles}
+					composerContext={composerContext}
+					composerSendBlocked={composerSendBlocked}
+					composerTargetName={composerTargetName}
+					input={input}
+					submitComposer={submitComposer}
+				/>
 			) : null}
 			{messageDetailsItem && input.spaceId ? (
 				<SpaceMessageDetailsDrawer
@@ -1946,6 +1943,7 @@ function SpaceComposerSection(input: {
 					}}
 					presentation={{ errorClassName: "mt-3" }}
 					slots={{
+						pendingActionSurface: panel.pendingActionSurface,
 						beforePrimaryAction: (
 							<SpaceComposerActiveWakes placement="conversation" />
 						),

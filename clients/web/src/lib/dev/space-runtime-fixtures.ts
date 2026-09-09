@@ -19,7 +19,7 @@ type Scenario = {
 	profileId: string;
 	profileName: string;
 	sourceSignalId: string;
-	scenario: "working" | "plan_review" | "permission";
+	scenario: "working" | "plan_review" | "permission" | "question";
 };
 const states = new Map<string, WakeProgressItem>();
 
@@ -55,7 +55,35 @@ function fixture(spaceId: string, viewer?: string): WakeProgressItem | null {
 		expiresAtMs: now + 86_400_000,
 	};
 	let request: AgentInteractionRequest | null = null;
-	if (scenario.scenario !== "working") {
+	if (scenario.scenario === "question") {
+		request = {
+			...common,
+			kind: "question",
+			title: "Choose the rollout approach",
+			questions: [
+				{
+					questionId: "audience",
+					prompt: "Who should receive the first release?",
+					options: [
+						{ optionId: "team", label: "Internal team" },
+						{ optionId: "pilot", label: "Pilot customers" },
+					],
+					multiple: false,
+					allowOther: true,
+				},
+				{
+					questionId: "checks",
+					prompt: "Which checks should we include?",
+					options: [
+						{ optionId: "keyboard", label: "Keyboard navigation" },
+						{ optionId: "billing", label: "Billing regression" },
+					],
+					multiple: true,
+					allowOther: true,
+				},
+			],
+		};
+	} else if (scenario.scenario !== "working") {
 		request =
 			scenario.scenario === "plan_review"
 				? {
@@ -63,7 +91,7 @@ function fixture(spaceId: string, viewer?: string): WakeProgressItem | null {
 						kind: "plan_review",
 						title: "Review the release plan",
 						allowFeedback: true,
-						plan: "## Release plan\n1. Validate the billing migration in the sandbox.\n2. Check invoices, refunds, and empty accounts.\n3. Review the results before publishing.\n\n## Rollback\nRestore the previous deployment if totals differ.",
+						plan: `## Release plan\n\n${Array.from({ length: 16 }, (_, index) => `### ${index + 1}. Validate the rollout\n\nCheck invoices, refunds, and empty accounts in the sandbox. Compare totals with the previous release and record any differences. Verify keyboard navigation and confirm that error messages describe a useful next step.\n\n`).join("")}## Rollback\n\nRestore the previous deployment if totals differ. No production changes happen until this plan is approved.`,
 					}
 				: {
 						...common,

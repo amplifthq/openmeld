@@ -692,7 +692,10 @@ describe("SpaceConversationPanel", () => {
 			'[data-slot="space-composer-section"]'
 		);
 		expect(composer).not.toBeNull();
-		expect(surface.nextElementSibling).toBe(composer);
+		expect(composer?.contains(surface)).toBe(true);
+		expect(
+			surface.nextElementSibling?.contains(screen.getByRole("textbox"))
+		).toBe(true);
 	});
 
 	it("anchors the earlier-history loading header to the conversation content rail", () => {

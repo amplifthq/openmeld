@@ -73,6 +73,7 @@ export type SpaceComposerProps = {
 		maxHeight?: number;
 	};
 	slots?: {
+		pendingActionSurface?: ReactNode;
 		beforeInput?: ReactNode;
 		beforePrimaryAction?: ReactNode;
 		error?: ReactNode;
@@ -165,6 +166,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 			className={input.presentation?.className}
 			data-slot={input.presentation?.dataSlot}
 		>
+			{input.slots?.pendingActionSurface}
 			<div className="relative">
 				<SpaceComposerFileDropOverlay visible={isDraggingFiles} />
 				{input.slots?.beforeInput}

@@ -6,13 +6,23 @@ import type {
 	RespondToSpaceAgentInteractionBody,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
+import {
+	ApprovalCard,
+	ApprovalCardBody,
+	ApprovalCardFooter,
+	ApprovalCardHeader,
+} from "@openmeld/ui/components/approval-card";
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Textarea } from "@openmeld/ui/components/textarea";
 import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
-import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
+import {
+	ChatCircleDotsIcon,
+	ListChecksIcon,
+	TerminalIcon,
+} from "@phosphor-icons/react";
 import { type ReactNode, useId, useState } from "react";
 import { MessageResponse } from "#/components/ai/message-response";
 
@@ -143,11 +153,6 @@ export function SpaceAgentInteractionCard(input: {
 			targetLabel={input.item.targetLabel}
 			title={request.title}
 		>
-			{request.description ? (
-				<p className="text-muted-foreground text-sm leading-6">
-					{request.description}
-				</p>
-			) : null}
 			{request.kind === "permission" ? (
 				<PermissionInteraction
 					disabled={isSubmitting}
@@ -196,35 +201,36 @@ function InteractionShell(input: {
 	title: string;
 }) {
 	return (
-		<section
+		<ApprovalCard
 			aria-label={`Request from ${input.targetLabel}`}
 			className={cn(
-				"flex w-full max-w-2xl flex-col gap-4 bg-background text-left",
 				input.presentation === "surface"
-					? "p-0"
-					: "my-2 rounded-lg border border-border p-4"
+					? "border-0 bg-transparent p-0"
+					: "my-2"
 			)}
 			data-agent-interaction-kind={input.kind}
 		>
-			<header className="flex min-w-0 flex-col gap-1">
-				<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-					<span className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-						{resolveInteractionKindLabel(input.kind)}
-					</span>
-					<span aria-hidden="true" className="text-muted-foreground text-xs">
-						·
-					</span>
-					<span className="min-w-0 truncate text-muted-foreground text-xs">
-						{input.targetLabel}
-					</span>
-				</div>
-				<h3 className="font-semibold text-base text-foreground leading-6">
-					{input.title}
-				</h3>
-			</header>
+			<ApprovalCardHeader
+				description={`${resolveInteractionKindLabel(input.kind)} · ${input.targetLabel}`}
+				icon={<InteractionKindIcon kind={input.kind} />}
+				title={input.title}
+			/>
 			{input.children}
-		</section>
+		</ApprovalCard>
 	);
+}
+
+function InteractionKindIcon({
+	kind,
+}: {
+	kind: AgentInteractionRequest["kind"];
+}) {
+	const Icon = {
+		plan_review: ListChecksIcon,
+		question: ChatCircleDotsIcon,
+		permission: TerminalIcon,
+	}[kind];
+	return <Icon aria-hidden="true" />;
 }
 
 function PermissionInteraction(input: {
@@ -249,37 +255,40 @@ function PermissionInteraction(input: {
 
 	return (
 		<>
-			<PermissionSubject request={input.request} />
-			<RadioGroup
-				aria-label="Permission choices"
-				className="w-full"
-				selectedIndex={selectedIndex}
-			>
-				{input.request.options.map((option, index) => (
-					<RadioItem
-						index={index}
-						key={option.optionId}
-						label={option.label}
-						onSelect={() => setSelectedOptionId(option.optionId)}
-					/>
-				))}
-			</RadioGroup>
-			{input.permissionModeShortcut && selectedOptionAllows ? (
-				<CheckboxGroup
-					aria-label="Future Agent permissions"
-					checkedIndices={updatePermissionMode ? new Set([0]) : new Set()}
+			<ApprovalCardBody>
+				<InteractionDescription request={input.request} />
+				<PermissionSubject request={input.request} />
+				<RadioGroup
+					aria-label="Permission choices"
 					className="w-full"
+					selectedIndex={selectedIndex}
 				>
-					<CheckboxItem
-						checked={updatePermissionMode}
-						description={`After this response is sent, OpenMeld will save ${input.permissionModeShortcut.label} for future requests. This does not delay the current Wake.`}
-						index={0}
-						label={`Also use ${input.permissionModeShortcut.label} for future requests`}
-						onToggle={() => setUpdatePermissionMode((current) => !current)}
-					/>
-				</CheckboxGroup>
-			) : null}
-			<div className="flex justify-end">
+					{input.request.options.map((option, index) => (
+						<RadioItem
+							index={index}
+							key={option.optionId}
+							label={option.label}
+							onSelect={() => setSelectedOptionId(option.optionId)}
+						/>
+					))}
+				</RadioGroup>
+				{input.permissionModeShortcut && selectedOptionAllows ? (
+					<CheckboxGroup
+						aria-label="Future Agent permissions"
+						checkedIndices={updatePermissionMode ? new Set([0]) : new Set()}
+						className="w-full"
+					>
+						<CheckboxItem
+							checked={updatePermissionMode}
+							description={`After this response is sent, OpenMeld will save ${input.permissionModeShortcut.label} for future requests. This does not delay the current Wake.`}
+							index={0}
+							label={`Also use ${input.permissionModeShortcut.label} for future requests`}
+							onToggle={() => setUpdatePermissionMode((current) => !current)}
+						/>
+					</CheckboxGroup>
+				) : null}
+			</ApprovalCardBody>
+			<ApprovalCardFooter>
 				<Button
 					disabled={input.disabled || !selectedOptionId}
 					onClick={() => {
@@ -303,9 +312,21 @@ function PermissionInteraction(input: {
 						? "Deny and continue"
 						: "Approve and continue"}
 				</Button>
-			</div>
+			</ApprovalCardFooter>
 		</>
 	);
+}
+
+function InteractionDescription({
+	request,
+}: {
+	request: AgentInteractionRequest;
+}) {
+	return request.description ? (
+		<p className="text-muted-foreground text-sm leading-6">
+			{request.description}
+		</p>
+	) : null;
 }
 
 function PermissionSubject(input: {
@@ -319,11 +340,9 @@ function PermissionSubject(input: {
 	return (
 		<div className="grid gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
 			{subject.command ? (
-				<ScrollArea className="max-h-48" orientation="both">
-					<pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5">
-						<code>{subject.command}</code>
-					</pre>
-				</ScrollArea>
+				<pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5">
+					<code>{subject.command}</code>
+				</pre>
 			) : null}
 			{subject.cwd ? (
 				<SubjectFact label="Working directory" value={subject.cwd} />
@@ -394,30 +413,33 @@ function QuestionInteraction(input: {
 	};
 
 	return (
-		<div className="grid gap-4">
-			<div className="flex items-center justify-between gap-3">
-				{question.header ? (
-					<p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-						{question.header}
-					</p>
-				) : (
-					<span />
-				)}
-				{input.request.questions.length > 1 ? (
-					<p className="shrink-0 text-muted-foreground text-xs">
-						{questionIndex + 1} of {input.request.questions.length}
-					</p>
-				) : null}
-			</div>
-			<p className="font-medium text-foreground text-sm leading-6">
-				{question.prompt}
-			</p>
-			<QuestionOptions
-				draft={draft}
-				onChange={updateDraft}
-				question={question}
-			/>
-			<div className="flex items-center justify-between gap-3">
+		<>
+			<ApprovalCardBody key={question.questionId}>
+				<InteractionDescription request={input.request} />
+				<div className="flex items-center justify-between gap-3">
+					{question.header ? (
+						<p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+							{question.header}
+						</p>
+					) : (
+						<span />
+					)}
+					{input.request.questions.length > 1 ? (
+						<p className="shrink-0 text-muted-foreground text-xs">
+							{questionIndex + 1} of {input.request.questions.length}
+						</p>
+					) : null}
+				</div>
+				<p className="font-medium text-foreground text-sm leading-6">
+					{question.prompt}
+				</p>
+				<QuestionOptions
+					draft={draft}
+					onChange={updateDraft}
+					question={question}
+				/>
+			</ApprovalCardBody>
+			<ApprovalCardFooter className="justify-between">
 				{questionIndex > 0 ? (
 					<Button
 						disabled={input.disabled}
@@ -443,8 +465,8 @@ function QuestionInteraction(input: {
 				>
 					{isLastQuestion ? "Submit answers" : "Next"}
 				</Button>
-			</div>
-		</div>
+			</ApprovalCardFooter>
+		</>
 	);
 }
 
@@ -672,35 +694,31 @@ function PlanReviewInteraction(input: {
 
 	return (
 		<>
-			<ScrollArea
-				className="max-h-80 rounded-md border border-border bg-muted/40"
-				contentClassName="p-3"
-				orientation="both"
-			>
-				<MessageResponse variant="space-message">
-					{input.request.plan}
-				</MessageResponse>
-			</ScrollArea>
-			{showFeedback ? (
-				<label className="grid gap-2 text-sm" htmlFor={feedbackId}>
-					<span className="font-medium text-foreground">
-						What should change?
-					</span>
-					<Textarea
-						autoFocus={true}
-						id={feedbackId}
-						maxLength={8000}
-						onChange={(event) => setFeedback(event.target.value)}
-						placeholder="Describe the changes you want the agent to make"
-						value={feedback}
-					/>
-				</label>
-			) : null}
-			<div
-				className={cn(
-					"flex flex-wrap items-center gap-2",
-					showFeedback ? "justify-between" : "justify-end"
-				)}
+			<ApprovalCardBody>
+				<InteractionDescription request={input.request} />
+				<div className="min-w-0 rounded-lg bg-muted/40 p-3">
+					<MessageResponse variant="space-message">
+						{input.request.plan}
+					</MessageResponse>
+				</div>
+				{showFeedback ? (
+					<label className="grid gap-2 text-sm" htmlFor={feedbackId}>
+						<span className="font-medium text-foreground">
+							What should change?
+						</span>
+						<Textarea
+							autoFocus={true}
+							id={feedbackId}
+							maxLength={8000}
+							onChange={(event) => setFeedback(event.target.value)}
+							placeholder="Describe the changes you want the agent to make"
+							value={feedback}
+						/>
+					</label>
+				) : null}
+			</ApprovalCardBody>
+			<ApprovalCardFooter
+				className={cn(showFeedback ? "justify-between" : "justify-end")}
 			>
 				{feedbackAction}
 				<div className="flex items-center gap-2">
@@ -733,7 +751,7 @@ function PlanReviewInteraction(input: {
 						Approve plan
 					</Button>
 				</div>
-			</div>
+			</ApprovalCardFooter>
 		</>
 	);
 }

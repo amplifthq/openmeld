@@ -545,7 +545,6 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				}
 				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
 			/>
-			{input.pendingActionSurface}
 			{renderThreadComposer(input)}
 			<ThreadSelectedMessageDetails
 				activeThread={input.activeThread}
@@ -845,6 +844,7 @@ function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 			onRemoveComposerFile={input.onRemoveComposerFile}
 			onSend={input.onSend}
 			orgSlug={input.orgSlug}
+			pendingActionSurface={input.pendingActionSurface}
 			prepareSetupHref={input.prepareSetupHref}
 			profileControl={input.profileControl}
 			textareaRef={input.textareaRef}
@@ -1711,6 +1711,7 @@ function resolveThreadMessageAvatarImageUrl(input: {
 }
 
 function ThreadComposer(input: {
+	pendingActionSurface?: ReactNode;
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
@@ -1797,6 +1798,7 @@ function ThreadComposer(input: {
 				maxHeight: 180,
 			}}
 			slots={{
+				pendingActionSurface: input.pendingActionSurface,
 				beforePrimaryAction: <SpaceComposerActiveWakes placement="thread" />,
 				error: input.composerErrorMessage ? (
 					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
