@@ -89,6 +89,43 @@ describe("Remote Agent Message Channel native delivery", () => {
       harness.close();
     }
   });
+  it("keeps a receipt recoverable when input preparation fails before worker submission", async () => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelNativeDeliveryMigrations(harness);
+    const queueSend = vi.fn(() => Promise.resolve());
+    const workerSubmit = vi.fn();
+    const registry = createWorkingCardRegistry();
+    try {
+      await expect(
+        submitRemoteAgentMessageChannelNativeDelivery({
+          db: harness.db,
+          env: buildEnv({
+            queueSend,
+            remoteAgentWorker: { submitConversationTurn: workerSubmit },
+          }),
+          memoryService: null,
+          nowMs: 1000,
+          registry,
+          request: createMessageChannelDeliveryInput(),
+          prepareInput: () => {
+            expect(queueSend).toHaveBeenCalledWith(
+              expect.objectContaining({
+                kind: "remote_agent_native_delivery_deadline_probe",
+              }),
+              expect.anything()
+            );
+            return Promise.reject(
+              new Error("Attachment temporarily unavailable")
+            );
+          },
+        })
+      ).rejects.toThrow("Attachment temporarily unavailable");
+      expect(workerSubmit).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("uses the shared worker, ledger, quota, and admission watchdog", async () => {
     const harness = createSqliteD1Harness();
     applyMessageChannelNativeDeliveryMigrations(harness);

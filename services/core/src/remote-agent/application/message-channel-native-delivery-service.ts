@@ -163,6 +163,24 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput
   }
   let preAdmission: RemoteAgentMessageChannelPreAdmissionResult;
   try {
+    // Cover input preparation as well as worker admission. A failed history or
+    // attachment fetch must not leave an already-visible receipt open forever.
+    await enqueueRemoteAgentAdmissionWatchdog({
+      ack: {
+        submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
+          identity.idempotencyKey
+        ),
+      },
+      env: input.env,
+      nowMs: input.nowMs,
+      target: {
+        dispatchId: identity.dispatchId,
+        idempotencyKey: identity.idempotencyKey,
+        organizationId: connection.organizationId,
+        profileId: centerAgent.agentProfileId,
+        spaceId: input.request.turnEnvelope.space.id,
+      },
+    });
     preAdmission = {
       ...admittedDelivery,
       workingCard: await prepareRemoteAgentMessageChannelWorkingCard({
@@ -293,23 +311,6 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput
         "Message Channel native delivery lost its durable worker request"
       );
     }
-
-    await enqueueRemoteAgentAdmissionWatchdog({
-      ack: {
-        submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
-          identity.idempotencyKey
-        ),
-      },
-      env: input.env,
-      nowMs: input.nowMs,
-      target: {
-        dispatchId: identity.dispatchId,
-        idempotencyKey: identity.idempotencyKey,
-        organizationId: connection.organizationId,
-        profileId: centerAgent.agentProfileId,
-        spaceId: input.request.turnEnvelope.space.id,
-      },
-    });
   } catch (error) {
     await cleanupPreparedInputAttachments();
     throw error;
