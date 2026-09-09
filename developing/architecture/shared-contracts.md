@@ -1864,7 +1864,15 @@ private context, access rights, or execution state is exported by this module.
 Remote adoption must supply its own authorized read tools and native delivery
 contract; Local action-proposal/CLI rules must not replace Remote automatic
 publication or Center native execution rules. This extraction does not integrate
-either hosted runtime or guarantee conflict-free multi-agent execution.
+Center execution or guarantee conflict-free multi-agent execution. Personal
+Remote Agents now consume these renderers and expose authorized Board and
+bounded public update tools through the personal Space-tool RPC. Version 4
+submission optionally carries the existing canonical message envelope for Wake
+participant context. Deploy Remote Agent before Core: older strict receivers
+reject the new submission field. The admitted field's presence enables the new
+read tools; requests admitted by older Core retain the existing tools, so the
+new runtime does not call unsupported Core operations during rollout. No
+workstation protocol, permission, or local-component version changes.
 
 `packages/schemas/src/schemas/http/space-board.ts` owns the strict Space Board
 HTTP/RPC response. Space/Core compose the response from the Space room

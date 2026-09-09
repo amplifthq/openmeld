@@ -966,6 +966,7 @@ export async function submitRemoteAgentNativeDelivery(
             return {
               v: 4,
               conversationId,
+              sourceMessageEnvelope: input.message.sourceMessageEnvelope,
               conversationIdentity: {
                 kind: "personal_agent",
                 agentProfileId: input.message.targetProfileId,
