@@ -10,7 +10,6 @@ import type {
 	SpaceThreadPreview,
 } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
-import { buildPublicSpaceEntryPath } from "@openmeld/space";
 import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
 import { ProgressiveBlur } from "@openmeld/ui/components/progressive-blur";
@@ -52,6 +51,7 @@ import {
 	resolveActiveWakeSourceItem,
 } from "#/lib/spaces/active-wake-conversation";
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
 import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
@@ -1339,13 +1339,49 @@ function useSpaceConversationNavigationController(input: {
 		input.onSpaceViewChange("messages");
 		window.requestAnimationFrame(() => jumpToMessage(signalId));
 	});
-	const onJumpToPinnedMessage = useLatestCallback((signalId: string) => {
+	const [pendingPinJump, setPendingPinJump] = useState<string | null>(null);
+	useLayoutEffect(() => {
+		if (
+			pendingPinJump &&
+			input.mainTimelineItems.some((item) => item.id === pendingPinJump) &&
+			messageElementsBySignalIdRef.current.has(pendingPinJump)
+		) {
+			jumpToMessage(pendingPinJump);
+			setPendingPinJump(null);
+		}
+	}, [pendingPinJump, input.mainTimelineItems, jumpToMessage]);
+	const onJumpToPinnedMessage = useLatestCallback(async (signalId: string) => {
 		if (messageElementsBySignalIdRef.current.has(signalId)) {
 			onJumpToMessage(signalId);
-		} else if (input.spaceId) {
-			// Shared entry resolution locates unloaded history and thread messages.
-			window.location.assign(
-				buildPublicSpaceEntryPath({ spaceId: input.spaceId, signalId })
+			return;
+		}
+		if (!input.spaceId) {
+			return;
+		}
+		try {
+			const entry = await createUnscopedWebSpaceApi({
+				openMeldProfileId: input.selfProfileId,
+			}).resolveEntry({ spaceId: input.spaceId, signalId });
+			if (entry.view.state !== "allowed") {
+				throw new Error("This message is no longer available.");
+			}
+			input.onSpaceViewChange("messages");
+			if (entry.target.threadRootSignalId) {
+				const opened = await input.onOpenUnreadThread?.({
+					rootSignalId: entry.target.threadRootSignalId,
+					signalId,
+				});
+				if (!opened) {
+					throw new Error("Couldn’t open this thread. Try again.");
+				}
+			} else if (await input.onLoadHistoryAround?.(signalId)) {
+				setPendingPinJump(signalId);
+			}
+		} catch (error) {
+			setMainFocusStatusMessage(
+				error instanceof Error
+					? error.message
+					: "Couldn’t open this message. Try again."
 			);
 		}
 	});

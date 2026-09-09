@@ -380,7 +380,11 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 						onDropCapture={(event) => handleDragCapture(event, input.onDrop)}
 						onFocusCapture={input.onFocus}
 						onKeyDownCapture={(event) => {
-							if (event.key === "Escape" && input.onCancel) {
+							if (
+								event.key === "Escape" &&
+								input.onCancel &&
+								!(event.target instanceof HTMLInputElement)
+							) {
 								event.stopPropagation();
 								input.onCancel();
 								return;

@@ -7377,7 +7377,8 @@ export class Space extends DurableObject<CoreBindings> {
     if (
       !signal ||
       signal.type !== "signal.text" ||
-      signal.profile.kind === "system"
+      signal.profile.kind === "system" ||
+      signal.data.meta?.recalledAt !== undefined
     ) {
       throw createCoreRpcHttpError({
         status: 404,
