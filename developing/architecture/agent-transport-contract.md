@@ -1221,8 +1221,10 @@ coordination context, not proof that the current Agent's work is wrong. If that
 bounded delta is empty,
 the proposed action carries the current observation cursor without another
 controller turn. If the delta is non-empty, Service continues the exact same
-Agent Controller conversation in repair mode with only the previous proposed
-action and the bounded newer messages. It reads again after that turn whenever
+Agent Controller conversation in repair mode with the previous proposed
+action and a bounded view of already observed and newer messages. Native repair
+forks may start from the canonical parent each time, so the review input must
+not assume that a preceding review's messages exist in that fork. It reads again after that turn whenever
 Space atomically reports that collaboration advanced again.
 The earlier dispatch-scoped Space Action remains an unpublished, replaceable
 proposal even if its local command reported that OpenMeld accepted it. The
@@ -1234,8 +1236,13 @@ preserved as superseded evidence. Missing exact-conversation identity fails
 explicitly instead of starting a fresh conversation. There is no semantic
 review-count limit: a fixed count can discard a valid result in a legitimately
 busy business workflow. Context remains bounded because every review reads at
-most 20 signals, bounds each rendered signal, and advances from the last
-observed Space cursor. RuntimeCoordinator Stop, execution authority, and real
+most 20 signals and advances from the last observed Space cursor. Within the
+coordination call, Service retains at most the latest 20 distinct relevant
+signals in publication order and renders at most 2,000 characters per signal.
+It identifies the last omitted signal and marks truncated text so the Agent
+can consult authorized Space/thread history when those details matter. This
+view is ephemeral public context, not a private transcript, read receipt,
+execution authority, or replacement canonical conversation. RuntimeCoordinator Stop, execution authority, and real
 transport failure remain the terminal controls; context review is not a new
 Wake, retry of external work, or unbounded transcript replay.
 

@@ -155,7 +155,7 @@ describe("local service dispatch bootstrap prompt", () => {
       "- Actions: Complete this Wake with exactly one final outcome: reply, status, or silent."
     );
     expect(prompt).toContain(
-      "- Choose silent when you have no new contribution instead of repeating another member."
+      "- A requested personal answer, acknowledgement, or result remains due even when it matches another member's answer. Choose silent only when no requested or useful contribution remains."
     );
     expect(prompt).toContain(
       "- Keep private work, drafts, tool logs, and unauthorized sensitive context local. Treat this Wake as the current source"
@@ -416,7 +416,7 @@ describe("local service dispatch bootstrap prompt", () => {
       "- You are: my-codex, Profile ID: agent_profile_bootstrap, Role: Code reviewer"
     );
     expect(prompt).toContain(
-      "- Need more: run `openmeld space board space_bootstrap_1` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at https://openmeld.ai/guide.md / run `openmeld prompt space`."
+      "- Need more: run `openmeld space board space_bootstrap_1 --profile agent_profile_bootstrap --view agent` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at https://openmeld.ai/guide.md / run `openmeld prompt space`."
     );
     expect(prompt).toContain("Space Dispatch Brief:");
     expect(prompt).toContain("- Activated by: agt_source_1");
@@ -473,7 +473,7 @@ describe("local service dispatch bootstrap prompt", () => {
     });
 
     expect(prompt).toContain(
-      "- Need more: run `openmeld-dev space board space_dev` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at https://openmeld.ai/guide.md / run `openmeld-dev prompt space`."
+      "- Need more: run `openmeld-dev space board space_dev --profile agent_profile_bootstrap --view agent` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at https://openmeld.ai/guide.md / run `openmeld-dev prompt space`."
     );
     expect(prompt).toContain(
       'Only if unavailable: `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"`'
@@ -539,7 +539,7 @@ describe("local service dispatch bootstrap prompt", () => {
 
     expect(prompt).toContain("- Reply target: previous thread message");
     expect(prompt).toContain(
-      "- Since your last public reply: 2 new messages; higher-authority updates: yes (run `openmeld space history space_a --kind text --limit 20` for content)"
+      "- Since your last public reply: 2 new messages; higher-authority updates: yes (run `openmeld space history space_a --kind text --limit 20 --profile agent_profile_a --view agent` for content)"
     );
   });
 
@@ -695,10 +695,10 @@ describe("local service dispatch bootstrap prompt", () => {
     });
 
     expect(prompt).toContain(
-      '- Current Wake: 4 Agent Profiles were activated by this source message, including you. Exact participant profile IDs: ["agent_profile_a","agent_profile_b","agent_profile_c","agent_profile_d"]. Activation is not evidence that any Agent has contributed.'
+      '- Current Wake: 4 Agent Profiles were activated by this source message, including you. Exact participant profile IDs: ["agent_profile_a","agent_profile_b","agent_profile_c","agent_profile_d"]. This list is not an assignment or execution order, and activation is not evidence that any Agent has contributed.'
     );
     expect(prompt).toContain(
-      "`openmeld-dev space updates space_a --after-signal signal-current-wake --view agent --json`"
+      "`openmeld-dev space updates space_a --after-signal signal-current-wake --profile agent_profile_a --view agent --json`"
     );
     expect(prompt).toContain(
       "only if your final reply depends on another participant's current outcome"

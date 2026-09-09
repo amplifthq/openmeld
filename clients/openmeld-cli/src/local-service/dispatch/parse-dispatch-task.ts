@@ -540,6 +540,7 @@ function renderActivationIntentGate(
   return [
     "Activation intent gate:",
     "- Decide from the current Wake message and structured addressing before reading Space history or using any tool. Use one brief pass: assigned, referenced_or_candidate, or ambiguous.",
+    "- Coordination is assigned work: a request to contact, delegate to, or collect results from another member makes you responsible, not a candidate.",
     `- If you are only a candidate, example, alternative, or possible helper while another Agent owns the request, call dispatch-scoped Space Action \`stay_silent\` with reason \`activation_intent.referenced_or_candidate\`; only if unavailable, run \`${buildSpaceActionCommand(
       'silent --reason "activation_intent.referenced_or_candidate"'
     )}\`. Stop before reading history, calling business tools, or publishing an explanation.`,
@@ -591,6 +592,7 @@ function renderEntryBriefSection(
     needMore: buildSpaceEntryBriefNeedMoreLine({
       cliEntry: input.cliEntry,
       spaceId: input.spaceId,
+      targetProfileId: input.targetProfileId,
     }),
     spaceGuide: input.spaceGuide,
     thisSpace: buildThisSpaceLine(input),
@@ -643,6 +645,7 @@ function renderDispatchBriefSection(
       cliEntry: input.cliEntry,
       sourceSignalId: input.sourceSignalId,
       spaceId: input.spaceId,
+      targetProfileId: input.targetProfileId,
     }),
     `- Actions: ${dispatchBrief.whatYouCanDoNow}`,
     ...buildProgressiveContextGuidanceLines(input),
@@ -660,7 +663,7 @@ function buildCurrentWakeContextLines(
 
   const cliEntry = normalizeOptionalText(input.cliEntry) ?? "openmeld";
   const spaceId = normalizeOptionalText(input.spaceId) ?? "<space-id>";
-  const updatesCommand = `${cliEntry} space updates ${spaceId} --after-signal ${sourceSignalId} --view agent --json`;
+  const updatesCommand = `${cliEntry} space updates ${spaceId} --after-signal ${sourceSignalId} --profile ${input.targetProfileId} --view agent --json`;
   return buildSpaceWakeParticipantLines({
     targetProfileId: input.targetProfileId,
     activationTargets: input.sourceMessageEnvelope?.activationTargets ?? [],
@@ -790,31 +793,36 @@ function buildSendTargetReferenceLines(
 function buildSpaceHistoryCommand(input: {
   cliEntry?: string | null;
   spaceId: string;
+  targetProfileId: string;
 }): string {
   const cliEntry = normalizeOptionalText(input.cliEntry) ?? "openmeld";
   const normalizedSpaceId = normalizeOptionalText(input.spaceId);
   return normalizedSpaceId
-    ? `${cliEntry} space history ${normalizedSpaceId} --kind text --limit 20`
-    : `${cliEntry} space history <space-id> --kind text --limit 20`;
+    ? `${cliEntry} space history ${normalizedSpaceId} --kind text --limit 20 --profile ${input.targetProfileId} --view agent`
+    : `${cliEntry} space history <space-id> --kind text --limit 20 --profile ${input.targetProfileId} --view agent`;
 }
 
 function buildSpaceThreadCommand(
-  input: Pick<DispatchPromptBootstrapInput, "cliEntry" | "spaceId"> & {
+  input: Pick<
+    DispatchPromptBootstrapInput,
+    "cliEntry" | "spaceId" | "targetProfileId"
+  > & {
     threadId: string;
   }
 ): string {
   const cliEntry = normalizeOptionalText(input.cliEntry) ?? "openmeld";
   const spaceId = normalizeOptionalText(input.spaceId) ?? "<space-id>";
-  return `${cliEntry} space thread ${spaceId} ${input.threadId} --view agent`;
+  return `${cliEntry} space thread ${spaceId} ${input.threadId} --profile ${input.targetProfileId} --view agent`;
 }
 
 function buildSpaceContextWindowCommand(input: {
   cliEntry?: string | null;
   sourceSignalId: string;
   spaceId: string;
+  targetProfileId: string;
 }): string {
   const cliEntry = normalizeOptionalText(input.cliEntry) ?? "openmeld";
-  return `${cliEntry} space history ${input.spaceId} --around-signal ${input.sourceSignalId} --before 20 --after 0 --kind text`;
+  return `${cliEntry} space history ${input.spaceId} --around-signal ${input.sourceSignalId} --before 20 --after 0 --kind text --profile ${input.targetProfileId} --view agent`;
 }
 
 function buildProgressiveContextGuidanceLines(
@@ -827,6 +835,7 @@ function buildProgressiveContextGuidanceLines(
         cliEntry: input.cliEntry,
         spaceId: input.spaceId,
         threadId: input.threadContext.threadId,
+        targetProfileId: input.targetProfileId,
       })}\` only if the provided reply context is insufficient.`
     );
   }
@@ -903,6 +912,7 @@ function renderContinuityLine(input: {
   higherAuthorityUpdates: boolean;
   sourceSignalId?: string | null;
   spaceId: string;
+  targetProfileId: string;
 }): string | null {
   const parts: string[] = [];
   if (input.messagesSinceThen > 0) {
@@ -928,6 +938,7 @@ function renderContinuityLine(input: {
     cliEntry: input.cliEntry,
     sourceSignalId,
     spaceId: input.spaceId,
+    targetProfileId: input.targetProfileId,
   });
   return `- Since your last public reply: ${parts.join(
     "; "

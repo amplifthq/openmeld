@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-09T12:13:13.365Z",
+  "updatedAt": "2026-09-09T11:15:30.189Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.190",
+      "packageVersion": "0.3.189",
       "updatePolicy": "available",
       "reason": "Committed-session reads avoid unnecessary recovery locking; authentication and CLI commands remain compatible in both directions."
     },
     "service": {
-      "bundleHash": "ef924c4bcc269ca27e9ba13728a0b6898fef8c9ba480a990595d7d6ca0fdb101",
-      "bundleVersion": "0.3.190",
+      "bundleHash": "5db2e0d6e86bc8e047aaed909299a7ea20c37a3663298d173ad7127dc841df64",
+      "bundleVersion": "0.3.189",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "The dependency refresh changes packaged Service bytes; setup, Wake, Space actions and diagnostics remain compatible with both cloud versions."
+      "reason": "Existing Services remain compatible; remove unnecessary account recovery lock contention from normal requests while retaining transition safeguards."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
