@@ -11,12 +11,14 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { validateCoreVersionReleaseConfig } from "./core-version-deployment.mjs";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, "../..");
 const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_PATTERN = /\r?\n/u;
 const WRANGLER_STARTUP_TIME_PATTERN = /Worker Startup Time:\s*([\d.]+)\s*ms/u;
+const DURABLE_OBJECT_MIGRATION_REQUIRED = /\[code:\s*10211\]/u;
 
 export const CORE_STARTUP_PERFORMANCE_TARGET_MS = 500;
 
@@ -47,7 +49,10 @@ export function parseWranglerStartupTime(output) {
   return startupTimeMs;
 }
 
-export function parseWranglerVersionUploadEvent(outputFile) {
+export function parseWranglerVersionUploadEvent(
+  outputFile,
+  eventType = "version-upload"
+) {
   const events = outputFile
     .split(LINE_SPLIT_PATTERN)
     .filter(Boolean)
@@ -58,12 +63,10 @@ export function parseWranglerVersionUploadEvent(outputFile) {
         throw new Error("Wrangler output evidence contained invalid JSON");
       }
     });
-  const event = events.find(
-    (candidate) => candidate?.type === "version-upload"
-  );
+  const event = events.find((candidate) => candidate?.type === eventType);
   if (!(event?.version_id && event?.worker_name && event?.worker_tag)) {
     throw new Error(
-      "Wrangler output evidence did not record a version-upload event"
+      `Wrangler output evidence did not record a ${eventType} event`
     );
   }
   return {
@@ -78,7 +81,10 @@ export function createCoreStartupAdmissionEvidence(input) {
     throw new Error("Core startup admission requires an exact release SHA");
   }
   const startupTimeMs = parseWranglerStartupTime(input.wranglerOutput);
-  const version = parseWranglerVersionUploadEvent(input.outputFile);
+  const version = parseWranglerVersionUploadEvent(
+    input.outputFile,
+    input.atomicMigration ? "deploy" : "version-upload"
+  );
   return {
     decision: "accepted",
     generatedAt: new Date().toISOString(),
@@ -90,7 +96,7 @@ export function createCoreStartupAdmissionEvidence(input) {
     schemaVersion: 2,
     startupTargetMs: CORE_STARTUP_PERFORMANCE_TARGET_MS,
     startupTimeMs,
-    trafficPercent: 0,
+    trafficPercent: input.atomicMigration ? 100 : 0,
     ...version,
   };
 }
@@ -146,15 +152,44 @@ export function runCoreStartupAdmission(input) {
           env: commandInput.env,
           maxBuffer: 1024 * 1024 * 20,
         }));
-    const result = runCommand({
+    const commandInput = {
       ...step,
       env: {
         ...(input.env ?? process.env),
         WRANGLER_OUTPUT_FILE_PATH: wranglerOutputPath,
       },
-    });
-    const wranglerOutput = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    };
+    let result = runCommand(commandInput);
+    let wranglerOutput = `${result.stdout ?? ""}${result.stderr ?? ""}`;
     process.stdout.write(wranglerOutput);
+    let atomicMigration = false;
+    if (
+      !result.error &&
+      result.status !== 0 &&
+      DURABLE_OBJECT_MIGRATION_REQUIRED.test(wranglerOutput)
+    ) {
+      // Cloudflare is the migration authority. Only its specific refusal of a
+      // class lifecycle change authorizes the atomic path; other failures stop.
+      validateCoreVersionReleaseConfig(
+        readFileSync(
+          path.join(
+            input.cwd ?? REPOSITORY_ROOT,
+            "services/core/wrangler.jsonc"
+          ),
+          "utf8"
+        )
+      );
+      console.log(
+        "[core-startup] Cloudflare requires an atomic Durable Object migration; deploying the same approved source at 100% with platform startup admission."
+      );
+      const args = [...step.args];
+      args.splice(args.indexOf("versions"), 2, "deploy");
+      writeFileSync(wranglerOutputPath, "");
+      result = runCommand({ ...commandInput, args });
+      wranglerOutput = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+      process.stdout.write(wranglerOutput);
+      atomicMigration = true;
+    }
     if (result.error) {
       throw result.error;
     }
@@ -164,6 +199,7 @@ export function runCoreStartupAdmission(input) {
       );
     }
     const evidence = createCoreStartupAdmissionEvidence({
+      atomicMigration,
       outputFile: readFileSync(wranglerOutputPath, "utf8"),
       releaseSha: input.releaseSha,
       wranglerOutput,
