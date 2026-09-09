@@ -98,6 +98,7 @@
     "cmdk": "^1.1.1",
     "cuelume": "0.2.2",
     "dexie": "4.4.5",
+    "dompurify": "3.4.15",
     "framer-motion": "^12.35.2",
     "lowlight": "^3.3.0",
     "lucide-react": "^1.8.0",

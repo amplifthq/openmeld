@@ -23,6 +23,7 @@ import type { ClipboardEvent, DragEvent } from "react";
 import { useRef, useState } from "react";
 import { PromptInputAction } from "#/components/ibelick/prompt-input";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
+import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 
 export function useSpaceComposerFileInput(input: {
 	disabled: boolean;
@@ -188,7 +189,11 @@ export function SpaceComposerFileTray(input: {
 						/>
 					) : (
 						<div className="flex size-12 shrink-0 items-center justify-center rounded-sm border border-border bg-background text-muted-foreground">
-							<FileIcon aria-hidden="true" className="size-5" />
+							{file.mimeType === "text/html" ? (
+								<SpaceFileHtmlBadge />
+							) : (
+								<FileIcon aria-hidden="true" className="size-5" />
+							)}
 						</div>
 					)}
 					<div className="min-w-0 flex-1">
