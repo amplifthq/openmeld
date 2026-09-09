@@ -147,6 +147,12 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.listAgentProfileCreationRequests({
           context: buildCoreRpcContext(c),
           organizationId,
+          ...(c.req.query("requestId")
+            ? { requestId: c.req.query("requestId") }
+            : {}),
+          ...(c.req.query("idempotencyKey")
+            ? { idempotencyKey: c.req.query("idempotencyKey") }
+            : {}),
         }),
       method: "GET",
       responseSchema: listAgentProfileCreationRequestsResponseSchema,

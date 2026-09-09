@@ -1,21 +1,178 @@
-import { env } from "cloudflare:test";
+import { createExecutionContext, env } from "cloudflare:test";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type { RuntimeTransportLookupOwnerServiceResponse } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { handleAgentProfileCreationMessage } from "../src/agent-profile-creation-request/agent-profile-creation-execution";
+import { recoverAgentProfileCreationRequests } from "../src/agent-profile-creation-request/agent-profile-creation-request-recovery";
 import {
-  rpcCenterAgentCreateAgentProfileCreationRequest,
-  rpcCreateAgentProfileCreationRequest,
-  rpcDecideAgentProfileCreationRequest,
+  rpcDecideAgentProfileCreationRequest as decideRequest,
+  executeAgentProfileCreationRequest,
+  rpcRetryAgentProfileCreationRequest as retryRequest,
   rpcListAgentProfileCreationRequests,
-  rpcRetryAgentProfileCreationRequest,
+  rpcCenterAgentCreateAgentProfileCreationRequest as submitCenterAgentRequest,
+  rpcCreateAgentProfileCreationRequest as submitRequest,
 } from "../src/agent-profile-creation-request/agent-profile-creation-request-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
 // biome-ignore lint/performance/noNamespaceImport: Vitest needs the module object to replace this dependency at the RPC boundary.
 import * as rpcMethods from "../src/rpc/methods";
+import { handleCoreQueueBatch } from "../src/shared/queue/core-queue-router";
 // biome-ignore lint/performance/noNamespaceImport: Vitest needs the module object to replace this dependency at the RPC boundary.
 import * as currentDeviceTargetService from "../src/start/application/current-device-target-service";
 
+// These integration scenarios cover the complete admission + execution path.
+// Production delivery invokes the same executor from the Core queue consumer.
+async function rpcCreateAgentProfileCreationRequest(
+  ...args: Parameters<typeof submitRequest>
+) {
+  const result = await submitRequest(...args);
+  return {
+    ...result,
+    request: await executeAgentProfileCreationRequest(args[0], result.request),
+  };
+}
+async function rpcCenterAgentCreateAgentProfileCreationRequest(
+  ...args: Parameters<typeof submitCenterAgentRequest>
+) {
+  const result = await submitCenterAgentRequest(...args);
+  return {
+    ...result,
+    request: await executeAgentProfileCreationRequest(args[0], result.request),
+  };
+}
+async function rpcDecideAgentProfileCreationRequest(
+  ...args: Parameters<typeof decideRequest>
+) {
+  const result = await decideRequest(...args);
+  return {
+    ...result,
+    request: await executeAgentProfileCreationRequest(args[0], result.request),
+  };
+}
+async function rpcRetryAgentProfileCreationRequest(
+  ...args: Parameters<typeof retryRequest>
+) {
+  const result = await retryRequest(...args);
+  return {
+    ...result,
+    request: await executeAgentProfileCreationRequest(args[0], result.request),
+  };
+}
+
 describe("Agent Profile creation request RPC", () => {
+  it("recovers a durable accepted request after notification loss and executes duplicate deliveries only once", async () => {
+    const fixture = await seedFixture();
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("queue temporarily unavailable"))
+      .mockResolvedValue(undefined);
+    const createAgentProfileInOrganization = vi.fn().mockResolvedValue({
+      ok: true,
+      profile: { openMeldProfileId: "agt_durable_creation" },
+    });
+    const bindings = {
+      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
+      OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
+    } as unknown as CoreBindings;
+    const command = {
+      context: contextFor(fixture.requesterUserId, fixture.requesterProfileId),
+      idempotencyKey: `lost-ack-${fixture.suffix}`,
+      organizationId: fixture.organizationId,
+      profileName: "Durable Agent",
+      sessionStrategy: "new" as const,
+      source: "cli" as const,
+      targetOwnerUserId: fixture.requesterUserId,
+    };
+    const accepted = await submitRequest(bindings, command);
+    expect(accepted.request.status).toBe("approved");
+    expect(createAgentProfileInOrganization).not.toHaveBeenCalled();
+    const recovered = await rpcListAgentProfileCreationRequests(bindings, {
+      context: command.context,
+      organizationId: command.organizationId,
+      idempotencyKey: command.idempotencyKey,
+    });
+    expect(recovered).toMatchObject({
+      matchedIdempotencyKey: command.idempotencyKey,
+      requests: [{ id: accepted.request.id, status: "approved" }],
+    });
+    await recoverAgentProfileCreationRequests({
+      db: env.OPENMELD_DB,
+      env: bindings,
+      nowMs: Date.now(),
+    });
+    const body = send.mock.calls.findLast(
+      ([message]) => message.requestId === accepted.request.id
+    )?.[0];
+    expect(body).toEqual({
+      kind: "agent_profile_creation",
+      v: 1,
+      requestId: accepted.request.id,
+      organizationId: fixture.organizationId,
+    });
+    const message: Message<unknown> = {
+      id: "delivery-1",
+      attempts: 1,
+      timestamp: new Date(),
+      body,
+      ack: vi.fn(),
+      retry: vi.fn(),
+    };
+    await handleCoreQueueBatch({
+      env: bindings,
+      ctx: createExecutionContext(),
+      batch: {
+        queue: "openmeld-daemon-dispatch",
+        messages: [message],
+        metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } },
+        ackAll: vi.fn(),
+        retryAll: vi.fn(),
+      },
+    });
+    expect(
+      await handleAgentProfileCreationMessage({ env: bindings, message })
+    ).toBe(true);
+    expect(createAgentProfileInOrganization).toHaveBeenCalledOnce();
+    expect(message.ack).toHaveBeenCalledTimes(2);
+    expect(message.retry).not.toHaveBeenCalled();
+    const replay = await submitRequest(bindings, command);
+    expect(replay).toMatchObject({
+      replayed: true,
+      request: {
+        id: accepted.request.id,
+        status: "completed",
+        createdAgentProfileId: "agt_durable_creation",
+      },
+    });
+  });
+
+  it("rechecks Organization membership after accepting a request and before creating identity", async () => {
+    const fixture = await seedFixture();
+    const createAgentProfileInOrganization = vi.fn();
+    const bindings = {
+      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
+      OPENMELD_DAEMON_DISPATCH_QUEUE: { send: vi.fn() },
+    } as unknown as CoreBindings;
+    const accepted = await submitRequest(bindings, {
+      context: contextFor(fixture.requesterUserId, fixture.requesterProfileId),
+      idempotencyKey: `revoked-${fixture.suffix}`,
+      organizationId: fixture.organizationId,
+      profileName: "Revoked Agent",
+      sessionStrategy: "new",
+      source: "cli",
+      targetOwnerUserId: fixture.requesterUserId,
+    });
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
+    )
+      .bind(fixture.organizationId, fixture.requesterUserId)
+      .run();
+    expect(
+      await executeAgentProfileCreationRequest(bindings, accepted.request)
+    ).toMatchObject({ status: "failed", createdAgentProfileId: null });
+    expect(createAgentProfileInOrganization).not.toHaveBeenCalled();
+  });
+
   it("retries setup for the committed Profile without creating another identity", async () => {
     const fixture = await seedFixture();
     const createdAgentProfileId = "agt_33333333-3333-4333-8333-333333333333";
@@ -411,6 +568,20 @@ describe("Agent Profile creation request RPC", () => {
       sessionStrategy: "resume",
       status: "pending",
       targetOwnerUserId: fixture.targetUserId,
+    });
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM agent_activity_session_inventory WHERE id = ?"
+    )
+      .bind(`inventory-${fixture.suffix}`)
+      .run();
+    const replayed = await submitRequest(bindings, {
+      ...created.request,
+      context: contextFor(fixture.requesterUserId, fixture.requesterProfileId),
+      idempotencyKey: `resume-${fixture.suffix}`,
+    });
+    expect(replayed).toMatchObject({
+      replayed: true,
+      request: { id: created.request.id },
     });
   });
 

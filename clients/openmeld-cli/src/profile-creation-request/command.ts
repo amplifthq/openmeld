@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import {
   agentProfileCreationConfigurationSchema,
+  createAgentProfileCreationRequestBodySchema,
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 } from "@openmeld/schemas";
 import type { AgentProfileCreationConfiguration } from "@openmeld/schemas/types";
@@ -23,6 +25,7 @@ import {
 } from "./input";
 import {
   emitCommandError,
+  emitLocalError,
   emitPreference,
   emitRequest,
   emitRequestList,
@@ -57,6 +60,10 @@ export async function runProfileCreationRequestCreate(
     return;
   }
 
+  const idempotencyKey =
+    normalizeOptionalText(input.idempotencyKey) ?? randomUUID();
+  let submitted = false;
+
   try {
     const profileName = requireText(input.profileName, "Agent Profile name");
     const sessionStrategy = parseSessionStrategy(input.sessionStrategy);
@@ -71,17 +78,20 @@ export async function runProfileCreationRequestCreate(
       input,
       targetOwnerUserId,
     });
-    const response = await context.api.createAgentProfileCreationRequest({
+    const body = createAgentProfileCreationRequestBodySchema.parse({
       configuration,
-      idempotencyKey:
-        normalizeOptionalText(input.idempotencyKey) ?? randomUUID(),
+      idempotencyKey,
       nativeSessionId,
-      organizationId: context.organization.id,
       profileName,
       requestedSpaceId: normalizeOptionalText(input.requestedSpaceId),
       sessionStrategy,
       source: parseRequestSource(input.source),
       targetOwnerUserId,
+    });
+    submitted = true;
+    const response = await context.api.createAgentProfileCreationRequest({
+      ...body,
+      organizationId: context.organization.id,
     });
     emitRequest({
       code: "profile.creation_request.created",
@@ -93,6 +103,25 @@ export async function runProfileCreationRequestCreate(
         : "Agent Profile Request Created",
     });
   } catch (error) {
+    const failure = toStructuredApiClientFailure(error);
+    if (
+      submitted &&
+      (failure.status === null ||
+        failure.status < 400 ||
+        failure.status === 408 ||
+        failure.status >= 500)
+    ) {
+      emitLocalError({
+        code: "profile.creation_request.outcome_unknown",
+        presenter: context.presenter,
+        title: "Creation status unavailable",
+        message:
+          "The request may have been accepted. Its final status could not be checked.",
+        details: [{ label: "Idempotency key", value: idempotencyKey }],
+        nextStep: `Run openmeld profile requests list to check progress. To submit this same intent again, repeat the command with --idempotency-key ${idempotencyKey}.`,
+      });
+      return;
+    }
     emitCommandError({ context, error, operation: "create" });
   }
 }
