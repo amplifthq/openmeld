@@ -50,15 +50,15 @@ session links always select their exact identity, including after reload.
 
 Chats places Center Agent sessions in the Main Sidebar, reusing destination search
 and filters, collapsible groups, group actions and whole-row drag ordering.
-Pinned chats share one top-level group above Agents and People, including human,
+Pinned chats share one top-level group above Chats, including human,
 local Agent, and Center Agent conversations. Pins appear once; unpin restores
-their original group. Collapsing Pinned leaves the separate Agents and People
-groups visible. Empty built-in
+their original group. People and Agents are optional filters, not separate lists.
+Empty built-in
 sections are omitted. User-created groups remain visible with the same compact
 empty-state treatment as Spaces. A New chat entry remains available when no
 sections are visible. The old header New chat/Chats dropdown is removed.
 
-New chat opens a local `?draft=new` composer without creating a session or
+Selecting only Center Agent in New chat opens a local `?draft=new` composer without creating a session or
 waiting for a session-list request. The first send creates the session and
 hands its message to the existing Space composer. Creation identity survives
 uncertain failures and same-tab reloads until navigation succeeds. Draft text
@@ -525,6 +525,15 @@ Chats at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
 It stays on a conversation directory, sharing sidebar grouping, sort order,
 previews, and unread projections. Loading never presents a false empty state
 or automatically opens a conversation. A genuinely empty list offers New chat.
+New chat and Space members share the people-and-agents picker, including search
+and nested agent ownership. One explicit selection opens a direct conversation;
+multiple selections create a new private, members-only Space through the existing
+Space creation and directory membership APIs. A successfully created Space is
+retained while retrying failed member additions. Selecting an agent alone does
+not implicitly turn the new chat into a group; ordinary Space membership still
+applies the server-owned agent-owner admission rules.
+Chats sidebar disclosure shares the Spaces policy: directory groups default to
+collapsed, entering a conversation reveals its group, and manual choices persist.
 New chat and participant filters
 live in the Chats destination action slot. Selected destinations keep their
 actions visible; Search manually inside filters reveals contextual search.
