@@ -2378,6 +2378,74 @@ test("codex app-server transport submits structured Usage exhaustion and a bound
   }
 });
 
+test("codex app-server preserves an unfamiliar structured failure message", async () => {
+  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-original-error-"));
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const message =
+    "The upstream service ended this request.\nReference: request-42.";
+  await writeFakeCodexAppServerFixture(fixturePath);
+  try {
+    await assert.rejects(
+      invokeCodexAppServerTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: fixtureDir,
+        env: { OPENMELD_FAKE_CODEX_APP_SERVER_TURN_FAILURE_MESSAGE: message },
+        prompt: "reply",
+        taskId: "task-original-error",
+        threadId: "thread-existing-1",
+      }),
+      (error) => {
+        assert.equal(error.code, "runtime.turn.failed");
+        assert.equal(error.originalError, message);
+        assert.equal(error.providerAccessEvidence, undefined);
+        return true;
+      }
+    );
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("codex cli retains unfamiliar structured errors but excludes sensitive messages", async () => {
+  const { invokeCodexCliTransport } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-cli-original-error-"));
+  const fixturePath = join(fixtureDir, "error.mjs");
+  try {
+    for (const [message, expected] of [
+      [
+        "The upstream service ended this request.\nReference: request-42.",
+        "The upstream service ended this request.\nReference: request-42.",
+      ],
+      ["Request rejected: access_token=private-test-value", undefined],
+    ]) {
+      const event = { type: "turn.failed", error: { message } };
+      await writeFile(
+        fixturePath,
+        `console.log(${JSON.stringify(JSON.stringify(event))});`,
+        "utf8"
+      );
+      await assert.rejects(
+        invokeCodexCliTransport({
+          launchContract: createNodeScriptLaunchContract(fixturePath),
+          codexTimeoutMs: 5000,
+          codexWorkdir: fixtureDir,
+          prompt: "reply",
+          threadId: null,
+        }),
+        (error) => {
+          assert.equal(error.originalError, expected);
+          assert.equal(error.providerAccessEvidence, undefined);
+          return true;
+        }
+      );
+    }
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+  }
+});
+
 test("codex cli text can explain Usage exhaustion without changing Wakeability", async () => {
   const { invokeCodexCliTransport } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-cli-fixture-"));

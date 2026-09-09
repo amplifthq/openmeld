@@ -1,4 +1,5 @@
 import {
+  agentProfileCreationIntentSchema,
   agentProfileCreationRequestMutationResponseSchema,
   centerAgentOrganizationMemoryPolicyResponseSchema,
   centerAgentWipeMemberMemoryResponseSchema,
@@ -37,6 +38,7 @@ import {
   updateOrganizationInformationProtectionPolicyBodySchema,
 } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { toStructuredApiClientFailure } from "../errors";
 import {
   buildAgentProfileCreationApprovalPreferencePath,
   buildAgentProfileCreationDefaultsPath,
@@ -79,18 +81,76 @@ export const createOrganizationApi: CreateOrganizationApi = (
       source: input.source,
       targetOwnerUserId: input.targetOwnerUserId,
     });
-    return await client.requestJson({
-      body: JSON.stringify(body),
-      headers: { "content-type": "application/json" },
-      invalidMessage: "invalid Agent Profile creation request response",
-      method: "POST",
-      operation: "agent_profile.creation_request.create",
-      requestContext: input.requestContext,
-      schema: createAgentProfileCreationRequestResponseSchema,
-      signal: input.signal,
-      timeoutMs: input.timeoutMs,
-      url: buildAgentProfileCreationRequestsPath(input.organizationId),
-    });
+    try {
+      return await client.requestJson({
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json" },
+        invalidMessage: "invalid Agent Profile creation request response",
+        method: "POST",
+        operation: "agent_profile.creation_request.create",
+        requestContext: input.requestContext,
+        schema: createAgentProfileCreationRequestResponseSchema,
+        signal: input.signal,
+        timeoutMs: input.timeoutMs,
+        url: buildAgentProfileCreationRequestsPath(input.organizationId),
+      });
+    } catch (error) {
+      const failure = toStructuredApiClientFailure(error);
+      if (
+        input.signal?.aborted ||
+        (failure.status !== null &&
+          failure.status >= 400 &&
+          failure.status < 500 &&
+          failure.status !== 408)
+      ) {
+        throw error;
+      }
+      // A lost response does not undo an accepted command. Read that exact
+      // intent once; never resubmit or infer success from a similarly named Agent.
+      const recovered = await client
+        .requestJson({
+          method: "GET",
+          operation: "agent_profile.creation_request.recover",
+          requestContext: input.requestContext,
+          schema: listAgentProfileCreationRequestsResponseSchema,
+          signal: input.signal,
+          timeoutMs: input.timeoutMs,
+          invalidMessage:
+            "invalid Agent Profile creation request recovery response",
+          url: buildAgentProfileCreationRequestsPath(input.organizationId, {
+            idempotencyKey: body.idempotencyKey,
+          }),
+        })
+        .catch(() => null);
+      const request =
+        recovered?.matchedIdempotencyKey === body.idempotencyKey &&
+        recovered.requests.length === 1
+          ? recovered.requests[0]
+          : undefined;
+      if (
+        request &&
+        request.organizationId === input.organizationId &&
+        JSON.stringify(
+          agentProfileCreationIntentSchema.parse({
+            ...request,
+            idempotencyKey: body.idempotencyKey,
+          })
+        ) === JSON.stringify(agentProfileCreationIntentSchema.parse(body))
+      ) {
+        return { replayed: true, request };
+      }
+      throw Object.assign(
+        new Error(
+          "The request may still be creating the Agent. Try again to check the same request.",
+          { cause: error }
+        ),
+        {
+          code: "agent_profile.creation_request.outcome_unknown",
+          requestId: failure.requestId,
+          idempotencyKey: body.idempotencyKey,
+        }
+      );
+    }
   },
   listAgentProfileCreationRequests: async (input) =>
     await client.requestJson({
@@ -101,7 +161,7 @@ export const createOrganizationApi: CreateOrganizationApi = (
       schema: listAgentProfileCreationRequestsResponseSchema,
       signal: input.signal,
       timeoutMs: input.timeoutMs,
-      url: buildAgentProfileCreationRequestsPath(input.organizationId),
+      url: buildAgentProfileCreationRequestsPath(input.organizationId, input),
     }),
   decideAgentProfileCreationRequest: async (input) => {
     const body = decideAgentProfileCreationRequestBodySchema.parse({

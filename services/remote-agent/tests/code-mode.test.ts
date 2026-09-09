@@ -23,6 +23,7 @@ import {
   createRemoteAgentStreamPublisher,
   type RemoteAgentStreamPublisher,
 } from "../flue-adapter/streaming";
+import { getRemoteAgentFlueTools } from "../flue-adapter/tools";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -52,6 +53,64 @@ async function runCodeModeTool(
 }
 
 describe("Remote Agent Code Mode", () => {
+  it("checks personal execution authority before direct and Code Mode computer calls", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const execute = vi.fn(async () => ({ result: "computer-result" }));
+    const authorize = vi.fn(async () => ({ kind: "authorize" }));
+    const runtime = createRuntime({
+      executorOptions: [],
+      execute: async (tools) => {
+        const tool = tools.test_computer;
+        if (!tool?.execute) {
+          throw new Error("Computer missing from Code Mode");
+        }
+        return {
+          result: await tool.execute({ code: "computer" }, TOOL_OPTIONS),
+        };
+      },
+    });
+    const tools = await getRemoteAgentFlueTools({
+      personalAgent: true,
+      storage,
+      submissionId: SUBMISSION_ID,
+      coreWorker: { personalRemoteAgentSpaceTool: authorize },
+      env: { LOADER: {} as WorkerLoader },
+      codeModeRuntime: runtime,
+      sandboxDefinitions: [
+        {
+          name: "test_computer",
+          description: "Use computer",
+          input: strictObject({ code: string() }),
+          execute,
+        },
+      ],
+    });
+    const names = tools.map((tool) => tool.name);
+    expect(names).toContain("web_search");
+    expect(names).toContain("openmeld_read_org_documents");
+    expect(names).not.toContain("openmeld_create_project");
+    expect(names).not.toContain("openmeld_create_routine");
+    const direct = tools.find((tool) => tool.name === "test_computer");
+    const codeMode = tools.find((tool) => tool.name === "codemode");
+    if (!(direct && codeMode)) {
+      throw new Error("Expected both execution paths");
+    }
+    const run = (tool: typeof direct, data: { code: string }) =>
+      tool.run({ data, log: console, toolCallId: "personal-authority" });
+    await run(direct, { code: "computer" });
+    await run(codeMode, { code: "computer" });
+    expect(execute).toHaveBeenCalledTimes(2);
+    authorize.mockRejectedValue(
+      new Error("remote_agent.space_membership_revoked")
+    );
+    await expect(run(direct, { code: "computer" })).rejects.toThrow(
+      "space_membership_revoked"
+    );
+    await expect(run(codeMode, { code: "computer" })).rejects.toThrow(
+      "space_membership_revoked"
+    );
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
   it("publishes a confirmation outcome without publishing its token", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const submitRemoteAgentStreamPart = vi.fn(

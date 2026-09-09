@@ -24,6 +24,7 @@ import {
   initializeRemoteAgentExecutionState,
 } from "./execution-state";
 import { buildRemoteAgentTurnTimeContext } from "./prompt";
+import { renderPersonalRemoteAgentCollaborationContext } from "./prompt/space-collaboration";
 import { cleanupExpiredRemoteAgentSlackMemberResearchState } from "./slack-member-research-state";
 import { cleanupExpiredRemoteAgentToolProgress } from "./tool-progress";
 import { cleanupExpiredRemoteAgentTurnEndMarkers } from "./turn-end";
@@ -384,14 +385,17 @@ function buildRemoteAgentPromptContent(
         )
       : null;
   const turnContext = [
-    renderRemoteAgentTurnEnvelope(request.turnEnvelope, {
-      sourceSignalId:
-        request.turnEnvelope.trigger.source === "web_dm" ||
-        request.turnEnvelope.trigger.source === "space_wake"
-          ? request.triggerMessageId
-          : null,
-    }),
-    renderRemoteAgentSpaceGuide(request.turnEnvelope),
+    renderPersonalRemoteAgentCollaborationContext(request) ??
+      renderRemoteAgentTurnEnvelope(request.turnEnvelope, {
+        sourceSignalId:
+          request.turnEnvelope.trigger.source === "web_dm" ||
+          request.turnEnvelope.trigger.source === "space_wake"
+            ? request.triggerMessageId
+            : null,
+      }),
+    request.v === 4 && request.conversationIdentity?.kind === "personal_agent"
+      ? null
+      : renderRemoteAgentSpaceGuide(request.turnEnvelope),
     renderedChannelContext,
     renderedContinuityContext,
   ]

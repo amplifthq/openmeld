@@ -41,6 +41,7 @@ import {
 	buildSpaceTimelineItems,
 	isSpaceOutcomeNoticeItem,
 	resolveRecordedSpaceMessageDetailsItem,
+	resolveSpaceConversationItemKey,
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
 import type { WakeFailureTargetContext } from "#/lib/spaces/wake-failure-display";
@@ -72,7 +73,7 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
-import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
+import { formatSpaceAgentAttribution } from "./space-agent-attribution";
 import {
 	SpaceAgentInteractionCard,
 	type SpaceAgentInteractionResponseHandler,
@@ -108,7 +109,6 @@ import {
 	type SpaceExecutionRecoveryHandler,
 } from "./space-execution-recovery-actions";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
-import type { SpaceAgentProfileTriggerRenderer } from "./space-message-agent-mention";
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
@@ -132,6 +132,7 @@ import {
 } from "./space-message-footer";
 import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
+import type { SpaceProfileTriggerRenderer } from "./space-message-profile-mention";
 import { shouldPlaceSpaceMessageProgressInAnswer } from "./space-message-progress-placement";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
@@ -529,7 +530,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				readOnly={input.readOnly === true}
 				readScopeKey={activeThreadRootSignalId ?? ""}
 				registerMessageElement={registerMessageElement}
-				renderAgentProfileTrigger={
+				renderProfileTrigger={
 					profileDetailsDialog.profileDetailsPopoverTriggerById
 				}
 				selfAvatarImageUrl={input.selfAvatarImageUrl ?? null}
@@ -1023,8 +1024,8 @@ function ThreadTimeline(input: {
 	readScopeKey: string;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
-	onOpenAgentProfile?: (profileId: string) => void;
-	renderAgentProfileTrigger: SpaceAgentProfileTriggerRenderer;
+	onOpenProfile?: (profileId: string) => void;
+	renderProfileTrigger: SpaceProfileTriggerRenderer;
 	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
@@ -1134,7 +1135,7 @@ function ThreadTimeline(input: {
 								messageGroupPositionBySignalId.get(item.id) ??
 								SINGLE_MESSAGE_GROUP_POSITION;
 							return (
-								<Fragment key={item.id}>
+								<Fragment key={resolveSpaceConversationItemKey(item)}>
 									{item.id === input.firstUnreadSignalId ? (
 										<div className="my-2 flex items-center gap-3 text-foreground text-xs before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
 											<span>New messages</span>
@@ -1170,8 +1171,8 @@ function ThreadTimeline(input: {
 											input.onAgentInteractionResponse
 										}
 										onJumpToMessage={input.onJumpToMessage}
-										onOpenAgentProfile={input.onOpenAgentProfile}
 										onOpenMessageDetails={input.onOpenMessageDetails}
+										onOpenProfile={input.onOpenProfile}
 										onOpenSpaceFile={input.onOpenSpaceFile}
 										onRecoverExecution={input.onRecoverExecution}
 										onWakeStopRequest={input.onWakeStopRequest}
@@ -1179,7 +1180,7 @@ function ThreadTimeline(input: {
 										profilePresentationsById={input.profilePresentationsById}
 										readOnly={input.readOnly}
 										registerMessageElement={input.registerMessageElement}
-										renderAgentProfileTrigger={input.renderAgentProfileTrigger}
+										renderProfileTrigger={input.renderProfileTrigger}
 										selfAvatarImageUrl={input.selfAvatarImageUrl}
 										selfProfileId={input.selfProfileId}
 										spaceReferencesById={input.spaceReferencesById}
@@ -1290,8 +1291,8 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	isPersonalContext: boolean;
 	item: SpaceTimelineItem;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
-	onOpenAgentProfile?: (profileId: string) => void;
-	renderAgentProfileTrigger: SpaceAgentProfileTriggerRenderer;
+	onOpenProfile?: (profileId: string) => void;
+	renderProfileTrigger: SpaceProfileTriggerRenderer;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -1391,11 +1392,10 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				item: input.item,
 				timelineItems: input.allItems,
 			});
-	const agentControlLabel = formatSpaceAgentControlLabel({
+	const agentAttribution = formatSpaceAgentAttribution({
 		agentControllerRef: input.item.actorAgentControllerRef,
-		controllerDisplay: input.item.actorControllerDisplay,
+		ownerName: input.item.actorOwnerName,
 		profileKind: input.item.actorProfileKind,
-		runtimeDeviceDisplayName: input.item.actorRuntimeDeviceDisplayName,
 	});
 	const isSelfMessage = input.item.actorProfileId === input.selfProfileId;
 	const messageAlign = resolveThreadMessageDirectionalAlign(isSelfMessage);
@@ -1473,11 +1473,11 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						<span className="min-w-0 truncate font-bold text-foreground text-sm">
 							{input.item.actorName}
 						</span>
-						{agentControlLabel ? (
+						{agentAttribution ? (
 							<>
 								<span className="shrink-0 text-muted-foreground">·</span>
 								<span className="min-w-0 text-muted-foreground">
-									{agentControlLabel}
+									{agentAttribution}
 								</span>
 							</>
 						) : null}
@@ -1506,12 +1506,12 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								computerSetupSourceSignalId={input.item.id}
 								containerClassName={selfMessageContentLayoutClassName}
 								item={input.item}
-								onOpenAgentProfile={input.onOpenAgentProfile}
+								onOpenProfile={input.onOpenProfile}
 								onOpenSpaceFile={input.onOpenSpaceFile}
 								openMeldProfileId={input.selfProfileId}
 								orgSlug={input.orgSlug}
 								profilePresentationsById={input.profilePresentationsById}
-								renderAgentProfileTrigger={input.renderAgentProfileTrigger}
+								renderProfileTrigger={input.renderProfileTrigger}
 								spaceReferencesById={input.spaceReferencesById}
 							/>
 							<SpaceMessageInteractionSource

@@ -66,6 +66,9 @@ export function registerMetaRoutes(app: Hono<HonoBindings>): void {
       execute: async () => {
         return await c.var.coreRpc.updateSpaceMeta({
           spaceId,
+          ...(parsed.value.visibility === undefined
+            ? {}
+            : { visibility: parsed.value.visibility }),
           ...(parsed.value.name === undefined
             ? {}
             : { name: parsed.value.name }),

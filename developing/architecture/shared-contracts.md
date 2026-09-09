@@ -27,6 +27,37 @@
 
 ## Boundary
 
+### Personal Agent owner Inbox activity
+
+Inbox source-target version 6 adds optional `agentOwnerActivity` to Space targets.
+Version 5 retains DM routing but omits this marker; earlier readers retain their
+existing projected shapes. Deploy Web, Gateway, then Core before the producer
+writes this additive field. Core owns recipient qualification and unread totals:
+only current personal Agent ownership qualifies, never managed-role or Center
+Agent administrative ownership. Space canonical members supply delivery candidates;
+Space Index and current identity authorize subsequent Inbox reads. No database
+migration or CLI/Service contract change is required. Older API clients receive
+compatible projected targets. Preserve upgraded receivers when rolling back a
+producer after version 6 rows exist.
+
+### Space directory visibility
+
+The shared Space metadata PATCH schema accepts optional `visibility` (`private`
+or `public`). The Space Durable Object owns this setting and requires the same
+Space management authority as renaming. Direct Messages reject metadata changes.
+Changing visibility preserves link access, organization identity, and converted
+Direct Message metadata. Web refreshes the owning status and directory queries
+after saving; it does not infer access from directory visibility.
+
+This is an additive Web/API-client/Gateway/Core mutation. Existing clients and
+CLI/Service/Skills setup, Wake, Space actions, and diagnostics remain compatible;
+no storage migration or local component release is needed. Older Gateway/Core
+receivers reject the new field, so the new control works only after both are
+updated. For a combined Inbox release, preserve its documented receiver-first
+ordering; the visibility control must not be treated as available until its
+receivers are current. Reverting Web is safe; reverting a receiver makes new
+visibility writes unavailable without changing saved access policy.
+
 Personal native Agent creation and the Core/Remote private collaboration RPC
 use shared schemas, including the explicit `personal_agent` V4 identity. See
 the [personal Remote Agent contract audit](review/2026-09-08-personal-remote-agent-contract-impact-audit.md)
@@ -459,8 +490,14 @@ Inbox summary version `1` adds `unreadUrgentUpdateCount`, disjoint from
 `unresolvedActionCount`. Core derives both from the same recipient/access-filtered
 query; clients never count a list page to reconstruct them. The additive field
 is optional only for receiver-first interoperability: absent means unknown.
-Current API clients send `x-openmeld-inbox-summary-version: 1`; Gateway removes
-the new field for older strict clients, including already-open Web tabs.
+Current API clients send `x-openmeld-inbox-summary-version: 2`; Gateway keeps
+the urgent summary field for versions `1` and `2` and removes it for older strict clients,
+including already-open Web tabs. Version `2` also exposes `chatUnreadCount`,
+`chatUnresolvedActionCount`, `chatUnreadUrgentUpdateCount`, and grouped `attention`
+on Space summaries. These are recipient/access-filtered Core aggregates across
+all current DMs; the three totals do not inherit the unread grouped-row limit.
+Missing fields mean unknown, not zero. Gateway strips the four additions for
+older summary clients. The UI waits for known values without a Checking badge.
 Deploy compatible Gateway first, Core second, and Web last. New Gateway accepts
 old Core output; new Web reports unknown if the field is absent. The new
 `urgent_updates` and `recent_updates` preview list views are available only after Core and Gateway support them;
@@ -511,14 +548,24 @@ Interaction writers, adds all three scopes automatically, and rejects an
 explicit scope that omits any one of them. New receivers continue to accept
 every older target before the writer changes; after Core changes, every deployed
 strict receiver accepts both old and new rows. An already-loaded Web tab is a
-separate mixed-version reader: source-target version `4` receives the complete
-current target, version `3` receives Agent Interaction targets without the
+separate mixed-version reader: source-target version `5` receives the complete
+current target, including the optional `directMessage` flag on Space targets.
+Version `4` keeps thread locators but omits that flag; version `3` receives Agent Interaction targets without the
 thread locator, and missing or older versions retain the legacy projection.
 That legacy projection maps unsupported `message_channel` and Agent Profile
 creation targets to `{ kind: "center_agent" }`. Gateway applies the projection
 after validating Core's current response for list, direct-item, and read-mutation
 operations. The projection never rewrites the durable row or weakens the
 canonical schema.
+
+The DM target flag is emitted only from the Space-owned current DM classification
+(purpose, conversion state, and active member count), never from message wording.
+Its rollout follows Web, Gateway, Core. Old CLI, Service, and Skills continue
+through Gateway's version projection; setup, Wake, Space actions, runtime transport,
+status, and diagnostics contracts are unchanged. No local-component release or
+required-version floor change is needed. Retain compatible Core and Gateway
+readers while durable rows contain the additive flag; do not roll them back to
+strict readers that cannot parse those rows.
 
 The Human Mention Inbox kind follows the same receiver-first rule without
 reusing source-target versioning. The additive Database migration accepts both
@@ -1864,7 +1911,15 @@ private context, access rights, or execution state is exported by this module.
 Remote adoption must supply its own authorized read tools and native delivery
 contract; Local action-proposal/CLI rules must not replace Remote automatic
 publication or Center native execution rules. This extraction does not integrate
-either hosted runtime or guarantee conflict-free multi-agent execution.
+Center execution or guarantee conflict-free multi-agent execution. Personal
+Remote Agents now consume these renderers and expose authorized Board and
+bounded public update tools through the personal Space-tool RPC. Version 4
+submission optionally carries the existing canonical message envelope for Wake
+participant context. Deploy Remote Agent before Core: older strict receivers
+reject the new submission field. The admitted field's presence enables the new
+read tools; requests admitted by older Core retain the existing tools, so the
+new runtime does not call unsupported Core operations during rollout. No
+workstation protocol, permission, or local-component version changes.
 
 `packages/schemas/src/schemas/http/space-board.ts` owns the strict Space Board
 HTTP/RPC response. Space/Core compose the response from the Space room

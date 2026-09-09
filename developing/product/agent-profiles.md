@@ -71,6 +71,10 @@ brand mark, such as Codex, Claude Code, Grok Build, Cursor, or OpenCode, because
 recognize how that profile runs. Rebinding an ordinary Agent Profile updates
 that mark. An unbound or unknown controller uses the generic agent fallback;
 it must not invent Controller branding.
+Local Agent message headers show the owner's name after a middle dot, without
+an owner avatar or prefix. Profile popovers place availability beside the Agent
+name and show `Owned by` with the owner's small Human Profile avatar and name.
+Hosted Agents retain the `Hosted by OpenMeld` message attribution.
 
 OpenMeld also has Human Profiles. A default Human Profile is created for the
 signed-in user and is the right identity when a human or their current AI
@@ -205,6 +209,26 @@ cannot run the executor twice or overwrite a newer outcome. If approval remains
 unclaimed for 30 minutes, or a claimed attempt has no terminal result for that
 long, Core changes the durable request to an explicit retryable failure. Retry
 makes a new fenced attempt instead of leaving the request permanently stuck.
+
+Creation, approval, and retry return the durable request after acceptance; they
+do not hold the response open until local setup finishes. Core delivers an
+execution notification through the existing shared Core Queue and re-delivers
+unclaimed approved rows from its minute scheduler. The Queue carries only the
+Organization and request IDs. The request row owns intent, claim, identity
+checkpoint, and terminal result; the Queue never authorizes creation. Duplicate
+notifications cannot re-claim a started or terminal request. Execution rechecks
+current Organization membership and the selected Computer before identity or
+setup effects. This replaces execution inside the initiating RPC, rather than
+adding another creation implementation or a client-owned continuation.
+
+If a creation response is lost, clients query the exact requester/actor-scoped
+idempotency key once and verify the original normalized intent. A missing or
+unreadable result remains unknown, never a failed creation or permission to
+mint another identity. Web waits on the exact request for up to one minute,
+then hands the accepted state to Agent requests; the server continues without
+the page. The CLI prints the accepted request and preserves the idempotency key
+when its outcome cannot be read. Request views refresh only while creation is
+active. JSON field order and omitted default fields are not changes of intent.
 
 If Auth has already committed the Agent Profile identity when a later Space,
 Binding, working-folder, or Default Project step fails, the durable request

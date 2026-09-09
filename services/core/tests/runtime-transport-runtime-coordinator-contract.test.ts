@@ -42,25 +42,25 @@ import type {
   RuntimeTransportSubmitTaskResultRequest,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
-import { handleDispatchQueueBatch } from "../dispatch/transport/queue/dispatch-queue-consumer";
-import type { CoreBindings } from "../lib/bindings";
-import { resolveCoreLocalComponentsReleaseManifest } from "../local-components/update-projection";
+import { handleDispatchQueueBatch } from "../src/dispatch/transport/queue/dispatch-queue-consumer";
+import type { CoreBindings } from "../src/lib/bindings";
+import { resolveCoreLocalComponentsReleaseManifest } from "../src/local-components/update-projection";
 import {
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission,
   runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys,
-} from "../runtime-transport/application/agent-profile-execution-admission";
+} from "../src/runtime-transport/application/agent-profile-execution-admission";
 import type {
   AgentProfileWorkCoordinatorItem,
   AgentProfileWorkRecoveryGate,
-} from "../runtime-transport/application/agent-profile-work-coordinator";
-import { buildPendingAgentProfileWorkPromotion } from "../runtime-transport/application/agent-profile-work-promotion";
+} from "../src/runtime-transport/application/agent-profile-work-coordinator";
+import { buildPendingAgentProfileWorkPromotion } from "../src/runtime-transport/application/agent-profile-work-promotion";
 import {
   buildAgentProfileWorkRecoveryInboxProjectionIntent,
   buildAgentProfileWorkRecoveryInboxProjectionStorageKey,
   parseAgentProfileWorkRecoveryInboxProjectionIntent,
-} from "../runtime-transport/application/agent-profile-work-recovery-inbox-projection";
-import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../runtime-transport/application/runtime-coordinator-agent-task-observation-delivery";
+} from "../src/runtime-transport/application/agent-profile-work-recovery-inbox-projection";
+import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../src/runtime-transport/application/runtime-coordinator-agent-task-observation-delivery";
 import {
   buildRuntimeCoordinatorFinalizationOutcomeStorageKey,
   buildRuntimeCoordinatorHeadLifecycleStorageKey,
@@ -73,17 +73,17 @@ import {
   RUNTIME_COORDINATOR_WAKE_STOPPED_NOTICE_PUBLICATION_MODEL_VERSION,
   type RuntimeCoordinatorHeadLifecycleRecord,
   type RuntimeCoordinatorRunCommandState,
-} from "../runtime-transport/application/runtime-coordinator-authority";
-import { retireRuntimeCoordinatorTokenRun } from "../runtime-transport/application/runtime-coordinator-execution-token";
+} from "../src/runtime-transport/application/runtime-coordinator-authority";
+import { retireRuntimeCoordinatorTokenRun } from "../src/runtime-transport/application/runtime-coordinator-execution-token";
 import {
   buildDispatchAttemptKey,
   type CompletedDispatchResultState,
   createRuntimeTransportMutableState,
   type PendingDispatchState,
   type RuntimeTransportMutableState,
-} from "../runtime-transport/application/runtime-transport-state";
-import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
-import { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
+} from "../src/runtime-transport/application/runtime-transport-state";
+import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../src/runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
+import { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 
 const HEX_SPACE_ID = (
   env as unknown as CoreBindings
@@ -12034,6 +12034,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     [true, "unresolved"],
     [true, "identity_mismatch"],
     [false, "reply_wins"],
+    [false, "slow"],
   ] as const)("stops an accepted unpublished result without its old Service (legacy command missing: %s, first publication: %s)", async (removeCommand, firstPublication) => {
     const harness = createHarness();
     const {
@@ -12163,7 +12164,34 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(sentFrames).toEqual([]);
       return;
     }
-    if (firstPublication !== "none") {
+    if (firstPublication === "slow") {
+      const publishStop =
+        spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand.getMockImplementation();
+      if (!publishStop) {
+        throw new Error(
+          "Expected the Space stopped-publication implementation."
+        );
+      }
+      spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand.mockImplementationOnce(
+        async (command) => {
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+          return await publishStop(command);
+        }
+      );
+      // Both the active Stop and one waiting behind it must receive the actual
+      // outcome, even when publication exceeds the serializer's one-second wait.
+      const responses = await Promise.all([
+        requestRuntimeCoordinatorWakeStop(hub),
+        requestRuntimeCoordinatorWakeStop(hub),
+      ]);
+      const outcomes = await Promise.all(
+        responses.map((response) => response.json())
+      );
+      expect(outcomes).toEqual([
+        expect.objectContaining({ ok: true, status: "cancelled" }),
+        expect.objectContaining({ ok: true, status: "already_cancelled" }),
+      ]);
+    } else if (firstPublication !== "none") {
       if (firstPublication === "unavailable") {
         spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand.mockRejectedValueOnce(
           new Error("Space unavailable")

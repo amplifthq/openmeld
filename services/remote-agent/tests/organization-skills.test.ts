@@ -1,4 +1,8 @@
-import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+import {
+  fauxAssistantMessage,
+  fauxProvider,
+  fauxToolCall,
+} from "@earendil-works/pi-ai";
 import { init, useModel, useSkill } from "@flue/runtime";
 import { start } from "@flue/runtime/node";
 import { stringifyOrganizationSkillBundleCanonicalJson } from "@openmeld/schemas";
@@ -13,8 +17,12 @@ import {
 } from "../flue-adapter/organization-skills";
 
 describe("Organization Skill Flue adapter", () => {
-  it("materializes the exact verified release as a definition-provided Flue Skill", async () => {
+  it.each<Record<string, string>>([
+    {},
+    { owner: "Release Engineering" },
+  ])("loads the exact verified release with metadata %j", async (metadata) => {
     const bundle = createBundle();
+    bundle.portable.metadata = metadata;
     const selection = await createSelection(bundle);
     const skills = await materializeOrganizationSkillFlueSkills({
       expectedOrganizationId: "org_123",
@@ -51,7 +59,18 @@ describe("Organization Skill Flue adapter", () => {
         );
         expect(context.tools?.map((tool) => tool.name)).not.toContain("bash");
         return fauxAssistantMessage(
-          "The verified release checklist is available."
+          fauxToolCall("activate_skill", { name: "release-review" }),
+          { stopReason: "toolUse" }
+        );
+      },
+      (context) => {
+        const result = context.messages.findLast(
+          (message) => message.role === "toolResult"
+        );
+        expect(result).toMatchObject({ isError: false });
+        expect(JSON.stringify(result)).toContain(bundle.instructions);
+        return fauxAssistantMessage(
+          "The verified release checklist is loaded."
         );
       },
     ]);

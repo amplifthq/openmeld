@@ -1,21 +1,15 @@
 import {
   buildSpaceAttachmentObjectKey,
-  buildSpaceFileEntryIdForMutation,
-  buildSpaceFileRevisionIdForMutation,
   detectSpaceAttachmentMimeType,
   SPACE_ATTACHMENT_MAX_SIZE_BYTES,
   SPACE_FILE_MAX_SIZE_BYTES,
   spaceAttachmentDescriptorSchema,
-  spaceFileDescriptorSchema,
   spaceMessageAttachmentSchema,
-  spaceMessageFileReferenceSchema,
 } from "@openmeld/schemas";
 import type {
   RemoteAgentTurnEnvelope,
   SpaceAttachmentDescriptor,
-  SpaceFileDescriptor,
   SpaceMessageAttachment,
-  SpaceMessageFileReference,
 } from "@openmeld/schemas/types";
 import {
   array,
@@ -37,7 +31,6 @@ import {
 import { emitRemoteAgentToolUsage } from "../flue-adapter/tool-usage-observability";
 import {
   appendRemoteAgentOutputAttachment,
-  appendRemoteAgentOutputFile,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
 } from "./callback-context";
@@ -50,6 +43,7 @@ import {
   resolveRemoteAgentOpenRouterModelId,
 } from "./model";
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "./openrouter-provider-routing";
+import { publishRemoteAgentOutputFile } from "./space-file-output";
 import { buildRemoteAgentToolContext } from "./tool-context";
 import type { RemoteAgentToolDefinition } from "./tool-definition";
 
@@ -563,53 +557,21 @@ async function captureBrowserScreenshot(input: {
       input.request.fileName ?? buildDefaultScreenshotFileName(format);
     if (useCanonicalSpaceFile) {
       const spaceId = turn.turnEnvelope?.space.id ?? "";
-      const clientMutationId = crypto.randomUUID();
-      const [fileId, revisionId] = await Promise.all([
-        buildSpaceFileEntryIdForMutation(clientMutationId),
-        buildSpaceFileRevisionIdForMutation({
-          baseRevision: null,
-          bytes,
-          clientMutationId,
-          mimeType,
-          name: fileName,
-          parentId: null,
-        }),
-      ]);
-      const fileDescriptor = spaceFileDescriptorSchema.parse(
-        await callCoreRpc(
-          input.coreWorker,
-          "writeSpaceFileContent",
-          {
-            bytes,
-            context: turn.context,
-            spaceId,
-            write: {
-              baseRevision: null,
-              clientMutationId,
-              fileId,
-              mimeType,
-              name: fileName,
-              parentId: null,
-              revisionId,
-              sizeBytes: bytes.byteLength,
-              spaceId,
-            },
-          },
-          (binding, request) => binding.writeSpaceFileContent?.(request)
-        )
-      );
-      const file = toSpaceMessageFileReference(fileDescriptor);
-      await appendRemoteAgentOutputFile({
-        file,
+      const result = await publishRemoteAgentOutputFile({
+        bytes,
+        clientMutationId: crypto.randomUUID(),
+        context: turn.context,
+        coreWorker: input.coreWorker,
+        mimeType,
+        name: fileName,
+        spaceId,
         storage: input.storage,
         submissionId: input.submissionId,
       });
       outcome = "succeeded";
       return {
-        addedToSpaceFiles: true,
-        attachedToFinalReply: true,
+        ...result,
         browserMs,
-        file,
       };
     }
     bucket = env.OPENMELD_SPACE_ATTACHMENTS ?? null;
@@ -1023,18 +985,6 @@ function toSpaceMessageAttachment(
     ...(descriptor.fileName === undefined
       ? {}
       : { fileName: descriptor.fileName }),
-  });
-}
-
-function toSpaceMessageFileReference(
-  descriptor: SpaceFileDescriptor
-): SpaceMessageFileReference {
-  return spaceMessageFileReferenceSchema.parse({
-    fileId: descriptor.id,
-    mimeType: descriptor.latestRevision.mimeType,
-    name: descriptor.name,
-    revision: descriptor.latestRevision.revision,
-    sizeBytes: descriptor.latestRevision.sizeBytes,
   });
 }
 

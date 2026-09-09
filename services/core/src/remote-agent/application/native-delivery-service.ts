@@ -791,20 +791,18 @@ export async function submitRemoteAgentNativeDelivery(
 
   const preparation = startRemoteAgentTurnContextAndSkills({
     readOrganizationSkills: () =>
-      input.binding.personalAgent
-        ? Promise.resolve([])
-        : measureRemoteAgentAdmissionStage(
-            input,
-            {
-              description: "Read enabled Organization Skill releases",
-              name: "openmeld_remote_admission_skill_selection",
-            },
-            () =>
-              readEnabledOrganizationSkillReleaseSelection({
-                db: input.db,
-                organizationId: input.binding.organizationId,
-              })
-          ),
+      measureRemoteAgentAdmissionStage(
+        input,
+        {
+          description: "Read enabled Organization Skill releases",
+          name: "openmeld_remote_admission_skill_selection",
+        },
+        () =>
+          readEnabledOrganizationSkillReleaseSelection({
+            db: input.db,
+            organizationId: input.binding.organizationId,
+          })
+      ),
     resolveTurnContext: async () => {
       const baseTurnEnvelope = await measureRemoteAgentAdmissionStage(
         input,
@@ -966,6 +964,7 @@ export async function submitRemoteAgentNativeDelivery(
             return {
               v: 4,
               conversationId,
+              sourceMessageEnvelope: input.message.sourceMessageEnvelope,
               conversationIdentity: {
                 kind: "personal_agent",
                 agentProfileId: input.message.targetProfileId,
