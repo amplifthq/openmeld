@@ -2,6 +2,8 @@ import { Badge } from "@openmeld/ui/components/badge";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { SidebarMenuButton } from "@openmeld/ui/fluid/sidebar-menu";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
+import { cn } from "@openmeld/ui/lib/utils";
 import { CloudIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -71,8 +73,14 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 								>
 									{profile.profileName}
 								</p>
-								<Badge variant="secondary">
-									<CloudIcon aria-hidden="true" data-icon="inline-start" />
+								<Badge
+									className={cn(
+										surfaceClasses(2),
+										"h-4 gap-1 px-1.5 py-0 text-[10px] [&>svg]:size-2.5!"
+									)}
+									variant="secondary"
+								>
+									<CloudIcon aria-hidden="true" />
 									Center Agent
 								</Badge>
 							</div>
