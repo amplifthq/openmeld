@@ -1,5 +1,10 @@
 # Space Collaboration
 
+An explicit request to coordinate with another member assigns work to the
+addressed Agent. Delegating, contacting a teammate, checking progress, and
+collecting results are contributions in their own right; the person performing
+the underlying task does not make the coordinator merely a reference or candidate.
+
 ## Agent Context
 
 - Purpose: Define how OpenMeld Spaces support collaboration between Humans and Agent
@@ -1168,9 +1173,15 @@ Use scoped owner documents for details:
   same Agent conversation decides how to adapt; the sibling does not assign the
   current Agent's work or automatically suppress its reply.
 - Context review has no fixed business-count limit. Every review advances from
-  the latest observed Space cursor and carries only a bounded public delta; it
+  the latest observed Space cursor and carries a bounded public view retaining
+  earlier observed facts across isolated review forks. Omitted messages and
+  truncated excerpts are explicit, with original history available on demand; it
   never replays completed tools, external side effects, or an unbounded room
   transcript.
+- A requested personal answer or acknowledgement remains due even when its
+  content matches another member's answer. Activated participants are not an
+  assigned execution order or evidence of completed work; dependent contributions
+  follow the request's constraints and actual published outcomes.
 - This concurrent-reply guard does not assign subtasks or turn independent
   multi-target Wakes into a hidden delegation. Planned ownership, completion
   barriers, fallback, and parent synthesis use declared Center Agent delegation

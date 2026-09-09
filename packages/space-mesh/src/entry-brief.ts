@@ -13,10 +13,11 @@ export function composeEntryBrief(input: unknown): EntryBrief {
 export function buildSpaceEntryBriefNeedMoreLine(input: {
   cliEntry?: string | null;
   spaceId: string;
+  targetProfileId: string;
 }): string {
   const cliEntry = normalizeOptionalText(input.cliEntry) ?? "openmeld";
   const spaceId = normalizeOptionalText(input.spaceId) ?? "<space-id>";
-  return `run \`${cliEntry} space board ${spaceId}\` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at ${OPENMELD_GUIDE_URL} / run \`${cliEntry} prompt space\`.`;
+  return `run \`${cliEntry} space board ${spaceId} --profile ${input.targetProfileId} --view agent\` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at ${OPENMELD_GUIDE_URL} / run \`${cliEntry} prompt space\`.`;
 }
 
 export function renderSpaceEntryBrief(input: {
