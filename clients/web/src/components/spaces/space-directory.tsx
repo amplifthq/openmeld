@@ -23,22 +23,12 @@ import {
 	TableHeader,
 	TableRow,
 } from "@openmeld/ui/components/table";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@openmeld/ui/components/tooltip";
-import {
-	FluidDropdownMenuContent,
-	FluidDropdownMenuItem,
-} from "@openmeld/ui/fluid/dropdown-menu";
+import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
-	DotsThreeIcon,
 	HashIcon,
 	LockKeyIcon,
-	PushPinIcon,
 	SlidersHorizontalIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
@@ -51,6 +41,7 @@ import { buildProfilePath } from "#/lib/profile-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { AppSidebarGroup } from "../app/app-sidebar-group";
+import { DirectoryRowActions } from "../app/directory-row-actions";
 import { DirectorySearch } from "../app/directory-search";
 import { useSidebarGroupFilter } from "../app/sidebar-filter";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
@@ -179,6 +170,8 @@ export function SpaceDirectory(input: {
 		})),
 		{ id: "spaces", label: "Spaces" },
 	];
+	const grouped =
+		(preferences?.groups.length ?? 0) > 0 || sections.pinnedItems.length > 0;
 	const groupFilter = useSidebarGroupFilter(groups);
 	const unindexed = input.spaces.filter(
 		(space) =>
@@ -324,6 +317,18 @@ export function SpaceDirectory(input: {
 							</FluidDropdownMenuContent>
 						</DropdownMenu>
 					)}
+					{!(discovering || grouped) && (
+						<DirectoryGroupActions
+							alwaysVisible
+							group={{
+								id: "spaces",
+								label: "Spaces",
+								section: preferences?.spaces,
+							}}
+							onSort={(sort) => changeSection("spaces", { sort })}
+							sidebar={sidebar}
+						/>
+					)}
 				</div>
 			</div>
 			{!discovering &&
@@ -410,6 +415,7 @@ export function SpaceDirectory(input: {
 							)
 							.map((group) => (
 								<AppSidebarGroup
+									contentOnly={!grouped}
 									groupClassName="p-0"
 									groupId={`directory-${group.id}`}
 									key={group.id}
@@ -516,10 +522,12 @@ function resolveDirectoryLoadingState(
 }
 
 function DirectoryGroupActions({
+	alwaysVisible,
 	group,
 	sidebar,
 	onSort,
 }: {
+	alwaysVisible?: boolean;
 	group: {
 		id: string;
 		label: string;
@@ -551,6 +559,7 @@ function DirectoryGroupActions({
 	};
 	return (
 		<SidebarSectionActions
+			alwaysVisible={alwaysVisible}
 			disabled={sidebar.disabled}
 			label={group.label}
 			onDelete={custom ? removeGroup : undefined}
@@ -593,32 +602,6 @@ function UnindexedJoinedRow(input: {
 	);
 }
 
-function DirectoryIcon(input: {
-	label: string;
-	children: React.ReactNode;
-	onClick: () => void;
-	disabled?: boolean;
-}) {
-	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<Button
-						aria-label={input.label}
-						disabled={input.disabled}
-						onClick={input.onClick}
-						size="icon-sm"
-						variant="ghost"
-					/>
-				}
-			>
-				{input.children}
-			</TooltipTrigger>
-			<TooltipContent side="top">{input.label}</TooltipContent>
-		</Tooltip>
-	);
-}
-
 type DirectoryInput = React.ComponentProps<typeof SpaceDirectory>;
 function JoinedRow(input: {
 	item: AccountSpaceItem;
@@ -645,10 +628,9 @@ function JoinedRow(input: {
 		input.preview?.timestamp,
 		item.spaceCreatedAt
 	);
-	const [menuOpen, setMenuOpen] = useState(false);
 	return (
 		<TableRow
-			className="group/space-directory-row border-0"
+			className="group/directory-row border-0"
 			data-space-id={item.spaceId}
 			index={input.index}
 		>
@@ -699,71 +681,42 @@ function JoinedRow(input: {
 				)}
 			</TableCell>
 			<TableCell>
-				<div
-					className={cn(
-						"flex items-center opacity-0 group-focus-within/space-directory-row:opacity-100 group-hover/space-directory-row:opacity-100 [@media(hover:none)]:opacity-100",
-						menuOpen && "opacity-100"
-					)}
-				>
-					<DirectoryIcon
-						disabled={input.input.pinActionsPending}
-						label={`${item.pinnedAt ? "Unpin" : "Pin"} ${item.spaceName}`}
-						onClick={() => input.input.onTogglePinned(item)}
-					>
-						<PushPinIcon weight={item.pinnedAt ? "fill" : "regular"} />
-					</DirectoryIcon>
-					<DropdownMenu onOpenChange={setMenuOpen} open={menuOpen}>
-						<DropdownMenuTrigger
-							render={
-								<Button
-									aria-label={`Move ${item.spaceName} to group`}
-									size="icon-sm"
-									variant="ghost"
-								/>
-							}
-						>
-							<DotsThreeIcon />
-						</DropdownMenuTrigger>
-						<FluidDropdownMenuContent align="end" className="w-56">
-							<p className="px-2 py-1 text-muted-foreground text-xs">
-								Move to group
-							</p>
-							{[
-								{ id: "spaces", name: "Spaces" },
-								...(input.preferences?.groups ?? []),
-							].map((group, index) => (
-								<FluidDropdownMenuItem
-									disabled={input.disabled || item.pinnedAt !== null}
-									index={index}
-									key={group.id}
-									onClick={() => {
-										const preferences = input.preferences;
-										if (!preferences) {
-											return;
-										}
-										input.save({
-											...preferences,
-											groups: preferences.groups.map((entry) => ({
-												...entry,
-												spaceIds: [
-													...entry.spaceIds.filter((id) => id !== item.spaceId),
-													...(entry.id === group.id ? [item.spaceId] : []),
-												],
-											})),
-										});
-									}}
-								>
-									{group.name}
-								</FluidDropdownMenuItem>
-							))}
-							{item.pinnedAt && (
-								<p className="px-2 py-1 text-muted-foreground text-xs">
-									Unpin this Space to move it to a group.
-								</p>
-							)}
-						</FluidDropdownMenuContent>
-					</DropdownMenu>
-				</div>
+				<DirectoryRowActions
+					disabled={input.disabled || input.input.pinActionsPending}
+					groupId={
+						input.preferences?.groups.find((group) =>
+							group.spaceIds.includes(item.spaceId)
+						)?.id ?? "spaces"
+					}
+					groups={[
+						{ id: "spaces", name: "Spaces" },
+						...(input.preferences?.groups ?? []),
+					]}
+					moveDisabledReason={
+						item.pinnedAt !== null
+							? "Unpin this Space to move it to a group."
+							: undefined
+					}
+					name={item.spaceName}
+					onMove={(groupId) => {
+						const preferences = input.preferences;
+						if (!preferences) {
+							return;
+						}
+						input.save({
+							...preferences,
+							groups: preferences.groups.map((entry) => ({
+								...entry,
+								spaceIds: [
+									...entry.spaceIds.filter((id) => id !== item.spaceId),
+									...(entry.id === groupId ? [item.spaceId] : []),
+								],
+							})),
+						});
+					}}
+					onTogglePinned={() => input.input.onTogglePinned(item)}
+					pinned={item.pinnedAt !== null}
+				/>
 			</TableCell>
 		</TableRow>
 	);

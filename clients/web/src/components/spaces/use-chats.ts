@@ -6,6 +6,7 @@ import type {
 import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { moveSidebarItemIds } from "#/components/app/sidebar-order";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -28,6 +29,7 @@ import {
 	resolveSidebarAttentionSpaceIds,
 	sortSidebarSpaces,
 } from "./sidebar-space-order";
+import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
 
 type Preferences = NonNullable<AccountSidebarPreferences["chats"]>;
@@ -241,7 +243,70 @@ export function useChats(input: {
 			});
 		}
 	};
+	const pin = useAccountSpacePinMutation({ currentProfileId: profileId });
+	const move = async (section: string, id: string, before?: string) => {
+		const target = sections.find((s) => s.id === section);
+		if (!target || store.disabled) {
+			return;
+		}
+		const accountItem = ordinaryAccountItems.find(
+			(item) => item.spaceId === id
+		);
+		if (
+			accountItem &&
+			!(await pin.setPinned(accountItem, section === "pinned"))
+		) {
+			return;
+		}
+		const ids = moveSidebarItemIds(
+			target.spaceIds,
+			rows(section).map((c) => c.spaceId),
+			id,
+			before
+		);
+		if (section === "pinned") {
+			save({ ...preferences, pinned: { sort: "manual", spaceIds: ids } });
+			return;
+		}
+		save({
+			...preferences,
+			pinned: {
+				...preferences.pinned,
+				spaceIds: preferences.pinned.spaceIds.filter((v) => v !== id),
+			},
+			spaces:
+				section === "chats"
+					? { sort: "manual", spaceIds: ids }
+					: {
+							...preferences.spaces,
+							spaceIds: preferences.spaces.spaceIds.filter((v) => v !== id),
+						},
+			groups: preferences.groups.map((g) =>
+				g.id === section
+					? { ...g, sort: "manual", spaceIds: ids }
+					: { ...g, spaceIds: g.spaceIds.filter((v) => v !== id) }
+			),
+		});
+	};
+	const unpin = async (id: string) => {
+		const accountItem = ordinaryAccountItems.find(
+			(item) => item.spaceId === id
+		);
+		if (accountItem && !(await pin.setPinned(accountItem, false))) {
+			return;
+		}
+		save({
+			...preferences,
+			pinned: {
+				...preferences.pinned,
+				spaceIds: preferences.pinned.spaceIds.filter((value) => value !== id),
+			},
+		});
+	};
 	return {
+		move,
+		unpin,
+		pin,
 		org,
 		profileId,
 		store,

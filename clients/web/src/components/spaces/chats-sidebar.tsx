@@ -23,7 +23,6 @@ import { moveSidebarGroup } from "#/components/app/sidebar-drop-target";
 import { useSidebarFilter } from "#/components/app/sidebar-filter";
 import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
-import { moveSidebarItemIds } from "#/components/app/sidebar-order";
 import { SidebarSectionActions } from "#/components/app/sidebar-section-actions";
 import { useSidebarDisclosure } from "#/components/app/use-sidebar-disclosure";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
@@ -32,7 +31,6 @@ import { SidebarSearchInput } from "../app/sidebar-search-input";
 import type { Chat } from "./chat-sidebar-model";
 import { ChatRow } from "./chat-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
-import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 import { useChats } from "./use-chats";
 
 export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
@@ -56,7 +54,9 @@ export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 		spaces,
 		directory,
 		sessions,
-		ordinaryAccountItems,
+		move,
+		unpin,
+		pin,
 		preferences,
 		chatPath,
 		attentionById,
@@ -91,53 +91,8 @@ export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 			),
 		])
 	);
-	const pin = useAccountSpacePinMutation({ currentProfileId: profileId });
 	const [renaming, setRenaming] = useState<Chat | null>(null);
 	const [name, setName] = useState("");
-	const move = async (section: string, id: string, before?: string) => {
-		const target = sections.find((s) => s.id === section);
-		if (!target || store.disabled) {
-			return;
-		}
-		const accountItem = ordinaryAccountItems.find(
-			(item) => item.spaceId === id
-		);
-		if (
-			accountItem &&
-			!(await pin.setPinned(accountItem, section === "pinned"))
-		) {
-			return;
-		}
-		const ids = moveSidebarItemIds(
-			target.spaceIds,
-			rows(section).map((c) => c.spaceId),
-			id,
-			before
-		);
-		if (section === "pinned") {
-			save({ ...preferences, pinned: { sort: "manual", spaceIds: ids } });
-			return;
-		}
-		save({
-			...preferences,
-			pinned: {
-				...preferences.pinned,
-				spaceIds: preferences.pinned.spaceIds.filter((v) => v !== id),
-			},
-			spaces:
-				section === "chats"
-					? { sort: "manual", spaceIds: ids }
-					: {
-							...preferences.spaces,
-							spaceIds: preferences.spaces.spaceIds.filter((v) => v !== id),
-						},
-			groups: preferences.groups.map((g) =>
-				g.id === section
-					? { ...g, sort: "manual", spaceIds: ids }
-					: { ...g, spaceIds: g.spaceIds.filter((v) => v !== id) }
-			),
-		});
-	};
 	const newChat = (group?: string) => {
 		setCreatingGroup(group);
 		setCreating(true);
@@ -155,21 +110,6 @@ export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 				{ id: crypto.randomUUID(), name, sort: "priority", spaceIds: [] },
 			],
 		});
-	const unpin = async (id: string) => {
-		const accountItem = ordinaryAccountItems.find(
-			(item) => item.spaceId === id
-		);
-		if (accountItem && !(await pin.setPinned(accountItem, false))) {
-			return;
-		}
-		save({
-			...preferences,
-			pinned: {
-				...preferences.pinned,
-				spaceIds: preferences.pinned.spaceIds.filter((value) => value !== id),
-			},
-		});
-	};
 	return (
 		<>
 			<SidebarSearchInput

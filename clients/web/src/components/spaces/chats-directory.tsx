@@ -23,6 +23,7 @@ import { useState } from "react";
 import { AppEmptyState } from "#/components/app/app-empty-state";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { AppSidebarGroup } from "#/components/app/app-sidebar-group";
+import { DirectoryRowActions } from "#/components/app/directory-row-actions";
 import { DirectorySearch } from "#/components/app/directory-search";
 import { useSidebarFilter } from "#/components/app/sidebar-filter";
 import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
@@ -256,6 +257,9 @@ export function ChatsDirectory() {
 									<TableHead>Chat</TableHead>
 									<TableHead className="w-40">Status</TableHead>
 									<TableHead className="w-28">Activity</TableHead>
+									<TableHead className="w-20">
+										<span className="sr-only">Actions</span>
+									</TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -263,7 +267,7 @@ export function ChatsDirectory() {
 									<TableRow>
 										<TableCell
 											className="py-4 text-muted-foreground text-xs"
-											colSpan={3}
+											colSpan={4}
 										>
 											No chats in this group yet.
 										</TableCell>
@@ -279,7 +283,10 @@ export function ChatsDirectory() {
 									const preview = previewById.get(chat.spaceId);
 									const time = model.activity.get(chat.spaceId);
 									return (
-										<TableRow className="border-0" key={chat.spaceId}>
+										<TableRow
+											className="group/directory-row border-0"
+											key={chat.spaceId}
+										>
 											<TableCell className="max-w-0 py-4">
 												<Link
 													className="flex items-center gap-3"
@@ -294,7 +301,7 @@ export function ChatsDirectory() {
 													/>
 													<span className="min-w-0">
 														<span
-															className={`text-sm ${unread ? "font-semibold" : "font-medium"}`}
+															className={`block truncate text-sm ${unread ? "font-semibold" : "font-medium"}`}
 														>
 															{model.title(chat)}
 														</span>
@@ -325,6 +332,33 @@ export function ChatsDirectory() {
 														timestamp={time}
 													/>
 												) : null}
+											</TableCell>
+											<TableCell>
+												<DirectoryRowActions
+													disabled={
+														model.store.disabled ||
+														model.pin.arePinActionsPending
+													}
+													groupId={
+														model.preferences.groups.find((group) =>
+															group.spaceIds.includes(chat.spaceId)
+														)?.id ?? "chats"
+													}
+													groups={[
+														{ id: "chats", name: "Chats" },
+														...model.preferences.groups,
+													]}
+													name={model.title(chat)}
+													onMove={(groupId) =>
+														model.move(groupId, chat.spaceId)
+													}
+													onTogglePinned={() =>
+														section.id === "pinned"
+															? model.unpin(chat.spaceId)
+															: model.move("pinned", chat.spaceId)
+													}
+													pinned={section.id === "pinned"}
+												/>
 											</TableCell>
 										</TableRow>
 									);
