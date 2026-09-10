@@ -48,15 +48,22 @@ conversation is displayed, view navigation pins its resolved Space ID in the
 URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
-Chats places Center Agent sessions in the Main Sidebar, reusing destination search
-and filters, collapsible groups, group actions and whole-row drag ordering.
-Pinned chats share one top-level group above Chats, including human,
-local Agent, and Center Agent conversations. Pins appear once; unpin restores
-their original group. People and Agents are optional filters, not separate lists.
-Empty built-in
-sections are omitted. User-created groups remain visible with the same compact
-empty-state treatment as Spaces. A New chat entry remains available when no
-sections are visible. The old header New chat/Chats dropdown is removed.
+The Main Sidebar shares one Conversations navigation across Spaces, Direct
+messages, and Center Agent conversations. Grouped is the default view, with a
+shared Pinned section, existing personal groups, Spaces, and Direct messages.
+Recent retains the same Pinned section and orders the remaining conversations
+by the latest message timestamp across both kinds. Both views use the same rows,
+previews, identities, indicators, and canonical destinations. The view menu
+changes only the sidebar; the open conversation, draft, and reading position
+remain mounted. View choice is remembered in this browser per account and
+Organization. It does not change another member's layout.
+
+Pinned contains ordinary Spaces, human and Agent direct messages, and Center
+Agent sessions once each. Its shared manual order uses the existing root
+sidebar preference; ordinary pin membership remains Space Index-owned and
+session pins remain in `chats` preferences. Unpin restores the saved group.
+Spaces, People, and Agents are optional filters. A New conversation action
+remains available even when no conversations match.
 
 Selecting only Center Agent in New chat opens a local `?draft=new` composer without creating a session or
 waiting for a session-list request. The first send creates the session and
@@ -324,8 +331,8 @@ authorization.
 
 ### Fixed primary rail
 
-Spaces Sidebar groups default to collapsed on the Spaces directory. Inside a
-Space, its containing group temporarily expands even when the saved choice is
+The shared conversation sidebar defaults its built-in sections to expanded and
+custom groups to collapsed. Inside a Space, its containing group temporarily expands even when the saved choice is
 closed. Manual toggles during that visit take precedence until another Space
 is entered. Returning to the directory restores saved choices. These browser-local
 choices are isolated by profile and Organization; automatic expansion is never
@@ -345,7 +352,7 @@ primary actions and destinations in a flat list:
   Pending teammate requests open Agent requests. Legacy `agents?view=create`
   links redirect to this route before loading the Agents directory.
 - **Home** — directly opens the current Organization's default Center Agent chat.
-- **Spaces** and **Chats** — first-level destinations directly below
+- **Spaces** and **Direct messages** — first-level destinations directly below
   Home.
 - **Team** — opens the people directory. Each person's profile owns their Agent list.
 
@@ -358,11 +365,11 @@ Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
 The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
-**Chats**, **Team**. The product destinations are:
+**Direct messages**, **Team**. The product destinations are:
 
 1. **Home** — directly renders the existing default Center Agent conversation,
    keeping Home selected. It shares the complete conversation component,
-   loader, and underlying session with Chats, without an intermediate entry
+   loader, and underlying session with Direct messages, without an intermediate entry
    screen or a new conversation. Existing Home session and view selectors
    remain supported. The default follows the existing production open-or-reuse
    behavior, rather than switching to the most recently active session.
@@ -403,7 +410,7 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    observer or join affordance.
    The read-only Composer says `Join this conversation to send messages.` in
    its input area once; the action row does not repeat the placeholder.
-   Chats and ordinary Spaces share the Members panel and its People & Agents
+   Direct messages and ordinary Spaces share the Members panel and its People & Agents
    grouping. An Agent owner who has not joined appears as an identity heading
    above their Agents, using the Organization Profile Directory name and avatar.
    This heading does not create membership, count toward Members, or expose
@@ -413,7 +420,7 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    name, and Profile popover without an Agent action label. The timeline carries
    all three existing addressing lists without changing notification or Wake
    semantics.
-   Long message previews share one folding policy across Spaces, Chats, and
+   Long message previews share one folding policy across Spaces, Direct messages, and
    threads: finish the paragraph or Markdown block crossing the soft character
    limit of 2,000 characters, then offer **Show more**. Folded text shares the
    Scroll Area's bottom edge fade; the button stays outside the mask. Expansion
@@ -440,7 +447,7 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    Computers. It filters the existing Account Space Index by currently owned
    personal Agents, groups each conversation once, and supports an Agent filter.
    The bounded Fluid Table uses the shared Scroll Area, scrollbar, and edge
-   fades. Links reuse the existing Chats/Spaces viewer identity and access
+   fades. Links reuse the existing Direct messages/Spaces viewer identity and access
    rules; this is not a separate interaction log or an Inbox history. Other
    people's profiles do not show this section, and organization ownership does
    not grant access to managed Center Agent private conversations.
@@ -523,7 +530,7 @@ writer owners for that conversation. Inbox and Center Agent
 are separate controls and truths, and at most one compact panel is open at a
 time.
 
-### Home and Chats
+### Home and Direct messages
 
 The former Home destination is labeled **Center Agent** in navigation and the
 command palette while Home is redesigned. Its Organization-root URL and
@@ -531,12 +538,12 @@ internal `home` section identity remain unchanged.
 
 The authorized Organization root `/o/{orgSlug}` remains Home and directly
 renders the default Center Agent conversation using the existing production
-open-or-reuse loader. Home stays selected and does not redirect to Chats.
+open-or-reuse loader. Home stays selected and does not redirect to Direct messages.
 `/o/{orgSlug}/chats/center-agent` exposes the same complete conversation UI
-inside Chats. Both routes support the existing `session`, `draft`, and view
+inside Direct messages. Both routes support the existing `session`, `draft`, and view
 selectors and share the underlying conversation without copying history.
 
-Chats at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
+Direct messages at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
 It stays on a conversation directory, sharing sidebar grouping, sort order,
 previews, and unread projections. Loading never presents a false empty state
 or automatically opens a conversation. A genuinely empty list offers New chat.
@@ -547,24 +554,40 @@ Space creation and directory membership APIs. A successfully created Space is
 retained while retrying failed member additions. Selecting an agent alone does
 not implicitly turn the new chat into a group; ordinary Space membership still
 applies the server-owned agent-owner admission rules.
-Chats sidebar disclosure shares the Spaces policy: directory groups default to
-collapsed, entering a conversation reveals its group, and manual choices persist.
-New chat and participant filters
-live in the Chats destination action slot. Selected destinations keep their
-actions visible; Search manually inside filters reveals contextual search.
+In the shared conversation sidebar, Pinned, Spaces, and Direct messages start
+expanded unless the viewer has saved a manual choice. Custom groups start
+collapsed. Entering a conversation reveals its group; switching views preserves
+both families' existing disclosure choices. Search temporarily reveals matching
+groups without writing disclosure preferences. Creation, view selection,
+filters, and search live in the Conversations header.
 Ordinary private conversations use `/chats/{spaceId}`. The old
 `/direct-messages` routes only redirect and preserve supported search fields.
 Team's Center Agent entry opens the canonical Center Agent chat.
 
-The shared Chats sidebar merges People, Local, Remote, and Center Agent
-conversations by Space identity before grouping and sorting. All chats appear
-together by default; People and Agents are optional multi-select filters using
-the same selection and removable badges as Spaces group filters. Selecting
-both includes both kinds; clearing all selections restores all chats. Priority is the
-default and uses the same attention, unread, working, and message-activity
-ordering as Spaces. Recent activity uses the last real message, not creation
-time or a separately sorted runtime family. Pinned and manual order remain
-explicit user choices. Existing `messages` and `chats` preferences are merged
+The shared sidebar deduplicates ordinary Spaces, People, Local, Remote, and
+Center Agent conversations by Space identity. Ordinary Space rows come from
+the current Organization's authorized Account Space Index; direct messages
+reuse the existing peer/title resolution and paged Center Agent session list.
+The global command center uses these same titles and exact destinations,
+including the Center Agent session selector. Space-name search remains bounded
+by the existing 500-item Account Space Index query; this UI change does not
+introduce a server search endpoint or claim unbounded history coverage.
+
+Grouped retains existing per-section Priority and manual sorting. Both views use
+the existing fixed status slot so revealing or focusing row actions cannot move
+or cover activity indicators. Priority sections wait for their first activity
+snapshot before showing an idle ordering; manual pins and Recent remain usable
+while that evidence loads. Full names and attributed activity remain available
+through the shared tooltips. Ordinary Space rows read Index previews without
+creating per-Space message-preview observers. Recent uses
+only message time, with an empty conversation at zero and Space ID as a stable
+tie-breaker; unread, visit time, and running progress do not promote it. Recent
+does not permit manual row ordering outside Pinned. Space and direct-message
+custom groups retain their existing preference owners; cross-kind moves are
+rejected before any pin or preference write. Rename and archive remain direct-
+message actions and are never offered on ordinary Space rows.
+
+Existing `messages` and `chats` preferences are merged
 without losing pinned items, custom groups, titles, or archived conversations;
 the next write stores the unified `chats` preferences and retires `messages`.
 Ordinary DM pin membership remains Space Index-owned and uses the same pin
@@ -582,7 +605,7 @@ The full Center Agent page, header, starter cards, composer, and all capability
 surfaces reuse their existing components. Messages, Graph, Files,
 Routines, Skills, Plugins, Channels, Memory, settings, and conversation
 information remain available. Capability routes stay under `/center-agent/*`
-and highlight Chats. The starter cards continue scrolling with the conversation.
+and highlight Direct messages. The starter cards continue scrolling with the conversation.
 No second conversation controller or message store is introduced.
 
 ### Inbox

@@ -1,4 +1,12 @@
-import type { WakeProgressItem } from "@openmeld/schemas/types";
+import type { ListCenterAgentSessionsResponse } from "@openmeld/schemas";
+import {
+	ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS,
+	upsertProfileSpaceHistoryResponseSchema,
+} from "@openmeld/schemas";
+import type {
+	OrganizationProfileDirectoryResponse,
+	WakeProgressItem,
+} from "@openmeld/schemas/types";
 import {
 	createWakeProgressItem,
 	OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
@@ -16,21 +24,30 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
+import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { OPENMELD_WELCOMING_SPACE_PURPOSE } from "#/lib/spaces/welcoming-space";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	setSpaceWakeProgressPresentationItems,
 	spaceActiveWakeProgressSummaryQueryOptions,
 } from "#/query/spaces/active-wake-progress";
-import { AppSpacesSidebar } from "./app-spaces-sidebar";
+import { ConversationsSidebar } from "./conversations-sidebar";
 import {
 	SpaceWakeProgressVisibleProjectionProvider,
 	usePublishSpaceWakeProgressVisibleProjection,
 } from "./space-wake-progress-visible-projection";
+
+const ACTIVE_NAME_PATTERN_1 = /^Beta, (?=.*(?:Wake|working|waiting)).+/i;
+const ACTIVE_NAME_PATTERN_2 = /^Alpha, .*Wake/;
+const ACTIVE_NAME_PATTERN_3 = /^Alpha, (?=.*(?:Wake|working|waiting)).+/i;
+const ACTIVE_NAME_PATTERN_4 = /^Alpha, .*waiting/i;
+const ACTIVE_NAME_PATTERN_5 = /^Alpha, .*Wakes are active/;
+const ACTIVE_NAME_PATTERN_6 = /^Working, unread messages, .*Wake/;
 
 const OTHER_JOINED_PROFILE_TEXT = /Other joined profile/;
 const BROWSE_SPACES_TEXT = /Browse Spaces/;
@@ -45,6 +62,7 @@ vi.mock("../app/use-sidebar-preferences", () => ({
 		isPending: false,
 		disabled: false,
 		save: vi.fn(),
+		saveAsync: vi.fn().mockResolvedValue(undefined),
 	}),
 }));
 
@@ -71,6 +89,7 @@ function WakeProgressProjectionPublisher(input: {
 }
 
 type AppOrganizationMock = {
+	currentUserId: string;
 	activeOrganization: OrganizationSummary | null;
 	currentOrganization: OrganizationSummary;
 	organizations: OrganizationSummary[];
@@ -103,6 +122,7 @@ const {
 	setAccountSpaceItemPinnedMock,
 } = vi.hoisted(() => ({
 	appOrganizationMock: {
+		currentUserId: "user-1",
 		activeOrganization: null,
 		currentOrganization: {
 			id: "org-acme",
@@ -153,6 +173,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 			</a>
 		),
 		useNavigate: () => navigateMock,
+		useRouterState: ({
+			select,
+		}: {
+			select: (state: { location: { searchStr: string } }) => unknown;
+		}) => select({ location: { searchStr: "" } }),
 	};
 });
 
@@ -190,8 +215,36 @@ vi.mock("#/lib/spaces/api", () => ({
 	}),
 }));
 
-describe("AppSpacesSidebar", () => {
-	it("uses the unopened Space snapshot and removes its marker when its tasks finish", async () => {
+vi.mock("#/lib/profiles/use-default-human-profile", () => ({
+	useDefaultHumanProfile: () => ({
+		defaultHumanProfile: { openMeldProfileId: "human-1" },
+	}),
+}));
+vi.mock("./new-chat-dialog", () => ({ NewChatDialog: () => null }));
+vi.mock("#/lib/organizations/organization-directory", () => ({
+	readCurrentOrganizationProfileDirectory: () =>
+		Promise.resolve({
+			organizationId: appOrganizationMock.currentOrganization.id,
+			generatedAt: "2026-09-10T00:00:00.000Z",
+			members: [],
+			agentProfiles: [],
+		} satisfies OrganizationProfileDirectoryResponse),
+}));
+vi.mock("@openmeld/api-client", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@openmeld/api-client")>()),
+	createCenterAgentApi: () => ({
+		listSessions: () =>
+			Promise.resolve({
+				organizationId: appOrganizationMock.currentOrganization.id,
+				generatedAt: "2026-09-10T00:00:00.000Z",
+				sessions: [],
+				nextCursor: null,
+			} satisfies ListCenterAgentSessionsResponse),
+	}),
+}));
+
+describe("ConversationsSidebar", () => {
+	it("[S01] uses the unopened Space snapshot and removes its marker when its tasks finish", async () => {
 		const queryClient = createSidebarQueryClient();
 		seedCurrentSpaceWakeRace(queryClient);
 		const working = createWakeProgressItem({
@@ -225,15 +278,15 @@ describe("AppSpacesSidebar", () => {
 		};
 		getActiveWakeProgressMock.mockResolvedValue(response);
 		renderSidebar(
-			<AppSpacesSidebar
+			<ConversationsSidebar
 				currentProfileId="human-1"
 				currentSpaceId="space-alpha"
 			/>,
 			queryClient
 		);
 		expect(
-			await screen.findByRole("button", {
-				name: "Planner needs your input; Reviewer is working. Open Beta",
+			await screen.findByRole("img", {
+				name: "Planner needs your input; Reviewer is working",
 			})
 		).toBeTruthy();
 		expect(getActiveWakeProgressMock).toHaveBeenCalledWith(
@@ -251,7 +304,9 @@ describe("AppSpacesSidebar", () => {
 		});
 		expect(await screen.findByRole("link", { name: "Beta" })).toBeTruthy();
 		expect(
-			screen.queryByRole("link", { name: "Beta, active Wake" })
+			screen.queryByRole("link", {
+				name: ACTIVE_NAME_PATTERN_1,
+			})
 		).toBeNull();
 	});
 
@@ -294,10 +349,11 @@ describe("AppSpacesSidebar", () => {
 
 	afterEach(() => {
 		cleanup();
+		localStorage.clear();
 		focusManager.setFocused(undefined);
 	});
 
-	it("shows the indexed message time without subscribing to per-Space previews", async () => {
+	it("[S02] shows the indexed message time without subscribing to per-Space previews", async () => {
 		const timestamp = Date.parse("2026-09-06T17:00:00.000Z");
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
@@ -318,7 +374,7 @@ describe("AppSpacesSidebar", () => {
 		});
 		const queryClient = createSidebarQueryClient();
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />,
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />,
 			queryClient
 		);
 		const row = await screen.findByRole("link", { name: "Alpha" });
@@ -333,7 +389,7 @@ describe("AppSpacesSidebar", () => {
 		).toHaveLength(0);
 	});
 
-	it("moves unpinned Spaces with unread messages first and shows a static accessible indicator", async () => {
+	it("[S03] moves unpinned Spaces with unread messages first and shows a static accessible indicator", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -359,7 +415,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		const beta = await screen.findByRole("link", {
@@ -370,11 +426,15 @@ describe("AppSpacesSidebar", () => {
 		expect(beta.compareDocumentPosition(alpha)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
-		expect(beta.querySelector("[data-space-unread-indicator]")).toBeTruthy();
+		expect(
+			getConversationRow(beta).querySelector(
+				"[data-conversation-unread-indicator]"
+			)
+		).toBeTruthy();
 		expect(beta.className).not.toContain("animate-");
 	});
 
-	it("prioritizes unread pinned Spaces when Priority is selected by default", async () => {
+	it("[S04] keeps the shared pinned order stable when an older pin is unread", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -402,7 +462,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		const alpha = await screen.findByRole("link", { name: "Alpha" });
@@ -410,25 +470,27 @@ describe("AppSpacesSidebar", () => {
 			name: "Beta, unread messages",
 		});
 		expect(alpha.compareDocumentPosition(beta)).toBe(
-			Node.DOCUMENT_POSITION_PRECEDING
+			Node.DOCUMENT_POSITION_FOLLOWING
 		);
 	});
 
-	it("keeps unread recency ahead of newly joined Spaces", async () => {
+	it("[S05] keeps unread recency ahead of newly joined Spaces", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
 				createAccountSpaceItem({
 					lastJoinedAt: "2026-04-28T00:00:00.000Z",
 					lastSeenTs: Date.parse("2026-04-30T00:00:00.000Z"),
-					spaceId: "space-existing",
+					spaceId: "space-z-existing",
 					spaceName: "Existing",
+					messageTimestamp: 5000,
 				}),
 				createAccountSpaceItem({
 					lastJoinedAt: "2026-04-29T00:00:00.000Z",
 					lastSeenTs: null,
-					spaceId: "space-new",
+					spaceId: "space-a-new",
 					spaceName: "Launch Room",
+					messageTimestamp: 1000,
 				}),
 			],
 		});
@@ -437,19 +499,19 @@ describe("AppSpacesSidebar", () => {
 			spaces: [
 				{
 					latestUnreadOccurredAtMs: 5000,
-					spaceId: "space-existing",
+					spaceId: "space-z-existing",
 					unreadCount: 2,
 				},
 				{
 					latestUnreadOccurredAtMs: 1000,
-					spaceId: "space-new",
+					spaceId: "space-a-new",
 					unreadCount: 1,
 				},
 			],
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		const newSpace = await screen.findByRole("link", {
@@ -461,14 +523,20 @@ describe("AppSpacesSidebar", () => {
 		expect(newSpace.compareDocumentPosition(existingSpace)).toBe(
 			Node.DOCUMENT_POSITION_PRECEDING
 		);
-		expect(newSpace.classList.contains("font-semibold")).toBe(true);
+		expect(
+			newSpace
+				.querySelector("[data-conversation-title]")
+				?.classList.contains("font-semibold")
+		).toBe(true);
 		expect(newSpace.classList.contains("text-primary")).toBe(false);
 		expect(
-			newSpace.querySelector('[data-space-unread-indicator="true"]')
+			getConversationRow(newSpace).querySelector(
+				'[data-conversation-unread-indicator="true"]'
+			)
 		).toBeTruthy();
 	});
 
-	it("keeps pin order when a Space has never been opened", async () => {
+	it("[S06] keeps pin order when a Space has never been opened", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -490,7 +558,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		const pinnedNew = await screen.findByRole("link", {
@@ -502,7 +570,7 @@ describe("AppSpacesSidebar", () => {
 		);
 	});
 
-	it("preserves pin and unread ordering when the open owner records lastSeenTs", async () => {
+	it("[S07] preserves pin and unread ordering when the open owner records lastSeenTs", async () => {
 		const initialSections = {
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -547,7 +615,7 @@ describe("AppSpacesSidebar", () => {
 		const queryClient = createSidebarQueryClient();
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />,
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />,
 			queryClient
 		);
 		const pinnedNew = await screen.findByRole("link", {
@@ -604,7 +672,7 @@ describe("AppSpacesSidebar", () => {
 		});
 	});
 
-	it("does not mark a previously seen Space as new when its join timestamp advances", async () => {
+	it("[S08] does not mark a previously seen Space as new when its join timestamp advances", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -618,7 +686,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		expect(
@@ -631,7 +699,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeNull();
 	});
 
-	it("keeps an unseen Space available through render, hover, and focus", async () => {
+	it("[S09] keeps an unseen Space available through render, hover, and focus", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -644,7 +712,7 @@ describe("AppSpacesSidebar", () => {
 			],
 		});
 		const view = renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		const firstUnseen = await screen.findByRole("link", {
@@ -653,13 +721,13 @@ describe("AppSpacesSidebar", () => {
 		fireEvent.pointerEnter(firstUnseen);
 		fireEvent.focus(firstUnseen);
 		view.rerender(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		expect(screen.getByRole("link", { name: "First Unseen" })).toBeTruthy();
 	});
 
-	it("shows a newly joined Space as soon as the window regains focus", async () => {
+	it("[S10] shows a newly joined Space as soon as the window regains focus", async () => {
 		focusManager.setFocused(false);
 		listAccountSpaceItemsMock
 			.mockResolvedValueOnce({
@@ -688,7 +756,7 @@ describe("AppSpacesSidebar", () => {
 			});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 		await screen.findByRole("link", { name: "Existing" });
 		expect(screen.queryByText("Focus Room")).toBeNull();
@@ -702,7 +770,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeTruthy();
 	});
 
-	it("keeps cached Spaces visible when a foreground refresh fails", async () => {
+	it("[S11] keeps cached Spaces visible when a foreground refresh fails", async () => {
 		focusManager.setFocused(false);
 		listAccountSpaceItemsMock
 			.mockResolvedValueOnce({
@@ -722,7 +790,7 @@ describe("AppSpacesSidebar", () => {
 		const queryClient = createSidebarQueryClient();
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />,
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />,
 			queryClient
 		);
 		await screen.findByRole("link", { name: "Existing" });
@@ -742,7 +810,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeNull();
 	});
 
-	it("hides the pinned section when no Spaces are pinned", async () => {
+	it("[S12] hides the pinned section when no Spaces are pinned", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -754,7 +822,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		expect(await screen.findByRole("link", { name: "Alpha" })).toBeTruthy();
@@ -763,7 +831,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeNull();
 	});
 
-	it("hides legacy welcoming spaces from the sidebar", async () => {
+	it("[S13] hides legacy welcoming spaces from the sidebar", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -792,7 +860,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		const pinnedSpace = await screen.findByRole("link", {
@@ -817,7 +885,7 @@ describe("AppSpacesSidebar", () => {
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 	});
 
-	it("keeps current Direct Messages out of the Spaces sidebar", async () => {
+	it("[S14] keeps DMs out of the Spaces group while showing them once in shared navigation", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -844,34 +912,31 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		await screen.findByRole("link", {
 			name: "Felix and Center Agent plus Ada",
 		});
+		const spaces = within(screen.getByRole("region", { name: "Spaces" }));
 		expect(
-			screen.queryByRole("heading", { level: 2, name: "Direct Messages" })
+			spaces.queryByRole("link", { name: "Felix and Center Agent" })
 		).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: "Felix and Center Agent" })
-		).toBeNull();
-		const spacesHeading = getSidebarGroupLabel("Spaces");
+			spaces.getByRole("link", { name: "Felix and Center Agent plus Ada" })
+		).toBeTruthy();
+		expect(spaces.getByRole("link", { name: "Ordinary Pair" })).toBeTruthy();
 		expect(
-			spacesHeading.compareDocumentPosition(
-				screen.getByRole("link", {
-					name: "Felix and Center Agent plus Ada",
-				})
-			)
-		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+			within(screen.getByRole("region", { name: "Pinned" })).getByRole("link", {
+				name: "Felix and Center Agent",
+			})
+		).toBeTruthy();
 		expect(
-			spacesHeading.compareDocumentPosition(
-				screen.getByRole("link", { name: "Ordinary Pair" })
-			)
-		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+			screen.getAllByRole("link", { name: "Felix and Center Agent" })
+		).toHaveLength(1);
 	});
 
-	it("keeps a channel icon when member previews are not available", async () => {
+	it("[S15] keeps a channel icon when member previews are not available", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -889,16 +954,16 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		for (const spaceName of ["Pinned Alpha", "Regular Beta"]) {
 			const row = await screen.findByRole("link", { name: spaceName });
-			expect(row?.querySelector('[data-space-icon="channel"]')).toBeTruthy();
+			expect(row?.querySelector('svg[aria-label="Space"]')).toBeTruthy();
 		}
 	});
 
-	it("filters account-scoped spaces to the current organization before grouping", async () => {
+	it("[S16] filters account-scoped spaces to the current organization before grouping", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -929,7 +994,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		expect(
@@ -948,7 +1013,7 @@ describe("AppSpacesSidebar", () => {
 		expect(screen.queryByText("Welcoming")).toBeNull();
 	});
 
-	it("hides personal legacy welcoming spaces in the personal context", async () => {
+	it("[S17] hides personal legacy welcoming spaces in the personal context", async () => {
 		appOrganizationMock.activeOrganization = null;
 		appOrganizationMock.currentOrganization = {
 			id: "org-personal",
@@ -974,31 +1039,32 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		await waitFor(() => {
 			expect(listAccountSpaceItemsMock).toHaveBeenCalled();
 		});
-		expect(screen.queryByRole("button", { name: "Mira Welcome" })).toBeNull();
+		expect(screen.queryByRole("link", { name: "Mira Welcome" })).toBeNull();
 		expect(screen.queryByText("Welcoming")).toBeNull();
-		expect(screen.queryByRole("button", { name: "Acme Project" })).toBeNull();
+		expect(screen.queryByRole("link", { name: "Acme Project" })).toBeNull();
 	});
 
-	it("renders the Spaces title without repeating the OpenMeld brand", () => {
+	it("[S18] renders the Conversations title without repeating the OpenMeld brand", () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [],
 		});
 
 		const { container } = renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 		const sidebarHeader = container.querySelector(
 			'[data-slot="sidebar-header"]'
 		);
 
 		expect(sidebarHeader).toBeNull();
+		expect(screen.getByText("Conversations")).toBeTruthy();
 		expect(screen.queryByText("Chatroom for agents & humans")).toBeNull();
 		expect(
 			screen.queryByRole("heading", { name: "OpenMeld Spaces" })
@@ -1006,7 +1072,7 @@ describe("AppSpacesSidebar", () => {
 		expect(screen.queryByRole("button", { name: "Account" })).toBeNull();
 	});
 
-	it("keeps the Web profile out of Space navigation metadata", async () => {
+	it("[S19] keeps the Web profile out of Space navigation metadata", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -1034,7 +1100,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		expect(await screen.findByRole("link", { name: "Alpha" })).toBeTruthy();
@@ -1043,7 +1109,7 @@ describe("AppSpacesSidebar", () => {
 		expect(screen.queryByText("1 other profile also joined")).toBeNull();
 	});
 
-	it("reclaims the timestamp area when a space item is narrow", async () => {
+	it("[S20] reclaims the timestamp area when a space item is narrow", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -1055,47 +1121,29 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const openSpaceButton = await screen.findByRole("link", {
-			name: "Alpha",
-		});
-		const spaceName = openSpaceButton.querySelector<HTMLElement>(
-			'[data-slot="center-truncated-text"]'
-		);
-		const nameAndDate = openSpaceButton.querySelector<HTMLElement>(
-			'[data-slot="space-sidebar-name-and-date"]'
-		);
-		const spaceRow = openSpaceButton?.parentElement;
-		const timestamp = openSpaceButton.querySelector<HTMLElement>(
-			'[data-slot="space-sidebar-date"]'
-		);
-		const pinButton = screen.getByRole("button", { name: "Pin Alpha" });
-
-		expect(spaceRow?.classList.contains("@container/conversation-row")).toBe(
-			true
-		);
-		expect(openSpaceButton?.classList.contains("pr-10")).toBe(false);
-		expect(spaceName?.classList.contains("pr-10")).toBe(false);
-		expect(spaceName?.classList.contains("@[13rem]/space-item:pr-10")).toBe(
-			false
-		);
-		expect(nameAndDate?.classList.contains("flex")).toBe(true);
-		expect(nameAndDate?.classList.contains("min-w-0")).toBe(true);
-		expect(nameAndDate?.classList.contains("flex-1")).toBe(true);
-		expect(nameAndDate?.classList.contains("items-center")).toBe(true);
-		expect(nameAndDate?.classList.contains("gap-2")).toBe(true);
-		expect(openSpaceButton.classList.contains("items-center")).toBe(true);
-		expect(timestamp).toBeNull();
-		expect(pinButton.classList.contains("top-1.5")).toBe(true);
-		expect(pinButton.classList.contains("top-1/2")).toBe(false);
-		expect(pinButton.classList.contains("hover:bg-sidebar-accent")).toBe(true);
-		expect(pinButton.classList.contains("rounded-md")).toBe(true);
-		expect(pinButton.classList.contains("backdrop-blur-sm")).toBe(false);
+		const link = await screen.findByRole("link", { name: "Alpha" });
+		expect(
+			link
+				.querySelector('[data-sidebar="menu-heading"]')
+				?.classList.contains("min-w-0")
+		).toBe(true);
+		expect(
+			link
+				.querySelector("[data-conversation-title]")
+				?.classList.contains("truncate")
+		).toBe(true);
+		expect(link.style.getPropertyValue("--row-gutter")).toBe("8px");
+		expect(screen.getByRole("button", { name: "Pin Alpha" })).toBeTruthy();
+		// The browser geometry check exercises the actual narrow-width allocation (S20/S32).
+		expect(
+			getConversationRow(link).querySelector("[data-conversation-activity]")
+		).toBeNull();
 	});
 
-	it("shows active Agent names only from the Working orb tooltip", async () => {
+	it("[S21] shows active Agent names only from the Working orb tooltip", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -1127,59 +1175,42 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar
+			<ConversationsSidebar
 				currentProfileId="human-1"
 				currentSpaceId="space-beta"
 			/>
 		);
 
-		const workingButton = await screen.findByRole("link", {
-			name: "Alpha, active Wake",
+		const link = await screen.findByRole("link", {
+			name: ACTIVE_NAME_PATTERN_2,
 		});
-		const workingRow = workingButton.closest<HTMLElement>(
-			'[data-slot="center-truncated-text"], li, div'
+		const status = within(getConversationRow(link)).getByRole("img", {
+			name: "Clico Codex has an active Wake",
+		});
+		expect(status.closest("a")?.getAttribute("href")).toBe(
+			link.getAttribute("href")
 		);
-		expect(workingRow).toBeTruthy();
-		await waitFor(() => {
-			expect(
-				document.querySelectorAll('[data-space-active-wake-orb="true"]')
-			).toHaveLength(1);
-		});
-		const orbSlot = document.querySelector<HTMLElement>(
-			'[data-space-active-wake-orb="true"]'
-		);
-		expect(orbSlot?.querySelector("canvas")).toBeTruthy();
-		expect(orbSlot?.classList.contains("pointer-events-auto")).toBe(true);
-		expect(orbSlot?.classList.contains("group-hover/space-row:opacity-0")).toBe(
-			false
-		);
-		const workingStatus = screen.getByRole("button", {
-			name: "Clico Codex has an active Wake. Open Alpha",
-		});
-		expect(workingStatus).toBe(orbSlot);
-		fireEvent.pointerEnter(workingStatus);
-		fireEvent.mouseEnter(workingStatus);
-		await waitFor(() => {
-			expect(screen.getByText("Clico Codex has an active Wake")).toBeTruthy();
-		});
 		expect(
-			orbSlot?.classList.contains("group-hover/space-row:scale-[0.625]")
-		).toBe(false);
-
-		// The idle row keeps the plain label and never mounts an orb.
-		expect(screen.getByRole("link", { name: "Beta" })).toBeTruthy();
-
-		// The pin action stays in the slot, hidden until hover/focus reveals it.
-		const pinButton = screen.getByRole("button", { name: "Pin Alpha" });
-		expect(pinButton.classList.contains("opacity-100")).toBe(false);
-		expect(pinButton.hasAttribute("data-show-on-hover")).toBe(true);
+			document.querySelectorAll('[data-conversation-activity="active"]')
+		).toHaveLength(1);
 		expect(
-			pinButton.classList.contains("group-hover/space-row:opacity-100")
+			screen.queryByRole("tooltip", { name: "Clico Codex has an active Wake" })
+		).toBeNull();
+		hoverActivity(status);
+		expect(
+			(await screen.findByText("Clico Codex has an active Wake"))
+				.closest('[data-slot="tooltip-content"]')
+				?.hasAttribute("data-open")
 		).toBe(true);
-		expect(pinButton.classList.contains("pointer-events-none")).toBe(false);
+		expect(
+			screen
+				.getByRole("link", { name: "Beta" })
+				.querySelector("[data-conversation-activity]")
+		).toBeNull();
+		expect(screen.getByRole("button", { name: "Pin Alpha" })).toBeTruthy();
 	});
 
-	it("lists every named Agent in the Working orb tooltip", async () => {
+	it("[S22] lists every named Agent in the Working orb tooltip", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -1212,14 +1243,13 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const workingStatus = await screen.findByRole("button", {
-			name: "Clico Codex and Felix Codex have an active Wake. Open Alpha",
+		const workingStatus = await screen.findByRole("img", {
+			name: "Clico Codex and Felix Codex have an active Wake",
 		});
-		fireEvent.pointerEnter(workingStatus);
-		fireEvent.mouseEnter(workingStatus);
+		hoverActivity(workingStatus);
 		await waitFor(() => {
 			expect(
 				screen.getByText("Clico Codex and Felix Codex have an active Wake")
@@ -1227,7 +1257,7 @@ describe("AppSpacesSidebar", () => {
 		});
 	});
 
-	it("uses the frozen target name when current Working progress only has a raw Agent id", async () => {
+	it("[S23] uses the frozen target name when current Working progress only has a raw Agent id", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1273,7 +1303,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar
+			<ConversationsSidebar
 				currentProfileId="human-1"
 				currentSpaceId="space-alpha"
 			/>,
@@ -1282,20 +1312,20 @@ describe("AppSpacesSidebar", () => {
 
 		expect(
 			await screen.findByRole("link", {
-				name: "Alpha, active Wake",
+				name: ACTIVE_NAME_PATTERN_3,
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByRole("button", {
-				name: "Clico Codex is working. Open Alpha",
+			screen.getByRole("img", {
+				name: "Clico Codex is working",
 			})
 		).toBeTruthy();
 		expect(
-			document.querySelector('[data-space-active-wake-orb="true"]')
+			document.querySelector('[data-conversation-activity="active"]')
 		).toBeTruthy();
 	});
 
-	it("shows that the current Agent is waiting when its current task is occupied", async () => {
+	it("[S24] shows that the current Agent is waiting when its current task is occupied", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1342,7 +1372,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar
+			<ConversationsSidebar
 				currentProfileId="human-1"
 				currentSpaceId="space-alpha"
 			/>,
@@ -1351,23 +1381,23 @@ describe("AppSpacesSidebar", () => {
 
 		expect(
 			await screen.findByRole("link", {
-				name: "Alpha, agent waiting",
+				name: ACTIVE_NAME_PATTERN_4,
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByRole("button", {
-				name: "Waiting for Clico Codex’s current task. Open Alpha",
+			screen.getByRole("img", {
+				name: "Waiting for Clico Codex’s current task",
 			})
 		).toBeTruthy();
 		expect(
-			document.querySelector('[data-space-active-wake-waiting="true"]')
+			document.querySelector('[data-conversation-activity="waiting"]')
 		).toBeTruthy();
 		expect(
-			document.querySelector('[data-space-active-wake-orb="true"]')
+			document.querySelector('[data-conversation-activity="active"]')
 		).toBeNull();
 	});
 
-	it("keeps the current Space orb aligned with a recovered Core active Wake summary", async () => {
+	it("[S25] keeps the current Space orb aligned with a recovered Core active Wake summary", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1407,7 +1437,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar
+			<ConversationsSidebar
 				currentProfileId="human-1"
 				currentSpaceId="space-alpha"
 			/>,
@@ -1415,11 +1445,13 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("link", { name: "Alpha, active Wake" })
+			await screen.findByRole("link", {
+				name: ACTIVE_NAME_PATTERN_3,
+			})
 		).toBeTruthy();
 		expect(
-			screen.getByRole("button", {
-				name: "Runner is working. Open Alpha",
+			screen.getByRole("img", {
+				name: "Runner is working",
 			})
 		).toBeTruthy();
 	});
@@ -1427,7 +1459,7 @@ describe("AppSpacesSidebar", () => {
 	it.each([
 		"failed",
 		"stopped",
-	] as const)("does not keep the current Space orb when newer shared progress is %s", async (terminalPhase) => {
+	] as const)("[S25-terminal] does not keep the current Space orb when newer shared progress is %s", async (terminalPhase) => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1493,7 +1525,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar
+			<ConversationsSidebar
 				currentProfileId="human-1"
 				currentSpaceId="space-alpha"
 			/>,
@@ -1502,14 +1534,16 @@ describe("AppSpacesSidebar", () => {
 
 		expect(await screen.findByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Beta, active Wake" })
+			screen.getByRole("link", {
+				name: ACTIVE_NAME_PATTERN_1,
+			})
 		).toBeTruthy();
 		expect(
-			document.querySelectorAll('[data-space-active-wake-orb="true"]')
+			document.querySelectorAll('[data-conversation-activity="active"]')
 		).toHaveLength(1);
 	});
 
-	it("clears the current Space orb when a final reply resolves the visible projection", async () => {
+	it("[S26] clears the current Space orb when a final reply resolves the visible projection", async () => {
 		const queryClient = createSidebarQueryClient();
 		seedCurrentSpaceWakeRace(queryClient);
 		const runningItems = [
@@ -1526,7 +1560,7 @@ describe("AppSpacesSidebar", () => {
 		const view = renderSidebar(
 			<SpaceWakeProgressVisibleProjectionProvider>
 				<WakeProgressProjectionPublisher items={runningItems} />
-				<AppSpacesSidebar
+				<ConversationsSidebar
 					currentProfileId="human-1"
 					currentSpaceId="space-alpha"
 				/>
@@ -1535,13 +1569,15 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("link", { name: "Alpha, active Wake" })
+			await screen.findByRole("link", {
+				name: ACTIVE_NAME_PATTERN_3,
+			})
 		).toBeTruthy();
 
 		view.rerender(
 			<SpaceWakeProgressVisibleProjectionProvider>
 				<WakeProgressProjectionPublisher items={[]} />
-				<AppSpacesSidebar
+				<ConversationsSidebar
 					currentProfileId="human-1"
 					currentSpaceId="space-alpha"
 				/>
@@ -1550,21 +1586,23 @@ describe("AppSpacesSidebar", () => {
 
 		expect(screen.getByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Beta, active Wake" })
+			screen.getByRole("link", {
+				name: ACTIVE_NAME_PATTERN_1,
+			})
 		).toBeTruthy();
 		expect(
-			document.querySelectorAll('[data-space-active-wake-orb="true"]')
+			document.querySelectorAll('[data-conversation-activity="active"]')
 		).toHaveLength(1);
 	});
 
-	it("uses an already-final projection on the first Space shell paint", () => {
+	it("[S27] uses an already-final projection on the first Space shell paint", () => {
 		const queryClient = createSidebarQueryClient();
 		seedCurrentSpaceWakeRace(queryClient);
 
 		renderSidebar(
 			<SpaceWakeProgressVisibleProjectionProvider>
 				<WakeProgressProjectionPublisher items={[]} />
-				<AppSpacesSidebar
+				<ConversationsSidebar
 					currentProfileId="human-1"
 					currentSpaceId="space-alpha"
 				/>
@@ -1574,39 +1612,71 @@ describe("AppSpacesSidebar", () => {
 
 		expect(screen.getByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Beta, active Wake" })
+			screen.getByRole("link", {
+				name: ACTIVE_NAME_PATTERN_1,
+			})
 		).toBeTruthy();
 		expect(
-			document.querySelectorAll('[data-space-active-wake-orb="true"]')
+			document.querySelectorAll('[data-conversation-activity="active"]')
 		).toHaveLength(1);
 	});
 
-	it("does not render a working orb from an expired cached summary", async () => {
-		listAccountSpaceItemsMock.mockResolvedValue({
+	it("[S28] does not render a working orb from an expired cached summary", async () => {
+		const client = createSidebarQueryClient();
+		const spaces = {
 			pinnedItems: [],
 			spaceItems: [
-				createAccountSpaceItem({
-					spaceId: "space-alpha",
-					spaceName: "Alpha",
-				}),
+				createAccountSpaceItem({ spaceId: "space-alpha", spaceName: "Alpha" }),
 			],
-		});
-		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
-			generatedAtMs: 0,
+		};
+		const stale = {
+			generatedAtMs: Date.now(),
 			items: [{ activeWakeCount: 1, spaceId: "space-alpha" }],
-		});
-
-		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+		};
+		listAccountSpaceItemsMock.mockResolvedValue(spaces);
+		client.setQueryData(
+			accountSpaceQueryKeys.items("human-1", "account"),
+			spaces
 		);
-
-		expect(await screen.findByRole("link", { name: "Alpha" })).toBeTruthy();
-		expect(
-			document.querySelector('[data-space-active-wake-orb="true"]')
-		).toBeNull();
+		client.setQueryData(accountSpaceQueryKeys.activeWakeSummary("human-1"), {
+			browserRequestStartedAtMonotonicMs: 9999,
+			summary: stale,
+		});
+		const clock = vi
+			.spyOn(performance, "now")
+			.mockReturnValue(10_000 + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS);
+		let finish: () => void = () => undefined;
+		const refresh = new Promise<void>((resolve) => {
+			finish = resolve;
+		});
+		getAccountSpaceActiveWakeSummaryMock.mockImplementation(async () => {
+			await refresh;
+			return { generatedAtMs: Date.now(), items: [] };
+		});
+		try {
+			renderSidebar(
+				<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />,
+				client
+			);
+			// Positive timestamps, a real expired TTL, and a still-pending refresh:
+			// an immediate empty network response cannot make this assertion pass.
+			expect(screen.getByRole("link", { name: "Alpha" })).toBeTruthy();
+			expect(
+				document.querySelector('[data-conversation-activity="active"]')
+			).toBeNull();
+			expect(
+				client.getQueryData(accountSpaceQueryKeys.activeWakeSummary("human-1"))
+			).toMatchObject({ summary: stale });
+			await act(async () => {
+				finish();
+				await refresh;
+			});
+		} finally {
+			clock.mockRestore();
+		}
 	});
 
-	it("keeps the orb visible while hover or focus reveals the pin beside it", async () => {
+	it("[S29] keeps the orb visible while hover or focus reveals the pin beside it", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1623,59 +1693,26 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const openSpaceButton = await screen.findByRole("link", {
-			name: "Alpha, active Wake",
+		const link = await screen.findByRole("link", {
+			name: ACTIVE_NAME_PATTERN_5,
 		});
-		await waitFor(() => {
-			expect(
-				document.querySelector('[data-space-active-wake-orb="true"]')
-			).toBeTruthy();
+		const status = within(getConversationRow(link)).getByRole("img", {
+			name: "2 Wakes are active",
 		});
-
-		// The pin gives up its persistent visibility but stays reachable through
-		// hover and keyboard focus without covering the working state.
-		const pinButton = screen.getByRole("button", { name: "Unpin Alpha" });
-		expect(pinButton.classList.contains("opacity-100")).toBe(false);
-		expect(
-			pinButton.classList.contains("group-focus-within/space-row:opacity-100")
-		).toBe(true);
-		expect(
-			pinButton.classList.contains("group-hover/space-row:opacity-100")
-		).toBe(true);
-		const workingIndicator = document.querySelector<HTMLElement>(
-			'[data-space-active-wake-orb="true"]'
-		);
-		expect(
-			workingIndicator?.classList.contains("group-hover/space-row:opacity-0")
-		).toBe(false);
-		expect(
-			workingIndicator?.classList.contains(
-				"group-hover/space-row:translate-x-3"
-			)
-		).toBe(false);
-		expect(
-			workingIndicator?.classList.contains(
-				"group-focus-within/space-row:-translate-y-3"
-			)
-		).toBe(false);
-
-		// Only the status retains a fixed slot; the action uses Fluid's reveal gutter.
-		const spaceName = openSpaceButton.querySelector<HTMLElement>(
-			'[data-slot="center-truncated-text"]'
-		);
-		expect(spaceName?.classList.contains("pr-8")).toBe(true);
-		expect(openSpaceButton.style.getPropertyValue("--row-gutter")).toBe("8px");
-		expect(openSpaceButton.style.getPropertyValue("--row-gutter-hover")).toBe(
-			"34px"
-		);
-		expect(pinButton.getAttribute("data-sidebar")).toBe("menu-action");
-		expect(pinButton.classList.contains("right-9")).toBe(true);
+		const pin = screen.getByRole("button", { name: "Unpin Alpha" });
+		expect(status.querySelector("canvas")).toBeTruthy();
+		fireEvent.mouseEnter(link);
+		expect(status.isConnected).toBe(true);
+		fireEvent.focus(pin);
+		expect(status.isConnected).toBe(true);
+		expect(pin.closest('[data-sidebar="menu-actions"]')).toBeTruthy();
+		// Pointer visibility and collision are asserted by the companion browser geometry check.
 	});
 
-	it("waits for initial activity evidence instead of showing a temporary idle ordering", async () => {
+	it("[S30] waits for initial activity evidence instead of showing a temporary idle ordering", async () => {
 		let release: () => void = () => undefined;
 		const pending = new Promise<void>((resolve) => {
 			release = resolve;
@@ -1685,7 +1722,13 @@ describe("AppSpacesSidebar", () => {
 			return { generatedAtMs: Date.now(), items: [] };
 		});
 		listAccountSpaceItemsMock.mockResolvedValue({
-			pinnedItems: [],
+			pinnedItems: [
+				createAccountSpaceItem({
+					spaceId: "stable-pin",
+					spaceName: "Stable pin",
+					pinnedAt: "2026-09-10T00:00:00.000Z",
+				}),
+			],
 			spaceItems: [
 				createAccountSpaceItem({
 					spaceId: "space-loading",
@@ -1693,11 +1736,34 @@ describe("AppSpacesSidebar", () => {
 				}),
 			],
 		});
+		const client = createSidebarQueryClient();
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />,
+			client
 		);
 		await waitFor(() =>
 			expect(getAccountSpaceActiveWakeSummaryMock).toHaveBeenCalled()
+		);
+		await waitFor(() =>
+			expect(
+				client.getQueryState(accountSpaceQueryKeys.items("human-1", "account"))
+					?.status
+			).toBe("success")
+		);
+		expect(
+			screen.queryByRole("link", { name: "Waiting for activity" })
+		).toBeNull();
+		expect(screen.getByRole("link", { name: "Stable pin" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Conversation view" }));
+		fireEvent.click(
+			await screen.findByRole("menuitemradio", { name: "Recent" })
+		);
+		expect(
+			await screen.findByRole("link", { name: "Waiting for activity" })
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Conversation view" }));
+		fireEvent.click(
+			await screen.findByRole("menuitemradio", { name: "Grouped" })
 		);
 		expect(
 			screen.queryByRole("link", { name: "Waiting for activity" })
@@ -1711,7 +1777,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeTruthy();
 	});
 
-	it("keeps active Wake status visible ahead of unread while retaining unread semantics", async () => {
+	it("[S31] keeps active Wake status visible ahead of unread while retaining unread semantics", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1753,77 +1819,50 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const workingRow = (
-			await screen.findByRole("link", {
-				name: "Working, unread messages, active Wake",
-			})
-		).parentElement;
-		const unreadRow = screen.getByRole("link", {
+		const working = await screen.findByRole("link", {
+			name: ACTIVE_NAME_PATTERN_6,
+		});
+		const unread = screen.getByRole("link", {
 			name: "Unread, unread messages",
-		}).parentElement;
-		const idleRow = screen.getByRole("link", { name: "Idle" }).parentElement;
-
-		const workingUnreadIndicator = workingRow?.querySelector<HTMLElement>(
-			'[data-space-unread-indicator="true"]'
-		);
-		expect(workingUnreadIndicator).toBeNull();
+		});
+		const idle = screen.getByRole("link", { name: "Idle" });
 		expect(
-			workingRow?.querySelector('[data-space-active-wake-orb="true"]')
+			getConversationRow(working).querySelector("[data-conversation-activity]")
 		).toBeTruthy();
-
-		const unreadIndicator = unreadRow?.querySelector<HTMLElement>(
-			'[data-space-unread-indicator="true"]'
-		);
-		expect(unreadIndicator).toBeTruthy();
 		expect(
-			unreadRow?.querySelector('[data-space-active-wake-orb="true"]')
-		).toBeNull();
-		expect(
-			unreadIndicator?.classList.contains("group-hover/space-row:opacity-0")
-		).toBe(false);
-		expect(
-			unreadIndicator?.classList.contains(
-				"group-focus-within/space-row:translate-x-3"
+			getConversationRow(working).querySelector(
+				"[data-conversation-unread-indicator]"
 			)
-		).toBe(false);
-
-		for (const spaceName of ["Working", "Unread"]) {
-			const pinButton = screen.getByRole("button", {
-				name: `Unpin ${spaceName}`,
-			});
-			expect(pinButton.classList.contains("opacity-100")).toBe(false);
+		).toBeNull();
+		expect(
+			getConversationRow(unread).querySelector("[data-conversation-activity]")
+		).toBeNull();
+		expect(
+			getConversationRow(unread).querySelector(
+				"[data-conversation-unread-indicator]"
+			)
+		).toBeTruthy();
+		expect(
+			getConversationRow(idle).querySelector("[data-conversation-activity]")
+		).toBeNull();
+		expect(
+			getConversationRow(idle).querySelector(
+				"[data-conversation-unread-indicator]"
+			)
+		).toBeNull();
+		for (const name of ["Working", "Unread", "Idle"]) {
 			expect(
-				pinButton.classList.contains("group-hover/space-row:opacity-100")
-			).toBe(true);
-			expect(
-				pinButton.classList.contains("group-focus-within/space-row:opacity-100")
-			).toBe(true);
+				screen.getByRole("button", { name: `Unpin ${name}` })
+			).toBeTruthy();
 		}
-
-		expect(
-			idleRow?.querySelector('[data-space-active-wake-orb="true"]')
-		).toBeNull();
-		expect(
-			idleRow?.querySelector('[data-space-unread-indicator="true"]')
-		).toBeNull();
-		expect(
-			screen
-				.getByRole("button", { name: "Unpin Idle" })
-				.hasAttribute("data-show-on-hover")
-		).toBe(true);
-		expect(
-			screen
-				.getByRole("button", { name: "Unpin Idle" })
-				.classList.contains("pointer-events-none")
-		).toBe(false);
 		fireEvent.click(screen.getByRole("button", { name: "Pinned" }));
 		expect(await screen.findByText("2 unread")).toBeTruthy();
 	});
 
-	it("reserves the pinned action gutter only when revealed", async () => {
+	it("[S32] reserves the pinned action gutter only when revealed", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1836,28 +1875,19 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const openSpaceButton = await screen.findByRole("link", {
-			name: "Alpha",
-		});
-		const spaceName = openSpaceButton.querySelector<HTMLElement>(
-			'[data-slot="center-truncated-text"]'
-		);
-
-		expect(spaceName?.classList.contains("pr-8")).toBe(false);
-		expect(openSpaceButton.style.getPropertyValue("--row-gutter")).toBe("8px");
-		expect(openSpaceButton.style.getPropertyValue("--row-gutter-hover")).toBe(
-			"34px"
-		);
+		const link = await screen.findByRole("link", { name: "Alpha" });
+		expect(link.style.getPropertyValue("--row-gutter")).toBe("8px");
 		expect(
-			openSpaceButton.querySelector('[data-slot="space-sidebar-date"]')
-		).toBeNull();
+			Number.parseFloat(link.style.getPropertyValue("--row-gutter-hover"))
+		).toBeGreaterThan(8);
 		expect(screen.getByRole("button", { name: "Unpin Alpha" })).toBeTruthy();
+		// S32's hover geometry is verified at real browser widths, not inferred from jsdom.
 	});
 
-	it("shows the full space name quickly on row hover", async () => {
+	it("[S33] shows the full space name quickly on row hover", async () => {
 		const longSpaceName = "CLI Dogfood 20260506 000022";
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
@@ -1886,29 +1916,29 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const rowButton = await screen.findByRole("link", {
-			name: longSpaceName,
-		});
-		expect(rowButton).toBeTruthy();
-		expect(screen.queryByText(longSpaceName)).toBeNull();
-
-		fireEvent.pointerEnter(rowButton as HTMLButtonElement);
-		fireEvent.mouseEnter(rowButton as HTMLButtonElement);
-
+		const link = await screen.findByRole("link", { name: longSpaceName });
+		expect(screen.queryByRole("tooltip", { name: longSpaceName })).toBeNull();
+		fireEvent.pointerEnter(link);
+		fireEvent.mouseEnter(link);
 		await waitFor(
-			() => {
-				expect(screen.getByText(longSpaceName)).toBeTruthy();
-			},
+			() =>
+				expect(
+					Array.from(
+						document.querySelectorAll(
+							'[data-slot="tooltip-content"][data-open]'
+						)
+					).some((tooltip) => tooltip.textContent?.includes(longSpaceName))
+				).toBe(true),
 			{ timeout: 500 }
 		);
 		expect(screen.queryByText("Joined as OpenMeld Test")).toBeNull();
 		expect(screen.queryByText(OTHER_JOINED_PROFILE_TEXT)).toBeNull();
 	});
 
-	it("opens a space with the current Web profile even when the index open profile is an agent", async () => {
+	it("[S34] opens a space with the current Web profile even when the index open profile is an agent", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -1936,7 +1966,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		const link = await screen.findByRole("link", { name: "Alpha" });
@@ -1945,7 +1975,7 @@ describe("AppSpacesSidebar", () => {
 		);
 	});
 
-	it("opens an agent-only Space with the current Human Web viewer", async () => {
+	it("[S35] opens an agent-only Space with the current Human Web viewer", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -1968,7 +1998,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		const link = await screen.findByRole("link", { name: "Alpha" });
@@ -1978,7 +2008,7 @@ describe("AppSpacesSidebar", () => {
 		);
 	});
 
-	it("uses the Router link for Space navigation", async () => {
+	it("[S36] uses the Router link for Space navigation", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -1990,7 +2020,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		const link = await screen.findByRole("link", { name: "Alpha" });
@@ -2000,7 +2030,7 @@ describe("AppSpacesSidebar", () => {
 		);
 	});
 
-	it("renders the current space with the fluid sidebar selection surface", async () => {
+	it("[S37] renders the current space with the fluid sidebar selection surface", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -2016,7 +2046,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		const { container } = renderSidebar(
-			<AppSpacesSidebar
+			<ConversationsSidebar
 				currentProfileId="human-1"
 				currentSpaceId="space-alpha"
 			/>
@@ -2034,24 +2064,24 @@ describe("AppSpacesSidebar", () => {
 		});
 	});
 
-	it("removes the redundant discovery section outside a conversation", async () => {
+	it("[S38] removes the redundant discovery section outside a conversation", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [],
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		await screen.findByText("No spaces yet.");
+		await screen.findByText("No conversations yet.");
 		expect(
 			screen.queryByRole("button", { name: BROWSE_SPACES_TEXT })
 		).toBeNull();
 		expect(screen.queryByText("Explore")).toBeNull();
 	});
 
-	it("offers creation from the Spaces section in a personal organization", async () => {
+	it("[S39] offers creation from the Spaces section in a personal organization", async () => {
 		appOrganizationMock.currentOrganization = {
 			id: "org-personal",
 			isPersonal: true,
@@ -2064,7 +2094,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		const createButton = await screen.findByRole("button", {
@@ -2079,7 +2109,7 @@ describe("AppSpacesSidebar", () => {
 		expect(screen.queryByText("Find public Spaces")).toBeNull();
 	});
 
-	it("places the create-space action in the Spaces section after pinned spaces", async () => {
+	it("[S40] places the create-space action in the Spaces section after pinned spaces", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -2097,7 +2127,7 @@ describe("AppSpacesSidebar", () => {
 		});
 
 		const { container } = renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		expect(
@@ -2114,7 +2144,7 @@ describe("AppSpacesSidebar", () => {
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 	});
 
-	it("optimistically moves a space into the pinned section", async () => {
+	it("[S41] optimistically moves a space into the pinned section", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -2131,7 +2161,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		fireEvent.click(await screen.findByLabelText("Pin Alpha"));
@@ -2147,7 +2177,7 @@ describe("AppSpacesSidebar", () => {
 		});
 	});
 
-	it("keeps the optimistic pinned state while the Space Index overlay is pending", async () => {
+	it("[S42] keeps the optimistic pinned state while the Space Index overlay is pending", async () => {
 		focusManager.setFocused(false);
 		const overlayStartedAtMs = Date.now();
 		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(overlayStartedAtMs);
@@ -2164,21 +2194,34 @@ describe("AppSpacesSidebar", () => {
 			],
 		});
 		setAccountSpaceItemPinnedMock.mockResolvedValue([
-			{
+			upsertProfileSpaceHistoryResponseSchema.parse({
 				item: {
+					profileId: "human-1",
+					gatewayHost: "gateway.openmeld.invalid",
 					spaceId: "space-alpha",
+					spaceName: "Alpha",
+					creatorProfileId: null,
+					creatorKind: null,
+					spaceCreatedAt: null,
+					spaceUpdatedAt: null,
+					lastJoinedAt: "2026-09-10T00:00:00.000Z",
+					lastSeenTs: null,
+					pinnedAt: "2026-09-10T00:00:00.000Z",
+					status: "active",
+					createdAt: "2026-09-10T00:00:00.000Z",
+					updatedAt: "2026-09-10T00:00:00.000Z",
 				},
 				spaceIndexOverlay: {
 					repairAttempted: true,
 					status: "pending",
 					updated: false,
 				},
-			},
+			}),
 		]);
 
 		try {
 			renderSidebar(
-				<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+				<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 			);
 
 			fireEvent.click(await screen.findByLabelText("Pin Alpha"));
@@ -2216,6 +2259,23 @@ describe("AppSpacesSidebar", () => {
 		}
 	});
 });
+
+function hoverActivity(status: HTMLElement) {
+	const trigger = status.closest("a");
+	if (!trigger) {
+		throw new Error("Activity must link to its canonical conversation");
+	}
+	fireEvent.pointerEnter(trigger);
+	fireEvent.mouseEnter(trigger);
+}
+
+function getConversationRow(link: HTMLElement): HTMLElement {
+	const row = link.closest("li");
+	if (!row) {
+		throw new Error("Conversation link must belong to a sidebar row");
+	}
+	return row;
+}
 
 function createSidebarQueryClient(): QueryClient {
 	return new QueryClient({
@@ -2310,6 +2370,7 @@ function createAccountSpaceItem(input: {
 	}>;
 	lastJoinedAt?: string;
 	lastSeenTs?: number | null;
+	messageTimestamp?: number;
 	openProfileId?: string;
 	openProfileName?: string;
 	organizationId?: string;
@@ -2318,12 +2379,21 @@ function createAccountSpaceItem(input: {
 	spaceName: string;
 	spacePurpose?: string | null;
 	activeMemberCount?: number | null;
-}) {
+}): AccountSpaceItem {
 	const pinnedAt = input.pinnedAt ?? null;
 	const openProfileId = input.openProfileId ?? "human-1";
 	const openProfileName = input.openProfileName ?? "Mira";
 	const lastJoinedAt = input.lastJoinedAt ?? "2026-04-29T00:00:00.000Z";
 	return {
+		messagePreview:
+			input.messageTimestamp === undefined
+				? undefined
+				: {
+						signalId: `message-${input.spaceId}`,
+						profileId: openProfileId,
+						timestamp: input.messageTimestamp,
+						text: "Unread message",
+					},
 		joinedProfiles: input.joinedProfiles ?? [
 			{
 				lastJoinedAt,

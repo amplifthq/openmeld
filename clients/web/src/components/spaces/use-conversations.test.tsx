@@ -1,0 +1,124 @@
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { EMPTY_CHAT_PREFERENCES } from "#/lib/organizations/center-agent-chat-preferences";
+import { fixtureSpace } from "#/test-support/conversation-sidebar-fixture";
+import { useConversations } from "./use-conversations";
+
+const save = vi.fn();
+const setPinned = vi.fn();
+const saveAsync = vi.fn();
+function fixture() {
+	const preferences = {
+		pinned: { sort: "manual" as const, spaceIds: ["hidden-pin"] },
+		spaces: { sort: "priority" as const, spaceIds: [] },
+		groups: [],
+		chats: EMPTY_CHAT_PREFERENCES,
+	};
+	return {
+		org: { id: "org", slug: "test" },
+		profileId: "human",
+		selected: "release",
+		store: { preferences, save, saveAsync, disabled: false },
+		preferences: EMPTY_CHAT_PREFERENCES,
+		spaces: {
+			data: {
+				pinnedItems: [],
+				spaceItems: [
+					{
+						...fixtureSpace("release", "Release"),
+						openProfileId: "agent-member",
+					},
+					{
+						...fixtureSpace("foreign", "Another organization"),
+						organizationId: "other-org",
+					},
+				],
+			},
+		},
+		chats: [
+			{
+				spaceId: "session",
+				name: "Agent session",
+				createdAt: "2026-09-10",
+				session: true,
+			},
+		],
+		previews: [{ data: { timestamp: 900, text: "Ready" } }],
+		title: () => "My saved title",
+		chatPath: () => "/o/test/chats/center-agent?session=session",
+		ordinaryAccountItems: [],
+		indicators: {
+			unreadBySpaceId: new Map(),
+			activeWakeSummaryBySpaceId: new Map(),
+		},
+		inbox: { data: { attention: [] } },
+		pin: { setPinned, arePinActionsPending: false },
+	};
+}
+let directMessages: ReturnType<typeof fixture>;
+vi.mock("./use-chats", () => ({ useChats: () => directMessages }));
+beforeEach(() => {
+	vi.clearAllMocks();
+	directMessages = fixture();
+	setPinned.mockResolvedValue(true);
+	saveAsync.mockResolvedValue(undefined);
+});
+afterEach(cleanup);
+
+it("uses authorized organization rows, the Human Space viewer, and exact session titles and routes", () => {
+	const { result } = renderHook(() =>
+		useConversations({ currentSpaceId: "release" })
+	);
+	expect(result.current.conversations.map((item) => item.spaceId)).toEqual([
+		"release",
+		"session",
+	]);
+	expect(result.current.conversations[0].url).toContain("profileId=human");
+	expect(result.current.conversations[0].url).not.toContain("agent-member");
+	expect(result.current.conversations[1]).toMatchObject({
+		title: "My saved title",
+		url: "/o/test/chats/center-agent?session=session",
+		activity: 900,
+	});
+	expect(save).not.toHaveBeenCalled();
+	expect(setPinned).not.toHaveBeenCalled();
+});
+it("does not save a new placement when the canonical pin mutation fails", async () => {
+	setPinned.mockResolvedValue(false);
+	const { result } = renderHook(() => useConversations({}));
+	await act(async () => {
+		await result.current.move("pinned", "release", []);
+	});
+	expect(setPinned).toHaveBeenCalledWith(
+		expect.objectContaining({ spaceId: "release" }),
+		true
+	);
+	expect(saveAsync).not.toHaveBeenCalled();
+});
+it("pins ordinary Spaces through Space Index and preserves hidden ordering preferences", async () => {
+	const { result } = renderHook(() => useConversations({}));
+	await act(async () => {
+		await result.current.move("pinned", "release", []);
+	});
+	expect(saveAsync).toHaveBeenCalledWith(
+		expect.objectContaining({
+			pinned: { sort: "manual", spaceIds: ["release", "hidden-pin"] },
+		})
+	);
+});
+it("pins sessions through existing chat preferences without writing Space history", async () => {
+	const { result } = renderHook(() => useConversations({}));
+	await act(async () => {
+		await result.current.move("pinned", "session", []);
+	});
+	expect(setPinned).not.toHaveBeenCalled();
+	expect(saveAsync.mock.calls[0][0].chats.pinned.spaceIds).toEqual(["session"]);
+});
+it("rejects cross-kind moves before any write", async () => {
+	const { result } = renderHook(() => useConversations({}));
+	await act(async () => {
+		await result.current.move("chats", "release", []);
+	});
+	expect(setPinned).not.toHaveBeenCalled();
+	expect(saveAsync).not.toHaveBeenCalled();
+});
