@@ -143,7 +143,7 @@ function AgentProfilesWorkspaceContent(input: {
 		return input.input.renderProfileDetail(input.selectedProfile);
 	}
 	return (
-		<div className="mx-auto w-full max-w-6xl space-y-4 px-[var(--app-page-inline-padding)] py-5">
+		<div className="w-full space-y-4 px-[var(--app-page-inline-padding)] py-5">
 			{profilesController}
 			<AgentDirectoryLists input={input.input} />
 			{input.input.person &&
@@ -192,7 +192,7 @@ function AgentWorkspaceHeader(input: AgentProfilesWorkspaceProps) {
 	return (
 		<>
 			{input.person ? (
-				<div className="mx-auto w-full max-w-6xl px-[var(--app-page-inline-padding)] pt-5">
+				<div className="w-full px-[var(--app-page-inline-padding)] pt-5">
 					<Link
 						className="inline-flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground"
 						to={

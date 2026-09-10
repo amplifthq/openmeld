@@ -462,7 +462,7 @@ describe("AgentProfilesWorkspace", () => {
 		expect(item.textContent).not.toContain("Unavailable");
 	});
 
-	it("keeps Offline and Unavailable rows static gray and less prominent for every viewer", () => {
+	it("keeps unavailable indicators muted while card names stay readable", () => {
 		const readiness = createReadiness();
 		renderWorkspace({
 			operationalContextByProfileId: new Map([
@@ -517,7 +517,7 @@ describe("AgentProfilesWorkspace", () => {
 			within(item).getByRole("img", { name: "Unavailable" }).className
 		).toContain("text-muted-foreground");
 		expect(within(item).getByText("Felix Agent").className).toContain(
-			"text-muted-foreground"
+			"text-foreground"
 		);
 		const avatar = within(item).getByTestId(
 			"agent-profile-controller-avatar-agent-current"
@@ -529,7 +529,7 @@ describe("AgentProfilesWorkspace", () => {
 			name: "Open Other Agent",
 		});
 		expect(within(observerItem).getByText("Other Agent").className).toContain(
-			"text-muted-foreground"
+			"text-foreground"
 		);
 		const observerAvatar = within(observerItem).getByTestId(
 			"agent-profile-controller-avatar-agent-other"

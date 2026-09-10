@@ -1772,6 +1772,10 @@ Human groups show the person's avatar and name. The viewer's group comes first,
 then other groups by their most recent Agent task activity, with creation time
 and stable identity as tie-breakers. Search matches people and Agents.
 Personal full lists and Team groups reuse the same cards and list controls.
+Center Agent and ordinary Agent lists share the Agent card presentation: a
+96px action area, 56px avatar, persistent card background, and readable name.
+Only the Center Agent supplies the upper-right role badge. Team and personal
+Agent lists use the People page's full-width gutters and responsive card grid.
 Filters support multiple selections: OR within a facet, AND across availability,
 Agent type, Controller, and model. Each selection has a removable chip.
 Page filters apply across groups; a group's controls further narrow its list.

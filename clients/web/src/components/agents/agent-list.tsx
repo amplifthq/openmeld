@@ -9,6 +9,7 @@ import {
 	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import {
 	FunnelSimpleIcon,
@@ -283,13 +284,15 @@ export function AgentList(input: {
 								{label} · {items.length}
 							</h3>
 						)}
-						<FluidNavMenu
-							activeValue={null}
-							aria-label={label || input.label}
-							className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:sm:grid-cols-2"
-						>
-							{items.map(input.renderCard)}
-						</FluidNavMenu>
+						<FluidCardGroup>
+							<FluidNavMenu
+								activeValue={null}
+								aria-label={label || input.label}
+								className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:md:grid-cols-2 [&_[data-sidebar=menu]]:xl:grid-cols-3"
+							>
+								{items.map(input.renderCard)}
+							</FluidNavMenu>
+						</FluidCardGroup>
 					</div>
 				))
 			) : (

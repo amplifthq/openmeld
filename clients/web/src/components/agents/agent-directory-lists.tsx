@@ -75,7 +75,6 @@ export function AgentDirectoryLists({
 					item.profile.openMeldProfileId
 				) ?? null
 			}
-			avatarSize={40}
 			index={index}
 			isActive={false}
 			key={item.profile.openMeldProfileId}
@@ -197,7 +196,7 @@ export function AgentDirectoryLists({
 			{showCenter && (
 				<section aria-label={currentOrganization.name} className="space-y-3">
 					<h2 className="font-medium text-sm">{currentOrganization.name}</h2>
-					<div className="max-w-lg">
+					<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
 						<CenterAgentItem presentation="card" />
 					</div>
 				</section>
