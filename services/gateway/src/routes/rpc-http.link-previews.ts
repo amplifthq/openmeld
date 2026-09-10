@@ -12,7 +12,7 @@ import {
 
 export function registerLinkPreviewRoutes(app: Hono<HonoBindings>): void {
   const route = "/v1/spaces/:spaceId/link-previews";
-  app.get(route, (c) => {
+  app.get(route, async (c) => {
     const spaceId = c.req.param("spaceId");
     const parsed = getSpaceLinkPreviewsInputSchema.safeParse({
       spaceId,
@@ -28,8 +28,7 @@ export function registerLinkPreviewRoutes(app: Hono<HonoBindings>): void {
         message: "Invalid message link preview request.",
       });
     }
-    c.header("Cache-Control", "private, no-store");
-    return executePublicRpcRoute({
+    const response = await executePublicRpcRoute({
       c,
       route,
       method: "GET",
@@ -40,5 +39,7 @@ export function registerLinkPreviewRoutes(app: Hono<HonoBindings>): void {
           spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
         }),
     });
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
   });
 }

@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { resolve4, resolve6 } from "node:dns/promises";
 import { isIP } from "node:net";
 import { type LinkPreview, linkPreviewSchema } from "@openmeld/schemas";
+import { decodeHTML, decodeHTMLAttribute } from "entities";
 import ipaddr from "ipaddr.js";
 
 const MAX_HTML_BYTES = 512 * 1024;
@@ -180,7 +181,7 @@ export async function readPreviewMetadata(html: Uint8Array, baseUrl: string) {
           element.getAttribute("property") ?? element.getAttribute("name");
         const value = element.getAttribute("content");
         if (key && value && !meta.has(key.toLowerCase())) {
-          meta.set(key.toLowerCase(), value);
+          meta.set(key.toLowerCase(), decodeHTMLAttribute(value));
         }
       },
     })
@@ -195,7 +196,8 @@ export async function readPreviewMetadata(html: Uint8Array, baseUrl: string) {
           !icon &&
           element.getAttribute("rel")?.split(WORD_SEPARATOR).includes("icon")
         ) {
-          icon = element.getAttribute("href");
+          const href = element.getAttribute("href");
+          icon = href ? decodeHTMLAttribute(href) : null;
         }
       },
     });
@@ -212,7 +214,7 @@ export async function readPreviewMetadata(html: Uint8Array, baseUrl: string) {
   }
   return {
     title: cleanText(
-      meta.get("og:title") ?? meta.get("twitter:title") ?? title,
+      meta.get("og:title") ?? meta.get("twitter:title") ?? decodeHTML(title),
       300
     ),
     description: cleanText(

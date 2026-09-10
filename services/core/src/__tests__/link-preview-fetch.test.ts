@@ -95,6 +95,16 @@ describe("public link previews", () => {
       iconUrl: "https://ogp.me/icon.png",
     });
   });
+  it("decodes HTML entities in metadata without interpreting markup", async () => {
+    const metadata = await readPreviewMetadata(
+      new TextEncoder().encode(
+        '<head><title>Research &amp; design</title><meta name="description" content="Ship &lt;small&gt; changes &#38; learn."></head>'
+      ),
+      "https://example.com/"
+    );
+    expect(metadata.title).toBe("Research & design");
+    expect(metadata.description).toBe("Ship <small> changes & learn.");
+  });
   it("caches unavailable previews without fetching private destinations", async () => {
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
