@@ -317,9 +317,12 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 				focusEditorAtSelection(editor, focusWhenReady);
 				// The toolbar opens the picker even after a word. Typed @ keeps
 				// the plugin's whitespace rule, so email addresses stay plain text.
-				const previousChar = editor.api.string(
-					editor.api.range("before", editor.selection)
-				);
+				const start = editor.selection && editor.api.start(editor.selection);
+				const before = start && editor.api.before(start);
+				const previousChar =
+					before && start
+						? editor.api.string({ anchor: before, focus: start })
+						: "";
 				if (previousChar.trim().length > 0) {
 					editor.tf.insertText(" ");
 				}

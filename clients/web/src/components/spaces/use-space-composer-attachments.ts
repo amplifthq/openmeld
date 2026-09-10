@@ -21,6 +21,7 @@ export function useSpaceComposerFiles(input: {
 	organizationSlug: string;
 	profileId: string;
 	spaceId: string;
+	draftScope?: string;
 }) {
 	const [files, setFiles] = useState<SpaceComposerFile[]>([]);
 	const [submittingIds, setSubmittingIds] = useState<ReadonlySet<string>>(
@@ -33,7 +34,7 @@ export function useSpaceComposerFiles(input: {
 	const filesRef = useRef<SpaceComposerFile[]>([]);
 	const activeFileIdsRef = useRef(new Set<string>());
 	const previewUrlsByLocalIdRef = useRef(new Map<string, string>());
-	const scopeKey = `${input.organizationSlug}:${input.profileId}:${input.spaceId}`;
+	const scopeKey = `${input.organizationSlug}:${input.profileId}:${input.spaceId}${input.draftScope ? `:${input.draftScope}` : ""}`;
 	const previousScopeKeyRef = useRef(scopeKey);
 	const activeScopeRef = useRef({
 		organizationSlug: input.organizationSlug,
@@ -220,13 +221,20 @@ export function useSpaceComposerFiles(input: {
 						profileId: input.profileId,
 						setFiles: updateFiles,
 						spaceId: input.spaceId,
+						draftScopeKey: scopeKey,
 					});
 					uploadTasksRef.current.set(item.localId, task);
 					return task;
 				})
 			);
 		},
-		[input.organizationSlug, input.profileId, input.spaceId, updateFiles]
+		[
+			input.organizationSlug,
+			input.profileId,
+			input.spaceId,
+			scopeKey,
+			updateFiles,
+		]
 	);
 
 	useEffect(() => {
@@ -286,6 +294,7 @@ export function useSpaceComposerFiles(input: {
 					const source = sourceFilesRef.current.get(file.localId);
 					if (current?.status === "failed" && !current.upload && source) {
 						await uploadPendingFile({
+							draftScopeKey: scopeKey,
 							controllers: uploadControllersRef.current,
 							activeFileIds: activeFileIdsRef.current,
 							file: source,
@@ -339,7 +348,13 @@ export function useSpaceComposerFiles(input: {
 			}
 			return { messageFiles, previewUrlsByFileId, publishedLocalIds };
 		},
-		[input.organizationSlug, input.profileId, input.spaceId, updateFiles]
+		[
+			input.organizationSlug,
+			input.profileId,
+			input.spaceId,
+			scopeKey,
+			updateFiles,
+		]
 	);
 
 	return {
@@ -358,6 +373,7 @@ export function useSpaceComposerFiles(input: {
 }
 
 async function uploadPendingFile(input: {
+	draftScopeKey: string;
 	controllers: Map<string, AbortController>;
 	activeFileIds: Set<string>;
 	file: File;
@@ -375,7 +391,7 @@ async function uploadPendingFile(input: {
 		}
 		await saveComposerFileDraft({
 			id: input.item.localId,
-			scope: `${input.organizationSlug}:${input.profileId}:${input.spaceId}`,
+			scope: input.draftScopeKey,
 			file: input.file,
 			publishMutationId: input.item.publishMutationId,
 		});

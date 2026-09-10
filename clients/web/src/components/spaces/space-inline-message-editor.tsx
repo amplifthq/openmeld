@@ -134,6 +134,7 @@ function InlineEditor({
 		editing.draft?.attachmentIds ?? item.attachments.map((file) => file.id)
 	);
 	const files = useSpaceComposerFiles({
+		draftScope: `edit:${item.id}`,
 		organizationSlug: editing.orgSlug,
 		profileId: editing.selfProfileId,
 		spaceId: item.spaceId,
@@ -205,8 +206,13 @@ function InlineEditor({
 		);
 		editable?.focus({ preventScroll: true });
 		if (editing.recommendedProfileId) {
-			editorRef.current?.selectTextRange({ start: 0, end: 0 });
-			editorRef.current?.insertMentionTrigger();
+			// Wait for the mounted editor's DOM selection, and cancel a discarded
+			// mount before it can insert a second transient mention input.
+			const frame = window.requestAnimationFrame(() => {
+				editorRef.current?.selectTextRange({ start: 0, end: 0 });
+				editorRef.current?.insertMentionTrigger();
+			});
+			return () => window.cancelAnimationFrame(frame);
 		}
 	}, [editing.recommendedProfileId]);
 
