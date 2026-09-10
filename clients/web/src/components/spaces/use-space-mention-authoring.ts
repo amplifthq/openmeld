@@ -18,6 +18,7 @@ import {
 	type SpaceSendTargetAllowedRelations,
 	type SpaceSendTargetWakeAvailability,
 } from "@openmeld/space";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import {
@@ -30,6 +31,10 @@ import {
 	readSpaceRecentMentionProfileIds,
 	writeSpaceRecentMentionProfileIds,
 } from "#/lib/spaces/recent-mention-storage";
+import {
+	type SpaceMemberDirectoryDisplay,
+	spaceMemberDirectoryDisplayQueryOptions,
+} from "#/query/spaces/member-directory-display";
 import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
@@ -122,15 +127,17 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			}),
 		[authoredMentions, composerText, input.snapshot]
 	);
-	const addressingTargets = useMemo(
+	const queryClient = useQueryClient();
+	const directoryOptions = useMemo(
 		() =>
-			buildSpaceComposerAddressingTargets({
-				mentions: addressingMentions,
-				snapshot: input.snapshot,
-			}),
-		[addressingMentions, input.snapshot]
+			spaceMemberDirectoryDisplayQueryOptions(
+				input.spaceId,
+				input.openMeldProfileId
+			),
+		[input.spaceId, input.openMeldProfileId]
 	);
-	const mentionPickerItems = useMemo(
+	const directoryQuery = useQuery(directoryOptions);
+	const freshMentionPickerItems = useMemo(
 		() =>
 			input.snapshot
 				? buildSpaceMentionTargetItems({
@@ -141,6 +148,53 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				: [],
 		[input.snapshot, recentMentionProfileIds]
 	);
+	useEffect(() => {
+		if (!input.snapshot) {
+			return;
+		}
+		queryClient.setQueryData(directoryOptions.queryKey, {
+			version: 1,
+			members: freshMentionPickerItems.map(({ suggestion, memberEntry }) => ({
+				profileId: suggestion.profileId,
+				profileName: suggestion.profileName,
+				profileKind: suggestion.profileKind,
+				primaryMentionLabel: suggestion.primaryMentionLabel,
+				avatarUrl: memberEntry.avatarUrl,
+				agentControllerRef: memberEntry.agentControllerRef,
+			})),
+		});
+	}, [
+		input.snapshot,
+		freshMentionPickerItems,
+		queryClient,
+		directoryOptions.queryKey,
+	]);
+	const mentionPickerItems = useMemo(
+		() =>
+			input.snapshot
+				? freshMentionPickerItems
+				: (directoryQuery.data?.members ?? []).map(toCachedMentionPickerItem),
+		[input.snapshot, freshMentionPickerItems, directoryQuery.data]
+	);
+	const addressingTargets = useMemo(() => {
+		if (input.snapshot) {
+			return buildSpaceComposerAddressingTargets({
+				mentions: addressingMentions,
+				snapshot: input.snapshot,
+			});
+		}
+		return authoredMentions.flatMap((mention) => {
+			const item = mentionPickerItems.find(
+				(candidate) => candidate.suggestion.profileId === mention.profileId
+			);
+			return item ? [{ ...item.suggestion, relation: mention.relation }] : [];
+		});
+	}, [
+		input.snapshot,
+		addressingMentions,
+		authoredMentions,
+		mentionPickerItems,
+	]);
 
 	useEffect(() => {
 		const snapshot = input.snapshot;
@@ -412,6 +466,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				}
 			}
 		},
+		mentionEmptyMessage: resolveMentionEmptyMessage(input),
 		textareaRef,
 	};
 
@@ -507,7 +562,8 @@ export function resolveDefaultSpaceComposerMentionRelation(
 		if (
 			suggestion.allowedRelations.wake &&
 			(suggestion.wakeAvailability.status === "ready" ||
-				suggestion.wakeAvailability.status === "preparing")
+				suggestion.wakeAvailability.status === "preparing" ||
+				suggestion.wakeAvailability.reasonCodes.length === 0)
 		) {
 			return "wake";
 		}
@@ -750,4 +806,68 @@ function resolveReplyWakeMention(input: {
 		relation: "wake",
 		text: `@${target.profileName}`,
 	};
+}
+
+function toCachedMentionPickerItem(
+	member: SpaceMemberDirectoryDisplay["members"][number]
+): SpaceMentionPickerItem {
+	const agent = member.profileKind === "agent";
+	return {
+		kind: "target",
+		suggestion: {
+			...member,
+			allowedRelations: { mention: !agent, reference: agent, wake: agent },
+			controllerDisplay: null,
+			description: "Checking current membership…",
+			exactMentionLabels: [member.primaryMentionLabel],
+			labelSource: "profile_name",
+			liveNow: false,
+			ownerDisplay: null,
+			wakeAvailability: {
+				status: "blocked",
+				reasonCodes: [],
+				reasonText: "Checking whether this agent can reply.",
+			},
+		},
+		memberEntry: {
+			...member,
+			id: member.profileId,
+			mentionLabel: member.primaryMentionLabel,
+			searchText: member.profileName,
+			addedByDisplayName: null,
+			addedByProfileId: null,
+			agentControllerConversationId: null,
+			agentControllerPermissionMode: null,
+			controllerDisplayName: null,
+			availabilityAction: null,
+			availabilityBadgeLabel: null,
+			availabilityCategory: null,
+			availabilityIsRefreshing: agent,
+			availabilityPhase: null,
+			availabilityReasonCode: null,
+			availabilitySummary: null,
+			availabilityTooltip: null,
+			lastSeenLabel: null,
+			liveNow: false,
+			manualParticipationOnly: false,
+			modelSelection: null,
+			ownerDisplay: null,
+			ownerName: null,
+			ownerUserId: null,
+			presenceLabel: null,
+			presenceStatus: null,
+			runtimeDeviceDisplayName: null,
+			workingDirectory: null,
+		},
+	};
+}
+
+function resolveMentionEmptyMessage(input: UseSpaceMentionAuthoringInput) {
+	if (input.snapshot) {
+		return "No matching members";
+	}
+	if (input.membersErrorMessage) {
+		return "Couldn’t load members. Try again shortly.";
+	}
+	return "Loading members…";
 }

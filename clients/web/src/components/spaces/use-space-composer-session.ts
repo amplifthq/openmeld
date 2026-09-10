@@ -20,6 +20,15 @@ export function useSpaceComposerSession(input: {
 	>(null);
 	const [isSending, setIsSending] = useState(false);
 	const sendInFlightRef = useRef(false);
+	const requestTailRef = useRef(Promise.resolve());
+	const reserveRequest = useCallback(() => {
+		const ready = requestTailRef.current;
+		let complete: () => void = () => undefined;
+		requestTailRef.current = new Promise<void>((resolve) => {
+			complete = resolve;
+		});
+		return { ready, complete };
+	}, []);
 	const authoring = useSpaceMentionAuthoring(input.authoring);
 	const files = useSpaceComposerFiles(input.files);
 
@@ -44,10 +53,9 @@ export function useSpaceComposerSession(input: {
 		return true;
 	}, [clearFeedback]);
 	const finishSend = useCallback(() => {
-		files.finishSubmission();
 		sendInFlightRef.current = false;
 		setIsSending(false);
-	}, [files.finishSubmission]);
+	}, []);
 
 	return {
 		authoring,
@@ -62,12 +70,11 @@ export function useSpaceComposerSession(input: {
 		onEditorChange,
 		recordPendingSubmission: (includeFiles = true) => {
 			authoring.recordPendingSubmission();
-			if (includeFiles) {
-				files.beginSubmission();
-			}
+			return includeFiles ? files.beginSubmission() : [];
 		},
 		send: {
 			begin: beginSend,
+			reserveRequest,
 			finish: finishSend,
 			inFlightRef: sendInFlightRef,
 			isSending,

@@ -13,6 +13,8 @@ import {
 	type SpaceMessageFooterAddressingTarget,
 } from "./space-message-footer";
 
+import { MessageReactionsProvider } from "./space-message-reactions";
+
 vi.mock("@phosphor-icons/react", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@phosphor-icons/react")>()),
 	ArrowBendUpLeftIcon: () => <span />,
@@ -32,7 +34,9 @@ function render(children: ReactNode) {
 		defaultOptions: { queries: { retry: false } },
 	});
 	return renderComponent(
-		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+		<QueryClientProvider client={queryClient}>
+			<MessageReactionsProvider>{children}</MessageReactionsProvider>
+		</QueryClientProvider>
 	);
 }
 
