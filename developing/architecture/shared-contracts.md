@@ -1767,16 +1767,15 @@ metadata and grants no access. Clients refresh the shared file-list contract.
 Older clients safely ignore the topic and continue to observe current state on
 their next read.
 
-The current single-request compatibility path accepts individual files up to
-10 MiB. That transport ceiling is not the intended user-facing file policy and
-must not be raised by buffering a larger request in Gateway. Removing it
-requires one shared resumable multipart contract: Core-authorized upload
+Space Files accept individual files up to 250 MiB. The single-request
+compatibility path remains capped at 10 MiB; larger files use the shared
+resumable multipart contract rather than buffering larger requests in Gateway:
+Core-authorized upload
 sessions, streamed R2 parts, exact size and part-integrity verification, atomic
 Space File commit, abandoned-session cleanup, and the same idempotent canonical
 response for Web, CLI, and Agents. Browser text editing remains limited to UTF-8
 text files no larger than 1 MiB; that editor working-set boundary does not limit
-upload or download. Until the multipart contract ships, large-file support
-remains incomplete. There is no public object URL, per-file ACL, Resources
+upload or download. There is no public object URL, per-file ACL, Resources
 projection, automatic Computer materialization, CRDT, or live character stream
 in this contract.
 
@@ -1784,28 +1783,32 @@ The resumable contract uses one server-owned lifecycle for creates and new
 revisions:
 
 1. `start` carries the exact target, requested name and folder when creating,
-   MIME type, expected byte size, base revision, and client mutation id. The
+   MIME type, expected byte size, per-part SHA-256 digests, base revision, and client mutation id. The
    owning Space reauthorizes the actor, freezes that metadata, and returns an
-   opaque upload-session id plus the R2-compatible part policy.
-2. Gateway creates or resumes the R2 multipart upload under the exact private
-   revision object key. The R2 upload id and object key remain server-only and
+   client's opaque upload-session id plus the R2-compatible part policy.
+2. The owning Space creates or resumes the R2 multipart upload under a private
+   session object key. The R2 upload id and object key remain server-only and
    never become client authorization.
 3. Each numbered part is reauthorized through the upload session and streamed
-   from the request body to R2 without whole-file buffering. Gateway returns the
-   canonical part number and ETag. Web persists the opaque session and completed
-   part list with its draft; CLI streams from disk. Both retry only missing or
+   from the Gateway request body through Core to R2 without whole-file buffering.
+   Core verifies its length and digest and stores the canonical part number and ETag.
+   Web persists the original File and session identity with its Composer draft;
+   completed parts are read from Core, not a second browser ledger. CLI reads
+   bounded slices from disk. Both retry only missing or
    failed parts and can report byte-accurate progress.
-4. `complete` carries the ordered canonical part list. Gateway completes the R2
-   object and verifies the resulting object size against the frozen session.
+4. `complete` carries the session identity. Core uses its persisted ordered part
+   list to complete R2 and verifies the object size against the frozen session.
    The owning Space then atomically commits the immutable revision through the
    existing base-revision and mutation fence. A create collision receives the
    server-assigned numbered name in this final canonical response.
 5. A stale base revision, changed frozen metadata, invalid part list, size
    mismatch, or reused mutation with different upload evidence fails explicitly.
-   It never creates a visible partial revision.
+   It never creates a visible partial revision. A temporary busy response is
+   retryable when an earlier request still owns the session lease.
 6. Explicit cancel aborts the multipart upload. Expired sessions are aborted by
-   the owning cleanup lifecycle, and a completed R2 object whose metadata commit
-   fails is deleted best-effort with observable cleanup evidence.
+   the owning Space alarm after 24 hours. Private session objects are retained
+   until expiry for completion retries. A failed canonical metadata commit
+   removes its uncommitted revision object; committed mutations remain idempotent.
 7. Small files may retain one raw streaming PUT as an optimization, but they use
    the same prepare, authorization, immutable-object, commit, idempotency, and
    canonical-response semantics. The threshold is an implementation choice,
@@ -1818,7 +1821,23 @@ compression operate on separate derivatives after the original revision is
 stored. Shipping this protocol requires shared schemas, Core Space upload
 session state and cleanup, Gateway multipart routes, API-client streaming
 operations, Web draft resume, CLI stream upload, and captured R2 multipart
-contract fixtures in one receiver-first rollout.
+contract verification in one receiver-first rollout. Downloads stream through
+Core and Gateway; CLI downloads stream to disk. The existing buffered internal
+read RPC remains capped at 10 MiB and rejects larger reads explicitly.
+
+The 250 MiB policy widens existing strict file descriptors. An older client
+can still upload small files but can reject a response containing a larger file.
+Release updated readers before enabling large-file producers: local components
+and Remote Agent readers, then Core and Gateway receivers, then Web and CLI
+authoring. Already-open Web clients must refresh. Setup, Service lifecycle,
+Wake routing, and execution authority are unchanged. Rollback disables new
+producers first and keeps readers capable of reading existing large files.
+The CLI and Service contracts and runtime execution epoch advance because old
+dispatch validators reject file references above 10 MiB. Both local components
+are required updates before receiving new dispatches; Skills are unchanged.
+Publish their compatible channel before deploying Core's new epoch. This avoids
+accepting a Wake that the old Service cannot decode. Existing in-flight work
+retains its normal coordinator finalization path.
 
 The canonical Space File rollout is receiver-first across strict boundaries:
 

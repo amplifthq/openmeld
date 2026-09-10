@@ -23,6 +23,7 @@ import {
   restoreSpaceFileEntry,
   restoreSpaceFileRevision,
   stageSpaceComposerUpload,
+  streamSpaceFileContent,
   trashSpaceFileEntry,
   updateSpaceFileContent,
   updateSpaceFileEntry,
@@ -103,6 +104,8 @@ export const createSpaceApi: CreateSpaceApi = (
       await updateSpaceFileContent(client, input),
     downloadFileContent: async (input) =>
       await downloadSpaceFileContent(client, input),
+    streamFileContent: async (input) =>
+      await streamSpaceFileContent(client, input),
     removeMembers: async (input) => await removeSpaceMembers(client, input),
     setAccessMode: async (input) => await setSpaceAccessMode(client, input),
     updateMeta: async (input) => await updateSpaceMeta(client, input),

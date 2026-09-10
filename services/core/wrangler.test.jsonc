@@ -55,6 +55,10 @@
   ],
   "r2_buckets": [
     {
+      "binding": "OPENMELD_SPACE_ATTACHMENTS",
+      "bucket_name": "openmeld-space-attachments-test"
+    },
+    {
       "binding": "OPENMELD_ORGANIZATION_SKILLS",
       "bucket_name": "openmeld-organization-skills-test"
     }

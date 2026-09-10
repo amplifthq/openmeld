@@ -38,6 +38,7 @@ import {
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdForMutation,
+  buildSpaceFileRevisionIdFromDigest,
   CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_DEFAULT_LIMIT,
   CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
@@ -1171,7 +1172,7 @@ import type {
 } from "../space/application/space-claim-liveness-service";
 import {
   discardSpaceComposerUpload,
-  readSpaceComposerUpload,
+  readSpaceComposerUploadStream,
   type SpaceComposerUploadScope,
   SpaceComposerUploadStorageError,
   stageSpaceComposerUpload,
@@ -1182,6 +1183,7 @@ import {
   type SpaceEntryAccessResult,
 } from "../space/application/space-entry-resolution-service";
 import { buildSpaceFileAuditEvent } from "../space/application/space-file-audit";
+import { hashSpaceFileStream } from "../space/application/space-file-stream";
 import {
   readSpaceMemberNameFromAuth,
   SPACE_MEMBER_NAME_READ_BUDGET_MS,
@@ -2157,7 +2159,7 @@ export type ReadSpaceFileContentRpcResponse =
   };
 
 export type WriteSpaceFileContentRpcInput = SpaceFileWriteInput & {
-  bytes: ArrayBuffer;
+  bytes: ArrayBuffer | ReadableStream<Uint8Array>;
 };
 
 export type StageSpaceComposerUploadRpcInput = SpaceAttachmentAccessInput & {
@@ -19160,6 +19162,25 @@ export async function rpcResolveSpaceAttachmentForDownload(
   return attachment;
 }
 
+export async function rpcSpaceFileUpload(
+  env: CoreBindings,
+  input: SpaceAttachmentAccessInput & {
+    uploadId: string;
+    command: import("@openmeld/schemas/types").SpaceFileUploadCommand;
+    body?: ReadableStream<Uint8Array>;
+  }
+): Promise<import("@openmeld/schemas/types").SpaceFileUploadResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcSpaceFileUpload({
+    spaceAccess,
+    spaceId,
+    uploadId: input.uploadId,
+    command: input.command,
+    body: input.body,
+  });
+}
+
 export async function rpcListSpaceFiles(
   env: CoreBindings,
   input: ListSpaceFilesInput
@@ -19294,6 +19315,25 @@ export async function rpcReadSpaceFileContent(
   env: CoreBindings,
   input: ReadSpaceFileContentRpcInput
 ): Promise<ReadSpaceFileContentRpcResponse> {
+  const response = await rpcStreamSpaceFileContent(env, input);
+  if (response.revision.sizeBytes > 10 * 1024 * 1024) {
+    await response.bytes.cancel();
+    throwSpaceFileStorageFailed(
+      "Use the streaming download endpoint for this file."
+    );
+  }
+  return {
+    ...response,
+    bytes: await new Response(response.bytes).arrayBuffer(),
+  };
+}
+
+export async function rpcStreamSpaceFileContent(
+  env: CoreBindings,
+  input: ReadSpaceFileContentRpcInput
+): Promise<
+  ResolveSpaceFileContentResponse & { bytes: ReadableStream<Uint8Array> }
+> {
   const spaceAccess = resolveRpcSpaceAccess(input);
   const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const resolved = await stub.rpcResolveSpaceFileContent({
@@ -19309,7 +19349,7 @@ export async function rpcReadSpaceFileContent(
     spaceAccess,
     spaceId: input.spaceId,
   });
-  let bytes: ArrayBuffer;
+  let bytes: ReadableStream<Uint8Array>;
   try {
     assertSpaceFileObjectScope({
       organizationId: resolved.organizationId,
@@ -19328,12 +19368,8 @@ export async function rpcReadSpaceFileContent(
     if (!object) {
       throwSpaceFileStorageFailed("This file revision is unavailable.");
     }
-    try {
-      bytes = await object.arrayBuffer();
-    } catch {
-      throwSpaceFileStorageFailed("This file could not be read right now.");
-    }
-    if (bytes.byteLength !== resolved.revision.sizeBytes) {
+    bytes = object.body;
+    if (object.size !== resolved.revision.sizeBytes) {
       throwSpaceFileStorageFailed("This file revision is incomplete.");
     }
   } catch (error) {
@@ -19355,12 +19391,13 @@ export async function rpcWriteSpaceFileContent(
   input: WriteSpaceFileContentRpcInput
 ): Promise<SpaceFileDescriptor> {
   if (
-    input.bytes.byteLength > SPACE_FILE_MAX_SIZE_BYTES ||
-    input.bytes.byteLength !== input.write.sizeBytes
+    input.write.sizeBytes > SPACE_FILE_MAX_SIZE_BYTES ||
+    (input.bytes instanceof ArrayBuffer &&
+      input.bytes.byteLength !== input.write.sizeBytes)
   ) {
     throw createCoreRpcHttpError({
       code: "space_file.too_large",
-      reason: "Files must be 10 MiB or smaller and match the declared size.",
+      reason: "Files must be 250 MiB or smaller and match the declared size.",
       status: 413,
     });
   }
@@ -19489,9 +19526,9 @@ export async function rpcPublishSpaceComposerUpload(
       spaceAccess,
       spaceId: input.spaceId,
     });
-  let staged: Awaited<ReturnType<typeof readSpaceComposerUpload>>;
+  let staged: Awaited<ReturnType<typeof readSpaceComposerUploadStream>>;
   try {
-    staged = await readSpaceComposerUpload({
+    staged = await readSpaceComposerUploadStream({
       bucket: requireSpaceFileBucket(env),
       nowMs: normalizeComposerUploadNow(input.nowMs),
       scope,
@@ -19509,9 +19546,9 @@ export async function rpcPublishSpaceComposerUpload(
     }
     throw normalizeSpaceComposerUploadError(error);
   }
-  const revisionId = await buildSpaceFileRevisionIdForMutation({
+  const revisionId = await buildSpaceFileRevisionIdFromDigest({
     baseRevision: null,
-    bytes: staged.bytes,
+    contentDigest: await hashSpaceFileStream(staged.body),
     clientMutationId,
     mimeType: staged.descriptor.mimeType,
     name: staged.descriptor.name,
@@ -19529,7 +19566,14 @@ export async function rpcPublishSpaceComposerUpload(
     return committedFile;
   }
   return await rpcWriteSpaceFileContent(env, {
-    bytes: staged.bytes,
+    bytes: (
+      await readSpaceComposerUploadStream({
+        bucket: requireSpaceFileBucket(env),
+        nowMs: normalizeComposerUploadNow(input.nowMs),
+        scope,
+        uploadId,
+      })
+    ).body,
     context: input.context,
     spaceAccess,
     spaceId: input.spaceId,
@@ -19569,7 +19613,7 @@ export async function rpcRestoreSpaceFileRevision(
   env: CoreBindings,
   input: RestoreSpaceFileRevisionInput
 ): Promise<SpaceFileDescriptor> {
-  const source = await rpcReadSpaceFileContent(env, {
+  const source = await rpcStreamSpaceFileContent(env, {
     context: input.context,
     content: {
       spaceId: input.spaceId,
@@ -19579,17 +19623,26 @@ export async function rpcRestoreSpaceFileRevision(
     spaceAccess: input.spaceAccess,
     spaceId: input.spaceId,
   });
+  const contentDigest = await hashSpaceFileStream(source.bytes);
+  const restored = await rpcStreamSpaceFileContent(env, {
+    ...input,
+    content: {
+      spaceId: input.spaceId,
+      fileId: input.fileId,
+      revision: input.revision,
+    },
+  });
   return await rpcWriteSpaceFileContent(env, {
-    bytes: source.bytes,
+    bytes: restored.bytes,
     context: input.context,
     spaceAccess: input.spaceAccess,
     spaceId: input.spaceId,
     write: {
       spaceId: input.spaceId,
       fileId: input.fileId,
-      revisionId: await buildSpaceFileRevisionIdForMutation({
+      revisionId: await buildSpaceFileRevisionIdFromDigest({
         baseRevision: input.body.baseRevision,
-        bytes: source.bytes,
+        contentDigest,
         clientMutationId: input.body.clientMutationId,
         mimeType: source.revision.mimeType,
       }),

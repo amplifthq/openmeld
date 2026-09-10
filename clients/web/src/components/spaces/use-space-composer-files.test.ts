@@ -1,4 +1,4 @@
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
@@ -12,6 +12,11 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("#/lib/spaces/api", () => ({
 	createOrganizationScopedWebSpaceApi: () => api,
+}));
+vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	saveComposerFileDraft: async () => undefined,
+	removeComposerFileDraft: async () => undefined,
+	readComposerFileDrafts: async () => [],
 }));
 
 afterEach(() => {
@@ -40,9 +45,11 @@ function setup() {
 describe("composer attachment submission", () => {
 	it("rejects oversized files before upload while keeping other attachments", async () => {
 		const hook = setup();
+		const oversized = new File(["too large"], "large.pdf");
+		Object.defineProperty(oversized, "size", { value: 251 * 1024 * 1024 });
 		await act(async () =>
 			hook.result.current.addFiles([
-				new File([new Uint8Array(11 * 1024 * 1024)], "large.pdf"),
+				oversized,
 				new File(["small"], "small.txt"),
 			])
 		);
@@ -52,7 +59,7 @@ describe("composer attachment submission", () => {
 		);
 		expect(hook.result.current.files[0]).toMatchObject({
 			status: "failed",
-			errorMessage: expect.stringContaining("10 MiB upload limit"),
+			errorMessage: expect.stringContaining("250 MiB upload limit"),
 		});
 		expect(hook.result.current.files[0]?.errorMessage).toContain(
 			"paste a link"
@@ -193,6 +200,7 @@ it("captures an uploading image and protects it when the next draft is cleared",
 	expect(submitted[0]?.status).toBe("uploading");
 	expect(hook.result.current.files).toEqual([]);
 	act(() => hook.result.current.clearFiles());
+	await waitFor(() => expect(api.stageComposerUpload).toHaveBeenCalled());
 	await act(async () => {
 		resolveUpload({
 			id: "upload-image",
