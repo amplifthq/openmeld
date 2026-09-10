@@ -745,6 +745,34 @@ convert one structured Agent relation into another. An existing or restored
 Wake draft remains a Wake while the user edits it, but every send attempt checks
 the current Core-owned Wakeability before publishing the message or files.
 Reference authoring and ordinary text input remain usable while Wake is blocked.
+An online target uses ordinary Send with no waiting settings. When one addressed
+local Agent has a current device target and Core reports it offline or
+reconnecting, the composer offers **Send and wait**, explaining that it will wait
+up to 24 hours. Clicking this action makes that target a Wake, including when its
+mention began as a Reference. Ordinary Send does not opt a Reference into waiting.
+The Agent's current Binding determines the computer automatically. Web pins that
+Binding and Runtime and sets the absolute deadline to 24 hours after the click;
+there is no device picker or custom date input. The existing bounded API contract
+is unchanged. A private Agent conversation uses its existing implicit Wake target
+without requiring an extra mention. Main-timeline and thread messages share this
+behavior. When multiple offline Agents are addressed, the composer asks the user
+to send to one offline Agent at a time; one wait never unblocks another target.
+
+While it waits, the message shows the current waiting state and **Cancel waiting**
+through the existing Wake Stop control. Message details explain whether the
+computer is offline, the Agent is getting ready, or earlier work must finish, and
+show the exact expiry in the viewer's local time. The Agent's current Wakeability
+is still an independent projection.
+Expiry and cancellation are terminal for this Wake. Reconnecting a computer
+does not revive old failed Wakes or automatically repeat partially executed
+work. An expired wait shows **Wait expired. Task did not run.** and **Send again**.
+Send again prepares a new composer draft addressed only to the expired target,
+referencing the original request and its context. It preserves existing drafts
+and does not send automatically. Ordinary submission creates a new message and
+execution identity, checks current admission, and, if the computer is still
+offline, requires Send and wait again. The original Wake stays terminal; this
+action is not offered for interrupted work, cancellation, or other failures.
+
 Repeating the same Agent
 mention in one message keeps every occurrence explicit: the first token owns
 the selected Wake or Reference, while later tokens resolve to Reference and

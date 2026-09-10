@@ -22,6 +22,7 @@ type RoutineAuditAction =
   | "update_routine";
 
 export type StoredRoutine = Omit<CenterAgentRoutine, "canManage"> & {
+  agentProfileId?: string | null;
   authorizedActions: CenterAgentRoutineAuthorizedAction[];
   creationAttribution: CenterAgentRoutineCreationAttribution | null;
   externalActionPolicy: CenterAgentRoutineExternalActionPolicy;
@@ -35,12 +36,14 @@ export type DueRoutine = StoredRoutine & {
 };
 
 export type RoutineRunExecutionRecord = CenterAgentRoutineRun & {
+  agentProfileIdSnapshot: string | null;
   continuationDelegationId: string | null;
   executionEngine: RoutineExecutionEngine | null;
   routineNameSnapshot: string | null;
 };
 
 type RoutineRow = {
+  agent_profile_id: string | null;
   id: string;
   organization_id: string;
   name: string;
@@ -76,6 +79,7 @@ type RoutineRow = {
 };
 
 type RoutineRunRow = {
+  agent_profile_id_snapshot: string | null;
   id: string;
   routine_id: string;
   organization_id: string;
@@ -117,6 +121,7 @@ export type UnpublishedFailedRoutineRun = {
 const ROUTINE_RECORD_SELECT = `
   SELECT
     routine.id AS id,
+    routine.agent_profile_id AS agent_profile_id,
     routine.organization_id AS organization_id,
     routine.name AS name,
     routine.instructions AS instructions,
@@ -172,6 +177,7 @@ export type RoutineOccurrenceClaimOutcome =
   | { status: "lost_race" };
 
 export async function listRoutineRecords(input: {
+  agentProfileId?: string | null;
   db: D1Database;
   organizationId: string;
 }): Promise<StoredRoutine[]> {
@@ -180,10 +186,11 @@ export async function listRoutineRecords(input: {
       `
         ${ROUTINE_RECORD_SELECT}
         WHERE routine.organization_id = ?
+          AND routine.agent_profile_id IS ?
         ORDER BY routine.updated_at_ms DESC, routine.id DESC
       `
     )
-    .bind(input.organizationId)
+    .bind(input.organizationId, input.agentProfileId ?? null)
     .all<RoutineRow>();
 
   return (result.results ?? []).map(mapRoutineRow);
@@ -292,6 +299,7 @@ export async function insertRoutineRecord(input: {
       `
         INSERT INTO routines (
           id,
+          agent_profile_id,
           organization_id,
           name,
           instructions,
@@ -316,7 +324,7 @@ export async function insertRoutineRecord(input: {
           created_at_ms,
           updated_at_ms
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, json_patch(
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, json_patch(
           json_object('displayName', ?),
           COALESCE(
             (
@@ -345,6 +353,7 @@ export async function insertRoutineRecord(input: {
     )
     .bind(
       input.routine.id,
+      input.routine.agentProfileId ?? null,
       input.routine.organizationId,
       input.routine.name,
       input.routine.instructions,
@@ -558,6 +567,7 @@ export async function deleteRoutineRecord(input: {
 }
 
 export async function listRoutineRunRecords(input: {
+  agentProfileId?: string;
   beforeScheduledFor?: number;
   db: D1Database;
   limit: number;
@@ -592,6 +602,7 @@ export async function listRoutineRunRecords(input: {
         FROM routine_runs
         WHERE organization_id = ?
           AND routine_id = ?
+          AND agent_profile_id_snapshot IS ?
           AND scheduled_for < ?
         ORDER BY scheduled_for DESC, id DESC
         LIMIT ?
@@ -600,6 +611,7 @@ export async function listRoutineRunRecords(input: {
     .bind(
       input.organizationId,
       input.routineId,
+      input.agentProfileId ?? null,
       beforeScheduledFor,
       input.limit
     )
@@ -623,6 +635,7 @@ export async function readRoutineRunExecutionRecord(input: {
   return row
     ? {
         ...mapRoutineRunRow(row),
+        agentProfileIdSnapshot: row.agent_profile_id_snapshot,
         continuationDelegationId: row.continuation_delegation_id,
         executionEngine: parseRoutineExecutionEngine(row.execution_engine),
         routineNameSnapshot: row.routine_name_snapshot,
@@ -646,6 +659,7 @@ async function readRoutineRunRow(input: {
           failure_code,
           failure_detail,
           routine_name_snapshot,
+          agent_profile_id_snapshot,
           destination_kind_snapshot,
           target_space_id_snapshot,
           slack_team_id_snapshot,
@@ -770,6 +784,7 @@ export async function claimRoutineOccurrenceAndAdvance(input: {
           failure_code,
           failure_detail,
           routine_name_snapshot,
+          agent_profile_id_snapshot,
           destination_kind_snapshot,
           target_space_id_snapshot,
           slack_team_id_snapshot,
@@ -781,7 +796,7 @@ export async function claimRoutineOccurrenceAndAdvance(input: {
           started_at_ms,
           finished_at_ms
         )
-        SELECT ?, id, organization_id, ?, ?, ?, ?, name, destination_kind,
+        SELECT ?, id, organization_id, ?, ?, ?, ?, name, agent_profile_id, destination_kind,
           target_space_id, slack_team_id, slack_channel_id, slack_thread_ts,
           slack_conversation_id, slack_thread_label, ?, ?, ?
         FROM routines
@@ -867,6 +882,7 @@ export async function quarantineInvalidRoutineSchedule(input: {
           failure_code,
           failure_detail,
           routine_name_snapshot,
+          agent_profile_id_snapshot,
           destination_kind_snapshot,
           target_space_id_snapshot,
           slack_team_id_snapshot,
@@ -878,7 +894,7 @@ export async function quarantineInvalidRoutineSchedule(input: {
           finished_at_ms
         )
         SELECT ?, id, organization_id, ?, 'skipped', 'routine.schedule_invalid',
-          ?, name, destination_kind, target_space_id, slack_team_id,
+          ?, name, agent_profile_id, destination_kind, target_space_id, slack_team_id,
           slack_channel_id, slack_thread_ts, slack_conversation_id,
           slack_thread_label, ?, ?
         FROM routines
@@ -1323,6 +1339,7 @@ function changedExactlyOneRow(result: D1Result<unknown> | undefined): boolean {
 
 function mapRoutineRow(row: RoutineRow): StoredRoutine {
   return {
+    agentProfileId: row.agent_profile_id,
     authorizedActions: centerAgentRoutineAuthorizedActionsSchema.parse(
       JSON.parse(row.authorized_actions_json) as unknown
     ),

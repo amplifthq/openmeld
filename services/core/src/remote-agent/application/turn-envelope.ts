@@ -126,6 +126,7 @@ export async function resolveRemoteAgentTurnEnvelope(input: {
 }
 
 export async function resolveRemoteAgentRoutineTurnEnvelope(input: {
+  personalAgent?: boolean;
   authorizedActions?: CenterAgentRoutineAuthorizedAction[];
   centerAgentProfileId: string;
   createdByUserId: string;
@@ -198,7 +199,7 @@ export async function resolveRemoteAgentRoutineTurnEnvelope(input: {
       });
     space = {
       id: input.destination.spaceId,
-      isCenterAgentDm: directMessageProjection !== null,
+      isCenterAgentDm: !input.personalAgent && directMessageProjection !== null,
       kind:
         spaceRow.space_purpose === OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
           ? "dm"

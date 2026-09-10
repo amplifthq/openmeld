@@ -117,7 +117,7 @@ async function createWorkingCard(input: {
   });
   const result = await target.adapter.createWorkingCard({
     connection: target.connection,
-    initialText: "Working…",
+    initialText: "Request received. Preparing your conversation…",
     locator: target.locator,
   });
   if (result.status === "created") {

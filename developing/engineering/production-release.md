@@ -276,6 +276,14 @@ publishes CLI without Core fails closed. This profile is structural and
 provider-neutral: it protects any strict Service-to-Core protocol addition
 without coupling release order to one Agent Controller or business workflow.
 
+The coordinated device-wait schema, Space receiver, and Gateway route select
+`device-wait-receivers-first`: Database, Auth, Core, Gateway, Web, Remote Agent,
+then CLI. Core must expose `postDeviceWaitingSignal` before Gateway calls it,
+and Gateway must accept the opt-in before Web offers Send and wait. This
+composes with the Service-to-Core receiver order. Conflicting receiver profiles
+fail closed. A staged Core deployment also preserves the already-published CLI
+projection until artifact publication completes.
+
 The ordinary `cloud` order installs Auth receivers before Web, then continues
 through Gateway, Core, and Remote Agent. A Web-only release still skips Auth;
 the dependency only orders coordinated releases. Contracts that require a

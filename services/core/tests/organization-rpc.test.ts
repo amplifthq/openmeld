@@ -89,6 +89,7 @@ import {
   rpcPostCenterAgentWakePublicationSignal,
   rpcReadCenterAgentOrganizationMemoryPolicy,
   rpcReadOrganizationInformationProtectionPolicy,
+  rpcRecordCenterAgentAudit,
   rpcRecordCurrentOrganizationWebActivity,
   rpcRemoveSpaceMembers,
   rpcSetCenterAgentOrganizationMemoryPolicy,
@@ -5978,6 +5979,46 @@ describe("organization Core RPC", () => {
         expect.objectContaining({ action: "read_slack_file" }),
       ],
       organizationId: "org-a",
+    });
+  });
+
+  it.each([
+    "read_channel_file",
+    "post_channel_file",
+  ] as const)("keeps %s out of older client projections", async (action) => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const env = buildEnv({ db });
+    await rpcRecordCenterAgentAudit(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+        profileId: AGENT_PROFILE_ID,
+        profileKind: "agent",
+      }),
+      action,
+      resource: { id: "file", type: "feishu_file" },
+    });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+    await expect(
+      rpcListCenterAgentAuditJournal(env, { context, actionSet: "v21" })
+    ).resolves.toMatchObject({ entries: [] });
+    await expect(
+      rpcListCenterAgentAuditJournal(env, { context, actionSet: "v22" })
+    ).resolves.toMatchObject({
+      entries: [expect.objectContaining({ action })],
     });
   });
 

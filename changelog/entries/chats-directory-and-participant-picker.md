@@ -4,6 +4,9 @@ title: Find chats and start conversations together
 kind: improved
 areas: ["web", "chats", "spaces"]
 audiences: ["users"]
+publishedAt: 2026-09-10
+release: v0.3.193
+evidence: ["pr:870", "pr:876", "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880", "workflow:34434697090"]
 ---
 
 Chats now opens a searchable conversation list instead of briefly showing an empty

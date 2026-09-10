@@ -9,6 +9,7 @@ import {
   type ListCenterAgentSessionsResponse,
   peopleComputerTargetSchema,
   toLegacySpaceAddressingWireValue,
+  toSpaceSignalReadWireValue,
 } from "@openmeld/schemas";
 import type {
   AccountSpaceActiveWakeSummaryResponse,
@@ -1657,11 +1658,37 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     );
   }
 
-  mutateSpaceMessage(input: import("./rpc/methods").MutateSpaceMessageInput) {
-    return rpcMutateSpaceMessage(this.env, input);
+  async postDeviceWaitingSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
+    if (!input.deviceWait) {
+      throw new Error("A device waiting request is required.");
+    }
+    return await this.#postSignalWithEvidence(input, spaceAddressingVersion);
+  }
+
+  async mutateSpaceMessage(
+    input: import("./rpc/methods").MutateSpaceMessageInput
+  ) {
+    return toSpaceSignalReadWireValue(
+      await rpcMutateSpaceMessage(this.env, input)
+    );
   }
 
   async postSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
+    if (input.deviceWait) {
+      throw new Error(
+        "Device waiting requests require postDeviceWaitingSignal."
+      );
+    }
+    return await this.#postSignalWithEvidence(input, spaceAddressingVersion);
+  }
+
+  async #postSignalWithEvidence(
     input: PostSignalInput,
     spaceAddressingVersion?: string
   ): Promise<SignalEnvelope> {
@@ -3083,6 +3110,17 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentReadSlackFile(this.env, input);
   }
 
+  centerAgentReadChannelFile(
+    input: CenterAgentReadChannelFileInput
+  ): Promise<CenterAgentReadChannelFileResponse> {
+    return rpcCenterAgentReadChannelFile(this.env, input);
+  }
+  centerAgentPostChannelFile(
+    input: CenterAgentPostChannelFileInput
+  ): Promise<CenterAgentPostChannelFileResponse> {
+    return rpcCenterAgentPostChannelFile(this.env, input);
+  }
+
   centerAgentSearchSlackMessages(
     input: CenterAgentSearchSlackMessagesInput
   ): Promise<CenterAgentSearchSlackMessagesResponse> {
@@ -3820,6 +3858,13 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     spaceAddressingVersion?: string
   ): Promise<ListSignalsResult> {
     return super.listSignals(input, spaceAddressingVersion);
+  }
+
+  postDeviceWaitingSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
+    return super.postDeviceWaitingSignal(input, spaceAddressingVersion);
   }
 
   postSignal(
@@ -4883,6 +4928,17 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.centerAgentReadSlackFile(input);
   }
 
+  centerAgentReadChannelFile(
+    input: CenterAgentReadChannelFileInput
+  ): Promise<CenterAgentReadChannelFileResponse> {
+    return super.centerAgentReadChannelFile(input);
+  }
+  centerAgentPostChannelFile(
+    input: CenterAgentPostChannelFileInput
+  ): Promise<CenterAgentPostChannelFileResponse> {
+    return super.centerAgentPostChannelFile(input);
+  }
+
   centerAgentSearchSlackMessages(
     input: CenterAgentSearchSlackMessagesInput
   ): Promise<CenterAgentSearchSlackMessagesResponse> {
@@ -5271,9 +5327,10 @@ function toSpaceAddressingRpcOutput<T>(
   value: T,
   spaceAddressingVersion: string | undefined
 ): T {
+  const readValue = toSpaceSignalReadWireValue(value);
   return spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION
-    ? value
-    : toLegacySpaceAddressingRpcOutput(value);
+    ? readValue
+    : toLegacySpaceAddressingRpcOutput(readValue);
 }
 
 async function withSpaceAddressingRpcOutput<T>(
@@ -5315,3 +5372,16 @@ export {
 // biome-ignore lint/performance/noBarrelFile: Wrangler requires the Durable Object class export.
 export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export default CoreEntrypoint;
+
+import type {
+  CenterAgentPostChannelFileResponse,
+  CenterAgentReadChannelFileResponse,
+} from "@openmeld/schemas/types";
+import {
+  type CenterAgentPostChannelFileInput,
+  rpcCenterAgentPostChannelFile,
+} from "./remote-agent/application/message-channel-file-publication-service";
+import {
+  type CenterAgentReadChannelFileInput,
+  rpcCenterAgentReadChannelFile,
+} from "./remote-agent/application/message-channel-file-service";

@@ -749,7 +749,89 @@ describe("Agent Profile creation request service", () => {
     ).toEqual([]);
   });
 
-  function createService(acceptanceOnly = false) {
+  it("holds teammate admission and replay while preserving self creation", async () => {
+    const held = createService(true, false);
+    await expect(
+      held.setPreference({
+        body: {
+          newSessionPolicy: "automatically_allow",
+          existingSessionPolicy: "automatically_allow",
+        },
+        organizationId: "org-1",
+        userId: "user-requester",
+      })
+    ).rejects.toBeInstanceOf(AgentProfileCreationRequestForbiddenError);
+    const intent = {
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    };
+    await expect(held.create(intent)).rejects.toBeInstanceOf(
+      AgentProfileCreationRequestForbiddenError
+    );
+    const accepted = await createService(true).create(intent);
+    await expect(held.create(intent)).rejects.toBeInstanceOf(
+      AgentProfileCreationRequestForbiddenError
+    );
+    await expect(
+      held.decide({
+        organizationId: "org-1",
+        requestId: accepted.request.id,
+        userId: "user-target",
+        decision: "approve",
+      })
+    ).rejects.toBeInstanceOf(AgentProfileCreationRequestForbiddenError);
+    await expect(
+      held.retry({
+        organizationId: "org-1",
+        requestId: accepted.request.id,
+        userId: "user-requester",
+      })
+    ).rejects.toBeInstanceOf(AgentProfileCreationRequestForbiddenError);
+    expect(
+      await held.list({ organizationId: "org-1", userId: "user-requester" })
+    ).toEqual([]);
+    expect(createAgentProfile).not.toHaveBeenCalled();
+  });
+
+  it("settles queued teammate creation without effects and still completes self creation", async () => {
+    const enabled = createService(true);
+    const intent = {
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    };
+    const accepted = await enabled.create(intent);
+    const approved = await enabled.decide({
+      organizationId: "org-1",
+      requestId: accepted.request.id,
+      userId: "user-target",
+      decision: "approve",
+    });
+    const held = createService(true, false);
+    const result = await held.execute(approved);
+    expect(result.status).toBe("failed");
+    expect(result.createdAgentProfileId).toBeNull();
+    expect(await held.execute(approved)).toEqual(result);
+    expect(createAgentProfile).not.toHaveBeenCalled();
+
+    repository = new InMemoryRepository();
+    const self = createService(false, false);
+    const own = await self.create({
+      ...intent,
+      body: requestBody({ targetOwnerUserId: "user-requester" }),
+    });
+    expect(own.request.status).toBe("completed");
+    expect(own.request.createdAgentProfileId).toBeTruthy();
+  });
+
+  // Dormant lifecycle coverage explicitly opts in; production defaults stay closed.
+  function createService(
+    acceptanceOnly = false,
+    teammateRequestsEnabled = true
+  ) {
     const inboxProjection =
       createAgentProfileCreationRequestInboxProjectionService({
         now: () => NOW_MS,
@@ -758,6 +840,7 @@ describe("Agent Profile creation request service", () => {
         resolve: resolveApprovalInbox,
       });
     const service = createAgentProfileCreationRequestService({
+      teammateRequestsEnabled,
       validateNewRequest: async () => {
         // Runtime selection is covered by the RPC boundary tests.
       },

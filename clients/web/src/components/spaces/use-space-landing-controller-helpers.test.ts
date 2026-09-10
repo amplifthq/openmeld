@@ -1,4 +1,9 @@
 import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
+import {
+	createSpaceMemberAgentSnapshot,
+	createSpaceMemberHumanSnapshot,
+	createSpaceMembersSnapshot,
+} from "@openmeld/schemas/testing";
 import type {
 	GetSpaceStatusResponse,
 	SpaceMembersSnapshot,
@@ -19,6 +24,7 @@ import {
 	pollWakeProgress,
 	reconcileActiveWakeProgressSnapshot,
 	reconcilePolledWakeProgressItems,
+	resolveComposerAddressingTargets,
 	resolveComposerWakeProgressTargetProfileIds,
 } from "./use-space-landing-controller-helpers";
 
@@ -540,6 +546,7 @@ describe("pollWakeProgress", () => {
 			includeTiming: true,
 			includeSourceContext: true,
 			includeWaitReason: true,
+			includeDeviceWait: true,
 			includeWakeStopEligibility: true,
 			spaceId: "space-123",
 			timeoutMs: 15_000,
@@ -598,6 +605,51 @@ describe("createStatusAndMembersRefreshDedupe", () => {
 });
 
 describe("resolveComposerWakeProgressTargetProfileIds", () => {
+	it("exposes the implicit offline Direct Message target without inventing one for a group Space", () => {
+		const agentProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const humanProfileId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+		const membersSnapshot = createSpaceMembersSnapshot({
+			humans: [createSpaceMemberHumanSnapshot({ profileId: humanProfileId })],
+			agents: [
+				{
+					...createSpaceMemberAgentSnapshot({
+						profileId: agentProfileId,
+						agentWakeAvailability: { status: "offline_for_wake" },
+					}),
+					deviceWaitTarget: {
+						bindingId: "binding-1",
+						openMeldServiceRuntimeId: "runtime-1",
+					},
+				},
+			],
+		});
+		const input = {
+			addressingTargets: [],
+			membersSnapshot,
+			senderProfileId: humanProfileId,
+			status: createStatus({
+				spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+			}),
+		};
+		expect(resolveComposerAddressingTargets(input)).toEqual([
+			expect.objectContaining({
+				profileId: agentProfileId,
+				relation: "wake",
+				deviceWaitTarget: {
+					bindingId: "binding-1",
+					openMeldServiceRuntimeId: "runtime-1",
+				},
+			}),
+		]);
+		expect(
+			resolveComposerAddressingTargets({
+				...input,
+				status: createStatus({
+					members: { ...input.status.members, totalCount: 3, humanCount: 2 },
+				}),
+			})
+		).toEqual([]);
+	});
 	it("uses explicit wake targets before deriving a Direct Message target", () => {
 		expect(
 			resolveComposerWakeProgressTargetProfileIds({

@@ -1,3 +1,4 @@
+import { SLACK_BOT_SCOPES } from "@openmeld/schemas";
 import type {
   SlackOAuthErrorCode,
   SlackOAuthOrganizationMembershipInput,
@@ -5,6 +6,7 @@ import type {
   SlackOAuthStateConsumeResponse,
   SlackOAuthStateCreateResponse,
 } from "@openmeld/schemas/types";
+
 import type { Context, Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import {
@@ -16,38 +18,6 @@ import { resolveGatewayStructuredRpcErrorResponse } from "./rpc-http.helpers";
 const SLACK_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize";
 const SLACK_IDENTITY_AUTHORIZE_URL =
   "https://slack.com/openid/connect/authorize";
-export const SLACK_BOT_SCOPES = [
-  "app_mentions:read",
-  "assistant:write",
-  "bookmarks:read",
-  "bookmarks:write",
-  "canvases:read",
-  "canvases:write",
-  "channels:history",
-  "channels:join",
-  "channels:read",
-  "chat:write",
-  "commands",
-  "files:read",
-  "files:write",
-  "groups:history",
-  "groups:read",
-  "groups:write",
-  "im:history",
-  "im:read",
-  "im:write",
-  "links:read",
-  "links:write",
-  "pins:read",
-  "pins:write",
-  "reactions:read",
-  "reactions:write",
-  "search:read.files",
-  "search:read.public",
-  "usergroups:read",
-  "users:read",
-  "users:read.email",
-] as const;
 
 export function registerSlackOAuthRoutes(app: Hono<HonoBindings>): void {
   app.get("/slack/identity/start", async (c) => {

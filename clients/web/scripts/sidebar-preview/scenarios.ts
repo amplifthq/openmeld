@@ -33,6 +33,7 @@ const statusLabels: Record<WakeProgressStatusKind, string> = {
 	needs_input: "Agent needs your input",
 	waiting_for_owner: "Waiting for owner",
 	waiting_for_controller: "Waiting for current task",
+	waiting_for_device: "Waiting for computer",
 };
 function space(
 	name: string,

@@ -1,5 +1,5 @@
 import { cn } from "@openmeld/ui/lib/utils";
-import { StopCircleIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@phosphor-icons/react";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import {
@@ -23,8 +23,8 @@ import {
 	type SpaceOutcomeRowTone,
 } from "./space-outcome-tone";
 
-// A request-level Wake outcome (terminal_failure or wake_stopped) is a compact,
-// always-visible one-line summary. Only Core-authorized recovery may add an
+// A request-level Wake outcome (terminal_failure or wake_stopped) is compact
+// and always visible. Stops use the shared system divider. Only Core-authorized recovery may add an
 // execution action; starting another Wake belongs to the ordinary composer.
 // Full reason and diagnostics remain in Message details.
 /**
@@ -90,6 +90,42 @@ export function SpaceOutcomeRow(input: {
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
 	const isClickable = Boolean(input.onOpenDetails);
 
+	// Stops are system outcomes, not Agent replies or failures. Reuse the same
+	// divider in the main conversation and threads, retaining the details action.
+	if (input.tone === "muted") {
+		return (
+			<Marker
+				className={cn("w-full", input.className)}
+				data-testid="space-outcome-row"
+				variant="separator"
+			>
+				<MarkerContent className="max-w-[calc(100%-4rem)] text-center text-xs leading-5">
+					{isClickable ? (
+						<button
+							aria-label="Open message details"
+							className={cn(
+								APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
+								"text-center hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-2"
+							)}
+							onClick={input.onOpenDetails ?? undefined}
+							type="button"
+						>
+							<SpaceMessageReferenceText
+								referencesById={spaceReferencesById}
+								text={input.text}
+							/>
+						</button>
+					) : (
+						<SpaceMessageReferenceText
+							referencesById={spaceReferencesById}
+							text={input.text}
+						/>
+					)}
+				</MarkerContent>
+			</Marker>
+		);
+	}
+
 	return (
 		<div
 			className={cn(
@@ -121,7 +157,9 @@ export function SpaceOutcomeRow(input: {
 					onClick={input.onOpenDetails ?? undefined}
 					render={isClickable ? <button type="button" /> : undefined}
 				>
-					<MarkerIcon>{resolveSpaceOutcomeRowIcon(input.tone)}</MarkerIcon>
+					<MarkerIcon>
+						<WarningCircleIcon aria-hidden="true" />
+					</MarkerIcon>
 					<MarkerContent
 						className={cn(
 							"min-w-0 text-[13px] leading-5",
@@ -140,13 +178,6 @@ export function SpaceOutcomeRow(input: {
 			</div>
 		</div>
 	);
-}
-
-function resolveSpaceOutcomeRowIcon(tone: SpaceOutcomeRowTone) {
-	if (tone === "muted") {
-		return <StopCircleIcon aria-hidden="true" />;
-	}
-	return <WarningCircleIcon aria-hidden="true" />;
 }
 
 function resolveSpaceOutcomeRowToneClassName(

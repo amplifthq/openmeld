@@ -22,21 +22,23 @@ const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 const SPACE_DISPATCH_TRACE_TIMEOUT_POLICY_MAX_MS = 604_800_000;
 const SPACE_DISPATCH_TRACE_PROMPT_LENGTH_MAX = 1_000_000 as const;
 export const SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS = 1200 as const;
-export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION = 4 as const;
+export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION = 5 as const;
 export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS =
-  3 as const;
+  4 as const;
 export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER =
   "x-openmeld-space-dispatch-trace-response-version";
 const SPACE_DISPATCH_TRACE_INVALID_OUTPUT_PREVIEW_MAX_CHARS = 180 as const;
 
 export const spaceDispatchTraceResponseContractVersionSchema = z.union([
   z.literal(2),
+  z.literal(3),
   z.literal(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS),
   z.literal(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
 ]);
 export const spaceDispatchTraceResponseContractVersionHeaderSchema = z
   .enum([
     "2",
+    "3",
     String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS),
     String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
   ])
@@ -495,6 +497,7 @@ const publishedRuntimeCoordinatorHeadRecoveryActionV2Schema = z.enum([
 ]);
 
 const currentPublishedRuntimeCoordinatorHeadPublicationCategorySchema = z.enum([
+  "space_access_unavailable",
   "binding_required",
   "agent_profile_unavailable",
   "local_agent_unavailable",
@@ -512,6 +515,7 @@ const currentPublishedRuntimeCoordinatorHeadReasonCodeSchema = z
   .min(1)
   .max(160);
 const currentPublishedRuntimeCoordinatorHeadRecoveryActionSchema = z.enum([
+  "send_new_wake",
   "set_up_agent_binding",
   "enable_agent_binding",
   "repair_agent_binding",
@@ -696,6 +700,37 @@ const spaceDispatchTraceRuntimeCoordinatorHeadPendingRouteWaitingBoundarySchema 
 
 const spaceDispatchTraceRuntimeCoordinatorHeadWaitingBoundarySchema =
   z.discriminatedUnion("reasonCode", [
+    z.strictObject({
+      deadlineAt: ISO_DATE_TIME_SCHEMA,
+      deadlineOutcome: z.literal("publication_intent_ready"),
+      observedAt: ISO_DATE_TIME_SCHEMA,
+      reasonCode: z.literal("wake.device_wait.access_check_unavailable"),
+      softDeadlineAt: ISO_DATE_TIME_SCHEMA,
+      trigger: z.literal("space_access_rechecked"),
+      triggerOwner: z.literal("runtime_coordinator"),
+      userRecoveryAction: z.literal("check_status"),
+      userVisibleState: z.literal("waiting_for_space_access"),
+      waitingCategory: z.literal("space_access_unavailable"),
+      waitingFor: z.literal("space_access_check"),
+      waitingSince: ISO_DATE_TIME_SCHEMA,
+    }),
+    z.strictObject({
+      deadlineAt: ISO_DATE_TIME_SCHEMA,
+      deadlineOutcome: z.literal("publication_intent_ready"),
+      observedAt: ISO_DATE_TIME_SCHEMA,
+      reasonCode: z.enum([
+        "wake.device_wait.readiness_checking",
+        "daemon.service.draining",
+      ]),
+      softDeadlineAt: ISO_DATE_TIME_SCHEMA,
+      trigger: z.literal("agent_readiness_reported"),
+      triggerOwner: z.literal("runtime_coordinator"),
+      userRecoveryAction: z.literal("check_status"),
+      userVisibleState: z.literal("waiting_for_agent_readiness"),
+      waitingCategory: z.literal("local_agent_unavailable"),
+      waitingFor: z.literal("agent_readiness_report"),
+      waitingSince: ISO_DATE_TIME_SCHEMA,
+    }),
     spaceDispatchTraceRuntimeCoordinatorHeadOfflineWaitingBoundarySchema,
     spaceDispatchTraceRuntimeCoordinatorHeadPendingRouteWaitingBoundarySchema,
   ]);

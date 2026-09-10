@@ -58,7 +58,7 @@ export function useLarkPlatformChannelManagement(input: {
 	);
 	const beginMutation = useMutation({
 		mutationFn: async (request: {
-			mode: "repair" | "restart" | "resume";
+			mode: "repair" | "restart" | "resume" | "reauthorize";
 			provider: LarkPlatformProvider;
 		}) =>
 			await beginCurrentOrganizationLarkPlatformRegistration({
@@ -241,7 +241,7 @@ export function useLarkPlatformChannelManagement(input: {
 		cancelSetup: (provider: LarkPlatformProvider) =>
 			disconnectMutation.mutate(provider),
 		reauthorize: async () => {
-			if (!selectedProvider) {
+			if (!selectedProvider || beginMutation.isPending) {
 				return;
 			}
 			const authorizationWindow = window.open("about:blank", "_blank");
@@ -249,13 +249,10 @@ export function useLarkPlatformChannelManagement(input: {
 				authorizationWindow.opener = null;
 			}
 			try {
-				const response = await beginCurrentOrganizationLarkPlatformRegistration(
-					{
-						mode: "reauthorize",
-						organizationId: input.organizationId,
-						provider: selectedProvider,
-					}
-				);
+				const response = await beginMutation.mutateAsync({
+					mode: "reauthorize",
+					provider: selectedProvider,
+				});
 				const url = response.attempt.registrationUrl;
 				if (!url) {
 					throw new Error("Authorization link is unavailable.");
@@ -294,7 +291,10 @@ export function useLarkPlatformChannelManagement(input: {
 		manage,
 		open: dialogOpen,
 		openExistingConnection,
-		pollPending: registrationQuery.isFetching,
+		pollPending:
+			registrationQuery.isFetching ||
+			(beginMutation.isPending &&
+				beginMutation.variables?.mode === "reauthorize"),
 		provider: selectedProvider,
 		repair: () => {
 			if (selectedProvider) {
@@ -302,7 +302,9 @@ export function useLarkPlatformChannelManagement(input: {
 			}
 		},
 		repairPending:
-			beginMutation.isPending && beginMutation.variables?.mode === "repair",
+			beginMutation.isPending &&
+			(beginMutation.variables?.mode === "repair" ||
+				beginMutation.variables?.mode === "reauthorize"),
 		registration,
 		retryPoll: async () => {
 			await registrationQuery.refetch();

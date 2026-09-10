@@ -32,6 +32,7 @@ import {
 	mergeSpaceHistorySnapshots,
 	SPACE_SAVED_HISTORY_MAX_BYTES,
 } from "#/query/spaces/history";
+import { spaceMemberDirectoryDisplaySchema } from "#/query/spaces/member-directory-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import type {
 	DexieQueryCacheStore,
@@ -572,6 +573,7 @@ export function createBrowserQueryPersistenceController(
 					targetQueryKeys: [
 						spaceQueryKeys.history(spaceId, openMeldProfileId),
 						spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId),
+						spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId),
 					],
 				});
 			});
@@ -981,6 +983,10 @@ function resolvePersistedDataSerializer(scopeKind: QueryCacheScopeKind): {
 }
 
 function serializeSpacePersistedDisplayData(data: unknown): unknown {
+	const directory = spaceMemberDirectoryDisplaySchema.safeParse(data);
+	if (directory.success) {
+		return directory.data;
+	}
 	const displaySnapshot =
 		spaceConversationDisplaySnapshotSchema.safeParse(data);
 	if (displaySnapshot.success) {
@@ -1046,6 +1052,10 @@ function isApprovedSuccessfulQuery(
 		case "space":
 			if (targetQueryKey[1] === "history") {
 				return spaceHistorySnapshotSchema.safeParse(query.state.data).success;
+			}
+			if (targetQueryKey[1] === "member-directory-display") {
+				return spaceMemberDirectoryDisplaySchema.safeParse(query.state.data)
+					.success;
 			}
 			if (targetQueryKey[1] === "display-snapshot") {
 				return spaceConversationDisplaySnapshotSchema.safeParse(
