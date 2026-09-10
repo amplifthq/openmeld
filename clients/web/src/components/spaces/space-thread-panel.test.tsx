@@ -893,7 +893,7 @@ describe("SpaceThreadPanel", () => {
 			.closest("[data-message-row-id='sig-thread-wake']");
 		expect(
 			sourceMessage?.querySelector("[data-slot='message-footer']")?.className
-		).toContain("self-end");
+		).toContain("justify-end");
 
 		rerenderThreadPanel({
 			selfProfileId: "human-profile-1",
@@ -1000,7 +1000,7 @@ describe("SpaceThreadPanel", () => {
 			onSend,
 		});
 
-		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		expect(screen.queryByText("1 file ready to send")).toBeNull();
 		const sendButton = screen.getByRole("button", { name: "Send reply" });
 		expect(sendButton.hasAttribute("disabled")).toBe(false);
 		fireEvent.click(sendButton);
@@ -1008,7 +1008,7 @@ describe("SpaceThreadPanel", () => {
 		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
 	});
 
-	it("sends a thread reply while excluding a failed file", async () => {
+	it("keeps the thread reply unsent when an attachment failed", () => {
 		const onSend = vi.fn(async () => undefined);
 		renderThreadPanel({
 			composerFiles: [createFailedComposerFile()],
@@ -1017,12 +1017,12 @@ describe("SpaceThreadPanel", () => {
 		});
 
 		expect(
-			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+			screen.getByText("Remove the failed file to continue.")
 		).toBeTruthy();
 		const sendButton = screen.getByRole("button", { name: "Send reply" });
-		expect(sendButton).toHaveProperty("disabled", false);
+		expect(sendButton).toHaveProperty("disabled", true);
 		fireEvent.click(sendButton);
-		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
+		expect(onSend).not.toHaveBeenCalled();
 	});
 
 	it("keeps a recently completed root Wake terminal when its thread omits the top-level reply", () => {

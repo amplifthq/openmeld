@@ -1887,7 +1887,7 @@ describe("SpaceConversationPanel", () => {
 
 		for (const [messageText, expectedAlignment] of [
 			["Agent reply", "justify-start"],
-			["Self message", "self-end"],
+			["Self message", "justify-end"],
 		] as const) {
 			const message = screen.getByText(messageText).closest("[data-signal-id]");
 			const row = message?.closest("[data-message-row-id]");
@@ -2122,7 +2122,7 @@ describe("SpaceConversationPanel", () => {
 			readOnly: false,
 		});
 
-		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		expect(screen.queryByText("1 file ready to send")).toBeNull();
 		const sendButton = screen.getByRole("button", { name: "Send message" });
 		expect(sendButton.hasAttribute("disabled")).toBe(false);
 		fireEvent.click(sendButton);
@@ -2130,7 +2130,7 @@ describe("SpaceConversationPanel", () => {
 		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
 	});
 
-	it("sends the text while excluding a failed file", async () => {
+	it("keeps the message unsent when an attachment failed", () => {
 		const onSend = vi.fn(async () => undefined);
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
@@ -2141,12 +2141,12 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+			screen.getByText("Remove the failed file to continue.")
 		).toBeTruthy();
 		const sendButton = screen.getByRole("button", { name: "Send message" });
-		expect(sendButton).toHaveProperty("disabled", false);
+		expect(sendButton).toHaveProperty("disabled", true);
 		fireEvent.click(sendButton);
-		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
+		expect(onSend).not.toHaveBeenCalled();
 	});
 
 	it("opens an upward Files menu from the composer plus button", async () => {
@@ -4003,7 +4003,7 @@ describe("SpaceConversationPanel", () => {
 			.closest("[data-message-row-id='sig-wake']");
 		const footer = row?.querySelector("[data-slot='message-footer']");
 		// The footer aligns with the self bubble; reactions start at its left edge.
-		expect(footer?.className).toContain("self-end");
+		expect(footer?.className).toContain("justify-end");
 		expect(footer?.className).not.toContain("justify-start");
 		expect(row?.querySelector("[data-testid='space-outcome-row']")).toBeNull();
 	});
