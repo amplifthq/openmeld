@@ -37,6 +37,77 @@ const TEST_MODEL_CATALOG = {
 afterEach(cleanup);
 
 describe("AgentProfileGenerator", () => {
+	it.each([
+		["connect", "Connect Computer"],
+		["reconnect", "Reconnect Computer"],
+		["check_failed", "Try again"],
+		["local_agents", "Set up local agents"],
+	] as const)("replaces stale configuration with an actionable %s state", (state, label) => {
+		const onStart = vi.fn();
+		const onSubmit = vi.fn();
+		render(
+			<GeneratorHarness
+				initialAgentId="codex"
+				onSubmit={onSubmit}
+				overrides={{
+					computerRecovery: { state, computerName: "Office Mac", onStart },
+				}}
+			/>
+		);
+		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		fireEvent.submit(screen.getByTestId("create-profile-panel"));
+		expect(onSubmit).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: label }));
+		expect(onStart).toHaveBeenCalledOnce();
+	});
+	it("keeps the edited name and expanded settings through disconnect and recovery", () => {
+		const view = render(<GeneratorHarness initialAgentId="codex" />);
+		fireEvent.change(screen.getByRole("textbox", { name: "Agent name" }), {
+			target: { value: "Release helper" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
+		);
+		view.rerender(
+			<GeneratorHarness
+				initialAgentId="codex"
+				overrides={{
+					computerRecovery: {
+						state: "reconnect",
+						computerName: "Office Mac",
+						onStart: vi.fn(),
+					},
+				}}
+			/>
+		);
+		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
+		view.rerender(<GeneratorHarness initialAgentId="codex" />);
+		expect(
+			(screen.getByRole("textbox", { name: "Agent name" }) as HTMLInputElement)
+				.value
+		).toBe("Release helper");
+		expect(
+			screen
+				.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
+				.getAttribute("aria-expanded")
+		).toBe("true");
+	});
+	it("does not let an offline computer block Remote Agent creation", () => {
+		render(
+			<GeneratorHarness
+				overrides={{
+					computerRecovery: { state: "reconnect", onStart: vi.fn() },
+					remoteAgentCreation: { onSubmit: vi.fn() },
+				}}
+			/>
+		);
+		fireEvent.click(screen.getByRole("tab", { name: REMOTE_AGENT_NAME }));
+		expect(
+			screen.queryByRole("button", { name: "Reconnect Computer" })
+		).toBeNull();
+		expect(screen.getByRole("button", { name: "Create Agent" })).toBeTruthy();
+	});
 	it("opens the owner editor even when no local agent is selected", async () => {
 		render(
 			<GeneratorHarness

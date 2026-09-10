@@ -147,6 +147,7 @@ import { resolveCreateProfileSubmitBlockReason } from "./create-profile-form-log
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 import { isOpenCodeAgentId } from "./open-code-permissions-field";
 import { RequestedAgentProjectField } from "./requested-agent-project-field";
+import { useAgentCreationComputerRecovery } from "./use-agent-creation-computer-recovery";
 
 type RecoveryController = ReturnType<typeof useLocalAgentRecoveryController>;
 const PROJECT_PATH_SEPARATOR_PATTERN = /[\\/]/u;
@@ -778,27 +779,42 @@ function useCreateProfileDialogController(
 		selectedTeammateBinding,
 	});
 	const recoveryActionHref = buildConnectComputerPath({
+		connectedComputerId: recovery.currentComputer?.connectedComputerId,
 		orgSlug,
 		returnTo: "agent_creation",
 		session: "fresh",
 	});
+	const creationGuidance = resolveLocalAgentCreationGuidance({
+		queryFailed: creationComputerReadiness.isError,
+		readiness: creationComputerReadiness.data,
+		target: bindingTarget,
+	});
+	const retryCreationConnection = () => {
+		Promise.all([
+			recovery.refreshAll(),
+			creationComputerReadiness.refetch(),
+		]).catch((error: unknown) =>
+			console.error("Could not refresh the computer for Agent creation.", error)
+		);
+	};
+	const { computerRecovery, connectAnotherComputer } =
+		useAgentCreationComputerRecovery({
+			enabled: input.open && ownerMode === "self",
+			orgSlug,
+			recovery,
+			guidance: creationGuidance,
+			hasLocalAgents: hasSelectedCreationAgent(ownLocalAgentIds, boundAgentId),
+			isPending: creationComputerReadiness.isPending,
+			sessionComputerId: sessionPreset?.computerId,
+			onRetry: retryCreationConnection,
+		});
 	const localAgentEmptyState = resolveLocalAgentEmptyState({
 		centerAgentHref: orgSlug
 			? buildOrganizationCenterAgentChatPath(orgSlug)
 			: null,
 		computerHref: recoveryActionHref,
-		guidance: resolveLocalAgentCreationGuidance({
-			queryFailed: creationComputerReadiness.isError,
-			readiness: creationComputerReadiness.data,
-			target: bindingTarget,
-		}),
-		onRetry: () => {
-			recovery
-				.refreshAll()
-				.catch((error: unknown) =>
-					console.error("Could not refresh local agents for creation.", error)
-				);
-		},
+		guidance: creationGuidance,
+		onRetry: retryCreationConnection,
 		ownerMode,
 		recoveryActionHref,
 	});
@@ -1210,6 +1226,8 @@ function useCreateProfileDialogController(
 	const agentOwnerUserId =
 		ownerMode === "teammate" ? targetOwnerUserId : currentUserId;
 	const formProps: ComponentProps<typeof CreateProfileForm> = {
+		computerRecovery,
+		connectAnotherComputer,
 		agentComputerSlot:
 			canChooseComputer && computerChoices.length > 1 ? (
 				<div className="grid gap-2 text-sm">
@@ -2315,9 +2333,20 @@ function useCreationComputerReadiness(input: {
 		: input.recovery.currentLocalRuntimeReplyReadinessQuery;
 	return {
 		data: readinessQuery.data,
+		isPending:
+			input.recovery.localRuntimesQuery.isPending ||
+			(Boolean(target) && readinessQuery.isPending),
+		refetch: readinessQuery.refetch,
 		isError:
 			input.recovery.localRuntimesQuery.isError || readinessQuery.isError,
 	};
+}
+
+function hasSelectedCreationAgent(
+	agentIds: readonly string[],
+	selected: string
+) {
+	return agentIds.length > 0 && (!selected || agentIds.includes(selected));
 }
 
 function useOnlyCreationComputer(input: {
@@ -2334,6 +2363,18 @@ function useOnlyCreationComputer(input: {
 			!(input.enabled && input.canChooseComputer) ||
 			input.isSubmitting ||
 			!target
+		) {
+			return;
+		}
+		// A selected enrolled computer going offline must not silently move the
+		// user's draft to the only other online computer.
+		if (
+			input.recovery.localRuntimesQuery.data?.peopleComputers.computers.some(
+				(computer) =>
+					computer.identityStatus === "enrolled" &&
+					(computer.deviceId === input.recovery.deviceId ||
+						computer.legacyDeviceIds?.includes(input.recovery.deviceId ?? ""))
+			)
 		) {
 			return;
 		}
