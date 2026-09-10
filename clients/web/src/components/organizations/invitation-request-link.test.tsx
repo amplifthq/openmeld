@@ -62,26 +62,27 @@ describe("InvitationRequestLink", () => {
 	});
 	afterEach(cleanup);
 
-	it("loads an existing link without creating one, including after remount", async () => {
-		mocks.get.mockResolvedValue(link);
+	it("prepares the server-owned Space invite link on each mount", async () => {
 		const view = mount();
 		expect(await screen.findByDisplayValue(link.url)).toBeTruthy();
-		expect(mocks.request).not.toHaveBeenCalled();
+		expect(mocks.request).toHaveBeenCalledTimes(1);
 		view.unmount();
 		mount();
 		expect(await screen.findByDisplayValue(link.url)).toBeTruthy();
-		expect(mocks.request).not.toHaveBeenCalled();
+		expect(mocks.request).toHaveBeenCalledTimes(2);
+		expect(mocks.request.mock.calls[0][0].path).toBe(
+			"/organization/join-link/prepare"
+		);
 	});
 
 	it("restores a created link from the server after the panel is discarded", async () => {
 		const view = mount();
-		fireEvent.click(await screen.findByRole("button", { name: "Create link" }));
 		expect(await screen.findByDisplayValue(link.url)).toBeTruthy();
 		mocks.get.mockResolvedValue(link);
 		view.unmount();
 		mount();
 		expect(await screen.findByDisplayValue(link.url)).toBeTruthy();
-		expect(mocks.request).toHaveBeenCalledTimes(1);
+		expect(mocks.request).toHaveBeenCalledTimes(2);
 		expect(
 			JSON.parse(mocks.request.mock.calls[0][0].request.body)
 		).toMatchObject({ mode: "direct", spaceId: "space-1" });
@@ -99,29 +100,37 @@ describe("InvitationRequestLink", () => {
 			spaceId: "space-1",
 			mode: "direct",
 		});
-		mocks.get.mockResolvedValue(null);
+		mocks.request.mockResolvedValue({
+			data: { ok: true, joinLink: null },
+			error: null,
+		});
 		view.unmount();
 		mount();
 		expect(
-			await screen.findByRole("button", { name: "Create link" })
+			await screen.findByRole("button", { name: "Renew link" })
 		).toBeTruthy();
 	});
 
 	it("does not mistake a failed read for an absent link and retries", async () => {
-		mocks.get.mockRejectedValueOnce(new Error("Offline"));
+		mocks.request.mockRejectedValueOnce(new Error("Offline"));
 		mount();
 		expect(await screen.findByRole("alert")).toBeTruthy();
-		expect(screen.queryByRole("button", { name: "Create link" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Renew link" })).toBeNull();
 		mocks.get.mockResolvedValue(link);
 		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 		expect(await screen.findByDisplayValue(link.url)).toBeTruthy();
 	});
 
 	it("reads only the approval-required link for ordinary members", async () => {
-		mocks.get.mockResolvedValue({ ...link, mode: "request" });
+		mocks.request.mockResolvedValue({
+			data: { ok: true, joinLink: { ...link, mode: "request" } },
+			error: null,
+		});
 		mount(false);
 		expect(await screen.findByDisplayValue(link.url)).toBeTruthy();
-		expect(mocks.get).toHaveBeenCalledWith({
+		expect(
+			JSON.parse(mocks.request.mock.calls[0][0].request.body)
+		).toMatchObject({
 			organizationId: "org-1",
 			spaceId: "space-1",
 			mode: "request",

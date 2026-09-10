@@ -1,18 +1,18 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
+import type { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraft } from "#/lib/spaces/composer-file-drafts";
 import { useSpaceComposerFiles } from "./use-space-composer-attachments";
 
-type SpaceApi = ReturnType<typeof createOrganizationScopedWebSpaceApi>;
+type SpaceApi = ReturnType<typeof createUnscopedWebSpaceApi>;
 const api = vi.hoisted(() => ({
 	stageComposerUpload: vi.fn<SpaceApi["stageComposerUpload"]>(),
 	publishComposerUpload: vi.fn<SpaceApi["publishComposerUpload"]>(),
 	discardComposerUpload: vi.fn<SpaceApi["discardComposerUpload"]>(),
 }));
 vi.mock("#/lib/spaces/api", () => ({
-	createOrganizationScopedWebSpaceApi: () => api,
+	createUnscopedWebSpaceApi: () => api,
 }));
 const drafts = vi.hoisted(() => new Map<string, ComposerFileDraft>());
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({

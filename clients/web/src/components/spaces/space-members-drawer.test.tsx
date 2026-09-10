@@ -22,6 +22,7 @@ import { AppOrganizationProvider } from "#/lib/organizations/organization-contex
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { agentProfilePrimaryBindingQueryKeys } from "#/query/profiles/primary-binding";
+import { spaceQueryKeys } from "#/query/spaces/status";
 import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
 import {
 	createTestQueryClient,
@@ -189,7 +190,16 @@ function SpaceMembersSidePanel(input: TestSpaceMembersSidePanelProps) {
 }
 
 function renderWithQueryClient(ui: ReactElement) {
-	return render(<TestQueryClientProvider>{ui}</TestQueryClientProvider>);
+	const queryClient = createTestQueryClient();
+	queryClient.setQueryData(
+		spaceQueryKeys.status("space-1", "11111111-1111-4111-8111-111111111111"),
+		{ ownerUserIds: ["user_felix"] }
+	);
+	return render(
+		<TestQueryClientProvider queryClient={queryClient}>
+			{ui}
+		</TestQueryClientProvider>
+	);
 }
 
 import {

@@ -1731,12 +1731,26 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("lets long unbroken message text wrap inside the message bubble", () => {
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				observe = vi.fn();
+				disconnect = vi.fn();
+				unobserve = vi.fn();
+			}
+		);
 		const longMessage = `wake ${"x".repeat(160)} https://example.com/${"y".repeat(160)}`;
 		renderSpaceConversationPanel({
 			timelineItems: [createTimelineItem({ text: longMessage })],
 		});
 
-		const messageText = screen.getByText(longMessage);
+		const messageText = screen.getByText(
+			(_, element) =>
+				element?.textContent === longMessage &&
+				![...element.children].some(
+					(child) => child.textContent === longMessage
+				)
+		);
 		const messageBubble = messageText.closest("[data-signal-id]");
 
 		expect(messageBubble?.className).not.toContain("min-w-[16rem]");

@@ -98,7 +98,8 @@ it("does not expose the conversation when a listed Space requires membership", a
 	setup();
 	await waitFor(() => expect(entryRequest).toHaveBeenCalledOnce());
 	await screen.findByRole("dialog", { name: "Preview Support" });
-	await screen.findByText("You don't have access to Support");
+	await screen.findByRole("heading", { name: "Join Support" });
+	expect(screen.getByRole("button", { name: "Join Space" })).toBeTruthy();
 	expect(landing).not.toHaveBeenCalled();
 	expect(screen.queryByText("Existing Space conversation")).toBeNull();
 });

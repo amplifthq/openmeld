@@ -463,9 +463,6 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 
 		const dialog = screen.getByRole("dialog");
-		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Manage link access" })
-		);
 		const expectedShareUrl = buildPublicSpaceEntryUrl({
 			origin: window.location.origin,
 			target: { spaceId: "space-123" },
@@ -479,12 +476,11 @@ describe("SpaceHeader", () => {
 		).toBeTruthy();
 		expect(within(dialog).getByText("Share Design Room")).toBeTruthy();
 		expect(
-			within(dialog).getByRole("radio", { name: SHARE_PUBLIC_MODE_LABEL_TEXT })
+			within(dialog).getByText(
+				"Anyone with the link can view and join this Space."
+			)
 		).toBeTruthy();
-		expect(
-			within(dialog).getAllByText(PUBLIC_SPACE_ACCESS_DESCRIPTION).length
-		).toBeGreaterThan(0);
-
+		expect(within(dialog).queryByRole("radio")).toBeNull();
 		fireEvent.click(
 			within(dialog).getByRole("button", { name: "Copy Space link" })
 		);
@@ -501,15 +497,12 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 
 		const dialog = screen.getByRole("dialog");
-		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Manage link access" })
-		);
 		expect(
-			within(dialog).getByRole("radio", { name: "Password protected" })
+			within(dialog).getByText(
+				"People with the password can view and join this Space."
+			)
 		).toBeTruthy();
-		expect(
-			within(dialog).getAllByText("Password to view and join.").length
-		).toBeGreaterThan(0);
+		expect(within(dialog).queryByRole("radio")).toBeNull();
 	});
 
 	it("shows the public view and password-gated join share mode", () => {
@@ -519,24 +512,20 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 
 		const dialog = screen.getByRole("dialog");
-		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Manage link access" })
-		);
 		expect(
-			within(dialog).getByRole("radio", {
-				name: SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT,
-			})
+			within(dialog).getByText(
+				"Anyone with the link can view. People outside the organization need a password to join."
+			)
 		).toBeTruthy();
-		expect(
-			within(dialog).getAllByText("Password to join.").length
-		).toBeGreaterThan(0);
+		expect(within(dialog).queryByRole("radio")).toBeNull();
 	});
 
-	it("lets the Space owner require a password to join from the share dialog", async () => {
+	it("lets the Space owner require a password to join from access settings", async () => {
 		const onSetAccessMode = vi.fn(async () => undefined);
 		render(createSpaceHeader({ onSetAccessMode }));
 
-		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
 			within(dialog).getByRole("button", { name: "Manage link access" })
@@ -670,7 +659,8 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
 			within(dialog).getByRole("button", { name: "Manage link access" })
@@ -708,7 +698,8 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
 			within(dialog).getByRole("button", { name: "Manage link access" })
@@ -814,7 +805,8 @@ describe("SpaceHeader", () => {
 	it("does not treat a hidden password draft as a public access change", () => {
 		render(createSpaceHeader());
 
-		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
 			within(dialog).getByRole("button", { name: "Manage link access" })
