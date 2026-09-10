@@ -275,7 +275,7 @@ describe("parseDispatchTask", () => {
       revision: 1,
       name: `screen-${index + 1}.png`,
       mimeType: "image/png",
-      sizeBytes: 10 * 1024 * 1024,
+      sizeBytes: 250 * 1024 * 1024,
     }));
     const parsed = parseDispatchTask({
       deliverRequest: createDeliverRequest({

@@ -1,5 +1,13 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 export {
+  SPACE_FILE_UPLOAD_PART_BYTES,
+  SPACE_FILE_UPLOAD_TTL_MS,
+  spaceFileUploadCommandSchema,
+  spaceFileUploadMetadataSchema,
+  spaceFileUploadPartSchema,
+  spaceFileUploadResponseSchema,
+} from "./http/space-file-upload";
+export {
   spaceHistoryNavigationQuerySchema,
   spaceHistoryNavigationSchema,
 } from "./http/space-history-navigation";
@@ -2098,6 +2106,7 @@ export {
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdForMutation,
+  buildSpaceFileRevisionIdFromDigest,
   commitSpaceFileWriteInputSchema,
   createSpaceFileUploadQuerySchema,
   createSpaceFolderBodySchema,
@@ -2128,6 +2137,7 @@ export {
   SPACE_FILE_MAX_NAME_LENGTH,
   SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceComposerUploadDescriptorSchema,
   spaceComposerUploadIdSchema,

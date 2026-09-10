@@ -21,6 +21,7 @@ export type * from "./daemon/index";
 export type * from "./db/index";
 export type * from "./eval-report";
 export type * from "./http/index";
+export type * from "./http/space-file-upload";
 export type * from "./local-components";
 export type * from "./open-code-permission";
 export type * from "./prepare/index";

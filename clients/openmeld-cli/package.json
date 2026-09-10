@@ -85,6 +85,6 @@
   },
   "openmeld": {
     "releaseLine": "openmeld-greenfield-2026-07",
-    "minRequiredCliVersion": "0.3.193"
+    "minRequiredCliVersion": "0.3.197"
   }
 }

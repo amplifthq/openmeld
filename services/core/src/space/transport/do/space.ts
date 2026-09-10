@@ -27,7 +27,10 @@ import {
 } from "@openmeld/protocol";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
+  buildSpaceComposerUploadObjectKey,
+  buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
+  buildSpaceFileRevisionIdFromDigest,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   commitSpaceFileWriteInputSchema,
   createSpaceDiagnosticReportBodySchema,
@@ -82,6 +85,7 @@ import {
   runtimeCoordinatorFinalizationCommandSchema,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
+  SPACE_COMPOSER_UPLOAD_TTL_MS,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_MESSAGE_CHANGED_PURPOSE,
   SPACE_PASSWORD_MIN_LENGTH,
@@ -191,6 +195,8 @@ import type {
   SpaceFileDescriptor,
   SpaceFileMutationErrorCode,
   SpaceFilePinsResponse,
+  SpaceFileUploadCommand,
+  SpaceFileUploadMetadata,
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
@@ -454,6 +460,8 @@ import {
 import { handlePatchCursorUseCase } from "../../application/space-cursor-service";
 import { resolveSpaceDispatchConversationContinuityScope } from "../../application/space-dispatch-conversation-continuity";
 import { buildSpaceFileAuditEvent } from "../../application/space-file-audit";
+import { hashSpaceFileStream } from "../../application/space-file-stream";
+import { SpaceFileUploads } from "../../application/space-file-uploads";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../application/space-inbox-center-agent-candidate";
 import { buildSpaceInboxProjectionOutboxRecord } from "../../application/space-inbox-projection";
 import {
@@ -2465,6 +2473,14 @@ export class Space extends DurableObject<CoreBindings> {
         nowMs: Date.now(),
       });
     });
+    await this.runIsolatedAlarmStep("file_upload_cleanup", async () => {
+      if (this.env.OPENMELD_SPACE_ATTACHMENTS) {
+        await new SpaceFileUploads(
+          this.ctx.storage.sql,
+          this.env.OPENMELD_SPACE_ATTACHMENTS
+        ).cleanup();
+      }
+    });
     await this.syncSpaceBackgroundAlarm();
   }
 
@@ -2763,6 +2779,159 @@ export class Space extends DurableObject<CoreBindings> {
     );
     await this.broadcastSpaceFilesChanged("space_file.entry_restored");
     return { entry };
+  }
+
+  async rpcSpaceFileUpload(input: {
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+    uploadId: string;
+    command: SpaceFileUploadCommand;
+    body?: ReadableStream<Uint8Array>;
+  }) {
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const meta = this.requireSpaceFileMetaRecord();
+    const bucket = this.env.OPENMELD_SPACE_ATTACHMENTS;
+    if (!bucket) {
+      throw new Error("Space file storage is unavailable.");
+    }
+    const uploads = new SpaceFileUploads(this.ctx.storage.sql, bucket);
+    try {
+      return await uploads.execute({
+        actorId: actor.profileId,
+        scope: `${meta.organizationId}/${this.spaceId}`,
+        uploadId: input.uploadId,
+        command: input.command,
+        body: input.body,
+        prepare: async (metadata) => {
+          const target = metadata.target;
+          if (target.kind === "composer") {
+            return;
+          }
+          await this.rpcPrepareSpaceFileWrite({
+            spaceAccess: input.spaceAccess,
+            write: {
+              spaceId: this.spaceId,
+              fileId:
+                target.kind === "file"
+                  ? await buildSpaceFileEntryIdForMutation(
+                      target.clientMutationId
+                    )
+                  : target.fileId,
+              revisionId: `upload-${input.uploadId}`,
+              baseRevision: target.kind === "file" ? null : target.baseRevision,
+              clientMutationId: target.clientMutationId,
+              mimeType: metadata.mimeType,
+              sizeBytes: metadata.sizeBytes,
+              ...(target.kind === "file"
+                ? { name: target.name, parentId: target.parentId }
+                : {}),
+            },
+          });
+        },
+        finish: async (metadata: SpaceFileUploadMetadata, key: string) => {
+          // Reauthorize after the transfer: membership can change mid-upload.
+          await this.requireSpaceFileWriteActor(input.spaceAccess);
+          const object = await bucket.get(key);
+          if (!object) {
+            throw new Error("The uploaded file is unavailable.");
+          }
+          if (metadata.target.kind === "composer") {
+            const expiresAtMs = Date.now() + SPACE_COMPOSER_UPLOAD_TTL_MS;
+            const destination = buildSpaceComposerUploadObjectKey({
+              actorProfileId: actor.profileId,
+              organizationId: meta.organizationId,
+              spaceId: this.spaceId,
+              uploadId: input.uploadId,
+            });
+            await bucket.put(destination, object.body, {
+              httpMetadata: { contentType: metadata.mimeType },
+              customMetadata: {
+                actorProfileId: actor.profileId,
+                organizationId: meta.organizationId,
+                spaceId: this.spaceId,
+                uploadId: input.uploadId,
+                name: metadata.target.name,
+                mimeType: metadata.mimeType,
+                sizeBytes: String(metadata.sizeBytes),
+                expiresAtMs: String(expiresAtMs),
+              },
+            });
+            return {
+              upload: {
+                id: input.uploadId,
+                name: metadata.target.name,
+                mimeType: metadata.mimeType,
+                sizeBytes: metadata.sizeBytes,
+                expiresAt: new Date(expiresAtMs).toISOString(),
+              },
+            };
+          }
+          const target = metadata.target;
+          const baseRevision =
+            target.kind === "file" ? null : target.baseRevision;
+          const createFields =
+            target.kind === "file"
+              ? { name: target.name, parentId: target.parentId }
+              : {};
+          const write = {
+            spaceId: this.spaceId,
+            fileId:
+              target.kind === "file"
+                ? await buildSpaceFileEntryIdForMutation(
+                    target.clientMutationId
+                  )
+                : target.fileId,
+            baseRevision,
+            clientMutationId: target.clientMutationId,
+            mimeType: metadata.mimeType,
+            sizeBytes: metadata.sizeBytes,
+            ...createFields,
+            revisionId: await buildSpaceFileRevisionIdFromDigest({
+              baseRevision,
+              clientMutationId: target.clientMutationId,
+              mimeType: metadata.mimeType,
+              contentDigest: await hashSpaceFileStream(object.body),
+              ...createFields,
+            }),
+          };
+          const prepared = await this.rpcPrepareSpaceFileWrite({
+            spaceAccess: input.spaceAccess,
+            write,
+          });
+          if (prepared.committedFile) {
+            return { file: prepared.committedFile };
+          }
+          const source = await bucket.get(key);
+          if (!source) {
+            throw new Error("The uploaded file is unavailable.");
+          }
+          await bucket.put(prepared.objectKey, source.body, {
+            httpMetadata: { contentType: metadata.mimeType },
+          });
+          try {
+            return {
+              file: await this.rpcCommitSpaceFileWrite({
+                spaceAccess: input.spaceAccess,
+                write,
+              }),
+            };
+          } catch (error) {
+            const committed = this.spaceFileRepository.resolveCommittedWrite(
+              write.clientMutationId,
+              write.fileId
+            );
+            if (committed) {
+              return { file: committed };
+            }
+            await bucket.delete(prepared.objectKey);
+            throw error;
+          }
+        },
+      });
+    } finally {
+      await this.syncSpaceBackgroundAlarm();
+    }
   }
 
   async rpcPrepareSpaceFileWrite(input: {
@@ -5827,7 +5996,15 @@ export class Space extends DurableObject<CoreBindings> {
         nextNonStreamAlarmAtMs,
         readNextSpaceExecutionInputAlarm(this.ctx.storage.sql)
       ),
-      nextAgentStreamAlarmAtMs
+      minNullableTimestamp(
+        nextAgentStreamAlarmAtMs,
+        this.env.OPENMELD_SPACE_ATTACHMENTS
+          ? new SpaceFileUploads(
+              this.ctx.storage.sql,
+              this.env.OPENMELD_SPACE_ATTACHMENTS
+            ).nextExpiry()
+          : null
+      )
     );
     const alarmOwnerDeadlines = {
       nextAgentStreamAlarmAtMs,
