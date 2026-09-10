@@ -1,8 +1,15 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import type { SpaceAccessContext } from "@openmeld/space";
-import { getSpaceAccessRequestContext } from "@openmeld/space";
+import {
+  getSpaceAccessPassword,
+  getSpaceAccessRequestContext,
+} from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
+import {
+  buildSpacePasswordProof,
+  verifySpacePasswordProof,
+} from "../src/lib/space-password-proof";
 import type { PasswordAuthorizationResult } from "../src/space/application/types";
 import {
   createDispatchOutboxRecord,
@@ -14,6 +21,7 @@ import {
   upsertSpaceMemberRecord,
 } from "../src/space/infrastructure/sql/space-member-repo";
 import {
+  readSpaceMetaRecordFromSql,
   type SpaceMetaRecord,
   upsertSpaceMetaRecord,
 } from "../src/space/infrastructure/sql/space-meta-repo";
@@ -22,18 +30,25 @@ const sourceProfileId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const targetProfileId = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 describe("device waiting Wake Space authority", () => {
-  it("retains the exact outbox intent and rechecks current membership and write access", async () => {
+  it.each([
+    "members_only",
+    "protected",
+  ] as const)("rechecks live access and preserves member authorization across password rotation (%s)", async (accessMode) => {
     const namespace = (env as CoreBindings).OPENMELD_SPACES;
     const id = namespace.newUniqueId();
     const spaceId = id.toString();
     await runInDurableObject(namespace.get(id), async (instance, state) => {
       const now = new Date().toISOString();
+      const originalPassword = "original-space-password";
       const meta: SpaceMetaRecord = {
         v: 1,
         spaceId,
         organizationId: "org-device-wait",
         visibility: "private",
-        accessMode: "members_only",
+        accessMode,
+        ...(accessMode === "protected"
+          ? { passwordProof: await buildSpacePasswordProof(originalPassword) }
+          : {}),
         createdAt: now,
         updatedAt: now,
       };
@@ -86,6 +101,9 @@ describe("device waiting Wake Space authority", () => {
         organizationId: meta.organizationId,
         sourceEventId: "source-device-wait",
         sourceClientMessageId: "client-device-wait",
+        ...(accessMode === "protected"
+          ? { spacePassword: originalPassword }
+          : {}),
         targetProfileId,
         senderProfileId: sourceProfileId,
         sourceSignalSnapshot: {
@@ -102,6 +120,58 @@ describe("device waiting Wake Space authority", () => {
           record.dispatchId
         )?.deviceWait
       ).toEqual(deviceWait);
+      const request = {
+        spaceId,
+        dispatchId: record.dispatchId,
+        sourceSignalId: record.sourceEventId,
+        targetProfileId,
+      };
+      // Exercise the real DO authorization chain before installing the failure
+      // injection below. A stale password does not revoke active membership.
+      expect(await instance.rpcCheckDeviceWaitingWakeAccess(request)).toEqual({
+        allowed: true,
+      });
+      if (accessMode === "protected") {
+        const rotatedProof = await buildSpacePasswordProof(
+          "rotated-space-password"
+        );
+        await expect(
+          verifySpacePasswordProof(originalPassword, rotatedProof)
+        ).resolves.toBe(false);
+        meta.passwordProof = rotatedProof;
+        upsertSpaceMetaRecord(state.storage.sql, meta);
+        expect(
+          readSpaceMetaRecordFromSql(state.storage.sql, spaceId)?.passwordProof
+        ).toEqual(rotatedProof);
+        expect(
+          readDispatchOutboxRecordByDispatchId(
+            state.storage.sql,
+            record.dispatchId
+          )?.spacePassword
+        ).toBe(originalPassword);
+        expect(await instance.rpcCheckDeviceWaitingWakeAccess(request)).toEqual(
+          { allowed: true }
+        );
+      }
+      // Removing either member still denies the wait, including when another
+      // active Profile on the same account could pass the general access gate.
+      upsertSpaceMemberRecord(state.storage.sql, {
+        ...source,
+        status: "removed",
+      });
+      expect(await instance.rpcCheckDeviceWaitingWakeAccess(request)).toEqual({
+        allowed: false,
+      });
+      upsertSpaceMemberRecord(state.storage.sql, source);
+      upsertSpaceMemberRecord(state.storage.sql, {
+        ...target,
+        status: "removed",
+      });
+      expect(await instance.rpcCheckDeviceWaitingWakeAccess(request)).toEqual({
+        allowed: false,
+      });
+      upsertSpaceMemberRecord(state.storage.sql, target);
+
       let permission: PasswordAuthorizationResult = { ok: true, meta };
       const authorize = vi.fn(
         async (
@@ -112,12 +182,6 @@ describe("device waiting Wake Space authority", () => {
         configurable: true,
         value: authorize,
       });
-      const request = {
-        spaceId,
-        dispatchId: record.dispatchId,
-        sourceSignalId: record.sourceEventId,
-        targetProfileId,
-      };
       try {
         expect(await instance.rpcCheckDeviceWaitingWakeAccess(request)).toEqual(
           { allowed: true }
@@ -126,6 +190,7 @@ describe("device waiting Wake Space authority", () => {
         if (!firstCall) {
           throw new Error("Expected the owning access check.");
         }
+        expect(getSpaceAccessPassword(firstCall[0])).toBeUndefined();
         expect(
           getSpaceAccessRequestContext(firstCall[0])?.actorContext
         ).toMatchObject({

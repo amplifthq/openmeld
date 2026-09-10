@@ -7050,7 +7050,8 @@ export class Space extends DurableObject<CoreBindings> {
     const access = await this.authorizeWritableSpaceAccess(
       createAuthenticatedSpaceAccessContext({
         spaceId: this.spaceId,
-        password: record.spacePassword,
+        // Both Profiles must still be members. Recheck that live authority
+        // without replaying a send-time password as an alternative credential.
         requestContext: {
           actorContext: {
             requestId: `device-wait-access:${input.dispatchId}`,

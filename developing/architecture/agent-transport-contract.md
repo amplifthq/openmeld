@@ -239,6 +239,16 @@ not introduce a second preparation or retry policy. Once a head is accepted,
 temporary access-read outages use that same durable wait rather than an
 independent Queue retry. Every recovery attempt rechecks access before execution.
 
+Password rotation alone does not revoke these waits. The access RPC requires
+both the requester and target Profile to remain active Space members, and the
+owning protected-Space gate grants authenticated active members access before
+checking a password. This recheck does not supply the frozen outbox password;
+that credential may become stale without denying member authority. Removing
+either member still rejects the wait; possessing a password
+does not bypass this waiting-Wake membership requirement. Use Wake cancellation
+or revoke membership to stop retained work, rather than relying on a password
+change to revoke existing member authority.
+
 The owner transaction fences first execution at the deadline and against Stop.
 An expired wait publishes `wake.device_wait.expired`; cancellation, failure, and
 execution linkage cannot transition back into pre-execution waiting. Deadline

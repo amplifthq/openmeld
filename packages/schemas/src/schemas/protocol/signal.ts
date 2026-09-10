@@ -247,7 +247,13 @@ const postedSignalTextMetaSchema = signalTextMetaSchema
     agentWorkSummary: true,
     conversationCompaction: true,
   })
-  .extend({ deviceWait: z.never().optional() })
+  .extend({
+    deviceWait: z
+      .never({
+        error: "Set deviceWait only at the top level of the message request.",
+      })
+      .optional(),
+  })
   .superRefine(validateAuthoredSignalTextMeta);
 
 const systemEmittedSignalTextMetaSchema = signalTextMetaSchema
@@ -321,6 +327,8 @@ const buildSignalTextDataSchema = <TMetaSchema extends z.ZodTypeAny>(
   z
     .strictObject({
       text: signalTextContentSchema,
+      // Canonical authoring/storage field. Public reads omit it and generate
+      // meta.deviceWait only as a read-only compatibility mirror.
       deviceWait: wakeDeviceWaitSchema.optional(),
       attachments: spaceMessageAttachmentsSchema.optional(),
       files: spaceMessageFileReferencesSchema.optional(),
