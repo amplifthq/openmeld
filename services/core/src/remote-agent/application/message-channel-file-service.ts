@@ -119,7 +119,9 @@ export async function resolveAdmittedMessageChannelRequest(
   const delivery = await readRemoteAgentNativeDeliveryByDispatchAndConversation(
     { db, dispatchId, conversationId: input.conversationId }
   );
-  const request = delivery?.workerSubmitRequest;
+  // Admission clears the submit retry payload; the retained original request
+  // remains the authority for resources throughout the active execution.
+  const request = delivery?.executionRecoverySubmitRequest;
   const locator = delivery?.messageChannelLocator;
   const trigger = request?.turnEnvelope?.trigger;
   if (

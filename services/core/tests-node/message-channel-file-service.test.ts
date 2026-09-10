@@ -68,7 +68,8 @@ describe("current-message file authority", () => {
         chatId: "chat",
         rootMessageId: "root",
       },
-      workerSubmitRequest: {
+      workerSubmitRequest: null,
+      executionRecoverySubmitRequest: {
         agentProfileOwnerUserId: "owner",
         dispatchId: "dispatch",
         turnEnvelope: {
@@ -129,6 +130,14 @@ describe("current-message file authority", () => {
       rpcCenterAgentReadChannelFile(env, { ...input, fileKey: "another_file" })
     ).rejects.toThrow();
     state.connection.status = "disconnected";
+    await expect(rpcCenterAgentReadChannelFile(env, input)).rejects.toThrow();
+    expect(state.download).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing retained evidence even if a submit retry payload exists", async () => {
+    state.delivery.workerSubmitRequest =
+      state.delivery.executionRecoverySubmitRequest;
+    state.delivery.executionRecoverySubmitRequest = null;
     await expect(rpcCenterAgentReadChannelFile(env, input)).rejects.toThrow();
     expect(state.download).not.toHaveBeenCalled();
   });
