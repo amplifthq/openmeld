@@ -1003,16 +1003,15 @@ function FileTextEditor(input: {
 	return (
 		<div className="flex min-h-0 flex-1 flex-col gap-3">
 			{input.markdown ? (
-				<ScrollArea className="min-h-0 flex-1">
-					<MarkdownEditor
-						ariaLabel="File contents"
-						disabled={!input.canWrite || input.saving}
-						key={input.editorKey}
-						maxBytes={SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES}
-						onChange={input.onChange}
-						value={input.draft}
-					/>
-				</ScrollArea>
+				<MarkdownEditor
+					ariaLabel="File contents"
+					disabled={!input.canWrite || input.saving}
+					key={input.editorKey}
+					maxBytes={SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES}
+					onChange={input.onChange}
+					scrollable
+					value={input.draft}
+				/>
 			) : (
 				<>
 					<Textarea
