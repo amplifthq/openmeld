@@ -316,13 +316,12 @@ describe("Core connector connection ownership", () => {
             profile_id, profile_name, profile_handle, profile_kind, is_default,
             status, organization_id, owner_user_id, created_by_user_id, source,
             managed_role, created_at, updated_at
-          ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'auth_bootstrap', 'center_agent', ?, ?)
+          ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'auth_bootstrap', 'center_agent', ?, ?)
         `
       ).bind(
         centerAgentProfileId,
         `center-agent-${crypto.randomUUID()}`,
         fixture.organizationA,
-        fixture.ownerA,
         fixture.ownerA,
         nowMs,
         nowMs
@@ -361,8 +360,7 @@ describe("Core connector connection ownership", () => {
       activeOrganizationId: fixture.organizationA,
       actorContext: {
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-        callerPrincipalId: fixture.ownerA,
-        ownerUserId: fixture.ownerA,
+        callerPrincipalId: centerAgentProfileId,
         profileKind: "agent" as const,
         requestId: `req-${crypto.randomUUID()}`,
         openMeldProfileId: centerAgentProfileId,
@@ -1520,13 +1518,12 @@ async function seedDesignatedCenterAgent(
           profile_id, profile_name, profile_handle, profile_kind, is_default,
           status, organization_id, owner_user_id, created_by_user_id, source,
           managed_role, created_at, updated_at
-        ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'auth_bootstrap', 'center_agent', ?, ?)
+        ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'auth_bootstrap', 'center_agent', ?, ?)
       `
     ).bind(
       profileId,
       `center-agent-${crypto.randomUUID()}`,
       fixture.organizationA,
-      fixture.ownerA,
       fixture.ownerA,
       nowMs,
       nowMs
@@ -1544,8 +1541,7 @@ async function seedDesignatedCenterAgent(
       activeOrganizationId: fixture.organizationA,
       actorContext: {
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-        callerPrincipalId: fixture.ownerA,
-        ownerUserId: fixture.ownerA,
+        callerPrincipalId: profileId,
         profileKind: "agent" as const,
         requestId: `req-${crypto.randomUUID()}`,
         openMeldProfileId: profileId,

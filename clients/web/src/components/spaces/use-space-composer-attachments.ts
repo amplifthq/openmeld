@@ -17,6 +17,12 @@ export function useSpaceComposerFiles(input: {
 	spaceId: string;
 }) {
 	const [files, setFiles] = useState<SpaceComposerFile[]>([]);
+	const [submittingIds, setSubmittingIds] = useState<ReadonlySet<string>>(
+		new Set()
+	);
+	const submittingIdsRef = useRef(new Set<string>());
+	const uploadTasksRef = useRef(new Map<string, Promise<void>>());
+	const sourceFilesRef = useRef(new Map<string, File>());
 	const filesRef = useRef<SpaceComposerFile[]>([]);
 	const activeFileIdsRef = useRef(new Set<string>());
 	const previewUrlsByLocalIdRef = useRef(new Map<string, string>());
@@ -40,12 +46,26 @@ export function useSpaceComposerFiles(input: {
 
 	const clearFiles = useCallback(() => {
 		discardStagedFiles({
-			files: filesRef.current,
+			files: filesRef.current.filter(
+				(file) => !submittingIdsRef.current.has(file.localId)
+			),
 			...activeScopeRef.current,
 		});
-		releasePreviewUrls(previewUrlsByLocalIdRef.current);
-		activeFileIdsRef.current.clear();
-		updateFiles([]);
+		for (const [localId, url] of previewUrlsByLocalIdRef.current) {
+			if (!submittingIdsRef.current.has(localId)) {
+				URL.revokeObjectURL(url);
+				previewUrlsByLocalIdRef.current.delete(localId);
+			}
+		}
+		for (const localId of activeFileIdsRef.current) {
+			if (!submittingIdsRef.current.has(localId)) {
+				activeFileIdsRef.current.delete(localId);
+				sourceFilesRef.current.delete(localId);
+			}
+		}
+		updateFiles((current) =>
+			current.filter((file) => submittingIdsRef.current.has(file.localId))
+		);
 	}, [updateFiles]);
 
 	const consumePublishedFiles = useCallback(
@@ -56,6 +76,7 @@ export function useSpaceComposerFiles(input: {
 			const publishedLocalIdSet = new Set(publishedLocalIds);
 			for (const localId of publishedLocalIdSet) {
 				activeFileIdsRef.current.delete(localId);
+				sourceFilesRef.current.delete(localId);
 				const previewUrl = previewUrlsByLocalIdRef.current.get(localId);
 				if (previewUrl) {
 					URL.revokeObjectURL(previewUrl);
@@ -71,13 +92,7 @@ export function useSpaceComposerFiles(input: {
 
 	useEffect(() => {
 		if (previousScopeKeyRef.current !== scopeKey) {
-			discardStagedFiles({
-				files: filesRef.current,
-				...activeScopeRef.current,
-			});
-			releasePreviewUrls(previewUrlsByLocalIdRef.current);
-			activeFileIdsRef.current.clear();
-			updateFiles([]);
+			clearFiles();
 			previousScopeKeyRef.current = scopeKey;
 			activeScopeRef.current = {
 				organizationSlug: input.organizationSlug,
@@ -90,19 +105,10 @@ export function useSpaceComposerFiles(input: {
 		input.profileId,
 		input.spaceId,
 		scopeKey,
-		updateFiles,
+		clearFiles,
 	]);
 
-	useEffect(() => {
-		return () => {
-			discardStagedFiles({
-				files: filesRef.current,
-				...activeScopeRef.current,
-			});
-			releasePreviewUrls(previewUrlsByLocalIdRef.current);
-			activeFileIdsRef.current.clear();
-		};
-	}, []);
+	useEffect(() => clearFiles, [clearFiles]);
 
 	const removeFile = useCallback(
 		(localId: string) => {
@@ -114,6 +120,8 @@ export function useSpaceComposerFiles(input: {
 				});
 			}
 			activeFileIdsRef.current.delete(localId);
+			sourceFilesRef.current.delete(localId);
+			uploadTasksRef.current.delete(localId);
 			const previewUrl = previewUrlsByLocalIdRef.current.get(localId);
 			if (previewUrl) {
 				URL.revokeObjectURL(previewUrl);
@@ -130,7 +138,10 @@ export function useSpaceComposerFiles(input: {
 		async (selectedFiles: readonly File[]) => {
 			const availableSlots = Math.max(
 				0,
-				SPACE_MESSAGE_FILE_MAX_COUNT - activeFileIdsRef.current.size
+				SPACE_MESSAGE_FILE_MAX_COUNT -
+					filesRef.current.filter(
+						(file) => !submittingIdsRef.current.has(file.localId)
+					).length
 			);
 			const acceptedFiles = selectedFiles.slice(0, availableSlots);
 			if (acceptedFiles.length === 0) {
@@ -147,6 +158,7 @@ export function useSpaceComposerFiles(input: {
 					? URL.createObjectURL(file)
 					: null;
 				activeFileIdsRef.current.add(localId);
+				sourceFilesRef.current.set(localId, file);
 				if (previewUrl) {
 					previewUrlsByLocalIdRef.current.set(localId, previewUrl);
 				}
@@ -172,8 +184,8 @@ export function useSpaceComposerFiles(input: {
 			]);
 
 			await Promise.all(
-				pending.map(({ file, item }) =>
-					uploadPendingFile({
+				pending.map(({ file, item }) => {
+					const task = uploadPendingFile({
 						activeFileIds: activeFileIdsRef.current,
 						file,
 						item,
@@ -181,51 +193,115 @@ export function useSpaceComposerFiles(input: {
 						profileId: input.profileId,
 						setFiles: updateFiles,
 						spaceId: input.spaceId,
-					})
-				)
+					});
+					uploadTasksRef.current.set(item.localId, task);
+					return task;
+				})
 			);
 		},
 		[input.organizationSlug, input.profileId, input.spaceId, updateFiles]
 	);
 
-	const publishReadyFiles = useCallback(async () => {
-		const readyFiles = filesRef.current.filter(
-			(file) => file.status === "ready" && file.upload !== null
+	const beginSubmission = useCallback(() => {
+		const submitted = filesRef.current.filter(
+			(file) => !submittingIdsRef.current.has(file.localId)
 		);
-		const published = await Promise.all(
-			readyFiles.map(
-				async (file) =>
-					await publishPendingFile({
-						file,
-						organizationSlug: input.organizationSlug,
-						profileId: input.profileId,
-						setFiles: updateFiles,
-						spaceId: input.spaceId,
-					})
-			)
-		);
-		const messageFiles: SpaceMessageFileReference[] = [];
-		const publishedLocalIds: string[] = [];
-		const previewUrlsByFileId = new Map<string, string>();
-		for (const result of published) {
-			if (!result) {
-				continue;
-			}
-			messageFiles.push(result.file);
-			publishedLocalIds.push(result.localId);
-			if (result.previewUrl) {
-				previewUrlsByFileId.set(result.file.fileId, result.previewUrl);
-			}
+		for (const file of submitted) {
+			submittingIdsRef.current.add(file.localId);
 		}
-		return { messageFiles, previewUrlsByFileId, publishedLocalIds };
-	}, [input.organizationSlug, input.profileId, input.spaceId, updateFiles]);
+		setSubmittingIds(new Set(submittingIdsRef.current));
+		return submitted;
+	}, []);
+	const finishSubmission = useCallback(
+		(submitted: readonly SpaceComposerFile[]) => {
+			for (const file of submitted) {
+				submittingIdsRef.current.delete(file.localId);
+				uploadTasksRef.current.delete(file.localId);
+			}
+			setSubmittingIds(new Set(submittingIdsRef.current));
+		},
+		[]
+	);
+
+	const publishReadyFiles = useCallback(
+		async (submitted: readonly SpaceComposerFile[]) => {
+			await Promise.all(
+				submitted.map((file) => uploadTasksRef.current.get(file.localId))
+			);
+			// A user retry re-stages failed uploads with the same idempotency key.
+			await Promise.all(
+				submitted.map(async (file) => {
+					const current = filesRef.current.find(
+						(item) => item.localId === file.localId
+					);
+					const source = sourceFilesRef.current.get(file.localId);
+					if (current?.status === "failed" && !current.upload && source) {
+						await uploadPendingFile({
+							activeFileIds: activeFileIdsRef.current,
+							file: source,
+							item: current,
+							organizationSlug: input.organizationSlug,
+							profileId: input.profileId,
+							spaceId: input.spaceId,
+							setFiles: updateFiles,
+						});
+					}
+				})
+			);
+			const readyFiles = submitted.map((submittedFile) =>
+				filesRef.current.find((file) => file.localId === submittedFile.localId)
+			);
+			if (readyFiles.some((file) => !file?.upload)) {
+				throw new Error(
+					"A file couldn't be uploaded. Your message wasn't sent."
+				);
+			}
+			const published = await Promise.all(
+				readyFiles.map(
+					async (file) =>
+						file &&
+						publishPendingFile({
+							file,
+							organizationSlug: input.organizationSlug,
+							profileId: input.profileId,
+							setFiles: updateFiles,
+							spaceId: input.spaceId,
+						})
+				)
+			);
+			if (published.some((result) => !result)) {
+				throw new Error(
+					"A file couldn't be attached. Your message wasn't sent."
+				);
+			}
+			const messageFiles: SpaceMessageFileReference[] = [];
+			const publishedLocalIds: string[] = [];
+			const previewUrlsByFileId = new Map<string, string>();
+			for (const result of published) {
+				if (!result) {
+					continue;
+				}
+				messageFiles.push(result.file);
+				publishedLocalIds.push(result.localId);
+				if (result.previewUrl) {
+					previewUrlsByFileId.set(result.file.fileId, result.previewUrl);
+				}
+			}
+			return { messageFiles, previewUrlsByFileId, publishedLocalIds };
+		},
+		[input.organizationSlug, input.profileId, input.spaceId, updateFiles]
+	);
 
 	return {
 		addFiles,
+		beginSubmission,
+		finishSubmission,
 		clearFiles,
 		consumePublishedFiles,
-		files,
-		isAtLimit: files.length >= SPACE_MESSAGE_FILE_MAX_COUNT,
+		files: files.filter((file) => !submittingIds.has(file.localId)),
+		isAtLimit:
+			files.filter((file) => !submittingIds.has(file.localId)).length >=
+			SPACE_MESSAGE_FILE_MAX_COUNT,
 		publishReadyFiles,
 		removeFile,
 	};
@@ -428,13 +504,6 @@ function resolveUploadFailure(error: unknown): {
 		message: failure.message || "OpenMeld couldn't add this file. Try again.",
 		requestId: failure.requestId,
 	};
-}
-
-function releasePreviewUrls(previewUrlsByLocalId: Map<string, string>): void {
-	for (const previewUrl of previewUrlsByLocalId.values()) {
-		URL.revokeObjectURL(previewUrl);
-	}
-	previewUrlsByLocalId.clear();
 }
 
 function updateFile(

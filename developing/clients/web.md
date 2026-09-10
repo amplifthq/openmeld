@@ -50,15 +50,15 @@ session links always select their exact identity, including after reload.
 
 Chats places Center Agent sessions in the Main Sidebar, reusing destination search
 and filters, collapsible groups, group actions and whole-row drag ordering.
-Pinned chats share one top-level group above Agents and People, including human,
+Pinned chats share one top-level group above Chats, including human,
 local Agent, and Center Agent conversations. Pins appear once; unpin restores
-their original group. Collapsing Pinned leaves the separate Agents and People
-groups visible. Empty built-in
+their original group. People and Agents are optional filters, not separate lists.
+Empty built-in
 sections are omitted. User-created groups remain visible with the same compact
 empty-state treatment as Spaces. A New chat entry remains available when no
 sections are visible. The old header New chat/Chats dropdown is removed.
 
-New chat opens a local `?draft=new` composer without creating a session or
+Selecting only Center Agent in New chat opens a local `?draft=new` composer without creating a session or
 waiting for a session-list request. The first send creates the session and
 hands its message to the existing Space composer. Creation identity survives
 uncertain failures and same-tab reloads until navigation succeeds. Draft text
@@ -413,6 +413,13 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    name, and Profile popover without an Agent action label. The timeline carries
    all three existing addressing lists without changing notification or Wake
    semantics.
+   Long message previews share one folding policy across Spaces, Chats, and
+   threads: finish the paragraph or Markdown block crossing the soft character
+   limit of 2,000 characters, then offer **Show more**. Folded text shares the
+   Scroll Area's bottom edge fade; the button stays outside the mask. Expansion
+   removes the fade and displays the original message;
+   local folding never cuts words, lists, tables, or code blocks. Server-side
+   truncation remains a separate, explicit condition.
 4. **People** — the first-level home for the Human teammates in the current
    workspace. Its Main Sidebar contextual list shows Human Profiles with search,
    computer-connection filters, personal Starred and named groups. Registered
@@ -429,6 +436,14 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    remains role-gated. The personal workspace shows the current member and the
    existing create-Organization guidance instead of pretending that invitations
    are available there.
+   The current user's profile places **Agent conversations** between Agents and
+   Computers. It filters the existing Account Space Index by currently owned
+   personal Agents, groups each conversation once, and supports an Agent filter.
+   The bounded Fluid Table uses the shared Scroll Area, scrollbar, and edge
+   fades. Links reuse the existing Chats/Spaces viewer identity and access
+   rules; this is not a separate interaction log or an Inbox history. Other
+   people's profiles do not show this section, and organization ownership does
+   not grant access to managed Center Agent private conversations.
 5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. Its Main Sidebar contextual list groups
@@ -522,8 +537,19 @@ inside Chats. Both routes support the existing `session`, `draft`, and view
 selectors and share the underlying conversation without copying history.
 
 Chats at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
-It opens the first conversation in sidebar section and sort order once the
-list is ready. An empty list offers New chat. New chat and participant filters
+It stays on a conversation directory, sharing sidebar grouping, sort order,
+previews, and unread projections. Loading never presents a false empty state
+or automatically opens a conversation. A genuinely empty list offers New chat.
+New chat and Space members share the people-and-agents picker, including search
+and nested agent ownership. One explicit selection opens a direct conversation;
+multiple selections create a new private, members-only Space through the existing
+Space creation and directory membership APIs. A successfully created Space is
+retained while retrying failed member additions. Selecting an agent alone does
+not implicitly turn the new chat into a group; ordinary Space membership still
+applies the server-owned agent-owner admission rules.
+Chats sidebar disclosure shares the Spaces policy: directory groups default to
+collapsed, entering a conversation reveals its group, and manual choices persist.
+New chat and participant filters
 live in the Chats destination action slot. Selected destinations keep their
 actions visible; Search manually inside filters reveals contextual search.
 Ordinary private conversations use `/chats/{spaceId}`. The old
@@ -711,13 +737,15 @@ every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
 trailing-aligned, content-sized bubble with a responsive maximum width; a
 message placed on the left uses the full available transcript width. Both
-placements keep their content leading-aligned and give the current member's
-messages the same muted, semantic-radius surface used to highlight any message
-on hover or keyboard focus. With right placement, the full transcript row stays
+placements keep their content leading-aligned. Every speaker's message uses
+the same semantic radius and content inset. Other speakers use a quiet muted
+surface; the current member uses a soft tint of the shared blue `unread` color,
+with theme-specific opacity. Message boundaries remain visible in either theme.
+With right placement, the full transcript row stays
 available as the hover and focus target, while the visible current-member
 surface and its actions stay anchored to the bounded bubble. With left
 placement, that surface remains full width. Agent and other-member messages
-remain transparent at rest and use the full-width row highlight. Product
+keep their existing leading alignment and full-width layout. Product
 surfaces declare current-member authorship once and must not reimplement
 placement, width, text alignment, resting background, action placement, or
 highlight geometry locally.
@@ -3000,6 +3028,26 @@ timeline. In a one-to-one Agent Direct Message, both the main composer and its
 thread composer explain that `@` is optional and sending wakes the Agent.
 Ordinary Space threads keep the standard explicit-mention guidance.
 
+Mention suggestions open immediately after a typed `@` at a line start, after
+whitespace, CJK text, or supported sentence punctuation. Email addresses remain
+plain text. Escape and the visible **Close mentions** button use the same
+cancellation path: preserve the literal `@` and entered query, remove the
+transient picker input, and return focus to the composer.
+
+A pending reply appears as a compact single line inside the composer, with a
+leading **Cancel reply** button, a divider, and `Replying Name: preview`.
+The preview resolves profile mentions to names, is capped at 100 characters,
+and truncates to the available width. Canceling a reply preserves the draft.
+Sent-message quotes retain their original-message navigation and use muted
+text to distinguish quoted content from the new reply. Quote previews stay on
+one line and truncate with an ellipsis when they exceed the available width.
+
+A blocked Wake token uses a muted name and grayscale icon while keeping its
+remove and relation controls usable. The composer pairs compact availability
+copy with the current Agent recovery action, including computer connection,
+before submission. Reference targets do not block sending. Both main and thread
+composers consume the same Core availability and recovery projections.
+
 Every writable Space composer — ordinary Space, Direct Message, Center Agent
 Direct Message, and thread — uses the same file control. The former paperclip
 is a Plus button labeled **Add to message**. It opens the shared Fluid dropdown
@@ -3275,9 +3323,12 @@ details instead of expanding the source message bubble. Unanchored outcomes and
 only to distinguish execution failure from OpenMeld publication failure.
 Read-only viewers must still see the outcome.
 
-Wake outcomes are message-scoped results, not standalone system announcements.
-Their rows and failure footers do not use system-event divider lines. Message
-details labels the persisted notice text as **Recorded outcome** and preserves
+Wake outcomes retain their message-scoped placement. Stopped outcomes reuse the
+shared Marker separator presentation: centered muted text between divider lines,
+without an Agent avatar or stop icon. The text still opens Message details when
+available. Failures and failure footers keep their compact non-divider treatment.
+This presentation does not create another system notice or change cancellation.
+Message details labels the persisted notice text as **Recorded outcome** and preserves
 its full public explanation, including unfamiliar failure codes. Current
 recovery eligibility supplies actions separately; it must not replace the
 recorded explanation with a generic failure summary or imply that an old
@@ -3636,6 +3687,19 @@ truth.
 Wake details and waterfalls help the user understand what happened to one Wake.
 They must show evidence as evidence: queued, routed, delivered, running,
 replied, failed, missing, pending, or degraded.
+
+Offline computer waiting uses progressive disclosure in both composers:
+**Send and wait** appears only for one current offline/reconnecting target, with
+a fixed 24-hour explanation. The current Agent Binding supplies the computer;
+there is no device or deadline form. The deadline starts when the action is
+clicked. Current admission still rechecks the frozen selector before publication.
+Ordinary online Send and Reference-only authoring retain their existing meaning.
+The timeline keeps waiting copy short, while Message details show its reason and
+exact local expiry. **Cancel waiting** uses the existing projected Stop authority
+and confirmation. Expired waits expose **Send again**, which prepares a draft
+referencing the original message for only the expired Agent, without overwriting
+another draft. A later send uses ordinary new-message admission and identity;
+this UI does not redrive an expired or partly executed Wake.
 
 Active Wake progress must survive browser refreshes by reading the Core/Space
 Wake progress read model. Browser-local progress state may provide immediate

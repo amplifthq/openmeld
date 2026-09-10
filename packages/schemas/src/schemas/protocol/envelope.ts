@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { spaceMessageReactionsSchema } from "../space-mesh/message-reaction";
 import {
   spaceThreadContextSchema,
   spaceThreadSignalPlacementSchema,
@@ -41,6 +42,7 @@ export const signalTextEnvelopeSchema = z.object({
   ...baseEnvelopeShape,
   type: z.literal("signal.text"),
   data: signalTextDataSchema,
+  reactions: spaceMessageReactionsSchema.optional(),
 });
 
 export const signalStatusEnvelopeSchema = z.object({
@@ -79,11 +81,13 @@ export const spaceLiveInvalidationFrameSchema = z.strictObject({
     "space.members.changed",
     "space.meta.changed",
     "space.files.changed",
+    "space.reactions.changed",
     "agent.readiness.invalidated",
     "wake.progress.changed",
   ]),
   spaceId: nonEmptyTrimmedStringFromUnknown,
   version: finiteIntegerNumber,
+  signalIds: z.array(nonEmptyTrimmedStringFromUnknown).optional(),
   profileIds: z.array(nonEmptyTrimmedStringFromUnknown).optional(),
   agentProfileIds: z.array(nonEmptyTrimmedStringFromUnknown).optional(),
   clientMessageIds: z.array(nonEmptyTrimmedStringFromUnknown).optional(),

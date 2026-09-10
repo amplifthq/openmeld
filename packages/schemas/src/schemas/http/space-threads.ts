@@ -97,11 +97,15 @@ export const listSpaceThreadSignalsResponseSchema = z.strictObject({
 export const postSpaceThreadSignalBodySchema = z
   .strictObject({
     text: signalTextSchema.shape.data.shape.text,
+    deviceWait: signalTextSchema.shape.data.shape.deviceWait.optional(),
     files: signalTextSchema.shape.data.shape.files.optional(),
     messageEnvelope: messageEnvelopeSchema.optional(),
     clientMessageId: clientMessageIdSchema,
     authorHasRead:
       signalTextSchema.shape.data.shape.meta.unwrap().shape.authorHasRead,
+    restoredFromSignalId:
+      signalTextSchema.shape.data.shape.meta.unwrap().shape
+        .restoredFromSignalId,
   })
   .superRefine((value, ctx) => {
     const parsed = signalTextSchema.shape.data.safeParse({

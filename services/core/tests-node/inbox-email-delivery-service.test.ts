@@ -13,6 +13,76 @@ import {
 describe("Inbox urgent email delivery", () => {
   const allowOrganizationAccess = async () => "allowed" as const;
 
+  it("requires a current owner or admin before sending an authorization reminder", async () => {
+    const harness = createInboxHarness();
+    try {
+      await ensureInboxItem({
+        db: harness.db,
+        nowMs: 1000,
+        candidate: {
+          organizationId: "org-1",
+          recipientUserId: "user-1",
+          sourceKind: "system_attention_event",
+          sourceKey: "authorization-update:channel.feishu.test:v2",
+          sourceTarget: { kind: "settings", section: "channels" },
+          attention: "action_required",
+          importance: "urgent",
+          kind: "system_issue",
+          occurredAtMs: 1000,
+          contextLabel: "Authorization update",
+          title: "Update Feishu permissions",
+          preview: "Approve updated permissions.",
+        },
+      });
+      const resolveOrganizationAccess = vi.fn(async () => "denied" as const);
+      const send = vi.fn<SendInboxUrgentEmail>();
+      const result = await retryInboxUrgentEmailDeliveries({
+        db: harness.db,
+        nowMs: 2000,
+        resolveOrganizationAccess,
+        send,
+      });
+      expect(resolveOrganizationAccess).toHaveBeenCalledWith({
+        organizationId: "org-1",
+        recipientUserId: "user-1",
+        requireOrganizationManager: true,
+      });
+      expect(result.suppressed).toBe(1);
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("suppresses queued Agent creation approval email during the launch hold", async () => {
+    const harness = createInboxHarness();
+    try {
+      const seeded = await seedUrgentItem(harness.db, "held-request");
+      await harness.db
+        .prepare("UPDATE inbox_items SET source_target_json = ? WHERE id = ?")
+        .bind(
+          JSON.stringify({
+            kind: "agent_profile_creation_request",
+            requestId: "held-request",
+          }),
+          seeded.itemId
+        )
+        .run();
+      const send = vi.fn<SendInboxUrgentEmail>();
+      await expect(
+        retryInboxUrgentEmailDeliveries({
+          db: harness.db,
+          nowMs: 2000,
+          resolveOrganizationAccess: allowOrganizationAccess,
+          send,
+        })
+      ).resolves.toEqual({ attempted: 1, failed: 0, sent: 0, suppressed: 1 });
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("sends transactional invitation review email even when urgent email preferences are off", async () => {
     const harness = createInboxHarness();
     try {

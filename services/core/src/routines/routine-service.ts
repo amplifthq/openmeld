@@ -64,6 +64,7 @@ export type RoutineActor = {
 export type RoutineService = ReturnType<typeof createRoutineService>;
 
 export function createRoutineService(input: {
+  agentProfileId?: string;
   db: D1Database;
   generateId?: () => string;
   now?: () => number;
@@ -73,6 +74,7 @@ export function createRoutineService(input: {
     input.generateId ?? (() => `routine_${crypto.randomUUID()}`);
   const now = input.now ?? Date.now;
   const targetSpaceEligibility = createRoutineTargetSpaceEligibility({
+    agentProfileId: input.agentProfileId,
     db: input.db,
     projectionsDb: input.projectionsDb,
   });
@@ -80,6 +82,7 @@ export function createRoutineService(input: {
   return {
     async list(actor: RoutineActor): Promise<ListCenterAgentRoutinesResponse> {
       const routines = await listRoutineRecords({
+        agentProfileId: input.agentProfileId,
         db: input.db,
         organizationId: actor.authority.organizationId,
       });
@@ -96,6 +99,7 @@ export function createRoutineService(input: {
       actor: RoutineActor
     ): Promise<ListCenterAgentRoutinesManagementV1Response> {
       const routines = await listRoutineRecords({
+        agentProfileId: input.agentProfileId,
         db: input.db,
         organizationId: actor.authority.organizationId,
       });
@@ -112,6 +116,7 @@ export function createRoutineService(input: {
       actor: RoutineActor
     ): Promise<ListCenterAgentRoutinesManagementResponse> {
       const routines = await listRoutineRecords({
+        agentProfileId: input.agentProfileId,
         db: input.db,
         organizationId: actor.authority.organizationId,
       });
@@ -145,6 +150,7 @@ export function createRoutineService(input: {
       body: CreateCenterAgentRoutineBody
     ): Promise<CenterAgentRoutine> {
       requireRoutineCreateAuthority(actor.authority);
+      requirePersonalRoutineCapabilities(input.agentProfileId, body);
       const authorizedActions = body.authorizedActions ?? [];
       requireRoutineApprovedKnowledgeGrantAuthority({
         currentActions: [],
@@ -165,6 +171,7 @@ export function createRoutineService(input: {
         targetSpaceEligibility,
       });
       const routine: NewStoredRoutine = {
+        agentProfileId: input.agentProfileId ?? null,
         authorizedActions,
         createdAtMs: nowMs,
         createdByUserId: actor.authority.userId,
@@ -218,6 +225,7 @@ export function createRoutineService(input: {
       body: UpdateCenterAgentRoutineBody
     ): Promise<CenterAgentRoutine> {
       const current = await requireRoutine({
+        agentProfileId: input.agentProfileId,
         db: input.db,
         organizationId: actor.authority.organizationId,
         routineId,
@@ -239,6 +247,7 @@ export function createRoutineService(input: {
         ...current,
         ...body,
       };
+      requirePersonalRoutineCapabilities(input.agentProfileId, candidate);
       const schedule = await requireValidSchedule(
         {
           cronExpression: candidate.cronExpression,
@@ -304,6 +313,7 @@ export function createRoutineService(input: {
       routineId: string
     ): Promise<CenterAgentRoutine> {
       const current = await requireRoutine({
+        agentProfileId: input.agentProfileId,
         db: input.db,
         organizationId: actor.authority.organizationId,
         routineId,
@@ -350,6 +360,7 @@ export function createRoutineService(input: {
       routineId: string
     ): Promise<CenterAgentRoutine> {
       const current = await requireRoutine({
+        agentProfileId: input.agentProfileId,
         db: input.db,
         organizationId: actor.authority.organizationId,
         routineId,
@@ -406,6 +417,7 @@ export function createRoutineService(input: {
       routineId: string
     ): Promise<DeleteCenterAgentRoutineResponse> {
       const current = await requireRoutine({
+        agentProfileId: input.agentProfileId,
         db: input.db,
         organizationId: actor.authority.organizationId,
         routineId,
@@ -452,6 +464,7 @@ export function createRoutineService(input: {
         organizationId: actor.authority.organizationId,
         routineId,
         runs: await listRoutineRunRecords({
+          agentProfileId: input.agentProfileId,
           beforeScheduledFor: query.beforeScheduledFor,
           db: input.db,
           limit,
@@ -463,13 +476,35 @@ export function createRoutineService(input: {
   };
 }
 
+function requirePersonalRoutineCapabilities(
+  agentProfileId: string | undefined,
+  body: { destinationKind: string; authorizedActions?: readonly string[] }
+) {
+  if (
+    agentProfileId &&
+    (body.destinationKind !== "space" ||
+      (body.authorizedActions?.length ?? 0) > 0)
+  ) {
+    throw createCoreRpcHttpError({
+      code: "routine.forbidden",
+      reason:
+        "Personal Agent Routines use Spaces and cannot grant Center Agent actions.",
+      status: 403,
+    });
+  }
+}
+
 async function requireRoutine(input: {
+  agentProfileId?: string;
   db: D1Database;
   organizationId: string;
   routineId: string;
 }): Promise<StoredRoutine> {
   const routine = await readRoutineRecord(input);
-  if (!routine) {
+  if (
+    !routine ||
+    (routine.agentProfileId ?? null) !== (input.agentProfileId ?? null)
+  ) {
     throw routineNotFoundError();
   }
   return routine;
@@ -683,6 +718,7 @@ function toRoutine(
   authority: RoutineAuthority
 ): CenterAgentRoutine {
   const {
+    agentProfileId: _agentProfileId,
     authorizedActions: _authorizedActions,
     creationAttribution: _creationAttribution,
     externalActionPolicy: _externalActionPolicy,

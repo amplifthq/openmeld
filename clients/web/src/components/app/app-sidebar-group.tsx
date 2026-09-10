@@ -206,7 +206,6 @@ export function AppSidebarGroup(input: {
 	return (
 		<SidebarGroupRenameContext.Provider value={rename}>
 			<Collapsible.Root
-				className="group/sidebar-group-root"
 				data-sidebar-group-id={input.groupId}
 				ref={drag.ref}
 				style={drag.style}
@@ -216,7 +215,7 @@ export function AppSidebarGroup(input: {
 					<SidebarGroupLabel
 						aria-label={input.labelText}
 						className={cn(
-							"min-w-0 gap-1 px-0 font-medium text-muted-foreground",
+							"group/sidebar-group-root min-w-0 gap-1 px-0 font-medium text-muted-foreground",
 							input.labelClassName
 						)}
 						data-slot="sidebar-group-label"

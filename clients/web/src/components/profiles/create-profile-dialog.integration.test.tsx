@@ -13,6 +13,16 @@ import {
 } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Keep dormant request-flow tests available for an isolated future reopening.
+const launchPolicy = vi.hoisted(() => ({ enabled: true }));
+vi.mock("@openmeld/schemas", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@openmeld/schemas")>()),
+	get TEAMMATE_AGENT_REQUESTS_ENABLED() {
+		return launchPolicy.enabled;
+	},
+}));
+
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
 import { readPendingAgentProfileCreationLocalSetup } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
@@ -638,6 +648,7 @@ async function selectAgentProfileKind() {
 
 describe("CreateProfileDialog", () => {
 	beforeEach(() => {
+		launchPolicy.enabled = true;
 		readPeopleComputerReplyReadinessMock.mockImplementation(async (target) => ({
 			...buildFakeRecovery().currentLocalRuntimeReplyReadinessQuery.data,
 			currentTarget: { availability: "resolved", ...target },
@@ -899,6 +910,13 @@ describe("CreateProfileDialog", () => {
 			deviceId: "online-device",
 			runtimeLane: "dev-local",
 		});
+	});
+
+	it("does not offer teammate creation while held for launch", async () => {
+		launchPolicy.enabled = false;
+		renderCreateProfileDialog({ orgSlug: "acme", allowTeammateRequests: true });
+		await selectAgentProfileKind();
+		expect(screen.queryByRole("radio", { name: "A teammate" })).toBeNull();
 	});
 
 	it("uses the new Agent-first flow and preserves a manually edited name", async () => {

@@ -8,6 +8,10 @@ import {
   buildSpaceRoundSignalPublication,
   isWakeClosingSystemNoticeType,
 } from "@openmeld/space";
+import {
+  SPACE_COLLABORATION_CONTEXT_RULE,
+  SPACE_PERSONAL_CONTRIBUTION_RULE,
+} from "@openmeld/space-mesh";
 import { resolveBaseUrl } from "../../config/base-url";
 import { createCliSpaceApi } from "../../space/cli-space-api";
 import { fetchSpaceUpdates } from "../../space/updates-api";
@@ -110,33 +114,42 @@ export function buildAgentReplyReconsiderationPrompt(input: {
     text: string;
   };
   relevantSignals: readonly SignalEnvelope[];
+  omittedThroughSignalId?: string;
   spaceId: string;
 }): string {
   const updates = input.relevantSignals.map((signal) => ({
     actorProfileId: readCollaborationActorProfileId(signal),
+    authorKind: signal.profile.kind,
     outcome: resolveCollaborationOutcome(signal),
     signalId: signal.id,
     text: readSignalText(signal).slice(0, SIGNAL_TEXT_LIMIT),
+    truncated: readSignalText(signal).length > SIGNAL_TEXT_LIMIT,
   }));
   return [
     "OpenMeld concurrent Space update review.",
     `Space: ${input.spaceId}`,
-    "Continue the assignment below. This review is not a new Wake: do not run activation-intent classification against the newer messages or treat their author as the task owner.",
+    "Continue the original Wake, not a new assignment: do not run activation-intent classification against the newer messages. Another Agent's reply does not turn you into a reference or candidate or transfer your assignment.",
     `Original Wake (the assignment being completed): ${JSON.stringify(input.originalWake)}`,
-    "Other public collaboration messages arrived after the room state used for your proposed reply.",
+    "This bounded view includes earlier review facts as well as new public messages, in publication order. Prior review turns may not be present in this conversation.",
+    SPACE_COLLABORATION_CONTEXT_RULE,
     "Your previous action is an unpublished proposal.",
-    "If a dispatch-scoped Space Action command said it was accepted, that only means OpenMeld recorded a replaceable proposal; it does not mean the Space published it or that you used your one public reply.",
-    "You still have one public reply available for this Wake.",
-    "Do not redo completed work, repeat tool calls, or repeat external side effects.",
+    "An accepted action acknowledgement does not mean the Space published it. You still have one public reply available for this Wake.",
+    "Do not redo completed work or repeat external side effects.",
     "A failed, stopped, or silent outcome is not a public contribution. Use it only as truthful availability and coordination context.",
     "Keep the user's full request as the goal. Reconsider only the final Space action in light of these newer messages.",
-    "This is a review within your original Wake, not a new assignment. Another Agent's reply does not turn you into a reference or candidate, or transfer the user's request to that Agent.",
-    "If the user asked each woken Agent to respond, acknowledge, or report its own result, your own response remains a distinct contribution even when another Agent has already answered. A direct ping to multiple Agents asks each of them to acknowledge.",
-    "Replace the proposal when a distinct, useful contribution is still possible. Avoid duplicating work or a conclusion another Agent has already posted.",
-    "Choose stay_silent only when no distinct, useful, non-duplicative contribution remains.",
-    "Call exactly one dispatch-scoped OpenMeld Space Action tool for the final action. Use the CLI only if the tool is unavailable. Answer text never becomes an action.",
+    "If a follow-up needs work that this review cannot perform, say what remains undone; do not imply that acknowledging it starts or queues that work.",
+    SPACE_PERSONAL_CONTRIBUTION_RULE,
+    "For dependent contributions, follow the user's shared constraints and confirmed contributions. In an ordered sequence, contribute only the next valid step, not a future step with unpublished prerequisites. A participant list or proposed division of work is not evidence that earlier steps happened. Avoid duplicating completed work, not requested personal answers.",
+    "Call exactly one dispatch-scoped OpenMeld Space Action tool for the final action and inspect its acknowledgement. Discover the tool before concluding it is unavailable; use the provided CLI only if unavailable. Answer text never becomes an action.",
+    "Record the final action even if you keep the same answer.",
+    ...(input.omittedThroughSignalId
+      ? [
+          `Earlier review messages through signal ${JSON.stringify(input.omittedThroughSignalId)} were omitted from this bounded view. Absence is not evidence that nothing happened. Read the originating Space or thread history if those facts affect your action.`,
+        ]
+      : []),
+    "A truncated message is an excerpt; read its original when omitted details affect your action.",
     `Previous proposed action: ${JSON.stringify(input.action)}`,
-    `Newer Space messages: ${JSON.stringify(updates)}`,
+    `Observed Space messages: ${JSON.stringify(updates)}`,
   ].join("\n");
 }
 
@@ -170,13 +183,29 @@ export async function coordinateDispatchAgentReply<T>(input: {
   let observation = input.observation;
   let reconsiderationCount = 0;
   let value = input.currentValue;
+  // Repair forks preserve canonical identity, not the previous fork's memory.
+  // Retain a bounded public view only for this coordination call, never a
+  // private transcript or a second source of Space/execution truth.
+  const observedSignals = new Map<string, SignalEnvelope>();
+  let omittedThroughSignalId: string | undefined;
 
   while (observation.status === "changed") {
+    for (const signal of observation.relevantSignals) {
+      observedSignals.set(signal.id, signal);
+      if (observedSignals.size > OBSERVATION_LIMIT) {
+        const oldestId = observedSignals.keys().next().value;
+        if (oldestId) {
+          observedSignals.delete(oldestId);
+          omittedThroughSignalId = oldestId;
+        }
+      }
+    }
     const reconsidered = await input.reconsider(
       buildAgentReplyReconsiderationPrompt({
         action,
         originalWake: input.originalWake,
-        relevantSignals: observation.relevantSignals,
+        relevantSignals: [...observedSignals.values()],
+        omittedThroughSignalId,
         spaceId: input.spaceId,
       }),
       observation
@@ -256,7 +285,9 @@ function isNewHumanWake(signal: SignalEnvelope): boolean {
 function readCollaborationActorProfileId(
   signal: SignalEnvelope
 ): string | null {
-  return buildSpaceRoundSignalPublication(signal)?.actorProfileId ?? null;
+  return signal.profile.kind === "human"
+    ? signal.profile.profileId
+    : (buildSpaceRoundSignalPublication(signal)?.actorProfileId ?? null);
 }
 
 function resolveCollaborationOutcome(

@@ -64,7 +64,9 @@ export function CenterAgentMessageChannelsSection(input: {
 		? slackProjection.status === "connected"
 		: input.slackConnection?.connected === true;
 	const slackReconnectRequired =
-		slackConnected && input.slackConnection?.directMessagesReady !== true;
+		slackConnected &&
+		(input.slackConnection?.directMessagesReady !== true ||
+			slackProjection?.reasonCode === "slack.authorization_update_required");
 	const managementMode = input.managementMode ?? "inline";
 	const availableProviders = new Set(
 		input.availableProviders ?? (["lark", "feishu"] as const)
@@ -95,6 +97,7 @@ export function CenterAgentMessageChannelsSection(input: {
 				onConnectSlackWorkspace={input.onConnectSlackWorkspace}
 				onDisconnectSlackWorkspace={input.onDisconnectSlackWorkspace}
 				organizationSlug={input.organizationSlug}
+				reauthorizationRequired={slackReconnectRequired}
 				slackConnection={input.slackConnection}
 				trigger={
 					<Button size="sm" type="button" variant="outline">
@@ -119,7 +122,7 @@ export function CenterAgentMessageChannelsSection(input: {
 					connected={input.organizationRequired ? false : slackConnected}
 					description={
 						slackReconnectRequired && !input.organizationRequired
-							? "Reconnect Slack once so people can message the Center Agent directly."
+							? "Reconnect Slack to approve updated permissions for the Center Agent."
 							: resolveChannelDescription({
 									connected: slackConnected,
 									name: "Slack",
@@ -552,9 +555,7 @@ function resolveLarkPlatformOperationalGuidance(
 		return "OpenMeld is checking whether setup is already in progress.";
 	}
 	if (input.authorizationRequired) {
-		return input.canManage && input.canResume
-			? `${input.providerLabel} needs your approval to let OpenMeld configure message delivery. Select Review authorization to finish connecting.`
-			: `An organization manager needs to approve app configuration in ${input.providerLabel} before this connection can finish.`;
+		return resolveLarkPlatformAuthorizationGuidance(input);
 	}
 	if (input.status === "repair_required" && connection) {
 		return connection.reasonCode ===
@@ -586,6 +587,19 @@ function resolveLarkPlatformOperationalGuidance(
 	return `Select Connect ${input.providerLabel} to open the official setup flow.`;
 }
 
+function resolveLarkPlatformAuthorizationGuidance(
+	input: LarkPlatformOperationalInput
+): string {
+	if (input.status === "connected") {
+		return input.canManage
+			? `Approve updated permissions to enable the latest ${input.providerLabel} features. Your existing bot will be kept.`
+			: `Ask an organization owner or admin to update ${input.providerLabel} permissions.`;
+	}
+	return input.canManage && input.canResume
+		? `${input.providerLabel} needs your approval to let OpenMeld configure message delivery. Select Review authorization to finish connecting.`
+		: `An organization manager needs to approve app configuration in ${input.providerLabel} before this connection can finish.`;
+}
+
 function resolveLarkPlatformActionLabel(input: {
 	authorizationRequired: boolean;
 	connected: boolean;
@@ -594,7 +608,9 @@ function resolveLarkPlatformActionLabel(input: {
 	setupInProgress: boolean;
 }): string {
 	if (input.connected) {
-		return `Manage ${input.providerLabel}`;
+		return input.authorizationRequired
+			? "Review authorization"
+			: `Manage ${input.providerLabel}`;
 	}
 	if (input.authorizationRequired) {
 		return "Review authorization";

@@ -76,6 +76,7 @@ import type { TriggerMode } from "./trigger-policy.js";
 
 export type RuntimeTask = {
   agentId: string;
+  newSessionTitle?: AdapterDispatchRequest["newSessionTitle"];
   attemptId: string;
   bindingKey: string;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
@@ -241,6 +242,7 @@ const buildDispatchRequest = (input: {
     ? { instructionPrompt: input.task.instructionPrompt }
     : {}),
   prompt: input.task.prompt,
+  newSessionTitle: input.task.newSessionTitle,
   runtimeContext: input.task.runtimeContext,
   sourceEventId: input.task.sourceEventId,
   spaceId: input.task.spaceId,

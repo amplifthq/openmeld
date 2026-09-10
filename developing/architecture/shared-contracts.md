@@ -25,6 +25,22 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Space pin contracts
+
+`@openmeld/schemas` owns the strict message/file pin mutations and read models;
+`@openmeld/api-client` owns their GET/PATCH transport. Gateway authenticates
+`/v1/spaces/:spaceId/message-pins` and `/v1/spaces/:spaceId/file-pins`, then Core
+RPC delegates to the owning Space Durable Object. Mutations require an active
+human member whose owner matches the authenticated actor, and only the original
+pinner can unpin. Public and password-protected Space access still uses the
+existing Space authorization boundary.
+
+These are additive endpoints; existing message, file, and metadata wire models
+are unchanged. Web consumes both APIs and refreshes after existing
+`space.meta.changed` notifications, file changes, and stream reconnects. CLI,
+local Service, Desktop, and Agent execution contracts do not change. Delivery
+requires Core and Gateway before Web; no local component upgrade is required.
+
 ## Boundary
 
 ### Personal Agent owner Inbox activity
@@ -677,6 +693,42 @@ result containing no address. Core never copies Auth's user table or logs email
 content. The receiver must be deployed before Core begins calling the additive
 method; during rollback, stop the Core caller before removing the Auth method.
 
+## Space Message Mutation Contract
+
+`POST /v1/spaces/:spaceId/messages/:signalId` and `SpaceApi.mutateMessage` share
+`spaceMessageMutationBodySchema` / `spaceMessageMutationResponseSchema`.
+The body discriminates `edit`, `recall`, and `restore_draft`. Edit and recall
+require the caller's `expectedRevision` (zero for old messages). Core checks
+writable Space access, active Human membership, and exact sender identity.
+Clients cannot author `messageRevision`, `editedAt`, `recalledAt`, or
+`changedMessageId` through normal message posting.
+
+The Space owner changes the existing signal and version atomically. Recall
+keeps only a safe tombstone in its public payload, and stores the last published
+content in `space_recalled_message_drafts`, accessible only through the
+sender-authorized recovery action. Message retention cleans up this private
+snapshot. Legacy quote previews are updated in the same transaction.
+
+Restored composer drafts persist `restoredFromSignalId` and include it in the
+normal message metadata or thread reply body. Both publication paths validate
+the recalled source's sender and consume recovery in the publication transaction:
+mark the source with server-owned `repostedAt`, increment its revision, and delete
+the private draft. The new persisted message also lets live/catch-up clients hide
+the recovery action before the source's refreshed history arrives. Pending or
+failed outgoing messages never consume recovery.
+
+A durable system `signal.text` with purpose `space_message_changed` records only
+the affected message ID, never a content revision. It advances incremental
+readers and Agent observation guards without adding a conversation row, thread
+reply count, Inbox notification, or sidebar message preview. Incremental Space
+updates return the current affected message alongside this cursor event.
+Visible history pages exclude cursor events. Web merges message versions
+monotonically so stale history responses cannot resurrect recalled content.
+
+Mutation broadcasts preserve original thread placement. Existing dispatch
+records remain execution history; edits do not rewrite or restart executed
+work. This contract covers native Space messages, not Slack/Lark message sync.
+
 ## Web Organization Request Context
 
 An Organization-scoped Web request uses a two-stage contract: the browser
@@ -842,6 +894,71 @@ execution or token authority. Both incompatible directions return the existing
 strict `retry_later` response shape, without the additive field, so an older
 caller can parse and retry safely.
 
+### Device-waiting Wake contract impact
+
+`protocol/wake-device-wait` owns the selected Binding/Runtime, target Profile,
+absolute deadline, and bounded Space access-check RPC. Normal message and thread
+write schemas accept an optional top-level `deviceWait` field. Space persists
+`signal.data.deviceWait` as the sole signal authority and copies the selected
+target's intent into its outbox; RuntimeCoordinator freezes it in
+the accepted dispatch snapshot. It is not forwarded as a new local Service
+delivery field or execution token claim.
+
+Client-authored `meta.deviceWait` is rejected, including when a top-level field
+is also present. Normal and thread authoring populate the same canonical field.
+Admission, outbox construction, and internal progress reads never fall back to
+metadata. Only the public read encoder creates a read-only `meta.deviceWait`
+mirror and removes the top-level field from serialized history, replies, message
+edit/recall/restore responses, and live
+frames so existing strict history clients remain readable. This wire projection
+must not be reused for persistence, authoring, or dispatch. Retained outbox and
+accepted snapshots from earlier feature builds keep their exact intent; a
+metadata-only signal does not authorize a new wait.
+
+Normal message callers use `postDeviceWaitingSignal`, an explicit Core RPC
+receiver, so a mixed-version Core missing this method rejects the feature.
+Plain `postSignal` rejects top-level waiting requests as well; both entrypoints
+delegate internally without exposing an unguarded alternate RPC method.
+Older strict HTTP/thread write receivers reject the new request field. New Web
+offers the option only when the current member snapshot exposes a
+`deviceWaitTarget`. Those opaque target selectors grant no access and disclose
+no local path or controller conversation. Computer names keep their existing
+owner-only disclosure policy.
+
+Wake progress adds optional `deviceWait` reason/deadline data only for callers
+that request `includeDeviceWait`. Existing phase enums and legacy readers remain
+compatible. Old CLI, Service, and Skills continue setup, ordinary Wake, Space
+actions, status, trace, and recovery unchanged; they cannot author the new Web
+option. Existing Service permission and working-folder checks still run before
+provider work. No local contract epoch or required local update is needed.
+
+Trace response version 5 adds post-reconnect readiness, observed
+`daemon.service.draining`, and `wake.device_wait.access_check_unavailable`
+boundaries. Access checks use `space_access_unavailable`, not device readiness.
+Versions 1–4 retain the truthful
+`waiting` lifecycle and omit that unsupported boundary, rather than inventing an
+offline route or exposing an enum an older reader cannot parse. Current Web
+receives reason/deadline details through opted-in Wake progress; updated CLI
+Trace can also explain those boundaries. The older root-cause projection may
+therefore report the generic `runtime_coordinator.head_waiting`; this is a
+deliberate compatibility tradeoff. Expiry uses `send_new_wake` in current
+no-execution decisions and publication intent. Trace v3/v4 map this unsupported
+action to `check_status` while preserving the expiry reason; earlier frozen
+contracts omit no-execution details they cannot represent. These read projections
+never schedule a retry. Public recovery classifies expired/revoked requests as
+`request_ended`, not automatic system retry.
+
+Deploy Core receivers and owner storage logic before Gateway and Web enable
+device-wait producers; this feature overrides the usual generic cloud order.
+Rollback removes the producers first. Already accepted waits must continue to
+be handled by a compatible Core. Older Core builds cannot parse canonical
+device-wait signal data: retain the compatible reader while those records remain
+in history, even after all waits settle. Rolling producers back is supported;
+rolling Core back past that reader requires a separately validated data
+compatibility plan. No database migration or new Cloudflare resource is
+introduced. Local component packaging verification, if selected by the path
+gate, uses deferred release mode and leaves the published manifest unchanged.
+
 ### Delivery Evidence And Production Lease Contracts
 
 `packages/schemas/src/schemas/ci/final-candidate.ts` owns the strict versioned
@@ -967,7 +1084,8 @@ authority fields. Routine create, update, and Default Project selection use the
 same represented-member contract as interactive calls and carry no free-text
 permission evidence. Routine Project removal is unsupported in both Remote
 Agent and Core and returns `routine_destructive_action_unsupported` before any
-Project mutation. Interactive removal still requires a later turn. Trusted
+Project mutation. Interactive removal may consume the bound token in the same
+turn when the user already authorized the exact removal. Trusted
 navigation uses the shared `projects` and `project` Navigation
 Action targets; the model never constructs an OpenMeld origin, Organization
 slug, route, or Project path.
@@ -2477,6 +2595,24 @@ Rules:
   instead of treating a stale projection as authority.
 
 ### Message Channel Contracts
+
+The optional Message Channel turn-trigger `resources` field contains Core-frozen
+descriptors for the admitted message, never bytes or credentials. The shared
+`centerAgentReadChannelFileBodySchema` and response schema own current-message
+file RPC payloads. Core checks the durable request and current connection before
+downloading; the model never supplies a new resource authorization. Remote Agent
+must read the new optional field before Core produces it. Rollbacks must retain
+read compatibility for durable resource-bearing requests.
+
+The optional `trigger.filePublicationSupported` capability is issued only by
+Core with the file-publication RPC. Remote Agent hides and rejects the send tool
+without it, so a compatible reader can deploy before the producer. The shared
+`centerAgentPostChannelFileBodySchema` contains bounded bytes, digest and verified
+speaker; the conversation must match the active Core-frozen delivery. Publication
+uses `center_agent_publication_operations` with `message_channel_file`, preserving
+the existing claim, completed replay, and unknown-outcome contract. Apply the
+additive destination-kind migration before enabling the Core producer. Audit
+actions `read_channel_file` and `post_channel_file` require action set v22.
 
 `packages/schemas/src/schemas/http/message-channels.ts` owns the canonical
 Organization Channels projection.
@@ -4991,6 +5127,39 @@ CLI presenters must validate emitted `setup.plan` payloads through this schema.
 They must not hand-write a parallel setup-plan shape, mint client-only action
 ids, or reinterpret `readOnly` as permission to mutate local state.
 
+## Space Message Reaction Contracts
+
+The Space owns persisted message reactions. `GET` and `PUT` on
+`/v1/spaces/:spaceId/message-reactions` use the shared reaction schemas. Writes
+take `signalId`, a supported Unicode `emoji`, and the desired `active` boolean;
+the authenticated request context supplies the actor. A write requires an active
+Human member with writable Space access and a persisted non-system text message.
+Reads preserve the existing Space access boundary.
+
+The unique identity is `(signalId, emoji, profileId)`. Retrying the same desired
+state is idempotent. Mutation and per-message revision increment are atomic.
+Supported aliases resolve to one canonical Unicode sequence; skin tones and
+joined emoji remain distinct. At most 30 distinct emoji groups may be active on
+one message.
+
+Text-envelope `reactions` is additive and optional for existing clients. Its
+`version` and `groups` describe current state. Each group includes the emoji,
+label, count, `reactedByMe`, an actor preview, and `actorsHasMore`. Actor records
+include profile identity, display name, and kind. The focused GET accepts `emoji`
+and `afterProfileId` to read actors in pages of 50, returning `nextCursor`.
+An actor preview must never be represented as the complete list when truncated.
+
+Only a changed mutation emits `space.reactions.changed` with affected
+`signalIds`. Clients invalidate reaction reads without creating a timeline
+signal or refreshing unread/Wake status; reconnect also refreshes mounted
+reaction reads. Revision checks prevent older responses replacing newer state.
+
+Shared message projections, CLI history, Center context manifests, and Remote
+Agent continuity preserve reaction metadata. Materialized-context hashes include
+the reaction state. Personal Remote Agent reads use the existing execution and
+Space-scoped tool authorization, without granting Center administration access.
+New-message delta cursors remain message cursors, not reaction-change cursors.
+
 ## Space Member Contracts
 
 Auth's internal `resolveProfilesByIds` RPC reads at most 64 requested Profile
@@ -5019,11 +5188,14 @@ Agent through Auth, without making the cross-Space index a membership writer.
 Space-wide name refresh uses bounded Auth fact batches instead of one RPC per
 member. It stops launching batches after the existing display-read deadline.
 Status and member snapshots reuse a successful refresh's validated Auth facts
-for Core readiness within that same request. Missing Profiles remain explicit
-nulls; a failed or timed-out display refresh provides no identity evidence and
-readiness performs its normal authoritative lookup. Nothing is cached across
-requests, and Wake admission still reads its own current facts. Reuse does not
-skip Core's identity, ownership, Organization, Binding or execution checks.
+for Core readiness within that same request. Explicitly absent Profiles remain
+null entries. A failed or timed-out batch is unavailable identity evidence, not
+permission to launch one scalar Auth query per Agent. An absent batch capability
+means no batch was attempted and preserves scalar receiver compatibility. Both
+facts and failures expire with the request; a later request can read again
+without marking members deleted or changing their stored identity. Wake
+admission still reads its own current facts. Reuse does not skip Core's identity,
+ownership, Organization, Binding or execution checks.
 Refresh preserves membership, ownership, removal and aliases. It re-reads the
 member after the Auth call so a concurrent removal or changed name wins. Failed
 or mismatched identity reads do not write names: the last known snapshot remains
@@ -5313,6 +5485,12 @@ OpenMeld Service, daemon, setup, Wake, Space action, or diagnostic contract is
 changed.
 
 ## Agent Profile Creation Request Contract
+
+The [teammate request launch hold](../product/agent-profiles.md#teammate-request-launch-hold)
+temporarily disables cross-user request behavior, not the shared self-creation
+protocol. Existing payloads, status enums, and identity checkpoints remain
+unchanged. Core enforces the hold for every caller and background execution;
+clients do not authorize the feature by rendering its retained UI.
 
 `packages/schemas/src/schemas/http/agent-profile-creation-request.ts` owns the
 strict cross-client request, list, decision, mutation, and approval-preference

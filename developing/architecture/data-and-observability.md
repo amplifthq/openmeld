@@ -20,6 +20,16 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Space pin ownership
+
+Space Durable Object SQLite owns message and file pins, in separate
+`space_message_pins` and `space_file_pins` tables (schema version 36). Records
+contain the source identifier, pinner profile, and timestamp. Original messages,
+file metadata, and file revisions remain authoritative; pin reads resolve them
+instead of persisting copied previews. Missing messages and trashed files are
+omitted. Retrying a pin preserves its original owner and timestamp, and unpin
+ownership is checked synchronously before deletion in the owning Space.
+
 ## Space message previews and slow Web experiences
 
 Space owns message preview truth. Message publication and retention capture a
@@ -91,12 +101,13 @@ One physical storage binding can temporarily contain multiple domains. That does
 not create shared ownership. Logical ownership still decides who may write facts,
 who may project them, and who must repair them.
 
-Auth owns Organization membership removal. Its `beforeRemoveMember` guard may
-perform one read-only join from the Core-owned `center_agent_designations` row to
-the designated managed profile's owner in the shared D1 database. This bounded
-referential read exists only to prevent removal of the Center Agent execution
-host and must fail closed. It gives Auth no write authority over Center Agent or
-Agent Profile state; Core remains the only owner and writer of those facts.
+Auth owns Organization membership removal and managed Profile identity. A
+Center Agent belongs to the Organization, not a personal execution host;
+removing its creator does not remove the agent or its conversations. Core owns
+designation, operating state, and the organization-owned hosted Binding.
+Historical creation and designation actors are attribution, never an ownership
+guard or a grant of private Space access. See
+[Organization Agent ownership](organization-agent-ownership.md).
 
 ## Durable Data Domains
 
@@ -693,13 +704,19 @@ record belongs in either the shared submission contract or this storage domain.
 
 ## Center Agent Routine And Run Data Boundary
 
-D1 is the only durable product truth for Center Agent Routines:
+D1 is the only durable product truth for Center and personal Remote Agent Routines:
 
 - `routines` stores each organization-owned definition, its bounded structured
   unattended-action grants, and its rebuildable `nextDueAt` UTC projection.
 - `routine_runs` stores durable Run records for individually claimed
   occurrences and aggregate `skipped` records for bounded overdue ranges.
 - Core is the only runtime writer for both tables.
+- `routines.agent_profile_id` fixes the personal executor, while null retains
+  the designated Center executor. `routine_runs.agent_profile_id_snapshot`
+  freezes that distinction at occurrence claim, including skipped history.
+  Admission and callback handling reject executor mismatches. Personal and
+  Center management queries select their own executor scope; no second
+  scheduler or alternate Routine store is introduced.
 - Remote Agent Durable Object state, Flue private storage, client caches, and
   eligible-target projections are not alternate Routine or Run stores.
 
@@ -2240,7 +2257,7 @@ bot/capability projection and Webhook proof so the first repair poll must
 reconfigure and verify the provider App. It neither creates a second connection
 nor calls the provider device-registration endpoint. The new attempt records
 the manager who initiated this repair; the connection keeps its original
-installer identity. Configuration and Webhook-wait retries use bounded
+installer identity. Configuration and connection retries use bounded
 exponential backoff from five seconds to five minutes across the seven-day
 window. Missing credentials, a different current connection state, or another
 unrelated active attempt fails closed. A stale Repair request after another
@@ -2250,16 +2267,50 @@ unrepairable App. Retry projections retain the latest bounded failure reason so
 clients can explain continued automatic verification without creating a second
 retry authority.
 
-Before configuring an unconnected App, the live configuration-claim owner
-replaces only callback secrets exceeding the provider's 32-character limit.
-The encrypted replacement and clearing both URL-verification proofs are one
-guarded D1 batch. A lost or expired claim, changed credentials, or a connected
-App prevents replacement and provider configuration. The App Secret and valid
-callback secret values are preserved. This also repairs legacy credentials
-when an existing App re-enters configuration through Repair; it is not a bulk
-credential migration. URL-verification writes compare the encrypted token used
-to authenticate the challenge with the current credential row, so an in-flight
-challenge authenticated before replacement cannot restore obsolete proof.
+New registrations keep the launcher's persistent configuration and store only
+an encrypted App Secret; unused callback credentials remain null. Core checks
+the exact Channel permission bundle and bot identity, prepares the current
+connection under its live registration claim, and asks the connection-named
+`LarkChannelConnector` Durable Object to open an authenticated provider socket.
+Only a successful handshake followed by the same unexpired claim can atomically
+mark the connection and attempt connected. A claim lost during the handshake,
+disconnection, or changed Organization/provider cannot activate the connection.
+No synthetic Webhook proofs are written.
+
+The connector owns the live socket and a bounded SQLite pending-event outbox;
+D1 remains the owner of connection identity, generation, and authorization.
+Complete authenticated events are persisted with their generation before the
+provider receives code 200. Fragment assembly is bounded and incomplete frames
+are not acknowledged. Queue delivery runs afterward, checks the current D1
+connection, binds the tenant when needed, and retains the event on failure.
+Queue consumers reject a mismatched connection generation before reading
+conversation context or starting a turn. Event IDs still deduplicate through
+the existing ingress ledger; the outbox does not own execution outcomes.
+Disconnect closes the socket and discards pending revoked work. Recovery uses
+Durable Object alarms and provider heartbeat/reconnect configuration. Idle
+connected bots do not poll D1. Outbound sockets use standard Worker WebSocket
+APIs and the official Lark protobuf codec; the Node SDK's `ws`/HTTP-upgrade
+transport is not compatible with this runtime. Outbound sockets do not
+hibernate, so per-connection Durable Object duration must be included in
+capacity and cost planning.
+
+Repairing an existing Webhook connection publishes persistent event and card
+callback configuration for the same app before activating its connector.
+The claimed attempt retains the publication version so pending provider review
+does not create repeated publications. Existing Webhook ingress remains
+supported for its explicitly selected transport, and fails closed after that
+connection becomes persistent. No bulk mutation or automatic fallback changes
+live organizations' selected transport.
+
+The persistent connector adds optional `connectionGeneration` to the shared
+Message Channel Queue envelope. Old queued Webhook envelopes remain readable.
+The new producer and its generation-aware consumer ship in the same Core
+release; do not gradually mix it with old Core Queue consumers. Before
+rolling back to a Core version without this field/connector, stop persistent
+producers and drain their Queue work, or retain the compatible receiver and
+Durable Object class in the rollback. CLI, local Service, managed skills,
+workstation Wake/Space actions, Gateway HTTP payloads, and Remote Agent
+submission contracts are unchanged. No local-component contract floor is raised.
 
 The App Secret, Webhook verification token, and event encryption key live in a
 separate encrypted credential row. The connection and credential write is one
@@ -2267,21 +2318,9 @@ D1 batch, so failed encryption or persistence cannot produce a connected
 projection. Tenant access tokens are minted and cached only within their
 provider lifetime inside one Worker isolate and are never stored in D1.
 
-Webhook readiness is connection-owned evidence, not a generic provider flag.
-Core publishes the configured provider application before recording its bot
-identity as configured. The claimed registration attempt stores the exact
-provider application version ID; later polls verify that version without
-repeating the configuration PATCH or submitting another publication. Core
-requires the matching application and version, approved provider status, and
-the required event subscriptions before settling configuration. A submitted
-version still under review is not a connected Channel. Setup consent includes
-application self-management solely to read the application's own version;
-it does not add a Center Agent runtime capability.
-The publication rollout marks earlier connected Webhook rows as requiring
-repair, preserving their apps and credentials. The existing authorized repair
-flow reconfigures and publishes the same app and requests updated consent when
-needed. Disconnected rows and active attempts are unchanged; active legacy
-attempts cannot use a saved bot identity to skip publication verification.
+Legacy Webhook readiness remains connection-owned evidence. Existing Webhook
+connections retain their authenticated challenge and event handling during the
+migration window; new setup does not depend on public callback reachability.
 The provider's encrypted URL-verification challenge may omit all three
 signature headers. Core may decrypt that envelope only into a URL-verification
 challenge and must match its verification token before recording reachability.
@@ -2982,6 +3021,38 @@ failed-step write; they do not require the damaged old Computer credential.
 When available, `nativeFailure.osStatus` preserves the immediate macOS error
 through wrapped exceptions without uploading the exception text. This optional
 field is stripped safely by older Core versions.
+
+Version 3 adds a 15-minute evidence window ending at collection start.
+The Service log reader reads at most the last 256 KiB and includes only complete,
+timestamped lines in that window. `serviceLogWindow` counts excluded undated and
+out-of-window lines and marks a truncated source; an empty tail means no eligible
+evidence in the inspected suffix, not that no failure occurred. Missing/empty
+files keep their existing notes; unreadable files are collection errors.
+Lifecycle entries are filtered to the same window before applying payload caps.
+
+`os.release` remains the kernel release. Optional `os.productVersion` and
+`os.buildVersion` come from a bounded macOS `sw_vers` query, not from the kernel
+version shown by older device metadata. `operationFailure` preserves allowlisted
+native code/errno/syscall and path categories from the immediate error or its
+bounded cause chain. It does not upload exception text or actual paths and never
+interprets EPERM/EACCES as proof of TCC or App Management denial.
+
+Carrier lifecycle evidence retains operation, distribution, actual actor PID,
+parent PID, target category, and structured operation failure in the uploaded
+projection. Exact executable/target paths and carrier exception messages remain
+local. These process IDs describe the OpenMeld operation, not an inferred macOS
+responsible/accessing process. No macOS unified logs are collected automatically.
+System-only notices still require narrowly scoped local evidence.
+
+Contract impact: all new top-level and OS fields are optional; bundle version is
+not a discriminator. New Core accepts v1/v2 producers; old Core strips unknown
+v3 fields and keeps the legacy bundle. Existing Service/CLI setup, Wake, status,
+Space actions, Skills, Gateway, and Web remain compatible, with no epoch bump or
+database migration. Deploy the Core schema before publishing CLI/Service to retain
+the richer evidence; reverse order only loses optional evidence. The feature PR
+defers version/manifest stamping; the eventual local release is advisory
+`available`. Diagnostics remain logs-only and never change lifecycle or execution
+authority.
 
 For support, resolve the reported email to its verified Auth user ID, then filter
 Workers Logs by `event = core.openmeld.setup.step_failed` and `ownerUserId`.

@@ -12,6 +12,14 @@ import { organizationQueryKeys } from "#/query/organizations/organization-direct
 import { AgentProfileCreationRequestsPanel } from "./agent-profile-creation-requests-panel";
 
 const listRequestsMock = vi.hoisted(() => vi.fn());
+const launchPolicy = vi.hoisted(() => ({ enabled: false }));
+// Retain dormant approval coverage for the future isolated reopening.
+vi.mock("@openmeld/schemas", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@openmeld/schemas")>()),
+	get TEAMMATE_AGENT_REQUESTS_ENABLED() {
+		return launchPolicy.enabled;
+	},
+}));
 const decideRequestMock = vi.hoisted(() => vi.fn());
 const cancelRequestMock = vi.hoisted(() => vi.fn());
 const retryRequestMock = vi.hoisted(() => vi.fn());
@@ -56,6 +64,7 @@ const BASE_REQUEST = {
 
 describe("AgentProfileCreationRequestsPanel", () => {
 	beforeEach(() => {
+		launchPolicy.enabled = false;
 		listRequestsMock.mockReset().mockResolvedValue({
 			organizationId: "org-1",
 			requests: [
@@ -100,6 +109,7 @@ describe("AgentProfileCreationRequestsPanel", () => {
 	});
 
 	it("shows request origin and exposes only the participant's valid actions", async () => {
+		launchPolicy.enabled = true;
 		renderPanel();
 
 		expect(await screen.findByText("Release Reviewer")).toBeTruthy();
@@ -125,6 +135,7 @@ describe("AgentProfileCreationRequestsPanel", () => {
 	});
 
 	it("refreshes Agents when setup fails after creating the Profile", async () => {
+		launchPolicy.enabled = true;
 		decideRequestMock.mockResolvedValueOnce({
 			request: {
 				...BASE_REQUEST,
@@ -328,6 +339,7 @@ describe("AgentProfileCreationRequestsPanel", () => {
 					...BASE_REQUEST,
 					createdAgentProfileId: "agent-created-before-setup-failed",
 					status: "approved",
+					requesterUserId: "user-felix",
 					statusReason: "profile_created",
 				},
 			],
@@ -338,6 +350,12 @@ describe("AgentProfileCreationRequestsPanel", () => {
 		expect(await screen.findByText("Finishing setup…")).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Cancel request" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Retry setup" })).toBeNull();
+	});
+	it("hides cached teammate requests and approval actions during the launch hold", async () => {
+		renderPanel();
+		expect(await screen.findByText("No Agent setup to show.")).toBeTruthy();
+		expect(screen.queryByText("Release Reviewer")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
 	});
 });
 

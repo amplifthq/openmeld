@@ -194,11 +194,86 @@ finishes. Any other legacy head that may already be executing returns
 Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.
 
+### Explicit device waiting
+
+A new workstation Wake may explicitly request `deviceWait`, selecting the
+current Binding and OpenMeld Service Runtime with an absolute start deadline.
+The Space message and its durable dispatch outbox retain that immutable intent.
+Core verifies the selected target against current Binding and Organization
+authority. Confirmed offline availability, including a Core-confirmed offline
+route while the computer is reconnecting, may admit this Wake without creating
+an execution; ordinary Wakes keep their existing admission contract.
+
+RuntimeCoordinator owns the accepted wait, deadline, FIFO position, cancellation,
+and terminal decision. The deadline applies while waiting for either the device
+or earlier Profile work. It never restarts on redrive or FIFO promotion. The
+normal Service registration, route report, and recurring heartbeat trigger exact
+Space outbox redrive. The handed-off outbox retains the payload while its ledger
+projects `runtime_coordinator.device_waiting`; ordinary conveyor alarms do not
+create repeated delivery attempts for that owned wait. Queue and D1 remain transport
+and projections, never scheduling or execution authorities.
+
+Before first execution, Core rechecks current requester and target Space access,
+Organization authority, Binding, controller configuration, and canonical
+readiness. Local Service still validates the concrete working folder. A changed
+Binding or Runtime is a visible no-execution failure; reconnection cannot
+silently retarget work. Pending route registration may remain in the same bounded
+wait. A transport failure while reading authority is retryable, not permission.
+Fresh Usage and controller checks remain under
+`wake.device_wait.readiness_checking`; a failed Space-access read uses
+`wake.device_wait.access_check_unavailable` and `space_access_unavailable`.
+Observed `daemon.service.draining` retains its original code in the same bounded
+waiting mechanism. All keep the original deadline. The ledger's
+`runtime_coordinator.device_waiting` error code is a conveyor-ownership marker;
+the Coordinator boundary and correlated `head_waiting_boundary_recorded` ops
+decision retain the actual cause. Service heartbeats/reports recheck access as
+part of the same admission path; the access boundary is not a new scheduler.
+The next accepted Service heartbeat or report rechecks the complete admission
+path. A definitive permission, identity, or readiness blocker still terminalizes
+the Wake; checking is not a successful admission decision.
+
+Ordinary Wake preparation and explicit device waiting share the canonical
+preparation-reason policy, existing Service reports, and Coordinator recovery.
+The opt-in adds a selected device and an immutable user start deadline; it does
+not introduce a second preparation or retry policy. Once a head is accepted,
+temporary access-read outages use that same durable wait rather than an
+independent Queue retry. Every recovery attempt rechecks access before execution.
+
+Password rotation alone does not revoke these waits. The access RPC requires
+both the requester and target Profile to remain active Space members, and the
+owning protected-Space gate grants authenticated active members access before
+checking a password. This recheck does not supply the frozen outbox password;
+that credential may become stale without denying member authority. Removing
+either member still rejects the wait; possessing a password
+does not bypass this waiting-Wake membership requirement. Use Wake cancellation
+or revoke membership to stop retained work, rather than relying on a password
+change to revoke existing member authority.
+
+The owner transaction fences first execution at the deadline and against Stop.
+An expired wait publishes `wake.device_wait.expired`; cancellation, failure, and
+execution linkage cannot transition back into pre-execution waiting. Deadline
+alarms reread authority and publish only the transaction's accepted decision.
+An accepted or FIFO-queued request without an observed waiting boundary carries
+only a start deadline. Expiration uses a generic local-Agent no-execution
+category and does not invent an offline route. Both alarm and waiting-request
+expiry write `wake.device_wait.expired` with `send_new_wake`; they never inherit
+the previous boundary's restart/repair action. Historical observed causes remain
+in the ledger and ops decision evidence.
+Once execution is linked, the start deadline no longer applies. Existing durable
+result recovery, exact-conversation answer recovery, `outcome_unknown`, and
+no-automatic-replay rules continue to govern interrupted work.
+
+Public Wakeability stays `Offline` while the device is offline. An opted-in Wake
+progress reader separately receives the waiting reason and deadline, and uses
+the existing pre-agent cancellation capability. Receipt of the message, waiting,
+and actual execution remain distinct facts.
+
 Core gates fresh Work Coordinator admission with the same canonical
 Wakeability projection used by product surfaces. Its current compatibility
 identifier is `AgentExecutionReadiness`. A definitive current blocking fact
-ends as a visible pre-head no-execution outcome; it must not create a current or
-queued Coordinator item. Missing readiness evidence or working-folder report
+ends as a visible pre-head no-execution outcome, except for explicit offline
+device-wait admission above; otherwise it must not create a current or queued
+Coordinator item. Missing readiness evidence or working-folder report
 coverage, revision, freshness, initial route registration, or required Usage
 observations while Service reports catch up is not a
 definitive refusal. Core retains that same undelivered Wake through the existing
@@ -416,8 +491,9 @@ Important execution rules:
   return `daemon.profile.pending_first_report` while the intended owner's
   OpenMeld Service is still heartbeat-fresh but has not reported that Agent
   Profile's Wake route. RuntimeCoordinator must keep that Wake in its durable
-  head-waiting boundary for the existing five-minute hard deadline and redrive
-  it when the route report arrives. Queue attempt count alone must not
+  head-waiting boundary and redrive it when the route report arrives. Ordinary
+  Wakes keep the existing five-minute hard deadline; an explicit device wait
+  keeps its frozen start deadline. Queue attempt count alone must not
   terminalize the Wake during this window. If the bounded wait expires, failure
   publication preserves `daemon.profile.pending_first_report` and explains that
   the Service was connected but the agent did not become ready; it must not
@@ -1196,6 +1272,14 @@ Runtime results use the Space action contract:
   Claude Code, Cursor, Grok Build, OpenCode, and future controllers use the same Space
   action boundary rather than provider-specific coordination prompts.
 
+Reply publication and observation use the source message's conversation scope.
+A main-timeline source remains in the main scope when a thread is opened beneath
+it; a `root` placement does not move that Wake into the thread. Only a source
+posted inside a thread defaults its outcome to that thread. Thread reads and
+the atomic reply guard both accept that thread's root as an observation cursor,
+including when there are no replies yet. Other threads' cursors remain invalid,
+and newer messages in the observed scope still require review.
+
 ACP is an adapter transport, not a second execution lane. Cursor and Grok Build
 may share JSON-RPC/session/process mechanics inside adapter core, but each
 adapter owns its vendor launch, authentication, model, interaction, and error
@@ -1221,8 +1305,10 @@ coordination context, not proof that the current Agent's work is wrong. If that
 bounded delta is empty,
 the proposed action carries the current observation cursor without another
 controller turn. If the delta is non-empty, Service continues the exact same
-Agent Controller conversation in repair mode with only the previous proposed
-action and the bounded newer messages. It reads again after that turn whenever
+Agent Controller conversation in repair mode with the previous proposed
+action and a bounded view of already observed and newer messages. Native repair
+forks may start from the canonical parent each time, so the review input must
+not assume that a preceding review's messages exist in that fork. It reads again after that turn whenever
 Space atomically reports that collaboration advanced again.
 The earlier dispatch-scoped Space Action remains an unpublished, replaceable
 proposal even if its local command reported that OpenMeld accepted it. The
@@ -1234,18 +1320,24 @@ preserved as superseded evidence. Missing exact-conversation identity fails
 explicitly instead of starting a fresh conversation. There is no semantic
 review-count limit: a fixed count can discard a valid result in a legitimately
 busy business workflow. Context remains bounded because every review reads at
-most 20 signals, bounds each rendered signal, and advances from the last
-observed Space cursor. RuntimeCoordinator Stop, execution authority, and real
+most 20 signals and advances from the last observed Space cursor. Within the
+coordination call, Service retains at most the latest 20 distinct relevant
+signals in publication order and renders at most 2,000 characters per signal.
+It identifies the last omitted signal and marks truncated text so the Agent
+can consult authorized Space/thread history when those details matter. This
+view is ephemeral public context, not a private transcript, read receipt,
+execution authority, or replacement canonical conversation. RuntimeCoordinator Stop, execution authority, and real
 transport failure remain the terminal controls; context review is not a new
 Wake, retry of external work, or unbounded transcript replay.
 
-An unavailable pre-publication read records diagnostic evidence and carries the
-dispatch source signal as the conservative observation cursor. The Space atomic
-check remains the final safety boundary and rejects the action if collaboration
-actually changed. This optimization helps later-finishing parallel Agents adapt;
-it does not serialize execution or replace explicit Center Agent delegation and
-Agent Task Coordination when work needs planned ownership, completion barriers,
-or parent synthesis.
+An unavailable pre-publication read records diagnostic evidence and fails the
+Wake explicitly with `dispatch.agent_reply_observation.unavailable`; it does not
+invent an empty delta or a successful observation cursor. The recorded action
+remains an unpublished proposal. After a successful read, the Space atomic check
+still rejects publication if collaboration advanced again. Context review helps
+later-finishing parallel Agents adapt; it does not serialize execution or replace
+explicit Center Agent delegation and Agent Task Coordination when work needs
+planned ownership, completion barriers, or parent synthesis.
 
 ### Agent Transport Space Action Delivery
 

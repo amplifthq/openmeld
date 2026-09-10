@@ -567,6 +567,7 @@ export type {
   SetCurrentOpenMeldToolsMaintenanceResponse,
   SetLocalRuntimeDisplayNameBody,
 } from "./local-runtimes";
+export type * from "./message-channel-files";
 export type {
   LarkPlatformActiveRegistrationListResponse,
   LarkPlatformActiveRegistrationProjection,
@@ -1121,6 +1122,12 @@ export type {
   SpaceMessageDetailsWakeTarget,
   SpaceMessageDetailsWorkingDetails,
 } from "./space-message-details";
+export type {
+  SpaceFilePinMutation,
+  SpaceFilePinsResponse,
+  SpaceMessagePinMutation,
+  SpaceMessagePinsResponse,
+} from "./space-message-pins";
 export type {
   PatchSpaceMetaBody,
   SpaceCreator,

@@ -9,6 +9,7 @@ import {
   type ListCenterAgentSessionsResponse,
   peopleComputerTargetSchema,
   toLegacySpaceAddressingWireValue,
+  toSpaceSignalReadWireValue,
 } from "@openmeld/schemas";
 import type {
   AccountSpaceActiveWakeSummaryResponse,
@@ -312,11 +313,15 @@ import type {
   SpaceContract,
   SpaceDispatchTraceResponse,
   SpaceFileDescriptor,
+  SpaceFilePinsResponse,
+  SpaceHistoryNavigation,
+  SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
+  SpaceMessagePinsResponse,
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
   StartCenterAgentMemberResearchRpcInput,
@@ -638,6 +643,7 @@ import {
   type GetSpaceFileInput,
   type GetSpaceMembersInput,
   type GetSpaceMessageDetailsInput,
+  type GetSpaceMessageReactionsInput,
   type GetSpaceMetaInput,
   type GetSpaceStatusInput,
   type GetSpaceThreadInput,
@@ -853,10 +859,12 @@ import {
   rpcGetSpaceDispatchTrace,
   rpcGetSpaceEntryResolution,
   rpcGetSpaceFile,
+  rpcGetSpaceHistoryNavigation,
   rpcGetSpaceIdentityDirectory,
   rpcGetSpaceMemberDirectory,
   rpcGetSpaceMembers,
   rpcGetSpaceMessageDetails,
+  rpcGetSpaceMessageReactions,
   rpcGetSpaceMeta,
   rpcGetSpaceStatus,
   rpcGetSpaceThread,
@@ -889,6 +897,7 @@ import {
   rpcListSpaceThreadEvents,
   rpcListSpaceThreadSignals,
   rpcListSpaceThreads,
+  rpcMutateSpaceMessage,
   rpcNotifyAgentProfileRouteCatalogChanged,
   rpcNotifyAgentProfilesRouteCatalogChanged,
   rpcOpenCenterAgentDirectMessageSpace,
@@ -950,6 +959,9 @@ import {
   rpcSetPeopleComputerLocalAgentEnabled,
   rpcSetPeopleComputerOpenMeldToolsMaintenance,
   rpcSetSpaceAccessMode,
+  rpcSetSpaceMessageReaction,
+  rpcSpaceFilePins,
+  rpcSpaceMessagePins,
   rpcStageSpaceComposerUpload,
   rpcSubmitAgentActivityEvents,
   rpcSubmitAgentActivitySessionReconciliation,
@@ -990,8 +1002,11 @@ import {
   type SetLocalRuntimeDisplayNameInput,
   type SetOrganizationInformationProtectionPolicyInput,
   type SetSpaceAccessModeInput,
+  type SetSpaceMessageReactionInput,
   type SpaceAccessModeStateResult,
+  type SpaceFilePinsInput,
   type SpaceFileWriteInput,
+  type SpaceMessagePinsInput,
   type SpacePasswordStateResult,
   type StageSpaceComposerUploadRpcInput,
   type SubmitAgentActivityEventsInput,
@@ -1643,7 +1658,37 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     );
   }
 
+  async postDeviceWaitingSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
+    if (!input.deviceWait) {
+      throw new Error("A device waiting request is required.");
+    }
+    return await this.#postSignalWithEvidence(input, spaceAddressingVersion);
+  }
+
+  async mutateSpaceMessage(
+    input: import("./rpc/methods").MutateSpaceMessageInput
+  ) {
+    return toSpaceSignalReadWireValue(
+      await rpcMutateSpaceMessage(this.env, input)
+    );
+  }
+
   async postSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
+    if (input.deviceWait) {
+      throw new Error(
+        "Device waiting requests require postDeviceWaitingSignal."
+      );
+    }
+    return await this.#postSignalWithEvidence(input, spaceAddressingVersion);
+  }
+
+  async #postSignalWithEvidence(
     input: PostSignalInput,
     spaceAddressingVersion?: string
   ): Promise<SignalEnvelope> {
@@ -1714,6 +1759,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   getSpaceMembers(input: GetSpaceMembersInput): Promise<SpaceMembersSnapshot> {
     return rpcGetSpaceMembers(this.env, input);
+  }
+
+  getSpaceHistoryNavigation(
+    input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
+  ): Promise<SpaceHistoryNavigation> {
+    return rpcGetSpaceHistoryNavigation(this.env, input);
   }
 
   getSpaceIdentityDirectory(
@@ -1932,6 +1983,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcGetSpaceWakeTraceWaterfall(this.env, input);
   }
 
+  getSpaceMessageReactions(input: GetSpaceMessageReactionsInput) {
+    return rpcGetSpaceMessageReactions(this.env, input);
+  }
+  setSpaceMessageReaction(input: SetSpaceMessageReactionInput) {
+    return rpcSetSpaceMessageReaction(this.env, input);
+  }
+
   getSpaceMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {
@@ -2011,6 +2069,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   getSpaceMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
     return rpcGetSpaceMeta(this.env, input);
+  }
+
+  spaceFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
+    return rpcSpaceFilePins(this.env, input);
+  }
+
+  spaceMessagePins(
+    input: SpaceMessagePinsInput
+  ): Promise<SpaceMessagePinsResponse> {
+    return rpcSpaceMessagePins(this.env, input);
   }
 
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {
@@ -3042,6 +3110,17 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentReadSlackFile(this.env, input);
   }
 
+  centerAgentReadChannelFile(
+    input: CenterAgentReadChannelFileInput
+  ): Promise<CenterAgentReadChannelFileResponse> {
+    return rpcCenterAgentReadChannelFile(this.env, input);
+  }
+  centerAgentPostChannelFile(
+    input: CenterAgentPostChannelFileInput
+  ): Promise<CenterAgentPostChannelFileResponse> {
+    return rpcCenterAgentPostChannelFile(this.env, input);
+  }
+
   centerAgentSearchSlackMessages(
     input: CenterAgentSearchSlackMessagesInput
   ): Promise<CenterAgentSearchSlackMessagesResponse> {
@@ -3781,11 +3860,22 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.listSignals(input, spaceAddressingVersion);
   }
 
+  postDeviceWaitingSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
+    return super.postDeviceWaitingSignal(input, spaceAddressingVersion);
+  }
+
   postSignal(
     input: PostSignalInput,
     spaceAddressingVersion?: string
   ): Promise<SignalEnvelope> {
     return super.postSignal(input, spaceAddressingVersion);
+  }
+
+  mutateSpaceMessage(input: import("./rpc/methods").MutateSpaceMessageInput) {
+    return super.mutateSpaceMessage(input);
   }
 
   postTransientSignal(input: PostTransientSignalInput): Promise<void> {
@@ -3794,6 +3884,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   getSpaceMembers(input: GetSpaceMembersInput): Promise<SpaceMembersSnapshot> {
     return super.getSpaceMembers(input);
+  }
+
+  getSpaceHistoryNavigation(
+    input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
+  ): Promise<SpaceHistoryNavigation> {
+    return super.getSpaceHistoryNavigation(input);
   }
 
   getSpaceIdentityDirectory(
@@ -3976,6 +4072,13 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getSpaceWakeTraceWaterfall(input);
   }
 
+  getSpaceMessageReactions(input: GetSpaceMessageReactionsInput) {
+    return super.getSpaceMessageReactions(input);
+  }
+  setSpaceMessageReaction(input: SetSpaceMessageReactionInput) {
+    return super.setSpaceMessageReaction(input);
+  }
+
   getSpaceMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {
@@ -4006,6 +4109,16 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   getSpaceMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
     return super.getSpaceMeta(input);
+  }
+
+  spaceFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
+    return super.spaceFilePins(input);
+  }
+
+  spaceMessagePins(
+    input: SpaceMessagePinsInput
+  ): Promise<SpaceMessagePinsResponse> {
+    return super.spaceMessagePins(input);
   }
 
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {
@@ -4815,6 +4928,17 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.centerAgentReadSlackFile(input);
   }
 
+  centerAgentReadChannelFile(
+    input: CenterAgentReadChannelFileInput
+  ): Promise<CenterAgentReadChannelFileResponse> {
+    return super.centerAgentReadChannelFile(input);
+  }
+  centerAgentPostChannelFile(
+    input: CenterAgentPostChannelFileInput
+  ): Promise<CenterAgentPostChannelFileResponse> {
+    return super.centerAgentPostChannelFile(input);
+  }
+
   centerAgentSearchSlackMessages(
     input: CenterAgentSearchSlackMessagesInput
   ): Promise<CenterAgentSearchSlackMessagesResponse> {
@@ -5203,9 +5327,10 @@ function toSpaceAddressingRpcOutput<T>(
   value: T,
   spaceAddressingVersion: string | undefined
 ): T {
+  const readValue = toSpaceSignalReadWireValue(value);
   return spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION
-    ? value
-    : toLegacySpaceAddressingRpcOutput(value);
+    ? readValue
+    : toLegacySpaceAddressingRpcOutput(readValue);
 }
 
 async function withSpaceAddressingRpcOutput<T>(
@@ -5244,4 +5369,19 @@ export {
   RuntimeTransportHub,
   Space,
 };
+// biome-ignore lint/performance/noBarrelFile: Wrangler requires the Durable Object class export.
+export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export default CoreEntrypoint;
+
+import type {
+  CenterAgentPostChannelFileResponse,
+  CenterAgentReadChannelFileResponse,
+} from "@openmeld/schemas/types";
+import {
+  type CenterAgentPostChannelFileInput,
+  rpcCenterAgentPostChannelFile,
+} from "./remote-agent/application/message-channel-file-publication-service";
+import {
+  type CenterAgentReadChannelFileInput,
+  rpcCenterAgentReadChannelFile,
+} from "./remote-agent/application/message-channel-file-service";

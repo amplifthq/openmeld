@@ -189,7 +189,7 @@ describe("LarkPlatformChannelDialog", () => {
 			`https://${destination}/page/launcher?user_code=redacted&name=Existing+app`
 		);
 		expect(
-			screen.getByText(`Sign in with your ${label} account.`, { exact: false })
+			screen.getByText(`Sign in to ${label}, create a bot`, { exact: false })
 		).toBeTruthy();
 		expect(screen.getByText("Waiting for approval")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Start over" }));
@@ -273,11 +273,10 @@ describe("LarkPlatformChannelDialog", () => {
 		expect(screen.getByRole("heading", { name: "Repair Lark" })).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Setup expired before OpenMeld could verify this app’s permissions and Webhook delivery. Repair retries the existing app; it does not create another one."
+				"Setup expired before OpenMeld could verify this app’s permissions and establish a connection. Repair retries the existing app; it does not create another one."
 			)
 		).toBeTruthy();
-		const badge = screen.getByText("Needs Attention");
-		expect(badge.className).toContain("h-8");
+		expect(screen.getByText("Needs attention")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Repair Lark" }));
 		expect(onRepair).toHaveBeenCalledOnce();
 	});

@@ -19,6 +19,37 @@
 - Source of truth: This file owns the durable product semantics of Space
   collaboration.
 
+## Pinned messages and files
+
+Active human Space members can pin retained chat messages from the message's
+More actions menu. Pins are shared Space state. A pin references the original
+message; it does not create a separate document or change its version history.
+The Messages view shows one compact preview at a time, with the original author,
+the person who pinned it, and a jump to the original message. The preview stays
+on one line and truncates. Multiple pins use previous/next navigation without
+stacking cards above the conversation.
+
+Files have a separate pin action in the Files browser. Pinned files appear at
+the top of the Messages conversation, above pinned messages. Each kind has its
+own compact preview and navigation; file and message pins never share a carousel.
+Opening a pinned file uses the existing Files viewer. The pin follows the file's
+identity and latest revision, including renames, rather than copying its content.
+Trashed files are omitted. Pinning a message with attachments does not pin those
+files, and unpinning a file never unpins its surrounding message.
+
+When a pinned file receives a newer revision after it was pinned, its title shows
+a compact `New updates` badge until the current reader opens that revision.
+The badge uses a nested Fluid Surface (Surface 2). Read progress is scoped to
+organization, profile, Space, and file in the current browser; it does not sync
+between devices. Opening older history never moves the read revision backwards.
+Failed content loads do not acknowledge a previewable file as read.
+
+Only the original pinner can remove a pin, including through the API. The close
+button means shared unpin, not personal dismissal, and requires no confirmation.
+Pinning an already pinned message does not transfer ownership. Pins whose source
+message is no longer retained are omitted from the display. This is separate
+from the broader shared-document and knowledge synchronization work in #851.
+
 ## Product Role
 
 A Space is the shared cloud room where Humans and Agent Profiles collaborate.
@@ -34,6 +65,11 @@ A Space owns collaboration meaning:
 - how a message addresses Humans or Agent Profiles
 - where replies and thread messages belong
 - what final outcome the user can see
+
+An explicit request to coordinate with another member assigns work to the
+addressed Agent. Delegating, contacting a teammate, checking progress, and
+collecting results are contributions in their own right; the person performing
+the underlying task does not make the coordinator merely a reference or candidate.
 
 A Space member directory is a read projection of Space participation plus the
 mention and addressing labels needed by clients and dispatch prompts. It helps
@@ -56,6 +92,43 @@ selected. Once added, the Center Agent follows ordinary Agent Profile member
 semantics for listing, addressing, Wake, removal, and degraded Direct Message
 behavior. This does not create another Space kind or apply the locked Center
 Agent Direct Message mutation rules to an ordinary Space.
+
+## Editing and Recalling Messages
+
+An active Human member can edit or recall their own sent messages, without a
+time limit. This does not grant permission to change another Human's messages,
+Agent replies, or system notices.
+
+Editing replaces the message in its original position, preserving its identity,
+timestamp, reply links, and thread. Show `(edited)` only when content changes.
+The editor lives directly in the existing bubble and preserves the bottom
+composer draft. Existing message attachments can be kept or removed. Removing
+all text while keeping attachments remains a valid message; removing all
+content asks for recall confirmation.
+
+Recall replaces the original row with a small system-style notice naming the
+sender. Original text and attachments are absent from the public message and
+quoted previews, while existing threads remain accessible. Recall is not file
+deletion: independently stored Space Files retain their own lifecycle.
+
+Only the sender can choose **Edit again** to recover the last successfully saved
+version into the appropriate composer. This creates a draft, never an automatic
+send or resurrection of the old message. Protect an existing draft with a
+replacement confirmation and do not overwrite text entered while recovery is
+loading. The draft retains its source message identity across refreshes and
+failed sends. Only successful publication consumes recovery: keep the divider
+notice, remove **Edit again**, and release the private recovery snapshot in the
+same transaction as the new message. Sending unrelated identical text does not
+consume recovery. Recovery otherwise lasts as long as the underlying message is
+retained; this is not a browsable edit-history feature.
+
+Editing and recall update the initiating client's view optimistically. A failed
+write restores the authoritative message and preserves the edit for retry.
+Concurrent stale edits must not overwrite a newer version. Existing Wake and
+mention delivery remain historical actions: editing does not issue another Wake
+or notification, and recall does not stop already-running work. Agents reading
+current conversation context must detect message changes before publishing a
+reply based on an obsolete observation.
 
 ## Email Invitations Into A Space
 
@@ -325,6 +398,15 @@ file back action, Space tabs, another file reference, an internal route, reload,
 or window close uses one save, discard, or cancel contract.
 Markdown files use the same WYSIWYG CommonMark + GFM editor as Organization
 Documents; this shared editing surface does not merge the two storage owners.
+HTML files open in a static preview, with source editing available under the
+ordinary text-editing limit. UTF-8 HTML previews are bounded to 2 MiB and support
+inline styles and embedded images. Scripts, external resources, forms, and
+links are disabled. **Open in new tab** opens the same isolated static preview
+of the selected saved revision at a normal Web URL. Every new page load checks
+Space access again; the link does not grant access or publish the file. Unsaved
+source edits can be previewed in Files, but must be saved to appear in a new tab.
+Current and historical revisions use the same preview policy. The original
+bytes remain unchanged and downloadable, including when preview is unavailable.
 CLI and Agent tools expose the same ids, paths, revisions, MIME inference, and
 error codes instead of maintaining a terminal-only filesystem model.
 
@@ -663,6 +745,34 @@ convert one structured Agent relation into another. An existing or restored
 Wake draft remains a Wake while the user edits it, but every send attempt checks
 the current Core-owned Wakeability before publishing the message or files.
 Reference authoring and ordinary text input remain usable while Wake is blocked.
+An online target uses ordinary Send with no waiting settings. When one addressed
+local Agent has a current device target and Core reports it offline or
+reconnecting, the composer offers **Send and wait**, explaining that it will wait
+up to 24 hours. Clicking this action makes that target a Wake, including when its
+mention began as a Reference. Ordinary Send does not opt a Reference into waiting.
+The Agent's current Binding determines the computer automatically. Web pins that
+Binding and Runtime and sets the absolute deadline to 24 hours after the click;
+there is no device picker or custom date input. The existing bounded API contract
+is unchanged. A private Agent conversation uses its existing implicit Wake target
+without requiring an extra mention. Main-timeline and thread messages share this
+behavior. When multiple offline Agents are addressed, the composer asks the user
+to send to one offline Agent at a time; one wait never unblocks another target.
+
+While it waits, the message shows the current waiting state and **Cancel waiting**
+through the existing Wake Stop control. Message details explain whether the
+computer is offline, the Agent is getting ready, or earlier work must finish, and
+show the exact expiry in the viewer's local time. The Agent's current Wakeability
+is still an independent projection.
+Expiry and cancellation are terminal for this Wake. Reconnecting a computer
+does not revive old failed Wakes or automatically repeat partially executed
+work. An expired wait shows **Wait expired. Task did not run.** and **Send again**.
+Send again prepares a new composer draft addressed only to the expired target,
+referencing the original request and its context. It preserves existing drafts
+and does not send automatically. Ordinary submission creates a new message and
+execution identity, checks current admission, and, if the computer is still
+offline, requires Send and wait again. The original Wake stays terminal; this
+action is not offered for interrupted work, cancellation, or other failures.
+
 Repeating the same Agent
 mention in one message keeps every occurrence explicit: the first token owns
 the selected Wake or Reference, while later tokens resolve to Reference and
@@ -763,6 +873,33 @@ active Space Wake children. Core attempts all of those targets before reporting
 an aggregate failure; retry reuses the same exact Task Handles and cannot
 publish a stopped continuation.
 
+## Message Reactions
+
+An active Human member can add standard Unicode emoji reactions to persisted
+Human or Agent text messages, including thread replies. Selecting the same emoji
+again removes only that person's reaction. Multiple people share an emoji count;
+each person can use more than one emoji, once per emoji per message.
+
+Reactions share one row with message actions beneath their source message, before
+its thread preview. On self-authored messages the row starts at the bubble’s left
+edge and stays within its width. Overflow reactions appear in a +N pill that
+opens on hover or click. Emoji groups retain their first-added order while any
+member still uses them; a fully removed group returns at the end if added again. The
+message action bar opens a compact set of common emoji and an optional full
+picker. Existing reactions show counts and the viewer's selected state. Members
+can inspect who reacted, including a paginated complete list when needed.
+
+Reactions are quiet feedback. They do not create messages, unread activity, Wakes,
+task completion, or execution approval. Removing the last reaction removes its
+chip. Failed changes restore the confirmed state and offer a retry.
+
+Authorized Human and Agent message reads include the current reaction state,
+participant identities, and explicit preview truncation. This applies to Local,
+Center, and personal Remote Agent context reads within their existing access
+boundaries. Reading new-message deltas alone does not discover changes to older
+messages; reread the source message to obtain its current reactions. Agents do
+not write reactions in this first version.
+
 ## Threads
 
 A Space Thread is conversation placement under one root Space message.
@@ -791,6 +928,10 @@ message system for threads.
 If a user Wakes an Agent Profile from a thread, the Agent Profile's reply should
 default back to that same thread. The user asked from that local conversation,
 so the visible answer belongs there.
+
+Opening a thread under a main-timeline Wake does not move the running Wake's
+reply or its message-review scope into that thread. The root remains a main
+message, while also being a valid starting point for reading its thread.
 
 If the hosted runtime rolls a Space conversation to a fresh internal generation,
 the Space owner uses the exact dispatch's frozen thread placement to rebuild the
@@ -1159,9 +1300,15 @@ Use scoped owner documents for details:
   same Agent conversation decides how to adapt; the sibling does not assign the
   current Agent's work or automatically suppress its reply.
 - Context review has no fixed business-count limit. Every review advances from
-  the latest observed Space cursor and carries only a bounded public delta; it
+  the latest observed Space cursor and carries a bounded public view retaining
+  earlier observed facts across isolated review forks. Omitted messages and
+  truncated excerpts are explicit, with original history available on demand; it
   never replays completed tools, external side effects, or an unbounded room
   transcript.
+- A requested personal answer or acknowledgement remains due even when its
+  content matches another member's answer. Activated participants are not an
+  assigned execution order or evidence of completed work; dependent contributions
+  follow the request's constraints and actual published outcomes.
 - This concurrent-reply guard does not assign subtasks or turn independent
   multi-target Wakes into a hidden delegation. Planned ownership, completion
   barriers, fallback, and parent synthesis use declared Center Agent delegation

@@ -6,7 +6,6 @@ import {
   SPACE_ATTACHMENT_MAX_SIZE_BYTES,
 } from "@openmeld/schemas";
 import type {
-  MessageChannelResourceDescriptor,
   NormalizedMessageChannelEvent,
   RemoteAgentWorkerInputAttachment,
 } from "@openmeld/schemas/types";
@@ -60,25 +59,30 @@ export async function prepareMessageChannelInputAttachments(input: {
   conversationId: string;
   event: MessageEvent;
 }): Promise<MessageChannelInputAttachmentPreparationResult> {
-  if (input.event.resources.length === 0) {
-    return { attachments: [], status: "ready" };
-  }
   if (input.event.resources.length > SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE) {
     return {
       failureCode: "message_channel.input_attachment_count_exceeded",
       status: "failed",
-      text: `Center Agent can review up to ${SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE} images in one message.`,
+      text: `Center Agent can review up to ${SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE} attachments in one message.`,
     };
   }
   const unsupportedResource = input.event.resources.find(
-    (resource) => resource.type !== "image"
+    (resource) => !["image", "file"].includes(resource.type)
   );
   if (unsupportedResource) {
     return {
       failureCode: "message_channel.input_resource_type_unsupported",
       status: "failed",
-      text: buildUnsupportedResourceMessage(unsupportedResource),
+      text: "Center Agent can review text, files, JPEG images, and PNG images. Please resend audio or video as a file or transcript.",
     };
+  }
+  const images = input.event.resources.filter(
+    (resource) => resource.type === "image"
+  );
+  // Files are read on demand against the Core-frozen trigger evidence. They must
+  // not be passed through the image-only admission wire contract.
+  if (images.length === 0) {
+    return { attachments: [], status: "ready" };
   }
   if (!input.bucket) {
     return {
@@ -90,7 +94,7 @@ export async function prepareMessageChannelInputAttachments(input: {
 
   const storedObjectKeys: string[] = [];
   const attachments: RemoteAgentWorkerInputAttachment[] = [];
-  for (const resource of input.event.resources) {
+  for (const resource of images) {
     const download = await input.adapter.downloadResource({
       connection: input.connection,
       locator: input.event.locator,
@@ -190,15 +194,6 @@ async function buildMessageChannelAttachmentId(input: {
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
   return `message-channel-${hex}`;
-}
-
-function buildUnsupportedResourceMessage(
-  resource: MessageChannelResourceDescriptor
-): string {
-  if (resource.type === "file" && resource.fileName) {
-    return `Center Agent cannot read the attached file "${resource.fileName}" yet. Please send its content as text or as JPEG or PNG images.`;
-  }
-  return "Center Agent can currently review text, JPEG images, and PNG images. Please resend this content in one of those formats.";
 }
 
 async function deletePreparedObjects(input: {

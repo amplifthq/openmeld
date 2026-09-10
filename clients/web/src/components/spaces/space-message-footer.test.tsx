@@ -1,17 +1,22 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
 	fireEvent,
-	render,
+	render as renderComponent,
 	screen,
 	within,
 } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	SpaceMessageFooter,
 	type SpaceMessageFooterAddressingTarget,
 } from "./space-message-footer";
 
-vi.mock("@phosphor-icons/react", () => ({
+import { MessageReactionsProvider } from "./space-message-reactions";
+
+vi.mock("@phosphor-icons/react", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@phosphor-icons/react")>()),
 	ArrowBendUpLeftIcon: () => <span />,
 	CaretRightIcon: () => <span />,
 	ChatCircleIcon: () => <span />,
@@ -23,6 +28,17 @@ vi.mock("@phosphor-icons/react", () => ({
 		<span {...props} data-testid="details-warning" />
 	),
 }));
+
+function render(children: ReactNode) {
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	return renderComponent(
+		<QueryClientProvider client={queryClient}>
+			<MessageReactionsProvider>{children}</MessageReactionsProvider>
+		</QueryClientProvider>
+	);
+}
 
 const WAKE_TARGET: SpaceMessageFooterAddressingTarget = {
 	agentControllerRef: "codex",
@@ -38,7 +54,7 @@ describe("SpaceMessageFooter", () => {
 		cleanup();
 	});
 
-	it("keeps the normal action order and puts lower-priority actions in More", () => {
+	it("keeps the normal action order without an empty overflow menu", () => {
 		const view = render(
 			<SpaceMessageFooter
 				addressingTargets={[WAKE_TARGET]}
@@ -67,20 +83,8 @@ describe("SpaceMessageFooter", () => {
 			"Reply in thread",
 			"Message addressing",
 			"Message details",
-			"More actions",
 		]);
-		expect(
-			screen.getByRole("button", { name: "More actions" }).className
-		).toContain("@min-[36rem]:hidden");
-
-		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
-		expect(screen.getByRole("menuitem", { name: "Reply" })).toBeTruthy();
-		expect(
-			screen.getByRole("menuitem", { name: "Reply in thread" })
-		).toBeTruthy();
-		expect(
-			screen.getByRole("menuitem", { name: "Message addressing" })
-		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
 	});
 
 	it("keeps a failed footer compact and moves every secondary action into More", () => {

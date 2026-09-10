@@ -11,7 +11,8 @@ import {
 // Controller share in-flight reads, including failures, but no result survives
 // into another request. The repositories still validate every stored fact.
 export function createAgentExecutionReadinessReads(input?: {
-  // Validated Auth facts read earlier in this same request, never client state.
+  // Validated Auth facts from this request, never client state. Undefined means
+  // not read; null means the batch failed and must not fan out into scalar reads.
   profileFacts?: AuthProfileFacts | null;
 }) {
   const runtimeById = new Map<
@@ -36,6 +37,13 @@ export function createAgentExecutionReadinessReads(input?: {
       >;
       profileId: string;
     }): Promise<AuthRpcResolveProfileByIdResult> {
+      if (input?.profileFacts === null) {
+        return {
+          ok: false,
+          code: "profile.lookup_failed",
+          message: "Profile facts are temporarily unavailable.",
+        };
+      }
       const profile = input?.profileFacts?.get(request.profileId);
       if (profile === null) {
         return {

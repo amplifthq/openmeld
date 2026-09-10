@@ -3,7 +3,13 @@ import {
 	createSpaceMemberHumanSnapshot,
 	createSpaceMembersSnapshot,
 } from "@openmeld/schemas/testing";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	act,
+	renderHook as renderTestingHook,
+	waitFor,
+} from "@testing-library/react";
+import { createElement, type PropsWithChildren } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	buildSpaceComposerAddressingTargets,
@@ -14,6 +20,61 @@ import {
 } from "./use-space-mention-authoring";
 
 describe("useSpaceMentionAuthoring composer drafts", () => {
+	it.each([
+		"available_for_wake",
+		"offline_for_wake",
+	] as const)("prepares a fresh, target-specific request after expiry while %s", (status) => {
+		const profileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const { result } = renderHook(() =>
+			useSpaceMentionAuthoring({
+				composerDraftScope: null,
+				isMembersLoading: false,
+				membersErrorMessage: null,
+				spaceId: "space-1",
+				openMeldProfileId: "human-1",
+				snapshot: createSpaceMembersSnapshot({
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							profileId,
+							profileName: "Runner",
+							agentWakeAvailability: { status },
+						}),
+					],
+				}),
+			})
+		);
+		act(() =>
+			result.current.composeExpiredDeviceWait({
+				sourceSignalId: "expired-source",
+				targetProfileId: profileId,
+			})
+		);
+		expect(result.current.composerText).toBe(
+			"@Runner Please carry out the request in the referenced message."
+		);
+		expect(result.current.replyTo).toEqual({ signalId: "expired-source" });
+		expect(result.current.authoredMentions).toEqual([
+			expect.objectContaining({
+				profileId,
+				relation: status === "available_for_wake" ? "wake" : "reference",
+			}),
+		]);
+		const submission = result.current.prepareSubmission("Members unavailable");
+		expect(submission.messageEnvelope?.activationTargets).toEqual(
+			status === "available_for_wake" ? [profileId] : []
+		);
+		expect(submission.messageEnvelope?.referenceTargets).toEqual(
+			status === "offline_for_wake" ? [profileId] : []
+		);
+		expect(() =>
+			result.current.composeExpiredDeviceWait({
+				sourceSignalId: "other-source",
+				targetProfileId: profileId,
+			})
+		).toThrow("current draft");
+		expect(result.current.replyTo).toEqual({ signalId: "expired-source" });
+	});
+
 	beforeEach(() => {
 		window.localStorage.clear();
 	});
@@ -40,6 +101,7 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 				authoredMentions: [],
 				selection: { end: 28, start: 28 },
 				text: "Keep this plan after refresh",
+				restoredFromSignalId: "recalled-1",
 			});
 		});
 		firstComposer.unmount();
@@ -63,6 +125,20 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		expect(restoredComposer.result.current.composerText).toBe(
 			"Keep this plan after refresh"
 		);
+		expect(
+			restoredComposer.result.current.prepareFileOnlySubmission()
+				.restoredFromSignalId
+		).toBe("recalled-1");
+		const submission =
+			restoredComposer.result.current.prepareFileOnlySubmission();
+		act(() => restoredComposer.result.current.recordPendingSubmission());
+		act(() =>
+			restoredComposer.result.current.restoreFailedSubmission(submission)
+		);
+		expect(
+			restoredComposer.result.current.prepareFileOnlySubmission()
+				.restoredFromSignalId
+		).toBe("recalled-1");
 	});
 
 	it("keeps each thread draft isolated and restores it when the thread reopens", () => {
@@ -478,3 +554,74 @@ function createMentionOrderingSnapshot() {
 		],
 	});
 }
+
+function renderHook<Result, Props>(
+	callback: (props: Props) => Result,
+	options?: { initialProps: Props }
+) {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	return renderTestingHook(callback, {
+		...options,
+		wrapper: ({ children }: PropsWithChildren) =>
+			createElement(QueryClientProvider, { client }, children),
+	});
+}
+
+it("restores cached identities without restoring Wake authority", async () => {
+	const snapshot = createSpaceMembersSnapshot({
+		spaceId: "space-cache",
+		agents: [
+			createSpaceMemberAgentSnapshot({
+				profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+				profileName: "Cached agent",
+			}),
+		],
+	});
+	const client = new QueryClient();
+	const composer = renderTestingHook(
+		({ current }: { current: typeof snapshot | null }) =>
+			useSpaceMentionAuthoring({
+				composerDraftScope: null,
+				openMeldProfileId: "human-1",
+				spaceId: "space-cache",
+				snapshot: current,
+				isMembersLoading: !current,
+				membersErrorMessage: null,
+			}),
+		{
+			initialProps: { current: snapshot as typeof snapshot | null },
+			wrapper: ({ children }: PropsWithChildren) =>
+				createElement(QueryClientProvider, { client }, children),
+		}
+	);
+	await waitFor(() =>
+		expect(
+			client.getQueryData([
+				"spaces",
+				"member-directory-display",
+				"space-cache",
+				"human-1",
+			])
+		).toBeDefined()
+	);
+	composer.rerender({ current: null });
+	const target = composer.result.current.mentionPickerItems.find(
+		(item) =>
+			item.suggestion.profileId === "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	);
+	expect(target?.suggestion.profileName).toBe("Cached agent");
+	expect(target?.suggestion.wakeAvailability.status).toBe("blocked");
+	expect(
+		target && resolveDefaultSpaceComposerMentionRelation(target.suggestion)
+	).toBe("wake");
+	expect(composer.result.current.mentionEmptyMessage).toBe("Loading members…");
+	const saved = client.getQueryData([
+		"spaces",
+		"member-directory-display",
+		"space-cache",
+		"human-1",
+	]);
+	expect(JSON.stringify(saved)).not.toContain("wakeAvailability");
+});

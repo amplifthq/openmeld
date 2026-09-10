@@ -1,4 +1,12 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
+export type {
+  SpaceMessageMutationBody,
+  SpaceMessageMutationResponse,
+} from "../schemas/http/space-message-mutation";
+export type {
+  SpaceHistoryNavigation,
+  SpaceHistoryNavigationQuery,
+} from "./http/space-history-navigation";
 
 // Type-query import keeps this entrypoint type-only while locking the version type to the schema export.
 export type OpenMeldSchemaVersion =
@@ -18,6 +26,14 @@ export type * from "./open-code-permission";
 export type * from "./prepare/index";
 export type * from "./profile-details";
 export type * from "./protocol/index";
+export type {
+  WakeDeviceWait,
+  WakeDeviceWaitAccessRequest,
+  WakeDeviceWaitAccessResponse,
+  WakeDeviceWaitTarget,
+} from "./protocol/wake-device-wait";
+export type { AgentControllerSessionTitle } from "./runtime/agent-controller-session";
 export type * from "./runtime/index";
 export type * from "./space-mesh/index";
+export type * from "./space-mesh/message-reaction";
 export type * from "./start/index";

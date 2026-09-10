@@ -10,6 +10,17 @@ const VERSION_ID = "fb18a6dd-5ee3-43fd-aa64-087346c6bfd3";
 const EXACT_VERSION_ID_RE = /exact Cloudflare version ID/u;
 const NON_VERSIONED_SETTINGS_RE = /logpush, tail_consumers/u;
 
+test("does not deploy an already activated atomic migration twice", () => {
+  assert.deepEqual(
+    buildCoreVersionReleaseStepSpecs({
+      versionId: VERSION_ID,
+      trafficPercent: 100,
+      wranglerConfigSource: "{}",
+    }),
+    []
+  );
+});
+
 test("deploys the exact admitted Core version before synchronizing triggers", () => {
   const steps = buildCoreVersionReleaseStepSpecs({
     versionId: VERSION_ID,

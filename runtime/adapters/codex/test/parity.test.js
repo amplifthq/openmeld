@@ -776,6 +776,8 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    return;",
       "  }",
       "  if (message.method === 'thread/name/set') {",
+      "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_NAME_RESULT === 'hang') return;",
+      "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_NAME_RESULT === 'reject') { write({ jsonrpc: '2.0', id: message.id, error: { code: -32600, message: 'Name unavailable' } }); return; }",
       "    write({ jsonrpc: '2.0', id: message.id, result: {} });",
       "    return;",
       "  }",
@@ -1667,6 +1669,95 @@ test("codex app-server creates new OpenMeld threads with native developer instru
   }
 });
 
+for (const nameResult of ["success", "reject", "hang"]) {
+  test(`codex app-server names new Sessions without blocking execution: ${nameResult}`, async () => {
+    const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+    const dir = await mkdtemp(join(tmpdir(), "codex-session-title-"));
+    const fixture = join(dir, "fake.mjs");
+    const logPath = join(dir, "rpc.jsonl");
+    await writeFakeCodexAppServerFixture(fixture);
+    const events = [];
+    try {
+      const result = await invokeCodexAppServerTransport({
+        launchContract: createNodeScriptLaunchContract(fixture),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dir,
+        controlRequestTimeoutMs: 500,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_NAME_RESULT: nameResult,
+          OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS: "650",
+        },
+        newSessionTitle: "OpenMeld · Monica · Adjust the close button",
+        onRuntimeEvent: (event) => events.push(event.phase),
+        prompt: "Activation intent gate: internal instructions",
+        taskId: "new-session-title",
+        threadId: null,
+      });
+      assert.ok(result.output.includes("Activation intent gate"));
+      assert.equal(events.includes("timeout_triggered"), false);
+      const messages = await readFakeAppServerMessages(logPath);
+      const nameRequests = messages.filter(
+        (message) => message.method === "thread/name/set"
+      );
+      assert.equal(nameRequests.length, 1);
+      assert.deepEqual(nameRequests[0].params, {
+        name: "OpenMeld · Monica · Adjust the close button",
+        threadId: "thread-new-1",
+      });
+      assert.ok(
+        messages.indexOf(nameRequests[0]) >
+          messages.findIndex((message) => message.method === "turn/start")
+      );
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+}
+
+test("codex app-server can stop while new Session naming never responds", async () => {
+  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+  const dir = await mkdtemp(join(tmpdir(), "codex-title-stop-"));
+  const fixture = join(dir, "fake.mjs");
+  const logPath = join(dir, "rpc.jsonl");
+  const cancellation = new AbortController();
+  await writeFakeCodexAppServerFixture(fixture);
+  try {
+    const result = await invokeCodexAppServerTransport({
+      launchContract: createNodeScriptLaunchContract(fixture),
+      codexTimeoutMs: 5000,
+      codexWorkdir: dir,
+      cancellationSignal: cancellation.signal,
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_NAME_RESULT: "hang",
+        OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS: "3000",
+      },
+      newSessionTitle: "OpenMeld · Stop this task",
+      onRuntimeEvent: (event) => {
+        if (event.phase === "provider_turn_accepted") {
+          cancellation.abort();
+        }
+      },
+      prompt: "work",
+      taskId: "title-stop",
+      threadId: null,
+    });
+    assert.equal(result.output, "");
+    const messages = await readFakeAppServerMessages(logPath);
+    assert.equal(
+      messages.filter((message) => message.method === "thread/name/set").length,
+      1
+    );
+    assert.equal(
+      messages.filter((message) => message.method === "turn/interrupt").length,
+      1
+    );
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test("codex app-server keeps the complete fallback prompt for legacy resumed threads", async () => {
   const { invokeCodexAppServerTransport } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-native-legacy-"));
@@ -1692,6 +1783,7 @@ test("codex app-server keeps the complete fallback prompt for legacy resumed thr
       },
       prompt: "complete fallback prompt",
       taskId: "task-native-legacy",
+      newSessionTitle: "OpenMeld · Do not replace this user's title",
       threadId: "legacy-thread",
     });
 
@@ -1700,6 +1792,10 @@ test("codex app-server keeps the complete fallback prompt for legacy resumed thr
       (message) => message.method === "turn/start"
     );
     assert.equal(turnStart.params.input[0].text, "complete fallback prompt");
+    assert.equal(
+      messages.some((message) => message.method === "thread/name/set"),
+      false
+    );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });

@@ -357,6 +357,10 @@ export {
   uploadSpaceAttachment,
   uploadSpaceFile,
 } from "./space";
+export {
+  readOrUpdateSpaceFilePins,
+  readOrUpdateSpaceMessagePins,
+} from "./space/message-pins";
 export type {
   OpenMeldApiClientStreamTransport,
   OpenMeldApiClientTransport,

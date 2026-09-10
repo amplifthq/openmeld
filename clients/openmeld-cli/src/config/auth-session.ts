@@ -1851,6 +1851,12 @@ async function readSessionPayloadFile(): Promise<Partial<AuthSessionV1> | null> 
 }
 
 async function recoverInterruptedAuthSessionTransition(): Promise<void> {
+  // Committed session reads do not mutate state. Only enter the recovery
+  // critical section when a durable transition actually needs inspection.
+  // The locked operation rereads the journal before making any changes.
+  if (!(await readAuthSessionTransitionJournal())) {
+    return;
+  }
   await withAuthSessionTransitionMutationLock(
     recoverInterruptedAuthSessionTransitionWithOwnership
   );

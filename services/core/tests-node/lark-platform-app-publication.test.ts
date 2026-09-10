@@ -1,8 +1,8 @@
 import type { Client } from "@larksuiteoapi/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 import {
-  configureAndVerifyLarkPlatformWebhookApp,
-  publishLarkPlatformWebhookApp,
+  configureAndVerifyLarkPlatformPersistentApp,
+  publishLarkPlatformApp,
   verifyLarkPlatformPublishedVersion,
 } from "../src/remote-agent/application/lark-platform-app-configuration";
 import { LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE } from "../src/remote-agent/application/lark-platform-permission-bundles";
@@ -94,14 +94,11 @@ describe("Lark-platform application publication", () => {
       );
     const onPublicationSubmitted = vi.fn();
     await expect(
-      configureAndVerifyLarkPlatformWebhookApp({
+      configureAndVerifyLarkPlatformPersistentApp({
         appId: "cli_test",
         appSecret: "test-secret",
         applicationVersionId: "oav_saved",
-        connectionId: "connection-test",
-        eventEncryptKey: "test-encrypt",
-        verificationToken: "test-verification",
-        gatewayOrigin: "https://gateway.openmeld.ai",
+        migrateWebhook: true,
         provider: "feishu",
         fetchImpl,
         onPublicationSubmitted,
@@ -155,7 +152,7 @@ describe("Lark-platform application publication", () => {
       .fn<typeof fetch>()
       .mockResolvedValue(Response.json(published));
     await expect(
-      publishLarkPlatformWebhookApp({
+      publishLarkPlatformApp({
         apiHost,
         appId: "cli_test",
         fetchImpl,
@@ -181,7 +178,7 @@ describe("Lark-platform application publication", () => {
     { code: 0, data: {} },
   ])("does not treat an unverified publication response as success", async (response) => {
     await expect(
-      publishLarkPlatformWebhookApp({
+      publishLarkPlatformApp({
         apiHost: "https://open.feishu.cn",
         appId: "cli_test",
         provider: "feishu",

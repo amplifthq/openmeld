@@ -517,7 +517,18 @@ export function resolveAgentControllerSupervisedProcessIds(input: {
   processTable: string;
   supervisionId: string;
 }): number[] {
-  const supervisionMarker = `${PROCESS_SUPERVISION_ENV_KEY}=${input.supervisionId}`;
+  return resolveAgentControllerProcessIdsFromTable({
+    ...input,
+    supervisionMarker: `${PROCESS_SUPERVISION_ENV_KEY}=${input.supervisionId}`,
+  });
+}
+
+function resolveAgentControllerProcessIdsFromTable(input: {
+  markedProcessIds?: Iterable<number>;
+  processId: number;
+  processTable: string;
+  supervisionMarker?: string;
+}): number[] {
   const childrenByParentProcessId = new Map<number, number[]>();
   const processGroupByProcessId = new Map<number, number>();
   const markedProcessIds = new Set<number>(input.markedProcessIds);
@@ -545,7 +556,10 @@ export function resolveAgentControllerSupervisedProcessIds(input: {
     children.push(processId);
     childrenByParentProcessId.set(parentProcessId, children);
     processGroupByProcessId.set(processId, processGroupId);
-    if (commandParts.includes(supervisionMarker)) {
+    if (
+      input.supervisionMarker !== undefined &&
+      commandParts.includes(input.supervisionMarker)
+    ) {
       markedProcessIds.add(processId);
     }
   }
@@ -662,49 +676,7 @@ export function resolveAgentControllerDescendantProcessIds(input: {
   processId: number;
   processTable: string;
 }): number[] {
-  const childrenByParentProcessId = new Map<number, number[]>();
-  const processGroupByProcessId = new Map<number, number>();
-
-  for (const line of input.processTable.split(PROCESS_TABLE_LINE_SEPARATOR)) {
-    const [processIdText, parentProcessIdText, processGroupIdText] = line
-      .trim()
-      .split(PROCESS_TABLE_COLUMN_SEPARATOR);
-    const processId = Number.parseInt(processIdText ?? "", 10);
-    const parentProcessId = Number.parseInt(parentProcessIdText ?? "", 10);
-    const processGroupId = Number.parseInt(processGroupIdText ?? "", 10);
-    if (
-      !(
-        Number.isInteger(processId) &&
-        processId > 0 &&
-        Number.isInteger(parentProcessId) &&
-        parentProcessId >= 0 &&
-        Number.isInteger(processGroupId) &&
-        processGroupId > 0
-      )
-    ) {
-      continue;
-    }
-    const children = childrenByParentProcessId.get(parentProcessId) ?? [];
-    children.push(processId);
-    childrenByParentProcessId.set(parentProcessId, children);
-    processGroupByProcessId.set(processId, processGroupId);
-  }
-
-  const descendants: number[] = [];
-  const pending = [...(childrenByParentProcessId.get(input.processId) ?? [])];
-  const visited = new Set<number>([input.processId]);
-  while (pending.length > 0) {
-    const descendantProcessId = pending.shift();
-    if (descendantProcessId === undefined || visited.has(descendantProcessId)) {
-      continue;
-    }
-    visited.add(descendantProcessId);
-    if (processGroupByProcessId.get(descendantProcessId) !== input.processId) {
-      descendants.push(descendantProcessId);
-    }
-    pending.push(...(childrenByParentProcessId.get(descendantProcessId) ?? []));
-  }
-  return descendants;
+  return resolveAgentControllerProcessIdsFromTable(input);
 }
 
 function signalProcessId(input: {

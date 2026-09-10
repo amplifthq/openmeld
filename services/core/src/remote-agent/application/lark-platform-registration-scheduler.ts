@@ -21,7 +21,6 @@ export async function runLarkPlatformRegistrationTick(input: {
   }) => Promise<{ ok: true; personal: boolean } | { ok: false }>;
   clock?: () => number;
   createId?: () => string;
-  createSecret?: () => string;
   db: D1Database;
   env: RegistrationEnvironment;
   fetchImpl?: typeof fetch;
@@ -90,7 +89,6 @@ export async function runLarkPlatformRegistrationTick(input: {
         attemptId: attempt.attemptId,
         clock: input.clock,
         createId: input.createId,
-        createSecret: input.createSecret,
         db: input.db,
         env: input.env,
         fetchImpl: input.fetchImpl,

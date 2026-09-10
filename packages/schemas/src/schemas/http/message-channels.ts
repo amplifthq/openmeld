@@ -1,4 +1,4 @@
-import * as z from "zod/v4";
+import * as z from "#lazy-zod";
 import {
   MESSAGE_CHANNEL_PROVIDERS,
   messageChannelIngressEnvelopeSchema,
@@ -202,8 +202,12 @@ export const larkPlatformRegistrationAttemptProjectionSchema = z
         attempt.status !== "pending_registration" &&
         !(
           attempt.status === "configuring" &&
-          attempt.reasonCode ===
-            `${attempt.provider}.application_config_permission_required`
+          (attempt.reasonCode ===
+            `${attempt.provider}.application_config_permission_required` ||
+            attempt.reasonCode ===
+              `${attempt.provider}.authorization_update_required` ||
+            attempt.reasonCode ===
+              `${attempt.provider}.permission_bundle_mismatch`)
         ))
     ) {
       context.addIssue({

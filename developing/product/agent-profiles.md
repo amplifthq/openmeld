@@ -85,6 +85,15 @@ Auth's additional-Human-creation capability is disabled; this does not hide or
 invalidate existing non-default Human Profiles.
 
 The platform may create managed Agent Profiles only for explicit system roles.
+An Organization's Center Agent, including a Personal Workspace Center Agent,
+belongs to the Organization itself. Its `ownerUserId` is null; its immutable
+Organization and Profile identities own its lifecycle. The creating member is
+audit attribution only. Current Organization roles authorize management and do
+not confer access to the Agent's private Spaces, conversations, or member App
+connections. Removing or deleting the creating member must not delete or
+reassign the Center Agent. Ordinary human-owned Agent Profiles retain their
+account ownership and owner-participation contract.
+
 The current system role is the org-scoped `managedRole = "center_agent"` profile
 for each org's Center Agent, including personal orgs. Legacy
 `managedRole = "openmeld_assistant"` profiles are retained as historical data
@@ -148,6 +157,53 @@ belongs to the active Organization. It must not enumerate Profiles, inspect
 unrelated Bindings, or silently choose a Profile from another Organization.
 
 ## Agent Profile Creation Requests
+
+### Teammate request launch hold
+
+Cross-user Agent creation requests (the future Request an Agent / Borrow
+experience) are intentionally unreleased. This is a launch hold, not legacy or
+deprecated code. Retain the request coordinator, approval UI, preferences,
+schemas, and isolated lifecycle tests for later development.
+
+`TEAMMATE_AGENT_REQUESTS_ENABLED` is the shared release decision. Production
+does not expose a per-user setting or environment override. To develop the
+future experience, change this decision only in an isolated branch and lane.
+The service's explicit opt-in exists for isolated lifecycle tests only.
+
+Core rejects cross-user create (including idempotent replay), approval, retry,
+and approval-preference writes. Request reads expose only self-owned creation.
+Old unclaimed Queue work is claimed and settled as a failed request without
+creating an identity or running setup, so delivery and scheduled recovery stop
+retrying it. Already claimed execution is not interrupted. Stored requests,
+preferences, existing Agents, and Space membership are not deleted or migrated.
+Inbox hides this source consistently in lists, counts, and email eligibility;
+new approval notifications are not projected.
+
+Self-owned Local and Remote Agent creation, progress, cancellation, and recovery
+remain available. Web calls that progress surface **Agent setup**, not a
+teammate request product. Organization-owned Center Agent creation and lifecycle
+are outside this hold. Agent actors representing a verified member remain able
+to create for that same represented member.
+
+Before reopening, finish the recipient-choice experience in isolation (provide
+an existing Agent or create one, connect a Computer only when needed, and return
+to the intended Space). Recheck Web creation and Activity entry points, Settings,
+Inbox, CLI help and managed Skills, Center Agent tools, Core mutations and Queue
+execution together. Approval of a frozen creation intent must not silently grant
+broader sharing authority. Test both self creation and teammate requests before
+changing the release decision; do not restore only a visible button.
+
+Launch-hold contract audit: request payloads, status enums, error envelopes,
+Service transport, setup, Wake, dispatch-owned actions, and diagnostics retain
+their existing wire contracts. Old clients receive the existing Core forbidden
+error for cross-user creation; new clients still create and recover their own
+Agents against old Core. CLI discovery and bundled guidance narrow to the
+released self-creation capability, without removing the recovery commands.
+No runtime or command contract bump is needed. Deploy the Core enforcement
+before Web and Remote Agent discovery changes; the CLI/Skill update is advisory,
+not a forced restart or upgrade. Keep release versions and manifests unchanged
+on the feature branch, use deferred release-ready validation, and stamp the
+affected local components as available in the final publishing release.
 
 An Agent Profile Creation Request is the one Organization-scoped coordination
 flow for creating an Agent Profile owned by the requester or by another member.
@@ -464,11 +520,13 @@ new Binding's unchanged value. Web clients also compare an accepted response
 with the requested permission, collaboration, model/reasoning, or OpenCode
 permission before showing “Settings saved.”
 
-The Agent Profile's authoritative `ownerUserId` is also the Binding owner and
-RuntimeCoordinator shard owner. An administrator acting within the Profile's
-canonical Organization remains the action and audit actor and must not become a
-second Binding owner. A write that discovers an older enabled Binding for the
-same Agent Profile under another owner must acquire mutation admission from
+For personal Agent Profiles, the authoritative `ownerUserId` is also the Binding
+owner and RuntimeCoordinator shard owner. Organization Center Agents instead
+have an `organization`-owned hosted Binding and use native delivery authority.
+They never borrow a member's RuntimeCoordinator shard. An administrator acting
+within the Profile's canonical Organization remains the action and audit actor
+and must not become a second Binding owner. A personal Agent Profile write that
+discovers an older enabled Binding under another owner must acquire mutation admission from
 every affected owner shard before changing the Binding. Disabling admitted
 legacy Bindings and installing the Profile owner's target are one atomic D1
 write; any failed step leaves the previous enabled Bindings intact. Unavailable

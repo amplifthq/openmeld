@@ -13,6 +13,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import { StopIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
@@ -125,8 +126,10 @@ export function SpaceWakeStopControl(input: {
 			<Button
 				aria-label={controlLabel}
 				className={cn(
-					"text-muted-foreground hover:text-foreground",
-					variant === "timeline" ? "gap-1 px-1.5" : null
+					variant === "timeline" && surfaceClasses(2),
+					variant === "timeline"
+						? "rounded-full px-1.5 py-0 text-foreground max-lg:min-h-0 max-lg:min-w-0"
+						: "text-muted-foreground hover:text-foreground"
 				)}
 				disabled={disabled}
 				onClick={() => {
@@ -457,12 +460,21 @@ function SingleTargetWakeStopDialog(input: {
 		pendingSelectorKeys: input.pendingSelectorKeys,
 		target: input.target,
 	});
-	const description = `OpenMeld will stop this Wake for ${targetLabel}. If the agent has already started, confirmation may take a moment.`;
+	const description = input.target.isWaitingForDevice
+		? `Cancel this waiting task for ${targetLabel}. If it has just started, OpenMeld will request a stop instead.`
+		: `OpenMeld will stop this Wake for ${targetLabel}. If the agent has already started, confirmation may take a moment.`;
+	const actionLabel = input.target.isWaitingForDevice
+		? "Cancel waiting"
+		: "Stop Wake";
 
 	return (
 		<>
 			<DialogHeader>
-				<DialogTitle>Stop this Wake?</DialogTitle>
+				<DialogTitle>
+					{input.target.isWaitingForDevice
+						? "Cancel waiting?"
+						: "Stop this Wake?"}
+				</DialogTitle>
 				<DialogDescription>{description}</DialogDescription>
 			</DialogHeader>
 			{input.statusMessage ? (
@@ -472,7 +484,7 @@ function SingleTargetWakeStopDialog(input: {
 			) : null}
 			<DialogFooter>
 				<DialogClose render={<Button type="button" variant="outline" />}>
-					Keep Running
+					{input.target.isWaitingForDevice ? "Keep waiting" : "Keep Running"}
 				</DialogClose>
 				<Button
 					disabled={isPending || !input.target.canStop}
@@ -491,7 +503,7 @@ function SingleTargetWakeStopDialog(input: {
 					type="button"
 					variant="destructive"
 				>
-					{isPending ? "Requesting Stop..." : "Stop Wake"}
+					{isPending ? "Requesting Stop..." : actionLabel}
 				</Button>
 			</DialogFooter>
 		</>
@@ -686,6 +698,13 @@ function resolveWakeStopControlLabel(input: {
 	targetLabel: string;
 	targets: readonly SpaceWakeStopTargetResolution[];
 }): string {
+	if (
+		input.targets.length === 1 &&
+		input.targets[0]?.isWaitingForDevice &&
+		input.status === "active"
+	) {
+		return `Cancel waiting for ${input.targetLabel}`;
+	}
 	if (input.isPending) {
 		return input.targetCount > 1
 			? "Stop request pending for this Wake"
@@ -727,6 +746,9 @@ function resolveWakeStopButtonText(input: {
 	}
 	if (input.targets.some((target) => target.status === "retry_later")) {
 		return "Retry Stop";
+	}
+	if (input.targets.length === 1 && input.targets[0]?.isWaitingForDevice) {
+		return "Cancel waiting";
 	}
 	return "Stop";
 }

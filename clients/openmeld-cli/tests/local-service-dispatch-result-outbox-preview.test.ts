@@ -749,8 +749,14 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("injects current Space meta into the runtime prompt", async () => {
+  it("injects current Space meta without inspecting the Service installation", async () => {
     await withTempHome(async () => {
+      const serviceInventory = await import(
+        "../src/local-service/lifecycle/daemon-service-inventory"
+      );
+      const inspectInstallation = vi
+        .spyOn(serviceInventory, "inspectDaemonServiceInventory")
+        .mockRejectedValue(new Error("Maintenance inspection is unavailable"));
       const ledgerPaths = createLedgerPaths();
       const presenter = createPresenter();
       const settlementSocket = createAcceptedSettlementSocket({
@@ -819,6 +825,7 @@ describe("dispatch result outbox around preview teardown", () => {
         result: "success",
       });
       expect(fetchSpaceMetaMock).toHaveBeenCalledTimes(1);
+      expect(inspectInstallation).not.toHaveBeenCalled();
     });
   });
 

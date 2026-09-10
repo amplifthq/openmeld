@@ -419,7 +419,10 @@ function renderCenterAgentStatusCard(input: {
         label: "Operating State",
         value: input.operatingState?.operatingState ?? "unknown",
       },
-      { label: "Designated By", value: input.designation.designatedBy },
+      {
+        label: "Designated By",
+        value: input.designation.designatedBy ?? "Deleted member",
+      },
       { label: "Created At", value: input.designation.createdAt },
     ],
     sanitize: true,
@@ -452,7 +455,7 @@ function renderCenterAgentDesignationCard(input: {
       },
       {
         label: "Designated By",
-        value: input.response.designation.designatedBy,
+        value: input.response.designation.designatedBy ?? "Deleted member",
       },
       { label: "Created At", value: input.response.designation.createdAt },
     ],

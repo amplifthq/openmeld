@@ -1,3 +1,4 @@
+import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
 import type { AgentProfileCreationRequest } from "@openmeld/schemas/types";
 import {
   ensureInboxItem,
@@ -11,7 +12,9 @@ export async function projectAgentProfileCreationRequestInbox(input: {
   nowMs: number;
   request: AgentProfileCreationRequest;
 }): Promise<void> {
-  if (input.request.status !== "pending") {
+  // Launch hold: no new notifications; existing rows remain stored but hidden
+  // by the shared Inbox source-access projection (including counts and email).
+  if (!TEAMMATE_AGENT_REQUESTS_ENABLED || input.request.status !== "pending") {
     return;
   }
   await ensureInboxItem({

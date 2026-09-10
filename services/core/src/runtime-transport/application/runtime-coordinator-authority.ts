@@ -38,6 +38,7 @@ import type {
   RuntimeTransportRuntimeCoordinatorDecisionRequest,
   RuntimeTransportRuntimeCoordinatorDecisionResponse,
   RuntimeTransportRuntimeCoordinatorHeadAcceptRequest,
+  RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse,
   RuntimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategory,
   RuntimeTransportRuntimeCoordinatorHeadNoExecutionReasonCode,
   RuntimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryAction,
@@ -479,62 +480,48 @@ type RuntimeCoordinatorHeadWaitingBoundaryCommon = {
   waitingSinceMs: number;
 };
 
-export type RuntimeCoordinatorHeadWaitingBoundary =
-  | (RuntimeCoordinatorHeadWaitingBoundaryCommon & {
-      reasonCode: "daemon.profile.offline";
-      trigger: "openmeld_service_route_connected";
-      userRecoveryAction: "start_or_restart_openmeld_service";
-      userVisibleState: "waiting_for_openmeld_service";
-      waitingCategory: "service_not_connected";
-      waitingFor: "openmeld_service_route_connection";
-    })
-  | (RuntimeCoordinatorHeadWaitingBoundaryCommon & {
-      reasonCode: "daemon.profile.pending_first_report";
-      trigger: "wake_route_reported";
-      userRecoveryAction: "wait_for_wake_route_report";
-      userVisibleState: "waiting_for_wake_route_report";
-      waitingCategory: "wake_route_registration_pending";
-      waitingFor: "wake_route_report";
-    });
+export type RuntimeCoordinatorHeadWaitingBoundary = NonNullable<
+  Extract<
+    RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse,
+    { readStatus: "found" }
+  >["lifecycle"]["waitingBoundary"]
+>;
+
+type WaitingPolicy<T> = T extends RuntimeCoordinatorHeadWaitingBoundaryCommon
+  ? Omit<T, keyof RuntimeCoordinatorHeadWaitingBoundaryCommon>
+  : never;
 
 export type RuntimeCoordinatorHeadWaitingPolicy =
-  | {
-      reasonCode: "daemon.profile.offline";
-      trigger: "openmeld_service_route_connected";
-      userRecoveryAction: "start_or_restart_openmeld_service";
-      userVisibleState: "waiting_for_openmeld_service";
-      waitingCategory: "service_not_connected";
-      waitingFor: "openmeld_service_route_connection";
-    }
-  | {
-      reasonCode: "daemon.profile.pending_first_report";
-      trigger: "wake_route_reported";
-      userRecoveryAction: "wait_for_wake_route_report";
-      userVisibleState: "waiting_for_wake_route_report";
-      waitingCategory: "wake_route_registration_pending";
-      waitingFor: "wake_route_report";
-    };
+  WaitingPolicy<RuntimeCoordinatorHeadWaitingBoundary>;
+
+type WaitingDecision<T> = T extends RuntimeCoordinatorHeadWaitingPolicy
+  ? Pick<T, "reasonCode" | "userRecoveryAction" | "waitingCategory">
+  : never;
 
 export type RuntimeCoordinatorHeadWaitingDecision =
-  | Pick<
-      Extract<
-        RuntimeCoordinatorHeadWaitingPolicy,
-        { reasonCode: "daemon.profile.offline" }
-      >,
-      "reasonCode" | "userRecoveryAction" | "waitingCategory"
-    >
-  | Pick<
-      Extract<
-        RuntimeCoordinatorHeadWaitingPolicy,
-        { reasonCode: "daemon.profile.pending_first_report" }
-      >,
-      "reasonCode" | "userRecoveryAction" | "waitingCategory"
-    >;
+  WaitingDecision<RuntimeCoordinatorHeadWaitingPolicy>;
 
 export const resolveRuntimeCoordinatorHeadWaitingDecision = (
   reasonCode: RuntimeCoordinatorHeadWaitingBoundary["reasonCode"]
-): RuntimeCoordinatorHeadWaitingDecision =>
-  reasonCode === "daemon.profile.pending_first_report"
+): RuntimeCoordinatorHeadWaitingDecision => {
+  if (reasonCode === "wake.device_wait.access_check_unavailable") {
+    return {
+      reasonCode,
+      userRecoveryAction: "check_status",
+      waitingCategory: "space_access_unavailable",
+    };
+  }
+  if (
+    reasonCode === "wake.device_wait.readiness_checking" ||
+    reasonCode === "daemon.service.draining"
+  ) {
+    return {
+      reasonCode,
+      userRecoveryAction: "check_status",
+      waitingCategory: "local_agent_unavailable",
+    };
+  }
+  return reasonCode === "daemon.profile.pending_first_report"
     ? {
         reasonCode,
         userRecoveryAction: "wait_for_wake_route_report",
@@ -545,11 +532,35 @@ export const resolveRuntimeCoordinatorHeadWaitingDecision = (
         userRecoveryAction: "start_or_restart_openmeld_service",
         waitingCategory: "service_not_connected",
       };
+};
 
 export const resolveRuntimeCoordinatorHeadWaitingPolicy = (
   reasonCode: RuntimeCoordinatorHeadWaitingBoundary["reasonCode"]
-): RuntimeCoordinatorHeadWaitingPolicy =>
-  reasonCode === "daemon.profile.pending_first_report"
+): RuntimeCoordinatorHeadWaitingPolicy => {
+  if (reasonCode === "wake.device_wait.access_check_unavailable") {
+    return {
+      reasonCode,
+      trigger: "space_access_rechecked",
+      userRecoveryAction: "check_status",
+      userVisibleState: "waiting_for_space_access",
+      waitingCategory: "space_access_unavailable",
+      waitingFor: "space_access_check",
+    };
+  }
+  if (
+    reasonCode === "wake.device_wait.readiness_checking" ||
+    reasonCode === "daemon.service.draining"
+  ) {
+    return {
+      reasonCode,
+      trigger: "agent_readiness_reported",
+      userRecoveryAction: "check_status",
+      userVisibleState: "waiting_for_agent_readiness",
+      waitingCategory: "local_agent_unavailable",
+      waitingFor: "agent_readiness_report",
+    };
+  }
+  return reasonCode === "daemon.profile.pending_first_report"
     ? {
         reasonCode,
         trigger: "wake_route_reported",
@@ -566,6 +577,7 @@ export const resolveRuntimeCoordinatorHeadWaitingPolicy = (
         waitingCategory: "service_not_connected",
         waitingFor: "openmeld_service_route_connection",
       };
+};
 
 export type RuntimeCoordinatorHeadLifecycleRecord = {
   /**
@@ -602,6 +614,21 @@ export type RuntimeCoordinatorHeadLifecycleRecord = {
   updatedAtMs: number;
   waitingBoundary?: RuntimeCoordinatorHeadWaitingBoundary;
 };
+
+export function isRuntimeCoordinatorHeadWaitingForDevice(
+  record: RuntimeCoordinatorHeadLifecycleRecord
+): boolean {
+  return (
+    record.acceptedDispatchSnapshot?.deviceWait !== undefined &&
+    (record.status === "accepted" ||
+      record.status === "queued" ||
+      record.status === "waiting") &&
+    record.runtimeCoordinatorExecutionId === null &&
+    record.executionLinkedAtMs === null &&
+    !record.noExecutionDecision &&
+    !record.publicationIntent
+  );
+}
 
 export type RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord = {
   acceptedDispatchPayloadFingerprint: string;
@@ -791,12 +818,18 @@ export const resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMsFromRecords =
   }): number | null => {
     let nextAlarmAtMs: number | null = null;
     for (const record of input.records) {
-      if (record.status !== "waiting" || !record.waitingBoundary) {
+      const deviceWait = isRuntimeCoordinatorHeadWaitingForDevice(record)
+        ? record.acceptedDispatchSnapshot?.deviceWait
+        : undefined;
+      if (
+        !deviceWait &&
+        (record.status !== "waiting" || !record.waitingBoundary)
+      ) {
         continue;
       }
       nextAlarmAtMs = minNullableTimestamp(
         nextAlarmAtMs,
-        record.waitingBoundary.deadlineAtMs
+        deviceWait?.deadlineAtMs ?? record.waitingBoundary?.deadlineAtMs ?? null
       );
     }
     return nextAlarmAtMs;
@@ -859,19 +892,35 @@ export const resolveNextRuntimeCoordinatorFinalizationRetryAlarmAtMsFromEntries 
 
 export type RuntimeCoordinatorHeadWaitingAlarmWorkItem =
   RuntimeCoordinatorHeadLifecycleRecord & {
-    status: "waiting";
-    waitingBoundary: RuntimeCoordinatorHeadWaitingBoundary;
+    status: "waiting" | "queued" | "accepted";
   };
 
 export const planRuntimeCoordinatorHeadWaitingAlarmWork = (input: {
   nowMs: number;
   records: RuntimeCoordinatorHeadLifecycleRecord[];
 }): RuntimeCoordinatorHeadWaitingAlarmWorkItem[] =>
-  input.records.filter(
-    (record): record is RuntimeCoordinatorHeadWaitingAlarmWorkItem =>
-      record.status === "waiting" &&
-      record.waitingBoundary != null &&
-      record.waitingBoundary.deadlineAtMs <= input.nowMs
+  input.records.flatMap(
+    (record): RuntimeCoordinatorHeadWaitingAlarmWorkItem[] => {
+      if (
+        record.status !== "waiting" &&
+        !isRuntimeCoordinatorHeadWaitingForDevice(record)
+      ) {
+        return [];
+      }
+      if (
+        record.status !== "waiting" &&
+        record.status !== "queued" &&
+        record.status !== "accepted"
+      ) {
+        return [];
+      }
+      const deadlineAtMs =
+        record.acceptedDispatchSnapshot?.deviceWait?.deadlineAtMs ??
+        record.waitingBoundary?.deadlineAtMs;
+      return deadlineAtMs !== undefined && deadlineAtMs <= input.nowMs
+        ? [{ ...record, status: record.status }]
+        : [];
+    }
   );
 
 export const planRuntimeCoordinatorHeadAcceptedHandoffAlarmWork = (input: {
@@ -1957,6 +2006,17 @@ export const buildRuntimeCoordinatorHeadPublicationIntentReadyRecord = (input: {
   reasonCode: RuntimeTransportRuntimeCoordinatorHeadNoExecutionReasonCode;
   userRecoveryAction: RuntimeCoordinatorHeadNoExecutionDecision["userRecoveryAction"];
 }): RuntimeCoordinatorHeadLifecycleRecord => {
+  // Expiry ends this request. Its recovery action must never inherit a
+  // previous offline, draining, or readiness boundary's repair guidance.
+  const decision =
+    input.decisionSource === "runtime_coordinator_head_waiting_deadline" &&
+    input.existing.acceptedDispatchSnapshot?.deviceWait
+      ? {
+          publicationCategory: "local_agent_unavailable" as const,
+          reasonCode: "wake.device_wait.expired",
+          userRecoveryAction: "send_new_wake" as const,
+        }
+      : input;
   const publicationIntentId = buildRuntimeCoordinatorHeadPublicationIntentId(
     input.existing.targetWakeLifecycleId
   );
@@ -1964,19 +2024,19 @@ export const buildRuntimeCoordinatorHeadPublicationIntentReadyRecord = (input: {
     ...input.existing,
     noExecutionDecision: {
       decidedAtMs: input.nowMs,
-      publicationCategory: input.publicationCategory,
-      reasonCode: input.reasonCode,
+      publicationCategory: decision.publicationCategory,
+      reasonCode: decision.reasonCode,
       source: input.decisionSource,
-      userRecoveryAction: input.userRecoveryAction,
+      userRecoveryAction: decision.userRecoveryAction,
     },
     publicationIntent: {
       intentId: publicationIntentId,
       kind: "no_execution_failure",
-      publicationCategory: input.publicationCategory,
+      publicationCategory: decision.publicationCategory,
       readyAtMs: input.nowMs,
-      reasonCode: input.reasonCode,
+      reasonCode: decision.reasonCode,
       status: "ready_for_phase_6",
-      userRecoveryAction: input.userRecoveryAction,
+      userRecoveryAction: decision.userRecoveryAction,
     },
     runtimeCoordinatorExecutionId: null,
     status: "publication_intent_ready",
@@ -2428,6 +2488,12 @@ const isAcceptedDispatchSnapshot = (
   const snapshot = value as OpenMeldDaemonAcceptedDispatchSnapshot;
   const controller = snapshot.controllerSnapshot;
   return (
+    (snapshot.deviceWait === undefined ||
+      (Number.isInteger(snapshot.deviceWait.deadlineAtMs) &&
+        snapshot.deviceWait.deadlineAtMs >= 0 &&
+        snapshot.deviceWait.bindingId === controller?.bindingId &&
+        snapshot.deviceWait.openMeldServiceRuntimeId ===
+          snapshot.openMeldServiceRuntimeId)) &&
     typeof snapshot.payloadFingerprint === "string" &&
     ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_PATTERN.test(
       snapshot.payloadFingerprint

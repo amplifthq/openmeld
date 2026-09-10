@@ -256,6 +256,23 @@ model forces `owner: User | Org` unions through every permission check and
 makes personal→org growth a painful resource migration. Rejected in
 discussion; do not reintroduce it.
 
+Center Agent ownership follows this tenant model in both collaborative
+Organizations and Personal Workspaces. The managed Profile and hosted Binding
+belong to the Organization; `ownerUserId` is null. `createdByUserId`,
+`designatedBy`, and `pausedByUserId` are nullable audit attribution, not ownership
+or authority. Deleting or removing a creating member must preserve the Profile,
+designation, Binding, configuration, and history. Personal Agents remain owned
+by their users within one Organization.
+
+Management permission does not grant access to private Spaces, other members'
+Center Agent DMs, private memory, tasks, or App credentials. Center Agent Space
+membership cannot confer personal access on an administrator or creator. Native
+tool calls identify the Center Agent itself; actions on behalf of a person must
+carry separately verified member attribution.
+
+Migration, persisted Space access, and cross-client release constraints are
+owned by [Organization Agent ownership](../architecture/organization-agent-ownership.md).
+
 ### Naming: `organization` is the tenant — never "team"
 
 The tenant is named **organization** (informally "org") across code, DB, API,
@@ -559,10 +576,9 @@ The Center Agent has one Web product home with complementary destinations:
   settings, while Slack management lives in Channels.
 - **Center Agent → Center Agent settings** is the only Center Agent management
   page. It contains model information, usage, the Audit Log, and the reversible
-  **Pause Center Agent** control in Danger Zone. Only the immutable Organization
-  creator may pause or resume it; Web and Core both enforce that exact creator
-  identity. Owners/admins may retain their separately authorized configuration
-  actions, but role alone never grants operating-state authority.
+  **Pause Center Agent** control in Danger Zone. Current Organization owners and
+  admins may pause or resume it. Web and Core enforce the same current membership
+  permission. Creation history grants no additional authority.
 
 ### Center Agent sessions
 
@@ -1002,7 +1018,7 @@ center_agent_designations(
   designatedBy,       -- member who designated
   operatingState,     -- active | paused
   pausedAt,           -- NULL while active
-  pausedByUserId,     -- immutable Organization creator while paused
+  pausedByUserId,     -- audit actor; may become NULL after account deletion
   createdAt
 )
 UNIQUE (organizationId)   -- MVP: exactly one Center Agent per org
@@ -1033,11 +1049,9 @@ UNIQUE (organizationId)   -- MVP: exactly one Center Agent per org
 - `active` and `paused` are the only Center Agent operating states. Operating
   state belongs to the designation; it is not profile status, Binding health,
   Channel connection state, or Routine status.
-- Only the immutable Organization creator recorded as
-  `organizations.createdByUserId` may pause or resume the Center Agent. Current
-  `owner` or `admin` role is not equivalent to creator authority. Existing
-  Organizations are backfilled from their earliest owner membership; missing
-  creator evidence fails closed and exposes no mutation authority.
+- Current Organization owners and admins may pause or resume the Center Agent
+  using their Human Profile and the `centerAgent.update` permission. Creation
+  history does not grant lasting management authority.
 - Pause is an Organization-wide emergency control. It requests cancellation
   of every current Center Agent native delivery across OpenMeld, Slack, and
   connected Message Channels, including Routine work, and rejects every new
@@ -1068,8 +1082,7 @@ UNIQUE (organizationId)   -- MVP: exactly one Center Agent per org
 Every Organization member may read the Center Agent's effective model and ask
 the Center Agent which primary model it is using. Only a current owner or admin
 may update the model through the shared Better Auth `centerAgent:update`
-permission. This mutation authority is intentionally different from the
-immutable Organization creator's exclusive Pause/Resume authority.
+permission. Pause/Resume uses the same current-role authority.
 
 The hosted Binding is the single configuration owner. Its nullable `modelId`
 has two meanings:
@@ -1183,13 +1196,14 @@ metadata or shows raw provider ids. BYOK is not part of this release.
   draft those requests for a human `owner`/`admin` to approve.
 - A verified member's explicit request is authority for ordinary safe writes;
   asking the Center Agent to perform an action must not trigger a redundant
-  confirmation. In an interactive conversation, delete and merge remain the
-  exception and require one separate confirmation naming the exact target and
-  effect. A clear affirmative executes without another loop.
+  confirmation. An explicit interactive request can also authorize an exact
+  delete or merge. Action-bound tokens may be consumed in the same turn; they
+  bind inputs and identity, not human intent. Ask only when authority or the
+  exact target/effect is missing or materially changes.
 - Remove Project is a narrowly approved exception to the no-autonomous-
   destructive rule: it requires a short-lived Core confirmation token issued
   for the exact represented member, Project, and Project version, then consumed
-  in a later interactive member turn. Project removal is unsupported during a
+  in the same interactive turn when already authorized. Project removal is unsupported during a
   Routine and returns `routine_destructive_action_unsupported` with zero side
   effects.
 - Routine management is a narrowly-owned represented-member contract, not an
@@ -2054,8 +2068,10 @@ identity. Routines and member research reject requester selection and use only
 the Organization's GitHub App installation. Read replies name the chosen
 identity. Ordinary GitHub writes execute directly when the verified user or
 durable Routine instruction requests them. Interactive file deletion and
-pull-request merge require one separate confirmation naming the concrete
-action, repository, and chosen identity. Routine file deletion and
+pull-request merge use an exact action preview and token, which may be consumed
+in the same turn when the verified user already authorized the concrete action,
+repository, and chosen identity. Otherwise the Agent asks before execution.
+Routine file deletion and
 pull-request merge return `routine_destructive_action_unsupported` with zero
 side effects. A member connection may be disconnected only by its member owner
 or an Organization owner or admin.

@@ -18,6 +18,7 @@ import type {
   GetSpaceEntryResolutionInput,
   GetSpaceEntryResolutionResponse,
   GetSpaceMessageDetailsResponse,
+  GetSpaceMessageReactionsResponse,
   GetSpaceStatusResponse,
   GetSpaceThreadResponse,
   GetSpaceUpdatesResponse,
@@ -51,6 +52,8 @@ import type {
   SpaceComposerUploadDescriptor,
   SpaceFileDescriptor,
   SpaceFileEntry,
+  SpaceHistoryNavigation,
+  SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
@@ -62,6 +65,10 @@ import type {
 import type { OpenMeldApiClientFoundation } from "../client";
 import type { UploadSpaceAttachmentInput } from "./attachments";
 import type { SpaceFileContent, SpaceFileContentBytes } from "./files";
+import type {
+  ReadMessageReactionsInput,
+  SetMessageReactionInput,
+} from "./message-reactions";
 
 export type {
   CreateSpaceDiagnosticReportBody,
@@ -124,6 +131,12 @@ export type SetSpaceAccessModeInput = SpaceRequestInput &
 export type UpdateSpaceMetaInput = SpaceRequestInput & PatchSpaceMetaBody;
 
 export type SpaceApi = {
+  getMessageReactions(
+    input: ReadMessageReactionsInput
+  ): Promise<GetSpaceMessageReactionsResponse>;
+  setMessageReaction(
+    input: SetMessageReactionInput
+  ): Promise<GetSpaceMessageReactionsResponse>;
   createSpace: (input: CreateSpaceInput) => Promise<CreateSpaceResponse>;
   deleteSpace: (input: SpaceRequestInput) => Promise<DeleteSpaceResponse>;
   joinSpace: (input: SpaceRequestInput) => Promise<PostSpaceMembersResponse>;
@@ -240,6 +253,9 @@ export type SpaceApi = {
   getMemberDirectory: (
     input: SpaceRequestInput
   ) => Promise<SpaceMemberDirectory>;
+  getHistoryNavigation: (
+    input: SpaceRequestInput & SpaceHistoryNavigationQuery
+  ) => Promise<SpaceHistoryNavigation>;
   getIdentityDirectory: (
     input: SpaceRequestInput
   ) => Promise<SpaceIdentityDirectory>;
@@ -270,6 +286,7 @@ export type SpaceApi = {
       includeSourceContext?: boolean;
       includeTiming?: boolean;
       includeWaitReason?: boolean;
+      includeDeviceWait?: boolean;
       includeWakeStopEligibility?: boolean;
       sourceProfileId?: string;
       targetProfileId?: string;
@@ -301,6 +318,7 @@ export type SpaceApi = {
       includeSourceContext?: boolean;
       includeTiming?: boolean;
       includeWaitReason?: boolean;
+      includeDeviceWait?: boolean;
       includeWakeStopEligibility?: boolean;
       targetProfileId?: string;
     }
@@ -322,9 +340,16 @@ export type SpaceApi = {
       body: CreateSpaceDiagnosticReportBodyFromSchemas;
     }
   ) => Promise<CreateSpaceDiagnosticReportResponseFromSchemas>;
+  mutateMessage: (
+    input: SpaceRequestInput & {
+      signalId: string;
+      body: import("@openmeld/schemas/types").SpaceMessageMutationBody;
+    }
+  ) => Promise<import("@openmeld/schemas/types").SpaceMessageMutationResponse>;
   postNormalMessage: (
     input: SpaceRequestInput & {
       text: PostNormalMessageBody["text"];
+      deviceWait?: PostNormalMessageBody["deviceWait"];
       attachments?: PostNormalMessageBody["attachments"];
       files?: PostNormalMessageBody["files"];
       messageEnvelope?: PostNormalMessageBody["messageEnvelope"];

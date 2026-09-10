@@ -403,6 +403,72 @@ describe("Lark-platform Webhook verification", () => {
     }
   });
 
+  it.each([
+    "feishu",
+    "lark",
+  ] as const)("admits %s rich posts with verified group mention and preserved line breaks", async (provider) => {
+    const harness = createSqliteD1Harness();
+    applyConnectionMigration(harness);
+    await seedConnection(harness, {
+      encryptKey: null,
+      provider,
+      verificationToken: VERIFICATION_TOKEN,
+    });
+    try {
+      const fixture = structuredClone(
+        MESSAGE_FIXTURE
+      ) as typeof MESSAGE_FIXTURE & {
+        header: Record<string, unknown>;
+        event: { message: Record<string, unknown> };
+      };
+      fixture.header.app_id = `cli_${provider}_test`;
+      fixture.header.tenant_key = `tenant_${provider}_test`;
+      fixture.event.message.message_type = "post";
+      // Node structure follows the official received post example.
+      fixture.event.message.content = JSON.stringify({
+        title: "Review",
+        content: [
+          [
+            { tag: "at", user_id: "@_user_1" },
+            { tag: "text", text: "Please inspect" },
+          ],
+          [
+            {
+              tag: "code_block",
+              language: "Python",
+              text: "if ready:\n    run()",
+            },
+          ],
+        ],
+      });
+      const result = await verifyLarkPlatformWebhook({
+        db: harness.db,
+        env: buildEnv({ feishuEnabled: true, larkEnabled: true }),
+        input: {
+          connectionId: `connection_${provider}_test`,
+          gatewayRequestId: "rich_post",
+          headers: { nonce: null, signature: null, timestamp: null },
+          provider,
+          rawBody: JSON.stringify(fixture),
+          receivedAtMs: 1_710_000_000_100,
+          surface: "events",
+        },
+      });
+      expect(result).toMatchObject({
+        status: "enqueue",
+        envelope: {
+          event: {
+            kind: "message",
+            mention: "group_mention",
+            text: expect.stringContaining("if ready:\n    run()"),
+          },
+        },
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("normalizes an official image message into a bounded provider resource reference", async () => {
     const harness = createSqliteD1Harness();
     applyConnectionMigration(harness);
