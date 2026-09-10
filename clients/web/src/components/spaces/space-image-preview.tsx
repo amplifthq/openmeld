@@ -77,8 +77,8 @@ export function SpaceImagePreview(input: {
 							className={focusedActionClassName}
 						/>
 					) : null}
-					<MorphingDialogClose className="absolute top-3 right-3 rounded-full bg-white p-1.5 text-black shadow-sm hover:bg-white/90">
-						<XIcon aria-hidden="true" className="size-5" />
+					<MorphingDialogClose className="absolute top-3 right-3 rounded-full bg-white p-1 text-black shadow-sm hover:bg-white/90">
+						<XIcon aria-hidden="true" className="size-4" />
 					</MorphingDialogClose>
 				</MorphingDialogContent>
 			</MorphingDialogContainer>

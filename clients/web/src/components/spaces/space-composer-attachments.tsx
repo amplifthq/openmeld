@@ -217,14 +217,14 @@ export function SpaceComposerFileTray(input: {
 						</Tooltip>
 						<Button
 							aria-label={`Remove ${file.fileName}`}
-							className="absolute top-1 right-1 z-10 size-5 rounded-full bg-white p-0 text-black shadow-sm hover:bg-white/90"
+							className="absolute top-1 right-1 z-10 size-4 rounded-full bg-white p-0 text-black shadow-sm hover:bg-white/90"
 							disabled={input.disabled}
 							onClick={() => input.onRemove(file.localId)}
 							size="icon-sm"
 							type="button"
 							variant="ghost"
 						>
-							<XIcon aria-hidden="true" className="size-3.5" />
+							<XIcon aria-hidden="true" className="size-3" />
 						</Button>
 					</div>
 					{file.status === "failed" ? (
