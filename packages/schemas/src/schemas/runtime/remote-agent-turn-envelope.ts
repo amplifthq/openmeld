@@ -18,6 +18,8 @@ import {
 } from "./agent-task-coordination";
 import { channelContextSchema } from "./channel-context";
 import {
+  buildMessageChannelConversationId,
+  messageChannelConversationLocatorSchema,
   messageChannelParticipantIdentitySchema,
   messageChannelProviderSchema,
   messageChannelResourceDescriptorSchema,
@@ -151,6 +153,10 @@ export const remoteAgentSlackSearchAuthorizationSchema = z.strictObject({
 
 const remoteAgentRoutineDestinationSchema = z.discriminatedUnion("kind", [
   z.strictObject({
+    kind: z.literal("message_channel"),
+    locator: messageChannelConversationLocatorSchema,
+  }),
+  z.strictObject({
     kind: z.literal("space"),
     spaceId: nonEmptyStringSchema,
   }),
@@ -189,6 +195,7 @@ export const remoteAgentTurnEnvelopeTriggerSchema = z.discriminatedUnion(
     }),
     z.strictObject({
       source: z.literal("message_channel"),
+      routineLocator: messageChannelConversationLocatorSchema.optional(),
       provider: messageChannelProviderSchema,
       connectionId: nonEmptyStringSchema,
       conversationId: nonEmptyStringSchema,
@@ -330,6 +337,20 @@ export const remoteAgentTurnEnvelopeSchema = z
     }
     if (
       envelope.trigger.source === "routine" &&
+      envelope.trigger.destination?.kind === "message_channel" &&
+      (envelope.trigger.destination.locator.provider === "slack" ||
+        buildMessageChannelConversationId(
+          envelope.trigger.destination.locator
+        ) !== envelope.space.id)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Routine destination must match its conversation.",
+        path: ["trigger", "destination"],
+      });
+    }
+    if (
+      envelope.trigger.source === "routine" &&
       envelope.trigger.destination &&
       envelope.trigger.destination.kind === "space" &&
       envelope.trigger.destination.spaceId !== envelope.space.id
@@ -396,6 +417,20 @@ function validateMessageChannelTurn(
 ): void {
   if (envelope.trigger.source !== "message_channel") {
     return;
+  }
+  const locator = envelope.trigger.routineLocator;
+  if (
+    locator &&
+    (locator.provider !== envelope.trigger.provider ||
+      locator.connectionId !== envelope.trigger.connectionId ||
+      buildMessageChannelConversationId(locator) !==
+        envelope.trigger.conversationId)
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Routine origin must match the Message Channel trigger.",
+      path: ["trigger", "routineLocator"],
+    });
   }
   if (envelope.trigger.conversationId !== envelope.space.id) {
     context.addIssue({

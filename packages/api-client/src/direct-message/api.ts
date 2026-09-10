@@ -21,6 +21,7 @@ export const createDirectMessageApi: CreateDirectMessageApi = (client) => ({
     const request = validateConvertDirectMessageToSpaceInput(input);
     return await client.requestJson({
       body: JSON.stringify({
+        includeMemberSnapshots: request.includeMemberSnapshots,
         name: request.name,
         profileIds: request.profileIds,
       }),
@@ -56,6 +57,7 @@ function validateConvertDirectMessageToSpaceInput(
   input: ConvertDirectMessageToSpaceInput
 ): ConvertDirectMessageToSpaceInput {
   const parsed = convertDirectMessageToSpaceBodySchema.safeParse({
+    includeMemberSnapshots: input.includeMemberSnapshots,
     name: input.name,
     profileIds: input.profileIds,
   });

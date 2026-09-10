@@ -432,7 +432,9 @@ export function resolveSpaceComposerFileHint(input: {
 	}
 	const failedCount = input.files.filter(isSpaceComposerFileFailed).length;
 	if (failedCount > 0) {
-		return `${String(failedCount)} ${failedCount === 1 ? "file" : "files"} couldn't be uploaded. Remove ${failedCount === 1 ? "it" : "them"} or add ${failedCount === 1 ? "it" : "them"} again.`;
+		return failedCount === 1
+			? "Remove the failed file to continue."
+			: "Remove the failed files to continue.";
 	}
 	if (input.fileLimitReached) {
 		return "You can add up to 10 files.";

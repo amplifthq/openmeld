@@ -378,6 +378,7 @@ const comboboxItemVariants = cva(
 const InlineComboboxItem = ({
 	className,
 	focusEditor = true,
+	removeInputOnSelect = true,
 	group,
 	keywords,
 	label,
@@ -385,6 +386,7 @@ const InlineComboboxItem = ({
 	...props
 }: {
 	focusEditor?: boolean;
+	removeInputOnSelect?: boolean;
 	group?: string;
 	keywords?: string[];
 	label?: string;
@@ -416,7 +418,9 @@ const InlineComboboxItem = ({
 			<ComboboxItem
 				className={cn(comboboxItemVariants(), className)}
 				onClick={(event) => {
-					removeInput(focusEditor);
+					if (removeInputOnSelect) {
+						removeInput(focusEditor);
+					}
 					onClick?.(event);
 				}}
 				{...props}

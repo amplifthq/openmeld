@@ -95,6 +95,14 @@ const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
 
+// The shared setup workflow has its own completion integration suite. This
+// boundary proves creation mounts that workflow without a second user action.
+vi.mock("#/components/connect/start-bring-agents-setup-page", () => ({
+	ComputerSetupFlow: () => (
+		<section aria-label="Inline computer setup">Setup command</section>
+	),
+}));
+
 vi.mock("sonner", () => ({
 	toast: {
 		error: toastErrorMock,
@@ -919,6 +927,43 @@ describe("CreateProfileDialog", () => {
 		expect(screen.queryByRole("radio", { name: "A teammate" })).toBeNull();
 	});
 
+	it("replaces cached Agent configuration with the inline connection workflow immediately", async () => {
+		const recovery = buildFakeRecovery();
+		const computer =
+			recovery.localRuntimesQuery.data?.peopleComputers.computers[0];
+		if (!computer) {
+			throw new Error("Expected the fixture Computer inventory.");
+		}
+		computer.identityStatus = "enrolled";
+		computer.connectedComputerId = "computer-office";
+		computer.deviceDisplayName = "Office Mac";
+		computer.connection = {
+			status: "disconnected",
+			sessions: [],
+			reasonCodes: [],
+		};
+		const readiness = recovery.currentLocalRuntimeReplyReadinessQuery.data;
+		if (!readiness) {
+			throw new Error("Expected the fixture readiness projection.");
+		}
+		readiness.service.connected = false;
+		readiness.service.matchingCurrentRuntime = false;
+		renderCurrentCreateProfileDialog({ recovery });
+		expect(
+			await screen.findByRole("region", { name: "Inline computer setup" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Reconnect Computer" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Back to Agent setup" })
+		).toBeNull();
+		expect(screen.getByText("Reconnect Office Mac")).toBeTruthy();
+		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
+	});
+
 	it("uses the new Agent-first flow and preserves a manually edited name", async () => {
 		renderCurrentCreateProfileDialog({
 			recovery: buildFakeRecovery([
@@ -1054,7 +1099,7 @@ describe("CreateProfileDialog", () => {
 			(screen.getByLabelText("Profile name") as HTMLInputElement).value
 		).toBe("Build Session Inventory");
 		expect(
-			screen.getByRole("heading", { name: "Create a new Agent" })
+			screen.getByRole("heading", { name: "Create an Agent" })
 		).toBeTruthy();
 		expect(
 			screen.queryByRole("tab", { name: HUMAN_PROFILE_CARD_PATTERN })
