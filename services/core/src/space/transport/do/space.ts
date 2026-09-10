@@ -1528,6 +1528,33 @@ const createWakeHandoffSeedFailedError = (
     targetProfileId,
   });
 
+function assertEditedMessageTargetsAreActiveMembers(
+  sql: SqlStorage,
+  message: Extract<SignalEnvelope, { type: "signal.text" }>,
+  previous: Extract<SignalEnvelope, { type: "signal.text" }>
+) {
+  const envelope = message.data.messageEnvelope;
+  if (!envelope) {
+    return;
+  }
+  const before = previous.data.messageEnvelope;
+  assertCurrentSpaceAddressingTargetsAreActiveMembers({
+    sql,
+    messageEnvelope: {
+      ...envelope,
+      activationTargets: envelope.activationTargets.filter(
+        (id) => !before?.activationTargets.includes(id)
+      ),
+      referenceTargets: envelope.referenceTargets.filter(
+        (id) => !before?.referenceTargets.includes(id)
+      ),
+      mentionTargets: (envelope.mentionTargets ?? []).filter(
+        (id) => !before?.mentionTargets?.includes(id)
+      ),
+    },
+  });
+}
+
 const assertCurrentSpaceAddressingTargetsAreActiveMembers = (input: {
   messageEnvelope: SignalTextBuildOptions["messageEnvelope"];
   sql: SqlStorage;
@@ -4318,6 +4345,62 @@ export class Space extends DurableObject<CoreBindings> {
         actorKind: actor.kind,
         body: parsed.data,
         nowMs,
+        onEdit: (message, previous) => {
+          assertEditedMessageTargetsAreActiveMembers(
+            this.ctx.storage.sql,
+            message,
+            previous
+          );
+          const addedFiles =
+            parsed.data.action === "edit" ? parsed.data.addedFiles : undefined;
+          if (addedFiles?.length) {
+            const resolved = this.resolveSpaceMessageFileReferences(addedFiles);
+            const byId = new Map(resolved.map((file) => [file.fileId, file]));
+            message.data.files = message.data.files?.map(
+              (file) => byId.get(file.fileId) ?? file
+            );
+          }
+          if (
+            !message.data.messageEnvelope?.activationTargets.length ||
+            previous.data.messageEnvelope?.activationTargets.length
+          ) {
+            return;
+          }
+          if (
+            listDispatchOutboxRecordsBySourceSignalId(
+              this.ctx.storage.sql,
+              message.id
+            ).length
+          ) {
+            throw createCoreRpcHttpError({
+              status: 409,
+              code: "space.message.wake_already_requested",
+              reason:
+                "This message already started Agent work. Editing cannot start it again.",
+            });
+          }
+          const placement = readSpaceThreadSignalPlacementBySignalId(
+            this.ctx.storage.sql,
+            message.id
+          );
+          const thread = placement
+            ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+            : null;
+          const context: SignalPublishContext | undefined = thread
+            ? {
+                threadContext: {
+                  rootSignalId: thread.rootSignalId,
+                  threadId: thread.threadId,
+                },
+                threadPlacement: placement?.placement,
+              }
+            : undefined;
+          const plan = this.prepareDispatchOutboxPlanForSignal(
+            message,
+            context
+          );
+          this.collectInsertedDispatchMessages(plan.outboxRecords, []);
+        },
       });
       if (!outcome.changed) {
         return { ...outcome, change: null };
@@ -4381,6 +4464,7 @@ export class Space extends DurableObject<CoreBindings> {
         this.broadcastSignal(result.change, signalContext, { persisted: true });
       }
       await this.broadcastSpaceMetaChanged({ reason: "space.message.updated" });
+      this.ctx.waitUntil(this.flushPendingDispatchOutbox());
       this.ctx.waitUntil(this.syncSpaceBackgroundAlarm());
     }
     return { message: result.message };

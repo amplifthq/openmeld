@@ -87,6 +87,90 @@ function fixture() {
 }
 
 describe("message editing and recall", () => {
+  it("adds the first Wake in place and never rearms it through later edits", () => {
+    const f = fixture();
+    const envelope = {
+      text: "@Alex Deploy A",
+      activationTargets: ["agt_11111111-1111-4111-8111-111111111111"],
+      referenceTargets: [],
+    };
+    const first = f.change({
+      action: "edit",
+      expectedRevision: 0,
+      text: envelope.text,
+      messageEnvelope: envelope,
+    });
+    expect(first.message.id).toBe(f.original.id);
+    expect(first.message.ts).toBe(100);
+    expect(first.message.data.messageEnvelope?.activationTargets).toEqual([
+      "agt_11111111-1111-4111-8111-111111111111",
+    ]);
+    expect(() =>
+      f.change({
+        action: "edit",
+        expectedRevision: 0,
+        text: envelope.text,
+        messageEnvelope: envelope,
+      })
+    ).toThrow("another device");
+    const corrected = f.change({
+      action: "edit",
+      expectedRevision: 1,
+      text: "@Alex Deploy B",
+    });
+    expect(corrected.message.data.messageEnvelope?.activationTargets).toEqual([
+      "agt_11111111-1111-4111-8111-111111111111",
+    ]);
+    for (const targets of [
+      [],
+      ["agt_22222222-2222-4222-8222-222222222222"],
+      [
+        "agt_11111111-1111-4111-8111-111111111111",
+        "agt_22222222-2222-4222-8222-222222222222",
+      ],
+    ]) {
+      expect(() =>
+        f.change({
+          action: "edit",
+          expectedRevision: 2,
+          text: envelope.text,
+          messageEnvelope: { ...envelope, activationTargets: targets },
+        })
+      ).toThrow("already started");
+    }
+  });
+
+  it("rolls back the edit when dispatch admission fails inside its transaction", () => {
+    const f = fixture();
+    f.db.exec("BEGIN");
+    expect(() =>
+      mutateSpaceMessage({
+        sql: f.sql,
+        signalId: f.original.id,
+        actorProfileId: "human-1",
+        actorKind: "human",
+        nowMs: 200,
+        body: {
+          action: "edit",
+          expectedRevision: 0,
+          text: "@Alex Deploy A",
+          messageEnvelope: {
+            text: "@Alex Deploy A",
+            activationTargets: ["agt_11111111-1111-4111-8111-111111111111"],
+            referenceTargets: [],
+          },
+        },
+        onEdit: () => {
+          throw new Error("Agent unavailable");
+        },
+      })
+    ).toThrow("Agent unavailable");
+    f.db.exec("ROLLBACK");
+    expect(
+      f.change({ action: "edit", expectedRevision: 0, text: "Kept draft" })
+        .message.data.text
+    ).toBe("Kept draft");
+  });
   it("consumes recovery only in a successful publication transaction and keeps the notice", () => {
     const f = fixture();
     f.change({ action: "recall", expectedRevision: 0 });
