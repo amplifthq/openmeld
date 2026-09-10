@@ -100,11 +100,15 @@ export async function acquireLocalResources({
   const registryPath = join(directory, "resources.json");
   const token = randomUUID();
   let lastReason;
-  const transact = (callback) => {
+  const transact = (callback, waitingSignal) => {
     return withRegistryLock(
       {
         lockPath: join(directory, "resources.lock"),
         lockPid: process.pid,
+        // Process inspection can exceed the lane registry's two-second budget
+        // on a busy machine or Windows. Keep lock waiting cancellable.
+        timeoutMs: 30_000,
+        signal: waitingSignal,
         isPidAlive: (pid) => {
           try {
             process.kill(pid, 0);
@@ -150,6 +154,9 @@ export async function acquireLocalResources({
   };
   while (true) {
     signal?.throwIfAborted();
+    // OS probes can be slow under pressure; do not hold the shared lock while
+    // running them. Pending reservations are still reconciled inside the lock.
+    const memory = readMemory();
     const result = await transact((entries, rows) => {
       const inherited = entries.find(
         (entry) =>
@@ -162,7 +169,6 @@ export async function acquireLocalResources({
       if (inherited) {
         return { inherited: true, token: inherited.token };
       }
-      const memory = readMemory();
       const reason = admissionReason({
         kind,
         entries,
@@ -194,7 +200,7 @@ export async function acquireLocalResources({
         token,
       });
       return { token };
-    });
+    }, signal);
     if (!result.reason) {
       return {
         token: result.token,

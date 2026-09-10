@@ -521,10 +521,11 @@ function ensureLaneDirectories(lane) {
 }
 
 export async function withRegistryLock(input, callback) {
-  const timeoutAt = Date.now() + REGISTRY_LOCK_TIMEOUT_MS;
+  const timeoutAt = Date.now() + (input.timeoutMs ?? REGISTRY_LOCK_TIMEOUT_MS);
   mkdirSync(dirname(input.lockPath), { recursive: true });
 
   while (true) {
+    input.signal?.throwIfAborted();
     try {
       writeFileSync(
         input.lockPath,

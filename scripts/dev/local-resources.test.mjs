@@ -4,8 +4,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { readIsolatedDevOwners } from "./dev-isolated-lane.mjs";
+import {
+  readIsolatedDevOwners,
+  withRegistryLock,
+} from "./dev-isolated-lane.mjs";
 import { collectTargetProcesses } from "./dev-stop.mjs";
 import { admissionReason, resourcePolicy } from "./local-resources.mjs";
 import { parseMacMemory } from "./machine-memory.mjs";
@@ -19,6 +23,30 @@ const fixture = fileURLToPath(
 const BUDGET_PATTERN = /startup budget/u;
 const UNKNOWN_PATTERN = /could not be measured/u;
 const INTEGER_PATTERN = /integer/u;
+
+test(
+  "waits through a slow live registry owner without failing startup",
+  { timeout: 60_000 },
+  async (t) => {
+    const directory = mkdtempSync(join(tmpdir(), "openmeld-slow-registry-"));
+    const child = await withRegistryLock(
+      {
+        lockPath: join(directory, "openmeld-dev", "resources.lock"),
+        lockPid: process.pid,
+        isPidAlive: () => true,
+      },
+      async () => {
+        const waiting = startChild(t, "resource", directory);
+        await waiting.message("attempting");
+        await delay(2500);
+        return waiting;
+      }
+    );
+    await child.message("acquired");
+    child.child.send("release");
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+  }
+);
 function startChild(t, mode, directory) {
   const child = spawn(process.execPath, [fixture, mode, directory], {
     env: {

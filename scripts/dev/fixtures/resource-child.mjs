@@ -24,6 +24,7 @@ if (mode === "leaf") {
     }
   });
   try {
+    process.send({ type: "attempting" });
     const reservation = await acquireLocalResources({
       kind: "heavy",
       gitCommonDir: directory,
