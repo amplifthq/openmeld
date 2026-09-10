@@ -16,10 +16,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
-import {
-	resolveStatusToneProminentBadgeClassName,
-	resolveStatusToneSoftTextClassName,
-} from "@openmeld/ui/lib/status-tone";
+import { resolveStatusToneSoftTextClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	ArrowSquareOutIcon,
 	CheckCircleIcon,
@@ -72,6 +69,11 @@ export function LarkPlatformChannelDialog(input: {
 			});
 	const canDisconnect =
 		connection !== null && connection.status !== "disconnected";
+	const showAuthorizationAction =
+		!(input.registration || input.cleanupOnly) &&
+		input.canManage &&
+		connection?.reasonCode ===
+			`${connection?.provider}.authorization_update_required`;
 	const registrationInProgress =
 		input.registration !== null &&
 		(input.registration.attempt.status === "pending_registration" ||
@@ -111,7 +113,6 @@ export function LarkPlatformChannelDialog(input: {
 						canManage={input.canManage && !input.cleanupOnly}
 						connection={connection}
 						errorMessage={input.errorMessage}
-						onReauthorize={input.onReauthorize}
 						onRepair={input.onRepair}
 						onStartOver={input.onStartOver}
 						providerLabel={providerLabel}
@@ -124,20 +125,38 @@ export function LarkPlatformChannelDialog(input: {
 						startOverPending={input.startOverPending}
 					/>
 				)}
-				{canDisconnect && input.canManage ? (
-					<DisconnectControl
-						confirming={confirmingDisconnect}
-						disabled={input.repairPending}
-						disconnectPending={input.disconnectPending}
-						onCancel={() => setConfirmingDisconnect(false)}
-						onConfirm={input.onDisconnect}
-						onStart={() => setConfirmingDisconnect(true)}
-						providerLabel={providerLabel}
-					/>
-				) : null}
-				{registrationInProgress || confirmingDisconnect ? null : (
-					<DialogFooter showCloseButton />
-				)}
+				<DialogFooter className="items-stretch border-t pt-4 sm:items-center sm:justify-between">
+					{canDisconnect && input.canManage ? (
+						<DisconnectControl
+							confirming={confirmingDisconnect}
+							disabled={input.repairPending}
+							disconnectPending={input.disconnectPending}
+							onCancel={() => setConfirmingDisconnect(false)}
+							onConfirm={input.onDisconnect}
+							onStart={() => setConfirmingDisconnect(true)}
+							providerLabel={providerLabel}
+						/>
+					) : null}
+					{registrationInProgress || confirmingDisconnect ? null : (
+						<div className="flex justify-end gap-2 sm:ml-auto">
+							<Button onClick={() => handleOpenChange(false)} variant="outline">
+								Close
+							</Button>
+							{showAuthorizationAction ? (
+								<Button
+									disabled={input.disconnectPending || input.repairPending}
+									onClick={input.onReauthorize}
+								>
+									Update permissions
+									<ArrowSquareOutIcon
+										aria-hidden="true"
+										data-icon="inline-end"
+									/>
+								</Button>
+							) : null}
+						</div>
+					)}
+				</DialogFooter>
 			</DialogContent>
 		</Dialog>
 	);
@@ -162,7 +181,7 @@ function resolveDialogDescription(input: {
 	providerLabel: string;
 }): string {
 	if (input.connected) {
-		return `This organization can reach its Center Agent from ${input.providerLabel}.`;
+		return "Manage your organization’s Center Agent connection.";
 	}
 	return input.needsRepair
 		? `Retry the existing ${input.providerLabel} app without creating another one.`
@@ -486,7 +505,6 @@ function ConnectionSummary(input: {
 	connection: MessageChannelConnectionProjection | null;
 	errorMessage: string | null;
 	onRepair: () => void;
-	onReauthorize: () => void;
 	onStartOver: () => void;
 	startOverPending: boolean;
 	providerLabel: string;
@@ -518,43 +536,31 @@ function ConnectionSummary(input: {
 		input.connection.status === "revoked";
 	return (
 		<div className="space-y-3">
-			<div className="flex items-start justify-between gap-4 border border-border/70 bg-card/30 p-4">
+			<div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 p-3">
 				<div className="min-w-0">
-					<p className="font-medium text-foreground text-sm">
+					<p className="break-words font-medium text-foreground text-sm">
 						{input.connection.externalAccountName ??
 							`${input.providerLabel} workspace`}
-					</p>
-					<p className="mt-1 text-muted-foreground text-xs">
-						{input.connection.transport === "websocket"
-							? "Long-lived WebSocket"
-							: "Webhook delivery"}
 					</p>
 				</div>
 				<Badge
 					className={
 						connected
-							? `${resolveStatusToneProminentBadgeClassName("ready")} h-8 px-2.5`
-							: "h-8 border-border bg-muted/40 px-2.5 text-muted-foreground"
+							? `${resolveStatusToneSoftTextClassName("ready")} shrink-0 border-transparent bg-transparent`
+							: "shrink-0 border-transparent bg-transparent text-muted-foreground"
 					}
 				>
-					{connected ? "Connected" : "Needs Attention"}
+					{connected ? "Connected" : "Needs attention"}
 				</Badge>
 			</div>
 			{needsAuthorization ? (
-				<div className="space-y-3 text-sm">
-					<p>
-						Approve the updated permissions to enable the latest{" "}
-						{input.providerLabel} features. Your existing bot will be kept.
+				<div className="space-y-1 py-1 text-sm">
+					<p className="font-medium">Permission update available</p>
+					<p className="text-muted-foreground text-xs leading-relaxed">
+						Review the updated permissions in {input.providerLabel} to enable
+						the latest features. You’ll keep the same bot.
 					</p>
-					{input.canManage ? (
-						<Button
-							disabled={input.repairDisabled}
-							onClick={input.onReauthorize}
-							type="button"
-						>
-							Update permissions
-						</Button>
-					) : (
+					{input.canManage ? null : (
 						<p>Ask an organization owner or admin to update permissions.</p>
 					)}
 				</div>
@@ -616,21 +622,20 @@ function DisconnectControl(input: {
 }) {
 	if (!input.confirming) {
 		return (
-			<DialogFooter>
-				<Button
-					disabled={input.disabled || input.disconnectPending}
-					onClick={input.onStart}
-					type="button"
-					variant="destructive"
-				>
-					<SignOutIcon aria-hidden="true" data-icon="inline-start" />
-					Disconnect {input.providerLabel}
-				</Button>
-			</DialogFooter>
+			<Button
+				className="text-muted-foreground hover:text-destructive"
+				disabled={input.disabled || input.disconnectPending}
+				onClick={input.onStart}
+				type="button"
+				variant="ghost"
+			>
+				<SignOutIcon aria-hidden="true" data-icon="inline-start" />
+				Disconnect {input.providerLabel}
+			</Button>
 		);
 	}
 	return (
-		<div className="space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-4">
+		<div className="w-full space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-4">
 			<div>
 				<p className="font-medium text-destructive text-sm">
 					Disconnect {input.providerLabel}?

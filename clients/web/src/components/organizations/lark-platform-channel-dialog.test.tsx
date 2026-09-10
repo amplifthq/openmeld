@@ -276,8 +276,7 @@ describe("LarkPlatformChannelDialog", () => {
 				"Setup expired before OpenMeld could verify this app’s permissions and establish a connection. Repair retries the existing app; it does not create another one."
 			)
 		).toBeTruthy();
-		const badge = screen.getByText("Needs Attention");
-		expect(badge.className).toContain("h-8");
+		expect(screen.getByText("Needs attention")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Repair Lark" }));
 		expect(onRepair).toHaveBeenCalledOnce();
 	});
