@@ -508,16 +508,24 @@ export function CreateAgentProfilePage(
 	);
 }
 
+function resolveAllowedInitialSessionPreset(
+	input: Pick<
+		CreateProfileDialogProps,
+		"agentActivitySessionPreset" | "currentUserId"
+	>
+) {
+	// Launch hold: never carry another member's native session into self creation.
+	return TEAMMATE_AGENT_REQUESTS_ENABLED ||
+		input.agentActivitySessionPreset?.ownerUserId === input.currentUserId
+		? input.agentActivitySessionPreset
+		: undefined;
+}
+
 function useCreateProfileDialogController(
 	input: CreateProfileDialogProps,
 	options: { agentOnly: boolean; templateNaming: boolean }
 ) {
-	// Launch hold: never carry another member's native session into self creation.
-	const initialSessionPreset =
-		TEAMMATE_AGENT_REQUESTS_ENABLED ||
-		input.agentActivitySessionPreset?.ownerUserId === input.currentUserId
-			? input.agentActivitySessionPreset
-			: undefined;
+	const initialSessionPreset = resolveAllowedInitialSessionPreset(input);
 	const currentUserId = input.currentUserId ?? "";
 	const initialOwnerMode = resolveInitialOwnerMode({
 		currentUserId,
