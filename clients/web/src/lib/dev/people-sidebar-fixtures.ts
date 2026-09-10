@@ -1,3 +1,4 @@
+import type { OrganizationComputerLocalAgentDetails } from "@openmeld/schemas/types";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
 import { currentFixtureManifest, isLocalFixtureHost } from "./fixture-manifest";
@@ -54,7 +55,7 @@ export function localPeopleSidebarFixtures(input: {
 		return {
 			...member,
 			notice:
-				"Local preview: computer status, local agents, and Slack connections are simulated.",
+				"Local preview: computer status, local agents, usage limits, and Slack connections are simulated.",
 			identityAccounts:
 				fixtureIndex % 2 === 0
 					? [
@@ -104,6 +105,7 @@ export function localPeopleSidebarFixtures(input: {
 						(agentId) => ({
 							agentControllerRef: `builtin:${agentId}`,
 							enabled: true,
+							details: previewUsageDetails(agentId, fixture),
 							status:
 								fixture === "connected"
 									? ("ready" as const)
@@ -114,4 +116,63 @@ export function localPeopleSidebarFixtures(input: {
 			};
 		});
 	return { ...input, members, computerGroups };
+}
+
+function previewUsageDetails(
+	agentId: string,
+	state: string
+): OrganizationComputerLocalAgentDetails | undefined {
+	if (agentId !== "codex" && agentId !== "opencode") {
+		return undefined;
+	}
+	const observedAt = new Date(Date.now() - 10 * 60_000).toISOString();
+	const limit = {
+		key: "weekly",
+		label: "Weekly usage",
+		observedAt,
+		resetsAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+		status: state === "connected" ? ("available" as const) : ("stale" as const),
+		usedPercent: state === "needs_attention" ? 96 : 38,
+	};
+	return {
+		capabilities: {
+			approvals: true,
+			cancel: true,
+			interrupt: true,
+			modelSelection: true,
+			nativeEventStream: true,
+			permissionModes: true,
+			structuredUserInput: false,
+		},
+		checkedAt: observedAt,
+		launch: { installChoiceCount: 1, status: "ready" },
+		models: [],
+		nativeInterface: "local-cli",
+		status: "ready",
+		version: null,
+		usageLimits:
+			agentId === "codex"
+				? [
+						limit,
+						{
+							...limit,
+							key: "five-hour",
+							label: "5-hour usage",
+							usedPercent: 12,
+						},
+					]
+				: [
+						{
+							...limit,
+							provider: { id: "opencode-go", displayName: "OpenCode Go" },
+							usedPercent: 86,
+						},
+						{
+							...limit,
+							key: "proxy",
+							provider: { id: "company-proxy", displayName: "Company Proxy" },
+							usedPercent: 25,
+						},
+					],
+	};
 }

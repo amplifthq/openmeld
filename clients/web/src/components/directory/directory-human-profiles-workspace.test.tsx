@@ -938,6 +938,7 @@ function buildCurrentComputerGroup(): OrganizationComputerGroup {
 		deviceType: "laptop",
 		executionTargets: [
 			{
+				capabilities: [],
 				deviceId: "device-current",
 				isCurrent: true,
 				lastObservedAtMs: Date.now(),

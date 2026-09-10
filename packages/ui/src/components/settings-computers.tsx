@@ -515,6 +515,100 @@ export function SettingsLocalAgentUsageSummary({
   );
 }
 
+export type LocalAgentUsageSource = {
+  id: string;
+  label: string;
+  limits: AgentControllerUsageLimits;
+};
+
+/** A single controller logo with separate, source-labelled quota previews. */
+export function SettingsLocalAgentUsageDockItem({
+  agentName,
+  children,
+  sources,
+  nowMs,
+}: {
+  agentName: string;
+  children: ReactNode;
+  sources: readonly LocalAgentUsageSource[];
+  nowMs: number;
+}) {
+  const groups = sources.flatMap((source) =>
+    (
+      groupProviderUsageLimits(source.limits) ?? [
+        { id: "default", displayName: agentName, limits: source.limits },
+      ]
+    ).map((group) => ({
+      ...group,
+      id: `${source.id}:${group.id}`,
+      label: `${source.label} · ${group.displayName}`,
+      summary: resolveUsageLimitSummary(group.limits),
+    }))
+  );
+  const summaries = groups.filter((group) => group.summary !== null);
+  const visible = summaries.slice(0, 1);
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className="relative inline-flex size-8 shrink-0 items-end"
+            title={agentName}
+          />
+        }
+      >
+        <span className="sr-only">{agentName}</span>
+        {children}
+        <span className="absolute top-0 right-0 flex -space-x-1.5">
+          {visible.map(({ id, label, summary }) =>
+            summary ? (
+              <span
+                aria-label={`${label} usage, ${summary.accessibleDetails}`}
+                aria-valuemax={100}
+                aria-valuemin={0}
+                aria-valuenow={summary.remainingPercent}
+                aria-valuetext={`${formatRemainingPercent(summary.remainingPercent)} left`}
+                className="relative rounded-full bg-card ring-1 ring-card"
+                key={id}
+                role="progressbar"
+              >
+                <UsageLimitRing
+                  className="size-4.5"
+                  remainingPercent={summary.remainingPercent}
+                  tone={summary.presentation.tone}
+                />
+              </span>
+            ) : null
+          )}
+        </span>
+        {summaries.length > visible.length ? (
+          <span className="absolute right-0 bottom-0 rounded bg-card px-0.5 text-[9px] text-muted-foreground">
+            +{summaries.length - visible.length}
+          </span>
+        ) : null}
+      </TooltipTrigger>
+      <TooltipContent
+        className="max-h-80 min-w-48 max-w-sm flex-col items-stretch gap-2.5 overflow-y-auto whitespace-normal text-left"
+        side="top"
+        sideOffset={6}
+      >
+        <span className="font-medium">{agentName}</span>
+        {groups.map((group) => (
+          <span className="grid gap-2" key={group.id}>
+            <span className="font-medium">{group.label}</span>
+            {orderUsageLimitsForDisplay({
+              agentName,
+              limits: group.limits,
+            })?.map((limit) => (
+              <UsageLimitPreview key={limit.key} limit={limit} nowMs={nowMs} />
+            ))}
+          </span>
+        ))}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function UsageLimitPreview({
   limit,
   nowMs,

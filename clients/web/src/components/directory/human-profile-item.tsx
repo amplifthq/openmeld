@@ -4,6 +4,10 @@ import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import {
+	type LocalAgentUsageSource,
+	SettingsLocalAgentUsageDockItem,
+} from "@openmeld/ui/components/settings-computers";
+import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
@@ -67,11 +71,6 @@ export function HumanProfileItem(input: {
 		[input.computerGroup]
 	);
 
-	const visibleLocalAgents = localAgents.slice(
-		0,
-		MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS
-	);
-	const hiddenLocalAgentCount = localAgents.length - visibleLocalAgents.length;
 	const card = input.presentation === "card";
 	const presentation = resolveItemPresentation(
 		card,
@@ -136,63 +135,12 @@ export function HumanProfileItem(input: {
 						data-slot="human-profile-activity-and-local-agents"
 					>
 						{presentation.activity}
-						{localAgents.length > 0 ? (
-							<span
-								aria-label={buildLocalAgentSummary(localAgents)}
-								className={cn(
-									"flex shrink-0 items-center -space-x-1.5",
-									presentation.agentClassName
-								)}
-								role="img"
-							>
-								{visibleLocalAgents.map((agent) => (
-									<Tooltip key={agent.agentId}>
-										<TooltipTrigger
-											render={
-												<span
-													aria-hidden="true"
-													className="group/local-agent relative z-0 grid size-4 shrink-0 place-items-center hover:z-20"
-													data-testid="human-profile-local-agent"
-												/>
-											}
-										>
-											<span
-												className="relative isolate inline-grid size-4 overflow-hidden rounded-sm bg-sidebar p-px transition-transform duration-150 ease-[cubic-bezier(0.19,1,0.22,1)] before:absolute before:inset-0 before:bg-sidebar-accent before:content-[''] group-hover/local-agent:-translate-y-1 group-hover/local-agent:scale-[1.14] motion-reduce:transform-none motion-reduce:transition-none"
-												data-slot="human-profile-local-agent-logo"
-											>
-												<LocalAgentLogo
-													agentId={agent.agentId}
-													className="relative z-10"
-													size="xs"
-												/>
-											</span>
-										</TooltipTrigger>
-										<TooltipContent side="top" sideOffset={6}>
-											{agent.displayName}
-										</TooltipContent>
-									</Tooltip>
-								))}
-								{hiddenLocalAgentCount > 0 ? (
-									<Tooltip>
-										<TooltipTrigger
-											render={
-												<span className="relative isolate z-10 inline-flex h-4 min-w-4 items-center justify-center overflow-hidden rounded-full bg-sidebar px-0.5 font-medium text-[9px] text-muted-foreground before:absolute before:inset-0 before:bg-sidebar-accent before:content-['']" />
-											}
-										>
-											<span className="relative z-10">
-												+{hiddenLocalAgentCount}
-											</span>
-										</TooltipTrigger>
-										<TooltipContent side="top" sideOffset={6}>
-											{localAgents
-												.slice(MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS)
-												.map((agent) => agent.displayName)
-												.join(", ")}
-										</TooltipContent>
-									</Tooltip>
-								) : null}
-							</span>
-						) : null}
+						<HumanLocalAgentDock
+							card={card}
+							className={presentation.agentClassName}
+							localAgents={localAgents}
+							nowMs={input.activityNowMs}
+						/>
 					</span>
 				) : null}
 			</span>
@@ -242,7 +190,107 @@ export function HumanProfileItem(input: {
 	);
 }
 
-type LocalAgentIdentity = { agentId: string; displayName: string };
+function HumanLocalAgentDock({
+	localAgents,
+	card,
+	nowMs,
+	className,
+}: {
+	localAgents: readonly LocalAgentIdentity[];
+	card: boolean;
+	nowMs: number;
+	className: string;
+}) {
+	if (localAgents.length === 0) {
+		return null;
+	}
+	const visibleLocalAgents = localAgents.slice(
+		0,
+		MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS
+	);
+	const hiddenLocalAgentCount = localAgents.length - visibleLocalAgents.length;
+	if (card) {
+		return (
+			<span
+				className="ml-auto flex max-w-full flex-wrap items-end justify-end gap-1.5"
+				data-slot="human-profile-local-agent-dock"
+			>
+				{localAgents.map((agent) => (
+					<SettingsLocalAgentUsageDockItem
+						agentName={agent.displayName}
+						key={agent.agentId}
+						nowMs={nowMs}
+						sources={agent.usageSources}
+					>
+						<LocalAgentLogo
+							agentId={agent.agentId}
+							className="size-7"
+							size="sm"
+						/>
+					</SettingsLocalAgentUsageDockItem>
+				))}
+			</span>
+		);
+	}
+	return (
+		<span
+			aria-label={buildLocalAgentSummary(localAgents)}
+			className={cn("flex shrink-0 items-center -space-x-1.5", className)}
+			role="img"
+		>
+			{visibleLocalAgents.map((agent) => (
+				<Tooltip key={agent.agentId}>
+					<TooltipTrigger
+						render={
+							<span
+								aria-hidden="true"
+								className="group/local-agent relative z-0 grid size-4 shrink-0 place-items-center hover:z-20"
+								data-testid="human-profile-local-agent"
+							/>
+						}
+					>
+						<span
+							className="relative isolate inline-grid size-4 overflow-hidden rounded-sm bg-sidebar p-px transition-transform duration-150 ease-[cubic-bezier(0.19,1,0.22,1)] before:absolute before:inset-0 before:bg-sidebar-accent before:content-[''] group-hover/local-agent:-translate-y-1 group-hover/local-agent:scale-[1.14] motion-reduce:transform-none motion-reduce:transition-none"
+							data-slot="human-profile-local-agent-logo"
+						>
+							<LocalAgentLogo
+								agentId={agent.agentId}
+								className="relative z-10"
+								size="xs"
+							/>
+						</span>
+					</TooltipTrigger>
+					<TooltipContent side="top" sideOffset={6}>
+						{agent.displayName}
+					</TooltipContent>
+				</Tooltip>
+			))}
+			{hiddenLocalAgentCount > 0 ? (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<span className="relative isolate z-10 inline-flex h-4 min-w-4 items-center justify-center overflow-hidden rounded-full bg-sidebar px-0.5 font-medium text-[9px] text-muted-foreground before:absolute before:inset-0 before:bg-sidebar-accent before:content-['']" />
+						}
+					>
+						<span className="relative z-10">+{hiddenLocalAgentCount}</span>
+					</TooltipTrigger>
+					<TooltipContent side="top" sideOffset={6}>
+						{localAgents
+							.slice(MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS)
+							.map((agent) => agent.displayName)
+							.join(", ")}
+					</TooltipContent>
+				</Tooltip>
+			) : null}
+		</span>
+	);
+}
+
+type LocalAgentIdentity = {
+	agentId: string;
+	displayName: string;
+	usageSources: LocalAgentUsageSource[];
+};
 
 function resolveItemPresentation(
 	card: boolean,
@@ -295,13 +343,10 @@ function resolveEnabledLocalAgents(
 	const agents = new Map<string, LocalAgentIdentity>();
 	for (const computer of group.computers) {
 		if (computer.ownedComputer) {
-			appendOwnedComputerLocalAgents(
-				agents,
-				computer.ownedComputer.executionTargets
-			);
+			appendOwnedComputerLocalAgents(agents, computer);
 			continue;
 		}
-		appendOrganizationComputerLocalAgents(agents, computer.localAgents);
+		appendOrganizationComputerLocalAgents(agents, computer);
 	}
 	return [...agents.values()].sort((left, right) =>
 		left.displayName.localeCompare(right.displayName, "en", {
@@ -312,11 +357,9 @@ function resolveEnabledLocalAgents(
 
 function appendOwnedComputerLocalAgents(
 	agents: Map<string, LocalAgentIdentity>,
-	executionTargets: NonNullable<
-		OrganizationComputerGroup["computers"][number]["ownedComputer"]
-	>["executionTargets"]
+	computer: OrganizationComputerGroup["computers"][number]
 ): void {
-	for (const target of executionTargets) {
+	for (const target of computer.ownedComputer?.executionTargets ?? []) {
 		if (target.status === "stale") {
 			continue;
 		}
@@ -327,10 +370,24 @@ function appendOwnedComputerLocalAgents(
 				entry.lifecycleStatus !== "suspended" &&
 				hasLocalAgentLogo(entry.agentId)
 			) {
-				agents.set(entry.agentId, {
+				const agent = agents.get(entry.agentId) ?? {
 					agentId: entry.agentId,
 					displayName: entry.displayName,
-				});
+					usageSources: [],
+				};
+				const limits = target.capabilities.find(
+					(capability) =>
+						parseAgentControllerRef(capability.agentControllerRef)?.id ===
+						entry.agentId
+				)?.agentControllerInterface?.usageLimits;
+				if (limits?.length) {
+					agent.usageSources.push({
+						id: `${computer.deviceId}:${target.runtimeLane}`,
+						label: computer.deviceDisplayName,
+						limits,
+					});
+				}
+				agents.set(entry.agentId, agent);
 			}
 		}
 	}
@@ -338,19 +395,28 @@ function appendOwnedComputerLocalAgents(
 
 function appendOrganizationComputerLocalAgents(
 	agents: Map<string, LocalAgentIdentity>,
-	localAgents: OrganizationComputerGroup["computers"][number]["localAgents"]
+	computer: OrganizationComputerGroup["computers"][number]
 ): void {
-	for (const localAgent of localAgents) {
+	for (const localAgent of computer.localAgents) {
 		const parsed = parseAgentControllerRef(localAgent.agentControllerRef);
 		if (
 			localAgent.enabled &&
 			parsed?.kind === "builtin" &&
 			hasLocalAgentLogo(parsed.id)
 		) {
-			agents.set(parsed.id, {
+			const agent = agents.get(parsed.id) ?? {
 				agentId: parsed.id,
 				displayName: formatLocalAgentDisplayName(parsed.id),
-			});
+				usageSources: [],
+			};
+			if (localAgent.details?.usageLimits?.length) {
+				agent.usageSources.push({
+					id: computer.deviceId,
+					label: computer.deviceDisplayName,
+					limits: localAgent.details.usageLimits,
+				});
+			}
+			agents.set(parsed.id, agent);
 		}
 	}
 }
