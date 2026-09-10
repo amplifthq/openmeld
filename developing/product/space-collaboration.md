@@ -150,7 +150,21 @@ the link never accepts it. The recipient reviews the sender, Organization,
 Space, and ordinary Organization-member role, then explicitly accepts. Login
 and verification preserve the destination; successful acceptance uses shared
 Space entry. Wrong-account, expired, revoked, and unavailable invitations fail
-visibly. An invitation is not a guest role or a computer connection request.
+visibly. Organization invitations and targeted guest invitations have explicit
+audiences; neither is a computer connection request.
+
+A Space owner may enable external guest invitations after confirming the
+history, files, messages, and Agent exposure. This does not publish the Space
+to the internet. Guest invitations require the intended verified account but
+never create Organization membership. Guests use the existing conversation
+and cannot open Organization directories or manage the Space. Disabling guest
+access blocks existing external guests and closes their live connections;
+re-enabling it restores their existing memberships. Removing a guest from the
+Space remains permanent until a new invitation is accepted.
+
+Discover includes Organization-open Spaces and the signed-in recipient's
+pending invitations, labeled **Invited**. A private invitation exposes its
+invitation summary, not its discussion history, before acceptance.
 
 Better Auth remains the Organization invitation and membership writer. Core
 owns the Space invitation intent and policy; the Space owns the membership
@@ -636,23 +650,22 @@ Space from the directory or its destination link, independently of external
 link access. Core verifies current Organization membership and canonical Space
 policy; this grant admits only the caller's own Human Profile. It cannot add
 someone else, an Agent, or members to an unconverted Direct Message.
-Privacy-sensitive creation must set both values; neither one implies the other.
-Any surface that presents both facts must label them as **Organization
-visibility** and **link access**. A bare `private` or `public` label must not be
-presented as the privacy state of the whole Space because it answers only one
-of those two questions.
+The common UI asks **Who can join this Space**, with **Invited people** or
+**Everyone at [Organization]**. External guest invitations appear separately,
+only to owners. Existing public/password link policies are shown explicitly
+when present; they are not implied by Organization visibility.
 
 New Web Spaces explicitly request `members_only` with either private (default)
 or public Organization visibility. The common form has one General access
 selector and no anonymous or password options. Supported callers that omit
 access mode still use the shared initial-access policy: private visibility
-defaults to `members_only`, public visibility to `public`. This compatibility
-default does not override an explicit access mode. Existing policies are not
+and public visibility both default to `members_only`. This default does not
+override an explicit access mode. Existing policies are not
 migrated, and visibility and access mode remain independently owned facts.
 
 OpenMeld has four access modes:
 
-- `members_only`: only an active member, the creator, or another active Profile
+- `members_only`: only an active member or another active Profile
   owned by the same account can view the Space. New participants must be added
   explicitly or self-join under the Organization-public policy above.
 - `public`: anyone with the link can view the Space and join.
@@ -673,7 +686,21 @@ After an OpenMeld account has joined a protected Space with any profile, the sam
 account should not be asked for that password again just to open, read, or keep
 operating in that Space. The Space password protects the room from accounts
 that have not joined yet; it is not a recurring command credential for members,
-creators, or their local agents.
+or their local agents. Creator attribution alone never grants access.
+
+Ordinary Spaces have one or more human Owners, all current Organization
+members. Creator attribution is immutable history; `ownerUserIds` is the
+Space-owned management authority. Owners can promote an existing teammate,
+demote an owner while retaining another, and manage access. A guest cannot
+become an Owner. The last Owner cannot be demoted, leave, or be removed.
+Before Organization departure or account removal, the departing person must
+hand over every owned Space and become a Member. Organization deletion requires
+its ordinary Spaces to be deleted first; it cannot strand their history.
+
+Share and Settings compose the same access panel and Fluid Dialog, Select,
+and Accordion primitives. Members are collapsed, searchable, and paged in
+the UI. Invitation-link state comes from persisted server state. Anonymous
+reading, posting, and Agent invocation remain outside this batch.
 
 Profile participation remains explicit. Same-account access does not silently
 turn every profile under that account into a Space member. If a specific Human

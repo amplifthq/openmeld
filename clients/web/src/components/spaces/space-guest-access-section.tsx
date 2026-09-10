@@ -66,6 +66,10 @@ export function SpaceGuestAccessSection({
 							{!status.isError && status.data?.allowGuests ? (
 								<>
 									<SpaceInvitationForm audience="guest" spaceId={spaceId} />
+									<p className="text-muted-foreground text-xs/relaxed">
+										Turning this off blocks existing guests too. Turning it back
+										on restores their access.
+									</p>
 									<div className="flex justify-end">
 										<Button
 											disabled={save.isPending}
@@ -113,9 +117,15 @@ export function SpaceGuestAccessSection({
 							Invited guests can read this Space’s history and files, send
 							messages, and talk to its Agents. They won’t join your
 							organization or see its other Spaces. Only share content and
-							Agents you’re comfortable giving them access to.
+							Agents you’re comfortable giving them access to. Previously
+							admitted guests will also regain access.
 						</DialogDescription>
 					</DialogHeader>
+					{save.error ? (
+						<p className="text-destructive text-xs" role="alert">
+							{save.error.message}
+						</p>
+					) : null}
 					<DialogFooter>
 						<Button onClick={() => setConfirm(false)} variant="ghost">
 							Cancel

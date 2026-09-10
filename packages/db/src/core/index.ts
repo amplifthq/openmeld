@@ -174,5 +174,6 @@ export {
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
   spaceIndexSpaces,
+  spaceOwnerMemberReferences,
 } from "./space-index.schema.ts";
 export { spaceInvitations } from "./space-invitation.schema.ts";

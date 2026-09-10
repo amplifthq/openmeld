@@ -6373,12 +6373,13 @@ For a protected Space, Core authorizes access when any one of these proofs is
 true:
 
 - the request includes the correct Space password
-- the acting profile is the Space creator
 - the acting profile is an active Space member
 - the acting OpenMeld account already has any active profile in that Space
-- the acting OpenMeld account is the creator owner recorded on the Space
 
-Anonymous viewers and authenticated accounts with no creator, member, or same
+Creator attribution is historical, not an access grant. Disabled external guest
+access overrides a guest's recorded membership until guest access is enabled again.
+
+Anonymous viewers and authenticated accounts with no member or same
 account membership proof must still provide the Space password.
 
 Same-account access is not automatic Space membership. It allows the account to
@@ -6390,6 +6391,70 @@ Clients must not duplicate this authorization rule. Web may store a short-lived
 encrypted password cookie for anonymous or not-yet-member access. CLI may accept
 `--password` for first join or one-off access. Both clients should rely on Core
 to decide when password is still required.
+
+## Unified Space Access and Ownership
+
+`packages/space` owns the pure Space access and ownership policy over verified
+facts. Core obtains current identity and membership facts and enforces the policy
+for HTTP, RPC, live connections, and Agent callers. UI capability projections do
+not grant authority. Organization-open discovery grants eligible colleagues a
+join action, not automatic content access or Organization membership.
+
+The Space Durable Object is the sole writer of `ownerUserIds` and `allowGuests`.
+Creator attribution remains immutable. Owners are current Organization members
+with an active Human Profile in the Space; multiple Owners are supported and the
+last Owner cannot be removed. Ownership changes are serialized and audited.
+`space_owner_member_references` is a restrictive D1 deletion guard, not a second
+authorization source: add the reference before granting ownership, remove it after
+demotion, and reconcile stale references against the owning Space before departure.
+Organization membership removal, leaving, and account deletion require handoff.
+Deleting an Organization requires deleting its owned Spaces first.
+
+Guest invitations are email-bound and require an authenticated recipient. Their
+acceptance records Space membership and a guest receipt without creating an Auth
+Organization membership. Only a current Space Owner may enable guest invitations.
+Disabling guest access closes live connections and rejects subsequent guest reads
+and mutations. Re-enabling restores admitted guests; removing a guest is permanent
+until a new invitation is accepted. Internal discovery never includes unrelated
+private Spaces; a pending invitation exposes only its recipient's invitation card.
+
+New clients send `x-openmeld-space-access-version: 1` on Space metadata, status,
+and bootstrap requests. Gateway projects the legacy response without the new
+ownership and guest fields for older strict-schema clients. Web forwards the
+header. Additive metadata fields alone are not sufficient compatibility when old
+clients reject unknown properties.
+
+Space dispatch snapshots carry server-derived `callerContext` (relationship,
+Space role, and result audience), preserved through hosted and workstation delivery.
+These facts are supplied separately from user text on every local Agent turn.
+External callers cannot acquire Organization context through later identity
+verification. Existing tool authorization remains authoritative; instructions are
+not a substitute for access enforcement. Anonymous execution is not enabled.
+
+### Contract impact and rollout
+
+This changes Space HTTP/RPC contracts, Auth invitation storage, Space SQLite, D1
+ownership guards, hosted Agent envelopes, and workstation dispatch snapshots.
+Apply additive D1 migrations before Auth. Deploy Auth and Web/Gateway readers
+before enabling guest entry in Core. The hosted Remote Agent receiver must accept
+optional caller context before Core emits it; this receiver-first dependency is an
+explicit exception to the usual Core-before-Remote-Agent order. No new hosted RPC
+caller is introduced by that receiver change.
+
+Old cloud payloads remain valid for the new Service because caller context is
+optional. Old strict Service receivers cannot accept the new snapshot field or
+provide its per-turn caller facts, so the owning Service contract is bumped and
+the local component release must mark Service `required`. Publish that component
+and its required floor before enabling Core dispatch producers. Setup, existing
+CLI response readers, and diagnostic entry points retain their contracts; CLI
+artifacts are updated to carry the new Service and shared diagnostic types.
+No local skill or runtime execution epoch change is required.
+
+Rollback removes new Web callers before rolling Auth/Core back, retains additive
+migrations and the new Service, and does not rewrite guest or ownership state into
+legacy creator-based permissions. An old Core cannot safely administer spaces
+with transferred ownership; rollback must preserve the ownership enforcement
+receiver or disable affected management until it is restored.
 
 ## Owner Boundaries
 

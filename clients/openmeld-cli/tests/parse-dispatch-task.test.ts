@@ -53,6 +53,8 @@ it("delivers verified Space caller facts without changing the message or session
   const plan = buildDispatchPromptPlan({
     prompt: "Review my design",
     spaceId: "space",
+    dispatchTriggerSource: "activation_targets",
+    targetProfileId: "agt-target-a",
     callerContext,
     shouldInjectBootstrap: false,
   });

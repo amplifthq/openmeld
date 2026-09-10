@@ -37,6 +37,7 @@ import {
 	APP_PAGE_FRAME_CLASS_NAME,
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 } from "#/components/app/shell-layout";
+import { StartFlowStateProvider } from "#/components/app/start-flow-state";
 import type { SpaceComposerInputRef } from "#/components/spaces/space-composer-editor";
 import { SpaceConversationPanel } from "#/components/spaces/space-conversation-panel";
 import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
@@ -248,19 +249,21 @@ function GuestSpacePage(input: {
 		);
 	}
 	return (
-		<div className="flex h-dvh min-h-0 flex-col">
-			<SpaceLanding
-				accountProfiles={[human]}
-				conversationControl={
-					<span className="text-muted-foreground text-xs">Guest</span>
-				}
-				initialFocusSignalId={input.signalId}
-				initialFocusThreadRootSignalId={input.threadRootSignalId}
-				isGuest
-				profileId={human.openMeldProfileId}
-				spaceId={input.spaceId}
-			/>
-		</div>
+		<StartFlowStateProvider storageScope={human.ownerUserId}>
+			<div className="flex h-dvh min-h-0 flex-col">
+				<SpaceLanding
+					accountProfiles={[human]}
+					conversationControl={
+						<span className="text-muted-foreground text-xs">Guest</span>
+					}
+					initialFocusSignalId={input.signalId}
+					initialFocusThreadRootSignalId={input.threadRootSignalId}
+					isGuest
+					profileId={human.openMeldProfileId}
+					spaceId={input.spaceId}
+				/>
+			</div>
+		</StartFlowStateProvider>
 	);
 }
 

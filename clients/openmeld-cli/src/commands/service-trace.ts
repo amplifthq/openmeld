@@ -109,14 +109,29 @@ type ServiceTraceLookupDiagnostic = {
   reasonCode: ServiceTraceLookupReasonCode;
   selector: ObservabilityWakeTraceSelector | null;
 };
-type ServiceTraceAgentWaitingBoundary = {
-  deadlineAt: string;
-  softDeadlineAt: string;
-  userRecoveryAction:
-    | "start_or_restart_openmeld_service"
-    | "wait_for_wake_route_report";
-  waitingFor: "openmeld_service_route_connection" | "wake_route_report";
-  waitingSince: string;
+type ServiceTraceAgentWaitingBoundary = Pick<
+  NonNullable<
+    Extract<
+      NonNullable<DispatchTraceSnapshot>["runtimeCoordinatorHeadLifecycle"],
+      { readStatus: "found" }
+    >["waitingBoundary"]
+  >,
+  | "deadlineAt"
+  | "softDeadlineAt"
+  | "userRecoveryAction"
+  | "waitingFor"
+  | "waitingSince"
+>;
+const SERVICE_TRACE_RECOVERY_ACTIONS: Record<
+  ServiceTraceAgentWaitingBoundary["userRecoveryAction"],
+  string
+> = {
+  check_status:
+    "check current Space access and Agent status, then rerun trace with the same selector",
+  wait_for_wake_route_report:
+    "wait for the Wake route report, then rerun trace with the same selector",
+  start_or_restart_openmeld_service:
+    "start or restart OpenMeld Service, then rerun trace with the same selector",
 };
 type ServiceTraceAgentSummary = {
   currentState: string;
@@ -2504,9 +2519,7 @@ function buildAgentTraceCompactSummary(input: {
       currentState: headLifecycle.status,
       delivered: false,
       nextAction:
-        waitingBoundary.userRecoveryAction === "wait_for_wake_route_report"
-          ? "wait for the Wake route report, then rerun trace with the same selector"
-          : "start or restart OpenMeld Service, then rerun trace with the same selector",
+        SERVICE_TRACE_RECOVERY_ACTIONS[waitingBoundary.userRecoveryAction],
       reasonCode: waitingBoundary.reasonCode,
       visibleOutcome: finalVisibleOutcome.status,
       waitingBoundary: {

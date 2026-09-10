@@ -954,13 +954,21 @@ export function useSpaceLandingFeed(input: {
 			});
 		};
 
-		const onClose = () => {
+		const onClose = (event: CloseEvent) => {
 			markSocketClosed();
 			stopKeepalive();
 			if (isDisposed) {
 				return;
 			}
 
+			if (event.code === 1008) {
+				input.statusRefetch().catch((error) => {
+					console.error(
+						"Failed to refresh Space access after session closure",
+						error
+					);
+				});
+			}
 			scheduleReconnect();
 		};
 

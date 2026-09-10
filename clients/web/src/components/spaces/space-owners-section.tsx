@@ -20,6 +20,21 @@ import { organizationDirectoryQueryOptions } from "#/query/organizations/organiz
 import { spaceMembersQueryOptions } from "#/query/spaces/members";
 import { spaceQueryKeys, spaceStatusQueryOptions } from "#/query/spaces/status";
 
+function describeSpaceMemberRole(
+	userId: string | null | undefined,
+	owners: readonly string[],
+	internalUserIds: ReadonlySet<string>,
+	directoryReady: boolean
+) {
+	if (userId && owners.includes(userId)) {
+		return "Owner";
+	}
+	if (directoryReady && userId && !internalUserIds.has(userId)) {
+		return "Guest";
+	}
+	return "Member";
+}
+
 export function SpaceOwnersSection(input: {
 	spaceId: string;
 	canManage: boolean;
@@ -154,9 +169,12 @@ export function SpaceOwnersSection(input: {
 										</Select>
 									) : (
 										<span className="text-muted-foreground text-xs">
-											{person.ownerUserId && owners.includes(person.ownerUserId)
-												? "Owner"
-												: "Member"}
+											{describeSpaceMemberRole(
+												person.ownerUserId,
+												owners,
+												internalUserIds,
+												directory.isSuccess
+											)}
 										</span>
 									)}
 								</div>
