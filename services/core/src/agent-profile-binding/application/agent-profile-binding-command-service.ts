@@ -81,11 +81,14 @@ export type AgentProfileBindingCommandRecordInput = {
   updatedAtMs: number;
 };
 
-export type AgentProfileBindingCommandRecord =
-  AgentProfileBindingCommandRecordInput & {
-    bindingState: "enabled_primary" | "disabled_historical";
-    disabledAtMs: number | null;
-  };
+export type AgentProfileBindingCommandRecord = Omit<
+  AgentProfileBindingCommandRecordInput,
+  "owner"
+> & {
+  owner: { id: string; kind: "owner_account" | "organization" };
+  bindingState: "enabled_primary" | "disabled_historical";
+  disabledAtMs: number | null;
+};
 
 export type AgentProfileBindingWriteMode = "ensure" | "reconnect";
 export type AgentProfileBindingModelSelectionPatch = {

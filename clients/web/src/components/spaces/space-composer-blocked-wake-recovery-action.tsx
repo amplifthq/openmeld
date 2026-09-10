@@ -29,7 +29,8 @@ export function SpaceComposerBlockedWakeRecoveryAction(input: {
 
 	return (
 		<SpaceAgentRecoveryActionControl
-			className="mt-0 border-destructive/50 text-destructive hover:text-destructive"
+			allowComputerAction
+			className="mt-0 ml-2 shrink-0"
 			isPending={input.isAgentRecoveryPending(plan.profileId)}
 			onAction={input.onAgentRecoveryAction}
 			orgSlug={input.orgSlug}

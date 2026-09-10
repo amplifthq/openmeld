@@ -32,7 +32,7 @@ import { collectSkillsReadinessSnapshot } from "../skills/installation-inventory
 import { loadSelectedSkillAssets } from "../skills/official-release";
 
 export const OPENMELD_CLI_COMMAND_CONTRACT_VERSION =
-  "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1";
+  "openmeld-cli-command-contract-2026-09-organization-agent-ownership-v1";
 export const OPENMELD_SKILLS_CONTRACT_VERSION =
   "openmeld-skills-contract-2026-09-explicit-space-recipients-v1";
 export const OPENMELD_SERVICE_CONTRACT_VERSION =

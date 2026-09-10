@@ -140,6 +140,50 @@ describe("prepare session schemas", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts additive incident evidence and strips private operation fields", () => {
+    const result = prepareStepDiagnosticsBundleSchema.parse({
+      ...VALID_PREPARE_STEP_DIAGNOSTICS_BUNDLE,
+      bundleVersion: 3,
+      operationFailure: {
+        code: "EACCES",
+        errno: -13,
+        syscall: "open",
+        pathCategory: "app_bundle",
+        path: "/private/Secret.app",
+      },
+      os: {
+        platform: "darwin",
+        release: "25.3.0",
+        productVersion: "26.3",
+        buildVersion: "25D125",
+      },
+      evidenceWindow: {
+        startedAt: "2026-07-02T10:27:00.000Z",
+        endedAt: "2026-07-02T10:42:00.000Z",
+      },
+      serviceLogWindow: {
+        excludedUndatedLines: 4,
+        excludedOutsideWindowLines: 6,
+        sourceTruncated: false,
+      },
+    });
+    expect(result.operationFailure).toEqual({
+      code: "EACCES",
+      errno: -13,
+      syscall: "open",
+      pathCategory: "app_bundle",
+    });
+    expect(result.os.release).toBe("25.3.0");
+    expect(result.os.productVersion).toBe("26.3");
+    expect(JSON.stringify(result)).not.toContain("Secret.app");
+    expect(
+      prepareStepDiagnosticsBundleSchema.safeParse({
+        ...result,
+        operationFailure: { code: "EACCES", pathCategory: "/private" },
+      }).success
+    ).toBe(false);
+  });
+
   it("keeps controlled drain completion visible in prepare diagnostics", () => {
     const result = prepareStepDiagnosticsBundleSchema.safeParse({
       ...VALID_PREPARE_STEP_DIAGNOSTICS_BUNDLE,

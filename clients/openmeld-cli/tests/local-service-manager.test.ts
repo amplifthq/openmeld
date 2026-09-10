@@ -14,6 +14,7 @@ import {
   isDaemonServiceBackgroundExecutionBlocked,
   isDaemonServiceJobNeverSpawned,
   isDaemonServiceWaitTimeoutError,
+  matchesLaunchdServiceStartupPolicy,
   parseLaunchdServiceJobDiagnostics,
   readDaemonServiceJobCrashExitCode,
   readSystemdServiceActiveProbe,
@@ -23,6 +24,30 @@ import {
 } from "../src/local-service/lifecycle/daemon-service-manager";
 
 describe("launchd job diagnostics parsing", () => {
+  it("detects the old installed policy even when the executable was updated", () => {
+    // Minimal native plist shape from the affected installed LaunchAgent.
+    const oldDefinition = `<plist version="1.0"><dict>
+      <key>ProgramArguments</key><array><string>/bin/sh</string></array>
+      <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+    </dict></plist>`;
+    expect(matchesLaunchdServiceStartupPolicy(oldDefinition)).toBe(false);
+    expect(
+      matchesLaunchdServiceStartupPolicy(
+        oldDefinition.replace(
+          "</dict>",
+          "<key>ProcessType</key><string>Interactive</string></dict>"
+        )
+      )
+    ).toBe(true);
+    expect(
+      matchesLaunchdServiceStartupPolicy(
+        oldDefinition.replace(
+          "</dict>",
+          "<key>ProcessType</key><string>Background</string></dict>"
+        )
+      )
+    ).toBe(false);
+  });
   it("parses the never-spawned incident output into structured evidence", () => {
     const diagnostics = parseLaunchdServiceJobDiagnostics(
       LAUNCHD_PRINT_NEVER_SPAWNED_OUTPUT

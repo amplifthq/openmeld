@@ -121,6 +121,34 @@ function createServiceManager(
 }
 
 describe("local service inventory", () => {
+  it("reports an outdated scheduling policy without losing the installed Service's identity", async () => {
+    await withTempHome(async (home) => {
+      const definitionPath = join(home, "service.plist");
+      await writeFile(
+        definitionPath,
+        `<plist><string>${daemonServiceExecutableWrapperPath()}</string></plist>`
+      );
+      const inventory = await inspectDaemonServiceInventory({
+        expectedVersion: "0.2.2",
+        readDaemonStatus: async () => INSTALLED_STATUS,
+        resolveServiceManager: async () =>
+          createServiceManager({
+            ...EXTERNAL_MANAGER_STATUS,
+            definitionPath,
+          }),
+        listOwnedProcesses: async () => [],
+      });
+      expect(inventory.serviceManagerStatus?.definitionPath).toBe(
+        definitionPath
+      );
+      expect(inventory.anomalies.map(({ code }) => code)).toContain(
+        "service_manager_startup_policy_drift"
+      );
+      expect(inventory.anomalies.map(({ code }) => code)).not.toContain(
+        "service_manager_path_drift"
+      );
+    });
+  });
   it("preserves an orphaned legacy lifecycle lock as a blocking anomaly", async () => {
     await withTempHome(async () => {
       const stalePid = 5757;

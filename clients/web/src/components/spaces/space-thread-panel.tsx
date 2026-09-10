@@ -73,6 +73,7 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
+import { restoreRecalledMessage } from "./restore-recalled-message";
 import { formatSpaceAgentAttribution } from "./space-agent-attribution";
 import {
 	SpaceAgentInteractionCard,
@@ -113,8 +114,8 @@ import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
-	resolveSpaceMessageContentPaddingClassName,
 	resolveSpaceMessageRowLayoutClassName,
+	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
@@ -126,6 +127,10 @@ import {
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
 import {
+	SpaceMessageEditingScope,
+	useOptimisticSpaceMessages,
+} from "./space-message-editing";
+import {
 	resolveSpaceMessageFooterAddressingTargets,
 	resolveSpaceMessageFooterFailureSummary,
 	SpaceMessageFooter,
@@ -135,6 +140,7 @@ import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import type { SpaceProfileTriggerRenderer } from "./space-message-profile-mention";
 import { shouldPlaceSpaceMessageProgressInAnswer } from "./space-message-progress-placement";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
+import { resolveMessageReactionInput } from "./space-message-reactions";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 import {
 	groupAnchoredOutcomeNotices,
@@ -305,7 +311,18 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 			progressItems={input.ephemeralActivityItems}
 			stopRequestStatusBySelectorKey={input.wakeStopRequestStatusBySelectorKey}
 		>
-			<SpaceThreadPanelContent {...input} />
+			<SpaceMessageEditingScope
+				draftKey={JSON.stringify([input.composerText, input.composerFiles])}
+				hasDraft={Boolean(input.composerText || input.composerFiles.length)}
+				onRestore={(message, canReplaceDraft) =>
+					restoreRecalledMessage({ ...input, message, canReplaceDraft })
+				}
+				readOnly={input.readOnly}
+				selfProfileId={input.selfProfileId}
+				threadRootSignalId={input.activeThread?.rootSignalId}
+			>
+				<SpaceThreadPanelContent {...input} />
+			</SpaceMessageEditingScope>
 		</SpaceWakeStopScope>
 	);
 }
@@ -330,7 +347,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				: undefined,
 		[activeThreadId, activeThreadRootSignalId, input.onRecoverExecution]
 	);
-	const rawThreadTimelineItems = useMemo(
+	const storedThreadTimelineItems = useMemo(
 		() =>
 			buildSpaceTimelineItems({
 				agentStreams: input.agentStreams,
@@ -351,6 +368,9 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 			input.signals,
 			input.filePreviewUrlsById,
 		]
+	);
+	const rawThreadTimelineItems = useOptimisticSpaceMessages(
+		storedThreadTimelineItems
 	);
 	const profileEntriesById = useMemo(
 		() => buildSpaceMemberDirectoryEntryByProfileId(input.membersSnapshot),
@@ -545,7 +565,6 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				}
 				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
 			/>
-			{input.pendingActionSurface}
 			{renderThreadComposer(input)}
 			<ThreadSelectedMessageDetails
 				activeThread={input.activeThread}
@@ -845,6 +864,7 @@ function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 			onRemoveComposerFile={input.onRemoveComposerFile}
 			onSend={input.onSend}
 			orgSlug={input.orgSlug}
+			pendingActionSurface={input.pendingActionSurface}
 			prepareSetupHref={input.prepareSetupHref}
 			profileControl={input.profileControl}
 			textareaRef={input.textareaRef}
@@ -1404,8 +1424,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	);
 	const selfMessageContentLayoutClassName =
 		resolveSpaceMessageContentLayoutClassName({ isSelf: isSelfMessage });
-	const messageContentPaddingClassName =
-		resolveSpaceMessageContentPaddingClassName({ isSelf: isSelfMessage });
 	const computerSetupPresentation = resolveThreadComputerSetupPresentation({
 		actionSignalId: input.computerSetupActionSignalId,
 		context: input.computerSetupContext,
@@ -1424,6 +1442,22 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				messageDetailsItem,
 				onOpenMessageDetails: input.onOpenMessageDetails,
 			});
+	if (input.item.recalledAt) {
+		return (
+			<MessageScrollerItem messageId={input.item.id}>
+				<div
+					className="flex justify-center py-2"
+					data-signal-id={input.item.id}
+					ref={(element) =>
+						input.registerMessageElement(input.item.id, element)
+					}
+					tabIndex={-1}
+				>
+					<SpaceMessageBody item={input.item} />
+				</div>
+			</MessageScrollerItem>
+		);
+	}
 	return (
 		<MessageScrollerItem
 			className={
@@ -1486,13 +1520,12 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						<BubbleContent
 							className={cn(
 								"group/thread-message relative flex w-full flex-col gap-2 transition-colors motion-reduce:transition-none",
-								messageContentPaddingClassName,
+								SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 								SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 								selfMessageContentLayoutClassName,
 								resolveSpaceMessageBubblePresentationClass({
 									isSelf: isSelfMessage,
 								}),
-								"data-[highlighted=true]:bg-muted/50",
 								input.item.deliveryState === "pending" ? "opacity-70" : null
 							)}
 							data-signal-id={input.item.id}
@@ -1569,6 +1602,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						onOpenMessageDetails={input.onOpenMessageDetails}
 						openMeldProfileId={input.selfProfileId}
 						organizationSlug={input.orgSlug}
+						readOnly={input.readOnly}
 					/>
 				</MessageContent>
 			</Message>
@@ -1577,6 +1611,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 });
 
 function ThreadTimelineMessageFooter(input: {
+	readOnly?: boolean;
 	addressingTargets: ReturnType<
 		typeof resolveSpaceMessageFooterAddressingTargets
 	>;
@@ -1611,6 +1646,7 @@ function ThreadTimelineMessageFooter(input: {
 			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={details}
 			failureSummary={input.failureSummary}
+			item={input.item}
 			onCopy={() =>
 				copySpaceTimelineItemWithFeedback({
 					item: input.item,
@@ -1618,6 +1654,11 @@ function ThreadTimelineMessageFooter(input: {
 					organizationSlug: input.organizationSlug,
 				})
 			}
+			reaction={resolveMessageReactionInput(
+				input.item,
+				input.openMeldProfileId,
+				input.readOnly
+			)}
 			timestamp={THREAD_TIME_FORMATTER.format(input.item.createdAtMs)}
 		/>
 	);
@@ -1714,6 +1755,7 @@ function resolveThreadMessageAvatarImageUrl(input: {
 }
 
 function ThreadComposer(input: {
+	pendingActionSurface?: ReactNode;
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
@@ -1799,7 +1841,15 @@ function ThreadComposer(input: {
 				errorClassName: "mt-3",
 				maxHeight: 180,
 			}}
+			recovery={{
+				agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
+				isAgentRecoveryPending: input.isAgentRecoveryPending,
+				onAgentRecoveryAction: input.onAgentRecoveryAction,
+				orgSlug: input.orgSlug,
+				prepareSetupHref: input.prepareSetupHref,
+			}}
 			slots={{
+				pendingActionSurface: input.pendingActionSurface,
 				beforePrimaryAction: <SpaceComposerActiveWakes placement="thread" />,
 				error: input.composerErrorMessage ? (
 					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">

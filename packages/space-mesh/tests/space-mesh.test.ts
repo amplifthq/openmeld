@@ -127,9 +127,10 @@ describe("space-mesh", () => {
       buildSpaceEntryBriefNeedMoreLine({
         cliEntry: "openmeld-dev",
         spaceId: "space_launch",
+        targetProfileId: "agt_reviewer",
       })
     ).toBe(
-      `run \`openmeld-dev space board space_launch\` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at ${OPENMELD_GUIDE_URL} / run \`openmeld-dev prompt space\`.`
+      `run \`openmeld-dev space board space_launch --profile agt_reviewer --view agent\` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at ${OPENMELD_GUIDE_URL} / run \`openmeld-dev prompt space\`.`
     );
   });
 
@@ -164,7 +165,7 @@ describe("space-mesh", () => {
       })
     ).toEqual([
       "Complete this Wake with exactly one final outcome: reply, status, or silent.",
-      "Choose silent when you have no new contribution instead of repeating another member.",
+      "A requested personal answer, acknowledgement, or result remains due even when it matches another member's answer. Choose silent only when no requested or useful contribution remains.",
     ]);
     expect(
       buildCompactDispatchActionGuidanceLines({
@@ -173,7 +174,7 @@ describe("space-mesh", () => {
       })
     ).toEqual([
       "Complete this Wake with exactly one final outcome: status or silent.",
-      "Choose silent when you have no new contribution instead of repeating another member.",
+      "A requested personal answer, acknowledgement, or result remains due even when it matches another member's answer. Choose silent only when no requested or useful contribution remains.",
     ]);
   });
 

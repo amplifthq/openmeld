@@ -51,3 +51,27 @@ test("refuses to admit a SHA other than the checked-out Core source", () => {
     SOURCE_MISMATCH_RE
   );
 });
+
+test("checks published channel alignment before any recovery deployment", () => {
+  const steps = [];
+  assert.throws(() =>
+    deployCoreWorker({
+      verifyLocalComponents: true,
+      releaseSha: RELEASE_SHA,
+      adapters: {
+        readHeadSha: () => RELEASE_SHA,
+        runStep(step) {
+          steps.push(step);
+          throw new Error("channel unavailable");
+        },
+        runStartupAdmission() {
+          assert.fail("must not deploy before channel verification");
+        },
+      },
+    })
+  );
+  assert.deepEqual(
+    steps.map((step) => step.args),
+    [["run", "deploy:release-ready"]]
+  );
+});

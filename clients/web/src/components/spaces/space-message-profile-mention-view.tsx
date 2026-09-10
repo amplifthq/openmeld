@@ -68,7 +68,7 @@ export function SpaceMessageProfileMention(input: {
 				{input.profile.profileName}
 			</strong>
 			{relationLabel && (
-				<span className="shrink-0 border-border border-l pl-1.5 font-medium text-muted-foreground text-xs">
+				<span className="shrink-0 border-border border-l pl-1.5 font-medium text-foreground/70 text-xs">
 					{relationLabel}
 				</span>
 			)}

@@ -105,7 +105,7 @@ describe("OpenMeld Profiles API capability", () => {
       ).rejects.toMatchObject({
         code: "profile.additional_human_profile_creation_disabled",
         message:
-          "Creating additional Human Profiles is currently unavailable. Use your default Human Profile, or create an Agent Profile.",
+          "Creating additional profiles for people is currently unavailable. Use your default profile, or create an Agent.",
       });
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(

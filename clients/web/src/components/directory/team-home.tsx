@@ -13,7 +13,6 @@ import {
 import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import {
-	CloudIcon,
 	DesktopTowerIcon,
 	MagnifyingGlassIcon,
 	SlidersHorizontalIcon,
@@ -51,10 +50,13 @@ export function TeamHome(input: {
 	const [groupIds, setGroupIds] = useState<string[]>([]);
 	const allSections = resolvePeopleSections(
 		input.members,
-		sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR
+		sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR,
+		{ includeOnline: true }
 	);
 	const query = search.trim().toLocaleLowerCase();
 	const filtering = Boolean(query) || groupIds.length > 0;
+	const showCenterAgent =
+		!query && (groupIds.length === 0 || groupIds.includes("online"));
 	const sections = allSections
 		.filter((section) => groupIds.length === 0 || groupIds.includes(section.id))
 		.map((section) => ({
@@ -63,7 +65,12 @@ export function TeamHome(input: {
 				member.name.toLocaleLowerCase().includes(query)
 			),
 		}))
-		.filter((section) => !filtering || section.members.length > 0);
+		.filter(
+			(section) =>
+				!filtering ||
+				section.members.length > 0 ||
+				(section.id === "online" && showCenterAgent)
+		);
 	const visibleCount = sections.reduce(
 		(total, section) => total + section.members.length,
 		0
@@ -166,23 +173,7 @@ export function TeamHome(input: {
 				</div>
 			) : null}
 			<div className="space-y-7 px-[var(--app-page-inline-padding)] pb-8">
-				{filtering ? null : (
-					<section aria-label="Center Agent" className="space-y-2">
-						<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-							<h2 className="flex shrink-0 items-center gap-2 font-medium text-sm">
-								<CloudIcon aria-hidden="true" className="size-4" />
-								Center Agent
-							</h2>
-							<p className="border-border border-l pl-3 text-xs">
-								A cloud agent shared by everyone in your organization.
-							</p>
-						</div>
-						<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-							<CenterAgentItem presentation="card" />
-						</div>
-					</section>
-				)}
-				{filtering && visibleCount === 0 ? (
+				{filtering && visibleCount === 0 && !showCenterAgent ? (
 					<p className="text-muted-foreground text-sm">
 						No members match your search or filters.
 					</p>
@@ -204,7 +195,7 @@ export function TeamHome(input: {
 										<TooltipTrigger
 											render={
 												<button
-													aria-label={`Computer ${section.id}`}
+													aria-label={section.label}
 													className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
 													type="button"
 												/>
@@ -212,13 +203,18 @@ export function TeamHome(input: {
 										>
 											{section.label}
 										</TooltipTrigger>
-										<TooltipContent>Computer {section.id}</TooltipContent>
+										<TooltipContent>
+											{section.id === "online"
+												? "Center Agent and people with online computers"
+												: "Computer offline"}
+										</TooltipContent>
 									</Tooltip>
 								) : (
 									section.label
 								)}
 								<span className="font-normal text-xs">
-									{section.members.length}
+									{section.members.length +
+										(section.id === "online" && showCenterAgent ? 1 : 0)}
 								</span>
 							</h2>
 							<FluidCardGroup
@@ -226,6 +222,9 @@ export function TeamHome(input: {
 								className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"
 								role="list"
 							>
+								{section.id === "online" && showCenterAgent && (
+									<CenterAgentItem presentation="card" />
+								)}
 								{section.members.map((member, index) => (
 									<HumanProfileItem
 										activityNowMs={input.activityNowMs}
@@ -239,7 +238,8 @@ export function TeamHome(input: {
 									/>
 								))}
 							</FluidCardGroup>
-							{section.members.length === 0 ? (
+							{section.members.length === 0 &&
+							!(section.id === "online" && showCenterAgent) ? (
 								<p className="text-muted-foreground text-xs">
 									No members in this group.
 								</p>

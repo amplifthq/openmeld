@@ -1409,6 +1409,11 @@ Agent View returns the canonical target, URL, `grantsAccess: false`, and an exac
 `space access` continuation command. It must use the shared target schema and
 link builder rather than manually concatenating a Web route.
 
+Brief history retains canonical Space File references on their source messages,
+including the exact revision. It omits file bytes, not the pointers required to
+read them. An Agent receiving a later handoff must be able to discover an earlier
+attachment without asking the user to upload it again.
+
 `space history --kind text --brief` is the narrow check for readable recent
 conversation history without presence-event noise. Brief mode caps every
 message body at 1,200 Unicode code points, reports the original character count

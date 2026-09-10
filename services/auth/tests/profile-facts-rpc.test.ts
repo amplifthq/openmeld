@@ -86,7 +86,7 @@ describe("Auth Profile fact RPC with real SQLite and Drizzle", () => {
 
   it("keeps scalar and batch facts equivalent, including managed profiles", async () => {
     harness.run({
-      sql: "UPDATE openmeld_profiles SET managed_role = 'center_agent', default_project_id = NULL WHERE profile_id = ?",
+      sql: "UPDATE openmeld_profiles SET managed_role = 'center_agent', owner_user_id = NULL, default_project_id = NULL WHERE profile_id = ?",
       params: [profileId(2)],
     });
     const humanId = "00000000-0000-4000-8000-000000000100";
@@ -116,6 +116,22 @@ describe("Auth Profile fact RPC with real SQLite and Drizzle", () => {
     expect(result.profiles[profileId(2)]).not.toHaveProperty(
       "defaultProjectId"
     );
+    const directory = await rpc.resolveOrganizationDirectoryAgentProfiles({
+      organizationId: "org",
+      additionalAgentProfileIds: [],
+    });
+    if (!directory.ok) {
+      throw new Error(directory.message);
+    }
+    const centerAgent = directory.organizationAgentProfiles.find(
+      (profile) => profile.profileId === profileId(2)
+    );
+    expect(centerAgent).toMatchObject({
+      managedRole: "center_agent",
+      organizationId: "org",
+      ownerUserId: null,
+    });
+    expect(centerAgent).not.toHaveProperty("ownerName");
   });
 
   it("rejects oversized input before touching storage and never turns a database failure into missing profiles", async () => {

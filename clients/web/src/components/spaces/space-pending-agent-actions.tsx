@@ -153,101 +153,96 @@ export function SpacePendingAgentActions(input: {
 	return (
 		<section
 			aria-label="Pending Agent actions"
-			className="shrink-0 bg-background"
+			className="relative mx-3 -mb-4 min-w-0 shrink-0 rounded-2xl border border-border bg-card pb-4 sm:mx-4"
 			data-slot="space-pending-agent-actions"
 			ref={setSurfaceElement}
 		>
-			<div className="w-full pb-2" data-space-conversation-content-width="">
-				<div className="overflow-hidden rounded-lg border bg-background">
-					<Button
-						aria-controls={panelId}
-						aria-expanded={isSurfaceOpen}
-						aria-label={triggerLabel}
-						className="min-h-11 w-full justify-start gap-3 px-3 py-2 text-left"
-						onClick={toggleSurface}
-						ref={triggerRef}
-						type="button"
-						variant="ghost"
-					>
-						<SpaceAgentOrb state="listening" />
-						<span className="min-w-0 flex-1">
-							<span aria-live="polite" className="block font-medium text-sm">
-								{triggerLabel}
-							</span>
-							<span className="block truncate text-muted-foreground text-xs">
-								{selectedItem.targetLabel} is waiting for your response
-							</span>
-						</span>
-						<CaretDownIcon
-							aria-hidden="true"
-							className={cn("size-4 shrink-0", isSurfaceOpen && "rotate-180")}
-						/>
-					</Button>
-					{isSurfaceOpen ? (
-						<fieldset
-							aria-label="Current pending action"
-							className="max-h-[min(60dvh,34rem)] min-w-0 overflow-y-auto border-0 border-border border-t p-3 sm:p-4"
-							id={panelId}
-						>
-							{count > 1 ? (
-								<div className="mb-2 flex items-center justify-between gap-3">
-									<p className="text-muted-foreground text-xs">
-										Action {selectedIndex + 1} of {count}
-									</p>
-									<div className="flex items-center gap-1">
-										<Button
-											aria-label="Previous action"
-											disabled={selectedIndex === 0}
-											onClick={() => selectIndex(selectedIndex - 1)}
-											size="icon-sm"
-											type="button"
-											variant="ghost"
-										>
-											<CaretLeftIcon aria-hidden="true" />
-										</Button>
-										<Button
-											aria-label="Next action"
-											disabled={selectedIndex === count - 1}
-											onClick={() => selectIndex(selectedIndex + 1)}
-											size="icon-sm"
-											type="button"
-											variant="ghost"
-										>
-											<CaretRightIcon aria-hidden="true" />
-										</Button>
-									</div>
-								</div>
-							) : null}
-							{selectedItem.sourceContext?.threadId &&
-							input.onOpenRequestThread ? (
-								<div className="grid gap-2">
-									<p className="text-sm">
-										{selectedItem.targetLabel} needs your response in a thread.
-									</p>
-									<Button
-										onClick={() => input.onOpenRequestThread?.(selectedItem)}
-										type="button"
-										variant="outline"
-									>
-										Open thread
-									</Button>
-								</div>
-							) : (
-								<SpaceAgentInteractionCard
-									item={selectedItem}
-									key={selectedItemIdentity}
-									onPermissionModeUpdate={input.onPermissionModeUpdate}
-									onRespond={input.onRespond}
-									permissionModeShortcut={input.permissionModeShortcutsByProfileId?.get(
-										selectedItem.targetProfileId
-									)}
-									presentation="surface"
-								/>
-							)}
-						</fieldset>
+			<Button
+				aria-controls={panelId}
+				aria-expanded={isSurfaceOpen}
+				aria-label={triggerLabel}
+				className="h-auto min-h-10 w-full justify-start gap-2 rounded-none rounded-t-[calc(1rem-1px)] border-0 px-3 py-2 text-left aria-expanded:bg-transparent aria-expanded:hover:bg-muted dark:aria-expanded:hover:bg-muted/50"
+				onClick={toggleSurface}
+				ref={triggerRef}
+				type="button"
+				variant="ghost"
+			>
+				<SpaceAgentOrb state="listening" />
+				<span className="min-w-0 flex-1">
+					<span aria-live="polite" className="block font-medium text-sm">
+						{triggerLabel}
+					</span>
+					<span className="block truncate text-muted-foreground text-xs">
+						{selectedItem.targetLabel}
+					</span>
+				</span>
+				<CaretDownIcon
+					aria-hidden="true"
+					className={cn("size-4 shrink-0", isSurfaceOpen && "rotate-180")}
+				/>
+			</Button>
+			{isSurfaceOpen ? (
+				<fieldset
+					aria-label="Current pending action"
+					className="min-w-0 border-0 border-border border-t p-3"
+					id={panelId}
+				>
+					{count > 1 ? (
+						<div className="mb-2 flex items-center justify-between gap-3">
+							<p className="text-muted-foreground text-xs">
+								Action {selectedIndex + 1} of {count}
+							</p>
+							<div className="flex items-center gap-1">
+								<Button
+									aria-label="Previous action"
+									disabled={selectedIndex === 0}
+									onClick={() => selectIndex(selectedIndex - 1)}
+									size="icon-sm"
+									type="button"
+									variant="ghost"
+								>
+									<CaretLeftIcon aria-hidden="true" />
+								</Button>
+								<Button
+									aria-label="Next action"
+									disabled={selectedIndex === count - 1}
+									onClick={() => selectIndex(selectedIndex + 1)}
+									size="icon-sm"
+									type="button"
+									variant="ghost"
+								>
+									<CaretRightIcon aria-hidden="true" />
+								</Button>
+							</div>
+						</div>
 					) : null}
-				</div>
-			</div>
+					{selectedItem.sourceContext?.threadId && input.onOpenRequestThread ? (
+						<div className="grid gap-2">
+							<p className="text-sm">
+								{selectedItem.targetLabel} needs your response in a thread.
+							</p>
+							<Button
+								onClick={() => input.onOpenRequestThread?.(selectedItem)}
+								type="button"
+								variant="outline"
+							>
+								Open thread
+							</Button>
+						</div>
+					) : (
+						<SpaceAgentInteractionCard
+							item={selectedItem}
+							key={selectedItemIdentity}
+							onPermissionModeUpdate={input.onPermissionModeUpdate}
+							onRespond={input.onRespond}
+							permissionModeShortcut={input.permissionModeShortcutsByProfileId?.get(
+								selectedItem.targetProfileId
+							)}
+							presentation="surface"
+						/>
+					)}
+				</fieldset>
+			) : null}
 		</section>
 	);
 }

@@ -648,25 +648,44 @@ checked in or reused as stale release input.
    attached additional module is not valid release evidence when the bundled
    entrypoint imports it through a different path.
 3. Upload the production Core source and compile-time definitions as a new
-   Cloudflare Worker Version with zero production traffic.
+   Cloudflare Worker Version with zero production traffic. If Cloudflare
+   explicitly rejects that upload with `10211`, a pending Durable Object class
+   lifecycle change requires atomic deployment. The same guard validates the
+   configuration and runs `wrangler deploy` once with the same source, tag and
+   compile-time definitions. No other upload failure enters this path.
 4. Read Cloudflare's actual `Worker Startup Time` and the structured
-   `version-upload` result. Missing or malformed evidence fails closed.
+   `version-upload` result, or the `deploy` result for an atomic migration.
+   Missing or malformed evidence fails closed. Atomic deployment has already
+   applied 100 percent traffic; evidence must record that fact, never zero.
 5. Compare the measurement with OpenMeld's `500 ms` performance target. A
    higher value produces durable warning evidence but does not reject a version
    that Cloudflare accepted within its platform limit.
-6. Deploy that exact accepted Version to 100 percent production traffic without
-   rebuilding it. This prevents a second startup validation of equivalent code
-   from producing a different result.
+6. For a normal version upload, deploy that exact accepted Version to 100 percent
+   production traffic without rebuilding it. Atomic migration deployment already
+   performed platform startup validation and activation together; do not deploy
+   it a second time. A failure after atomic activation requires inspecting live
+   deployment evidence before recovery, not assuming that production is unchanged.
 7. Synchronize routes, domains, and Cron Triggers through `wrangler triggers
-   deploy` after the Version is active.
+   deploy` after the Version is active. Atomic deployment already applies them.
 
-The uploaded Version owns the code, bindings, migrations, compatibility
+The uploaded Version owns the code, bindings, compatibility
 settings, and compile-time definitions that Cloudflare accepted. Core's release
 guard rejects `logpush` or `tail_consumers` in the Wrangler configuration
 because Cloudflare does not apply those non-versioned settings through a Version
 deployment. Do not add either setting until the release path has a separately
 reviewed way to apply and verify it. Trigger synchronization remains explicit
 because routes, domains, and schedules are also outside the Version payload.
+
+Durable Object class lifecycle changes require the atomic path described above;
+they cannot be applied by `versions upload`. Cloudflare validates Worker startup
+before accepting that deployment. Prefer keeping lifecycle changes separate from
+unrelated product changes, and do not roll back across a class lifecycle change.
+See [Cloudflare's lifecycle deployment contract](https://developers.cloudflare.com/workers/versions-and-deployments/gradual-deployments/with-durable-objects/#durable-object-class-lifecycle-changes).
+
+CLI recovery invokes the Core guard from trusted current-main release control
+against the original immutable product checkout. It retains channel verification,
+source identity, leases and startup admission; a deployment-control repair does
+not require republishing the same CLI version from a different source.
 
 `pnpm run evidence:startup:core` captures a local CPU profile and summarizes
 active, garbage-collection, and idle time. Use it to locate expensive global

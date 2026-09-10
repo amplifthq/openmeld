@@ -22,6 +22,11 @@ const FORWARDED_ENV_NAMES = [
   "OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID",
   USER_FACING_CLI_COMMAND_ENV,
   "OPENMELD_ENV_PRESET",
+  // The tool process must use the carrier's lane, not its host's default home.
+  // This is an installation selector, not a credential or additional authority.
+  "OPENMELD_HOME",
+  "OPENMELD_AUTH_URL",
+  "OPENMELD_GATEWAY_URL",
 ] as const;
 
 const OPENMELD_CLI_COMMANDS = new Set([

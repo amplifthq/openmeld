@@ -12,7 +12,7 @@ describe("Space Wake participants", () => {
     expect(lines).toContain('["alice","bob"]');
     expect(lines).not.toContain("including you");
     expect(lines).toContain(
-      "Activation is not evidence that any Agent has contributed."
+      "activation is not evidence that any Agent has contributed."
     );
     expect(lines).toContain("use the current-results tool only if");
     expect(lines).not.toContain("openmeld space");

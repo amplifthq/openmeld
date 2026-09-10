@@ -260,13 +260,12 @@ async function seedCenterAgentOrganization(
           managed_role,
           created_at,
           updated_at
-        ) VALUES (?, 'Invite Link Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'auth_bootstrap', 'center_agent', ?, ?)
+        ) VALUES (?, 'Invite Link Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'auth_bootstrap', 'center_agent', ?, ?)
       `
     ).bind(
       centerAgentProfileId,
       `invite-link-center-agent-${suffix}`,
       organizationId,
-      userId,
       userId,
       nowMs,
       nowMs
@@ -289,8 +288,7 @@ async function seedCenterAgentOrganization(
       activeOrganizationId: organizationId,
       actorContext: {
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-        callerPrincipalId: userId,
-        ownerUserId: userId,
+        callerPrincipalId: centerAgentProfileId,
         profileKind: "agent" as const,
         requestId: `request_invite_link_${suffix}`,
         openMeldProfileId: centerAgentProfileId,
