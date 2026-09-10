@@ -2,6 +2,7 @@ import {
   ORGANIZATION_DIRECTORY_AGENT_PROFILE_WORK_RECOVERY_VERSION_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER,
+  ORGANIZATION_PROFILE_DIRECTORY_INCLUDE_MODEL_SELECTION_QUERY_PARAMETER,
 } from "@openmeld/gateway-contract";
 import {
   agentProfileCreationRequestMutationResponseSchema,
@@ -347,6 +348,10 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
   });
 
   app.get(CURRENT_ORGANIZATION_PROFILE_DIRECTORY_ROUTE, (c) => {
+    const includeModelSelection =
+      c.req.query(
+        ORGANIZATION_PROFILE_DIRECTORY_INCLUDE_MODEL_SELECTION_QUERY_PARAMETER
+      ) === "true";
     const includeHumanProfileLastUsedAt =
       c.req.query(
         ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER
@@ -361,6 +366,7 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.getCurrentOrganizationProfileDirectory({
           context: buildCoreRpcContext(c),
+          ...(includeModelSelection ? { includeModelSelection: true } : {}),
           ...(includeMemberLastActiveAt
             ? { includeMemberLastActiveAt: true }
             : {}),
@@ -368,6 +374,7 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       resolveSuccessPayload: (result) =>
         projectOrganizationProfileDirectoryResponse({
+          includeModelSelection,
           includeHumanProfileLastUsedAt,
           includeMemberLastActiveAt,
           result,
@@ -786,6 +793,7 @@ function projectOrganizationDirectoryResponse(input: {
 }
 
 function projectOrganizationProfileDirectoryResponse(input: {
+  includeModelSelection: boolean;
   includeHumanProfileLastUsedAt: boolean;
   includeMemberLastActiveAt: boolean;
   result: unknown;
@@ -798,6 +806,14 @@ function projectOrganizationProfileDirectoryResponse(input: {
   }
   return {
     ...parsed.data,
+    agentProfiles: parsed.data.agentProfiles.map(
+      ({ modelSelection, ...profile }) => ({
+        ...profile,
+        ...(input.includeModelSelection && modelSelection !== undefined
+          ? { modelSelection }
+          : {}),
+      })
+    ),
     members: parsed.data.members.map((member) =>
       projectOrganizationDirectoryMember({ ...input, member })
     ),

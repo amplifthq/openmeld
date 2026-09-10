@@ -874,7 +874,7 @@ describe("PeopleAndAgentsPage", () => {
 		expect(runtimeQueryOptions?.enabled).toBe(true);
 	});
 
-	it("loads Agent runtime display data independently on People", () => {
+	it("renders People without loading Agent runtime state", () => {
 		render(
 			<PeopleAndAgentsPage
 				activeSectionId="people"
@@ -886,15 +886,18 @@ describe("PeopleAndAgentsPage", () => {
 			options.queryKey?.includes("agent-runtime-overview")
 		)?.[0];
 		expect(runtimeQueryOptions).toEqual(
-			expect.objectContaining({ enabled: true })
+			expect.objectContaining({ enabled: false })
 		);
 		expect(directoryMembersOverviewSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
-				runtimeOverview: expect.objectContaining({
-					agentProfiles: expect.any(Array),
+				directoryQuery: expect.objectContaining({
+					data: expect.objectContaining({ agentProfiles: expect.any(Array) }),
 				}),
 			})
 		);
+		expect(
+			directoryMembersOverviewSpy.mock.calls.at(-1)?.[0]
+		).not.toHaveProperty("runtimeOverview");
 	});
 
 	it("renders Agent identities while runtime state is still loading", () => {
@@ -1075,7 +1078,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 	});
 
-	it("counts only pending requests from the existing organization request query", () => {
+	it("counts only approved self-requests awaiting completion", () => {
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
 			const organizationProjection = resolveOrganizationProjectionQuery(
@@ -1090,8 +1093,30 @@ describe("PeopleAndAgentsPage", () => {
 					data: {
 						organizationId: "org-123",
 						requests: [
-							{ id: "request-pending", status: "pending" },
-							{ id: "request-completed", status: "completed" },
+							{
+								id: "request-pending",
+								status: "pending",
+								requesterUserId: "user-123",
+								targetOwnerUserId: "user-123",
+							},
+							{
+								id: "request-approved",
+								status: "approved",
+								requesterUserId: "user-123",
+								targetOwnerUserId: "user-123",
+							},
+							{
+								id: "request-teammate",
+								status: "approved",
+								requesterUserId: "user-other",
+								targetOwnerUserId: "user-123",
+							},
+							{
+								id: "request-completed",
+								status: "completed",
+								requesterUserId: "user-123",
+								targetOwnerUserId: "user-123",
+							},
 						],
 					},
 					error: null,

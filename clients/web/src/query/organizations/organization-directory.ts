@@ -260,7 +260,7 @@ export function organizationMemberRoleQueryOptions(input: {
 		gcTime: ROUTE_REVISIT_GC_TIME_MS,
 		queryFn: async ({ client }) => {
 			const directory = await client.fetchQuery(
-				organizationDirectoryQueryOptions({
+				organizationProfileDirectoryQueryOptions({
 					enabled: true,
 					organizationId: input.organizationId,
 				})

@@ -186,6 +186,12 @@ export async function refreshWebAgentReadinessSharedCaches(input: {
 	];
 	const organizationId = input.organizationId.trim();
 	if (organizationId.length > 0) {
+		refreshes.push(
+			input.queryClient.invalidateQueries({
+				queryKey: organizationQueryKeys.profileDirectory(organizationId),
+				refetchType: "active",
+			})
+		);
 		const overviewQueryKey =
 			organizationQueryKeys.agentRuntimeOverview(organizationId);
 		if (agentProfileIds.length === 0) {

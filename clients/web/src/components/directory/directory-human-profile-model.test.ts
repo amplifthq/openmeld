@@ -5,7 +5,6 @@ import {
 import type {
 	AuthProfileView,
 	MessageChannelConnectionProjection,
-	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
@@ -474,11 +473,12 @@ describe("directory Human Profile model", () => {
 		).toEqual(["agent-recent", "agent-new"]);
 	});
 
-	it("adds a team-safe Controller and model selection after runtime data arrives", () => {
+	it("reads team-visible Controller and model selection from the lightweight directory", () => {
 		const rows = buildOrganizationRows({
 			agentProfiles: [
 				{
-					agentControllerRef: null,
+					agentControllerRef: "builtin:codex",
+					modelSelection: { modelId: "gpt-5.6-sol" },
 					avatarUrl: undefined,
 					isCenterAgent: false,
 					ownerUserId: "user-b",
@@ -492,21 +492,6 @@ describe("directory Human Profile model", () => {
 				identityLinks: [],
 			}),
 			messageChannelsStatus: "ready",
-			runtimeOverview: {
-				agentProfiles: [
-					{
-						profileId: "agent-team",
-						readiness: {
-							publicProfileConfiguration: {
-								agentControllerRef: "builtin:codex",
-								modelSelection: { modelId: "gpt-5.6-sol" },
-							},
-						},
-					},
-				],
-				generatedAt: "2026-09-03T00:00:00.000Z",
-				organizationId: "org-a",
-			} as OrganizationAgentRuntimeOverviewResponse,
 		});
 
 		expect(rows.find((row) => row.userId === "user-b")?.agentProfiles).toEqual([
@@ -520,6 +505,43 @@ describe("directory Human Profile model", () => {
 				path: "/o/acme/people/22222222-2222-4222-8222-222222222222/agents/agent-team",
 			},
 		]);
+	});
+
+	it.each([
+		{ controller: "builtin:codex", modelSelection: null, known: true },
+		{ controller: "builtin:codex", modelSelection: undefined, known: false },
+		{ controller: null, modelSelection: null, known: true },
+	])("preserves default, unavailable and unbound lightweight configurations: %j", ({
+		controller,
+		modelSelection,
+		known,
+	}) => {
+		const rows = buildOrganizationRows({
+			agentProfiles: [
+				{
+					...buildAgentProfile({
+						agentControllerRef: "builtin:codex",
+						ownerUserId: "user-a",
+						profileId: "agent-model",
+						profileName: "Agent",
+					}),
+					agentControllerRef: controller,
+					modelSelection,
+				},
+			],
+			messageChannels: buildMessageChannels({
+				connections: [],
+				identityLinks: [],
+			}),
+			messageChannelsStatus: "ready",
+		});
+		expect(
+			rows.find((row) => row.userId === "user-a")?.agentProfiles[0]
+		).toMatchObject({
+			agentControllerRef: controller,
+			modelSelection: null,
+			modelSelectionIsKnown: known,
+		});
 	});
 
 	it("includes ordinary Agent Profiles in a personal Human Profile", () => {
@@ -565,7 +587,6 @@ function buildOrganizationRows(input: {
 	documentsStatus?: "failed" | "loading" | "ready";
 	messageChannels: ReturnType<typeof buildMessageChannels>;
 	messageChannelsStatus: "failed" | "loading" | "ready";
-	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 }) {
 	const directory = organizationDirectoryResponseSchema.parse({
 		agentProfiles: [],
@@ -602,7 +623,6 @@ function buildOrganizationRows(input: {
 		messageChannels: input.messageChannels,
 		messageChannelsStatus: input.messageChannelsStatus,
 		orgSlug: "acme",
-		runtimeOverview: input.runtimeOverview,
 	});
 }
 

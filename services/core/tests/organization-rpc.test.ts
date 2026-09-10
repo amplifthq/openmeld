@@ -493,22 +493,77 @@ describe("organization Core RPC", () => {
     expect(lookupRoutes).not.toHaveBeenCalled();
     expect(lookupOwnerService).not.toHaveBeenCalled();
     expect(readOperationalContexts).not.toHaveBeenCalled();
+    expect(response.agentProfiles[0]).not.toHaveProperty("modelSelection");
+    const db = env.OPENMELD_DB as unknown as ReturnType<
+      typeof createOrganizationRpcDb
+    >;
+    db.bindingRows.set(
+      "binding-model",
+      agentProfileBindingTestRow({
+        bindingId: "binding-model",
+        ownerId: "user-a",
+      })
+    );
+    const withModels = await rpcGetCurrentOrganizationProfileDirectory(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: viewerUserId,
+      }),
+      includeModelSelection: true,
+    });
+    expect(withModels.agentProfiles[0]).toMatchObject({
+      agentControllerRef: "builtin:codex",
+      modelSelection: { modelId: "gpt-5.6-sol", reasoningLevel: "high" },
+    });
+    expect(withModels.agentProfiles[0]).not.toHaveProperty("primaryBinding");
+    expect(withModels.agentProfiles[0]).not.toHaveProperty("readiness");
+    expect(withModels.agentProfiles[0]).not.toHaveProperty(
+      "agentControllerConversationId"
+    );
+    expect(lookupRoutes).not.toHaveBeenCalled();
+    expect(lookupOwnerService).not.toHaveBeenCalled();
+    expect(readOperationalContexts).not.toHaveBeenCalled();
+    const prepare = db.prepare.bind(db);
+    vi.spyOn(db, "prepare").mockImplementation((sql) => {
+      if (sql.includes("SELECT agent_profile_id, agent_controller_ref")) {
+        throw new Error("Binding summary unavailable");
+      }
+      return prepare(sql);
+    });
+    const unavailable = await rpcGetCurrentOrganizationProfileDirectory(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: viewerUserId,
+      }),
+      includeModelSelection: true,
+    });
+    expect(unavailable.agentProfiles[0]).toMatchObject({
+      profileName: "Codex",
+      agentControllerRef: null,
+    });
+    expect(unavailable.agentProfiles[0]).not.toHaveProperty("modelSelection");
   });
 
   it("batches Agent runtime lookups once per owner and reads each target Profile", async () => {
-    const resolveProfileById = vi.fn(
-      async (input: { openMeldProfileId: string }) => ({
+    const resolveProfileById = vi.fn();
+    const resolveProfilesByIds = vi.fn(
+      async (input: { profileIds: string[] }) => ({
         ok: true as const,
-        profile: {
-          ownerUserId: "user-a",
-          profileKind: "agent" as const,
-          profileId: input.openMeldProfileId,
-          profileName:
-            input.openMeldProfileId === AGENT_PROFILE_ID ? "Codex" : "Reviewer",
-          profileHandle: "agent",
-          status: "active" as const,
-          defaultProjectId: null,
-        },
+        profiles: Object.fromEntries(
+          input.profileIds.map((profileId) => [
+            profileId,
+            {
+              ownerUserId: "user-a",
+              profileKind: "agent" as const,
+              profileId,
+              profileName:
+                profileId === AGENT_PROFILE_ID ? "Codex" : "Reviewer",
+              profileHandle: "agent",
+              status: "active" as const,
+              defaultProjectId: null,
+            },
+          ])
+        ),
       })
     );
     const env = buildEnv({
@@ -530,7 +585,7 @@ describe("organization Core RPC", () => {
           status: "active",
         },
       ],
-      authWorker: { resolveProfileById },
+      authWorker: { resolveProfileById, resolveProfilesByIds },
       members: [memberRow("member-a", "org-a", "user-a")],
     });
     const lookupRoutes = vi
@@ -601,11 +656,10 @@ describe("organization Core RPC", () => {
       profileIds: [AGENT_PROFILE_ID, SECOND_AGENT_PROFILE_ID],
     });
     expect(lookupOwnerService).toHaveBeenCalledOnce();
-    expect(
-      resolveProfileById.mock.calls
-        .map(([input]) => input.openMeldProfileId)
-        .sort()
-    ).toEqual([AGENT_PROFILE_ID, SECOND_AGENT_PROFILE_ID].sort());
+    expect(resolveProfileById).not.toHaveBeenCalled();
+    expect(resolveProfilesByIds).toHaveBeenCalledExactlyOnceWith({
+      profileIds: [AGENT_PROFILE_ID, SECOND_AGENT_PROFILE_ID],
+    });
   });
 
   it("does not reload the runtime catalog to check Organization Agent readiness", async () => {
@@ -735,6 +789,19 @@ describe("organization Core RPC", () => {
         memberRow("member-b", "org-a", "user-b", "member"),
       ],
       authWorker: {
+        resolveProfilesByIds: vi.fn().mockResolvedValue({
+          ok: true,
+          profiles: {
+            [AGENT_PROFILE_ID]: {
+              ownerUserId: "user-a",
+              profileHandle: "codex",
+              profileId: AGENT_PROFILE_ID,
+              profileKind: "agent",
+              profileName: "Codex",
+              status: "active",
+            },
+          },
+        }),
         resolveProfileById: vi.fn().mockResolvedValue({
           ok: true,
           profile: {
@@ -2213,6 +2280,31 @@ describe("organization Core RPC", () => {
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
     const authWorker = {
+      resolveProfilesByIds: vi.fn(
+        async (request: { profileIds: string[] }) => ({
+          ok: true,
+          profiles: Object.fromEntries(
+            request.profileIds.map((profileId) => {
+              const profile = agentProfiles.find(
+                (item) => item.profileId === profileId
+              );
+              return [
+                profileId,
+                profile
+                  ? {
+                      ownerUserId: profile.ownerUserId,
+                      profileHandle: profile.profileHandle,
+                      profileId: profile.profileId,
+                      profileKind: "agent",
+                      profileName: profile.profileName,
+                      status: profile.status,
+                    }
+                  : null,
+              ];
+            })
+          ),
+        })
+      ),
       resolveProfileById: vi.fn(
         (input: { openMeldProfileId?: string | null }) => {
           const profile = agentProfiles.find(
@@ -5999,8 +6091,9 @@ describe("organization Core RPC", () => {
     });
     const env = buildEnv({ db });
     await rpcRecordCenterAgentAudit(env, {
-      context: buildContext({
+      context: buildCenterAgentContext({
         activeOrganizationId: "org-a",
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
         userId: "user-a",
         profileId: AGENT_PROFILE_ID,
         profileKind: "agent",
@@ -10779,6 +10872,7 @@ function buildEnv(
       resolveOrganizationDirectoryAgentProfiles?: ReturnType<typeof vi.fn>;
       resolveOrganizationDirectoryMembers?: ReturnType<typeof vi.fn>;
       resolveProfileById?: ReturnType<typeof vi.fn>;
+      resolveProfilesByIds?: ReturnType<typeof vi.fn>;
       updateCenterAgentProfileInOrganization?: ReturnType<typeof vi.fn>;
     };
     db?: ReturnType<typeof createOrganizationRpcDb>;
@@ -11490,7 +11584,12 @@ function createOrganizationRpcDb(input: {
     batch: vi.fn(async (statements: D1PreparedStatement[]) => {
       const results: D1Result[] = [];
       for (const statement of statements) {
-        results.push(await statement.run());
+        if (Reflect.get(statement, "isSingleRowRead")) {
+          const row = await statement.first();
+          results.push({ ...createD1RunResult(0), results: row ? [row] : [] });
+        } else {
+          results.push(await statement.run());
+        }
       }
       return results;
     }),
@@ -11501,7 +11600,11 @@ function createOrganizationRpcDb(input: {
       const normalizedSql = sql.toLowerCase();
       return {
         bind: vi.fn((...args: unknown[]) => ({
+          isSingleRowRead:
+            normalizedSql.trimStart().startsWith("select") &&
+            normalizedSql.includes("limit 1"),
           all: vi.fn(async () => ({
+            success: true,
             results: resolveAllRows({
               agentProfiles: input.agentProfiles,
               args,
@@ -13312,9 +13415,10 @@ function resolveAllRows(input: {
         (profile) =>
           input.args.some(
             (value, index) =>
-              index % 3 === 0 &&
+              index % 2 === 0 &&
               value === profile.profileId &&
-              input.args[index + 2] === profile.ownerUserId
+              input.args[index + 1] ===
+                (profile.ownerUserId ?? profile.organizationId)
           ) &&
           profile.status === "active" &&
           profile.hasBinding !== false
@@ -13323,6 +13427,18 @@ function resolveAllRows(input: {
       .map((profile) => ({
         agent_controller_ref: "builtin:codex",
         agent_profile_id: profile.profileId,
+        ...(input.normalizedSql.includes("model_id")
+          ? {
+              model_id:
+                [...(input.bindingRows?.values() ?? [])].find(
+                  (row) => row.agentProfileId === profile.profileId
+                )?.modelId ?? null,
+              reasoning_level:
+                [...(input.bindingRows?.values() ?? [])].find(
+                  (row) => row.agentProfileId === profile.profileId
+                )?.reasoningLevel ?? null,
+            }
+          : {}),
       }));
   }
 

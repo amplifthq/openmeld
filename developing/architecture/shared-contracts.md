@@ -1205,8 +1205,8 @@ The broad `OrganizationDirectoryResponse` remains a compatibility contract.
 Current Web People and Agents use two narrower Core-owned read projections so
 identity is never blocked by runtime fan-out. `OrganizationProfileDirectoryResponse`
 contains Auth-owned member and Agent Profile identity, Center Agent designation,
-the optional member-activity overlay, and only the current viewer's
-permission-scoped primary Agent Controller summary. It does not read Runtime
+the optional member-activity overlay, and member-visible primary Agent Controller
+configuration. It does not read Runtime
 Transport or RuntimeCoordinator. `OrganizationAgentRuntimeOverviewResponse`
 contains readiness and Agent Profile Operational Context keyed by Profile id.
 Core resolves its inputs in bounded owner batches: one route batch, one owner
@@ -1215,12 +1215,51 @@ per-Profile readiness work. Splitting transport does not split authority: Auth,
 Core Wakeability, Binding, and RuntimeCoordinator remain the same owners, and
 the browser never derives or writes either projection.
 
+Profile Directory callers can opt into the optional `modelSelection` field with
+`includeModelSelection=true`. Core reads `model_id` and `reasoning_level` in the
+existing bounded primary-Binding query (49 exact Profile/owner pairs, at most
+98 bound parameters; owner-kind literals are server-selected constants),
+preserving exact Profile/owner selectors
+and Organization membership checks. It returns only the same member-visible model
+configuration already exposed by `publicProfileConfiguration`; no conversation,
+device, credential, permission mode, or execution evidence is added. Configured
+values never grant Wakeability or claim eligibility.
+
+An omitted field means not requested or unavailable; null with a Controller means
+the default model, and null without a Controller means no primary Binding. Failed
+or malformed Binding reads preserve identity while omitting model configuration.
+Core emits the field only on explicit opt-in, and Gateway also strips it for
+legacy callers. New Web accepts older receivers that omit it as unknown without
+starting a full runtime query. Core/Gateway support should be present before Web
+uses the field for the complete experience. Mixed versions remain readable; there
+is no CLI, Service, Skills, Wake, or Prepare payload change, migration, or local
+component contract bump.
+
 Within one overview request, Core shares in-flight Runtime Registry and
 Controller-report reads for identical database and Runtime/Controller keys.
 Missing results and failures are shared only for that request; the next request
 reads fresh facts. Profile-specific Binding, organization eligibility, provider
 evidence, route evidence, and final Wakeability still use their owning checks.
 No cross-request readiness cache or client-derived verdict is introduced.
+
+Overview readiness also reads the existing Auth Profile facts in bounded batches
+and validates each batch's complete key set and identity mapping before use.
+Unavailable or malformed batches remain unavailable evidence; they do not
+trigger scalar retries. Explicit missing and disabled Profiles retain their
+normal policy outcomes. Conflict targets outside that initial set still receive
+a current Auth lookup.
+
+Within that request, concurrent primary Binding, controller-conversation conflict,
+and organization-context reads use bounded D1 batches grouped by physical
+database. Each repository retains its exact SELECT, owner predicates, conflict
+ordering, exclusion rules, and row validation. This batches database round trips,
+not policy decisions or result caching: subsequent reads still execute against
+the database. A failed or incomplete batch rejects its reads and follows the
+existing unavailable-evidence path. Other readiness callers retain scalar reads;
+the owner and per-Profile concurrency limits are unchanged. This uses existing
+Auth RPC and D1 contracts and introduces no Web, Gateway, CLI, Service, or Skills
+payload change. Core requires Auth's existing `resolveProfilesByIds` capability;
+a receiver without it yields unavailable identity evidence, never guessed facts.
 
 Organization Directory readiness is permission-scoped before serialization.
 The Agent owner receives the normal owner projection. Another active member

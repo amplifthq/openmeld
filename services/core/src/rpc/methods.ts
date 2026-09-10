@@ -590,6 +590,7 @@ import type {
   OrganizationInformationProtectionPolicyResponse,
   OrganizationMemberOpenMeldServiceStatusesResponse,
   OrganizationMemberWebActivityResponse,
+  OrganizationProfileDirectoryReadOptions,
   OrganizationProfileDirectoryResponse,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
@@ -767,7 +768,7 @@ import {
   ensurePrimaryAgentProfileBindingRecord,
   listEnabledPrimaryAgentProfileBindingRecordsForProfile,
   listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController,
-  listPrimaryAgentProfileControllerRefs,
+  listPrimaryAgentProfileConfigurations,
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
 } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
@@ -782,6 +783,7 @@ import {
   readRegisteredAgentControllerTask,
 } from "../agent-task-coordination/infrastructure/d1/agent-controller-task-lifecycle-repo";
 import { readAgentDelegationByChildTask } from "../agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+import { readAuthProfileFacts } from "../auth/application/profile-facts-reader";
 import {
   type CenterAgentOrganizationMember,
   prepareCenterAgentOrganizationMemberRequest,
@@ -3030,10 +3032,10 @@ export type GetCurrentOrganizationDirectoryInput = {
   includeMemberLastActiveAt?: boolean;
 };
 
-export type GetCurrentOrganizationProfileDirectoryInput = {
-  context?: CoreRpcContextInput;
-  includeMemberLastActiveAt?: boolean;
-};
+export type GetCurrentOrganizationProfileDirectoryInput =
+  OrganizationProfileDirectoryReadOptions & {
+    context?: CoreRpcContextInput;
+  };
 
 export type GetCurrentOrganizationAgentRuntimeOverviewInput = {
   agentProfileWorkRecoveryVersion?: 2;
@@ -6195,9 +6197,10 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
       requestId,
     }),
   ]);
-  const controllerRefsByProfileId =
-    await readProfileDirectoryAgentControllerRefs({
+  const configurationsByProfileId =
+    await readProfileDirectoryAgentConfigurations({
       agentProfiles: eligibleAgentProfiles,
+      includeModelSelection: input.includeModelSelection === true,
       env,
       organizationId,
     });
@@ -6205,7 +6208,16 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
     agentProfiles: eligibleAgentProfiles.map((profile) => ({
       ...profile,
       agentControllerRef:
-        controllerRefsByProfileId.get(profile.profileId) ?? null,
+        configurationsByProfileId?.get(profile.profileId)?.agentControllerRef ??
+        null,
+      ...(input.includeModelSelection === true &&
+      configurationsByProfileId !== null
+        ? {
+            modelSelection:
+              configurationsByProfileId.get(profile.profileId)
+                ?.modelSelection ?? null,
+          }
+        : {}),
     })),
     generatedAt,
     members,
@@ -6346,14 +6358,18 @@ async function resolveEligibleOrganizationAgentProfiles(input: {
     );
 }
 
-async function readProfileDirectoryAgentControllerRefs(input: {
+async function readProfileDirectoryAgentConfigurations(input: {
   agentProfiles: readonly EligibleOrganizationAgentProfile[];
   env: CoreBindings;
   organizationId: string;
-}): Promise<ReadonlyMap<string, string>> {
+  includeModelSelection: boolean;
+}): Promise<Awaited<
+  ReturnType<typeof listPrimaryAgentProfileConfigurations>
+> | null> {
   try {
-    return await listPrimaryAgentProfileControllerRefs({
+    return await listPrimaryAgentProfileConfigurations({
       profiles: input.agentProfiles,
+      includeModelSelection: input.includeModelSelection,
       db: requireAgentProfileBindingDb(input.env),
     });
   } catch (error) {
@@ -6365,7 +6381,7 @@ async function readProfileDirectoryAgentControllerRefs(input: {
         profileCount: input.agentProfiles.length,
       }
     );
-    return new Map();
+    return null;
   }
 }
 
@@ -6489,7 +6505,15 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
     string | null,
     EligibleOrganizationAgentProfile[]
   >();
-  const reads = createAgentExecutionReadinessReads();
+  const reads = createAgentExecutionReadinessReads({
+    batchProfileReads: true,
+    profileFacts: await readAuthProfileFacts({
+      authWorker: input.env.OPENMELD_AUTH_WORKER,
+      profileIds: input.eligibleAgentProfiles.map(
+        (profile) => profile.profileId
+      ),
+    }),
+  });
   for (const profile of input.eligibleAgentProfiles) {
     const profiles = profilesByOwner.get(profile.ownerUserId) ?? [];
     profiles.push(profile);
