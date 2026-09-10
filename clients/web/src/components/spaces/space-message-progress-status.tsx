@@ -14,6 +14,10 @@ import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import { hasLiveSpaceAgentToolActivity } from "./space-agent-tool-activity-state";
 import { SpaceMessageDeliveryStatus } from "./space-message-delivery-status";
 import { SpaceMessageWakeThinkingIndicator } from "./space-message-wake-thinking-indicator";
+import {
+	SpacePendingSendFeedback,
+	useSpaceSendFailure,
+} from "./space-pending-send";
 import { SpaceWakeBookmarkAnchor } from "./space-wake-bookmarks";
 
 export function SpaceMessageProgressStatus(input: {
@@ -24,6 +28,7 @@ export function SpaceMessageProgressStatus(input: {
 	item: SpaceTimelineItem;
 	onOpenMessageDetails?: () => void;
 }) {
+	const sendFailure = useSpaceSendFailure(input.item.id);
 	const shouldTick = input.item.deliveryState === "pending";
 	const nowMs = useNowMs(shouldTick ? 1000 : null);
 	const deliveryPresentation = resolveSpaceMessageDeliveryPresentation({
@@ -36,6 +41,13 @@ export function SpaceMessageProgressStatus(input: {
 		hasControl: input.control != null,
 		item: input.item,
 	});
+	if (sendFailure) {
+		return wrapProgressStatus(
+			<SpacePendingSendFeedback align={input.align} signalId={input.item.id} />,
+			input.containerClassName,
+			input.item.activeWakeProgress
+		);
+	}
 	if (!content) {
 		return null;
 	}

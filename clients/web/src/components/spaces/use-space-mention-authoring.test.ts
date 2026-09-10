@@ -3,7 +3,13 @@ import {
 	createSpaceMemberHumanSnapshot,
 	createSpaceMembersSnapshot,
 } from "@openmeld/schemas/testing";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	act,
+	renderHook as renderTestingHook,
+	waitFor,
+} from "@testing-library/react";
+import { createElement, type PropsWithChildren } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	buildSpaceComposerAddressingTargets,
@@ -493,3 +499,74 @@ function createMentionOrderingSnapshot() {
 		],
 	});
 }
+
+function renderHook<Result, Props>(
+	callback: (props: Props) => Result,
+	options?: { initialProps: Props }
+) {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	return renderTestingHook(callback, {
+		...options,
+		wrapper: ({ children }: PropsWithChildren) =>
+			createElement(QueryClientProvider, { client }, children),
+	});
+}
+
+it("restores cached identities without restoring Wake authority", async () => {
+	const snapshot = createSpaceMembersSnapshot({
+		spaceId: "space-cache",
+		agents: [
+			createSpaceMemberAgentSnapshot({
+				profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+				profileName: "Cached agent",
+			}),
+		],
+	});
+	const client = new QueryClient();
+	const composer = renderTestingHook(
+		({ current }: { current: typeof snapshot | null }) =>
+			useSpaceMentionAuthoring({
+				composerDraftScope: null,
+				openMeldProfileId: "human-1",
+				spaceId: "space-cache",
+				snapshot: current,
+				isMembersLoading: !current,
+				membersErrorMessage: null,
+			}),
+		{
+			initialProps: { current: snapshot as typeof snapshot | null },
+			wrapper: ({ children }: PropsWithChildren) =>
+				createElement(QueryClientProvider, { client }, children),
+		}
+	);
+	await waitFor(() =>
+		expect(
+			client.getQueryData([
+				"spaces",
+				"member-directory-display",
+				"space-cache",
+				"human-1",
+			])
+		).toBeDefined()
+	);
+	composer.rerender({ current: null });
+	const target = composer.result.current.mentionPickerItems.find(
+		(item) =>
+			item.suggestion.profileId === "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	);
+	expect(target?.suggestion.profileName).toBe("Cached agent");
+	expect(target?.suggestion.wakeAvailability.status).toBe("blocked");
+	expect(
+		target && resolveDefaultSpaceComposerMentionRelation(target.suggestion)
+	).toBe("wake");
+	expect(composer.result.current.mentionEmptyMessage).toBe("Loading members…");
+	const saved = client.getQueryData([
+		"spaces",
+		"member-directory-display",
+		"space-cache",
+		"human-1",
+	]);
+	expect(JSON.stringify(saved)).not.toContain("wakeAvailability");
+});

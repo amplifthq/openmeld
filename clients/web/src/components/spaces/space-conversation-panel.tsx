@@ -189,7 +189,11 @@ import {
 } from "./space-message-profile-mention";
 import { shouldPlaceSpaceMessageProgressInAnswer } from "./space-message-progress-placement";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
-import { resolveMessageReactionInput } from "./space-message-reactions";
+import {
+	MessageBubbleReactions,
+	MessageReactionsProvider,
+	resolveMessageReactionInput,
+} from "./space-message-reactions";
 import {
 	EMPTY_SPACE_MESSAGE_REFERENCES,
 	hasResolvedSpaceMessageReference,
@@ -242,6 +246,7 @@ type SpaceConversationPanelResolvedProps = {
 	composerAddressingTargets?: readonly SpaceComposerAddressingTarget[];
 	composerAuthoredMentions?: readonly ComposerDraftAuthoredMention[];
 	composerMentionPickerItems?: readonly SpaceMentionPickerItem[];
+	composerMentionEmptyMessage?: string;
 	composerBlockedWakeProfileId: string | null;
 	composerHasAuthoredMentions?: boolean;
 	composerReplyToSignalId: string | null;
@@ -2093,6 +2098,7 @@ function SpaceComposerSection(input: {
 						files: panel.composerFiles,
 						hasAuthoredMentions: panel.composerHasAuthoredMentions,
 						mentionPickerItems: panel.composerMentionPickerItems ?? [],
+						mentionEmptyMessage: panel.composerMentionEmptyMessage,
 						text: panel.composerText,
 					}}
 					context={{
@@ -2817,68 +2823,67 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 										/>
 									</MessageHeader>
 								) : null}
-								<BubbleGroup className="w-full gap-0">
-									<div
-										className={cn(
-											"group/message-row relative flex w-full min-w-0 max-w-full flex-col gap-0",
-											SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS
-										)}
-										data-message-row-id={item.id}
-									>
-										<Bubble
-											align={messageAlign}
-											className={messageBubbleVisibilityClassName}
+								<MessageReactionsProvider
+									input={resolveMessageReactionInput(
+										item,
+										input.selfProfileId,
+										!canUseMessageActions
+									)}
+								>
+									<BubbleGroup className="w-full gap-0">
+										<div
+											className={cn(
+												"group/message-row relative flex w-full min-w-0 max-w-full flex-col gap-0",
+												SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS
+											)}
+											data-message-row-id={item.id}
 										>
-											<ConversationBubbleContent
-												agentInteractionItems={agentInteractionItems}
-												anchoredOutcomeNotices={anchoredOutcomeNotices}
-												answerProgressStatus={answerProgressStatus}
-												bubblePresentationClass={bubblePresentationClass}
-												canUseMessageActions={canUseMessageActions}
-												computerSetupContext={computerSetupPresentation.context}
-												detailsDialog={detailsDialog}
-												isHighlighted={isHighlighted}
-												item={item}
-												messageAlign={messageAlign}
-												parent={input}
-												selfMessageContentLayoutClassName={
-													selfMessageContentLayoutClassName
-												}
-											/>
-										</Bubble>
-										{rowProgressStatus}
-										{renderConversationMessageFooter({
-											anchoredOutcomeNotices,
-											canUseMessageActions,
-											hasWakeProblem,
-											isCreatingThread: input.isCreatingThread,
-											item,
-											messageAlign,
-											messageDetailsItem,
-											onCreateThread: input.onCreateThread,
-											onOpenMessageDetails: input.onOpenMessageDetails,
-											onOpenThread: input.onOpenThread,
-											onReplyToMessage: input.onReplyToMessage,
-											orgSlug: input.orgSlug,
-											profileEntriesById: input.profileEntriesById,
-											profilePresentationsById: input.profilePresentationsById,
-											selfProfileId: input.selfProfileId,
-											threadsByRootSignalId: input.threadsByRootSignalId,
-										})}
-										<ThreadPreview
-											membersSnapshot={input.membersSnapshot}
-											onOpenThread={input.onOpenThread}
-											preview={
-												input.threadPreviewByThreadId.get(
-													input.threadsByRootSignalId.get(item.id)?.threadId ??
-														""
-												) ?? null
-											}
-											spaceReferencesById={input.spaceReferencesById}
-											thread={input.threadsByRootSignalId.get(item.id) ?? null}
-										/>
-									</div>
-								</BubbleGroup>
+											<Bubble
+												align={messageAlign}
+												className={messageBubbleVisibilityClassName}
+											>
+												<ConversationBubbleContent
+													agentInteractionItems={agentInteractionItems}
+													anchoredOutcomeNotices={anchoredOutcomeNotices}
+													answerProgressStatus={answerProgressStatus}
+													bubblePresentationClass={bubblePresentationClass}
+													canUseMessageActions={canUseMessageActions}
+													computerSetupContext={
+														computerSetupPresentation.context
+													}
+													detailsDialog={detailsDialog}
+													isHighlighted={isHighlighted}
+													item={item}
+													messageAlign={messageAlign}
+													parent={input}
+													selfMessageContentLayoutClassName={
+														selfMessageContentLayoutClassName
+													}
+												/>
+											</Bubble>
+											{rowProgressStatus}
+											{renderConversationMessageFooter({
+												anchoredOutcomeNotices,
+												canUseMessageActions,
+												hasWakeProblem,
+												isCreatingThread: input.isCreatingThread,
+												item,
+												messageAlign,
+												messageDetailsItem,
+												onCreateThread: input.onCreateThread,
+												onOpenMessageDetails: input.onOpenMessageDetails,
+												onOpenThread: input.onOpenThread,
+												onReplyToMessage: input.onReplyToMessage,
+												orgSlug: input.orgSlug,
+												profileEntriesById: input.profileEntriesById,
+												profilePresentationsById:
+													input.profilePresentationsById,
+												selfProfileId: input.selfProfileId,
+												threadsByRootSignalId: input.threadsByRootSignalId,
+											})}
+										</div>
+									</BubbleGroup>
+								</MessageReactionsProvider>
 							</MessageContent>
 						</Message>
 					</MessageScrollerItem>
@@ -2939,8 +2944,7 @@ function ConversationBubbleContent(input: {
 				SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 				SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 				input.selfMessageContentLayoutClassName,
-				input.bubblePresentationClass,
-				getTimelineItemDeliveryClass(input.item)
+				input.bubblePresentationClass
 			)}
 			data-highlighted={input.isHighlighted ? "true" : undefined}
 			data-signal-id={input.item.id}
@@ -3009,6 +3013,18 @@ function ConversationBubbleContent(input: {
 				sourceItem: input.item,
 				spaceReferencesById: parent.spaceReferencesById,
 			})}
+			<MessageBubbleReactions />
+			<ThreadPreview
+				membersSnapshot={parent.membersSnapshot}
+				onOpenThread={parent.onOpenThread}
+				preview={
+					parent.threadPreviewByThreadId.get(
+						parent.threadsByRootSignalId.get(input.item.id)?.threadId ?? ""
+					) ?? null
+				}
+				spaceReferencesById={parent.spaceReferencesById}
+				thread={parent.threadsByRootSignalId.get(input.item.id) ?? null}
+			/>
 		</BubbleContent>
 	);
 }
@@ -3126,10 +3142,6 @@ function resolveConversationMessageDetailsItem(input: {
 		return null;
 	}
 	return resolveRecordedSpaceMessageDetailsItem(input);
-}
-
-function getTimelineItemDeliveryClass(item: SpaceTimelineItem) {
-	return item.deliveryState === "pending" ? "opacity-70" : null;
 }
 
 function resolveSpaceMessageBubbleVisibilityClassName(input: {
@@ -3339,6 +3351,9 @@ function renderConversationMessageFooter(input: {
 	});
 	const canUseCollaborationActions =
 		input.canUseMessageActions && input.item.signalType === "signal.text";
+	const awaitingDelivery =
+		input.item.deliveryState === "pending" &&
+		input.item.signalType === "signal.text";
 	const addressingTargets = resolveSpaceMessageFooterAddressingTargets({
 		item: input.item,
 		profilePresentationsById: input.profilePresentationsById,
@@ -3367,16 +3382,16 @@ function renderConversationMessageFooter(input: {
 					organizationSlug: input.orgSlug,
 				})
 			}
-			reaction={resolveMessageReactionInput(
-				input.item,
-				input.selfProfileId,
-				!input.canUseMessageActions
-			)}
 			reply={
-				canUseCollaborationActions
+				canUseCollaborationActions || awaitingDelivery
 					? {
-							label: "Reply",
-							onSelect: () => input.onReplyToMessage(input.item),
+							disabled: awaitingDelivery,
+							label: awaitingDelivery ? "Reply after sending" : "Reply",
+							onSelect: () => {
+								if (canUseCollaborationActions) {
+									input.onReplyToMessage(input.item);
+								}
+							},
 						}
 					: undefined
 			}

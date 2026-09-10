@@ -268,6 +268,10 @@ vi.mock("@tanstack/react-query", async () => {
 	// mocked download API, including the optimistic local-preview phase.
 	const usesRealQuery = (queryKey: unknown) =>
 		isWakeProgressPresentationQuery(queryKey) ||
+		(Array.isArray(queryKey) &&
+			queryKey[0] === "spaces" &&
+			(queryKey[1] === "pending-outgoing" ||
+				queryKey.includes("member-directory-display"))) ||
 		(Array.isArray(queryKey) && queryKey[0] === "space-message-reactions") ||
 		(Array.isArray(queryKey) &&
 			queryKey[0] === "space-files" &&
@@ -315,7 +319,7 @@ vi.mock("@tanstack/react-query", async () => {
 					get(target, property, receiver) {
 						if (property === "setQueryData") {
 							return (queryKey: readonly unknown[], update: unknown) => {
-								if (isWakeProgressPresentationQuery(queryKey)) {
+								if (usesRealQuery(queryKey)) {
 									return setActualQueryData(queryKey, update);
 								}
 								const mockedSetQueryData = Reflect.get(
@@ -2381,7 +2385,8 @@ describe("SpaceLanding", () => {
 				)
 			).toBeTruthy()
 		);
-		expect(readComposerValue(composer)).toBe("Keep this draft");
+		expect(readComposerValue(composer)).toBe("");
+		expect(screen.getByText("Keep this draft")).toBeTruthy();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 	});
 
@@ -9240,7 +9245,7 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("Waking 1 agent")).toBeNull();
 	});
 
-	it("keeps a stale-Available Wake draft editable and sends it after switching to Reference", async () => {
+	it("rechecks a rejected Wake on explicit retry without changing its intent", async () => {
 		useLocalAgentRecoveryControllerMock.mockReturnValue({
 			currentDeviceTargetQuery: {
 				data: {
@@ -9342,51 +9347,31 @@ describe("SpaceLanding", () => {
 			).toBeGreaterThanOrEqual(1);
 		});
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
-		expect(readComposerValue(textarea)).toBe("@Runner please reply");
+		expect(readComposerValue(textarea)).toBe("");
 		expect(textarea.getAttribute("contenteditable")).toBe("true");
 		expect(setQueryDataMock).toHaveBeenCalledWith(
 			spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID),
 			currentMembersSnapshot
 		);
-		expect(
-			screen
-				.getAllByRole("link", { name: "Choose local agent" })
-				.every(
-					(link) =>
-						link.getAttribute("href") ===
-						`/o/acme/agents?profileId=${DEFAULT_AGENT_PROFILE_ID}`
-				)
-		).toBe(true);
-
-		const relationControl = screen.getByRole("combobox", {
-			name: "Change relation for Runner",
-		});
-		fireEvent.click(relationControl);
-		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
-		const sendButton = screen.getByRole("button", { name: "Send message" });
-		await waitFor(() => {
-			expect((sendButton as HTMLButtonElement).disabled).toBe(false);
-		});
-		fireEvent.click(sendButton);
-
-		await waitFor(() => {
-			expect(postNormalMessageMock).toHaveBeenCalledWith({
-				messageEnvelope: {
-					activationTargets: [],
-					mentionTargets: [],
-					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
-					text: "@Runner please reply",
-				},
-				meta: { clientMessageId: expect.any(String), authorHasRead: true },
-				spaceId: "space-123",
-				text: "@Runner please reply",
-				timeoutMs: 30_000,
-			});
-		});
-		expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+		await setComposerValue(textarea, "My new draft");
+		readSpaceMembersMock.mockResolvedValue(createMembersSnapshot());
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() =>
+			expect(postNormalMessageMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					messageEnvelope: expect.objectContaining({
+						activationTargets: [DEFAULT_AGENT_PROFILE_ID],
+						referenceTargets: [],
+						text: "@Runner please reply",
+					}),
+				})
+			)
+		);
+		expect(readSpaceMembersMock).toHaveBeenCalledTimes(2);
+		expect(readComposerValue(textarea)).toBe("My new draft");
 	});
 
-	it("preserves a Wake draft when the current readiness check fails", async () => {
+	it("retains the Wake message for retry when the current readiness check fails", async () => {
 		const postNormalMessageMock = vi.fn();
 		readSpaceMembersMock.mockRejectedValueOnce(
 			new Error("network unavailable")
@@ -9429,13 +9414,18 @@ describe("SpaceLanding", () => {
 			"OpenMeld couldn't confirm that this agent can reply right now. Try again."
 		);
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
-		expect(readComposerValue(textarea)).toBe("@Runner keep this draft");
+		expect(readComposerValue(textarea)).toBe("");
+		expect(
+			screen.getByRole("log", { name: "Conversation history" }).textContent
+		).toContain("keep this draft");
 		expect(textarea.getAttribute("contenteditable")).toBe("true");
 		const errorSurface = errorMessage.parentElement;
 		if (!errorSurface) {
 			throw new Error("Expected the Composer error surface.");
 		}
-		expect(within(errorSurface).queryByRole("button")).toBeNull();
+		expect(
+			within(errorSurface).getByRole("button", { name: "Retry" })
+		).toBeTruthy();
 		expect(within(errorSurface).queryByRole("link")).toBeNull();
 	});
 
@@ -13312,7 +13302,6 @@ describe("SpaceLanding", () => {
 		});
 
 		await screen.findByText("Ready");
-		expect(screen.getByText("1 file ready to send")).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
 			"disabled",
 			false
@@ -13339,7 +13328,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("sends the text and successful files when another upload fails", async () => {
+	it("sends intact content after the user removes a failed upload", async () => {
 		const descriptor = createSpaceFileDescriptor({
 			mimeType: "text/plain",
 			name: "ready.txt",
@@ -13414,13 +13403,16 @@ describe("SpaceLanding", () => {
 		);
 		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
 			"disabled",
-			false
+			true
 		);
 		expect(
-			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+			screen.getByText(
+				"1 file couldn't be uploaded. Remove it or add it again."
+			)
 		).toBeTruthy();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 
+		fireEvent.click(screen.getByRole("button", { name: "Remove broken.png" }));
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
@@ -13433,12 +13425,11 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("sends the text and successfully published files when another staged file cannot be published", async () => {
+	it("retains the entire message for retry when one attachment cannot be published", async () => {
 		const descriptor = createSpaceFileDescriptor({
 			mimeType: "text/plain",
 			name: "ready.txt",
 		});
-		const messageFile = createSpaceMessageFileReference(descriptor);
 		let failedUploadId: string | null = null;
 		const stageComposerUploadMock = vi.fn().mockImplementation((input) => {
 			if (input.name === "broken.png") {
@@ -13468,15 +13459,7 @@ describe("SpaceLanding", () => {
 			}
 			return Promise.resolve(descriptor);
 		});
-		let resolvePost:
-			| ((signal: ReturnType<typeof createTextSignal>) => void)
-			| null = null;
-		const postNormalMessageMock = vi.fn().mockImplementation(
-			() =>
-				new Promise<ReturnType<typeof createTextSignal>>((resolve) => {
-					resolvePost = resolve;
-				})
-		);
+		const postNormalMessageMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			postNormalMessage: postNormalMessageMock,
@@ -13517,31 +13500,14 @@ describe("SpaceLanding", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-		await waitFor(() => {
-			expect(postNormalMessageMock).toHaveBeenCalledWith({
-				files: [messageFile],
-				meta: { clientMessageId: expect.any(String), authorHasRead: true },
-				spaceId: "space-123",
-				text: "Text can still be sent",
-				timeoutMs: 30_000,
-			});
-		});
-
-		await act(async () => {
-			resolvePost?.(
-				createTextSignal({
-					files: [messageFile],
-					id: "signal-with-partial-publish",
-					text: "Text can still be sent",
-				})
-			);
-			await Promise.resolve();
-		});
-		await screen.findByText("This file could not be published.");
-		expect(screen.getByText("Request ID: request-publish-500")).toBeTruthy();
+		await screen.findByRole("button", { name: "Retry" });
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(screen.getByText("Text can still be sent")).toBeTruthy();
 		expect(
-			screen.getByText("1 file couldn't be uploaded and won't be sent.")
-		).toBeTruthy();
+			readComposerValue(
+				screen.getByRole("textbox", { name: "Message this space" })
+			)
+		).toBe("");
 	});
 
 	it("retries an outcome-unknown publication once with the same mutation", async () => {
@@ -13694,12 +13660,12 @@ describe("SpaceLanding", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-		await screen.findByText(
-			"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
+		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
+			"disabled",
+			true
 		);
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
 		expect(screen.getByText("Ready")).toBeTruthy();
-		expect(screen.getByText("1 file ready to send")).toBeTruthy();
 		expect(readComposerValue(textarea)).toBe("@Runner review these notes");
 	});
 
@@ -13795,9 +13761,8 @@ describe("SpaceLanding", () => {
 		});
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
-		expect(screen.getByText("Ready")).toBeTruthy();
-		expect(screen.getByText("1 file ready to send")).toBeTruthy();
-		expect(readComposerValue(textarea)).toBe("@Runner review these notes");
+		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+		expect(readComposerValue(textarea)).toBe("");
 	});
 
 	it("keeps a file-only Composer open when its staged file cannot be published", async () => {
@@ -13845,9 +13810,9 @@ describe("SpaceLanding", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await screen.findByText(
-			"None of the files could be sent. Add them again or enter a message."
+			"A file couldn't be attached. Your message wasn't sent."
 		);
-		expect(screen.getByText("This file could not be published.")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		expect(
 			screen.getByRole("textbox", { name: "Message this space" })
@@ -14102,7 +14067,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("restores a failed Center Agent starter prompt to the composer", async () => {
+	it("retains a failed Center Agent starter message for retry", async () => {
 		const starterPrompt =
 			"I want to create a Space. Ask me what I'm trying to accomplish, then help me set up the right Space, people, and agents.";
 		const postNormalMessageMock = vi
@@ -14151,7 +14116,8 @@ describe("SpaceLanding", () => {
 					name: "Message Center Agent",
 				})
 			)
-		).toBe(starterPrompt);
+		).toBe("");
+		expect(screen.getByText(starterPrompt)).toBeTruthy();
 		expect(
 			screen.queryByRole("group", { name: "Suggested starting points" })
 		).toBeTruthy();
@@ -14235,7 +14201,7 @@ describe("SpaceLanding", () => {
 		expect(useAccountAvatarMock).toHaveBeenCalledWith({ enabled: false });
 	});
 
-	it("restores a queued Center Agent message when its real send fails", async () => {
+	it("retains a queued Center Agent message for retry when its send fails", async () => {
 		const postNormalMessageMock = vi
 			.fn()
 			.mockRejectedValue(new Error("The message could not be sent."));
@@ -14281,7 +14247,8 @@ describe("SpaceLanding", () => {
 					name: "Message this space",
 				})
 			)
-		).toBe("Keep this draft");
+		).toBe("");
+		expect(screen.getByText("Keep this draft")).toBeTruthy();
 		expect(onConsumed).toHaveBeenCalledTimes(1);
 	});
 
@@ -14363,7 +14330,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("keeps an Agent Direct Message draft when its automatic Wake is currently blocked", async () => {
+	it("retains an Agent Direct Message for retry when current admission rejects Wake", async () => {
 		const postNormalMessageMock = vi.fn();
 		const currentMembersSnapshot = createMembersSnapshot({
 			defaultAgentExecutionReadiness:
@@ -14410,11 +14377,12 @@ describe("SpaceLanding", () => {
 			expect(screen.getByText(currentBlockedReason)).toBeTruthy();
 		});
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
-		expect(readComposerValue(composer)).toBe("Keep this Direct Message draft");
+		expect(readComposerValue(composer)).toBe("");
+		expect(screen.getByText("Keep this Direct Message draft")).toBeTruthy();
 		expect(composer.getAttribute("contenteditable")).toBe("true");
 	});
 
-	it("removes the outgoing normal message when the send fails", async () => {
+	it("retains a failed outgoing message with retry without restoring the composer", async () => {
 		let rejectPost: ((error: Error) => void) | null = null;
 		const postNormalMessageMock = vi.fn().mockImplementation(
 			() =>
@@ -14469,10 +14437,11 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(
-				within(conversationLog).queryByText("Message that fails")
-			).toBeNull();
+				within(conversationLog).getByText("Message that fails")
+			).toBeTruthy();
 		});
-		expect(readComposerValue(textarea)).toBe("Message that fails");
+		expect(readComposerValue(textarea)).toBe("");
+		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
 		expect(screen.getByText("send failed")).toBeTruthy();
 	});
 
@@ -14519,10 +14488,16 @@ describe("SpaceLanding", () => {
 		await setComposerValue(textarea, "My next message");
 		expect(readComposerValue(textarea)).toBe("My next message");
 		expect(
-			(screen.getByRole("button", { name: "Sending…" }) as HTMLButtonElement)
-				.disabled
-		).toBe(true);
+			(
+				screen.getByRole("button", {
+					name: "Send message",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(false);
 		fireEvent.keyDown(textarea, { key: "Enter" });
+		expect(screen.getByText("My next message", { selector: "p" })).toBeTruthy();
+		await waitFor(() => expect(readComposerValue(textarea)).toBe(""));
+		await setComposerValue(textarea, "Third draft");
 		expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
 
 		await act(async () => {
@@ -14538,7 +14513,14 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
 		});
-		expect(readComposerValue(textarea)).toBe("My next message");
+		expect(readComposerValue(textarea)).toBe("Third draft");
+		expect(postNormalMessageMock).toHaveBeenCalledTimes(2);
+		await act(async () => {
+			resolvePost?.(
+				createTextSignal({ id: "sig-second-message", text: "My next message" })
+			);
+			await Promise.resolve();
+		});
 		expect(textarea.getAttribute("contenteditable")).toBe("true");
 	});
 
@@ -14586,7 +14568,7 @@ describe("SpaceLanding", () => {
 		});
 
 		await waitFor(() => {
-			expect(screen.getByText("Message not sent")).toBeTruthy();
+			expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
 		});
 		expect(readComposerValue(textarea)).toBe(
 			"Do not overwrite this next draft"
@@ -14692,11 +14674,7 @@ describe("SpaceLanding", () => {
 			).toBeTruthy();
 			expect(readComposerValue(textarea)).toBe("");
 			expect((sendButton as HTMLButtonElement).disabled).toBe(true);
-			expect(
-				screen.getByText(
-					"OpenMeld couldn't confirm this message yet. It may still appear in the Space, so wait a moment before sending it again."
-				)
-			).toBeTruthy();
+			expect(screen.getByText("Delivery not confirmed.")).toBeTruthy();
 		});
 		expect(postNormalMessageMock.mock.calls[1]?.[0]).toEqual(
 			postNormalMessageMock.mock.calls[0]?.[0]
@@ -16628,12 +16606,12 @@ describe("SpaceLanding", () => {
 					name: "Send reply",
 				}) as HTMLButtonElement
 			).disabled
-		).toBe(true);
+		).toBe(false);
 		fireEvent.keyDown(threadComposer, { key: "Enter" });
 		expect(postThreadSignalMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("sends a thread reply and successful files when another upload fails", async () => {
+	it("sends a thread reply after the user removes a failed upload", async () => {
 		const descriptor = createSpaceFileDescriptor({
 			mimeType: "text/plain",
 			name: "thread-ready.txt",
@@ -16758,13 +16736,18 @@ describe("SpaceLanding", () => {
 		await setComposerValue(threadComposer, "Thread text can still be sent");
 		expect(
 			within(threadPanel).getByText(
-				"1 file couldn't be uploaded and won't be sent."
+				"1 file couldn't be uploaded. Remove it or add it again."
 			)
 		).toBeTruthy();
 		expect(
 			within(threadPanel).getByRole("button", { name: "Send reply" })
-		).toHaveProperty("disabled", false);
+		).toHaveProperty("disabled", true);
 
+		fireEvent.click(
+			within(threadPanel).getByRole("button", {
+				name: "Remove thread-broken.png",
+			})
+		);
 		fireEvent.click(
 			within(threadPanel).getByRole("button", { name: "Send reply" })
 		);
@@ -16893,12 +16876,11 @@ describe("SpaceLanding", () => {
 			within(threadPanel).getByRole("button", { name: "Send reply" })
 		);
 
-		await within(threadPanel).findByText(
-			"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
-		);
+		expect(
+			within(threadPanel).getByRole("button", { name: "Send reply" })
+		).toHaveProperty("disabled", true);
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
 		expect(within(threadPanel).getByText("Ready")).toBeTruthy();
-		expect(within(threadPanel).getByText("1 file ready to send")).toBeTruthy();
 		expect(
 			readComposerValue(
 				within(threadPanel).getByRole("textbox", {
@@ -17063,9 +17045,7 @@ describe("SpaceLanding", () => {
 			expect(readComposerValue(threadComposer)).toBe("");
 			expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 			expect(
-				within(threadPanel).getByText(
-					"OpenMeld couldn't confirm this message yet. It may still appear in the Space, so wait a moment before sending it again."
-				)
+				within(threadPanel).getByText("Delivery not confirmed.")
 			).toBeTruthy();
 		});
 		expect(postThreadSignalMock.mock.calls[1]?.[0]).toEqual(

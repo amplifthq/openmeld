@@ -64,6 +64,7 @@ export type SpaceComposerProps = {
 		files: readonly SpaceComposerFile[];
 		hasAuthoredMentions?: boolean;
 		mentionPickerItems: readonly SpaceMentionPickerItem[];
+		mentionEmptyMessage?: string;
 		text: string;
 	};
 	context: {
@@ -195,6 +196,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						centerAgentProfileId={input.centerAgentProfileId}
 						composerRef={input.composerRef}
 						maxHeight={input.presentation?.maxHeight}
+						mentionEmptyMessage={input.content.mentionEmptyMessage}
 						mentionPickerItems={input.content.mentionPickerItems}
 						onBlur={input.actions.onBlur}
 						onChange={input.actions.onEditorChange}
@@ -328,11 +330,11 @@ export function resolveSpaceComposerFileHint(input: {
 		input.uploadInProgress ??
 		input.files.some(isSpaceComposerFileInProgress)
 	) {
-		return "Uploading files before sending…";
+		return "Uploading files…";
 	}
 	const failedCount = input.files.filter(isSpaceComposerFileFailed).length;
 	if (failedCount > 0) {
-		return `${String(failedCount)} ${failedCount === 1 ? "file" : "files"} couldn't be uploaded and won't be sent.`;
+		return `${String(failedCount)} ${failedCount === 1 ? "file" : "files"} couldn't be uploaded. Remove ${failedCount === 1 ? "it" : "them"} or add ${failedCount === 1 ? "it" : "them"} again.`;
 	}
 	if (input.fileLimitReached) {
 		return "You can add up to 10 files.";
@@ -350,7 +352,9 @@ export function resolveSpaceComposerSendBlocked(input: {
 	files: readonly SpaceComposerFile[];
 	text: string;
 }): boolean {
-	const uploadInProgress = input.files.some(isSpaceComposerFileInProgress);
-	const hasReadyFile = input.files.some((file) => file.status === "ready");
-	return uploadInProgress || (!hasReadyFile && input.text.trim().length === 0);
+	const hasFile = input.files.some((file) => file.status !== "failed");
+	return (
+		input.files.some(isSpaceComposerFileFailed) ||
+		(!hasFile && input.text.trim().length === 0)
+	);
 }
