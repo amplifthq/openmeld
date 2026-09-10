@@ -23,7 +23,6 @@ import { useCallback, useState } from "react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import type { OrganizationComputerGroup } from "../computers/organization-computers";
-import { CenterAgentItem } from "./center-agent-item";
 import type { DirectoryHumanProfileRow } from "./directory-human-profile-model";
 import { HumanProfileItem } from "./human-profile-item";
 import {
@@ -51,12 +50,10 @@ export function TeamHome(input: {
 	const allSections = resolvePeopleSections(
 		input.members,
 		sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR,
-		{ includeOnline: true }
+		{ includeOnline: false }
 	);
 	const query = search.trim().toLocaleLowerCase();
 	const filtering = Boolean(query) || groupIds.length > 0;
-	const showCenterAgent =
-		!query && (groupIds.length === 0 || groupIds.includes("online"));
 	const sections = allSections
 		.filter((section) => groupIds.length === 0 || groupIds.includes(section.id))
 		.map((section) => ({
@@ -65,12 +62,7 @@ export function TeamHome(input: {
 				member.name.toLocaleLowerCase().includes(query)
 			),
 		}))
-		.filter(
-			(section) =>
-				!filtering ||
-				section.members.length > 0 ||
-				(section.id === "online" && showCenterAgent)
-		);
+		.filter((section) => !filtering || section.members.length > 0);
 	const visibleCount = sections.reduce(
 		(total, section) => total + section.members.length,
 		0
@@ -173,7 +165,7 @@ export function TeamHome(input: {
 				</div>
 			) : null}
 			<div className="space-y-7 px-[var(--app-page-inline-padding)] pb-8">
-				{filtering && visibleCount === 0 && !showCenterAgent ? (
+				{filtering && visibleCount === 0 ? (
 					<p className="text-muted-foreground text-sm">
 						No members match your search or filters.
 					</p>
@@ -205,7 +197,7 @@ export function TeamHome(input: {
 										</TooltipTrigger>
 										<TooltipContent>
 											{section.id === "online"
-												? "Center Agent and people with online computers"
+												? "Computer online"
 												: "Computer offline"}
 										</TooltipContent>
 									</Tooltip>
@@ -213,8 +205,7 @@ export function TeamHome(input: {
 									section.label
 								)}
 								<span className="font-normal text-xs">
-									{section.members.length +
-										(section.id === "online" && showCenterAgent ? 1 : 0)}
+									{section.members.length}
 								</span>
 							</h2>
 							<FluidCardGroup
@@ -222,9 +213,6 @@ export function TeamHome(input: {
 								className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"
 								role="list"
 							>
-								{section.id === "online" && showCenterAgent && (
-									<CenterAgentItem presentation="card" />
-								)}
 								{section.members.map((member, index) => (
 									<HumanProfileItem
 										activityNowMs={input.activityNowMs}
@@ -238,8 +226,7 @@ export function TeamHome(input: {
 									/>
 								))}
 							</FluidCardGroup>
-							{section.members.length === 0 &&
-							!(section.id === "online" && showCenterAgent) ? (
+							{section.members.length === 0 ? (
 								<p className="text-muted-foreground text-xs">
 									No members in this group.
 								</p>

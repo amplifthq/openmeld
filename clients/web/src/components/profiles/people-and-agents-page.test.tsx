@@ -1,5 +1,3 @@
-const ANY_OWNER_NAME = /Owner: Anyone/;
-
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
@@ -15,7 +13,6 @@ import {
 	render,
 	screen,
 	waitFor,
-	within,
 } from "@testing-library/react";
 import { type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,9 +38,6 @@ const useQueryMock = vi.hoisted(() => vi.fn());
 const useQueryClientMock = vi.hoisted(() => vi.fn());
 const useLocalAgentRecoveryControllerMock = vi.hoisted(() => vi.fn());
 let organizationDirectoryFixture: OrganizationDirectoryResponse;
-const FILTER_AGENTS_NAME = /Filter Agents/;
-const CHECKING_AGENTS_FILTER_NAME = /Current filter: Checking, 0 Agents/;
-const PERSONAL_ALL_AGENTS_FILTER_NAME = /Current filter: All, 1 Agent/;
 
 vi.mock("../app/use-sidebar-preferences", () => ({
 	useSidebarPreferences: () => ({ preferences: undefined }),
@@ -1090,7 +1084,12 @@ describe("PeopleAndAgentsPage", () => {
 					data: {
 						organizationId: "org-123",
 						requests: [
-							{ id: "request-pending", status: "pending" },
+							{
+								id: "request-pending",
+								status: "pending",
+								requesterUserId: "user-123",
+								targetOwnerUserId: "user-123",
+							},
 							{ id: "request-completed", status: "completed" },
 						],
 					},
@@ -1313,7 +1312,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 	});
 
-	it("keeps the routed Agent visible through filters while the detail controller observes every Agent", async () => {
+	it("keeps the routed selection independent of the complete Agent list", async () => {
 		const directory = buildOrganizationDirectory();
 		const firstAgent = directory.agentProfiles[0];
 		if (!firstAgent) {
@@ -1360,17 +1359,12 @@ describe("PeopleAndAgentsPage", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: FILTER_AGENTS_NAME }));
-		fireEvent.click(
-			await screen.findByRole("menuitem", { name: "Checking, 0 Agents" })
-		);
-
 		await waitFor(() => {
 			expect(
 				agentProfilesWorkspaceSpy.mock.calls
 					.at(-1)?.[0]
 					.profiles.map((profile: AuthProfileView) => profile.openMeldProfileId)
-			).toEqual([secondAgent.profileId]);
+			).toEqual([firstAgent.profileId, secondAgent.profileId]);
 			expect(
 				agentProfilesCardSpy.mock.calls
 					.at(-1)?.[0]
@@ -1476,11 +1470,6 @@ describe("PeopleAndAgentsPage", () => {
 				.at(-1)?.[0]
 				.agentProfiles.map((profile: AuthProfileView) => profile.profileName)
 		).toEqual(["Personal Scout"]);
-		expect(
-			screen.getByRole("button", {
-				name: PERSONAL_ALL_AGENTS_FILTER_NAME,
-			})
-		).toBeTruthy();
 	});
 
 	it("opens Agent creation in its own route in the active workspace", () => {
@@ -1506,158 +1495,6 @@ describe("PeopleAndAgentsPage", () => {
 		expect(createProfileDialogSpy).toHaveBeenCalledWith(
 			expect.objectContaining({ organizationId: "org-123" })
 		);
-	});
-
-	it("filters organization Agents by Wake availability", async () => {
-		render(
-			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
-		);
-
-		fireEvent.click(screen.getByRole("button", { name: FILTER_AGENTS_NAME }));
-		expect(screen.queryByRole("menuitem", { name: ANY_OWNER_NAME })).toBeNull();
-		const checkingOption = await screen.findByRole("menuitem", {
-			name: "Checking, 0 Agents",
-		});
-		expect(within(checkingOption).getByText("Checking")).toBeTruthy();
-		expect(within(checkingOption).getByText("0")).toBeTruthy();
-		fireEvent.click(checkingOption);
-
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", {
-					name: CHECKING_AGENTS_FILTER_NAME,
-				})
-			).toBeTruthy();
-			expect(agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].profiles).toEqual(
-				[]
-			);
-			expect(agentProfilesCardSpy.mock.calls.at(-1)?.[0]).toEqual(
-				expect.objectContaining({
-					agentProfiles: expect.arrayContaining([
-						expect.objectContaining({
-							openMeldProfileId: "agt_11111111-1111-4111-8111-111111111111",
-						}),
-					]),
-					presentation: "controller",
-				})
-			);
-		});
-	});
-
-	it("searches Agents by name, handle, owner, Controller, and model", async () => {
-		const directory = buildOrganizationDirectory();
-		const firstAgent = directory.agentProfiles[0];
-		if (!firstAgent) {
-			throw new Error("Expected the directory Agent fixture.");
-		}
-		firstAgent.readiness = {
-			...firstAgent.readiness,
-			primaryBinding: {
-				executionTarget: { agentControllerRef: "builtin:codex" },
-				modelSelection: { modelId: "gpt-5.6-sol" },
-			},
-		} as unknown as typeof firstAgent.readiness;
-		const secondAgent = {
-			...firstAgent,
-			ownerName: "李雷",
-			ownerUserId: "user-456",
-			profileHandle: "research-analyst",
-			profileId: "agt_22222222-2222-4222-8222-222222222222",
-			profileName: "Market Analyst",
-			readiness: {
-				...firstAgent.readiness,
-				agentControllerRef: "builtin:opencode",
-				primaryBinding: {
-					executionTarget: { agentControllerRef: "builtin:opencode" },
-					modelSelection: { modelId: "glm-4.5" },
-				},
-			} as unknown as typeof firstAgent.readiness,
-		};
-		directory.agentProfiles = [firstAgent, secondAgent];
-		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
-			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			const organizationProjection = resolveOrganizationProjectionQuery(
-				queryKey,
-				directory
-			);
-			if (organizationProjection) {
-				return organizationProjection;
-			}
-			if (queryKey.includes("agent-profile-creation-requests")) {
-				return {
-					data: { organizationId: "org-123", requests: [] },
-					error: null,
-					isError: false,
-					isPending: false,
-				};
-			}
-			return {
-				data: [buildHumanProfile("human-default")],
-				error: null,
-				isError: false,
-				isPending: false,
-			};
-		});
-
-		render(
-			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
-		);
-
-		const search = screen.getByRole("searchbox", { name: "Search Agents" });
-		for (const query of [
-			"Market Analyst",
-			"research analyst",
-			"李雷",
-			"OpenCode",
-			"glm 4.5",
-		]) {
-			fireEvent.change(search, { target: { value: query } });
-			await waitFor(() => {
-				expect(
-					agentProfilesWorkspaceSpy.mock.calls
-						.at(-1)?.[0]
-						.profiles.map((profile: AuthProfileView) => profile.profileName)
-				).toEqual(["Market Analyst"]);
-				expect(
-					agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].selectedProfileId
-				).toBeNull();
-			});
-		}
-
-		fireEvent.change(search, { target: { value: "Codex gpt" } });
-		await waitFor(() => {
-			expect(
-				agentProfilesWorkspaceSpy.mock.calls
-					.at(-1)?.[0]
-					.profiles.map((profile: AuthProfileView) => profile.profileName)
-			).toEqual(["Scout"]);
-		});
-
-		fireEvent.change(search, { target: { value: "no matching Agent" } });
-		await waitFor(() => {
-			expect(agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].profiles).toEqual(
-				[]
-			);
-			expect(
-				agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].isSearchActive
-			).toBe(true);
-		});
-
-		fireEvent.change(search, { target: { value: "" } });
-		await waitFor(() => {
-			const restoredProfiles =
-				agentProfilesWorkspaceSpy.mock.calls
-					.at(-1)?.[0]
-					.profiles.map((profile: AuthProfileView) => profile.profileName) ??
-				[];
-			expect(restoredProfiles).toHaveLength(2);
-			expect(restoredProfiles).toEqual(
-				expect.arrayContaining(["Scout", "Market Analyst"])
-			);
-			expect(
-				agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].selectedProfileId
-			).toBeNull();
-		});
 	});
 
 	it("delegates organization Human Profiles and member controls to one overview", () => {

@@ -244,6 +244,8 @@ export function organizationAgentRuntimeOverviewQueryOptions(input: {
 				signal,
 			}),
 		queryKey: organizationQueryKeys.agentRuntimeOverview(input.organizationId),
+		refetchInterval: 30_000,
+		refetchIntervalInBackground: false,
 		refetchOnWindowFocus: true,
 		retry: baseQueryOptions.retry,
 		staleTime: 10_000,

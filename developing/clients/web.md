@@ -1727,9 +1727,8 @@ socket reconnects do not count as visits. Directory reads refresh on foreground
 return and every five visible minutes; Space member elapsed-time labels are
 formatted from `lastSeenAt` against the current clock, never a cached label.
 
-The sidebar places the designated **Center Agent** in its own first group,
-linking its actual profile name to the canonical Center Agent chat. Starred and user-defined
-groups follow, then **Online** and **Offline**, whose hover and keyboard tooltips
+The People sidebar contains Human Profiles. Starred and user-defined groups
+precede **Online** and **Offline**, whose hover and keyboard tooltips
 say **Computer online** and **Computer offline**. The signed-in member follows
 ordinary placement unless a saved star or custom group applies. The signed-in
 member always appears first within that group, regardless of sort or manual order;
@@ -1754,7 +1753,7 @@ Sidebar groups start collapsed, using
 the same disclosure behavior as Spaces. Entering a person opens their group for
 that visit; explicit expand/collapse choices are remembered per viewer and
 Organization independently of Spaces. The overview remains expanded.
-The overview uses the shared window header with Members navigation and the
+The overview uses the shared window header with People (default) and Agents tabs and the
 existing permission-gated invitation dialog. Its directory toolbar shows member
 counts, name search, and group filters with the same gutters as Spaces.
 Shared window headers and Team/Spaces directory content use
@@ -1766,6 +1765,28 @@ saved preferences have no provenance marker, so Web must not guess which saved
 stars were automatic. An absent preference never creates a self star.
 The Human Profile page omits the entire Advanced details section, including
 Profile ID and copying it; underlying identity and diagnostic contracts remain.
+
+The Agents tab at `/o/:orgSlug/agents` starts with the Organization's actual name
+and its designated Center Agent, which opens the canonical Center Agent chat.
+Human groups show the person's avatar and name. The viewer's group comes first,
+then other groups by their most recent Agent task activity, with creation time
+and stable identity as tie-breakers. Search matches people and Agents.
+Personal full lists and Team groups reuse the same cards and list controls.
+Filters support multiple selections: OR within a facet, AND across availability,
+Agent type, Controller, and model. Each selection has a removable chip.
+Page filters apply across groups; a group's controls further narrow its list.
+Optional type, Controller, or model subgroups preserve the outer person grouping.
+
+Recent ordering uses the newer of creation and task activity from the existing
+30-day Wake evidence window. Generic profile edits and last-used timestamps do
+not count as work. The personal detail preview uses the same default ordering.
+Task activity is a Core read projection over authorized profile IDs in the
+RuntimeCoordinator and native delivery ledgers, not a new execution authority.
+Web opts in with `includeTaskActivity=true`; old callers receive the unchanged
+runtime overview shape. Missing activity uses creation order with an explicit
+notice. Foreground runtime overview refreshes every 30 seconds.
+Agent setup remains a recovery/history surface. Personal lists show Finish setup
+only for unfinished work; Setup history remains a secondary link.
 
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,
@@ -1943,8 +1964,8 @@ to the new `profileId`. The existing page stays in its checking state while the
 independent runtime overview catches up; it must not flash **Agent not found**
 or reuse a stale unavailable verdict for the new identity.
 
-Legacy `/agents`, `/agents?profileId=...`, and `/agents/new` links redirect to
-the owner's list, the exact Agent child page, and the new creation page.
+`/agents` is the Team Agent directory. Legacy `/agents?profileId=...` and
+`/agents/new` links redirect to the exact Agent child page and the creation page.
 Agent request links resolve to `/people/agent-requests`.
 Checking readiness and Wakeability never count as work activity. Each card shows the
 Agent avatar, name, a compact Controller and friendly model summary when known,

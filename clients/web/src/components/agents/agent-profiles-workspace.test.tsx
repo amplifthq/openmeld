@@ -1,8 +1,4 @@
 const AVAILABLE_STATUS_NAME = /^Available/;
-const PERSONAL_AGENT_DESCRIPTION =
-	/Chat with it directly or give it work in Spaces\./;
-const TEAM_AGENT_DESCRIPTION =
-	/Work with it alongside your teammates in Spaces/;
 
 import type {
 	AuthProfileView,
@@ -35,7 +31,12 @@ vi.mock("#/components/app/use-sidebar-preferences", () => ({
 		save: vi.fn(),
 	}),
 }));
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
+vi.mock("@tanstack/react-router", () => ({
+	useNavigate: () => vi.fn(),
+	Link: ({ children, to }: { children: ReactNode; to: string }) => (
+		<a href={to}>{children}</a>
+	),
+}));
 
 const { appFullWidthLayoutSpy, appNavigationPresentationSpy } = vi.hoisted(
 	() => ({
@@ -137,17 +138,12 @@ describe("AgentProfilesWorkspace", () => {
 		).toBeNull();
 	});
 
-	it("places Agent search before the availability filter", () => {
-		renderWorkspace({
-			filterControl: <button type="button">Filter Agents</button>,
-			searchControl: <input aria-label="Search Agents" type="search" />,
-		});
-
-		const search = screen.getByRole("searchbox", { name: "Search Agents" });
-		const filter = screen.getByRole("button", { name: "Filter Agents" });
-		expect(filter.parentElement?.firstElementChild?.contains(search)).toBe(
-			true
-		);
+	it("provides shared search and filter controls", () => {
+		renderWorkspace();
+		expect(
+			screen.getByRole("searchbox", { name: "Search Agents" })
+		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Filter" })).toBeTruthy();
 	});
 
 	it("uses the shared full-width layout without an Agents sidebar", () => {
@@ -558,108 +554,41 @@ describe("AgentProfilesWorkspace", () => {
 		expect(screen.queryByRole("button", { name: "Agent requests" })).toBeNull();
 	});
 
-	it("distinguishes a filtered empty list from a workspace with no Agents", () => {
-		renderWorkspace({ hasAnyProfiles: true, profiles: [] });
-
+	it("filters the existing cards and allows clearing a failed search", () => {
+		renderWorkspace();
+		const search = screen.getByRole("searchbox", { name: "Search Agents" });
+		fireEvent.change(search, { target: { value: "not-a-person" } });
 		expect(
-			screen.getByRole("heading", { name: "No Agents match this filter" })
+			screen.getByText("No Agents match. Try another search or clear filters.")
 		).toBeTruthy();
-		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
 		expect(
-			screen.queryAllByRole("button", { name: "Create Agent" })
-		).toHaveLength(0);
-		expect(screen.getByTestId("profiles-controller")).toBeTruthy();
+			screen.queryByRole("button", { name: "Open Felix Agent" })
+		).toBeNull();
+		fireEvent.change(search, { target: { value: "" } });
+		expect(
+			screen.getByRole("button", { name: "Open Felix Agent" })
+		).toBeTruthy();
 	});
-
-	it("turns the ready empty workspace into one centered creation action", () => {
+	it("offers creation when a personal Agent list is empty", () => {
 		const onCreateAgent = vi.fn();
-		renderWorkspace({ onCreateAgent, profiles: [] });
-
-		const createCard = screen.getByTestId("create-agent-empty-state");
-		expect(createCard.tagName).toBe("BUTTON");
-		expect(
-			screen.getByRole("heading", { name: "Bring your AI to your workspace" })
-		).toBeTruthy();
-		expect(createCard.textContent).toContain("Create Agent");
-		expect(screen.getByText(PERSONAL_AGENT_DESCRIPTION)).toBeTruthy();
-		fireEvent.click(createCard);
+		renderWorkspace({ profiles: [], onCreateAgent });
+		expect(screen.getByText("No Agents yet.")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 		expect(onCreateAgent).toHaveBeenCalledOnce();
 	});
-
-	it("introduces team collaboration in an empty Organization", () => {
-		renderWorkspace({ isOrganizationContext: true, profiles: [] });
-		expect(
-			screen.getByRole("heading", { name: "Bring your AI to your team" })
-		).toBeTruthy();
-		expect(screen.getByText(TEAM_AGENT_DESCRIPTION)).toBeTruthy();
-	});
-
-	it("explains an empty Agent search without blaming the availability filter", () => {
-		renderWorkspace({
-			hasAnyProfiles: true,
-			isSearchActive: true,
-			profiles: [],
-		});
-
-		expect(
-			screen.getByRole("heading", { name: "No Agents found" })
-		).toBeTruthy();
-		expect(
-			screen.getByText("Try another name, Controller, or model.")
-		).toBeTruthy();
-	});
-
 	it("distinguishes loading, failure, and the ready empty state", () => {
-		const { rerender } = renderWorkspace({
+		const { rerenderWorkspace } = renderWorkspace({
 			profiles: [],
 			profilesStatus: "loading",
 		});
-		expect(
-			screen
-				.getAllByRole("status")
-				.some((element) => element.textContent?.includes("Loading Agents"))
-		).toBe(true);
-
-		rerender(
-			<AgentProfilesWorkspace
-				activeView="agents"
-				currentUserId={CURRENT_USER_ID}
-				onCreateAgent={vi.fn()}
-				onSelectProfile={vi.fn()}
-				onViewChange={vi.fn()}
-				pendingRequestCount={0}
-				profiles={[]}
-				profilesErrorMessage="Directory unavailable"
-				profilesStatus="error"
-				readinessByProfileId={new Map()}
-				renderProfileDetail={() => null}
-				renderProfilesController={() => null}
-				requestPanel={null}
-				selectedProfileId={null}
-			/>
-		);
-		expect(screen.getByRole("alert").textContent).toContain(
-			"Directory unavailable"
-		);
-
-		rerender(
-			<AgentProfilesWorkspace
-				activeView="agents"
-				currentUserId={CURRENT_USER_ID}
-				onCreateAgent={vi.fn()}
-				onSelectProfile={vi.fn()}
-				onViewChange={vi.fn()}
-				pendingRequestCount={0}
-				profiles={[]}
-				profilesStatus="ready"
-				readinessByProfileId={new Map()}
-				renderProfileDetail={() => null}
-				renderProfilesController={() => null}
-				requestPanel={null}
-				selectedProfileId={null}
-			/>
-		);
-		expect(screen.getByTestId("create-agent-empty-state")).toBeTruthy();
+		expect(screen.getByRole("status").textContent).toContain("Loading Agents");
+		rerenderWorkspace({
+			profilesStatus: "error",
+			profilesErrorMessage: "Directory unavailable",
+		});
+		expect(screen.getByText("Directory unavailable")).toBeTruthy();
+		rerenderWorkspace({ profilesStatus: "ready" });
+		expect(screen.getByText("No Agents yet.")).toBeTruthy();
 	});
 });
 
@@ -682,6 +611,12 @@ function renderWorkspace(
 			onSelectProfile={vi.fn()}
 			onViewChange={vi.fn()}
 			pendingRequestCount={0}
+			person={{
+				id: "person",
+				name: "Felix",
+				path: "/people/person",
+				agentsPath: "/people/person/agents",
+			}}
 			profiles={profiles}
 			profilesStatus="ready"
 			readinessByProfileId={new Map([["agent-current", createReadiness()]])}
