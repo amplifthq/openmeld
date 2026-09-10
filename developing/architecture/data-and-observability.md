@@ -182,7 +182,12 @@ Auth also owns `account_sidebar_preferences`, keyed by account user ID and
 Organization ID. It stores personal group names, opaque Space IDs, section sort
 modes, and manual ordering. Membership gates reads and writes; revision-checked
 updates reject stale devices instead of overwriting newer preferences. These
-preferences never grant Space access, write pins, or change Space membership.
+preferences never grant Space access, write ordinary Space/DM pin membership,
+or change Space membership. The shared Conversations Pinned section reads its
+manual order from the existing root `pinned.spaceIds`; ordinary pin membership
+continues to come from Space Index. Center Agent session pins remain in the
+existing `chats` preferences. Grouped and Recent are two Web presentations of
+these same owners, with no new conversation store or execution authority.
 The Web renders only Spaces returned by the existing authorized Space Index.
 Deleting a personal group removes its presentation association only.
 

@@ -15,7 +15,12 @@ import {
 	SidebarMenuActions,
 	SidebarMenuButton,
 } from "@openmeld/ui/fluid/sidebar-menu";
-import { CloudIcon, DotsThreeIcon, PushPinIcon } from "@phosphor-icons/react";
+import {
+	CloudIcon,
+	DotsThreeIcon,
+	HashIcon,
+	PushPinIcon,
+} from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useSortableSidebarItem } from "#/components/app/sidebar-drag";
 import { SidebarRowAction } from "#/components/app/sidebar-row-action";
@@ -26,6 +31,7 @@ import {
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { CenterAgentChatAvatar } from "../organizations/center-agent-chat-avatar";
 import type { Chat } from "./chat-sidebar-model";
+import type { Conversation } from "./conversation-sidebar-model";
 import { useSpaceMessagePreview } from "./direct-message-preview";
 import {
 	resolveConversationTimestamp,
@@ -36,15 +42,21 @@ import {
 	resolveSpaceActiveWakePresentation,
 	type SpaceSidebarActiveWakeSummary,
 } from "./space-active-wake-presentation";
+import {
+	type SpaceMemberAppearance,
+	SpaceMemberAvatars,
+} from "./space-member-avatars";
 import { SpaceProfileIcon } from "./space-profile-icon";
 
-export function ChatRow(input: {
+type ConversationSidebarRowProps = {
 	attentionTone: "danger" | "warning" | null;
 	index: number;
 	profileId: string;
 	unreadCount: number;
 	activeWakeSummary?: SpaceSidebarActiveWakeSummary;
-	chat: Chat;
+	conversation: Conversation;
+	dragDisabled?: boolean;
+	memberAppearances?: ReadonlyMap<string, SpaceMemberAppearance>;
 	title: string;
 	section: string;
 	selected: boolean;
@@ -53,35 +65,41 @@ export function ChatRow(input: {
 	groups: { id: string; name: string }[];
 	onMove: (id: string) => void;
 	archived: boolean;
-	onArchive: () => void;
-	onRename: () => void;
+	onArchive?: () => void;
+	onRename?: () => void;
 	onUnpin: () => void;
-}) {
+};
+
+export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
+	const chat =
+		input.conversation.kind === "direct-message"
+			? input.conversation.chat
+			: null;
+	const space =
+		input.conversation.kind === "space" ? input.conversation.item : null;
 	const preview = useSpaceMessagePreview({
-		spaceId: input.chat.spaceId,
+		spaceId: input.conversation.spaceId,
 		viewerProfileId: input.profileId,
-		enabled: !!input.profileId,
+		enabled: !!input.profileId && !space,
 	});
 	const nowMs = useNowMs(preview.data ? 60_000 : null);
-	const timestamp = resolveConversationTimestamp(
-		preview.data?.timestamp,
-		input.chat.createdAt
+	const { timestamp, previewText } = conversationPreview(
+		input.conversation,
+		preview
 	);
 	const presentation = input.activeWakeSummary
 		? resolveSpaceActiveWakePresentation(input.activeWakeSummary)
 		: null;
 	const hasUnread = input.unreadCount > 0;
-	const togglePin = () =>
-		input.section === "pinned" ? input.onUnpin() : input.onMove("pinned");
-	const previewText = resolvePreviewText(preview);
+
 	const needsInput = input.activeWakeSummary?.statuses?.some(
 		(status) => status.kind === "needs_input"
 	);
 	const drag = useSortableSidebarItem({
 		section: input.section,
-		itemId: input.chat.spaceId,
+		itemId: input.conversation.spaceId,
 		name: input.title,
-		disabled: input.disabled,
+		disabled: input.disabled || !!input.dragDisabled,
 	});
 	return (
 		<FluidNavMenuItem
@@ -89,7 +107,7 @@ export function ChatRow(input: {
 			index={input.index}
 			ref={drag.ref}
 			style={drag.style}
-			value={input.chat.spaceId}
+			value={input.conversation.spaceId}
 		>
 			<SidebarMenuButton
 				actionLayout="heading"
@@ -109,10 +127,12 @@ export function ChatRow(input: {
 						.filter(Boolean)
 						.join(", ")}
 					className={`flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-sm outline-none ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
+					resetScroll={false}
 					to={input.url}
 				>
-					<ChatIcon
-						chat={input.chat}
+					<ConversationIcon
+						conversation={input.conversation}
+						memberAppearances={input.memberAppearances}
 						summary={input.activeWakeSummary}
 						title={input.title}
 					/>
@@ -136,12 +156,12 @@ export function ChatRow(input: {
 									</span>
 								)}
 							</span>
-							{input.chat.session && (
+							{chat?.session && (
 								<Tooltip>
 									<TooltipTrigger
 										render={
 											<span
-												aria-label={input.chat.session ? "Agent chat" : "Chat"}
+												aria-label="Agent direct message"
 												className="inline-flex shrink-0 text-muted-foreground"
 												role="img"
 											/>
@@ -149,9 +169,7 @@ export function ChatRow(input: {
 									>
 										<CloudIcon aria-hidden="true" className="size-3" />
 									</TooltipTrigger>
-									<TooltipContent>
-										{input.chat.session ? "Agent chat" : "Chat"}
-									</TooltipContent>
+									<TooltipContent>Agent direct message</TooltipContent>
 								</Tooltip>
 							)}
 							{timestamp !== null && (
@@ -174,61 +192,58 @@ export function ChatRow(input: {
 					</span>
 				</Link>
 			</SidebarMenuButton>
-			<SidebarMenuActions showOnHover>
-				<SidebarRowAction
-					disabled={input.disabled}
-					label={`${input.section === "pinned" ? "Unpin" : "Pin"} ${input.title}`}
-					onClick={togglePin}
-				>
-					<PushPinIcon
-						weight={input.section === "pinned" ? "fill" : "regular"}
-					/>
-				</SidebarRowAction>
-				<DropdownMenu>
-					<DropdownMenuTrigger
-						render={
-							<Button
-								aria-label={`Actions for ${input.title}`}
-								className="size-6"
-								size="icon-sm"
-								variant="ghost"
-							/>
-						}
-					>
-						<DotsThreeIcon />
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end">
-						<DropdownMenuItem
-							disabled={input.disabled}
-							onClick={input.onRename}
-						>
-							Rename
-						</DropdownMenuItem>
-						<DropdownMenuItem disabled={input.disabled} onClick={togglePin}>
-							{input.section === "pinned" ? "Unpin" : "Pin"}
-						</DropdownMenuItem>
-						{input.groups
-							.filter((g) => g.id !== input.section && g.id !== "pinned")
-							.map((g) => (
-								<DropdownMenuItem
-									disabled={input.disabled}
-									key={g.id}
-									onClick={() => input.onMove(g.id)}
-								>
-									Move to {g.name}
-								</DropdownMenuItem>
-							))}
-						<DropdownMenuItem
-							disabled={input.disabled}
-							onClick={input.onArchive}
-						>
-							{input.archived ? "Unarchive" : "Archive"}
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
-			</SidebarMenuActions>
+			<ConversationRowActions {...input} />
 		</FluidNavMenuItem>
 	);
+}
+
+function conversationPreview(
+	conversation: Conversation,
+	preview: ReturnType<typeof useSpaceMessagePreview>
+) {
+	if (conversation.kind === "space") {
+		return {
+			timestamp: resolveConversationTimestamp(
+				conversation.item.messagePreview?.timestamp,
+				conversation.item.spaceCreatedAt
+			),
+			previewText: conversation.item.messagePreview?.text ?? "No messages yet",
+		};
+	}
+	return {
+		timestamp: resolveConversationTimestamp(
+			preview.data?.timestamp,
+			conversation.chat.createdAt
+		),
+		previewText: resolvePreviewText(preview),
+	};
+}
+
+function ConversationIcon(input: {
+	conversation: Conversation;
+	title: string;
+	summary?: SpaceSidebarActiveWakeSummary;
+	memberAppearances?: ReadonlyMap<string, SpaceMemberAppearance>;
+}) {
+	if (input.conversation.kind === "direct-message") {
+		return (
+			<ChatIcon
+				chat={input.conversation.chat}
+				summary={input.summary}
+				title={input.title}
+			/>
+		);
+	}
+	const members = input.conversation.item.memberPreviews;
+	if (members?.length) {
+		return (
+			<SpaceMemberAvatars
+				appearances={input.memberAppearances}
+				members={members}
+			/>
+		);
+	}
+	return <HashIcon aria-label="Space" className="size-5 shrink-0" />;
 }
 
 export function resolvePreviewText(
@@ -271,5 +286,67 @@ export function ChatIcon(input: {
 			profileName={input.title}
 			size="sm"
 		/>
+	);
+}
+
+function ConversationRowActions(input: ConversationSidebarRowProps) {
+	const togglePin = () =>
+		input.section === "pinned" ? input.onUnpin() : input.onMove("pinned");
+	return (
+		<SidebarMenuActions showOnHover>
+			<SidebarRowAction
+				disabled={input.disabled}
+				label={`${input.section === "pinned" ? "Unpin" : "Pin"} ${input.title}`}
+				onClick={togglePin}
+			>
+				<PushPinIcon weight={input.section === "pinned" ? "fill" : "regular"} />
+			</SidebarRowAction>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					render={
+						<Button
+							aria-label={`Actions for ${input.title}`}
+							className="size-6"
+							size="icon-sm"
+							variant="ghost"
+						/>
+					}
+				>
+					<DotsThreeIcon />
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end">
+					{input.onRename && (
+						<DropdownMenuItem
+							disabled={input.disabled}
+							onClick={input.onRename}
+						>
+							Rename
+						</DropdownMenuItem>
+					)}
+					<DropdownMenuItem disabled={input.disabled} onClick={togglePin}>
+						{input.section === "pinned" ? "Unpin" : "Pin"}
+					</DropdownMenuItem>
+					{input.groups
+						.filter((g) => g.id !== input.section && g.id !== "pinned")
+						.map((g) => (
+							<DropdownMenuItem
+								disabled={input.disabled}
+								key={g.id}
+								onClick={() => input.onMove(g.id)}
+							>
+								Move to {g.name}
+							</DropdownMenuItem>
+						))}
+					{input.onArchive && (
+						<DropdownMenuItem
+							disabled={input.disabled}
+							onClick={input.onArchive}
+						>
+							{input.archived ? "Unarchive" : "Archive"}
+						</DropdownMenuItem>
+					)}
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</SidebarMenuActions>
 	);
 }
