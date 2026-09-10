@@ -90,7 +90,7 @@ describe("SpaceMessageBody", () => {
 		expect(screen.queryByText(INTERNAL_ACTION_CATALOG_PATTERN)).toBeNull();
 	});
 
-	it("keeps human-authored Markdown syntax as plain text", () => {
+	it("recognizes links in human messages while preserving other Markdown as plain text", () => {
 		render(
 			<SpaceMessageBody
 				item={{
@@ -100,10 +100,26 @@ describe("SpaceMessageBody", () => {
 			/>
 		);
 
-		expect(
-			screen.getByText("**bold** and [Docs](https://example.com/docs)")
-		).toBeTruthy();
-		expect(screen.queryByRole("link", { name: "Docs" })).toBeNull();
+		expect(screen.getByText("**bold** and", { exact: false })).toBeTruthy();
+		const link = screen.getByRole("link", { name: "Docs" });
+		expect(link.getAttribute("href")).toBe("https://example.com/docs");
+		expect(link.getAttribute("target")).toBe("_blank");
+		expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+	});
+
+	it("makes bare links clickable without treating code or dangerous schemes as links", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: "See https://example.com. `https://code.example.com` [bad](javascript:alert(1))",
+				}}
+			/>
+		);
+		expect(screen.getAllByRole("link")).toHaveLength(1);
+		expect(screen.getByRole("link").getAttribute("href")).toBe(
+			"https://example.com/"
+		);
 	});
 
 	it.each([
@@ -505,7 +521,14 @@ describe("SpaceMessageBody", () => {
 			/>
 		);
 
-		expect(screen.queryByRole("link")).toBeNull();
+		expect(
+			screen.queryByRole("link", { name: "Open Space Launch Planning" })
+		).toBeNull();
+		expect(
+			screen
+				.getAllByRole("link")
+				.every((link) => link.getAttribute("href")?.startsWith("https://"))
+		).toBe(true);
 		expect(view.container.textContent).toContain(unresolvedPath);
 		expect(view.container.textContent).toContain(tooShortPath);
 		expect(view.container.textContent).toContain(tooLongPath);
