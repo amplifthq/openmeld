@@ -41,7 +41,7 @@ export function SpaceFileMaintenanceDialog(input: {
 					"Page through relevant messages and threads since the current file revision; do not assume the first page contains all decisions. Preserve the file's existing scope and structure.",
 					"Keep existing confirmed content unless a later explicit decision replaces it. For every substantive change, include a concise source reference in the file using the exact decision message link or signal ID returned by Space history. Preserve existing source references; never invent a link, ID, or timestamp. If a decision is ambiguous, leave the file unchanged and ask for clarification instead of approving it yourself.",
 					"Use the existing Space Files save tool with the revision you just read as baseRevision. If someone changed the file, read the latest version and reconcile before saving; never overwrite their changes with a stale copy.",
-					"If there is no substantive confirmed change, do not save a new version or send an update notification. Do not rewrite the file just to record that you checked it. After a real update, the file's configured notifications handle delivery; do not broadcast a second copy or Wake additional Agents.",
+					"If there is no new confirmed content change, do not save a new version or send an update notification. Missing source references alone do not justify a new version; add them alongside the next confirmed content change. Do not rewrite the file just to record that you checked it. After a real update, the file's configured notifications handle delivery; do not broadcast a second copy or Wake additional Agents.",
 				].join("\n\n"),
 			}}
 			mode="create"
