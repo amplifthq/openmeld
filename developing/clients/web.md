@@ -431,10 +431,11 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    workspace. Its Main Sidebar contextual list shows Human Profiles with search,
    computer-connection filters, personal Starred and named groups. Registered
    Computers alone do not qualify as Connected: use the existing service-state
-   projection. The default Online group contains confirmed connected Computers;
-   Offline contains the other members, preserving unknown and attention details
-   on their rows. Offline and never-connected Computers remain distinguishable in
-   filters. Human
+   projection. The default Online and Offline groups describe Human presence
+   from the independent Core-owned session projection. Unknown Human presence
+   stays unclassified under People. Computer connected, Computer disconnected,
+   and never-connected Computers remain distinguishable in independent filters.
+   Human
    `lastActiveAt` is recent authored activity, not online presence.
    A row's Chat action reuses the existing Direct Message entry point and is
    available only for another active Human Profile.
@@ -1715,7 +1716,7 @@ member identity or delay the People workspace.
 
 Last-seen time comes only from the Core-owned, Organization-scoped Human activity
 projection. Web explicitly reports entry, return to the foreground, and a
-bounded visible-session heartbeat; Core re-verifies the active member and that
+bounded actual-interaction report; Core re-verifies the active member and that
 member's current active Human Profile before advancing the projection. CLI use,
 Auth session refreshes, Computer heartbeats, and Agent Activity are not
 substitutes. Undefined activity is omitted instead of rendering a placeholder,
@@ -1728,20 +1729,32 @@ return and every five visible minutes; Space member elapsed-time labels are
 formatted from `lastSeenAt` against the current clock, never a cached label.
 
 The sidebar places the designated **Center Agent** in its own first group,
-linking its actual profile name to the canonical Center Agent chat. Starred and user-defined
-groups follow, then **Online** and **Offline**, whose hover and keyboard tooltips
-say **Computer online** and **Computer offline**. The signed-in member follows
+outside Human online/offline counts and linking to its canonical chat. Starred and
+user-defined groups follow, then **Online** and **Offline**, based only on Core's
+Human presence projection. Unknown presence stays in an unclassified **People**
+group. Computer connected/disconnected remain independent filters. The signed-in member follows
 ordinary placement unless a saved star or custom group applies. The signed-in
 member always appears first within that group, regardless of sort or manual order;
 the remaining members retain the selected ordering. Explicit
 unstar and custom placement persist; deleting a group returns its members to
-ordinary placement. Computer online requires the existing connected Computer
-projection, not registration or recent Human activity. Other resolved states go
-under Offline. Rows show the avatar, name, Computer status icon, Human last-seen
+ordinary placement. Online requires a live foreground page with Human interaction
+within five minutes. Any active page keeps the Human Online. Computer connections,
+Agent work, and historical activity never establish Human presence.
+Rows show the avatar, name, Computer status icon, Human last-seen
 time when known, and enabled local-agent icons. Computer explanations remain in
 the icon tooltip and accessible name; Channel identities and email are omitted.
-Pending checks retain the loading state. Sorting and drag placement
-remain personal preferences; dragging cannot change Computer connection state.
+Pending Computer checks stay on their rows without delaying Human grouping. Sorting and drag placement
+remain personal preferences; dragging cannot change Human presence.
+
+People and Space member/profile avatars share a compact Human presence indicator
+with accessible Online, Offline, or Online status unavailable labels. One app-shell
+reader refreshes the authorized batch every 30 visible seconds and on foreground
+return. Failed or stale reads remain unknown. Active pages renew a 90-second lease
+every 30 seconds; trusted pointer, keyboard, wheel and touch input reset the
+five-minute idle limit. Departure ends only that page's lease. Historical Web
+activity advances only on actual interaction, with its existing five-minute
+throttle; presence renewals do not advance it. Space-local Here … ago remains a
+separate historical fact. No system-wide activity or interaction contents are collected.
 
 Team opens a compact member overview at `/o/:orgSlug/people`, with the same
 grouping and ordering as its sidebar. The overview and sidebar share the member

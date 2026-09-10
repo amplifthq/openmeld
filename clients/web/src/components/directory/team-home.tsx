@@ -13,10 +13,10 @@ import {
 import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import {
-	DesktopTowerIcon,
 	MagnifyingGlassIcon,
 	SlidersHorizontalIcon,
 	StarIcon,
+	UserIcon,
 	XIcon,
 } from "@phosphor-icons/react";
 import { useCallback, useState } from "react";
@@ -51,12 +51,12 @@ export function TeamHome(input: {
 	const allSections = resolvePeopleSections(
 		input.members,
 		sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR,
-		{ includeOnline: true }
+		{ includeCenterAgent: true }
 	);
 	const query = search.trim().toLocaleLowerCase();
 	const filtering = Boolean(query) || groupIds.length > 0;
 	const showCenterAgent =
-		!query && (groupIds.length === 0 || groupIds.includes("online"));
+		!query && (groupIds.length === 0 || groupIds.includes("center-agent"));
 	const sections = allSections
 		.filter((section) => groupIds.length === 0 || groupIds.includes(section.id))
 		.map((section) => ({
@@ -69,7 +69,7 @@ export function TeamHome(input: {
 			(section) =>
 				!filtering ||
 				section.members.length > 0 ||
-				(section.id === "online" && showCenterAgent)
+				(section.id === "center-agent" && showCenterAgent)
 		);
 	const visibleCount = sections.reduce(
 		(total, section) => total + section.members.length,
@@ -178,8 +178,7 @@ export function TeamHome(input: {
 						No members match your search or filters.
 					</p>
 				) : null}
-				{sidebar.isPending ||
-				input.members.some((member) => member.computer.state === "checking") ? (
+				{sidebar.isPending ? (
 					<p className="text-muted-foreground text-sm">Loading team…</p>
 				) : (
 					sections.map((section) => (
@@ -205,8 +204,8 @@ export function TeamHome(input: {
 										</TooltipTrigger>
 										<TooltipContent>
 											{section.id === "online"
-												? "Center Agent and people with online computers"
-												: "Computer offline"}
+												? "People using OpenMeld"
+												: "People not currently active in OpenMeld"}
 										</TooltipContent>
 									</Tooltip>
 								) : (
@@ -214,7 +213,7 @@ export function TeamHome(input: {
 								)}
 								<span className="font-normal text-xs">
 									{section.members.length +
-										(section.id === "online" && showCenterAgent ? 1 : 0)}
+										(section.id === "center-agent" && showCenterAgent ? 1 : 0)}
 								</span>
 							</h2>
 							<FluidCardGroup
@@ -222,7 +221,7 @@ export function TeamHome(input: {
 								className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"
 								role="list"
 							>
-								{section.id === "online" && showCenterAgent && (
+								{section.id === "center-agent" && showCenterAgent && (
 									<CenterAgentItem presentation="card" />
 								)}
 								{section.members.map((member, index) => (
@@ -239,7 +238,7 @@ export function TeamHome(input: {
 								))}
 							</FluidCardGroup>
 							{section.members.length === 0 &&
-							!(section.id === "online" && showCenterAgent) ? (
+							!(section.id === "center-agent" && showCenterAgent) ? (
 								<p className="text-muted-foreground text-xs">
 									No members in this group.
 								</p>
@@ -263,7 +262,7 @@ function TeamGroupIcon({ id }: { id: string }) {
 	}
 	if (id === "online") {
 		return (
-			<DesktopTowerIcon
+			<UserIcon
 				aria-hidden="true"
 				className="size-4 shrink-0 text-emerald-500"
 			/>
@@ -271,7 +270,7 @@ function TeamGroupIcon({ id }: { id: string }) {
 	}
 	if (id === "offline") {
 		return (
-			<DesktopTowerIcon
+			<UserIcon
 				aria-hidden="true"
 				className="size-4 shrink-0 text-muted-foreground"
 			/>
