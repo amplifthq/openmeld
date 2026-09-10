@@ -158,6 +158,41 @@ unrelated Bindings, or silently choose a Profile from another Organization.
 
 ## Agent Profile Creation Requests
 
+### Teammate request launch hold
+
+Cross-user Agent creation requests (the future Request an Agent / Borrow
+experience) are intentionally unreleased. This is a launch hold, not legacy or
+deprecated code. Retain the request coordinator, approval UI, preferences,
+schemas, and isolated lifecycle tests for later development.
+
+`TEAMMATE_AGENT_REQUESTS_ENABLED` is the shared release decision. Production
+does not expose a per-user setting or environment override. To develop the
+future experience, change this decision only in an isolated branch and lane.
+The service's explicit opt-in exists for isolated lifecycle tests only.
+
+Core rejects cross-user create (including idempotent replay), approval, retry,
+and approval-preference writes. Request reads expose only self-owned creation.
+Old unclaimed Queue work is claimed and settled as a failed request without
+creating an identity or running setup, so delivery and scheduled recovery stop
+retrying it. Already claimed execution is not interrupted. Stored requests,
+preferences, existing Agents, and Space membership are not deleted or migrated.
+Inbox hides this source consistently in lists, counts, and email eligibility;
+new approval notifications are not projected.
+
+Self-owned Local and Remote Agent creation, progress, cancellation, and recovery
+remain available. Web calls that progress surface **Agent setup**, not a
+teammate request product. Organization-owned Center Agent creation and lifecycle
+are outside this hold. Agent actors representing a verified member remain able
+to create for that same represented member.
+
+Before reopening, finish the recipient-choice experience in isolation (provide
+an existing Agent or create one, connect a Computer only when needed, and return
+to the intended Space). Recheck Web creation and Activity entry points, Settings,
+Inbox, CLI help and managed Skills, Center Agent tools, Core mutations and Queue
+execution together. Approval of a frozen creation intent must not silently grant
+broader sharing authority. Test both self creation and teammate requests before
+changing the release decision; do not restore only a visible button.
+
 An Agent Profile Creation Request is the one Organization-scoped coordination
 flow for creating an Agent Profile owned by the requester or by another member.
 Web, CLI, Local Agents, and the Center Agent use the same Core-owned request

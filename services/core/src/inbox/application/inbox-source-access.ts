@@ -1,4 +1,7 @@
-import { inboxItemKindSchema } from "@openmeld/schemas";
+import {
+  inboxItemKindSchema,
+  TEAMMATE_AGENT_REQUESTS_ENABLED,
+} from "@openmeld/schemas";
 import { personalAgentOwnerAccessSql } from "./inbox-agent-owner-access";
 
 type InboxItemSqlAlias = "inbox_items" | "items";
@@ -9,6 +12,7 @@ export function buildCurrentInboxSourceAccessSql(
   return `
     (
       ${itemAlias}.kind IN (${inboxItemKindSchema.options.map((kind) => `'${kind}'`).join(", ")})
+      ${TEAMMATE_AGENT_REQUESTS_ENABLED ? "" : `AND json_extract(${itemAlias}.source_target_json, '$.kind') != 'agent_profile_creation_request'`}
       AND (
           NOT (
             json_extract(${itemAlias}.source_target_json, '$.kind') IN (
