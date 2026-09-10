@@ -34,6 +34,35 @@ const WAKE_PROGRESS_RPC_METHODS = [
 ] as const;
 
 describe("Private Center Agent RPC surface", () => {
+  it("requires the explicit device-wait receiver and does not expose its implementation as RPC", async () => {
+    const entrypoint = Object.create(
+      GatewayRpcEntrypoint.prototype
+    ) as GatewayRpcEntrypoint;
+    const request = {
+      authoringPolicy: "user_authored" as const,
+      profile: {
+        kind: "human" as const,
+        profileId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        profileName: "Test requester",
+      },
+      spaceId: "space-1",
+      text: "Check",
+      deviceWait: {
+        bindingId: "binding-1",
+        openMeldServiceRuntimeId: "runtime-1",
+        targetProfileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        deadlineAtMs: Date.now() + 60_000,
+      },
+    };
+    await expect(entrypoint.postSignal(request)).rejects.toThrow(
+      "require postDeviceWaitingSignal"
+    );
+    await expect(
+      entrypoint.postDeviceWaitingSignal({ ...request, deviceWait: undefined })
+    ).rejects.toThrow("waiting request is required");
+    expect("postSignalWithEvidence" in entrypoint).toBe(false);
+  });
+
   it("keeps the local scheduler trigger unavailable outside local development", async () => {
     const entrypoint = Object.create(
       GatewayRpcEntrypoint.prototype

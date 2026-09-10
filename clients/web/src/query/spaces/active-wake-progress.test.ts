@@ -96,6 +96,7 @@ describe("spaceActiveWakeProgressSummaryQueryOptions", () => {
 			includeSourceContext: true,
 			includeTiming: true,
 			includeWaitReason: true,
+			includeDeviceWait: true,
 			includeWakeStopEligibility: true,
 			spaceId: "space-123",
 			timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,

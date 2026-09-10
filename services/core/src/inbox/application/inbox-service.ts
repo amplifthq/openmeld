@@ -127,8 +127,13 @@ export class InboxServiceError extends Error {
 export function createInboxService(input: {
   db: D1Database;
   nowMs?: () => number;
+  canManageAuthorizationUpdates?: boolean;
 }) {
   const nowMs = input.nowMs ?? Date.now;
+  const CURRENT_SOURCE_ACCESS_FILTER = buildCurrentInboxSourceAccessSql(
+    "inbox_items",
+    input.canManageAuthorizationUpdates === true
+  );
 
   return {
     async centerAgentSummary(summaryInput: {
@@ -431,6 +436,7 @@ export function createInboxService(input: {
       }
       if (changedRows(itemResult) === 0) {
         const existing = await hasAccessibleInboxItem({
+          canManageAuthorizationUpdates: input.canManageAuthorizationUpdates,
           db: input.db,
           itemId: dismissInput.itemId,
           organizationId: dismissInput.organizationId,
@@ -456,6 +462,7 @@ export function createInboxService(input: {
       requireIdentifier(getInput.organizationId, "organizationId");
       requireIdentifier(getInput.recipientUserId, "recipientUserId");
       const item = await readInboxItem({
+        canManageAuthorizationUpdates: input.canManageAuthorizationUpdates,
         db: input.db,
         itemId: getInput.itemId,
         organizationId: getInput.organizationId,
@@ -674,6 +681,7 @@ export function createInboxService(input: {
         .run();
       if (changedRows(result) === 0) {
         const existing = await readInboxItem({
+          canManageAuthorizationUpdates: input.canManageAuthorizationUpdates,
           db: input.db,
           itemId: markInput.itemId,
           organizationId: markInput.organizationId,
@@ -689,6 +697,7 @@ export function createInboxService(input: {
         return { item: existing };
       }
       const item = await readInboxItem({
+        canManageAuthorizationUpdates: input.canManageAuthorizationUpdates,
         db: input.db,
         itemId: markInput.itemId,
         organizationId: markInput.organizationId,
@@ -990,11 +999,16 @@ async function markSpaceInboxReadThrough(input: {
 }
 
 async function hasAccessibleInboxItem(input: {
+  canManageAuthorizationUpdates?: boolean;
   db: D1Database;
   itemId: string;
   organizationId: string;
   recipientUserId: string;
 }): Promise<boolean> {
+  const CURRENT_SOURCE_ACCESS_FILTER = buildCurrentInboxSourceAccessSql(
+    "inbox_items",
+    input.canManageAuthorizationUpdates === true
+  );
   const row = await input.db
     .prepare(
       `
@@ -1013,11 +1027,16 @@ async function hasAccessibleInboxItem(input: {
 }
 
 async function readInboxItem(input: {
+  canManageAuthorizationUpdates?: boolean;
   db: D1Database;
   itemId: string;
   organizationId: string;
   recipientUserId: string;
 }): Promise<InboxItem | null> {
+  const CURRENT_SOURCE_ACCESS_FILTER = buildCurrentInboxSourceAccessSql(
+    "inbox_items",
+    input.canManageAuthorizationUpdates === true
+  );
   const row = await input.db
     .prepare(
       `

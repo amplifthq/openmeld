@@ -20,6 +20,7 @@ import { channelContextSchema } from "./channel-context";
 import {
   messageChannelParticipantIdentitySchema,
   messageChannelProviderSchema,
+  messageChannelResourceDescriptorSchema,
 } from "./message-channel";
 import { workingLanguageGuidanceSchema } from "./working-language";
 
@@ -191,6 +192,11 @@ export const remoteAgentTurnEnvelopeTriggerSchema = z.discriminatedUnion(
       provider: messageChannelProviderSchema,
       connectionId: nonEmptyStringSchema,
       conversationId: nonEmptyStringSchema,
+      filePublicationSupported: z.literal(true).optional(),
+      resources: z
+        .array(messageChannelResourceDescriptorSchema)
+        .max(10)
+        .optional(),
     }),
     z.strictObject({
       authorizedActions: centerAgentRoutineAuthorizedActionsSchema.default([]),

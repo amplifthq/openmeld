@@ -51,7 +51,6 @@ export function SpaceHistoryRail(input: {
 	const pointerIndex = useRef<number | null>(null);
 	const railBounds = useRef<DOMRect | null>(null);
 	const hoverFrame = useRef(0);
-	const dwellTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const previewHeight = useRef(200);
 	const [open, setOpen] = useState(false);
 	const [previous, setPrevious] = useState<Position | null>(null);
@@ -65,22 +64,18 @@ export function SpaceHistoryRail(input: {
 		if (openTimer.current) {
 			clearTimeout(openTimer.current);
 		}
-		if (dwellTimer.current) {
-			clearTimeout(dwellTimer.current);
-		}
 		if (closeTimer.current) {
 			clearTimeout(closeTimer.current);
 		}
 		openTimer.current = null;
-		dwellTimer.current = null;
 		closeTimer.current = null;
 		cancelAnimationFrame(hoverFrame.current);
 		pointerIndex.current = null;
 		paint(null);
 		setOpen(false);
 	};
-	// Pointer motion owns only transforms. React commits excerpt content after
-	// a dwell, so sweeping past 48 positions never renders 48 preview cards.
+	// Coalesce pointer motion into one frame and update text only when the
+	// selected entry changes. Excerpts are already available in the directory.
 	const paint = (position: number | null) => {
 		for (const [index, button] of buttons.current) {
 			const dash = button.firstElementChild as HTMLElement | null;
@@ -114,13 +109,8 @@ export function SpaceHistoryRail(input: {
 		}
 	};
 	const selectPreview = (index: number | null) => {
-		if (dwellTimer.current) {
-			clearTimeout(dwellTimer.current);
-		}
 		pointerIndex.current = index;
 		setActiveIndex(index);
-		previewRef.current?.removeAttribute("data-moving");
-		previewRef.current?.removeAttribute("aria-busy");
 		paint(index);
 	};
 	const movePointer = (clientY: number) => {
@@ -136,25 +126,18 @@ export function SpaceHistoryRail(input: {
 			)
 		);
 		cancelAnimationFrame(hoverFrame.current);
-		hoverFrame.current = requestAnimationFrame(() => paint(position));
-		const index = Math.round(position);
-		if (pointerIndex.current === index) {
-			return;
-		}
-		pointerIndex.current = index;
-		previewRef.current?.setAttribute("data-moving", "");
-		previewRef.current?.setAttribute("aria-busy", "true");
-		if (dwellTimer.current) {
-			clearTimeout(dwellTimer.current);
-		}
-		dwellTimer.current = setTimeout(() => selectPreview(index), 160);
+		hoverFrame.current = requestAnimationFrame(() => {
+			const index = Math.round(position);
+			if (pointerIndex.current !== index) {
+				pointerIndex.current = index;
+				setActiveIndex(index);
+			}
+			paint(position);
+		});
 	};
 	useEffect(
 		() => () => {
 			cancelAnimationFrame(hoverFrame.current);
-			if (dwellTimer.current) {
-				clearTimeout(dwellTimer.current);
-			}
 			if (openTimer.current) {
 				clearTimeout(openTimer.current);
 			}
@@ -211,9 +194,6 @@ export function SpaceHistoryRail(input: {
 	};
 	const scheduleClose = () => {
 		cancelAnimationFrame(hoverFrame.current);
-		if (dwellTimer.current) {
-			clearTimeout(dwellTimer.current);
-		}
 		paint(null);
 		pointerIndex.current = null;
 		if (openTimer.current) {
@@ -358,20 +338,12 @@ export function SpaceHistoryRail(input: {
 						previewRef.current = node;
 						if (node) {
 							previewHeight.current = node.offsetHeight;
-							if (pointerIndex.current !== activeIndex) {
-								node.setAttribute("data-moving", "");
-							}
 							paint(pointerIndex.current);
 						}
 					}}
 					side="right"
 					sideOffset={8}
 				>
-					<div aria-hidden="true" className="space-history-preview-skeleton">
-						<span />
-						<span />
-						<span />
-					</div>
 					{selected && (
 						<div className="space-history-preview-content flex flex-col gap-2">
 							<button

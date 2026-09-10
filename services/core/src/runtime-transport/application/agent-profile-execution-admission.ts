@@ -1851,7 +1851,8 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
         | "runtime_coordinator.head_lifecycle_not_found"
         | "runtime_coordinator.head_link_scope_mismatch"
         | "runtime_coordinator.head_publication_intent_already_ready"
-        | "runtime_coordinator.pre_agent_stop_requested";
+        | "runtime_coordinator.pre_agent_stop_requested"
+        | "wake.device_wait.expired";
     }
 > {
   return await input.storage.transaction(async (transaction) => {
@@ -1951,6 +1952,17 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
         reasonCode: "runtime_coordinator.head_link_scope_mismatch" as const,
       };
     }
+    if (
+      !rawHead.runtimeCoordinatorExecutionId &&
+      rawHead.executionLinkedAtMs === null &&
+      rawExistingAuthority === undefined &&
+      rawExistingCommandState === undefined &&
+      rawHead.acceptedDispatchSnapshot?.deviceWait &&
+      rawHead.acceptedDispatchSnapshot.deviceWait.deadlineAtMs <= input.nowMs
+    ) {
+      return { ok: false, reasonCode: "wake.device_wait.expired" as const };
+    }
+
     const deliveryFence =
       resolveRuntimeCoordinatorAcceptedDeliveryHeadFence({
         executionId,
@@ -2360,6 +2372,14 @@ async function resolveExistingHeadLifecycleWrite(input: {
     throw new Error("runtime_coordinator.head_lifecycle_record_invalid");
   }
   if (!input.blockForExecutionTargetMutation) {
+    if (
+      isSettledDeviceWaitTransitionConflict(
+        rawExistingHead,
+        input.proposedRecord
+      )
+    ) {
+      return { effectiveRecord: rawExistingHead, status: "existing" };
+    }
     return null;
   }
   if (
@@ -2457,6 +2477,21 @@ async function resolveExistingHeadLifecycleWrite(input: {
     status: "queued",
     waitingCount: Math.max(0, input.admission.workItems.length - 1),
   };
+}
+
+function isSettledDeviceWaitTransitionConflict(
+  existing: RuntimeCoordinatorHeadLifecycleRecord,
+  proposed: RuntimeCoordinatorHeadLifecycleRecord
+): boolean {
+  return (
+    Boolean(existing.acceptedDispatchSnapshot?.deviceWait) &&
+    (existing.status === "stopped_before_execution" ||
+      existing.status === "publication_intent_ready" ||
+      existing.status === "execution_linked") &&
+    (existing.status !== proposed.status ||
+      existing.publicationIntent?.reasonCode !==
+        proposed.publicationIntent?.reasonCode)
+  );
 }
 
 function resolveLegacyHeadSnapshotUpgradeKind(input: {

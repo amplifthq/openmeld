@@ -260,6 +260,10 @@ export function buildMessageChannelTurnEnvelope(input: {
   connectionId: string;
   conversationId: string;
   conversationName: string | null;
+  resources?: Extract<
+    RemoteAgentTurnEnvelope["trigger"],
+    { source: "message_channel" }
+  >["resources"];
   isDirectMessage: boolean;
   participant: MessageChannelTurnParticipant;
   provider: LarkPlatformMessageChannelProvider;
@@ -342,6 +346,8 @@ export function buildMessageChannelTurnEnvelope(input: {
       provider: input.provider,
       connectionId: input.connectionId,
       conversationId: input.conversationId,
+      ...(input.resources?.length ? { resources: input.resources } : {}),
+      filePublicationSupported: true,
     },
     channelContext: input.channelContext,
   });

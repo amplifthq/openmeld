@@ -4,9 +4,11 @@ import {
 } from "@openmeld/schemas";
 import type {
   MessageChannelIngressEnvelope,
+  MessageChannelResourceDescriptor,
   NormalizedMessageChannelEvent,
 } from "@openmeld/schemas/types";
 import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/d1/lark-platform-channel-connection-repo";
+import { readLarkPlatformPostContent } from "./lark-platform-post-content";
 
 type JsonObject = Record<string, unknown>;
 
@@ -243,13 +245,7 @@ function normalizeMessageContent(input: {
   messageType: string | null;
 }):
   | {
-      resources: Array<{
-        fileKey: string;
-        fileName: string | null;
-        mimeType: null;
-        sizeBytes: null;
-        type: "audio" | "file" | "image" | "sticker" | "video";
-      }>;
+      resources: MessageChannelResourceDescriptor[];
       status: "normalized";
       text: string;
     }
@@ -261,6 +257,15 @@ function normalizeMessageContent(input: {
       : {
           reasonCode: "message_channel.webhook_message_text_missing",
           status: "ignored",
+        };
+  }
+  if (input.messageType === "post") {
+    const post = readLarkPlatformPostContent(input.content);
+    return post
+      ? { ...post, status: "normalized" }
+      : {
+          reasonCode: "message_channel.webhook_post_content_invalid",
+          status: "rejected",
         };
   }
   const resourceType = resolveMessageResourceType(input.messageType);
@@ -359,7 +364,7 @@ function stripBotMentions(
   for (const key of mentionKeys) {
     result = result.replaceAll(key, " ");
   }
-  return result.replace(/\s+/gu, " ").trim();
+  return result.trim();
 }
 
 function parseJsonObject(value: string | null): JsonObject | null {

@@ -1196,13 +1196,14 @@ metadata or shows raw provider ids. BYOK is not part of this release.
   draft those requests for a human `owner`/`admin` to approve.
 - A verified member's explicit request is authority for ordinary safe writes;
   asking the Center Agent to perform an action must not trigger a redundant
-  confirmation. In an interactive conversation, delete and merge remain the
-  exception and require one separate confirmation naming the exact target and
-  effect. A clear affirmative executes without another loop.
+  confirmation. An explicit interactive request can also authorize an exact
+  delete or merge. Action-bound tokens may be consumed in the same turn; they
+  bind inputs and identity, not human intent. Ask only when authority or the
+  exact target/effect is missing or materially changes.
 - Remove Project is a narrowly approved exception to the no-autonomous-
   destructive rule: it requires a short-lived Core confirmation token issued
   for the exact represented member, Project, and Project version, then consumed
-  in a later interactive member turn. Project removal is unsupported during a
+  in the same interactive turn when already authorized. Project removal is unsupported during a
   Routine and returns `routine_destructive_action_unsupported` with zero side
   effects.
 - Routine management is a narrowly-owned represented-member contract, not an
@@ -2067,8 +2068,10 @@ identity. Routines and member research reject requester selection and use only
 the Organization's GitHub App installation. Read replies name the chosen
 identity. Ordinary GitHub writes execute directly when the verified user or
 durable Routine instruction requests them. Interactive file deletion and
-pull-request merge require one separate confirmation naming the concrete
-action, repository, and chosen identity. Routine file deletion and
+pull-request merge use an exact action preview and token, which may be consumed
+in the same turn when the verified user already authorized the concrete action,
+repository, and chosen identity. Otherwise the Agent asks before execution.
+Routine file deletion and
 pull-request merge return `routine_destructive_action_unsupported` with zero
 side effects. A member connection may be disconnected only by its member owner
 or an Organization owner or admin.
