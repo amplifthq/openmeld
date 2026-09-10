@@ -961,8 +961,10 @@ import {
   rpcSetSpaceAccessMode,
   rpcSetSpaceMessageReaction,
   rpcSpaceFilePins,
+  rpcSpaceFileUpload,
   rpcSpaceMessagePins,
   rpcStageSpaceComposerUpload,
+  rpcStreamSpaceFileContent,
   rpcSubmitAgentActivityEvents,
   rpcSubmitAgentActivitySessionReconciliation,
   rpcSubmitAgentControllerTaskLifecycleEvents,
@@ -1869,6 +1871,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcResolveSpaceFileContent(this.env, input);
   }
 
+  streamSpaceFileContent(input: ReadSpaceFileContentRpcInput) {
+    return rpcStreamSpaceFileContent(this.env, input);
+  }
+
   readSpaceFileContent(
     input: ReadSpaceFileContentRpcInput
   ): Promise<ReadSpaceFileContentRpcResponse> {
@@ -1879,6 +1885,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: WriteSpaceFileContentRpcInput
   ): Promise<SpaceFileDescriptor> {
     return rpcWriteSpaceFileContent(this.env, input);
+  }
+
+  spaceFileUpload(input: Parameters<typeof rpcSpaceFileUpload>[1]) {
+    return rpcSpaceFileUpload(this.env, input);
   }
 
   stageSpaceComposerUpload(input: StageSpaceComposerUploadRpcInput) {

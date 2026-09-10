@@ -198,6 +198,7 @@ export type SpaceApi = {
       mimeType: string;
       name: string;
       parentId?: string | null;
+      onProgress?: (uploadedBytes: number, totalBytes: number) => void;
     }
   ) => Promise<SpaceFileDescriptor>;
   stageComposerUpload: (
@@ -206,6 +207,7 @@ export type SpaceApi = {
       mimeType: string;
       name: string;
       uploadId: string;
+      onProgress?: (uploadedBytes: number, totalBytes: number) => void;
     }
   ) => Promise<SpaceComposerUploadDescriptor>;
   publishComposerUpload: (
@@ -229,6 +231,11 @@ export type SpaceApi = {
   downloadFileContent: (
     input: SpaceRequestInput & { fileId: string; revision?: number }
   ) => Promise<SpaceFileContent>;
+  streamFileContent: (
+    input: SpaceRequestInput & { fileId: string; revision?: number }
+  ) => Promise<
+    Omit<SpaceFileContent, "bytes"> & { bytes: ReadableStream<Uint8Array> }
+  >;
   removeMembers: (
     input: RemoveSpaceMembersInput
   ) => Promise<RemoveSpaceMembersResponse>;

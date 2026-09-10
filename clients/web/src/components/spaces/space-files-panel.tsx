@@ -27,6 +27,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 		moveEntry,
 		parentId,
 		pendingAction,
+		uploadProgress,
 		refreshFiles,
 		restoreEntry,
 		renameEntry,
@@ -85,6 +86,13 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 
 	return (
 		<>
+			{uploadProgress !== null && (
+				<output className="px-4 py-2 text-muted-foreground text-sm">
+					{uploadProgress < 100
+						? `Uploading files… ${uploadProgress}%`
+						: "Finishing upload…"}
+				</output>
+			)}
 			<SpaceFileBrowser
 				actionError={actionError}
 				api={api}
