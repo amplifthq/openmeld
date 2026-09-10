@@ -2225,6 +2225,7 @@ type InitializeDirectMessageSpaceMetaResponse = {
 
 type ConvertDirectMessageToSpaceInput = {
   context?: CoreRpcContextInput;
+  includeMemberSnapshots?: boolean;
   members: ResolvedSpaceMemberProfile[];
   name: string;
   spaceId: string;
@@ -7807,6 +7808,7 @@ export class Space extends DurableObject<CoreBindings> {
       addedMemberIds: memberResponse.addedMemberIds,
       alreadyMemberIds: memberResponse.alreadyMemberIds,
       convertedAt,
+      ...(input.includeMemberSnapshots ? { items: memberResponse.items } : {}),
       name: input.name,
       spaceId: this.spaceId,
     };

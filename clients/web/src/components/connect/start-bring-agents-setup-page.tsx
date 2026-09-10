@@ -156,6 +156,7 @@ export type StartBringAgentsSetupPageProps = {
 };
 
 type ComputerSetupFlowProps = StartBringAgentsSetupPageProps & {
+	onCompleted?: (snapshot: PrepareSessionSnapshot) => void;
 	onNavigationActionAlreadyStarted?: () => void;
 	preferExistingConnection?: boolean;
 	presentation: "conversation" | "embedded" | "page";
@@ -406,6 +407,7 @@ function resolveExistingComputerConnectionState(
 }
 
 function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
+	const deliveredCompletionRef = useRef<string | null>(null);
 	const bringAgentsSetup = useBringAgentsSetupContext();
 	const navigate = useNavigate();
 	const [inlineFreshSessionConsumed, setInlineFreshSessionConsumed] =
@@ -434,7 +436,7 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 		if (!shouldForceFreshSession) {
 			return;
 		}
-		if (input.presentation === "conversation") {
+		if (input.presentation !== "page") {
 			setInlineFreshSessionConsumed(true);
 			return;
 		}
@@ -497,7 +499,7 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 		snapshot: currentPrepareSessionSnapshot,
 	});
 	useEffect(() => {
-		if (input.autoReturnOnCompletion === false) {
+		if (input.autoReturnOnCompletion === false && !input.onCompleted) {
 			return;
 		}
 		if (bringAgentsSetup.routeIntent.kind !== "account_computer_setup") {
@@ -524,6 +526,17 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 			return;
 		}
 
+		if (input.onCompleted) {
+			if (
+				deliveredCompletionRef.current !==
+				currentPrepareSessionSnapshot.prepareSessionId
+			) {
+				deliveredCompletionRef.current =
+					currentPrepareSessionSnapshot.prepareSessionId;
+				input.onCompleted(currentPrepareSessionSnapshot);
+			}
+			return;
+		}
 		navigate({ to: completionTarget, replace: true }).catch(
 			(error: unknown) => {
 				console.error("Failed to return to Computers after setup.", error);
@@ -536,6 +549,8 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 		currentPrepareSessionSnapshot?.lifecycleStatus,
 		currentPrepareSessionSnapshot?.phase,
 		input.autoReturnOnCompletion,
+		input.onCompleted,
+		currentPrepareSessionSnapshot,
 		navigate,
 		serviceUpdateVerification.status,
 	]);

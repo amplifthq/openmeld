@@ -84,6 +84,7 @@ export type MessageChannelProviderAdapter = {
     }
   ): Promise<MessageChannelPublicationResult>;
   createWorkingCard(input: {
+    stopDeliveryId?: string;
     connection: RemoteAgentLarkPlatformChannelConnectionRecord;
     initialText: string;
     locator: MessageChannelConversationLocator;
@@ -142,6 +143,7 @@ export type MessageChannelProviderAdapter = {
     text: string;
   }): Promise<MessageChannelCardMutationResult>;
   finalizeWorkingCard(input: {
+    replyDeliveryId?: string;
     cardId: string;
     connection: RemoteAgentLarkPlatformChannelConnectionRecord;
     locator: MessageChannelConversationLocator;

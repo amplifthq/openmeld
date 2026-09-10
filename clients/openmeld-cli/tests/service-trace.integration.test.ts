@@ -3361,7 +3361,39 @@ describe("service trace command", () => {
     });
   });
 
-  it("shows the authoritative pending route boundary in default agent view", async () => {
+  it.each([
+    {
+      reasonCode: "daemon.profile.pending_first_report",
+      trigger: "wake_route_reported",
+      userRecoveryAction: "wait_for_wake_route_report",
+      userVisibleState: "waiting_for_wake_route_report",
+      waitingCategory: "wake_route_registration_pending",
+      waitingFor: "wake_route_report",
+      nextAction:
+        "wait for the Wake route report, then rerun trace with the same selector",
+    },
+    {
+      reasonCode: "wake.device_wait.access_check_unavailable",
+      trigger: "space_access_rechecked",
+      userRecoveryAction: "check_status",
+      userVisibleState: "waiting_for_space_access",
+      waitingCategory: "space_access_unavailable",
+      waitingFor: "space_access_check",
+      nextAction: "check status, then rerun trace with the same selector",
+    },
+    {
+      reasonCode: "wake.device_wait.readiness_checking",
+      trigger: "agent_readiness_reported",
+      userRecoveryAction: "check_status",
+      userVisibleState: "waiting_for_agent_readiness",
+      waitingCategory: "local_agent_unavailable",
+      waitingFor: "agent_readiness_report",
+      nextAction: "check status, then rerun trace with the same selector",
+    },
+  ] as const)("shows the authoritative $waitingFor boundary in default agent view", async ({
+    nextAction,
+    ...boundary
+  }) => {
     await withTempHome(async () => {
       resolveRuntimeContextMock.mockResolvedValue({
         viewMode: "agent",
@@ -3413,14 +3445,9 @@ describe("service trace command", () => {
           deadlineAt: "2026-03-09T00:05:00.000Z",
           deadlineOutcome: "publication_intent_ready",
           observedAt: "2026-03-09T00:00:01.200Z",
-          reasonCode: "daemon.profile.pending_first_report",
           softDeadlineAt: "2026-03-09T00:00:30.000Z",
-          trigger: "wake_route_reported",
           triggerOwner: "runtime_coordinator",
-          userRecoveryAction: "wait_for_wake_route_report",
-          userVisibleState: "waiting_for_wake_route_report",
-          waitingCategory: "wake_route_registration_pending",
-          waitingFor: "wake_route_report",
+          ...boundary,
           waitingSince: "2026-03-09T00:00:01.100Z",
         },
       };
@@ -3454,19 +3481,18 @@ describe("service trace command", () => {
       expect(summary?.data?.agentSummary).toMatchObject({
         currentState: "waiting",
         delivered: false,
-        nextAction:
-          "wait for the Wake route report, then rerun trace with the same selector",
-        reasonCode: "daemon.profile.pending_first_report",
+        nextAction,
+        reasonCode: boundary.reasonCode,
         waitingBoundary: {
           deadlineAt: "2026-03-09T00:05:00.000Z",
           softDeadlineAt: "2026-03-09T00:00:30.000Z",
-          userRecoveryAction: "wait_for_wake_route_report",
-          waitingFor: "wake_route_report",
+          userRecoveryAction: boundary.userRecoveryAction,
+          waitingFor: boundary.waitingFor,
           waitingSince: "2026-03-09T00:00:01.100Z",
         },
       });
       expect(summary?.text).toContain(
-        "reason=daemon.profile.pending_first_report waiting_for=wake_route_report waiting_deadline=2026-03-09T00:05:00.000Z recovery_action=wait_for_wake_route_report"
+        `reason=${boundary.reasonCode} waiting_for=${boundary.waitingFor} waiting_deadline=2026-03-09T00:05:00.000Z recovery_action=${boundary.userRecoveryAction}`
       );
       expect(summary?.data).not.toHaveProperty("trace");
     });

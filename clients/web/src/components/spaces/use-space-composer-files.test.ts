@@ -38,6 +38,28 @@ function setup() {
 }
 
 describe("composer attachment submission", () => {
+	it("rejects oversized files before upload while keeping other attachments", async () => {
+		const hook = setup();
+		await act(async () =>
+			hook.result.current.addFiles([
+				new File([new Uint8Array(11 * 1024 * 1024)], "large.pdf"),
+				new File(["small"], "small.txt"),
+			])
+		);
+		expect(api.stageComposerUpload).toHaveBeenCalledTimes(1);
+		expect(api.stageComposerUpload).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "small.txt" })
+		);
+		expect(hook.result.current.files[0]).toMatchObject({
+			status: "failed",
+			errorMessage: expect.stringContaining("10 MiB upload limit"),
+		});
+		expect(hook.result.current.files[0]?.errorMessage).toContain(
+			"paste a link"
+		);
+		expect(hook.result.current.files[1]?.status).toBe("ready");
+	});
+
 	it("publishes only the captured batch even when another file is added before publication", async () => {
 		const hook = setup();
 		let submitted: readonly SpaceComposerFile[] = [];

@@ -154,6 +154,48 @@ class ControlledMockWebSocket extends MockWebSocket {
 }
 
 describe("StartBringAgentsSetupPage completion actions", () => {
+	it("completes embedded Agent recovery once without leaving the caller", async () => {
+		const onCompleted = vi.fn();
+		const snapshot = createReadySnapshot({
+			setupBootstrap: createCompletedSetupBootstrapResult(),
+			targetSpaceId: null,
+		});
+		createPrepareSessionMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_embedded",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot,
+		});
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext({
+				kind: "account_computer_setup",
+				resetThisComputer: true,
+				returnTo: "agent_creation",
+			})
+		);
+		const element = (
+			<TestQueryClientProvider>
+				<StartFlowStateProvider>
+					<ComputerSetupFlow
+						autoReturnOnCompletion={false}
+						onCompleted={onCompleted}
+						orgSlug="acme"
+						presentation="embedded"
+					/>
+				</StartFlowStateProvider>
+			</TestQueryClientProvider>
+		);
+		const view = render(element);
+		await waitFor(() => expect(onCompleted).toHaveBeenCalledOnce());
+		expect(onCompleted).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prepareSessionId: snapshot.prepareSessionId,
+				deviceId: snapshot.deviceId,
+			})
+		);
+		view.rerender(element);
+		expect(onCompleted).toHaveBeenCalledOnce();
+		expect(navigateMock).not.toHaveBeenCalled();
+	});
 	it("does not replace targeted Agent recovery with management of another online computer", async () => {
 		useBringAgentsSetupContextMock.mockReturnValue(
 			createSetupContext(

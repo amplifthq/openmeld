@@ -1,5 +1,6 @@
 import * as z from "zod/v4";
 import { openMeldRuntimeProfileIdSchema } from "../protocol/profile";
+import { postSpaceMembersResponseSchema } from "./space-members";
 import { spaceNameSchema } from "./space-name";
 
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
@@ -22,6 +23,7 @@ const directMessageConversionProfileIdsSchema = z
   .max(100);
 
 export const convertDirectMessageToSpaceBodySchema = z.strictObject({
+  includeMemberSnapshots: z.boolean().optional(),
   name: spaceNameSchema,
   profileIds: directMessageConversionProfileIdsSchema,
 });
@@ -31,6 +33,7 @@ export const convertDirectMessageToSpaceResponseSchema = z.strictObject({
   addedMemberIds: z.array(openMeldRuntimeProfileIdSchema),
   alreadyMemberIds: z.array(openMeldRuntimeProfileIdSchema),
   convertedAt: z.iso.datetime({ offset: true }),
+  items: postSpaceMembersResponseSchema.shape.items.optional(),
   name: spaceNameSchema,
   spaceId: trimmedNonEmptyStringSchema,
 });

@@ -31,9 +31,58 @@ const AGENT_PROFILE_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const HUMAN_PROFILE_ID = "22222222-2222-4222-8222-222222222222";
 const FELIX_OPTION_NAME = /Felix/;
 const RUNNER_OPTION_NAME = /Runner/;
+const ALL_OPTION_NAME = /@all/;
+const BOTH_OPTION_NAME = /Both/;
 
 describe("SpaceComposerEditor", () => {
 	afterEach(cleanup);
+
+	it("keeps @all open for an audience choice and inserts ordinary People and Agent tokens", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message this space"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text=""
+			/>
+		);
+		act(() => composerRef.current?.insertMentionTrigger());
+		const search = await screen.findByRole("combobox", {
+			name: "Find a member to mention",
+		});
+		fireEvent.change(search, { target: { value: "all" } });
+		fireEvent.click(
+			await screen.findByRole("option", { name: ALL_OPTION_NAME })
+		);
+		expect(
+			screen.getByRole("combobox", { name: "Find a member to mention" })
+		).toBeTruthy();
+		fireEvent.click(
+			await screen.findByRole("option", { name: BOTH_OPTION_NAME })
+		);
+		await waitFor(() => {
+			const mentions = onChange.mock.lastCall?.[0].authoredMentions;
+			expect(mentions).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						profileId: HUMAN_PROFILE_ID,
+						relation: "mention",
+					}),
+					expect.objectContaining({
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake",
+					}),
+				])
+			);
+		});
+	});
 
 	it.each([
 		"",

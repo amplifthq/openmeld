@@ -1937,7 +1937,7 @@ describe("SpaceLanding", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "New Agent" }));
 		const dialog = await screen.findByRole("dialog", {
-			name: "Create a new Agent",
+			name: "Create an Agent",
 		});
 		fireEvent.click(
 			await within(dialog).findByRole("radio", { name: "Codex" })
@@ -5216,9 +5216,7 @@ describe("SpaceLanding", () => {
 		// so the user comes back after connecting OpenMeld Service.
 		expect(screen.getByText("Connect this computer")).toBeTruthy();
 
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
-		expect(screen.queryByText("Connect this computer")).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Get set up" }));
+		expect(screen.queryByRole("tab", { name: "Graph" })).toBeNull();
 		expect(
 			screen
 				.getByRole("tab", { name: "Messages" })
@@ -5476,6 +5474,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(convertToSpaceMock).toHaveBeenCalledWith({
+				includeMemberSnapshots: true,
 				name: "Alice, Runner, and Mira",
 				profileIds: [DEFAULT_SPACE_PROFILE_ID],
 				spaceId: "space-123",
@@ -5685,6 +5684,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(convertToSpaceMock).toHaveBeenCalledWith({
+				includeMemberSnapshots: true,
 				name: "Launch Team",
 				profileIds: [DEFAULT_SPACE_PROFILE_ID],
 				spaceId: "space-123",
@@ -5701,6 +5701,181 @@ describe("SpaceLanding", () => {
 		});
 		expect(joiningProfileCachedAtNavigation).toBe(true);
 		expect(memberCountAtNavigation).toBe(3);
+	});
+
+	it.each([
+		"success",
+		"failure",
+	])("keeps human Direct Message conversion coherent while background reads are pending (%s)", async (outcome) => {
+		const queryClient = createTestQueryClient();
+		useQueryClientMock.mockReturnValue(queryClient);
+		vi.spyOn(queryClient, "invalidateQueries").mockReturnValue(
+			new Promise(() => undefined)
+		);
+		const members = createMembersSnapshot() as SpaceMembersSnapshot;
+		const addedAgent = members.agents[0];
+		members.agents = [];
+		members.humans.push({
+			...members.humans[0],
+			profileId: "33333333-3333-4333-8333-333333333333",
+			profileName: "Alice",
+		});
+		members.summary = {
+			...members.summary,
+			humanCount: 2,
+			agentCount: 0,
+			totalCount: 2,
+		};
+		const status = {
+			...createSpaceStatus(),
+			accessMode: "members_only" as const,
+			name: "Mira and Alice",
+			spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+			members: {
+				...createSpaceStatus().members,
+				humanCount: 2,
+				agentCount: 0,
+				totalCount: 2,
+			},
+		};
+		const membersKey = spaceQueryKeys.members(
+			"space-123",
+			DEFAULT_SPACE_PROFILE_ID
+		);
+		const statusKey = spaceQueryKeys.status(
+			"space-123",
+			DEFAULT_SPACE_PROFILE_ID
+		);
+		const bootstrapKey = spaceQueryKeys.bootstrap(
+			"space-123",
+			DEFAULT_SPACE_PROFILE_ID
+		);
+		queryClient.setQueryData(membersKey, members);
+		queryClient.setQueryData(statusKey, status);
+		queryClient.setQueryData(bootstrapKey, { members, status });
+		const convertedAt = "2026-09-10T08:00:00.000Z";
+		const conversionResult = {
+			accessMode: "members_only",
+			addedMemberIds: [addedAgent.profileId],
+			alreadyMemberIds: [],
+			convertedAt,
+			items: [addedAgent],
+			name: "Launch Team",
+			spaceId: "space-123",
+		};
+		let confirmConversion: (result: typeof conversionResult) => void = () =>
+			undefined;
+		let rejectConversion: (error: Error) => void = () => undefined;
+		const convertToSpace = vi.fn().mockReturnValue(
+			new Promise((resolve, reject) => {
+				confirmConversion = resolve;
+				rejectConversion = reject;
+			})
+		);
+		createDirectMessageApiMock.mockReturnValue({ convertToSpace });
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: status }),
+			members: createQueryResult({ isSuccess: true, data: members }),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+		useNavigateMock.mockImplementation(() => {
+			expect(
+				queryClient.getQueryData<SpaceMembersSnapshot>(membersKey)
+			).toMatchObject({
+				generatedAt: convertedAt,
+				agents: [expect.objectContaining({ profileId: addedAgent.profileId })],
+				summary: { totalCount: 3, humanCount: 2, agentCount: 1 },
+			});
+			expect(queryClient.getQueryData(statusKey)).toMatchObject({
+				name: "Launch Team",
+				directMessageConvertedAt: convertedAt,
+				members: { totalCount: 3, humanCount: 2, agentCount: 1 },
+			});
+			expect(queryClient.getQueryData(bootstrapKey)).toMatchObject({
+				members: {
+					generatedAt: convertedAt,
+					agents: [
+						expect.objectContaining({ profileId: addedAgent.profileId }),
+					],
+					summary: { totalCount: 3 },
+				},
+				status: {
+					name: "Launch Team",
+					members: { totalCount: 3, agentCount: 1 },
+				},
+			});
+			return Promise.resolve();
+		});
+		renderSpaceLanding({
+			queryClient,
+			organizationScope: createOrganizationScope({ isPersonal: true }),
+			accountProfiles: [
+				createLandingAccountProfile({
+					openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
+					ownerUserId: "user-mira",
+					profileKind: "human",
+					profileName: "Mira",
+				}),
+				createLandingAccountProfile({
+					openMeldProfileId: addedAgent.profileId,
+					ownerUserId: "user-mira",
+					profileKind: "agent",
+					profileName: addedAgent.profileName,
+				}),
+			],
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Members, 2 total" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
+		fireEvent.click(
+			screen.getByRole("checkbox", { name: addedAgent.profileName })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
+		fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), {
+			target: { value: "Launch Team" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Turn into a Space" }));
+		await waitFor(() =>
+			expect(convertToSpace).toHaveBeenCalledWith({
+				includeMemberSnapshots: true,
+				name: "Launch Team",
+				profileIds: [addedAgent.profileId],
+				spaceId: "space-123",
+			})
+		);
+		expect(useNavigateMock).not.toHaveBeenCalled();
+		expect(
+			queryClient.getQueryData<SpaceMembersSnapshot>(membersKey)?.summary
+				.totalCount
+		).toBe(2);
+		await act(async () => {
+			if (outcome === "failure") {
+				rejectConversion(new Error("Conversion rejected"));
+			} else {
+				confirmConversion(conversionResult);
+			}
+			await flushPromiseQueue();
+		});
+		if (outcome === "failure") {
+			expect(useNavigateMock).not.toHaveBeenCalled();
+			expect(queryClient.getQueryData(membersKey)).toEqual(members);
+			expect(queryClient.getQueryData(statusKey)).toEqual(status);
+			expect(await screen.findByText("Conversion rejected")).toBeTruthy();
+			queryClient.clear();
+			return;
+		}
+		await waitFor(() =>
+			expect(useNavigateMock).toHaveBeenCalledWith({
+				replace: true,
+				search: { profileId: DEFAULT_SPACE_PROFILE_ID },
+				to: "/o/acme/spaces/space-123",
+			})
+		);
+		queryClient.clear();
 	});
 
 	it("shows only Connect this computer in a Direct Message with the user's own local Agent", () => {
@@ -13415,9 +13590,7 @@ describe("SpaceLanding", () => {
 			true
 		);
 		expect(
-			screen.getByText(
-				"1 file couldn't be uploaded. Remove it or add it again."
-			)
+			screen.getByText("Remove the failed file to continue.")
 		).toBeTruthy();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 
@@ -15113,8 +15286,9 @@ describe("SpaceLanding", () => {
 
 		const targetList = await openComposerMemberPicker();
 		const options = within(targetList).getAllByRole("option");
-		expect(options[0]?.textContent).toContain("Watcher");
-		expect(options[1]?.textContent).toContain("Runner");
+		expect(options[0]?.textContent).toContain("@all");
+		expect(options[1]?.textContent).toContain("Watcher");
+		expect(options[2]?.textContent).toContain("Runner");
 	});
 
 	it("lets users jump from a loaded reply preview to the original message", () => {
@@ -16799,9 +16973,7 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(threadComposer, "Thread text can still be sent");
 		expect(
-			within(threadPanel).getByText(
-				"1 file couldn't be uploaded. Remove it or add it again."
-			)
+			within(threadPanel).getByText("Remove the failed file to continue.")
 		).toBeTruthy();
 		expect(
 			within(threadPanel).getByRole("button", { name: "Send reply" })

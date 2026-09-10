@@ -32,8 +32,9 @@ develop and run focused tests
 
 For a coordinated train of compatible changes, integrate the ready leaf
 branches into one batch branch, sync `main` once, and run one Final Candidate
-on the combined batch PR. Leaf PRs keep their focused evidence but do not each
-pay for an immediately stale Final Candidate or merge to `main` first. The
+on the combined batch PR. Keep leaf PRs in draft while preparing the batch.
+Leaf PRs keep their focused evidence but do not each pay for an immediately
+stale Final Candidate or merge to `main` first. The
 combined candidate is the merge unit and proves the interactions users will
 actually receive.
 
@@ -48,11 +49,14 @@ unrelated agents to wait.
 
 ## Facts That Must Stay True
 
-1. Ordinary branch pushes do not trigger broad paid CI. An agent requests one
-   Final Candidate only when one committed PR head is ready for final
-   evaluation. Standard Final Candidate is bounded merge certification, not a
-   second unit/integration test run and not a development, debugging, or
-   review-discovery loop. Use
+1. Standard Final Candidate starts automatically when a non-draft PR targeting
+   `main` is opened, updated with new commits, reopened, or marked ready for
+   review. Branches without a ready PR and draft PRs do not run it. Keep work
+   in draft during development or batch preparation; marking it ready is the
+   normal trigger and requires no label or special command. A newer candidate
+   cancels the older run for that PR. Standard Final Candidate is bounded merge
+   certification, not a second unit/integration test run and not a development,
+   debugging, or review-discovery loop. Use
    one practical test: if a green result would not make merge the next action,
    keep using the smallest focused or affected checks that prove the work.
    When known predecessor pull requests still need to enter `main`, wait for
@@ -112,7 +116,12 @@ identity, reviewer count, approval count, or specific review style is required
 by CI/CD.
 
 Broad affected and integration runs are agent-chosen development or review
-evidence. Release-ready and Final Candidate are delivery evidence. Before the
+evidence. PR Feedback also runs the existing affected check/unit lane on PR
+creation and updates, including drafts, using read-only permissions and no
+production secrets. It cancels superseded runs and is early defect feedback,
+not exact Final Candidate certification. Documentation-only changes avoid
+workspace tests. Integration and full-confidence runs remain deliberate.
+Release-ready and Final Candidate are delivery evidence. Before the
 first broad run, finish the review that
 is reasonably likely to change product behavior, contracts, compatibility, or
 scope, and settle its practical blockers. An earlier broad run is appropriate
@@ -153,15 +162,15 @@ belong to development/review or explicit full confidence. Add `--full` only
 when uncertainty or material risk makes the repository-wide rerun worth its
 latency.
 
-Before requesting Final Candidate:
+Before marking a PR ready for automatic Final Candidate, or requesting a retry:
 
 1. finish the scoped implementation, focused tests, and task-required review;
 2. for a coordinated train, integrate every ready compatible leaf into the
    batch branch and freeze that combined scope;
-3. commit and push the exact single-PR or batch tree;
-4. fetch current `origin/main` and sync it into the candidate branch once;
-5. resolve conflicts and rerun checks affected by the sync; and
-6. confirm a clean worktree and an open, non-draft PR targeting `main`.
+3. fetch current `origin/main` and sync it into the candidate branch once;
+4. resolve conflicts and rerun checks affected by the sync;
+5. commit and push the exact single-PR or batch tree; and
+6. confirm a clean worktree and mark the PR ready, targeting `main`.
 
 These are engineering facts, not an approval form. Final Candidate does not
 require a waiting period, a fixed reviewer count, or permission from a central
@@ -198,7 +207,20 @@ state change.
 
 ## Final Candidate
 
-The normal path uses GitHub-hosted compute:
+The normal path uses GitHub-hosted compute automatically for ready PRs. Opening
+a non-draft PR, pushing new commits to it, reopening it, or marking a draft PR
+ready starts standard Final Candidate. Observe the existing run instead of
+requesting another one after each push. Draft PRs intentionally have no FC
+result and cannot merge until they are ready and pass validation.
+
+The automatic triggers use GitHub's `pull_request_target` events and retain
+the trusted current-main runner and credential isolation. Unrelated label
+events neither run checks nor cancel an active candidate. Automatic runs use
+standard confidence; an old full-confidence label does not make every later
+push run the full repository gate.
+
+Use the existing explicit request for a same-head retry, an already-open PR
+that predates automatic triggering, or explicit `--full` confidence:
 
 ```sh
 git show origin/main:scripts/ci/trusted-final-candidate.sh | \

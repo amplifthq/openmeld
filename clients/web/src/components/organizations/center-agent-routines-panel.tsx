@@ -354,7 +354,7 @@ function CenterAgentRoutinesPageHeader(input: {
 					</>
 				) : undefined
 			}
-			description="Schedule your Center Agent to work in a target Space."
+			description="Schedule work in a Space or a connected conversation."
 			eyebrow={
 				input.isPersonalWorkspace ? "Personal workspace" : "Organization"
 			}
@@ -540,6 +540,11 @@ function resolveRoutineStatusLabel(
 function resolveRoutineDestinationLabel(
 	routine: CenterAgentRoutineManagement
 ): string {
+	if (routine.destinationKind === "message_channel") {
+		return routine.messageChannelLocator?.provider === "feishu"
+			? "Feishu conversation"
+			: "Lark conversation";
+	}
 	if (routine.destinationKind === "slack_thread") {
 		return routine.slackThreadLabel ?? "Slack thread";
 	}

@@ -116,6 +116,9 @@ async function createWorkingCard(input: {
     registry: input.registry,
   });
   const result = await target.adapter.createWorkingCard({
+    ...(claim.delivery.onBehalfOfUserId
+      ? { stopDeliveryId: claim.delivery.deliveryId }
+      : {}),
     connection: target.connection,
     initialText: "Request received. Preparing your conversation…",
     locator: target.locator,

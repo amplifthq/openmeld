@@ -17,7 +17,7 @@ describe("SpaceComposerFileTray", () => {
 		cleanup();
 	});
 
-	it("keeps fixed-width cards in one horizontally scrolling row", () => {
+	it("keeps attachments in one scrolling row and announces file failures", () => {
 		const onRemove = vi.fn();
 		render(
 			<SpaceComposerFileTray
@@ -54,7 +54,6 @@ describe("SpaceComposerFileTray", () => {
 		const cards = Array.from(tray.children) as HTMLElement[];
 		expect(cards).toHaveLength(3);
 		for (const card of cards) {
-			expect(card.className).toContain("w-40");
 			expect(card.className).toContain("flex-none");
 			expect(card.className).not.toContain("w-fit");
 		}
@@ -77,9 +76,9 @@ describe("SpaceComposerFileTray", () => {
 				})
 				.getAttribute("aria-valuenow")
 		).toBe("42");
-		expect(
-			screen.getByText("OpenMeld couldn’t add this file. Try again.")
-		).toBeTruthy();
+		expect(screen.getByRole("alert").textContent).toBe(
+			"OpenMeld couldn’t add this file. Try again."
+		);
 		expect(screen.getByText("Request ID: request-file-failed")).toBeTruthy();
 
 		const removeReadyFile = screen.getByRole("button", {
