@@ -214,7 +214,7 @@ type PendingComposerSubmission = ReturnType<
 
 type PreparedSpaceMessageSubmission = Pick<
 	PendingComposerSubmission,
-	"messageEnvelope" | "text" | "restoredFromSignalId"
+	"messageEnvelope" | "text" | "restoredFromSignalId" | "threadWakeContinuation"
 > &
 	SpaceComposerSendOptions;
 
@@ -3348,6 +3348,8 @@ function useSpaceThreadController(input: {
 							threadId: activeThreadId,
 						}
 					: null,
+			threadWakeContinuationProfileId:
+				threadSignalsQuery.data?.wakeContinuation?.targetProfileId,
 			openMeldProfileId: input.profileId,
 			isMembersLoading: input.isMembersLoading,
 			membersErrorMessage: input.membersErrorMessage,
@@ -3872,6 +3874,9 @@ function useSpaceThreadController(input: {
 			}
 			const postInput = {
 				body: {
+					...(sendInput.preparedSubmission.threadWakeContinuation
+						? { threadWakeContinuation: true as const }
+						: {}),
 					...(sendInput.preparedSubmission.deviceWait
 						? { deviceWait: sendInput.preparedSubmission.deviceWait }
 						: {}),

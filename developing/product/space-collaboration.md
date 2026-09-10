@@ -925,6 +925,24 @@ Space conversation.
 Thread messages reuse the normal Space publication model. There is no second
 message system for threads.
 
+Thread composers continue the last Agent explicitly Woken by a human in that
+thread, including its root. If no human has selected an Agent, an Agent-authored
+root supplies the initial suggestion. Human-only threads have no implicit Agent.
+The existing removable Wake mention shows the actual recipient before sending;
+there is no editable thread-default setting. A new explicit Wake replaces the
+suggestion. The latest explicit multi-Agent Wake clears the suggestion rather
+than choosing one Agent. Agent messages and automatically continued human
+messages do not change the suggestion. Once a person has started writing, an
+incoming message never changes that draft's recipient. Removing the suggestion
+sends only this message without Wake. Existing clients keep explicit addressing.
+
+The suggestion is a read projection of retained messages, not work ownership or
+execution authority. Each accepted message freezes its own addressing and uses
+normal Wake authorization. Quote context is read from the referenced retained
+Space message, including outside the visible history page, and passed to both
+hosted and workstation Agents. Recalled or unavailable messages expose no old
+quote content. This context never changes where the answer is published.
+
 If a user Wakes an Agent Profile from a thread, the Agent Profile's reply should
 default back to that same thread. The user asked from that local conversation,
 so the visible answer belongs there.

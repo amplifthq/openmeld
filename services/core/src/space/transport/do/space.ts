@@ -218,6 +218,7 @@ import type {
   WakeTraceWaterfallItem,
 } from "@openmeld/schemas/types";
 import {
+  buildDispatchQuotedMessage,
   buildWakeProgressMessage,
   clearWakeProgressItemsForSignal,
   createAuthenticatedSpaceAccessContext,
@@ -226,6 +227,7 @@ import {
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
   isDirectMessageSpace,
+  resolveThreadWakeContinuation,
   type SpaceAccessContext,
 } from "@openmeld/space";
 import { buildSystemNoticeText } from "@openmeld/space-mesh";
@@ -677,6 +679,7 @@ import {
   listSpaceThreadSignalPlacementsAfter,
   listSpaceThreadSignalPlacementsBefore,
   listSpaceThreads,
+  readLatestExplicitThreadWake,
   readSpaceThread,
   readSpaceThreadByRootSignalId,
   readSpaceThreadSignalPlacementBySignalId,
@@ -828,20 +831,22 @@ const buildRpcListSignalsFilterQuery = (
 };
 
 const buildThreadSignalsReadPath = (input: {
+  includeWakeContinuation?: true;
   afterSignalId?: string;
   limit?: number;
   threadId: string;
 }): string => {
   const path = `/threads/${encodeURIComponent(input.threadId)}/signals`;
   const afterSignalId = input.afterSignalId?.trim();
-  if (!(afterSignalId && Number.isSafeInteger(input.limit))) {
-    return path;
+  const searchParams = new URLSearchParams();
+  if (afterSignalId && Number.isSafeInteger(input.limit)) {
+    searchParams.set("afterSignalId", afterSignalId);
+    searchParams.set("limit", String(input.limit));
   }
-  const searchParams = new URLSearchParams({
-    afterSignalId,
-    limit: String(input.limit),
-  });
-  return `${path}?${searchParams.toString()}`;
+  if (input.includeWakeContinuation) {
+    searchParams.set("includeWakeContinuation", "true");
+  }
+  return searchParams.size ? `${path}?${searchParams.toString()}` : path;
 };
 
 const buildRpcListSignalsQuery = (
@@ -1094,6 +1099,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     OpenMeldDaemonDispatchQueueMessage["continuitySnapshot"]
   >;
   recentSignals: SignalEnvelope[];
+  quotedMessage?: DispatchSourceSignalSnapshotInput["quotedMessage"];
   sourceText: string;
   senderProfileId: string;
   sourceEventId: string;
@@ -1149,6 +1155,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     targetProfileId: input.decision.targetProfileId,
     senderProfileId: input.senderProfileId,
     sourceSignalSnapshot: buildDispatchSourceSignalSnapshot({
+      quotedMessage: input.quotedMessage,
       signal: input.signal,
       sourceText: directMessageSourceText,
       normalizedSourceText,
@@ -1263,6 +1270,7 @@ function resolveDispatchReplyStalenessMeta(input: {
 }
 
 function buildDispatchSourceSignalSnapshot(input: {
+  quotedMessage?: DispatchSourceSignalSnapshotInput["quotedMessage"];
   signal: SignalEnvelope;
   sourceText: string;
   normalizedSourceText: string;
@@ -1285,6 +1293,7 @@ function buildDispatchSourceSignalSnapshot(input: {
         ? input.normalizedSourceText
         : input.sourceText,
     profileId: input.senderProfileId,
+    ...(input.quotedMessage ? { quotedMessage: input.quotedMessage } : {}),
     profileKind: input.signal.profile.kind,
     ...(centerAgentInteractionSource ? { centerAgentInteractionSource } : {}),
     profileMentionLabel:
@@ -7163,6 +7172,7 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     const request = this.buildDirectRpcRequest({
       path: buildThreadSignalsReadPath({
+        includeWakeContinuation: input.includeWakeContinuation,
         afterSignalId: input.afterSignalId,
         limit: input.limit,
         threadId: input.threadId,
@@ -9548,6 +9558,8 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const url = new URL(input.request.url);
     const parsedQuery = listSpaceThreadSignalsQuerySchema.safeParse({
+      includeWakeContinuation:
+        url.searchParams.get("includeWakeContinuation") ?? undefined,
       afterSignalId: url.searchParams.get("afterSignalId") ?? undefined,
       limit: url.searchParams.get("limit") ?? undefined,
     });
@@ -9580,7 +9592,29 @@ export class Space extends DurableObject<CoreBindings> {
     return spaceAddressingJsonResponse(input.request, {
       signals: this.redactSignalsForReadViewer(signals, input.viewer),
       placements,
+      ...(parsedQuery.data.includeWakeContinuation
+        ? { wakeContinuation: this.readThreadWakeContinuation(thread) }
+        : {}),
     });
+  }
+
+  private readThreadWakeContinuation(thread: SpaceThread): {
+    targetProfileId: string | null;
+  } {
+    const latest = readLatestExplicitThreadWake(
+      this.ctx.storage.sql,
+      thread.threadId
+    );
+    const targetProfileId = resolveThreadWakeContinuation({
+      root: this.readSignalById(thread.rootSignalId),
+      latestExplicitWake: latest ? parseStoredSignal(latest) : null,
+    });
+    const member = targetProfileId
+      ? readSpaceMemberRecord(this.ctx.storage.sql, targetProfileId)
+      : null;
+    return {
+      targetProfileId: member?.status === "active" ? targetProfileId : null,
+    };
   }
 
   private async handlePostThreadSignal(input: {
@@ -9657,6 +9691,7 @@ export class Space extends DurableObject<CoreBindings> {
             : {}),
           meta: {
             clientMessageId: parsed.data.clientMessageId,
+            threadWakeContinuation: parsed.data.threadWakeContinuation,
             restoredFromSignalId: parsed.data.restoredFromSignalId,
             ...(parsed.data.authorHasRead
               ? { authorHasRead: true as const }
@@ -15380,9 +15415,22 @@ export class Space extends DurableObject<CoreBindings> {
       );
 
     const outboxRecords: OpenMeldDaemonDispatchOutboxRecord[] = [];
+    const quotedSignalId =
+      signal.type === "signal.text"
+        ? (signal.data.messageEnvelope?.replyToSignalId ??
+          signal.data.replyTo?.signalId ??
+          signalContext?.threadContext?.rootSignalId)
+        : null;
+    const quotedMessage = quotedSignalId
+      ? buildDispatchQuotedMessage({
+          signalId: quotedSignalId,
+          signal: this.readSignalById(quotedSignalId),
+        })
+      : undefined;
     for (const decision of mergedReadyDecisions) {
       outboxRecords.push(
         createPreparedDispatchOutboxRecordForDecision({
+          quotedMessage,
           spaceId: this.spaceId,
           organizationId: spaceMeta.organizationId,
           ownerCreatorProfileIdsByOwnerUserId:

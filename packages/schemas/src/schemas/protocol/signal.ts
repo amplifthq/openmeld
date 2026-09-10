@@ -102,6 +102,8 @@ const legacySpaceAgentActivitySchema = spaceAgentActivitySchema.superRefine(
 );
 
 const signalTextMetaSchema = z.object({
+  // The human accepted a suggested thread recipient, rather than selecting a new one.
+  threadWakeContinuation: z.literal(true).optional(),
   // Read-only history compatibility mirror. Only data.deviceWait is authority.
   deviceWait: wakeDeviceWaitSchema.optional(),
   restoredFromSignalId: z.string().min(1).optional(),

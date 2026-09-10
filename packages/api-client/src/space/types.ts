@@ -376,6 +376,7 @@ export type SpaceApi = {
   ) => Promise<ListSpaceThreadEventsResponse>;
   listThreadSignals: (
     input: SpaceRequestInput & {
+      includeWakeContinuation?: true;
       afterSignalId?: string;
       limit?: number;
       threadId: string;

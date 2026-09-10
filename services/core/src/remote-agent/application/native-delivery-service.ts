@@ -68,6 +68,7 @@ import {
   buildDirectMessagePairKey,
   createAuthenticatedSpaceAccessContext,
   createDispatchContinuationSpaceAccessContext,
+  renderDispatchSourceText,
   type SpaceAccessContext,
 } from "@openmeld/space";
 import {
@@ -626,7 +627,13 @@ export class RemoteAgentExecutionRecoverySubmissionOutcomeUnknownError extends E
 function buildRemoteAgentSourceText(
   message: OpenMeldDaemonDispatchQueueMessage
 ): string | null {
-  const text = normalizeOptionalText(message.sourceSignalSnapshot?.text);
+  const rawText = normalizeOptionalText(message.sourceSignalSnapshot?.text);
+  const text = rawText
+    ? renderDispatchSourceText({
+        text: rawText,
+        quotedMessage: message.sourceSignalSnapshot?.quotedMessage,
+      })
+    : null;
   const files = message.sourceSignalSnapshot?.files ?? [];
   if (files.length === 0) {
     return text;

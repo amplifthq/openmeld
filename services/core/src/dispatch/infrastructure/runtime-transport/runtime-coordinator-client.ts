@@ -62,6 +62,7 @@ import type {
   WakeStopEligibilityReadModel,
   WorkingLanguageGuidance,
 } from "@openmeld/schemas/types";
+import { renderDispatchSourceText } from "@openmeld/space";
 import type { CoreBindings } from "../../../lib/bindings";
 import type { SpaceBootstrapTimingCollector } from "../../../space/application/space-bootstrap-timing";
 import { callRuntimeTransportApi } from "./runtime-transport-api-client";
@@ -234,7 +235,10 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
       ...(sourceProfileMentionLabel
         ? { profileMentionLabel: sourceProfileMentionLabel }
         : {}),
-      text: input.sourceSignal.text,
+      text: renderDispatchSourceText({
+        text: input.sourceSignal.text,
+        quotedMessage: input.message.sourceSignalSnapshot?.quotedMessage,
+      }),
     },
     targetProfileId: input.message.targetProfileId,
     ...(normalizeOptionalText(input.defaultProjectId)
@@ -337,10 +341,19 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
   route: Extract<RuntimeTransportLookupRouteResponse, { online: true }>;
   sourceSignalSnapshot?: OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"];
 }): OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"] | undefined {
-  const snapshot = input.sourceSignalSnapshot;
-  if (!snapshot) {
+  if (!input.sourceSignalSnapshot) {
     return undefined;
   }
+  // Preserve the installed Service's strict snapshot shape. Context is rendered
+  // into the existing source text at this transport boundary.
+  const { quotedMessage, ...sourceSnapshot } = input.sourceSignalSnapshot;
+  const snapshot = {
+    ...sourceSnapshot,
+    text: renderDispatchSourceText({
+      text: sourceSnapshot.text,
+      quotedMessage,
+    }),
+  };
   if (routeSupportsLocalFileImageInput(input)) {
     return snapshot;
   }

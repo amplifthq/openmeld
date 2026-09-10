@@ -20,6 +20,74 @@ import {
 } from "./use-space-mention-authoring";
 
 describe("useSpaceMentionAuthoring composer drafts", () => {
+	it("continues a thread visibly, freezes an active draft, and respects removing its recipient", () => {
+		const agentA = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const agentB = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+		let target = agentA;
+		const snapshot = createSpaceMembersSnapshot({
+			agents: [
+				createSpaceMemberAgentSnapshot({
+					profileId: agentA,
+					profileName: "Alpha",
+					agentWakeAvailability: { status: "available_for_wake" },
+				}),
+				createSpaceMemberAgentSnapshot({
+					profileId: agentB,
+					profileName: "Beta",
+					agentWakeAvailability: { status: "available_for_wake" },
+				}),
+			],
+		});
+		const composer = renderHook(() =>
+			useSpaceMentionAuthoring({
+				composerDraftScope: {
+					kind: "space_thread",
+					ownerAccountId: "account-1",
+					profileId: "human-1",
+					spaceId: "space-1",
+					threadId: "thread-continuation",
+				},
+				threadWakeContinuationProfileId: target,
+				isMembersLoading: false,
+				membersErrorMessage: null,
+				snapshot,
+				spaceId: "space-1",
+				openMeldProfileId: "human-1",
+			})
+		);
+		expect(composer.result.current.composerText).toBe("@Alpha ");
+		act(() =>
+			composer.result.current.onComposerEditorChange({
+				text: "@Alpha Please explain",
+				authoredMentions: composer.result.current.authoredMentions,
+				selection: { start: 21, end: 21 },
+			})
+		);
+		target = agentB;
+		composer.rerender();
+		expect(
+			composer.result.current.prepareSubmission("missing").messageEnvelope
+				?.activationTargets
+		).toEqual([agentA]);
+		expect(
+			composer.result.current.prepareSubmission("missing")
+				.threadWakeContinuation
+		).toBe(true);
+		act(() =>
+			composer.result.current.onComposerEditorChange({
+				text: "For the team only",
+				authoredMentions: [],
+				selection: { start: 17, end: 17 },
+			})
+		);
+		expect(
+			composer.result.current.prepareSubmission("missing").messageEnvelope
+		).toBeNull();
+		expect(
+			composer.result.current.prepareSubmission("missing")
+				.threadWakeContinuation
+		).toBeUndefined();
+	});
 	it.each([
 		"available_for_wake",
 		"offline_for_wake",

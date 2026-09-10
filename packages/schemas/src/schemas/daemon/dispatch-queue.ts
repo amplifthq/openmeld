@@ -91,6 +91,14 @@ export const openMeldDaemonDispatchSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonDispatchSourceSignalSnapshotSchema = z.strictObject({
+  quotedMessage: z
+    .strictObject({
+      signalId: z.string().min(1),
+      author: z.string().min(1).nullable(),
+      text: z.string().max(16_000).nullable(),
+      status: z.enum(["available", "recalled", "unavailable"]),
+    })
+    .optional(),
   text: z.string().min(1),
   profileId: z.string().min(1).nullable(),
   profileKind: z.enum(["agent", "human", "system"]).nullable(),

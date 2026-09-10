@@ -19970,6 +19970,7 @@ export async function rpcListSpaceThreadSignals(
   const password = getSpaceAccessPassword(spaceAccess);
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const parsedQuery = listSpaceThreadSignalsQuerySchema.safeParse({
+    includeWakeContinuation: input.includeWakeContinuation,
     afterSignalId: input.afterSignalId,
     limit: input.limit,
   });

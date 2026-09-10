@@ -160,6 +160,7 @@ export const createDispatchOutboxRecord = (input: {
     sourceVisitedProfileIds: input.sourceVisitedProfileIds,
   });
   const sourceSignalSnapshot = buildSourceSignalSnapshot({
+    quotedMessage: input.sourceSignalSnapshot.quotedMessage,
     attachments: input.sourceSignalSnapshot.attachments,
     files: input.sourceSignalSnapshot.files,
     centerAgentInteractionSource:
@@ -281,6 +282,7 @@ const resolveDispatchChainContextForOutbox = (input: {
 };
 
 const buildSourceSignalSnapshot = (input: {
+  quotedMessage?: DispatchSourceSignalSnapshotInput["quotedMessage"];
   attachments?: NonNullable<
     OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
   >["attachments"];
@@ -299,6 +301,7 @@ const buildSourceSignalSnapshot = (input: {
     input.profileMentionLabel
   );
   return {
+    ...(input.quotedMessage ? { quotedMessage: input.quotedMessage } : {}),
     ...(input.attachments && input.attachments.length > 0
       ? { attachments: input.attachments }
       : {}),
