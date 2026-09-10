@@ -4,16 +4,17 @@ run-name: Final Candidate PR #${{ github.event.pull_request.number }} @ ${{ gith
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled]
 
 concurrency:
   group: >-
     ${{
       github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.draft == false &&
-      (github.event.action != 'labeled' ||
-       github.event.label.name == 'final-candidate' ||
-       github.event.label.name == 'final-candidate-full') &&
+      (github.event.action == 'converted_to_draft' ||
+       (github.event.pull_request.draft == false &&
+        (github.event.action != 'labeled' ||
+         github.event.label.name == 'final-candidate' ||
+         github.event.label.name == 'final-candidate-full'))) &&
       format('final-candidate-{0}', github.event.pull_request.number) ||
       format('ignored-final-candidate-event-{0}', github.run_id)
     }}

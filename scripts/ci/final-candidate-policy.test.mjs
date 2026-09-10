@@ -22,7 +22,6 @@ const MAIN_OR_PULL_REQUEST_BASE_ADVANCED_PATTERN =
   /Pull request base drifted|Main advanced/u;
 const MISSING_ANCESTRY_PATTERN = /does not contain current main/u;
 const NO_EXECUTABLE_SOURCE_PATTERN = /No executable workspace source/u;
-const STANDARD_CLOSEOUT_PATTERN = /development and review/u;
 const PULL_REQUEST_HEAD_DRIFT_PATTERN = /Pull request head drifted/u;
 
 const createPlan = (changedPaths, overrides = {}) =>
@@ -78,25 +77,24 @@ test("treats the complete generated Changelog projection as documentation only",
   );
 });
 
-test("keeps the standard executable candidate lightweight", () => {
+test("a ready executable candidate requires affected code checks and unit tests", () => {
   const plan = createPlan(["clients/web/src/app.tsx"]);
 
-  assert.deepEqual(checkIds(plan), ["diff-integrity", "repository-contracts"]);
-  assert.match(
-    plan.skippedChecks.find(
-      (check) => check.id === "affected-checks-and-unit-tests"
-    ).reason,
-    STANDARD_CLOSEOUT_PATTERN
-  );
-  assert.match(
-    plan.skippedChecks.find(
-      (check) => check.id === "affected-integration-tests"
-    ).reason,
-    STANDARD_CLOSEOUT_PATTERN
-  );
+  assert.deepEqual(checkIds(plan), [
+    "diff-integrity",
+    "repository-contracts",
+    "affected-code-checks",
+    "affected-unit-tests",
+  ]);
+  assert.ok(!checkIds(plan).includes("affected-integration-tests"));
+  for (const selected of plan.selectedChecks.filter((check) =>
+    check.id.startsWith("affected-")
+  )) {
+    assert.ok(!selected.command.includes("--changed-only"));
+  }
 });
 
-test("keeps database and release contracts without repeating broad tests for a shared schema change", () => {
+test("shared schema changes require downstream unit and integration validation", () => {
   const plan = createPlan([
     "packages/db/drizzle/0129_example.sql",
     "packages/schemas/src/http/example.ts",
@@ -105,6 +103,9 @@ test("keeps database and release contracts without repeating broad tests for a s
   assert.deepEqual(checkIds(plan), [
     "diff-integrity",
     "repository-contracts",
+    "affected-code-checks",
+    "affected-unit-tests",
+    "affected-integration-tests",
     "database-contract",
     "local-components-release-ready",
   ]);
@@ -140,18 +141,20 @@ test("keeps engineering-only schemas out of product integration and release gate
     "diff-integrity",
     "trusted-control-entrypoints",
     "repository-contracts",
+    "affected-code-checks",
+    "affected-unit-tests",
   ]);
   assert.ok(!plan.riskTags.includes("cross-boundary"));
   assert.ok(!plan.riskTags.includes("local-components"));
 });
 
-test("a mixed engineering and runtime schema diff keeps release gates without repeating integration", () => {
+test("a mixed engineering and runtime schema diff retains integration and release gates", () => {
   const plan = createPlan([
     "packages/schemas/src/schemas/ci/final-candidate.ts",
     "packages/schemas/src/schemas/runtime/agent-task-coordination.ts",
   ]);
 
-  assert.ok(!checkIds(plan).includes("affected-integration-tests"));
+  assert.ok(checkIds(plan).includes("affected-integration-tests"));
   assert.ok(checkIds(plan).includes("local-components-release-ready"));
   assert.ok(plan.riskTags.includes("cross-boundary"));
   assert.ok(plan.riskTags.includes("local-components"));
@@ -186,7 +189,7 @@ test("delivery infrastructure runs its behavior contracts without an empty Turbo
   assert.ok(plan.riskTags.includes("delivery-infrastructure"));
 });
 
-test("a scripts and Web mixed diff keeps control contracts but skips broad workspace tests", () => {
+test("a scripts and Web mixed diff retains control and affected workspace checks", () => {
   const plan = createPlan([
     "scripts/ci/final-candidate.mjs",
     "clients/web/src/app.tsx",
@@ -197,14 +200,16 @@ test("a scripts and Web mixed diff keeps control contracts but skips broad works
     "trusted-control-entrypoints",
     "repository-code-quality",
     "repository-contracts",
+    "affected-code-checks",
+    "affected-unit-tests",
   ]);
 });
 
-test("a package manifest and product mixed diff stays lightweight by default", () => {
+test("dependency controls conservatively select downstream and integration checks", () => {
   const plan = createPlan(["package.json", "services/core/src/index.ts"]);
 
-  assert.ok(!checkIds(plan).includes("affected-checks-and-unit-tests"));
-  assert.ok(!checkIds(plan).includes("affected-integration-tests"));
+  assert.ok(checkIds(plan).includes("affected-unit-tests"));
+  assert.ok(checkIds(plan).includes("affected-integration-tests"));
 });
 
 test("a pure delivery infrastructure diff skips only the empty affected lane", () => {
@@ -238,20 +243,51 @@ test("delivery infrastructure with its owner docs and Changelog skips the empty 
   assert.deepEqual(plan.riskTags, ["executable", "delivery-infrastructure"]);
 });
 
-test("a product or operations script keeps the standard candidate lightweight", () => {
+test("an unclassified operations script cannot use the delivery-only exemption", () => {
   const plan = createPlan(["scripts/ops/rebuild-search-index.mjs"]);
 
-  assert.ok(!checkIds(plan).includes("affected-checks-and-unit-tests"));
+  assert.ok(checkIds(plan).includes("affected-unit-tests"));
   assert.ok(!plan.riskTags.includes("delivery-infrastructure"));
 });
 
-test("a mixed CI and product script diff skips broad workspace tests by default", () => {
+test("a mixed CI and product script diff retains affected checks", () => {
   const plan = createPlan([
     ".github/workflows/final-candidate.yml",
     "scripts/ops/rebuild-search-index.mjs",
   ]);
 
-  assert.ok(!checkIds(plan).includes("affected-checks-and-unit-tests"));
+  assert.ok(checkIds(plan).includes("affected-unit-tests"));
+});
+
+test("all supported final validation lanes require the same affected coverage", () => {
+  for (const overrides of [
+    { mode: "remote" },
+    { mode: "local" },
+    {
+      mode: "local",
+      controlTrust: "explicit-bootstrap",
+      bootstrapReason:
+        "Reviewed validation policy update for the current candidate.",
+    },
+    { mode: "remote", candidateKind: "merge-group" },
+  ]) {
+    const ids = checkIds(
+      createPlan(["packages/api-client/src/index.ts"], overrides)
+    );
+    assert.ok(ids.includes("affected-code-checks"));
+    assert.ok(ids.includes("affected-unit-tests"));
+    assert.ok(ids.includes("affected-integration-tests"));
+  }
+});
+
+test("full confidence does not repeat its affected unit and integration subsets", () => {
+  const ids = checkIds(
+    createPlan(["services/core/src/index.ts"], { confidence: "full" })
+  );
+  assert.ok(ids.includes("full-repository-confidence"));
+  assert.ok(!ids.includes("affected-code-checks"));
+  assert.ok(!ids.includes("affected-unit-tests"));
+  assert.ok(!ids.includes("affected-integration-tests"));
 });
 
 test("a hosted plan adds a trusted current-main entrypoint check", () => {

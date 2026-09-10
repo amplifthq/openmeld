@@ -23,7 +23,7 @@ develop and run focused tests
   -> inspect the change and evidence required by the task
   -> commit and push one exact candidate
   -> sync current main
-  -> run one lightweight Final Candidate
+  -> run one affected Final Candidate
   -> merge the still-current candidate
   -> release only affected production scopes
   -> health check
@@ -82,12 +82,14 @@ unrelated agents to wait.
    current-main merge evidence. When the branch reaches the front of its merge
    order, sync current `main` once and form one new exact-current-main
    candidate; do not rerun or relabel the old-base result as merge-valid.
-5. Test selection follows changed risk. Focused, affected, and integration
-   checks run while the responsible agent develops and reviews the change.
-   Standard Final Candidate does not repeat broad workspace unit or integration
-   lanes; it certifies exact identity, trusted control, repository contracts,
-   and path-owned database or release readiness. Explicit full confidence is
-   available when repository-wide reruns are worth their latency.
+5. Test selection follows changed risk. Draft feedback runs focused checks;
+   standard Final Candidate owns affected code checks and unit tests for the
+   ready candidate and its downstream workspaces. Shared packages, dependency
+   controls, services, and runtime boundaries also select affected integration
+   tests. Documentation-only changes skip workspace tests; delivery-only
+   changes run their repository behavior contracts. Exact identity, trusted
+   control, database, and release rules still apply. Full confidence validates
+   the whole repository without repeating the affected subsets.
 6. Merge, release, health, and smoke are separate facts. Do not report one as
    proof of another.
 7. Production releases use one explicit 40-character first-parent `main` SHA.
@@ -115,12 +117,20 @@ and may ask for more confidence when the risk justifies it. No reviewer
 identity, reviewer count, approval count, or specific review style is required
 by CI/CD.
 
-Broad affected and integration runs are agent-chosen development or review
-evidence. PR Feedback also runs the existing affected check/unit lane on PR
-creation and updates, including drafts, using read-only permissions and no
-production secrets. It cancels superseded runs and is early defect feedback,
-not exact Final Candidate certification. Documentation-only changes avoid
-workspace tests. Integration and full-confidence runs remain deliberate.
+PR Feedback runs only for draft PRs, including conversion back to draft. It
+checks changed files, documentation contracts, adjacent Node regression tests,
+and related tests in workspaces with a direct Vitest unit-test command. Related
+test discovery uses static imports and is early feedback, not complete coverage
+or permission to merge. Composite test commands and whole-workspace type checks
+remain in affected validation. Feedback uses read-only permissions, no production
+secrets, and cancels superseded runs.
+
+Mark the PR ready when its scope is stable. Standard Final Candidate then runs
+the affected package and downstream checks once for that candidate. Further
+commits or a main sync require a new candidate; only unchanged trusted task
+inputs may reuse earlier results. Do not run the complete PR Feedback lane in
+parallel with Final Candidate. Development can still select affected or
+integration commands when focused checks cannot answer the current question.
 Release-ready and Final Candidate are delivery evidence. Before the
 first broad run, finish the review that
 is reasonably likely to change product behavior, contracts, compatibility, or
@@ -156,11 +166,11 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 
 The plan prints changed paths, selected and skipped checks, reasons, and exact
 commands. It is evidence for engineering judgment, not a command to merge or a
-substitute for understanding the task. Standard plans must not select
-`verify:pr`, `verify:pr:full`, or `test:integration:affected`; those broad lanes
-belong to development/review or explicit full confidence. Add `--full` only
-when uncertainty or material risk makes the repository-wide rerun worth its
-latency.
+substitute for understanding the task. Standard plans select separate affected
+code, unit-test, and risk-selected integration checks, retaining downstream
+workspace selection and per-phase durations. They do not invoke `verify:pr`
+again or repeat the full repository lane. Add `--full` only when uncertainty or
+material risk makes repository-wide validation worth its latency.
 
 Before marking a PR ready for automatic Final Candidate, or requesting a retry:
 
@@ -212,6 +222,8 @@ a non-draft PR, pushing new commits to it, reopening it, or marking a draft PR
 ready starts standard Final Candidate. Observe the existing run instead of
 requesting another one after each push. Draft PRs intentionally have no FC
 result and cannot merge until they are ready and pass validation.
+Converting a ready PR back to draft cancels its in-progress Final Candidate
+without starting another heavy run; focused draft feedback resumes.
 
 The automatic triggers use GitHub's `pull_request_target` events and retain
 the trusted current-main runner and credential isolation. Unrelated label
@@ -245,7 +257,7 @@ later hosted budget refusal does not invalidate an existing successful exact
 status for the same head.
 
 Use `--full` only when the responsible agent wants repository-wide confidence.
-Standard requests remain intentionally lightweight; full requests may be slow
+Standard requests remain limited to affected risk; full requests may be slow
 and must not become the default for ordinary pull requests. Standard and full
 requests use distinct labels but publish the same required status:
 
@@ -266,13 +278,18 @@ execution mode, conclusion, publication errors, and whether a check executed
 or reused an earlier exact input fingerprint. The schema owner is
 `packages/schemas/src/schemas/ci/final-candidate.ts`.
 
-The evidence engine retains exact-fingerprint reuse support for affected
-workspace checks and integration checks selected by an older or specialized
-plan. Standard Final Candidate no longer selects those broad lanes, and full
-confidence intentionally runs its full repository gate. Trusted control still
-rechecks current candidate identity. Database, release-ready, signing, deploy,
-health, and smoke evidence is never reused. Reuse is compute optimization, not
-merge advice, approval, or a manual bypass.
+The evidence engine reuses affected code, unit, and integration checks only when
+the current task graph and hashes, command, runtime, and confidence match trusted
+hosted evidence from the same PR and branch with ancestor head and base commits.
+Task discovery includes downstream workspaces. A documentation-only follow-up
+does not invalidate unchanged task inputs. Failed checks, changed inputs,
+unrelated histories, draft feedback, and merge-group candidates cannot borrow a
+PR's green result. Missing, expired, or unreadable artifacts cause normal
+execution. Full confidence intentionally executes its full repository gate.
+Trusted control still certifies the new candidate identity and the publisher
+rejects missing or failed affected results. Database, release-ready, signing,
+deploy, health, and smoke evidence is never reused. Reuse is compute
+optimization, not merge advice, approval, or a manual bypass.
 
 ### Actions-unavailable fallback
 
@@ -287,6 +304,13 @@ This lane fetches live `main`, reads the live PR, executes trusted current-main
 control against the candidate, rechecks identity after validation, posts the
 evidence comment, and publishes the same status. It requires an authenticated
 `gh` session and fails closed when GitHub or network evidence is unavailable.
+The first hop fetches depth-one main metadata into an isolated temporary Git
+repository, using blob filtering and a sparse checkout of `scripts/` to load
+control code on demand. It does not import shallow boundaries or sparse settings
+into the candidate repository, or download unrelated product files and history. The bootstrap and
+candidate runner still refresh main and verify ancestry using the candidate's
+complete history. Repository-local network policy cannot influence the isolated
+control fetch, and a failed fetch cannot fall back to cached control code.
 Before installing or executing candidate checks, it prints a bounded local
 resource preflight: available disk and active OpenMeld dev stacks. Other stacks
 are facts, not an approval rule. Only the critical one-GiB free-disk safety
