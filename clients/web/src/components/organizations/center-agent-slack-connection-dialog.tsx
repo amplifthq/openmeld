@@ -34,6 +34,7 @@ import {
 import { buildSlackOAuthStartPath } from "#/lib/slack-oauth-start";
 
 type CenterAgentSlackConnectionDialogBaseInput = {
+	reauthorizationRequired?: boolean;
 	organizationSlug: string;
 	slackConnection?: CenterAgentSlackWorkspaceConnection;
 	trigger: ReactElement;
@@ -66,7 +67,9 @@ export function CenterAgentSlackConnectionDialog(
 	const inputId = useId();
 	const connected = input.slackConnection?.connected === true;
 	const reconnectRequired =
-		connected && input.slackConnection?.directMessagesReady !== true;
+		connected &&
+		(input.reauthorizationRequired === true ||
+			input.slackConnection?.directMessagesReady !== true);
 	const normalizedSlackTeamId = slackTeamId.trim();
 	const canSubmitConnect =
 		input.mode !== "channels-handoff" &&
@@ -100,6 +103,7 @@ export function CenterAgentSlackConnectionDialog(
 		dialogContent = (
 			<SlackSettingsHandoffContent
 				managementPath={input.managementPath}
+				reauthorizationRequired={input.reauthorizationRequired}
 				slackConnection={input.slackConnection}
 			/>
 		);
@@ -114,6 +118,7 @@ export function CenterAgentSlackConnectionDialog(
 				onDisconnectSlackWorkspace={input.onDisconnectSlackWorkspace}
 				onStartDisconnect={() => setConfirmingDisconnect(true)}
 				organizationSlug={input.organizationSlug}
+				reauthorizationRequired={input.reauthorizationRequired}
 				slackConnection={input.slackConnection}
 			/>
 		);
@@ -176,7 +181,7 @@ function resolveDialogDescription(input: {
 		return "Slack connections are managed in Center Agent → Channels.";
 	}
 	if (input.reconnectRequired) {
-		return "Slack is connected, but this installation can’t receive direct messages yet. Reconnect once to approve the latest permissions.";
+		return "Slack is connected. Reconnect to approve updated permissions for the Center Agent.";
 	}
 	return input.connected
 		? "People can message your Center Agent from this Slack workspace and receive replies in the same conversation."
@@ -184,12 +189,15 @@ function resolveDialogDescription(input: {
 }
 
 function SlackSettingsHandoffContent(input: {
+	reauthorizationRequired?: boolean;
 	managementPath: string;
 	slackConnection?: CenterAgentSlackWorkspaceConnection;
 }) {
 	const connected = input.slackConnection?.connected === true;
 	const reconnectRequired =
-		connected && input.slackConnection?.directMessagesReady !== true;
+		connected &&
+		(input.reauthorizationRequired === true ||
+			input.slackConnection?.directMessagesReady !== true);
 	const workspaceLabel = resolveSlackWorkspaceLabel(input.slackConnection);
 
 	return (
@@ -238,7 +246,7 @@ function resolveSlackSettingsHandoffGuidance(input: {
 	reconnectRequired: boolean;
 }): string {
 	if (input.reconnectRequired) {
-		return "Open Channels and reconnect Slack once to enable direct messages.";
+		return "Open Channels and reconnect Slack to approve updated permissions.";
 	}
 	if (input.connected) {
 		return "Open Channels to review or change this organization's Slack connection.";
@@ -247,6 +255,7 @@ function resolveSlackSettingsHandoffGuidance(input: {
 }
 
 function ConnectedSlackDialogContent(input: {
+	reauthorizationRequired?: boolean;
 	canManage: boolean;
 	confirmingDisconnect: boolean;
 	disconnectPending?: boolean;
@@ -260,7 +269,9 @@ function ConnectedSlackDialogContent(input: {
 	const workspaceName =
 		input.slackConnection?.workspaceName?.trim() || "Slack workspace";
 	const slackTeamId = input.slackConnection?.slackTeamId;
-	const reconnectRequired = input.slackConnection?.directMessagesReady !== true;
+	const reconnectRequired =
+		input.reauthorizationRequired === true ||
+		input.slackConnection?.directMessagesReady !== true;
 
 	return (
 		<div className="space-y-5">
@@ -290,8 +301,8 @@ function ConnectedSlackDialogContent(input: {
 			{reconnectRequired ? (
 				<div className="space-y-3 border border-border/70 bg-card/30 p-4">
 					<p className="max-w-md text-muted-foreground text-sm/6">
-						Reconnect once so people can message the Center Agent directly. Your
-						workspace connection stays in place.
+						Approve updated permissions for the Center Agent. Your workspace
+						connection stays in place.
 					</p>
 					{input.canManage ? (
 						<a

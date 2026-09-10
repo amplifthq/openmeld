@@ -1919,6 +1919,7 @@ export {
   slackFileReadResponseSchema,
 } from "./http/slack-channel-reads";
 export {
+  SLACK_BOT_SCOPES,
   SLACK_DIRECT_MESSAGE_REQUIRED_BOT_SCOPES,
   slackOAuthErrorCodeSchema,
   slackOAuthIdentityLinkInputSchema,

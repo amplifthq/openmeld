@@ -111,6 +111,7 @@ export function LarkPlatformChannelDialog(input: {
 						canManage={input.canManage && !input.cleanupOnly}
 						connection={connection}
 						errorMessage={input.errorMessage}
+						onReauthorize={input.onReauthorize}
 						onRepair={input.onRepair}
 						onStartOver={input.onStartOver}
 						providerLabel={providerLabel}
@@ -485,6 +486,7 @@ function ConnectionSummary(input: {
 	connection: MessageChannelConnectionProjection | null;
 	errorMessage: string | null;
 	onRepair: () => void;
+	onReauthorize: () => void;
 	onStartOver: () => void;
 	startOverPending: boolean;
 	providerLabel: string;
@@ -502,6 +504,9 @@ function ConnectionSummary(input: {
 		) : null;
 	}
 	const connected = input.connection.status === "connected";
+	const needsAuthorization =
+		input.connection.reasonCode ===
+		`${input.connection.provider}.authorization_update_required`;
 	const needsPublication =
 		input.connection.reasonCode ===
 		`${input.connection.provider}.application_publication_required`;
@@ -535,6 +540,25 @@ function ConnectionSummary(input: {
 					{connected ? "Connected" : "Needs Attention"}
 				</Badge>
 			</div>
+			{needsAuthorization ? (
+				<div className="space-y-3 text-sm">
+					<p>
+						Approve the updated permissions to enable the latest{" "}
+						{input.providerLabel} features. Your existing bot will be kept.
+					</p>
+					{input.canManage ? (
+						<Button
+							disabled={input.repairDisabled}
+							onClick={input.onReauthorize}
+							type="button"
+						>
+							Update permissions
+						</Button>
+					) : (
+						<p>Ask an organization owner or admin to update permissions.</p>
+					)}
+				</div>
+			) : null}
 			{needsRepair ? (
 				<div className="space-y-3 border border-border/70 bg-card/20 p-4">
 					<p className="text-muted-foreground text-sm leading-6">

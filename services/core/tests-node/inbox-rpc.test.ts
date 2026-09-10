@@ -49,6 +49,10 @@ describe("Inbox Core RPC", () => {
       await expect(
         rpcGetSpaceInboxSummary(env, { context: contextFor("user-1") })
       ).resolves.toEqual({
+        attention: [],
+        chatUnreadCount: 0,
+        chatUnreadUrgentUpdateCount: 0,
+        chatUnresolvedActionCount: 0,
         ordinarySpaceUnreadCount: 1,
         organizationId: "org-1",
         spaces: [
@@ -152,6 +156,12 @@ async function seedItem(db: D1Database, recipientUserId: string) {
 
 function createInboxHarness() {
   const harness = createSqliteD1Harness();
+  harness.run({
+    sql: "CREATE TABLE openmeld_profiles (profile_id TEXT PRIMARY KEY, organization_id TEXT, profile_kind TEXT, owner_user_id TEXT, managed_role TEXT)",
+  });
+  harness.run({
+    sql: "CREATE TABLE center_agent_designations (organization_id TEXT PRIMARY KEY, agent_profile_id TEXT)",
+  });
   harness.run({
     sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT NOT NULL, created_at INTEGER NOT NULL)",
   });

@@ -1002,6 +1002,7 @@ import {
   rpcUpdateProject as updateProject,
 } from "../projects/project-rpc";
 import { attachCenterAgentTurnRuntimeEvidence } from "../remote-agent/application/center-agent-turn-diagnostics";
+import { reconcileChannelAuthorizationUpdates } from "../remote-agent/application/channel-authorization-update-service";
 import { listLarkPlatformProvidersEnabledForOrganization } from "../remote-agent/application/lark-platform-provider-policy";
 import {
   beginRemoteAgentLarkPlatformRegistration,
@@ -8076,6 +8077,7 @@ export async function rpcRequestMessageChannelSetup(
 }
 
 async function resolveMessageChannelSetupRequestsAfterConnection(input: {
+  env: CoreBindings;
   db: D1Database;
   organizationId: string;
   provider: MessageChannelProvider;
@@ -8083,6 +8085,11 @@ async function resolveMessageChannelSetupRequestsAfterConnection(input: {
 }): Promise<void> {
   try {
     await resolveMessageChannelSetupRequests(input);
+    await reconcileChannelAuthorizationUpdates({
+      env: input.env,
+      organizationId: input.organizationId,
+      nowMs: input.resolvedAtMs,
+    });
   } catch (error) {
     console.error("[core.message_channel.setup_request_resolution_failed]", {
       error: toErrorMessage(error),
@@ -8454,6 +8461,7 @@ export async function rpcBeginLarkPlatformRegistration(
     });
     if (response.connection?.status === "connected") {
       await resolveMessageChannelSetupRequestsAfterConnection({
+        env,
         db: requireCenterAgentDb(env),
         organizationId: response.organizationId,
         provider: request.provider,
@@ -8491,6 +8499,7 @@ export async function rpcPollLarkPlatformRegistration(
     });
     if (response.connection?.status === "connected") {
       await resolveMessageChannelSetupRequestsAfterConnection({
+        env,
         db: requireCenterAgentDb(env),
         organizationId: response.organizationId,
         provider: request.provider,
@@ -9953,6 +9962,7 @@ export async function rpcInstallSlackWorkspaceFromOAuth(
   }
   if ("record" in result) {
     await resolveMessageChannelSetupRequestsAfterConnection({
+      env,
       db,
       organizationId: parsed.data.organizationId,
       provider: "slack",

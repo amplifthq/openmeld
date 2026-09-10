@@ -88,7 +88,38 @@ RuntimeCoordinator ownership and separate business-App consent remain unchanged;
 this does not violate the scoped architecture contracts. Real native-client file
 smoke is pending and is not replaced by the permission and byte-handling tests.
 
-## Pending sequence
+## Shared authorization-update reminders
+
+The existing Inbox item and email-delivery tables project source-owned permission
+requirements to current Organization owners/admins. No new grant ledger or D1
+migration is introduced. A source predicate is evaluated in the same D1 batch as
+creation/resolution; delayed work cannot reopen an already-recovered requirement
+or resolve a newer requirement from a stale snapshot. Fanout is atomic per
+Organization. Background discovery admits at most 20 Organizations per tick and
+excludes already-projected requests. Verified connection completion also reconciles
+immediately. The current single operational database permits these guarded writes;
+a future source-database split must replace the cross-table guard with the source's
+transactional outbox, not copy authorization truth into Inbox.
+
+Slack uses the exact shared OAuth scope list and records unknown grants as unknown.
+Feishu/Lark compare the verified bundle and explicit consent failures. A connected
+older bot can reuse the existing registration repair/configuration transaction to
+update permissions. Its app ID and encrypted credentials are retained. Configuration
+must verify the actual provider grants before connected status clears the reminder.
+Any current manager may finish the shared connection's consent flow.
+
+Web exposes permission updates without treating an otherwise connected Slack bot
+as disconnected or changing direct-message readiness. Existing connection projection
+reason strings carry the action. Registration responses additionally allow explicit
+authorization-update and permission-bundle-mismatch reasons with a consent URL.
+Deploy updated Web readers before Core produces those responses. Existing CLI,
+Service, Skills, Gateway request and workstation Wake contracts are unchanged.
+
+Tests cover manager-only visibility/email checks, duplicate suppression, stale
+creation/resolution, all-recipient read/resolution, both provider variants and
+updating the original bot with another manager. Browser evidence remains separate.
+
+## Remaining native product capabilities
 
 1. Broader authorized chat read/write tools and inline output images.
 2. Typed actions and current-chat Routine destinations through canonical owners.
