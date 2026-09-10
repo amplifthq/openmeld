@@ -185,6 +185,7 @@ export function PublicSpacePage(input: {
 	return (
 		<SpaceEntryGate
 			backHref="/"
+			redirectToOrganization
 			renderFrame={(content) => (
 				<PublicSpaceEntryFrame>{content}</PublicSpaceEntryFrame>
 			)}

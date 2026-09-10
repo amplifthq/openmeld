@@ -9,10 +9,111 @@ import type { CoreBindings } from "../src/lib/bindings";
 import { organizationJoinRequest } from "../src/organizations/organization-join-requests";
 import { spaceInvitation } from "../src/organizations/space-invitations";
 import { upsertSpaceCreatorMember } from "../src/space/application/space-members-service";
-import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
+import {
+  readSpaceMetaRecordFromSql,
+  upsertSpaceMetaRecord,
+} from "../src/space/infrastructure/sql/space-meta-repo";
 import type { Space } from "../src/space/transport/do/space";
 
 const core = env as unknown as CoreBindings;
+
+describe("Organization Space self-join", () => {
+  it("admits a colleague to a listed members-only Space and rechecks current policy", async () => {
+    const f = await fixture();
+    const input = {
+      spaceId: f.spaceId,
+      context: {
+        activeOrganizationId: f.organizationId,
+        actorContext: {
+          callerPrincipalId: f.recipientId,
+          ownerUserId: f.recipientId,
+          openMeldProfileId: f.recipientProfile,
+          profileKind: "human" as const,
+          profileName: "Morgan Lee",
+          requestId: crypto.randomUUID(),
+        },
+      },
+      members: [
+        {
+          profileId: f.recipientProfile,
+          profileKind: "human" as const,
+          profileName: "Morgan Lee",
+          ownerUserId: f.recipientId,
+          ownerName: "Morgan Lee",
+          agentControllerRef: null,
+        },
+      ] satisfies [
+        {
+          profileId: string;
+          profileKind: "human";
+          profileName: string;
+          ownerUserId: string;
+          ownerName: string;
+          agentControllerRef: null;
+        },
+      ],
+    };
+    const setVisibility = (visibility: "public" | "private") =>
+      runInDurableObject(f.stub, (_instance, state) => {
+        const meta = readSpaceMetaRecordFromSql(state.storage.sql, f.spaceId);
+        if (!meta) {
+          throw new Error("Missing fixture Space");
+        }
+        upsertSpaceMetaRecord(state.storage.sql, { ...meta, visibility });
+      });
+    // Consume the Workers RPC thenable inside a native promise so rejections
+    // are observed by the caller (including the negative assertions below).
+    const postMembers = async (
+      request: Parameters<Space["rpcPostMembers"]>[0] = input
+    ) => await f.stub.rpcPostMembers(request);
+    await setVisibility("public");
+    // A destination link or caller-supplied Organization does not grant entry.
+    await expect(postMembers()).rejects.toThrow("space.membership_required");
+    expect(await f.memberStatus()).toBeNull();
+    await f.joinOrganization();
+    await setVisibility("private");
+    await expect(postMembers()).rejects.toThrow("space.membership_required");
+    await setVisibility("public");
+    // Self-join cannot be repurposed to add another person or an Agent.
+    await expect(
+      postMembers({
+        ...input,
+        members: [{ ...input.members[0], profileId: crypto.randomUUID() }],
+      })
+    ).rejects.toThrow("space.membership_required");
+    await expect(
+      postMembers({ ...input, members: [...input.members, ...input.members] })
+    ).rejects.toThrow("space.membership_required");
+    await expect(
+      postMembers({
+        ...input,
+        context: {
+          ...input.context,
+          actorContext: { ...input.context.actorContext, profileKind: "agent" },
+        },
+      })
+    ).rejects.toThrow("space.membership_required");
+    await expect(
+      postMembers({
+        ...input,
+        context: {
+          ...input.context,
+          actorContext: {
+            ...input.context.actorContext,
+            callerPrincipalId: f.ownerId,
+          },
+        },
+      })
+    ).rejects.toThrow("space.membership_required");
+    expect(await f.memberStatus()).toBeNull();
+    const joined = await f.stub.rpcPostMembers(input);
+    expect(joined.addedMemberIds).toEqual([f.recipientProfile]);
+    expect(await f.memberStatus()).toBe("active");
+    expect((await f.stub.rpcPostMembers(input)).alreadyMemberIds).toEqual([
+      f.recipientProfile,
+    ]);
+  });
+});
 
 // First-party Auth directory contract; membership decisions still exercise D1.
 const requestCore: CoreBindings = {

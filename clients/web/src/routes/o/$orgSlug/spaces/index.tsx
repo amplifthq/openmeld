@@ -1,5 +1,6 @@
 "use client";
 
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	AuthProfileView,
 	OrganizationSpaceDirectoryWithMemberCountsItem,
@@ -169,10 +170,7 @@ export function AppSpacesIndexContent(input: {
 			}),
 		onError: (error, variables) => {
 			setJoinError({
-				message:
-					error instanceof Error && error.message
-						? error.message
-						: "OpenMeld could not join this Space.",
+				message: toStructuredApiClientFailure(error).message,
 				spaceId: variables.spaceId,
 			});
 		},

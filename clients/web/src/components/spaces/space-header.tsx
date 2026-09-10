@@ -207,8 +207,10 @@ export function SpaceHeader(input: {
 								errorMessage={input.accessModeErrorMessage}
 								isPending={input.isAccessModePending}
 								onSetAccessMode={input.onSetAccessMode}
+								onSetVisibility={input.onSetVisibility}
 								spaceId={input.status.spaceId}
 								spaceName={spaceName}
+								visibility={input.status.organizationVisibility}
 							/>
 						)}
 						{input.menuItems ? (
@@ -280,7 +282,7 @@ export function SpaceHeader(input: {
 					{input.conversationTitleAction?.(spaceName)}
 					{input.isCenterAgentDirectMessage || isDirectMessage
 						? null
-						: renderSpaceAccessModeHeaderLabel(input.status.accessMode)}
+						: renderSpaceAccessModeHeaderLabel(input.status)}
 					<SpaceLiveStatusIndicator
 						liveErrorMessage={input.liveErrorMessage ?? null}
 						liveState={input.liveState ?? "connected"}
@@ -312,12 +314,13 @@ export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
 }
 
 function renderSpaceAccessModeHeaderLabel(
-	accessMode: GetSpaceStatusResponse["accessMode"]
+	status: GetSpaceStatusResponse
 ): ReactNode {
+	const { accessMode } = status;
 	if (accessMode !== "public") {
 		return (
 			<span className="hidden sm:inline">
-				{resolveSpaceAccessModeLabel(accessMode)}
+				{resolveSpaceAccessModeLabel(status)}
 			</span>
 		);
 	}
@@ -348,12 +351,12 @@ function PublicSpaceAccessWarningLabel() {
 	);
 }
 
-function resolveSpaceAccessModeLabel(
-	accessMode: GetSpaceStatusResponse["accessMode"]
-): string {
-	switch (accessMode) {
+function resolveSpaceAccessModeLabel(status: GetSpaceStatusResponse): string {
+	switch (status.accessMode) {
 		case "members_only":
-			return "Members only";
+			return status.organizationVisibility === "public"
+				? "Open to organization"
+				: "Invite only";
 		case "protected":
 			return "Password protected";
 		case "public_view_join_password":

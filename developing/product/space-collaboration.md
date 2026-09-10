@@ -630,30 +630,36 @@ surface has an explicit product and server decision.
 Space Access defines what a link visitor can do before they have joined the
 Space. Organization visibility and link access are separate controls:
 `visibility = private` makes the Space invite-only in the Organization, while
-`accessMode = members_only` prevents a link visitor from viewing or joining.
+`accessMode = members_only` prevents an unadmitted visitor from reading content.
+An authenticated Organization member can explicitly join a listed (`public`)
+Space from the directory or its destination link, independently of external
+link access. Core verifies current Organization membership and canonical Space
+policy; this grant admits only the caller's own Human Profile. It cannot add
+someone else, an Agent, or members to an unconverted Direct Message.
 Privacy-sensitive creation must set both values; neither one implies the other.
 Any surface that presents both facts must label them as **Organization
 visibility** and **link access**. A bare `private` or `public` label must not be
 presented as the privacy state of the whole Space because it answers only one
 of those two questions.
 
-New Space creation deliberately initializes the two independent facts together
-through the shared initial-access policy: Organization visibility `private`
-starts with link access `members_only`, while Organization visibility `public`
-starts with link access `public`. Core persists that canonical pair and clients
-use the same policy to explain the pending creation before it is submitted.
-This is creation policy, not a permanent derivation rule: after creation,
-visibility and access mode remain independently owned facts.
+New Web Spaces explicitly request `members_only` with either private (default)
+or public Organization visibility. The common form has one General access
+selector and no anonymous or password options. Supported callers that omit
+access mode still use the shared initial-access policy: private visibility
+defaults to `members_only`, public visibility to `public`. This compatibility
+default does not override an explicit access mode. Existing policies are not
+migrated, and visibility and access mode remain independently owned facts.
 
 OpenMeld has four access modes:
 
 - `members_only`: only an active member, the creator, or another active Profile
   owned by the same account can view the Space. New participants must be added
-  explicitly.
+  explicitly or self-join under the Organization-public policy above.
 - `public`: anyone with the link can view the Space and join.
 - `public_view_join_password`: anyone with the link can view the Space, but
-  joining requires the Space password.
-- `protected`: viewing and joining require the Space password.
+  joining requires the Space password unless the Organization-public grant applies.
+- `protected`: viewing and joining require the Space password unless an existing
+  membership or Organization-public self-join grant admits the caller.
 
 There is one Space password. OpenMeld must not maintain a separate password for
 viewing, joining, sharing, or any other Space access mode. When an owner turns

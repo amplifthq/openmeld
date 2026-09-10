@@ -6331,6 +6331,20 @@ surfaces and CLI Agent/Human View reuse this builder so a copied destination has
 one cross-client form while authorization remains owned by the resolver and
 the eventual read endpoint.
 
+For an Organization member outside a listed Space, `membership_required` view
+can accompany `self_join_available` participation. This permits a Join action,
+not a content preview. Space membership POST verifies the actual Organization
+membership and rechecks canonical Space visibility after that lookup, admitting
+only the caller's own Human Profile. Directory projections and URL targets do
+not grant authority. Private Spaces, outsiders, Agent actors, and member batches
+do not receive this grant. Existing password/access grants retain their own rules.
+
+Web resolves tenant-neutral links before mounting a public viewer. When the
+resolution supplies the caller's Organization slug, it opens the App Space
+route with message/Thread focus preserved. App links stay within the App shell
+for reading, joining, and blocked states; they do not round-trip through the
+public viewer.
+
 ## Protected Space Access Contract
 
 `packages/schemas/src/schemas/http/space-password.ts` owns canonical Space

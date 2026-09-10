@@ -306,7 +306,10 @@ import {
   wakeEvidenceDb,
 } from "../../../lib/bindings";
 import { verifySpacePasswordProof } from "../../../lib/space-password-proof";
-import { readOrganizationAccountIdentityProjection } from "../../../organizations/organization-context";
+import {
+  readOrganizationAccountIdentityProjection,
+  resolveOrganizationMembershipById,
+} from "../../../organizations/organization-context";
 import { recordOrganizationMemberActivity } from "../../../organizations/organization-member-activity-repository";
 import {
   buildRemoteAgentExecutionRecoveryIdentity,
@@ -425,6 +428,7 @@ import {
   DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE,
   processDispatchOutboxCandidates,
 } from "../../application/dispatch-outbox-batch-service";
+import { resolveOrganizationSpaceSelfJoinUserId } from "../../application/organization-space-self-join";
 import {
   assertSpaceAccessMatchesSpace,
   authorizeProtectedSpaceAccess,
@@ -9879,6 +9883,17 @@ export class Space extends DurableObject<CoreBindings> {
       return this.unauthenticatedResponse(resolved.requestId);
     }
 
+    // Joining has its own authorization. Requiring read access first prevents
+    // Organization members from joining a members-only, listed Space.
+    if (request.method === "POST") {
+      return this.handlePostMembers(
+        request,
+        requireWritableSpaceActor(resolved.spaceAccess),
+        getSpaceAccessPassword(resolved.spaceAccess),
+        options.requireActiveActorMembership === true
+      );
+    }
+
     const accessResult = await this.authorizeSpaceAccess(resolved.spaceAccess);
     if (!accessResult.ok) {
       return accessResult.response;
@@ -9889,15 +9904,6 @@ export class Space extends DurableObject<CoreBindings> {
         requireAuthenticatedSpaceActor(resolved.spaceAccess),
         options.bootstrapTiming,
         options.lineageLoader
-      );
-    }
-
-    if (request.method === "POST") {
-      return this.handlePostMembers(
-        request,
-        requireWritableSpaceActor(resolved.spaceAccess),
-        getSpaceAccessPassword(resolved.spaceAccess),
-        options.requireActiveActorMembership === true
       );
     }
 
@@ -12755,7 +12761,20 @@ export class Space extends DurableObject<CoreBindings> {
     spacePassword?: string,
     requireActiveActorMembership = false
   ): Promise<Response> {
-    const metaRecord = await this.readSpaceMetaRecord();
+    const body = await request.json().catch(() => null);
+    const parsed = postResolvedSpaceMembersBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        {
+          ok: false,
+          code: "invalid_payload",
+          message: parsed.error.issues[0]?.message ?? "Invalid members payload",
+          requestId: context.actorContext.requestId,
+        },
+        { status: 400 }
+      );
+    }
+    let metaRecord = this.readSpaceMetaRecord();
     if (!metaRecord) {
       return this.spaceNotFoundResponse();
     }
@@ -12773,25 +12792,49 @@ export class Space extends DurableObject<CoreBindings> {
       spacePassword,
       verifySpacePasswordProof,
     });
-    if (!joinAuthorization.ok) {
+    const selfJoinUserId = resolveOrganizationSpaceSelfJoinUserId({
+      context,
+      members: parsed.data.members,
+      meta: metaRecord,
+    });
+    const organizationMembership =
+      !joinAuthorization.ok && selfJoinUserId
+        ? await resolveOrganizationMembershipById({
+            env: this.bindings,
+            organizationId: metaRecord.organizationId,
+            userId: selfJoinUserId,
+            requestId: context.actorContext.requestId,
+          })
+        : null;
+    if (
+      organizationMembership &&
+      !organizationMembership.ok &&
+      organizationMembership.status === 503
+    ) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: organizationMembership.code,
+        reason: organizationMembership.message,
+      });
+    }
+    // An Organization read may yield. Recheck Space policy before granting.
+    metaRecord = this.readSpaceMetaRecord();
+    if (!metaRecord) {
+      return this.spaceNotFoundResponse();
+    }
+    const organizationSelfJoin =
+      organizationMembership?.ok === true &&
+      organizationMembership.organizationId === metaRecord.organizationId &&
+      resolveOrganizationSpaceSelfJoinUserId({
+        context,
+        members: parsed.data.members,
+        meta: metaRecord,
+      }) !== null;
+    if (!(organizationSelfJoin || joinAuthorization.ok)) {
       return this.spaceAccessAuthorizationFailureResponse({
         code: joinAuthorization.code,
         requestId: context.actorContext.requestId,
       });
-    }
-
-    const body = await request.json().catch(() => null);
-    const parsed = postResolvedSpaceMembersBodySchema.safeParse(body);
-    if (!parsed.success) {
-      return Response.json(
-        {
-          ok: false,
-          code: "invalid_payload",
-          message: parsed.error.issues[0]?.message ?? "Invalid members payload",
-          requestId: context.actorContext.requestId,
-        },
-        { status: 400 }
-      );
     }
 
     const centerAgentDirectMessageBlock =

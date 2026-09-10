@@ -22,13 +22,10 @@ import { CopyIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { copyTextToClipboard } from "#/lib/clipboard";
-import {
-	SpaceAccessEditor,
-	type SpaceAccessUpdateInput,
-} from "./space-access-editor";
+import type { SpaceAccessUpdateInput } from "./space-access-editor";
+import { SpaceAccessSettings } from "./space-access-settings";
 import { SpaceInfoNotificationsSection } from "./space-info-notifications-section";
 import { SpaceNameEditor } from "./space-name-editor";
-import { SpaceVisibilityEditor } from "./space-visibility-editor";
 
 type SpaceInfoLeaveAction = {
 	errorMessage: string | null;
@@ -180,30 +177,16 @@ export function SpaceSettingsDialog(input: {
 					)}
 					{section === "general" && <SpaceInfoNotificationsSection />}
 					{section === "access" && showSpaceAccessControls ? (
-						<SpaceVisibilityEditor
-							canManage={input.access.canManage}
-							onSave={input.onSetVisibility}
-							value={input.visibility}
+						<SpaceAccessSettings
+							accessMode={input.access.mode}
+							canManageAccess={input.access.canManage}
+							errorMessage={input.access.errorMessage}
+							isPending={input.access.isPending}
+							onSetAccessMode={input.access.onSetMode}
+							onSetVisibility={input.onSetVisibility}
+							spaceId={input.spaceId}
+							visibility={input.visibility}
 						/>
-					) : null}
-					{section === "access" && showSpaceAccessControls ? (
-						<section className="min-w-0 border-border/60 border-t pt-4">
-							<div className="mb-3 space-y-1">
-								<p className="font-medium text-sm">Link access</p>
-								<p className="text-muted-foreground text-xs/relaxed">
-									Manage how people can view or join this Space from shared
-									links.
-								</p>
-							</div>
-							<SpaceAccessEditor
-								accessMode={input.access.mode}
-								canManageAccess={input.access.canManage}
-								errorMessage={input.access.errorMessage}
-								isPending={input.access.isPending}
-								key={input.access.mode}
-								onSetAccessMode={input.access.onSetMode}
-							/>
-						</section>
 					) : null}
 					{section === "advanced" && showSpaceAccessControls ? (
 						<SpaceInfoLeaveSection

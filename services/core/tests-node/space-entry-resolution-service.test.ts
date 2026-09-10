@@ -39,6 +39,25 @@ const indexed = {
 };
 
 describe("Space entry resolution service", () => {
+  it.each([
+    "space.membership_required",
+    "space.password_required",
+  ] as const)("offers Organization members self-join without reading restricted content: %s", (code) => {
+    expect(
+      buildSpaceEntryResolution({
+        access: { kind: "denied", code },
+        authenticated: true,
+        indexed: { ...indexed, visibility: "public" },
+        organizationMember: true,
+        target: { spaceId: "space-1", signalId: "signal-1" },
+      })
+    ).toMatchObject({
+      view: { state: "membership_required" },
+      participation: { state: "self_join_available" },
+      recovery: null,
+      target: { signalId: "signal-1" },
+    });
+  });
   it("routes active members to the member experience", () => {
     expect(
       buildSpaceEntryResolution({
