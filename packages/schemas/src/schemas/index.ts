@@ -2678,6 +2678,7 @@ export {
   MESSAGE_CHANNEL_PROVIDERS,
   MESSAGE_CHANNEL_RESOURCE_TYPES,
   MESSAGE_CHANNEL_TRANSPORTS,
+  messageChannelCardControlSchema,
   messageChannelConversationLocatorSchema,
   messageChannelEventKindSchema,
   messageChannelIngressEnvelopeSchema,
