@@ -253,6 +253,14 @@ change must leave those signals cleaner and less ambiguous.
 
 ## Testing And Validation
 
+- For test additions, assertion changes, or cleanup, read
+  [.agents/skills/writing-tests/SKILL.md](.agents/skills/writing-tests/SKILL.md).
+- For CI failures, read [.agents/skills/debugging-ci-failures/SKILL.md](.agents/skills/debugging-ci-failures/SKILL.md).
+  Use [.agents/skills/fixing-flaky-tests/SKILL.md](.agents/skills/fixing-flaky-tests/SKILL.md)
+  only when investigating intermittent failures.
+- Apply these PostHog skills through the
+  [OpenMeld test guidance](developing/engineering/development-workflow.md#posthog-test-skills).
+  Read the repository files directly when your agent does not discover them.
 - Tests must prove real behavior and fail when behavior is wrong.
 - Tests are conditional risk controls, not a per-file quota. Follow the
   Practical Test Standard in `developing/engineering/development-workflow.md`.

@@ -95,8 +95,10 @@ back to a parser that rejects resource-bearing durable requests. Drain affected
 turns or use a reader-preserving revert.
 
 CLI, Service, managed Skills, Prepare, workstation Wake and diagnostic payloads
-keep their existing execution contracts, so their contract versions and published
-local artifacts need no bump. Audit action set v22 adds `read_channel_file` and
+keep their existing execution contracts and contract versions. Shared schemas
+are still bundled into the local artifacts: Core preflight rejected the stale
+Service bundle hash, so release PR 881 stamped compatible CLI/Service 0.3.194.
+It preserved the CLI required floor at 0.3.193. Audit action set v22 adds `read_channel_file` and
 `post_channel_file`; older action sets exclude both before querying. Migration
 0165 preserves existing publication rows and widens the destination check; its
 table rebuild uses D1-compatible deferred foreign keys. No binding changes.

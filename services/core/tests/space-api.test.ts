@@ -1857,7 +1857,10 @@ describe("OpenMeld Core", () => {
     });
   });
 
-  it("requires confirmation before an ordinary Direct Message becomes a members-only Space", async () => {
+  it.each([
+    false,
+    true,
+  ])("requires confirmation before an ordinary Direct Message becomes a members-only Space (member snapshots: %s)", async (includeMemberSnapshots) => {
     const organizationId = "org-direct-message-conversion";
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -2006,6 +2009,7 @@ describe("OpenMeld Core", () => {
 
     const converted = await stub.rpcConvertDirectMessageToSpace({
       context,
+      includeMemberSnapshots,
       members: [
         {
           agentControllerRef: null,
@@ -2027,6 +2031,19 @@ describe("OpenMeld Core", () => {
     });
 
     const status = await stub.rpcGetStatus({ context, spaceId });
+    if (includeMemberSnapshots) {
+      expect(converted.items).toEqual([
+        expect.objectContaining({
+          profileId: THIRD_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Third Member",
+          status: "active",
+          addedAt: converted.convertedAt,
+        }),
+      ]);
+    } else {
+      expect(converted).not.toHaveProperty("items");
+    }
     expect(status).toMatchObject({
       accessMode: "members_only",
       directMessageConvertedAt: converted.convertedAt,

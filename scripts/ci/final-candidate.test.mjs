@@ -49,11 +49,11 @@ const FAILURE_STATUS_PATTERN = /state=failure/u;
 const MAIN_ADVANCED_PATTERN = /Main advanced/u;
 const REMOTE_MODE_PATTERN = /Mode: remote/u;
 const PAID_HOSTED_COST_PATTERN =
-  /Cost: paid GitHub Actions when requested; selected checks may be high latency\./u;
+  /Cost: paid GitHub Actions for ready PRs and explicit retries; selected checks may be high latency\./u;
 const FINAL_CERTIFICATION_PATTERN =
   /Use: final merge certification, not development, debugging, or review discovery\./u;
 const PRACTICAL_TRIGGER_PATTERN =
-  /Practical trigger: request only when a green result means the next action is merge\./u;
+  /Practical trigger: keep development and batch leaves in draft; ready PRs run automatically\. Observe an existing run before requesting a retry\./u;
 const PENDING_STATUS_PATTERN = /state=pending/u;
 const SANDBOX_DENIED_PATTERN = /sandbox denied/u;
 const SUCCESS_STATUS_PATTERN = /state=success/u;

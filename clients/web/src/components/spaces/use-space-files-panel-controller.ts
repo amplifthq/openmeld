@@ -19,7 +19,10 @@ import { baseQueryOptions } from "#/query/query-config";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import type { SpaceFileLeaveGuard } from "./space-file-detail";
 import type { SpaceFileEntryDialogState } from "./space-file-dialogs";
-import { resolveSpaceFileErrorMessage } from "./space-file-utils";
+import {
+	formatSpaceFileSizeLimitError,
+	resolveSpaceFileErrorMessage,
+} from "./space-file-utils";
 
 export type SpaceFilesPanelProps = {
 	fileToOpen?: { fileId: string; requestId: string; revision?: number } | null;
@@ -162,7 +165,7 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		await runAction("upload", async () => {
 			for (const file of files) {
 				if (file.size > SPACE_FILE_MAX_SIZE_BYTES) {
-					throw new Error(`${file.name} is larger than 10 MiB.`);
+					throw new Error(formatSpaceFileSizeLimitError(file.name));
 				}
 			}
 			await Promise.all(
