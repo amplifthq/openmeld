@@ -8760,7 +8760,7 @@
         },
         "openMeldDaemon_agent_profile_bindings_owner_kind_check": {
           "name": "openMeldDaemon_agent_profile_bindings_owner_kind_check",
-          "value": "(\"owner_kind\" = 'owner_account' and \"runtime_kind\" != 'hosted_center_agent') or (\"owner_kind\" = 'organization' and \"runtime_kind\" = 'hosted_center_agent')"
+          "value": "(\"owner_kind\" = 'owner_account' and (\"runtime_kind\" != 'hosted_center_agent' or (\"binding_state\" = 'disabled_historical' and coalesce(\"reason_code\", '') = 'agent_profile_binding.profile_deleted'))) or (\"owner_kind\" = 'organization' and \"runtime_kind\" = 'hosted_center_agent')"
         },
         "openMeldDaemon_agent_profile_bindings_owner_id_non_empty_check": {
           "name": "openMeldDaemon_agent_profile_bindings_owner_id_non_empty_check",

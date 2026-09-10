@@ -32,6 +32,16 @@ and its paused state intact. Deleting the Organization enters the existing
 profile-deletion reconciliation flow with Organization ownership and cancels
 native deliveries rather than contacting a former owner's local runtime.
 
+Pre-migration deleted Center Agents may retain disabled Binding history after
+their Profile is gone. Migration 0162 preserves the original account attribution
+only when the Profile is absent, the Binding is `disabled_historical`, and its
+reason is exactly `agent_profile_binding.profile_deleted`. No Organization is
+inferred and no Profile or designation is recreated. The storage constraint
+permits this deletion history but rejects reactivation or removal of its deletion
+reason; enabled hosted Center Agent Bindings still require Organization ownership.
+The existing Binding record reader accepts this historical shape, and execution
+lookups select only `enabled_primary`; no HTTP, CLI, or Service contract changes.
+
 The shared Space index clears Center Agent personal-owner snapshots during the
 migration. Existing Space Durable Objects clear the same membership and creator
 snapshots before admitting requests. A changed access snapshot closes restored

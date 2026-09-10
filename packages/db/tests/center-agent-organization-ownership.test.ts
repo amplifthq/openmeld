@@ -26,6 +26,98 @@ function migrate(db: DatabaseSync, names: string[]) {
 }
 
 describe("Center Agent Organization ownership migration", () => {
+  it("preserves deleted Center Agent binding history without allowing reactivation", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON");
+      migrate(
+        db,
+        migrations.filter((name) => name < "0162_")
+      );
+      db.exec(`
+        INSERT INTO openMeldDaemon_agent_profile_bindings
+          (binding_id, owner_kind, owner_id, agent_profile_id, openmeld_service_runtime_id,
+           runtime_kind, hosted_runtime_identity_json, agent_controller_ref, binding_state,
+           created_at_ms, updated_at_ms, disabled_at_ms, reason_code, configuration_revision)
+        VALUES ('deleted-binding', 'owner_account', 'former-owner',
+          'agt_33333333-3333-4333-8333-333333333333', 'hosted:center-agent',
+          'hosted_center_agent', '{"logicalRuntimeId":"hosted:center-agent"}',
+          'hosted:center-agent', 'disabled_historical', 1000, 1787738438209,
+          1787738438209, 'agent_profile_binding.profile_deleted', 3);
+      `);
+      const before = db
+        .prepare("SELECT * FROM openMeldDaemon_agent_profile_bindings")
+        .get();
+      migrate(
+        db,
+        migrations.filter((name) => name >= "0162_")
+      );
+      expect(
+        db.prepare("SELECT * FROM openMeldDaemon_agent_profile_bindings").get()
+      ).toEqual(before);
+      for (const mutation of [
+        "binding_state = 'enabled_primary', disabled_at_ms = NULL",
+        "reason_code = 'agent_profile_binding.replaced'",
+        "reason_code = NULL",
+        "disabled_at_ms = NULL",
+      ]) {
+        expect(() =>
+          db.exec(
+            `UPDATE openMeldDaemon_agent_profile_bindings SET ${mutation}`
+          )
+        ).toThrow();
+      }
+      expect(db.prepare("SELECT * FROM openmeld_profiles").all()).toEqual([]);
+      expect(
+        db.prepare("SELECT * FROM center_agent_designations").all()
+      ).toEqual([]);
+      expect(
+        db.prepare("SELECT * FROM openmeld_profile_deletion_outbox").all()
+      ).toEqual([]);
+      expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it.each([
+    null,
+    "agent_profile_binding.replaced",
+  ])("rejects missing Profile ownership without deletion evidence (%s)", (reason) => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON");
+      migrate(
+        db,
+        migrations.filter((name) => name < "0162_")
+      );
+      db.prepare(`
+          INSERT INTO openMeldDaemon_agent_profile_bindings
+            (binding_id, owner_kind, owner_id, agent_profile_id, openmeld_service_runtime_id,
+             runtime_kind, hosted_runtime_identity_json, agent_controller_ref, binding_state,
+             created_at_ms, updated_at_ms, disabled_at_ms, reason_code)
+          VALUES ('unresolved-binding', 'owner_account', 'former-owner', 'missing-profile',
+            'hosted:center-agent', 'hosted_center_agent', '{}', 'hosted:center-agent',
+            'disabled_historical', 1000, 2000, 2000, ?)
+        `).run(reason);
+      expect(() =>
+        migrate(
+          db,
+          migrations.filter((name) => name >= "0162_")
+        )
+      ).toThrow();
+      expect(
+        db
+          .prepare(
+            "SELECT owner_kind, owner_id FROM openMeldDaemon_agent_profile_bindings"
+          )
+          .get()
+      ).toEqual({ owner_kind: "owner_account", owner_id: "former-owner" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("preserves identity, bindings, preferences and designation when the creator is deleted", () => {
     const db = new DatabaseSync(":memory:");
     try {
