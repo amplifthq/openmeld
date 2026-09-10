@@ -433,7 +433,8 @@ export function SettingsLocalAgentUsageSummary({
           }
         />
         <TooltipContent
-          className="min-w-64 max-w-sm flex-col items-stretch gap-2.5 whitespace-normal text-left"
+          arrowClassName="bg-popover fill-popover"
+          className="max-h-[min(28rem,80vh)] max-w-[calc(100vw-2rem)] flex-col items-stretch gap-3 overflow-y-auto bg-popover p-3 text-popover-foreground shadow-md ring-1 ring-border"
           side="top"
         >
           <span className="font-medium">Usage limits</span>
@@ -441,18 +442,9 @@ export function SettingsLocalAgentUsageSummary({
             {providerGroups.map((group) => (
               <span className="grid gap-2" key={group.id}>
                 <span className="font-medium">{group.displayName}</span>
-                {group.limits.map((limit) => (
-                  <UsageLimitPreview
-                    key={limit.key}
-                    limit={limit}
-                    nowMs={nowMs}
-                  />
-                ))}
+                <UsageLimitPreviewGrid limits={group.limits} nowMs={nowMs} />
               </span>
             ))}
-          </span>
-          <span className="border-background/20 border-t pt-2 text-background/75">
-            Select this agent to view details.
           </span>
         </TooltipContent>
       </Tooltip>
@@ -492,24 +484,18 @@ export function SettingsLocalAgentUsageSummary({
         }
       />
       <TooltipContent
-        className="min-w-64 max-w-sm flex-col items-stretch gap-2.5 whitespace-normal text-left"
+        arrowClassName="bg-popover fill-popover"
+        className="max-h-[min(28rem,80vh)] max-w-[calc(100vw-2rem)] flex-col items-stretch gap-3 overflow-y-auto bg-popover p-3 text-popover-foreground shadow-md ring-1 ring-border"
         side="top"
       >
         <span className="font-medium">Usage limits</span>
         {orderedLimits && orderedLimits.length > 0 ? (
-          <span className="grid gap-2">
-            {orderedLimits.map((limit) => (
-              <UsageLimitPreview key={limit.key} limit={limit} nowMs={nowMs} />
-            ))}
-          </span>
+          <UsageLimitPreviewGrid limits={orderedLimits} nowMs={nowMs} />
         ) : (
-          <span className="text-background/75">
+          <span className="text-muted-foreground">
             Not reported by provider yet.
           </span>
         )}
-        <span className="border-background/20 border-t pt-2 text-background/75">
-          Select this agent to view details.
-        </span>
       </TooltipContent>
     </Tooltip>
   );
@@ -593,7 +579,8 @@ export function SettingsLocalAgentUsageDockItem({
         </span>
       </TooltipTrigger>
       <TooltipContent
-        className="max-h-80 min-w-48 max-w-sm flex-col items-stretch gap-2.5 overflow-y-auto whitespace-normal text-left"
+        arrowClassName="bg-popover fill-popover"
+        className="max-h-[min(28rem,80vh)] max-w-[calc(100vw-2rem)] flex-col items-stretch gap-3 overflow-y-auto bg-popover p-3 text-popover-foreground shadow-md ring-1 ring-border"
         side="top"
         sideOffset={6}
       >
@@ -601,16 +588,41 @@ export function SettingsLocalAgentUsageDockItem({
         {groups.map((group) => (
           <span className="grid gap-2" key={group.id}>
             <span className="font-medium">{group.label}</span>
-            {orderUsageLimitsForDisplay({
-              agentName,
-              limits: group.limits,
-            })?.map((limit) => (
-              <UsageLimitPreview key={limit.key} limit={limit} nowMs={nowMs} />
-            ))}
+            <UsageLimitPreviewGrid
+              limits={
+                orderUsageLimitsForDisplay({
+                  agentName,
+                  limits: group.limits,
+                }) ?? []
+              }
+              nowMs={nowMs}
+            />
           </span>
         ))}
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+function UsageLimitPreviewGrid({
+  limits,
+  nowMs,
+}: {
+  limits: AgentControllerUsageLimits;
+  nowMs: number;
+}) {
+  return (
+    <span
+      className={cn(
+        "grid grid-cols-1 justify-items-center gap-3",
+        limits.length === 2 && "sm:grid-cols-2",
+        limits.length > 2 && "sm:grid-cols-3"
+      )}
+    >
+      {limits.map((limit) => (
+        <UsageLimitPreview key={limit.key} limit={limit} nowMs={nowMs} />
+      ))}
+    </span>
   );
 }
 
@@ -624,23 +636,45 @@ function UsageLimitPreview({
   const presentation = resolveUsageLimitPresentation(limit);
   const remainingPercent = resolveRemainingPercent(limit.usedPercent);
   return (
-    <span className="grid gap-0.5">
-      <span className="font-medium">{limit.label}</span>
-      <span>
-        {remainingPercent === null
-          ? resolveMissingUsageCopy(limit.status)
-          : `${formatRemainingPercent(remainingPercent)} left`}
-        {" · "}
-        {presentation.label}
+    <span className="flex w-28 flex-col items-center gap-1.5 whitespace-normal text-center text-[10px] leading-snug">
+      {remainingPercent === null ? (
+        <span>{resolveMissingUsageCopy(limit.status)}</span>
+      ) : (
+        <span className="relative grid size-12 place-items-center">
+          <UsageLimitRing
+            className="absolute inset-0 size-full"
+            remainingPercent={remainingPercent}
+            strokeWidth={1.75}
+            tone={presentation.tone}
+          />
+          <span className="flex flex-col items-center tabular-nums">
+            <span className="font-medium text-xs">
+              {formatRemainingPercent(remainingPercent)}
+            </span>
+            <span className="text-[8px] text-muted-foreground">left</span>
+          </span>
+        </span>
+      )}
+      <span className="line-clamp-2 font-medium">{limit.label}</span>
+      {presentation.label !== "Available" && (
+        <span
+          className={resolveStatusToneStrongTextClassName(presentation.tone)}
+        >
+          {presentation.label}
+        </span>
+      )}
+      <span className="text-muted-foreground">
+        {formatUsageLimitReset(limit.resetsAt, nowMs)}
       </span>
-      <span className="text-background/75">
-        {formatUsageLimitReset(limit.resetsAt, nowMs)} ·{" "}
-        {formatUsageLimitObservation({
-          nowMs,
-          observedAt: limit.observedAt,
-          stale: limit.status === "stale",
-        })}
-      </span>
+      {limit.status === "stale" && (
+        <span className="text-muted-foreground">
+          {formatUsageLimitObservation({
+            nowMs,
+            observedAt: limit.observedAt,
+            stale: limit.status === "stale",
+          })}
+        </span>
+      )}
     </span>
   );
 }

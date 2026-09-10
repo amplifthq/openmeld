@@ -1767,6 +1767,16 @@ Computer, provider and window with remaining capacity, status, reset and observa
 times through the shared Computer Usage components. The compact sidebar logo strip
 keeps its existing sizing. This preview does not add permissions, collection or Wake policy.
 
+Agent Profile detail pages and Space profile previews read the same team-visible
+Computer Usage projection, matched to the Profile's current route Computer,
+owner, and controller. They never borrow a quota from another Computer or infer
+Wakeability from it. Human card docks align to the card's vertical center.
+Usage tooltips share compact remaining-capacity rings: up to three columns on
+wide screens and one column on narrow screens, with separate Computer/provider
+groups, reset times, and explicit non-available states. Stale evidence retains
+its observation time. Local presentation fixtures enter through the shared
+Computer reader so card previews and detail routes show the same evidence.
+
 Team opens a compact member overview at `/o/:orgSlug/people`, with the same
 grouping and ordering as its sidebar. The overview and sidebar share the member
 member presentation data and personal preferences. The overview uses Fluid Card

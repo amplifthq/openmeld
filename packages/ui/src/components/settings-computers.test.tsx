@@ -82,8 +82,9 @@ describe("Settings Local Agent usage limits", () => {
     fireEvent.mouseEnter(trigger);
     expect(await screen.findByText("Laptop · Go")).toBeTruthy();
     expect(screen.getByText("Desktop · OpenCode")).toBeTruthy();
-    expect(screen.getByText("75% left · Available")).toBeTruthy();
-    expect(screen.getByText("60% left · Stale")).toBeTruthy();
+    expect(screen.getByText("75%")).toBeTruthy();
+    expect(screen.getByText("60%")).toBeTruthy();
+    expect(screen.getByText("Stale")).toBeTruthy();
     rerender(
       <TooltipProvider>
         <SettingsLocalAgentUsageDockItem
@@ -152,10 +153,10 @@ describe("Settings Local Agent usage limits", () => {
     fireEvent.mouseEnter(trigger);
 
     expect(await screen.findByText("5-hour usage")).toBeTruthy();
-    expect(screen.getByText("58% left · Available")).toBeTruthy();
+    expect(screen.getByText("58%")).toBeTruthy();
     expect(screen.getByText("Weekly usage")).toBeTruthy();
-    expect(screen.getByText("12% left · Low")).toBeTruthy();
-    expect(screen.getByText("Select this agent to view details.")).toBeTruthy();
+    expect(screen.getAllByText("12%").length).toBeGreaterThan(0);
+    expect(screen.getByText("Low")).toBeTruthy();
   });
 
   it("omits collapsed summaries when the provider reports no percentage", () => {
