@@ -137,6 +137,7 @@ import {
 	type SpaceRemoveMemberResult,
 } from "./space-members-drawer";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
+import { SpaceMessagePinsProvider } from "./space-message-pins";
 import {
 	SetupRecallButton,
 	SpaceConversationRecoveryBanner,
@@ -1499,7 +1500,6 @@ function SpaceLandingReady({
 		organizationId,
 		setupRecallAction,
 		spaceFileNavigation,
-		spaceInboxReadPosition,
 		spaceView,
 		spaceViewIdPrefix,
 	} = state;
@@ -1707,7 +1707,6 @@ function SpaceLandingReady({
 							}
 							spaceNameErrorMessage={controller.spaceNameErrorMessage}
 							status={controller.status}
-							unreadCount={spaceInboxReadPosition.totalUnreadCount}
 							viewControl={
 								currentSpaceIsCenterAgentDirectMessage ? (
 									<CenterAgentHeaderTabs
@@ -2052,6 +2051,7 @@ function SpaceLandingConversation({
 			firstUnreadSignalId={controller.firstUnreadSignalId}
 			historyActionErrorMessage={controller.historyActionErrorMessage}
 			historyErrorMessage={historyErrorMessage}
+			historyNavigation={controller.historyNavigation}
 			initialFocusInteractionId={input.initialFocusInteractionId}
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
@@ -2084,6 +2084,19 @@ function SpaceLandingConversation({
 			onWakeStopRequest={controller.onWakeStopRequest}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}
+			pinnedMessageProvider={(children) => (
+				<SpaceMessagePinsProvider
+					canPin={
+						currentProfileIsActiveSpaceMember &&
+						!controller.profileId.startsWith("agt_")
+					}
+					organizationSlug={input.orgSlug}
+					profileId={controller.profileId}
+					spaceId={controller.spaceId}
+				>
+					{children}
+				</SpaceMessagePinsProvider>
+			)}
 			prepareSetupHref={prepareSetupHref}
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}

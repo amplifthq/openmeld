@@ -90,7 +90,7 @@ export const organizationDirectoryAgentProfileIdentitySchema = z.strictObject({
   profileKind: z.literal("agent"),
   isDefault: z.literal(false),
   status: z.enum(["active", "disabled"]),
-  ownerUserId: trimmedNonEmptyStringSchema,
+  ownerUserId: nullableTrimmedStringSchema,
   ownerName: trimmedNonEmptyStringSchema.optional(),
   avatarUrl: trimmedNonEmptyStringSchema.optional(),
   source: trimmedNonEmptyStringSchema,

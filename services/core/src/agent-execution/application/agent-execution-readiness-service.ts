@@ -436,13 +436,16 @@ async function resolveAgentBindingSnapshot(
           generatedAt: input.generatedAt,
           ownerUserId,
           defaultProjectId: result.profile.defaultProjectId,
-          profileEvidence: ownerUserId
-            ? profileEvidence
-            : {
-                active: false,
-                reasonCodes: ["agent_profile.owner_unavailable"],
-                source: "unavailable",
-              },
+          profileEvidence:
+            ownerUserId ||
+            (result.profile.managedRole === "center_agent" &&
+              result.profile.organizationId)
+              ? profileEvidence
+              : {
+                  active: false,
+                  reasonCodes: ["agent_profile.owner_unavailable"],
+                  source: "unavailable",
+                },
           profileName,
         }),
       })
@@ -1094,15 +1097,6 @@ async function resolveAgentExecutionBindingEvidence(input: {
   configurationRevision: number | null;
   evidence: AgentExecutionBindingEvidence;
 }> {
-  if (!input.ownerUserId) {
-    return {
-      configurationRevision: null,
-      evidence: {
-        reasonCodes: ["agent_profile_binding.profile_owner_unavailable"],
-        status: "unavailable",
-      },
-    };
-  }
   const domainDb = localStateDb(input.env);
   if (!domainDb) {
     return {
@@ -1115,15 +1109,38 @@ async function resolveAgentExecutionBindingEvidence(input: {
   }
 
   try {
+    const organizationProfile = input.ownerUserId
+      ? null
+      : await readAgentProfileOrganizationContext({
+          agentProfileId: input.agentProfileId,
+          db: domainDb,
+        });
+    let owner: { id: string; kind: "owner_account" | "organization" } | null =
+      null;
+    if (input.ownerUserId) {
+      owner = { id: input.ownerUserId, kind: "owner_account" };
+    } else if (
+      organizationProfile?.managedRole === "center_agent" &&
+      organizationProfile.organizationId &&
+      !organizationProfile.ownerUserId
+    ) {
+      owner = { id: organizationProfile.organizationId, kind: "organization" };
+    }
+    if (!owner) {
+      return {
+        configurationRevision: null,
+        evidence: {
+          reasonCodes: ["agent_profile_binding.profile_owner_unavailable"],
+          status: "unavailable",
+        },
+      };
+    }
     const bindingRecord = await readPrimaryAgentProfileBindingRecord({
       agentProfileId: input.agentProfileId,
       db: domainDb,
-      owner: {
-        id: input.ownerUserId,
-        kind: "owner_account",
-      },
+      owner,
     });
-    if (bindingRecord?.agentControllerConversationId) {
+    if (bindingRecord?.agentControllerConversationId && input.ownerUserId) {
       const conflictingBinding =
         await readPrimaryAgentProfileBindingRecordByControllerConversation({
           agentControllerConversationId:

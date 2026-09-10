@@ -1162,20 +1162,6 @@ const processDispatchQueueMessageExecution = async (input: {
   const targetOwnerUserId = normalizeOptionalText(
     preflightCheck.effectiveTargetBindingSnapshot.ownerUserId
   );
-  if (!targetOwnerUserId) {
-    throw new DispatchExecutionValidationError({
-      code: "agent_profile_binding.lookup_failed",
-      executionContext: {
-        attemptId: executionAttemptId,
-        connectionGeneration: null,
-        daemonSessionId: AUDIT_UNKNOWN_DAEMON_SESSION_ID,
-        leaseEpoch: AUDIT_UNKNOWN_LEASE_EPOCH,
-        replyingHintActive: false,
-      },
-      message: "target owner user id is missing",
-    });
-  }
-
   if (
     isHostedAgentRuntimeKind(
       preflightCheck.effectiveTargetBindingSnapshot.runtimeKind
@@ -1198,6 +1184,19 @@ const processDispatchQueueMessageExecution = async (input: {
     return result;
   }
 
+  if (!targetOwnerUserId) {
+    throw new DispatchExecutionValidationError({
+      code: "agent_profile_binding.lookup_failed",
+      executionContext: {
+        attemptId: executionAttemptId,
+        connectionGeneration: null,
+        daemonSessionId: AUDIT_UNKNOWN_DAEMON_SESSION_ID,
+        leaseEpoch: AUDIT_UNKNOWN_LEASE_EPOCH,
+        replyingHintActive: false,
+      },
+      message: "target owner user id is missing",
+    });
+  }
   effectiveDispatchMessage = removeHostedRecoveryReasonFromWorkstationDispatch(
     effectiveDispatchMessage
   );
@@ -2467,7 +2466,7 @@ const handleHostedCenterAgentNativeDelivery = async (input: {
   nowMs: number;
   queueAttempt: number;
   snapshot: EffectiveTargetBindingSnapshot;
-  targetOwnerUserId: string;
+  targetOwnerUserId: string | null;
   timing: SpaceBootstrapTimingCollector;
 }): Promise<DispatchQueueMessageExecutionResult> => {
   const { bindingId, modelRoute, organizationId } = input.snapshot;

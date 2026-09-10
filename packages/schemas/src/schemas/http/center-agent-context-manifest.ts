@@ -1,5 +1,6 @@
 import * as z from "../../lazy-zod";
 import { centerAgentInteractionSourceSchema } from "../protocol/center-agent-interaction-source";
+import { spaceMessageReactionsSchema } from "../space-mesh/message-reaction";
 import { centerAgentSessionSelectorSchema } from "./center-agent-direct-message-space";
 
 export const CENTER_AGENT_CONTEXT_MANIFEST_VERSION =
@@ -64,6 +65,7 @@ export const centerAgentContextManifestSourceRefSchema = z.strictObject({
 });
 
 export const centerAgentContextManifestEntrySchema = z.strictObject({
+  reactions: spaceMessageReactionsSchema.optional(),
   author: z.strictObject({
     profileId: trimmedNonEmptyStringSchema,
     profileKind: z.enum(["agent", "human", "system"]),

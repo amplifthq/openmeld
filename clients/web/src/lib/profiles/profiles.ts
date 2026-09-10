@@ -57,7 +57,7 @@ export function buildProfileRequestContext(
 			profileKind: profile.profileKind,
 			profileHandle: profile.profileHandle,
 			profileName: profile.profileName,
-			ownerUserId: profile.ownerUserId,
+			ownerUserId: profile.ownerUserId ?? undefined,
 			...(profile.ownerName ? { ownerName: profile.ownerName } : {}),
 		},
 	};

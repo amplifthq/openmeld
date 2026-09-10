@@ -33,7 +33,7 @@ import {
 	isDirectMessageItem,
 	resolveAccountSpaceTrailingStatus,
 } from "#/components/spaces/account-space-sections";
-import { NewDirectMessageDialog } from "#/components/spaces/new-direct-message-dialog";
+import { NewChatDialog } from "#/components/spaces/new-chat-dialog";
 import { SpaceActiveWakeIndicator } from "#/components/spaces/space-active-wake-indicator";
 import { resolveSpaceActiveWakePresentation } from "#/components/spaces/space-active-wake-presentation";
 import {
@@ -161,7 +161,7 @@ export function AppCommandCenter() {
 					)}
 				</DialogContent>
 			</Dialog>
-			<NewDirectMessageDialog onOpenChange={setNewMessage} open={newMessage} />
+			<NewChatDialog onOpenChange={setNewMessage} open={newMessage} />
 		</>
 	);
 }

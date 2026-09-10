@@ -192,6 +192,7 @@ import {
   buildDispatchBootstrapTemplateFacts,
   buildDispatchCorrelation,
   buildDispatchPromptPlan,
+  buildDispatchSessionTitle,
   type DispatchPromptPlan,
   parseDispatchTask,
   resolveBootstrapSpaceOwnerProfileId,
@@ -4417,6 +4418,11 @@ function buildDispatchRuntimeTask(input: {
       ? { instructionPrompt: input.instructionPrompt }
       : {}),
     mentioned: true,
+    newSessionTitle:
+      input.executionMode === "normal" &&
+      input.parsedTask.agentControllerRef === "builtin:codex"
+        ? buildDispatchSessionTitle(input.parsedTask)
+        : undefined,
     prompt: input.prompt,
     runtimeContext: input.runtimeContext,
     sequence: input.parsedTask.sequence,

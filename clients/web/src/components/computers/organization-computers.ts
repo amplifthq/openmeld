@@ -332,6 +332,7 @@ function groupVisibleProfilesByOwner(input: {
 	>();
 	for (const profile of input.directory.agentProfiles) {
 		if (
+			!profile.ownerUserId ||
 			profile.ownerUserId === input.currentUserId ||
 			!input.memberNameByUserId.has(profile.ownerUserId) ||
 			!isVisibleOrganizationComputerProfile(profile)

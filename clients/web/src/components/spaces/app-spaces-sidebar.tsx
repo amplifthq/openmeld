@@ -5,10 +5,7 @@ import {
 	DropdownMenu,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import {
-	FluidDropdownMenuContent,
-	FluidDropdownMenuItem,
-} from "@openmeld/ui/fluid/dropdown-menu";
+import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { FunnelSimpleIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -40,7 +37,6 @@ import {
 	SidebarDropSection as SidebarSpaceDropSection,
 } from "../app/sidebar-drag";
 import { moveSidebarGroup } from "../app/sidebar-drop-target";
-import { useSidebarGroupFilter } from "../app/sidebar-filter";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarDisclosure } from "../app/use-sidebar-disclosure";
@@ -61,6 +57,7 @@ import {
 	type SpaceMemberAppearance,
 } from "./space-member-avatars";
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
+import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
 
 const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
@@ -241,14 +238,17 @@ export function AppSpacesSidebar(input: {
 				(Date.parse(item.spaceCreatedAt ?? "") || 0),
 		])
 	);
-	const groupFilter = useSidebarGroupFilter([
-		{ id: "pinned", label: "Pinned" },
-		...(preferences?.groups ?? []).map((group) => ({
-			id: group.id,
-			label: group.name,
-		})),
-		{ id: "spaces", label: "Spaces" },
-	]);
+	const groupFilter = useSpaceDirectoryFilters(
+		[
+			{ id: "pinned", label: "Pinned" },
+			...(preferences?.groups ?? []).map((group) => ({
+				id: group.id,
+				label: group.name,
+			})),
+			{ id: "spaces", label: "Spaces" },
+		],
+		() => setSearchOpen(true)
+	);
 	const visibleBySection = new Map<string, readonly AccountSpaceItem[]>();
 	const actions = (id: string, label: string) => (
 		<SidebarSectionActions
@@ -334,13 +334,20 @@ export function AppSpacesSidebar(input: {
 		section: Parameters<typeof sortSidebarSpaces>[1]
 	) =>
 		sortSidebarSpaces(
-			items.filter(
-				(item) =>
-					!search.trim() ||
-					(item.spaceName ?? "")
-						.toLocaleLowerCase()
-						.includes(search.trim().toLocaleLowerCase())
-			),
+			items
+				.filter((item) =>
+					groupFilter.matchesStatus(
+						unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0,
+						activeWakeSummaryBySpaceId.get(item.spaceId)
+					)
+				)
+				.filter(
+					(item) =>
+						!search.trim() ||
+						(item.spaceName ?? "")
+							.toLocaleLowerCase()
+							.includes(search.trim().toLocaleLowerCase())
+				),
 			section ?? { sort: "priority", spaceIds: [] },
 			attention,
 			unreadActivity,
@@ -511,7 +518,7 @@ export function AppSpacesSidebar(input: {
 						.filter(
 							(group) =>
 								groupFilter.includes(group.id) &&
-								(!(search.trim() || groupFilter.selected.length > 0) ||
+								(!(search.trim() || groupFilter.active) ||
 									spacesQuery.isPending ||
 									spacesQuery.isError ||
 									(visibleBySection.get(group.id)?.length ?? 0) > 0)
@@ -545,21 +552,13 @@ export function AppSpacesSidebar(input: {
 											align="end"
 											className="w-60 max-w-[calc(100vw-2rem)]"
 										>
-											<FluidDropdownMenuItem
-												index={-1}
-												onClick={() =>
-													requestAnimationFrame(() => setSearchOpen(true))
-												}
-											>
-												Search manually
-											</FluidDropdownMenuItem>
 											{groupFilter.menu}
 										</FluidDropdownMenuContent>
 									</DropdownMenu>
 								</SidebarDestinationAction>
 							</div>
 							{groupFilter.badges}
-							{(search.trim() || groupFilter.selected.length > 0) &&
+							{(search.trim() || groupFilter.active) &&
 								!spacesQuery.isPending &&
 								!spacesQuery.isError &&
 								![...visibleBySection].some(

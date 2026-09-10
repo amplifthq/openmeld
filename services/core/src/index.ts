@@ -312,11 +312,15 @@ import type {
   SpaceContract,
   SpaceDispatchTraceResponse,
   SpaceFileDescriptor,
+  SpaceFilePinsResponse,
+  SpaceHistoryNavigation,
+  SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
+  SpaceMessagePinsResponse,
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
   StartCenterAgentMemberResearchRpcInput,
@@ -638,6 +642,7 @@ import {
   type GetSpaceFileInput,
   type GetSpaceMembersInput,
   type GetSpaceMessageDetailsInput,
+  type GetSpaceMessageReactionsInput,
   type GetSpaceMetaInput,
   type GetSpaceStatusInput,
   type GetSpaceThreadInput,
@@ -853,10 +858,12 @@ import {
   rpcGetSpaceDispatchTrace,
   rpcGetSpaceEntryResolution,
   rpcGetSpaceFile,
+  rpcGetSpaceHistoryNavigation,
   rpcGetSpaceIdentityDirectory,
   rpcGetSpaceMemberDirectory,
   rpcGetSpaceMembers,
   rpcGetSpaceMessageDetails,
+  rpcGetSpaceMessageReactions,
   rpcGetSpaceMeta,
   rpcGetSpaceStatus,
   rpcGetSpaceThread,
@@ -889,6 +896,7 @@ import {
   rpcListSpaceThreadEvents,
   rpcListSpaceThreadSignals,
   rpcListSpaceThreads,
+  rpcMutateSpaceMessage,
   rpcNotifyAgentProfileRouteCatalogChanged,
   rpcNotifyAgentProfilesRouteCatalogChanged,
   rpcOpenCenterAgentDirectMessageSpace,
@@ -950,6 +958,9 @@ import {
   rpcSetPeopleComputerLocalAgentEnabled,
   rpcSetPeopleComputerOpenMeldToolsMaintenance,
   rpcSetSpaceAccessMode,
+  rpcSetSpaceMessageReaction,
+  rpcSpaceFilePins,
+  rpcSpaceMessagePins,
   rpcStageSpaceComposerUpload,
   rpcSubmitAgentActivityEvents,
   rpcSubmitAgentActivitySessionReconciliation,
@@ -990,8 +1001,11 @@ import {
   type SetLocalRuntimeDisplayNameInput,
   type SetOrganizationInformationProtectionPolicyInput,
   type SetSpaceAccessModeInput,
+  type SetSpaceMessageReactionInput,
   type SpaceAccessModeStateResult,
+  type SpaceFilePinsInput,
   type SpaceFileWriteInput,
+  type SpaceMessagePinsInput,
   type SpacePasswordStateResult,
   type StageSpaceComposerUploadRpcInput,
   type SubmitAgentActivityEventsInput,
@@ -1643,6 +1657,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     );
   }
 
+  mutateSpaceMessage(input: import("./rpc/methods").MutateSpaceMessageInput) {
+    return rpcMutateSpaceMessage(this.env, input);
+  }
+
   async postSignal(
     input: PostSignalInput,
     spaceAddressingVersion?: string
@@ -1714,6 +1732,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   getSpaceMembers(input: GetSpaceMembersInput): Promise<SpaceMembersSnapshot> {
     return rpcGetSpaceMembers(this.env, input);
+  }
+
+  getSpaceHistoryNavigation(
+    input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
+  ): Promise<SpaceHistoryNavigation> {
+    return rpcGetSpaceHistoryNavigation(this.env, input);
   }
 
   getSpaceIdentityDirectory(
@@ -1932,6 +1956,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcGetSpaceWakeTraceWaterfall(this.env, input);
   }
 
+  getSpaceMessageReactions(input: GetSpaceMessageReactionsInput) {
+    return rpcGetSpaceMessageReactions(this.env, input);
+  }
+  setSpaceMessageReaction(input: SetSpaceMessageReactionInput) {
+    return rpcSetSpaceMessageReaction(this.env, input);
+  }
+
   getSpaceMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {
@@ -2011,6 +2042,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   getSpaceMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
     return rpcGetSpaceMeta(this.env, input);
+  }
+
+  spaceFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
+    return rpcSpaceFilePins(this.env, input);
+  }
+
+  spaceMessagePins(
+    input: SpaceMessagePinsInput
+  ): Promise<SpaceMessagePinsResponse> {
+    return rpcSpaceMessagePins(this.env, input);
   }
 
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {
@@ -3788,12 +3829,22 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.postSignal(input, spaceAddressingVersion);
   }
 
+  mutateSpaceMessage(input: import("./rpc/methods").MutateSpaceMessageInput) {
+    return super.mutateSpaceMessage(input);
+  }
+
   postTransientSignal(input: PostTransientSignalInput): Promise<void> {
     return super.postTransientSignal(input);
   }
 
   getSpaceMembers(input: GetSpaceMembersInput): Promise<SpaceMembersSnapshot> {
     return super.getSpaceMembers(input);
+  }
+
+  getSpaceHistoryNavigation(
+    input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
+  ): Promise<SpaceHistoryNavigation> {
+    return super.getSpaceHistoryNavigation(input);
   }
 
   getSpaceIdentityDirectory(
@@ -3976,6 +4027,13 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getSpaceWakeTraceWaterfall(input);
   }
 
+  getSpaceMessageReactions(input: GetSpaceMessageReactionsInput) {
+    return super.getSpaceMessageReactions(input);
+  }
+  setSpaceMessageReaction(input: SetSpaceMessageReactionInput) {
+    return super.setSpaceMessageReaction(input);
+  }
+
   getSpaceMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {
@@ -4006,6 +4064,16 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   getSpaceMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
     return super.getSpaceMeta(input);
+  }
+
+  spaceFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
+    return super.spaceFilePins(input);
+  }
+
+  spaceMessagePins(
+    input: SpaceMessagePinsInput
+  ): Promise<SpaceMessagePinsResponse> {
+    return super.spaceMessagePins(input);
   }
 
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {

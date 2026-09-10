@@ -59,7 +59,7 @@ export const openMeldDaemonAgentProfileBindings = sqliteTable(
     ),
     check(
       "openMeldDaemon_agent_profile_bindings_owner_kind_check",
-      sql`"owner_kind" in ('owner_account')`
+      sql`("owner_kind" = 'owner_account' and "runtime_kind" != 'hosted_center_agent') or ("owner_kind" = 'organization' and "runtime_kind" = 'hosted_center_agent')`
     ),
     check(
       "openMeldDaemon_agent_profile_bindings_owner_id_non_empty_check",
