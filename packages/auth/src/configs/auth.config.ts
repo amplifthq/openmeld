@@ -857,7 +857,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
           recipientEmail: readOptionalString(data.email),
           webAppUrl: validated.WEB_APP_URL,
         });
-        const emailContent = buildOrganizationInvitationEmailContent({
+        const emailContent = await buildOrganizationInvitationEmailContent({
           brandName: validated.AUTH_BRAND_NAME,
           expiresAt: data.invitation.expiresAt,
           invitationUrl,
@@ -1000,7 +1000,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
           typeof token === "string" && token
             ? buildVerifyEmailWebUrl(validated.WEB_APP_URL, token, url)
             : url;
-        const emailContent = buildVerificationEmailContent({
+        const emailContent = await buildVerificationEmailContent({
           brandName: validated.AUTH_BRAND_NAME,
           expiresInSeconds: DEFAULT_EMAIL_VERIFICATION_EXPIRES_IN_SECONDS,
           verificationUrl,
@@ -1038,7 +1038,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
             token,
             url
           );
-          const emailContent = buildMagicLinkEmailContent({
+          const emailContent = await buildMagicLinkEmailContent({
             brandName: validated.AUTH_BRAND_NAME,
             expiresInSeconds: validated.AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS,
             magicLinkUrl,

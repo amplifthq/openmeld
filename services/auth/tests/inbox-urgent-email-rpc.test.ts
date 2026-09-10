@@ -130,13 +130,13 @@ describe("urgent Inbox email RPC", () => {
       subject: "Urgent: Approve <Production> now",
       to: "felix@amplift.ai",
     });
-    expect(message.text).toContain("Urgent item in your Inbox");
+    expect(message.text).toContain("Needs your attention");
     expect(message.text).toContain(
       "https://openmeld.ai/o/acme-team/inbox?item=item%2Furgent%3Fsource%3Demail"
     );
     expect(message.html).toContain("Approve &lt;Production&gt;");
     expect(message.html).toContain(
-      "Review &lt;script&gt;alert(&#39;unsafe&#39;)&lt;/script&gt; &amp; approve."
+      "Review &lt;script&gt;alert(&#x27;unsafe&#x27;)&lt;/script&gt; &amp; approve."
     );
     expect(message.html).not.toContain("<script>");
   });
