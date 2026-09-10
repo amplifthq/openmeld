@@ -5,10 +5,7 @@ import {
 	DropdownMenu,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import {
-	FluidDropdownMenuContent,
-	FluidDropdownMenuItem,
-} from "@openmeld/ui/fluid/dropdown-menu";
+import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { FunnelSimpleIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -31,6 +28,7 @@ import type {
 	AccountSpaceItem,
 	AccountSpaceSections,
 } from "#/lib/spaces/account-spaces";
+import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import { SidebarDestinationAction } from "../app/sidebar-destination-actions";
@@ -39,7 +37,6 @@ import {
 	SidebarDropSection as SidebarSpaceDropSection,
 } from "../app/sidebar-drag";
 import { moveSidebarGroup } from "../app/sidebar-drop-target";
-import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarDisclosure } from "../app/use-sidebar-disclosure";
@@ -48,7 +45,11 @@ import {
 	type SpaceUnreadById,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
-import { moveSidebarSpace, sortSidebarSpaces } from "./sidebar-space-order";
+import {
+	moveSidebarSpace,
+	resolveSidebarAttentionSpaceIds,
+	sortSidebarSpaces,
+} from "./sidebar-space-order";
 import { SortableSpaceSidebarItem } from "./sortable-space-sidebar-item";
 import type { SpaceSidebarActiveWakeSummary } from "./space-active-wake-presentation";
 import {
@@ -56,6 +57,7 @@ import {
 	type SpaceMemberAppearance,
 } from "./space-member-avatars";
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
+import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
 
 const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
@@ -129,6 +131,9 @@ export function AppSpacesSidebar(input: {
 		})
 	);
 	const sections = spacesQuery.data ?? EMPTY_ACCOUNT_SPACE_SECTIONS;
+	const inboxSummary = useQuery(
+		spaceInboxSummaryQueryOptions({ organizationId: currentOrganizationId })
+	);
 	const {
 		activeWakeSummaryBySpaceId,
 		unreadBySpaceId,
@@ -233,14 +238,17 @@ export function AppSpacesSidebar(input: {
 				(Date.parse(item.spaceCreatedAt ?? "") || 0),
 		])
 	);
-	const groupFilter = useSidebarGroupFilter([
-		{ id: "pinned", label: "Pinned" },
-		...(preferences?.groups ?? []).map((group) => ({
-			id: group.id,
-			label: group.name,
-		})),
-		{ id: "spaces", label: "Spaces" },
-	]);
+	const groupFilter = useSpaceDirectoryFilters(
+		[
+			{ id: "pinned", label: "Pinned" },
+			...(preferences?.groups ?? []).map((group) => ({
+				id: group.id,
+				label: group.name,
+			})),
+			{ id: "spaces", label: "Spaces" },
+		],
+		() => setSearchOpen(true)
+	);
 	const visibleBySection = new Map<string, readonly AccountSpaceItem[]>();
 	const actions = (id: string, label: string) => (
 		<SidebarSectionActions
@@ -307,15 +315,9 @@ export function AppSpacesSidebar(input: {
 		/>
 	);
 	const sidebarGroups: AppContextualNavGroup[] = [];
-	const attention = new Set(
-		[...activeWakeSummaryBySpaceId]
-			.filter(([, summary]) =>
-				summary.statuses?.some(
-					(status) =>
-						status.kind === "needs_input" || status.kind === "waiting_for_owner"
-				)
-			)
-			.map(([id]) => id)
+	const attention = resolveSidebarAttentionSpaceIds(
+		activeWakeSummaryBySpaceId,
+		inboxSummary.data?.attention
 	);
 	const unreadActivity = new Map(
 		[...unreadBySpaceId]
@@ -332,13 +334,20 @@ export function AppSpacesSidebar(input: {
 		section: Parameters<typeof sortSidebarSpaces>[1]
 	) =>
 		sortSidebarSpaces(
-			items.filter(
-				(item) =>
-					!search.trim() ||
-					(item.spaceName ?? "")
-						.toLocaleLowerCase()
-						.includes(search.trim().toLocaleLowerCase())
-			),
+			items
+				.filter((item) =>
+					groupFilter.matchesStatus(
+						unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0,
+						activeWakeSummaryBySpaceId.get(item.spaceId)
+					)
+				)
+				.filter(
+					(item) =>
+						!search.trim() ||
+						(item.spaceName ?? "")
+							.toLocaleLowerCase()
+							.includes(search.trim().toLocaleLowerCase())
+				),
 			section ?? { sort: "priority", spaceIds: [] },
 			attention,
 			unreadActivity,
@@ -509,7 +518,7 @@ export function AppSpacesSidebar(input: {
 						.filter(
 							(group) =>
 								groupFilter.includes(group.id) &&
-								(!(search.trim() || groupFilter.selected.length > 0) ||
+								(!(search.trim() || groupFilter.active) ||
 									spacesQuery.isPending ||
 									spacesQuery.isError ||
 									(visibleBySection.get(group.id)?.length ?? 0) > 0)
@@ -543,21 +552,13 @@ export function AppSpacesSidebar(input: {
 											align="end"
 											className="w-60 max-w-[calc(100vw-2rem)]"
 										>
-											<FluidDropdownMenuItem
-												index={-1}
-												onClick={() =>
-													requestAnimationFrame(() => setSearchOpen(true))
-												}
-											>
-												Search manually
-											</FluidDropdownMenuItem>
 											{groupFilter.menu}
 										</FluidDropdownMenuContent>
 									</DropdownMenu>
 								</SidebarDestinationAction>
 							</div>
 							{groupFilter.badges}
-							{(search.trim() || groupFilter.selected.length > 0) &&
+							{(search.trim() || groupFilter.active) &&
 								!spacesQuery.isPending &&
 								!spacesQuery.isError &&
 								![...visibleBySection].some(

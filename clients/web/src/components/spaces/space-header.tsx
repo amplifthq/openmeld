@@ -14,13 +14,12 @@ import {
 } from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
-import { AgentChatBadge } from "./agent-chat-badge";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import {
 	SpaceHeaderNavigationMenu,
 	type SpaceHeaderNavigationMenuItem,
 } from "./space-header-navigation-menu";
-import { SpaceInfoDialog } from "./space-info-dialog";
+import { SpaceSettingsDialog } from "./space-settings-dialog";
 import { SpaceShareDialog } from "./space-share-dialog";
 
 export type SpaceWindowHeaderSubtitleItem = {
@@ -140,7 +139,6 @@ export function SpaceHeader(input: {
 	isLeaveSpacePending: boolean;
 	isSpaceNamePending: boolean;
 	isCenterAgentDirectMessage?: boolean;
-	isRemoteAgentDirectMessage?: boolean;
 	leaveSpaceErrorMessage: string | null;
 	// Realtime stream health for this browser's live connection. Drives the
 	// status dot pinned after the space name; defaults to "connected" so static
@@ -154,9 +152,6 @@ export function SpaceHeader(input: {
 	// on the degraded status indicator.
 	onReconnectLiveUpdates?: () => void;
 	renderFrame?: boolean;
-	// Count of unread messages from others (newer than the read watermark).
-	// Rendered as a trailing "N new" subtitle token when greater than zero.
-	unreadCount?: number;
 	membersControl?: ReactNode;
 	notificationControl?: ReactNode;
 	// "Get set up" recall action shown before Members when the in-Space setup
@@ -171,6 +166,7 @@ export function SpaceHeader(input: {
 		password?: string;
 	}) => Promise<void>;
 	onUpdateSpaceName: (name: string) => Promise<void>;
+	onSetVisibility?: (visibility: "public" | "private") => Promise<void>;
 	spaceNameErrorMessage: string | null;
 	status: GetSpaceStatusResponse;
 }) {
@@ -184,24 +180,6 @@ export function SpaceHeader(input: {
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});
-	const subtitleItems: SpaceWindowHeaderSubtitleItem[] = [];
-	if (input.directMessageOwnerVisibilityLabel) {
-		subtitleItems.push({
-			key: "agent-owner-visibility",
-			node: <span>{input.directMessageOwnerVisibilityLabel}</span>,
-		});
-	}
-	const unreadCount = input.unreadCount ?? 0;
-	if (unreadCount > 0) {
-		subtitleItems.push({
-			key: "unread",
-			node: (
-				<span className="font-medium text-amber-600 dark:text-amber-400">
-					{`${unreadCount} new`}
-				</span>
-			),
-		});
-	}
 
 	return (
 		<SpaceWindowHeader
@@ -242,7 +220,7 @@ export function SpaceHeader(input: {
 								}}
 							/>
 						) : null}
-						<SpaceInfoDialog
+						<SpaceSettingsDialog
 							access={{
 								canManage: input.canManageSpaceAccess,
 								errorMessage: input.accessModeErrorMessage,
@@ -278,9 +256,11 @@ export function SpaceHeader(input: {
 							onOpenChange={
 								input.menuItems ? setSpaceInformationOpen : undefined
 							}
+							onSetVisibility={input.onSetVisibility}
 							open={input.menuItems ? spaceInformationOpen : undefined}
 							showTrigger={!input.menuItems}
 							spaceId={input.status.spaceId}
+							visibility={input.status.organizationVisibility}
 						/>
 					</div>
 				</>
@@ -294,7 +274,6 @@ export function SpaceHeader(input: {
 				input.isCenterAgentDirectMessage && "overflow-x-auto",
 				input.setupRecallAction && "max-lg:pr-12"
 			)}
-			subtitleItems={subtitleItems}
 			title={spaceName}
 			titleAdornment={
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
@@ -307,12 +286,11 @@ export function SpaceHeader(input: {
 						liveState={input.liveState ?? "connected"}
 						onReconnectNow={input.onReconnectLiveUpdates}
 					/>
-					{renderAgentChatBadge(
-						input.isCenterAgentDirectMessage,
-						input.isRemoteAgentDirectMessage,
-						isDirectMessage,
-						input.status.members.agentCount
-					)}
+					{input.directMessageOwnerVisibilityLabel ? (
+						<span className="inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 font-normal text-[10px] leading-none">
+							{input.directMessageOwnerVisibilityLabel}
+						</span>
+					) : null}
 				</span>
 			}
 		/>
@@ -331,21 +309,6 @@ export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
 			weight="regular"
 		/>
 	);
-}
-
-function renderAgentChatBadge(
-	isCenterAgent: boolean | undefined,
-	isRemoteAgent: boolean | undefined,
-	isDirectMessage: boolean,
-	agentCount: number
-) {
-	if (isCenterAgent) {
-		return <AgentChatBadge kind="center" />;
-	}
-	if (isDirectMessage && agentCount === 1) {
-		return <AgentChatBadge kind={isRemoteAgent ? "remote" : "local"} />;
-	}
-	return null;
 }
 
 function renderSpaceAccessModeHeaderLabel(

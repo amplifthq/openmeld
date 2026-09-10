@@ -22,8 +22,8 @@ import {
 import type { OpenMeldEnvPreset, OpenMeldPathResolutionInput } from "./paths";
 import {
   resolveOpenMeldEnvPreset,
-  resolveOpenMeldPresetOwnedPathInput,
   resolveOpenMeldRootDir,
+  resolveOpenMeldServiceOwnedPathInput,
   runtimeDir,
   systemDir,
 } from "./paths";
@@ -341,7 +341,7 @@ export async function acquireDaemonServiceLifecycleLock(
     intent: "run_background",
     command: "openmeld service start",
   },
-  pathResolution: OpenMeldPathResolutionInput = resolveOpenMeldPresetOwnedPathInput()
+  pathResolution: OpenMeldPathResolutionInput = resolveOpenMeldServiceOwnedPathInput()
 ): Promise<DaemonServiceLifecycleLock> {
   return await acquireLock({
     openMeldProfileId: DAEMON_SERVICE_LIFECYCLE_LOCK_PROFILE,
@@ -388,7 +388,7 @@ export function withDaemonServiceLifecycleLock<T>(
   meta: DaemonLifecycleLockMeta,
   callback: () => Promise<T>
 ): Promise<T> {
-  const pathResolution = resolveOpenMeldPresetOwnedPathInput();
+  const pathResolution = resolveOpenMeldServiceOwnedPathInput();
   const ownerRoot = resolveOpenMeldRootDir(pathResolution);
   const currentContext = daemonServiceLifecycleLockContext.getStore();
   if (currentContext?.active && currentContext.ownerRoot === ownerRoot) {
@@ -490,7 +490,7 @@ export async function readDaemonServiceLifecycleLockMeta(): Promise<DaemonLifecy
   const meta = await readLockMeta({
     openMeldProfileId: DAEMON_SERVICE_LIFECYCLE_LOCK_PROFILE,
     key: DAEMON_SERVICE_LIFECYCLE_LOCK_KEY,
-    pathResolution: resolveOpenMeldPresetOwnedPathInput(),
+    pathResolution: resolveOpenMeldServiceOwnedPathInput(),
   });
   if (!meta) {
     return null;
@@ -525,7 +525,7 @@ export async function readDaemonServiceLifecycleLockMetaWithCleanup(): Promise<D
   await tryCleanupStaleLock({
     openMeldProfileId: DAEMON_SERVICE_LIFECYCLE_LOCK_PROFILE,
     key: DAEMON_SERVICE_LIFECYCLE_LOCK_KEY,
-    pathResolution: resolveOpenMeldPresetOwnedPathInput(),
+    pathResolution: resolveOpenMeldServiceOwnedPathInput(),
   });
   return await readDaemonServiceLifecycleLockMeta();
 }

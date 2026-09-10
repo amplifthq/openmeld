@@ -1,10 +1,8 @@
 "use client";
 
-import { Button } from "@openmeld/ui/components/button";
-import { ChatCircleTextIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { useStartFlowState } from "#/components/app/start-flow-state";
@@ -12,7 +10,7 @@ import {
 	AppDirectMessageShell,
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
-import { NewDirectMessageDialog } from "#/components/spaces/new-direct-message-dialog";
+import { ChatsDirectory } from "#/components/spaces/chats-directory";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
@@ -66,7 +64,6 @@ export function DirectMessagesIndexContent(input: {
 	initialSidebarStates?: AppSidebarPersistedStates;
 	orgSlug: string;
 }) {
-	const [creating, setCreating] = useState(false);
 	const { state, storageScope } = useStartFlowState();
 	const profilesQuery = useQuery(
 		buildStartProfilesQueryOptions({ enabled: true, storageScope })
@@ -124,30 +121,7 @@ export function DirectMessagesIndexContent(input: {
 				input.initialSidebarStates?.inner ?? APP_SIDEBAR_DEFAULT_STATES.inner
 			}
 		>
-			<AppMainContent>
-				<div className="flex h-full items-center justify-center px-6 py-10">
-					<div className="flex max-w-sm flex-col items-center text-center">
-						<span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
-							<ChatCircleTextIcon aria-hidden="true" className="size-5" />
-						</span>
-						<h1 className="mt-4 font-medium text-base">Your chats</h1>
-						<p className="mt-2 text-muted-foreground text-sm leading-6">
-							Chat with people, local agents, and remote agents.
-						</p>
-						<Button
-							className="mt-5"
-							onClick={() => setCreating(true)}
-							variant="outline"
-						>
-							New chat
-						</Button>
-						<NewDirectMessageDialog
-							onOpenChange={setCreating}
-							open={creating}
-						/>
-					</div>
-				</div>
-			</AppMainContent>
+			<ChatsDirectory />
 		</AppDirectMessageShell>
 	);
 }

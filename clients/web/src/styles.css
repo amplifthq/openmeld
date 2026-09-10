@@ -3,6 +3,8 @@
 @import "shadcn/tailwind.css";
 @import "./styles/typeset.css";
 @import "./styles/content-typography.css";
+@import "./styles/composer.css";
+@import "./styles/conversation-floating-surface.css";
 @import "streamdown/styles.css";
 @import "@openmeld/ui/globals.css";
 
@@ -97,7 +99,7 @@
 
 :root {
   --app-canvas: #f5f5f4;
-  --border: oklch(0 0 0 / 7%);
+  --border: oklch(0 0 0 / 10%);
   --sidebar-accent: oklch(0 0 0 / 6%);
   --sidebar-border: var(--border);
   --space-conversation-title-height: 3rem;
@@ -610,3 +612,57 @@ html[data-space-self-message-alignment="left"]
 .app-sidebar-footer:not([data-footer-motion-ready]) .app-sidebar-footer-actions {
   transition: none;
 }
+
+/* Reserve navigation space in the shared message/composer frame, including
+   Full Width. Centered keeps its existing center while sufficient margin exists. */
+html [data-space-history-rail="true"] [data-space-conversation-content-width] {
+  width: calc(100% - 3.25rem);
+  margin-inline-start: 3.25rem;
+}
+html[data-space-conversation-layout="centered"] [data-space-history-rail="true"] [data-space-conversation-content-width] {
+  margin-inline: auto;
+  position: relative;
+  inset-inline-start: min(1.625rem, max(0px, calc((var(--space-conversation-centered-max-width) + 3.25rem - 100%) / 2)));
+}
+.space-history-navigation {
+  position: absolute;
+  z-index: 25;
+  inset-inline-start: .5rem;
+  top: 50%;
+  translate: 0 -50%;
+  width: 2.75rem;
+  max-height: 60%;
+}
+.space-history-ticks { display: flex; flex-direction: column; height: 100%; }
+.space-history-ticks > button {
+  display: flex; align-items: center; width: 100%; flex: 1; min-height: 0;
+  padding: 0 .25rem; cursor: pointer; outline-offset: 2px;
+}
+.space-history-dash {
+  display: block; width: 2.25rem; height: 2px;
+  background: var(--muted-foreground); opacity: .45; transform-origin: left; transform: scaleX(.25);
+}
+.space-history-ticks > button[data-hovered] .space-history-dash { background: var(--foreground); opacity: 1; }
+.space-history-ticks > button:focus-visible .space-history-dash { opacity: 1; }
+.space-history-preview { max-width: calc(100vw - 5rem); position: relative; }
+.space-history-preview-skeleton { display: none; position: absolute; inset: 1rem; flex-direction: column; gap: .75rem; padding-top: .25rem; }
+.space-history-preview-skeleton span { height: .65rem; width: 90%; border-radius: 3px; background: var(--muted-foreground); opacity: .15; }
+.space-history-preview-skeleton span:first-child { width: 55%; }
+.space-history-preview-skeleton span:last-child { width: 72%; }
+.space-history-preview[data-moving] .space-history-preview-skeleton { display: flex; }
+.space-history-preview[data-moving] .space-history-preview-content { visibility: hidden; }
+.space-history-touch-trigger { display: none; }
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .space-history-dash { transition: transform 125ms cubic-bezier(.23,1,.32,1), opacity 125ms ease; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .space-history-dash { transform: scaleX(.25) !important; }
+  .space-history-preview { animation: none !important; }
+}
+@media (pointer: coarse) {
+  .space-history-navigation { top: 3.5rem; bottom: auto; height: auto !important; translate: none; }
+  .space-history-touch-trigger { display: grid; place-items: center; width: 44px; height: 44px; }
+  .space-history-ticks { display: none; }
+}
+
+@media (pointer: fine) { .space-history-preview-stepper { display: none; } }

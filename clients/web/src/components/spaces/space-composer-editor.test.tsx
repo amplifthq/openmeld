@@ -12,11 +12,13 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
+import { createPlateEditor } from "platejs/react";
 import { createRef, useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	SpaceComposerEditor,
 	type SpaceComposerEditorHandle,
+	SpaceComposerEditorKit,
 } from "./space-composer-editor";
 import { getEditorFocusReadiness } from "./space-composer-focus";
 import type { SpaceComposerAddressingTarget } from "./use-space-mention-authoring";
@@ -32,6 +34,83 @@ const RUNNER_OPTION_NAME = /Runner/;
 
 describe("SpaceComposerEditor", () => {
 	afterEach(cleanup);
+
+	it.each([
+		"",
+		"Hello ",
+		"请帮忙",
+		"確認して",
+		"확인",
+		"Hello:",
+		"（",
+	])("opens mentions immediately after %j without requiring a space", (prefix) => {
+		const editor = createPlateEditor({
+			plugins: SpaceComposerEditorKit,
+			value: [{ type: "p", children: [{ text: prefix }] }],
+		});
+		editor.tf.select({ path: [0, 0], offset: prefix.length });
+		editor.tf.insertText("@");
+		expect(
+			editor.children[0].children.some(
+				(node) => "type" in node && node.type === "mention_input"
+			)
+		).toBe(true);
+	});
+
+	it("keeps an email address as ordinary text", () => {
+		const editor = createPlateEditor({
+			plugins: SpaceComposerEditorKit,
+			value: [{ type: "p", children: [{ text: "felix" }] }],
+		});
+		editor.tf.select({ path: [0, 0], offset: 5 });
+		editor.tf.insertText("@");
+		editor.tf.insertText("example.com");
+		expect(editor.api.string([0])).toBe("felix@example.com");
+		expect(
+			editor.children[0].children.some(
+				(node) => "type" in node && node.type === "mention_input"
+			)
+		).toBe(false);
+	});
+
+	it.each([
+		"button",
+		"escape",
+	])("preserves a literal @ and search text when dismissed with %s", async (method) => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message this space"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text=""
+			/>
+		);
+		act(() => composerRef.current?.insertMentionTrigger());
+		const input = await screen.findByRole("combobox", {
+			name: "Find a member to mention",
+		});
+		fireEvent.change(input, { target: { value: "just text" } });
+		if (method === "button") {
+			fireEvent.click(screen.getByRole("button", { name: "Close mentions" }));
+		} else {
+			fireEvent.keyDown(input, { key: "Escape", keyCode: 27, which: 27 });
+		}
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("combobox", { name: "Find a member to mention" })
+			).toBeNull();
+			expect(onChange).toHaveBeenLastCalledWith(
+				expect.objectContaining({ text: "@just text", authoredMentions: [] })
+			);
+		});
+	});
 
 	it("renders a restored mention with parentheses in its display name without parsing the name as a literal", () => {
 		const profileName = "Felix Lu Codex GPT-5.6 Sol (1)";

@@ -93,6 +93,11 @@ function createInMemoryRepository(
   const profiles = initial.map(withProfileDefaults);
 
   const repository: OpenMeldProfileRepository = {
+    findFactsByProfileIds(profileIds) {
+      return Promise.resolve(
+        profiles.filter((profile) => profileIds.includes(profile.profileId))
+      );
+    },
     findByProfileId(profileId) {
       return Promise.resolve(
         profiles.find((profile) => profile.profileId === profileId) ?? null
@@ -271,6 +276,23 @@ function createInMemoryRepository(
         updatedAt: now,
       });
 
+      return Promise.resolve();
+    },
+    updateManagedProfileIdentityForOrganization(
+      organizationId,
+      profileId,
+      input
+    ) {
+      const target = profiles.find(
+        (profile) =>
+          profile.organizationId === organizationId &&
+          profile.profileId === profileId &&
+          profile.managedRole === "center_agent"
+      );
+      if (target) {
+        target.profileName = input.profileName;
+        target.profileHandle = input.profileHandle;
+      }
       return Promise.resolve();
     },
     updateProfileIdentityForOwner(ownerUserId, profileId, input) {
@@ -994,8 +1016,8 @@ describe("OpenMeld profile service", () => {
       profileName: "Center Agent",
     });
     const ensuredAgainForFirstOrg = await service.ensureManagedAgentProfile({
-      ownerUserId: "user_1",
-      createdByUserId: "user_1",
+      ownerUserId: "user_2",
+      createdByUserId: "user_2",
       organizationId: TEST_ORGANIZATION_ID,
       managedRole: "center_agent",
       profileName: "Renamed Center Agent",
@@ -1015,7 +1037,19 @@ describe("OpenMeld profile service", () => {
       createdForFirstOrg.profileId
     );
     expect(createdForFirstOrg.managedRole).toBe("center_agent");
+    expect(createdForFirstOrg.ownerUserId).toBeNull();
+    expect(createdForFirstOrg.createdByUserId).toBe("user_1");
+    expect(createdForFirstOrg.organizationId).toBe(TEST_ORGANIZATION_ID);
     expect(createdForSecondOrg.managedRole).toBe("center_agent");
+    const renamed = await service.updateManagedAgentProfileInOrganization({
+      organizationId: TEST_ORGANIZATION_ID,
+      profileId: createdForFirstOrg.profileId,
+      managedRole: "center_agent",
+      profileName: "Organization Coordinator",
+    });
+    expect(renamed.profileId).toBe(createdForFirstOrg.profileId);
+    expect(renamed.ownerUserId).toBeNull();
+    expect(renamed.profileHandle).toBe("organization-coordinator");
     expect(
       repository.profiles.filter(
         (profile) =>
@@ -1480,7 +1514,11 @@ describe("OpenMeld profile service", () => {
           ownerUserId: "user_1",
           profileId,
         })
-      ).rejects.toBeInstanceOf(ProfileValidationError);
+      ).rejects.toBeInstanceOf(
+        profileId === centerAgent.profileId
+          ? ProfileNotFoundError
+          : ProfileValidationError
+      );
     }
   });
 

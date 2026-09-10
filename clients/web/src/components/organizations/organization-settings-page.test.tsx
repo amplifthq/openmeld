@@ -774,6 +774,7 @@ describe("OrganizationSettingsPage", () => {
 		expect(screen.getByText("Invite form")).toBeTruthy();
 		expect(await screen.findByText("Invite link")).toBeTruthy();
 		expect(getOrganizationJoinLinkMock).toHaveBeenCalledWith({
+			mode: "direct",
 			organizationId: "org-acme",
 		});
 
@@ -782,9 +783,10 @@ describe("OrganizationSettingsPage", () => {
 		await waitFor(() => {
 			expect(listOrganizationInvitationsMock).toHaveBeenCalledTimes(3);
 		});
-		expect(
-			await screen.findByText("No invitations awaiting acceptance")
-		).toBeTruthy();
+		await waitFor(() => {
+			expect(screen.queryByText("Invitations could not be loaded.")).toBeNull();
+			expect(screen.queryByText("Awaiting acceptance")).toBeNull();
+		});
 	});
 
 	it("keeps personal identity editable without organization invitation controls", async () => {

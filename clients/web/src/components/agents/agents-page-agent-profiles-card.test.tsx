@@ -3068,6 +3068,11 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			expect(screen.getByText("No local agent connected")).toBeTruthy();
 		});
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("heading", { name: "Unbind controller?" })
+			).toBeNull();
+		});
 
 		fireEvent.click(
 			screen.getByRole("button", {

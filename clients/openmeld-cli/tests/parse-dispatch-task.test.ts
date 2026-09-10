@@ -4,7 +4,33 @@ import type {
   SpaceMessageFileReference,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { parseDispatchTask } from "../src/local-service/dispatch/parse-dispatch-task";
+import {
+  buildDispatchSessionTitle,
+  parseDispatchTask,
+} from "../src/local-service/dispatch/parse-dispatch-task";
+
+it("names a new Session from the Wake request rather than the bootstrap instructions", () => {
+  expect(
+    buildDispatchSessionTitle({
+      targetProfileName: "Monica",
+      prompt: "Adjust the close button\n  and pagination",
+    })
+  ).toBe("OpenMeld · Monica · Adjust the close button and pagination");
+  expect(
+    buildDispatchSessionTitle({ targetProfileName: null, prompt: "Fix layout" })
+  ).toBe("OpenMeld · Fix layout");
+  expect(
+    buildDispatchSessionTitle({ targetProfileName: "Monica", prompt: " \n " })
+  ).toBeUndefined();
+  const longTitle =
+    buildDispatchSessionTitle({
+      targetProfileName: "Monica",
+      prompt: "🙂".repeat(200),
+    }) ?? "";
+  expect(longTitle.length).toBeLessThanOrEqual(120);
+  expect(longTitle.isWellFormed()).toBe(true);
+  expect(longTitle.endsWith("…")).toBe(true);
+});
 
 function createDeliverRequest(input: {
   activationTargets?: string[];

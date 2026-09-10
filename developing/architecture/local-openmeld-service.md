@@ -256,6 +256,18 @@ standalone CLI package's release channel or offer that CLI package's update
 command. If the host application does not expose a stable update-status
 contract, ACI omits the version advisory instead of guessing across sources.
 
+OpenCode Wake execution validates the selected launch files and starts the real
+controller task without a separate `--version` process. Version and capability
+probes remain in discovery/Prepare; a slow version probe must not be turned into
+an invalid execution contract. This does not bypass permission capability
+attestation or the actual controller startup and execution errors.
+
+Concurrent controller cleanup shares an unfinished macOS process-table read,
+even after the short snapshot age has elapsed. Once the read settles, its
+original capture time still determines freshness; the existing bounded cleanup
+retry obtains a fresh snapshot. Sharing reads never shares process ownership or
+the decision to signal a particular execution.
+
 The same identity rule applies to standalone installs. Latest version and the
 update command must come from the selected install's channel: that controller's
 official native updater, npm/pnpm/bun, or the Homebrew formula actually
@@ -316,17 +328,20 @@ Wake admission, RuntimeCoordinator, routing, or agent selection from these
 states. Core applies the shared versioned capability matrix to the report it
 already holds; it never calls the provider on the Wake hot path. The Service
 stamps each current ACI report with `usageLimitsSupportMatrixVersion`; this
-explicitly tells Core that missing or unconfirmed native Usage evidence must
-fail closed. A legacy Service report without that optional declaration remains
+identifies the evidence contract Core may use to prove exhaustion. Missing or
+unconfirmed Usage does not block an otherwise ready Agent. A legacy Service
+report without that optional declaration remains
 valid during mixed-version rollout and does not acquire a new Usage admission
 condition solely from a newer Core matrix. When retrying against an older Core
 contract, the Service omits both the Usage projection and its support-matrix
 declaration. For a
 controller whose matrix entry declares native Usage support, a reliable fresh
-`available` observation permits Usage admission, a reliable fresh explicitly
-`exhausted` observation blocks the Wake as `Unavailable`, and missing, stale,
-expired, unavailable, or otherwise unconfirmed evidence blocks new Wake
-admission as `Checking`. A controller that explicitly reports Usage as
+`available` observation proves current capacity and a reliable fresh explicitly
+`exhausted` observation blocks the Wake as `Unavailable`. Missing, stale,
+expired, unavailable, or otherwise unconfirmed Usage does not add a block;
+the separate current Controller readiness and trust requirements still apply.
+Positive fresh capacity remains required for automatic recovery after an
+exhausted execution. A controller that explicitly reports Usage as
 `unsupported`, or whose matrix entry is passive, unsupported, or not evaluated,
 does not use Usage as a Wakeability condition. A separate structured
 provider-access evidence field may be emitted only after an ordinary Wake is
@@ -379,6 +394,21 @@ substitute transcript token/cost estimates.
 
 ### Agent Instruction Delivery
 
+For a new Codex Session created by an ordinary Wake, Service derives an optional
+bounded title from the Agent Profile name and the current Wake text, before
+bootstrap instructions are rendered. After Codex accepts the first turn, its
+adapter attempts native naming once on the existing connection without awaiting
+the response, adding an execution-fatal timeout, or delaying connection cleanup.
+Naming failure is diagnostic only. Resumed Sessions and temporary reply-repair
+forks keep their native titles; there is no historical backfill, retry queue, or
+parallel title store. A native title change remains provider-owned Session truth.
+
+Runtime-independent Space identity, task-material trust, and current-Wake
+participant rendering are consumed from `packages/space-mesh`, together with
+its existing Entry Brief and continuity helpers. Local supplies CLI read
+instructions and retains action submission, publication, injection epochs,
+and provider adapters. Shared rendering grants no new tools or permissions.
+
 OpenMeld owns one provider-neutral instruction plan for every workstation Wake:
 stable developer instructions, a content-derived instruction epoch, the current
 Wake input, and a complete fallback prompt. Stable developer instructions may
@@ -389,6 +419,33 @@ attachment, action facts, and the optional Core-frozen Organization working-
 language advisory remain per-turn input. A preference change therefore does not
 change the stable instruction epoch. Provider adapters must not maintain a
 second copy of either category or run a separate language detector/model call.
+
+The stable workflow applies only to OpenMeld Wakes. User messages, Space Guides,
+attachments, and history remain task context rather than runtime instructions
+or new permissions. Current completion guidance requires the permitted action
+and inspection of its response, while preserving raw-reply, status, and silence
+contracts. A successful action acknowledgement records a proposal; only Core
+publication establishes a visible Space reply. Plain replies omit additional
+targets. Suggested send-target lines exclude the acting Agent without changing
+the complete member projection used for independent action validation.
+When the harness offers tool discovery, completion guidance requires checking
+for the Space Action tool before treating it as unavailable and using the CLI
+alternative. Reply submission alone does not require onboarding material.
+Unknown-submission guidance applies to Space Action submission outcomes, not
+context reads or other business tools. When a context read fails before any
+Space Action submission, the Agent should report the blocker through the
+permitted completion action rather than invent results or silently finish.
+Shared text attachments use the dispatch `read_file` tool when available.
+Dispatch MCP tool processes retain the carrier's `OPENMELD_HOME`,
+`OPENMELD_AUTH_URL` and `OPENMELD_GATEWAY_URL` when present, alongside its
+environment preset. The shared adapter configuration forwards these non-secret
+environment selectors so filtered harness environments cannot silently resolve
+a different lane's login state or endpoints. No credentials are embedded in
+instructions or added to the tool environment by this projection.
+Other context-reading commands use the existing dispatch-scoped absolute CLI entry
+from `OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH`, so a provider's login shell
+cannot redirect them to an unrelated installation through PATH. Human-facing
+Service maintenance guidance keeps the normal lane command.
 
 An adapter may separate the plan only through an official controller surface it
 can prove. Codex App Server installs stable instructions on a new thread and
@@ -402,7 +459,14 @@ instruction channel.
 For a supported controller, the Service may inject an ephemeral first-party
 Space Action tool configuration into the controller process for the active
 dispatch. That configuration is not written into user settings. It exposes only
-the allowed `reply`, `status`, and `stay_silent` operations, forwards the active
+the allowed `reply`, `status`, and `stay_silent` operations, plus the read-only
+`read_file` context operation. File reads accept only a file ID and optional
+revision; the active dispatch supplies the Space and acting Agent identity.
+The trusted tool process invokes the dispatch-owned CLI's existing public file
+read command outside the controller sandbox, preserving normal authentication,
+Space permissions, revision checks, and text-size limits. It never grants the
+controller access to local credentials or arbitrary filesystem paths. A file
+read does not record an action or finish the Wake. The configuration forwards the active
 dispatch identity, and fails closed when the action context is absent, expired,
 or mismatched. Fresh and resumed controller conversations use the same tool
 boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use
@@ -723,6 +787,35 @@ while it can prove that no provider thread or turn request began. Once provider
 initialization succeeds, ordinary long-running work remains governed by fresh
 execution progress, explicit cancellation, and terminal results rather than a
 fixed wall-clock deadline.
+
+OpenCode server initialization gives each process the same bounded 15-second
+listener budget. A slow first process must not be killed at an earlier
+five-second threshold merely to repeat initialization. One replacement remains
+allowed before any provider session or turn command, after confirmed process
+exit, within an explicitly configured task budget when present. Health checks
+remain bounded separately. Timeout diagnostics preserve the phase, attempt and
+safe retained startup stderr without reclassifying informational log text as
+an authentication failure. They do not claim that a provider task began.
+
+Each failed OpenCode initialization retains bounded evidence for both attempts:
+process identity and timestamps, elapsed listener budget, output byte/line
+counts, whether the validated ready line arrived, and the host load average.
+After five seconds of unresolved startup, one asynchronous 250-ms loopback TCP
+probe distinguishes an unopened port from an absent listener announcement.
+It sends no HTTP/provider request, never authorizes execution, and never extends
+the startup deadline. Fast starts perform no extra probe. Startup completion or
+cleanup cancels the probe. Local slow/failure logs correlate with the existing
+dispatch process events by PID and spawn timestamp; final errors retain the
+same evidence through the existing safe original-error field. No environment
+values, prompts, credentials, raw stdout, or working-directory paths are logged.
+These observations do not establish why an external process failed to start.
+
+The separate OpenCode discovery/Prepare server probe retains its own bounded
+startup deadline. A timeout includes the child PID, actual elapsed time, output
+byte counts, and host load, plus startup output only when it passes the shared
+bounded original-error safety policy. These are diagnostic facts, not evidence
+of invalid credentials or a started Wake. Provider-status read timeouts remain
+distinct from server-start timeouts.
 
 Controller snapshots are local evidence. They may power Computer cards, CLI
 diagnostics, Desktop surfaces, and owner-self Agent details, but they must stay
@@ -1394,6 +1487,11 @@ Catalog consumption rules:
   unchanged. Clearing, replacing, or editing that payload invalidates the
   in-process copy; a new Service process reloads it from secure storage. Remote
   authorization checks still decide whether the bearer session is valid.
+- Reading a committed local session does not acquire the account-transition
+  mutation lock when no durable transition journal exists. Recovery acquires
+  that lock only after observing a journal and rereads it under ownership before
+  changing anything. Pending candidate visibility, interrupted transition
+  recovery, and mutation serialization remain unchanged.
 - The managed CLI and its Service carrier own that local auth session. Future
   local clients reuse its status and actions through the Service contract; they
   do not read the bearer token through a shared Keychain access group or create
@@ -1641,6 +1739,13 @@ Service freshness and execution compatibility are separate diagnostic concepts.
 Freshness says whether a newer Service bundle exists. Compatibility says whether
 the current Service is still eligible to receive new Wake work.
 
+An accepted Wake does not inspect Service installation, bundle, supervisor, or
+whole-machine process inventory merely to inject maintenance advice into the
+Agent's prompt. Service update and repair guidance belongs to maintenance and
+the diagnostic/product surfaces. Dispatch preparation retains its owning
+identity, route, workspace, permission, and execution checks; removing advisory
+maintenance work must not bypass those checks or alter reply-context review.
+
 For setup and local component alignment, OpenMeld Service version, bundle, lane, and
 runtime-contract drift should still collapse to one primary user action:
 
@@ -1682,6 +1787,15 @@ Scheduler's registered action is the source for command and environment diagnost
 new installs do not maintain a parallel batch-file configuration.
 
 On macOS, the managed LaunchAgent uses `RunAtLoad=true` and `KeepAlive=true`.
+It declares `ProcessType=Interactive` because people are waiting for its Wake
+execution and replies. Omitting that classification allows macOS to throttle
+the carrier's CPU and I/O as background work; child controller processes can
+inherit lower-priority execution even when their task-level nice value is zero.
+The Service receives user work through Runtime Transport rather than macOS XPC,
+so `Adaptive` cannot infer that a remote Space user is waiting. Use the OS job
+classification instead of per-runtime priority wrappers or longer startup
+deadlines. Installation and normal Service updates write the same lane-owned
+definition; Linux and Windows keep their platform-specific scheduling defaults.
 The npm distribution invokes its generated OpenMeld-owned wrapper through
 `/bin/sh`. The binary distribution keeps its versioned, signed managed binaries
 as the update and rollback sources, but launchd executes an exact copy from one
@@ -1740,11 +1854,18 @@ installation is fail-atomic: a failed install or verification attempts every
 platform cleanup step and rolls back the newly written definition so a later
 pass still observes missing drift rather than mistaking a partial repair for an
 explicit autostart-disable. If cleanup itself cannot remove the partial
-definition, the daemon keeps a preset-owned durable repair-pending marker and
+definition, the daemon keeps a service-owned durable repair-pending marker and
 continues the same repair on later passes. Because the OS registration is
-global per env preset, the repair marker and daemon lifecycle lock use one
-canonical preset-owned path that deliberately ignores `OPENMELD_HOME`
-overrides. Registration repair, install, start, stop, uninstall, alignment,
+global per service identity, the repair marker and daemon lifecycle lock use
+that same owner's path. Production and canary retain canonical preset-owned
+coordination independent of `OPENMELD_HOME` overrides. Development Service and
+maintenance identities instead use a stable suffix derived from the absolute
+effective `OPENMELD_HOME`, and their coordination remains inside that home.
+This completes worktree isolation without a second lane registry or transient
+identity variable. Existing development definitions with a mismatched home are
+not adopted. Old unsuffixed development registrations require separate,
+owner-verified retirement; new lanes do not clean them up automatically.
+Registration repair, install, start, stop, uninstall, alignment,
 auto-heal, and explicit autostart changes all reuse that one
 lock identity. Nested registration work in the same lifecycle command reuses
 the held lock; competing commands or roots cannot enter until it is released.
@@ -2139,6 +2260,17 @@ version in addition to the current and rollback versions.
 An installation without independent maintenance must copy and verify its worker
 and establish the OS registration before publishing the initial pending job.
 An existing independent worker stays in place until the target Service is verified.
+
+Package version alone does not prove that the installed OS startup policy is
+current. Service inventory observes the owned macOS scheduling policy, and
+repair/alignment must recognize a same-version mismatch. This is advisory for
+Wake admission. When automatic maintenance finds no package update, a worker
+matching the installed Service version checks this policy and schedules any
+correction through the existing available-update safe switch. It does not
+restart an explicitly stopped Service, apply an older worker's policy to a
+newer Service, or inspect the process inventory on each Wake. The recovery
+carrier replacement ordering above remains unchanged.
+
 When replacing a pending target, every resource referenced by the current
 durable job remains recoverable until the replacement job is atomically
 committed; replacement must not disruptively re-register the already-owned OS
@@ -2270,6 +2402,13 @@ keeps ordinary Wake, result replay, setup, status, and diagnostics behavior but
 cannot expose **Continue conversation**. Because older Core uses strict
 Runtime Transport schemas, the cloud receiver must deploy before a Service
 that emits the new capability, heartbeat drain fields, or recovery frames.
+
+The shared Wake workflow may suggest incorporating the requester's clear
+follow-ups to the current task within existing permissions and execution mode.
+This guidance creates no Wake, queue entry, automatic rerun, or guarantee of
+model behavior. A final-action review cannot perform new implementation work;
+its reply should identify unfinished requests without implying that an
+acknowledgement started or queued them.
 
 Every local adapter repair turn must preserve the validated canonical
 conversation identity and the Binding's controller-native permission intent.

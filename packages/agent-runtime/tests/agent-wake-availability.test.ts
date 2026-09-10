@@ -269,6 +269,8 @@ describe("agent wake availability", () => {
       route: { status: "offline", reasonCodes: ["route.not_registered"] },
       service: {
         executionCompatible: false,
+        expectedEpoch: "1",
+        observedEpoch: null,
         reasonCodes: ["service.drifted"],
         source: "unavailable",
       },

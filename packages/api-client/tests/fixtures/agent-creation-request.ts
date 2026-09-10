@@ -1,0 +1,33 @@
+// Captured from the public CLI request list on 2026-09-08 after an actual
+// creation timeout; identity and computer references are anonymized.
+export const capturedCompletedCreationRequest = {
+  actorProfileId: "fixture-actorProfileId",
+  completedAt: "2026-09-08T18:53:46.331Z",
+  configuration: {
+    agentControllerCollaborationMode: null,
+    agentControllerPermissionMode: "codex:askForApproval",
+    defaultProjectId: null,
+    modelId: "gpt-5.6-sol",
+    openCodePermission: null,
+    reasoningLevel: null,
+    agentControllerRef: "builtin:codex",
+    authorizeForOrganization: true,
+    targetComputerId: "fixture-computer",
+  },
+  createdAgentProfileId: "fixture-createdAgentProfileId",
+  createdAt: "2026-09-08T18:53:37.551Z",
+  decidedAt: "2026-09-08T18:53:37.551Z",
+  id: "fixture-id",
+  failureMessage: null,
+  nativeSessionId: null,
+  organizationId: "fixture-organizationId",
+  profileName: "Acceptance Agent",
+  requestedSpaceId: "fixture-requestedSpaceId",
+  requesterUserId: "fixture-requesterUserId",
+  sessionStrategy: "new",
+  source: "cli",
+  status: "completed",
+  statusReason: "profile_created",
+  targetOwnerUserId: "fixture-targetOwnerUserId",
+  updatedAt: "2026-09-08T18:53:46.331Z",
+} as const;

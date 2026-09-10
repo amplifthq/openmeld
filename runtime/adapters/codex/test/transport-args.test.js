@@ -295,6 +295,7 @@ describe("Codex Space Action MCP config", () => {
         OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH:
           "/tmp/openmeld dispatch/bin/openmeld-dev",
         OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
+        OPENMELD_HOME: "/tmp/isolated OpenMeld home",
       }),
       [
         "-c",
@@ -302,13 +303,13 @@ describe("Codex Space Action MCP config", () => {
         "-c",
         'mcp_servers.openmeld_internal_dispatch_space_action.args=["space","action","tool-server"]',
         "-c",
-        'mcp_servers.openmeld_internal_dispatch_space_action.env_vars=["OPENMELD_SPACE_ACTION_CONTEXT_PATH","OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH","OPENMELD_USER_FACING_CLI_COMMAND"]',
+        'mcp_servers.openmeld_internal_dispatch_space_action.env_vars=["OPENMELD_SPACE_ACTION_CONTEXT_PATH","OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH","OPENMELD_USER_FACING_CLI_COMMAND","OPENMELD_HOME"]',
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.enabled=true",
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.required=true",
         "-c",
-        'mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=["reply","status","stay_silent"]',
+        'mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=["read_file","reply","status","stay_silent"]',
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.disabled_tools=[]",
         "-c",

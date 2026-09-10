@@ -43,11 +43,16 @@ describe("Inbox Core RPC", () => {
       ).resolves.toEqual({
         organizationId: "org-1",
         totalUnreadCount: 0,
+        unreadUrgentUpdateCount: 0,
         unresolvedActionCount: 0,
       });
       await expect(
         rpcGetSpaceInboxSummary(env, { context: contextFor("user-1") })
       ).resolves.toEqual({
+        attention: [],
+        chatUnreadCount: 0,
+        chatUnreadUrgentUpdateCount: 0,
+        chatUnresolvedActionCount: 0,
         ordinarySpaceUnreadCount: 1,
         organizationId: "org-1",
         spaces: [
@@ -161,6 +166,8 @@ function createInboxHarness() {
     sql: "CREATE TABLE members (id TEXT PRIMARY KEY NOT NULL, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL)",
   });
   applyDrizzleMigrationsForTables(harness, [
+    "openmeld_profiles",
+    "center_agent_designations",
     "center_agent_tasks",
     "inbox_items",
     "inbox_email_deliveries",

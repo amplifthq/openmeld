@@ -16,6 +16,7 @@ const PROCESS_DISCOVERY_DIAGNOSTIC_WINDOW_MS = 60_000;
 
 type AgentControllerProcessTableSnapshot = {
   capturedAtMs: number;
+  pending: boolean;
   processTable: Promise<string>;
 };
 
@@ -45,17 +46,23 @@ export function createAgentControllerProcessTableSnapshotReader(input: {
     const readAtMs = now();
     if (snapshot) {
       const ageMs = readAtMs - snapshot.capturedAtMs;
-      if (ageMs >= 0 && ageMs < input.maxAgeMs) {
+      if (snapshot.pending || (ageMs >= 0 && ageMs < input.maxAgeMs)) {
         return await snapshot.processTable;
       }
     }
 
     const processTable = input.readProcessTable();
-    snapshot = {
+    const currentSnapshot = {
       capturedAtMs: readAtMs,
+      pending: true,
       processTable,
     };
-    return await processTable;
+    snapshot = currentSnapshot;
+    try {
+      return await processTable;
+    } finally {
+      currentSnapshot.pending = false;
+    }
   };
 }
 
@@ -471,8 +478,8 @@ const readMacOsSupervisedProcessTable =
   createAgentControllerProcessTableSnapshotReader({
     // One Service drain can stop several controllers in the same event-loop
     // turn. They need one system snapshot, not one blocking `ps eww` scan per
-    // controller. The cache expires before the bounded 100 ms discovery retry,
-    // so a transient timeout still receives one fresh retry.
+    // controller. Pending reads stay shared even when slow; settled snapshots
+    // expire before the bounded 100 ms retry, which still receives a fresh read.
     maxAgeMs: PROCESS_TABLE_STOP_PHASE_SNAPSHOT_MAX_AGE_MS,
     readProcessTable: async () =>
       await readProcessTable(["eww", "-axo", "pid=,ppid=,pgid=,command="], {
@@ -510,7 +517,18 @@ export function resolveAgentControllerSupervisedProcessIds(input: {
   processTable: string;
   supervisionId: string;
 }): number[] {
-  const supervisionMarker = `${PROCESS_SUPERVISION_ENV_KEY}=${input.supervisionId}`;
+  return resolveAgentControllerProcessIdsFromTable({
+    ...input,
+    supervisionMarker: `${PROCESS_SUPERVISION_ENV_KEY}=${input.supervisionId}`,
+  });
+}
+
+function resolveAgentControllerProcessIdsFromTable(input: {
+  markedProcessIds?: Iterable<number>;
+  processId: number;
+  processTable: string;
+  supervisionMarker?: string;
+}): number[] {
   const childrenByParentProcessId = new Map<number, number[]>();
   const processGroupByProcessId = new Map<number, number>();
   const markedProcessIds = new Set<number>(input.markedProcessIds);
@@ -538,7 +556,10 @@ export function resolveAgentControllerSupervisedProcessIds(input: {
     children.push(processId);
     childrenByParentProcessId.set(parentProcessId, children);
     processGroupByProcessId.set(processId, processGroupId);
-    if (commandParts.includes(supervisionMarker)) {
+    if (
+      input.supervisionMarker !== undefined &&
+      commandParts.includes(input.supervisionMarker)
+    ) {
       markedProcessIds.add(processId);
     }
   }
@@ -655,49 +676,7 @@ export function resolveAgentControllerDescendantProcessIds(input: {
   processId: number;
   processTable: string;
 }): number[] {
-  const childrenByParentProcessId = new Map<number, number[]>();
-  const processGroupByProcessId = new Map<number, number>();
-
-  for (const line of input.processTable.split(PROCESS_TABLE_LINE_SEPARATOR)) {
-    const [processIdText, parentProcessIdText, processGroupIdText] = line
-      .trim()
-      .split(PROCESS_TABLE_COLUMN_SEPARATOR);
-    const processId = Number.parseInt(processIdText ?? "", 10);
-    const parentProcessId = Number.parseInt(parentProcessIdText ?? "", 10);
-    const processGroupId = Number.parseInt(processGroupIdText ?? "", 10);
-    if (
-      !(
-        Number.isInteger(processId) &&
-        processId > 0 &&
-        Number.isInteger(parentProcessId) &&
-        parentProcessId >= 0 &&
-        Number.isInteger(processGroupId) &&
-        processGroupId > 0
-      )
-    ) {
-      continue;
-    }
-    const children = childrenByParentProcessId.get(parentProcessId) ?? [];
-    children.push(processId);
-    childrenByParentProcessId.set(parentProcessId, children);
-    processGroupByProcessId.set(processId, processGroupId);
-  }
-
-  const descendants: number[] = [];
-  const pending = [...(childrenByParentProcessId.get(input.processId) ?? [])];
-  const visited = new Set<number>([input.processId]);
-  while (pending.length > 0) {
-    const descendantProcessId = pending.shift();
-    if (descendantProcessId === undefined || visited.has(descendantProcessId)) {
-      continue;
-    }
-    visited.add(descendantProcessId);
-    if (processGroupByProcessId.get(descendantProcessId) !== input.processId) {
-      descendants.push(descendantProcessId);
-    }
-    pending.push(...(childrenByParentProcessId.get(descendantProcessId) ?? []));
-  }
-  return descendants;
+  return resolveAgentControllerProcessIdsFromTable(input);
 }
 
 function signalProcessId(input: {

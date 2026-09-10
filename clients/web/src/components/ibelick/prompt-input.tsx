@@ -7,6 +7,7 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { SurfaceProvider } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
 import type React from "react";
 import { createContext, use, useEffect, useRef, useState } from "react";
@@ -96,15 +97,18 @@ function PromptInput({
 					disabled,
 				}}
 			>
-				<div
-					className={cn(
-						"rounded-md border border-input bg-background p-2 shadow-xs",
-						className
-					)}
-					onPointerDown={handleSurfacePointerDown}
-				>
-					{children}
-				</div>
+				<SurfaceProvider value={2}>
+					<div
+						className={cn(
+							"composer-surface rounded-2xl border border-transparent p-2",
+							className
+						)}
+						data-slot="prompt-input"
+						onPointerDown={handleSurfacePointerDown}
+					>
+						{children}
+					</div>
+				</SurfaceProvider>
 			</PromptInputContext.Provider>
 		</TooltipProvider>
 	);

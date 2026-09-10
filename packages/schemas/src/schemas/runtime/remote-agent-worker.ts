@@ -16,6 +16,7 @@ import {
 } from "../protocol/agent-stream";
 import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import { conversationCompactionMarkerSchema } from "../protocol/conversation-compaction";
+import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import {
   agentProfileIdSchema,
   openMeldRuntimeProfileIdSchema,
@@ -25,6 +26,7 @@ import {
   spaceMessageAttachmentSchema,
   spaceMessageAttachmentsSchema,
 } from "../protocol/space-attachment";
+import { spaceMessageReactionsSchema } from "../space-mesh/message-reaction";
 import { centerAgentModelRouteSchema } from "./center-agent-model";
 import {
   remoteAgentTurnEnvelopeSchema,
@@ -119,6 +121,7 @@ export const remoteAgentConversationContinuityEntrySchema = z
         .max(REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS * 2),
       truncated: z.boolean(),
     }),
+    reactions: spaceMessageReactionsSchema.optional(),
     occurredAt: isoDateTimeSchema,
     source: remoteAgentConversationContinuityEntrySourceSchema,
   })
@@ -361,7 +364,7 @@ const remoteAgentWorkerSubmitTurnRequestShape = {
   // result is published.
   conversationId: optionalNonEmptyStringSchema,
   agentProfileId: agentProfileIdSchema,
-  agentProfileOwnerUserId: nonEmptyStringSchema,
+  agentProfileOwnerUserId: nonEmptyStringSchema.nullable(),
   bindingId: nonEmptyStringSchema,
   triggerMessageId: nonEmptyStringSchema,
   dispatchId: nonEmptyStringSchema,
@@ -412,6 +415,7 @@ export const remoteAgentWorkerSubmitTurnRequestV4Schema = z
     ),
     continuityContext:
       remoteAgentConversationContinuityContextSchema.optional(),
+    sourceMessageEnvelope: messageEnvelopeSchema.optional(),
     modelRoute: centerAgentModelRouteSchema,
     runtimeConversation: remoteAgentRuntimeConversationSchema,
     spaceDispatchContext: z

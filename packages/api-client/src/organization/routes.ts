@@ -2,6 +2,7 @@ import {
   ORGANIZATION_DIRECTORY_AGENT_PROFILE_WORK_RECOVERY_VERSION_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER,
 } from "@openmeld/gateway-contract";
+import type { AgentProfileCreationRequestSelector } from "@openmeld/schemas/types";
 
 export function buildCurrentOrganizationDirectoryPath(input?: {
   agentProfileWorkRecoveryVersion?: 2;
@@ -115,9 +116,18 @@ export function buildAgentProfileCreationDefaultsPath(
 }
 
 export function buildAgentProfileCreationRequestsPath(
-  organizationId: string
+  organizationId: string,
+  selector?: AgentProfileCreationRequestSelector
 ): string {
-  return `/v1/organizations/${encodeURIComponent(organizationId)}/agent-profile-creation-requests`;
+  const path = `/v1/organizations/${encodeURIComponent(organizationId)}/agent-profile-creation-requests`;
+  const query = new URLSearchParams();
+  if (selector?.requestId) {
+    query.set("requestId", selector.requestId);
+  }
+  if (selector?.idempotencyKey) {
+    query.set("idempotencyKey", selector.idempotencyKey);
+  }
+  return query.size ? `${path}?${query}` : path;
 }
 
 export function buildAgentProfileCreationRequestPath(

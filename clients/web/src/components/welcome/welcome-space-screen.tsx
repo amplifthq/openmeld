@@ -9,14 +9,17 @@ import type {
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
-import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
+import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
+import { useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowRightIcon, PlusIcon } from "@phosphor-icons/react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import { SpaceAccessModeRadioGroup } from "#/components/spaces/space-access-editor";
+import { SpaceVisibilityPicker } from "#/components/spaces/space-visibility-editor";
 import { WelcomeLayout } from "./welcome-layout";
 
 const SPACE_NAME_INPUT_ID = "welcome-space-name-input";
@@ -176,7 +179,7 @@ function WelcomeSpaceModeContent(input: {
 		return <WelcomeJoinSpaceList {...input} />;
 	}
 	return (
-		<div className="grid gap-3">
+		<FluidCardGroup className="grid gap-3">
 			{input.props.computerSetupActions ? (
 				<AddComputerChoiceCard {...input.props.computerSetupActions} />
 			) : null}
@@ -194,7 +197,7 @@ function WelcomeSpaceModeContent(input: {
 				onClick={input.handleJoinChoice}
 				title="Join a Space"
 			/>
-		</div>
+		</FluidCardGroup>
 	);
 }
 
@@ -311,32 +314,11 @@ function CreateSpaceForm(props: {
 					<Label id={SPACE_ORGANIZATION_VISIBILITY_ID}>
 						Organization directory listing
 					</Label>
-					<RadioGroup
-						aria-disabled={props.isPending || undefined}
-						aria-labelledby={SPACE_ORGANIZATION_VISIBILITY_ID}
-						className={cn(
-							"w-full gap-1",
-							props.isPending && "pointer-events-none opacity-70"
-						)}
-						selectedIndex={visibility === "private" ? 0 : 1}
-					>
-						<RadioItem
-							className="px-3 py-2.5"
-							description="Only members you add can find and join this Space."
-							index={0}
-							label="Private"
-							onSelect={() => setVisibility("private")}
-							selected={visibility === "private"}
-						/>
-						<RadioItem
-							className="px-3 py-2.5"
-							description="Everyone in this organization can find and join this Space."
-							index={1}
-							label="Public"
-							onSelect={() => setVisibility("public")}
-							selected={visibility === "public"}
-						/>
-					</RadioGroup>
+					<SpaceVisibilityPicker
+						disabled={props.isPending}
+						onChange={setVisibility}
+						value={visibility}
+					/>
 				</div>
 			) : null}
 			<div className="grid gap-2">
@@ -399,22 +381,32 @@ function SpaceChoiceCard(props: {
 	onClick: () => void;
 	disabled?: boolean;
 }) {
+	const surface = useSurface() + 2;
 	return (
-		<button
-			className="flex w-full items-start gap-3 rounded-md border border-border bg-muted/20 p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-muted/20"
+		<FluidCardItem
+			className={cn(
+				surfaceClasses(surface),
+				props.disabled && "cursor-not-allowed opacity-50"
+			)}
 			disabled={props.disabled}
-			onClick={props.onClick}
-			type="button"
+			itemId={props.title}
 		>
-			<span className="mt-0.5 text-muted-foreground">{props.icon}</span>
-			<span className="min-w-0">
-				<span className="block font-medium text-foreground text-sm">
-					{props.title}
+			<button
+				className="flex w-full items-start gap-3 rounded-md border border-transparent p-4 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed"
+				disabled={props.disabled}
+				onClick={props.onClick}
+				type="button"
+			>
+				<span className="mt-0.5 text-muted-foreground">{props.icon}</span>
+				<span className="min-w-0">
+					<span className="block font-medium text-foreground text-sm">
+						{props.title}
+					</span>
+					<span className="block text-muted-foreground text-xs leading-5">
+						{props.description}
+					</span>
 				</span>
-				<span className="block text-muted-foreground text-xs leading-5">
-					{props.description}
-				</span>
-			</span>
-		</button>
+			</button>
+		</FluidCardItem>
 	);
 }

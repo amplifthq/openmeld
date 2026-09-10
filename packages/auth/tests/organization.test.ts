@@ -42,7 +42,7 @@ const GITHUB_OWNER_PERSONAL_ORGANIZATION_SLUG_PATTERN =
   /^github-owner-[0-9a-hjkmnp-tv-z]{6}$/;
 const LEGACY_PERSONAL_ORGANIZATION_SLUG_PATTERN =
   /^legacy-example-[0-9a-hjkmnp-tv-z]{6}$/;
-const CENTER_AGENT_HOST_GUARD_FAILED_MESSAGE =
+const CENTER_AGENT_MEMBER_REMOVAL_GUARD_FAILED_MESSAGE =
   "OpenMeld couldn't verify that this member can be removed. The member was not removed.";
 
 const harnesses: { close(): void }[] = [];
@@ -1075,43 +1075,6 @@ describe("organization identity foundation", () => {
     );
   });
 
-  it("rejects removing the member who hosts the designated Center Agent", async () => {
-    const { auth, harness } = createTestAuth();
-    const membership = await createOrganizationWithAcceptedMember({
-      auth,
-      harness,
-    });
-    const centerAgentProfileId = "agt_00000000-0000-4000-8000-000000000001";
-    insertCenterAgentDesignation(harness, {
-      designatedByUserId: membership.ownerUserId,
-      organizationId: membership.organizationId,
-      ownerUserId: membership.memberUserId,
-      profileId: centerAgentProfileId,
-    });
-
-    const response = await postAuth(
-      auth,
-      "/organization/remove-member",
-      {
-        memberIdOrEmail: membership.memberId,
-        organizationId: membership.organizationId,
-      },
-      membership.ownerHeaders
-    );
-
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({
-      message:
-        "This member activated the organization's Center Agent. Revoke or re-designate the Center Agent before removing them.",
-    });
-    expect(
-      harness.queryFirst({
-        params: [membership.memberId],
-        sql: "select id from members where id = ?",
-      })
-    ).toEqual({ id: membership.memberId });
-  });
-
   it("fails closed when the member removal guard database is unbound", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { auth, harness } = createTestAuth({
@@ -1139,12 +1102,12 @@ describe("organization identity foundation", () => {
         },
       ],
       memberId: membership.memberId,
-      message: CENTER_AGENT_HOST_GUARD_FAILED_MESSAGE,
+      message: CENTER_AGENT_MEMBER_REMOVAL_GUARD_FAILED_MESSAGE,
       status: 503,
     });
   });
 
-  it("fails closed when the Center Agent host query fails", async () => {
+  it("fails closed when the Center Agent identity query fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { auth, harness } = createTestAuth({
       centerAgentRemovalGuardDatabase: "query_failure",
@@ -1164,15 +1127,15 @@ describe("organization identity foundation", () => {
       guardLog: [
         "[auth.center_agent_member_removal_guard_failed]",
         {
-          error: "Center Agent host query unavailable",
+          error: "Center Agent identity query unavailable",
           event: "auth.center_agent_member_removal_guard_failed",
           organizationId: membership.organizationId,
-          reason: "center_agent_host_query_failed",
+          reason: "center_agent_identity_query_failed",
           userId: membership.memberUserId,
         },
       ],
       memberId: membership.memberId,
-      message: CENTER_AGENT_HOST_GUARD_FAILED_MESSAGE,
+      message: CENTER_AGENT_MEMBER_REMOVAL_GUARD_FAILED_MESSAGE,
       status: 503,
     });
   });
@@ -1202,17 +1165,70 @@ describe("organization identity foundation", () => {
         {
           event: "auth.center_agent_member_removal_guard_failed",
           organizationId: membership.organizationId,
-          reason: "center_agent_host_profile_missing",
+          reason: "center_agent_profile_missing",
           userId: membership.memberUserId,
         },
       ],
       memberId: membership.memberId,
-      message: CENTER_AGENT_HOST_GUARD_FAILED_MESSAGE,
+      message: CENTER_AGENT_MEMBER_REMOVAL_GUARD_FAILED_MESSAGE,
       status: 503,
     });
   });
 
-  it("allows removing a member who does not host the designated Center Agent", async () => {
+  it.each([
+    "organization_id = 'another-organization'",
+    "profile_kind = 'human'",
+    "managed_role = NULL",
+    "owner_user_id = created_by_user_id",
+  ])("fails closed for a mismatched Center Agent identity (%s)", async (mutation) => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { auth, harness } = createTestAuth();
+    const membership = await createOrganizationWithAcceptedMember({
+      auth,
+      harness,
+    });
+    const profileId = "agt_00000000-0000-4000-8000-000000000004";
+    insertCenterAgentDesignation(harness, {
+      designatedByUserId: membership.ownerUserId,
+      createdByUserId: membership.ownerUserId,
+      organizationId: membership.organizationId,
+      profileId,
+    });
+    harness.run({
+      params: [Date.now()],
+      sql: "insert into organizations (id, name, slug, created_at) values ('another-organization', 'Another Organization', 'another-organization', ?)",
+    });
+    // Model inconsistent legacy data to prove the API guard independently of
+    // current schema checks. Normal fixtures use the complete current schema.
+    harness.database.exec("PRAGMA ignore_check_constraints = ON");
+    try {
+      harness.run({
+        params: [profileId],
+        sql: `update openmeld_profiles set ${mutation} where profile_id = ?`,
+      });
+    } finally {
+      harness.database.exec("PRAGMA ignore_check_constraints = OFF");
+    }
+    expect(
+      await readMemberRemovalGuardOutcome({ auth, harness, membership })
+    ).toMatchObject({
+      guardLog: [
+        "[auth.center_agent_member_removal_guard_failed]",
+        {
+          reason: "center_agent_identity_mismatch",
+          organizationId: membership.organizationId,
+        },
+      ],
+      memberId: membership.memberId,
+      message: CENTER_AGENT_MEMBER_REMOVAL_GUARD_FAILED_MESSAGE,
+      status: 503,
+    });
+  });
+
+  it.each([
+    "creator and designator",
+    "another member",
+  ])("allows removing %s while preserving the Center Agent and member cleanup", async (removedActor) => {
     const requestSessionInventoryCleanup = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1252,11 +1268,16 @@ describe("organization identity foundation", () => {
       auth,
       harness,
     });
+    const attributionUserId =
+      removedActor === "creator and designator"
+        ? membership.memberUserId
+        : membership.ownerUserId;
+    const profileId = "agt_00000000-0000-4000-8000-000000000002";
     insertCenterAgentDesignation(harness, {
-      designatedByUserId: membership.ownerUserId,
+      designatedByUserId: attributionUserId,
       organizationId: membership.organizationId,
-      ownerUserId: membership.ownerUserId,
-      profileId: "agt_00000000-0000-4000-8000-000000000002",
+      createdByUserId: attributionUserId,
+      profileId,
     });
 
     const response = await postAuth(
@@ -1277,6 +1298,25 @@ describe("organization identity foundation", () => {
       })
     ).toBeNull();
     expect(requestSessionInventoryCleanup).toHaveBeenCalledTimes(2);
+    expect(
+      harness.queryFirst({
+        params: [profileId],
+        sql: "select organization_id, owner_user_id, created_by_user_id from openmeld_profiles where profile_id = ?",
+      })
+    ).toEqual({
+      organization_id: membership.organizationId,
+      owner_user_id: null,
+      created_by_user_id: attributionUserId,
+    });
+    expect(
+      harness.queryFirst({
+        params: [membership.organizationId],
+        sql: "select agent_profile_id, designated_by from center_agent_designations where organization_id = ?",
+      })
+    ).toEqual({
+      agent_profile_id: profileId,
+      designated_by: attributionUserId,
+    });
     expect(requestSessionInventoryCleanup).toHaveBeenCalledWith({
       organizationId: membership.organizationId,
       userId: membership.memberUserId,
@@ -1375,7 +1415,7 @@ function createTestAuth(
   } as const;
   const guardDatabase =
     input.centerAgentRemovalGuardDatabase === "query_failure"
-      ? createCenterAgentHostQueryFailingD1Database(harness.db)
+      ? createCenterAgentIdentityQueryFailingD1Database(harness.db)
       : harness.db;
   const databaseConfig = createAuthConfig({
     ...authConfigInput,
@@ -1541,7 +1581,7 @@ function insertCenterAgentDesignation(
   input: {
     designatedByUserId: string;
     organizationId: string;
-    ownerUserId: string;
+    createdByUserId: string;
     profileId: string;
   }
 ): void {
@@ -1552,8 +1592,7 @@ function insertCenterAgentDesignation(
       "Acme Center Agent",
       "acme-center-agent",
       input.organizationId,
-      input.ownerUserId,
-      input.designatedByUserId,
+      input.createdByUserId,
       now,
       now,
     ],
@@ -1572,7 +1611,7 @@ function insertCenterAgentDesignation(
         managed_role,
         created_at,
         updated_at
-      ) values (?, ?, ?, 'agent', 0, 'active', ?, ?, ?, 'auth_bootstrap', 'center_agent', ?, ?)
+      ) values (?, ?, ?, 'agent', 0, 'active', ?, null, ?, 'auth_bootstrap', 'center_agent', ?, ?)
     `,
   });
   harness.run({
@@ -1933,14 +1972,14 @@ function createD1Database(database: DatabaseSync): D1Database {
   } as D1Database;
 }
 
-function createCenterAgentHostQueryFailingD1Database(
+function createCenterAgentIdentityQueryFailingD1Database(
   database: D1Database
 ): D1Database {
   return {
     ...database,
     prepare: (sql: string) => {
       if (sql.includes("FROM center_agent_designations AS designations")) {
-        throw new Error("Center Agent host query unavailable");
+        throw new Error("Center Agent identity query unavailable");
       }
       return database.prepare(sql);
     },

@@ -8,6 +8,9 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
+import { useSurface } from "@openmeld/ui/lib/surface-context";
+import { cn } from "@openmeld/ui/lib/utils";
 import { XIcon } from "@phosphor-icons/react";
 import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
 import { MotionConfig } from "framer-motion";
@@ -39,6 +42,7 @@ import {
 import { Editor, EditorContainer } from "#/components/editor/ui/editor";
 import {
 	InlineCombobox,
+	InlineComboboxCancel,
 	InlineComboboxContent,
 	InlineComboboxEmpty,
 	InlineComboboxGroup,
@@ -87,6 +91,7 @@ export type SpaceComposerInputRef =
 	MutableRefObject<SpaceComposerEditorHandle | null>;
 
 export type SpaceComposerEditorChange = {
+	restoredFromSignalId?: string;
 	authoredMentions: ComposerDraftAuthoredMention[];
 	selection: SpaceComposerSelection;
 	text: string;
@@ -99,6 +104,7 @@ type SpaceComposerEditorProps = {
 	centerAgentProfileId?: string | null;
 	composerRef?: SpaceComposerInputRef;
 	disabled?: boolean;
+	inline?: boolean;
 	maxHeight?: number;
 	mentionPickerItems: readonly SpaceMentionPickerItem[];
 	onChange: (change: SpaceComposerEditorChange) => void;
@@ -110,6 +116,7 @@ type SpaceComposerEditorProps = {
 	onFocus?: FocusEventHandler<HTMLDivElement>;
 	onPaste?: (event: ClipboardEvent<HTMLDivElement>) => void;
 	onSend: () => void;
+	onCancel?: () => void;
 	placeholder: string;
 	text: string;
 };
@@ -122,12 +129,15 @@ type SpaceComposerEditorContextValue = Pick<
 const SpaceComposerEditorContext =
 	createContext<SpaceComposerEditorContextValue | null>(null);
 
-const SpaceComposerEditorKit = [
+export const SpaceComposerEditorKit = [
 	ParagraphPlugin.withComponent(SpaceComposerParagraphElement),
 	MentionPlugin.configure({
 		options: {
 			insertSpaceAfterMention: true,
 			trigger: "@",
+			// Allow natural CJK sentences and punctuation without intercepting email addresses.
+			triggerPreviousCharPattern:
+				/^$|^[\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}，。！？；：、（）【】《》「」『』“”‘’,;:!?()[\]{}<>"']$/u,
 		},
 	}),
 	MentionInputPlugin.withComponent(SpaceComposerMentionInput),
@@ -350,7 +360,11 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 					<Editor
 						aria-label={input.ariaLabel}
 						aria-placeholder={input.placeholder}
-						className="min-h-11 px-1 py-2 text-sm leading-6"
+						className={
+							input.inline
+								? "min-h-[26px] rounded-none p-0 text-base leading-[26px]"
+								: "min-h-11 px-1 py-2 text-sm leading-6"
+						}
 						disabled={input.disabled}
 						onBlurCapture={input.onBlur}
 						onCopyCapture={(event) => handleCopy(event, editor)}
@@ -365,9 +379,18 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 						}
 						onDropCapture={(event) => handleDragCapture(event, input.onDrop)}
 						onFocusCapture={input.onFocus}
-						onKeyDownCapture={(event) =>
-							handleKeyDown(event, editor, input.onSend)
-						}
+						onKeyDownCapture={(event) => {
+							if (
+								event.key === "Escape" &&
+								input.onCancel &&
+								!(event.target instanceof HTMLInputElement)
+							) {
+								event.stopPropagation();
+								input.onCancel();
+								return;
+							}
+							handleKeyDown(event, editor, input.onSend);
+						}}
 						onPasteCapture={(event) =>
 							handlePaste(
 								event,
@@ -421,6 +444,7 @@ function SpaceComposerProfileToken(
 	props: PlateElementProps<SpaceComposerProfileElement>
 ) {
 	const { editor, element } = props;
+	const surface = useSurface() + 1;
 	// Moving focus into the portaled menu must not move the draft's caret.
 	const relationSelection = useRef(editor.selection);
 	const context = useSpaceComposerEditorContext();
@@ -443,6 +467,12 @@ function SpaceComposerProfileToken(
 		: [];
 	const isRepeatedAgent =
 		profileKind === "agent" && isRepeatedProfileElement(editor, element);
+	const isBlockedWake =
+		profileKind === "agent" &&
+		element.relation === "wake" &&
+		!isRepeatedAgent &&
+		target?.wakeAvailability.status !== "ready" &&
+		target?.wakeAvailability.status !== "preparing";
 	let relationControl: ReactNode = null;
 	if (profileKind === "agent" && choices.length > 0 && !isRepeatedAgent) {
 		const selectedRelationLabel =
@@ -531,7 +561,11 @@ function SpaceComposerProfileToken(
 	return (
 		<PlateElement {...props} as="span">
 			<span
-				className="group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-baseline text-foreground ring-1 ring-border/70 focus-within:ring-2 focus-within:ring-ring"
+				className={cn(
+					surfaceClasses(surface),
+					"group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 align-baseline focus-within:ring-2 focus-within:ring-ring",
+					isBlockedWake ? "text-muted-foreground" : "text-foreground"
+				)}
 				contentEditable={false}
 				data-mention-text={element.mentionText}
 				data-testid="space-composer-profile-token"
@@ -544,7 +578,10 @@ function SpaceComposerProfileToken(
 					@
 				</span>
 				<span
-					className="inline-flex shrink-0"
+					className={cn(
+						"inline-flex shrink-0",
+						isBlockedWake && "opacity-50 grayscale"
+					)}
 					data-slot="space-composer-profile-token-icon"
 				>
 					<SpaceProfileIcon
@@ -631,6 +668,7 @@ function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
 					aria-label="Member options"
 					className="w-[min(24rem,calc(100vw-1.5rem))]"
 				>
+					<InlineComboboxCancel label="Close mentions" />
 					<InlineComboboxEmpty>No matching members</InlineComboboxEmpty>
 					<SpaceComposerMentionGroup items={agentItems} title="Agents" />
 					<SpaceComposerMentionGroup items={humanItems} title="People" />

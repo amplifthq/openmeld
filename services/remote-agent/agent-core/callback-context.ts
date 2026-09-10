@@ -132,6 +132,8 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkLoopCheckpoint,
+  ResolveSpaceFileContentInput,
+  ResolveSpaceFileContentResponse,
   ResumeCenterAgentRoutineResponse,
   SpaceAttachmentDescriptor,
   SpaceFileDescriptor,
@@ -189,7 +191,7 @@ export type RemoteAgentCallbackContext = {
   accepted: boolean;
   acceptedAt: string;
   agentProfileId: string;
-  agentProfileOwnerUserId: string;
+  agentProfileOwnerUserId: string | null;
   anonymousIdentityBoundary?: RemoteAgentAnonymousIdentityBoundary;
   bindingId: string;
   callbackAttempts: number;
@@ -217,6 +219,7 @@ export type RemoteAgentCallbackContext = {
   organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
   requestId?: string;
   sourceClientMessageId: string | null;
+  sharedSpaceContextEnabled?: boolean;
   trustedSlackThreadPublicationTargetKeys?: string[];
   spaceId: string;
   submissionCreatedAt: number;
@@ -539,6 +542,11 @@ export type RemoteAgentCoreWorkerBinding = {
     spaceId: string;
     write: CommitSpaceFileWriteInput;
   }): Promise<SpaceFileDescriptor>;
+  readSpaceFileContent?(input: {
+    context: OpenMeldRequestContext;
+    spaceId: string;
+    content: ResolveSpaceFileContentInput;
+  }): Promise<ResolveSpaceFileContentResponse & { bytes: ArrayBuffer }>;
   deleteSpaceAttachmentRecord?(input: {
     attachmentId: string;
   }): Promise<{ deleted: boolean }>;
@@ -640,6 +648,9 @@ export function createRemoteAgentCallbackContext(input: {
       })) ?? [],
     requestId: input.ack.requestId,
     sourceClientMessageId: input.request.sourceClientMessageId ?? null,
+    sharedSpaceContextEnabled:
+      input.request.v === 4 &&
+      input.request.sourceMessageEnvelope !== undefined,
     trustedSlackThreadPublicationTargetKeys:
       extractSlackThreadPublicationTargetKeys(
         input.request.messages.map((message) => message.content)

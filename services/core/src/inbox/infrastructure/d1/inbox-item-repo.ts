@@ -71,7 +71,11 @@ export async function prepareEnsureInboxItemStatements(input: {
     candidate.sourceKey,
   ]);
   const deliveryId =
-    candidate.importance === "urgent" ||
+    (candidate.importance === "urgent" &&
+      !(
+        candidate.sourceTarget.kind === "space" &&
+        candidate.sourceTarget.agentOwnerActivity === true
+      )) ||
     candidate.sourceTarget.kind === "organization_join_request"
       ? await buildStableId("inbox_email", [itemId])
       : null;

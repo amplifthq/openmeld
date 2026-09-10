@@ -13,6 +13,12 @@ export {
   CENTER_AGENT_ROLE_TEMPLATE_LINES,
   CENTER_AGENT_ROLE_TEMPLATE_VERSION,
 } from "./center-agent-role-template";
+export {
+  buildSpaceAgentIdentityLine,
+  buildSpaceWakeParticipantLines,
+  SPACE_COLLABORATION_CONTEXT_RULE,
+  SPACE_PERSONAL_CONTRIBUTION_RULE,
+} from "./collaboration-context";
 export { deriveContinuity } from "./continuity";
 export {
   buildCompactDispatchActionGuidanceLines,

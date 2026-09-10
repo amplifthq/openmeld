@@ -1,137 +1,108 @@
 import { Button } from "@openmeld/ui/components/button";
 import {
+	Dialog,
+	DialogContent,
+	DialogHeader,
+	DialogTitle,
+} from "@openmeld/ui/components/dialog";
+import {
 	DropdownMenu,
-	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { Input } from "@openmeld/ui/components/input";
+import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { FunnelSimpleIcon, PlusIcon } from "@phosphor-icons/react";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
-import { SidebarDestinationAction } from "#/components/app/sidebar-destination-actions";
-import { SidebarSearchInput } from "#/components/app/sidebar-search-input";
-import { CenterAgentChatSidebar } from "#/components/organizations/center-agent-chat-sidebar";
-import { EMPTY_CHAT_PREFERENCES } from "#/lib/organizations/center-agent-chat-preferences";
-import { useAppOrganization } from "#/lib/organizations/organization-context";
-import {
-	buildOrganizationDirectMessagePath,
-	buildOrganizationDirectMessagesPath,
-} from "#/lib/organizations/organization-routes";
-import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
-import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
-import {
-	APP_NAV_GROUP_CLASS_NAME,
-	APP_NAV_GROUP_LABEL_CLASS_NAME,
-	APP_NAV_GROUP_SPACING_CLASS_NAME,
-} from "../app/app-nav-item-style";
-import { AppSidebarGroup } from "../app/app-sidebar-group";
-import { SidebarDrag } from "../app/sidebar-drag";
-import { SidebarSectionActions } from "../app/sidebar-section-actions";
-import { useSidebarPreferences } from "../app/use-sidebar-preferences";
-import { resolveAccountSpaceViewerProfileId } from "./account-space-sections";
-import { AppDirectMessagesSidebar } from "./app-direct-messages-sidebar";
-import { NewDirectMessageDialog } from "./new-direct-message-dialog";
+import { useState } from "react";
+import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout";
+import { ControlledSidebarGroupStateProvider } from "#/components/app/app-sidebar-group";
+import { SidebarDrag, SidebarDropSection } from "#/components/app/sidebar-drag";
+import { moveSidebarGroup } from "#/components/app/sidebar-drop-target";
+import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
+import { SidebarSectionActions } from "#/components/app/sidebar-section-actions";
+import { useSidebarDisclosure } from "#/components/app/use-sidebar-disclosure";
+import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
+import { SidebarDestinationAction } from "../app/sidebar-destination-actions";
+import { SidebarSearchInput } from "../app/sidebar-search-input";
+import type { Chat } from "./chat-sidebar-model";
+import { ChatRow } from "./chat-sidebar-row";
+import { NewChatDialog } from "./new-chat-dialog";
+import { useChatFilters } from "./use-chat-filters";
+import { useChats } from "./use-chats";
 
-export type ChatCategory = "all" | "people" | "agents";
-const TRAILING_SLASH = /\/$/;
-
-export function ChatsSidebar(input: {
-	currentProfileId?: string;
-	currentSpaceId?: string;
-}) {
-	const { defaultHumanProfile } = useDefaultHumanProfile();
-	const { currentOrganization: org } = useAppOrganization();
-	const profileId =
-		input.currentProfileId ?? defaultHumanProfile?.openMeldProfileId ?? "";
-	const [category, setCategory] = useState<ChatCategory>("all");
-	const sidebar = useSidebarPreferences(profileId, org.id);
-	const [archived, setArchived] = useState(false);
-	const [creating, setCreating] = useState(false);
+export function ChatsSidebar(input: { currentSpaceId?: string } = {}) {
 	const [search, setSearch] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
-	const orderKey = `openmeld:chat-category-order:${org.id}:${profileId}`;
-	const [savedOrder, setSavedOrder] = useState<{
-		key: string;
-		peopleFirst: boolean;
-	} | null>(null);
-	useEffect(() => {
-		try {
-			setSavedOrder({
-				key: orderKey,
-				peopleFirst: localStorage.getItem(orderKey) === "people",
-			});
-		} catch {
-			setSavedOrder({ key: orderKey, peopleFirst: false });
-		}
-	}, [orderKey]);
-	const order =
-		savedOrder?.key === orderKey && savedOrder.peopleFirst
-			? ["people", "agents"]
-			: ["agents", "people"];
-	const [firstPerson, setFirstPerson] = useState<string | null>();
-	const [firstRemote, setFirstRemote] = useState<string | null>();
-	const [firstOther, setFirstOther] = useState<string | null>();
-	const [firstPinnedRemote, setFirstPinnedRemote] = useState<string | null>();
-	const [firstPinnedOther, setFirstPinnedOther] = useState<string | null>();
-	const navigate = useNavigate();
-	const pathname = useRouterState({
-		select: (state) => state.location.pathname,
+	const categoryFilter = useChatFilters(() => setSearchOpen(true));
+	const { archived } = categoryFilter;
+	const [creating, setCreating] = useState(false);
+	const [creatingGroup, setCreatingGroup] = useState<string>();
+	const {
+		org,
+		owner,
+		profileId,
+		store,
+		spaces,
+		directory,
+		sessions,
+		move,
+		unpin,
+		pin,
+		preferences,
+		chatPath,
+		attentionById,
+		indicators,
+		selected,
+		save,
+		sections,
+		sortSection,
+		title,
+		rows,
+	} = useChats({
+		...input,
+		search,
+		archived,
+		includes: categoryFilter.includes,
 	});
-	const pathForItem = useCallback(
-		(item: AccountSpaceItem | null | undefined) => {
-			return item
-				? buildOrganizationDirectMessagePath({
-						orgSlug: org.slug,
-						spaceId: item.spaceId,
-						search: {
-							profileId: resolveAccountSpaceViewerProfileId({
-								currentProfileId: profileId,
-								item,
-							}),
-						},
-					})
-				: item;
-		},
-		[org.slug, profileId]
+	const disclosure = useSidebarDisclosure(
+		"chat",
+		profileId,
+		org.id,
+		selected ? owner(selected) : null,
+		selected ?? ""
 	);
-	const onFirstOther = useCallback(
-		(item: AccountSpaceItem | null | undefined) =>
-			setFirstOther(pathForItem(item)),
-		[pathForItem]
+	const unreadBySection = new Map(
+		sections.map((section) => [
+			section.id,
+			rows(section.id).reduce(
+				(sum, chat) =>
+					sum +
+					(indicators.unreadBySpaceId.get(chat.spaceId)?.unreadCount ?? 0),
+				0
+			),
+		])
 	);
-	const onFirstPerson = useCallback(
-		(item: AccountSpaceItem | null | undefined) =>
-			setFirstPerson(pathForItem(item)),
-		[pathForItem]
+	const [renaming, setRenaming] = useState<Chat | null>(null);
+	const [name, setName] = useState("");
+	const newChat = (group?: string) => {
+		setCreatingGroup(group);
+		setCreating(true);
+	};
+	const visibleSections = sections.filter(
+		(section) =>
+			(section.id !== "pinned" && section.id !== "chats") ||
+			rows(section.id).length > 0
 	);
-	const onFirstPinnedOther = useCallback(
-		(item: AccountSpaceItem | null | undefined) =>
-			setFirstPinnedOther(pathForItem(item)),
-		[pathForItem]
-	);
-	const pinnedRemote = category === "people" ? null : firstPinnedRemote;
-	const firstPinned = pinnedRemote === null ? firstPinnedOther : pinnedRemote;
-	const hasPinned = pinnedRemote !== null || firstPinnedOther !== null;
-	const firstAgent = firstRemote === null ? firstOther : firstRemote;
-	const firstCategory = category === "all" ? order[0] : category;
-	const firstPath = firstCategory === "agents" ? firstAgent : firstPerson;
-	const otherPath = firstCategory === "agents" ? firstPerson : firstAgent;
-	const unpinnedEntryPath =
-		firstPath === null && category === "all" ? otherPath : firstPath;
-	const entryPath = firstPinned === null ? unpinnedEntryPath : firstPinned;
-	useEffect(() => {
-		if (
-			pathname.replace(TRAILING_SLASH, "") ===
-				buildOrganizationDirectMessagesPath(org.slug) &&
-			entryPath &&
-			savedOrder?.key === orderKey
-		) {
-			navigate({ to: entryPath, replace: true });
-		}
-	}, [entryPath, navigate, org.slug, pathname, savedOrder, orderKey]);
+	const addGroup = (name: string) =>
+		save({
+			...preferences,
+			groups: [
+				...preferences.groups,
+				{ id: crypto.randomUUID(), name, sort: "priority", spaceIds: [] },
+			],
+		});
 	return (
-		<div className="min-w-0">
+		<>
 			<SidebarSearchInput
 				destination="directMessages"
 				label="Search chats"
@@ -143,10 +114,8 @@ export function ChatsSidebar(input: {
 			<SidebarDestinationAction destination="directMessages">
 				<Button
 					aria-label="New chat"
-					className="size-6"
-					onClick={() => setCreating(true)}
+					onClick={() => newChat()}
 					size="icon-sm"
-					title="New chat"
 					variant="ghost"
 				>
 					<PlusIcon />
@@ -156,219 +125,263 @@ export function ChatsSidebar(input: {
 						render={
 							<Button
 								aria-label="Filter chats"
-								className="size-6"
 								size="icon-sm"
-								title="Filter chats"
 								variant="ghost"
 							/>
 						}
 					>
 						<FunnelSimpleIcon />
 					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end">
-						<DropdownMenuItem
-							onClick={() => requestAnimationFrame(() => setSearchOpen(true))}
-						>
-							Search manually
-						</DropdownMenuItem>
-						{(
-							[
-								["all", "All chats"],
-								["people", "People"],
-								["agents", "Agents"],
-							] as const
-						).map(([value, label]) => (
-							<DropdownMenuCheckboxItem
-								checked={category === value}
-								key={value}
-								onCheckedChange={() => {
-									setCategory(value);
-								}}
-							>
-								{label}
-							</DropdownMenuCheckboxItem>
-						))}
+					<DropdownMenuContent align="end" className="w-60">
+						{categoryFilter.menu}
 					</DropdownMenuContent>
 				</DropdownMenu>
 			</SidebarDestinationAction>
-			<div hidden={!hasPinned}>
-				<AppSidebarGroup
-					groupClassName={APP_NAV_GROUP_CLASS_NAME}
-					groupId="chats:pinned"
-					keepMounted
-					label="Pinned"
-					labelClassName={APP_NAV_GROUP_LABEL_CLASS_NAME}
-					labelText="Pinned"
-				>
-					{category !== "people" && (
-						<CenterAgentChatSidebar
-							embedded
-							onFirstChatChange={setFirstPinnedRemote}
-							pinFilter="pinned"
-							search={search}
-							showArchived={archived}
-						/>
-					)}
-					<AppDirectMessagesSidebar
-						category={category === "agents" ? "local" : category}
-						currentProfileId={profileId}
-						currentSpaceId={input.currentSpaceId ?? ""}
-						embedded
-						onFirstChatChange={onFirstPinnedOther}
-						pinFilter="pinned"
-						search={search}
-					/>
-				</AppSidebarGroup>
-			</div>
+			<NewChatDialog
+				groupId={creatingGroup}
+				onCreated={creatingGroup ? (id) => move(creatingGroup, id) : undefined}
+				onOpenChange={setCreating}
+				open={creating}
+			/>
 			<SidebarDrag
-				groupIds={order}
-				onMove={() => undefined}
-				onMoveGroup={(id, before) => {
-					const next = order.filter((item) => item !== id);
-					const index = before ? next.indexOf(before) : next.length;
-					next.splice(index < 0 ? next.length : index, 0, id);
-					const peopleFirst = next[0] === "people";
-					setSavedOrder({ key: orderKey, peopleFirst });
-					try {
-						localStorage.setItem(orderKey, peopleFirst ? "people" : "agents");
-					} catch {
-						/* Keep this visit's choice when storage is unavailable. */
-					}
-				}}
+				canDrop={() => !store.disabled}
+				groupIds={preferences.groups.map((g) => g.id)}
+				onMove={move}
+				onMoveGroup={(id, before) =>
+					save({
+						...preferences,
+						groups: moveSidebarGroup(preferences.groups, id, before),
+					})
+				}
 			>
-				{order
-					.filter((id) => category === "all" || category === id)
-					.map((id, index) => (
-						<AppSidebarGroup
-							groupClassName={`${APP_NAV_GROUP_CLASS_NAME} ${index > 0 || hasPinned ? APP_NAV_GROUP_SPACING_CLASS_NAME : ""}`}
-							groupId={`chats:${id}`}
-							keepMounted
-							key={id}
-							label={id === "agents" ? "Agents" : "People"}
-							labelAccessory={
-								<SidebarSectionActions
-									addLabel="Add chat or group"
-									disabled={sidebar.disabled}
-									filter={
-										id === "agents"
-											? {
-													label: "Archived chats",
-													checked: archived,
-													onCheckedChange: setArchived,
-												}
-											: undefined
-									}
-									label={id === "agents" ? "Agents" : "People"}
-									newItemLabel="New chat"
-									onNewGroup={(name) => {
-										if (!sidebar.preferences) {
-											return;
-										}
-										const p = sidebar.preferences;
-										const key = id === "agents" ? "chats" : "messages";
-										const current =
-											p[key] ??
-											(key === "chats"
-												? EMPTY_CHAT_PREFERENCES
-												: {
-														pinned: { sort: "priority" as const, spaceIds: [] },
-														spaces: { sort: "priority" as const, spaceIds: [] },
-														groups: [],
-													});
-										sidebar.save({
-											...p,
-											[key]: {
-												...current,
-												groups: [
-													...current.groups,
-													{
-														id: crypto.randomUUID(),
-														name,
-														sort: "manual",
-														spaceIds: [],
-													},
-												],
-											},
-										});
-									}}
-									onNewItem={() => setCreating(true)}
-									onSort={(sort) => {
-										if (!sidebar.preferences) {
-											return;
-										}
-										const p = sidebar.preferences;
-										const messages = p.messages ?? {
-											pinned: { sort: "priority" as const, spaceIds: [] },
-											spaces: { sort: "priority" as const, spaceIds: [] },
-											groups: [],
-										};
-										const chats = p.chats ?? EMPTY_CHAT_PREFERENCES;
-										sidebar.save({
-											...p,
-											messages: {
-												...messages,
-												spaces: { ...messages.spaces, sort },
-											},
-											...(id === "agents"
-												? {
-														chats: {
-															...chats,
-															spaces: { ...chats.spaces, sort },
-														},
-													}
-												: {}),
-										});
-									}}
-									sort={
-										id === "agents"
-											? (sidebar.preferences?.chats?.spaces.sort ?? "recent")
-											: (sidebar.preferences?.messages?.spaces.sort ?? "recent")
-									}
-									sortOptions={[
-										["recent", "Newest first"],
-										["name", "Name"],
-										["manual", "Manual order"],
-									]}
-								/>
-							}
-							labelClassName={APP_NAV_GROUP_LABEL_CLASS_NAME}
-							labelText={id === "agents" ? "Agents" : "People"}
-							reorderId={id}
-						>
-							{id === "agents" ? (
+				<ControlledSidebarGroupStateProvider value={disclosure}>
+					<AppContextualSidebarNav
+						activeItemId={selected}
+						ariaLabel="Chats"
+						groups={visibleSections.map((section) => ({
+							id: section.id,
+
+							label: section.name,
+							ariaLabel: section.name,
+							onRename:
+								section.id !== "pinned" && section.id !== "chats"
+									? (name: string) =>
+											save({
+												...preferences,
+												groups: preferences.groups.map((g) =>
+													g.id === section.id ? { ...g, name } : g
+												),
+											})
+									: undefined,
+							labelAccessory: (
 								<>
-									<CenterAgentChatSidebar
-										embedded
-										onFirstChatChange={setFirstRemote}
-										pinFilter="unpinned"
-										search={search}
-										showArchived={archived}
-									/>
-									<AppDirectMessagesSidebar
-										category="local"
-										currentProfileId={profileId}
-										currentSpaceId={input.currentSpaceId ?? ""}
-										embedded
-										onFirstChatChange={onFirstOther}
-										pinFilter="unpinned"
-										search={search}
+									{!disclosure.isOpen(section.id) &&
+										(unreadBySection.get(section.id) ?? 0) > 0 && (
+											<span className="mr-1 text-muted-foreground text-xs">
+												{unreadBySection.get(section.id)} unread
+											</span>
+										)}
+									<SidebarSectionActions
+										addLabel="Add chat or group"
+										disabled={store.disabled || pin.arePinActionsPending}
+										filter={categoryFilter.sectionFilter}
+										label={section.name}
+										newItemLabel="New chat"
+										onDelete={
+											section.id !== "pinned" && section.id !== "chats"
+												? () =>
+														save({
+															...preferences,
+															groups: preferences.groups.filter(
+																(g) => g.id !== section.id
+															),
+														})
+												: undefined
+										}
+										onNewGroup={addGroup}
+										onNewItem={() =>
+											newChat(
+												section.id === "chats" || section.id === "pinned"
+													? undefined
+													: section.id
+											)
+										}
+										onSort={(sort) => sortSection(section.id, sort)}
+										sort={section.sort}
+										sortOptions={[
+											["priority", "Priority"],
+											["recent", "Recent activity"],
+											["manual", "Manual order"],
+										]}
 									/>
 								</>
-							) : (
-								<AppDirectMessagesSidebar
-									category="people"
-									currentProfileId={profileId}
-									currentSpaceId={input.currentSpaceId ?? ""}
-									embedded
-									onFirstChatChange={onFirstPerson}
-									pinFilter="unpinned"
-									search={search}
-								/>
-							)}
-						</AppSidebarGroup>
-					))}
+							),
+							content: (
+								<SidebarDropSection
+									ids={rows(section.id).map((c) => c.spaceId)}
+									section={section.id}
+								>
+									{rows(section.id).length === 0 && (
+										<p className="p-2 text-muted-foreground text-xs">
+											{search.trim()
+												? "No chats match your search."
+												: "No chats yet."}
+										</p>
+									)}
+									<FluidNavMenu
+										activeLayoutId="chat-selection"
+										activeValue={selected}
+										aria-label={section.name}
+									>
+										{rows(section.id).map((chat, index) => (
+											<ChatRow
+												activeWakeSummary={indicators.activeWakeSummaryBySpaceId.get(
+													chat.spaceId
+												)}
+												archived={archived}
+												attentionTone={resolveInboxAttentionTone(
+													attentionById.get(chat.spaceId) ?? {}
+												)}
+												chat={chat}
+												disabled={store.disabled || pin.arePinActionsPending}
+												groups={sections}
+												index={index}
+												key={chat.spaceId}
+												onArchive={() =>
+													save({
+														...preferences,
+														archivedIds: archived
+															? preferences.archivedIds.filter(
+																	(id) => id !== chat.spaceId
+																)
+															: [...preferences.archivedIds, chat.spaceId],
+													})
+												}
+												onMove={(s) => move(s, chat.spaceId)}
+												onRename={() => {
+													setName(title(chat));
+													setRenaming(chat);
+												}}
+												onUnpin={() => unpin(chat.spaceId)}
+												profileId={chat.viewerProfileId ?? profileId}
+												section={section.id}
+												selected={selected === chat.spaceId}
+												title={title(chat)}
+												unreadCount={
+													indicators.unreadBySpaceId.get(chat.spaceId)
+														?.unreadCount ?? 0
+												}
+												url={chatPath(chat)}
+											/>
+										))}
+									</FluidNavMenu>
+								</SidebarDropSection>
+							),
+						}))}
+						leadingContent={
+							<>
+								{visibleSections.length === 0 && (
+									<div className="group/sidebar-group-root flex items-center justify-between px-1">
+										<Button onClick={() => newChat()} variant="ghost">
+											New chat
+										</Button>
+										<SidebarSectionActions
+											addLabel="Add chat or group"
+											disabled={store.disabled || pin.arePinActionsPending}
+											filter={categoryFilter.sectionFilter}
+											label="Chats"
+											newItemLabel="New chat"
+											onNewGroup={addGroup}
+											onNewItem={() => newChat()}
+											onSort={(sort) => sortSection("chats", sort)}
+											sort={preferences.spaces.sort}
+										/>
+									</div>
+								)}
+								{categoryFilter.badges}
+								{sessions.hasNextPage && (
+									<p
+										aria-live="polite"
+										className="px-2 text-muted-foreground text-sm"
+									>
+										Loading older chats…
+									</p>
+								)}
+								{store.isError && (
+									<Button onClick={() => store.retry()} variant="ghost">
+										Could not load sidebar settings. Retry
+									</Button>
+								)}
+								{(sessions.isPending ||
+									spaces.isPending ||
+									directory.isPending) && (
+									<SidebarListSkeleton
+										label="Loading chats"
+										rowCount={2}
+										showPreview
+									/>
+								)}
+								{(sessions.isError || spaces.isError || directory.isError) && (
+									<Button
+										onClick={() => {
+											sessions.refetch();
+											spaces.refetch();
+											directory.refetch();
+										}}
+										variant="ghost"
+									>
+										Could not load chats. Retry
+									</Button>
+								)}
+							</>
+						}
+						placement="main"
+						title="Chats"
+					/>
+				</ControlledSidebarGroupStateProvider>
 			</SidebarDrag>
-			<NewDirectMessageDialog onOpenChange={setCreating} open={creating} />
-		</div>
+			<Dialog
+				onOpenChange={(open) => {
+					if (!open) {
+						setRenaming(null);
+					}
+				}}
+				open={renaming !== null}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Rename chat</DialogTitle>
+					</DialogHeader>
+					<form
+						className="flex flex-col gap-4"
+						onSubmit={(event) => {
+							event.preventDefault();
+							if (!(renaming && name.trim()) || store.disabled) {
+								return;
+							}
+							save({
+								...preferences,
+								titles: {
+									...preferences.titles,
+									[renaming.spaceId]: name.trim(),
+								},
+							});
+							setRenaming(null);
+						}}
+					>
+						<Input
+							aria-label="Chat name"
+							autoFocus
+							maxLength={160}
+							onChange={(event) => setName(event.target.value)}
+							value={name}
+						/>
+						<Button disabled={store.disabled || !name.trim()} type="submit">
+							Save
+						</Button>
+					</form>
+				</DialogContent>
+			</Dialog>
+		</>
 	);
 }

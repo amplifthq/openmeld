@@ -183,8 +183,14 @@ export function emitLocalError(input: {
 function buildRequestRows(
   request: AgentProfileCreationRequest
 ): Array<{ label: string; value: string }> {
+  const creatingStatus = request.createdAgentProfileId
+    ? "Finishing setup"
+    : "Creating Agent";
   return [
-    { label: "Status", value: request.status },
+    {
+      label: "Status",
+      value: request.status === "approved" ? creatingStatus : request.status,
+    },
     { label: "Request ID", value: request.id },
     { label: "Target Owner", value: request.targetOwnerUserId },
     { label: "Session", value: request.sessionStrategy },
@@ -193,6 +199,15 @@ function buildRequestRows(
       : []),
     { label: "Requested By", value: request.requesterUserId },
     { label: "Source", value: request.source },
+    ...(request.status === "approved"
+      ? [
+          {
+            label: "Next",
+            value:
+              "Creation continues on the server. Run openmeld profile requests list to check progress.",
+          },
+        ]
+      : []),
     ...(request.createdAgentProfileId
       ? [
           {

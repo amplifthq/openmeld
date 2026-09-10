@@ -23,6 +23,7 @@ import type { AppShellSection } from "./shell-layout";
 vi.mock("./app-command-center", () => ({ AppCommandCenter: () => null }));
 
 const BETA_ORGANIZATION_NAME_PATTERN = /Beta/;
+const CHAT_ATTENTION_LABEL = /Chats, Needs action, 106/;
 const navigateMock = vi.fn();
 const routerInvalidateMock = vi.fn();
 const useAccountAvatarMock = vi.hoisted(() => vi.fn());
@@ -42,6 +43,11 @@ let routerLocation = {
 let appShellSection: AppShellSection = "space";
 let centerAgentUnreadCount = 0;
 let ordinarySpaceUnreadCount: number | undefined = 0;
+let chatCounts = {
+	chatUnreadCount: 0,
+	chatUnresolvedActionCount: 0,
+	chatUnreadUrgentUpdateCount: 0,
+};
 let appOrganization: {
 	activeOrganization: OrganizationSummary | null;
 	currentOrganization: OrganizationSummary;
@@ -120,6 +126,7 @@ vi.mock("#/query/organizations/invitation-requests", () => ({
 
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => appOrganization,
+	useOptionalAppOrganization: () => appOrganization,
 	useCurrentOrganizationSlug: () => appOrganization.currentOrganization.slug,
 }));
 
@@ -133,6 +140,7 @@ vi.mock("#/lib/organizations/inbox", () => ({
 		unreadCount: centerAgentUnreadCount,
 	}),
 	getCurrentSpaceInboxSummary: async () => ({
+		...chatCounts,
 		...(ordinarySpaceUnreadCount === undefined
 			? {}
 			: { ordinarySpaceUnreadCount }),
@@ -204,6 +212,7 @@ const CREATE_ORGANIZATION_MENU_ITEM_NAME = /Create organization/;
 const FELIX_MENU_ITEM_NAME = /Felix/;
 const FELIX_ACCOUNT_MENU_ITEM_NAME = /Felix.*felix@example\.com/;
 const USER_MENU_PATTERN = /Open user menu for/;
+const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const THEME_TOGGLE_PATTERN = /Switch to .* mode/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
 const PRIMARY_RAIL_LABELS = [
@@ -269,6 +278,11 @@ describe("AppOuterRail", () => {
 		appShellSection = "space";
 		centerAgentUnreadCount = 0;
 		ordinarySpaceUnreadCount = 0;
+		chatCounts = {
+			chatUnreadCount: 0,
+			chatUnresolvedActionCount: 0,
+			chatUnreadUrgentUpdateCount: 0,
+		};
 		routerLocation = {
 			pathname: "/o/acme/spaces",
 			searchStr: "",
@@ -328,7 +342,9 @@ describe("AppOuterRail", () => {
 		expect(
 			within(header).getByRole("button", { name: "Switch organization" })
 		).toBeTruthy();
-		expect(within(header).getByRole("link", { name: "Inbox" })).toBeTruthy();
+		expect(
+			within(header).getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
+		).toBeTruthy();
 		expect(screen.queryByLabelText("Go to OpenMeld homepage")).toBeNull();
 		expect(screen.queryByText("Experimental")).toBeNull();
 	});
@@ -565,7 +581,9 @@ describe("AppOuterRail", () => {
 			.getByTestId("app-outer-rail")
 			.querySelector("[data-sidebar=header]") as HTMLElement;
 		expect(
-			within(header).getByRole("link", { name: "Inbox" }).getAttribute("href")
+			within(header)
+				.getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
+				.getAttribute("href")
 		).toBe("/o/acme/inbox");
 		expect(
 			(
@@ -616,6 +634,21 @@ describe("AppOuterRail", () => {
 		expect(
 			link.querySelector('[data-app-rail-status-indicator="spaces-unread"]')
 		).toBeNull();
+	});
+
+	it("uses complete Chat counts and keeps read actions red", async () => {
+		chatCounts = {
+			chatUnreadCount: 106,
+			chatUnresolvedActionCount: 1,
+			chatUnreadUrgentUpdateCount: 1,
+		};
+		renderRail();
+		const link = await screen.findByRole("link", {
+			name: CHAT_ATTENTION_LABEL,
+		});
+		expect(
+			link.querySelector('[data-app-rail-status-indicator="chats-unread"]')
+		).toBeTruthy();
 	});
 
 	it.each([
@@ -1640,7 +1673,9 @@ describe("AppOuterRail", () => {
 		expect(
 			within(header).getByRole("button", { name: TOGGLE_TRIGGER_NAME_PATTERN })
 		).toBeTruthy();
-		expect(within(header).getByRole("link", { name: "Inbox" })).toBeTruthy();
+		expect(
+			within(header).getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
+		).toBeTruthy();
 		expect(
 			within(footer).getByRole("button", { name: USER_MENU_PATTERN })
 		).toBeTruthy();

@@ -10,7 +10,8 @@ const DELETED_PROFILE_RECONCILE_DEFAULT_LIMIT = 40;
 const DELETED_PROFILE_RECONCILE_MAX_LIMIT = 50;
 
 type DeletedProfileLike = {
-  ownerUserId: string;
+  ownerUserId: string | null;
+  organizationId?: string | null;
   profileId: string;
   profileKind: string;
 };
@@ -117,6 +118,7 @@ async function attemptDeletedProfileReconcile(input: {
   try {
     const rawResponse = await coreWorker.reconcileDeletedAgentProfile({
       ownerUserId: profile.ownerUserId,
+      organizationId: profile.organizationId,
       profileId: profile.profileId,
       profileKind: profile.profileKind,
       spaceIds: [],

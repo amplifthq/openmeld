@@ -20,21 +20,9 @@ export function formatDirectMessageTime(
 	return days === 1 ? "Yesterday" : `${days} days ago`;
 }
 
-export function useDirectMessagePreview(input: {
-	spaceId: string;
-	viewerProfileId: string;
-	peerProfileId: string | undefined;
-}) {
-	return useSpaceMessagePreview({
-		...input,
-		enabled: Boolean(input.peerProfileId),
-	});
-}
-
 export function useSpaceMessagePreview(input: {
 	spaceId: string;
 	viewerProfileId: string;
-	peerProfileId?: string;
 	enabled: boolean;
 }) {
 	return useQuery(spaceMessagePreviewQueryOptions(input));
@@ -43,7 +31,6 @@ export function useSpaceMessagePreview(input: {
 export function spaceMessagePreviewQueryOptions(input: {
 	spaceId: string;
 	viewerProfileId: string;
-	peerProfileId?: string;
 	enabled: boolean;
 }) {
 	return queryOptions({
@@ -52,7 +39,6 @@ export function spaceMessagePreviewQueryOptions(input: {
 			input.spaceId,
 			"incoming-preview",
 			input.viewerProfileId,
-			input.peerProfileId,
 		],
 		enabled: input.enabled,
 		queryFn: async ({ signal }) => {
@@ -65,29 +51,11 @@ export function spaceMessagePreviewQueryOptions(input: {
 					recent: true,
 					limit: 1,
 					kinds: ["text"],
-					fromProfileIds: input.peerProfileId
-						? [input.peerProfileId]
-						: undefined,
 				},
 			});
-			let message = result.envelopes.find(
+			const message = result.envelopes.find(
 				(entry) => entry.type === "signal.text"
 			);
-			if (!message && input.peerProfileId) {
-				const outgoing = await createUnscopedWebSpaceApi({
-					openMeldProfileId: input.viewerProfileId,
-				}).listSignalEnvelopes({
-					spaceId: input.spaceId,
-					signal,
-					query: { recent: true, limit: 1, kinds: ["text"] },
-				});
-				message = outgoing.envelopes.find(
-					(entry) => entry.type === "signal.text"
-				);
-				if (message?.type === "signal.text") {
-					return { timestamp: message.ts, text: "No replies yet" };
-				}
-			}
 			return message?.type === "signal.text"
 				? {
 						timestamp: message.ts,

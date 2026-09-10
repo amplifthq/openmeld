@@ -40,11 +40,7 @@ import type {
   SpaceMemberAgentExecutionReadiness,
 } from "@openmeld/schemas/types";
 import { createAgentProfileBindingProjectionFromRecord } from "../../agent-profile-binding/application/agent-profile-binding-lookup-service";
-import { resolveCurrentWorkingFolderObservations } from "../../agent-profile-binding/application/current-working-folder-observations";
-import {
-  type ReadLocalRuntimeExpectedRoutesResult,
-  readLocalRuntimeExpectedRoutes,
-} from "../../agent-profile-binding/application/local-runtime-expected-routes-service";
+import { resolveCurrentWorkingFolderObservation } from "../../agent-profile-binding/application/current-working-folder-observation";
 import {
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
@@ -123,13 +119,6 @@ export type AgentExecutionReadinessProfileInput = {
   // the live lookup runs as before.
   preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
   preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
-  preloadedWorkingFolderExpectedRoutes?: ReadLocalRuntimeExpectedRoutesResult | null;
-  preloadedProfileIdentity?: {
-    ownerUserId: string;
-    profileKind: "agent";
-    profileName: string;
-    status: "active" | "disabled";
-  };
   preloadedRuntimeDeviceDisplayName?: string | null;
   profileId: string;
   targetRuntime?: AgentExecutionTargetRuntimeContext | null;
@@ -180,15 +169,13 @@ type ProfileIdentitySnapshot = Omit<
   | "readinessImpact"
   | "runtimeReadiness"
   | "service"
->;
+> & { defaultProjectId: string | null };
 
 type ResolveAgentBindingSnapshotInput = {
   reads: AgentExecutionReadinessReads;
   activeOrganizationId: string | null;
   preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
   preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
-  preloadedWorkingFolderExpectedRoutes?: ReadLocalRuntimeExpectedRoutesResult | null;
-  preloadedProfileIdentity?: AgentExecutionReadinessProfileInput["preloadedProfileIdentity"];
   preloadedRuntimeDeviceDisplayName?: string | null;
   agent: AgentExecutionReadinessAgentInput;
   env: CoreBindings;
@@ -236,8 +223,7 @@ type ReadinessTimingStep =
   | "provider_conversation_evidence_read"
   | "readiness_impact_evidence_read"
   | "runtime_device_display_read"
-  | "runtime_readiness_read"
-  | "working_folder_read";
+  | "runtime_readiness_read";
 
 type ReadinessTimingRecorder = {
   durationsMs: Partial<Record<ReadinessTimingStep, number>>;
@@ -273,15 +259,6 @@ export function resolveCoreAgentExecutionReadinessForProfile(
     ...(input.preloadedOwnerService === undefined
       ? {}
       : { preloadedOwnerService: input.preloadedOwnerService }),
-    ...(input.preloadedWorkingFolderExpectedRoutes === undefined
-      ? {}
-      : {
-          preloadedWorkingFolderExpectedRoutes:
-            input.preloadedWorkingFolderExpectedRoutes,
-        }),
-    ...(input.preloadedProfileIdentity === undefined
-      ? {}
-      : { preloadedProfileIdentity: input.preloadedProfileIdentity }),
     ...(input.preloadedRuntimeDeviceDisplayName === undefined
       ? {}
       : {
@@ -301,8 +278,6 @@ export async function resolveCoreAgentExecutionReadiness(input: {
   includeRuntimeDeviceDisplayName?: boolean;
   preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
   preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
-  preloadedWorkingFolderExpectedRoutes?: ReadLocalRuntimeExpectedRoutesResult | null;
-  preloadedProfileIdentity?: AgentExecutionReadinessProfileInput["preloadedProfileIdentity"];
   preloadedRuntimeDeviceDisplayName?: string | null;
   targetRuntime?: AgentExecutionTargetRuntimeContext | null;
 }): Promise<CoreAgentExecutionReadiness> {
@@ -322,15 +297,6 @@ export async function resolveCoreAgentExecutionReadiness(input: {
     ...(input.preloadedOwnerService === undefined
       ? {}
       : { preloadedOwnerService: input.preloadedOwnerService }),
-    ...(input.preloadedWorkingFolderExpectedRoutes === undefined
-      ? {}
-      : {
-          preloadedWorkingFolderExpectedRoutes:
-            input.preloadedWorkingFolderExpectedRoutes,
-        }),
-    ...(input.preloadedProfileIdentity === undefined
-      ? {}
-      : { preloadedProfileIdentity: input.preloadedProfileIdentity }),
     ...(input.preloadedRuntimeDeviceDisplayName === undefined
       ? {}
       : {
@@ -406,44 +372,6 @@ export async function resolveCoreAgentExecutionReadiness(input: {
 async function resolveAgentBindingSnapshot(
   input: ResolveAgentBindingSnapshotInput
 ): Promise<AgentBindingSnapshot> {
-  if (input.preloadedProfileIdentity) {
-    const profileEvidence = resolveProfileIdentityEvidence(
-      input.preloadedProfileIdentity
-    );
-    const ownerUserId = normalizeOptionalText(
-      input.preloadedProfileIdentity.ownerUserId
-    );
-    const profileName = normalizeOptionalText(
-      input.preloadedProfileIdentity.profileName
-    );
-    if (!(profileEvidence.active && ownerUserId)) {
-      return createProfileIdentityOnlyBindingSnapshot({
-        agent: input.agent,
-        generatedAt: input.generatedAt,
-        ownerUserId,
-        profileEvidence: ownerUserId
-          ? profileEvidence
-          : {
-              active: false,
-              reasonCodes: ["agent_profile.owner_unavailable"],
-              source: "unavailable",
-            },
-        profileName,
-      });
-    }
-    return enrichAgentBindingSnapshot(
-      createEnrichAgentBindingSnapshotInput({
-        input,
-        snapshot: createProfileIdentitySnapshot({
-          agent: input.agent,
-          generatedAt: input.generatedAt,
-          ownerUserId,
-          profileEvidence,
-          profileName,
-        }),
-      })
-    );
-  }
   const authWorker = input.env.OPENMELD_AUTH_WORKER;
   if (!hasProfileIdentityLookup(authWorker)) {
     return enrichAgentBindingSnapshot(
@@ -468,13 +396,21 @@ async function resolveAgentBindingSnapshot(
       input.timing,
       "profile_identity_lookup",
       () =>
-        authWorker.resolveProfileById({
-          openMeldProfileId: input.agent.profileId,
+        input.reads.resolveProfileById({
+          authWorker,
+          profileId: input.agent.profileId,
         })
     );
     if (!result.ok) {
       return resolveProfileIdentityLookupFailureBindingSnapshot({
         code: result.code,
+        input,
+      });
+    }
+
+    if (result.profile.profileId !== input.agent.profileId) {
+      return resolveProfileIdentityLookupFailureBindingSnapshot({
+        code: "profile.identity_mismatch",
         input,
       });
     }
@@ -499,13 +435,17 @@ async function resolveAgentBindingSnapshot(
           agent: input.agent,
           generatedAt: input.generatedAt,
           ownerUserId,
-          profileEvidence: ownerUserId
-            ? profileEvidence
-            : {
-                active: false,
-                reasonCodes: ["agent_profile.owner_unavailable"],
-                source: "unavailable",
-              },
+          defaultProjectId: result.profile.defaultProjectId,
+          profileEvidence:
+            ownerUserId ||
+            (result.profile.managedRole === "center_agent" &&
+              result.profile.organizationId)
+              ? profileEvidence
+              : {
+                  active: false,
+                  reasonCodes: ["agent_profile.owner_unavailable"],
+                  source: "unavailable",
+                },
           profileName,
         }),
       })
@@ -542,12 +482,6 @@ function createEnrichAgentBindingSnapshotInput(input: {
     ...(input.input.preloadedOwnerService === undefined
       ? {}
       : { preloadedOwnerService: input.input.preloadedOwnerService }),
-    ...(input.input.preloadedWorkingFolderExpectedRoutes === undefined
-      ? {}
-      : {
-          preloadedWorkingFolderExpectedRoutes:
-            input.input.preloadedWorkingFolderExpectedRoutes,
-        }),
     ...(input.input.preloadedRuntimeDeviceDisplayName === undefined
       ? {}
       : {
@@ -610,6 +544,7 @@ function hasProfileIdentityLookup(
 function createProfileIdentitySnapshot(input: {
   agent: AgentExecutionReadinessAgentInput;
   generatedAt: string;
+  defaultProjectId?: string | null;
   ownerUserId: string | null;
   profileEvidence: AgentExecutionProfileEvidence;
   profileName: string | null;
@@ -623,6 +558,7 @@ function createProfileIdentitySnapshot(input: {
     reasonCode: "not_requested",
   });
   return {
+    defaultProjectId: normalizeOptionalText(input.defaultProjectId),
     bindingEnabled: false,
     bindingState: "missing",
     agentControllerRef: null,
@@ -711,18 +647,18 @@ async function enrichAgentBindingSnapshot(input: {
   includeRuntimeDeviceDisplayName: boolean;
   preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
   preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
-  preloadedWorkingFolderExpectedRoutes?: ReadLocalRuntimeExpectedRoutesResult | null;
   preloadedRuntimeDeviceDisplayName?: string | null;
   snapshot: ProfileIdentitySnapshot;
   targetRuntime: AgentExecutionTargetRuntimeContext | null;
   timing: ReadinessTimingRecorder;
 }): Promise<AgentBindingSnapshot> {
   const bindingStartedAtMs = Date.now();
-  const agentExecutionBinding = await resolveAgentExecutionBindingEvidence({
-    agentProfileId: input.agent.profileId,
-    env: input.env,
-    ownerUserId: input.snapshot.ownerUserId,
-  });
+  const { evidence: agentExecutionBinding, configurationRevision } =
+    await resolveAgentExecutionBindingEvidence({
+      agentProfileId: input.agent.profileId,
+      env: input.env,
+      ownerUserId: input.snapshot.ownerUserId,
+    });
   recordReadinessDuration(
     input.timing,
     "binding_evidence_read",
@@ -818,23 +754,16 @@ async function enrichAgentBindingSnapshot(input: {
         generatedAt: input.generatedAt,
       })
   );
-  const currentWorkingFolderReadinessPromise = measureReadinessStep(
-    input.timing,
-    "working_folder_read",
-    () =>
-      resolveCurrentWorkingFolderReadiness({
-        binding: agentExecutionBinding,
-        currentSession: runtimeRoute.currentSession,
-        env: input.env,
-        generatedAt: input.generatedAt,
-        localWakeRouteReport: runtimeRoute.localWakeRouteReport,
-        ownerUserId: input.snapshot.ownerUserId,
-        preloadedExpectedRoutes: input.preloadedWorkingFolderExpectedRoutes,
-      })
-  );
+  const currentWorkingFolderReadiness = resolveCurrentWorkingFolderReadiness({
+    binding: agentExecutionBinding,
+    configurationRevision,
+    currentSession: runtimeRoute.currentSession,
+    defaultProjectId: input.snapshot.defaultProjectId,
+    generatedAt: input.generatedAt,
+    localWakeRouteReport: runtimeRoute.localWakeRouteReport,
+  });
   const [
     baseRuntimeReadiness,
-    currentWorkingFolderReadiness,
     claimDiagnostics,
     localExecutionService,
     providerAccount,
@@ -842,7 +771,6 @@ async function enrichAgentBindingSnapshot(input: {
     readinessImpact,
   ] = await Promise.all([
     baseRuntimeReadinessPromise,
-    currentWorkingFolderReadinessPromise,
     measureReadinessStep(input.timing, "claim_diagnostics_read", () =>
       resolveAgentProfileOrganizationClaimDiagnostics({
         activeOrganizationId: input.activeOrganizationId,
@@ -1165,31 +1093,54 @@ async function resolveAgentExecutionBindingEvidence(input: {
   agentProfileId: string;
   env: CoreBindings;
   ownerUserId: string | null;
-}): Promise<AgentExecutionBindingEvidence> {
-  if (!input.ownerUserId) {
-    return {
-      reasonCodes: ["agent_profile_binding.profile_owner_unavailable"],
-      status: "unavailable",
-    };
-  }
+}): Promise<{
+  configurationRevision: number | null;
+  evidence: AgentExecutionBindingEvidence;
+}> {
   const domainDb = localStateDb(input.env);
   if (!domainDb) {
     return {
-      reasonCodes: ["agent_profile_binding.store_unavailable"],
-      status: "unavailable",
+      configurationRevision: null,
+      evidence: {
+        reasonCodes: ["agent_profile_binding.store_unavailable"],
+        status: "unavailable",
+      },
     };
   }
 
   try {
+    const organizationProfile = input.ownerUserId
+      ? null
+      : await readAgentProfileOrganizationContext({
+          agentProfileId: input.agentProfileId,
+          db: domainDb,
+        });
+    let owner: { id: string; kind: "owner_account" | "organization" } | null =
+      null;
+    if (input.ownerUserId) {
+      owner = { id: input.ownerUserId, kind: "owner_account" };
+    } else if (
+      organizationProfile?.managedRole === "center_agent" &&
+      organizationProfile.organizationId &&
+      !organizationProfile.ownerUserId
+    ) {
+      owner = { id: organizationProfile.organizationId, kind: "organization" };
+    }
+    if (!owner) {
+      return {
+        configurationRevision: null,
+        evidence: {
+          reasonCodes: ["agent_profile_binding.profile_owner_unavailable"],
+          status: "unavailable",
+        },
+      };
+    }
     const bindingRecord = await readPrimaryAgentProfileBindingRecord({
       agentProfileId: input.agentProfileId,
       db: domainDb,
-      owner: {
-        id: input.ownerUserId,
-        kind: "owner_account",
-      },
+      owner,
     });
-    if (bindingRecord?.agentControllerConversationId) {
+    if (bindingRecord?.agentControllerConversationId && input.ownerUserId) {
       const conflictingBinding =
         await readPrimaryAgentProfileBindingRecordByControllerConversation({
           agentControllerConversationId:
@@ -1222,10 +1173,13 @@ async function resolveAgentExecutionBindingEvidence(input: {
               conflictingBindingId: conflictingBinding.bindingId,
             }
           );
-          return createAgentProfileBindingProjectionFromRecord({
-            agentProfileId: input.agentProfileId,
-            binding: bindingRecord,
-          });
+          return {
+            configurationRevision: bindingRecord.configurationRevision,
+            evidence: createAgentProfileBindingProjectionFromRecord({
+              agentProfileId: input.agentProfileId,
+              binding: bindingRecord,
+            }),
+          };
         }
         console.warn(
           "[core.agent_execution.binding_controller_conversation_conflict]",
@@ -1240,21 +1194,30 @@ async function resolveAgentExecutionBindingEvidence(input: {
           }
         );
         return {
-          reasonCodes: [
-            "agent_profile_binding.controller_conversation_conflict",
-          ],
-          status: "unavailable",
+          configurationRevision: null,
+          evidence: {
+            reasonCodes: [
+              "agent_profile_binding.controller_conversation_conflict",
+            ],
+            status: "unavailable",
+          },
         };
       }
     }
-    return createAgentProfileBindingProjectionFromRecord({
-      agentProfileId: input.agentProfileId,
-      binding: bindingRecord,
-    });
+    return {
+      configurationRevision: bindingRecord?.configurationRevision ?? null,
+      evidence: createAgentProfileBindingProjectionFromRecord({
+        agentProfileId: input.agentProfileId,
+        binding: bindingRecord,
+      }),
+    };
   } catch {
     return {
-      reasonCodes: ["agent_profile_binding.read_unavailable"],
-      status: "unavailable",
+      configurationRevision: null,
+      evidence: {
+        reasonCodes: ["agent_profile_binding.read_unavailable"],
+        status: "unavailable",
+      },
     };
   }
 }
@@ -1351,14 +1314,8 @@ async function resolveAgentRuntimeReadiness(input: {
     if (usageWakeability.status === "available") {
       return readiness;
     }
-    let displayState = readiness.displayState;
-    if (usageWakeability.status === "unavailable") {
-      displayState = "unavailable";
-    } else if (readiness.ready) {
-      displayState = "unknown";
-    }
     return {
-      displayState,
+      displayState: "unavailable",
       ready: false,
       reasonCodes: [
         ...new Set([...readiness.reasonCodes, usageWakeability.reasonCode]),
@@ -1379,15 +1336,14 @@ type CurrentWorkingFolderReadiness = {
   reasonCodes: readonly string[];
 };
 
-async function resolveCurrentWorkingFolderReadiness(input: {
+function resolveCurrentWorkingFolderReadiness(input: {
   binding: AgentExecutionBindingEvidence | null;
+  configurationRevision: number | null;
   currentSession: RuntimeRouteSnapshot["currentSession"];
-  env: CoreBindings;
+  defaultProjectId: string | null;
   generatedAt: string;
   localWakeRouteReport: LocalWakeRouteReport | null;
-  ownerUserId: string | null;
-  preloadedExpectedRoutes?: ReadLocalRuntimeExpectedRoutesResult | null;
-}): Promise<CurrentWorkingFolderReadiness | null> {
+}): CurrentWorkingFolderReadiness | null {
   if (
     !(isAgentProfileBindingProjection(input.binding) && input.currentSession)
   ) {
@@ -1408,101 +1364,34 @@ async function resolveCurrentWorkingFolderReadiness(input: {
       ],
     };
   }
-  const db = localStateDb(input.env);
-  if (!(db && input.ownerUserId)) {
+  if (input.configurationRevision === null || !input.binding.bindingId) {
     return unknownCurrentWorkingFolderReadiness(
-      "working_folder.expected_routes_unavailable"
+      "working_folder.expected_routes_invalid"
     );
   }
-
-  try {
-    const expectedRoutesResult =
-      input.preloadedExpectedRoutes === undefined
-        ? await readLocalRuntimeExpectedRoutes({
-            authWorker: input.env.OPENMELD_AUTH_WORKER,
-            contractVersion: "v4",
-            db,
-            deviceId: input.currentSession.deviceId,
-            generatedAt: input.generatedAt,
-            lane: input.currentSession.lane,
-            ownerUserId: input.ownerUserId,
-          })
-        : input.preloadedExpectedRoutes;
-    if (!expectedRoutesResult) {
-      return unknownCurrentWorkingFolderReadiness(
-        "working_folder.expected_routes_unavailable"
-      );
-    }
-    if (
-      expectedRoutesResult.status !== "ok" ||
-      expectedRoutesResult.response.runtimeResolution !== "resolved" ||
-      expectedRoutesResult.response.openMeldServiceRuntimeId !==
-        input.binding.executionTarget?.openMeldServiceRuntimeId
-    ) {
-      return unknownCurrentWorkingFolderReadiness(
-        "working_folder.expected_routes_unavailable"
-      );
-    }
-    const expectedRoutes = expectedRoutesResult.response.expectedRoutes.map(
-      (route) => {
-        if (
-          route.configurationRevision === undefined ||
-          route.defaultProjectId === undefined
-        ) {
-          return null;
-        }
-        return {
-          agentProfileId: route.agentProfileId,
-          bindingId: route.bindingId,
-          configurationRevision: route.configurationRevision,
-          defaultProjectId: route.defaultProjectId,
-        };
-      }
-    );
-    if (expectedRoutes.some((route) => route === null)) {
-      return unknownCurrentWorkingFolderReadiness(
-        "working_folder.expected_routes_invalid"
-      );
-    }
-    const observations = resolveCurrentWorkingFolderObservations({
-      currentSession: input.currentSession,
-      expectedRoutes: expectedRoutes.filter(
-        (route): route is NonNullable<typeof route> => route !== null
-      ),
-      freshnessMs: RUNTIME_TRANSPORT_LEASE_TTL_MS,
-      nowMs: parseGeneratedAtMs(input.generatedAt),
-      report: input.localWakeRouteReport,
-    });
-    if (observations.status === "unknown") {
-      return unknownCurrentWorkingFolderReadiness(observations.reasonCode);
-    }
-    const observation = observations.observationsByProfileId.get(
-      input.binding.agentProfileId
-    );
-    if (!observation) {
-      return unknownCurrentWorkingFolderReadiness(
-        "working_folder.observation_coverage_invalid"
-      );
-    }
-    if (observation.status === "ready") {
-      return { displayState: "ready", ready: true, reasonCodes: [] };
-    }
-    return {
-      displayState: "unavailable",
-      ready: false,
-      reasonCodes: [observation.reasonCode],
-    };
-  } catch (error) {
-    console.warn("[core.agent_execution.working_folder_read_failed]", {
+  const result = resolveCurrentWorkingFolderObservation({
+    currentSession: input.currentSession,
+    expectedRoute: {
       agentProfileId: input.binding.agentProfileId,
-      error: formatUnknownErrorMessage(error),
-      openMeldServiceRuntimeId:
-        input.binding.executionTarget?.openMeldServiceRuntimeId ?? null,
-    });
-    return unknownCurrentWorkingFolderReadiness(
-      "working_folder.expected_routes_unavailable"
-    );
+      bindingId: input.binding.bindingId,
+      configurationRevision: input.configurationRevision,
+      defaultProjectId: input.defaultProjectId,
+    },
+    freshnessMs: RUNTIME_TRANSPORT_LEASE_TTL_MS,
+    nowMs: parseGeneratedAtMs(input.generatedAt),
+    report: input.localWakeRouteReport,
+  });
+  if (result.status === "unknown") {
+    return unknownCurrentWorkingFolderReadiness(result.reasonCode);
   }
+  if (result.observation.status === "ready") {
+    return { displayState: "ready", ready: true, reasonCodes: [] };
+  }
+  return {
+    displayState: "unavailable",
+    ready: false,
+    reasonCodes: [result.observation.reasonCode],
+  };
 }
 
 function unknownCurrentWorkingFolderReadiness(

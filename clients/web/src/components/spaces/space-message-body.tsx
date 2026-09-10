@@ -1,6 +1,6 @@
 import type { SpaceApi } from "@openmeld/api-client";
 import type { NavigationAction } from "@openmeld/schemas";
-import { buttonVariants } from "@openmeld/ui/components/button";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	MorphingDialog,
 	MorphingDialogClose,
@@ -9,6 +9,7 @@ import {
 	MorphingDialogImage,
 	MorphingDialogTrigger,
 } from "@openmeld/ui/components/morphing-dialog";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import { FileIcon, ImageIcon, XIcon } from "@phosphor-icons/react";
 import { useReducedMotionConfig } from "framer-motion";
@@ -16,8 +17,11 @@ import {
 	type ComponentProps,
 	memo,
 	type ReactNode,
+	type Ref,
 	useCallback,
+	useLayoutEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { MessageResponse } from "#/components/ai/message-response";
@@ -32,16 +36,23 @@ import {
 	type CenterAgentComputerSetupContext,
 	type ComputerSetupTarget,
 } from "./center-agent-computer-setup-card";
+import { Marker, MarkerContent } from "./primitives/marker";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
+import { SpaceFileHtmlBadge } from "./space-file-html-badge";
+import { collapseSpaceMessage } from "./space-message-collapse";
 import {
-	buildSpaceMessageAgentMentionProfiles,
-	createSpaceMessageAgentMentionRemarkPlugin,
-	EMPTY_SPACE_MESSAGE_AGENT_MENTION_PROFILES,
-	renderSpaceMessageAgentMentionInternalLink,
-	type SpaceAgentProfileTriggerRenderer,
-	type SpaceMessageAgentMentionProfilesById,
-} from "./space-message-agent-mention";
-import { SpaceMessageAgentMentionText } from "./space-message-agent-mention-view";
+	SpaceInlineMessageEditor,
+	useSpaceMessageEditing,
+} from "./space-message-editing";
+import {
+	buildSpaceMessageProfileMentionProfiles,
+	createSpaceMessageProfileMentionRemarkPlugin,
+	EMPTY_SPACE_MESSAGE_PROFILE_MENTION_PROFILES,
+	renderSpaceMessageProfileMentionInternalLink,
+	type SpaceMessageProfileMentionProfilesById,
+	type SpaceProfileTriggerRenderer,
+} from "./space-message-profile-mention";
+import { SpaceMessageProfileMentionText } from "./space-message-profile-mention-view";
 import {
 	createSpaceMessageReferenceRemarkPlugin,
 	EMPTY_SPACE_MESSAGE_REFERENCES,
@@ -52,7 +63,6 @@ import {
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
 
-export const SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS = 4000;
 export const SPACE_RESPONSE_TRUNCATED_MARKER =
 	"[Response truncated by OpenMeld]";
 export const SPACE_RESPONSE_TRUNCATED_SUFFIX = `\n\n${SPACE_RESPONSE_TRUNCATED_MARKER}`;
@@ -70,15 +80,23 @@ type SpaceMessageBodyProps = {
 			Pick<
 				SpaceTimelineItem,
 				| "actorProfileKind"
+				| "id"
+				| "recalledAt"
+				| "repostedAt"
+				| "editedAt"
+				| "actorProfileId"
+				| "actorName"
+				| "messageRevision"
 				| "attachments"
 				| "files"
 				| "referenceTargetProfileIds"
+				| "mentionTargetProfileIds"
 				| "spaceId"
 				| "wakeTargetProfileIds"
 			>
 		>;
-	onOpenAgentProfile?: (profileId: string) => void;
-	renderAgentProfileTrigger?: SpaceAgentProfileTriggerRenderer;
+	onOpenProfile?: (profileId: string) => void;
+	renderProfileTrigger?: SpaceProfileTriggerRenderer;
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	openMeldProfileId?: string;
 	orgSlug?: string;
@@ -102,16 +120,22 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 		() => splitServerTruncationMarker(displayedText),
 		[displayedText]
 	);
-	const shouldCollapse =
-		textProjection.visibleText.length >
-		SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS;
+	const collapsedText = useMemo(
+		() =>
+			collapseSpaceMessage(
+				textProjection.visibleText,
+				input.item.actorProfileKind === "agent" ||
+					input.item.isAgentFinalReply === true
+			),
+		[
+			textProjection.visibleText,
+			input.item.actorProfileKind,
+			input.item.isAgentFinalReply,
+		]
+	);
+	const shouldCollapse = collapsedText !== textProjection.visibleText;
 	const renderedText =
-		shouldCollapse && !isExpanded
-			? textProjection.visibleText.slice(
-					0,
-					SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS
-				)
-			: textProjection.visibleText;
+		shouldCollapse && !isExpanded ? collapsedText : textProjection.visibleText;
 	return {
 		isExpanded,
 		isStreaming,
@@ -125,17 +149,19 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 function useSpaceMessageReferencePresentation(input: SpaceMessageBodyProps) {
 	const spaceReferencesById =
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
-	const agentMentionProfilesById = useMemo(
+	const profileMentionProfilesById = useMemo(
 		() =>
-			buildSpaceMessageAgentMentionProfiles({
+			buildSpaceMessageProfileMentionProfiles({
 				profilePresentationsById:
 					input.profilePresentationsById ??
-					EMPTY_SPACE_MESSAGE_AGENT_MENTION_PROFILES,
+					EMPTY_SPACE_MESSAGE_PROFILE_MENTION_PROFILES,
 				referenceTargetProfileIds: input.item.referenceTargetProfileIds ?? [],
+				mentionTargetProfileIds: input.item.mentionTargetProfileIds ?? [],
 				wakeTargetProfileIds: input.item.wakeTargetProfileIds ?? [],
 			}),
 		[
 			input.item.referenceTargetProfileIds,
+			input.item.mentionTargetProfileIds,
 			input.item.wakeTargetProfileIds,
 			input.profilePresentationsById,
 		]
@@ -144,9 +170,9 @@ function useSpaceMessageReferencePresentation(input: SpaceMessageBodyProps) {
 		const plugins: NonNullable<
 			ComponentProps<typeof MessageResponse>["additionalRemarkPlugins"]
 		> = [];
-		if (agentMentionProfilesById.size > 0) {
+		if (profileMentionProfilesById.size > 0) {
 			plugins.push(
-				createSpaceMessageAgentMentionRemarkPlugin(agentMentionProfilesById)
+				createSpaceMessageProfileMentionRemarkPlugin(profileMentionProfilesById)
 			);
 		}
 		if (spaceReferencesById.size > 0) {
@@ -155,17 +181,17 @@ function useSpaceMessageReferencePresentation(input: SpaceMessageBodyProps) {
 			);
 		}
 		return plugins.length > 0 ? plugins : undefined;
-	}, [agentMentionProfilesById, spaceReferencesById]);
+	}, [profileMentionProfilesById, spaceReferencesById]);
 	const renderInternalLink = useCallback(
 		({ children, href }: { children: ReactNode; href: string }) => {
-			const agentMention = renderSpaceMessageAgentMentionInternalLink({
+			const profileMention = renderSpaceMessageProfileMentionInternalLink({
 				href,
-				onOpenAgentProfile: input.onOpenAgentProfile,
-				profilesById: agentMentionProfilesById,
-				renderAgentProfileTrigger: input.renderAgentProfileTrigger,
+				onOpenProfile: input.onOpenProfile,
+				profilesById: profileMentionProfilesById,
+				renderProfileTrigger: input.renderProfileTrigger,
 			});
-			if (agentMention) {
-				return agentMention;
+			if (profileMention) {
+				return profileMention;
 			}
 			return renderSpaceMessageInternalLink({
 				children,
@@ -174,15 +200,15 @@ function useSpaceMessageReferencePresentation(input: SpaceMessageBodyProps) {
 			});
 		},
 		[
-			agentMentionProfilesById,
-			input.onOpenAgentProfile,
-			input.renderAgentProfileTrigger,
+			profileMentionProfilesById,
+			input.onOpenProfile,
+			input.renderProfileTrigger,
 			spaceReferencesById,
 		]
 	);
 	return {
 		additionalRemarkPlugins,
-		agentMentionProfilesById,
+		profileMentionProfilesById,
 		renderInternalLink,
 		spaceReferencesById,
 	};
@@ -191,10 +217,87 @@ function useSpaceMessageReferencePresentation(input: SpaceMessageBodyProps) {
 export const SpaceMessageBody = memo(function SpaceMessageBody(
 	input: SpaceMessageBodyProps
 ) {
+	const editing = useSpaceMessageEditing();
+	const bodyRef = useRef<HTMLDivElement | null>(null);
+	const [bodySize, setBodySize] = useState<{
+		width: number;
+		height: number;
+	} | null>(null);
+	const isEditing = Boolean(
+		input.item.id && editing?.edit?.id === input.item.id
+	);
+	const canEdit =
+		input.item.actorProfileKind === "human" &&
+		input.item.actorProfileId === editing?.selfProfileId;
+	useLayoutEffect(() => {
+		const body = bodyRef.current;
+		if (!body || isEditing || !canEdit) {
+			return;
+		}
+		const observer = new ResizeObserver(() => {
+			const { width, height } = body.getBoundingClientRect();
+			setBodySize((previous) =>
+				previous?.width === width && previous.height === height
+					? previous
+					: { width, height }
+			);
+		});
+		observer.observe(body);
+		return () => observer.disconnect();
+	}, [isEditing, canEdit]);
+	if (input.item.recalledAt) {
+		return (
+			<Marker
+				className="max-w-full gap-2 py-2 text-xs leading-6 before:min-w-6 after:min-w-6"
+				data-slot="message-recalled"
+				variant="separator"
+			>
+				<MarkerContent className="flex max-w-[80%] flex-wrap items-center justify-center gap-2 whitespace-normal">
+					<span>
+						{input.item.actorProfileId === editing?.selfProfileId
+							? "You recalled a message."
+							: input.item.text}
+					</span>
+					{editing &&
+					!input.item.repostedAt &&
+					input.item.actorProfileId === editing.selfProfileId ? (
+						<Button
+							className={cn(
+								surfaceClasses(2),
+								"rounded-full text-foreground max-lg:min-h-6 max-lg:min-w-0"
+							)}
+							disabled={editing.busy}
+							onClick={() => editing.restore(input.item as SpaceTimelineItem)}
+							size="xs"
+							variant="ghost"
+						>
+							Edit again
+						</Button>
+					) : null}
+				</MarkerContent>
+			</Marker>
+		);
+	}
+	if (isEditing && editing?.edit) {
+		return (
+			<SpaceInlineMessageEditor
+				bodySize={bodySize}
+				item={editing.edit}
+				key={editing.edit.id}
+			/>
+		);
+	}
+	return <SpaceMessageBodyDisplay {...input} bodyRef={bodyRef} />;
+});
+
+const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
+	input: SpaceMessageBodyProps & { bodyRef: Ref<HTMLDivElement> }
+) {
 	const text = useSpaceMessageTextPresentation(input);
 	const references = useSpaceMessageReferencePresentation(input);
 	const className = cn(
 		"break-words content-space-message [overflow-wrap:anywhere]",
+		text.shouldCollapse && !text.isExpanded && "fluid-fade-bottom",
 		input.className
 	);
 	const shouldRenderMarkdown =
@@ -225,11 +328,11 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 	);
 	const body = renderSpaceMessageTextContent({
 		additionalRemarkPlugins: references.additionalRemarkPlugins,
-		agentMentionProfilesById: references.agentMentionProfilesById,
+		profileMentionProfilesById: references.profileMentionProfilesById,
 		className,
 		isStreaming: text.isStreaming,
-		onOpenAgentProfile: input.onOpenAgentProfile,
-		renderAgentProfileTrigger: input.renderAgentProfileTrigger,
+		onOpenProfile: input.onOpenProfile,
+		renderProfileTrigger: input.renderProfileTrigger,
 		referencesById: references.spaceReferencesById,
 		renderInternalLink: references.renderInternalLink,
 		renderedText: text.renderedText,
@@ -250,7 +353,9 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 			api={spaceApi}
 			attachments={attachments}
 			body={body}
+			bodyRef={input.bodyRef}
 			containerClassName={input.containerClassName}
+			edited={Boolean(input.item.editedAt)}
 			files={files}
 			isExpanded={text.isExpanded}
 			navigationActionContent={navigationActionContent}
@@ -268,6 +373,8 @@ function SpaceMessageBodyContent(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	attachments: SpaceTimelineItem["attachments"];
 	body: ReactNode;
+	bodyRef: Ref<HTMLDivElement>;
+	edited: boolean;
 	containerClassName?: string;
 	files: NonNullable<SpaceTimelineItem["files"]>;
 	isExpanded: boolean;
@@ -286,9 +393,15 @@ function SpaceMessageBodyContent(input: {
 				input.containerClassName
 			)}
 			data-slot="space-message-body"
+			ref={input.bodyRef}
 			style={{ overflowWrap: "anywhere" }}
 		>
 			{input.body}
+			<SpaceMessageCollapseButton
+				isExpanded={input.isExpanded}
+				onToggle={input.onToggleExpanded}
+				visible={input.shouldCollapse}
+			/>
 			{input.navigationActionContent}
 
 			<SpaceMessageAttachmentGrid
@@ -302,12 +415,10 @@ function SpaceMessageBodyContent(input: {
 				onOpenSpaceFile={input.onOpenSpaceFile}
 				spaceId={input.spaceId}
 			/>
-			<SpaceMessageCollapseButton
-				isExpanded={input.isExpanded}
-				onToggle={input.onToggleExpanded}
-				visible={input.shouldCollapse}
-			/>
 			<SpaceMessageServerTruncatedNote visible={input.serverTruncated} />
+			{input.edited ? (
+				<span className="text-muted-foreground text-xs">(edited)</span>
+			) : null}
 		</div>
 	);
 }
@@ -323,7 +434,7 @@ function SpaceMessageCollapseButton(input: {
 	return (
 		<button
 			aria-expanded={input.isExpanded}
-			className="w-fit text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+			className="w-fit text-muted-foreground text-xs underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
 			onClick={input.onToggle}
 			type="button"
 		>
@@ -350,11 +461,11 @@ function renderSpaceMessageTextContent(input: {
 	additionalRemarkPlugins: ComponentProps<
 		typeof MessageResponse
 	>["additionalRemarkPlugins"];
-	agentMentionProfilesById: SpaceMessageAgentMentionProfilesById;
+	profileMentionProfilesById: SpaceMessageProfileMentionProfilesById;
 	className: string;
 	isStreaming: boolean;
-	onOpenAgentProfile?: (profileId: string) => void;
-	renderAgentProfileTrigger?: SpaceAgentProfileTriggerRenderer;
+	onOpenProfile?: (profileId: string) => void;
+	renderProfileTrigger?: SpaceProfileTriggerRenderer;
 	referencesById: SpaceMessageReferencesById;
 	renderInternalLink: ComponentProps<
 		typeof MessageResponse
@@ -380,10 +491,10 @@ function renderSpaceMessageTextContent(input: {
 	}
 	return (
 		<p className={cn("max-w-full whitespace-pre-wrap", input.className)}>
-			<SpaceMessageAgentMentionText
-				onOpenAgentProfile={input.onOpenAgentProfile}
-				profilesById={input.agentMentionProfilesById}
-				renderAgentProfileTrigger={input.renderAgentProfileTrigger}
+			<SpaceMessageProfileMentionText
+				onOpenProfile={input.onOpenProfile}
+				profilesById={input.profileMentionProfilesById}
+				renderProfileTrigger={input.renderProfileTrigger}
 				renderText={(text) => (
 					<SpaceMessageReferenceText
 						referencesById={input.referencesById}
@@ -523,7 +634,7 @@ function SpaceMessageFileList(input: {
 							}
 							type="button"
 						>
-							<SpaceMessageFileIcon />
+							<SpaceMessageFileIcon mimeType={file.mimeType} />
 							<div className="min-w-0 flex-1">
 								<p className="truncate font-medium text-sm">{file.name}</p>
 								<p className="mt-0.5 truncate text-muted-foreground text-xs">
@@ -542,10 +653,14 @@ function SpaceMessageFileList(input: {
 	);
 }
 
-function SpaceMessageFileIcon() {
+function SpaceMessageFileIcon(input: { mimeType: string }) {
 	return (
 		<div className="flex size-11 shrink-0 items-center justify-center rounded-sm border border-border bg-muted text-muted-foreground">
-			<FileIcon aria-hidden="true" className="size-5" />
+			{input.mimeType === "text/html" ? (
+				<SpaceFileHtmlBadge />
+			) : (
+				<FileIcon aria-hidden="true" className="size-5" />
+			)}
 		</div>
 	);
 }

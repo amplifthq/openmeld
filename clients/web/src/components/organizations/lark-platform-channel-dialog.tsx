@@ -276,7 +276,7 @@ function RegistrationProgress(input: {
 				errorMessage={input.errorMessage}
 				label={
 					attempt.status === "configuring"
-						? "Verifying permissions and Webhook delivery"
+						? "Checking permissions and connecting your bot"
 						: "Securing the new app credentials"
 				}
 				onRetryPoll={input.onRetryPoll}
@@ -432,7 +432,13 @@ function resolveConfigurationRetryMessage(input: {
 		return `OpenMeld could not publish the app update to ${input.providerLabel}. The bot is not connected yet. OpenMeld will retry automatically.`;
 	}
 	if (input.reasonCode.endsWith(".application_config_failed")) {
-		return `${input.providerLabel} did not accept the latest app configuration. OpenMeld will retry automatically.`;
+		return `OpenMeld could not finish configuring the ${input.providerLabel} app. It will retry automatically.`;
+	}
+	if (
+		input.reasonCode.endsWith(".persistent_connection_failed") ||
+		input.reasonCode.endsWith(".persistent_connector_unavailable")
+	) {
+		return `OpenMeld could not connect to ${input.providerLabel}. It will retry automatically.`;
 	}
 	if (
 		input.reasonCode.endsWith(".registration_transport_failed") ||
@@ -567,7 +573,7 @@ function resolveRepairExplanation(
 		return `Reconnect this bot and approve the updated permissions in ${providerLabel}. OpenMeld needs to publish its message-delivery settings before you can use the Center Agent here.`;
 	}
 	if (connection.reasonCode === `${connection.provider}.registration_expired`) {
-		return "Setup expired before OpenMeld could verify this app’s permissions and Webhook delivery. Repair retries the existing app; it does not create another one.";
+		return "Setup expired before OpenMeld could verify this app’s permissions and establish a connection. Repair retries the existing app; it does not create another one.";
 	}
 	if (connection.status === "revoked") {
 		return `${providerLabel} stopped authorizing this app. Repair checks the existing app again; if access was permanently revoked, disconnect it and connect a new app.`;

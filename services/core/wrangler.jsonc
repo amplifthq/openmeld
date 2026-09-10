@@ -70,6 +70,7 @@
   ],
   "vars": {
     "OPENMELD_WORKER_ENVIRONMENT": "local",
+    "OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE": "direct",
     "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "true",
     "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED": "true",
     "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "",
@@ -133,6 +134,10 @@
       {
         "name": "OPENMELD_RUNTIME_TRANSPORT",
         "class_name": "RuntimeTransportHub"
+      },
+      {
+        "name": "OPENMELD_LARK_CHANNEL_CONNECTOR",
+        "class_name": "LarkChannelConnector"
       },
       {
         "name": "OPENMELD_PREPARE_SESSION_HUB",
@@ -199,7 +204,8 @@
           "to": "RuntimeTransportHub"
         }
       ]
-    }
+    },
+    { "tag": "v5", "new_sqlite_classes": ["LarkChannelConnector"] }
   ],
   "env": {
     "stg": {
@@ -295,6 +301,10 @@
           {
             "name": "OPENMELD_RUNTIME_TRANSPORT",
             "class_name": "RuntimeTransportHub"
+          },
+          {
+            "name": "OPENMELD_LARK_CHANNEL_CONNECTOR",
+            "class_name": "LarkChannelConnector"
           },
           {
             "name": "OPENMELD_PREPARE_SESSION_HUB",
@@ -446,6 +456,10 @@
           {
             "name": "OPENMELD_RUNTIME_TRANSPORT",
             "class_name": "RuntimeTransportHub"
+          },
+          {
+            "name": "OPENMELD_LARK_CHANNEL_CONNECTOR",
+            "class_name": "LarkChannelConnector"
           },
           {
             "name": "OPENMELD_PREPARE_SESSION_HUB",

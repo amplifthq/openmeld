@@ -2,7 +2,10 @@ import type {
   OpenMeldEnvPreset,
   OpenMeldPathResolutionInput,
 } from "../../config/paths";
-import { resolveOpenMeldEnvPreset } from "../../config/paths";
+import {
+  resolveOpenMeldEnvPreset,
+  resolveOpenMeldServiceScope,
+} from "../../config/paths";
 
 export type DaemonServiceIdentity = {
   envPreset: OpenMeldEnvPreset;
@@ -44,5 +47,15 @@ export function resolveDaemonServiceIdentity(
   input: OpenMeldPathResolutionInput = {}
 ): DaemonServiceIdentity {
   const preset = resolveOpenMeldEnvPreset(input);
-  return DAEMON_SERVICE_IDENTITY_BY_PRESET[preset];
+  const identity = DAEMON_SERVICE_IDENTITY_BY_PRESET[preset];
+  const scope = resolveOpenMeldServiceScope(input);
+  return scope
+    ? {
+        ...identity,
+        serviceName: `${identity.serviceName}-${scope}`,
+        launchdLabel: `${identity.launchdLabel}.${scope}`,
+        windowsServiceName: `${identity.windowsServiceName}-${scope}`,
+        windowsDisplayName: `${identity.windowsDisplayName} (${scope})`,
+      }
+    : identity;
 }

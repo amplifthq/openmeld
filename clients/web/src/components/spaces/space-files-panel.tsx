@@ -65,6 +65,8 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 						setEntryDialog({ entry: selectedFile, kind: "rename" })
 					}
 					onTrash={() => setEntryDialog({ entry: selectedFile, kind: "trash" })}
+					openMeldProfileId={input.openMeldProfileId}
+					organizationSlug={input.organizationSlug}
 					spaceId={input.spaceId}
 				/>
 				<SpaceFileEntryDialogs

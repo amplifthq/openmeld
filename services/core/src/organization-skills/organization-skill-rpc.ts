@@ -47,10 +47,10 @@ import type {
   UpdateOrganizationSkillResponse,
   UpdateOrganizationSkillRpcInput,
 } from "@openmeld/schemas/types";
-import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
 import { type CoreBindings, organizationSkillsDb } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
+import { requireRemoteAgentToolCaller } from "../remote-agent/application/remote-agent-tool-caller";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   createOrganizationSkillService,
@@ -231,10 +231,30 @@ export async function rpcReadOrganizationSkillRuntimeSnapshot(
     readOrganizationSkillRuntimeSnapshotRpcInputSchema,
     input
   );
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+  const authorization = await requireRemoteAgentToolCaller({
     context: request.context,
     env,
+    skillPreparationKey: request.preparationIdempotencyKey,
   });
+  if ("personalExecution" in authorization) {
+    const selected =
+      authorization.personalExecution.request.organizationSkillReleases ?? [];
+    if (
+      request.releases.length !== selected.length ||
+      request.releases.some(
+        (release) =>
+          !selected.some(
+            (frozen) =>
+              frozen.skillId === release.skillId &&
+              frozen.releaseId === release.releaseId &&
+              frozen.digest === release.digest &&
+              frozen.name === release.name
+          )
+      )
+    ) {
+      throw new Error("organization_skill.prepared_release_mismatch");
+    }
+  }
   const { db, bucket } = requireStores(env);
   return parseResponse(
     organizationSkillRuntimeSnapshotResponseSchema,
@@ -253,7 +273,7 @@ export async function rpcRecordOrganizationSkillActivation(
     recordOrganizationSkillActivationRpcInputSchema,
     input
   );
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+  const authorization = await requireRemoteAgentToolCaller({
     context: request.context,
     env,
   });

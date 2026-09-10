@@ -1,4 +1,8 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
+export {
+  spaceHistoryNavigationQuerySchema,
+  spaceHistoryNavigationSchema,
+} from "./http/space-history-navigation";
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
@@ -896,8 +900,11 @@ export {
   agentProfileCreationApprovalPolicySchema,
   agentProfileCreationApprovalPreferenceSchema,
   agentProfileCreationConfigurationSchema,
+  agentProfileCreationExecutionMessageSchema,
+  agentProfileCreationIntentSchema,
   agentProfileCreationRequestMutationResponseSchema,
   agentProfileCreationRequestSchema,
+  agentProfileCreationRequestSelectorSchema,
   agentProfileCreationRequestSourceSchema,
   agentProfileCreationRequestStatusReasonSchema,
   agentProfileCreationRequestStatusSchema,
@@ -929,17 +936,22 @@ export {
   setAuthPasswordResponseSchema,
 } from "./http/auth-password";
 export {
+  AUTH_PROFILE_FACT_BATCH_SIZE,
   authOrganizationContextSourceSchema,
   authRpcClaimsSchema,
   authRpcMethodSchema,
+  authRpcProfileFactSchema,
   authRpcResolveOrganizationAccountIdentityInputSchema,
   authRpcResolveOrganizationAccountIdentityResultSchema,
   authRpcResolveOrganizationDirectoryAgentProfilesInputSchema,
   authRpcResolveOrganizationDirectoryAgentProfilesResultSchema,
   authRpcResolveOrganizationDirectoryMembersInputSchema,
   authRpcResolveOrganizationDirectoryMembersResultSchema,
+  authRpcResolveProfileByIdResultSchema,
   authRpcResolveProfileInputSchema,
   authRpcResolveProfileResultSchema,
+  authRpcResolveProfilesByIdsInputSchema,
+  authRpcResolveProfilesByIdsResultSchema,
   authRpcResolveRequestAuthInputSchema,
   authRpcResolveRequestAuthResultSchema,
   authRpcResolveRequestAuthWithProfileInputSchema,
@@ -2091,6 +2103,7 @@ export {
   prepareSpaceFileWriteResponseSchema,
   publishSpaceComposerUploadBodySchema,
   publishSpaceComposerUploadResponseSchema,
+  readSpaceFileTextResponseSchema,
   resolveSpaceComposerUploadScopeResponseSchema,
   resolveSpaceFileContentInputSchema,
   resolveSpaceFileContentResponseSchema,
@@ -2200,6 +2213,12 @@ export {
   spaceMessageDetailsWakeTargetSchema,
   spaceMessageDetailsWorkingDetailsSchema,
 } from "./http/space-message-details";
+export {
+  spaceFilePinMutationSchema,
+  spaceFilePinsResponseSchema,
+  spaceMessagePinMutationSchema,
+  spaceMessagePinsResponseSchema,
+} from "./http/space-message-pins";
 export {
   getSpaceMetaResponseSchema,
   MAX_SPACE_GUIDE_LENGTH,
@@ -2576,6 +2595,7 @@ export {
   TARGET_WAKE_LIFECYCLE_IDENTITY_MODEL_VERSION,
   targetWakeLifecycleIdentitySchema,
 } from "./protocol/target-wake-lifecycle";
+export { agentComputerBrowserRequestSchema } from "./runtime/agent-computer-browser";
 export {
   AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS,
   agentControllerInterfaceAuthSnapshotSchema,
@@ -2778,6 +2798,14 @@ export {
   dispatchResultSchema,
 } from "./space-mesh/dispatch-result";
 export { entryBriefSchema } from "./space-mesh/entry-brief";
+export {
+  getSpaceMessageReactionsInputSchema,
+  getSpaceMessageReactionsResponseSchema,
+  setSpaceMessageReactionInputSchema,
+  spaceMessageReactionsSchema,
+  spaceReactionActorSchema,
+  spaceReactionGroupSchema,
+} from "./space-mesh/message-reaction";
 export {
   openMeldSpaceActionReadResultBySchema,
   openMeldSpaceActionReadUpdatesFromSchema,

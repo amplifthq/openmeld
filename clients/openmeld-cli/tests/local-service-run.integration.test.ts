@@ -502,6 +502,17 @@ vi.mock("../src/local-service/state/daemon-start-failure-state", async () => {
   };
 });
 
+// Startup presentation tests never install a real system maintenance worker.
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-update-worker-manager",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../src/local-service/lifecycle/daemon-service-update-worker-manager")
+    >()),
+    ensureDaemonServiceMaintenanceInstalled: vi.fn(async () => undefined),
+  })
+);
+
 vi.mock("../src/local-service/lifecycle/daemon-service-bundle", async () => {
   const actual = await vi.importActual<
     typeof import("../src/local-service/lifecycle/daemon-service-bundle")

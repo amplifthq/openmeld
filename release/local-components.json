@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T09:46:57.676Z",
+  "updatedAt": "2026-09-10T01:34:21.873Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.174",
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-organization-agent-ownership-v1",
+      "packageVersion": "0.3.193",
       "updatePolicy": "required",
-      "reason": "The explicit Space recipient command contract replaces inline recipient instructions. Upgrade the CLI to use the current authoring contract; structured transport remains compatible during the staged rollout."
+      "reason": "Organization-owned Center Agents require nullable-owner command readers."
     },
     "service": {
-      "bundleHash": "9b5b9c989419d8664eb16553e5299e831fc09861aa61598d9dae1793ac29a047",
-      "bundleVersion": "0.3.174",
+      "bundleHash": "3ded972a8f37fdd5321b4032ef1c2388725c53702c95dc1833e4de4994f848b0",
+      "bundleVersion": "0.3.193",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Route registration and discovery are decoupled without changing the workstation execution epoch, Task Handle callbacks, or final outcome protocol; old and new Service versions remain interoperable."
+      "reason": "Existing Service execution, Prepare, Wake, Space action, and diagnostic contracts remain compatible in both cloud directions."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",

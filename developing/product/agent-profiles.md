@@ -71,6 +71,10 @@ brand mark, such as Codex, Claude Code, Grok Build, Cursor, or OpenCode, because
 recognize how that profile runs. Rebinding an ordinary Agent Profile updates
 that mark. An unbound or unknown controller uses the generic agent fallback;
 it must not invent Controller branding.
+Local Agent message headers show the owner's name after a middle dot, without
+an owner avatar or prefix. Profile popovers place availability beside the Agent
+name and show `Owned by` with the owner's small Human Profile avatar and name.
+Hosted Agents retain the `Hosted by OpenMeld` message attribution.
 
 OpenMeld also has Human Profiles. A default Human Profile is created for the
 signed-in user and is the right identity when a human or their current AI
@@ -81,6 +85,15 @@ Auth's additional-Human-creation capability is disabled; this does not hide or
 invalidate existing non-default Human Profiles.
 
 The platform may create managed Agent Profiles only for explicit system roles.
+An Organization's Center Agent, including a Personal Workspace Center Agent,
+belongs to the Organization itself. Its `ownerUserId` is null; its immutable
+Organization and Profile identities own its lifecycle. The creating member is
+audit attribution only. Current Organization roles authorize management and do
+not confer access to the Agent's private Spaces, conversations, or member App
+connections. Removing or deleting the creating member must not delete or
+reassign the Center Agent. Ordinary human-owned Agent Profiles retain their
+account ownership and owner-participation contract.
+
 The current system role is the org-scoped `managedRole = "center_agent"` profile
 for each org's Center Agent, including personal orgs. Legacy
 `managedRole = "openmeld_assistant"` profiles are retained as historical data
@@ -205,6 +218,26 @@ cannot run the executor twice or overwrite a newer outcome. If approval remains
 unclaimed for 30 minutes, or a claimed attempt has no terminal result for that
 long, Core changes the durable request to an explicit retryable failure. Retry
 makes a new fenced attempt instead of leaving the request permanently stuck.
+
+Creation, approval, and retry return the durable request after acceptance; they
+do not hold the response open until local setup finishes. Core delivers an
+execution notification through the existing shared Core Queue and re-delivers
+unclaimed approved rows from its minute scheduler. The Queue carries only the
+Organization and request IDs. The request row owns intent, claim, identity
+checkpoint, and terminal result; the Queue never authorizes creation. Duplicate
+notifications cannot re-claim a started or terminal request. Execution rechecks
+current Organization membership and the selected Computer before identity or
+setup effects. This replaces execution inside the initiating RPC, rather than
+adding another creation implementation or a client-owned continuation.
+
+If a creation response is lost, clients query the exact requester/actor-scoped
+idempotency key once and verify the original normalized intent. A missing or
+unreadable result remains unknown, never a failed creation or permission to
+mint another identity. Web waits on the exact request for up to one minute,
+then hands the accepted state to Agent requests; the server continues without
+the page. The CLI prints the accepted request and preserves the idempotency key
+when its outcome cannot be read. Request views refresh only while creation is
+active. JSON field order and omitted default fields are not changes of intent.
 
 If Auth has already committed the Agent Profile identity when a later Space,
 Binding, working-folder, or Default Project step fails, the durable request
@@ -440,11 +473,13 @@ new Binding's unchanged value. Web clients also compare an accepted response
 with the requested permission, collaboration, model/reasoning, or OpenCode
 permission before showing “Settings saved.”
 
-The Agent Profile's authoritative `ownerUserId` is also the Binding owner and
-RuntimeCoordinator shard owner. An administrator acting within the Profile's
-canonical Organization remains the action and audit actor and must not become a
-second Binding owner. A write that discovers an older enabled Binding for the
-same Agent Profile under another owner must acquire mutation admission from
+For personal Agent Profiles, the authoritative `ownerUserId` is also the Binding
+owner and RuntimeCoordinator shard owner. Organization Center Agents instead
+have an `organization`-owned hosted Binding and use native delivery authority.
+They never borrow a member's RuntimeCoordinator shard. An administrator acting
+within the Profile's canonical Organization remains the action and audit actor
+and must not become a second Binding owner. A personal Agent Profile write that
+discovers an older enabled Binding under another owner must acquire mutation admission from
 every affected owner shard before changing the Binding. Disabling admitted
 legacy Bindings and installing the Profile owner's target are one atomic D1
 write; any failed step leaves the previous enabled Bindings intact. Unavailable
@@ -847,19 +882,14 @@ Usage participates in Wakeability only when the Local Agent exposes structured,
 reliable Usage Limits. A Local Agent that explicitly reports Usage as
 unsupported, or that has no reliable Usage capability because reporting is
 passive or not evaluated, does not use Usage as an admission condition. Once a
-Local Agent's versioned capability matrix declares native Usage support, a
-missing, stale, expired, or currently unavailable observation projects
-`Checking` and blocks execution of a new Wake. The user's request may be durably
-submitted while this observation catches up, through the same bounded Core
-preflight recovery as first-report preparation. Submission is not execution
-admission: OpenMeld must not claim the Agent is ready or start it before the
-required fact is known. During a mixed-version rollout, Core continues
-to parse a legacy Local Agent report that omits the Usage support-matrix
-version, but that report cannot prove current capacity for a controller whose
-reviewed matrix requires native Usage. The public verdict remains bounded
-`Checking` and execution admission stays closed until a current report arrives.
-The original request either continues once, is cancelled, or reaches an explicit
-failure when a definitive blocker or the preparation retry limit is reached. A
+Local Agent's versioned capability matrix declares native Usage support,
+missing, stale, expired, or currently unavailable Usage remains an observation,
+not an execution prerequisite. Otherwise ready Agents may attempt a new Wake;
+the provider remains responsible for enforcing its actual capacity. This avoids
+making a healthy account unusable when its quota endpoint is slow. Existing
+authentication, permission, current Controller report, and execution identity
+requirements remain mandatory. During a mixed-version rollout, legacy Usage
+reports remain parseable without adding a guessed admission block. A
 fresh exhausted Usage Limit projects `Unavailable` and blocks the Wake before
 admission. These decisions use the current report already held by Core and must
 not add a provider call to the Wake hot path. Core and the Local Service consume

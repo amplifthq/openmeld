@@ -47,7 +47,7 @@ describe("runtime messages", () => {
       "Press @ to insert an Agent Wake, Agent Reference, or Human Mention."
     );
     expect(formatMessage("agent", "connect.chat_mention_hint")).toBe(
-      "use @Name(wake) or @Name(reference) for agents, and @Name(mention) for people"
+      "choose a member with @ in the interactive picker, or use space send --wake, --reference, or --mention with a full Profile ID; typed text is literal"
     );
   });
 
