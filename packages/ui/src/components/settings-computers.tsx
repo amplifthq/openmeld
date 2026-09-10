@@ -560,7 +560,7 @@ export function SettingsLocalAgentUsageDockItem({
       <TooltipTrigger
         render={
           <span
-            className="relative inline-flex size-6 shrink-0 items-end hover:z-50!"
+            className="relative inline-flex size-[27px] shrink-0 items-end hover:z-50!"
             style={{ zIndex: stackOrder }}
             title={agentName}
           />
@@ -582,7 +582,7 @@ export function SettingsLocalAgentUsageDockItem({
                 role="progressbar"
               >
                 <UsageLimitRing
-                  className="size-3 [&>circle:first-child]:fill-card"
+                  className="size-[13.5px] [&>circle:first-child]:fill-card"
                   remainingPercent={summary.remainingPercent}
                   strokeWidth={3}
                   tone={summary.presentation.tone}

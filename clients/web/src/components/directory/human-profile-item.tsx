@@ -218,7 +218,7 @@ function HumanLocalAgentDock({
 		);
 		return (
 			<span
-				className="isolate ml-auto flex max-w-full items-end justify-end -space-x-2"
+				className="isolate ml-auto flex max-w-full items-end justify-end -space-x-2.25"
 				data-slot="human-profile-local-agent-dock"
 			>
 				{orderedAgents.map((agent, index) => (
@@ -231,7 +231,7 @@ function HumanLocalAgentDock({
 					>
 						<LocalAgentLogo
 							agentId={agent.agentId}
-							className="size-5 rounded-sm"
+							className="size-[22.5px] rounded-sm"
 							size="sm"
 							variant="tile"
 						/>
