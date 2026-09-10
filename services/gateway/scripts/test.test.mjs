@@ -27,3 +27,18 @@ test("Gateway validation runs every shard and stops on failure", () => {
   );
   assert.equal(calls, 1);
 });
+
+test("an explicit test file runs once without empty shards", () => {
+  const calls = [];
+  assert.equal(
+    runGatewayTests(
+      ["tests/public-space-boundary.test.ts"],
+      (_binary, args) => {
+        calls.push(args.slice(1));
+        return { status: 0 };
+      }
+    ),
+    0
+  );
+  assert.deepEqual(calls, [["run", "tests/public-space-boundary.test.ts"]]);
+});

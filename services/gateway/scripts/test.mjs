@@ -7,15 +7,15 @@ const require = createRequire(import.meta.url);
 // Bound the Workers runtime lifetime as well as concurrency: this pool retains
 // transformed modules until exit. Vitest owns shard selection so every file runs.
 export function runGatewayTests(args = [], run = spawnSync) {
-  for (let shard = 1; shard <= 4; shard += 1) {
+  // Explicit test filters/options retain Vitest's native single-run behavior.
+  const groups =
+    args.length > 0
+      ? [args]
+      : Array.from({ length: 4 }, (_, index) => [`--shard=${index + 1}/4`]);
+  for (const group of groups) {
     const result = run(
       process.execPath,
-      [
-        require.resolve("vitest/vitest.mjs"),
-        "run",
-        `--shard=${shard}/4`,
-        ...args,
-      ],
+      [require.resolve("vitest/vitest.mjs"), "run", ...group],
       { stdio: "inherit" }
     );
     if (result.error) {
