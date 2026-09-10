@@ -10506,6 +10506,14 @@ describe("SpaceLanding", () => {
 	});
 
 	it("shows a jump-to-latest button when the conversation is scrolled above the latest message", async () => {
+		// jsdom's shared frame scheduler can retain an interval from an earlier
+		// fake-clock test. Give this real-clock interaction its own frame queue.
+		vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) =>
+			window.setTimeout(() => callback(performance.now()), 0)
+		);
+		vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) =>
+			window.clearTimeout(id)
+		);
 		createWebSpaceApiMock.mockReturnValue({
 			getUpdates: vi.fn().mockResolvedValue({
 				signals: [],
