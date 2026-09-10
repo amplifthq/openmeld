@@ -751,6 +751,16 @@ describe("Agent Profile creation request service", () => {
 
   it("holds teammate admission and replay while preserving self creation", async () => {
     const held = createService(true, false);
+    await expect(
+      held.setPreference({
+        body: {
+          newSessionPolicy: "automatically_allow",
+          existingSessionPolicy: "automatically_allow",
+        },
+        organizationId: "org-1",
+        userId: "user-requester",
+      })
+    ).rejects.toBeInstanceOf(AgentProfileCreationRequestForbiddenError);
     const intent = {
       actorProfileId: "human-requester",
       body: requestBody(),

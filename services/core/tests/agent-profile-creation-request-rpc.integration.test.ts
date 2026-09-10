@@ -416,6 +416,28 @@ describe("Agent Profile creation request RPC", () => {
       .bind(fixture.organizationId)
       .first<{ count: number }>();
     expect(rows?.count).toBe(0);
+    // The same Center Agent attribution may still create for its represented
+    // member. The launch hold must not confuse Agent identity with ownership.
+    const own = await submitCenterAgentRequest(bindings, {
+      ...intent,
+      targetOwnerUserId: fixture.requesterUserId,
+      context: {
+        activeOrganizationId: fixture.organizationId,
+        actorContext: {
+          callerPrincipalId: fixture.centerAgentProfileId,
+          openMeldProfileId: fixture.centerAgentProfileId,
+          profileKind: "agent",
+          profileName: "Center Agent",
+          requestId: `own-${fixture.suffix}`,
+        },
+      },
+      onBehalfOf: { profileId: fixture.requesterProfileId },
+    });
+    expect(own.request).toMatchObject({
+      requesterUserId: fixture.requesterUserId,
+      targetOwnerUserId: fixture.requesterUserId,
+      status: "approved",
+    });
   });
 
   it("accepts a Resume request for a current matching Session", async () => {

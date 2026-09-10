@@ -193,6 +193,18 @@ execution together. Approval of a frozen creation intent must not silently grant
 broader sharing authority. Test both self creation and teammate requests before
 changing the release decision; do not restore only a visible button.
 
+Launch-hold contract audit: request payloads, status enums, error envelopes,
+Service transport, setup, Wake, dispatch-owned actions, and diagnostics retain
+their existing wire contracts. Old clients receive the existing Core forbidden
+error for cross-user creation; new clients still create and recover their own
+Agents against old Core. CLI discovery and bundled guidance narrow to the
+released self-creation capability, without removing the recovery commands.
+No runtime or command contract bump is needed. Deploy the Core enforcement
+before Web and Remote Agent discovery changes; the CLI/Skill update is advisory,
+not a forced restart or upgrade. Keep release versions and manifests unchanged
+on the feature branch, use deferred release-ready validation, and stamp the
+affected local components as available in the final publishing release.
+
 An Agent Profile Creation Request is the one Organization-scoped coordination
 flow for creating an Agent Profile owned by the requester or by another member.
 Web, CLI, Local Agents, and the Center Agent use the same Core-owned request

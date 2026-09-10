@@ -5055,7 +5055,7 @@ profileRequestsCmd
 
 for (const decision of ["approve", "decline"] as const) {
   profileRequestsCmd
-    .command(decision)
+    .command(decision, { hidden: !TEAMMATE_AGENT_REQUESTS_ENABLED })
     .description(
       `${decision === "approve" ? "Approve" : "Decline"} an Agent Profile creation request for you.`
     )

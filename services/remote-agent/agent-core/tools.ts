@@ -399,7 +399,11 @@ const agentProfileRequestSessionSelectionInputSchema = strictObject({
   projectId: trimmedNonEmptyStringSchema,
 });
 const manageAgentProfileRequestToolInputSchema = strictObject({
-  action: picklist(["approve", "decline", "cancel", "retry"]),
+  action: picklist(
+    TEAMMATE_AGENT_REQUESTS_ENABLED
+      ? (["approve", "decline", "cancel", "retry"] as const)
+      : (["cancel", "retry"] as const)
+  ),
   requestId: trimmedNonEmptyStringSchema,
 });
 const agentProfileRequestApprovalPreferencesToolInputSchema = strictObject({
