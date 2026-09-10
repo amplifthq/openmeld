@@ -576,7 +576,7 @@ export function SettingsLocalAgentUsageDockItem({
                 role="progressbar"
               >
                 <UsageLimitRing
-                  className="size-4 [&>circle:first-child]:fill-card"
+                  className="size-3 [&>circle:first-child]:fill-card"
                   remainingPercent={summary.remainingPercent}
                   strokeWidth={3}
                   tone={summary.presentation.tone}
