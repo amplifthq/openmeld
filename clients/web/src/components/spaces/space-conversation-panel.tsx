@@ -45,6 +45,7 @@ import {
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { getSpaceConversationHistorySignalId } from "#/lib/space-conversation-position";
 import {
 	buildActiveWakeConversationItems,
 	hasActiveWakeReplyForSource,
@@ -2660,6 +2661,9 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 						<MessageScrollerItem key={item.id} messageId={item.id}>
 							<div
 								className="flex flex-col items-center gap-1 py-2"
+								data-history-signal-id={getSpaceConversationHistorySignalId(
+									item
+								)}
 								data-signal-id={item.id}
 								ref={(element) =>
 									input.registerMessageElement(item.id, element)
@@ -2953,6 +2957,7 @@ function ConversationBubbleContent(input: {
 				input.bubblePresentationClass
 			)}
 			data-highlighted={input.isHighlighted ? "true" : undefined}
+			data-history-signal-id={getSpaceConversationHistorySignalId(input.item)}
 			data-signal-id={input.item.id}
 			ref={(element) => {
 				parent.registerMessageElement(input.item.id, element);
@@ -3730,6 +3735,7 @@ function SystemEventRow(input: {
 				data-highlighted={
 					input.highlightedSignalId === input.item.id ? "true" : undefined
 				}
+				data-history-signal-id={getSpaceConversationHistorySignalId(input.item)}
 				data-signal-id={input.item.id}
 				ref={(element) => {
 					input.registerMessageElement(input.item.id, element);
@@ -3780,6 +3786,9 @@ function SystemEventRow(input: {
 					data-highlighted={
 						input.highlightedSignalId === input.item.id ? "true" : undefined
 					}
+					data-history-signal-id={getSpaceConversationHistorySignalId(
+						input.item
+					)}
 					data-signal-id={input.item.id}
 					ref={(element) => {
 						input.registerMessageElement(input.item.id, element);
@@ -3798,6 +3807,9 @@ function SystemEventRow(input: {
 					data-highlighted={
 						input.highlightedSignalId === input.item.id ? "true" : undefined
 					}
+					data-history-signal-id={getSpaceConversationHistorySignalId(
+						input.item
+					)}
 					data-signal-id={input.item.id}
 					onClick={() => input.onOpenMessageDetails(input.item)}
 					ref={(element) => {

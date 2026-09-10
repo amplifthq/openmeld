@@ -2414,8 +2414,14 @@ allowed acceleration layers.
 TanStack Router owns the browser's coarse scroll-coordinate fallback. Its
 restoration key is the route pathname rather than the individual
 browser-history entry, and the Space message viewport has a stable id derived
-from the Space id. The conversation also records the first visible message and
-its viewport offset during scrolling and on departure. That account-and-Space-
+from the Space id. The conversation records a persisted signal and its viewport
+offset during scrolling and on departure. Reading-position restore and the
+history rail's Back action share this anchor selection. Optimistic sends, live
+reply projections, and transient activity rows retain their display identities
+but cannot become history anchors. Prefer the first visible recorded signal;
+when transient content fills the viewport, retain a nearby recorded signal and
+its offset instead. Existing stored positions are not migrated or invalidated.
+That account-and-Space-
 scoped semantic anchor is restored after history arrives, loading earlier pages
 if needed. A remembered position disables the MessageScroller's initial
 end jump and automatic following. Resize observation preserves the same message
