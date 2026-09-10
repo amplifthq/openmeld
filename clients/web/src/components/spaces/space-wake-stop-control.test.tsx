@@ -1,5 +1,6 @@
 import type { PostSpaceWakeStopResponse } from "@openmeld/schemas/types";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -17,6 +18,58 @@ import {
 describe("SpaceWakeStopControl", () => {
 	afterEach(() => {
 		cleanup();
+	});
+
+	it.each([
+		"Close",
+		"Close icon",
+		"Escape",
+	])("dismisses a pending Stop with %s without closing a later confirmation", async (dismissAction) => {
+		let finishStop!: (response: PostSpaceWakeStopResponse) => void;
+		const onStopWake = vi.fn(
+			() =>
+				new Promise<PostSpaceWakeStopResponse>((resolve) => {
+					finishStop = resolve;
+				})
+		);
+		render(
+			<SpaceWakeStopControl
+				onStopWake={onStopWake}
+				target={createWakeStopTarget({})}
+			/>
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Stop Wake for Runner Agent" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Stop Wake" }));
+		expect(
+			screen
+				.getByRole("button", { name: "Requesting Stop..." })
+				.hasAttribute("disabled")
+		).toBe(true);
+		if (dismissAction === "Escape") {
+			fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+		} else {
+			const closeButtons = screen.getAllByRole("button", {
+				name: "Close",
+			});
+			expect(closeButtons).toHaveLength(2);
+			const button = closeButtons[dismissAction === "Close icon" ? 1 : 0];
+			if (!button) {
+				throw new Error("Missing dialog close action");
+			}
+			fireEvent.click(button);
+		}
+		expect(screen.queryByRole("dialog")).toBeNull();
+		expect(onStopWake).toHaveBeenCalledTimes(1);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Stop Wake for Runner Agent" })
+		);
+		await act(async () => finishStop(createWakeStopResponse()));
+		expect(
+			screen.getByRole("dialog", { name: "Stop this Wake?" })
+		).toBeTruthy();
+		expect(onStopWake).toHaveBeenCalledTimes(1);
 	});
 
 	it("keeps confirmation and its exact target when an active reply replaces the trigger row", async () => {
@@ -126,7 +179,7 @@ describe("SpaceWakeStopControl", () => {
 		expect(onStopWake).not.toHaveBeenCalledWith(claudeTarget);
 	});
 
-	it("lets the user explicitly stop all active targets", async () => {
+	it("continues an explicit Stop All after the pending dialog is dismissed", async () => {
 		const claudeTarget = createWakeStopTarget({
 			targetLabel: "Claude Agent",
 			targetProfileId: "agt_claude",
@@ -134,6 +187,10 @@ describe("SpaceWakeStopControl", () => {
 		const codexTarget = createWakeStopTarget({
 			targetLabel: "Codex Agent",
 			targetProfileId: "agt_codex",
+		});
+		let finishFirstStop!: (response: PostSpaceWakeStopResponse) => void;
+		const firstStop = new Promise<PostSpaceWakeStopResponse>((resolve) => {
+			finishFirstStop = resolve;
 		});
 		const onStopWake = vi.fn().mockResolvedValue(
 			createWakeStopResponse({
@@ -157,7 +214,16 @@ describe("SpaceWakeStopControl", () => {
 		const dialog = within(
 			screen.getByRole("dialog", { name: "Stop agents in this Wake" })
 		);
+		onStopWake.mockImplementationOnce(() => firstStop);
 		fireEvent.click(dialog.getByRole("button", { name: "Stop All" }));
+		const closeButton = dialog.getAllByRole("button", { name: "Close" })[0];
+		if (!closeButton) {
+			throw new Error("Missing dialog close action");
+		}
+		fireEvent.click(closeButton);
+		expect(screen.queryByRole("dialog")).toBeNull();
+		expect(onStopWake).toHaveBeenCalledTimes(1);
+		await act(async () => finishFirstStop(createWakeStopResponse()));
 
 		await waitFor(() => {
 			expect(onStopWake).toHaveBeenCalledTimes(2);

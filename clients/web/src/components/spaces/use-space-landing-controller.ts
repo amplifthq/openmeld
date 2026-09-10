@@ -2080,7 +2080,9 @@ export function useSpaceLandingController(input: {
 					next.delete(selectorKey);
 					return next;
 				});
-				throw toStructuredApiClientFailure(error);
+				const failure = toStructuredApiClientFailure(error);
+				toast.error(`OpenMeld couldn't request Stop. ${failure.message}`);
+				throw failure;
 			}
 
 			setWakeStopRequestStatusBySelectorKey((current) => {
