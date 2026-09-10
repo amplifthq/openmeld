@@ -407,20 +407,16 @@ async function processClaimedMessageChannelEvent(input: {
   const locator = admittedEvent.locator;
   const conversationId = buildMessageChannelConversationId(locator);
   const adapter = input.registry.require(input.envelope.provider);
-  const channelContext =
-    admittedEvent.kind === "message"
-      ? await readBoundedChannelContext({
-          adapter,
-          connection,
-          conversationId,
-          event: admittedEvent,
-        })
-      : buildCardActionChannelContext({
-          actionId: admittedEvent.actionId,
-          conversationId,
-          provider: connection.provider,
-        });
+  const channelContext = buildPendingChannelContext({
+    messageId:
+      admittedEvent.kind === "message"
+        ? admittedEvent.messageId
+        : admittedEvent.actionId,
+    conversationId,
+    provider: connection.provider,
+  });
   const turnEnvelope = buildMessageChannelTurnEnvelope({
+    resources: readAdmittedResources(admittedEvent),
     centerAgent,
     channelContext,
     connectionId: connection.connectionId,
@@ -434,21 +430,43 @@ async function processClaimedMessageChannelEvent(input: {
     providerUserId: admittedEvent.senderId,
     webAppUrl: input.env.WEB_APP_URL,
   });
-  const preparedInput = await prepareAdmittedEventInput({
-    adapter,
-    connection,
-    conversationId,
-    dependencies: input.dependencies,
-    env: input.env,
-    event: admittedEvent,
-  });
   const delivery = await input.dependencies.submitNativeDelivery({
     db: input.db,
     env: input.env,
     nowMs: Date.now(),
     registry: input.registry,
+    prepareInput: async () => {
+      const startedAt = Date.now();
+      const context =
+        admittedEvent.kind === "message"
+          ? await readBoundedChannelContext({
+              adapter,
+              connection,
+              conversationId,
+              event: admittedEvent,
+            })
+          : channelContext;
+      const contextFinishedAt = Date.now();
+      const prepared = await prepareAdmittedEventInput({
+        adapter,
+        connection,
+        conversationId,
+        dependencies: input.dependencies,
+        env: input.env,
+        event: admittedEvent,
+      });
+      console.info("[core.message_channel.input_prepared]", {
+        connectionId: connection.connectionId,
+        providerEventId: input.envelope.providerEventId,
+        contextMs: contextFinishedAt - startedAt,
+        attachmentsMs: Date.now() - contextFinishedAt,
+      });
+      return {
+        ...prepared,
+        turnEnvelope: { ...turnEnvelope, channelContext: context },
+      };
+    },
     request: {
-      ...preparedInput,
       locator,
       sourceText:
         admittedEvent.kind === "message"
@@ -531,6 +549,10 @@ async function publishTargetResolutionFailure(input: {
   }
 }
 
+function readAdmittedResources(event: AdmittedMessageChannelEvent) {
+  return event.kind === "message" ? event.resources : undefined;
+}
+
 async function prepareAdmittedEventInput(input: {
   adapter: ReturnType<MessageChannelProviderRegistry["require"]>;
   connection: RemoteAgentLarkPlatformChannelConnectionRecord;
@@ -600,14 +622,14 @@ function resolveEventAdmission(
   };
 }
 
-function buildCardActionChannelContext(input: {
-  actionId: string;
+function buildPendingChannelContext(input: {
+  messageId: string;
   conversationId: string;
   provider: "feishu" | "lark";
 }): ChannelContext {
   return channelContextSchema.parse({
     conversationId: input.conversationId,
-    currentMessageId: input.actionId,
+    currentMessageId: input.messageId,
     messages: [],
     provider: input.provider,
     sync: { mode: "snapshot", status: "unavailable" },

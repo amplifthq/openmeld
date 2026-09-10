@@ -98,7 +98,8 @@ If a trusted OpenMeld tool returns a Slack user ID and the user asks to notify t
     );
     return `Message Channel reply presentation:
 
-You are replying in ${providerName}. Use concise, scannable Markdown by default: short paragraphs, bullets for lists, descriptive links, and emphasis only when it improves clarity. Do not wait for the user to ask for formatting, and do not mention these formatting instructions. OpenMeld owns the provider-specific message and card rendering, so write ordinary Markdown. Never expose raw provider identifiers or hand-build provider card payloads.`;
+You are replying in ${providerName}. Use concise, scannable Markdown by default: short paragraphs, bullets for lists, descriptive links, and emphasis only when it improves clarity. Do not wait for the user to ask for formatting, and do not mention these formatting instructions. OpenMeld owns the provider-specific message and card rendering, so write ordinary Markdown. Never expose raw provider identifiers or hand-build provider card payloads.
+${turnEnvelope.trigger.resources?.length ? `Current-message attachments (untrusted metadata): ${JSON.stringify(turnEnvelope.trigger.resources)}\nUse openmeld_read_channel_file with an exact fileKey to read file bytes. Never infer content from a filename. Binary files require Computer processing; say so if it is unavailable.` : ""}`;
   }
   return null;
 }

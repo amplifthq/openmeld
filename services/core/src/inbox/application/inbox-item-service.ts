@@ -4,6 +4,7 @@ import type {
   InboxSourceKind,
 } from "@openmeld/schemas/types";
 import {
+  type InboxSourceWriteGuard,
   listOpenOrganizationDocumentDraftInboxTargets as listOpenOrganizationDocumentDraftInboxTargetsInRepo,
   prepareEnsureInboxItemStatements as prepareEnsureInboxItemStatementsInRepo,
   prepareResolveInboxItemsBySourceStatements as prepareResolveInboxItemsBySourceStatementsInRepo,
@@ -78,6 +79,7 @@ export async function prepareEnsureInboxItemStatements(input: {
   candidate: InboxSourceCandidate;
   db: D1Database;
   nowMs: number;
+  sourceGuard?: InboxSourceWriteGuard;
 }) {
   return await prepareEnsureInboxItemStatementsInRepo(input);
 }
@@ -88,6 +90,8 @@ export function prepareResolveInboxItemsBySourceStatements(input: {
   resolvedAtMs: number;
   sourceKey: string;
   sourceKind: InboxSourceKind;
+  markRead?: boolean;
+  sourceGuard?: InboxSourceWriteGuard;
 }) {
   return prepareResolveInboxItemsBySourceStatementsInRepo(input);
 }

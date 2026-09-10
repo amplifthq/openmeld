@@ -519,6 +519,16 @@ const AGENT_WORK_COPY = {
 		"Read a Slack file",
 		"Couldn't read the Slack file"
 	),
+	"message_channel.file.read": workCopy(
+		"Reading a conversation attachment…",
+		"Read a conversation attachment",
+		"Couldn't read the conversation attachment"
+	),
+	"message_channel.file.send": workCopy(
+		"Sending a conversation attachment…",
+		"Sent a conversation attachment",
+		"Couldn't send the conversation attachment"
+	),
 	"slack.file.send": workCopy(
 		"Sending a Slack file…",
 		"Sent a Slack file",

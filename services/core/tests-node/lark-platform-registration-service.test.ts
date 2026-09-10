@@ -60,6 +60,108 @@ const ENV = {
 const classifyOrganizationWorkspace = async () =>
   ({ ok: true, personal: false }) as const;
 describe("Lark-platform registration service", () => {
+  it("lets another manager update the existing bot and verifies grants before completing", async () => {
+    const harness = createRegistrationHarness();
+    try {
+      const common = {
+        actor: ACTOR,
+        db: harness.db,
+        env: ENV,
+        provider: "lark" as const,
+      };
+      const started = await beginRemoteAgentLarkPlatformRegistration({
+        ...common,
+        fetchImpl: jsonFetch(capturedBegin),
+        nowMs: 1000,
+      });
+      for (const nowMs of [1100, 1200]) {
+        await pollRemoteAgentLarkPlatformRegistration({
+          ...common,
+          attemptId: started.attempt.id,
+          fetchImpl: jsonFetch(capturedSuccess),
+          nowMs,
+        });
+      }
+      const connected = await pollRemoteAgentLarkPlatformRegistration({
+        ...common,
+        attemptId: started.attempt.id,
+        fetchImpl: configuredAppFetch(),
+        nowMs: 1300,
+      });
+      expect(connected.connection?.status).toBe("connected");
+      const connectionId = connected.connection?.id;
+      if (!connectionId) {
+        throw new Error("Expected a connected bot");
+      }
+      const credentials = await readRemoteAgentLarkPlatformChannelCredentials({
+        db: harness.db,
+        connectionId,
+      });
+      harness.run({
+        sql: "UPDATE openMeldRemoteAgent_lark_platform_channel_connections SET permission_bundle_version = 'previous-bundle' WHERE connection_id = ?",
+        params: [connectionId],
+      });
+      const update = await beginRemoteAgentLarkPlatformRegistration({
+        ...common,
+        actor: SECOND_MANAGER,
+        createId: () => "permission_update",
+        reauthorize: true,
+        fetchImpl: jsonFetch(capturedBegin),
+        nowMs: 2000,
+      });
+      expect(update.connection).toMatchObject({
+        id: connectionId,
+        status: "configuring",
+      });
+      expect(
+        new URL(update.attempt.registrationUrl ?? "").searchParams.get(
+          "clientID"
+        )
+      ).toBe(capturedSuccess.client_id);
+      expect(
+        await readRemoteAgentLarkPlatformChannelCredentials({
+          db: harness.db,
+          connectionId,
+        })
+      ).toEqual(credentials);
+      const missingScopes = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          Response.json({
+            code: 0,
+            expire: 7200,
+            tenant_access_token: "tenant-token",
+          })
+        )
+        .mockResolvedValueOnce(
+          Response.json({ code: 0, data: { scopes: [] } })
+        );
+      const denied = await pollRemoteAgentLarkPlatformRegistration({
+        ...common,
+        actor: SECOND_MANAGER,
+        attemptId: update.attempt.id,
+        fetchImpl: missingScopes,
+        nowMs: 2100,
+      });
+      expect(denied.connection?.status).not.toBe("connected");
+      const completed = await pollRemoteAgentLarkPlatformRegistration({
+        ...common,
+        actor: ACTOR,
+        attemptId: update.attempt.id,
+        fetchImpl: configuredAppFetch(),
+        nowMs: Date.parse(denied.attempt.nextPollAt) + 1,
+      });
+      expect(completed.attempt.reasonCode).toBeNull();
+      expect(completed.connection).toMatchObject({
+        id: connectionId,
+        status: "connected",
+        permissionBundleVersion:
+          LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version,
+      });
+    } finally {
+      harness.close();
+    }
+  });
   it.each([
     "expired",
     "disconnected",
