@@ -440,7 +440,10 @@ describe("directory Human Profile model", () => {
 		]);
 	});
 
-	it("uses creation order without task activity, ignoring generic last-used timestamps", () => {
+	it.each([
+		null,
+		"2026-09-05T12:00:00.000Z",
+	])("sorts by recorded task activity when available (%s), otherwise creation", (lastTaskActivityAt) => {
 		const rows = buildOrganizationRows({
 			agentProfiles: [
 				buildAgentProfile({
@@ -456,6 +459,7 @@ describe("directory Human Profile model", () => {
 					lastUsedAt: "2026-09-05T12:00:00.000Z",
 					ownerUserId: "user-a",
 					profileId: "agent-recent",
+					lastTaskActivityAt,
 					profileName: "Recently Used Agent",
 				}),
 			],
@@ -470,7 +474,11 @@ describe("directory Human Profile model", () => {
 			rows
 				.find((row) => row.userId === "user-a")
 				?.agentProfiles.map((profile) => profile.id)
-		).toEqual(["agent-new", "agent-recent"]);
+		).toEqual(
+			lastTaskActivityAt
+				? ["agent-recent", "agent-new"]
+				: ["agent-new", "agent-recent"]
+		);
 	});
 
 	it("reads team-visible Controller and model selection from the lightweight directory", () => {
