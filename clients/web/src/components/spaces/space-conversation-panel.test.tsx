@@ -2842,6 +2842,11 @@ describe("SpaceConversationPanel", () => {
 
 		expect(screen.queryByText("Sending...")).toBeNull();
 		expect(
+			document
+				.querySelector('[data-signal-id="pending:client-message-1"]')
+				?.hasAttribute("data-history-signal-id")
+		).toBe(false);
+		expect(
 			document.querySelector("[data-space-message-delivery-status]")
 		).toBeNull();
 		expect(screen.queryByText(FAILED_TEXT_PATTERN)).toBeNull();
@@ -3068,6 +3073,9 @@ describe("SpaceConversationPanel", () => {
 			'[data-message-id^="active-wake:"]'
 		);
 		expect(updatedOptimisticReply).toBe(optimisticReply);
+		expect(
+			updatedOptimisticReply?.querySelector("[data-history-signal-id]")
+		).toBeNull();
 		expect(
 			within(updatedOptimisticReply as HTMLElement).getByTestId(
 				"space-message-progress-control-slot"
@@ -3432,6 +3440,33 @@ describe("SpaceConversationPanel", () => {
 		expect(messageBubble?.getAttribute("data-signal-id")).toBe(
 			"stream:submission-1"
 		);
+		expect(messageBubble?.hasAttribute("data-history-signal-id")).toBe(false);
+	});
+
+	it.each([
+		"failed",
+		"stopped",
+		"completed_but_publish_failed",
+	] as const)("does not use an unpublished %s reply as a history anchor", (status) => {
+		renderSpaceConversationPanel({
+			timelineItems: [
+				createTimelineItem({
+					id: "stream:unpublished-reply",
+					text: "Partial reply retained for diagnosis",
+					agentStreamState: {
+						streamId: "stream:unpublished-reply",
+						sequence: 3,
+						status,
+						reasonCode: null,
+					},
+				}),
+			],
+		});
+		const reply = document.querySelector(
+			'[data-signal-id="stream:unpublished-reply"]'
+		);
+		expect(reply).not.toBeNull();
+		expect(reply?.hasAttribute("data-history-signal-id")).toBe(false);
 	});
 
 	it("does not render an empty progress inset for a completed reply", () => {
@@ -3452,6 +3487,11 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			document.querySelector('[data-slot="space-message-row-progress-inset"]')
 		).toBeNull();
+		expect(
+			document
+				.querySelector('[data-signal-id="signal:completed-reply"]')
+				?.getAttribute("data-history-signal-id")
+		).toBe("signal:completed-reply");
 	});
 
 	it("opens the durable source message details from live Agent work", () => {
