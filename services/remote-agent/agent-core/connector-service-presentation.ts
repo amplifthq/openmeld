@@ -7,6 +7,7 @@ const CONNECTED_APP_DISPLAY_NAME: Record<
   CenterAgentAppConnectorService,
   string
 > = {
+  feishu: "Feishu",
   cloudflare_browser_rendering: "Cloudflare Browser Rendering",
   cloudflare_dns: "Cloudflare DNS",
   cloudflare_r2: "Cloudflare R2",

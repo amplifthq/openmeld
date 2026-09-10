@@ -77,6 +77,17 @@ export const FEISHU_CHANNEL_IDENTITY = {
 export const PLUGINS = [
 	{
 		availability: "available",
+		category: "Productivity",
+		connection: { auth: { kind: "oauth" } },
+		description:
+			"Work with documents, wikis, tables, and calendars using your authorized Feishu account.",
+		homepage: "https://www.feishu.cn",
+		logoPath: FEISHU_CHANNEL_LOGO_PATH,
+		name: "Feishu",
+		service: "feishu",
+	},
+	{
+		availability: "available",
 		category: "Developer tools",
 		connection: {
 			auth: { kind: "oauth" },
