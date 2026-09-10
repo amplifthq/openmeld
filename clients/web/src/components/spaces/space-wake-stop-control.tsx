@@ -51,7 +51,9 @@ export function SpaceWakeStopScope(input: {
 			{input.children}
 			{selection ? (
 				<SpaceWakeStopDialog
-					onClose={() => setSelection(null)}
+					onClose={() =>
+						setSelection((current) => (current === selection ? null : current))
+					}
 					progressItems={input.progressItems ?? []}
 					selection={selection}
 					stopRequestStatusBySelectorKey={input.stopRequestStatusBySelectorKey}
@@ -186,14 +188,7 @@ function SpaceWakeStopDialog(input: {
 		}
 	};
 	return (
-		<Dialog
-			onOpenChange={(open) => {
-				if (pendingSelectorKeys.size === 0) {
-					setOpen(open);
-				}
-			}}
-			open={true}
-		>
+		<Dialog onOpenChange={setOpen} open={true}>
 			<DialogContent>
 				{dialogTargets.length > 1 ? (
 					<MultiTargetWakeStopDialog
@@ -466,6 +461,9 @@ function SingleTargetWakeStopDialog(input: {
 	const actionLabel = input.target.isWaitingForDevice
 		? "Cancel waiting"
 		: "Stop Wake";
+	const dismissLabel = input.target.isWaitingForDevice
+		? "Keep waiting"
+		: "Keep Running";
 
 	return (
 		<>
@@ -484,7 +482,9 @@ function SingleTargetWakeStopDialog(input: {
 			) : null}
 			<DialogFooter>
 				<DialogClose render={<Button type="button" variant="outline" />}>
-					{input.target.isWaitingForDevice ? "Keep waiting" : "Keep Running"}
+					{isPending || input.target.status === "stopping"
+						? "Close"
+						: dismissLabel}
 				</DialogClose>
 				<Button
 					disabled={isPending || !input.target.canStop}
@@ -596,7 +596,7 @@ function MultiTargetWakeStopDialog(input: {
 			) : null}
 			<DialogFooter>
 				<DialogClose render={<Button type="button" variant="outline" />}>
-					Keep Running
+					Close
 				</DialogClose>
 				{canStopTargets.length > 1 ? (
 					<Button

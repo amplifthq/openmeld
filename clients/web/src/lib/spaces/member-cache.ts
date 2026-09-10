@@ -26,6 +26,7 @@ type MergeSpaceMembersSnapshotOptions = {
 };
 
 export function applySpaceMembersResponseToCache(input: {
+	generatedAt?: string;
 	pendingWakeReadinessProfileIds?: readonly string[];
 	queryClient: QueryClient;
 	response: PostSpaceMembersResponse;
@@ -40,9 +41,13 @@ export function applySpaceMembersResponseToCache(input: {
 		current: SpaceMembersSnapshot | undefined
 	): SpaceMembersSnapshot | undefined =>
 		current
-			? mergeSpaceMembersSnapshot(current, input.response.items, {
-					pendingWakeReadinessProfileIds: input.pendingWakeReadinessProfileIds,
-				})
+			? {
+					...mergeSpaceMembersSnapshot(current, input.response.items, {
+						pendingWakeReadinessProfileIds:
+							input.pendingWakeReadinessProfileIds,
+					}),
+					generatedAt: input.generatedAt ?? current.generatedAt,
+				}
 			: current;
 
 	input.queryClient.setQueryData<SpaceMembersSnapshot>(
@@ -55,14 +60,7 @@ export function applySpaceMembersResponseToCache(input: {
 			current
 				? {
 						...current,
-						members: mergeSpaceMembersSnapshot(
-							current.members,
-							input.response.items,
-							{
-								pendingWakeReadinessProfileIds:
-									input.pendingWakeReadinessProfileIds,
-							}
-						),
+						members: patchSnapshot(current.members) ?? current.members,
 					}
 				: current
 	);

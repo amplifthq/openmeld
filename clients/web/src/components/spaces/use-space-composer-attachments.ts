@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import { runSpaceComposerIdempotentRequestWithRetry } from "#/lib/spaces/errors";
+import { formatSpaceFileSizeLimitError } from "./space-file-utils";
 
 export function useSpaceComposerFiles(input: {
 	organizationSlug: string;
@@ -318,7 +319,7 @@ async function uploadPendingFile(input: {
 }): Promise<void> {
 	try {
 		if (input.file.size > SPACE_FILE_MAX_SIZE_BYTES) {
-			throw new Error(`${input.item.fileName} is larger than 10 MiB.`);
+			throw new Error(formatSpaceFileSizeLimitError(input.item.fileName));
 		}
 		updateFile(input.setFiles, input.item.localId, (current) => ({
 			...current,
@@ -496,7 +497,7 @@ function resolveUploadFailure(error: unknown): {
 	const failure = toStructuredApiClientFailure(error);
 	if (failure.code === "space_file.too_large") {
 		return {
-			message: "Files must be 10 MiB or smaller.",
+			message: formatSpaceFileSizeLimitError(),
 			requestId: failure.requestId,
 		};
 	}

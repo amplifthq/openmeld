@@ -24,6 +24,10 @@ import { useId, useRef, useState } from "react";
 import { SpinnerButton } from "#/components/spinner-button";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
 import {
+	AgentCreationComputerRecoveryPanel,
+	agentCreationComputerActionLabel,
+} from "./agent-creation-computer-recovery";
+import {
 	AgentProfileConfigurationCards,
 	CreateProfileErrorNotice,
 	CreateProfileForm,
@@ -73,13 +77,17 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 	};
 	const submitBlockReasonId = useId();
 	const form = input.form;
+	const computerRecovery = remote ? undefined : form.computerRecovery;
 	const submitBlock = remote ? null : resolveCreateProfileSubmitBlock(form);
-	const submitBlockReason = submitBlock?.message;
 	return (
 		<form
 			className="-mx-3 flex min-h-0 min-w-0 flex-1 flex-col"
 			data-testid="create-profile-panel"
 			onSubmit={(event) => {
+				if (computerRecovery) {
+					event.preventDefault();
+					return;
+				}
 				if (!remote) {
 					form.onSubmit(event);
 					return;
@@ -113,43 +121,17 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 						remoteAvailable={Boolean(form.remoteAgentCreation)}
 					/>
 					<TabPanel className="grid min-w-0 gap-5" value="local">
-						<LocalAgentSelector
-							choices={resolveGeneratorBindingChoices(form)}
-							computerSlot={form.agentComputerSlot}
-							disabled={form.isSubmitting}
-							emptyState={form.localAgentEmptyState}
-							isResolving={form.isResolvingLocalAgents}
-							locked={form.lockLocalAgentSelection}
-							onChange={
-								form.onChangeAgentBindingValue ?? form.onChangeBoundAgentId
-							}
-							surface={input.surface}
-							value={form.agentBindingValue ?? form.boundAgentId}
-						/>
-						{form.boundAgentId ? (
-							<div className="grid min-w-0 gap-2">
-								<Label htmlFor="create-profile-name-input">Agent name</Label>
-								<Input
-									autoComplete="off"
-									disabled={form.isSubmitting}
-									id="create-profile-name-input"
-									onChange={(event) =>
-										form.onChangeProfileName(event.target.value)
-									}
-									placeholder="Agent name"
-									value={form.profileName}
-								/>
-								<p className="text-muted-foreground text-xs leading-5">
-									You can rename this Agent now or later.
-								</p>
-							</div>
+						{computerRecovery ? (
+							<AgentCreationComputerRecoveryPanel recovery={computerRecovery} />
 						) : null}
-						<AdvancedSetup
-							expanded={configurationExpanded}
+						<LocalAgentConfiguration
+							computerRecovery={Boolean(computerRecovery)}
+							configurationExpanded={configurationExpanded}
 							form={form}
-							onExpandedChange={setConfigurationExpanded}
-							onOpenSectionChange={setOpenSection}
 							openSection={openSection}
+							setConfigurationExpanded={setConfigurationExpanded}
+							setOpenSection={setOpenSection}
+							surface={input.surface}
 						/>
 					</TabPanel>
 					<TabPanel value="remote">
@@ -183,57 +165,28 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 				) : (
 					<span />
 				)}
-				<div className="grid justify-items-stretch gap-2 sm:justify-items-end">
-					{submitBlockReason ? (
-						<output
-							className="max-w-md text-right text-muted-foreground text-xs"
-							id={submitBlockReasonId}
+				{computerRecovery ? (
+					!computerRecovery.setup && (
+						<Button
+							disabled={
+								form.isSubmitting || computerRecovery.state === "checking"
+							}
+							onClick={computerRecovery.onStart}
+							type="button"
 						>
-							{submitBlockReason}
-						</output>
-					) : null}
-					{submitBlock?.action ? (
-						<div className="flex flex-wrap justify-end gap-2">
-							{submitBlock.action.section === "working-folder" &&
-							form.onUseManagedWorkspace ? (
-								<Button
-									disabled={form.isSubmitting}
-									onClick={form.onUseManagedWorkspace}
-									type="button"
-									variant="outline"
-								>
-									Use OpenMeld managed folder
-								</Button>
-							) : null}
-							<Button
-								disabled={form.isSubmitting}
-								onClick={() => {
-									if (submitBlock.action) {
-										openConfigurationSection(submitBlock.action.section);
-									}
-								}}
-								type="button"
-								variant="outline"
-							>
-								{submitBlock.action.label}
-							</Button>
-						</div>
-					) : null}
-					<SpinnerButton
-						aria-describedby={
-							submitBlockReason ? submitBlockReasonId : undefined
-						}
-						buttonState={form.isSubmitting ? "loading" : "idle"}
-						disabled={
-							form.isSubmitting ||
-							(remote ? !remoteReady : submitBlock !== null)
-						}
-						loadingLabel={form.submittingLabel ?? "Creating Agent…"}
-						type="submit"
-					>
-						{form.submitLabel ?? "Create Agent"}
-					</SpinnerButton>
-				</div>
+							{agentCreationComputerActionLabel(computerRecovery)}
+						</Button>
+					)
+				) : (
+					<AgentCreationSubmitActions
+						form={form}
+						openConfigurationSection={openConfigurationSection}
+						remote={remote}
+						remoteReady={remoteReady}
+						submitBlock={submitBlock}
+						submitBlockReasonId={submitBlockReasonId}
+					/>
+				)}
 			</div>
 		</form>
 	);
@@ -252,7 +205,7 @@ function AgentRuntimeTabs(input: {
 			<TabItem
 				className="h-auto items-start gap-3 border border-border p-3 text-left"
 				disabled={input.isSubmitting}
-				label="Choose a Local Agent"
+				label="Local Agent"
 				value="local"
 			>
 				<DesktopTowerIcon
@@ -261,12 +214,11 @@ function AgentRuntimeTabs(input: {
 				/>
 				<span className="grid gap-1">
 					<span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-						<span className="font-medium text-sm">Choose a Local Agent</span>
+						<span className="font-medium text-sm">Local Agent</span>
 						<LocalAgentLogoStack compact />
 					</span>
 					<span className="text-muted-foreground text-xs">
-						Runs on a connected computer with an agent harness like Codex or
-						Claude Code.
+						Runs on your computer.
 					</span>
 				</span>
 			</TabItem>
@@ -290,7 +242,7 @@ function AgentRuntimeTabs(input: {
 						</Tooltip>
 					</span>
 					<span className="text-muted-foreground text-xs">
-						Runs in the cloud, even when your computer is off.
+						Runs in the cloud.
 					</span>
 					{input.remoteAvailable ? null : (
 						<span className="text-muted-foreground text-xs">
@@ -448,4 +400,133 @@ function resolveGeneratorBindingChoices(
 			value: agentId,
 		};
 	});
+}
+
+function LocalAgentConfiguration({
+	form,
+	computerRecovery,
+	surface,
+	configurationExpanded,
+	setConfigurationExpanded,
+	setOpenSection,
+	openSection,
+}: {
+	form: CreateProfileFormProps;
+	computerRecovery: boolean;
+	surface: "dialog" | "page";
+	configurationExpanded: boolean;
+	setConfigurationExpanded: (expanded: boolean) => void;
+	setOpenSection: (section: AgentProfileConfigurationSection | null) => void;
+	openSection: AgentProfileConfigurationSection | null;
+}) {
+	return (
+		<div
+			className={computerRecovery ? "hidden" : "grid min-w-0 gap-5"}
+			hidden={Boolean(computerRecovery)}
+		>
+			<LocalAgentSelector
+				choices={resolveGeneratorBindingChoices(form)}
+				computerSlot={form.agentComputerSlot}
+				disabled={form.isSubmitting}
+				emptyState={form.localAgentEmptyState}
+				isResolving={form.isResolvingLocalAgents}
+				locked={form.lockLocalAgentSelection}
+				onChange={form.onChangeAgentBindingValue ?? form.onChangeBoundAgentId}
+				surface={surface}
+				value={form.agentBindingValue ?? form.boundAgentId}
+			/>
+			{form.connectAnotherComputer}
+			{form.boundAgentId ? (
+				<div className="grid min-w-0 gap-2">
+					<Label htmlFor="create-profile-name-input">Agent name</Label>
+					<Input
+						autoComplete="off"
+						disabled={form.isSubmitting}
+						id="create-profile-name-input"
+						onChange={(event) => form.onChangeProfileName(event.target.value)}
+						placeholder="Agent name"
+						value={form.profileName}
+					/>
+					<p className="text-muted-foreground text-xs leading-5">
+						You can rename this Agent now or later.
+					</p>
+				</div>
+			) : null}
+			<AdvancedSetup
+				expanded={configurationExpanded}
+				form={form}
+				onExpandedChange={setConfigurationExpanded}
+				onOpenSectionChange={setOpenSection}
+				openSection={openSection}
+			/>
+		</div>
+	);
+}
+
+function AgentCreationSubmitActions({
+	form,
+	submitBlock,
+	remote,
+	remoteReady,
+	submitBlockReasonId,
+	openConfigurationSection,
+}: {
+	form: CreateProfileFormProps;
+	submitBlock: ReturnType<typeof resolveCreateProfileSubmitBlock>;
+	remote: boolean;
+	remoteReady: boolean;
+	submitBlockReasonId: string;
+	openConfigurationSection: (section: AgentProfileConfigurationSection) => void;
+}) {
+	const submitBlockReason = submitBlock?.message;
+	return (
+		<div className="grid justify-items-stretch gap-2 sm:justify-items-end">
+			{submitBlockReason ? (
+				<output
+					className="max-w-md text-right text-muted-foreground text-xs"
+					id={submitBlockReasonId}
+				>
+					{submitBlockReason}
+				</output>
+			) : null}
+			{submitBlock?.action ? (
+				<div className="flex flex-wrap justify-end gap-2">
+					{submitBlock.action.section === "working-folder" &&
+					form.onUseManagedWorkspace ? (
+						<Button
+							disabled={form.isSubmitting}
+							onClick={form.onUseManagedWorkspace}
+							type="button"
+							variant="outline"
+						>
+							Use OpenMeld managed folder
+						</Button>
+					) : null}
+					<Button
+						disabled={form.isSubmitting}
+						onClick={() => {
+							if (submitBlock.action) {
+								openConfigurationSection(submitBlock.action.section);
+							}
+						}}
+						type="button"
+						variant="outline"
+					>
+						{submitBlock.action.label}
+					</Button>
+				</div>
+			) : null}
+			<SpinnerButton
+				aria-describedby={submitBlockReason ? submitBlockReasonId : undefined}
+				buttonState={form.isSubmitting ? "loading" : "idle"}
+				disabled={
+					form.isSubmitting || (remote ? !remoteReady : submitBlock !== null)
+				}
+				loadingLabel={form.submittingLabel ?? "Creating Agent…"}
+				type="submit"
+			>
+				{form.submitLabel ?? "Create Agent"}
+			</SpinnerButton>
+		</div>
+	);
 }
