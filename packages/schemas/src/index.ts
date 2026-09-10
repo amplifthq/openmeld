@@ -158,6 +158,18 @@ export {
   saveAccountSidebarBodySchema,
   sidebarSortSchema,
 } from "./schemas/account-sidebar";
+export type {
+  GetSpaceLinkPreviewsResponse,
+  LinkPreview,
+  SpaceMessageLinks,
+} from "./schemas/http/space-link-previews";
+export {
+  getSpaceLinkPreviewsInputSchema,
+  getSpaceLinkPreviewsResponseSchema,
+  linkPreviewSchema,
+  MAX_MESSAGE_LINK_PREVIEWS,
+  spaceMessageLinksSchema,
+} from "./schemas/http/space-link-previews";
 export {
   SPACE_MESSAGE_CHANGED_PURPOSE,
   spaceMessageMutationBodySchema,
