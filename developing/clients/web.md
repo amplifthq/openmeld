@@ -2860,7 +2860,7 @@ Web presents a Space as a collaboration room and visible outcome surface.
 General, Access, and Advanced sections. General contains the canonical name and
 the existing global browser-notification control. Access owns the Fluid Select
 for who can join, guest-access enablement, and member ownership management.
-Share owns teammate invitations, an always-visible teammate invite link, and
+Share groups invitations as "Invite people by email" and "Invite people by link", with
 guest invitations through one Teammate/Guest selector. Choosing Guest prompts
 Owners for confirmation when guest access is off; it does not require a trip to
 Settings. Share shows the current audience without membership or role editors.
@@ -2868,6 +2868,12 @@ Copy Space link does not grant access; teammate invitation links
 explicitly describe Organization admission. Both surfaces reuse the same access
 facts and invitation components rather than defining separate permission rules.
 Pending invitations use progressive disclosure.
+Opening Share prepares the first invitation link through Auth's idempotent POST
+endpoint. A single conditional insert checks link history: reopening reuses an
+active link and never recreates an expired or revoked one. Renew explicitly
+replaces a link; Revoke, Renew, and Copy stay right-aligned. Access settings keeps
+Copy Space link beside the audience heading, above the member list, and presents
+guest access as a Switch with confirmation before enabling it.
 Invitation links are read from Auth when the panel opens, scoped to the account,
 Organization, optional Space, and direct/request mode. A mutation response is
 not the only way to display an existing link. Failed reads offer retry rather

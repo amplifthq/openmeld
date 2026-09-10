@@ -6,15 +6,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
-import {
-	Accordion,
-	AccordionContent,
-	AccordionItem,
-	AccordionTrigger,
-} from "@openmeld/ui/fluid/accordion";
+import { Switch } from "@openmeld/ui/components/switch";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { spaceQueryKeys, spaceStatusQueryOptions } from "#/query/spaces/status";
 import { SpaceInvitationForm } from "./space-invitations-section";
@@ -29,6 +24,7 @@ export function SpaceGuestAccessSection({
 	openMeldProfileId?: string;
 }) {
 	const [confirm, setConfirm] = useState(surface === "share");
+	const switchId = useId();
 	const client = useQueryClient();
 	const status = useQuery(
 		spaceStatusQueryOptions({ spaceId, openMeldProfileId, enabled: true })
@@ -60,75 +56,61 @@ export function SpaceGuestAccessSection({
 					spaceId={spaceId}
 				/>
 			) : (
-				<Accordion>
-					<AccordionItem value="guests">
-						<AccordionTrigger className="py-1 text-sm">
-							External guests
-						</AccordionTrigger>
-						<AccordionContent>
-							<div className="grid gap-3 pt-3">
-								{status.isError ? (
-									<p className="text-destructive text-xs" role="alert">
-										Couldn't check guest access.{" "}
-										<Button
-											onClick={() => status.refetch()}
-											size="sm"
-											variant="ghost"
-										>
-											Try again
-										</Button>
-									</p>
-								) : null}
-								{!status.isError && status.data?.allowGuests ? (
-									<>
-										<p className="text-muted-foreground text-xs/relaxed">
-											Guest invitations are on. Use Share to invite people to
-											this Space without adding them to your organization.
-										</p>
-										<p className="text-muted-foreground text-xs/relaxed">
-											Turning this off blocks existing guests too. Turning it
-											back on restores their access.
-										</p>
-										<div className="flex justify-end">
-											<Button
-												disabled={save.isPending}
-												onClick={() => save.mutate(false)}
-												size="sm"
-												variant="outline"
-											>
-												Turn off guest access
-											</Button>
-										</div>
-									</>
-								) : null}
-								{status.isError || status.data?.allowGuests ? null : (
-									<>
-										<p className="text-muted-foreground text-xs/relaxed">
-											Invite people outside your organization to work in this
-											Space. Only invited people can join, and they must sign
-											in.
-										</p>
-										<div className="flex justify-end">
-											<Button
-												disabled={status.isPending}
-												onClick={() => setConfirm(true)}
-												size="sm"
-												variant="outline"
-											>
-												Allow guest invitations
-											</Button>
-										</div>
-									</>
-								)}
-								{save.error ? (
-									<p className="text-destructive text-xs" role="alert">
-										{save.error.message}
-									</p>
-								) : null}
-							</div>
-						</AccordionContent>
-					</AccordionItem>
-				</Accordion>
+				<div className="grid gap-2">
+					<div className="flex items-center justify-between gap-3">
+						<label
+							className="font-medium text-sm"
+							htmlFor={switchId}
+							id={`${switchId}-label`}
+						>
+							Allow external guests
+						</label>
+						<Switch
+							aria-labelledby={`${switchId}-label`}
+							checked={status.data?.allowGuests === true}
+							disabled={!status.isSuccess || save.isPending}
+							id={switchId}
+							onCheckedChange={(checked) => {
+								if (checked) {
+									setConfirm(true);
+								} else {
+									save.mutate(false);
+								}
+							}}
+						/>
+					</div>
+					<p className="text-muted-foreground text-xs/relaxed">
+						Invite guests from Share. They sign in to access only this Space.
+					</p>
+					{status.data?.allowGuests && (
+						<p className="text-muted-foreground text-xs/relaxed">
+							Turning this off blocks all guests. Turning it back on restores
+							their access.
+						</p>
+					)}
+					{status.isPending && (
+						<p className="text-muted-foreground text-xs">
+							Checking guest access…
+						</p>
+					)}
+					{status.isError && (
+						<p className="text-destructive text-xs" role="alert">
+							Couldn't check guest access.{" "}
+							<Button
+								onClick={() => status.refetch()}
+								size="sm"
+								variant="ghost"
+							>
+								Try again
+							</Button>
+						</p>
+					)}
+					{save.error && (
+						<p className="text-destructive text-xs" role="alert">
+							{save.error.message}
+						</p>
+					)}
+				</div>
 			)}
 			<Dialog
 				onOpenChange={setConfirm}

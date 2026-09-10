@@ -64,6 +64,32 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 	const organizationAudience = describeOrganizationAccess(input, everyoneLabel);
 	const audience = describeLinkAccess(input.accessMode, organizationAudience);
 	const isShare = input.surface === "share";
+	const shareAudience = describeLinkAccess(
+		input.accessMode,
+		input.visibility === "public"
+			? "Anyone in your organization can join."
+			: "Only invited people can open this Space."
+	);
+	const copyLink = (
+		<Button
+			onClick={async () => {
+				const url = buildPublicSpaceEntryUrl({
+					origin: window.location.origin,
+					target: { spaceId: input.spaceId },
+				});
+				if (await copyTextToClipboard(url)) {
+					toast.success("Space link copied.");
+				} else {
+					toast.error("Couldn't copy the link. Try again.");
+				}
+			}}
+			size="sm"
+			variant="outline"
+		>
+			<CopyIcon aria-hidden="true" />
+			Copy Space link
+		</Button>
+	);
 
 	return (
 		<div className="min-w-0 space-y-4">
@@ -76,14 +102,17 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 			) : null}
 			{!isShare && (
 				<section className="grid gap-2">
-					<label
-						className="block font-medium text-sm"
-						htmlFor={generalAccessId}
-					>
-						{hasExternalAccess
-							? "Organization access"
-							: "Who can join this Space"}
-					</label>
+					<div className="flex flex-wrap items-center justify-between gap-2">
+						<label
+							className="block font-medium text-sm"
+							htmlFor={generalAccessId}
+						>
+							{hasExternalAccess
+								? "Organization access"
+								: "Who can join this Space"}
+						</label>
+						{copyLink}
+					</div>
 					<SpaceVisibilityPicker
 						disabled={
 							!(
@@ -166,31 +195,14 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 					spaceId={input.spaceId}
 				/>
 			)}
-			<section className="flex items-center justify-end gap-3 border-border/60 border-t pt-4">
-				{isShare && (
+			{isShare && (
+				<section className="flex items-center justify-end gap-3 border-border/60 border-t pt-4">
 					<p className="mr-auto text-muted-foreground text-xs/relaxed">
-						{hasExternalAccess ? audience : "This link doesn’t change access."}
+						{shareAudience}
 					</p>
-				)}
-				<Button
-					onClick={async () => {
-						const url = buildPublicSpaceEntryUrl({
-							origin: window.location.origin,
-							target: { spaceId: input.spaceId },
-						});
-						if (await copyTextToClipboard(url)) {
-							toast.success("Space link copied.");
-						} else {
-							toast.error("Couldn't copy the link. Try again.");
-						}
-					}}
-					size="sm"
-					variant="outline"
-				>
-					<CopyIcon aria-hidden="true" />
-					Copy Space link
-				</Button>
-			</section>
+					{copyLink}
+				</section>
+			)}
 		</div>
 	);
 }
@@ -277,7 +289,7 @@ function SpaceAccessInvitations(input: {
 	return (
 		<section className="grid gap-2">
 			<div className="flex items-center justify-between gap-3">
-				<h3 className="font-medium text-sm">Invite people</h3>
+				<h3 className="font-medium text-sm">Invite people by email</h3>
 				{input.canInviteGuests && (
 					<Select
 						onValueChange={(value) => {

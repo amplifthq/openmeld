@@ -8,6 +8,7 @@ import { requestAuthEndpoint } from "#/lib/auth-transport";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import {
 	getOrganizationJoinLink,
+	resetOrganizationJoinLink,
 	revokeOrganizationJoinLink,
 } from "#/lib/organizations/auth-organizations";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
@@ -37,7 +38,7 @@ export function InvitationRequestLink(input: {
 	];
 	const query = useQuery({
 		queryKey,
-		queryFn: () => getOrganizationJoinLink(scope),
+		queryFn: () => prepareInvitationLink(scope),
 		retry: false,
 		staleTime: 0,
 	});
@@ -50,6 +51,9 @@ export function InvitationRequestLink(input: {
 			setCopyFailed(false);
 		},
 		mutationFn: async () => {
+			if (input.canManage) {
+				return resetOrganizationJoinLink(scope);
+			}
 			const response = await requestAuthEndpoint({
 				path: "/organization/join-link/ensure",
 				fallbackMessage: "Could not create the link. Try again.",
@@ -107,15 +111,20 @@ export function InvitationRequestLink(input: {
 	return (
 		<div className={cn("space-y-2 border-t pt-3", input.className)}>
 			<p className="font-medium text-sm">
-				{input.spaceId ? "Teammate invite link" : "Invite link"}
+				{input.spaceId ? "Invite people by link" : "Invite link"}
 			</p>
 			<p className="text-muted-foreground text-sm">
 				{(link?.mode ?? mode) === "direct"
-					? `Anyone with this link can join the organization${input.spaceId ? " and this Space" : ""}. Expires in 30 days.`
+					? `Anyone with this link can join the organization${input.spaceId ? " and this Space" : ""}.`
 					: "Anyone with this link can request to join. An owner or admin must approve each request."}
 			</p>
 			{link ? (
 				<>
+					{link.expiresAt && (
+						<p className="text-muted-foreground text-xs">
+							Expires {new Date(link.expiresAt).toLocaleDateString()}.
+						</p>
+					)}
 					<Input
 						aria-label="Invitation request link"
 						readOnly
@@ -132,6 +141,16 @@ export function InvitationRequestLink(input: {
 								Revoke link
 							</Button>
 						) : null}
+						{input.canManage && (
+							<Button
+								disabled={busy}
+								onClick={() => mutation.mutate()}
+								size="sm"
+								variant="outline"
+							>
+								Renew link
+							</Button>
+						)}
 						<Button
 							disabled={busy}
 							onClick={async () => {
@@ -147,30 +166,77 @@ export function InvitationRequestLink(input: {
 					</div>
 				</>
 			) : (
-				<Button
-					disabled={busy}
-					onClick={() => mutation.mutate()}
-					size="sm"
-					variant="outline"
-				>
-					{mutation.isPending ? "Creating…" : "Create link"}
-				</Button>
+				<div className="flex items-center justify-between gap-2">
+					{input.spaceId && (
+						<p className="text-muted-foreground text-xs">
+							Link expired or revoked.
+						</p>
+					)}
+					<Button
+						className="ml-auto"
+						disabled={busy}
+						onClick={() => mutation.mutate()}
+						size="sm"
+						variant="outline"
+					>
+						{mutation.isPending ? "Preparing…" : "Renew link"}
+					</Button>
+				</div>
 			)}
-			{mutation.error ? (
+			<InvitationLinkErrors
+				copyFailed={copyFailed}
+				mutationError={mutation.error}
+				revokeError={revoke.error}
+			/>
+		</div>
+	);
+}
+
+function InvitationLinkErrors(input: {
+	mutationError: Error | null;
+	revokeError: Error | null;
+	copyFailed: boolean;
+}) {
+	return (
+		<>
+			{input.mutationError ? (
 				<p className="text-destructive text-sm" role="alert">
-					{mutation.error.message}
+					{input.mutationError.message}
 				</p>
 			) : null}
-			{revoke.error ? (
+			{input.revokeError ? (
 				<p className="text-destructive text-sm" role="alert">
-					{revoke.error.message}
+					{input.revokeError.message}
 				</p>
 			) : null}
-			{copyFailed ? (
+			{input.copyFailed ? (
 				<p className="text-sm" role="alert">
 					Could not copy the link. Select it above and copy it manually.
 				</p>
 			) : null}
-		</div>
+		</>
 	);
+}
+
+async function prepareInvitationLink(
+	scope: Parameters<typeof getOrganizationJoinLink>[0]
+) {
+	if (!scope.spaceId) {
+		return getOrganizationJoinLink(scope);
+	}
+	const response = await requestAuthEndpoint({
+		path: "/organization/join-link/prepare",
+		fallbackMessage: "Couldn't prepare the invite link. Try again.",
+		request: {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ ...scope, responseVersion: "3" }),
+		},
+	});
+	if (response.error) {
+		throw new Error(
+			response.error.message ?? "Couldn't prepare the invite link."
+		);
+	}
+	return getOrganizationJoinLinkResponseSchema.parse(response.data).joinLink;
 }
