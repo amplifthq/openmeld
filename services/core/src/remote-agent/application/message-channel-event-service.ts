@@ -26,6 +26,7 @@ import {
 } from "./center-agent-channel-failure-copy";
 import type { MessageChannelProviderRegistry } from "./message-channel-adapters";
 import { publishRemoteAgentMessageChannelAdmissionFailure } from "./message-channel-admission-watchdog-publication";
+import { processMessageChannelCardControl } from "./message-channel-card-control-service";
 import {
   type MessageChannelInputAttachmentPreparationResult,
   prepareMessageChannelInputAttachments,
@@ -342,6 +343,44 @@ function toMessageChannelEventRetryableError(
       );
 }
 
+async function resolveAdmittedMessageChannelTarget(
+  input: Parameters<typeof processClaimedMessageChannelEvent>[0],
+  event: AdmittedMessageChannelEvent
+) {
+  return await input.dependencies.resolveTurnTarget({
+    authWorker: input.env.OPENMELD_AUTH_WORKER,
+    connectionId: input.envelope.connectionId,
+    identityDb: input.identityDb,
+    provider: input.envelope.provider,
+    providerUserDisplayName:
+      event.kind === "message" ? event.senderDisplayName : null,
+    providerUserId: event.senderId,
+    providerUserTenantKey:
+      event.kind === "message" ? event.senderTenantKey : undefined,
+    stateDb: input.db,
+  });
+}
+
+async function resolveAdmittedCardControl(
+  input: Omit<
+    Parameters<typeof processMessageChannelCardControl>[0],
+    "event"
+  > & {
+    event: AdmittedMessageChannelEvent;
+  }
+) {
+  if (
+    input.event.kind === "card_action" &&
+    input.event.actionName === "openmeld.center_agent.control"
+  ) {
+    return await processMessageChannelCardControl({
+      ...input,
+      event: input.event,
+    });
+  }
+  return { status: "continue" as const, event: input.event };
+}
+
 async function processClaimedMessageChannelEvent(input: {
   db: D1Database;
   dependencies: RemoteAgentMessageChannelEventServiceDependencies;
@@ -356,22 +395,10 @@ async function processClaimedMessageChannelEvent(input: {
     return admission;
   }
 
-  const targetResolution = await input.dependencies.resolveTurnTarget({
-    authWorker: input.env.OPENMELD_AUTH_WORKER,
-    connectionId: input.envelope.connectionId,
-    identityDb: input.identityDb,
-    provider: input.envelope.provider,
-    providerUserDisplayName:
-      admission.event.kind === "message"
-        ? admission.event.senderDisplayName
-        : null,
-    providerUserId: admission.event.senderId,
-    providerUserTenantKey:
-      admission.event.kind === "message"
-        ? admission.event.senderTenantKey
-        : undefined,
-    stateDb: input.db,
-  });
+  const targetResolution = await resolveAdmittedMessageChannelTarget(
+    input,
+    admission.event
+  );
   if (targetResolution.status === "rejected") {
     if ("connection" in targetResolution) {
       await publishTargetResolutionFailure({
@@ -397,7 +424,18 @@ async function processClaimedMessageChannelEvent(input: {
       reasonCode: "message_channel.connection_generation_changed",
     };
   }
-  const admittedEvent = admission.event;
+  const control = await resolveAdmittedCardControl({
+    db: input.db,
+    env: input.env,
+    event: admission.event,
+    organizationId: connection.organizationId,
+    participant,
+    nowMs: Date.now(),
+  });
+  if (control.status !== "continue") {
+    return control;
+  }
+  const admittedEvent = control.event;
   if (
     admittedEvent.locator.provider !== "lark" &&
     admittedEvent.locator.provider !== "feishu"
@@ -416,6 +454,7 @@ async function processClaimedMessageChannelEvent(input: {
     provider: connection.provider,
   });
   const turnEnvelope = buildMessageChannelTurnEnvelope({
+    routineLocator: admittedEvent.locator,
     resources: readAdmittedResources(admittedEvent),
     centerAgent,
     channelContext,
@@ -611,7 +650,8 @@ function resolveEventAdmission(
   }
   if (
     event.kind === "card_action" &&
-    event.actionName === "openmeld.center_agent.submit" &&
+    (event.actionName === "openmeld.center_agent.submit" ||
+      event.actionName === "openmeld.center_agent.control") &&
     event.actionValue
   ) {
     return { event, status: "admitted" };

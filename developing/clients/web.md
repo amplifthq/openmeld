@@ -847,6 +847,23 @@ matching options; Web does not infer badges from model names or the current
 default. Reasoning is catalog-owned at `high` and is not a separate Web control
 in this release.
 
+The primary-model picker searches the Core-projected choices by friendly name
+or exact catalog ID without displaying raw IDs or admitting free-text models.
+The saved choice comes first; a persistent current-model label remains visible
+even when a search has no matches. Selecting a candidate only changes the local
+draft. The current label changes after the Binding save succeeds. The searchable
+picker uses the installed Base UI Combobox because Fluid Select has no search
+input; Base UI owns keyboard navigation, focus, and dismissal. Reopening clears
+the search so the full catalog can be compared again.
+
+Before saving a changed selection, inline copy explains that it affects new
+turns across the workspace, including existing conversations, while admitted
+work keeps its frozen route. Switching to a different model may rebuild the
+prompt cache and increase next-turn input costs; this is a conditional cost
+notice, not a price quote or a claim about provider cache receipts. This surface
+does not add session pinning, live-turn switching, auxiliary overrides, or user
+provider credentials. Hosted provider configuration remains OpenMeld-operated.
+
 Model behavior details use a compact info Tooltip instead of permanently
 expanded copy. It says that images use a vision model, that the selection
 applies to new turns only, and that failure does not switch models
@@ -2859,8 +2876,9 @@ Directory Profiles remains available, but submission first opens the explicit
 new participants, explains existing-message and file visibility, requires a
 valid Space name, and warns that conversion is irreversible. Cancel performs no
 mutation. Confirm calls the dedicated atomic conversion contract and
-applies the successful response to the current status, bootstrap, and Account
-Space Index caches before replace-navigating immediately to the ordinary Spaces
+requests member snapshots and applies the successful response to the current
+members, status, bootstrap, and Account Space Index caches before
+replace-navigating immediately to the ordinary Spaces
 route. Members, status, and Account Space Index refetches reconcile in the
 background and must not hold the user on the Direct Messages route or relabel a
 completed conversion as failed. The converted Space remains member-only; Web
@@ -2937,7 +2955,7 @@ presentations.
 
 It should keep the familiar conversation model clear:
 
-The authenticated Space header exposes **Messages | Graph | Files** as one
+The authenticated Space header exposes **Messages | Files** as one
 keyboard-accessible tab list. Files keeps the same Space header and membership
 context; it is not a Resources redirect or a second app shell. Opening Files
 loads the Space root, and opening folders uses breadcrumb navigation without
@@ -3573,8 +3591,10 @@ separate Replies section, a detached `Why this failed` summary, or an extra
 that presentation model but cannot become a second status source or final
 outcome.
 
-Every Space also exposes **Messages** and **Graph** as two views of the same
-loaded timeline projection. The product and implementation term is `Graph`.
+Spaces retain **Messages** and **Graph** as two views of the same
+loaded timeline projection. The Space header's Graph entry is commented out
+pending replacement with a board; Center Agent navigation is unchanged.
+The product and implementation term is `Graph`.
 Web projects ordinary messages, reply relations, structured Wake targets, and
 recorded target outcomes into Graph nodes and edges without adding a separate
 Graph endpoint, cache authority, or work-only object model. Clicking a message
@@ -3955,6 +3975,32 @@ These records help users and support return to the right evidence. They do not
 create new truth.
 
 ## Setup Handoff Entry
+
+Agent creation hosts the shared Computer setup workflow inside its existing
+form as soon as connection or reconnection is required, without an extra
+Connect or Reconnect click. Missing connection or a
+failed connection check hides the configuration controls and replaces the
+disabled submit dead end with the connection workflow, even when an older local
+agent catalog is still cached. An enrolled Computer is described as already
+added but currently disconnected; a failed read never claims disconnection.
+Connected computers with no selectable local agent show the shared Local agents
+installation empty state: a dashed border, supported-agent names and icons, and
+the installation guide in a new tab. They do not mount computer connection setup.
+Check again refreshes that computer's local-agent catalog before continuing.
+
+The parent creation form stays mounted through setup and back navigation,
+preserving the name, settings, and original Space membership context. Embedded
+setup consumes a fresh-session intent locally, never by navigating the host
+page. Its completion callback fires once per verified Prepare Session after
+the owning readiness refresh succeeds. Creation selects the returned device
+and lane, rereads its catalog/readiness, and still requires an explicit Create
+Agent submission. It does not infer Wakeability or publish a Space reply.
+An enrolled selected computer going offline must not silently move the draft
+to another available computer. New-computer setup is a separate explicit action.
+Required setup has no back-to-configuration action while the computer remains
+unavailable. Optional new-computer setup can be cancelled. Space-originated
+creation retains a visible outlined back button with a left arrow to return
+to the people-and-agents picker.
 
 Web setup is an entry point into local preparation. It is not local execution
 truth.

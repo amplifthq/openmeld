@@ -172,10 +172,10 @@ export function SpaceComposerFileTray(input: {
 			{input.files.map((file) => (
 				<div
 					className={cn(
-						"flex w-40 flex-none items-center gap-2 rounded-md border bg-muted/50 p-2",
+						"flex flex-none items-center gap-2 rounded-md border bg-muted/50 p-2",
 						file.status === "failed"
-							? "border-destructive bg-destructive/5"
-							: "border-border"
+							? "w-80 max-w-full border-destructive bg-destructive/5"
+							: "w-40 border-border"
 					)}
 					key={file.localId}
 				>
@@ -217,6 +217,7 @@ export function SpaceComposerFileTray(input: {
 									? "break-words text-destructive"
 									: "truncate text-muted-foreground"
 							)}
+							role={file.status === "failed" ? "alert" : undefined}
 						>
 							{resolveComposerFileStatusText(file)}
 						</p>

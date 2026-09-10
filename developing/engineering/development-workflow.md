@@ -627,6 +627,36 @@ blocker-capable review are stable, run the selected broad gates once for the
 exact candidate. This is scheduling guidance, not an additional gate or an
 approval requirement.
 
+### PostHog Test Skills
+
+The three test skills under `.agents/skills/` are pinned upstream copies;
+each `UPSTREAM.json` records its source and revision. Update them deliberately
+and review the upstream diff. Keep OpenMeld adaptations here, not in copied
+skill bodies. Claude Code already routes through `AGENTS.md`; other agents
+can follow its explicit file links without a global installation.
+
+Use their judgment, not PostHog's toolchain: run the owning package's Vitest
+or Node tests instead of `hogli`, Django, or Jest commands. For CI evidence use
+`gh run view <run-id> --log-failed` and the relevant run attempt; PostHog's
+insights and Trunk services are not configured here. Repository contracts and
+the user's authorized scope take precedence over upstream approval steps.
+Do not require a written questionnaire, repetition quota, or extra approval
+for an ordinary authorized change.
+
+Keep assertions tied to independent behavior. In PR #883, replacing an SQL
+interpreter mock with SQLite made harmless SQL formatting changes pass while
+detecting swapped persisted identifiers the mock missed. Use real persistence
+when SQL semantics are the risk, with focused local D1 tests for D1-specific
+behavior. The skills' no-network advice applies to isolated unit tests, not
+to explicitly selected integration or real-user smoke.
+
+When cleaning substantial coverage, establish what still catches the important
+failure. A focused temporary fault can demonstrate this when useful; mutation
+testing is not mandatory for every PR. Control time when dates are fixtures,
+and avoid asserting source text or incidental query formatting. Diagnose
+deterministic failures before calling them flaky; do not use retries, skips,
+or larger timeouts to hide an unexplained failure.
+
 ### Validation Commands
 
 The Final Candidate, merge, release, health, smoke, evidence, and fallback
@@ -658,9 +688,18 @@ environment contracts, Changelog and documentation contracts, formatting
 support contracts, and retired identifiers. It does not replace workspace type
 checks, unit tests, integration tests, or release-ready verification.
 
-`verify:pr` runs changed-workspace checks and unit tests. Agents use this lane
-when changed-workspace validation has practical defect-finding value during
-development or review; standard Final Candidate does not repeat it. Checks and
+`verify:pr` runs affected-workspace checks and unit tests, including downstream
+consumers of shared packages. It also selects existing documentation, Changelog,
+and CI/release workflow checks when their root paths change. Documentation-only
+changes skip workspace tasks. Use `pnpm run verify:pr -- --plan` to inspect the
+commands without running them; set `OPENMELD_AFFECTED_BASE` to the available
+base commit when needed. Focused iteration can still use a package command or
+`turbo-affected.mjs --changed-only`.
+
+PR Feedback runs this lane on PR creation and updates, including drafts.
+Use draft PRs for work still changing; new commits cancel superseded feedback.
+Integration tests remain selected by the responsible agent for the actual
+boundary. Standard Final Candidate does not repeat workspace tests. Checks and
 unit tests run as two explicit phases: packages
 may still run in parallel within one phase, but a memory-heavy package never
 runs its type-check and unit-test processes at the same time on one runner. The

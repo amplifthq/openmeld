@@ -1027,9 +1027,12 @@ manual verification):
 22. Completed `bring_agents` copy states membership only. If the Members drawer
     reports an agent Offline, no onboarding surface claims that agent can be
     woken.
-23. An ordinary Space or external Message Channel routes computer setup to the
-    Connect page. Only the first-party Center Agent Direct Message hosts the
-    shared workflow inline. Computers remains the fleet management home.
+23. Ordinary Space banners and external Message Channels route computer setup
+    to the Connect page. The first-party Center Agent Direct Message and the
+    Create Agent form can host the shared workflow inline. Creation keeps its
+    parent form mounted, including a Space-originated member dialog, so setup
+    completion resumes that same creation context. Computers remains the fleet
+    management home.
 24. Setup Studio and contextual Web onboarding follow the shared interface-shape
     token. Setup Studio cards, inputs, buttons, demo frames, icon containers,
     and contextual-banner controls use semantic radius utilities so Rounded uses

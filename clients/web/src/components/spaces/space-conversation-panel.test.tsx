@@ -147,9 +147,10 @@ describe("SpaceConversationPanel", () => {
 		useQueryMock.mockReset();
 	});
 
-	it("switches between the Messages and Graph views from one Space timeline", () => {
+	it("returns from the retained Graph view to Messages with the draft intact", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		renderSpaceConversationPanelWithViewTabs({
+			activeSpaceView: "graph",
 			allowedActions: ["post_message"],
 			composerText: "Draft the follow-up.",
 			readOnly: false,
@@ -160,16 +161,6 @@ describe("SpaceConversationPanel", () => {
 				}),
 			],
 		});
-
-		expect(
-			screen.getByRole("log", { name: "Conversation history" })
-		).toBeTruthy();
-		expect(
-			screen.getByRole("textbox", {
-				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
-			}).textContent
-		).toBe("Draft the follow-up.");
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
 		expect(screen.queryByRole("log", { name: "Conversation history" })).toBe(
 			null
@@ -224,9 +215,7 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.click(screen.getByRole("button", { name: "View in Graph" }));
 
 		await waitFor(() => {
-			expect(
-				screen.getByRole("tab", { name: "Graph" }).getAttribute("aria-selected")
-			).toBe("true");
+			expect(screen.getByRole("region", { name: "Space Graph" })).toBeTruthy();
 		});
 		expect(
 			screen.queryByRole("dialog", { name: "Message details" })
@@ -1445,11 +1434,10 @@ describe("SpaceConversationPanel", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const onViewingLatestChange = vi.fn();
 		renderSpaceConversationPanelWithViewTabs({
+			activeSpaceView: "graph",
 			onViewingLatestChange,
 			timelineItems: [createTimelineItem()],
 		});
-
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
 		expect(onViewingLatestChange).toHaveBeenLastCalledWith(false);
 	});
@@ -1458,11 +1446,11 @@ describe("SpaceConversationPanel", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const onLoadEarlierHistory = vi.fn().mockResolvedValue(undefined);
 		renderSpaceConversationPanelWithViewTabs({
+			activeSpaceView: "graph",
 			hasEarlierHistory: true,
 			onLoadEarlierHistory,
 			timelineItems: [createTimelineItem()],
 		});
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
 		expect(screen.getByText("Drag cards to arrange")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Load earlier" }));
@@ -1474,11 +1462,11 @@ describe("SpaceConversationPanel", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const onLoadEarlierHistory = vi.fn().mockResolvedValue(undefined);
 		renderSpaceConversationPanelWithViewTabs({
+			activeSpaceView: "graph",
 			hasEarlierHistory: true,
 			onLoadEarlierHistory,
 			timelineItems: [],
 		});
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
 		fireEvent.click(screen.getByRole("button", { name: "Load earlier" }));
 
@@ -1488,6 +1476,7 @@ describe("SpaceConversationPanel", () => {
 	it("labels a structured Agent status as a status update in the Graph", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		renderSpaceConversationPanelWithViewTabs({
+			activeSpaceView: "graph",
 			hasEarlierHistory: false,
 			timelineItems: [
 				createTimelineItem({
@@ -1496,7 +1485,6 @@ describe("SpaceConversationPanel", () => {
 				}),
 			],
 		});
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
 		expect(screen.getByText("Status update")).toBeTruthy();
 	});
@@ -1513,10 +1501,13 @@ describe("SpaceConversationPanel", () => {
 		];
 		const view = render(
 			<SpaceConversationPanelHarness
-				overrides={{ onLoadEarlierHistory, timelineItems }}
+				overrides={{
+					activeSpaceView: "graph",
+					onLoadEarlierHistory,
+					timelineItems,
+				}}
 			/>
 		);
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
 		view.rerender(
 			<SpaceConversationPanelHarness

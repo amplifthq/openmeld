@@ -43,6 +43,96 @@ const ACK = {
 } as const;
 
 describe("Remote Agent Routine management tools", () => {
+  it.each([
+    "feishu",
+    "lark",
+  ] as const)("keeps a %s Routine in its exact originating conversation", async (provider) => {
+    const base = createSubmitTurnRequest();
+    const locator = {
+      provider,
+      connectionId: "connection",
+      appId: "cli_app",
+      tenantKey: "tenant",
+      chatId: "oc_chat",
+      rootMessageId: "om_root",
+      threadId: "omt_thread",
+    };
+    const conversationId = `${provider}:connection:oc_chat:om_root`;
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        space: { ...base.turnEnvelope.space, id: conversationId },
+        trigger: {
+          source: "message_channel",
+          provider,
+          connectionId: "connection",
+          conversationId,
+          routineLocator: locator,
+        },
+      },
+    });
+    const storage = await createStorageWithContext(request);
+    const routine = {
+      ...routineRecord(),
+      destinationKind: "message_channel" as const,
+      messageChannelLocator: locator,
+      targetSpaceId: null,
+    };
+    const rpc = vi.fn(async () => ({ routine }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateRoutine: rpc },
+      storage,
+      submissionId: ACK.submissionId,
+    });
+    await executeTool(tools, "openmeld_create_routine", {
+      destinationKind: "current_conversation",
+      instructions: "Send the report here.",
+      name: "Daily report",
+      scheduleKind: "cron",
+      cronExpression: "0 9 * * *",
+      timezone: "America/New_York",
+    });
+    expect(rpc).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationKind: "message_channel",
+        messageChannelLocator: locator,
+        targetSpaceId: null,
+        slackTeamId: null,
+      })
+    );
+  });
+
+  it("does not reinterpret an older channel envelope as a Space destination", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          source: "message_channel",
+          provider: "feishu",
+          connectionId: "connection",
+          conversationId: base.turnEnvelope.space.id,
+        },
+      },
+    });
+    const rpc = vi.fn();
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateRoutine: rpc },
+      storage: await createStorageWithContext(request),
+      submissionId: ACK.submissionId,
+    });
+    await expect(
+      executeTool(tools, "openmeld_create_routine", {
+        destinationKind: "current_conversation",
+        instructions: "Send the report here.",
+        name: "Daily report",
+        scheduleKind: "cron",
+        cronExpression: "0 9 * * *",
+        timezone: "America/New_York",
+      })
+    ).rejects.toThrow("supported Routine destination");
+    expect(rpc).not.toHaveBeenCalled();
+  });
   it("exposes all six tools to both interactive and Routine turns", () => {
     const baseEnvelope = createSubmitTurnRequest().turnEnvelope;
     const interactiveNames = getRemoteAgentOpenMeldToolDefinitions({
@@ -238,7 +328,7 @@ describe("Remote Agent Routine management tools", () => {
       "Do not request the same authorization twice"
     );
     expect(descriptions.get("openmeld_create_routine")).toContain(
-      "Use current_conversation to deliver back to the Slack thread"
+      "Use current_conversation to deliver back to the Slack, Feishu, or Lark conversation"
     );
     expect(descriptions.get("openmeld_create_routine")).toContain(
       "The required inputs are the exact Routine name, schedule, destination, and instructions"
@@ -472,6 +562,9 @@ describe("Remote Agent Routine management tools", () => {
       expect(rpc).toHaveBeenCalledOnce();
       expect(rpc).toHaveBeenCalledWith({
         ...scenario.expectedInput,
+        ...(scenario.tool === "openmeld_create_routine"
+          ? { messageChannelLocator: null }
+          : {}),
         context: expectedToolContext(request, scenario.tool),
         speakerMember: { memberId: "member_123", userId: "user_1" },
       });

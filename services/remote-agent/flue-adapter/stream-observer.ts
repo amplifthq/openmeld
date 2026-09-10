@@ -180,6 +180,35 @@ async function handleCenterAgentToolPart(input: {
     return;
   }
   try {
+    // Flush the introduction before a long tool starts. CardKit does not
+    // render Web tool parts; an accepted-but-suppressed part is not visible.
+    if (context.turnEnvelope?.trigger.source === "message_channel") {
+      const result = await input.streamPublisher.flush({
+        context,
+        coreWorker,
+        observedAtMs: input.toolPart.observedAtMs,
+        storage,
+      });
+      if (result.status === "published") {
+        await recordFirstVisibleCenterAgentContent({
+          context,
+          env,
+          observedAtMs: Date.now(),
+          storage,
+          submissionId: input.toolPart.submissionId,
+        });
+      }
+      logRemoteAgentStreamResult({
+        context,
+        env,
+        eventIndex: input.eventIndex,
+        observedAtMs: input.toolPart.observedAtMs,
+        phase: "flush",
+        result,
+        submissionId: input.toolPart.submissionId,
+      });
+      return;
+    }
     const part = await preserveToolWorkThroughCompletion({
       storage,
       toolPart: input.toolPart,
