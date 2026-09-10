@@ -190,7 +190,9 @@ export function AgentDirectoryLists({
 		>
 			<div>
 				{toolbar}
-				<AgentListFilterChips onChange={setView} value={view} />
+				<div className="pb-4 empty:hidden">
+					<AgentListFilterChips onChange={setView} value={view} />
+				</div>
 			</div>
 			{showCenter && (
 				<section aria-label={currentOrganization.name} className="space-y-3">
