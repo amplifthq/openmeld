@@ -1226,6 +1226,52 @@ describe("organization identity foundation", () => {
   });
 
   it.each([
+    "remove",
+    "leave",
+  ] as const)("requires Space handoff through the native Organization %s endpoint", async (action) => {
+    const checkSpaceOwnerDeparture = vi.fn(async () => ({
+      spaces: [{ spaceId: "handoff-space", name: "Engineering" }],
+    }));
+    const { auth, harness } = createTestAuth({ checkSpaceOwnerDeparture });
+    const membership = await createOrganizationWithAcceptedMember({
+      auth,
+      harness,
+    });
+    const headers =
+      action === "remove"
+        ? membership.ownerHeaders
+        : await signIn(auth, { email: "member@example.com", password });
+    const response = await postAuth(
+      auth,
+      action === "remove"
+        ? "/organization/remove-member"
+        : "/organization/leave",
+      {
+        organizationId: membership.organizationId,
+        ...(action === "remove"
+          ? { memberIdOrEmail: membership.memberId }
+          : {}),
+      },
+      headers
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      code: "space.ownership_handoff_required",
+      message: expect.stringContaining("Engineering"),
+    });
+    expect(checkSpaceOwnerDeparture).toHaveBeenCalledWith({
+      organizationId: membership.organizationId,
+      userId: membership.memberUserId,
+    });
+    expect(
+      harness.queryFirst({
+        sql: "select id from members where id = ?",
+        params: [membership.memberId],
+      })
+    ).toBeTruthy();
+  });
+
+  it.each([
     "creator and designator",
     "another member",
   ])("allows removing %s while preserving the Center Agent and member cleanup", async (removedActor) => {
@@ -1244,6 +1290,7 @@ describe("organization identity foundation", () => {
         pending: false,
       });
     const coreWorker = {
+      checkSpaceOwnerDeparture: vi.fn(async () => ({ spaces: [] })),
       organizationJoinRequest: vi.fn(() => {
         throw new Error(
           "Member removal must not invoke the Organization join receiver."
@@ -1385,6 +1432,9 @@ function createTestAuth(
   input: {
     centerAgentRemovalGuardDatabase?: "bound" | "query_failure" | "unbound";
     coreWorker?: AuthConfigEnv["OPENMELD_CORE_WORKER"];
+    checkSpaceOwnerDeparture?: NonNullable<
+      AuthConfigEnv["OPENMELD_CORE_WORKER"]
+    >["checkSpaceOwnerDeparture"];
     enforceOriginCheck?: boolean;
     sender?: CloudflareEmailSender;
   } = {}
@@ -1398,7 +1448,23 @@ function createTestAuth(
   applyDrizzleMigrations(harness.database);
   const fakeEmailSender = createFakeEmailSender();
   const sender = input.sender ?? fakeEmailSender.sender;
+  const unexpectedCoreCall = () => {
+    throw new Error("Unexpected Core call in Organization identity test");
+  };
+  const coreWorker =
+    input.coreWorker ??
+    ({
+      checkSpaceOwnerDeparture:
+        input.checkSpaceOwnerDeparture ?? (async () => ({ spaces: [] })),
+      organizationJoinRequest: unexpectedCoreCall,
+      spaceInvitation: unexpectedCoreCall,
+      requestAgentActivitySessionInventoryCleanupForOrganizationMember:
+        unexpectedCoreCall,
+      deleteCenterAgentMemberMemory: unexpectedCoreCall,
+      deleteCenterAgentOrganizationMemory: unexpectedCoreCall,
+    } satisfies NonNullable<AuthConfigEnv["OPENMELD_CORE_WORKER"]>);
   const authConfigInput = {
+    OPENMELD_CORE_WORKER: coreWorker,
     AUTH_BRAND_NAME: "OpenMeld",
     AUTH_COOKIE_DOMAIN: "localhost",
     AUTH_DEVICE_ALLOWED_CLIENT_IDS: "openmeld-cli",
@@ -1419,7 +1485,7 @@ function createTestAuth(
       : harness.db;
   const databaseConfig = createAuthConfig({
     ...authConfigInput,
-    OPENMELD_CORE_WORKER: input.coreWorker,
+    OPENMELD_CORE_WORKER: coreWorker,
     OPENMELD_DB: guardDatabase,
   });
   const baseAuthConfig =

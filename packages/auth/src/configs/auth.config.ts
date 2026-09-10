@@ -44,6 +44,7 @@ import {
 } from "../organization/personal-organization";
 import { requireSpaceOwnershipHandoff } from "../organization/space-owner-departure";
 import { createOpenMeldEmailIdentityPlugin } from "../plugins/openmeld-email-identity";
+import { createSpaceOwnerDeparturePlugin } from "../plugins/space-owner-departure";
 import { createDrizzleOpenMeldProfileRepository } from "../profiles/profile-repository";
 import { createOpenMeldProfileService } from "../profiles/profile-service";
 import { validateAuthEmailAddress } from "../utils/auth-email-validation";
@@ -1042,6 +1043,10 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       },
     },
     plugins: [
+      createSpaceOwnerDeparturePlugin({
+        coreWorker: env.OPENMELD_CORE_WORKER,
+        db: env.OPENMELD_DB,
+      }),
       bearer(),
       username(),
       multiSession({

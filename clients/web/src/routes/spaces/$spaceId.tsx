@@ -240,7 +240,7 @@ function GuestSpacePage(input: {
 			</PublicSpaceEntryFrame>
 		);
 	}
-	if (profiles.isError || !human) {
+	if (profiles.isError || !human?.ownerUserId) {
 		return (
 			<PublicSpaceEntryFrame>
 				<p role="alert">Couldn't load your account.</p>
