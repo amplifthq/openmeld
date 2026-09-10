@@ -112,7 +112,7 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 			input.enabled && !recovery ? (
 				<Button
 					className="justify-self-start"
-					onClick={() => setSetupTarget({})}
+					onClick={() => setSetupTarget({ state: "connect" })}
 					size="sm"
 					type="button"
 					variant="ghost"

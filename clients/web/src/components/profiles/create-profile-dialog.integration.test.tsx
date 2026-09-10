@@ -901,6 +901,39 @@ describe("CreateProfileDialog", () => {
 		});
 	});
 
+	it("replaces cached Agent configuration with an actionable reconnect step", async () => {
+		const recovery = buildFakeRecovery();
+		const computer =
+			recovery.localRuntimesQuery.data?.peopleComputers.computers[0];
+		if (!computer) {
+			throw new Error("Expected the fixture Computer inventory.");
+		}
+		computer.identityStatus = "enrolled";
+		computer.connectedComputerId = "computer-office";
+		computer.deviceDisplayName = "Office Mac";
+		computer.connection = {
+			status: "disconnected",
+			sessions: [],
+			reasonCodes: [],
+		};
+		const readiness = recovery.currentLocalRuntimeReplyReadinessQuery.data;
+		if (!readiness) {
+			throw new Error("Expected the fixture readiness projection.");
+		}
+		readiness.service.connected = false;
+		readiness.service.matchingCurrentRuntime = false;
+		renderCurrentCreateProfileDialog({ recovery });
+		expect(
+			await screen.findByRole("button", { name: "Reconnect Computer" })
+		).toBeTruthy();
+		expect(
+			screen.getByText("Office Mac isn’t connected right now")
+		).toBeTruthy();
+		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
+	});
+
 	it("uses the new Agent-first flow and preserves a manually edited name", async () => {
 		renderCurrentCreateProfileDialog({
 			recovery: buildFakeRecovery([

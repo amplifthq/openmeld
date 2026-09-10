@@ -3917,6 +3917,24 @@ create new truth.
 
 ## Setup Handoff Entry
 
+Agent creation hosts the shared Computer setup workflow inside its existing
+form after an explicit Connect or Reconnect action. Missing connection or a
+failed connection check hides the configuration controls and replaces the
+disabled submit dead end with the relevant action, even when an older local
+agent catalog is still cached. An enrolled Computer is described as already
+added but currently disconnected; a failed read never claims disconnection.
+Connected computers with no selectable local agent keep local-agent guidance.
+
+The parent creation form stays mounted through setup and back navigation,
+preserving the name, settings, and original Space membership context. Embedded
+setup consumes a fresh-session intent locally, never by navigating the host
+page. Its completion callback fires once per verified Prepare Session after
+the owning readiness refresh succeeds. Creation selects the returned device
+and lane, rereads its catalog/readiness, and still requires an explicit Create
+Agent submission. It does not infer Wakeability or publish a Space reply.
+An enrolled selected computer going offline must not silently move the draft
+to another available computer. New-computer setup is a separate explicit action.
+
 Web setup is an entry point into local preparation. It is not local execution
 truth.
 

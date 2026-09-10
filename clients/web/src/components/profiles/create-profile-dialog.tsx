@@ -803,7 +803,7 @@ function useCreateProfileDialogController(
 			orgSlug,
 			recovery,
 			guidance: creationGuidance,
-			hasLocalAgents: hasSelectedCreationAgent(ownLocalAgentIds, boundAgentId),
+			hasLocalAgents: ownLocalAgentIds.length > 0,
 			isPending: creationComputerReadiness.isPending,
 			sessionComputerId: sessionPreset?.computerId,
 			onRetry: retryCreationConnection,
@@ -2340,13 +2340,6 @@ function useCreationComputerReadiness(input: {
 		isError:
 			input.recovery.localRuntimesQuery.isError || readinessQuery.isError,
 	};
-}
-
-function hasSelectedCreationAgent(
-	agentIds: readonly string[],
-	selected: string
-) {
-	return agentIds.length > 0 && (!selected || agentIds.includes(selected));
 }
 
 function useOnlyCreationComputer(input: {
