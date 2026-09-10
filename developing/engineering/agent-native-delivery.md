@@ -304,9 +304,10 @@ This lane fetches live `main`, reads the live PR, executes trusted current-main
 control against the candidate, rechecks identity after validation, posts the
 evidence comment, and publishes the same status. It requires an authenticated
 `gh` session and fails closed when GitHub or network evidence is unavailable.
-The first hop fetches a depth-one main snapshot into an isolated temporary Git
-repository and loads control code there. It does not import shallow boundaries
-into the candidate repository or download unrelated history. The bootstrap and
+The first hop fetches depth-one main metadata into an isolated temporary Git
+repository, using blob filtering and a sparse checkout of `scripts/` to load
+control code on demand. It does not import shallow boundaries or sparse settings
+into the candidate repository, or download unrelated product files and history. The bootstrap and
 candidate runner still refresh main and verify ancestry using the candidate's
 complete history. Repository-local network policy cannot influence the isolated
 control fetch, and a failed fetch cannot fall back to cached control code.

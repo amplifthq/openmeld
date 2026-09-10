@@ -145,6 +145,19 @@ test("the first hop reads a shallow live-main snapshot without changing candidat
       "rev-parse",
       "HEAD:history-only.txt"
     );
+    mkdirSync(path.join(fixture.repositoryPath, "clients", "web"), {
+      recursive: true,
+    });
+    writeFileSync(
+      path.join(fixture.repositoryPath, "clients", "web", "unrelated.ts"),
+      "export const unrelated = true;\n"
+    );
+    const productBlob = fixture.git(
+      fixture.repositoryPath,
+      "hash-object",
+      "clients/web/unrelated.ts"
+    );
+    fixture.git(fixture.repositoryPath, "add", "clients/web/unrelated.ts");
     fixture.git(fixture.repositoryPath, "rm", "--quiet", "history-only.txt");
     writeFileSync(
       path.join(
@@ -154,15 +167,20 @@ test("the first hop reads a shallow live-main snapshot without changing candidat
         "final-candidate-bootstrap.mjs"
       ),
       `
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 const cwd = fileURLToPath(new URL("../../", import.meta.url));
 const git = (...args) => execFileSync("git", args, {cwd, encoding: "utf8"}).trim();
+const objects = git("cat-file", "--batch-all-objects", "--batch-check=%(objectname)").split("\\n");
 process.stdout.write("SNAPSHOT " + JSON.stringify({
   head: git("rev-parse", "HEAD"),
   shallow: git("rev-parse", "--is-shallow-repository"),
   commits: git("rev-list", "--count", "HEAD"),
-  oldBlobPresent: spawnSync("git", ["cat-file", "-e", ${JSON.stringify(oldBlob)}], {cwd, stdio: "ignore"}).status === 0,
+  oldBlobPresent: objects.includes(${JSON.stringify(oldBlob)}),
+  productBlobPresent: objects.includes(${JSON.stringify(productBlob)}),
+  productFilePresent: existsSync(path.join(cwd, "clients/web/unrelated.ts")),
 }) + "\\n");
 `
     );
@@ -208,6 +226,8 @@ process.stdout.write("SNAPSHOT " + JSON.stringify({
       shallow: "true",
       commits: "1",
       oldBlobPresent: false,
+      productBlobPresent: false,
+      productFilePresent: false,
     });
     assert.equal(
       fixture.git(fixture.repositoryPath, "rev-parse", "HEAD"),
@@ -291,7 +311,14 @@ test("the guarded first-hop fetch strips Git tracing and names an explicit trust
   }
   assert.ok(entrypoint.includes("GIT_TRACE_REDACT=1"));
   assert.ok(
-    entrypoint.includes('fetch --no-tags --depth=1 "$trusted_remote_url"')
+    entrypoint.includes(
+      "clone --bare --no-local --no-tags --depth=1 --filter=blob:none"
+    )
+  );
+  assert.ok(
+    entrypoint.includes(
+      '--single-branch --branch main "$trusted_remote_url" "$network_root"'
+    )
   );
   assert.ok(!entrypoint.includes("fetch --no-tags origin"));
 });
@@ -465,6 +492,7 @@ function createEntrypointFixture() {
     }).trim();
 
   git(root, "init", "--bare", "--quiet", "--initial-branch=main", remotePath);
+  git(remotePath, "config", "uploadpack.allowFilter", "true");
   git(repositoryPath, "init", "--initial-branch=main", "--quiet");
   git(repositoryPath, "config", "user.email", "entrypoint@test.openmeld.ai");
   git(repositoryPath, "config", "user.name", "OpenMeld Entrypoint Test");
