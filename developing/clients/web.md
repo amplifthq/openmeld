@@ -573,7 +573,13 @@ including the Center Agent session selector. Space-name search remains bounded
 by the existing 500-item Account Space Index query; this UI change does not
 introduce a server search endpoint or claim unbounded history coverage.
 
-Grouped retains existing per-section Priority and manual sorting. Recent uses
+Grouped retains existing per-section Priority and manual sorting. Both views use
+the existing fixed status slot so revealing or focusing row actions cannot move
+or cover activity indicators. Priority sections wait for their first activity
+snapshot before showing an idle ordering; manual pins and Recent remain usable
+while that evidence loads. Full names and attributed activity remain available
+through the shared tooltips. Ordinary Space rows read Index previews without
+creating per-Space message-preview observers. Recent uses
 only message time, with an empty conversation at zero and Space ID as a stable
 tie-breaker; unread, visit time, and running progress do not promote it. Recent
 does not permit manual row ordering outside Pinned. Space and direct-message

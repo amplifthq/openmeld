@@ -119,14 +119,26 @@ export function ConversationsSidebar(
 					recentSection,
 				]
 			: model.sections;
-	const rows = (section: ConversationSection) =>
-		model.sort(
+	const waitingForActivity = view === "grouped" && dm.indicators.isPending;
+	const rows = (section: ConversationSection) => {
+		if (section.sort === "priority" && waitingForActivity) {
+			return [];
+		}
+		return model.sort(
 			filtered.filter((item) =>
 				section.id === "recent"
 					? model.owner(item) !== "pinned"
 					: model.owner(item) === section.id
 			),
 			section
+		);
+	};
+	const unreadCount = (section: ConversationSection) =>
+		rows(section).reduce(
+			(count, item) =>
+				count +
+				(dm.indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0),
+			0
 		);
 	const visible = sections.filter(
 		(section) =>
@@ -141,7 +153,8 @@ export function ConversationsSidebar(
 		dm.store.isPending ||
 		dm.spaces.isPending ||
 		dm.sessions.isPending ||
-		dm.directory.isPending;
+		dm.directory.isPending ||
+		waitingForActivity;
 	const failed =
 		dm.store.isError ||
 		dm.spaces.isError ||
@@ -351,15 +364,18 @@ export function ConversationsSidebar(
 							labelAccessory: (
 								<>
 									{!disclosure.isOpen(section.id) &&
-										rows(section).some((item) =>
-											dm.indicators.unreadBySpaceId.has(item.spaceId)
-										) && (
+										unreadCount(section) > 0 && (
 											<span className="mr-1 text-muted-foreground text-xs">
-												Unread
+												{unreadCount(section)} unread
 											</span>
 										)}
 									{view === "grouped" && section.id !== "pinned" && (
 										<SidebarSectionActions
+											addLabel={
+												section.kind === "space"
+													? "Add Space or group"
+													: "Add direct message or group"
+											}
 											disabled={model.disabled}
 											label={section.name}
 											newItemLabel={

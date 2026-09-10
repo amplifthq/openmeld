@@ -13,6 +13,7 @@ import "../sidebar-preview/preview.css";
 const client = new QueryClient();
 function Preview() {
 	const [dark, setDark] = useState(false);
+	const [width, setWidth] = useState(320);
 	return (
 		<QueryClientProvider client={client}>
 			<TooltipProvider>
@@ -23,9 +24,24 @@ function Preview() {
 							<button onClick={() => setDark(!dark)} type="button">
 								Switch theme
 							</button>
+							<label>
+								Sidebar width{" "}
+								<input
+									aria-label="Sidebar width"
+									className="w-20 rounded border px-2"
+									max={420}
+									min={180}
+									onChange={(event) => setWidth(Number(event.target.value))}
+									type="number"
+									value={width}
+								/>
+							</label>
 						</header>
 						<div className="flex items-start gap-6">
-							<aside className="w-80 max-w-full shrink-0 rounded-xl bg-sidebar p-2">
+							<aside
+								className="max-w-full shrink-0 rounded-xl bg-sidebar p-2"
+								style={{ width }}
+							>
 								<ConversationsSidebar />
 							</aside>
 							<section className="hidden min-w-0 flex-1 md:block">

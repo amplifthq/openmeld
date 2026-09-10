@@ -1,4 +1,5 @@
 import type { AccountSidebarPreferences } from "@openmeld/schemas";
+import { createWakeProgressItem } from "@openmeld/space";
 import { useState } from "react";
 import {
 	type Conversation,
@@ -7,6 +8,7 @@ import {
 	moveConversationPreferences,
 	sortConversations,
 } from "#/components/spaces/conversation-sidebar-model";
+import { buildSpaceActiveWakeSummary } from "#/components/spaces/space-active-wake-presentation";
 import { EMPTY_CHAT_PREFERENCES } from "#/lib/organizations/center-agent-chat-preferences";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 
@@ -84,6 +86,9 @@ const fixtureConversations: Conversation[] = [
 ];
 
 export function useConversationSidebarFixture() {
+	const layoutScenario =
+		typeof window !== "undefined" &&
+		new URLSearchParams(window.location.search).has("layout");
 	const [preferences, save] = useState<AccountSidebarPreferences>({
 		pinned: { sort: "manual", spaceIds: ["release", "felix"] },
 		spaces: { sort: "priority", spaceIds: [] },
@@ -94,6 +99,14 @@ export function useConversationSidebarFixture() {
 		},
 	});
 	const [conversations, setConversations] = useState(fixtureConversations);
+	const displayTitle = (item: Conversation) => {
+		if (layoutScenario && item.spaceId === "design") {
+			return "Product design and release coordination";
+		}
+		return item.kind === "direct-message"
+			? (chatPreferences.titles[item.spaceId] ?? item.title)
+			: item.title;
+	};
 	const chatPreferences = preferences.chats ?? EMPTY_CHAT_PREFERENCES;
 	const sections = conversationSections(preferences, chatPreferences);
 	const owner = (item: Conversation) =>
@@ -143,10 +156,7 @@ export function useConversationSidebarFixture() {
 	return {
 		conversations: conversations.map((item) => ({
 			...item,
-			title:
-				item.kind === "direct-message"
-					? (chatPreferences.titles[item.spaceId] ?? item.title)
-					: item.title,
+			title: displayTitle(item),
 		})),
 		sections,
 		selected: "design",
@@ -184,7 +194,29 @@ export function useConversationSidebarFixture() {
 			directory: { isPending: false, isError: false, refetch: () => undefined },
 			indicators: {
 				unreadBySpaceId: new Map(),
-				activeWakeSummaryBySpaceId: new Map(),
+				activeWakeSummaryBySpaceId: new Map(
+					layoutScenario
+						? [
+								[
+									"design",
+									buildSpaceActiveWakeSummary({
+										spaceId: "design",
+										items: [
+											createWakeProgressItem({
+												clientMessageId: "preview-message",
+												sourceSignalId: "preview-signal",
+												dispatchId: "preview-dispatch",
+												targetProfileId: "preview-agent",
+												targetLabel: "Review Agent",
+												phase: "running",
+												updatedAtMs: Date.now(),
+											}),
+										],
+									}),
+								],
+							]
+						: []
+				),
 			},
 			attentionById: new Map(),
 		},
