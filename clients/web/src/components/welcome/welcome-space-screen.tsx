@@ -296,7 +296,7 @@ function CreateSpaceForm(props: {
 			{props.contextKind === "organization" ? (
 				<div className="grid gap-2">
 					<Label htmlFor={SPACE_ORGANIZATION_VISIBILITY_ID}>
-						General access
+						Who can join this Space
 					</Label>
 					<SpaceVisibilityPicker
 						disabled={props.isPending}

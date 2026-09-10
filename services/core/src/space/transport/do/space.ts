@@ -2349,6 +2349,7 @@ export class Space extends DurableObject<CoreBindings> {
   private lastTimestamp = 0;
   private lastLiveInvalidationVersion = 0;
   private liveInvalidationVersionUpdate: Promise<void> = Promise.resolve();
+  private liveBroadcastDelivery: Promise<void> = Promise.resolve();
   private lastPostCleanupAtMs = 0;
   private lastRetentionWarningAtMs = 0;
   private dispatchOutboxContinuationDueAtMs: number | null = null;
@@ -7761,12 +7762,27 @@ export class Space extends DurableObject<CoreBindings> {
     return "accepted";
   }
 
-  rpcConvertDirectMessageToSpace(
+  async rpcConvertDirectMessageToSpace(
     input: ConvertDirectMessageToSpaceInput
   ): Promise<ConvertDirectMessageToSpaceResponse> {
-    return this.ctx.blockConcurrencyWhile(() =>
-      this.convertDirectMessageToSpace(input)
-    );
+    const result = await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        return {
+          ok: true as const,
+          value: await this.convertDirectMessageToSpace(input),
+        };
+      } catch (error) {
+        // Expected admission failures must not break the Durable Object input gate.
+        if (!this.coreRpcErrorResponse(error)) {
+          throw error;
+        }
+        return { ok: false as const, error };
+      }
+    });
+    if (!result.ok) {
+      throw result.error;
+    }
+    return result.value;
   }
 
   private async convertDirectMessageToSpace(
@@ -11338,6 +11354,17 @@ export class Space extends DurableObject<CoreBindings> {
         return;
       }
 
+      if (!(await this.authorizeLiveSession(session))) {
+        removeFailedSpaceWebSocketSession({
+          closeCode: 1008,
+          closeReason: "space_access_changed",
+          session,
+          sessions: this.sessions,
+          webSocket,
+        });
+        return;
+      }
+
       payload = parseWebSocketPayload(webSocket, msg);
       if (payload === undefined) {
         return;
@@ -12894,6 +12921,14 @@ export class Space extends DurableObject<CoreBindings> {
       return this.spaceNotFoundResponse();
     }
 
+    const currentMembership = await this.authorizeCurrentSpaceMembership({
+      context,
+      requestId: context.actorContext.requestId,
+    });
+    if (!currentMembership.ok) {
+      return currentMembership.response;
+    }
+
     const joinAuthorization = await authorizeSpaceJoinAccess({
       context,
       hasActiveMemberForOwnerUserId: (ownerUserId) =>
@@ -14281,42 +14316,84 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
-  private async authorizeSpacePasswordAccess(input: {
+  private async authorizeCurrentSpaceMembership(input: {
     context?: CoreRpcContextInput;
     requestId: string;
     spacePassword?: string;
   }): Promise<PasswordAuthorizationResult> {
-    const meta = this.readSpaceMetaRecord();
+    let meta = this.readSpaceMetaRecord();
     if (!meta) {
       return { ok: false, response: this.spaceNotFoundResponse() };
     }
     const userId = input.context?.actorContext.ownerUserId;
     if (
       userId &&
-      !meta.allowGuests &&
-      [
-        ...this.ctx.storage.sql.exec(
-          "SELECT user_id FROM space_guest_users WHERE user_id = ?",
-          userId
-        ),
-      ].length
+      hasActiveSpaceMemberRecordForOwnerUserId(this.ctx.storage.sql, userId)
     ) {
       const membership = await resolveOrganizationMembershipById({
         env: this.bindings,
         organizationId: meta.organizationId,
         userId,
       });
+      // Membership lookup yields; do not authorize against an old guest policy.
+      meta = this.readSpaceMetaRecord();
+      if (!meta) {
+        return { ok: false, response: this.spaceNotFoundResponse() };
+      }
       if (!membership.ok) {
-        return {
-          ok: false,
-          response: this.spaceAccessAuthorizationFailureResponse({
-            code: "space.membership_required",
-            requestId: input.requestId,
-          }),
-        };
+        if (membership.status === 503) {
+          throw createCoreRpcHttpError({
+            status: 503,
+            code: membership.code,
+            reason: membership.message,
+          });
+        }
+        const guest =
+          meta.allowGuests &&
+          [
+            ...this.ctx.storage.sql.exec(
+              "SELECT user_id FROM space_guest_users WHERE user_id = ?",
+              userId
+            ),
+          ].length > 0;
+        const profileId = input.context?.actorContext.openMeldProfileId;
+        const db = identityDb(this.bindings);
+        const agent =
+          input.context?.actorContext.profileKind === "agent" && profileId && db
+            ? await readAgentProfileOrganizationContext({
+                agentProfileId: profileId,
+                db,
+              })
+            : null;
+        const managedAgent =
+          agent?.profileKind === "agent" &&
+          agent.managedRole !== null &&
+          agent.organizationId === meta.organizationId;
+        if (!(guest || managedAgent)) {
+          return {
+            ok: false,
+            response: this.spaceAccessAuthorizationFailureResponse({
+              code: "space.membership_required",
+              requestId: input.requestId,
+            }),
+          };
+        }
       }
     }
 
+    return { ok: true, meta };
+  }
+
+  private async authorizeSpacePasswordAccess(input: {
+    context?: CoreRpcContextInput;
+    requestId: string;
+    spacePassword?: string;
+  }): Promise<PasswordAuthorizationResult> {
+    const membership = await this.authorizeCurrentSpaceMembership(input);
+    if (!membership.ok) {
+      return membership;
+    }
+    const meta = membership.meta;
     const authorization = await authorizeProtectedSpaceAccess({
       context: input.context,
       hasActiveMemberForOwnerUserId: (ownerUserId) =>
@@ -14780,31 +14857,85 @@ export class Space extends DurableObject<CoreBindings> {
       | SpaceAgentStreamPartFrame
       | SpaceAgentStreamTerminalFrame
   ) {
-    const quitters: Session[] = [];
+    if (this.sessions.size === 0) {
+      return;
+    }
+    this.liveBroadcastDelivery = this.liveBroadcastDelivery
+      .then(() => this.deliverAuthorizedLiveMessage(message))
+      .catch((error) => {
+        console.error("[core.space.live_access_check_failed]", {
+          spaceId: this.spaceId,
+          error: formatUnknownErrorMessage(error),
+        });
+        this.closeAllSessions("space_access_changed");
+      });
+    this.ctx.waitUntil(this.liveBroadcastDelivery);
+  }
 
-    this.sessions.forEach((session, ws) => {
-      if (session.profile) {
-        const encoded = this.encodeLiveMessageForSession(message, session);
-        try {
-          ws.send(encoded);
-        } catch {
+  private async authorizeLiveSession(session: Session): Promise<boolean> {
+    const profile = session.enforcedProfile ?? session.profile;
+    const userId = session.viewerOwnerUserId;
+    if (!profile) {
+      return false;
+    }
+    const access = await this.authorizeSpacePasswordAccess({
+      requestId: crypto.randomUUID(),
+      spacePassword: session.spacePassword,
+      context: {
+        actorContext: {
+          requestId: crypto.randomUUID(),
+          callerPrincipalId: userId ?? profile.profileId,
+          ownerUserId: userId,
+          openMeldProfileId: session.viewerProfileId ?? profile.profileId,
+          profileKind: profile.kind,
+        },
+      },
+    });
+    return access.ok;
+  }
+
+  private async deliverAuthorizedLiveMessage(
+    message: Parameters<Space["encodeLiveMessageForSession"]>[0]
+  ): Promise<void> {
+    const quitters: Session[] = [];
+    await Promise.all(
+      [...this.sessions].map(async ([ws, session]) => {
+        if (!(await this.authorizeLiveSession(session))) {
           removeFailedSpaceWebSocketSession({
-            closeCode: 1011,
-            closeReason: "broadcast_send_failed",
+            closeCode: 1008,
+            closeReason: "space_access_changed",
             session,
             sessions: this.sessions,
             webSocket: ws,
           });
-          quitters.push(session);
+          return;
         }
-        return;
-      }
+        if (this.sessions.get(ws) !== session || session.quit) {
+          return;
+        }
+        if (session.profile) {
+          const encoded = this.encodeLiveMessageForSession(message, session);
+          try {
+            ws.send(encoded);
+          } catch {
+            removeFailedSpaceWebSocketSession({
+              closeCode: 1011,
+              closeReason: "broadcast_send_failed",
+              session,
+              sessions: this.sessions,
+              webSocket: ws,
+            });
+            quitters.push(session);
+          }
+          return;
+        }
 
-      if (!session.blocked) {
-        session.blocked = [];
-      }
-      session.blocked.push(message);
-    });
+        if (!session.blocked) {
+          session.blocked = [];
+        }
+        session.blocked.push(message);
+      })
+    );
 
     // If any sockets broke while sending, notify remaining members once.
     for (const quitter of quitters) {

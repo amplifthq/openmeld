@@ -1,4 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import { applyOpenMeldRequestContextHeaders } from "@openmeld/gateway-contract";
 import type {
   OrganizationJoinRequestRpcInput,
   SpaceInvitationRpcInput,
@@ -14,6 +15,7 @@ import {
   upsertSpaceMetaRecord,
 } from "../src/space/infrastructure/sql/space-meta-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { waitForJsonMessage } from "./test-support/ws-stream";
 
 const core = env as unknown as CoreBindings;
 
@@ -112,6 +114,101 @@ describe("Organization Space self-join", () => {
     expect((await f.stub.rpcPostMembers(input)).alreadyMemberIds).toEqual([
       f.recipientProfile,
     ]);
+    const headers = new Headers({ Upgrade: "websocket" });
+    applyOpenMeldRequestContextHeaders(headers, {
+      requestContext: input.context,
+    });
+    const response = await f.stub.fetch(
+      new Request(`https://openmeld-core.internal/stream?space=${f.spaceId}`, {
+        headers,
+      })
+    );
+    expect(response.status).toBe(101);
+    const socket = response.webSocket;
+    if (!socket) {
+      throw new Error("Missing accepted WebSocket");
+    }
+    socket.accept();
+    const hello = waitForJsonMessage(
+      socket,
+      (message) => message.type === "system.hello.ack"
+    );
+    socket.send(
+      JSON.stringify({
+        type: "hello",
+        profile: {
+          kind: "human",
+          profileId: f.recipientProfile,
+          profileName: "Morgan Lee",
+        },
+      })
+    );
+    await hello;
+    const passiveResponse = await f.stub.fetch(
+      new Request(`https://openmeld-core.internal/stream?space=${f.spaceId}`, {
+        headers,
+      })
+    );
+    const passiveSocket = passiveResponse.webSocket;
+    if (!passiveSocket) {
+      throw new Error("Missing passive WebSocket");
+    }
+    passiveSocket.accept();
+    const passiveHello = waitForJsonMessage(
+      passiveSocket,
+      (message) => message.type === "system.hello.ack"
+    );
+    passiveSocket.send(
+      JSON.stringify({
+        type: "hello",
+        profile: {
+          kind: "human",
+          profileId: f.recipientProfile,
+          profileName: "Morgan Lee",
+        },
+      })
+    );
+    await passiveHello;
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
+    )
+      .bind(f.organizationId, f.recipientId)
+      .run();
+    await expect(
+      (async () =>
+        await f.stub.rpcGetStatus({
+          spaceId: f.spaceId,
+          context: input.context,
+        }))()
+    ).rejects.toThrow("space.membership_required");
+    await expect(postMembers()).rejects.toThrow("space.membership_required");
+    const closed = new Promise<CloseEvent>((resolve) =>
+      socket.addEventListener("close", resolve, { once: true })
+    );
+    const passiveClosed = new Promise<CloseEvent>((resolve) =>
+      passiveSocket.addEventListener("close", resolve, { once: true })
+    );
+    socket.send(
+      JSON.stringify({
+        type: "signal.text",
+        data: { text: "A departed member must not publish this" },
+      })
+    );
+    expect((await closed).code).toBe(1008);
+    await f.stub.rpcPatchMeta({
+      spaceId: f.spaceId,
+      context: {
+        ...input.context,
+        actorContext: {
+          ...input.context.actorContext,
+          callerPrincipalId: f.ownerId,
+          ownerUserId: f.ownerId,
+          openMeldProfileId: f.ownerProfile,
+        },
+      },
+      name: "Internal project renamed after departure",
+    });
+    expect((await passiveClosed).code).toBe(1008);
   });
 });
 

@@ -146,7 +146,8 @@ describe("WelcomeSpaceScreen", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: CREATE_CHOICE }));
 		expect(
-			screen.getByRole("combobox", { name: "General access" }).textContent
+			screen.getByRole("combobox", { name: "Who can join this Space" })
+				.textContent
 		).toBe("Only invited people");
 		expect(
 			screen.queryByRole("radiogroup", { name: "Space access" })
@@ -169,7 +170,9 @@ describe("WelcomeSpaceScreen", () => {
 		renderScreen({ onCreate });
 
 		fireEvent.click(screen.getByRole("button", { name: CREATE_CHOICE }));
-		fireEvent.click(screen.getByRole("combobox", { name: "General access" }));
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Who can join this Space" })
+		);
 		fireEvent.click(screen.getByRole("option", { name: EVERYONE_OPTION }));
 		fireEvent.change(screen.getByPlaceholderText("Design review"), {
 			target: { value: "Team room" },
@@ -219,7 +222,7 @@ describe("WelcomeSpaceScreen", () => {
 		fireEvent.click(screen.getByRole("button", { name: CREATE_CHOICE }));
 		expect(screen.queryByText("Organization directory listing")).toBeNull();
 		expect(
-			screen.queryByRole("combobox", { name: "General access" })
+			screen.queryByRole("combobox", { name: "Who can join this Space" })
 		).toBeNull();
 		fireEvent.change(screen.getByPlaceholderText("Design review"), {
 			target: { value: "Solo room" },

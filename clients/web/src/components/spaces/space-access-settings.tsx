@@ -85,7 +85,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 				</p>
 				{input.canManageAccess ? null : (
 					<p className="text-muted-foreground text-xs">
-						Only the Space owner can change access.
+						Only Space owners can change access.
 					</p>
 				)}
 				{save.isPending ? (

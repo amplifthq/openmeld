@@ -32,7 +32,7 @@ export function SpaceVisibilityPicker(input: {
 			value={input.value ?? ""}
 		>
 			<SelectTrigger
-				aria-label={input.id ? undefined : "General access"}
+				aria-label={input.id ? undefined : "Who can join this Space"}
 				className="w-full"
 				displayValue={input.value ? label : "Access unavailable"}
 				icon={input.value === "public" ? UsersIcon : LockKeyIcon}

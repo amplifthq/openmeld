@@ -6409,6 +6409,11 @@ authorization source: add the reference before granting ownership, remove it aft
 demotion, and reconcile stale references against the owning Space before departure.
 Organization membership removal, leaving, and account deletion require handoff.
 Deleting an Organization requires deleting its owned Spaces first.
+An old Space member record does not preserve a departed colleague's access.
+Authenticated membership grants recheck current Organization membership, an
+explicit enabled guest admission, or the Organization-managed Agent identity.
+The same authorization runs for reads, joins, incoming WebSocket messages, and
+live delivery; connection establishment is not a permanent access grant.
 
 Guest invitations are email-bound and require an authenticated recipient. Their
 acceptance records Space membership and a guest receipt without creating an Auth
