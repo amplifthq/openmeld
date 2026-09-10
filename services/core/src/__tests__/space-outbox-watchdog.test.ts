@@ -158,7 +158,7 @@ describe("space outbox watchdog", () => {
     const syncDispatchOutboxAlarm = vi.fn(async () => undefined);
     const sqlExec = vi.fn(() => ({ toArray: () => [] }));
     const directDelivery = vi
-      .spyOn(dispatchQueueService, "dispatchProductionOutboxMessageDirectly")
+      .spyOn(dispatchQueueService, "dispatchOutboxMessageDirectly")
       .mockResolvedValue({
         reasonCode: "dispatch_direct_retry_requested",
         recoveryTransport: "queue",
@@ -198,7 +198,7 @@ describe("space outbox watchdog", () => {
     const syncDispatchOutboxAlarm = vi.fn(async () => undefined);
     const sqlExec = vi.fn(() => ({ toArray: () => [] }));
     const directDelivery = vi
-      .spyOn(dispatchQueueService, "dispatchProductionOutboxMessageDirectly")
+      .spyOn(dispatchQueueService, "dispatchOutboxMessageDirectly")
       .mockResolvedValue({
         reasonCode: "dispatch_direct_retry_requested",
         recoveryTransport: "outbox",
@@ -500,7 +500,7 @@ describe("space outbox watchdog", () => {
   it("reports a durable workstation outbox retry without inventing a Queue failure", async () => {
     const outboxRecord = createRuntimeCoordinatorRedriveOutboxRecord();
     const directDelivery = vi
-      .spyOn(dispatchQueueService, "dispatchProductionOutboxMessageDirectly")
+      .spyOn(dispatchQueueService, "dispatchOutboxMessageDirectly")
       .mockResolvedValue({
         reasonCode: "dispatch_direct_retry_requested",
         recoveryTransport: "outbox",
@@ -508,7 +508,7 @@ describe("space outbox watchdog", () => {
         status: "retry_scheduled",
       });
     const space = createInternalRedriveHarness({
-      deliveryMode: "production_direct",
+      deliveryMode: "direct",
       dispatchId: outboxRecord.dispatchId,
       payloadJson: outboxRecord.payloadJson,
     });
@@ -1288,7 +1288,7 @@ const createAlarmLaneHarness = (lanes: {
 };
 
 const createInternalRedriveHarness = (input: {
-  deliveryMode?: "production_direct" | "queue";
+  deliveryMode?: "direct" | "queue";
   dispatchId: string;
   payloadJson: string;
   queueSend?: (message: unknown) => Promise<void>;
@@ -1328,7 +1328,7 @@ const createInternalRedriveHarness = (input: {
   Object.defineProperties(space, {
     bindings: {
       value: {
-        ...(input.deliveryMode === "production_direct"
+        ...(input.deliveryMode === "direct"
           ? {
               OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE: "direct",
               OPENMELD_WORKER_ENVIRONMENT: "prod",

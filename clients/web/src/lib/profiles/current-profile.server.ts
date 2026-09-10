@@ -49,7 +49,10 @@ export async function readCurrentStartProfile(input: {
 			`Invalid current start profile response: ${parsed.error.message}`
 		);
 	}
-	if (parsed.data.profile.profileKind !== "human") {
+	if (
+		parsed.data.profile.profileKind !== "human" ||
+		!parsed.data.profile.ownerUserId
+	) {
 		throw new Error(
 			"Invalid current start profile response: expected human profile"
 		);

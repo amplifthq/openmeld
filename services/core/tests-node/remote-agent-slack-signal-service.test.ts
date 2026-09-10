@@ -7188,77 +7188,14 @@ function applySlackMigrations(
   applyMigrationForTable(input, "agent_delegations");
   applyMigrationForTable(input, "agent_task_completion_subscriptions");
   applyMigrationForTable(input, "agent_task_terminal_outcomes");
-  input.run({
-    sql: `
-      CREATE TABLE IF NOT EXISTS center_agent_designations (
-        organization_id TEXT PRIMARY KEY,
-        agent_profile_id TEXT NOT NULL,
-        duty TEXT,
-        designated_by TEXT NOT NULL,
-        operating_state TEXT NOT NULL DEFAULT 'active',
-        paused_at INTEGER,
-        paused_by_user_id TEXT,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  input.run({
-    sql: `
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL,
-        email_verified INTEGER DEFAULT false NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        normalized_email TEXT
-      )
-    `,
-  });
-  input.run({
-    sql: `
-      CREATE TABLE IF NOT EXISTS organizations (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        metadata TEXT,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  input.run({
-    sql: `
-      CREATE TABLE IF NOT EXISTS members (
-        id TEXT PRIMARY KEY,
-        organization_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  input.run({
-    sql: `
-      CREATE TABLE IF NOT EXISTS openmeld_profiles (
-        profile_id TEXT PRIMARY KEY,
-        profile_name TEXT NOT NULL,
-        profile_handle TEXT NOT NULL,
-        profile_kind TEXT NOT NULL,
-        is_default INTEGER DEFAULT false NOT NULL,
-        status TEXT DEFAULT 'active' NOT NULL,
-        organization_id TEXT,
-        owner_user_id TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        CONSTRAINT openmeld_profiles_organization_profile_kind_check
-          CHECK (
-            (profile_kind = 'agent' AND organization_id IS NOT NULL)
-            OR (profile_kind IN ('human', 'system') AND organization_id IS NULL)
-          )
-      )
-    `,
-  });
-  applyMigrationForTable(input, "openMeldDaemon_agent_profile_bindings");
+  applyDrizzleMigrationsForTables(input, [
+    "users",
+    "organizations",
+    "members",
+    "openmeld_profiles",
+    "center_agent_designations",
+    "openMeldDaemon_agent_profile_bindings",
+  ]);
   applyDrizzleMigrationsForTables(input, [
     "organization_skill_releases",
     "organization_skills",
@@ -7351,6 +7288,9 @@ function seedSlackOrganization(
   input: Parameters<typeof applyMigrationForTable>[0]
 ) {
   input.run({
+    sql: "INSERT INTO users (id, name, email, created_at, updated_at) VALUES ('user_owner', 'Center Agent Creator', 'creator@example.test', 100, 100)",
+  });
+  input.run({
     params: ["user_member", "Ari", "ari@example.test", 1, 100, 100],
     sql: `
       INSERT INTO users (
@@ -7406,6 +7346,8 @@ function seedSlackOrganization(
       "active",
       null,
       "user_member",
+      "auth_bootstrap",
+      null,
       100,
       100,
     ],
@@ -7419,10 +7361,12 @@ function seedSlackOrganization(
         status,
         organization_id,
         owner_user_id,
+        source,
+        managed_role,
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   });
   input.run({
@@ -7434,7 +7378,9 @@ function seedSlackOrganization(
       0,
       "active",
       "org_1",
-      "user_owner",
+      null,
+      "auth_bootstrap",
+      "center_agent",
       100,
       100,
     ],
@@ -7448,10 +7394,12 @@ function seedSlackOrganization(
         status,
         organization_id,
         owner_user_id,
+        source,
+        managed_role,
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   });
   input.run({
@@ -7469,8 +7417,8 @@ function seedSlackOrganization(
   input.run({
     params: [
       "binding_1",
-      "owner_account",
-      "user_owner",
+      "organization",
+      "org_1",
       AGENT_PROFILE_ID,
       HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       "hosted_center_agent",

@@ -24,6 +24,7 @@ afterEach(() => {
 function fixture() {
 	const viewport = document.createElement("div");
 	const message = document.createElement("div");
+	message.dataset.signalId = "message-a";
 	viewport.appendChild(message);
 	document.body.appendChild(viewport);
 	let messageTop = 800;
@@ -154,4 +155,31 @@ it("saves before navigation without waiting for scrollend, and keeps different S
 	expect(
 		readSpaceConversationPosition("human-a:space-conversation:b")
 	).toBeNull();
+});
+
+it("waits for a scroll pause before measuring and ignores callback identity changes", () => {
+	const f = fixture();
+	const measure = vi.spyOn(f.message, "getBoundingClientRect");
+	const { result, rerender } = renderHook(useSpaceConversationPosition, {
+		initialProps: f.input,
+	});
+	act(() => vi.advanceTimersByTime(40));
+	measure.mockClear();
+	for (let step = 0; step < 10; step++) {
+		f.input.viewport.scrollTop = 800 + step * 5;
+		act(() => {
+			result.current.onScroll(f.input.viewport);
+			vi.advanceTimersByTime(16);
+		});
+		rerender({
+			...f.input,
+			onLoadEarlierHistory: vi.fn(async () => undefined),
+		});
+	}
+	expect(measure).not.toHaveBeenCalled();
+	act(() => vi.advanceTimersByTime(150));
+	expect(readSpaceConversationPosition(f.key)).toEqual({
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: -45,
+	});
 });

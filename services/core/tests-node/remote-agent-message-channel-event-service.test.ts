@@ -20,6 +20,28 @@ const VERSION_FIVE_UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 describe("Remote Agent Message Channel event service", () => {
+  it("rejects durable events accepted by a prior connection generation before reading context or executing", async () => {
+    const dependencies = createDependencies();
+    const adapter = createProviderAdapter();
+    const result = await processRemoteAgentMessageChannelEvent(
+      {
+        db: {} as D1Database,
+        identityDb: {} as D1Database,
+        env: {} as CoreBindings,
+        envelope: { ...createEnvelope(), connectionGeneration: 2 },
+        queueAttempts: 1,
+        queueMessageId: "old-generation-event",
+        registry: createMessageChannelProviderRegistry([adapter]),
+      },
+      dependencies
+    );
+    expect(result).toEqual({
+      status: "rejected",
+      reasonCode: "message_channel.connection_generation_changed",
+    });
+    expect(adapter.readChannelContext).not.toHaveBeenCalled();
+    expect(dependencies.submitNativeDelivery).not.toHaveBeenCalled();
+  });
   it("admits a known member through the shared native-delivery path and advances context only after admission", async () => {
     const envelope = createEnvelope();
     const channelContext = createChannelContext(envelope);

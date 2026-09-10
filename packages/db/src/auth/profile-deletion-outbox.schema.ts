@@ -11,7 +11,8 @@ export const openMeldProfileDeletionOutbox = sqliteTable(
   "openmeld_profile_deletion_outbox",
   {
     profileId: text("profile_id").primaryKey(),
-    ownerUserId: text("owner_user_id").notNull(),
+    ownerUserId: text("owner_user_id"),
+    organizationId: text("organization_id"),
     profileKind: text("profile_kind").$type<"agent" | "human">().notNull(),
     attemptCount: integer("attempt_count").notNull().default(0),
     nextAttemptAtMs: integer("next_attempt_at_ms")

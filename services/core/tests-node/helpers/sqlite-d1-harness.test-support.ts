@@ -8,6 +8,11 @@ type SqliteBindValue = number | string | null;
 const RUN_IN_TRANSACTION = Symbol("runInTransaction");
 const CREATE_TABLE_NAME_PATTERN =
   /^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`([^`]+)`/i;
+const SQL_LINE_COMMENT_PATTERN = /^\s*--.*$/gm;
+const MUTATED_TABLE_NAME_PATTERN =
+  /^(?:INSERT(?: OR \w+)? INTO|UPDATE|ALTER TABLE|DROP TABLE(?: IF EXISTS)?)\s+`([^`]+)`/i;
+const INDEX_OR_TRIGGER_TABLE_NAME_PATTERN =
+  /^CREATE(?: UNIQUE)? (?:INDEX|TRIGGER)\s[\s\S]*?\bON\s+`([^`]+)`/i;
 
 type TestPreparedStatement = D1PreparedStatement & {
   [RUN_IN_TRANSACTION]: () => unknown;
@@ -406,7 +411,14 @@ export function applyDrizzleMigrationForTable(
   for (const statement of readDrizzleMigrationStatementsForTables([
     tableName,
   ])) {
-    harness.run({ sql: statement });
+    try {
+      harness.run({ sql: statement });
+    } catch (cause) {
+      throw new Error(
+        `Focused migration failed for ${tableName}: ${statement}`,
+        { cause }
+      );
+    }
   }
 }
 
@@ -415,7 +427,14 @@ export function applyDrizzleMigrationsForTables(
   tableNames: readonly string[]
 ): void {
   for (const statement of readDrizzleMigrationStatementsForTables(tableNames)) {
-    harness.run({ sql: statement });
+    try {
+      harness.run({ sql: statement });
+    } catch (cause) {
+      throw new Error(
+        `Focused migration failed for ${tableNames.join(", ")}: ${statement}`,
+        { cause }
+      );
+    }
   }
 }
 
@@ -431,6 +450,26 @@ function readDrizzleMigrationStatementsForTables(
     // projection. Keep focused Task fixtures structurally honest without
     // coupling every Inbox-only fixture to the Task schema.
     expandedTableNames.add("center_agent_task_authorized_readers");
+  }
+  // These focused repository fixtures read each aggregate's dependent records.
+  // Declare that scope explicitly instead of accidentally importing every table
+  // whose foreign keys mention a requested parent.
+  if (expandedTableNames.has("openMeldRemoteAgent_native_delivery_ledger")) {
+    expandedTableNames.add("openMeldRemoteAgent_work_loop_attempts");
+  }
+  if (
+    expandedTableNames.has(
+      "openMeldRemoteAgent_lark_platform_channel_connections"
+    )
+  ) {
+    expandedTableNames.add(
+      "openMeldRemoteAgent_lark_platform_channel_credentials"
+    );
+    expandedTableNames.add("openMeldRemoteAgent_lark_platform_identity_links");
+    expandedTableNames.add("openMeldRemoteAgent_lark_platform_context_cursors");
+  }
+  if (expandedTableNames.has("center_agent_member_research_batches")) {
+    expandedTableNames.add("center_agent_member_research_tasks");
   }
   const focusedTableNames = [...expandedTableNames];
   const migrationDirectoryPath = path.resolve(
@@ -486,13 +525,16 @@ function readDrizzleMigrationStatementsForTables(
       return false;
     }
     const createdTableName = readCreatedTableName(statement);
-    if (
-      createdTableName?.startsWith("__new_") &&
-      !requestedTableNames.has(createdTableName)
-    ) {
-      // A Drizzle rebuild can reference another requested table through a
-      // foreign key. Never admit only the first statement of that unrelated
-      // rebuild and leave its temporary table behind in the focused fixture.
+    const sql = statement.replace(SQL_LINE_COMMENT_PATTERN, "").trim();
+    const ownedTableName =
+      createdTableName ??
+      sql.match(MUTATED_TABLE_NAME_PATTERN)?.[1] ??
+      sql.match(INDEX_OR_TRIGGER_TABLE_NAME_PATTERN)?.[1];
+    if (ownedTableName && !requestedTableNames.has(ownedTableName)) {
+      // A foreign-key reference does not make the referencing table part of
+      // this fixture. This applies to original tables as well as rebuilds:
+      // admitting an unrelated child can make a later DROP require its other
+      // foreign-key dependencies even when the child is empty.
       return false;
     }
     return focusedTableNames.some((tableName) => {
@@ -509,7 +551,10 @@ function readDrizzleMigrationStatementsForTables(
 }
 
 function readCreatedTableName(statement: string): string | null {
-  const match = statement.match(CREATE_TABLE_NAME_PATTERN);
+  const match = statement
+    .replace(SQL_LINE_COMMENT_PATTERN, "")
+    .trim()
+    .match(CREATE_TABLE_NAME_PATTERN);
   return match?.[1] ?? null;
 }
 

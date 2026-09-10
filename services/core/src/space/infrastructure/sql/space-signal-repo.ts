@@ -27,6 +27,7 @@ type SqlSignalAnchorEntryRow = SqlSignalRow & {
   storage_order: number;
 };
 export type SpaceSignalEntryFilters = {
+  mainTimelineOnly?: boolean;
   profileIds?: readonly string[];
   signalTypes?: readonly string[];
 };
@@ -560,7 +561,7 @@ export const readAgentReplyObservationState = (
               OR (
                 ? IS NOT NULL
                 AND observed_placement.thread_id = ?
-                AND observed_placement.placement = 'thread'
+                AND observed_placement.placement IN ('root', 'thread')
               )
             )
           LIMIT 1
@@ -575,7 +576,7 @@ export const readAgentReplyObservationState = (
             CROSS JOIN observed
             WHERE candidate.rowid > observed.observed_rowid
               AND candidate.type IN ('signal.text', 'signal.status')
-              AND candidate.profile_kind != 'system'
+              AND (candidate.profile_kind != 'system' OR json_extract(candidate.payload_json, '$.data.meta.purpose') = 'space_message_changed')
               AND COALESCE(
                 json_extract(candidate.payload_json, '$.data.meta.transient'),
                 0
@@ -735,6 +736,12 @@ export const deleteOldestSignalRows = (
   sql: SqlStorage,
   limit: number
 ): number => {
+  sql.exec(
+    `DELETE FROM space_recalled_message_drafts WHERE signal_id IN (
+    SELECT id FROM space_signals ORDER BY ts ASC, id ASC LIMIT ?
+  )`,
+    limit
+  );
   const result = sql.exec(
     `
       DELETE FROM space_signals
@@ -818,9 +825,19 @@ function buildSignalFilterWhereClause(
   const signalTypes = normalizeUniqueFilterValues(filters?.signalTypes ?? []);
   const profileIds = normalizeUniqueFilterValues(filters?.profileIds ?? []);
 
+  if (filters?.mainTimelineOnly) {
+    clauses.push(
+      "id NOT IN (SELECT signal_id FROM space_thread_signal_placements WHERE placement = 'thread')"
+    );
+  }
   if (signalTypes.length > 0) {
     clauses.push(`type IN (${signalTypes.map(() => "?").join(", ")})`);
     params.push(...signalTypes);
+    // Mutation cursors belong to incremental reads, never consume a visible
+    // history page slot just because the durable event uses signal.text.
+    clauses.push(
+      "NOT (profile_kind = 'system' AND COALESCE(json_extract(payload_json, '$.data.meta.purpose'), '') = 'space_message_changed')"
+    );
   }
   if (profileIds.length > 0) {
     clauses.push(`profile_id IN (${profileIds.map(() => "?").join(", ")})`);

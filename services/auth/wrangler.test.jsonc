@@ -2,6 +2,12 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "openmeld-auth-test",
   "main": "src/index.ts",
+  "base_dir": "src",
+  "find_additional_modules": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/generated-runtime/*.mjs"] }],
+  "build": {
+    "command": "pnpm --filter @openmeld/auth-worker run build:lazy-runtime-modules"
+  },
   "compatibility_date": "2026-02-18",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {

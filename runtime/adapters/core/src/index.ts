@@ -17,6 +17,7 @@ import { openMeldDaemonProviderAccessEvidenceSchema } from "@openmeld/schemas";
 import type {
   AgentControllerConversationRef,
   AgentControllerPermissionMode,
+  AgentControllerSessionTitle,
   AgentControllerUsageLimit,
   AgentInteractionRequest,
   AgentInteractionResponse,
@@ -279,6 +280,7 @@ declare const setTimeout: (callback: () => void, delay?: number) => unknown;
 
 export type AdapterDispatchRequest = {
   agentId: string;
+  newSessionTitle?: AgentControllerSessionTitle;
   agentControllerConversationId?: string | null;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   conversationPolicy?: ConversationPolicy;

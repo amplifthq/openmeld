@@ -1,3 +1,8 @@
+import {
+  OPENMELD_INBOX_ITEM_KIND_VERSION,
+  OPENMELD_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_INBOX_SUMMARY_VERSION,
+} from "@openmeld/gateway-contract";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildCenterAgentInboxReadThroughPath,
@@ -228,7 +233,7 @@ describe("api-client Inbox API", () => {
         operation: "inbox.summary",
         init: expect.objectContaining({
           headers: expect.objectContaining({
-            "x-openmeld-inbox-summary-version": "1",
+            "x-openmeld-inbox-summary-version": OPENMELD_INBOX_SUMMARY_VERSION,
           }),
         }),
       })
@@ -242,8 +247,10 @@ describe("api-client Inbox API", () => {
         expect.objectContaining({
           init: expect.objectContaining({
             headers: expect.objectContaining({
-              "x-openmeld-inbox-item-kind-version": "1",
-              "x-openmeld-inbox-source-target-version": "4",
+              "x-openmeld-inbox-item-kind-version":
+                OPENMELD_INBOX_ITEM_KIND_VERSION,
+              "x-openmeld-inbox-source-target-version":
+                OPENMELD_INBOX_SOURCE_TARGET_VERSION,
             }),
           }),
           operation,

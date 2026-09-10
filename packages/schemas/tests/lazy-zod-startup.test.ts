@@ -12,7 +12,11 @@ vi.mock("zod/v4", async (importOriginal) => {
     (name: string, factory: (...args: unknown[]) => unknown) =>
     (...args: unknown[]) => {
       const stack = new Error(`Unexpected eager ${name} construction`).stack;
-      if (stack?.includes("lazy-zod.ts")) {
+      if (
+        stack?.includes("lazy-zod.ts") ||
+        stack?.includes("/schemas/http/message-channels.ts") ||
+        stack?.includes("/schemas/runtime/message-channel.ts")
+      ) {
         const callSite = stack
           .split("\n")
           .find(
@@ -95,7 +99,10 @@ describe("lazy Zod startup boundary", () => {
     startupTracking.constructions.length = 0;
 
     const lazySchemaModules = listSchemaModules(schemasDirectory).filter(
-      (moduleUrl) => lazyZodImportPattern.test(readFileSync(moduleUrl, "utf8"))
+      (moduleUrl) =>
+        lazyZodImportPattern.test(readFileSync(moduleUrl, "utf8")) ||
+        moduleUrl.pathname.endsWith("/schemas/http/message-channels.ts") ||
+        moduleUrl.pathname.endsWith("/schemas/runtime/message-channel.ts")
     );
     const localComponentsSchemaModule = new URL(
       "../src/schemas/local-components.ts",

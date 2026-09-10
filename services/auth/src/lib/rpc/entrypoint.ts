@@ -26,6 +26,7 @@ import {
 import {
   accountAvatarCommitRpcInputSchema,
   accountAvatarPrepareRpcInputSchema,
+  authProfileViewSchema,
   authRpcResolveOrganizationAccountIdentityInputSchema,
   authRpcResolveOrganizationAccountIdentityResultSchema,
   authRpcResolveOrganizationDirectoryAgentProfilesInputSchema,
@@ -130,26 +131,7 @@ const INTEGER_TEXT_RE = /^-?\d+$/;
 
 // Guardrail: do not reintroduce `profileId` in this RPC item.
 // OpenMeld profile identity must stay on `openMeldProfileId` only.
-type OpenMeldProfileRpcItem = {
-  openMeldProfileId: string;
-  profileName: string;
-  profileHandle: string;
-  profileKind: AuthProfileKind;
-  isDefault: boolean;
-  status: "active" | "disabled";
-  ownerUserId: string;
-  ownerName?: string;
-  avatarUrl?: string;
-  source: string;
-  managedRole: OpenMeldProfileManagedRole | null;
-  defaultProjectId?: string | null;
-  createdByUserId: string | null;
-  creationActorProfileId: string | null;
-  creatorProfileId: string | null;
-  lastUsedAt: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
-};
+type OpenMeldProfileRpcItem = import("@openmeld/schemas/types").AuthProfileView;
 
 const HTTPS_USER_IMAGE_URL_PATTERN = /^https?:\/\//i;
 const MAX_USER_IMAGE_URL_LENGTH = 2048;
@@ -252,7 +234,7 @@ type EnsureManagedAgentProfileRpcInput = ResolveRequestAuthInput & {
 
 type EnsureCenterAgentProfileInOrganizationRpcInput = {
   organizationId?: string | null;
-  ownerUserId?: string | null;
+  createdByUserId?: string | null;
 };
 
 type UpdateCenterAgentProfileInOrganizationRpcInput = {
@@ -537,7 +519,7 @@ type OrganizationDirectoryAgentProfileIdentityRow = {
   managed_role: OpenMeldProfileManagedRole | null;
   organization_id: string;
   owner_name: string | null;
-  owner_user_id: string;
+  owner_user_id: string | null;
   profile_handle: string;
   profile_id: string;
   profile_name: string;
@@ -1563,12 +1545,12 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     input: EnsureCenterAgentProfileInOrganizationRpcInput
   ): Promise<EnsureManagedAgentProfileRpcResult> {
     const organizationId = normalizeOptionalText(input.organizationId);
-    const ownerUserId = normalizeOptionalText(input.ownerUserId);
-    if (!(organizationId && ownerUserId)) {
+    const createdByUserId = normalizeOptionalText(input.createdByUserId);
+    if (!organizationId) {
       return {
         ok: false,
         code: "organization.context_required",
-        message: "organizationId and ownerUserId are required",
+        message: "organizationId is required",
       };
     }
 
@@ -1578,9 +1560,8 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
         organizationId,
       });
       const profile = await this.getProfileService().ensureManagedAgentProfile({
-        ownerUserId,
         organizationId,
-        createdByUserId: ownerUserId,
+        createdByUserId,
         creatorProfileId: null,
         managedRole: "center_agent",
         profileName,
@@ -2582,7 +2563,8 @@ function toOpenMeldProfileRpcItem(
     profileKind: AuthProfileKind;
     isDefault: boolean;
     status: "active" | "disabled";
-    ownerUserId: string;
+    ownerUserId: string | null;
+    organizationId?: string | null;
     source: string;
     managedRole?: unknown;
     defaultProjectId?: string | null;
@@ -2601,7 +2583,7 @@ function toOpenMeldProfileRpcItem(
     profile.profileKind === "human"
       ? normalizeOptionalText(options?.avatarUrl)
       : undefined;
-  return {
+  return authProfileViewSchema.parse({
     openMeldProfileId: profile.profileId,
     profileName: profile.profileName,
     profileHandle: profile.profileHandle,
@@ -2609,7 +2591,8 @@ function toOpenMeldProfileRpcItem(
     isDefault: profile.isDefault,
     status: profile.status,
     ownerUserId: profile.ownerUserId,
-    ...(ownerName ? { ownerName } : {}),
+    organizationId: profile.organizationId ?? null,
+    ...(ownerName && profile.ownerUserId ? { ownerName } : {}),
     ...(avatarUrl ? { avatarUrl } : {}),
     source: profile.source,
     managedRole,
@@ -2622,7 +2605,7 @@ function toOpenMeldProfileRpcItem(
     lastUsedAt: toIsoString(profile.lastUsedAt),
     createdAt: toIsoString(profile.createdAt),
     updatedAt: toIsoString(profile.updatedAt),
-  };
+  });
 }
 
 function toResolvedOpenMeldProfileRpcItem(
@@ -2631,10 +2614,13 @@ function toResolvedOpenMeldProfileRpcItem(
     profileName: string;
     profileHandle: string;
     profileKind: AuthProfileKind;
-    ownerUserId: string;
+    ownerUserId: string | null;
   },
   options?: { ownerName?: string | null; avatarUrl?: string | null }
 ): ResolvedOpenMeldProfile {
+  if (!profile.ownerUserId) {
+    throw new ProfileValidationError("A personal Profile owner is required");
+  }
   const avatarUrl =
     profile.profileKind === "human"
       ? normalizeOptionalText(options?.avatarUrl)
@@ -2761,6 +2747,7 @@ function toAuthRpcProfileFact(
     status: profile.status,
     ownerUserId: profile.ownerUserId,
     organizationId: normalizeOptionalText(profile.organizationId),
+    managedRole: normalizeProfileManagedRole(profile.managedRole),
     ...(profile.profileKind === "agent" &&
     normalizeProfileManagedRole(profile.managedRole) === null
       ? { defaultProjectId: normalizeOptionalText(profile.defaultProjectId) }

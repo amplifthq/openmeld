@@ -5,9 +5,17 @@ import {
   isOpenMeldOrphanedLockError,
   runWithHeldLock,
 } from "../../config/lock";
+import { OPENMELD_VERSION } from "../../runtime/version";
 import { maintainOfficialCliSkill } from "../../skills/maintenance";
+import {
+  readDaemonServiceStartupPolicyCurrent,
+  resolveDaemonServiceManager,
+} from "../lifecycle/daemon-service-manager";
 import { assertDaemonMaintenanceInstallationOwnership } from "../lifecycle/daemon-service-manager-command-match";
-import { runPendingDaemonServiceUpdate } from "../lifecycle/daemon-service-update-coordinator";
+import {
+  runPendingDaemonServiceUpdate,
+  scheduleDaemonServiceUpdate,
+} from "../lifecycle/daemon-service-update-coordinator";
 import { readPendingDaemonServiceUpdate } from "../lifecycle/daemon-service-update-state";
 import { prepareDaemonServiceUpdateWorkerCarrier } from "../lifecycle/daemon-service-update-worker-manager";
 import { readOpenMeldToolsMaintenancePolicy } from "./openmeld-tools-maintenance-policy";
@@ -65,7 +73,10 @@ async function runMaintenancePass(): Promise<boolean> {
     if (pendingAttempt) {
       await coordinator.resumePendingUpdate();
     } else {
-      await coordinator.requestUpdate({ requestSource: "automatic" });
+      const update = await coordinator.requestUpdate({
+        requestSource: "automatic",
+      });
+      await reconcileCurrentServiceStartupPolicy(update.status === "current");
     }
     await coordinator.waitForIdle();
   }
@@ -79,4 +90,33 @@ async function runMaintenancePass(): Promise<boolean> {
     process.exitCode = 1;
   }
   return false;
+}
+
+async function reconcileCurrentServiceStartupPolicy(
+  updatesCurrent: boolean
+): Promise<void> {
+  if (!updatesCurrent) {
+    return;
+  }
+  const contract = await readDaemonServiceContract();
+  // An older recovery worker must not apply its policy to a newer Service,
+  // and maintenance must preserve an explicit user stop.
+  if (
+    contract?.desiredState !== "background" ||
+    contract.daemonVersion !== OPENMELD_VERSION
+  ) {
+    return;
+  }
+  const manager = await resolveDaemonServiceManager();
+  if (
+    (await readDaemonServiceStartupPolicyCurrent({
+      controller: manager?.controller ?? null,
+      status: (await manager?.status()) ?? null,
+    })) === false
+  ) {
+    await scheduleDaemonServiceUpdate({
+      targetVersion: contract.daemonVersion,
+      urgency: "available",
+    });
+  }
 }

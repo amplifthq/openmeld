@@ -7,6 +7,7 @@ export async function pauseActiveCenterAgentNativeDeliveries(input: {
   env: CoreBindings;
   organizationId: string;
   profileId: string;
+  reason?: string;
 }): Promise<number> {
   const targets = await listActiveCenterAgentNativeDeliveryCancellationTargets({
     db: input.db,
@@ -17,20 +18,25 @@ export async function pauseActiveCenterAgentNativeDeliveries(input: {
     return 0;
   }
   const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
-  if (!worker?.cancelExecution) {
+  if (!worker) {
     throw new Error("remote_agent.center_agent_pause_receiver_unavailable");
   }
-  const cancelExecution = worker.cancelExecution.bind(worker);
   const results = await Promise.allSettled(
     targets.map(async (target) => {
+      if (!worker.cancelExecution) {
+        throw new Error("remote_agent.center_agent_pause_receiver_unavailable");
+      }
+      // Invoke the RPC proxy directly; rebinding it loses the receiver.
       const response = remoteAgentWorkerCancellationResponseSchema.parse(
-        await cancelExecution({
+        await worker.cancelExecution({
           ...(target.conversationId
             ? { conversationId: target.conversationId }
             : {}),
           idempotencyKey: target.idempotencyKey,
           organizationId: target.organizationId,
-          reason: "Center Agent was paused by the Organization creator.",
+          reason:
+            input.reason ??
+            "Center Agent was paused by an Organization owner or admin.",
           spaceId: target.spaceId,
           submissionId: target.submissionId,
           v: 1,

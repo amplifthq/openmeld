@@ -136,6 +136,10 @@
         "class_name": "RuntimeTransportHub"
       },
       {
+        "name": "OPENMELD_LARK_CHANNEL_CONNECTOR",
+        "class_name": "LarkChannelConnector"
+      },
+      {
         "name": "OPENMELD_PREPARE_SESSION_HUB",
         "class_name": "PrepareSessionHub"
       }
@@ -200,7 +204,8 @@
           "to": "RuntimeTransportHub"
         }
       ]
-    }
+    },
+    { "tag": "v5", "new_sqlite_classes": ["LarkChannelConnector"] }
   ],
   "env": {
     "stg": {
@@ -296,6 +301,10 @@
           {
             "name": "OPENMELD_RUNTIME_TRANSPORT",
             "class_name": "RuntimeTransportHub"
+          },
+          {
+            "name": "OPENMELD_LARK_CHANNEL_CONNECTOR",
+            "class_name": "LarkChannelConnector"
           },
           {
             "name": "OPENMELD_PREPARE_SESSION_HUB",
@@ -447,6 +456,10 @@
           {
             "name": "OPENMELD_RUNTIME_TRANSPORT",
             "class_name": "RuntimeTransportHub"
+          },
+          {
+            "name": "OPENMELD_LARK_CHANNEL_CONNECTOR",
+            "class_name": "LarkChannelConnector"
           },
           {
             "name": "OPENMELD_PREPARE_SESSION_HUB",
