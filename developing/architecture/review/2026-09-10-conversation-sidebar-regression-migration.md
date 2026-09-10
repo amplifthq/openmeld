@@ -1,5 +1,17 @@
 # Conversation sidebar regression migration
 
+## Agent Context
+
+- Purpose: Record the legacy sidebar regression migration and its validation for PR #909.
+- Read this when: Reviewing the shared conversation sidebar or tracing a migrated regression scenario.
+- Update this when: PR #909 changes a mapped scenario, its disposition, or the corresponding verification evidence.
+- Do not use this for: Product or execution authority, general test policy, or proof of production delivery.
+- Source of truth: The linked test code and scoped client owner documents own behavior; this file records the migration review.
+
+Status: IN REVIEW — PR #909 is open.
+
+Removal condition: Remove when PR #909 is merged or superseded; the PR and git history preserve the audit.
+
 This audits the test removal in PR #909 at `e6d975f3`. The original
 `app-spaces-sidebar.test.tsx` contained 42 named scenarios plus two parameterized
 failed/stopped outcomes. All map to the new regression suite; none are silently
@@ -13,7 +25,7 @@ suite; separate model tests cover its write ownership. This is local behavioral
 validation, not authenticated production or provider smoke.
 
 The `S01`–`S42` identifiers are stable test-name prefixes in
-[`conversations-sidebar.regression.test.tsx`](../../clients/web/src/components/spaces/conversations-sidebar.regression.test.tsx).
+[`conversations-sidebar.regression.test.tsx`](../../../clients/web/src/components/spaces/conversations-sidebar.regression.test.tsx).
 `S25-terminal` retains both original parameterized outcomes. “Adapted” identifies
 an explicitly accepted product change; other rows retain their original
 behavior while updating selectors for the shared components.
