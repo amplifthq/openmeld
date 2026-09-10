@@ -131,7 +131,13 @@ const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
   CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
   "space-caller-context-receivers-first": [
-    "db", "auth", "remote-agent", "cli", "core", "gateway", "web",
+    "db",
+    "auth",
+    "remote-agent",
+    "cli",
+    "core",
+    "gateway",
+    "web",
   ],
   "personal-remote-tools-receivers-first": SCOPE_ORDER,
   "inbox-task-retirement-producer-first": [
@@ -603,10 +609,14 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
     changedPaths,
     input.taskInboxRetired
   );
-  if (deployOrderProfile === "space-caller-context-receivers-first" &&
-      (selected.has("core") || selected.has("cli")) &&
-      !["cli", "auth", "remote-agent"].every((scope) => selected.has(scope))) {
-    throw new Error("Caller context requires Auth and Remote receivers, then the required CLI/Service publication with its Core projection.");
+  if (
+    deployOrderProfile === "space-caller-context-receivers-first" &&
+    (selected.has("core") || selected.has("cli")) &&
+    !["cli", "auth", "remote-agent"].every((scope) => selected.has(scope))
+  ) {
+    throw new Error(
+      "Caller context requires Auth and Remote receivers, then the required CLI/Service publication with its Core projection."
+    );
   }
   if (
     deployOrderProfile === "space-invitation-receivers-first" &&
@@ -800,6 +810,33 @@ function resolveProductionDeployOrderProfile(
   changedPaths,
   taskInboxRetired = false
 ) {
+  if (!isSpaceCallerContextDiff(changedPaths)) {
+    return resolveOtherProductionDeployOrderProfile(
+      changedPaths,
+      taskInboxRetired
+    );
+  }
+  const profile = resolveOtherProductionDeployOrderProfile(
+    changedPaths,
+    taskInboxRetired
+  );
+  if (
+    ![
+      "default-auth-receiver-first",
+      "space-invitation-receivers-first",
+    ].includes(profile)
+  ) {
+    throw new Error(
+      `Caller context requires Service before Core and conflicts with ${profile}; split the release.`
+    );
+  }
+  return "space-caller-context-receivers-first";
+}
+
+function resolveOtherProductionDeployOrderProfile(
+  changedPaths,
+  taskInboxRetired
+) {
   if (isPersonalRemoteToolsReceiverFirstDiff(changedPaths)) {
     // This entrypoint change exports the browser facet; it does not expand a
     // Core-to-Remote request. Remote's tool calls require the Core receiver first.
@@ -849,12 +886,6 @@ function resolveProductionDeployOrderProfile(
     );
   }
   const profile = resolveExistingProductionDeployOrderProfile(changedPaths);
-  if (isSpaceCallerContextDiff(changedPaths)) {
-    if (profile !== "default-auth-receiver-first") {
-      throw new Error(`Caller context requires Service before Core and conflicts with ${profile}; split the release.`);
-    }
-    return "space-caller-context-receivers-first";
-  }
   if (isDeviceWaitReceiverFirstDiff(changedPaths)) {
     assertComposableDeviceWaitReleaseProfile(changedPaths, profile);
     return "device-wait-receivers-first";

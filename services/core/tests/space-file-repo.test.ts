@@ -667,6 +667,30 @@ describe("SpaceFileRepository", () => {
 
   it("allows active human members to write and rejects Organization-only users", async () => {
     const fixture = createFixture();
+    // Space membership is valid only while its Human owner still belongs to
+    // the Organization. Seed that independent Auth fact for the write actor.
+    await env.OPENMELD_DB.batch([
+      env.OPENMELD_DB.prepare(
+        "INSERT OR IGNORE INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
+      ).bind(
+        actor.ownerUserId,
+        actor.displayName,
+        "files-test@openmeld.test",
+        fixture.nowMs,
+        fixture.nowMs
+      ),
+      env.OPENMELD_DB.prepare(
+        "INSERT OR IGNORE INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
+      ).bind("org-files-test", "Files", "files-test", fixture.nowMs),
+      env.OPENMELD_DB.prepare(
+        "INSERT OR IGNORE INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
+      ).bind(
+        "member-files-test",
+        "org-files-test",
+        actor.ownerUserId,
+        fixture.nowMs
+      ),
+    ]);
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const durableObjectId = namespace.newUniqueId();
     const spaceId = durableObjectId.toString();

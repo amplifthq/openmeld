@@ -103,6 +103,7 @@ test("rejects opposing Remote request and personal tool rollout dependencies", (
 });
 const INDEPENDENT_SKILL_BRIDGE_ERROR_RE = /independent Skill bridge/u;
 const SPACE_INVITATION_ORDER_ERROR = /Space invitation/u;
+const CALLER_CONTEXT_ORDER_ERROR = /Caller context/u;
 const PEOPLE_COMPUTERS_ORDER_ERROR =
   /PeopleComputers receiver order conflicts/u;
 const CURRENT_WORKER_VERSION_RE =
@@ -1096,13 +1097,32 @@ test("publishes the required caller-context Service before Core begins producing
     "services/auth/src/lib/hono/space-invitation-routes.ts",
   ];
   const plan = buildProductionReleasePlan({
-    affectedPackages: [], base: "previous-release", sourceSha: REMOTE_SOURCE_SHA,
-    scope: "db,auth,remote-agent,cli,core,gateway,web", changedPaths,
+    affectedPackages: [],
+    base: "previous-release",
+    sourceSha: REMOTE_SOURCE_SHA,
+    scope: "db,auth,remote-agent,cli,core,gateway,web",
+    changedPaths,
   });
-  assert.deepEqual(plan.deployScopeOrder, ["db", "auth", "remote-agent", "cli", "core", "gateway", "web"]);
-  assert.ok(!plan.deploySteps.some((step) => step.label === "Deploy Core with the current published CLI projection"));
+  assert.deepEqual(plan.deployScopeOrder, [
+    "db",
+    "auth",
+    "remote-agent",
+    "cli",
+    "core",
+    "gateway",
+    "web",
+  ]);
+  assert.ok(
+    !plan.deploySteps.some(
+      (step) =>
+        step.label === "Deploy Core with the current published CLI projection"
+    )
+  );
   for (const scopes of [["core"], ["cli"], ["core", "auth"]]) {
-    assert.throws(() => buildProductionDeployStepSpecs(scopes, { changedPaths }), /Caller context/u);
+    assert.throws(
+      () => buildProductionDeployStepSpecs(scopes, { changedPaths }),
+      CALLER_CONTEXT_ORDER_ERROR
+    );
   }
 });
 

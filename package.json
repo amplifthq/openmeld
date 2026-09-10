@@ -191,7 +191,7 @@
     "node": "24.x"
   },
   "lint-staged": {
-    "*.{js,jsx,ts,tsx,json,jsonc,css,scss,md,mdx}": [
+    "*.{js,jsx,mjs,cjs,ts,tsx,json,jsonc,css,scss,md,mdx}": [
       "pnpm exec biome check --write --no-errors-on-unmatched"
     ]
   }
