@@ -1,5 +1,6 @@
 "use client";
 
+import { Combobox } from "@base-ui/react/combobox";
 import type {
 	CenterAgentModelChoice,
 	CenterAgentModelConfigurationResponse,
@@ -13,13 +14,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-} from "@openmeld/ui/fluid/select";
-import { InfoIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon, InfoIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -192,40 +187,100 @@ function ModelConfigurationContent(input: {
 	selectedValue: string;
 	updateError: unknown | null;
 }) {
+	const [search, setSearch] = useState("");
+	const choices = input.configuration.choices.toSorted(
+		(a, b) =>
+			Number(modelPreferenceValue(b.preference) === input.savedValue) -
+			Number(modelPreferenceValue(a.preference) === input.savedValue)
+	);
 	return (
 		<>
 			{input.canEdit ? (
 				<div className="space-y-2">
 					<Label htmlFor="center-agent-primary-model">Primary model</Label>
 					<div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-						<Select
+						<Combobox.Root
 							disabled={input.isSaving}
-							onValueChange={input.onValueChange}
-							value={input.selectedValue}
-						>
-							<SelectTrigger
-								aria-label="Primary model"
-								className="w-full sm:max-w-sm"
-								displayValue={
-									input.selectedChoice
-										? modelChoicePresentation(input.selectedChoice)
-										: input.configuration.effectiveModel.displayName
+							filteredItems={choices.filter((choice) =>
+								`${modelChoiceLabel(choice)} ${modelPreferenceValue(choice.preference)}`
+									.toLowerCase()
+									.includes(search.trim().toLowerCase())
+							)}
+							inputValue={search}
+							isItemEqualToValue={(a, b) =>
+								modelPreferenceValue(a.preference) ===
+								modelPreferenceValue(b.preference)
+							}
+							items={choices}
+							itemToStringLabel={modelChoiceLabel}
+							onInputValueChange={setSearch}
+							onOpenChange={(open) => {
+								if (open) {
+									setSearch("");
 								}
+							}}
+							onValueChange={(choice) => {
+								if (choice) {
+									input.onValueChange(modelPreferenceValue(choice.preference));
+								}
+							}}
+							value={input.selectedChoice ?? null}
+						>
+							<Combobox.Trigger
+								aria-label="Primary model"
+								className="flex min-h-10 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 max-lg:min-h-11 sm:max-w-sm"
 								id="center-agent-primary-model"
-							/>
-							<SelectContent>
-								{input.configuration.choices.map((choice, index) => (
-									<SelectItem
-										aria-label={modelChoiceAccessibleLabel(choice)}
-										index={index}
-										key={modelPreferenceValue(choice.preference)}
-										value={modelPreferenceValue(choice.preference)}
-									>
-										{modelChoicePresentation(choice)}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+							>
+								{input.selectedChoice
+									? modelChoicePresentation(input.selectedChoice)
+									: input.configuration.effectiveModel.displayName}
+								<CaretDownIcon
+									aria-hidden="true"
+									className="size-4 shrink-0 text-muted-foreground"
+								/>
+							</Combobox.Trigger>
+							<Combobox.Portal>
+								<Combobox.Positioner className="z-50" sideOffset={6}>
+									<Combobox.Popup className="w-[var(--anchor-width)] max-w-[var(--available-width)] overflow-hidden rounded-md border border-border bg-card text-card-foreground shadow-md">
+										<div className="border-border border-b px-3 py-2 text-muted-foreground text-xs">
+											Current: {input.configuration.effectiveModel.displayName}
+										</div>
+										<Combobox.Input
+											aria-label="Search models"
+											className="w-full border-border border-b bg-transparent px-3 py-2 text-sm outline-none"
+											placeholder="Search models…"
+										/>
+										<Combobox.Empty className="p-3 text-muted-foreground text-sm empty:hidden">
+											No models found.
+										</Combobox.Empty>
+										<Combobox.List className="max-h-60 overflow-y-auto p-1">
+											{(choice: CenterAgentModelChoice) => (
+												<Combobox.Item
+													aria-label={modelChoiceAccessibleLabel(choice)}
+													className="flex cursor-default items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground max-lg:min-h-11"
+													key={modelPreferenceValue(choice.preference)}
+													value={choice}
+												>
+													{modelChoicePresentation(choice)}
+													{modelPreferenceValue(choice.preference) ===
+													input.savedValue ? (
+														<span className="ml-auto text-muted-foreground text-xs">
+															Current
+														</span>
+													) : null}
+													<Combobox.ItemIndicator>
+														<CheckIcon
+															aria-hidden="true"
+															className="size-4 shrink-0"
+														/>
+													</Combobox.ItemIndicator>
+												</Combobox.Item>
+											)}
+										</Combobox.List>
+									</Combobox.Popup>
+								</Combobox.Positioner>
+							</Combobox.Portal>
+						</Combobox.Root>
 						<Button
 							disabled={
 								input.isSaving ||
@@ -238,6 +293,17 @@ function ModelConfigurationContent(input: {
 							{input.isSaving ? "Saving..." : "Save model"}
 						</Button>
 					</div>
+					{input.selectedValue !== input.savedValue && input.selectedChoice ? (
+						<output
+							aria-label="Model change impact"
+							className="block text-muted-foreground text-sm"
+						>
+							This change applies to new turns across this workspace, including
+							existing conversations. Work already in progress keeps its current
+							model. Switching to a different model may rebuild the prompt cache
+							and increase input costs on the next turn.
+						</output>
+					) : null}
 				</div>
 			) : (
 				<div>
