@@ -12,6 +12,7 @@ export function useSpaceComposerSession(input: {
 		organizationSlug: string;
 		profileId: string;
 		spaceId: string;
+		draftScope?: string;
 	};
 }) {
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
