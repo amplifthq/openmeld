@@ -17,6 +17,7 @@ import {
 	type ComponentProps,
 	memo,
 	type ReactNode,
+	type Ref,
 	useCallback,
 	useLayoutEffect,
 	useMemo,
@@ -286,18 +287,11 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 			/>
 		);
 	}
-	return (
-		<div className="flex min-w-0 max-w-full flex-col gap-2" ref={bodyRef}>
-			<SpaceMessageBodyDisplay {...input} />
-			{input.item.editedAt ? (
-				<span className="text-muted-foreground text-xs">(edited)</span>
-			) : null}
-		</div>
-	);
+	return <SpaceMessageBodyDisplay {...input} bodyRef={bodyRef} />;
 });
 
 const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
-	input: SpaceMessageBodyProps
+	input: SpaceMessageBodyProps & { bodyRef: Ref<HTMLDivElement> }
 ) {
 	const text = useSpaceMessageTextPresentation(input);
 	const references = useSpaceMessageReferencePresentation(input);
@@ -359,7 +353,9 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 			api={spaceApi}
 			attachments={attachments}
 			body={body}
+			bodyRef={input.bodyRef}
 			containerClassName={input.containerClassName}
+			edited={Boolean(input.item.editedAt)}
 			files={files}
 			isExpanded={text.isExpanded}
 			navigationActionContent={navigationActionContent}
@@ -377,6 +373,8 @@ function SpaceMessageBodyContent(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	attachments: SpaceTimelineItem["attachments"];
 	body: ReactNode;
+	bodyRef: Ref<HTMLDivElement>;
+	edited: boolean;
 	containerClassName?: string;
 	files: NonNullable<SpaceTimelineItem["files"]>;
 	isExpanded: boolean;
@@ -395,6 +393,7 @@ function SpaceMessageBodyContent(input: {
 				input.containerClassName
 			)}
 			data-slot="space-message-body"
+			ref={input.bodyRef}
 			style={{ overflowWrap: "anywhere" }}
 		>
 			{input.body}
@@ -417,6 +416,9 @@ function SpaceMessageBodyContent(input: {
 				spaceId={input.spaceId}
 			/>
 			<SpaceMessageServerTruncatedNote visible={input.serverTruncated} />
+			{input.edited ? (
+				<span className="text-muted-foreground text-xs">(edited)</span>
+			) : null}
 		</div>
 	);
 }

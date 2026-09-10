@@ -32,6 +32,27 @@ function createItem() {
 const item = createItem();
 
 describe("optimistic message changes", () => {
+	it("merges message and reaction revisions independently", () => {
+		const edited = {
+			...original,
+			data: { text: "Edited", meta: { messageRevision: 2 } },
+			reactions: { version: 1, groups: [] },
+		};
+		const reacted = { ...original, reactions: { version: 3, groups: [] } };
+		for (const [current, incoming] of [
+			[edited, reacted],
+			[reacted, edited],
+		]) {
+			const merged = mergeSpaceTimelineEnvelopes({
+				current: [current],
+				incoming: [incoming],
+			})[0];
+			expect(merged).toMatchObject({
+				data: { text: "Edited", meta: { messageRevision: 2 } },
+				reactions: { version: 3 },
+			});
+		}
+	});
 	it("consumes recovery from a persisted linked repost, never a pending or identical unrelated message", () => {
 		const recalled = {
 			...original,

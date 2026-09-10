@@ -11,11 +11,12 @@ import type {
 	SpaceThreadPreview,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
 	fireEvent,
-	render,
+	render as renderBare,
 	screen,
 	waitFor,
 	within,
@@ -71,12 +72,31 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: (options: { enabled?: boolean }) => {
+		useQuery: (options: Parameters<typeof actual.useQuery>[0]) => {
+			const isReaction = options.queryKey[0] === "space-message-reactions";
+			const reactionQuery = actual.useQuery({
+				...options,
+				enabled: isReaction && options.enabled !== false,
+			});
 			const result = useQueryMock(options);
+			if (isReaction) {
+				return reactionQuery;
+			}
 			return options.enabled === false ? { data: undefined } : result;
 		},
 	};
 });
+
+function QueryWrapper({ children }: { children: ReactNode }) {
+	const [client] = useState(
+		() => new QueryClient({ defaultOptions: { queries: { retry: false } } })
+	);
+	return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+function render(ui: ReactNode) {
+	return renderBare(ui, { wrapper: QueryWrapper });
+}
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -1876,7 +1896,7 @@ describe("SpaceConversationPanel", () => {
 
 		for (const [messageText, expectedAlignment] of [
 			["Agent reply", "justify-start"],
-			["Self message", "justify-end"],
+			["Self message", "self-end"],
 		] as const) {
 			const message = screen.getByText(messageText).closest("[data-signal-id]");
 			const row = message?.closest("[data-message-row-id]");
@@ -3991,7 +4011,8 @@ describe("SpaceConversationPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-wake']");
 		const footer = row?.querySelector("[data-slot='message-footer']");
-		expect(footer?.className).toContain("justify-end");
+		// The footer aligns with the self bubble; reactions start at its left edge.
+		expect(footer?.className).toContain("self-end");
 		expect(footer?.className).not.toContain("justify-start");
 		expect(row?.querySelector("[data-testid='space-outcome-row']")).toBeNull();
 	});

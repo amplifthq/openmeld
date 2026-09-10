@@ -175,21 +175,40 @@ export function mergeSpaceTimelineEnvelopes(input: {
 		byId.set(envelope.id, envelope);
 	}
 	for (const envelope of input.incoming) {
-		const previous = byId.get(envelope.id);
-		const revision =
-			envelope.type === "signal.text"
-				? (envelope.data.meta?.messageRevision ?? 0)
-				: 0;
-		const previousRevision =
-			previous?.type === "signal.text"
-				? (previous.data.meta?.messageRevision ?? 0)
-				: 0;
-		if (revision >= previousRevision) {
-			byId.set(envelope.id, envelope);
-		}
+		byId.set(
+			envelope.id,
+			mergeMessageEnvelope(byId.get(envelope.id), envelope)
+		);
 	}
 
 	return [...byId.values()].sort(compareSignalEnvelopeOrder);
+}
+
+function mergeMessageEnvelope(
+	previous: SignalEnvelope | undefined,
+	envelope: SignalEnvelope
+): SignalEnvelope {
+	const revision =
+		envelope.type === "signal.text"
+			? (envelope.data.meta?.messageRevision ?? 0)
+			: 0;
+	const previousRevision =
+		previous?.type === "signal.text"
+			? (previous.data.meta?.messageRevision ?? 0)
+			: 0;
+	let latest = revision >= previousRevision ? envelope : previous;
+	if (
+		latest?.type === "signal.text" &&
+		previous?.type === "signal.text" &&
+		envelope.type === "signal.text"
+	) {
+		const reactions =
+			(envelope.reactions?.version ?? -1) >= (previous.reactions?.version ?? -1)
+				? envelope.reactions
+				: previous.reactions;
+		latest = reactions ? { ...latest, reactions } : latest;
+	}
+	return latest ?? envelope;
 }
 
 export function listVisibleTimelineEnvelopes(

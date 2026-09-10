@@ -7,10 +7,51 @@ vi.mock("@tanstack/react-query", () => ({
 	useQuery: () => ({ data: undefined, isPending: false, isError: false }),
 }));
 
+const historyApi = vi.hoisted(() => ({ listSignalEnvelopes: vi.fn() }));
+vi.mock("#/lib/spaces/api", () => ({
+	createUnscopedWebSpaceApi: () => historyApi,
+}));
+
 // Only identity is consumed when selecting the cached rendering window.
 const message = (id: string) => ({ id }) as SignalEnvelope;
 
 describe("returning to the live Space history", () => {
+	it("replaces a recalled message in an open historical window without adding new live messages", async () => {
+		const old: Extract<SignalEnvelope, { type: "signal.text" }> = {
+			v: 1,
+			id: "old",
+			spaceId: "space-a",
+			ts: 100,
+			type: "signal.text",
+			profile: { profileId: "human-1", profileName: "Casey", kind: "human" },
+			data: { text: "Private old text" },
+		};
+		historyApi.listSignalEnvelopes.mockResolvedValueOnce({ envelopes: [old] });
+		const { result, rerender } = renderHook(
+			({ liveEnvelopes }) =>
+				useSpaceHistoryNavigation({
+					liveEnvelopes,
+					spaceId: "space-a",
+					profileId: "human-1",
+					enabled: true,
+					accessRejected: false,
+				}),
+			{ initialProps: { liveEnvelopes: [] as SignalEnvelope[] } }
+		);
+		await act(async () => {
+			expect(await result.current.open(old.id)).toBe(true);
+		});
+		const recalled = {
+			...old,
+			data: {
+				text: "Casey recalled a message.",
+				meta: { messageRevision: 1, recalledAt: 200 },
+			},
+		};
+		rerender({ liveEnvelopes: [recalled, { ...old, id: "new", ts: 300 }] });
+		expect(result.current.activeWindow?.envelopes).toEqual([recalled]);
+		expect(result.current.activeWindow?.hasBefore).toBe(false);
+	});
 	it("renders a recent page without discarding older messages or moving the boundary when new messages arrive", () => {
 		const history = Array.from({ length: 480 }, (_, index) =>
 			message(String(index))
