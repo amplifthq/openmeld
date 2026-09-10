@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-09T16:22:58.381Z",
+  "updatedAt": "2026-09-10T01:32:02.868Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.192",
-      "updatePolicy": "available",
-      "reason": "Optional diagnostic fields preserve old and new Core interoperability; command, setup, Wake and recovery contracts remain unchanged."
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-organization-agent-ownership-v1",
+      "packageVersion": "0.3.193",
+      "updatePolicy": "required",
+      "reason": "Organization-owned Center Agents return nullable personal owners and require the new command contract; older CLI identity readers cannot safely consume the migrated cloud model."
     },
     "service": {
-      "bundleHash": "1b9ee3c8a3a59c95e6237941fc39aa532a05e97bd48ea9a6973ba27aa36ee27d",
-      "bundleVersion": "0.3.192",
+      "bundleHash": "1f6925eef2d3dd8cc53c6c469f68b5d05f261b1a6392d669a4463b8a5cc0b443",
+      "bundleVersion": "0.3.193",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Process traversal preserves ownership and signalling semantics; existing Services remain safe for new and active Wake work."
+      "reason": "Wake reply placement and advisory Codex session naming preserve existing Service execution, Prepare, lifecycle, Space action, and diagnostic protocols in both cloud directions."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
