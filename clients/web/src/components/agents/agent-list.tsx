@@ -11,11 +11,7 @@ import {
 } from "@openmeld/ui/components/dropdown-menu";
 import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
-import {
-	FunnelSimpleIcon,
-	SortAscendingIcon,
-	StackIcon,
-} from "@phosphor-icons/react";
+import { SlidersHorizontalIcon } from "@phosphor-icons/react";
 import { type ReactNode, useState } from "react";
 import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 import {
@@ -69,6 +65,8 @@ export function AgentListControls(input: {
 	items: readonly AgentListItem[];
 	value: AgentListView;
 	onChange: (view: AgentListView) => void;
+	hoverOnly?: boolean;
+	label?: string;
 }) {
 	const changeFacet = (facet: AgentListFacet, value: string) => {
 		const selected = input.value.filters[facet];
@@ -83,13 +81,59 @@ export function AgentListControls(input: {
 		});
 	};
 	return (
-		<div className="flex flex-wrap items-center gap-1">
+		<div
+			className={
+				input.hoverOnly
+					? "opacity-0 group-focus-within/agent-section:opacity-100 group-hover/agent-section:opacity-100 has-[[data-popup-open]]:opacity-100 [@media(hover:none)]:opacity-100"
+					: undefined
+			}
+		>
 			<DropdownMenu>
-				<DropdownMenuTrigger render={<Button size="sm" variant="ghost" />}>
-					<FunnelSimpleIcon />
-					Filter
+				<DropdownMenuTrigger
+					render={
+						<Button
+							aria-label={input.label ?? "Agent view settings"}
+							size="icon-sm"
+							variant="ghost"
+						/>
+					}
+				>
+					<SlidersHorizontalIcon />
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end" className="w-64">
+					<DropdownMenuGroup>
+						<DropdownMenuLabel>Sort by</DropdownMenuLabel>
+						<DropdownMenuRadioGroup
+							onValueChange={(value) =>
+								input.onChange({ ...input.value, sort: value as AgentListSort })
+							}
+							value={input.value.sort}
+						>
+							{Object.entries(SORTS).map(([value, label]) => (
+								<DropdownMenuRadioItem key={value} value={value}>
+									{label}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuGroup>
+					<DropdownMenuGroup>
+						<DropdownMenuLabel>Group by</DropdownMenuLabel>
+						<DropdownMenuRadioGroup
+							onValueChange={(value) =>
+								input.onChange({
+									...input.value,
+									grouping: value as AgentListGrouping,
+								})
+							}
+							value={input.value.grouping}
+						>
+							{Object.entries(GROUPINGS).map(([value, label]) => (
+								<DropdownMenuRadioItem key={value} value={value}>
+									{label}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuGroup>
 					{AGENT_LIST_FACETS.map((facet) => (
 						<DropdownMenuGroup key={facet}>
 							<DropdownMenuLabel>{FACETS[facet]}</DropdownMenuLabel>
@@ -128,67 +172,6 @@ export function AgentListControls(input: {
 								))}
 						</DropdownMenuGroup>
 					))}
-				</DropdownMenuContent>
-			</DropdownMenu>
-			<DropdownMenu>
-				<DropdownMenuTrigger
-					render={
-						<Button
-							aria-label={`Sort Agents: ${SORTS[input.value.sort]}`}
-							size="sm"
-							variant="ghost"
-						/>
-					}
-				>
-					<SortAscendingIcon />
-					{SORTS[input.value.sort]}
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="w-52">
-					<DropdownMenuRadioGroup
-						onValueChange={(value) =>
-							input.onChange({ ...input.value, sort: value as AgentListSort })
-						}
-						value={input.value.sort}
-					>
-						{Object.entries(SORTS).map(([value, label]) => (
-							<DropdownMenuRadioItem key={value} value={value}>
-								{label}
-							</DropdownMenuRadioItem>
-						))}
-					</DropdownMenuRadioGroup>
-				</DropdownMenuContent>
-			</DropdownMenu>
-			<DropdownMenu>
-				<DropdownMenuTrigger
-					render={
-						<Button
-							aria-label={`Group Agents by: ${GROUPINGS[input.value.grouping]}`}
-							size="sm"
-							variant="ghost"
-						/>
-					}
-				>
-					<StackIcon />
-					{input.value.grouping === "none"
-						? "Group by"
-						: GROUPINGS[input.value.grouping]}
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="w-44">
-					<DropdownMenuRadioGroup
-						onValueChange={(value) =>
-							input.onChange({
-								...input.value,
-								grouping: value as AgentListGrouping,
-							})
-						}
-						value={input.value.grouping}
-					>
-						{Object.entries(GROUPINGS).map(([value, label]) => (
-							<DropdownMenuRadioItem key={value} value={value}>
-								{label}
-							</DropdownMenuRadioItem>
-						))}
-					</DropdownMenuRadioGroup>
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</div>
@@ -246,6 +229,7 @@ export function AgentList(input: {
 	search?: string;
 	defaults?: AgentListView;
 	heading?: ReactNode;
+	hideControls?: boolean;
 	label: string;
 	renderCard: (item: AgentListItem, index: number) => ReactNode;
 	emptyAction?: ReactNode;
@@ -261,15 +245,19 @@ export function AgentList(input: {
 		view.sort
 	);
 	return (
-		<section aria-label={input.label} className="space-y-3">
-			<div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-				{input.heading}
-				<AgentListControls
-					items={globallyFiltered}
-					onChange={setOverride}
-					value={view}
-				/>
-			</div>
+		<section aria-label={input.label} className="group/agent-section space-y-3">
+			{!input.hideControls && (
+				<div className="flex min-h-7 flex-wrap items-center justify-between gap-x-3 gap-y-2">
+					{input.heading}
+					<AgentListControls
+						hoverOnly={Boolean(input.heading)}
+						items={globallyFiltered}
+						label={`${input.label} settings`}
+						onChange={setOverride}
+						value={view}
+					/>
+				</div>
+			)}
 			{override && <AgentListFilterChips onChange={setOverride} value={view} />}
 			{override && input.defaults && (
 				<Button onClick={() => setOverride(null)} size="sm" variant="ghost">

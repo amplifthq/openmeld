@@ -140,10 +140,14 @@ describe("AgentProfilesWorkspace", () => {
 
 	it("provides shared search and filter controls", () => {
 		renderWorkspace();
+		expect(screen.queryByRole("searchbox")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Search Agents" }));
 		expect(
 			screen.getByRole("searchbox", { name: "Search Agents" })
 		).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Filter" })).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Agent view settings" })
+		).toBeTruthy();
 	});
 
 	it("uses the shared full-width layout without an Agents sidebar", () => {
@@ -556,6 +560,7 @@ describe("AgentProfilesWorkspace", () => {
 
 	it("filters the existing cards and allows clearing a failed search", () => {
 		renderWorkspace();
+		fireEvent.click(screen.getByRole("button", { name: "Search Agents" }));
 		const search = screen.getByRole("searchbox", { name: "Search Agents" });
 		fireEvent.change(search, { target: { value: "not-a-person" } });
 		expect(

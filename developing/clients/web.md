@@ -1776,6 +1776,11 @@ Center Agent and ordinary Agent lists share the Agent card presentation: a
 96px action area, 56px avatar, persistent card background, and readable name.
 Only the Center Agent supplies the upper-right role badge. Team and personal
 Agent lists use the People page's full-width gutters and responsive card grid.
+People and Agent lists share a compact search control that expands on demand.
+Agent view options live in an icon menu. Per-group tools appear on hover or
+keyboard focus and stay visible while their menu is open; touch users always
+see them. People groups also offer local Computer-status filters. Agent owner
+headers reuse the Human Profile avatar renderer, including its generated avatar.
 Filters support multiple selections: OR within a facet, AND across availability,
 Agent type, Controller, and model. Each selection has a removable chip.
 Page filters apply across groups; a group's controls further narrow its list.

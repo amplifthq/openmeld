@@ -143,7 +143,7 @@ function AgentProfilesWorkspaceContent(input: {
 		return input.input.renderProfileDetail(input.selectedProfile);
 	}
 	return (
-		<div className="w-full space-y-4 px-[var(--app-page-inline-padding)] py-5">
+		<div className="w-full space-y-4 px-[var(--app-page-inline-padding)] pb-8">
 			{profilesController}
 			<AgentDirectoryLists input={input.input} />
 			{input.input.person &&

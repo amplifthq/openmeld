@@ -1,13 +1,9 @@
-import {
-	Avatar,
-	AvatarFallback,
-	AvatarImage,
-} from "@openmeld/ui/components/avatar";
 import { Button } from "@openmeld/ui/components/button";
-import { Input } from "@openmeld/ui/components/input";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { CenterAgentItem } from "#/components/directory/center-agent-item";
+import { DirectorySearch } from "#/components/directory/directory-search";
+import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import {
 	localAgentSidebarState,
 	useAgentSidebarPreviewReady,
@@ -124,30 +120,41 @@ export function AgentDirectoryLists({
 		? matchesAgentListItem(centerItem, view.filters, search)
 		: !search &&
 			Object.values(view.filters).every((values) => values.length === 0);
-	const activityNote = (
-		<p className="text-muted-foreground text-xs">
-			{input.taskActivityAvailable === false
-				? "Task activity is unavailable. Recent sorting uses creation dates."
-				: "Recent includes task activity from the past 30 days and Agent creation."}
-		</p>
-	);
-	const searchControl = (
-		<Input
-			aria-label={input.person ? "Search Agents" : "Search people or Agents"}
-			className="max-w-sm"
-			onChange={(event) => setSearch(event.target.value)}
-			placeholder={input.person ? "Search Agents" : "Search people or Agents"}
-			type="search"
-			value={search}
-		/>
+	const totalCount =
+		items.length + Number(!input.person && Boolean(centerItem));
+	const toolbar = (
+		<div className="flex h-16 items-center justify-between gap-3">
+			<p className="shrink-0 text-muted-foreground text-xs">
+				{totalCount} {totalCount === 1 ? "Agent" : "Agents"}
+			</p>
+			{input.taskActivityAvailable === false && (
+				<output className="text-muted-foreground text-xs">
+					Task activity unavailable.
+				</output>
+			)}
+			<div className="flex min-w-0 items-center gap-1">
+				<DirectorySearch
+					label={input.person ? "Search Agents" : "Search people or Agents"}
+					onChange={setSearch}
+					value={search}
+				/>
+				<AgentListControls
+					items={centerItem ? [centerItem, ...items] : items}
+					onChange={setView}
+					value={view}
+				/>
+			</div>
+		</div>
 	);
 	if (input.person) {
 		return (
 			<div className="space-y-3">
-				{searchControl}
-				{activityNote}
+				{toolbar}
+				<AgentListFilterChips onChange={setView} value={view} />
 				<AgentList
+					defaults={view}
 					emptyAction={create}
+					hideControls
 					items={items}
 					label={`${input.person.name}’s Agents`}
 					renderCard={renderCard}
@@ -177,21 +184,13 @@ export function AgentDirectoryLists({
 	return (
 		<div
 			aria-labelledby="team-directory-tab-1"
-			className="space-y-6"
+			className="space-y-7 [&>div:first-child]:mb-0"
 			id="team-directory-panel-1"
 			role="tabpanel"
 		>
-			<div className="space-y-3">
-				<div className="flex flex-wrap items-center justify-between gap-3">
-					{searchControl}
-					<AgentListControls
-						items={centerItem ? [centerItem, ...items] : items}
-						onChange={setView}
-						value={view}
-					/>
-				</div>
+			<div>
+				{toolbar}
 				<AgentListFilterChips onChange={setView} value={view} />
-				{activityNote}
 			</div>
 			{showCenter && (
 				<section aria-label={currentOrganization.name} className="space-y-3">
@@ -209,13 +208,15 @@ export function AgentDirectoryLists({
 					}
 					heading={
 						<div className="flex min-w-0 items-center gap-2">
-							<Avatar className="size-7">
-								<AvatarImage
-									alt=""
-									src={group.member.user.image ?? undefined}
-								/>
-								<AvatarFallback>{group.name.slice(0, 1)}</AvatarFallback>
-							</Avatar>
+							<DitherProfileAvatar
+								avatarImageUrl={group.member.user.image}
+								profileId={
+									group.member.humanProfile?.profileId ?? group.member.userId
+								}
+								profileKind="human"
+								profileName={group.name}
+								size={28}
+							/>
 							<h2 className="truncate font-medium text-sm">
 								<Link
 									to={buildOrganizationPersonPath({
