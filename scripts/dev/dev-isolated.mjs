@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-
 import {
   buildIsolatedDevEnvironment,
   buildIsolatedDevUrl,
@@ -16,13 +14,15 @@ import {
   DOPPLER_DEVELOPMENT_COMPONENT_VARIABLE,
   DOPPLER_DEVELOPMENT_ENVIRONMENT_SOURCE,
 } from "./doppler-environment.mjs";
+import { acquireLocalResources } from "./local-resources.mjs";
+import { runOwnedCommand } from "./owned-command.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const devGuardPath = resolve(repoRoot, "scripts/dev/dev-guard.mjs");
 
 if (isDirectExecution()) {
-  run().catch((error) => {
+  runIsolatedDev().catch((error) => {
     const presentation = resolveIsolatedDevPresentation(
       process.env,
       resolveIsolatedDevLaunchOptions(process.argv.slice(2))
@@ -104,69 +104,63 @@ export function resolveIsolatedWebDopplerCommand(
   ) {
     return null;
   }
-  return buildDopplerComponentCommand("web", [
-    pnpmCommand,
-    "--filter",
-    "openmeld-web",
-    "run",
-    "dev:isolated",
-  ]);
+  return buildDopplerComponentCommand(
+    "web",
+    [pnpmCommand, "--filter", "openmeld-web", "run", "dev:isolated"],
+    env
+  );
 }
 
-async function run() {
-  const options = resolveIsolatedDevLaunchOptions(process.argv.slice(2));
+export async function runIsolatedDev(args = process.argv.slice(2)) {
+  const options = resolveIsolatedDevLaunchOptions(args);
   const presentation = resolveIsolatedDevPresentation(process.env, options);
-  const lane = await reserveIsolatedDevLane({
+  const controller = new AbortController();
+  const cancel = () => controller.abort(new Error("Dev startup cancelled."));
+  process.once("SIGINT", cancel);
+  process.once("SIGTERM", cancel);
+  const reservation = await acquireLocalResources({
     kind: "stack",
-    pid: process.pid,
     repoRoot,
+    signal: controller.signal,
   });
-  const isolatedEnvironment = {
-    ...buildIsolatedDevEnvironment(lane),
-    OPENMELD_DEV_REMOTE_AGENT_SANDBOX_ENABLED: String(
-      options.remoteAgentSandboxEnabled
-    ),
-  };
-  printLaneSummary(lane, options, presentation);
-
+  process.off("SIGINT", cancel);
+  process.off("SIGTERM", cancel);
   try {
-    const exitCode = await runDevGuard({
-      env: { ...process.env, ...isolatedEnvironment },
-      extraArgs: options.devGuardArgs,
-    });
-    process.exitCode = exitCode;
-  } finally {
-    await releaseIsolatedDevLane({
+    const lane = await reserveIsolatedDevLane({
       kind: "stack",
       pid: process.pid,
       repoRoot,
     });
+    const isolatedEnvironment = {
+      ...buildIsolatedDevEnvironment(lane),
+      OPENMELD_DEV_REMOTE_AGENT_SANDBOX_ENABLED: String(
+        options.remoteAgentSandboxEnabled
+      ),
+    };
+    printLaneSummary(lane, options, presentation);
+
+    try {
+      const exitCode = await runDevGuard({
+        env: { ...process.env, ...isolatedEnvironment },
+        extraArgs: options.devGuardArgs,
+      });
+      process.exitCode = exitCode;
+    } finally {
+      await releaseIsolatedDevLane({
+        kind: "stack",
+        pid: process.pid,
+        repoRoot,
+      });
+    }
+  } finally {
+    await reservation.release();
   }
 }
 
 function runDevGuard(input) {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(process.execPath, [devGuardPath, ...input.extraArgs], {
-      cwd: repoRoot,
-      env: input.env,
-      stdio: "inherit",
-    });
-    const forwardSigint = () => child.kill("SIGINT");
-    const forwardSigterm = () => child.kill("SIGTERM");
-    process.once("SIGINT", forwardSigint);
-    process.once("SIGTERM", forwardSigterm);
-    const removeSignalHandlers = () => {
-      process.off("SIGINT", forwardSigint);
-      process.off("SIGTERM", forwardSigterm);
-    };
-    child.once("error", (error) => {
-      removeSignalHandlers();
-      reject(error);
-    });
-    child.once("exit", (code, signal) => {
-      removeSignalHandlers();
-      resolvePromise(signal ? 1 : (code ?? 1));
-    });
+  return runOwnedCommand(process.execPath, [devGuardPath, ...input.extraArgs], {
+    cwd: repoRoot,
+    env: input.env,
   });
 }
 

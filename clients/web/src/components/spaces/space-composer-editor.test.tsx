@@ -12,6 +12,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
+import "fake-indexeddb/auto";
 import { createPlateEditor } from "platejs/react";
 import { createRef, useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -36,6 +37,84 @@ const BOTH_OPTION_NAME = /Both/;
 
 describe("SpaceComposerEditor", () => {
 	afterEach(cleanup);
+
+	it("opens the shared mention picker at the start of an existing message", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Edit message"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				inline
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text="Keep this existing message"
+			/>
+		);
+		await act(() => {
+			composerRef.current?.selectTextRange({ start: 0, end: 0 });
+		});
+		await act(() => {
+			composerRef.current?.insertMentionTrigger();
+		});
+		expect(
+			await screen.findByRole("combobox", { name: "Find a member to mention" })
+		).toBeTruthy();
+		fireEvent.click(
+			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
+		);
+		await waitFor(() =>
+			expect(onChange.mock.lastCall?.[0].text).toContain(
+				"Keep this existing message"
+			)
+		);
+		await waitFor(() =>
+			expect(onChange.mock.lastCall?.[0].authoredMentions[0]).toMatchObject({
+				profileId: AGENT_PROFILE_ID,
+				relation: "wake",
+				start: 0,
+			})
+		);
+	});
+
+	it("accepts a Wake suggestion as an ordinary token without sending", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		const onSend = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={onSend}
+				placeholder="Message"
+				text="Continue with the first option"
+			/>
+		);
+		act(() =>
+			composerRef.current?.acceptWakeRecommendation?.(AGENT_PROFILE_ID)
+		);
+		await waitFor(() =>
+			expect(onChange.mock.lastCall?.[0].authoredMentions).toEqual([
+				expect.objectContaining({
+					profileId: AGENT_PROFILE_ID,
+					relation: "wake",
+					start: 0,
+				}),
+			])
+		);
+		expect(onChange.mock.lastCall?.[0].text).toContain(
+			"Continue with the first option"
+		);
+		expect(onSend).not.toHaveBeenCalled();
+	});
 
 	it("keeps @all open for an audience choice and inserts ordinary People and Agent tokens", async () => {
 		const composerRef = createRef<SpaceComposerEditorHandle>();
@@ -958,6 +1037,41 @@ describe("SpaceComposerEditor", () => {
 				screen.getByRole("textbox", { name: "Message this space" })
 			);
 		});
+	});
+
+	it("cancels deferred draft focus when the user focuses another input", () => {
+		const frames: FrameRequestCallback[] = [];
+		const animationFrame = vi
+			.spyOn(window, "requestAnimationFrame")
+			.mockImplementation((callback) => {
+				frames.push(callback);
+				return frames.length;
+			});
+		try {
+			const view = render(
+				<>
+					<input aria-label="Search messages" />
+					<RestoredDraftHarness text="" />
+				</>
+			);
+			view.rerender(
+				<>
+					<input aria-label="Search messages" />
+					<RestoredDraftHarness text="Restored draft" />
+				</>
+			);
+			const search = screen.getByRole("textbox", { name: "Search messages" });
+			expect(frames.length).toBeGreaterThan(0);
+			act(() => {
+				search.focus();
+				for (const frame of frames.splice(0)) {
+					frame(0);
+				}
+			});
+			expect(document.activeElement).toBe(search);
+		} finally {
+			animationFrame.mockRestore();
+		}
 	});
 
 	it("bounds focus retries when Slate operations are empty but the DOM range is invalid", () => {

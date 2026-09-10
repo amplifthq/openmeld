@@ -2,7 +2,7 @@
 
 import { useNavigate } from "@tanstack/react-router";
 import type { PropsWithChildren } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AppShellSection } from "#/components/app/shell-layout";
 import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
 import {
@@ -27,12 +27,19 @@ export function OnboardingEntryGate(
 ) {
 	const navigate = useNavigate();
 	const [entryState, setEntryState] = useState<EntryState>("checking");
+	const spaceJourneyScope = useRef<string | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
 		// A requested Space is already a concrete task. Keep its access gate and
 		// in-Space setup guidance; do not replace the destination with Studio.
 		if (input.hasExplicitSpaceDestination) {
+			spaceJourneyScope.current = input.storageScope;
+		}
+		if (input.currentSection === "onboarding") {
+			spaceJourneyScope.current = null;
+		}
+		if (spaceJourneyScope.current === input.storageScope) {
 			setEntryState("ready");
 			return;
 		}

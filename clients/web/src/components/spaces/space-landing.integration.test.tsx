@@ -41,6 +41,15 @@ import {
 } from "@testing-library/react";
 import { type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// These submission tests start with an empty draft store; browser reload
+// persistence is outside this component/API integration boundary.
+vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	readComposerFileDrafts: async () => [],
+	removeComposerFileDraft: async () => undefined,
+	saveComposerFileDraft: async () => undefined,
+}));
+
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
@@ -2390,9 +2399,12 @@ describe("SpaceLanding", () => {
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 	});
 
-	it("hides cached private history when the current Space status denies access", async () => {
+	it.each([
+		"space.forbidden",
+		"space.membership_required",
+	])("hides cached private history when the current Space status denies access with %s", async (code) => {
 		const accessDeniedFailure = {
-			code: "space.forbidden",
+			code,
 			message: "You no longer have access to this space.",
 			requestId: "req-status-refresh-403",
 			status: 403,
@@ -13307,6 +13319,8 @@ describe("SpaceLanding", () => {
 				bytes: expect.any(File),
 				mimeType: "image/png",
 				name: "picnic.png",
+				onProgress: expect.any(Function),
+				signal: expect.any(AbortSignal),
 				spaceId: "space-123",
 				uploadId: expect.any(String),
 			});

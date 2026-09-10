@@ -34,7 +34,7 @@
   "dependencies": {
     "@ariakit/react": "^0.4.34",
     "@base-ui/react": "^1.2.0",
-    "@cloudflare/vite-plugin": "1.31.2",
+    "@cloudflare/vite-plugin": "1.54.6",
     "@dagrejs/dagre": "^3.1.0",
     "@dnd-kit/core": "6.3.1",
     "@dnd-kit/sortable": "10.0.0",

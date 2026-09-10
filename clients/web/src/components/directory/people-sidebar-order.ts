@@ -17,7 +17,7 @@ export type PeopleFilter =
 export function resolvePeopleSections(
 	members: readonly DirectoryHumanProfileRow[],
 	preferences: PeopleSidebarPreferences,
-	options: { includeOnline?: boolean } = {}
+	options: { includeCenterAgent?: boolean } = {}
 ) {
 	const assigned = new Set([
 		...preferences.starred.itemIds,
@@ -25,6 +25,16 @@ export function resolvePeopleSections(
 	]);
 	const remaining = members.filter((member) => !assigned.has(member.id));
 	return [
+		...(options.includeCenterAgent
+			? [
+					{
+						id: "center-agent",
+						label: "Center Agent",
+						members: [],
+						settings: preferences.people,
+					},
+				]
+			: []),
 		{
 			id: "starred",
 			label: "Starred",
@@ -42,16 +52,20 @@ export function resolvePeopleSections(
 		{
 			id: "online",
 			label: "Online",
-			members: remaining.filter(
-				(member) => peopleConnectionFilter(member) === "connected"
-			),
+			members: remaining.filter((member) => member.presence === "online"),
 			settings: preferences.people,
 		},
 		{
 			id: "offline",
 			label: "Offline",
+			members: remaining.filter((member) => member.presence === "offline"),
+			settings: preferences.people,
+		},
+		{
+			id: "presence-unknown",
+			label: "People",
 			members: remaining.filter(
-				(member) => peopleConnectionFilter(member) !== "connected"
+				(member) => !member.presence || member.presence === "unknown"
 			),
 			settings: preferences.people,
 		},
@@ -59,7 +73,7 @@ export function resolvePeopleSections(
 		.filter(
 			(section) =>
 				section.members.length > 0 ||
-				(options.includeOnline && section.id === "online") ||
+				(options.includeCenterAgent && section.id === "center-agent") ||
 				preferences.groups.some((group) => group.id === section.id)
 		)
 		.map((section) => ({

@@ -26,6 +26,8 @@ import {
 	ArrowClockwiseIcon,
 	ArrowCounterClockwiseIcon,
 	ArrowLeftIcon,
+	BellIcon,
+	CalendarDotsIcon,
 	ClockCounterClockwiseIcon,
 	CopyIcon,
 	DotsThreeIcon,
@@ -77,6 +79,8 @@ export type SpaceFileLeaveGuard = {
 };
 
 export function SpaceFileDetail(input: {
+	onUpdateSettings?: () => void;
+	onMaintain?: () => void;
 	api: SpaceApi;
 	canWrite: boolean;
 	file: SpaceFileDescriptor;
@@ -410,9 +414,11 @@ export function SpaceFileDetail(input: {
 				onBack={returnToFiles}
 				onDownload={() => downloadRevision()}
 				onHistory={() => setHistoryOpen(true)}
+				onMaintain={input.onMaintain}
 				onMove={input.onMove}
 				onRename={input.onRename}
 				onTrash={input.onTrash}
+				onUpdateSettings={input.onUpdateSettings}
 				previewRevision={previewRevision}
 			/>
 			<SpaceFileDetailNotices
@@ -471,6 +477,8 @@ export function SpaceFileDetail(input: {
 }
 
 function SpaceFileDetailHeader(input: {
+	onUpdateSettings?: () => void;
+	onMaintain?: () => void;
 	canWrite: boolean;
 	displayedSizeBytes: number;
 	downloading: boolean;
@@ -537,6 +545,18 @@ function SpaceFileDetailHeader(input: {
 							<DotsThreeIcon aria-hidden="true" weight="bold" />
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="end">
+							{input.onUpdateSettings ? (
+								<DropdownMenuItem onClick={input.onUpdateSettings}>
+									<BellIcon aria-hidden="true" />
+									Notify on updates…
+								</DropdownMenuItem>
+							) : null}
+							{input.onMaintain ? (
+								<DropdownMenuItem onClick={input.onMaintain}>
+									<CalendarDotsIcon aria-hidden="true" />
+									Maintain with a Routine…
+								</DropdownMenuItem>
+							) : null}
 							<DropdownMenuItem onClick={input.onRename}>
 								<PencilSimpleIcon aria-hidden="true" />
 								Rename

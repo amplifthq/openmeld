@@ -35,10 +35,11 @@ export function resolveSpaceConversationPosition(
 	viewport: HTMLDivElement
 ): SpaceConversationPosition | null {
 	const top = getSpaceConversationVisibleTop(viewport);
-	const bottom = viewport.getBoundingClientRect().bottom;
 	// DOM order stays chronological after prepends. Only measure the binary
 	// search path, rather than forcing geometry reads for every old message.
-	const elements = viewport.querySelectorAll<HTMLElement>("[data-signal-id]");
+	const elements = viewport.querySelectorAll<HTMLElement>(
+		"[data-history-signal-id]"
+	);
 	let low = 0;
 	let high = elements.length;
 	while (low < high) {
@@ -49,17 +50,20 @@ export function resolveSpaceConversationPosition(
 			high = mid;
 		}
 	}
-	const element = elements[low];
-	if (!element?.dataset.signalId) {
+	// A long transient reply can fill the viewport. Keep a nearby recorded
+	// message as the reference, even when that message is just outside it.
+	const element = elements[Math.min(low, elements.length - 1)];
+	if (!element?.dataset.historySignalId) {
 		return null;
 	}
 	const bounds = element.getBoundingClientRect();
-	return bounds.top < bottom
-		? {
-				anchorSignalId: element.dataset.signalId,
-				offsetFromVisibleTop: bounds.top - top,
-			}
-		: null;
+	if (bounds.bottom <= bounds.top) {
+		return null;
+	}
+	return {
+		anchorSignalId: element.dataset.historySignalId,
+		offsetFromVisibleTop: bounds.top - top,
+	};
 }
 
 export function useSpaceConversationPosition(input: {

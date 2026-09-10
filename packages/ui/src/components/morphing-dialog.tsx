@@ -1,9 +1,9 @@
 "use client";
 
 // Source-adapted from motion-primitives.com's morphing-dialog registry item
-// (https://motion-primitives.com/docs/morphing-dialog). Only the import
-// paths changed (framer-motion instead of motion/react, Phosphor instead of
-// lucide-react) to match this package's existing dependencies; no visual
+// (https://motion-primitives.com/docs/morphing-dialog), with focus restoration,
+// Escape containment, and accessible dialog labels maintained here. Imports use
+// framer-motion and Phosphor to match this package's dependencies; no visual
 // opinions (rounding, color, etc.) are baked in here — callers style each
 // instance via className/props, same as the upstream usage pattern.
 import { XIcon } from "@phosphor-icons/react";
@@ -98,7 +98,7 @@ export type MorphingDialogTriggerProps = {
   children: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
-  triggerRef?: React.RefObject<HTMLButtonElement>;
+  triggerRef?: React.RefObject<HTMLButtonElement | null>;
 };
 
 function MorphingDialogTrigger({
@@ -106,9 +106,9 @@ function MorphingDialogTrigger({
   children,
   className,
   style,
-  triggerRef,
+  triggerRef: providedTriggerRef,
 }: MorphingDialogTriggerProps) {
-  const { setIsOpen, isOpen, uniqueId } = useMorphingDialog();
+  const { setIsOpen, isOpen, uniqueId, triggerRef } = useMorphingDialog();
 
   const handleClick = useCallback(() => {
     setIsOpen(!isOpen);
@@ -134,7 +134,12 @@ function MorphingDialogTrigger({
       layoutId={`dialog-${uniqueId}`}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      ref={triggerRef}
+      ref={(element) => {
+        triggerRef.current = element;
+        if (providedTriggerRef) {
+          providedTriggerRef.current = element;
+        }
+      }}
       style={style}
       type="button"
     >
@@ -182,6 +187,8 @@ function MorphingDialogContent({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
         setIsOpen(false);
         return;
       }
@@ -198,10 +205,10 @@ function MorphingDialogContent({
       }
     };
 
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, true);
 
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [setIsOpen, firstFocusableElement, lastFocusableElement]);
 
@@ -220,10 +227,11 @@ function MorphingDialogContent({
         setLastFocusableElement(last);
         first.focus();
       }
-    } else {
+    }
+    return () => {
       document.body.classList.remove("overflow-hidden");
       triggerRef.current?.focus();
-    }
+    };
   }, [isOpen, triggerRef]);
 
   useClickOutside(containerRef, () => {
@@ -234,10 +242,11 @@ function MorphingDialogContent({
 
   return (
     <motion.div
-      aria-describedby={`motion-ui-morphing-dialog-description-${uniqueId}`}
+      aria-describedby={`dialog-description-${uniqueId}`}
       aria-labelledby={`motion-ui-morphing-dialog-title-${uniqueId}`}
       aria-modal="true"
       className={cn("overflow-hidden", className)}
+      id={`motion-ui-morphing-dialog-content-${uniqueId}`}
       layoutId={`dialog-${uniqueId}`}
       ref={containerRef}
       role="dialog"
@@ -304,6 +313,7 @@ function MorphingDialogTitle({
   return (
     <motion.div
       className={className}
+      id={`motion-ui-morphing-dialog-title-${uniqueId}`}
       layout
       layoutId={`dialog-title-container-${uniqueId}`}
       style={style}

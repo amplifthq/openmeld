@@ -243,6 +243,8 @@ import {
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
   organizationMemberOpenMeldServiceStatusesResponseSchema,
+  organizationMemberPresenceBodySchema,
+  organizationMemberPresenceResponseSchema,
   organizationMemberWebActivityResponseSchema,
   organizationProfileDirectoryResponseSchema,
   organizationSpaceDirectoryResponseSchema,
@@ -590,6 +592,7 @@ import type {
   OrganizationInformationProtectionPolicyResponse,
   OrganizationMemberOpenMeldServiceStatusesResponse,
   OrganizationMemberWebActivityResponse,
+  OrganizationProfileDirectoryReadOptions,
   OrganizationProfileDirectoryResponse,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
@@ -767,7 +770,7 @@ import {
   ensurePrimaryAgentProfileBindingRecord,
   listEnabledPrimaryAgentProfileBindingRecordsForProfile,
   listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController,
-  listPrimaryAgentProfileControllerRefs,
+  listPrimaryAgentProfileConfigurations,
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
 } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
@@ -782,6 +785,7 @@ import {
   readRegisteredAgentControllerTask,
 } from "../agent-task-coordination/infrastructure/d1/agent-controller-task-lifecycle-repo";
 import { readAgentDelegationByChildTask } from "../agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+import { readAuthProfileFacts } from "../auth/application/profile-facts-reader";
 import {
   type CenterAgentOrganizationMember,
   prepareCenterAgentOrganizationMemberRequest,
@@ -967,6 +971,7 @@ import {
   rpcCenterAgentRespondToOpportunity as centerAgentRespondToOpportunity,
 } from "../opportunities/opportunity-center-agent-rpc";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
+import { withOrganizationAgentTaskActivity } from "../organizations/organization-agent-task-activity";
 import {
   listOrganizationComputers,
   type OrganizationComputerLiveSession,
@@ -992,6 +997,10 @@ import {
   recordOrganizationMemberActivity,
 } from "../organizations/organization-member-activity-repository";
 import { listOrganizationMemberOpenMeldServiceStatuses } from "../organizations/organization-member-openmeld-service-status-service";
+import {
+  listOnlineOrganizationMembers,
+  recordOrganizationMemberPresence,
+} from "../organizations/organization-member-presence-repository";
 import { projectPeopleComputerControls } from "../people-computers/control-policy";
 import { requirePeopleComputerControlSession } from "../people-computers/control-target";
 import {
@@ -2018,6 +2027,9 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcGetMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse>;
+  rpcGetMessageLinks(
+    input: GetSpaceMessageDetailsInput & { spaceAccess: SpaceAccessContext }
+  ): Promise<import("@openmeld/schemas").SpaceMessageLinks>;
   rpcCreateDiagnosticReport(
     input: CreateSpaceDiagnosticReportInput
   ): Promise<CreateSpaceDiagnosticReportResponse>;
@@ -2360,6 +2372,8 @@ export type GetSpaceMetaInput = {
 };
 
 export type UpdateSpaceMetaInput = {
+  ownership?: import("@openmeld/schemas/types").PatchSpaceMetaBody["ownership"];
+  allowGuests?: boolean;
   spaceId: string;
   visibility?: SpaceMeta["visibility"];
   name?: string;
@@ -3030,19 +3044,25 @@ export type GetCurrentOrganizationDirectoryInput = {
   includeMemberLastActiveAt?: boolean;
 };
 
-export type GetCurrentOrganizationProfileDirectoryInput = {
-  context?: CoreRpcContextInput;
-  includeMemberLastActiveAt?: boolean;
-};
+export type GetCurrentOrganizationProfileDirectoryInput =
+  OrganizationProfileDirectoryReadOptions & {
+    context?: CoreRpcContextInput;
+  };
 
 export type GetCurrentOrganizationAgentRuntimeOverviewInput = {
   agentProfileWorkRecoveryVersion?: 2;
+  includeTaskActivity?: boolean;
   context?: CoreRpcContextInput;
 };
 
 export type RecordCurrentOrganizationWebActivityInput = {
   context?: CoreRpcContextInput;
   spaceId?: string;
+};
+
+export type RecordCurrentOrganizationMemberPresenceInput = {
+  context?: CoreRpcContextInput;
+  report: import("@openmeld/schemas/types").OrganizationMemberPresenceBody;
 };
 
 export type GetCurrentOrganizationComputersInput = {
@@ -6195,9 +6215,10 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
       requestId,
     }),
   ]);
-  const controllerRefsByProfileId =
-    await readProfileDirectoryAgentControllerRefs({
+  const configurationsByProfileId =
+    await readProfileDirectoryAgentConfigurations({
       agentProfiles: eligibleAgentProfiles,
+      includeModelSelection: input.includeModelSelection === true,
       env,
       organizationId,
     });
@@ -6205,14 +6226,34 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
     agentProfiles: eligibleAgentProfiles.map((profile) => ({
       ...profile,
       agentControllerRef:
-        controllerRefsByProfileId.get(profile.profileId) ?? null,
+        configurationsByProfileId?.get(profile.profileId)?.agentControllerRef ??
+        null,
+      ...(input.includeModelSelection === true &&
+      configurationsByProfileId !== null
+        ? {
+            modelSelection:
+              configurationsByProfileId.get(profile.profileId)
+                ?.modelSelection ?? null,
+          }
+        : {}),
     })),
     generatedAt,
     members,
     organizationId,
   };
+  let result = response;
+  if (input.includeTaskActivity === true) {
+    const db = wakeEvidenceDb(env);
+    if (!db) {
+      throw new Error("Agent task activity evidence store is unavailable.");
+    }
+    result = await withOrganizationAgentTaskActivity({
+      db,
+      overview: response,
+    });
+  }
   const validated =
-    organizationProfileDirectoryResponseSchema.safeParse(response);
+    organizationProfileDirectoryResponseSchema.safeParse(result);
   if (!validated.success) {
     throw new Error(
       `failed to build Organization Profile Directory response: ${validated.error.message}`
@@ -6255,6 +6296,17 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     organizationId,
     viewerUserId: activeOrganization.userId,
   });
+  let result = response;
+  if (input.includeTaskActivity === true) {
+    const db = wakeEvidenceDb(env);
+    if (!db) {
+      throw new Error("Agent task activity evidence store is unavailable.");
+    }
+    result = await withOrganizationAgentTaskActivity({
+      db,
+      overview: response,
+    });
+  }
   console.info("[core.organization_agent_runtime_overview.read]", {
     durationMs: Math.max(0, Date.now() - startedAtMs),
     actorProfileKind: context.actorContext.profileKind,
@@ -6263,7 +6315,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     organizationId,
     requestId: context.actorContext.requestId,
   });
-  return response;
+  return result;
 }
 
 type EligibleOrganizationAgentProfile =
@@ -6346,14 +6398,18 @@ async function resolveEligibleOrganizationAgentProfiles(input: {
     );
 }
 
-async function readProfileDirectoryAgentControllerRefs(input: {
+async function readProfileDirectoryAgentConfigurations(input: {
   agentProfiles: readonly EligibleOrganizationAgentProfile[];
   env: CoreBindings;
   organizationId: string;
-}): Promise<ReadonlyMap<string, string>> {
+  includeModelSelection: boolean;
+}): Promise<Awaited<
+  ReturnType<typeof listPrimaryAgentProfileConfigurations>
+> | null> {
   try {
-    return await listPrimaryAgentProfileControllerRefs({
+    return await listPrimaryAgentProfileConfigurations({
       profiles: input.agentProfiles,
+      includeModelSelection: input.includeModelSelection,
       db: requireAgentProfileBindingDb(input.env),
     });
   } catch (error) {
@@ -6365,7 +6421,7 @@ async function readProfileDirectoryAgentControllerRefs(input: {
         profileCount: input.agentProfiles.length,
       }
     );
-    return new Map();
+    return null;
   }
 }
 
@@ -6489,7 +6545,15 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
     string | null,
     EligibleOrganizationAgentProfile[]
   >();
-  const reads = createAgentExecutionReadinessReads();
+  const reads = createAgentExecutionReadinessReads({
+    batchProfileReads: true,
+    profileFacts: await readAuthProfileFacts({
+      authWorker: input.env.OPENMELD_AUTH_WORKER,
+      profileIds: input.eligibleAgentProfiles.map(
+        (profile) => profile.profileId
+      ),
+    }),
+  });
   for (const profile of input.eligibleAgentProfiles) {
     const profiles = profilesByOwner.get(profile.ownerUserId) ?? [];
     profiles.push(profile);
@@ -6651,10 +6715,81 @@ async function readOrganizationDirectoryAgentProfileOperationalContexts(input: {
   return resolved;
 }
 
-export async function rpcRecordCurrentOrganizationWebActivity(
+export async function rpcGetCurrentOrganizationMemberPresence(
+  env: CoreBindings,
+  input: { context?: CoreRpcContextInput }
+): Promise<
+  import("@openmeld/schemas/types").OrganizationMemberPresenceResponse
+> {
+  const context = requireRpcContext(input.context);
+  const active = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const nowMs = Date.now();
+  const [members, online] = await Promise.all([
+    resolveOrganizationDirectoryMembers({
+      authWorker: env.OPENMELD_AUTH_WORKER,
+      organizationId: active.organizationId,
+      requestId: context.actorContext.requestId,
+    }),
+    listOnlineOrganizationMembers({
+      db: requireIdentityDb(env),
+      organizationId: active.organizationId,
+      nowMs,
+    }),
+  ]);
+  return organizationMemberPresenceResponseSchema.parse({
+    organizationId: active.organizationId,
+    generatedAt: new Date(nowMs).toISOString(),
+    members: members.map((member) => ({
+      userId: member.userId,
+      profileId: member.humanProfile?.profileId ?? null,
+      status:
+        member.humanProfile?.status === "active" &&
+        online.some(
+          (row) =>
+            row.user_id === member.userId &&
+            row.human_profile_id === member.humanProfile?.profileId
+        )
+          ? "online"
+          : "offline",
+    })),
+  });
+}
+
+export async function rpcRecordCurrentOrganizationMemberPresence(
+  env: CoreBindings,
+  input: RecordCurrentOrganizationMemberPresenceInput
+) {
+  const report = organizationMemberPresenceBodySchema.safeParse(input.report);
+  if (!report.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_input",
+      reason: "Invalid member presence report.",
+      status: 400,
+    });
+  }
+  const { activeOrganization, humanProfileId } =
+    await requireCurrentHumanActivityContext(env, input);
+  await recordOrganizationMemberPresence({
+    db: requireIdentityDb(env),
+    organizationId: activeOrganization.organizationId,
+    userId: activeOrganization.userId,
+    humanProfileId,
+    nowMs: Date.now(),
+    report: report.data,
+  });
+  return {
+    organizationId: activeOrganization.organizationId,
+    userId: activeOrganization.userId,
+  };
+}
+
+async function requireCurrentHumanActivityContext(
   env: CoreBindings,
   input: RecordCurrentOrganizationWebActivityInput
-): Promise<OrganizationMemberWebActivityResponse> {
+) {
   const context = requireRpcContext(input.context);
   const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
     context,
@@ -6689,6 +6824,15 @@ export async function rpcRecordCurrentOrganizationWebActivity(
     });
   }
 
+  return { context, activeOrganization, humanProfileId };
+}
+
+export async function rpcRecordCurrentOrganizationWebActivity(
+  env: CoreBindings,
+  input: RecordCurrentOrganizationWebActivityInput
+): Promise<OrganizationMemberWebActivityResponse> {
+  const { context, activeOrganization, humanProfileId } =
+    await requireCurrentHumanActivityContext(env, input);
   const nowMs = Date.now();
   try {
     await recordOrganizationMemberActivity({
@@ -18368,10 +18512,19 @@ export async function rpcGetSpaceEntryResolution(
     spaceId: target.spaceId,
   });
 
+  const guest =
+    !organizationMember && context
+      ? (await resolveSpaceStub(
+          env.OPENMELD_SPACES,
+          target.spaceId
+        )?.rpcHasSpaceGuestAccess({ spaceId: target.spaceId, context })) ===
+        true
+      : false;
   if (
     access.kind === "allowed" &&
     access.status.accessMode === "members_only" &&
-    !organizationMember
+    !organizationMember &&
+    !guest
   ) {
     throw createCoreRpcHttpError({
       code: "organization.context_unavailable",
@@ -18403,6 +18556,9 @@ export async function rpcGetSpaceEntryResolution(
     organizationMember,
     target,
   });
+  if (guest && response.view.state === "allowed") {
+    response.view.experience = "guest";
+  }
   return getSpaceEntryResolutionResponseSchema.parse(response);
 }
 
@@ -18612,6 +18768,10 @@ export async function rpcUpdateSpaceMeta(
 ): Promise<SpaceMeta> {
   const context = requireRpcContext(input.context);
   const parsedBody = patchSpaceMetaBodySchema.safeParse({
+    ...(input.ownership === undefined ? {} : { ownership: input.ownership }),
+    ...(input.allowGuests === undefined
+      ? {}
+      : { allowGuests: input.allowGuests }),
     ...(input.visibility === undefined ? {} : { visibility: input.visibility }),
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.purpose === undefined ? {} : { purpose: input.purpose }),
@@ -19178,6 +19338,23 @@ export async function rpcSpaceFileUpload(
     uploadId: input.uploadId,
     command: input.command,
     body: input.body,
+  });
+}
+
+export async function rpcSpaceFileUpdateSettings(
+  env: CoreBindings,
+  input: SpaceAttachmentAccessInput & {
+    fileId: string;
+    command: import("@openmeld/schemas/types").SpaceFileUpdateSettingsCommand;
+  }
+): Promise<import("@openmeld/schemas/types").SpaceFileUpdateSettings> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcSpaceFileUpdateSettings({
+    spaceId,
+    spaceAccess,
+    fileId: input.fileId,
+    command: input.command,
   });
 }
 
@@ -19970,6 +20147,7 @@ export async function rpcListSpaceThreadSignals(
   const password = getSpaceAccessPassword(spaceAccess);
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const parsedQuery = listSpaceThreadSignalsQuerySchema.safeParse({
+    includeWakeContinuation: input.includeWakeContinuation,
     afterSignalId: input.afterSignalId,
     limit: input.limit,
   });
@@ -20454,6 +20632,55 @@ export async function rpcGetSpaceWakeTraceWaterfall(
       : {}),
     ...access,
   });
+}
+
+export async function rpcGetSpaceLinkPreviews(
+  env: CoreBindings,
+  input: GetSpaceMessageDetailsInput
+) {
+  const { getSpaceLinkPreviewsInputSchema, spaceMessageLinksSchema } =
+    await import("@openmeld/schemas");
+  const parsed = getSpaceLinkPreviewsInputSchema.safeParse({
+    spaceId: input.spaceId,
+    signalId: input.signalId,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid message link preview request.",
+    });
+  }
+  const access = resolveRpcSpaceAccessForwarding(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(
+    env,
+    parsed.data.spaceId
+  );
+  const source = spaceMessageLinksSchema.parse(
+    await stub.rpcGetMessageLinks({ ...parsed.data, ...access })
+  );
+  const { readLinkPreview } = await import(
+    "../space/application/link-preview-fetch"
+  );
+  const previews: import("@openmeld/schemas").LinkPreview[] = [];
+  for (let offset = 0; offset < source.urls.length; offset += 3) {
+    previews.push(
+      ...(await Promise.all(
+        source.urls
+          .slice(offset, offset + 3)
+          .map((url) => readLinkPreview(spaceId, url))
+      ))
+    );
+  }
+  // An edit, recall, or access change during external I/O invalidates the result.
+  const current = spaceMessageLinksSchema.parse(
+    await stub.rpcGetMessageLinks({ ...parsed.data, ...access })
+  );
+  return {
+    signalId: source.signalId,
+    revision: current.revision,
+    previews: current.revision === source.revision ? previews : [],
+  };
 }
 
 export async function rpcGetSpaceMessageDetails(

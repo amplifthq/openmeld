@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { createTestQueryClient } from "#/test-support/query-client";
 import {
 	agentExecutionReadinessQueryKeys,
@@ -118,7 +119,7 @@ describe("refreshWebAgentReadinessFacts", () => {
 			storageScope: "scope-test",
 		});
 
-		expect(invalidateQueriesSpy).toHaveBeenCalledTimes(1);
+		expect(invalidateQueriesSpy).toHaveBeenCalledTimes(2);
 		const invalidateInput = invalidateQueriesSpy.mock.calls[0]?.[0] as
 			| {
 					predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
@@ -251,6 +252,10 @@ describe("refreshWebAgentReadinessFacts", () => {
 		});
 
 		expect(notifyAgentExecutionReadinessRefreshMock).not.toHaveBeenCalled();
+		expect(invalidateQueriesSpy).toHaveBeenCalledWith({
+			queryKey: organizationQueryKeys.profileDirectory("org-acme"),
+			refetchType: "active",
+		});
 		expect(invalidateQueriesSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
 				queryKey: expect.arrayContaining([

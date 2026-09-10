@@ -2529,6 +2529,7 @@ function buildDispatchRuntimePrompt(input: {
   shouldInjectBootstrap: boolean;
 }): DispatchPromptPlan {
   return buildDispatchPromptPlan({
+    callerContext: input.parsedTask.callerContext,
     shouldInjectBootstrap: input.shouldInjectBootstrap,
     shouldInjectCenterAgentRoleTemplate:
       input.parsedTask.targetProfileIsCenterAgent,

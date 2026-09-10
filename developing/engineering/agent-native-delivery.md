@@ -49,6 +49,12 @@ use Turbo's cache. Test commands run sequentially, Node test files run serially,
 and related Vitest tests use at most two workers without file parallelism.
 Every run uses a disposable `OPENMELD_HOME`.
 
+Workers pools need their own runtime limits. Gateway tests share one runtime
+and module cache, clear global/environment stubs, and retain per-test storage
+isolation; Vitest's worker count alone does not bound that pool.
+The package test command runs four sequential shards to release cached modules
+between groups. A failed shard stops the command.
+
 The push hook requires the checked-out, clean tree to match every pushed commit.
 An ordinary follow-up push checks the diff from the remote branch's previous
 commit; a first push or rewritten/unavailable history checks the branch against
@@ -161,10 +167,20 @@ candidate runner still refresh main and verify ancestry using the candidate's
 complete history. Repository-local network policy cannot influence the isolated
 control fetch, and a failed fetch cannot fall back to cached control code.
 Before installing or executing candidate checks, it prints a bounded local
-resource preflight: available disk and active OpenMeld dev stacks. Other stacks
+resource preflight: available disk, measured memory and pressure, and active
+OpenMeld dev process trees. Other stacks
 are facts, not an approval rule. Only the critical one-GiB free-disk safety
 floor blocks local execution; constrained-but-usable machines remain an agent
 judgment. The preflight never stops another worktree.
+
+The local development commands it invokes may wait for shared worktree
+capacity as described in
+[Resource Discipline](development-workflow.md#resource-discipline). Waiting
+affects execution timing, not candidate identity or validation requirements.
+The narrow `Dev lifecycle` workflow additionally exercises process ownership
+and resource arbitration on macOS, Linux and Windows when development scripts
+change. It uses disposable processes, requires no cloud credentials, and does
+not replace Final Candidate.
 
 A Final Candidate control-plane change cannot certify itself through a
 candidate-owned entrypoint. When current `main` lacks the new control, inspect

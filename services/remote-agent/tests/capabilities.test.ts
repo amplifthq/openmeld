@@ -7,8 +7,8 @@ import {
 } from "../agent-core/callback-context";
 import { REMOTE_AGENT_SANDBOX_CAPABILITY_TABLE } from "../agent-core/sandbox";
 import {
+  REMOTE_AGENT_OPENMELD_TOOL_NAMES as ALL_REMOTE_AGENT_OPENMELD_TOOL_NAMES,
   REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES,
-  REMOTE_AGENT_OPENMELD_TOOL_NAMES,
   REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES,
 } from "../agent-core/tools";
 import { expandRemoteAgentCapabilityDependencies } from "../flue-adapter/capability-catalog";
@@ -28,6 +28,14 @@ import {
   TEST_NOW_MS,
 } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
+
+// Request an Agent remains held in production; retained implementations are not exposed.
+const REMOTE_AGENT_OPENMELD_TOOL_NAMES =
+  ALL_REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
+    (name) =>
+      name !== "openmeld_get_agent_profile_creation_approval_preferences" &&
+      name !== "openmeld_set_agent_profile_creation_approval_preferences"
+  );
 
 async function getRemoteAgentFlueTools(
   input: Omit<Parameters<typeof buildRemoteAgentFlueTools>[0], "submissionId">

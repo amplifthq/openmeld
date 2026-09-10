@@ -3756,6 +3756,7 @@ function AgentProfileWorkspacePresentation(input: {
 					)
 				}
 				controllerModelSummary={controllerModelSummary}
+				conversationViewerProfileId={input.input.actorProfileId}
 				currentSession={input.currentSession}
 				details={input.input.details}
 				headerRecoveryActions={wakeAvailabilityRecoveryActions}

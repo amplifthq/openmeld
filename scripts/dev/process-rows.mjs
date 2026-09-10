@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
 
 const posixProcessRowRegex = /^(\d+)\s+(\d+)\s+(.+)$/;
+const POSIX_METRICS_ROW =
+  /^(\d+)\s+(\d+)\s+(\d+)\s+(\w+\s+\w+\s+\d+\s+[\d:]+\s+\d+)\s+(\S+)\s+(.+)$/u;
 const windowsShells = ["powershell.exe", "pwsh"];
 const windowsProcessQueryArgs = [
   "-NoProfile",
@@ -18,16 +20,30 @@ export function readProcessRows(input) {
   } = input;
 
   if (platform === "win32") {
-    return readWindowsProcessRows({ repoRoot, env, spawnSyncImpl });
+    return readWindowsProcessRows({
+      repoRoot,
+      env,
+      spawnSyncImpl,
+      includeMetrics: input.includeMetrics,
+    });
   }
 
-  return readPosixProcessRows({ repoRoot, env, spawnSyncImpl });
+  return readPosixProcessRows({
+    repoRoot,
+    env,
+    spawnSyncImpl,
+    includeMetrics: input.includeMetrics,
+  });
 }
 
 function readPosixProcessRows(input) {
-  const result = input.spawnSyncImpl("ps", ["-axo", "pid=,ppid=,command="], {
+  const fields = input.includeMetrics
+    ? "pid=,ppid=,rss=,lstart=,stat=,command="
+    : "pid=,ppid=,command=";
+  const result = input.spawnSyncImpl("ps", ["-axo", fields], {
     cwd: input.repoRoot,
-    env: input.env,
+    env: { ...input.env, LC_ALL: "C" },
+    maxBuffer: 16 * 1024 * 1024,
     encoding: "utf8",
   });
   assertSpawnSucceeded(result, "ps");
@@ -36,8 +52,23 @@ function readPosixProcessRows(input) {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
-    .map(parsePosixProcessRow)
+    .map(input.includeMetrics ? parsePosixMetricsRow : parsePosixProcessRow)
     .filter((row) => row !== null);
+}
+
+function parsePosixMetricsRow(line) {
+  const match = POSIX_METRICS_ROW.exec(line);
+  if (!match) {
+    return null;
+  }
+  return {
+    pid: Number(match[1]),
+    parentPid: Number(match[2]),
+    rssBytes: Number(match[3]) * 1024,
+    startedAt: match[4].replace(/\s+/gu, " "),
+    state: match[5],
+    command: match[6],
+  };
 }
 
 function parsePosixProcessRow(line) {
@@ -55,10 +86,22 @@ function parsePosixProcessRow(line) {
 
 function readWindowsProcessRows(input) {
   for (const shellCommand of windowsShells) {
-    const result = input.spawnSyncImpl(shellCommand, windowsProcessQueryArgs, {
+    const args = input.includeMetrics
+      ? [
+          ...windowsProcessQueryArgs.slice(0, -1),
+          windowsProcessQueryArgs
+            .at(-1)
+            .replace(
+              " | ConvertTo-Json",
+              ", @{Name='rssBytes';Expression={[double]$_.WorkingSetSize}}, @{Name='startedAt';Expression={$_.CreationDate.ToUniversalTime().ToString('o')}} | ConvertTo-Json"
+            ),
+        ]
+      : windowsProcessQueryArgs;
+    const result = input.spawnSyncImpl(shellCommand, args, {
       cwd: input.repoRoot,
       env: input.env,
       encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
     });
 
     if (isMissingCommand(result)) {
@@ -121,6 +164,12 @@ function normalizeWindowsProcessRow(record) {
       pid,
       parentPid,
       command: normalizedCommand,
+      ...(typeof record.rssBytes === "number"
+        ? { rssBytes: record.rssBytes }
+        : {}),
+      ...(typeof record.startedAt === "string"
+        ? { startedAt: record.startedAt }
+        : {}),
     },
   ];
 }

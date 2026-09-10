@@ -293,6 +293,16 @@ The planner reports this ordinary order as `default-auth-receiver-first`, which
 names its mixed-version invariant instead of implying that every boundary in
 the cloud graph is consumer-first.
 
+The `space-caller-context-receivers-first` profile handles the unified Space
+access contract: Database, Auth, Remote Agent, CLI (including Core), Gateway,
+then Web. The signed Service must be downloadable before Core raises its
+required Service floor and emits caller context. Do not deploy an intermediate
+Core with the old CLI projection. Existing clients use the legacy response
+projection until the new Gateway and Web are installed. For the hosted lane,
+run these explicit scopes in order, using one immutable release SHA; CLI uses
+the separate CLI Release workflow. A generic cloud/full dispatch cannot replace
+this sequence.
+
 The hosted `cloud` and `full` dispatcher implements one static scope order.
 Before any Production mutation it compares the exact release against the
 immutable tag behind the current stable CLI channel and runs the trusted

@@ -49,6 +49,7 @@ import {
 	DirectoryAgentProfilesSummary,
 	DirectoryHumanProfileComputerSummary,
 } from "#/components/directory/directory-human-profile-presentation";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { ProfileDetailsCurrentSession } from "#/components/profiles/profile-details-current-session";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
@@ -58,7 +59,6 @@ import { copyTextToClipboard } from "#/lib/clipboard";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { useMemberActivityTime } from "#/lib/spaces/use-member-activity-time";
 import {
-	organizationAgentRuntimeOverviewQueryOptions,
 	organizationComputersQueryOptions,
 	organizationProfileDirectoryQueryOptions,
 } from "#/query/organizations/organization-directory";
@@ -196,6 +196,9 @@ function AgentProfileDetailsHeader(input: {
 					{modelSummary}
 				</p>
 				{!input.isCenterAgent && <AgentProfileOwner entry={input.entry} />}
+				{!input.isCenterAgent && (
+					<AgentProfileUsage profileId={input.entry.profileId} />
+				)}
 				{showAvailabilitySummary ? (
 					<p className="mt-1 text-muted-foreground text-xs">
 						{input.entry.availabilitySummary}
@@ -514,12 +517,6 @@ function HumanProfileDetailsPopoverWithCollaboration(input: {
 			organizationId: input.organizationId,
 		})
 	);
-	const runtimeOverviewQuery = useQuery(
-		organizationAgentRuntimeOverviewQueryOptions({
-			enabled: true,
-			organizationId: input.organizationId,
-		})
-	);
 	const computersQuery = useQuery(
 		organizationComputersQueryOptions({
 			enabled: true,
@@ -531,7 +528,6 @@ function HumanProfileDetailsPopoverWithCollaboration(input: {
 				members: profileDirectoryQuery.data.members,
 				agentProfiles: profileDirectoryQuery.data.agentProfiles,
 				orgSlug: input.orgSlug,
-				runtimeOverview: runtimeOverviewQuery.data,
 			}).get(input.entry.ownerUserId ?? "") ?? [])
 		: [];
 	const agentsStatus = resolveDirectoryProjectionStatus({

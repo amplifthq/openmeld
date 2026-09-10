@@ -38,6 +38,8 @@ import type {
 } from "#/components/agents/agent-profile-activity-preview";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
+import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { formatAgentWakeAvailabilityCheckedAt } from "./agents-page-agent-profile-helpers";
 
@@ -63,6 +65,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	overflowActions: ReactNode;
 	profile: AuthProfileView;
 	supportingContent?: ReactNode;
+	conversationViewerProfileId?: string | null;
 	wakeAvailability: AgentWakeAvailability | null;
 	wakeAvailabilityCheckedAt: string | null;
 	wakeAvailabilityErrorMessage: string | null;
@@ -119,7 +122,7 @@ export function AgentProfileWorkspaceDetail(input: {
 						size={96}
 						working={input.operationalContext?.status === "working"}
 					/>
-					<div className="flex @[42rem]/agent-detail:h-24 min-w-0 flex-1 flex-col pt-1">
+					<div className="flex @[42rem]/agent-detail:min-h-24 min-w-0 flex-1 flex-col pt-1">
 						<div className="flex min-w-0 items-center gap-2">
 							<AgentProfileNameEditor
 								adornment={
@@ -165,6 +168,7 @@ export function AgentProfileWorkspaceDetail(input: {
 					</div>
 				</div>
 			</div>
+			<AgentProfileUsage profileId={input.profile.openMeldProfileId} />
 			<AgentProfileCurrentActivity
 				activityNavigation={visibleActivityNavigation}
 				currentSession={input.currentSession}
@@ -175,6 +179,17 @@ export function AgentProfileWorkspaceDetail(input: {
 			{input.configurationContent}
 			{input.supportingContent ? (
 				<div className="max-w-3xl">{input.supportingContent}</div>
+			) : null}
+			{showOwnerOperationalContext && input.conversationViewerProfileId ? (
+				<AgentProfileConversationsSection
+					agent={{
+						id: input.profile.openMeldProfileId,
+						name: input.profile.profileName,
+						agentControllerRef: input.agentControllerRef,
+					}}
+					key={input.profile.openMeldProfileId}
+					viewerProfileId={input.conversationViewerProfileId}
+				/>
 			) : null}
 		</div>
 	);

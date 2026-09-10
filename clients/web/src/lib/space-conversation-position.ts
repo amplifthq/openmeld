@@ -1,3 +1,25 @@
+import type { SpaceTimelineItem } from "./spaces/timeline";
+
+// Display rows include optimistic sends and live work. Only recorded signals
+// can be used by both local position restoration and server history navigation.
+export function getSpaceConversationHistorySignalId(
+	item: Pick<
+		SpaceTimelineItem,
+		| "id"
+		| "deliveryState"
+		| "agentStreamState"
+		| "activeWakeProgress"
+		| "transientActivityPurpose"
+	>
+): string | undefined {
+	return item.deliveryState === "sent" &&
+		!item.agentStreamState &&
+		!item.activeWakeProgress &&
+		!item.transientActivityPurpose
+		? item.id
+		: undefined;
+}
+
 export type SpaceConversationPosition = {
 	anchorSignalId: string;
 	offsetFromVisibleTop: number;

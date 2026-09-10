@@ -45,6 +45,7 @@ import {
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { getSpaceConversationHistorySignalId } from "#/lib/space-conversation-position";
 import {
 	buildActiveWakeConversationItems,
 	hasActiveWakeReplyForSource,
@@ -217,6 +218,7 @@ import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
+import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
@@ -472,6 +474,7 @@ export function SpaceConversationPanel(
 						publicInput.composerFiles.length ||
 						publicInput.composerReplyToSignalId
 				)}
+				mentionPickerItems={publicInput.composerMentionPickerItems}
 				onRestore={async (message, canReplaceDraft) => {
 					const target = await readRecalledReplyTarget(
 						message,
@@ -489,18 +492,24 @@ export function SpaceConversationPanel(
 						publicInput.onClearComposerReplyTo();
 					}
 				}}
+				orgSlug={publicInput.orgSlug}
 				readOnly={publicInput.viewState.readOnly}
 				selfProfileId={publicInput.selfProfileId}
 			>
-				<SpaceDeviceWaitOutcomeScope
-					onComposeAgain={
-						publicInput.viewState.readOnly
-							? undefined
-							: publicInput.onComposeExpiredDeviceWait
-					}
+				<SpaceWakeRecommendationScope
+					items={publicInput.timelineItems}
+					selfProfileId={publicInput.selfProfileId}
 				>
-					<SpaceConversationPanelContent {...publicInput} />
-				</SpaceDeviceWaitOutcomeScope>
+					<SpaceDeviceWaitOutcomeScope
+						onComposeAgain={
+							publicInput.viewState.readOnly
+								? undefined
+								: publicInput.onComposeExpiredDeviceWait
+						}
+					>
+						<SpaceConversationPanelContent {...publicInput} />
+					</SpaceDeviceWaitOutcomeScope>
+				</SpaceWakeRecommendationScope>
 			</SpaceMessageEditingScope>
 		</SpaceWakeStopScope>
 	);
@@ -2660,6 +2669,9 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 						<MessageScrollerItem key={item.id} messageId={item.id}>
 							<div
 								className="flex flex-col items-center gap-1 py-2"
+								data-history-signal-id={getSpaceConversationHistorySignalId(
+									item
+								)}
 								data-signal-id={item.id}
 								ref={(element) =>
 									input.registerMessageElement(item.id, element)
@@ -2953,6 +2965,7 @@ function ConversationBubbleContent(input: {
 				input.bubblePresentationClass
 			)}
 			data-highlighted={input.isHighlighted ? "true" : undefined}
+			data-history-signal-id={getSpaceConversationHistorySignalId(input.item)}
 			data-signal-id={input.item.id}
 			ref={(element) => {
 				parent.registerMessageElement(input.item.id, element);
@@ -3730,6 +3743,7 @@ function SystemEventRow(input: {
 				data-highlighted={
 					input.highlightedSignalId === input.item.id ? "true" : undefined
 				}
+				data-history-signal-id={getSpaceConversationHistorySignalId(input.item)}
 				data-signal-id={input.item.id}
 				ref={(element) => {
 					input.registerMessageElement(input.item.id, element);
@@ -3780,6 +3794,9 @@ function SystemEventRow(input: {
 					data-highlighted={
 						input.highlightedSignalId === input.item.id ? "true" : undefined
 					}
+					data-history-signal-id={getSpaceConversationHistorySignalId(
+						input.item
+					)}
 					data-signal-id={input.item.id}
 					ref={(element) => {
 						input.registerMessageElement(input.item.id, element);
@@ -3798,6 +3815,9 @@ function SystemEventRow(input: {
 					data-highlighted={
 						input.highlightedSignalId === input.item.id ? "true" : undefined
 					}
+					data-history-signal-id={getSpaceConversationHistorySignalId(
+						input.item
+					)}
 					data-signal-id={input.item.id}
 					onClick={() => input.onOpenMessageDetails(input.item)}
 					ref={(element) => {

@@ -119,7 +119,11 @@ describe("Remote Agent submission execution context", () => {
     );
     for (const hiddenName of REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES) {
       expect(routineToolNames).not.toContain(hiddenName);
-      if (hiddenName === "openmeld_remember_for_organization") {
+      if (
+        hiddenName === "openmeld_remember_for_organization" ||
+        hiddenName ===
+          "openmeld_set_agent_profile_creation_approval_preferences"
+      ) {
         expect(ordinaryToolNames).not.toContain(hiddenName);
       } else {
         expect(ordinaryToolNames).toContain(hiddenName);

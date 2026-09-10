@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "pretest": "node scripts/dev/require-node-major.mjs 24",
-    "build": "turbo run build",
+    "build": "node scripts/dev/run-local-heavy.mjs pnpm exec turbo run build --concurrency=2",
     "deploy": "node scripts/release/production-release.mjs deploy",
     "release:plan": "node scripts/release/production-release.mjs plan",
     "release:lease": "node scripts/release/production-scope-lease.mjs",
@@ -27,9 +27,9 @@
     "dev": "node scripts/dev/dev-guard.mjs",
     "dev:doctor": "node scripts/dev/doppler-environment.mjs doctor",
     "dev:help": "node scripts/dev/doppler-environment.mjs help",
-    "dev:worktree": "node scripts/dev/doppler-environment.mjs run -- pnpm dev:isolated:no-sandbox",
-    "dev:worktree:sandbox": "node scripts/dev/doppler-environment.mjs run -- pnpm dev:isolated",
-    "dev:web:worktree": "node scripts/dev/doppler-environment.mjs run -- pnpm dev:web:isolated",
+    "dev:worktree": "node scripts/dev/doppler-environment.mjs worktree --no-sandbox",
+    "dev:worktree:sandbox": "node scripts/dev/doppler-environment.mjs worktree",
+    "dev:web:worktree": "node scripts/dev/doppler-environment.mjs web:worktree",
     "dev:isolated": "node scripts/dev/dev-isolated.mjs",
     "dev:isolated:no-sandbox": "node scripts/dev/dev-isolated.mjs --no-sandbox",
     "dev:web": "pnpm --filter openmeld-web run dev",
@@ -41,6 +41,8 @@
     "dev:desktop": "pnpm run desktop:dev",
     "dev:raw": "turbo run dev",
     "dev:status": "node scripts/dev/dev-status.mjs",
+    "dev:run": "node scripts/dev/run-local-heavy.mjs",
+    "verify:dev-lifecycle": "node --test --test-concurrency=1 scripts/dev/local-resources.test.mjs scripts/dev/process-rows.test.mjs scripts/dev/dev-stop.test.mjs scripts/dev/dev-status.test.mjs",
     "dev:seed": "python3 scripts/dev/dev-seed.py",
     "dev:account": "python3 scripts/dev/dev-account.py",
     "dev:stop": "node scripts/dev/dev-stop.mjs",
@@ -95,11 +97,11 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test --filter=!// --concurrency=2",
+    "test": "node scripts/dev/run-local-heavy.mjs pnpm exec turbo run test --filter=!// --concurrency=2",
     "test:affected": "node scripts/dev/turbo-affected.mjs test",
-    "test:integration": "turbo run test:integration --filter=!//",
+    "test:integration": "node scripts/dev/run-local-heavy.mjs pnpm exec turbo run test:integration --filter=!// --concurrency=1",
     "test:integration:affected": "node scripts/dev/turbo-affected.mjs test:integration",
-    "test:runtime": "turbo run test:runtime --filter=!//",
+    "test:runtime": "node scripts/dev/run-local-heavy.mjs pnpm exec turbo run test:runtime --filter=!// --concurrency=1",
     "test:full": "pnpm test && pnpm run test:integration && pnpm run test:runtime",
     "check:affected": "node scripts/dev/turbo-affected.mjs check",
     "verify:changelog": "node --test scripts/changelog/changelog.test.mjs && pnpm run changelog:check",
@@ -149,6 +151,7 @@
     "test:lark-platform-provider": "node --test scripts/lark-platform/provider-gate.test.mjs",
     "ops:trace": "node scripts/ops/trace.mjs",
     "ops:diagnostic-report": "node scripts/ops/diagnostic-report.mjs",
+    "ops:wake-failures": "node scripts/ops/wake-failures.mjs",
     "ops:feedback-inbox": "node scripts/ops/feedback-inbox.mjs",
     "ops:agent-activity-duration-backfill": "node scripts/ops/agent-activity-duration-backfill.mjs",
     "ops:remote-agent": "node scripts/ops/remote-agent-guardrails.mjs",
@@ -158,7 +161,8 @@
     "ops:cf:center-agent-performance": "node scripts/cloudflare/query-center-agent-performance.mjs",
     "eval:center-agent-tool-choice": "node --test scripts/evals/center-agent-tool-choice.test.mjs",
     "cf-typegen": "turbo run cf-typegen",
-    "check": "pnpm install && pnpm sherif && biome check --no-errors-on-unmatched ./ && pnpm run verify:cloudflare:env-contract && pnpm run verify:runtime-token-contract && pnpm run verify:theme-background && turbo run check",
+    "check": "node scripts/dev/run-local-heavy.mjs pnpm run check:workspace",
+    "check:workspace": "pnpm sherif && biome check --no-errors-on-unmatched ./ && pnpm run verify:cloudflare:env-contract && pnpm run verify:runtime-token-contract && pnpm run verify:theme-background && turbo run check --concurrency=2",
     "sherif": "sherif",
     "sherif:fix": "sherif --fix -i @types/node",
     "fix": "pnpm sherif:fix && biome check --write --no-errors-on-unmatched ./",
@@ -171,7 +175,7 @@
     "lint-staged": "^16.2.7",
     "prettier": "^3.7.4",
     "sherif": "1.13.0",
-    "turbo": "^2.9.6",
+    "turbo": "2.10.12",
     "typescript": "^5.9.3",
     "ultracite": "7.1.5",
     "wrangler": "catalog:",
@@ -180,7 +184,6 @@
   "packageManager": "pnpm@10.30.0",
   "sherif": {
     "ignoreDependency": [
-      "@cloudflare/vite-plugin@1.43.0",
       "vite@8.1.2"
     ]
   },
@@ -188,7 +191,7 @@
     "node": "24.x"
   },
   "lint-staged": {
-    "*.{js,jsx,ts,tsx,json,jsonc,css,scss,md,mdx}": [
+    "*.{js,jsx,mjs,cjs,ts,tsx,json,jsonc,css,scss,md,mdx}": [
       "pnpm exec biome check --write --no-errors-on-unmatched"
     ]
   }

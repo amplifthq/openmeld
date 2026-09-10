@@ -30,6 +30,8 @@ import {
   spaceFileEntryIdSchema,
   spaceFileMimeTypeSchema,
   spaceFileRevisionNumberSchema,
+  spaceFileUpdateSettingsCommandSchema,
+  spaceFileUpdateSettingsSchema,
   spaceFileUploadCommandSchema,
   spaceFileUploadResponseSchema,
   stageSpaceComposerUploadQuerySchema,
@@ -75,6 +77,44 @@ const SPACE_COMPOSER_UPLOAD_PUBLISH_ROUTE =
 const PRIVATE_CONTENT_CACHE_CONTROL = "private, no-store";
 
 export function registerSpaceFileRoutes(app: Hono<HonoBindings>): void {
+  const settingsRoute = "/v1/spaces/:spaceId/files/:entryId/update-settings";
+  for (const method of ["GET", "PATCH"] as const) {
+    app.on(method, settingsRoute, async (c) => {
+      const target = parseEntryTarget(c, settingsRoute, method);
+      if (!target.ok) {
+        return target.response;
+      }
+      const command = spaceFileUpdateSettingsCommandSchema.safeParse(
+        method === "GET"
+          ? { action: "read" }
+          : await c.req.json().catch(() => null)
+      );
+      if (!command.success) {
+        return respondInvalidBody(
+          c,
+          target.spaceId,
+          settingsRoute,
+          "PATCH",
+          command
+        );
+      }
+      return executeRpcRoute({
+        c,
+        route: settingsRoute,
+        method,
+        spaceId: target.spaceId,
+        responseSchema: spaceFileUpdateSettingsSchema,
+        execute: () =>
+          c.var.coreRpc.spaceFileUpdateSettings({
+            spaceId: target.spaceId,
+            fileId: target.entryId,
+            command: command.data,
+            context: buildCoreRpcContext(c),
+            spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+          }),
+      });
+    });
+  }
   app.post("/v1/spaces/:spaceId/file-uploads/:entryId", async (c) => {
     const route = "/v1/spaces/:spaceId/file-uploads/:entryId";
     const target = parseEntryTarget(c, route, "POST");

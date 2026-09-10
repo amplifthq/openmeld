@@ -5,7 +5,12 @@ import type {
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { recordCurrentOrganizationWebActivity } from "#/lib/organizations/organization-member-activity";
+import {
+	memberPresenceQueryKey,
+	recordCurrentOrganizationMemberPresence,
+} from "#/lib/organizations/organization-member-presence";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { startWebMemberPresenceSession } from "./web-member-presence-session";
 
 const WEB_MEMBER_ACTIVITY_INTERVAL_MS = 5 * 60_000;
 
@@ -96,24 +101,33 @@ export function WebMemberActivityReporter(input: {
 			});
 		};
 
-		const reportWhenVisible = () => {
-			if (document.visibilityState !== "hidden") {
+		const stopPresence = startWebMemberPresenceSession((body) => {
+			if (body.interaction) {
 				requestReport();
 			}
-		};
-
-		requestReport();
-		const intervalId = window.setInterval(
-			reportWhenVisible,
-			WEB_MEMBER_ACTIVITY_INTERVAL_MS
-		);
-		window.addEventListener("focus", reportWhenVisible);
-		document.addEventListener("visibilitychange", reportWhenVisible);
+			recordCurrentOrganizationMemberPresence(input.organizationId, body)
+				.then((result) => {
+					if (
+						result.organizationId !== input.organizationId ||
+						result.userId !== input.currentUserId
+					) {
+						throw new Error("Member presence resolved for another user.");
+					}
+					if (!disposed) {
+						return queryClient.invalidateQueries({
+							queryKey: memberPresenceQueryKey(input.organizationId),
+						});
+					}
+				})
+				.catch((error: unknown) =>
+					console.warn("[openmeld.web.member_presence.record_failed]", {
+						error: error instanceof Error ? error.message : String(error),
+					})
+				);
+		});
 		return () => {
 			disposed = true;
-			window.clearInterval(intervalId);
-			window.removeEventListener("focus", reportWhenVisible);
-			document.removeEventListener("visibilitychange", reportWhenVisible);
+			stopPresence();
 		};
 	}, [input.currentUserId, input.organizationId, input.spaceId, queryClient]);
 

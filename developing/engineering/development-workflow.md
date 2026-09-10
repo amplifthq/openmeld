@@ -158,6 +158,64 @@ environment callback, or no coordination best fits the actual work.
 
 ### Resource Discipline
 
+For a new worktree, use Node from `.nvmrc`, pnpm from `packageManager`, and
+`pnpm install --frozen-lockfile`. Run `pnpm dev:doctor`, then
+`pnpm dev:worktree`. Once its readiness message appears, run
+`pnpm dev:web:worktree` in a second terminal **in the same worktree**. Use the
+printed lane-specific URL. Docker is needed only for
+`pnpm dev:worktree:sandbox`. `pnpm check` checks installed dependencies; it no
+longer installs them implicitly. Install again after a lockfile change.
+
+The isolated launchers reserve local capacity before starting processes.
+Worktrees of the same Git checkout share the registry in the Git common
+directory; separate clones do not. Reading and editing code needs no slot.
+Root `build`, `check`, `test`, `test:integration`, `test:runtime`, and affected
+validation commands share one broad-work slot by default. Nested commands
+inherit their live ancestor's reservation instead of waiting on themselves.
+For another expensive local command, use `pnpm dev:run -- <command> [args]`.
+Direct package commands, `dev:raw`, and the legacy fixed-port server bypass
+this admission policy. Keep those focused and inspect machine facts first.
+Hosted GitHub jobs retain their independent runner limits.
+
+Startup budgets are estimates: 6 GiB for a Worker stack, 2 GiB for Web and
+2 GiB for broad verification. Admission keeps 15% of effective machine memory
+(at least 1 GiB) as headroom and accounts for reservations that have not yet
+materialized as resident memory. macOS also blocks new work while the OS
+reports memory pressure. These checks reduce overlapping peaks; they are not
+OS-enforced memory caps and cannot prevent another application from growing.
+
+`pnpm dev:status` reports process trees, summed RSS and machine memory
+separately from disk space. RSS can count shared pages more than once. macOS
+memory availability includes free, inactive and speculative pages and is
+explicitly an estimate; Node's free-page count alone is insufficient there.
+New lane records include process start identities. Older running lanes without
+those identities can only be attributed through recognizable commands and
+their descendants; restarting them through the current entrypoint improves
+ownership evidence. Do not infer ownership from a PID or port alone.
+
+When capacity is unavailable, the command prints the reason and registered
+owners, waits without starting workers, and can be cancelled with Ctrl+C.
+Stop an environment you own and no longer need, or wait for its owner to finish;
+do not kill another agent's processes. For measured workloads on another
+machine, explicitly configure `OPENMELD_LOCAL_HEAVY_SLOTS` (positive integer),
+`OPENMELD_LOCAL_MEMORY_HEADROOM_GIB`, `OPENMELD_LOCAL_STACK_GIB`,
+`OPENMELD_LOCAL_WEB_GIB`, or `OPENMELD_LOCAL_HEAVY_GIB` (positive numbers).
+Keep limits consistent between terminals. Increasing slots does not increase
+available memory. Existing processes are never terminated to admit new work.
+
+Each isolated environment owns its descendant cleanup. Ctrl+C and
+`pnpm dev:stop` request graceful exit, verify process identities, and reclaim
+remaining owned descendants. Start, failure and cancellation must release
+their resource reservations. Hard-killing an owner cannot execute its cleanup;
+inspect and stop confirmed worktree leftovers before starting again. Preserve
+lane-specific secrets, state directories and `OPENMELD_HOME` across this work.
+
+Run `pnpm verify:dev-lifecycle` after changing these contracts. The narrow
+`Dev lifecycle` PR workflow exercises disposable subprocess trees on macOS,
+Linux and Windows without installing dependencies or starting cloud services.
+It supplements normal Final Candidate certification. Full OpenMeld startup,
+hot reload and two-lane isolation still require a real development smoke.
+
 - A background command attached to Codex must redirect standard input explicitly
   with `< /dev/null` so it cannot wait on the agent session.
 - Before starting a heavy local fallback, handing off a worktree, or leaving a

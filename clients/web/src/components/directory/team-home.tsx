@@ -4,7 +4,6 @@ import {
 	DropdownMenuCheckboxItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { Input } from "@openmeld/ui/components/input";
 import {
 	Tooltip,
 	TooltipContent,
@@ -13,21 +12,23 @@ import {
 import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import {
-	DesktopTowerIcon,
-	MagnifyingGlassIcon,
 	SlidersHorizontalIcon,
 	StarIcon,
+	UserIcon,
 	XIcon,
 } from "@phosphor-icons/react";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import type { OrganizationComputerGroup } from "../computers/organization-computers";
-import { CenterAgentItem } from "./center-agent-item";
 import type { DirectoryHumanProfileRow } from "./directory-human-profile-model";
+import { DirectorySearch } from "./directory-search";
 import { HumanProfileItem } from "./human-profile-item";
 import {
 	EMPTY_PEOPLE_SIDEBAR,
+	type PeopleFilter,
+	peopleConnectionFilter,
 	resolvePeopleSections,
 } from "./people-sidebar-order";
 
@@ -42,34 +43,36 @@ export function TeamHome(input: {
 		input.members.find((member) => member.isCurrentUser)?.id ?? currentUserId;
 	const sidebar = useSidebarPreferences(viewerId, currentOrganization.id);
 	const [search, setSearch] = useState("");
-	const [searchOpen, setSearchOpen] = useState(false);
-	const focusSearch = useCallback(
-		(node: HTMLInputElement | null) => node?.focus(),
-		[]
-	);
 	const [groupIds, setGroupIds] = useState<string[]>([]);
+	const [sectionFilters, setSectionFilters] = useState<
+		Record<string, string[]>
+	>({});
 	const allSections = resolvePeopleSections(
 		input.members,
 		sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR,
-		{ includeOnline: true }
+		{ includeCenterAgent: false }
 	);
 	const query = search.trim().toLocaleLowerCase();
-	const filtering = Boolean(query) || groupIds.length > 0;
-	const showCenterAgent =
-		!query && (groupIds.length === 0 || groupIds.includes("online"));
+	const filtering =
+		Boolean(query) ||
+		groupIds.length > 0 ||
+		Object.values(sectionFilters).some((values) => values.length > 0);
 	const sections = allSections
 		.filter((section) => groupIds.length === 0 || groupIds.includes(section.id))
 		.map((section) => ({
 			...section,
-			members: section.members.filter((member) =>
-				member.name.toLocaleLowerCase().includes(query)
+			members: section.members.filter(
+				(member) =>
+					member.name.toLocaleLowerCase().includes(query) &&
+					(!sectionFilters[section.id]?.length ||
+						sectionFilters[section.id].includes(peopleConnectionFilter(member)))
 			),
 		}))
 		.filter(
 			(section) =>
 				!filtering ||
 				section.members.length > 0 ||
-				(section.id === "online" && showCenterAgent)
+				Boolean(sectionFilters[section.id]?.length)
 		);
 	const visibleCount = sections.reduce(
 		(total, section) => total + section.members.length,
@@ -93,39 +96,11 @@ export function TeamHome(input: {
 					{input.members.length === 1 ? "member" : "members"}
 				</p>
 				<div className="flex items-center gap-1">
-					{searchOpen ? (
-						<>
-							<Input
-								aria-label="Search members"
-								className="h-8 w-52 max-w-full"
-								onChange={(event) => setSearch(event.target.value)}
-								placeholder="Search members…"
-								ref={focusSearch}
-								type="search"
-								value={search}
-							/>
-							<Button
-								aria-label="Close search"
-								onClick={() => {
-									setSearch("");
-									setSearchOpen(false);
-								}}
-								size="icon-sm"
-								variant="ghost"
-							>
-								<XIcon />
-							</Button>
-						</>
-					) : (
-						<Button
-							aria-label="Search members"
-							onClick={() => setSearchOpen(true)}
-							size="icon-sm"
-							variant="ghost"
-						>
-							<MagnifyingGlassIcon />
-						</Button>
-					)}
+					<DirectorySearch
+						label="Search members"
+						onChange={setSearch}
+						value={search}
+					/>
 					<DropdownMenu>
 						<DropdownMenuTrigger
 							render={
@@ -173,58 +148,85 @@ export function TeamHome(input: {
 				</div>
 			) : null}
 			<div className="space-y-7 px-[var(--app-page-inline-padding)] pb-8">
-				{filtering && visibleCount === 0 && !showCenterAgent ? (
+				{filtering && visibleCount === 0 ? (
 					<p className="text-muted-foreground text-sm">
 						No members match your search or filters.
 					</p>
 				) : null}
-				{sidebar.isPending ||
-				input.members.some((member) => member.computer.state === "checking") ? (
+				{sidebar.isPending ? (
 					<p className="text-muted-foreground text-sm">Loading team…</p>
 				) : (
 					sections.map((section) => (
 						<section
 							aria-label={section.label}
-							className="space-y-2"
+							className="group/people-section space-y-2"
 							key={section.id}
 						>
-							<h2 className="flex items-center gap-2 font-medium text-muted-foreground text-sm">
-								<TeamGroupIcon id={section.id} />
-								{section.id === "online" || section.id === "offline" ? (
-									<Tooltip>
-										<TooltipTrigger
-											render={
-												<button
-													aria-label={section.label}
-													className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-													type="button"
-												/>
-											}
-										>
-											{section.label}
-										</TooltipTrigger>
-										<TooltipContent>
-											{section.id === "online"
-												? "Center Agent and people with online computers"
-												: "Computer offline"}
-										</TooltipContent>
-									</Tooltip>
-								) : (
-									section.label
-								)}
-								<span className="font-normal text-xs">
-									{section.members.length +
-										(section.id === "online" && showCenterAgent ? 1 : 0)}
-								</span>
-							</h2>
+							<div className="flex min-h-7 items-center justify-between gap-2">
+								<h2 className="flex items-center gap-2 font-medium text-muted-foreground text-sm">
+									<TeamGroupIcon id={section.id} />
+									{section.id === "online" || section.id === "offline" ? (
+										<Tooltip>
+											<TooltipTrigger
+												render={
+													<button
+														aria-label={section.label}
+														className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+														type="button"
+													/>
+												}
+											>
+												{section.label}
+											</TooltipTrigger>
+											<TooltipContent>
+												{section.id === "online"
+													? "People using OpenMeld"
+													: "People not currently active in OpenMeld"}
+											</TooltipContent>
+										</Tooltip>
+									) : (
+										section.label
+									)}
+									<span className="font-normal text-xs">
+										{section.members.length}
+									</span>
+								</h2>
+								<TeamSectionFilter
+									label={section.label}
+									onChange={(values) =>
+										setSectionFilters((current) => ({
+											...current,
+											[section.id]: values,
+										}))
+									}
+									values={sectionFilters[section.id] ?? []}
+								/>
+							</div>
+							<div className="flex flex-wrap gap-2 empty:hidden">
+								{(sectionFilters[section.id] ?? []).map((value) => (
+									<SidebarFilterBadge
+										key={value}
+										label={
+											PEOPLE_FILTER_LABELS[
+												value as Exclude<PeopleFilter, "all">
+											]
+										}
+										onRemove={() =>
+											setSectionFilters((current) => ({
+												...current,
+												[section.id]: current[section.id].filter(
+													(item) => item !== value
+												),
+											}))
+										}
+									/>
+								))}
+							</div>
 							<FluidCardGroup
 								aria-label={section.label}
 								className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"
 								role="list"
 							>
-								{section.id === "online" && showCenterAgent && (
-									<CenterAgentItem presentation="card" />
-								)}
 								{section.members.map((member, index) => (
 									<HumanProfileItem
 										activityNowMs={input.activityNowMs}
@@ -238,8 +240,7 @@ export function TeamHome(input: {
 									/>
 								))}
 							</FluidCardGroup>
-							{section.members.length === 0 &&
-							!(section.id === "online" && showCenterAgent) ? (
+							{section.members.length === 0 ? (
 								<p className="text-muted-foreground text-xs">
 									No members in this group.
 								</p>
@@ -263,7 +264,7 @@ function TeamGroupIcon({ id }: { id: string }) {
 	}
 	if (id === "online") {
 		return (
-			<DesktopTowerIcon
+			<UserIcon
 				aria-hidden="true"
 				className="size-4 shrink-0 text-emerald-500"
 			/>
@@ -271,11 +272,65 @@ function TeamGroupIcon({ id }: { id: string }) {
 	}
 	if (id === "offline") {
 		return (
-			<DesktopTowerIcon
+			<UserIcon
 				aria-hidden="true"
 				className="size-4 shrink-0 text-muted-foreground"
 			/>
 		);
 	}
 	return null;
+}
+
+const PEOPLE_FILTER_LABELS = {
+	connected: "Computer online",
+	offline: "Computer offline",
+	unconnected: "No computer connected",
+	unknown: "Status unavailable",
+} as const;
+
+function TeamSectionFilter(input: {
+	label: string;
+	values: string[];
+	onChange: (values: string[]) => void;
+}) {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={
+					<Button
+						aria-label={`${input.label} group filters`}
+						className="opacity-0 group-focus-within/people-section:opacity-100 group-hover/people-section:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100"
+						size="icon-sm"
+						variant="ghost"
+					/>
+				}
+			>
+				<SlidersHorizontalIcon />
+			</DropdownMenuTrigger>
+			<FluidDropdownMenuContent align="end" className="w-56">
+				{Object.entries(PEOPLE_FILTER_LABELS).map(([value, label]) => (
+					<DropdownMenuCheckboxItem
+						checked={input.values.includes(value)}
+						closeOnClick={false}
+						key={value}
+						onCheckedChange={(checked) =>
+							input.onChange(
+								checked
+									? [...input.values, value]
+									: input.values.filter((item) => item !== value)
+							)
+						}
+					>
+						{label}
+					</DropdownMenuCheckboxItem>
+				))}
+				<DropdownMenuCheckboxItem
+					checked={input.values.length === 0}
+					onCheckedChange={() => input.onChange([])}
+				>
+					All members
+				</DropdownMenuCheckboxItem>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
+	);
 }

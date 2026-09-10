@@ -40,6 +40,79 @@ afterEach(() => {
 });
 
 describe("organization join link HTTP API", () => {
+  it("prepares one link, preserves revocation and expiry, and explicitly renews it", async () => {
+    const context = createTestContext();
+    context.env.OPENMELD_CORE_WORKER = {
+      organizationJoinRequest: async () => ({ ok: true, requests: [] }),
+    } as unknown as AuthBindings["OPENMELD_CORE_WORKER"];
+    const owner = await createSignedInUser(context, {
+      email: "prepare-owner@example.com",
+      name: "Owner",
+    });
+    const organizationId = insertSharedOrganization(context.harness, {
+      memberships: [{ role: "owner", userId: owner.userId }],
+      name: "Prepare team",
+      slug: "prepare-team",
+    });
+    const prepare = async () => {
+      const headers = new Headers(owner.headers);
+      headers.set("origin", WEB_APP_URL);
+      headers.set("content-type", "application/json");
+      const response = await context.app.fetch(
+        new Request(
+          `${AUTH_BASE_URL}/api/auth/organization/join-link/prepare`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              organizationId,
+              mode: "direct",
+              responseVersion: "3",
+            }),
+          }
+        ),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      return response.json() as Promise<{ joinLink: { token: string } | null }>;
+    };
+    const first = await prepare();
+    expect(first.joinLink?.token).toMatch(ORGANIZATION_JOIN_LINK_TOKEN_PATTERN);
+    expect(await prepare()).toEqual(first);
+    await requestJoinLink(context, {
+      headers: owner.headers,
+      organizationId,
+      mode: "direct",
+      method: "DELETE",
+    });
+    expect((await prepare()).joinLink).toBeNull();
+    const renewed = await readJoinLink(
+      await requestJoinLink(context, {
+        headers: owner.headers,
+        organizationId,
+        mode: "direct",
+        method: "POST",
+      })
+    );
+    expect(renewed.token).not.toBe(first.joinLink?.token);
+    expect((await prepare()).joinLink?.token).toBe(renewed.token);
+    const next = await readJoinLink(
+      await requestJoinLink(context, {
+        headers: owner.headers,
+        organizationId,
+        mode: "direct",
+        method: "POST",
+      })
+    );
+    expect(next.token).not.toBe(renewed.token);
+    context.harness.database
+      .prepare(
+        "UPDATE organization_join_links SET expires_at = ? WHERE token = ?"
+      )
+      .run(Date.now() - 1, next.token);
+    expect((await prepare()).joinLink).toBeNull();
+  });
   it("separates administrator direct links from member request links and joins exactly once", async () => {
     const context = createTestContext();
     const owner = await createSignedInUser(context, {

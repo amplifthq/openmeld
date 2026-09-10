@@ -12,6 +12,7 @@ import {
   SpaceFileRepository,
   type SpaceFileRepositoryError,
 } from "../src/space/infrastructure/sql/space-file-repo";
+import { SpaceFileUpdateRepository } from "../src/space/infrastructure/sql/space-file-update-repo";
 import { upsertSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-schema-repo";
@@ -25,6 +26,76 @@ const actor: SpaceFileActor = {
 };
 
 describe("SpaceFileRepository", () => {
+  it("commits notification intent once with a new revision, never for conflicts or replayed saves", async () => {
+    const fixture = createFixture();
+    await withRepository(fixture.spaceId, (repository, sql) => {
+      const updates = new SpaceFileUpdateRepository(sql);
+      const fileId = `${fixture.prefix}-file`;
+      const save = (revision: number, baseRevision: number | null) => ({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: fileId,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-write-${revision}`,
+        }),
+        nowMs: fixture.nowMs + revision,
+        write: {
+          spaceId: fixture.spaceId,
+          fileId,
+          revisionId: `${fixture.prefix}-revision-${revision}`,
+          clientMutationId: `${fixture.prefix}-write-${revision}`,
+          name: "brief.md",
+          parentId: null,
+          baseRevision,
+          mimeType: "text/markdown",
+          sizeBytes: 20,
+        },
+      });
+      repository.commitWrite(save(1, null));
+      expect(updates.pending(fixture.nowMs + 100)).toEqual([]);
+      expect(
+        updates.configure({
+          fileId,
+          actor,
+          baseVersion: 0,
+          recipientProfileIds: ["human-reader", "agent-reader"],
+        })?.version
+      ).toBe(1);
+      const next = save(2, 1);
+      repository.commitWrite(next);
+      repository.commitWrite(next);
+      expect(updates.pending(fixture.nowMs + 100)).toHaveLength(1);
+      expect(() => repository.commitWrite(save(3, 1))).toThrow();
+      expect(updates.pending(fixture.nowMs + 100)).toHaveLength(1);
+      const pending = updates.pending(fixture.nowMs + 100)[0];
+      if (!pending) {
+        throw new Error("A committed revision must have notification intent.");
+      }
+      updates.retry(pending.id, fixture.nowMs + 100, "temporary failure");
+      expect(updates.pending(fixture.nowMs + 200)).toEqual([]);
+      expect(updates.pending(fixture.nowMs + 60_100)[0]?.attempts).toBe(1);
+      updates.complete(pending.id);
+      repository.commitWrite(next);
+      expect(updates.pending(fixture.nowMs + 100_000)).toEqual([]);
+      expect(
+        updates.configure({
+          fileId,
+          actor,
+          baseVersion: 0,
+          recipientProfileIds: [],
+        })
+      ).toBeNull();
+      updates.configure({
+        fileId,
+        actor,
+        baseVersion: 1,
+        recipientProfileIds: [],
+      });
+      repository.commitWrite(save(3, 2));
+      expect(updates.pending(fixture.nowMs + 100_000)).toEqual([]);
+    });
+  });
   it("stores folders, immutable file revisions, paths, and actor attribution in Space SQLite", async () => {
     const fixture = createFixture();
 
@@ -596,6 +667,30 @@ describe("SpaceFileRepository", () => {
 
   it("allows active human members to write and rejects Organization-only users", async () => {
     const fixture = createFixture();
+    // Space membership is valid only while its Human owner still belongs to
+    // the Organization. Seed that independent Auth fact for the write actor.
+    await env.OPENMELD_DB.batch([
+      env.OPENMELD_DB.prepare(
+        "INSERT OR IGNORE INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
+      ).bind(
+        actor.ownerUserId,
+        actor.displayName,
+        "files-test@openmeld.test",
+        fixture.nowMs,
+        fixture.nowMs
+      ),
+      env.OPENMELD_DB.prepare(
+        "INSERT OR IGNORE INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
+      ).bind("org-files-test", "Files", "files-test", fixture.nowMs),
+      env.OPENMELD_DB.prepare(
+        "INSERT OR IGNORE INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
+      ).bind(
+        "member-files-test",
+        "org-files-test",
+        actor.ownerUserId,
+        fixture.nowMs
+      ),
+    ]);
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const durableObjectId = namespace.newUniqueId();
     const spaceId = durableObjectId.toString();
@@ -651,6 +746,75 @@ describe("SpaceFileRepository", () => {
         })
       ).resolves.toMatchObject({ folder: { name: "Member work" } });
 
+      const context = createRequestContext(actor.profileId);
+      context.actorContext.ownerUserId = actor.ownerUserId;
+      const spaceAccess = createAuthenticatedSpaceAccessContext({
+        spaceId,
+        requestContext: context,
+      });
+      const file = await instance.rpcCommitSpaceFileWrite({
+        spaceAccess,
+        write: {
+          spaceId,
+          fileId: `${fixture.prefix}-settings-file`,
+          revisionId: `${fixture.prefix}-settings-revision`,
+          clientMutationId: `${fixture.prefix}-settings-write`,
+          name: "settings.md",
+          parentId: null,
+          baseRevision: null,
+          mimeType: "text/markdown",
+          sizeBytes: 10,
+        },
+      });
+      await expect(
+        instance.rpcSpaceFileUpdateSettings({
+          spaceId,
+          fileId: file.id,
+          spaceAccess,
+          command: {
+            action: "configure",
+            baseVersion: 0,
+            recipientProfileIds: [actor.profileId],
+          },
+        })
+      ).resolves.toMatchObject({
+        version: 1,
+        recipientProfileIds: [actor.profileId],
+      });
+      await expect(
+        instance.rpcSpaceFileUpdateSettings({
+          spaceId,
+          fileId: file.id,
+          spaceAccess,
+          command: {
+            action: "configure",
+            baseVersion: 1,
+            recipientProfileIds: ["non-member"],
+          },
+        })
+      ).rejects.toMatchObject({
+        status: 400,
+        code: "space_file.recipient_unavailable",
+      });
+      await expect(
+        instance.rpcSpaceFileUpdateSettings({
+          spaceId,
+          fileId: file.id,
+          spaceAccess: createAuthenticatedSpaceAccessContext({
+            spaceId,
+            requestContext: createRequestContext(actor.profileId),
+          }),
+          command: {
+            action: "configure",
+            baseVersion: 1,
+            recipientProfileIds: [],
+          },
+        })
+      ).rejects.toMatchObject({
+        status: 403,
+        code: "space_file.human_required",
+      });
+
       await expect(
         instance.rpcCreateSpaceFolder({
           spaceId,
@@ -700,7 +864,7 @@ describe("SpaceFileRepository", () => {
 
 async function withRepository(
   spaceId: string,
-  operation: (repository: SpaceFileRepository) => void
+  operation: (repository: SpaceFileRepository, sql: SqlStorage) => void
 ): Promise<void> {
   const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
   const stub = namespace.getByName(spaceId);
@@ -711,7 +875,8 @@ async function withRepository(
         state.storage as unknown as ConstructorParameters<
           typeof SpaceFileRepository
         >[0]
-      )
+      ),
+      state.storage.sql
     );
   });
 }
