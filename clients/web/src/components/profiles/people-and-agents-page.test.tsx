@@ -1075,7 +1075,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 	});
 
-	it("counts only pending requests from the existing organization request query", () => {
+	it("counts only self-owned Agent creation in progress", () => {
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
 			const organizationProjection = resolveOrganizationProjectionQuery(
@@ -1090,8 +1090,30 @@ describe("PeopleAndAgentsPage", () => {
 					data: {
 						organizationId: "org-123",
 						requests: [
-							{ id: "request-pending", status: "pending" },
-							{ id: "request-completed", status: "completed" },
+							{
+								id: "request-approved",
+								status: "approved",
+								requesterUserId: "user-123",
+								targetOwnerUserId: "user-123",
+							},
+							{
+								id: "request-pending",
+								status: "pending",
+								requesterUserId: "user-123",
+								targetOwnerUserId: "user-123",
+							},
+							{
+								id: "request-completed",
+								status: "completed",
+								requesterUserId: "user-123",
+								targetOwnerUserId: "user-123",
+							},
+							{
+								id: "request-teammate",
+								status: "approved",
+								requesterUserId: "user-123",
+								targetOwnerUserId: "user-other",
+							},
 						],
 					},
 					error: null,

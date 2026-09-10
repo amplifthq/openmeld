@@ -960,6 +960,41 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
+	it("cancels deferred draft focus when the user focuses another input", () => {
+		const frames: FrameRequestCallback[] = [];
+		const animationFrame = vi
+			.spyOn(window, "requestAnimationFrame")
+			.mockImplementation((callback) => {
+				frames.push(callback);
+				return frames.length;
+			});
+		try {
+			const view = render(
+				<>
+					<input aria-label="Search messages" />
+					<RestoredDraftHarness text="" />
+				</>
+			);
+			view.rerender(
+				<>
+					<input aria-label="Search messages" />
+					<RestoredDraftHarness text="Restored draft" />
+				</>
+			);
+			const search = screen.getByRole("textbox", { name: "Search messages" });
+			expect(frames.length).toBeGreaterThan(0);
+			act(() => {
+				search.focus();
+				for (const frame of frames.splice(0)) {
+					frame(0);
+				}
+			});
+			expect(document.activeElement).toBe(search);
+		} finally {
+			animationFrame.mockRestore();
+		}
+	});
+
 	it("bounds focus retries when Slate operations are empty but the DOM range is invalid", () => {
 		const selection = {
 			anchor: { offset: 14, path: [0, 0] },

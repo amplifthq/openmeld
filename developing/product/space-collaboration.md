@@ -420,10 +420,10 @@ not yet a Space File. Removing the selection discards that upload; abandoned
 uploads expire after 24 hours and Core removes expired objects. Send publishes
 each ready Composer Upload as a canonical root-level Space File and then places
 the returned immutable revision reference in the message. An in-progress
-upload blocks Send, but a failed upload is excluded: the member's text and any
-other successfully published files still send. If neither text nor a
-successfully published file remains, the Composer stays open with an explicit
-recovery message instead of posting an empty message.
+upload blocks Send. A failed upload also blocks Send until the member removes
+it; OpenMeld never silently omits a selected attachment. If publication fails,
+the whole message remains available for retry with the same upload identities.
+No partial or empty message is posted.
 
 During a multi-file CLI send, the CLI keeps the exact ids of files created by
 that not-yet-published submission. If a later selected upload fails, it moves

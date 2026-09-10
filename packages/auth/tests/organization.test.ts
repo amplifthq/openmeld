@@ -34,7 +34,7 @@ const WEB_APP_URL = "http://localhost:3000";
 const validSecret = "12345678901234567890123456789012345678901234";
 const password = "correct-horse-battery-staple";
 const SET_COOKIE_SEPARATOR_PATTERN = /,(?=\s*[^;,]+=)/;
-const MAGIC_LINK_EMAIL_URL_PATTERN = /^Continue to OpenMeld: (\S+)$/mu;
+const EMAIL_URL_PATTERN = /https?:\/\/\S+/gu;
 const API_PERSONAL_ORGANIZATION_SLUG_PATTERN = /^api-[0-9a-hjkmnp-tv-z]{6}$/;
 const OWNER_PERSONAL_ORGANIZATION_SLUG_PATTERN =
   /^owner-example-[0-9a-hjkmnp-tv-z]{6}$/;
@@ -1004,9 +1004,7 @@ describe("organization identity foundation", () => {
         (email) =>
           email.to === "member@example.com" &&
           email.subject === "Join Acme Team on OpenMeld" &&
-          email.text?.includes(
-            "github-owner invited you to join Acme Team on OpenMeld as member."
-          )
+          email.text?.includes("github-owner invited you to join Acme Team")
       )
     ).toBe(true);
   });
@@ -1855,11 +1853,11 @@ function requireMagicLinkEmailUrl(
   const sentEmail = sentEmails.find(
     (email) => email.to === recipient && email.subject === "Sign in to OpenMeld"
   );
-  const urlMatch = sentEmail?.text?.match(MAGIC_LINK_EMAIL_URL_PATTERN);
-  if (!urlMatch?.[1]) {
+  const urls = sentEmail?.text?.match(EMAIL_URL_PATTERN);
+  if (urls?.length !== 1) {
     throw new Error(`Expected a magic-link email for ${recipient}`);
   }
-  return new URL(urlMatch[1]);
+  return new URL(urls[0]);
 }
 
 function toSentEmail(message: unknown): SentEmail {

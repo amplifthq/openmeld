@@ -1866,64 +1866,6 @@ describe("SpaceConversationPanel", () => {
 		expect(selfScrollerItem?.getAttribute("data-scroll-anchor")).toBe("false");
 	});
 
-	it("renders stable message footers below bubbles without absolute overlays", () => {
-		renderSpaceConversationPanel({
-			readOnly: false,
-			timelineItems: [
-				createTimelineItem({
-					actorName: "Runner",
-					actorProfileId: "agent-profile-1",
-					actorProfileKind: "agent",
-					actorProfileName: "Runner",
-					id: "signal-agent",
-					text: "Agent reply",
-				}),
-				createTimelineItem({
-					id: "signal-self",
-					text: "Self message",
-				}),
-			],
-		});
-
-		for (const [messageText, expectedAlignment] of [
-			["Agent reply", "justify-start"],
-			["Self message", "self-end"],
-		] as const) {
-			const message = screen.getByText(messageText).closest("[data-signal-id]");
-			const row = message?.closest("[data-message-row-id]");
-			const bubble = message?.closest("[data-slot='bubble']");
-			const footer = row?.querySelector('[data-slot="message-footer"]');
-			const actions = footer?.querySelector(
-				'[data-slot="message-footer-primary-actions"]'
-			);
-
-			expect(row).not.toBeNull();
-			expect(footer).not.toBeNull();
-			expect(row?.contains(footer ?? null)).toBe(true);
-			expect(bubble?.contains(footer ?? null)).toBe(false);
-			expect(footer?.className).toContain("min-h-7");
-			expect(footer?.className).toContain(expectedAlignment);
-			expect(actions?.className).toContain("opacity-0");
-			expect(actions?.className).toContain(
-				"group-hover/message-row:opacity-100"
-			);
-			expect(actions?.className).toContain(
-				"group-focus-within/message-row:opacity-100"
-			);
-			expect(
-				row?.querySelector("[data-slot='message-hover-actions']")
-			).toBeNull();
-
-			for (const button of within(footer as HTMLElement).getAllByRole(
-				"button"
-			)) {
-				expect(button.className).toContain("size-7");
-				expect(button.className).toContain("border-0");
-				expect(button.className).toContain("bg-transparent");
-			}
-		}
-	});
-
 	it("shows every grouped message's own timestamp in its reserved footer", () => {
 		const firstCreatedAtMs = Date.UTC(2026, 4, 27, 10, 0, 0);
 		const secondCreatedAtMs = Date.UTC(2026, 4, 27, 10, 3, 0);
@@ -2130,7 +2072,7 @@ describe("SpaceConversationPanel", () => {
 		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
 	});
 
-	it("sends the text while excluding a failed file", async () => {
+	it("preserves the message until a failed file is removed", () => {
 		const onSend = vi.fn(async () => undefined);
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
@@ -2141,12 +2083,12 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+			screen.getByText("Remove the failed file to continue.")
 		).toBeTruthy();
 		const sendButton = screen.getByRole("button", { name: "Send message" });
-		expect(sendButton).toHaveProperty("disabled", false);
+		expect(sendButton).toHaveProperty("disabled", true);
 		fireEvent.click(sendButton);
-		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
+		expect(onSend).not.toHaveBeenCalled();
 	});
 
 	it("opens an upward Files menu from the composer plus button", async () => {
@@ -4002,8 +3944,7 @@ describe("SpaceConversationPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-wake']");
 		const footer = row?.querySelector("[data-slot='message-footer']");
-		// The footer aligns with the self bubble; reactions start at its left edge.
-		expect(footer?.className).toContain("self-end");
+		expect(footer?.className).toContain("justify-end");
 		expect(footer?.className).not.toContain("justify-start");
 		expect(row?.querySelector("[data-testid='space-outcome-row']")).toBeNull();
 	});

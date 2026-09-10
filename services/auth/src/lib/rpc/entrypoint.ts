@@ -836,7 +836,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
         status: "failed",
       });
     }
-    const email = buildInboxUrgentEmail({
+    const email = await buildInboxUrgentEmail({
       purpose: request.purpose,
       from,
       inboxUrl,

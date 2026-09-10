@@ -177,6 +177,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 	const focusRetryFramesRemainingRef = useRef(0);
 	const isMountedRef = useRef(false);
 	const pendingFocusRef = useRef(false);
+	const pendingFocusOwnerRef = useRef<Element | null>(null);
 	const lastExternalValueRef = useRef({
 		authoredMentions: input.authoredMentions,
 		text: input.text,
@@ -236,12 +237,18 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			authoredMentions: input.authoredMentions,
 			text: input.text,
 		};
+		const wasFocused = editor.api.isFocused();
 		editor.tf.setValue(
 			createSpaceComposerEditorValue({
 				authoredMentions: input.authoredMentions,
 				text: input.text,
 			})
 		);
+		// Replacing the draft removes Slate's selection. Keep the caret in the
+		// new draft only when this editor still owns focus (including a send).
+		if (wasFocused) {
+			editor.tf.select(editor.api.end([]));
+		}
 	}, [editor, input.authoredMentions, input.text]);
 
 	useLayoutEffect(() => {
@@ -255,6 +262,10 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		const flushPendingFocus = () => {
 			focusAnimationFrameRef.current = null;
 			if (!(isMountedRef.current && pendingFocusRef.current)) {
+				return;
+			}
+			if (document.activeElement !== pendingFocusOwnerRef.current) {
+				pendingFocusRef.current = false;
 				return;
 			}
 			const readiness = getEditorFocusReadiness(
@@ -274,6 +285,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			}
 		};
 		const focusWhenReady = () => {
+			pendingFocusOwnerRef.current = document.activeElement;
 			const readiness = getEditorFocusReadiness(
 				editor,
 				SPACE_COMPOSER_FOCUS_RETRY_FRAMES
