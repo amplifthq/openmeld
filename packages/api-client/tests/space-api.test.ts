@@ -408,6 +408,7 @@ describe("api-client space api", () => {
       "setAccessMode",
       "setMessageReaction",
       "stageComposerUpload",
+      "streamFileContent",
       "trashFileEntry",
       "updateFileContent",
       "updateFileEntry",
