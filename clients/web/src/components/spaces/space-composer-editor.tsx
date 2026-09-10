@@ -139,6 +139,7 @@ type SpaceComposerEditorContextValue = Pick<
 	| "mentionEmptyMessage"
 	| "lockedWakeProfileIds"
 	| "inline"
+	| "wakeRecommendation"
 >;
 
 const SpaceComposerEditorContext =
@@ -199,6 +200,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			mentionEmptyMessage: input.mentionEmptyMessage,
 			lockedWakeProfileIds: input.lockedWakeProfileIds,
 			inline: input.inline,
+			wakeRecommendation: input.wakeRecommendation,
 		}),
 		[
 			input.addressingTargets,
@@ -207,6 +209,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			input.mentionEmptyMessage,
 			input.lockedWakeProfileIds,
 			input.inline,
+			input.wakeRecommendation,
 		]
 	);
 
@@ -399,7 +402,9 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 				>
 					<Editor
 						aria-label={input.ariaLabel}
-						aria-placeholder={input.placeholder}
+						aria-placeholder={
+							input.wakeRecommendation ? undefined : input.placeholder
+						}
 						className={
 							input.inline
 								? "min-h-0 rounded-none p-0 content-space-message"
@@ -465,7 +470,9 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 								input.onPaste
 							)
 						}
-						placeholder={input.placeholder}
+						placeholder={
+							input.wakeRecommendation ? undefined : input.placeholder
+						}
 						variant="none"
 					/>
 				</EditorContainer>
@@ -500,11 +507,50 @@ function handleDragCapture(
 
 function SpaceComposerParagraphElement(props: PlateElementProps) {
 	const context = useSpaceComposerEditorContext();
+	const recommendation = context.wakeRecommendation;
+	const candidate =
+		recommendation && props.editor.children[0] === props.element
+			? context.mentionPickerItems.find(
+					(item) => item.suggestion.profileId === recommendation.profileId
+				)
+			: undefined;
 	return (
 		<PlateElement
 			{...props}
 			className={context.inline ? "m-0 min-h-0" : "m-0 min-h-6"}
 		>
+			{candidate && recommendation ? (
+				<button
+					aria-label={`Accept Wake suggestion for ${candidate.suggestion.profileName}`}
+					className="relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted/40 px-1.5 align-baseline text-foreground opacity-50 hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					contentEditable={false}
+					data-slot="composer-wake-recommendation"
+					onClick={recommendation.onAccept}
+					onMouseDown={(event) => event.preventDefault()}
+					type="button"
+				>
+					<span aria-hidden="true" className="shrink-0 font-semibold">
+						@
+					</span>
+					<SpaceProfileIcon
+						agentControllerRef={candidate.memberEntry.agentControllerRef}
+						avatarImageUrl={candidate.memberEntry.avatarUrl}
+						className="size-4 shrink-0"
+						isCenterAgent={
+							candidate.suggestion.profileId === context.centerAgentProfileId
+						}
+						profileId={candidate.suggestion.profileId}
+						profileKind="agent"
+						profileName={candidate.suggestion.profileName}
+					/>
+					<span className="min-w-0 truncate font-medium">
+						{candidate.suggestion.profileName}
+					</span>
+					<span className="inline-flex h-6 shrink-0 items-center border-border border-l px-1.5 font-medium text-muted-foreground text-xs">
+						Tab to wake
+					</span>
+				</button>
+			) : null}
 			{props.children}
 		</PlateElement>
 	);

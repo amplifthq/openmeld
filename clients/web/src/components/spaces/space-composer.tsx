@@ -2,7 +2,7 @@ import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
 import type { WakeDeviceWait } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ArrowUpIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowUpIcon } from "@phosphor-icons/react";
 import type { ComponentProps, ReactNode } from "react";
 import {
 	PromptInput,
@@ -261,30 +261,6 @@ export function SpaceComposer(input: SpaceComposerProps) {
 					{deviceWaitPresentation.control}
 					<PromptInputActions className="min-w-0 justify-between gap-3 pt-2">
 						<div className="flex flex-1 items-center gap-0">
-							{recommended ? (
-								<div
-									className="flex items-center text-muted-foreground"
-									data-slot="composer-wake-recommendation"
-								>
-									<Button
-										className="font-normal"
-										onClick={acceptRecommendation}
-										size="sm"
-										variant="ghost"
-									>
-										Wake {recommended.suggestion.profileName}
-										<kbd className="ml-1 text-xs">Tab</kbd>
-									</Button>
-									<Button
-										aria-label="Dismiss Wake suggestion"
-										onClick={() => recommendations?.dismiss()}
-										size="icon-sm"
-										variant="ghost"
-									>
-										<XIcon />
-									</Button>
-								</div>
-							) : null}
 							{input.capabilities?.attachments !== false ? (
 								<SpaceComposerAddMenu
 									addFiles={addFiles}
