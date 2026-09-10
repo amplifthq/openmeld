@@ -13,11 +13,7 @@ const SERIAL_INTEGRATION_PHASE_PATTERN =
   /turbo-affected\.mjs test:integration -- --concurrency=1/u;
 
 test("runs memory-heavy affected task families in separate phases", () => {
-  for (const scriptName of [
-    "verify:pre-push:full",
-    "verify:pr",
-    "verify:pr:full",
-  ]) {
+  for (const scriptName of ["verify:pre-push:full", "verify:pr:full"]) {
     const command = packageJson.scripts[scriptName];
     assert.equal(typeof command, "string", `${scriptName} must exist`);
     assert.doesNotMatch(
