@@ -2,7 +2,7 @@
 
 The user accepted the first conversation-feedback slice and authorized sequential
 implementation of native-channel parity and differentiated Feishu/Lark workflows.
-PR 864 remains draft; this is not merge or deployment authorization.
+PR 864 is ready for its separately authorized release after the main batch.
 
 ## Rich-message input
 
@@ -20,7 +20,8 @@ provider mention identity, never from display names or model text.
 
 This preserves existing architecture ownership: no new execution truth, credentials,
 resource authority, wire schema, or database state. Focused parser and signed-ingress
-tests cover both provider variants. Browser acceptance for this slice is pending.
+tests cover both provider variants. Native Feishu rich-message input passed local
+acceptance; separate Lark conversation acceptance remains deferred.
 
 ## Current-message file reads
 
@@ -63,17 +64,22 @@ Completed retries return the saved receipt without a second upload.
 
 This sends ordinary native file attachments, not inline image cards or automatic
 callback attachments. It does not grant arbitrary chat or Routine publication.
-Native client smoke remains pending.
+Native Feishu local smoke verified a real file and its preview in the original
+topic. The first natural-language request generated invalid Code Mode calls;
+an explicit-tool follow-up succeeded. This is not first-attempt task success.
 
 ## Contract impact and rollout
 
 The optional `trigger.resources` and `trigger.filePublicationSupported` fields
 and file RPCs are shared cloud contracts.
 New readers accept old envelopes without resources. Old strict envelope readers
-do not accept the new field. Deploy the compatible Remote Agent reader first,
-then apply migration 0165 and deploy Core's RPCs and producing ingress together.
-Before new Core writes resource/capability evidence, new Remote Agent cannot call
-the file RPCs. Keep compatible readers when rolling back behavior; do not roll Core
+do not accept the new field. Apply migration 0165, deploy the compatible Web and
+Gateway readers, then Remote Agent, then Auth and Core. File reading is exposed
+only with nonempty Core-frozen resources; sending requires Core's explicit
+capability. Old-Core requests therefore expose neither new file tool, cannot call
+the new RPCs, and cannot emit their new work-activity keys while old Core is live.
+New Core installs the RPCs and activity readers before producing resource/capability
+evidence. Keep compatible readers when rolling back behavior; do not roll Core
 back to a parser that rejects resource-bearing durable requests. Drain affected
 turns or use a reader-preserving revert.
 
@@ -85,8 +91,10 @@ local artifacts need no bump. Audit action set v22 adds `read_channel_file` and
 table rebuild uses D1-compatible deferred foreign keys. No binding changes.
 Normal frozen result placement,
 RuntimeCoordinator ownership and separate business-App consent remain unchanged;
-this does not violate the scoped architecture contracts. Real native-client file
-smoke is pending and is not replaced by the permission and byte-handling tests.
+this does not violate the scoped architecture contracts. Local Feishu file
+read/publication and rich input were observed in the native client. Lark creation
+and connection passed; Lark conversation and production product smoke are deferred
+by the user. Boundary tests are separate evidence, not substitutes for these paths.
 
 ## Shared authorization-update reminders
 
@@ -125,6 +133,9 @@ The current-main integration assigns native attachment tools their own shared
 work-activity keys and Web presentation. Deploy the compatible Core and Web
 readers before Remote Agent emits `message_channel.file.read` or
 `message_channel.file.send`; older strict activity readers reject these keys.
+The request-evidence gates above allow the Remote Agent receiver to deploy first
+without exposing those producers to an old Core. Do not remove these gates when
+changing capability discovery.
 This remains a cloud-native tool path, with no new CLI or Service producer.
 
 1. Broader authorized chat read/write tools and inline output images.

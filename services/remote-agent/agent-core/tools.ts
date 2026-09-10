@@ -4969,9 +4969,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           definition.name !== "openmeld_list_agent_activity_sessions")) &&
       (slackSearchAvailable ||
         definition.name !== "openmeld_search_slack_messages") &&
-      (input.turnEnvelope?.trigger.source === "message_channel" ||
-        (definition.name !== "openmeld_read_channel_file" &&
-          definition.name !== "openmeld_send_channel_file")) &&
+      (definition.name !== "openmeld_read_channel_file" ||
+        (input.turnEnvelope?.trigger.source === "message_channel" &&
+          (input.turnEnvelope.trigger.resources?.length ?? 0) > 0)) &&
       (definition.name !== "openmeld_send_channel_file" ||
         (input.turnEnvelope?.trigger.source === "message_channel" &&
           input.turnEnvelope.trigger.filePublicationSupported === true)) &&

@@ -612,10 +612,6 @@ describe("remote agent Flue capability inventory", () => {
     expect(tools.map((tool) => tool.name)).toEqual([
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
         (name) => name !== "openmeld_remember_for_organization"
-      ).flatMap((name) =>
-        name === "openmeld_read_slack_file"
-          ? [name, "openmeld_read_channel_file"]
-          : [name]
       ),
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",

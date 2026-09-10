@@ -1773,7 +1773,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentPostChannelFile).toHaveBeenCalledOnce();
   });
 
-  it("hides channel file sending until Core advertises support", async () => {
+  it("hides channel file tools until Core supplies their request evidence", async () => {
     const base = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({
       turnEnvelope: {
@@ -1792,7 +1792,11 @@ describe("remote agent OpenMeld tool catalog", () => {
       storage: await createStorageWithPendingContext(request),
     });
     expect(
-      tools.some((tool) => tool.name === "openmeld_send_channel_file")
+      tools.some(
+        (tool) =>
+          tool.name === "openmeld_send_channel_file" ||
+          tool.name === "openmeld_read_channel_file"
+      )
     ).toBe(false);
   });
 
