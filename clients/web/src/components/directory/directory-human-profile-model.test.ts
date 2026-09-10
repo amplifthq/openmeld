@@ -639,6 +639,7 @@ function buildAgentProfile(input: {
 	createdAt?: string;
 	isCenterAgent?: boolean;
 	lastUsedAt?: string | null;
+	lastTaskActivityAt?: string | null;
 	ownerUserId: string;
 	profileId: string;
 	profileName: string;
@@ -648,6 +649,7 @@ function buildAgentProfile(input: {
 		createdAt: input.createdAt ?? "2026-08-20T00:00:00.000Z",
 		isCenterAgent: input.isCenterAgent,
 		lastUsedAt: input.lastUsedAt ?? null,
+		lastTaskActivityAt: input.lastTaskActivityAt,
 		ownerUserId: input.ownerUserId,
 		profileId: input.profileId,
 		profileName: input.profileName,

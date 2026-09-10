@@ -102,6 +102,11 @@ describe("RuntimeTransport dispatch delivery request", () => {
         idempotencyKey: "signal-1::agent-profile-1",
         enqueuedAtMs: 1_700_000_000_000,
         sourceSignalSnapshot: {
+          callerContext: {
+            relationship: "external" as const,
+            spaceRole: "member" as const,
+            audience: "external" as const,
+          },
           quotedMessage: {
             signalId: "old-source",
             author: "Avery",
@@ -151,6 +156,11 @@ describe("RuntimeTransport dispatch delivery request", () => {
       mode: "selected",
     });
     expect(request.payload.sourceClientMessageId).toBe("client-message-1");
+    expect(request.payload.sourceSignalSnapshot?.callerContext).toEqual({
+      relationship: "external",
+      spaceRole: "member",
+      audience: "external",
+    });
     expect(request.payload.sourceSignalSnapshot?.attachments).toEqual([
       {
         id: "attachment-1",

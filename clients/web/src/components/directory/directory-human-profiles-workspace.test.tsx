@@ -450,7 +450,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			within(sidebar)
 				.getAllByRole("region")
 				.map((group) => group.getAttribute("aria-label"))
-		).toEqual(["Center Agent", "Online", "Offline"]);
+		).toEqual(["Online", "Offline"]);
 	});
 
 	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {

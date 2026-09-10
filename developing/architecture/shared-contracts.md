@@ -6558,11 +6558,14 @@ not a substitute for access enforcement. Anonymous execution is not enabled.
 
 This changes Space HTTP/RPC contracts, Auth invitation storage, Space SQLite, D1
 ownership guards, hosted Agent envelopes, and workstation dispatch snapshots.
-Apply additive D1 migrations before Auth. Deploy Auth and Web/Gateway readers
-before enabling guest entry in Core. The hosted Remote Agent receiver must accept
+Apply additive D1 migrations before Auth. Deploy Auth before Core. The hosted Remote Agent receiver must accept
 optional caller context before Core emits it; this receiver-first dependency is an
 explicit exception to the usual Core-before-Remote-Agent order. No new hosted RPC
 caller is introduced by that receiver change.
+
+Deploy Gateway and Web after the CLI-owned Core deployment. Existing clients
+remain supported by the versioned legacy response projection; new guest UI
+must not call old Core receivers.
 
 Old cloud payloads remain valid for the new Service because caller context is
 optional. Old strict Service receivers cannot accept the new snapshot field or

@@ -1072,7 +1072,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 	});
 
-	it("counts only approved self-requests awaiting completion", () => {
+	it("counts unfinished self-requests without teammate or completed requests", () => {
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
 			const organizationProjection = resolveOrganizationProjectionQuery(
@@ -1137,7 +1137,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 
 		expect(agentProfilesWorkspaceSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ pendingRequestCount: 1 })
+			expect.objectContaining({ pendingRequestCount: 2 })
 		);
 	});
 
