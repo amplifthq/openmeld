@@ -3,7 +3,7 @@ name: PR Feedback
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, converted_to_draft]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
 
 permissions:
   contents: read

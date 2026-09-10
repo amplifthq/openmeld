@@ -16,6 +16,7 @@ test("automatic draft feedback cannot start the full affected lane", () => {
     "github.event.pull_request.draft == true"
   );
   assert.ok(workflow.on.pull_request.types.includes("converted_to_draft"));
+  assert.ok(workflow.on.pull_request.types.includes("ready_for_review"));
   assert.equal(workflow.permissions.contents, "read");
   assert.equal(workflow.concurrency["cancel-in-progress"], true);
   const runs = workflow.jobs.verify.steps
