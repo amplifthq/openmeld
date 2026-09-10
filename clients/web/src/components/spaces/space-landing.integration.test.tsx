@@ -5216,9 +5216,7 @@ describe("SpaceLanding", () => {
 		// so the user comes back after connecting OpenMeld Service.
 		expect(screen.getByText("Connect this computer")).toBeTruthy();
 
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
-		expect(screen.queryByText("Connect this computer")).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Get set up" }));
+		expect(screen.queryByRole("tab", { name: "Graph" })).toBeNull();
 		expect(
 			screen
 				.getByRole("tab", { name: "Messages" })

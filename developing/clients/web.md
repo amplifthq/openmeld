@@ -2932,7 +2932,7 @@ presentations.
 
 It should keep the familiar conversation model clear:
 
-The authenticated Space header exposes **Messages | Graph | Files** as one
+The authenticated Space header exposes **Messages | Files** as one
 keyboard-accessible tab list. Files keeps the same Space header and membership
 context; it is not a Resources redirect or a second app shell. Opening Files
 loads the Space root, and opening folders uses breadcrumb navigation without
@@ -3568,8 +3568,10 @@ separate Replies section, a detached `Why this failed` summary, or an extra
 that presentation model but cannot become a second status source or final
 outcome.
 
-Every Space also exposes **Messages** and **Graph** as two views of the same
-loaded timeline projection. The product and implementation term is `Graph`.
+Spaces retain **Messages** and **Graph** as two views of the same
+loaded timeline projection. The Space header's Graph entry is commented out
+pending replacement with a board; Center Agent navigation is unchanged.
+The product and implementation term is `Graph`.
 Web projects ordinary messages, reply relations, structured Wake targets, and
 recorded target outcomes into Graph nodes and edges without adding a separate
 Graph endpoint, cache authority, or work-only object model. Clicking a message
