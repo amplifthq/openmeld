@@ -561,6 +561,7 @@ describe("Remote Agent Message Channel orchestration", () => {
             status,
             organization_id,
             owner_user_id,
+            source,
             created_at,
             updated_at
           ) VALUES (
@@ -572,6 +573,7 @@ describe("Remote Agent Message Channel orchestration", () => {
             'active',
             NULL,
             'user_member',
+            'auth_bootstrap',
             100,
             100
           )
@@ -682,10 +684,10 @@ describe("Remote Agent Message Channel orchestration", () => {
         sql: `
           INSERT INTO openmeld_profiles (
             profile_id, profile_name, profile_handle, profile_kind, is_default,
-            status, organization_id, owner_user_id, created_at, updated_at
+            status, organization_id, owner_user_id, source, created_at, updated_at
           ) VALUES (
             '22222222-2222-4222-8222-222222222222', 'Ari Human', 'ari-audit',
-            'human', 0, 'active', NULL, 'user_member', 100, 100
+            'human', 0, 'active', NULL, 'user_member', 'auth_bootstrap', 100, 100
           )
         `,
       });
@@ -835,72 +837,14 @@ function buildIdentityLinkEnv(db: D1Database): CoreBindings {
 function applyMessageChannelOrchestrationMigrations(
   harness: Parameters<typeof applyMigrationForTable>[0]
 ): void {
-  harness.run({
-    sql: `
-      CREATE TABLE users (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL,
-        email_verified INTEGER DEFAULT false NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        normalized_email TEXT
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE organizations (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        metadata TEXT,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE members (
-        id TEXT PRIMARY KEY,
-        organization_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE openmeld_profiles (
-        profile_id TEXT PRIMARY KEY,
-        profile_name TEXT NOT NULL,
-        profile_handle TEXT NOT NULL,
-        profile_kind TEXT NOT NULL,
-        is_default INTEGER DEFAULT false NOT NULL,
-        status TEXT DEFAULT 'active' NOT NULL,
-        organization_id TEXT,
-        owner_user_id TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE center_agent_designations (
-        organization_id TEXT PRIMARY KEY,
-        agent_profile_id TEXT NOT NULL,
-        duty TEXT,
-        designated_by TEXT NOT NULL,
-        operating_state TEXT NOT NULL DEFAULT 'active',
-        paused_at INTEGER,
-        paused_by_user_id TEXT,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+  applyDrizzleMigrationsForTables(harness, [
+    "users",
+    "organizations",
+    "members",
+    "openmeld_profiles",
+    "center_agent_designations",
+    "openMeldDaemon_agent_profile_bindings",
+  ]);
   applyDrizzleMigrationsForTables(harness, [
     "center_agent_audit_journal",
     "openMeldRemoteAgent_lark_platform_channel_connections",
@@ -922,7 +866,7 @@ function seedOrganizationAndCenterAgent(
       )
       VALUES
         ('user_member', 'Ari', 'ari@example.test', 1, 100, 100),
-        ('user_owner', 'Center Agent Owner', 'owner@example.test', 1, 100, 100)
+        ('user_owner', 'Center Agent Creator', 'owner@example.test', 1, 100, 100)
     `,
   });
   harness.run({
@@ -949,12 +893,14 @@ function seedOrganizationAndCenterAgent(
         status,
         organization_id,
         owner_user_id,
+        source,
+        managed_role,
         created_at,
         updated_at
       )
       VALUES
         (
-          'profile_human_1',
+          '33333333-3333-4333-8333-333333333333',
           'Ari Human',
           'ari',
           'human',
@@ -962,6 +908,8 @@ function seedOrganizationAndCenterAgent(
           'active',
           NULL,
           'user_member',
+          'auth_bootstrap',
+          NULL,
           100,
           100
         ),
@@ -973,7 +921,9 @@ function seedOrganizationAndCenterAgent(
           0,
           'active',
           'org_1',
-          'user_owner',
+          NULL,
+          'auth_bootstrap',
+          'center_agent',
           100,
           100
         )
@@ -991,8 +941,8 @@ function seedOrganizationAndCenterAgent(
   harness.run({
     params: [
       "binding_1",
-      "owner_account",
-      "user_owner",
+      "organization",
+      "org_1",
       CENTER_AGENT_PROFILE_ID,
       HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       "hosted_center_agent",

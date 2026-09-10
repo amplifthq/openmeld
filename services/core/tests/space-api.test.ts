@@ -381,12 +381,13 @@ async function ensureTestCenterAgentDesignation(input: {
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, 'agent', 0, 'active', ?, ?, ?, NULL, 'cli_create', NULL, NULL, ?, ?)
+      VALUES (?, ?, ?, 'agent', 0, 'active', ?, NULL, ?, NULL, 'auth_bootstrap', 'center_agent', NULL, ?, ?)
       ON CONFLICT(profile_id) DO UPDATE SET
         profile_name = excluded.profile_name,
         status = excluded.status,
         organization_id = excluded.organization_id,
         owner_user_id = excluded.owner_user_id,
+        managed_role = excluded.managed_role,
         updated_at = excluded.updated_at
     `
   )
@@ -395,7 +396,6 @@ async function ensureTestCenterAgentDesignation(input: {
       input.agentProfileName,
       `center-agent-${randomUUID()}`,
       input.organizationId,
-      input.ownerUserId,
       input.ownerUserId,
       nowMs,
       nowMs
@@ -8194,7 +8194,7 @@ describe("OpenMeld Core", () => {
             isDefault: false,
             lastUsedAt: null,
             managedRole: "center_agent" as const,
-            ownerUserId: bootstrapOwnerUserId,
+            ownerUserId: null,
             profileHandle: `center-agent-${bootstrapOrganizationId}`,
             profileKind: "agent" as const,
             profileName: "Center Agent",
@@ -8241,7 +8241,7 @@ describe("OpenMeld Core", () => {
     expect(SPACE_ID_HEX_REGEX.test(opened.spaceId)).toBe(true);
     expect(ensureCenterAgentProfileInOrganization).toHaveBeenCalledWith({
       organizationId,
-      ownerUserId,
+      createdByUserId: ownerUserId,
     });
 
     const membersResponse = await fetchWithOpenMeldAuth(
@@ -9105,7 +9105,7 @@ describe("OpenMeld Core", () => {
     await rpcCenterAgentPostSpaceMessage(env as unknown as CoreBindings, {
       context: createRpcContext({
         activeOrganizationId: organizationId,
-        ownerUserId,
+        agentControllerRef: "hosted:center-agent",
         profileId: agentProfileId,
         profileKind: "agent",
         requestId: "historical-center-agent-message",
@@ -9126,7 +9126,7 @@ describe("OpenMeld Core", () => {
               profileKind: "agent",
               profileName: currentProfileName,
               profileHandle: "current-center-agent",
-              ownerUserId,
+              ownerUserId: null,
               status: "active",
             },
           }),
@@ -9144,7 +9144,7 @@ describe("OpenMeld Core", () => {
         {
           context: createRpcContext({
             activeOrganizationId: organizationId,
-            ownerUserId,
+            agentControllerRef: "hosted:center-agent",
             profileId: agentProfileId,
             profileKind: "agent",
             requestId: "remote-agent-tool:openmeld_post_space_message:test",

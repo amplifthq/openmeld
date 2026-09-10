@@ -332,7 +332,7 @@ describe("transcript render helpers", () => {
     );
 
     expect(output).toContain("23:31–23:33 · 👤 Felix · added 2 members");
-    expect(output).toContain("@Ops Bot(wake) · cancel-removal-human");
+    expect(output).toContain("@Ops Bot · cancel-removal-human");
     expect(output).not.toContain("Wake with");
     expect(output).not.toContain("to this space");
     expect(output).not.toContain("+ 1 more");
@@ -388,7 +388,7 @@ describe("transcript render helpers", () => {
     );
 
     expect(output).toContain("09:44–09:45 · 👤 Felix · removed 2 agents");
-    expect(output).toContain("@Ops Bot(wake) · @Guest Bot(wake)");
+    expect(output).toContain("@Ops Bot · @Guest Bot");
   });
 
   it("does not merge member-added notices across a foreign transcript block", () => {

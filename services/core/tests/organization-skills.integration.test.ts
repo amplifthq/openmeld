@@ -972,8 +972,7 @@ function centerAgentRequestContext(
     activeOrganizationId: fixture.organizationId,
     actorContext: {
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      callerPrincipalId: fixture.owner.userId,
-      ownerUserId: fixture.owner.userId,
+      callerPrincipalId: fixture.centerAgentProfileId,
       profileKind: "agent" as const,
       profileName: "Center Agent",
       requestId: `skill-request-${crypto.randomUUID()}`,
@@ -1070,14 +1069,13 @@ async function seedFixture(): Promise<{
         managed_role,
         created_at,
         updated_at
-      ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 'center_agent', ?, ?)
+      ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'cli_create', 'center_agent', ?, ?)
     `
   )
     .bind(
       centerAgentProfileId,
       `skill-center-${suffix}`,
       organizationId,
-      users[0].id,
       users[0].id,
       1000,
       1000

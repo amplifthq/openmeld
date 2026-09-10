@@ -2,6 +2,328 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "organization-owned-center-agent",
+      "title": "Center Agents belong to their organizations",
+      "kind": "security",
+      "areas": [
+        "center-agent",
+        "organizations",
+        "spaces"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Center Agents belong to their organizations, including Personal Workspaces.\nCurrent organization owners and admins can manage, pause, and resume them.\nRemoving the person who originally created the agent preserves its identity\nand conversations.\n\nPausing a Center Agent now correctly stops its running tasks. Resuming it allows\nnew work without restarting cancelled tasks.\n\nA Center Agent's Space membership no longer gives its original creator access\nto a private Space. Members keep their own conversations and Space permissions.\n\nTeam lists the Center Agent first under Online instead of in a separate group.\nIts card labels it as the Center Agent and names its owning organization without\nadding height.\n\nThis change requires an updated CLI to read organization directories containing\nCenter Agents."
+    },
+    {
+      "id": "optimistic-composer-attachments",
+      "title": "Clear sent attachments from the composer immediately",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Sending a message moves its text and attachments into the conversation immediately,\nwithout leaving file cards or a ready-to-send count in the composer. This works\nin Spaces, direct messages, and threads. Rejected messages remain recoverable,\nand finishing a send does not clear attachments added to the next draft."
+    },
+    {
+      "id": "readable-message-surfaces",
+      "title": "Clearer message boundaries in conversations",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "messages"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Messages from other people and Agents now use a subtle neutral background,\nwhile your own messages use a soft blue tint. The surfaces help separate\nmessages in busy conversations in light and dark mode, while preserving\nspeaker identities and your preferred message alignment."
+    },
+    {
+      "id": "mention-dismissal-and-compact-replies",
+      "title": "Easier mentions and clearer replies",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "chats",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Typing `@` after Chinese, Japanese, Korean, or sentence punctuation now opens\nmember suggestions without an extra space. A close button lets you dismiss\nsuggestions and keep your `@` and entered text as ordinary text, just like Escape.\n\nReply context now sits inside the composer as a compact line with the person's\nname, a short message preview, and a leading cancel button. Quotes in sent\nmessages use quieter, single-line previews so the new reply is easier to distinguish.\n\nUnavailable Wake targets now appear muted in the composer, with a shorter\nexplanation and an action to reconnect the computer or resolve the current issue."
+    },
+    {
+      "id": "edit-and-recall-space-messages",
+      "title": "Edit and recall your Space messages",
+      "kind": "new",
+      "areas": [
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Edit your sent messages directly in the conversation, or recall them for everyone\nin the Space. Clearing all content asks you to confirm recall. Recalled messages\nleave a small notice, and the sender can choose Edit again to bring the last\nsaved version back into the composer without sending it automatically."
+    },
+    {
+      "id": "chats-directory-and-participant-picker",
+      "title": "Find chats and start conversations together",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "chats",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Chats now opens a searchable conversation list instead of briefly showing an empty\npage and jumping into a conversation. The list follows your sidebar groups and\nsorting preferences. Sidebar groups start collapsed and reveal the conversation\nyou open, while remembering your manual choices.\n\nPin chats or move them between groups directly from the list. Chats and Spaces\nnow offer the same search, filters, and group settings in their lists and sidebars,\nincluding archived chat filters and Space activity filters.\n\nNew chat uses the same people-and-agents picker as Space members. Choose one person\nor agent for a private chat, or choose several to create a private Space together."
+    },
+    {
+      "id": "owned-agent-conversations",
+      "title": "Find conversations with your Agents on your profile",
+      "kind": "new",
+      "areas": [
+        "agents",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Your profile now lists conversations involving your personal Agents, with the\npeople involved, recent messages, and an Agent filter. Open the existing\nconversation directly without joining it just to read. The list uses the\nsame access rules as Chats and Spaces."
+    },
+    {
+      "id": "space-history-navigation",
+      "title": "Find your place in long conversations",
+      "kind": "new",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Browse compact previews of a long Space conversation and jump directly to an\nearlier message. Read nearby history, return to the latest messages, and open\npinned messages without losing your draft. Edited and recalled messages stay\ncurrent in history and pinned previews."
+    },
+    {
+      "id": "wake-reply-thread-root-validation",
+      "title": "Keep Agent replies working when a discussion thread opens",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Opening a discussion thread under a running Wake no longer moves its reply away\nfrom the original conversation or causes a false latest-message read failure.\nReplies still check for newer messages before appearing."
+    },
+    {
+      "id": "pinned-space-messages",
+      "title": "Keep important Space messages and files in view",
+      "kind": "new",
+      "areas": [
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Pin a message from its action menu to keep it above the conversation. The compact\npreview shows who pinned it and lets you jump to the original message. Only the\nperson who pinned a message can unpin it, with no extra confirmation.\n\nPin files from Files to give them a separate preview above pinned messages in\nthe conversation. File pins open the shared file and follow its latest version.\nAn unread new version shows a small “New updates” badge beside the pinned filename."
+    },
+    {
+      "id": "complete-long-message-previews",
+      "title": "Keep long message previews complete",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "messages"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Long messages now fold around 2,000 characters, finishing complete paragraphs\nand Markdown blocks instead of cutting through words, lists, tables, or code.\nA subtle fade marks the folded edge. Show more expands the original message\nin place in Spaces, chats, and threads."
+    },
+    {
+      "id": "pending-agent-actions-stay-visible",
+      "title": "Keep pending Agent actions within reach",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "agents"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Agent owners can handle pending permissions, questions, and plan reviews from a\nquiet action surface above the currently visible Space or Thread composer, so\nrequired input no longer gets buried in message history or behind an open Thread.\n\nThe action strip now sits against the composer and expands into a consistent\ncard for plans, questions, and permissions. Long details scroll within the card,\nwith subtle edge fades and response buttons that stay within reach."
+    },
+    {
+      "id": "visible-wake-stop-button",
+      "title": "Make Stop easier to spot",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "chats",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Stop now has a subtle background and border beside the working Agent message,\nmaking it easier to recognize as a button without using a warning color."
+    },
+    {
+      "id": "space-message-reactions",
+      "title": "React to Space messages",
+      "kind": "new",
+      "areas": [
+        "spaces",
+        "web",
+        "agents",
+        "cli"
+      ],
+      "audiences": [
+        "users",
+        "developers"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "Add emoji reactions to messages and thread replies, click again to remove your\nreaction, and view who reacted. Reactions stay with the message and are included\nwhen agents read Space messages and history, without sending a new message or\nwaking an agent."
+    },
+    {
+      "id": "codex-wake-session-titles",
+      "title": "Recognizable names for new Codex sessions",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "local-service"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.193",
+      "evidence": [
+        "pr:870",
+        "pr:876",
+        "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880",
+        "workflow:34434697090"
+      ],
+      "body": "New Codex sessions started by a Wake get a short name based on the Agent and\nrequest, making them easier to find. Naming runs while the Agent works and does\nnot hold up the task if it fails. Existing session names stay unchanged."
+    },
+    {
       "id": "keep-agent-picker-open-in-members-drawer",
       "title": "Keep Agent creation open from the Space members drawer",
       "kind": "fixed",

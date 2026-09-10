@@ -84,13 +84,23 @@ describe("Space message attachment contracts", () => {
     ).toBe(false);
   });
 
-  it("keeps text required when attachments are present", () => {
+  it("accepts attachment-only messages but rejects messages with no content", () => {
     expect(
       postNormalMessageBodySchema.safeParse({
         text: "",
         attachments: [messageAttachment],
       }).success
-    ).toBe(false);
+    ).toBe(true);
+    for (const text of ["", "   "]) {
+      expect(
+        postNormalMessageBodySchema.safeParse({ text, attachments: [] }).success
+      ).toBe(false);
+    }
+    expect(
+      postNormalMessageBodySchema.parse({
+        attachments: [messageAttachment],
+      })
+    ).toMatchObject({ text: "", attachments: [messageAttachment] });
   });
 
   it("preserves attachments through live and history signal projections", () => {

@@ -658,6 +658,8 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 	it("coalesces Wake progress frames behind a slow refresh and keeps one final refresh", async () => {
 		const { queryClient } = renderFeed();
+		await openLatestSocket();
+		await flushMicrotasks();
 		let finishFirstRefresh: (() => void) | undefined;
 		const firstRefresh = new Promise<void>((resolve) => {
 			finishFirstRefresh = resolve;
@@ -666,7 +668,6 @@ describe("useSpaceLandingFeed transport freshness", () => {
 			.spyOn(queryClient, "invalidateQueries")
 			.mockImplementationOnce(() => firstRefresh)
 			.mockResolvedValue(undefined);
-		await openLatestSocket();
 
 		for (const version of [10, 11, 12]) {
 			await act(async () => {

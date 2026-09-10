@@ -232,6 +232,8 @@ function createInboxHarness() {
     `,
   });
   applyDrizzleMigrationsForTables(harness, [
+    "openmeld_profiles",
+    "center_agent_designations",
     "center_agent_tasks",
     "space_index_spaces",
     "space_index_memberships",
