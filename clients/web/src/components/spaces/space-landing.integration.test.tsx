@@ -1937,7 +1937,7 @@ describe("SpaceLanding", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "New Agent" }));
 		const dialog = await screen.findByRole("dialog", {
-			name: "Create a new Agent",
+			name: "Create an Agent",
 		});
 		fireEvent.click(
 			await within(dialog).findByRole("radio", { name: "Codex" })
@@ -15288,8 +15288,9 @@ describe("SpaceLanding", () => {
 
 		const targetList = await openComposerMemberPicker();
 		const options = within(targetList).getAllByRole("option");
-		expect(options[0]?.textContent).toContain("Watcher");
-		expect(options[1]?.textContent).toContain("Runner");
+		expect(options[0]?.textContent).toContain("@all");
+		expect(options[1]?.textContent).toContain("Watcher");
+		expect(options[2]?.textContent).toContain("Runner");
 	});
 
 	it("lets users jump from a loaded reply preview to the original message", () => {
