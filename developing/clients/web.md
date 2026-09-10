@@ -824,6 +824,23 @@ matching options; Web does not infer badges from model names or the current
 default. Reasoning is catalog-owned at `high` and is not a separate Web control
 in this release.
 
+The primary-model picker searches the Core-projected choices by friendly name
+or exact catalog ID without displaying raw IDs or admitting free-text models.
+The saved choice comes first; a persistent current-model label remains visible
+even when a search has no matches. Selecting a candidate only changes the local
+draft. The current label changes after the Binding save succeeds. The searchable
+picker uses the installed Base UI Combobox because Fluid Select has no search
+input; Base UI owns keyboard navigation, focus, and dismissal. Reopening clears
+the search so the full catalog can be compared again.
+
+Before saving a changed selection, inline copy explains that it affects new
+turns across the workspace, including existing conversations, while admitted
+work keeps its frozen route. Switching to a different model may rebuild the
+prompt cache and increase next-turn input costs; this is a conditional cost
+notice, not a price quote or a claim about provider cache receipts. This surface
+does not add session pinning, live-turn switching, auxiliary overrides, or user
+provider credentials. Hosted provider configuration remains OpenMeld-operated.
+
 Model behavior details use a compact info Tooltip instead of permanently
 expanded copy. It says that images use a vision model, that the selection
 applies to new turns only, and that failure does not switch models
