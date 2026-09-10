@@ -683,67 +683,29 @@ when upgrading either build, and remove them when the build versions converge.
 Do not widen a runtime upgrade into a Web/Desktop build migration merely to
 make independently deployed build tools use one version.
 
-`verify:pre-push:checks` covers dependency consistency, static workflow and
-environment contracts, Changelog and documentation contracts, formatting
-support contracts, and retired identifiers. It does not replace workspace type
-checks, unit tests, integration tests, or release-ready verification.
+The CI/CD procedure and its rationale have one owner:
+[Agent-Native Delivery](agent-native-delivery.md#daily-workflow). It applies to
+engineers and every coding agent. Read it before pushing a candidate or merging.
 
-`verify:pr` runs affected-workspace checks and unit tests, including downstream
-consumers of shared packages. It also selects existing documentation, Changelog,
-and CI/release workflow checks when their root paths change. Documentation-only
-changes skip workspace tasks. Use `pnpm run verify:pr -- --plan` to inspect the
-commands without running them; set `OPENMELD_AFFECTED_BASE` to the available
-base commit when needed. Focused iteration can still use a package command or
-`turbo-affected.mjs --changed-only`.
+- Commit hook: staged-file checks.
+- Development push hook: mandatory focused checks on the exact clean commit.
+- Draft PR: focused remote feedback; keep work draft until ready to merge.
+- Standard FC: exact identity, trusted control, static contracts, and path-owned
+  database/release readiness. No blanket unit or integration rerun.
+- The owner validates changed behavior and downstream risks before marking ready.
 
-Draft PR Feedback runs `verify:pr -- --feedback`: changed-file code checks,
-documentation contracts, adjacent Node tests, and statically related Vitest
-unit tests. It does not build every affected package or certify complete test
-coverage. Ready PRs use Final Candidate instead; standard candidates must pass
-affected code checks and unit tests, including downstream workspaces. Keep work
-in draft while iterating; new commits cancel superseded feedback or candidates.
-Checks and unit tests run as two explicit phases: packages
-may still run in parallel within one phase, but a memory-heavy package never
-runs its type-check and unit-test processes at the same time on one runner. The
-isolated Final Candidate wrapper also gives Node processes one explicit 6 GiB
-heap ceiling so Core type-checking is not constrained by Node's smaller default
-heap on a hosted runner.
+Use `pnpm run verify:pr -- --feedback --plan` to inspect focused selection;
+remove `--plan` to execute it. `verify:pr` remains the explicit affected-workspace
+code/type-check and unit-test command, including downstream consumers.
+`test:integration:affected` validates affected integration boundaries;
+`verify:pr:full` requests whole-repository confidence. Do not use broad commands
+as an automatic iteration loop. Fetch missing base history instead of ignoring
+it; `OPENMELD_AFFECTED_BASE` chooses an explicit available base.
 
-`test:integration:affected` remains available for focused boundary diagnosis.
-Standard Final Candidate selects affected integration tests automatically for
-shared packages, dependency controls, services, and runtime boundaries; ordinary
-client-only changes avoid that lane. Missing or failed selected checks block
-the final status. Matching trusted task-input evidence can avoid repeated work
-after a main sync or documentation follow-up. `db:check` remains a
-standard candidate check for database owner paths. Local-component paths select
-strict release-ready verification on an exact versioned release branch and
-deferred base-aware verification on an ordinary feature branch. These
-selections are implemented and behavior-tested in
-`scripts/ci/final-candidate-policy.mjs`; do not copy the path policy into
-another workflow or document.
-
-`verify:pr:full` is the explicit stronger Final Candidate confidence lane.
-Manually dispatched Deep Confidence remains the exhaustive diagnostic lane for
-risk that warrants broad Worker, CLI, or runtime integration coverage. Neither
-is a default paid gate.
-
-Inspect the exact plan with:
-
-```sh
-git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
-```
-
-Run any printed command independently to diagnose it. Add `--full` only when
-the agent judges the broader confidence worth the time. The plan must state
-what it selected, what it skipped, and why.
-
-The Git pre-push hook does not repeat candidate checks for ordinary development
-branches. It retains strict release-ready enforcement for direct `main`, tags,
-and exact versioned release branches. The authoritative final candidate is
-explicit and runs once through the normal hosted lane or guarded local fallback.
-
-If affected scripts need a base ref, fetch it or set
-`OPENMELD_AFFECTED_BASE` explicitly. Do not ignore a missing-base result.
+`verify:pre-push:checks` retains the static repository contract suite. It is not
+a substitute for behavior tests or release readiness. Desktop dependency builds
+use Turbo's cache so its package hooks do not rebuild unchanged contracts after
+Turbo has already built them.
 
 When a package-level script needs repo-root Turbo behavior from another working
 directory, use the repo-root form with
@@ -1782,8 +1744,9 @@ policy script owns this classification; ordinary feature branches remain
 deferred and cannot carry a release stamp, while a malformed or mixed-scope
 release branch fails closed.
 
-The pre-push hook skips ordinary non-`main` development updates. It parses Git's
-pushed-ref lines and remains strict when a push includes `refs/heads/main`, a
+The pre-push release check defers ordinary development builds to FC; the
+focused-check hook still runs on development pushes. Release checking remains
+strict when a push includes `refs/heads/main`, a
 versioned release branch, a tag, malformed input, or no input. A strict push
 requires every non-deletion object to resolve to checked-out `HEAD` and rejects
 uncommitted release-relevant or gate-control paths. Final Candidate passes the

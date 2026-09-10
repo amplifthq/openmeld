@@ -67,19 +67,19 @@ test("omitted or rewritten selected checks cannot publish green", () => {
   );
 });
 
-test("a candidate cannot publish green while affected tests are absent or failed", () => {
+test("a candidate cannot publish green while required contracts are absent or failed", () => {
   const missing = createEvidence();
   missing.selectedChecks = missing.selectedChecks.filter(
-    (check) => check.id !== "affected-unit-tests"
+    (check) => check.id !== "repository-contracts"
   );
   missing.results = missing.results.filter(
-    (result) => result.id !== "affected-unit-tests"
+    (result) => result.id !== "repository-contracts"
   );
   assert.throws(() => assertEvidenceMatchesExecution(createInput(missing)));
 
   const failed = createEvidence();
   const tests = failed.results.find(
-    (result) => result.id === "affected-unit-tests"
+    (result) => result.id === "repository-contracts"
   );
   assert.ok(tests);
   tests.status = "failed";
