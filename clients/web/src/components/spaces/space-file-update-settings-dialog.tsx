@@ -114,6 +114,13 @@ export function SpaceFileUpdateSettingsDialog(input: {
 		searchActive: search.trim().length > 0,
 		owners: profileDirectory.data?.members,
 	});
+	const entries =
+		directory?.sections.flatMap((section) => section.entries) ?? [];
+	const checkedIndices = new Set(
+		entries.flatMap((entry, index) =>
+			selected?.includes(entry.profileId) ? [index] : []
+		)
+	);
 	const renderMember = (entry: SpaceMemberDirectoryEntry) => {
 		const checked = selected?.includes(entry.profileId) ?? false;
 		let description = "Agent";
@@ -127,36 +134,33 @@ export function SpaceFileUpdateSettingsDialog(input: {
 			description = "Remote Agent";
 		}
 		return (
-			<CheckboxGroup
-				checkedIndices={checked ? new Set([0]) : new Set()}
-				className="w-full"
-			>
-				<CheckboxItem
-					adornment={
-						<SpaceProfileIcon
-							agentControllerRef={entry.agentControllerRef}
-							avatarImageUrl={entry.avatarUrl}
-							isCenterAgent={entry.profileId === centerAgentProfileId}
-							profileId={entry.profileId}
-							profileKind={entry.profileKind}
-							profileName={entry.profileName}
-							size="sm"
-						/>
-					}
-					checked={checked}
-					description={description}
-					disabled={save.isPending}
-					index={0}
-					label={entry.profileName}
-					onToggle={() =>
-						setSelected((current) =>
-							current?.includes(entry.profileId)
-								? current.filter((id) => id !== entry.profileId)
-								: [...(current ?? []), entry.profileId]
-						)
-					}
-				/>
-			</CheckboxGroup>
+			<CheckboxItem
+				adornment={
+					<SpaceProfileIcon
+						agentControllerRef={entry.agentControllerRef}
+						avatarImageUrl={entry.avatarUrl}
+						isCenterAgent={entry.profileId === centerAgentProfileId}
+						profileId={entry.profileId}
+						profileKind={entry.profileKind}
+						profileName={entry.profileName}
+						size="sm"
+					/>
+				}
+				checked={checked}
+				description={description}
+				disabled={save.isPending}
+				index={entries.findIndex(
+					(candidate) => candidate.profileId === entry.profileId
+				)}
+				label={entry.profileName}
+				onToggle={() =>
+					setSelected((current) =>
+						current?.includes(entry.profileId)
+							? current.filter((id) => id !== entry.profileId)
+							: [...(current ?? []), entry.profileId]
+					)
+				}
+			/>
 		);
 	};
 	const error = save.error ?? query.error;
@@ -189,11 +193,17 @@ export function SpaceFileUpdateSettingsDialog(input: {
 							value={search}
 						/>
 						<div className="max-h-[min(32rem,calc(100dvh-18rem))] min-h-0 overflow-y-auto">
-							<SpaceMembersRosterView
-								renderMember={renderMember}
-								roster={roster}
-								searchActive={search.trim().length > 0}
-							/>
+							<CheckboxGroup
+								checkedIndices={checkedIndices}
+								className="w-full"
+								mergeSelections={false}
+							>
+								<SpaceMembersRosterView
+									renderMember={renderMember}
+									roster={roster}
+									searchActive={search.trim().length > 0}
+								/>
+							</CheckboxGroup>
 							{roster.organizationEntries.length +
 								roster.personGroups.length +
 								roster.ungroupedAgentEntries.length ===
