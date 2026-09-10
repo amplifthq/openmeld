@@ -291,7 +291,7 @@ async function sendInvitationEmail(
   const url = new URL("/accept-space-invitation", webUrl);
   url.searchParams.set("invitationId", invitation.id);
   const brandName = env.AUTH_BRAND_NAME ?? "OpenMeld";
-  const content = buildSpaceInvitationEmailContent({
+  const content = await buildSpaceInvitationEmailContent({
     brandName,
     organizationName: invitation.organizationName,
     spaceName: invitation.spaceName,

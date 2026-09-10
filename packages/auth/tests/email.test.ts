@@ -73,8 +73,8 @@ describe("auth verification email config", () => {
 });
 
 describe("email content builders", () => {
-  it("escapes dynamic values in HTML while keeping plain text readable", () => {
-    const content = buildMagicLinkEmailContent({
+  it("escapes dynamic values in HTML while keeping plain text readable", async () => {
+    const content = await buildMagicLinkEmailContent({
       brandName: "OpenMeld <Prod>",
       expiresInSeconds: 300,
       magicLinkUrl: "https://openmeld.invalid/magic-link?token=<token>&next=/",
