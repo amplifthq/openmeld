@@ -92,7 +92,7 @@ export function LarkPlatformChannelDialog(input: {
 
 	return (
 		<Dialog onOpenChange={handleOpenChange} open={input.open}>
-			<DialogContent className="sm:max-w-lg">
+			<DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle>{dialogTitle}</DialogTitle>
 					<DialogDescription>{dialogDescription}</DialogDescription>
@@ -125,7 +125,7 @@ export function LarkPlatformChannelDialog(input: {
 						startOverPending={input.startOverPending}
 					/>
 				)}
-				<DialogFooter className="items-stretch border-t pt-4 sm:items-center sm:justify-between">
+				<DialogFooter className="items-stretch border-t pt-4 empty:hidden sm:items-center sm:justify-between">
 					{canDisconnect && input.canManage ? (
 						<DisconnectControl
 							confirming={confirmingDisconnect}
@@ -185,7 +185,7 @@ function resolveDialogDescription(input: {
 	}
 	return input.needsRepair
 		? `Retry the existing ${input.providerLabel} app without creating another one.`
-		: `Connect ${input.providerLabel} with its official Personal Agent setup flow.`;
+		: `Connect your Center Agent to ${input.providerLabel}.`;
 }
 
 function RegistrationProgress(input: {
@@ -207,17 +207,14 @@ function RegistrationProgress(input: {
 			LARK_PLATFORM_REGISTRATION_DOMAINS[attempt.provider].launcherHost;
 		return (
 			<div className="space-y-4">
-				<div className="border border-border/70 bg-card/30 p-4">
+				<div className="rounded-md bg-muted/40 p-3">
 					<p className="font-medium text-foreground text-sm">
 						Open the official {input.providerLabel} setup page
 					</p>
-					<p className="mt-1 text-muted-foreground text-sm leading-6">
-						Sign in with your {input.providerLabel} account. This setup is for{" "}
-						{input.providerLabel} only. Create a new {input.providerLabel} app,
-						review the requested permissions, and keep this window open while
-						OpenMeld finishes the connection. The app needs permission to
-						exchange messages and update its configuration so OpenMeld can set
-						up message delivery.
+					<p className="mt-1 text-muted-foreground text-xs/relaxed">
+						Sign in to {input.providerLabel}, create a bot, and approve its
+						messaging and configuration permissions. OpenMeld will finish
+						connecting automatically.
 					</p>
 					<div className="mt-4 flex flex-wrap gap-2">
 						<a
@@ -254,31 +251,28 @@ function RegistrationProgress(input: {
 	}
 	if (requiresLarkPlatformSetupAuthorization(attempt)) {
 		return (
-			<div className="space-y-3 border border-border/70 bg-card/30 p-4">
+			<div className="space-y-3 rounded-md bg-muted/40 p-3">
 				<p className="font-medium text-sm">Authorization required</p>
-				<p className="text-muted-foreground text-sm">
-					Reconnect your existing bot by approving the updated permissions in
-					{input.providerLabel}. OpenMeld will finish connecting automatically
-					after you authorize.
+				<p className="text-muted-foreground text-xs/relaxed">
+					Approve the updated permissions in {input.providerLabel} so OpenMeld
+					can finish connecting. You’ll keep the same bot.
 				</p>
-				<p className="text-muted-foreground text-sm">
-					The updated permissions let OpenMeld configure your bot to receive
-					messages. Your existing bot is kept.
-				</p>
-				<Button onClick={input.onReauthorize} type="button">
-					<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
-					Reauthorize {input.providerLabel}
-				</Button>
-				<Button
-					disabled={input.pollPending}
-					onClick={input.onRetryPoll}
-					type="button"
-					variant="outline"
-				>
-					{input.pollPending
-						? "Checking authorization…"
-						: "I've authorized, check again"}
-				</Button>
+				<div className="flex flex-wrap gap-2">
+					<Button onClick={input.onReauthorize} type="button">
+						<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
+						Reauthorize {input.providerLabel}
+					</Button>
+					<Button
+						disabled={input.pollPending}
+						onClick={input.onRetryPoll}
+						type="button"
+						variant="outline"
+					>
+						{input.pollPending
+							? "Checking authorization…"
+							: "I've authorized, check again"}
+					</Button>
+				</div>
 				{input.errorMessage ? (
 					<p className="text-destructive text-sm" role="alert">
 						{input.errorMessage}
@@ -311,17 +305,17 @@ function RegistrationProgress(input: {
 	}
 	if (attempt.status === "connected") {
 		return (
-			<div className="flex items-start gap-3 border border-border/70 bg-card/30 p-4">
+			<div className="flex items-start gap-3 rounded-md bg-muted/40 p-3">
 				<CheckCircleIcon
 					aria-hidden="true"
-					className={resolveStatusToneSoftTextClassName("ready")}
+					className={`mt-0.5 size-4 shrink-0 ${resolveStatusToneSoftTextClassName("ready")}`}
 					weight="fill"
 				/>
 				<div>
 					<p className="font-medium text-foreground text-sm">
 						{input.providerLabel} connected
 					</p>
-					<p className="mt-1 text-muted-foreground text-sm">
+					<p className="mt-1 text-muted-foreground text-xs/relaxed">
 						Members can now message the Center Agent from this organization’s{" "}
 						{input.providerLabel} workspace.
 					</p>
@@ -398,7 +392,7 @@ function WaitingStatus(input: {
 	statusMessage?: string | null;
 }) {
 	return (
-		<div className="space-y-3 border border-border/70 bg-card/30 p-4">
+		<div className="space-y-3 rounded-md bg-muted/40 p-3">
 			<div className="flex items-center gap-2">
 				<CircleNotchIcon
 					aria-hidden="true"
@@ -406,7 +400,7 @@ function WaitingStatus(input: {
 				/>
 				<p className="font-medium text-foreground text-sm">{input.label}</p>
 			</div>
-			<p className="text-muted-foreground text-sm">
+			<p className="text-muted-foreground text-xs/relaxed">
 				This window updates automatically. You can close it and continue setup
 				later.
 			</p>
@@ -566,8 +560,8 @@ function ConnectionSummary(input: {
 				</div>
 			) : null}
 			{needsRepair ? (
-				<div className="space-y-3 border border-border/70 bg-card/20 p-4">
-					<p className="text-muted-foreground text-sm leading-6">
+				<div className="space-y-3 rounded-md bg-muted/40 p-3">
+					<p className="text-muted-foreground text-xs/relaxed">
 						{resolveRepairExplanation(input.connection, input.providerLabel)}
 					</p>
 					{input.canManage ? (

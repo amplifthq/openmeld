@@ -189,7 +189,7 @@ describe("LarkPlatformChannelDialog", () => {
 			`https://${destination}/page/launcher?user_code=redacted&name=Existing+app`
 		);
 		expect(
-			screen.getByText(`Sign in with your ${label} account.`, { exact: false })
+			screen.getByText(`Sign in to ${label}, create a bot`, { exact: false })
 		).toBeTruthy();
 		expect(screen.getByText("Waiting for approval")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Start over" }));

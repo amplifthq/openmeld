@@ -5,6 +5,7 @@ import { Badge } from "@openmeld/ui/components/badge";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Dialog,
+	DialogClose,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
@@ -14,10 +15,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
-import {
-	resolveStatusToneProminentBadgeClassName,
-	resolveStatusToneSoftTextClassName,
-} from "@openmeld/ui/lib/status-tone";
+import { resolveStatusToneSoftTextClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	LinkIcon,
 	SignOutIcon,
@@ -141,12 +139,12 @@ export function CenterAgentSlackConnectionDialog(
 	return (
 		<Dialog onOpenChange={handleOpenChange} open={open}>
 			<DialogTrigger render={input.trigger} />
-			<DialogContent className="gap-5 p-5 sm:max-w-lg sm:p-6">
+			<DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
 				<DialogHeader>
-					<DialogTitle className="text-base">
+					<DialogTitle>
 						{resolveDialogTitle({ connected, input, reconnectRequired })}
 					</DialogTitle>
-					<DialogDescription className="max-w-md text-sm/6">
+					<DialogDescription>
 						{resolveDialogDescription({ connected, input, reconnectRequired })}
 					</DialogDescription>
 				</DialogHeader>
@@ -184,7 +182,7 @@ function resolveDialogDescription(input: {
 		return "Slack is connected. Reconnect to approve updated permissions for the Center Agent.";
 	}
 	return input.connected
-		? "People can message your Center Agent from this Slack workspace and receive replies in the same conversation."
+		? "Manage your organization’s Center Agent connection."
 		: "Connect Slack so people can message your Center Agent and receive replies in Slack.";
 }
 
@@ -203,7 +201,7 @@ function SlackSettingsHandoffContent(input: {
 	return (
 		<div className="space-y-4">
 			{connected ? (
-				<div className="flex items-start justify-between gap-4 rounded-md border border-border/70 bg-card/30 p-3">
+				<div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 p-3">
 					<div className="min-w-0">
 						<p className="font-medium text-foreground text-sm">
 							Connected to {workspaceLabel}
@@ -215,9 +213,7 @@ function SlackSettingsHandoffContent(input: {
 						) : null}
 					</div>
 					<Badge
-						className={resolveStatusToneProminentBadgeClassName(
-							reconnectRequired ? "warning" : "ready"
-						)}
+						className={`shrink-0 border-transparent bg-transparent ${resolveStatusToneSoftTextClassName(reconnectRequired ? "warning" : "ready")}`}
 					>
 						{reconnectRequired ? "Reconnect required" : "Connected"}
 					</Badge>
@@ -229,7 +225,8 @@ function SlackSettingsHandoffContent(input: {
 					reconnectRequired,
 				})}
 			</p>
-			<DialogFooter showCloseButton>
+			<DialogFooter className="border-t pt-4">
+				<DialogClose render={<Button variant="outline" />}>Close</DialogClose>
 				<Link
 					className={buttonVariants({ size: "default" })}
 					to={input.managementPath}
@@ -274,11 +271,11 @@ function ConnectedSlackDialogContent(input: {
 		input.slackConnection?.directMessagesReady !== true;
 
 	return (
-		<div className="space-y-5">
+		<div className="space-y-4">
 			<SlackDialogError message={input.errorMessage} />
-			<div className="flex items-center justify-between gap-4">
+			<div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 p-3">
 				<div className="min-w-0">
-					<p className="truncate font-medium text-foreground text-sm">
+					<p className="break-words font-medium text-foreground text-sm">
 						{workspaceName}
 					</p>
 					{slackTeamId ? (
@@ -291,7 +288,7 @@ function ConnectedSlackDialogContent(input: {
 					) : null}
 				</div>
 				<Badge
-					className={`h-7 px-2.5 ${resolveStatusToneProminentBadgeClassName(
+					className={`shrink-0 border-transparent bg-transparent ${resolveStatusToneSoftTextClassName(
 						reconnectRequired ? "warning" : "ready"
 					)}`}
 				>
@@ -299,42 +296,52 @@ function ConnectedSlackDialogContent(input: {
 				</Badge>
 			</div>
 			{reconnectRequired ? (
-				<div className="space-y-3 border border-border/70 bg-card/30 p-4">
-					<p className="max-w-md text-muted-foreground text-sm/6">
+				<div className="space-y-1 py-1">
+					<p className="font-medium text-sm">Permission update available</p>
+					<p className="text-muted-foreground text-xs/relaxed">
 						Approve updated permissions for the Center Agent. Your workspace
 						connection stays in place.
 					</p>
-					{input.canManage ? (
-						<a
-							className={buttonVariants({ size: "sm" })}
-							href={buildSlackOAuthStartPath({
-								organizationSlug: input.organizationSlug,
-							})}
-						>
-							<LinkIcon aria-hidden="true" data-icon="inline-start" />
-							Reconnect Slack
-						</a>
-					) : (
+					{input.canManage ? null : (
 						<p className="text-muted-foreground text-xs/5">
 							Ask an organization owner or admin to reconnect Slack.
 						</p>
 					)}
 				</div>
 			) : (
-				<p className="max-w-md text-muted-foreground text-sm/6">
+				<p className="text-muted-foreground text-xs/relaxed">
 					OpenMeld sign-in is only required when someone asks for private
 					organization context or an authorized action.
 				</p>
 			)}
-			{input.canManage ? (
-				<SlackDisconnectControl
-					confirming={input.confirmingDisconnect}
-					disconnectPending={input.disconnectPending}
-					onCancel={input.onCancelDisconnect}
-					onConfirm={input.onDisconnectSlackWorkspace}
-					onStart={input.onStartDisconnect}
-				/>
-			) : null}
+			<DialogFooter className="items-stretch border-t pt-4 sm:items-center sm:justify-between">
+				{input.canManage ? (
+					<SlackDisconnectControl
+						confirming={input.confirmingDisconnect}
+						disconnectPending={input.disconnectPending}
+						onCancel={input.onCancelDisconnect}
+						onConfirm={input.onDisconnectSlackWorkspace}
+						onStart={input.onStartDisconnect}
+					/>
+				) : null}
+				{input.confirmingDisconnect ? null : (
+					<div className="flex justify-end gap-2 sm:ml-auto">
+						<DialogClose render={<Button variant="outline" />}>
+							Close
+						</DialogClose>
+						{input.canManage && reconnectRequired ? (
+							<a
+								className={buttonVariants()}
+								href={buildSlackOAuthStartPath({
+									organizationSlug: input.organizationSlug,
+								})}
+							>
+								Reconnect Slack
+							</a>
+						) : null}
+					</div>
+				)}
+			</DialogFooter>
 		</div>
 	);
 }
@@ -348,27 +355,21 @@ function SlackDisconnectControl(input: {
 }) {
 	if (!input.confirming) {
 		return (
-			<div className="flex flex-col gap-3 border-border/70 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-				<p className="max-w-sm text-muted-foreground text-xs/5">
-					Disconnecting stops messages from this Slack workspace from reaching
-					your Center Agent.
-				</p>
-				<Button
-					disabled={input.disconnectPending}
-					onClick={input.onStart}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					<SignOutIcon aria-hidden="true" data-icon="inline-start" />
-					Disconnect Slack
-				</Button>
-			</div>
+			<Button
+				className="text-muted-foreground hover:text-destructive"
+				disabled={input.disconnectPending}
+				onClick={input.onStart}
+				type="button"
+				variant="ghost"
+			>
+				<SignOutIcon aria-hidden="true" data-icon="inline-start" />
+				Disconnect Slack
+			</Button>
 		);
 	}
 
 	return (
-		<div className="rounded-md border border-destructive/30 bg-destructive/5 p-4">
+		<div className="w-full rounded-md border border-destructive/30 bg-destructive/5 p-3">
 			<div className="space-y-3">
 				<div
 					className={`flex gap-2 text-sm ${resolveStatusToneSoftTextClassName("warning")}`}
@@ -424,12 +425,12 @@ function DisconnectedSlackDialogContent(input: {
 			<SlackDialogError message={input.errorMessage} />
 			{input.canManage ? (
 				<>
-					<div className="space-y-3 border border-border/70 bg-card/30 p-4">
+					<div className="space-y-3 rounded-md bg-muted/40 p-3">
 						<div className="space-y-1">
 							<p className="font-medium text-foreground text-sm">
 								Choose your workspace on Slack
 							</p>
-							<p className="text-muted-foreground text-sm">
+							<p className="text-muted-foreground text-xs/relaxed">
 								Slack will ask you to choose a workspace and approve the
 								OpenMeld app. Approval installs the app and connects it here.
 							</p>
@@ -444,7 +445,7 @@ function DisconnectedSlackDialogContent(input: {
 							Add to Slack
 						</a>
 					</div>
-					<details className="border border-border/70">
+					<details className="rounded-md border border-border/70">
 						<summary className="cursor-pointer px-4 py-3 font-medium text-foreground text-sm marker:text-muted-foreground">
 							Advanced: connect manually
 						</summary>
@@ -484,24 +485,24 @@ function DisconnectedSlackDialogContent(input: {
 					Ask an organization owner or admin to connect Slack.
 				</p>
 			)}
-			<DialogFooter showCloseButton />
+			<DialogFooter className="border-t pt-4" showCloseButton />
 		</div>
 	);
 }
 
 function SlackConnectionSteps() {
 	return (
-		<ol className="grid gap-3 text-muted-foreground text-sm">
-			<li className="border border-border/70 p-3">
+		<ol className="grid gap-2 text-muted-foreground text-xs/relaxed">
+			<li>
 				<span className="font-medium text-foreground">1. </span>
 				Install the OpenMeld Center Agent Slack app in the workspace you want to
 				connect.
 			</li>
-			<li className="border border-border/70 p-3">
+			<li>
 				<span className="font-medium text-foreground">2. </span>
 				Copy the Slack workspace ID from Slack admin or the app event payload.
 			</li>
-			<li className="border border-border/70 p-3">
+			<li>
 				<span className="font-medium text-foreground">3. </span>
 				Connect the workspace here. Anyone in it can talk to the Center Agent.
 				OpenMeld sign-in is only needed for private context or authorized
@@ -513,7 +514,10 @@ function SlackConnectionSteps() {
 
 function SlackDialogError(input: { message?: string | null }) {
 	return input.message ? (
-		<p className="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
+		<p
+			className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-destructive text-sm"
+			role="alert"
+		>
 			{input.message}
 		</p>
 	) : null;
