@@ -2,6 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,10 +36,14 @@ const remoteAgentNoSandboxConfigPath = resolve(
 const REMOTE_AGENT_SANDBOX_CLASS_NAME = "Sandbox";
 
 if (isDirectExecution()) {
-  run(process.argv[2]).catch((error) => {
-    console.error(`[isolated-worker-dev] ${toErrorMessage(error)}`);
-    process.exit(1);
-  });
+  runIsolatedWorker(process.argv[2])
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error) => {
+      console.error(`[isolated-worker-dev] ${toErrorMessage(error)}`);
+      process.exit(1);
+    });
 }
 
 export function resolveIsolatedWorkerDevPlan(input) {
@@ -151,11 +156,11 @@ export function resolveIsolatedWorkerDopplerCommand(
   ) {
     return null;
   }
-  return buildDopplerComponentCommand(service, [
-    process.execPath,
-    scriptPath,
+  return buildDopplerComponentCommand(
     service,
-  ]);
+    [process.execPath, scriptPath, service],
+    env
+  );
 }
 
 export function buildRemoteAgentNoSandboxWranglerConfig(sourceConfig) {
@@ -204,7 +209,7 @@ export function buildIsolatedCoreWranglerConfig(input) {
   };
 }
 
-async function run(service) {
+export async function runIsolatedWorker(service) {
   if (!service) {
     throw new Error(
       "Usage: node scripts/dev/run-isolated-worker-dev.mjs <auth|gateway|remote-agent>"
@@ -216,9 +221,9 @@ async function run(service) {
     const exitCode = await runCommand(
       dopplerCommand.executable,
       dopplerCommand.args,
-      { forwardSignals: true }
+      { forwardSignals: true, env: dopplerCommand.env }
     );
-    process.exit(exitCode);
+    return exitCode;
   }
 
   if (service === "auth") {
@@ -231,9 +236,11 @@ async function run(service) {
   });
 
   for (const preCommand of plan.preCommands) {
-    const exitCode = await runCommand(preCommand.command, preCommand.args);
+    const exitCode = await runCommand(preCommand.command, preCommand.args, {
+      forwardSignals: true,
+    });
     if (exitCode !== 0) {
-      process.exit(exitCode);
+      return exitCode;
     }
   }
   if (
@@ -243,11 +250,24 @@ async function run(service) {
     writeRemoteAgentNoSandboxConfig();
   }
 
-  const exitCode = await runCommand(plan.command, plan.args, {
-    env: plan.env,
-    forwardSignals: true,
-  });
-  process.exit(exitCode);
+  // Use Wrangler's public bin entry; pnpm exec need not stay resident for it.
+  const require = createRequire(import.meta.url);
+  const manifestPath = require.resolve("wrangler/package.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const bin = resolve(
+    manifestPath,
+    "..",
+    typeof manifest.bin === "string" ? manifest.bin : manifest.bin.wrangler
+  );
+  const exitCode = await runCommand(
+    process.execPath,
+    [bin, ...plan.args.slice(2)],
+    {
+      env: plan.env,
+      forwardSignals: true,
+    }
+  );
+  return exitCode;
 }
 
 function writeIsolatedCoreConfig(env) {

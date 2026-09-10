@@ -47,7 +47,7 @@
   },
   "devDependencies": {
     "@babel/core": "8.0.1",
-    "@cloudflare/vite-plugin": "1.43.0",
+    "@cloudflare/vite-plugin": "1.54.6",
     "@cloudflare/vitest-pool-workers": "0.12.14",
     "@cloudflare/workers-types": "catalog:",
     "@flue/cli": "2.0.3",

@@ -11,6 +11,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { readListeningTcpPortOwners } from "./dev-port-owners.mjs";
 import { readProcessRows } from "./process-rows.mjs";
+import { sameProcess } from "./process-tree.mjs";
 
 const REGISTRY_VERSION = 1;
 const REGISTRY_DIRECTORY_NAME = "openmeld-dev";
@@ -43,6 +44,12 @@ export async function reserveIsolatedDevLane(options = {}) {
   const repoRoot = resolve(String(options.repoRoot ?? process.cwd()));
   const pid = normalizePid(options.pid ?? process.pid);
   const kind = normalizeRole(options.kind);
+  const startedAt =
+    pid === process.pid
+      ? readProcessRows({ repoRoot, includeMetrics: true }).find(
+          (row) => row.pid === pid
+        )?.startedAt
+      : undefined;
   const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
   const gitCommonDir = resolveGitCommonDirectory({
     gitCommonDir: options.gitCommonDir,
@@ -73,6 +80,7 @@ export async function reserveIsolatedDevLane(options = {}) {
           repoRoot,
           stackStartCommand: options.stackStartCommand ?? "pnpm dev:isolated",
         });
+        attached.webStartedAt = startedAt;
         writeRegistry(registryPaths.registryPath, {
           ...registry,
           lanes: {
@@ -124,6 +132,7 @@ export async function reserveIsolatedDevLane(options = {}) {
         ports,
         repoRoot,
       });
+      lane.stackStartedAt = startedAt;
 
       writeRegistry(registryPaths.registryPath, {
         ...registry,
@@ -240,6 +249,26 @@ export function readCurrentIsolatedDevLane(repoRoot) {
     );
   }
   return lane;
+}
+
+export function readIsolatedDevOwners(repoRoot, rows, gitCommonDir) {
+  const registry = readRegistry(
+    buildRegistryPaths(gitCommonDir ?? resolveGitCommonDirectory({ repoRoot }))
+      .registryPath
+  );
+  const lane = registry.lanes[buildLaneId(repoRoot)];
+  if (!lane || lane.repoRoot !== resolve(repoRoot)) {
+    return [];
+  }
+  return ["stack", "web"].flatMap((kind) => {
+    const row = rows.find((item) => item.pid === lane[`${kind}Pid`]);
+    return sameProcess(
+      { pid: lane[`${kind}Pid`], startedAt: lane[`${kind}StartedAt`] },
+      row
+    )
+      ? [row]
+      : [];
+  });
 }
 
 function attachWebProcess(input) {
@@ -491,7 +520,7 @@ function ensureLaneDirectories(lane) {
   mkdirSync(lane.wranglerStateDirectory, { recursive: true });
 }
 
-async function withRegistryLock(input, callback) {
+export async function withRegistryLock(input, callback) {
   const timeoutAt = Date.now() + REGISTRY_LOCK_TIMEOUT_MS;
   mkdirSync(dirname(input.lockPath), { recursive: true });
 
@@ -507,8 +536,7 @@ async function withRegistryLock(input, callback) {
       if (!isAlreadyExistsError(error)) {
         throw error;
       }
-      if (canReclaimRegistryLock(input.lockPath, input.isPidAlive)) {
-        rmSync(input.lockPath, { force: true, recursive: true });
+      if (reclaimRegistryLock(input.lockPath, input.isPidAlive)) {
         continue;
       }
       if (Date.now() >= timeoutAt) {
@@ -524,6 +552,31 @@ async function withRegistryLock(input, callback) {
     return await callback();
   } finally {
     rmSync(input.lockPath, { force: true, recursive: true });
+  }
+}
+
+function reclaimRegistryLock(lockPath, isPidAlive) {
+  // Serialize stale-lock recovery as well as normal acquisition. Otherwise two
+  // reclaimers can both observe a dead owner and one can delete the other's
+  // newly acquired lock. A crashed recovery fails closed instead of unlocking
+  // an owner whose identity cannot be proved.
+  const recoveryPath = `${lockPath}.reclaim`;
+  try {
+    mkdirSync(recoveryPath);
+  } catch (error) {
+    if (isAlreadyExistsError(error)) {
+      return false;
+    }
+    throw error;
+  }
+  try {
+    if (!canReclaimRegistryLock(lockPath, isPidAlive)) {
+      return false;
+    }
+    rmSync(lockPath, { force: true, recursive: true });
+    return true;
+  } finally {
+    rmSync(recoveryPath, { recursive: true, force: true });
   }
 }
 
@@ -561,7 +614,7 @@ function buildRegistryPaths(gitCommonDir) {
   };
 }
 
-function resolveGitCommonDirectory(options) {
+export function resolveGitCommonDirectory(options) {
   if (options.gitCommonDir) {
     return resolve(String(options.gitCommonDir));
   }
