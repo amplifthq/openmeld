@@ -3116,10 +3116,10 @@ complete value in a tooltip without hiding upload progress, failure copy, or
 the remove action. Sending waits
 for in-progress staging, publishes each ready upload as a canonical root-level
 Space File, and allows a file-only message without invented caption text. A
-failed stage or publication is excluded while the member's text and other
-successful files continue. Web explains that the failed files will not be sent;
-if every publication fails and there is no text, it keeps the Composer open
-instead of posting an empty message.
+failed stage blocks Send until the member removes that file. A publication
+failure preserves the entire message for retry with the same upload identities,
+including files that already published. Web does not silently omit attachments
+or post a partial or empty message.
 
 After publication, Web submits only server-returned Space File references. A pending
 outgoing message may use a local image preview until the canonical signal with

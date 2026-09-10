@@ -41,6 +41,15 @@ import {
 } from "@testing-library/react";
 import { type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// These submission tests start with an empty draft store; browser reload
+// persistence is outside this component/API integration boundary.
+vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	readComposerFileDrafts: async () => [],
+	removeComposerFileDraft: async () => undefined,
+	saveComposerFileDraft: async () => undefined,
+}));
+
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
@@ -13307,6 +13316,8 @@ describe("SpaceLanding", () => {
 				bytes: expect.any(File),
 				mimeType: "image/png",
 				name: "picnic.png",
+				onProgress: expect.any(Function),
+				signal: expect.any(AbortSignal),
 				spaceId: "space-123",
 				uploadId: expect.any(String),
 			});

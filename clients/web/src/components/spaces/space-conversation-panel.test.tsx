@@ -2130,7 +2130,7 @@ describe("SpaceConversationPanel", () => {
 		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
 	});
 
-	it("sends the text while excluding a failed file", async () => {
+	it("preserves the message until a failed file is removed", () => {
 		const onSend = vi.fn(async () => undefined);
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
@@ -2141,12 +2141,12 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+			screen.getByText("Remove the failed file to continue.")
 		).toBeTruthy();
 		const sendButton = screen.getByRole("button", { name: "Send message" });
-		expect(sendButton).toHaveProperty("disabled", false);
+		expect(sendButton).toHaveProperty("disabled", true);
 		fireEvent.click(sendButton);
-		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
+		expect(onSend).not.toHaveBeenCalled();
 	});
 
 	it("opens an upward Files menu from the composer plus button", async () => {
