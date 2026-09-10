@@ -33,6 +33,8 @@ import type { SpaceMentionPickerItem } from "./use-space-mention-authoring";
 
 type Message = SpaceMessageMutationResponse["message"];
 type EditingContext = {
+	actionContainer: HTMLDivElement | null;
+	setActionContainer: (container: HTMLDivElement | null) => void;
 	selfProfileId: string;
 	orgSlug: string;
 	mentionPickerItems: readonly SpaceMentionPickerItem[];
@@ -87,6 +89,9 @@ export function SpaceMessageEditingScope(input: {
 	children: ReactNode;
 }) {
 	const [edit, setEdit] = useState<SpaceTimelineItem | null>(null);
+	const [actionContainer, setActionContainer] = useState<HTMLDivElement | null>(
+		null
+	);
 	const [recommendedProfileId, setRecommendedProfileId] = useState<
 		string | null
 	>(null);
@@ -203,6 +208,8 @@ export function SpaceMessageEditingScope(input: {
 	}
 	const value: EditingContext = {
 		selfProfileId: input.readOnly ? "" : input.selfProfileId,
+		actionContainer,
+		setActionContainer,
 		orgSlug: input.orgSlug ?? "",
 		mentionPickerItems: input.mentionPickerItems ?? [],
 		recommendedProfileId,

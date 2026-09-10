@@ -2,6 +2,7 @@ import type { MessageEnvelope } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { PaperclipIcon, XIcon } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { isSpaceComposerFileInProgress } from "#/lib/spaces/composer-attachment";
@@ -348,85 +349,98 @@ function InlineEditor({
 					onRemove={files.removeFile}
 				/>
 			</div>
-			<div className="mt-1 flex flex-wrap items-center gap-1">
-				<input
-					aria-label="Add files to edited message"
-					className="sr-only"
-					multiple
-					onChange={(event) => {
-						fileInput.addFiles(Array.from(event.target.files ?? []));
-						event.target.value = "";
-					}}
-					ref={fileInputRef}
-					type="file"
-				/>
-				<Button
-					aria-label="Add files"
-					disabled={busy}
-					onClick={() => fileInputRef.current?.click()}
-					size="icon-sm"
-					variant="ghost"
-				>
-					<PaperclipIcon />
-				</Button>
-				{(item.files ?? [])
-					.filter((file) => fileIds.includes(file.fileId))
-					.map((file) => (
-						<Button
-							disabled={busy}
-							key={file.fileId}
-							onClick={() =>
-								setFileIds((ids) => ids.filter((id) => id !== file.fileId))
-							}
-							size="sm"
-							variant="ghost"
-						>
-							Remove {file.name}
-							<XIcon />
-						</Button>
-					))}
-				{item.attachments
-					.filter((file) => attachmentIds.includes(file.id))
-					.map((file) => (
-						<Button
-							disabled={busy}
-							key={file.id}
-							onClick={() =>
-								setAttachmentIds((ids) => ids.filter((id) => id !== file.id))
-							}
-							size="sm"
-							variant="ghost"
-						>
-							Remove {file.fileName ?? "image"}
-							<XIcon />
-						</Button>
-					))}
-				<div className="ml-auto flex gap-1">
-					<Button
-						disabled={busy}
-						onClick={() => {
-							files.clearFiles();
-							editing.cancel();
-						}}
-						size="sm"
-						variant="ghost"
-					>
-						Cancel
-					</Button>
-					<Button
-						disabled={busy || files.files.some(isSpaceComposerFileInProgress)}
-						onClick={save}
-						size="sm"
-					>
-						{busy ? "Saving…" : saveLabel}
-					</Button>
-				</div>
-			</div>
-			{error || editing.error ? (
-				<p className="mt-2 text-destructive text-sm" role="alert">
-					{error ?? editing.error}
-				</p>
-			) : null}
+			{editing.actionContainer
+				? createPortal(
+						<>
+							<div className="mt-1 flex flex-wrap items-center justify-end gap-1">
+								<input
+									aria-label="Add files to edited message"
+									className="sr-only"
+									multiple
+									onChange={(event) => {
+										fileInput.addFiles(Array.from(event.target.files ?? []));
+										event.target.value = "";
+									}}
+									ref={fileInputRef}
+									type="file"
+								/>
+								<Button
+									aria-label="Add files"
+									disabled={busy}
+									onClick={() => fileInputRef.current?.click()}
+									size="icon-sm"
+									variant="ghost"
+								>
+									<PaperclipIcon />
+								</Button>
+								{(item.files ?? [])
+									.filter((file) => fileIds.includes(file.fileId))
+									.map((file) => (
+										<Button
+											disabled={busy}
+											key={file.fileId}
+											onClick={() =>
+												setFileIds((ids) =>
+													ids.filter((id) => id !== file.fileId)
+												)
+											}
+											size="sm"
+											variant="ghost"
+										>
+											Remove {file.name}
+											<XIcon />
+										</Button>
+									))}
+								{item.attachments
+									.filter((file) => attachmentIds.includes(file.id))
+									.map((file) => (
+										<Button
+											disabled={busy}
+											key={file.id}
+											onClick={() =>
+												setAttachmentIds((ids) =>
+													ids.filter((id) => id !== file.id)
+												)
+											}
+											size="sm"
+											variant="ghost"
+										>
+											Remove {file.fileName ?? "image"}
+											<XIcon />
+										</Button>
+									))}
+								<div className="flex shrink-0 gap-1">
+									<Button
+										disabled={busy}
+										onClick={() => {
+											files.clearFiles();
+											editing.cancel();
+										}}
+										size="sm"
+										variant="ghost"
+									>
+										Cancel
+									</Button>
+									<Button
+										disabled={
+											busy || files.files.some(isSpaceComposerFileInProgress)
+										}
+										onClick={save}
+										size="sm"
+									>
+										{busy ? "Saving…" : saveLabel}
+									</Button>
+								</div>
+							</div>
+							{error || editing.error ? (
+								<p className="mt-2 text-destructive text-sm" role="alert">
+									{error ?? editing.error}
+								</p>
+							) : null}
+						</>,
+						editing.actionContainer
+					)
+				: null}
 		</div>
 	);
 }

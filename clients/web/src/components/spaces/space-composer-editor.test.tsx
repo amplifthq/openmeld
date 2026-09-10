@@ -52,10 +52,13 @@ const INLINE_MESSAGE = {
 function InlineRecommendationHarness() {
 	const editing = useSpaceMessageEditing();
 	return editing?.edit ? (
-		<SpaceInlineMessageEditor
-			bodySize={{ width: 500, height: 30 }}
-			item={INLINE_MESSAGE}
-		/>
+		<>
+			<SpaceInlineMessageEditor
+				bodySize={{ width: 500, height: 30 }}
+				item={INLINE_MESSAGE}
+			/>
+			<div ref={editing.setActionContainer} />
+		</>
 	) : (
 		<button
 			onClick={() => editing?.beginEdit(INLINE_MESSAGE, AGENT_PROFILE_ID)}

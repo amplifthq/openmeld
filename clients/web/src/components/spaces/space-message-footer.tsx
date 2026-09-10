@@ -141,11 +141,17 @@ export function SpaceMessageFooter(
 		input.item.deliveryState === "sent"
 			? input.item
 			: null;
-	if (
-		input.item?.recalledAt ||
-		(input.item?.id && editing?.edit?.id === input.item.id)
-	) {
+	if (input.item?.recalledAt) {
 		return null;
+	}
+	if (input.item?.id && editing?.edit?.id === input.item.id) {
+		return (
+			<div
+				className="w-full min-w-0"
+				data-slot="message-edit-actions"
+				ref={editing.setActionContainer}
+			/>
+		);
 	}
 	return (
 		<>
