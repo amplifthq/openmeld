@@ -837,10 +837,11 @@ export const listDispatchOutboxRecordsBySourceSignalId = (
       `
         SELECT payload_json, status, created_at_ms, queued_at_ms
         FROM openMeldDaemon_outbox
-        WHERE status IN (?, ?, ?)
+        WHERE source_event_id = ? AND status IN (?, ?, ?)
         ORDER BY created_at_ms DESC
         LIMIT ?
       `,
+      normalizedSourceSignalId,
       OPENMELD_DAEMON_OUTBOX_STATUS_PENDING,
       PERSISTED_OUTBOX_STATUS_QUEUED,
       OPENMELD_DAEMON_OUTBOX_STATUS_CANCELLED,

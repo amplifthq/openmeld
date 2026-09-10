@@ -4,6 +4,10 @@ import type { SpaceMessageMutationBody } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it } from "vitest";
 import { readSpaceUpdatesUseCase } from "../src/space/application/space-updates-service";
 import {
+  createDispatchOutboxRecord,
+  listDispatchOutboxRecordsBySourceSignalId,
+} from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
+import {
   completeRecalledMessageRepost,
   mutateSpaceMessage,
 } from "../src/space/infrastructure/sql/space-message-mutation-repo";
@@ -87,6 +91,47 @@ function fixture() {
 }
 
 describe("message editing and recall", () => {
+  it("finds an old message's Wake even after more than 500 newer dispatches", () => {
+    const f = fixture();
+    f.db.exec(
+      "CREATE TABLE openMeldDaemon_outbox (source_event_id TEXT, payload_json TEXT, status TEXT, created_at_ms INTEGER, queued_at_ms INTEGER)"
+    );
+    const record = createDispatchOutboxRecord({
+      bindingEnabled: true,
+      bindingState: "bound",
+      dispatchPolicy: "mention_only",
+      spaceId: "space-1",
+      sourceEventId: "message-1",
+      senderProfileId: "human-1",
+      sourceSignalSnapshot: {
+        text: "@Alex Deploy A",
+        profileId: "human-1",
+        profileKind: "human",
+      },
+      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      ruleSource: "registry",
+      ruleId: "registry.default.all_members.v1",
+      ruleReason: "explicit Wake",
+      nowMs: 100,
+    });
+    const insert = f.db.prepare(
+      "INSERT INTO openMeldDaemon_outbox VALUES (?, ?, 'queued', ?, 100)"
+    );
+    insert.run("message-1", record.payloadJson, 100);
+    for (let index = 0; index < 501; index++) {
+      insert.run(`newer-${index}`, record.payloadJson, 200 + index);
+    }
+    const records = listDispatchOutboxRecordsBySourceSignalId(
+      f.sql,
+      "message-1"
+    );
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      sourceEventId: "message-1",
+      outboxStatus: "handed_off",
+    });
+  });
+
   it("adds the first Wake in place and never rearms it through later edits", () => {
     const f = fixture();
     const envelope = {
