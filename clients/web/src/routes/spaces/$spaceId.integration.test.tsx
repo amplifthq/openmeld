@@ -940,7 +940,7 @@ describe("PublicSpacePage", () => {
 
 		expect(await screen.findByText("Shared Roadmap")).not.toBeNull();
 		expect(screen.getByRole("tab", { name: "Messages" })).not.toBeNull();
-		expect(screen.getByRole("tab", { name: "Graph" })).not.toBeNull();
+		expect(screen.queryByRole("tab", { name: "Graph" })).toBeNull();
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Create a Profile" })
 		);

@@ -266,14 +266,21 @@ The Web shell is a stable two-layer composition built from the shared
   surface, and owned only by route families that need contextual navigation.
   Center Agent does not own one. Spaces, Direct Messages, and People
   render their contextual lists in the Main Sidebar below the fixed primary
-  navigation. Only that contextual region scrolls. Space groups appear between
+  navigation. Spaces and Direct messages now share one Conversations list in
+  that region. Grouped is the default; Recent keeps the same Pinned rows and
+  orders other conversations by message time. Both views share row presentation
+  and destinations. The view is a browser preference scoped to account and
+  Organization; it neither navigates nor remounts the conversation pane.
+  Only that contextual region scrolls. Space groups appear between
   Pinned and Spaces; their section actions create Spaces/groups and select
-  Priority, Recently added, or Manual order independently. All three section
-  kinds use the same Priority ranking: human input, unread messages, active
+  Priority, Recent activity, or Manual order independently. Unpinned sections
+  use the same Priority ranking: human input, unread messages, active
   work, then idle Spaces, with recent activity breaking ties. Opening a Space must not promote it
-  merely because its visit timestamp changed. Recently added uses pin time for
-  Pinned and creation time for ordinary Spaces. Dragging the whole row changes manual order
-  within or across Pinned, custom groups, and ordinary Spaces. Crossing the
+  merely because its visit timestamp changed. The shared Pinned section keeps
+  manual order across both conversation kinds. Recent uses message time and
+  leaves conversations without messages last. Dragging the whole row changes manual order
+  within Pinned or across groups belonging to the same conversation kind.
+  Crossing the
   Pinned boundary uses the same Account Space pin mutation as the row control;
   a failed pin mutation must not save a new group placement. Custom groups can
   be renamed inline from section settings (Enter or blur saves; Escape cancels).

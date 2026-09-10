@@ -23,7 +23,7 @@ import type { AppShellSection } from "./shell-layout";
 vi.mock("./app-command-center", () => ({ AppCommandCenter: () => null }));
 
 const BETA_ORGANIZATION_NAME_PATTERN = /Beta/;
-const CHAT_ATTENTION_LABEL = /Chats, Needs action, 106/;
+const CHAT_ATTENTION_LABEL = /Direct messages, Needs action, 106/;
 const navigateMock = vi.fn();
 const routerInvalidateMock = vi.fn();
 const useAccountAvatarMock = vi.hoisted(() => vi.fn());
@@ -219,7 +219,7 @@ const PRIMARY_RAIL_LABELS = [
 	"New Agent",
 	"Center Agent",
 	"Spaces",
-	"Chats",
+	"Direct messages",
 	"Team",
 ] as const;
 
@@ -409,7 +409,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier: "expanded", width: "9rem" });
 
 		const directMessagesLink = screen.getByRole("link", {
-			name: "Chats",
+			name: "Direct messages",
 		});
 		const centerTruncatedLabel = directMessagesLink.querySelector<HTMLElement>(
 			'[data-slot="center-truncated-text"]'
@@ -420,12 +420,12 @@ describe("AppOuterRail", () => {
 			centerTruncatedLabel?.querySelector(
 				'[data-slot="center-truncated-text-start"]'
 			)?.textContent
-		).toBe("Cha");
+		).toBe("Direct m");
 		expect(
 			centerTruncatedLabel?.querySelector(
 				'[data-slot="center-truncated-text-end"]'
 			)?.textContent
-		).toBe("ts");
+		).toBe("essages");
 		expect(directMessagesLink.querySelector("span.truncate")).toBeNull();
 	});
 
@@ -463,7 +463,7 @@ describe("AppOuterRail", () => {
 			"New Agent",
 			"Center Agent",
 			"Spaces",
-			"Chats",
+			"Direct messages",
 			"Team",
 			"Settings",
 		]) {
@@ -507,7 +507,7 @@ describe("AppOuterRail", () => {
 		renderRail();
 
 		const directMessagesLink = screen.getByRole("link", {
-			name: "Chats",
+			name: "Direct messages",
 		});
 		expect(directMessagesLink.getAttribute("href")).toBe("/o/acme/chats");
 	});
@@ -552,7 +552,7 @@ describe("AppOuterRail", () => {
 		expect(screen.getByRole("link", { name: "Center Agent" })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Chats" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Direct messages" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
 	});
 

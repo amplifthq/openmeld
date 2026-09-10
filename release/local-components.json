@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-10T11:38:57.960Z",
+  "updatedAt": "2026-09-10T12:09:31.086Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-organization-agent-ownership-v1",
       "packageVersion": "0.3.197",
-      "updatePolicy": "required",
-      "reason": "Update file-reference readers before enabling 250 MiB Space uploads."
+      "updatePolicy": "available",
+      "reason": "Existing CLI commands remain compatible; trace guidance now reflects already-supported access and readiness waits without changing requests or recovery authority."
     },
     "service": {
-      "bundleHash": "21d273c6aadd891b7e6fa60e95e158ebb3eb1e2e2f300efe314b85233634838c",
+      "bundleHash": "63201b0d948b4faf9f41c0cfba2ab85324d13a4472d47c81431d820ededc0bc7",
       "bundleVersion": "0.3.197",
-      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-large-space-files-v1",
-      "updatePolicy": "required",
-      "reason": "Update file-reference readers before enabling 250 MiB Space uploads."
+      "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
+      "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
+      "updatePolicy": "available",
+      "reason": "Shared schemas add optional channel metadata while existing Service setup, Wake execution, Space actions, and diagnostics remain compatible with old and new cloud."
     },
     "skills": {
       "bundleHash": "83d47e75112123a73fd0379632148d4577081f0b1efd7ac10a1301999fb73d12",

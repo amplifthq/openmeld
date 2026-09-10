@@ -109,7 +109,7 @@ export function buildAppRailGroups(input: {
 				},
 				{
 					id: "directMessages",
-					label: "Chats",
+					label: "Direct messages",
 					onIntentPrefetch: input.prefetchCenterAgentConversation,
 					unreadCount: input.chatUnreadCount,
 					attentionTone: input.chatAttentionTone,
