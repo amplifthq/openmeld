@@ -19,7 +19,6 @@ jobs:
     timeout-minutes: 20
     env:
       OPENMELD_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
-      OPENMELD_HOME: ${{ runner.temp }}/openmeld-pr-feedback
       NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - uses: actions/checkout@v5
@@ -30,4 +29,6 @@ jobs:
       - name: Show selected checks
         run: pnpm run verify:pr -- --plan
       - name: Run early feedback
+        env:
+          OPENMELD_HOME: ${{ runner.temp }}/openmeld-pr-feedback
         run: pnpm run verify:pr
