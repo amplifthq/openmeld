@@ -12,6 +12,10 @@ export type {
 export type OpenMeldSchemaVersion =
   typeof import("../schemas/index")["OPENMELD_SCHEMA_VERSION"];
 
+export type {
+  SpaceFileUpdateSettings,
+  SpaceFileUpdateSettingsCommand,
+} from "../schemas/http/space-file-update-settings";
 export type * from "./agent-controller-collaboration-mode";
 export type * from "./agent-controller-permission-mode";
 export type * from "./agent-view/index";

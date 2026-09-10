@@ -23,7 +23,7 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 	it("continues a thread visibly, freezes an active draft, and respects removing its recipient", () => {
 		const agentA = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 		const agentB = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-		let target = agentA;
+		let target: string | null = agentA;
 		const snapshot = createSpaceMembersSnapshot({
 			agents: [
 				createSpaceMemberAgentSnapshot({
@@ -56,10 +56,16 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 			})
 		);
 		expect(composer.result.current.composerText).toBe("@Alpha ");
+		target = null;
+		composer.rerender();
+		expect(composer.result.current.composerText).toBe("");
+		target = agentA;
+		composer.rerender();
+		expect(composer.result.current.composerText).toBe("@Alpha ");
 		act(() =>
 			composer.result.current.onComposerEditorChange({
 				text: "@Alpha Please explain",
-				authoredMentions: composer.result.current.authoredMentions,
+				authoredMentions: [...composer.result.current.authoredMentions],
 				selection: { start: 21, end: 21 },
 			})
 		);

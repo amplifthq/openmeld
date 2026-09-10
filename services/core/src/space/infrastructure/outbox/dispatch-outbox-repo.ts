@@ -161,6 +161,7 @@ export const createDispatchOutboxRecord = (input: {
   });
   const sourceSignalSnapshot = buildSourceSignalSnapshot({
     quotedMessage: input.sourceSignalSnapshot.quotedMessage,
+    pinnedFiles: input.sourceSignalSnapshot.pinnedFiles,
     attachments: input.sourceSignalSnapshot.attachments,
     files: input.sourceSignalSnapshot.files,
     centerAgentInteractionSource:
@@ -283,6 +284,7 @@ const resolveDispatchChainContextForOutbox = (input: {
 
 const buildSourceSignalSnapshot = (input: {
   quotedMessage?: DispatchSourceSignalSnapshotInput["quotedMessage"];
+  pinnedFiles?: DispatchSourceSignalSnapshotInput["pinnedFiles"];
   attachments?: NonNullable<
     OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
   >["attachments"];
@@ -302,6 +304,7 @@ const buildSourceSignalSnapshot = (input: {
   );
   return {
     ...(input.quotedMessage ? { quotedMessage: input.quotedMessage } : {}),
+    ...(input.pinnedFiles?.length ? { pinnedFiles: input.pinnedFiles } : {}),
     ...(input.attachments && input.attachments.length > 0
       ? { attachments: input.attachments }
       : {}),

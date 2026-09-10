@@ -19181,6 +19181,23 @@ export async function rpcSpaceFileUpload(
   });
 }
 
+export async function rpcSpaceFileUpdateSettings(
+  env: CoreBindings,
+  input: SpaceAttachmentAccessInput & {
+    fileId: string;
+    command: import("@openmeld/schemas/types").SpaceFileUpdateSettingsCommand;
+  }
+): Promise<import("@openmeld/schemas/types").SpaceFileUpdateSettings> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcSpaceFileUpdateSettings({
+    spaceId,
+    spaceAccess,
+    fileId: input.fileId,
+    command: input.command,
+  });
+}
+
 export async function rpcListSpaceFiles(
   env: CoreBindings,
   input: ListSpaceFilesInput

@@ -12,6 +12,7 @@ import {
   executeSpaceExecutionRecovery,
   inspectSpaceExecutionRecovery,
 } from "./execution-recovery";
+import { spaceFileUpdateSettings } from "./file-update-settings";
 import {
   createSpaceFolder,
   discardSpaceComposerUpload,
@@ -84,6 +85,8 @@ export const createSpaceApi: CreateSpaceApi = (
       await uploadSpaceAttachment(client, input),
     listFiles: async (input) => await listSpaceFiles(client, input),
     getFile: async (input) => await getSpaceFile(client, input),
+    fileUpdateSettings: async (input) =>
+      await spaceFileUpdateSettings(client, input),
     listFileRevisions: async (input) =>
       await listSpaceFileRevisions(client, input),
     createFolder: async (input) => await createSpaceFolder(client, input),

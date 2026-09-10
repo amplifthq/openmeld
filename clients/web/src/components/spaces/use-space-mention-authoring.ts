@@ -108,7 +108,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 	useEffect(() => {
 		if (
 			input.composerDraftScope?.kind !== "space_thread" ||
-			!input.threadWakeContinuationProfileId
+			input.threadWakeContinuationProfileId === undefined
 		) {
 			return;
 		}
@@ -123,6 +123,17 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			return;
 		}
 		if (previousId === input.threadWakeContinuationProfileId) {
+			return;
+		}
+		if (input.threadWakeContinuationProfileId === null) {
+			if (previousId) {
+				composerDraft.setContent((draft) => ({
+					...draft,
+					text: "",
+					authoredMentions: [],
+					threadWakeContinuationProfileId: undefined,
+				}));
+			}
 			return;
 		}
 		const mention = resolveReplyWakeMention({

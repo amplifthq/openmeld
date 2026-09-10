@@ -54,6 +54,7 @@ import {
   listSignalsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
   MENTION_DISPATCH_ERROR_CODES,
+  normalizeMessageEnvelope,
   normalizeSpaceCursorPatch,
   openMeldDaemonTaskResultEnvelopeSchema,
   parseOptionalClientMessageId,
@@ -108,6 +109,7 @@ import {
   spaceFileEntryIdSchema,
   spaceFilePinMutationSchema,
   spaceFilePinsResponseSchema,
+  spaceFileUpdateSettingsCommandSchema,
   spaceHistoryNavigationQuerySchema,
   spaceInvitationAccessInputSchema,
   spaceInvitationGrantInputSchema,
@@ -585,6 +587,7 @@ import {
   SpaceFileRepository,
   SpaceFileRepositoryError,
 } from "../../infrastructure/sql/space-file-repo";
+import { SpaceFileUpdateRepository } from "../../infrastructure/sql/space-file-update-repo";
 import { readSpaceHistoryNavigationGroups } from "../../infrastructure/sql/space-history-navigation-repo";
 import {
   insertSpaceInboxProjectionOutboxRecord,
@@ -1100,6 +1103,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
   >;
   recentSignals: SignalEnvelope[];
   quotedMessage?: DispatchSourceSignalSnapshotInput["quotedMessage"];
+  pinnedFiles?: DispatchSourceSignalSnapshotInput["pinnedFiles"];
   sourceText: string;
   senderProfileId: string;
   sourceEventId: string;
@@ -1156,6 +1160,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     senderProfileId: input.senderProfileId,
     sourceSignalSnapshot: buildDispatchSourceSignalSnapshot({
       quotedMessage: input.quotedMessage,
+      pinnedFiles: input.pinnedFiles,
       signal: input.signal,
       sourceText: directMessageSourceText,
       normalizedSourceText,
@@ -1271,6 +1276,7 @@ function resolveDispatchReplyStalenessMeta(input: {
 
 function buildDispatchSourceSignalSnapshot(input: {
   quotedMessage?: DispatchSourceSignalSnapshotInput["quotedMessage"];
+  pinnedFiles?: DispatchSourceSignalSnapshotInput["pinnedFiles"];
   signal: SignalEnvelope;
   sourceText: string;
   normalizedSourceText: string;
@@ -1294,6 +1300,7 @@ function buildDispatchSourceSignalSnapshot(input: {
         : input.sourceText,
     profileId: input.senderProfileId,
     ...(input.quotedMessage ? { quotedMessage: input.quotedMessage } : {}),
+    ...(input.pinnedFiles?.length ? { pinnedFiles: input.pinnedFiles } : {}),
     profileKind: input.signal.profile.kind,
     ...(centerAgentInteractionSource ? { centerAgentInteractionSource } : {}),
     profileMentionLabel:
@@ -2464,6 +2471,9 @@ export class Space extends DurableObject<CoreBindings> {
     await this.runIsolatedAlarmStep("space_inbox_projection_outbox", () =>
       this.flushPendingSpaceInboxProjectionOutbox()
     );
+    await this.runIsolatedAlarmStep("space_file_update_outbox", () =>
+      this.flushFileUpdateNotifications()
+    );
     await this.runIsolatedAlarmStep("dispatch_outbox_queue", () =>
       this.flushPendingDispatchOutbox()
     );
@@ -2647,6 +2657,198 @@ export class Space extends DurableObject<CoreBindings> {
     return this.runSpaceFileRepositoryOperation(() =>
       this.spaceFileRepository.getFile(input.fileId)
     );
+  }
+
+  async rpcSpaceFileUpdateSettings(input: {
+    fileId: string;
+    spaceId: string;
+    spaceAccess: SpaceAccessContext;
+    command: import("@openmeld/schemas/types").SpaceFileUpdateSettingsCommand;
+  }): Promise<import("@openmeld/schemas/types").SpaceFileUpdateSettings> {
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.getFile(input.fileId)
+    );
+    const parsed = spaceFileUpdateSettingsCommandSchema.safeParse(
+      input.command
+    );
+    if (!parsed.success) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        code: "invalid_payload",
+        reason: "Invalid file update settings.",
+      });
+    }
+    const repository = new SpaceFileUpdateRepository(this.ctx.storage.sql);
+    if (parsed.data.action === "read") {
+      return repository.read(input.fileId);
+    }
+    const requestActor = getSpaceAccessRequestContext(
+      input.spaceAccess
+    )?.actorContext;
+    if (
+      actor.profileKind !== "human" ||
+      !actor.ownerUserId ||
+      requestActor?.profileKind !== "human" ||
+      requestActor.ownerUserId !== actor.ownerUserId
+    ) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space_file.human_required",
+        reason: "A human Space member must choose update recipients.",
+      });
+    }
+    const command = parsed.data;
+    for (const profileId of command.recipientProfileIds) {
+      const member = readSpaceMemberRecord(this.ctx.storage.sql, profileId);
+      if (
+        member?.status !== "active" ||
+        !["human", "agent"].includes(member.profileKindSnapshot)
+      ) {
+        throw createCoreRpcHttpError({
+          status: 400,
+          code: "space_file.recipient_unavailable",
+          reason: "Choose current Space members as update recipients.",
+        });
+      }
+    }
+    const result = this.ctx.storage.transactionSync(() =>
+      repository.configure({
+        fileId: input.fileId,
+        actor,
+        baseVersion: command.baseVersion,
+        recipientProfileIds: command.recipientProfileIds,
+      })
+    );
+    if (!result) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "space_file.settings_conflict",
+        reason: "Someone changed these settings. Reopen them before saving.",
+      });
+    }
+    return result;
+  }
+
+  private async flushFileUpdateNotifications(): Promise<void> {
+    const repository = new SpaceFileUpdateRepository(this.ctx.storage.sql);
+    for (const pending of repository.pending(Date.now())) {
+      try {
+        await this.publishFileUpdateNotification(pending, repository);
+        repository.complete(pending.id);
+      } catch (error) {
+        repository.retry(
+          pending.id,
+          Date.now(),
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    }
+  }
+
+  private async publishFileUpdateNotification(
+    pending: ReturnType<SpaceFileUpdateRepository["pending"]>[number],
+    repository: SpaceFileUpdateRepository
+  ): Promise<void> {
+    if (this.readSourceTextSignalByClientMessageId(pending.id)) {
+      return;
+    }
+    const settings = repository.read(pending.fileId);
+    const actor = pending.settings.configuredBy;
+    const member = actor
+      ? readSpaceMemberRecord(this.ctx.storage.sql, actor.profileId)
+      : null;
+    if (
+      !actor?.ownerUserId ||
+      member?.status !== "active" ||
+      member.ownerUserIdSnapshot !== actor.ownerUserId ||
+      settings.configuredBy?.profileId !== actor.profileId ||
+      settings.version !== pending.settings.version
+    ) {
+      return;
+    }
+    const access = await this.authorizeWritableSpaceAccess(
+      createAuthenticatedSpaceAccessContext({
+        spaceId: this.spaceId,
+        requestContext: {
+          actorContext: {
+            requestId: pending.id,
+            openMeldProfileId: actor.profileId,
+            ownerUserId: actor.ownerUserId,
+            profileKind: "human",
+          },
+        },
+      })
+    );
+    if (!access.ok) {
+      if (access.response.status >= 500) {
+        throw new Error("File update notification access is unavailable.");
+      }
+      return;
+    }
+    const recipients = pending.settings.recipientProfileIds
+      .filter((id) => settings.recipientProfileIds.includes(id))
+      .flatMap((id) => {
+        const target = readSpaceMemberRecord(this.ctx.storage.sql, id);
+        return target?.status === "active" ? [target] : [];
+      });
+    if (!recipients.length) {
+      return;
+    }
+    let file: SpaceFileDescriptor;
+    try {
+      file = this.spaceFileRepository.getFile(pending.fileId);
+    } catch (error) {
+      if (
+        error instanceof SpaceFileRepositoryError &&
+        error.code === "space_file.not_found"
+      ) {
+        return;
+      }
+      throw error;
+    }
+    const { revision } = this.spaceFileRepository.resolveRevision({
+      fileId: pending.fileId,
+      revision: pending.revision,
+    });
+    const text = `${file.name} was updated to version ${pending.revision}. Review the new version before using it in related work. This automatic notice does not request another edit or additional Wakes.`;
+    const signal = this.buildTextSignal(
+      {
+        kind: "human",
+        profileId: actor.profileId,
+        profileName: member.profileNameSnapshot,
+      },
+      text,
+      {
+        files: [
+          {
+            fileId: file.id,
+            name: file.name,
+            revision: pending.revision,
+            mimeType: revision.mimeType,
+            sizeBytes: revision.sizeBytes,
+          },
+        ],
+        messageEnvelope: normalizeMessageEnvelope({
+          text,
+          activationTargets: recipients
+            .filter((target) => target.profileKindSnapshot === "agent")
+            .map((target) => target.profileId),
+          mentionTargets: recipients
+            .filter((target) => target.profileKindSnapshot === "human")
+            .map((target) => target.profileId),
+        }),
+        meta: {
+          clientMessageId: pending.id,
+          purpose: "space_file.updated",
+        },
+      }
+    );
+    await this.publishTextSignal(signal, {
+      authoringPolicy: "user_authored",
+      supportsCurrentSpaceAddressing: true,
+    });
   }
 
   async rpcListSpaceFileRevisions(input: {
@@ -3005,6 +3207,13 @@ export class Space extends DurableObject<CoreBindings> {
       revisionId: write.revisionId,
       spaceAccess: input.spaceAccess,
     });
+    // Arm recovery before committing the revision and its notification intent.
+    // A crash immediately after the transaction must not strand the notice.
+    const alarmAt = Date.now() + 1000;
+    const existingAlarm = await this.ctx.storage.getAlarm();
+    if (existingAlarm === null || existingAlarm > alarmAt) {
+      await this.ctx.storage.setAlarm(alarmAt);
+    }
     const file = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.commitWrite({
         actor,
@@ -3014,6 +3223,7 @@ export class Space extends DurableObject<CoreBindings> {
       })
     );
     await this.broadcastSpaceFilesChanged("space_file.content_committed");
+    await this.syncSpaceBackgroundAlarm();
     return file;
   }
 
@@ -5972,7 +6182,10 @@ export class Space extends DurableObject<CoreBindings> {
       readNextSpaceInboxProjectionOutboxAlarmAtMs(this.ctx.storage.sql, {
         nowMs: Date.now(),
       });
-    const nextDispatchAlarmAtMs = this.resolveNextDispatchOutboxAlarmAtMs();
+    const nextDispatchAlarmAtMs = minNullableTimestamp(
+      this.resolveNextDispatchOutboxAlarmAtMs(),
+      new SpaceFileUpdateRepository(this.ctx.storage.sql).nextAttempt()
+    );
     const nextMemberLivenessAlarmAtMs = readNextMemberProfileLivenessAlarmAtMs(
       this.ctx.storage.sql,
       { minAgeMs: MEMBER_PROFILE_LIVENESS_MIN_AGE_MS }
@@ -15427,10 +15640,20 @@ export class Space extends DurableObject<CoreBindings> {
           signal: this.readSignalById(quotedSignalId),
         })
       : undefined;
+    const pinnedFiles = this.readFilePins()
+      .pins.slice(0, 100)
+      .map(({ file }) => ({
+        fileId: file.id,
+        name: file.name,
+        revision: file.latestRevision.revision,
+        mimeType: file.latestRevision.mimeType,
+        sizeBytes: file.latestRevision.sizeBytes,
+      }));
     for (const decision of mergedReadyDecisions) {
       outboxRecords.push(
         createPreparedDispatchOutboxRecordForDecision({
           quotedMessage,
+          pinnedFiles,
           spaceId: this.spaceId,
           organizationId: spaceMeta.organizationId,
           ownerCreatorProfileIdsByOwnerUserId:

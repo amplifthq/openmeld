@@ -1,6 +1,9 @@
 "use client";
 
+import { isSpaceFileTextEditable } from "@openmeld/schemas";
 import type { SpaceFileDescriptor } from "@openmeld/schemas/types";
+import { useState } from "react";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SpaceFileBrowser } from "./space-file-browser";
 import { SpaceFileDetail } from "./space-file-detail";
 import {
@@ -8,12 +11,18 @@ import {
 	NewMarkdownFileDialog,
 	SpaceFileEntryDialogs,
 } from "./space-file-dialogs";
+import { SpaceFileMaintenanceDialog } from "./space-file-maintenance-dialog";
+import { SpaceFileUpdateSettingsDialog } from "./space-file-update-settings-dialog";
 import {
 	type SpaceFilesPanelProps,
 	useSpaceFilesPanelController,
 } from "./use-space-files-panel-controller";
 
 export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
+	const organization = useOptionalAppOrganization();
+	const [collaborationDialog, setCollaborationDialog] = useState<
+		"notifications" | "maintenance" | null
+	>(null);
 	const {
 		actionError,
 		api,
@@ -61,15 +70,41 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 						refreshFiles().catch(() => undefined);
 					}}
 					onLeaveGuardChange={input.onLeaveGuardChange}
+					onMaintain={
+						organization && isSpaceFileTextEditable(selectedFile.latestRevision)
+							? () => setCollaborationDialog("maintenance")
+							: undefined
+					}
 					onMove={() => setEntryDialog({ entry: selectedFile, kind: "move" })}
 					onRename={() =>
 						setEntryDialog({ entry: selectedFile, kind: "rename" })
 					}
 					onTrash={() => setEntryDialog({ entry: selectedFile, kind: "trash" })}
+					onUpdateSettings={() => setCollaborationDialog("notifications")}
 					openMeldProfileId={input.openMeldProfileId}
 					organizationSlug={input.organizationSlug}
 					spaceId={input.spaceId}
 				/>
+				{collaborationDialog === "notifications" ? (
+					<SpaceFileUpdateSettingsDialog
+						api={api}
+						file={selectedFile}
+						key={selectedFile.id}
+						onClose={() => setCollaborationDialog(null)}
+						profileId={input.openMeldProfileId}
+						spaceId={input.spaceId}
+					/>
+				) : null}
+				{collaborationDialog === "maintenance" && organization ? (
+					<SpaceFileMaintenanceDialog
+						file={selectedFile}
+						key={selectedFile.id}
+						onClose={() => setCollaborationDialog(null)}
+						organizationId={organization.currentOrganization.id}
+						orgSlug={organization.currentOrganization.slug}
+						spaceId={input.spaceId}
+					/>
+				) : null}
 				<SpaceFileEntryDialogs
 					api={api}
 					dialog={entryDialog}

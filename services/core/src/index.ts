@@ -961,6 +961,7 @@ import {
   rpcSetSpaceAccessMode,
   rpcSetSpaceMessageReaction,
   rpcSpaceFilePins,
+  rpcSpaceFileUpdateSettings,
   rpcSpaceFileUpload,
   rpcSpaceMessagePins,
   rpcStageSpaceComposerUpload,
@@ -1889,6 +1890,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   spaceFileUpload(input: Parameters<typeof rpcSpaceFileUpload>[1]) {
     return rpcSpaceFileUpload(this.env, input);
+  }
+  spaceFileUpdateSettings(
+    input: Parameters<typeof rpcSpaceFileUpdateSettings>[1]
+  ) {
+    return rpcSpaceFileUpdateSettings(this.env, input);
   }
 
   stageSpaceComposerUpload(input: StageSpaceComposerUploadRpcInput) {

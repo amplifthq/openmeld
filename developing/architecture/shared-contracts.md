@@ -43,6 +43,33 @@ requires Core and Gateway before Web; no local component upgrade is required.
 
 ## Boundary
 
+### Thread continuation and file working context
+
+Space owns retained quoted-message lookup and the last explicit human thread
+Wake. Thread readers opt into `includeWakeContinuation=true`; only these readers
+receive the optional `wakeContinuation` projection. Web displays a removable
+concrete recipient and sends ordinary explicit activation targets. The optional
+`threadWakeContinuation` marker prevents automatic follow-ups from changing the
+last human selection. A server must not add recipients to legacy plain-text
+messages. Older receivers that omit the projection leave automatic composition
+disabled.
+
+Internal dispatch snapshots may carry quoted-message context and pinned-file
+metadata. `@openmeld/space` renders these consistently for native and workstation
+delivery. Core flattens them into the existing text field and removes the new
+fields before the Service transport boundary, preserving installed strict
+Service readers. Reply placement and RuntimeCoordinator execution ownership do
+not change.
+
+File update settings use an additive GET/PATCH endpoint with shared strict
+schemas. Space SQLite owns versioned consent and the revision notification
+outbox; the existing message publication, Inbox, and Wake paths own delivery.
+Core and Gateway must precede Web. Existing file descriptors and write requests
+remain unchanged, as do CLI, Service, Skills, setup, and diagnostics contracts.
+File maintenance prefills the existing Routine contract without a new scheduler.
+Rollback the new Web callers before their receivers; no local component release
+or execution-contract epoch bump is required for these additive capabilities.
+
 ### Direct Message conversion member snapshots
 
 The conversion request may opt into `includeMemberSnapshots`. The Space-owned

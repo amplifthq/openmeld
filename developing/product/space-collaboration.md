@@ -410,6 +410,28 @@ bytes remain unchanged and downloadable, including when preview is unavailable.
 CLI and Agent tools expose the same ids, paths, revisions, MIME inference, and
 error codes instead of maintaining a terminal-only filesystem model.
 
+Pinned files remain ordinary Space Files. Wake context includes a bounded
+directory of their current metadata, not another copy of their content. Agents
+must read relevant current content before relying on it or proposing a write.
+
+File update notifications are off by default. An active human member may choose
+current human and Agent members through **Notify on updates**. A committed
+content revision atomically records that configuration's notification intent.
+The Space publishes one deduplicated message referencing the exact revision;
+human recipients use ordinary mentions and Inbox delivery, and selected Agents
+use the normal authorized Wake path. Renames and moves do not notify. Retries
+recheck the configuring human's access and recipient membership. Replacing or
+disabling the configuration cancels its outstanding intent. Notification
+delivery is not evidence that an Agent read or understood the file.
+
+For supported text files, **Maintain with a Routine** opens the existing Routine
+form with the Space and file instructions prefilled. Scheduling, Agent choice,
+permissions, run history, and pause retain the existing Routine owners. The
+instructions require confirmed human decisions, preserved source references,
+current-revision writes, and no save when nothing substantive changed. Ambiguity
+must not be silently converted into an approved decision. This is an ordinary
+Routine, not a separate file synchronization or approval system.
+
 Every Space-shaped conversation uses this same owner, including ordinary
 Spaces, Human Direct Messages, Agent Direct Messages, the Center Agent Direct
 Message, and threads. The shared Composer accepts up to ten files of any

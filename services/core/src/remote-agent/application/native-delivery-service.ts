@@ -632,6 +632,7 @@ function buildRemoteAgentSourceText(
     ? renderDispatchSourceText({
         text: rawText,
         quotedMessage: message.sourceSignalSnapshot?.quotedMessage,
+        pinnedFiles: message.sourceSignalSnapshot?.pinnedFiles,
       })
     : null;
   const files = message.sourceSignalSnapshot?.files ?? [];

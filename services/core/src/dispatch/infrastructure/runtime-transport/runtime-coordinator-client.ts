@@ -238,6 +238,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
       text: renderDispatchSourceText({
         text: input.sourceSignal.text,
         quotedMessage: input.message.sourceSignalSnapshot?.quotedMessage,
+        pinnedFiles: input.message.sourceSignalSnapshot?.pinnedFiles,
       }),
     },
     targetProfileId: input.message.targetProfileId,
@@ -346,12 +347,14 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
   }
   // Preserve the installed Service's strict snapshot shape. Context is rendered
   // into the existing source text at this transport boundary.
-  const { quotedMessage, ...sourceSnapshot } = input.sourceSignalSnapshot;
+  const { quotedMessage, pinnedFiles, ...sourceSnapshot } =
+    input.sourceSignalSnapshot;
   const snapshot = {
     ...sourceSnapshot,
     text: renderDispatchSourceText({
       text: sourceSnapshot.text,
       quotedMessage,
+      pinnedFiles,
     }),
   };
   if (routeSupportsLocalFileImageInput(input)) {

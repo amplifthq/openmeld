@@ -1,5 +1,8 @@
 import * as z from "../../lazy-zod";
-import { spaceMessageFileReferencesSchema } from "../http/space-files";
+import {
+  spaceMessageFileReferenceSchema,
+  spaceMessageFileReferencesSchema,
+} from "../http/space-files";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { spacePasswordSchema } from "../http/space-password";
 import { centerAgentInteractionSourceSchema } from "../protocol/center-agent-interaction-source";
@@ -91,6 +94,7 @@ export const openMeldDaemonDispatchSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonDispatchSourceSignalSnapshotSchema = z.strictObject({
+  pinnedFiles: z.array(spaceMessageFileReferenceSchema).max(100).optional(),
   quotedMessage: z
     .strictObject({
       signalId: z.string().min(1),
