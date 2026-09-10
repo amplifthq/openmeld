@@ -2,6 +2,9 @@ import { defineConfig } from "vitest/config";
 import { OPENMELD_CLI_VITEST_WORKSPACE_ALIASES } from "./vitest.workspace-aliases";
 
 export default defineConfig({
+  // Related-test discovery follows the Bun-only embedded skill imports too.
+  // These files are assets, not JavaScript modules.
+  assetsInclude: ["**/*.md"],
   resolve: {
     alias: OPENMELD_CLI_VITEST_WORKSPACE_ALIASES,
   },
