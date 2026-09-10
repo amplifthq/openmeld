@@ -3259,9 +3259,19 @@ Web renders trusted Agent-authored message bodies as safe Markdown in ordinary
 Spaces, Direct Messages, and threads. This presentation rule is independent of
 whether the message is a durable final Agent reply: the final-reply marker
 continues to gate execution-outcome presentation such as Navigation Actions and
-durable Agent work details. Human-authored message bodies remain plain text.
+durable Agent work details. Human-authored message bodies retain plain-text
+formatting while recognizing bare URLs and labeled Markdown links. External
+HTTP(S) and email links open separately with `noopener noreferrer`; code and raw
+HTML never become automatic link previews.
 The shared safe Markdown renderer strips raw HTML, does not render Markdown
 images, and applies the existing link and internal Space-reference policy.
+
+Durable, unrecalled Space messages share the same link-preview presenter across
+senders and threads. It renders compact cards below the body, enriches visible
+messages asynchronously, and initially shows at most three cards. Missing
+metadata leaves a usable domain link. Editing uses the new message revision;
+recalling removes the previews. Shared `LinkPreviewCard` owns presentation,
+while Web owns message lookup, access context, query caching, and disclosure.
 
 Web owns content typography separately from rendering semantics. The local
 shadcn Typeset stylesheet supplies element rhythm for rendered HTML, while

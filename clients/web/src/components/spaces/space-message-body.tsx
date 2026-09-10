@@ -35,6 +35,7 @@ import { SpaceImagePreview } from "./space-image-preview";
 import { SpaceInlineMessageEditor } from "./space-inline-message-editor";
 import { collapseSpaceMessage } from "./space-message-collapse";
 import { useSpaceMessageEditing } from "./space-message-editing";
+import { SpaceMessageLinkPreviews } from "./space-message-link-previews";
 import {
 	buildSpaceMessageProfileMentionProfiles,
 	createSpaceMessageProfileMentionRemarkPlugin,
@@ -72,12 +73,13 @@ type SpaceMessageBodyProps = {
 				SpaceTimelineItem,
 				| "actorProfileKind"
 				| "id"
+				| "messageRevision"
+				| "deliveryState"
 				| "recalledAt"
 				| "repostedAt"
 				| "editedAt"
 				| "actorProfileId"
 				| "actorName"
-				| "messageRevision"
 				| "attachments"
 				| "files"
 				| "referenceTargetProfileIds"
@@ -379,6 +381,23 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 			edited={Boolean(input.item.editedAt)}
 			files={files}
 			isExpanded={text.isExpanded}
+			linkPreviews={
+				input.item.id &&
+				input.item.spaceId &&
+				input.item.deliveryState === "sent" &&
+				!input.item.recalledAt &&
+				!text.isStreaming ? (
+					<SpaceMessageLinkPreviews
+						api={spaceApi}
+						key={`${input.item.id}:${input.item.messageRevision ?? 0}`}
+						revision={input.item.messageRevision ?? 0}
+						signalId={input.item.id}
+						spaceId={input.item.spaceId}
+						text={input.item.text}
+						viewerKey={`${input.orgSlug ?? "personal"}:${input.openMeldProfileId ?? "viewer"}`}
+					/>
+				) : null
+			}
 			navigationActionContent={navigationActionContent}
 			onOpenSpaceFile={input.onOpenSpaceFile}
 			onToggleExpanded={() => text.setIsExpanded((current) => !current)}
@@ -394,6 +413,7 @@ function SpaceMessageBodyContent(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	attachments: SpaceTimelineItem["attachments"];
 	body: ReactNode;
+	linkPreviews: ReactNode;
 	bodyRef: Ref<HTMLDivElement>;
 	edited: boolean;
 	containerClassName?: string;
@@ -418,6 +438,7 @@ function SpaceMessageBodyContent(input: {
 			style={{ overflowWrap: "anywhere" }}
 		>
 			{input.body}
+			{input.linkPreviews}
 			<SpaceMessageCollapseButton
 				isExpanded={input.isExpanded}
 				onToggle={input.onToggleExpanded}

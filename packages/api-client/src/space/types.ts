@@ -348,6 +348,9 @@ export type SpaceApi = {
       signalId: string;
     }
   ) => Promise<GetSpaceMessageDetailsResponse>;
+  getLinkPreviews: (
+    input: SpaceRequestInput & { signalId: string }
+  ) => Promise<import("@openmeld/schemas").GetSpaceLinkPreviewsResponse>;
   createDiagnosticReport: (
     input: SpaceRequestInput & {
       body: CreateSpaceDiagnosticReportBodyFromSchemas;

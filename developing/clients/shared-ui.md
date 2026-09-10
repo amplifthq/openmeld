@@ -42,6 +42,11 @@ hover or keyboard focus, with open-menu and touch-device visibility preserved.
 
 ## Import Rule
 
+`components/link-preview-card` owns compact link metadata presentation only:
+site, title, bounded description, and optional bounded image. It accepts
+validated data from its consumer and performs no metadata requests or Space
+authorization. Message-specific extraction, caching, and disclosure stay in Web.
+
 `fluid/dialog` adapts the official Fluid Functionalism Base UI Dialog registry
 (September 9, 2026). It owns the small/large/extra-large width ladder and elevated
 surface, while reusing `components/dialog` for portal, focus, dismissal, and CSS

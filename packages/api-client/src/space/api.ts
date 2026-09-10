@@ -32,6 +32,7 @@ import {
 } from "./files";
 import { getSpaceHistoryNavigation } from "./history-navigation";
 import { leaveSpace } from "./leave";
+import { getSpaceLinkPreviews } from "./link-previews";
 import {
   addCenterAgentToSpace,
   addOrganizationDirectoryProfilesToSpace,
@@ -146,6 +147,7 @@ export const createSpaceApi: CreateSpaceApi = (
     setMessageReaction: (input) => setSpaceMessageReaction(client, input),
     getMessageDetails: async (input) =>
       await getSpaceMessageDetails(client, input),
+    getLinkPreviews: (input) => getSpaceLinkPreviews(client, input),
     createDiagnosticReport: async (input) =>
       await createSpaceDiagnosticReport(client, input),
     mutateMessage: (input) => mutateSpaceMessage(client, input),

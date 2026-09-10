@@ -2027,6 +2027,9 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcGetMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse>;
+  rpcGetMessageLinks(
+    input: GetSpaceMessageDetailsInput & { spaceAccess: SpaceAccessContext }
+  ): Promise<import("@openmeld/schemas").SpaceMessageLinks>;
   rpcCreateDiagnosticReport(
     input: CreateSpaceDiagnosticReportInput
   ): Promise<CreateSpaceDiagnosticReportResponse>;
@@ -20629,6 +20632,55 @@ export async function rpcGetSpaceWakeTraceWaterfall(
       : {}),
     ...access,
   });
+}
+
+export async function rpcGetSpaceLinkPreviews(
+  env: CoreBindings,
+  input: GetSpaceMessageDetailsInput
+) {
+  const { getSpaceLinkPreviewsInputSchema, spaceMessageLinksSchema } =
+    await import("@openmeld/schemas");
+  const parsed = getSpaceLinkPreviewsInputSchema.safeParse({
+    spaceId: input.spaceId,
+    signalId: input.signalId,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid message link preview request.",
+    });
+  }
+  const access = resolveRpcSpaceAccessForwarding(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(
+    env,
+    parsed.data.spaceId
+  );
+  const source = spaceMessageLinksSchema.parse(
+    await stub.rpcGetMessageLinks({ ...parsed.data, ...access })
+  );
+  const { readLinkPreview } = await import(
+    "../space/application/link-preview-fetch"
+  );
+  const previews: import("@openmeld/schemas").LinkPreview[] = [];
+  for (let offset = 0; offset < source.urls.length; offset += 3) {
+    previews.push(
+      ...(await Promise.all(
+        source.urls
+          .slice(offset, offset + 3)
+          .map((url) => readLinkPreview(spaceId, url))
+      ))
+    );
+  }
+  // An edit, recall, or access change during external I/O invalidates the result.
+  const current = spaceMessageLinksSchema.parse(
+    await stub.rpcGetMessageLinks({ ...parsed.data, ...access })
+  );
+  return {
+    signalId: source.signalId,
+    revision: current.revision,
+    previews: current.revision === source.revision ? previews : [],
+  };
 }
 
 export async function rpcGetSpaceMessageDetails(
