@@ -2,7 +2,7 @@ import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
 import type { WakeDeviceWait } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ArrowUpIcon } from "@phosphor-icons/react";
+import { ArrowUpIcon, XIcon } from "@phosphor-icons/react";
 import type { ComponentProps, ReactNode } from "react";
 import {
 	PromptInput,
@@ -37,6 +37,7 @@ import {
 	type SpaceComposerEditorChange,
 	type SpaceComposerInputRef,
 } from "./space-composer-editor";
+import { useSpaceWakeRecommendation } from "./space-wake-recommendation";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceMentionPickerItem,
@@ -106,9 +107,41 @@ const ignoreFiles = (_files: readonly File[]): Promise<void> =>
 	Promise.resolve();
 const ignoreFileRemoval = (_localId: string): void => undefined;
 
+function useComposerWakeSuggestion(input: SpaceComposerProps) {
+	const recommendations = useSpaceWakeRecommendation();
+	const candidate =
+		input.context.placement === "conversation" &&
+		input.context.conversationKind === "space" &&
+		input.availability.canSendMessage &&
+		input.content.authoredMentions.length === 0
+			? recommendations?.candidate
+			: null;
+	const recommended = candidate
+		? input.content.mentionPickerItems.find(
+				(item) =>
+					item.suggestion.profileId === candidate.profileId &&
+					item.suggestion.allowedRelations.wake &&
+					item.suggestion.wakeAvailability.status === "ready"
+			)
+		: undefined;
+	const acceptRecommendation = () => {
+		if (!recommended) {
+			return;
+		}
+		input.composerRef.current?.acceptWakeRecommendation?.(
+			recommended.suggestion.profileId
+		);
+		recommendations?.dismiss();
+	};
+	return { recommendations, recommended, acceptRecommendation };
+}
+
 export function SpaceComposer(input: SpaceComposerProps) {
+	const { recommendations, recommended, acceptRecommendation } =
+		useComposerWakeSuggestion(input);
 	const submit = () => {
 		if (!resolveSpaceComposerBlockedWakeHint(input.content.addressingTargets)) {
+			recommendations?.recordSend(recommended?.suggestion.profileId ?? null);
 			input.actions.onSubmit();
 		}
 	};
@@ -215,10 +248,43 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						onSend={submit}
 						placeholder={policy.placeholder}
 						text={input.content.text}
+						wakeRecommendation={
+							recommended
+								? {
+										profileId: recommended.suggestion.profileId,
+										onAccept: acceptRecommendation,
+										onDismiss: () => recommendations?.dismiss(),
+									}
+								: undefined
+						}
 					/>
 					{deviceWaitPresentation.control}
 					<PromptInputActions className="min-w-0 justify-between gap-3 pt-2">
 						<div className="flex flex-1 items-center gap-0">
+							{recommended ? (
+								<div
+									className="flex items-center text-muted-foreground"
+									data-slot="composer-wake-recommendation"
+								>
+									<Button
+										className="font-normal"
+										onClick={acceptRecommendation}
+										size="sm"
+										variant="ghost"
+									>
+										Wake {recommended.suggestion.profileName}
+										<kbd className="ml-1 text-xs">Tab</kbd>
+									</Button>
+									<Button
+										aria-label="Dismiss Wake suggestion"
+										onClick={() => recommendations?.dismiss()}
+										size="icon-sm"
+										variant="ghost"
+									>
+										<XIcon />
+									</Button>
+								</div>
+							) : null}
 							{input.capabilities?.attachments !== false ? (
 								<SpaceComposerAddMenu
 									addFiles={addFiles}

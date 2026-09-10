@@ -217,6 +217,7 @@ import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
+import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
@@ -472,6 +473,7 @@ export function SpaceConversationPanel(
 						publicInput.composerFiles.length ||
 						publicInput.composerReplyToSignalId
 				)}
+				mentionPickerItems={publicInput.composerMentionPickerItems}
 				onRestore={async (message, canReplaceDraft) => {
 					const target = await readRecalledReplyTarget(
 						message,
@@ -489,18 +491,24 @@ export function SpaceConversationPanel(
 						publicInput.onClearComposerReplyTo();
 					}
 				}}
+				orgSlug={publicInput.orgSlug}
 				readOnly={publicInput.viewState.readOnly}
 				selfProfileId={publicInput.selfProfileId}
 			>
-				<SpaceDeviceWaitOutcomeScope
-					onComposeAgain={
-						publicInput.viewState.readOnly
-							? undefined
-							: publicInput.onComposeExpiredDeviceWait
-					}
+				<SpaceWakeRecommendationScope
+					items={publicInput.timelineItems}
+					selfProfileId={publicInput.selfProfileId}
 				>
-					<SpaceConversationPanelContent {...publicInput} />
-				</SpaceDeviceWaitOutcomeScope>
+					<SpaceDeviceWaitOutcomeScope
+						onComposeAgain={
+							publicInput.viewState.readOnly
+								? undefined
+								: publicInput.onComposeExpiredDeviceWait
+						}
+					>
+						<SpaceConversationPanelContent {...publicInput} />
+					</SpaceDeviceWaitOutcomeScope>
+				</SpaceWakeRecommendationScope>
 			</SpaceMessageEditingScope>
 		</SpaceWakeStopScope>
 	);

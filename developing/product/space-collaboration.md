@@ -812,6 +812,30 @@ not create executable work for the named Agent Profile.
 Detailed Wake execution ownership belongs in
 `developing/architecture/agent-transport-contract.md`.
 
+## Continuing A Main Conversation And Editing Messages
+
+An ordinary Space's main composer may recommend the single Agent the current
+Human last explicitly woke after that Agent replies. The suggestion is not an
+addressing target. Click or Tab accepts it as an ordinary Wake token; ignoring
+it sends an ordinary message. Explicit dismissal suppresses the corresponding
+post-send suggestion. Other members' Wakes and ambiguous multi-target turns do
+not select the target.
+
+When that suggestion was ignored at send, only the sender sees a dismissible
+`Wake {Agent}?` affordance on their latest sent message. It opens the inline
+editor and the same Composer member picker, with the suggested Agent first.
+Manual `@` editing uses that same picker. Selection edits the draft; `Save &
+wake` commits its first Wake. `Save changes` only updates content. All viewers
+see the resulting ordinary Wake token and edited marker on the original
+message, with its ID, sent time, replies, reactions, and placement preserved.
+
+A message that already requested a Wake cannot request another through editing,
+including after failure. Original Wake targets remain fixed; an edit never
+rewrites an accepted execution's content snapshot. Ordinary edits can add or
+remove files using the Composer upload path. The inline editor preserves text,
+typography, attachment previews, expansion state, and reading position. It does
+not put a long message inside a small scrolling editor or silently reformat it.
+
 ## Human Input During A Wake
 
 A local Agent Profile may pause one active Wake to ask its Binding owner for a

@@ -1,0 +1,23 @@
+@keyframes wake-confirmation {
+	from {
+		opacity: 0.45;
+		transform: scale(0.97);
+	}
+	to {
+		opacity: 0;
+		transform: scale(1.08);
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	[data-wake-confirmed]::after {
+		content: "";
+		position: absolute;
+		inset: 0;
+		border: 1px solid currentColor;
+		border-radius: inherit;
+		pointer-events: none;
+		opacity: 0;
+		animation: wake-confirmation 200ms cubic-bezier(0.23, 1, 0.32, 1);
+	}
+}

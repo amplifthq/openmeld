@@ -39,11 +39,9 @@ import {
 import { Marker, MarkerContent } from "./primitives/marker";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
+import { SpaceInlineMessageEditor } from "./space-inline-message-editor";
 import { collapseSpaceMessage } from "./space-message-collapse";
-import {
-	SpaceInlineMessageEditor,
-	useSpaceMessageEditing,
-} from "./space-message-editing";
+import { useSpaceMessageEditing } from "./space-message-editing";
 import {
 	buildSpaceMessageProfileMentionProfiles,
 	createSpaceMessageProfileMentionRemarkPlugin,
@@ -218,10 +216,12 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 	input: SpaceMessageBodyProps
 ) {
 	const editing = useSpaceMessageEditing();
+	const textPresentation = useSpaceMessageTextPresentation(input);
 	const bodyRef = useRef<HTMLDivElement | null>(null);
 	const [bodySize, setBodySize] = useState<{
 		width: number;
 		height: number;
+		textHeight: number;
 	} | null>(null);
 	const isEditing = Boolean(
 		input.item.id && editing?.edit?.id === input.item.id
@@ -236,10 +236,15 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 		}
 		const observer = new ResizeObserver(() => {
 			const { width, height } = body.getBoundingClientRect();
+			const textHeight =
+				body.querySelector(".content-space-message")?.getBoundingClientRect()
+					.height ?? height;
 			setBodySize((previous) =>
-				previous?.width === width && previous.height === height
+				previous?.width === width &&
+				previous.height === height &&
+				previous.textHeight === textHeight
 					? previous
-					: { width, height }
+					: { width, height, textHeight }
 			);
 		});
 		observer.observe(body);
@@ -282,18 +287,41 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 		return (
 			<SpaceInlineMessageEditor
 				bodySize={bodySize}
+				collapseControl={
+					<SpaceMessageCollapseButton
+						isExpanded={textPresentation.isExpanded}
+						onToggle={() =>
+							textPresentation.setIsExpanded((expanded) => !expanded)
+						}
+						visible={textPresentation.shouldCollapse}
+					/>
+				}
+				collapsedHeight={
+					textPresentation.shouldCollapse && !textPresentation.isExpanded
+						? bodySize?.textHeight
+						: undefined
+				}
 				item={editing.edit}
 				key={editing.edit.id}
 			/>
 		);
 	}
-	return <SpaceMessageBodyDisplay {...input} bodyRef={bodyRef} />;
+	return (
+		<SpaceMessageBodyDisplay
+			{...input}
+			bodyRef={bodyRef}
+			textPresentation={textPresentation}
+		/>
+	);
 });
 
 const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
-	input: SpaceMessageBodyProps & { bodyRef: Ref<HTMLDivElement> }
+	input: SpaceMessageBodyProps & {
+		bodyRef: Ref<HTMLDivElement>;
+		textPresentation: ReturnType<typeof useSpaceMessageTextPresentation>;
+	}
 ) {
-	const text = useSpaceMessageTextPresentation(input);
+	const text = input.textPresentation;
 	const references = useSpaceMessageReferencePresentation(input);
 	const className = cn(
 		"break-words content-space-message [overflow-wrap:anywhere]",
@@ -547,7 +575,7 @@ function isComputerSetupNavigationAction(
 	return action.target.kind === "computer_setup";
 }
 
-function SpaceMessageAttachmentGrid(input: {
+export function SpaceMessageAttachmentGrid(input: {
 	attachments: SpaceTimelineItem["attachments"];
 	organizationSlug?: string;
 	spaceId: string;
@@ -579,7 +607,7 @@ function SpaceMessageAttachmentGrid(input: {
 	);
 }
 
-function SpaceMessageFileList(input: {
+export function SpaceMessageFileList(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	files: NonNullable<SpaceTimelineItem["files"]>;
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;

@@ -37,6 +37,41 @@ const BOTH_OPTION_NAME = /Both/;
 describe("SpaceComposerEditor", () => {
 	afterEach(cleanup);
 
+	it("accepts a Wake suggestion as an ordinary token without sending", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		const onSend = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={onSend}
+				placeholder="Message"
+				text="Continue with the first option"
+			/>
+		);
+		act(() =>
+			composerRef.current?.acceptWakeRecommendation?.(AGENT_PROFILE_ID)
+		);
+		await waitFor(() =>
+			expect(onChange.mock.lastCall?.[0].authoredMentions).toEqual([
+				expect.objectContaining({
+					profileId: AGENT_PROFILE_ID,
+					relation: "wake",
+					start: 0,
+				}),
+			])
+		);
+		expect(onChange.mock.lastCall?.[0].text).toContain(
+			"Continue with the first option"
+		);
+		expect(onSend).not.toHaveBeenCalled();
+	});
+
 	it("keeps @all open for an audience choice and inserts ordinary People and Agent tokens", async () => {
 		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onChange = vi.fn();

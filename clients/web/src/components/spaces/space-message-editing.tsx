@@ -16,7 +16,6 @@ import {
 	createContext,
 	type ReactNode,
 	useContext,
-	useEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -30,18 +29,18 @@ import {
 } from "#/lib/spaces/message-mutation-presentation";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { writeSpaceHistoryEnvelopesToCache } from "#/query/spaces/history";
-import {
-	SpaceComposerEditor,
-	type SpaceComposerEditorHandle,
-} from "./space-composer-editor";
+import type { SpaceMentionPickerItem } from "./use-space-mention-authoring";
 
 type Message = SpaceMessageMutationResponse["message"];
 type EditingContext = {
 	selfProfileId: string;
+	orgSlug: string;
+	mentionPickerItems: readonly SpaceMentionPickerItem[];
+	recommendedProfileId: string | null;
 	edit: SpaceTimelineItem | null;
 	draft: MessageEditDraft | null;
 	changes: ReadonlyMap<string, SpaceTimelineItem>;
-	beginEdit: (item: SpaceTimelineItem) => void;
+	beginEdit: (item: SpaceTimelineItem, recommendedProfileId?: string) => void;
 	cancel: () => void;
 	recall: (item: SpaceTimelineItem) => void;
 	restore: (item: SpaceTimelineItem) => void;
@@ -49,8 +48,13 @@ type EditingContext = {
 		item: SpaceTimelineItem,
 		text: string,
 		fileIds: string[],
-		attachmentIds: string[]
-	) => Promise<void>;
+		attachmentIds: string[],
+		options?: Pick<
+			Extract<SpaceMessageMutationBody, { action: "edit" }>,
+			"messageEnvelope" | "addedFiles"
+		>,
+		authoredMentions?: MessageEditDraft["authoredMentions"]
+	) => Promise<boolean>;
 	busy: boolean;
 	error: string | null;
 };
@@ -70,6 +74,8 @@ export function useOptimisticSpaceMessages(
 
 export function SpaceMessageEditingScope(input: {
 	selfProfileId: string;
+	orgSlug?: string;
+	mentionPickerItems?: readonly SpaceMentionPickerItem[];
 	readOnly?: boolean;
 	hasDraft: boolean;
 	draftKey: string;
@@ -81,6 +87,9 @@ export function SpaceMessageEditingScope(input: {
 	children: ReactNode;
 }) {
 	const [edit, setEdit] = useState<SpaceTimelineItem | null>(null);
+	const [recommendedProfileId, setRecommendedProfileId] = useState<
+		string | null
+	>(null);
 	const [draft, setDraft] = useState<MessageEditDraft | null>(null);
 	const [changes, setChanges] = useState<
 		ReadonlyMap<string, SpaceTimelineItem>
@@ -100,13 +109,14 @@ export function SpaceMessageEditingScope(input: {
 
 	async function run(operation: () => Promise<void>) {
 		if (inFlight.current) {
-			return;
+			return false;
 		}
 		inFlight.current = true;
 		setBusy(true);
 		setError(null);
 		try {
 			await operation();
+			return true;
 		} catch (failure) {
 			const message =
 				failure instanceof Error
@@ -117,6 +127,7 @@ export function SpaceMessageEditingScope(input: {
 					? "Couldn’t connect. Check your connection and try again."
 					: message
 			);
+			return false;
 		} finally {
 			inFlight.current = false;
 			setBusy(false);
@@ -155,10 +166,10 @@ export function SpaceMessageEditingScope(input: {
 		body: Exclude<SpaceMessageMutationBody, { action: "restore_draft" }>,
 		retryDraft: MessageEditDraft | null
 	) {
-		await run(async () => {
+		return await run(async () => {
 			const preview = previewMessageMutation(item, body, Date.now());
 			setChanges((previous) => new Map(previous).set(item.id, preview));
-			setEdit(null);
+			// Keep the editor mounted until acceptance so failed uploads and drafts survive.
 			setRecalling(null);
 			let message: Message;
 			try {
@@ -186,17 +197,21 @@ export function SpaceMessageEditingScope(input: {
 			setChanges((previous) =>
 				new Map(previous).set(item.id, applySavedMessage(preview, message))
 			);
+			setEdit(null);
 			await refresh(message);
 		});
 	}
 	const value: EditingContext = {
 		selfProfileId: input.readOnly ? "" : input.selfProfileId,
+		orgSlug: input.orgSlug ?? "",
+		mentionPickerItems: input.mentionPickerItems ?? [],
+		recommendedProfileId,
 		edit,
 		draft,
 		changes,
 		busy,
 		error,
-		beginEdit: (item) => {
+		beginEdit: (item, recommended) => {
 			if (edit && edit.id !== item.id) {
 				setError("Finish or cancel your current edit first.");
 				return;
@@ -204,6 +219,7 @@ export function SpaceMessageEditingScope(input: {
 			if (!busy) {
 				setError(null);
 				setDraft(null);
+				setRecommendedProfileId(recommended ?? null);
 				setEdit(item);
 			}
 		},
@@ -225,22 +241,37 @@ export function SpaceMessageEditingScope(input: {
 				restore(item);
 			}
 		},
-		save: async (item, text, fileIds, attachmentIds) => {
-			const retryDraft = { text, fileIds, attachmentIds };
-			if (!(text.trim() || fileIds.length || attachmentIds.length)) {
+		save: async (
+			item,
+			text,
+			fileIds,
+			attachmentIds,
+			options,
+			authoredMentions
+		) => {
+			const retryDraft = { text, fileIds, attachmentIds, authoredMentions };
+			if (
+				!(
+					text.trim() ||
+					fileIds.length ||
+					attachmentIds.length ||
+					options?.addedFiles?.length
+				)
+			) {
 				setDraft(retryDraft);
 				setRecalling(item);
-				return;
+				return false;
 			}
 			if (
+				!options &&
 				text.trim() === item.text &&
 				fileIds.length === (item.files?.length ?? 0) &&
 				attachmentIds.length === item.attachments.length
 			) {
 				setEdit(null);
-				return;
+				return true;
 			}
-			await mutate(
+			return await mutate(
 				item,
 				{
 					action: "edit",
@@ -248,6 +279,7 @@ export function SpaceMessageEditingScope(input: {
 					text,
 					retainedFileIds: fileIds,
 					retainedAttachmentIds: attachmentIds,
+					...options,
 				},
 				retryDraft
 			);
@@ -332,112 +364,5 @@ export function SpaceMessageEditingScope(input: {
 				</p>
 			) : null}
 		</MessageEditingContext.Provider>
-	);
-}
-
-export function SpaceInlineMessageEditor({
-	item,
-	bodySize,
-}: {
-	item: SpaceTimelineItem;
-	bodySize: { width: number; height: number } | null;
-}) {
-	const editing = useSpaceMessageEditing();
-	const composerRef = useRef<SpaceComposerEditorHandle | null>(null);
-	useEffect(() => {
-		composerRef.current?.focus();
-	}, []);
-	const [text, setText] = useState(editing?.draft?.text ?? item.text);
-	const [fileIds, setFileIds] = useState(
-		editing?.draft?.fileIds ?? (item.files ?? []).map((file) => file.fileId)
-	);
-	const [attachmentIds, setAttachmentIds] = useState(
-		editing?.draft?.attachmentIds ?? item.attachments.map((file) => file.id)
-	);
-	if (!editing) {
-		return null;
-	}
-	return (
-		<div
-			className="min-w-48 max-w-full text-left"
-			data-slot="message-inline-editor"
-			style={{ width: bodySize?.width }}
-		>
-			<div style={{ minHeight: bodySize?.height }}>
-				<SpaceComposerEditor
-					addressingTargets={[]}
-					ariaLabel="Edit message"
-					authoredMentions={[]}
-					composerRef={composerRef}
-					disabled={editing.busy}
-					inline
-					mentionPickerItems={[]}
-					onCancel={editing.cancel}
-					onChange={(change) => setText(change.text)}
-					onSend={() => {
-						editing.save(item, text, fileIds, attachmentIds);
-					}}
-					placeholder="Edit message…"
-					text={text}
-				/>
-				<div className="flex flex-wrap gap-1">
-					{(item.files ?? [])
-						.filter((file) => fileIds.includes(file.fileId))
-						.map((file) => (
-							<Button
-								aria-label={`Remove ${file.name}`}
-								disabled={editing.busy}
-								key={file.fileId}
-								onClick={() =>
-									setFileIds((ids) => ids.filter((id) => id !== file.fileId))
-								}
-								size="sm"
-								variant="ghost"
-							>
-								{file.name} ×
-							</Button>
-						))}
-					{item.attachments
-						.filter((file) => attachmentIds.includes(file.id))
-						.map((file) => (
-							<Button
-								disabled={editing.busy}
-								key={file.id}
-								onClick={() =>
-									setAttachmentIds((ids) => ids.filter((id) => id !== file.id))
-								}
-								size="sm"
-								variant="ghost"
-							>
-								Remove {file.fileName ?? "image"}
-							</Button>
-						))}
-				</div>
-			</div>
-			<div className="mt-0.5 flex h-7 justify-end gap-1">
-				<Button
-					disabled={editing.busy}
-					onClick={editing.cancel}
-					size="sm"
-					variant="ghost"
-				>
-					Cancel
-				</Button>
-				<Button
-					disabled={editing.busy}
-					onClick={() => {
-						editing.save(item, text, fileIds, attachmentIds);
-					}}
-					size="sm"
-				>
-					{editing.busy ? "Saving…" : "Save changes"}
-				</Button>
-			</div>
-			{editing.error ? (
-				<p className="mt-2 text-destructive text-sm" role="alert">
-					{editing.error}
-				</p>
-			) : null}
-		</div>
 	);
 }
