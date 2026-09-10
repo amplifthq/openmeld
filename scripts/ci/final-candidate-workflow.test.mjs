@@ -326,6 +326,7 @@ test("ready PR events run automatically while drafts and unrelated labels stay i
     "synchronize",
     "reopened",
     "ready_for_review",
+    "converted_to_draft",
     "labeled",
   ]);
   const pendingJob = readJob(workflow, "publish_pending", "candidate");
@@ -387,7 +388,7 @@ test("ready PR events run automatically while drafts and unrelated labels stay i
           );
           assert.equal(
             runInNewContext(groupExpression, context),
-            shouldRun
+            shouldRun || (base === "main" && action === "converted_to_draft")
               ? "final-candidate-325"
               : "ignored-final-candidate-event-100",
             scenario
