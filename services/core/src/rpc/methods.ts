@@ -969,6 +969,7 @@ import {
   rpcCenterAgentRespondToOpportunity as centerAgentRespondToOpportunity,
 } from "../opportunities/opportunity-center-agent-rpc";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
+import { withOrganizationAgentTaskActivity } from "../organizations/organization-agent-task-activity";
 import {
   listOrganizationComputers,
   type OrganizationComputerLiveSession,
@@ -3041,6 +3042,7 @@ export type GetCurrentOrganizationProfileDirectoryInput =
 
 export type GetCurrentOrganizationAgentRuntimeOverviewInput = {
   agentProfileWorkRecoveryVersion?: 2;
+  includeTaskActivity?: boolean;
   context?: CoreRpcContextInput;
 };
 
@@ -6225,8 +6227,19 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
     members,
     organizationId,
   };
+  let result = response;
+  if (input.includeTaskActivity === true) {
+    const db = wakeEvidenceDb(env);
+    if (!db) {
+      throw new Error("Agent task activity evidence store is unavailable.");
+    }
+    result = await withOrganizationAgentTaskActivity({
+      db,
+      overview: response,
+    });
+  }
   const validated =
-    organizationProfileDirectoryResponseSchema.safeParse(response);
+    organizationProfileDirectoryResponseSchema.safeParse(result);
   if (!validated.success) {
     throw new Error(
       `failed to build Organization Profile Directory response: ${validated.error.message}`
@@ -6269,6 +6282,17 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     organizationId,
     viewerUserId: activeOrganization.userId,
   });
+  let result = response;
+  if (input.includeTaskActivity === true) {
+    const db = wakeEvidenceDb(env);
+    if (!db) {
+      throw new Error("Agent task activity evidence store is unavailable.");
+    }
+    result = await withOrganizationAgentTaskActivity({
+      db,
+      overview: response,
+    });
+  }
   console.info("[core.organization_agent_runtime_overview.read]", {
     durationMs: Math.max(0, Date.now() - startedAtMs),
     actorProfileKind: context.actorContext.profileKind,
@@ -6277,7 +6301,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     organizationId,
     requestId: context.actorContext.requestId,
   });
-  return response;
+  return result;
 }
 
 type EligibleOrganizationAgentProfile =

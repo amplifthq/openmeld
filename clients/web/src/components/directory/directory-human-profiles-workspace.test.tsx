@@ -269,7 +269,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			sortSidebarPeople([other, self], settings).map((person) => person.id)
 		).toEqual([other.id, self.id]);
 	});
-	it("places Center Agent first and self first in Online without a default star", () => {
+	it("keeps People human-only and self first in Online without a default star", () => {
 		const self = buildMember({ current: true });
 		const offline = buildMember({ current: false });
 		const online = {
@@ -294,7 +294,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		).toBeTruthy();
 		expect(
 			within(screen.getByRole("region", { name: "Online" })).getByText(
-				"Center Agent and people with online computers"
+				"Computer online"
 			)
 		).toBeTruthy();
 		expect(
@@ -312,11 +312,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				.getAllByRole("region")
 				.map((group) => group.getAttribute("aria-label"))
 		).toEqual(["Online", "Offline"]);
-		expect(
-			within(screen.getByRole("region", { name: "Online" })).getByText(
-				"Workspace assistant"
-			)
-		).toBeTruthy();
+		expect(screen.queryByText("Workspace assistant")).toBeNull();
 	});
 
 	it("keeps unknown and attention states in Offline with their explanation", () => {
@@ -357,11 +353,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(
 			screen.queryByRole("region", { name: "Status needs checking" })
 		).toBeNull();
-		expect(
-			within(screen.getByRole("region", { name: "Online" })).getByText(
-				"Workspace assistant"
-			)
-		).toBeTruthy();
+		expect(screen.queryByRole("region", { name: "Online" })).toBeNull();
 	});
 
 	it("keeps pending checks out of Offline until loading finishes", () => {

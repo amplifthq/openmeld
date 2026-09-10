@@ -1,0 +1,14 @@
+---
+id: team-agent-directory
+title: Find Agents by teammate
+kind: improved
+areas: ["agents", "team"]
+audiences: ["users"]
+---
+
+Team now has People and Agents tabs. The Agents tab places your organization's
+Center Agent first, followed by your Agents and other teammates' Agents.
+Personal and team Agent lists share cards, recent activity sorting, multiselect
+Controller and model filters, and optional grouping by Controller or model.
+Search opens from the magnifying glass, and group options appear on hover or
+keyboard focus. People groups also support Computer-status filters.

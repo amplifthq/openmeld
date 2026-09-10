@@ -32,7 +32,6 @@ import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarDisclosure } from "../app/use-sidebar-disclosure";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import type { OrganizationComputerGroup } from "../computers/organization-computers";
-import { CenterAgentItem } from "./center-agent-item";
 import type { DirectoryHumanProfileRow } from "./directory-human-profile-model";
 import { HumanProfileItem } from "./human-profile-item";
 import {
@@ -56,14 +55,6 @@ const SORTS = [
 	["name", "Name"],
 	["manual", "Manual order"],
 ] as const;
-
-function matchesCenterAgentFilters(
-	filter: PeopleFilter,
-	recentlyActive: boolean,
-	search: string
-) {
-	return filter === "all" && !recentlyActive && !search.trim();
-}
 
 export function PeopleSidebar(input: {
 	members: readonly DirectoryHumanProfileRow[];
@@ -123,11 +114,8 @@ export function PeopleSidebar(input: {
 	}, [input.members, input.activityNowMs, search, filter, recentlyActive]);
 	const contentReady = !(loading || input.error);
 	const starred = new Set(preferences.starred.itemIds);
-	const showCenterAgent =
-		matchesCenterAgentFilters(filter, recentlyActive, search) &&
-		groupFilter.includes("online");
 	const sections = resolvePeopleSections(filtered, preferences, {
-		includeOnline: showCenterAgent,
+		includeOnline: false,
 	});
 	const activeGroupId =
 		sections.find((section) =>
@@ -167,8 +155,7 @@ export function PeopleSidebar(input: {
 					recentlyActive ||
 					groupFilter.selected.length > 0
 				) ||
-					section.members.length > 0 ||
-					(section.id === "online" && showCenterAgent))
+					section.members.length > 0)
 		)
 		.map((section, sectionIndex) => {
 			const members = section.members;
@@ -208,7 +195,7 @@ export function PeopleSidebar(input: {
 							})
 					: undefined,
 				labelTooltip: new Map([
-					["online", "Center Agent and people with online computers"],
+					["online", "Computer online"],
 					["offline", "Computer offline"],
 				]).get(section.id),
 				ariaLabel: section.label,
@@ -248,7 +235,6 @@ export function PeopleSidebar(input: {
 						ids={members.map((m) => m.id)}
 						section={section.id}
 					>
-						{section.id === "online" && showCenterAgent && <CenterAgentItem />}
 						<FluidNavMenu
 							activeLayoutId={`secondary-sidebar-selection-${presentation}`}
 							activeValue={input.selectedProfileId}
@@ -287,12 +273,11 @@ export function PeopleSidebar(input: {
 								/>
 							))}
 						</FluidNavMenu>
-						{members.length === 0 &&
-							!(section.id === "online" && showCenterAgent) && (
-								<p className="px-2 py-2 text-muted-foreground text-xs">
-									{defaultSection ? "No people match." : "Drag people here."}
-								</p>
-							)}
+						{members.length === 0 && (
+							<p className="px-2 py-2 text-muted-foreground text-xs">
+								{defaultSection ? "No people match." : "Drag people here."}
+							</p>
+						)}
 					</SidebarDropSection>
 				),
 			};

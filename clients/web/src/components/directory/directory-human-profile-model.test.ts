@@ -440,7 +440,7 @@ describe("directory Human Profile model", () => {
 		]);
 	});
 
-	it("orders an owner's Agent Profiles by recent use before creation time", () => {
+	it("uses creation order without task activity, ignoring generic last-used timestamps", () => {
 		const rows = buildOrganizationRows({
 			agentProfiles: [
 				buildAgentProfile({
@@ -470,7 +470,7 @@ describe("directory Human Profile model", () => {
 			rows
 				.find((row) => row.userId === "user-a")
 				?.agentProfiles.map((profile) => profile.id)
-		).toEqual(["agent-recent", "agent-new"]);
+		).toEqual(["agent-new", "agent-recent"]);
 	});
 
 	it("reads team-visible Controller and model selection from the lightweight directory", () => {

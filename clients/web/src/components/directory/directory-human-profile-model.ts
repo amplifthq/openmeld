@@ -10,6 +10,7 @@ import type {
 	OrganizationProfileDirectoryResponse,
 	ProfileDetailsSnapshot,
 } from "@openmeld/schemas/types";
+import { compareAgentListRecency } from "#/components/agents/agent-list-model";
 import type { AppShellAccount } from "#/components/app/app-shell-account";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
@@ -352,7 +353,31 @@ function buildPersonalAgentProfileSummaries(input: {
 					}),
 		});
 	}
-	return sortAgentProfileSummaries(agentProfiles);
+	const profileById = new Map(
+		input.profiles.map((profile) => [profile.openMeldProfileId, profile])
+	);
+	const summaryOrder = new Map(
+		input.summaries?.map((summary, index) => [summary.id, index])
+	);
+	return agentProfiles.sort((left, right) => {
+		const leftIndex = summaryOrder.get(left.id);
+		const rightIndex = summaryOrder.get(right.id);
+		if (leftIndex !== undefined && rightIndex !== undefined) {
+			return leftIndex - rightIndex;
+		}
+		const leftProfile = profileById.get(left.id);
+		const rightProfile = profileById.get(right.id);
+		return (
+			(leftProfile && rightProfile
+				? compareAgentListRecency(leftProfile, rightProfile)
+				: 0) ||
+			left.name.localeCompare(right.name, "en", {
+				numeric: true,
+				sensitivity: "base",
+			}) ||
+			left.id.localeCompare(right.id)
+		);
+	});
 }
 
 export function buildDirectoryAgentProfilesByOwner(input: {
@@ -381,7 +406,15 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 			? (owner.humanProfile?.profileId ?? `member:${owner.memberId}`)
 			: null;
 		const profiles = [...sources]
-			.sort(compareAgentProfileSourceRecency)
+			.sort(
+				(left, right) =>
+					compareAgentListRecency(left, right) ||
+					left.profileName.localeCompare(right.profileName, "en", {
+						numeric: true,
+						sensitivity: "base",
+					}) ||
+					left.profileId.localeCompare(right.profileId)
+			)
 			.map((profile) => {
 				const readiness = "readiness" in profile ? profile.readiness : null;
 				const agentControllerRef =
@@ -421,61 +454,6 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 		profilesByOwner.set(ownerUserId, profiles);
 	}
 	return profilesByOwner;
-}
-
-function compareAgentProfileSourceRecency(
-	left: Pick<DirectoryAgentProfileSource, "createdAt" | "lastUsedAt"> & {
-		profileId: string;
-		profileName: string;
-	},
-	right: Pick<DirectoryAgentProfileSource, "createdAt" | "lastUsedAt"> & {
-		profileId: string;
-		profileName: string;
-	}
-): number {
-	const leftActivityAt = resolveAgentProfileActivityTime(left);
-	const rightActivityAt = resolveAgentProfileActivityTime(right);
-	const recencyComparison = rightActivityAt - leftActivityAt;
-	if (recencyComparison !== 0) {
-		return recencyComparison;
-	}
-	const nameComparison = left.profileName.localeCompare(
-		right.profileName,
-		"en",
-		{
-			numeric: true,
-			sensitivity: "base",
-		}
-	);
-	return nameComparison === 0
-		? left.profileId.localeCompare(right.profileId)
-		: nameComparison;
-}
-
-function resolveAgentProfileActivityTime(
-	profile: Pick<DirectoryAgentProfileSource, "createdAt" | "lastUsedAt">
-): number {
-	return Math.max(
-		...[profile.createdAt, profile.lastUsedAt]
-			.filter((value): value is string => Boolean(value))
-			.map((value) => Date.parse(value))
-			.filter((value) => !Number.isNaN(value)),
-		0
-	);
-}
-
-function sortAgentProfileSummaries(
-	profiles: DirectoryAgentProfileSummary[]
-): DirectoryAgentProfileSummary[] {
-	return profiles.sort((left, right) => {
-		const nameComparison = left.name.localeCompare(right.name, "en", {
-			numeric: true,
-			sensitivity: "base",
-		});
-		return nameComparison === 0
-			? left.id.localeCompare(right.id)
-			: nameComparison;
-	});
 }
 
 function resolveAgentProfilesPath(input: {

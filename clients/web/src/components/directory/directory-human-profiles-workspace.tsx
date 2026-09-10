@@ -1,4 +1,6 @@
-"use client";
+import { TeamHeader } from "./team-header";
+
+("use client");
 
 import type {
 	CenterAgentMemberResearchBatch,
@@ -6,8 +8,7 @@ import type {
 	ModelCatalog,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import { PlusIcon, UsersThreeIcon } from "@phosphor-icons/react";
+import { PlusIcon } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
@@ -27,7 +28,6 @@ import type {
 } from "#/components/directory/directory-human-profile-model";
 import { localPeopleSidebarFixtures } from "#/lib/dev/people-sidebar-fixtures";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
-import { SpaceWindowHeader } from "../spaces/space-header";
 import { PeopleSidebar } from "./people-sidebar";
 import { TeamHome } from "./team-home";
 
@@ -143,7 +143,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 			initialOuterSidebarState={input.initialSidebarStates?.outer}
 			mainHeader={
 				input.selectedProfileId ? undefined : (
-					<SpaceWindowHeader
+					<TeamHeader
 						actions={
 							input.onInviteMembers ? (
 								<Button onClick={input.onInviteMembers} size="sm">
@@ -152,27 +152,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 								</Button>
 							) : undefined
 						}
-						leadingControl={
-							<UsersThreeIcon className="size-4 text-muted-foreground" />
-						}
-						navigation={
-							<TabsSubtle
-								aria-label="Team view"
-								className="h-full shrink-0 gap-5"
-								idPrefix="team-directory"
-								onSelect={() => undefined}
-								selectedIndex={0}
-								variant="underline"
-							>
-								<TabsSubtleItem
-									index={0}
-									label="Members"
-									labelClassName="text-sm"
-								/>
-							</TabsSubtle>
-						}
-						renderFrame={false}
-						title="Team"
+						active="people"
 					/>
 				)
 			}

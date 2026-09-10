@@ -99,6 +99,7 @@ export const organizationDirectoryAgentProfileIdentitySchema = z.strictObject({
   createdByUserId: nullableTrimmedStringSchema,
   creatorProfileId: nullableTrimmedStringSchema,
   lastUsedAt: z.union([ISO_DATE_TIME_SCHEMA, z.null()]),
+  lastTaskActivityAt: ISO_DATE_TIME_SCHEMA.nullable().optional(),
   createdAt: ISO_DATE_TIME_SCHEMA,
   updatedAt: ISO_DATE_TIME_SCHEMA,
 });
@@ -123,11 +124,13 @@ export const organizationProfileDirectoryAgentProfileSchema =
   });
 
 export const organizationProfileDirectoryReadOptionsSchema = z.strictObject({
+  includeTaskActivity: z.boolean().optional(),
   includeMemberLastActiveAt: z.boolean().optional(),
   includeModelSelection: z.boolean().optional(),
 });
 
 export const organizationProfileDirectoryResponseSchema = z.strictObject({
+  taskActivitySince: ISO_DATE_TIME_SCHEMA.optional(),
   organizationId: trimmedNonEmptyStringSchema,
   generatedAt: ISO_DATE_TIME_SCHEMA,
   members: z.array(organizationDirectoryMemberSchema),
@@ -136,6 +139,7 @@ export const organizationProfileDirectoryResponseSchema = z.strictObject({
 
 export const organizationAgentRuntimeOverviewItemSchema = z.strictObject({
   profileId: agentProfileIdSchema,
+  lastTaskActivityAt: ISO_DATE_TIME_SCHEMA.nullable().optional(),
   operationalContext:
     organizationDirectoryAgentProfileOperationalContextSchema.optional(),
   readiness: getAgentExecutionReadinessResponseSchema,
@@ -144,6 +148,7 @@ export const organizationAgentRuntimeOverviewItemSchema = z.strictObject({
 export const organizationAgentRuntimeOverviewResponseSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,
   generatedAt: ISO_DATE_TIME_SCHEMA,
+  taskActivitySince: ISO_DATE_TIME_SCHEMA.optional(),
   agentProfiles: z.array(organizationAgentRuntimeOverviewItemSchema),
 });
 
