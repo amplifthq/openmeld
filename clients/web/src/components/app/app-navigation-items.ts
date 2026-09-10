@@ -37,7 +37,7 @@ export function resolveAppNavigationItems(input: {
 			to: buildOrganizationSpacesPath(input.orgSlug),
 		},
 		{
-			label: "Chats",
+			label: "Direct messages",
 			section: "directMessages",
 			to: buildOrganizationDirectMessagesPath(input.orgSlug),
 		},

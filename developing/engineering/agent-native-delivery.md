@@ -116,7 +116,12 @@ identity, reviewer count, approval count, or specific review style is required
 by CI/CD.
 
 Broad affected and integration runs are agent-chosen development or review
-evidence. Release-ready and Final Candidate are delivery evidence. Before the
+evidence. PR Feedback also runs the existing affected check/unit lane on PR
+creation and updates, including drafts, using read-only permissions and no
+production secrets. It cancels superseded runs and is early defect feedback,
+not exact Final Candidate certification. Documentation-only changes avoid
+workspace tests. Integration and full-confidence runs remain deliberate.
+Release-ready and Final Candidate are delivery evidence. Before the
 first broad run, finish the review that
 is reasonably likely to change product behavior, contracts, compatibility, or
 scope, and settle its practical blockers. An earlier broad run is appropriate
