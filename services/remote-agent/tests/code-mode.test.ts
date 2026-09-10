@@ -89,7 +89,7 @@ describe("Remote Agent Code Mode", () => {
     expect(names).toContain("web_search");
     expect(names).toContain("openmeld_read_org_documents");
     expect(names).not.toContain("openmeld_create_project");
-    expect(names).not.toContain("openmeld_create_routine");
+    expect(names).toContain("openmeld_create_routine");
     const direct = tools.find((tool) => tool.name === "test_computer");
     const codeMode = tools.find((tool) => tool.name === "codemode");
     if (!(direct && codeMode)) {

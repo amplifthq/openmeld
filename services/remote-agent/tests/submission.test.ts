@@ -1,3 +1,4 @@
+import type { RemoteAgentWorkerSubmitTurnRequestV4 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
 import { buildRemoteAgentSystemPrompt } from "../agent-core/prompt";
@@ -34,6 +35,56 @@ const SHA_256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
 const ATTACHMENT_SEQUENCE_SUFFIX_PATTERN = /attachment-(\d+)$/u;
 
 describe("remote agent submission", () => {
+  it("admits a personal Routine only for its verified owner and exact Agent identity", () => {
+    const base = createSubmitTurnRequestV2();
+    const request: RemoteAgentWorkerSubmitTurnRequestV4 = {
+      ...base,
+      v: 4,
+      conversationId: base.spaceId,
+      conversationIdentity: {
+        kind: "personal_agent",
+        agentProfileId: base.agentProfileId,
+      },
+      runtimeConversation: { id: base.spaceId, generation: 0 },
+      agentProfileOwnerUserId: "user_1",
+      author: {
+        displayName: "Felix",
+        profileId: "22222222-2222-4222-8222-222222222222",
+        profileKind: "human",
+      },
+      dispatchId: "routine_run_1",
+      idempotencyKey: "routine_run_1",
+      onBehalfOf: null,
+      sourceClientMessageId: null,
+      triggerMessageId: "routine_run_1",
+      turnEnvelope: createRoutineTurnEnvelope(),
+    };
+    const resolve = (requestContext: RemoteAgentWorkerSubmitTurnRequestV4) =>
+      resolveRemoteAgentTurnEnvelopeForName({
+        agentName: buildRemoteAgentName(requestContext),
+        requestContext,
+      });
+    expect(resolve(request)).toEqual(request.turnEnvelope);
+    expect(() =>
+      resolve({ ...request, agentProfileOwnerUserId: "another-owner" })
+    ).toThrow("Routine execution identity");
+    expect(() =>
+      resolve({
+        ...request,
+        conversationIdentity: {
+          kind: "personal_agent",
+          agentProfileId: "another-agent",
+        },
+      })
+    ).toThrow("Routine execution identity");
+    expect(() =>
+      resolve({
+        ...request,
+        author: { ...request.author, profileId: "another-person" },
+      })
+    ).toThrow("Routine execution identity");
+  });
+
   it("does not mistake a hidden Organization memory tool for unavailable private memory capture", () => {
     const prompt = buildRemoteAgentPromptMessage(createSubmitTurnRequest());
 

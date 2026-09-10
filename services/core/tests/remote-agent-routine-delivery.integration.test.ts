@@ -4,6 +4,8 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+  HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
   OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS,
 } from "@openmeld/schemas";
 import type {
@@ -52,6 +54,10 @@ import {
   ROUTINE_CLAIM_WATCHDOG_TIMEOUT_MS,
   runRoutineSchedulerTick,
 } from "../src/routines/routine-scheduler";
+import {
+  createRoutineService,
+  type RoutineActor,
+} from "../src/routines/routine-service";
 import { ROUTINE_WORKFLOW_CALLBACK_EVENTS } from "../src/routines/routine-workflow-contract";
 
 const ownedRoutineOrganizationIds = new Set<string>();
@@ -132,7 +138,180 @@ afterEach(async () => {
   }
 });
 
+async function seedPersonalRoutineDeliveryFixture() {
+  const fixture = await seedRoutineDeliveryFixture();
+  await env.OPENMELD_DB.batch([
+    env.OPENMELD_DB.prepare(
+      "DELETE FROM center_agent_designations WHERE organization_id = ?"
+    ).bind(fixture.organizationId),
+    env.OPENMELD_DB.prepare(
+      "UPDATE openMeldDaemon_agent_profile_bindings SET binding_state = 'disabled_historical', disabled_at_ms = ? WHERE binding_id = ?"
+    ).bind(fixture.nowMs, fixture.bindingId),
+    env.OPENMELD_DB.prepare(
+      "UPDATE openmeld_profiles SET managed_role = NULL, owner_user_id = ? WHERE profile_id = ?"
+    ).bind(fixture.creatorUserId, fixture.profileId),
+    env.OPENMELD_DB.prepare(
+      "UPDATE openMeldDaemon_agent_profile_bindings SET binding_state = 'enabled_primary', disabled_at_ms = NULL, owner_kind = 'owner_account', owner_id = ?, runtime_kind = 'hosted_remote_agent', agent_controller_ref = ?, openmeld_service_runtime_id = ?, hosted_runtime_identity_json = ? WHERE binding_id = ?"
+    ).bind(
+      fixture.creatorUserId,
+      HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      JSON.stringify(HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY),
+      fixture.bindingId
+    ),
+    env.OPENMELD_DB.prepare(
+      "INSERT INTO space_index_memberships (space_id, profile_id, profile_kind_snapshot, profile_name_snapshot, owner_user_id_snapshot, status, member_source, added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id) VALUES (?, ?, 'human', 'Routine Creator', ?, 'active', 'member_add', ?, ?, ?, ?)"
+    ).bind(
+      fixture.spaceId,
+      fixture.creatorProfileId,
+      fixture.creatorUserId,
+      fixture.nowMs,
+      fixture.nowMs,
+      fixture.nowMs,
+      crypto.randomUUID()
+    ),
+    env.OPENMELD_DB.prepare(
+      "UPDATE routines SET agent_profile_id = ? WHERE id = ?"
+    ).bind(fixture.profileId, fixture.routineId),
+    env.OPENMELD_DB.prepare(
+      "UPDATE routine_runs SET agent_profile_id_snapshot = ? WHERE id = ?"
+    ).bind(fixture.profileId, fixture.runId),
+  ]);
+  return fixture;
+}
+
 describe("Remote Agent Routine native delivery", () => {
+  it("keeps personal Routine management scoped to its Agent and preserves pause and resume", async () => {
+    const fixture = await seedPersonalRoutineDeliveryFixture();
+    const stores = {
+      db: env.OPENMELD_DB,
+      projectionsDb: env.OPENMELD_DB,
+      now: () => fixture.nowMs,
+    };
+    const service = createRoutineService({
+      ...stores,
+      agentProfileId: fixture.profileId,
+    });
+    const actor: RoutineActor = {
+      attribution: { actorProfileId: fixture.profileId, onBehalfOf: null },
+      authority: {
+        organizationId: fixture.organizationId,
+        userId: fixture.creatorUserId,
+        role: "member",
+      },
+      creationDisplayName: "Routine Creator",
+      sourceNativeDeliveryId: null,
+    };
+    const representedHuman = {
+      profileId: fixture.creatorProfileId,
+      userId: fixture.creatorUserId,
+    };
+    expect(
+      (await service.list(actor)).routines.map((routine) => routine.id)
+    ).toEqual([fixture.routineId]);
+    for (const otherService of [
+      createRoutineService(stores),
+      createRoutineService({ ...stores, agentProfileId: "another-agent" }),
+    ]) {
+      expect((await otherService.list(actor)).routines).toEqual([]);
+      await expect(
+        otherService.pause(actor, fixture.routineId)
+      ).rejects.toThrow("routine.not_found");
+    }
+    await expect(
+      service.pause(actor, fixture.routineId)
+    ).resolves.toMatchObject({ status: "paused", nextDueAt: null });
+    await expect(
+      service.resume(actor, representedHuman, fixture.routineId)
+    ).resolves.toMatchObject({ status: "enabled" });
+    await expect(
+      service.update(actor, representedHuman, fixture.routineId, {
+        authorizedActions: ["organization_documents.save_approved_knowledge"],
+      })
+    ).rejects.toThrow();
+    await service.delete(actor, fixture.routineId);
+    expect((await service.list(actor)).routines).toEqual([]);
+  });
+
+  it("does not execute a personal Routine after its owner loses access to the destination", async () => {
+    const fixture = await seedPersonalRoutineDeliveryFixture();
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM space_index_memberships WHERE space_id = ? AND profile_id = ?"
+    )
+      .bind(fixture.spaceId, fixture.creatorProfileId)
+      .run();
+    const workerSubmit = vi.fn();
+    await submitRemoteAgentRoutineDelivery({
+      db: env.OPENMELD_DB,
+      env: buildEnv({ fixture, workerSubmit }),
+      nowMs: fixture.nowMs,
+      routine: fixture.routine,
+      run: fixture.run,
+    });
+    expect(workerSubmit).not.toHaveBeenCalled();
+    await expect(
+      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+    ).resolves.toMatchObject({ status: "failed" });
+  });
+
+  it("runs a personal Routine with its own identity and publishes its result exactly once", async () => {
+    const fixture = await seedPersonalRoutineDeliveryFixture();
+    const workerSubmit = vi.fn(async () => ({
+      accepted: true,
+      createdAt: fixture.nowMs,
+      idempotencyKey: fixture.runId,
+      status: "pending" as const,
+      submissionId: fixture.submissionId,
+    }));
+    const testEnv = buildEnv({ fixture, workerSubmit });
+    const memoryService = {
+      recallForOrganization: vi.fn(),
+    } as unknown as CenterAgentMemoryService;
+    await expect(
+      submitRemoteAgentRoutineDelivery({
+        db: env.OPENMELD_DB,
+        env: testEnv,
+        nowMs: fixture.nowMs,
+        routine: fixture.routine,
+        run: fixture.run,
+        memoryService,
+      })
+    ).resolves.toEqual({ status: "submitted" });
+    expect(workerSubmit).toHaveBeenCalledTimes(1);
+    expect(workerSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        v: 4,
+        conversationIdentity: {
+          kind: "personal_agent",
+          agentProfileId: fixture.profileId,
+        },
+        agentProfileOwnerUserId: fixture.creatorUserId,
+        author: expect.objectContaining({
+          profileId: fixture.creatorProfileId,
+          profileKind: "human",
+        }),
+        turnEnvelope: expect.objectContaining({
+          sender: expect.objectContaining({ kind: "routine" }),
+        }),
+      })
+    );
+    expect(memoryService.recallForOrganization).not.toHaveBeenCalled();
+    await completeRemoteAgentNativeDelivery(
+      testEnv,
+      buildCompletedCallback(fixture)
+    );
+    await completeRemoteAgentNativeDelivery(
+      testEnv,
+      buildCompletedCallback(fixture)
+    );
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
+    ).toHaveBeenCalledTimes(1);
+    await expect(
+      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+    ).resolves.toMatchObject({ status: "completed" });
+  });
+
   it("lets concurrent scanners produce one Run, one worker turn, and one visible result", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     await env.OPENMELD_DB.batch([
@@ -932,7 +1111,7 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: "Routine “Daily feedback review” could not run because Center Agent could not accept the request. Try running the Routine again or open diagnostics.",
+        text: "Routine “Daily feedback review” could not run because the Agent could not accept the request. Try running the Routine again or open diagnostics.",
       })
     );
     await expect(

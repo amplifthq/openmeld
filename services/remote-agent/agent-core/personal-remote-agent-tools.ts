@@ -8,6 +8,12 @@ import type { RemoteAgentToolDefinition } from "./tool-definition";
 
 // Share implementations, but never inherit the Center's organization duties.
 const PERSONAL_PRODUCT_TOOLS = new Set([
+  "openmeld_create_routine",
+  "openmeld_list_routines",
+  "openmeld_update_routine",
+  "openmeld_delete_routine",
+  "openmeld_pause_routine",
+  "openmeld_resume_routine",
   "web_search",
   "web_fetch",
   "browser_read_page",
