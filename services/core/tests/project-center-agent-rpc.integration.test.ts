@@ -442,13 +442,12 @@ async function seedCenterAgentProjectOrganization() {
           managed_role,
           created_at,
           updated_at
-        ) VALUES (?, 'Project Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'auth_bootstrap', 'center_agent', ?, ?)
+        ) VALUES (?, 'Project Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'auth_bootstrap', 'center_agent', ?, ?)
       `
     ).bind(
       centerAgentProfileId,
       `project-center-agent-${suffix}`,
       organizationId,
-      ownerUserId,
       ownerUserId,
       nowMs,
       nowMs
@@ -471,8 +470,7 @@ async function seedCenterAgentProjectOrganization() {
       activeOrganizationId: organizationId,
       actorContext: {
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-        callerPrincipalId: ownerUserId,
-        ownerUserId,
+        callerPrincipalId: centerAgentProfileId,
         profileKind: "agent" as const,
         requestId,
         openMeldProfileId: centerAgentProfileId,
