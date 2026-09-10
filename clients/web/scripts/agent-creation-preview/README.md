@@ -53,4 +53,5 @@ This is presentation and interaction evidence, not authenticated full-applicatio
 or real Service reconnection acceptance. It does not prove refresh persistence,
 installation, account authorization, backend readiness propagation, or a Wake.
 The full local stack was not started alongside the six existing stacks because
-the host was under memory pressure. Manual UI approval is pending.
+the host was under memory pressure. Felix approved the revised UI for PR review;
+real Service reconnection acceptance remains outstanding.
