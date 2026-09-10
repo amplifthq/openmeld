@@ -224,7 +224,7 @@ function HumanLocalAgentDock({
 					>
 						<LocalAgentLogo
 							agentId={agent.agentId}
-							className="size-6"
+							className="size-5"
 							size="sm"
 						/>
 					</SettingsLocalAgentUsageDockItem>

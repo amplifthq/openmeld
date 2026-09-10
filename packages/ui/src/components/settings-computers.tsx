@@ -552,7 +552,10 @@ export function SettingsLocalAgentUsageDockItem({
       <TooltipTrigger
         render={
           <span
-            className="relative inline-flex size-7 shrink-0 items-end hover:z-10"
+            className={cn(
+              "relative inline-flex size-6 shrink-0 items-end hover:z-10",
+              visible.length > 0 && "order-first"
+            )}
             title={agentName}
           />
         }
