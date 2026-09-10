@@ -450,8 +450,8 @@ export function resolveSpaceComposerFileHint(input: {
 	const failedCount = input.files.filter(isSpaceComposerFileFailed).length;
 	if (failedCount > 0) {
 		return failedCount === 1
-			? "Remove the failed file to continue."
-			: "Remove the failed files to continue.";
+			? "1 file couldn't be uploaded and won't be sent."
+			: `${String(failedCount)} files couldn't be uploaded and won't be sent.`;
 	}
 	if (input.fileLimitReached) {
 		return "You can add up to 10 files.";
@@ -470,8 +470,5 @@ export function resolveSpaceComposerSendBlocked(input: {
 	text: string;
 }): boolean {
 	const hasFile = input.files.some((file) => file.status !== "failed");
-	return (
-		input.files.some(isSpaceComposerFileFailed) ||
-		(!hasFile && input.text.trim().length === 0)
-	);
+	return !hasFile && input.text.trim().length === 0;
 }

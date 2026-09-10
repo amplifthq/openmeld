@@ -74,6 +74,17 @@ export const FEISHU_CHANNEL_IDENTITY = {
 	service: "feishu",
 } as const;
 
+export const GITHUB_PLUGIN = {
+	availability: "available",
+	category: "Developer tools",
+	connection: { auth: { kind: "oauth" } },
+	description: "Read repositories and pull requests, and create issues.",
+	homepage: "https://github.com",
+	logoPath: "/app-logos/github.svg",
+	name: "GitHub",
+	service: "github",
+} as const satisfies PluginDefinition;
+
 export const PLUGINS = [
 	{
 		availability: "available",
@@ -97,18 +108,7 @@ export const PLUGINS = [
 		name: "Feishu",
 		service: "feishu",
 	},
-	{
-		availability: "available",
-		category: "Developer tools",
-		connection: {
-			auth: { kind: "oauth" },
-		},
-		description: "Read repositories and pull requests, and create issues.",
-		homepage: "https://github.com",
-		logoPath: "/app-logos/github.svg",
-		name: "GitHub",
-		service: "github",
-	},
+	GITHUB_PLUGIN,
 	{
 		availability: "available",
 		category: "Productivity",
@@ -342,5 +342,3 @@ export const PLUGINS = [
 export function findPluginDefinition(service: string): PluginDefinition | null {
 	return PLUGINS.find((plugin) => plugin.service === service) ?? null;
 }
-
-export const GITHUB_PLUGIN = PLUGINS[0];

@@ -1887,7 +1887,7 @@ describe("SpaceConversationPanel", () => {
 
 		for (const [messageText, expectedAlignment] of [
 			["Agent reply", "justify-start"],
-			["Self message", "self-end"],
+			["Self message", "justify-end"],
 		] as const) {
 			const message = screen.getByText(messageText).closest("[data-signal-id]");
 			const row = message?.closest("[data-message-row-id]");
@@ -4002,8 +4002,7 @@ describe("SpaceConversationPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-wake']");
 		const footer = row?.querySelector("[data-slot='message-footer']");
-		// The footer aligns with the self bubble; reactions start at its left edge.
-		expect(footer?.className).toContain("self-end");
+		expect(footer?.className).toContain("justify-end");
 		expect(footer?.className).not.toContain("justify-start");
 		expect(row?.querySelector("[data-testid='space-outcome-row']")).toBeNull();
 	});

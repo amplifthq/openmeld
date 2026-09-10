@@ -893,7 +893,7 @@ describe("SpaceThreadPanel", () => {
 			.closest("[data-message-row-id='sig-thread-wake']");
 		expect(
 			sourceMessage?.querySelector("[data-slot='message-footer']")?.className
-		).toContain("self-end");
+		).toContain("justify-end");
 
 		rerenderThreadPanel({
 			selfProfileId: "human-profile-1",

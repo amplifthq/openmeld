@@ -433,7 +433,7 @@ describe("LandingPage", () => {
 		);
 		expect(
 			within(connectedWorkSection).getByRole("heading", {
-				name: "Bring work in from Slack or Lark. Connect your Center Agent to 12 Plugins.",
+				name: "Bring work in from Slack or Lark. Connect your Center Agent to 14 Plugins.",
 			})
 		).toBeTruthy();
 		expect(
@@ -443,7 +443,7 @@ describe("LandingPage", () => {
 		).toBeTruthy();
 		expect(
 			within(connectedWorkSection).getByRole("heading", {
-				name: "12 Plugins",
+				name: "14 Plugins",
 			})
 		).toBeTruthy();
 		expect(
@@ -471,8 +471,10 @@ describe("LandingPage", () => {
 		const availableApps = within(connectedWorkSection).getByRole("list", {
 			name: "Available Plugins",
 		});
-		expect(within(availableApps).getAllByRole("listitem")).toHaveLength(12);
+		expect(within(availableApps).getAllByRole("listitem")).toHaveLength(14);
 		for (const appName of [
+			"Lark",
+			"Feishu",
 			"GitHub",
 			"Google Drive",
 			"Google Calendar",
@@ -525,7 +527,7 @@ describe("LandingPage", () => {
 		fireEvent.click(integrationsQuestion);
 		expect(
 			screen.getByText(
-				"Slack and Lark are Channels where people can message the Center Agent and receive replies. The 12 available Plugins give the Center Agent explicitly connected tools for files, calendars, email, code, analytics, and Cloudflare. Every connection keeps its own identity, permissions, and audit trail."
+				"Slack and Lark are Channels where people can message the Center Agent and receive replies. The 14 available Plugins give the Center Agent explicitly connected tools for files, calendars, email, code, analytics, and Cloudflare. Every connection keeps its own identity, permissions, and audit trail."
 			)
 		).toBeTruthy();
 
