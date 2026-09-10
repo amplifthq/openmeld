@@ -125,6 +125,7 @@ export const organizationProfileDirectoryResponseSchema = z.strictObject({
 
 export const organizationAgentRuntimeOverviewItemSchema = z.strictObject({
   profileId: agentProfileIdSchema,
+  lastTaskActivityAt: ISO_DATE_TIME_SCHEMA.nullable().optional(),
   operationalContext:
     organizationDirectoryAgentProfileOperationalContextSchema.optional(),
   readiness: getAgentExecutionReadinessResponseSchema,
@@ -133,6 +134,7 @@ export const organizationAgentRuntimeOverviewItemSchema = z.strictObject({
 export const organizationAgentRuntimeOverviewResponseSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,
   generatedAt: ISO_DATE_TIME_SCHEMA,
+  taskActivitySince: ISO_DATE_TIME_SCHEMA.optional(),
   agentProfiles: z.array(organizationAgentRuntimeOverviewItemSchema),
 });
 

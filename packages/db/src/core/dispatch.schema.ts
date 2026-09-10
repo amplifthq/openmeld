@@ -479,6 +479,11 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     index("idx_openMeldRemoteAgent_native_delivery_routine_run").on(
       table.routineRunId
     ),
+    index("idx_openMeldRemoteAgent_native_delivery_org_profile_updated").on(
+      table.organizationId,
+      table.profileId,
+      desc(table.updatedAtMs)
+    ),
     index("idx_openMeldRemoteAgent_native_delivery_space_trigger").on(
       table.spaceId,
       table.triggerMessageId,
@@ -1520,6 +1525,10 @@ export const openMeldDaemonRuntimeCoordinatorExecutions = sqliteTable(
     ),
     index("idx_openMeldDaemon_rce_status_updated").on(
       table.status,
+      desc(table.updatedAtMs)
+    ),
+    index("idx_openMeldDaemon_rce_profile_updated").on(
+      table.targetProfileId,
       desc(table.updatedAtMs)
     ),
     index("idx_openMeldDaemon_rce_space_status_updated").on(
