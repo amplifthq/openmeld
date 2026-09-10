@@ -68,6 +68,7 @@ export {
   toCompatibleSpaceAddressingRequestWireValue,
   toLegacySpaceAddressingWireValue,
 } from "./compatibility/legacy-space-addressing-wire";
+export { toSpaceSignalReadWireValue } from "./compatibility/space-signal-read-wire";
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,

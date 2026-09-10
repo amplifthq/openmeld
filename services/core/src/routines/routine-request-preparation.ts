@@ -1,4 +1,7 @@
-import { openMeldRequestContextSchema } from "@openmeld/schemas";
+import {
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+  openMeldRequestContextSchema,
+} from "@openmeld/schemas";
 import type {
   CenterAgentRoutineToolSpeaker,
   OpenMeldRequestContext,
@@ -6,6 +9,7 @@ import type {
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import { type CoreBindings, projectionsDb, routineDb } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
+import { prepareRemoteAgentMemberRequest } from "../remote-agent/application/remote-agent-member-request";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { parseRoutinePayload } from "./routine-rpc-contract";
 import { createRoutineService, type RoutineActor } from "./routine-service";
@@ -74,6 +78,50 @@ export async function prepareCenterAgentRoutineRequest(
   context: OpenMeldRequestContext,
   speakerMember: CenterAgentRoutineToolSpeaker
 ): Promise<PreparedRoutineRequest> {
+  if (
+    context.actorContext.agentControllerRef ===
+    HOSTED_REMOTE_AGENT_CONTROLLER_REF
+  ) {
+    const { authorization, member } = await prepareRemoteAgentMemberRequest(
+      env,
+      context,
+      speakerMember
+    );
+    if (
+      !member.profileId ||
+      member.userId !== context.actorContext.ownerUserId
+    ) {
+      throw createCoreRpcHttpError({
+        code: "routine.forbidden",
+        reason: "Only this Agent's owner can manage its Routines.",
+        status: 403,
+      });
+    }
+    return {
+      actor: {
+        attribution: {
+          actorProfileId: authorization.actorProfileId,
+          onBehalfOf: {
+            displayName: member.displayName,
+            profileId: member.profileId,
+            userId: member.userId,
+          },
+        },
+        authority: {
+          organizationId: authorization.activeOrganization.organizationId,
+          role: member.role,
+          userId: member.userId,
+        },
+        creationDisplayName: member.displayName,
+        sourceNativeDeliveryId: member.sourceNativeDeliveryId,
+      },
+      representedHuman: { profileId: member.profileId, userId: member.userId },
+      service: createRoutineService({
+        ...requireRoutineStores(env),
+        agentProfileId: authorization.actorProfileId,
+      }),
+    };
+  }
   const {
     authorization: centerAgent,
     representedHuman,

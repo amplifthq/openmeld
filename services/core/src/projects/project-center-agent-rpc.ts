@@ -398,9 +398,7 @@ export async function rpcCenterAgentRemoveProject(
     confirmation.organizationId !== prepared.authority.organizationId ||
     confirmation.actorProfileId !== prepared.actorProfileId ||
     confirmation.representedUserId !== prepared.representedHuman.userId ||
-    confirmation.representedProfileId !== prepared.representedHuman.profileId ||
-    (request.executionMode === "interactive" &&
-      confirmation.preparedRequestId === request.context.actorContext.requestId)
+    confirmation.representedProfileId !== prepared.representedHuman.profileId
   ) {
     throw invalidRemoveConfirmationError();
   }

@@ -282,6 +282,8 @@ function formatWakeProgressSummaryPart(
 			return count === 1 ? "Posting 1 reply" : `Posting ${count} replies`;
 		case "waiting_for_controller":
 			return `${agentCount} waiting for a controller task`;
+		case "waiting_for_device":
+			return `${agentCount} waiting for a computer`;
 		case "starting":
 		case "sent":
 		case "connecting":

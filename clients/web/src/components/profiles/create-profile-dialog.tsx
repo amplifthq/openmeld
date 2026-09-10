@@ -14,6 +14,7 @@ import {
 	DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 	formatAgentRecoveryActionLabel,
 	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+	TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "@openmeld/schemas";
 import type {
 	AgentActivityInventorySession,
@@ -511,7 +512,12 @@ function useCreateProfileDialogController(
 	input: CreateProfileDialogProps,
 	options: { agentOnly: boolean; templateNaming: boolean }
 ) {
-	const initialSessionPreset = input.agentActivitySessionPreset;
+	// Launch hold: never carry another member's native session into self creation.
+	const initialSessionPreset =
+		TEAMMATE_AGENT_REQUESTS_ENABLED ||
+		input.agentActivitySessionPreset?.ownerUserId === input.currentUserId
+			? input.agentActivitySessionPreset
+			: undefined;
 	const currentUserId = input.currentUserId ?? "";
 	const initialOwnerMode = resolveInitialOwnerMode({
 		currentUserId,
@@ -2973,6 +2979,7 @@ function canRequestTeammateAgent(input: {
 		!input.hasInitialSessionPreset || input.initialOwnerMode === "teammate";
 	return (
 		initialSessionAllowsTeammateRequest &&
+		TEAMMATE_AGENT_REQUESTS_ENABLED &&
 		input.allowTeammateRequests === true &&
 		Boolean(input.currentUserId)
 	);
@@ -3518,7 +3525,7 @@ function showCreatedAgentRequestToast(input: {
 			toast.info(
 				input.request.createdAgentProfileId
 					? "Agent created. Finishing setup in the background."
-					: "Creating Agent. You can check progress in Agent requests."
+					: "Creating Agent. You can check progress in Agent setup."
 			);
 			return;
 		default:

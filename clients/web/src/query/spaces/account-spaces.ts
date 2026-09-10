@@ -84,6 +84,7 @@ export function accountSpaceActiveWakeSummaryQueryOptions(input: {
 							includeSourceContext: true,
 							includePreviewText: true,
 							includeWaitReason: true,
+							includeDeviceWait: true,
 							includePageInfo: true,
 							includeWakeStopEligibility: true,
 						})

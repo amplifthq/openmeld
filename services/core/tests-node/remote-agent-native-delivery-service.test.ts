@@ -1670,6 +1670,7 @@ describe("Remote Agent native delivery callback service", () => {
       });
     const adapter: MessageChannelProviderAdapter = {
       createWorkingCard: vi.fn(),
+      publishFile: vi.fn(),
       downloadResource: vi.fn(),
       finalizeWorkingCard: vi.fn(),
       provider: "lark",
@@ -6498,6 +6499,7 @@ describe("Remote Agent native delivery callback service", () => {
     }));
     const adapter: MessageChannelProviderAdapter = {
       createWorkingCard: vi.fn(),
+      publishFile: vi.fn(),
       downloadResource: vi.fn(),
       finalizeWorkingCard: vi.fn(),
       provider: "lark",

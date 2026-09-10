@@ -196,7 +196,7 @@ describe("Center Agent Project RPC", () => {
     expect(Number(projectCount?.count)).toBe(1);
   });
 
-  it("requires a later turn and one bound confirmation before removing a Project", async () => {
+  it("allows same-turn removal with a bound token and replays the operation", async () => {
     const fixture = await seedCenterAgentProjectOrganization();
     const created = await rpcCenterAgentCreateProject(coreEnv(), {
       context: fixture.context("create-request"),
@@ -212,19 +212,9 @@ describe("Center Agent Project RPC", () => {
       speakerMember: fixture.speakerMember,
     });
 
-    await expect(
-      rpcCenterAgentRemoveProject(coreEnv(), {
-        confirmationToken: prepared.confirmation.token,
-        context: fixture.context("prepare-remove"),
-        executionMode: "interactive",
-        operationId: "remove-temporary",
-        speakerMember: fixture.speakerMember,
-      })
-    ).rejects.toThrow("project.remove_confirmation_invalid");
-
     const removed = await rpcCenterAgentRemoveProject(coreEnv(), {
       confirmationToken: prepared.confirmation.token,
-      context: fixture.context("confirm-remove"),
+      context: fixture.context("prepare-remove"),
       executionMode: "interactive",
       operationId: "remove-temporary",
       speakerMember: fixture.speakerMember,

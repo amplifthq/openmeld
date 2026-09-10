@@ -39,6 +39,27 @@ Phase 1 never broadcasts unassigned Feedback Issues to every member.
 
 ## Scope and recipients
 
+### Authorization updates
+
+Sources that require renewed human consent can project an urgent **Needs action**
+item to the Organization's current owners and admins. Channel adapters cover
+Slack, Feishu and Lark. Existing granted scopes or verified permission-bundle
+versions remain authoritative; Inbox does not store a second authorization state.
+Unknown grants and transient transport failures do not establish a consent request.
+
+Each source and permission revision produces one item per manager. Opening a
+Channel request goes to Channels, where a manager updates the existing connection.
+Only verified source recovery resolves the request. Once any manager completes it,
+all recipients' copies resolve and become read, and queued emails are suppressed.
+This is an explicit read-on-resolution exception for shared authorization requests;
+other Inbox sources retain their normal read semantics. Disconnecting the source
+also clears an obsolete request without claiming that permissions were granted.
+
+Current manager access is checked on reads and before email delivery. Existing
+urgent-email preferences still apply. Already-sent email cannot be recalled.
+Other source domains may reuse the guarded authorization-update producer with
+their own source identity, revision, target and authoritative recovery condition.
+
 Inbox is scoped by both `organizationId` and `recipientUserId`. A person sees
 only their own items in the current workspace. Changing workspaces changes the
 Inbox; it must not merge private attention state across organizations.

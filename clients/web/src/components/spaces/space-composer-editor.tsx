@@ -107,6 +107,7 @@ type SpaceComposerEditorProps = {
 	inline?: boolean;
 	maxHeight?: number;
 	mentionPickerItems: readonly SpaceMentionPickerItem[];
+	mentionEmptyMessage?: string;
 	onChange: (change: SpaceComposerEditorChange) => void;
 	onDragEnter?: (event: DragEvent<HTMLDivElement>) => void;
 	onDragLeave?: (event: DragEvent<HTMLDivElement>) => void;
@@ -123,7 +124,10 @@ type SpaceComposerEditorProps = {
 
 type SpaceComposerEditorContextValue = Pick<
 	SpaceComposerEditorProps,
-	"addressingTargets" | "centerAgentProfileId" | "mentionPickerItems"
+	| "addressingTargets"
+	| "centerAgentProfileId"
+	| "mentionPickerItems"
+	| "mentionEmptyMessage"
 >;
 
 const SpaceComposerEditorContext =
@@ -181,11 +185,13 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			addressingTargets: input.addressingTargets,
 			centerAgentProfileId: input.centerAgentProfileId,
 			mentionPickerItems: input.mentionPickerItems,
+			mentionEmptyMessage: input.mentionEmptyMessage,
 		}),
 		[
 			input.addressingTargets,
 			input.centerAgentProfileId,
 			input.mentionPickerItems,
+			input.mentionEmptyMessage,
 		]
 	);
 
@@ -521,7 +527,11 @@ function SpaceComposerProfileToken(
 					<SelectTrigger
 						aria-label={`Change relation for ${profileName}`}
 						className="h-6 min-w-0 gap-1 rounded-none border-0 border-border border-l px-1.5 py-0 font-medium text-muted-foreground text-xs max-lg:h-6 max-lg:min-w-0 [&>svg]:size-3"
-						displayValue={selectedRelationLabel}
+						displayValue={
+							isBlockedWake && !target?.wakeAvailability.reasonCodes.length
+								? "Wake · Checking…"
+								: selectedRelationLabel
+						}
 						onClickCapture={() => {
 							relationSelection.current = editor.selection;
 						}}
@@ -669,7 +679,9 @@ function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
 					className="w-[min(24rem,calc(100vw-1.5rem))]"
 				>
 					<InlineComboboxCancel label="Close mentions" />
-					<InlineComboboxEmpty>No matching members</InlineComboboxEmpty>
+					<InlineComboboxEmpty>
+						{context.mentionEmptyMessage ?? "No matching members"}
+					</InlineComboboxEmpty>
 					<SpaceComposerMentionGroup items={agentItems} title="Agents" />
 					<SpaceComposerMentionGroup items={humanItems} title="People" />
 				</InlineComboboxContent>
@@ -729,6 +741,9 @@ function SpaceComposerMentionGroup(input: {
 function resolveComposerUnavailableLabel(
 	item: SpaceMentionPickerItem | undefined
 ): string {
+	if (item?.memberEntry.availabilityIsRefreshing) {
+		return "Checking";
+	}
 	const display = item
 		? resolveSpaceMemberStatusBadgeDisplay(item.memberEntry)
 		: null;
@@ -744,6 +759,7 @@ function resolveComposerUnavailableLabel(
 function ComposerAgentAvailability({ item }: { item: SpaceMentionPickerItem }) {
 	const entry = item.memberEntry;
 	const display = resolveSpaceMemberStatusBadgeDisplay(entry);
+	const isRefreshing = entry.availabilityIsRefreshing || display?.isRefreshing;
 	const label =
 		display?.label === "Connect"
 			? "Unavailable"
@@ -751,12 +767,12 @@ function ComposerAgentAvailability({ item }: { item: SpaceMentionPickerItem }) {
 	return (
 		<SpaceAgentAvailabilityIndicator
 			category={entry.availabilityCategory}
-			isRefreshing={display?.isRefreshing}
-			label={label}
+			isRefreshing={isRefreshing}
+			label={isRefreshing ? "Checking" : label}
 			phase={entry.availabilityPhase}
 			reasonCode={entry.availabilityReasonCode}
 			tone={resolveSpaceMemberStatusTone(entry)}
-			tooltip={label}
+			tooltip={isRefreshing ? "Checking" : label}
 		/>
 	);
 }

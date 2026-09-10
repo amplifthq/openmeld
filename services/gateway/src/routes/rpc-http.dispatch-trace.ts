@@ -1,5 +1,4 @@
 import {
-  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER,
   spaceDispatchTraceResponseContractVersionHeaderSchema,
 } from "@openmeld/schemas";
@@ -52,16 +51,14 @@ export function registerDispatchTraceRoutes(app: Hono<HonoBindings>): void {
 
     if (
       includeRemoteAgentRuntimeDiagnostics &&
-      (!responseContractVersion?.success ||
-        responseContractVersion.data !==
-          SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION)
+      (!responseContractVersion?.success || responseContractVersion.data < 4)
     ) {
       return respondBadRequest({
         c,
         route: SPACE_DISPATCH_TRACE_ROUTE,
         method: "GET",
         message:
-          "Detailed runtime diagnostics require dispatch trace response version 4. Update OpenMeld CLI, or run the trace without --details.",
+          "Detailed runtime diagnostics require dispatch trace response version 4 or later. Update OpenMeld CLI, or run the trace without --details.",
         spaceId,
       });
     }

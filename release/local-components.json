@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-10T01:34:21.873Z",
+  "updatedAt": "2026-09-10T07:26:50.975Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-organization-agent-ownership-v1",
-      "packageVersion": "0.3.193",
-      "updatePolicy": "required",
-      "reason": "Organization-owned Center Agents require nullable-owner command readers."
+      "packageVersion": "0.3.195",
+      "updatePolicy": "available",
+      "reason": "Existing commands remain compatible; teammate creation holds are enforced by Core, and request inspection remains available."
     },
     "service": {
-      "bundleHash": "3ded972a8f37fdd5321b4032ef1c2388725c53702c95dc1833e4de4994f848b0",
-      "bundleVersion": "0.3.193",
+      "bundleHash": "cc581b7656babf81d8d3705726a76e1a6ebec01374f028afd8e243dbd4d560f6",
+      "bundleVersion": "0.3.195",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing Service execution, Prepare, Wake, Space action, and diagnostic contracts remain compatible in both cloud directions."
+      "reason": "Offline waiting is owned by Core before dispatch; existing Services execute the same admitted tasks, and the local instruction change does not alter the runtime wire contract."
     },
     "skills": {
-      "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
+      "bundleHash": "83d47e75112123a73fd0379632148d4577081f0b1efd7ac10a1301999fb73d12",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
-      "updatePolicy": "required",
-      "reason": "The Skills contract now requires explicit recipient flags matching the new CLI command contract. Update Skills with the CLI; older signed revisions remain available to their matching legacy contract."
+      "updatePolicy": "available",
+      "reason": "Command guidance reflects the launch hold without removing supported operations; older skills remain subject to the same server authorization."
     }
   }
 }

@@ -63,7 +63,7 @@ describe("Message Channel input attachments", () => {
     });
   });
 
-  it("rejects a non-image resource visibly without downloading provider bytes", async () => {
+  it("admits a file for evidence-bound on-demand reading without image conversion", async () => {
     const adapter = createAdapter({
       bytes: PNG_BYTES,
       contentType: "image/png",
@@ -89,9 +89,8 @@ describe("Message Channel input attachments", () => {
         event,
       })
     ).resolves.toEqual({
-      failureCode: "message_channel.input_resource_type_unsupported",
-      status: "failed",
-      text: 'Center Agent cannot read the attached file "launch.pdf" yet. Please send its content as text or as JPEG or PNG images.',
+      attachments: [],
+      status: "ready",
     });
     expect(adapter.downloadResource).not.toHaveBeenCalled();
   });
@@ -126,6 +125,7 @@ function createAdapter(
 ): MessageChannelProviderAdapter {
   return {
     createWorkingCard: vi.fn(),
+    publishFile: vi.fn(),
     downloadResource: vi.fn(() => Promise.resolve(download)),
     finalizeWorkingCard: vi.fn(),
     provider: "lark",

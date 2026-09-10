@@ -1,3 +1,4 @@
+import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
 import type { SettingsSectionDef } from "@openmeld/ui/lib/settings-contract";
 import type { ReactNode } from "react";
 import { APP_CONTEXTUAL_MAIN_TEXT_BASE_START_CLASS_NAME } from "#/components/app/app-contextual-layout-style";
@@ -118,9 +119,12 @@ export function buildSettingsSections(
 	] as const;
 }
 
+// Launch hold, not legacy. Keep the settings implementation and saved policies
+// for Request an Agent; see agent-profiles.md#teammate-request-launch-hold.
 function PersonalAgentPermissions() {
 	const { currentOrganization } = useAppOrganization();
-	return currentOrganization.isPersonal ? null : (
+	return !TEAMMATE_AGENT_REQUESTS_ENABLED ||
+		currentOrganization.isPersonal ? null : (
 		<AgentProfileCreationApprovalSettings
 			organizationId={currentOrganization.id}
 			organizationName={currentOrganization.name}

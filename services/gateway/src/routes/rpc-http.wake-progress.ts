@@ -27,6 +27,7 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
       includeTiming: c.req.query("includeTiming"),
       includeSourceContext: c.req.query("includeSourceContext"),
       includeWaitReason: c.req.query("includeWaitReason"),
+      includeDeviceWait: c.req.query("includeDeviceWait"),
       includeWakeStopEligibility: c.req.query("includeWakeStopEligibility"),
       sourceProfileId: c.req.query("sourceProfileId"),
       targetProfileId: c.req.query("targetProfileId"),
@@ -61,6 +62,7 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
           ...(parsed.data.includeSourceContext === undefined
             ? {}
             : { includeSourceContext: parsed.data.includeSourceContext }),
+          includeDeviceWait: parsed.data.includeDeviceWait,
           ...(parsed.data.includeWaitReason === undefined
             ? {}
             : { includeWaitReason: parsed.data.includeWaitReason }),
@@ -90,6 +92,7 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
       includePreviewText: c.req.query("includePreviewText"),
       includeSourceContext: c.req.query("includeSourceContext"),
       includeWaitReason: c.req.query("includeWaitReason"),
+      includeDeviceWait: c.req.query("includeDeviceWait"),
       includeWakeStopEligibility: c.req.query("includeWakeStopEligibility"),
       targetProfileId: c.req.query("targetProfileId"),
     });
@@ -122,6 +125,7 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
           ...(parsed.data.includeSourceContext === undefined
             ? {}
             : { includeSourceContext: parsed.data.includeSourceContext }),
+          includeDeviceWait: parsed.data.includeDeviceWait,
           ...(parsed.data.includeWaitReason === undefined
             ? {}
             : { includeWaitReason: parsed.data.includeWaitReason }),

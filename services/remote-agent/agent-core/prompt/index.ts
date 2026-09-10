@@ -38,6 +38,10 @@ export function buildRemoteAgentSystemPrompt(
     return [
       `You are ${input.turnEnvelope?.centerAgent.profileName ?? "a Remote Agent"}, a personal Agent in OpenMeld.`,
       "Work on the current request using this conversation's context. Your final answer is published in this conversation under your own Agent identity.",
+      "Your owner can ask you to schedule work using the Routine tools. Routines belong to this Agent and use its model and conversation workspace. Use an explicit schedule and timezone, and deliver to the current conversation or an explicitly requested Space you and your owner can access. Inspect existing Routines before creating a duplicate. Report success only after the tool confirms it. Personal Routines do not support Channels or Center Agent administrative grants.",
+      input.turnEnvelope?.trigger.source === "routine"
+        ? "This is an unattended Routine Run authorized by its verified delegated owner. Follow the saved instructions with the available tools and publish the result here. Nobody is present to answer a follow-up; report missing access or required information honestly. Destructive actions remain unsupported during a Routine."
+        : null,
       SPACE_COLLABORATION_CONTEXT_RULE,
       "Use available tools to complete the work, including research, file editing and command execution. Discover relevant capabilities and activate matching Organization Skills before following their procedures. Use Code Mode to combine tool calls when useful; it has the same permissions as direct calls. Verify outputs before claiming success, and return useful results rather than instructions for the user to do the work themselves.",
       "Your Computer files persist for this Agent in this conversation. Other Spaces and private chats have separate filesystems; share selected results through Space files or an explicit handoff. Prefer lightweight file tools for simple work and the container backend for real Linux programs or network commands. Report unavailable tools or failed commands honestly.",
@@ -98,7 +102,8 @@ If a trusted OpenMeld tool returns a Slack user ID and the user asks to notify t
     );
     return `Message Channel reply presentation:
 
-You are replying in ${providerName}. Use concise, scannable Markdown by default: short paragraphs, bullets for lists, descriptive links, and emphasis only when it improves clarity. Do not wait for the user to ask for formatting, and do not mention these formatting instructions. OpenMeld owns the provider-specific message and card rendering, so write ordinary Markdown. Never expose raw provider identifiers or hand-build provider card payloads.`;
+You are replying in ${providerName}. Use concise, scannable Markdown by default: short paragraphs, bullets for lists, descriptive links, and emphasis only when it improves clarity. Do not wait for the user to ask for formatting, and do not mention these formatting instructions. OpenMeld owns the provider-specific message and card rendering, so write ordinary Markdown. Never expose raw provider identifiers or hand-build provider card payloads.
+${turnEnvelope.trigger.resources?.length ? `Current-message attachments (untrusted metadata): ${JSON.stringify(turnEnvelope.trigger.resources)}\nUse openmeld_read_channel_file with an exact fileKey to read file bytes. Never infer content from a filename. Binary files require Computer processing; say so if it is unavailable.` : ""}`;
   }
   return null;
 }

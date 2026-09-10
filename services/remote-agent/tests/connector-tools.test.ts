@@ -960,9 +960,9 @@ describe("Remote Agent generic App tools", () => {
 
     expect(result).toMatchObject({
       sideEffects: 0,
-      status: "destructive_confirmation_required",
+      status: "destructive_action_preview",
     });
-    expect(definition?.endsTurnAfter?.(result)).toBe(true);
+    expect(definition?.endsTurnAfter?.(result)).not.toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(centerAgentRecordConnectorActionOperation).not.toHaveBeenCalled();
   });
@@ -1037,7 +1037,7 @@ describe("Remote Agent generic App tools", () => {
       })
     ).resolves.toMatchObject({
       sideEffects: 0,
-      status: "destructive_confirmation_required",
+      status: "destructive_action_preview",
     });
     expect(centerAgentRecordConnectorActionOperation).not.toHaveBeenCalled();
   });

@@ -356,6 +356,7 @@ export async function listDueRemoteAgentLarkPlatformRegistrationAttempts(input: 
 }
 
 export async function repairRemoteAgentLarkPlatformRegistrationAttempt(input: {
+  updatePermissionBundleVersion?: string;
   attemptId: string;
   configurationExpiresAtMs: number;
   connectionId: string;
@@ -434,10 +435,10 @@ export async function repairRemoteAgentLarkPlatformRegistrationAttempt(input: {
           NULL,
           NULL,
           previous.permission_mode,
-          previous.permission_bundle_version,
+          coalesce(?, previous.permission_bundle_version),
           previous.return_path,
           'configuring',
-          NULL,
+          CASE WHEN ? IS NOT NULL THEN previous.provider || '.authorization_update_required' ELSE NULL END,
           NULL,
           ?,
           ?
@@ -454,7 +455,8 @@ export async function repairRemoteAgentLarkPlatformRegistrationAttempt(input: {
           AND previous.provider = ?
           AND previous.consumed_at_ms IS NOT NULL
           AND previous.status IN ('connected', 'repair_required')
-          AND connection.status IN ('repair_required', 'revoked')
+          AND (connection.status IN ('repair_required', 'revoked')
+            OR (connection.status = 'connected' AND ? IS NOT NULL AND connection.permission_bundle_version != ?))
           AND NOT EXISTS (
             SELECT 1
             FROM openMeldRemoteAgent_lark_platform_registration_attempts active
@@ -476,12 +478,16 @@ export async function repairRemoteAgentLarkPlatformRegistrationAttempt(input: {
       input.pollIntervalMs,
       input.nowMs,
       input.configurationExpiresAtMs,
+      input.updatePermissionBundleVersion ?? null,
+      input.updatePermissionBundleVersion ?? null,
       input.nowMs,
       input.nowMs,
       candidate.attempt_id,
       input.connectionId,
       input.organizationId,
       input.provider,
+      input.updatePermissionBundleVersion ?? null,
+      input.updatePermissionBundleVersion ?? null,
       input.organizationId,
       input.provider
     );
@@ -491,6 +497,7 @@ export async function repairRemoteAgentLarkPlatformRegistrationAttempt(input: {
         UPDATE openMeldRemoteAgent_lark_platform_channel_connections
         SET
           status = 'configuring',
+          permission_bundle_version = coalesce(?, permission_bundle_version),
           bot_open_id = NULL,
           bot_name = NULL,
           granted_capability_groups_json = '[]',
@@ -502,7 +509,8 @@ export async function repairRemoteAgentLarkPlatformRegistrationAttempt(input: {
         WHERE connection_id = ?
           AND organization_id = ?
           AND provider = ?
-          AND status IN ('repair_required', 'revoked')
+          AND (status IN ('repair_required', 'revoked')
+            OR (status = 'connected' AND ? IS NOT NULL AND permission_bundle_version != ?))
           AND EXISTS (
             SELECT 1
             FROM openMeldRemoteAgent_lark_platform_registration_attempts attempt
@@ -520,10 +528,13 @@ export async function repairRemoteAgentLarkPlatformRegistrationAttempt(input: {
       `
     )
     .bind(
+      input.updatePermissionBundleVersion ?? null,
       input.nowMs,
       input.connectionId,
       input.organizationId,
       input.provider,
+      input.updatePermissionBundleVersion ?? null,
+      input.updatePermissionBundleVersion ?? null,
       input.attemptId,
       input.configurationExpiresAtMs
     );

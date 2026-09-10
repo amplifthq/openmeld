@@ -25,6 +25,16 @@ export const spaceQueryKeys = {
 		[...allSpaceBootstrapQueryKey, spaceId, openMeldProfileId ?? null] as const,
 	status: (spaceId: string, openMeldProfileId?: string | null) =>
 		["spaces", "status", spaceId, openMeldProfileId ?? null] as const,
+	memberDirectoryDisplay: (
+		spaceId: string,
+		openMeldProfileId?: string | null
+	) =>
+		[
+			"spaces",
+			"member-directory-display",
+			spaceId,
+			openMeldProfileId ?? null,
+		] as const,
 	displaySnapshot: (spaceId: string, openMeldProfileId?: string | null) =>
 		["spaces", "display-snapshot", spaceId, openMeldProfileId ?? null] as const,
 	members: (spaceId: string, openMeldProfileId?: string | null) =>
