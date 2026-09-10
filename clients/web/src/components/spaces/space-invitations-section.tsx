@@ -30,6 +30,30 @@ import {
 import { invitationRequestQueryKey } from "#/query/organizations/invitation-requests";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
 
+function canSendInvitation(
+	audience: "organization" | "guest",
+	role: Parameters<typeof canManageOrganizationArea>[0]
+) {
+	return (
+		audience === "guest" ||
+		canManageOrganizationArea(role, { invitation: ["create"] })
+	);
+}
+
+function describeInvitationAudience(
+	audience: "organization" | "guest",
+	canInvite: boolean,
+	organizationName: string
+): string {
+	if (audience === "guest") {
+		return "Guests sign in to join only this Space. They won’t become organization members.";
+	}
+	if (canInvite) {
+		return `New teammates will join ${organizationName} and this Space.`;
+	}
+	return "An organization owner or admin must approve invitations for new teammates.";
+}
+
 export function SpaceInvitationsSection({
 	spaceId,
 	triggerLabel = "Invite",
@@ -60,7 +84,13 @@ export function SpaceInvitationsSection({
 	);
 }
 
-export function SpaceInvitationForm({ spaceId }: { spaceId: string }) {
+export function SpaceInvitationForm({
+	spaceId,
+	audience = "organization",
+}: {
+	spaceId: string;
+	audience?: "organization" | "guest";
+}) {
 	const scope = useOptionalAppOrganization();
 	const organization = scope?.currentOrganization;
 	const role = useQuery(
@@ -70,9 +100,7 @@ export function SpaceInvitationForm({ spaceId }: { spaceId: string }) {
 			userId: scope?.currentUserId ?? "",
 		})
 	);
-	const canInvite = canManageOrganizationArea(role.data, {
-		invitation: ["create"],
-	});
+	const canInvite = canSendInvitation(audience, role.data);
 	const [email, setEmail] = useState("");
 	const [sent, setSent] = useState(false);
 	const client = useQueryClient();
@@ -81,6 +109,7 @@ export function SpaceInvitationForm({ spaceId }: { spaceId: string }) {
 		scope?.currentUserId,
 		organization?.id,
 		spaceId,
+		audience,
 	];
 	const query = useQuery({
 		queryKey,
@@ -89,6 +118,7 @@ export function SpaceInvitationForm({ spaceId }: { spaceId: string }) {
 				action: "list",
 				organizationId: organization?.id ?? "",
 				spaceId,
+				audience,
 			}),
 		enabled: Boolean(organization && !organization.isPersonal && canInvite),
 		retry: false,
@@ -140,9 +170,7 @@ export function SpaceInvitationForm({ spaceId }: { spaceId: string }) {
 	return (
 		<div className="grid gap-2">
 			<p className="text-muted-foreground text-xs/relaxed">
-				{canInvite
-					? `New teammates will join ${organization.name} and this Space.`
-					: "An organization owner or admin must approve invitations for new teammates."}
+				{describeInvitationAudience(audience, canInvite, organization.name)}
 			</p>
 			<form
 				className="flex flex-wrap items-end gap-2"
@@ -166,18 +194,19 @@ export function SpaceInvitationForm({ spaceId }: { spaceId: string }) {
 						organizationId: organization.id,
 						spaceId,
 						email,
+						audience,
 					});
 				}}
 			>
 				<label
 					className="sr-only"
-					htmlFor={`space-invitation-email-${spaceId}`}
+					htmlFor={`space-invitation-email-${spaceId}-${audience}`}
 				>
 					Email address
 				</label>
 				<Input
 					className="min-w-40 flex-1"
-					id={`space-invitation-email-${spaceId}`}
+					id={`space-invitation-email-${spaceId}-${audience}`}
 					onChange={(event) => setEmail(event.target.value)}
 					placeholder="name@example.com"
 					required
@@ -216,7 +245,7 @@ export function SpaceInvitationForm({ spaceId }: { spaceId: string }) {
 					{proposal.error.message}
 				</p>
 			) : null}
-			{role.isSuccess ? (
+			{role.isSuccess && audience === "organization" ? (
 				<Accordion>
 					<AccordionItem value="invite-link">
 						<AccordionTrigger

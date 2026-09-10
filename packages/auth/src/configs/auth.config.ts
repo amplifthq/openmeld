@@ -42,6 +42,7 @@ import {
   resolvePersonalOrganizationName,
   resolveUserDisplayName,
 } from "../organization/personal-organization";
+import { requireSpaceOwnershipHandoff } from "../organization/space-owner-departure";
 import { createOpenMeldEmailIdentityPlugin } from "../plugins/openmeld-email-identity";
 import { createDrizzleOpenMeldProfileRepository } from "../profiles/profile-repository";
 import { createOpenMeldProfileService } from "../profiles/profile-service";
@@ -74,7 +75,8 @@ export type AuthConfigEnv = AuthConfigInput & {
   AUTH_EMAIL?: CloudflareEmailSender;
   OPENMELD_CORE_WORKER?: AgentActivitySessionInventoryLifecycleWorker &
     CenterAgentMemoryLifecycleWorker &
-    import("@openmeld/schemas").SpaceInvitationWorker;
+    import("@openmeld/schemas").SpaceInvitationWorker &
+    import("@openmeld/schemas").SpaceOwnerDepartureWorker;
   OPENMELD_DB?: D1Database;
 };
 
@@ -722,6 +724,25 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       },
     },
     organizationHooks: {
+      beforeDeleteOrganization: async ({ organization }) => {
+        if (!env.OPENMELD_DB) {
+          throw new APIError("SERVICE_UNAVAILABLE", {
+            message: "Couldn't check this organization's Spaces.",
+          });
+        }
+        const ownedSpace = await env.OPENMELD_DB.prepare(
+          "SELECT r.space_id FROM space_owner_member_references r JOIN members m ON m.id = r.member_id WHERE m.organization_id = ? LIMIT 1"
+        )
+          .bind(organization.id)
+          .first();
+        if (ownedSpace) {
+          throw new APIError("CONFLICT", {
+            code: "organization.spaces_must_be_deleted",
+            message:
+              "Delete this organization's Spaces before deleting the organization. This keeps their history from being left without an owner.",
+          });
+        }
+      },
       beforeCreateInvitation: ({ organization }) => {
         const personal = isPersonalOrganization({
           metadata: organization.metadata,
@@ -775,6 +796,11 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       },
       beforeRemoveMember: async ({ member, organization, user }) => {
         const userId = user.id ?? member.userId;
+        await requireSpaceOwnershipHandoff({
+          coreWorker: env.OPENMELD_CORE_WORKER,
+          organizationId: organization.id,
+          userId,
+        });
         await assertCenterAgentIdentityBeforeMemberRemoval({
           db: env.OPENMELD_DB,
           organizationId: organization.id,

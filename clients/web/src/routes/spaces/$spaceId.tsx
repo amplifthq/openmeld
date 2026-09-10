@@ -42,6 +42,7 @@ import { SpaceConversationPanel } from "#/components/spaces/space-conversation-p
 import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
 import { SpaceFilesPanel } from "#/components/spaces/space-files-panel";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
+import { SpaceLanding } from "#/components/spaces/space-landing";
 import { SpaceThreadPanel } from "#/components/spaces/space-thread-panel";
 import type { SpaceView } from "#/components/spaces/space-view";
 import { SpaceViewTabs } from "#/components/spaces/space-view-tabs";
@@ -196,16 +197,70 @@ export function PublicSpacePage(input: {
 			spaceId={input.spaceId}
 			threadRootSignalId={input.threadRootSignalId}
 		>
-			{(resolution) => (
-				<PublicSpaceResolvedPage
-					entryResolution={resolution}
-					isAuthenticated={input.isAuthenticated}
-					signalId={input.signalId}
-					spaceId={input.spaceId}
-					threadRootSignalId={input.threadRootSignalId}
-				/>
-			)}
+			{(resolution) =>
+				resolution.view.state === "allowed" &&
+				resolution.view.experience === "guest" ? (
+					<GuestSpacePage
+						signalId={input.signalId}
+						spaceId={input.spaceId}
+						threadRootSignalId={input.threadRootSignalId}
+					/>
+				) : (
+					<PublicSpaceResolvedPage
+						entryResolution={resolution}
+						isAuthenticated={input.isAuthenticated}
+						signalId={input.signalId}
+						spaceId={input.spaceId}
+						threadRootSignalId={input.threadRootSignalId}
+					/>
+				)
+			}
 		</SpaceEntryGate>
+	);
+}
+
+function GuestSpacePage(input: {
+	spaceId: string;
+	signalId?: string;
+	threadRootSignalId?: string;
+}) {
+	const profiles = useQuery({
+		queryKey: ["public-space-join-profiles"],
+		queryFn: listStartProfiles,
+	});
+	const human =
+		listActiveProfilesByKind(profiles.data ?? [], "human").find(
+			(profile) => profile.isDefault
+		) ?? listActiveProfilesByKind(profiles.data ?? [], "human")[0];
+	if (profiles.isPending) {
+		return (
+			<PublicSpaceEntryFrame>
+				<p>Loading your Space…</p>
+			</PublicSpaceEntryFrame>
+		);
+	}
+	if (profiles.isError || !human) {
+		return (
+			<PublicSpaceEntryFrame>
+				<p role="alert">Couldn't load your account.</p>
+				<Button onClick={() => profiles.refetch()}>Try again</Button>
+			</PublicSpaceEntryFrame>
+		);
+	}
+	return (
+		<div className="flex h-dvh min-h-0 flex-col">
+			<SpaceLanding
+				accountProfiles={[human]}
+				conversationControl={
+					<span className="text-muted-foreground text-xs">Guest</span>
+				}
+				initialFocusSignalId={input.signalId}
+				initialFocusThreadRootSignalId={input.threadRootSignalId}
+				isGuest
+				profileId={human.openMeldProfileId}
+				spaceId={input.spaceId}
+			/>
+		</div>
 	);
 }
 

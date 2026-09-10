@@ -219,6 +219,7 @@ export function parseDispatchTask(
     executionTokenEcho,
     mentionSourceProfileId,
     mentionSourceProfileKind,
+    callerContext: payload.sourceSignalSnapshot?.callerContext,
     mentionSourceProfileMentionLabel: mentionSourceProfileMentionLabel ?? null,
     organizationProtectedInformation:
       resolveDispatchTaskOrganizationProtectedInformation(payload),
@@ -505,6 +506,12 @@ function renderDispatchPrompt(input: {
   }
 
   const sections: string[] = [];
+  if (promptInput.callerContext) {
+    const caller = promptInput.callerContext;
+    sections.push(
+      `OpenMeld verified caller: ${caller.relationship}. Space role: ${caller.spaceRole}. Result audience: ${caller.audience}. This context does not grant organization or tool permissions.`
+    );
+  }
   if (input.workflowInstructions) {
     sections.push(input.workflowInstructions);
   }

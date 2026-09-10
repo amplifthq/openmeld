@@ -76,6 +76,7 @@ export function buildOrganizationInvitationEmailContent({
 }
 
 export function buildSpaceInvitationEmailContent(input: {
+  audience?: "organization" | "guest";
   invitationUrl: string;
   brandName: string;
   organizationName: string;
@@ -86,7 +87,10 @@ export function buildSpaceInvitationEmailContent(input: {
   return buildActionEmailContent({
     actionLabel: "Review invitation",
     actionUrl: input.invitationUrl,
-    body: `${input.inviterName} invited you to ${input.spaceName} in ${input.organizationName}. Accepting will join the organization as a member and give you access to this Space.`,
+    body:
+      input.audience === "guest"
+        ? `${input.inviterName} invited you to ${input.spaceName}. Sign in to join this Space as a guest. This does not make you a member of ${input.organizationName} or give you access to its other Spaces.`
+        : `${input.inviterName} invited you to ${input.spaceName} in ${input.organizationName}. Accepting will join the organization as a member and give you access to this Space.`,
     brandName: input.brandName,
     heading: `Join ${input.spaceName}`,
     expiryText: `This invitation expires ${formatInvitationExpiry(input.expiresAt)}.`,

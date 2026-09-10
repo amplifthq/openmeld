@@ -133,6 +133,7 @@ import {
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
   spaceIndexSpaces,
+  spaceOwnerMemberReferences,
 } from "./space-index.schema.ts";
 import { spaceInvitations } from "./space-invitation.schema.ts";
 
@@ -1761,6 +1762,7 @@ export const coreSchema = {
   openMeldDaemonPrepareSessionEvents,
   spaceAttachments,
   spaceIndexSpaces,
+  spaceOwnerMemberReferences,
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
 } as const;

@@ -114,6 +114,7 @@ export {
   OrganizationSlugConflictError,
 } from "./organization/organization-slug";
 export { isPersonalOrganization } from "./organization/personal-organization";
+export { requireSpaceOwnershipHandoff } from "./organization/space-owner-departure";
 export {
   AdditionalHumanProfileCreationDisabledError,
   PrimaryHumanProfileDeleteForbiddenError,

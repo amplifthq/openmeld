@@ -131,6 +131,7 @@ export function SpaceHeader(input: {
 	canManageSpaceAccess: boolean;
 	canManageSpaceName: boolean;
 	currentProfileName: string | null;
+	currentProfileId?: string;
 	deleteSpaceErrorMessage: string | null;
 	directMessageOwnerVisibilityLabel?: string | null;
 	hideShareControl?: boolean;
@@ -208,6 +209,7 @@ export function SpaceHeader(input: {
 								isPending={input.isAccessModePending}
 								onSetAccessMode={input.onSetAccessMode}
 								onSetVisibility={input.onSetVisibility}
+								openMeldProfileId={input.currentProfileId}
 								spaceId={input.status.spaceId}
 								spaceName={spaceName}
 								visibility={input.status.organizationVisibility}
@@ -260,6 +262,7 @@ export function SpaceHeader(input: {
 							}
 							onSetVisibility={input.onSetVisibility}
 							open={input.menuItems ? spaceInformationOpen : undefined}
+							openMeldProfileId={input.currentProfileId}
 							showTrigger={!input.menuItems}
 							spaceId={input.status.spaceId}
 							visibility={input.status.organizationVisibility}

@@ -4,6 +4,7 @@ import {
 } from "@openmeld/schemas";
 import type { CreateSpaceResponse } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { currentSpaceAccessHeaders } from "./access-version";
 import { buildCreateSpacePath } from "./routes";
 import type { CreateSpaceInput } from "./types";
 
@@ -25,6 +26,7 @@ export async function createSpace(
     operation: "space.create",
     method: "POST",
     headers: {
+      ...currentSpaceAccessHeaders(),
       "content-type": "application/json",
     },
     body: JSON.stringify(parsedBody.data),

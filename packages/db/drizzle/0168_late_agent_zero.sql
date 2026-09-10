@@ -1,0 +1,1 @@
+ALTER TABLE `space_invitations` ADD `audience` text DEFAULT 'organization' NOT NULL;

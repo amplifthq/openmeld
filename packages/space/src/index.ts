@@ -13,10 +13,12 @@ export {
   type SpaceAccessProof,
   toSpaceAccessAuditFields,
 } from "./access/space-access-context";
+export { resolveSpaceAccess } from "./access/space-access-policy";
 export {
   buildPublicSpaceEntryPath,
   buildPublicSpaceEntryUrl,
 } from "./access/space-entry-link";
+export { changeSpaceOwners, isSpaceOwner } from "./access/space-ownership";
 export { updateAuthoredMentionRanges } from "./authoring/authored-mention-ranges";
 export type {
   SpaceAuthoredMentionInTextOrder,

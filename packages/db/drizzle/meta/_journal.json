@@ -1170,6 +1170,20 @@
       "when": 1789019930303,
       "tag": "0166_wakeful_lady_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "6",
+      "when": 1789041434360,
+      "tag": "0167_bright_randall",
+      "breakpoints": true
+    },
+    {
+      "idx": 168,
+      "version": "6",
+      "when": 1789042416125,
+      "tag": "0168_late_agent_zero",
+      "breakpoints": true
     }
   ]
 }

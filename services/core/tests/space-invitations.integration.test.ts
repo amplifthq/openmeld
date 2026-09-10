@@ -116,6 +116,165 @@ describe("Organization Space self-join", () => {
 });
 
 // First-party Auth directory contract; membership decisions still exercise D1.
+describe("Space ownership handoff", () => {
+  it("retains one owner during concurrent demotions and preserves creator attribution", async () => {
+    const f = await fixture();
+    const context = (userId: string, profileId: string) => ({
+      activeOrganizationId: f.organizationId,
+      actorContext: {
+        requestId: crypto.randomUUID(),
+        callerPrincipalId: userId,
+        ownerUserId: userId,
+        openMeldProfileId: profileId,
+        profileKind: "human" as const,
+      },
+    });
+    const ownerContext = context(f.ownerId, f.ownerProfile);
+    const recipientContext = context(f.recipientId, f.recipientProfile);
+    const patch = async (
+      actor: typeof ownerContext,
+      userId: string,
+      role: "owner" | "member"
+    ) =>
+      await f.stub.rpcPatchMeta({
+        spaceId: f.spaceId,
+        context: actor,
+        ownership: { userId, role },
+      });
+    await expect(patch(ownerContext, f.ownerId, "member")).rejects.toThrow(
+      "space.last_owner"
+    );
+    await expect(patch(ownerContext, f.recipientId, "owner")).rejects.toThrow(
+      "space.owner_membership_required"
+    );
+    await f.joinOrganization();
+    const invitation = invitationId(await f.create());
+    await f.recipient({ action: "claim", invitationId: invitation });
+    await f.recipient({ action: "complete", invitationId: invitation });
+    await expect(
+      patch(recipientContext, f.recipientId, "owner")
+    ).rejects.toThrow("space.forbidden");
+    expect(
+      (await patch(ownerContext, f.recipientId, "owner")).ownerUserIds
+    ).toEqual(expect.arrayContaining([f.ownerId, f.recipientId]));
+    await expect(
+      env.OPENMELD_DB.prepare(
+        "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
+      )
+        .bind(f.organizationId, f.recipientId)
+        .run()
+    ).rejects.toThrow();
+    expect(
+      await f.stub.rpcCheckSpaceOwnerDeparture({
+        spaceId: f.spaceId,
+        organizationId: f.organizationId,
+        userId: f.recipientId,
+      })
+    ).toEqual({ spaceId: f.spaceId, name: "Launch planning" });
+    const demotions = await Promise.allSettled([
+      patch(ownerContext, f.ownerId, "member"),
+      patch(recipientContext, f.recipientId, "member"),
+    ]);
+    expect(
+      demotions.filter((result) => result.status === "fulfilled")
+    ).toHaveLength(1);
+    const meta = await runInDurableObject(f.stub, (_, state) =>
+      readSpaceMetaRecordFromSql(state.storage.sql, f.spaceId)
+    );
+    expect(meta?.ownerUserIds).toHaveLength(1);
+    expect(meta?.creator?.profileId).toBe(f.ownerProfile);
+  });
+});
+
+describe("targeted guest invitations", () => {
+  it("requires explicit owner approval and grants only Space membership", async () => {
+    const f = await fixture();
+    const context = (userId: string, profileId: string) => ({
+      activeOrganizationId: f.organizationId,
+      actorContext: {
+        requestId: crypto.randomUUID(),
+        callerPrincipalId: userId,
+        ownerUserId: userId,
+        openMeldProfileId: profileId,
+        profileKind: "human" as const,
+      },
+    });
+    const owner = context(f.ownerId, f.ownerProfile);
+    const guest = context(f.recipientId, f.recipientProfile);
+    const create = () =>
+      f.owner({
+        action: "create",
+        organizationId: f.organizationId,
+        spaceId: f.spaceId,
+        email: `${f.recipientId}@example.com`,
+        audience: "guest",
+      });
+    expect((await create()).result.ok).toBe(false);
+    await f.stub.rpcPatchMeta({
+      spaceId: f.spaceId,
+      context: owner,
+      allowGuests: true,
+    });
+    const invitation = invitationId(await create());
+    expect(
+      (await f.recipient({ action: "claim", invitationId: invitation })).result
+        .ok
+    ).toBe(true);
+    expect(
+      (await f.recipient({ action: "complete", invitationId: invitation }))
+        .result.ok
+    ).toBe(true);
+    expect(await f.memberStatus()).toBe("active");
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT id FROM members WHERE organization_id = ? AND user_id = ?"
+      )
+        .bind(f.organizationId, f.recipientId)
+        .first()
+    ).toBeNull();
+    expect(
+      await f.stub.rpcHasSpaceGuestAccess({
+        spaceId: f.spaceId,
+        context: guest,
+      })
+    ).toBe(true);
+    expect(
+      await f.stub.rpcGetStatus({ spaceId: f.spaceId, context: guest })
+    ).toMatchObject({ spaceId: f.spaceId });
+    await expect(
+      (async () =>
+        await f.stub.rpcPatchMeta({
+          spaceId: f.spaceId,
+          context: guest,
+          allowGuests: true,
+        }))()
+    ).rejects.toThrow("space.forbidden");
+    await expect(
+      (async () =>
+        await f.stub.rpcPatchMeta({
+          spaceId: f.spaceId,
+          context: owner,
+          ownership: { userId: f.recipientId, role: "owner" },
+        }))()
+    ).rejects.toThrow("space.owner_membership_required");
+    await f.stub.rpcPatchMeta({
+      spaceId: f.spaceId,
+      context: owner,
+      allowGuests: false,
+    });
+    expect(
+      await f.stub.rpcHasSpaceGuestAccess({
+        spaceId: f.spaceId,
+        context: guest,
+      })
+    ).toBe(false);
+    await expect(
+      (async () =>
+        await f.stub.rpcGetStatus({ spaceId: f.spaceId, context: guest }))()
+    ).rejects.toThrow("space.membership_required");
+  });
+});
+
 const requestCore: CoreBindings = {
   ...core,
   OPENMELD_AUTH_WORKER: {
@@ -479,6 +638,7 @@ async function fixture() {
     );
   return {
     owner,
+    ownerProfile,
     recipient,
     create,
     joinOrganization,

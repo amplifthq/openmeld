@@ -460,6 +460,7 @@ import { rpcCenterAgentSetOrganizationWorkingLanguage } from "./organizations/ce
 import { resolveOrganizationMembershipById } from "./organizations/organization-context";
 import { organizationJoinRequest } from "./organizations/organization-join-requests";
 import { spaceInvitation } from "./organizations/space-invitations";
+import { checkSpaceOwnerDeparture } from "./organizations/space-owner-departure";
 import { PrepareSessionHub } from "./prepare-session/transport/do/prepare-session-hub";
 import {
   type CreatePrepareSessionInput,
@@ -1059,6 +1060,11 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: import("@openmeld/schemas").OrganizationJoinRequestRpcInput
   ) {
     return organizationJoinRequest(this.env, input);
+  }
+  checkSpaceOwnerDeparture(
+    input: import("@openmeld/schemas").SpaceOwnerDepartureInput
+  ) {
+    return checkSpaceOwnerDeparture(this.env, input);
   }
   spaceInvitation(
     input: import("@openmeld/schemas").SpaceInvitationRpcInput

@@ -6,6 +6,7 @@ import { centerAgentInteractionSourceSchema } from "../protocol/center-agent-int
 import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import { signalTextReplyToSchema } from "../protocol/signal";
 import { spaceMessageAttachmentsSchema } from "../protocol/space-attachment";
+import { spaceCallerContextSchema } from "../protocol/space-caller-context";
 import { wakeDeviceWaitSchema } from "../protocol/wake-device-wait";
 import {
   agentTaskCompletionObservationSchema,
@@ -91,6 +92,7 @@ export const openMeldDaemonDispatchSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonDispatchSourceSignalSnapshotSchema = z.strictObject({
+  callerContext: spaceCallerContextSchema.optional(),
   text: z.string().min(1),
   profileId: z.string().min(1).nullable(),
   profileKind: z.enum(["agent", "human", "system"]).nullable(),

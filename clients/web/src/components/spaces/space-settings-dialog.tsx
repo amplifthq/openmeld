@@ -42,6 +42,7 @@ export function SpaceSettingsDialog(input: {
 		onSetMode: (input: SpaceAccessUpdateInput) => Promise<void>;
 	};
 	currentProfileName: string | null;
+	openMeldProfileId?: string;
 	deleteAction: {
 		errorMessage: string | null;
 		isPending: boolean;
@@ -184,6 +185,7 @@ export function SpaceSettingsDialog(input: {
 							isPending={input.access.isPending}
 							onSetAccessMode={input.access.onSetMode}
 							onSetVisibility={input.onSetVisibility}
+							openMeldProfileId={input.openMeldProfileId}
 							spaceId={input.spaceId}
 							visibility={input.visibility}
 						/>

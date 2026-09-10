@@ -18,10 +18,13 @@ import {
 	SpaceAccessEditor,
 	type SpaceAccessUpdateInput,
 } from "./space-access-editor";
+import { SpaceGuestAccessSection } from "./space-guest-access-section";
 import { SpaceInvitationForm } from "./space-invitations-section";
+import { SpaceOwnersSection } from "./space-owners-section";
 import { SpaceVisibilityPicker } from "./space-visibility-picker";
 
 export type SpaceAccessSettingsProps = {
+	openMeldProfileId?: string;
 	accessMode: SpaceAccessMode;
 	canManageAccess: boolean;
 	errorMessage: string | null;
@@ -127,6 +130,17 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 					</Accordion>
 				</section>
 			) : null}
+			{input.canManageAccess && organization && !organization.isPersonal ? (
+				<SpaceGuestAccessSection
+					openMeldProfileId={input.openMeldProfileId}
+					spaceId={input.spaceId}
+				/>
+			) : null}
+			<SpaceOwnersSection
+				canManage={input.canManageAccess}
+				openMeldProfileId={input.openMeldProfileId}
+				spaceId={input.spaceId}
+			/>
 			<section className="flex items-center justify-end gap-3 border-border/60 border-t pt-4">
 				<Button
 					onClick={async () => {

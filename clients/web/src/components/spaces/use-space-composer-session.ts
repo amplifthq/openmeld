@@ -9,7 +9,7 @@ import {
 export function useSpaceComposerSession(input: {
 	authoring: UseSpaceMentionAuthoringInput;
 	files: {
-		organizationSlug: string;
+		organizationSlug?: string;
 		profileId: string;
 		spaceId: string;
 	};

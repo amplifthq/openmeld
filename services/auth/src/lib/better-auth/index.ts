@@ -7,7 +7,7 @@ import { betterAuth } from "better-auth";
 import type { AuthBindings } from "../bindings";
 import { createKvSecondaryStorage } from "../utils/kv";
 import "./initialize-async-context";
-import { createOrganizationDeletionGuard } from "./organization-deletion-guard";
+import { createOrganizationLifecycleGuard } from "./organization-lifecycle-guard";
 
 type AuthInstance = ReturnType<typeof betterAuth>;
 
@@ -52,7 +52,10 @@ export function createAuth(env: AuthBindings): AuthInstance {
     ...authConfig,
     hooks: {
       ...authConfig.hooks,
-      before: createOrganizationDeletionGuard(env.OPENMELD_DB),
+      before: createOrganizationLifecycleGuard(
+        env.OPENMELD_DB,
+        env.OPENMELD_CORE_WORKER
+      ),
     },
     ...(isProduction
       ? {

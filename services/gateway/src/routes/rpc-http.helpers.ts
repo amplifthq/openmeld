@@ -13,6 +13,9 @@ import {
   MESSAGE_CHANNEL_ERROR_CODES,
   ORGANIZATION_DOCUMENT_ERROR_CODES,
   ORGANIZATION_SKILL_ERROR_CODES,
+  projectLegacySpaceAccessView,
+  SPACE_ACCESS_VERSION,
+  SPACE_ACCESS_VERSION_HEADER,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_FILE_ERROR_CODES,
   toLegacySpaceAddressingWireValue,
@@ -267,10 +270,13 @@ export async function executeRpcRoute(
         ? toLegacySpaceAddressingWireValue(validatedResult.payload)
         : validatedResult.payload;
     return withRequestIdHeader(
-      Response.json(responsePayload, {
-        ...(successHeaders ? { headers: successHeaders } : {}),
-        status,
-      }),
+      Response.json(
+        projectSpaceAccessResponse(responsePayload, route, c.req.raw.headers),
+        {
+          ...(successHeaders ? { headers: successHeaders } : {}),
+          status,
+        }
+      ),
       context.actorContext.requestId
     );
   } catch (err) {
@@ -323,9 +329,12 @@ export async function executePublicRpcRoute(
         ? toLegacySpaceAddressingWireValue(validatedResult.payload)
         : validatedResult.payload;
     return withRequestIdHeader(
-      Response.json(responsePayload, {
-        status: input.successStatus ?? 200,
-      }),
+      Response.json(
+        projectSpaceAccessResponse(responsePayload, route, c.req.raw.headers),
+        {
+          status: input.successStatus ?? 200,
+        }
+      ),
       requestId
     );
   } catch (err) {
@@ -335,6 +344,25 @@ export async function executePublicRpcRoute(
       route,
       method,
     });
+  }
+}
+
+function projectSpaceAccessResponse(
+  value: unknown,
+  route: string,
+  headers: Headers
+): unknown {
+  if (headers.get(SPACE_ACCESS_VERSION_HEADER) === SPACE_ACCESS_VERSION) {
+    return value;
+  }
+  switch (route) {
+    case "/v1/spaces":
+    case "/v1/spaces/:spaceId/meta":
+    case "/v1/spaces/:spaceId/status":
+    case "/v1/spaces/:spaceId/bootstrap":
+      return projectLegacySpaceAccessView(value);
+    default:
+      return value;
   }
 }
 

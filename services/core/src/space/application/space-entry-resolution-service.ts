@@ -4,6 +4,7 @@ import type {
   SpaceEntrySafeContext,
   SpaceEntryTarget,
 } from "@openmeld/schemas/types";
+import { resolveSpaceAccess } from "@openmeld/space";
 
 export type SpaceEntryAccessResult =
   | {
@@ -34,8 +35,13 @@ export function buildSpaceEntryResolution(input: {
   organizationMember: boolean;
   target: SpaceEntryTarget;
 }): GetSpaceEntryResolutionResponse {
-  const canJoinOrganizationSpace =
-    input.organizationMember && input.indexed.visibility === "public";
+  const canJoinOrganizationSpace = resolveSpaceAccess({
+    visibility: input.indexed.visibility,
+    accessMode: "members_only",
+    organizationMember: input.organizationMember,
+    activeMember: false,
+    password: "missing",
+  }).canJoin;
   if (input.access.kind === "allowed") {
     const memberExperience =
       input.access.activeMember ||
