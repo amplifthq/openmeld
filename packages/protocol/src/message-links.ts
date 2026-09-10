@@ -2,6 +2,10 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
 
+const LINK_HINT = /https?:\/\/|www\.|mailto:|@/i;
+const BARE_WEB_LINK = /^(?:https?:\/\/|www\.)/i;
+const TRAILING_CJK_PUNCTUATION = /[。，、；：！？…]+$/u;
+
 export type MessageLink = {
   start: number;
   end: number;
@@ -38,7 +42,28 @@ function nodeText(node: LinkNode): string {
   return node.value ?? node.children?.map(nodeText).join("") ?? "";
 }
 
+function readLink(node: LinkNode, text: string): MessageLink | null {
+  let value = node.url ?? "";
+  const start = node.position?.start.offset;
+  let end = node.position?.end.offset;
+  let label = nodeText(node);
+  if (start === undefined || end === undefined) {
+    return null;
+  }
+  if (BARE_WEB_LINK.test(text.slice(start, end))) {
+    const trimmed = label.replace(TRAILING_CJK_PUNCTUATION, "");
+    end -= label.length - trimmed.length;
+    label = trimmed;
+    value = trimmed.startsWith("www.") ? `http://${trimmed}` : trimmed;
+  }
+  const url = normalizeMessageLink(value);
+  return url ? { start, end, url, label: label || url } : null;
+}
+
 export function collectMessageLinks(text: string): MessageLink[] {
+  if (!LINK_HINT.test(text)) {
+    return [];
+  }
   const tree = fromMarkdown(text, {
     extensions: [gfm()],
     mdastExtensions: [gfmFromMarkdown()],
@@ -53,11 +78,9 @@ export function collectMessageLinks(text: string): MessageLink[] {
       return;
     }
     if (node.type === "link") {
-      const url = normalizeMessageLink(node.url ?? "");
-      const start = node.position?.start.offset;
-      const end = node.position?.end.offset;
-      if (url && start !== undefined && end !== undefined) {
-        links.push({ start, end, url, label: nodeText(node) || url });
+      const link = readLink(node, text);
+      if (link) {
+        links.push(link);
       }
       return;
     }

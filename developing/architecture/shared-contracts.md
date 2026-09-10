@@ -25,6 +25,24 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Space message link previews
+
+`@openmeld/schemas` owns the additive GET
+`/v1/spaces/:spaceId/link-previews?signalId=...` input and result, including the
+message revision and bounded metadata. The existing Space access boundary
+authorizes the canonical Signal before and after remote reads. Callers cannot
+submit arbitrary URLs. Recalled messages cannot return previews.
+
+`@openmeld/protocol` owns link recognition shared by plain-text rendering and
+Core extraction. Core fetches public HTTP(S) metadata outside the Space Durable
+Object, validates destinations and redirects, and returns bounded raster data
+without forwarding viewer credentials. Its Space-scoped cache is disposable
+derived metadata, never message or access authority.
+
+Contract impact: deploy Core and Gateway before Web; roll back Web first. Old
+clients keep their existing behavior. No stored Signal, CLI, Service, Skills,
+setup, Wake, diagnostics, or local component version contract changes.
+
 ## Space pin contracts
 
 `@openmeld/schemas` owns the strict message/file pin mutations and read models;

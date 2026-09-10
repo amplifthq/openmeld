@@ -6,6 +6,12 @@ import {
 } from "../src/message-links";
 
 describe("message links", () => {
+  it("keeps Chinese punctuation outside the destination", () => {
+    const text = "请看 https://example.com/guide。";
+    const link = collectMessageLinks(text)[0];
+    expect(link?.url).toBe("https://example.com/guide");
+    expect(text.slice(link?.end)).toBe("。");
+  });
   it("recognizes bare URLs and labeled links, preserving punctuation and offsets", () => {
     const text =
       "See https://example.com/a_(b). Then [the guide](https://example.org/guide).";

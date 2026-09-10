@@ -7644,6 +7644,39 @@ export class Space extends DurableObject<CoreBindings> {
     }
   }
 
+  async rpcGetMessageLinks(
+    input: GetSpaceMessageDetailsInput & { spaceAccess: SpaceAccessContext }
+  ): Promise<import("@openmeld/schemas").SpaceMessageLinks> {
+    this.applySpaceRef(input.spaceId);
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeSpaceAccess(input.spaceAccess)
+    );
+    const signal = this.readSignalById(input.signalId);
+    if (
+      !signal ||
+      signal.type !== "signal.text" ||
+      signal.data.meta?.recalledAt !== undefined
+    ) {
+      throw createCoreRpcHttpError({
+        status: 404,
+        code: "space.message_not_found",
+        reason: "This message is no longer available.",
+      });
+    }
+    const { collectMessagePreviewUrls } = await import("@openmeld/protocol");
+    const { MAX_MESSAGE_LINK_PREVIEWS } = await import("@openmeld/schemas");
+    return {
+      signalId: signal.id,
+      revision:
+        typeof signal.data.meta?.messageRevision === "number"
+          ? signal.data.meta.messageRevision
+          : 0,
+      urls: collectMessagePreviewUrls(signal.data.text)
+        .filter((url) => url.length <= 4096)
+        .slice(0, MAX_MESSAGE_LINK_PREVIEWS),
+    };
+  }
+
   async rpcGetMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {

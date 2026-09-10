@@ -861,6 +861,7 @@ import {
   rpcGetSpaceFile,
   rpcGetSpaceHistoryNavigation,
   rpcGetSpaceIdentityDirectory,
+  rpcGetSpaceLinkPreviews,
   rpcGetSpaceMemberDirectory,
   rpcGetSpaceMembers,
   rpcGetSpaceMessageDetails,
@@ -2004,6 +2005,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {
     return rpcGetSpaceMessageDetails(this.env, input);
+  }
+
+  getSpaceLinkPreviews(input: GetSpaceMessageDetailsInput) {
+    return rpcGetSpaceLinkPreviews(this.env, input);
   }
 
   async createSpaceDiagnosticReport(
@@ -4093,6 +4098,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {
     return super.getSpaceMessageDetails(input);
+  }
+
+  getSpaceLinkPreviews(input: GetSpaceMessageDetailsInput) {
+    return super.getSpaceLinkPreviews(input);
   }
 
   createSpaceDiagnosticReport(

@@ -2,6 +2,7 @@ const HEX_SPACE_ID_PATTERN = "[0-9a-fA-F]{64}";
 const THREAD_ID_PATTERN = "[^/]+";
 
 const ANONYMOUS_SPACE_READ_ROUTE_PATTERNS: readonly RegExp[] = [
+  new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/link-previews$`, "u"),
   new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/conversation-state$`, "u"),
   new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/entry-resolution$`, "u"),
   new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/status$`, "u"),
