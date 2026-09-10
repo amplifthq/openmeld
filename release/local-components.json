@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-10T04:53:54.979Z",
+  "updatedAt": "2026-09-10T05:50:32.925Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-organization-agent-ownership-v1",
-      "packageVersion": "0.3.194",
+      "packageVersion": "0.3.195",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible with both cloud versions; retain the published required floor."
+      "reason": "Clarify existing authorization and continuation instructions for Local Agent Wakes without changing transport or native permissions"
     },
     "service": {
-      "bundleHash": "fcbb4014d4b0afcd29aaf3ba03fecc1aaa07c10b8c31550a9acfd41de80b0e06",
-      "bundleVersion": "0.3.194",
+      "bundleHash": "483de4e65cc36b7defeb69a2227fa04c2898b15777501c5c27a7fe15d71a8334",
+      "bundleVersion": "0.3.195",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Additive channel schemas change the packaged bundle; existing Service execution, Prepare, Wake, and diagnostics remain compatible with both cloud versions."
+      "reason": "Clarify existing authorization and continuation instructions for Local Agent Wakes without changing transport or native permissions"
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
