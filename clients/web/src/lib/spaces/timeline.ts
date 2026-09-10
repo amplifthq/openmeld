@@ -14,6 +14,7 @@ import type {
 	SpaceMembersSnapshot,
 	SpaceMessageAttachment,
 	SpaceMessageFileReference,
+	SpaceMessageReactions,
 	SpaceStatus,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
@@ -42,6 +43,11 @@ export type SpaceTimelineVisibleEnvelope = Extract<
 >;
 
 export type SpaceTimelineItem = {
+	messageRevision?: number;
+	editedAt?: number;
+	recalledAt?: number;
+	repostedAt?: number;
+	reactions?: SpaceMessageReactions;
 	id: string;
 	spaceId: string;
 	signalType: VisibleTimelineSignalType;
@@ -72,6 +78,7 @@ export type SpaceTimelineItem = {
 	navigationAction?: NavigationAction | null;
 	activeWakeSourceItemId?: string;
 	activeWakeProgress?: WakeProgressItem;
+	wakeDispatchId?: string;
 	replyPreviewText: string | null;
 	replyToProfileName: string | null;
 	replyToSignalId: string | null;
@@ -93,6 +100,7 @@ export type SpaceTimelineItem = {
 	text: string;
 	wakeClientMessageId: string | null;
 	referenceTargetProfileIds?: readonly string[];
+	mentionTargetProfileIds?: readonly string[];
 	wakeSourceSignalId: string | null;
 	wakeTargetProfileIds: readonly string[];
 	agentStreamState?: {
@@ -167,10 +175,40 @@ export function mergeSpaceTimelineEnvelopes(input: {
 		byId.set(envelope.id, envelope);
 	}
 	for (const envelope of input.incoming) {
-		byId.set(envelope.id, envelope);
+		byId.set(
+			envelope.id,
+			mergeMessageEnvelope(byId.get(envelope.id), envelope)
+		);
 	}
 
 	return [...byId.values()].sort(compareSignalEnvelopeOrder);
+}
+
+function mergeMessageEnvelope(
+	previous: SignalEnvelope | undefined,
+	envelope: SignalEnvelope
+): SignalEnvelope {
+	const revision =
+		envelope.type === "signal.text"
+			? (envelope.data.meta?.messageRevision ?? 0)
+			: 0;
+	const previousRevision =
+		previous?.type === "signal.text"
+			? (previous.data.meta?.messageRevision ?? 0)
+			: 0;
+	let latest = revision >= previousRevision ? envelope : previous;
+	if (
+		latest?.type === "signal.text" &&
+		previous?.type === "signal.text" &&
+		envelope.type === "signal.text"
+	) {
+		const reactions =
+			(envelope.reactions?.version ?? -1) >= (previous.reactions?.version ?? -1)
+				? envelope.reactions
+				: previous.reactions;
+		latest = reactions ? { ...latest, reactions } : latest;
+	}
+	return latest ?? envelope;
 }
 
 export function listVisibleTimelineEnvelopes(
@@ -192,6 +230,18 @@ export function buildSpaceTimelineItems(input: {
 	pendingFilePreviewUrlsById?: ReadonlyMap<string, string>;
 }): readonly SpaceTimelineItem[] {
 	const signalIndex = buildSignalIndex(input.envelopes);
+	const completedReposts = new Map(
+		input.envelopes.flatMap((signal) => {
+			if (
+				signal.type !== "signal.text" ||
+				signal.id.startsWith("pending:") ||
+				!signal.data.meta?.restoredFromSignalId
+			) {
+				return [];
+			}
+			return [[signal.data.meta.restoredFromSignalId, signal] as const];
+		})
+	);
 	const targetCatalog = input.membersSnapshot
 		? createSpaceTargetCatalog(input.membersSnapshot)
 		: null;
@@ -207,10 +257,10 @@ export function buildSpaceTimelineItems(input: {
 				targetCatalog,
 			})
 	);
-	const finalizedStreamIds = new Set(
+	const finalizedDispatchIds = new Set(
 		input.envelopes.flatMap((signal) => {
-			const streamId = readFinalizedAgentStreamId(signal);
-			return streamId ? [streamId] : [];
+			const dispatchId = readFinalizedAgentDispatchId(signal);
+			return dispatchId ? [dispatchId] : [];
 		})
 	);
 	const streamItems = (input.agentStreams ?? []).flatMap((stream) => {
@@ -220,11 +270,7 @@ export function buildSpaceTimelineItems(input: {
 				signalIndex,
 				stream,
 			}) ||
-			finalizedStreamIds.has(stream.streamId) ||
-			hasDurableAgentTerminalNotice({
-				dispatchId: stream.dispatchId,
-				envelopes: input.envelopes,
-			})
+			finalizedDispatchIds.has(stream.dispatchId)
 		) {
 			return [];
 		}
@@ -240,6 +286,7 @@ export function buildSpaceTimelineItems(input: {
 		return [
 			{
 				...timelineItem,
+				wakeDispatchId: stream.dispatchId,
 				agentStreamState: {
 					reasonCode: stream.reasonCode,
 					sequence: stream.sequence,
@@ -257,7 +304,14 @@ export function buildSpaceTimelineItems(input: {
 	});
 
 	return mergeSpaceTimelineItems({
-		current: durableItems,
+		current: durableItems.map((item) => {
+			const repost = completedReposts.get(item.id);
+			return item.recalledAt &&
+				!item.repostedAt &&
+				repost?.profile.profileId === item.actorProfileId
+				? { ...item, repostedAt: repost.ts }
+				: item;
+		}),
 		incoming: streamItems,
 	});
 }
@@ -318,8 +372,11 @@ function buildSpaceTimelineItem(input: {
 
 	return {
 		id: input.signal.id,
+		wakeDispatchId: readFinalizedAgentDispatchId(input.signal) ?? undefined,
 		spaceId: input.signal.spaceId,
 		signalType: input.signal.type,
+		reactions:
+			input.signal.type === "signal.text" ? input.signal.reactions : undefined,
 		...(input.signal.type === "signal.status"
 			? { spaceStatus: input.signal.data.status }
 			: {}),
@@ -333,6 +390,14 @@ function buildSpaceTimelineItem(input: {
 			signal: input.signal,
 		}),
 		createdAtMs: input.signal.ts,
+		...(input.signal.type === "signal.text"
+			? {
+					messageRevision: input.signal.data.meta?.messageRevision,
+					editedAt: input.signal.data.meta?.editedAt,
+					recalledAt: input.signal.data.meta?.recalledAt,
+					repostedAt: input.signal.data.meta?.repostedAt,
+				}
+			: {}),
 		actorControllerDisplay: actor.controllerDisplay,
 		actorAgentControllerRef: actor.agentControllerRef,
 		actorAgentControllerPending: actor.agentControllerPending,
@@ -553,6 +618,13 @@ export function isSpaceExecutionRecoveryNoticeItem(
 function isVisibleTimelineEnvelope(
 	envelope: SignalEnvelope
 ): envelope is SpaceTimelineVisibleEnvelope {
+	if (
+		envelope.type === "signal.text" &&
+		envelope.profile.kind === "system" &&
+		envelope.data.meta?.purpose === "space_message_changed"
+	) {
+		return false;
+	}
 	if (isSpaceTransientActivityEnvelope(envelope)) {
 		return false;
 	}
@@ -587,6 +659,7 @@ function readNewMessagesDuringComposition(
 function readSourceMessageAddressingDetails(
 	signal: SpaceTimelineVisibleEnvelope
 ): {
+	mentionTargetProfileIds: readonly string[];
 	referenceTargetProfileIds: readonly string[];
 	wakeClientMessageId: string | null;
 	wakeSourceSignalId: string | null;
@@ -594,6 +667,7 @@ function readSourceMessageAddressingDetails(
 } {
 	if (signal.type !== "signal.text") {
 		return {
+			mentionTargetProfileIds: [],
 			referenceTargetProfileIds: [],
 			wakeClientMessageId: null,
 			wakeSourceSignalId: null,
@@ -601,6 +675,9 @@ function readSourceMessageAddressingDetails(
 		};
 	}
 
+	const mentionTargetProfileIds = normalizeUniqueNonEmptyStrings(
+		signal.data.messageEnvelope?.mentionTargets ?? []
+	);
 	const wakeTargetProfileIds = normalizeUniqueNonEmptyStrings(
 		signal.data.messageEnvelope?.activationTargets ?? []
 	);
@@ -613,6 +690,7 @@ function readSourceMessageAddressingDetails(
 	);
 	if (wakeTargetProfileIds.length === 0) {
 		return {
+			mentionTargetProfileIds,
 			referenceTargetProfileIds,
 			wakeClientMessageId: null,
 			wakeSourceSignalId: null,
@@ -621,6 +699,7 @@ function readSourceMessageAddressingDetails(
 	}
 
 	return {
+		mentionTargetProfileIds,
 		referenceTargetProfileIds,
 		wakeClientMessageId: clientMessageId,
 		wakeSourceSignalId: signal.id,
@@ -734,7 +813,19 @@ function isAgentFinalReplySignal(
 	);
 }
 
-function readFinalizedAgentStreamId(signal: SignalEnvelope): string | null {
+export function resolveSpaceConversationItemKey(
+	item: SpaceTimelineItem
+): string {
+	return item.wakeDispatchId ? `wake-answer:${item.wakeDispatchId}` : item.id;
+}
+
+function readFinalizedAgentDispatchId(signal: SignalEnvelope): string | null {
+	if (signal.type === "signal.system_notice") {
+		return signal.data.noticeType === "terminal_failure" ||
+			signal.data.noticeType === "wake_stopped"
+			? normalizeOptionalText(signal.data.dispatchId)
+			: null;
+	}
 	if (signal.type !== "signal.text" || signal.profile.kind !== "agent") {
 		return null;
 	}
@@ -745,21 +836,7 @@ function readFinalizedAgentStreamId(signal: SignalEnvelope): string | null {
 	) {
 		return null;
 	}
-	const submissionId = normalizeOptionalText(signal.data.meta?.clientMessageId);
-	return submissionId ? `stream:${submissionId}` : null;
-}
-
-function hasDurableAgentTerminalNotice(input: {
-	dispatchId: string;
-	envelopes: readonly SignalEnvelope[];
-}): boolean {
-	return input.envelopes.some(
-		(signal) =>
-			signal.type === "signal.system_notice" &&
-			(signal.data.noticeType === "terminal_failure" ||
-				signal.data.noticeType === "wake_stopped") &&
-			normalizeOptionalText(signal.data.dispatchId) === input.dispatchId
-	);
+	return normalizeOptionalText(signal.data.meta?.dispatchId);
 }
 
 function normalizeUniqueNonEmptyStrings(values: readonly unknown[]): string[] {

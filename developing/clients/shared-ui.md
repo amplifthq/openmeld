@@ -42,6 +42,13 @@ hover or keyboard focus, with open-menu and touch-device visibility preserved.
 
 ## Import Rule
 
+`fluid/dialog` adapts the official Fluid Functionalism Base UI Dialog registry
+(September 9, 2026). It owns the small/large/extra-large width ladder and elevated
+surface, while reusing `components/dialog` for portal, focus, dismissal, and CSS
+motion. It does not add a second state or animation engine. Reduced motion
+removes panel animation. Product settings compose the existing `SettingsNav`
+and `ScrollArea`; product sections and mutation rules remain Web-owned.
+
 ### Scroll ownership
 
 `@openmeld/ui/fluid/scroll-area` owns scroll presentation. It adapts Fluid
@@ -218,6 +225,13 @@ surface recipe as Tabs. Web composers share `PromptInput` and a dedicated
 a small outer shadow, and `rounded-2xl` corners. Shared card token changes must
 not change this finish. Its content retains level-two context so Wake/Reference
 tokens use level three. These changes do not alter access policy or send behavior.
+
+Space and Thread pending actions mount inside the shared composer width. Their
+inset, collapsible strip overlaps behind the composer edge. Plan, question, and
+permission forms reuse the AICSS-adapted `ApprovalCard` anatomy; its shared Fluid
+ScrollArea bounds request details and provides edge fades, while response actions
+remain outside the scrolling body. The primitive never approves or advances a
+request; the existing interaction owner retains all response and access policy.
 
 `TabsSubtle` also exposes an `underline` variant for flat navigation embedded
 against a structural divider. It keeps selection rectangular, uses the owning

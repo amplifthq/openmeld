@@ -130,8 +130,10 @@ export type {
   AgentProfileCreationApprovalPolicy,
   AgentProfileCreationApprovalPreference,
   AgentProfileCreationConfiguration,
+  AgentProfileCreationExecutionMessage,
   AgentProfileCreationRequest,
   AgentProfileCreationRequestMutationResponse,
+  AgentProfileCreationRequestSelector,
   AgentProfileCreationRequestSource,
   AgentProfileCreationRequestStatus,
   AgentProfileCreationRequestStatusReason,
@@ -1119,6 +1121,12 @@ export type {
   SpaceMessageDetailsWakeTarget,
   SpaceMessageDetailsWorkingDetails,
 } from "./space-message-details";
+export type {
+  SpaceFilePinMutation,
+  SpaceFilePinsResponse,
+  SpaceMessagePinMutation,
+  SpaceMessagePinsResponse,
+} from "./space-message-pins";
 export type {
   PatchSpaceMetaBody,
   SpaceCreator,

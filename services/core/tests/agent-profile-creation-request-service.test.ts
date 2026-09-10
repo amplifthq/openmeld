@@ -680,7 +680,76 @@ describe("Agent Profile creation request service", () => {
     errorLog.mockRestore();
   });
 
-  function createService() {
+  it("acknowledges durable acceptance without waiting for execution and deduplicates delivery", async () => {
+    const service = createService(true);
+    const creation = deferred<string>();
+    createAgentProfile.mockReturnValue(creation.promise);
+    const accepted = await service.create({
+      actorProfileId: "human-requester",
+      body: requestBody({ targetOwnerUserId: "user-requester" }),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+    expect(accepted.request.status).toBe("approved");
+    expect(createAgentProfile).not.toHaveBeenCalled();
+    const selector = { id: accepted.request.id, organizationId: "org-1" };
+    const running = service.execute(selector);
+    await vi.waitFor(() => expect(createAgentProfile).toHaveBeenCalledOnce());
+    expect((await service.execute(selector)).status).toBe("approved");
+    creation.resolve("agt_11111111-1111-4111-8111-111111111111");
+    expect((await running).status).toBe("completed");
+    expect((await service.execute(selector)).status).toBe("completed");
+    expect(createAgentProfile).toHaveBeenCalledOnce();
+  });
+
+  it("recovers only the requester's exact intent and never exposes another participant's request", async () => {
+    const service = createService(true);
+    const accepted = await service.create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+    expect(
+      await service.list({
+        actorProfileId: "human-requester",
+        organizationId: "org-1",
+        userId: "user-requester",
+        idempotencyKey: "request-1",
+      })
+    ).toEqual([accepted.request]);
+    expect(
+      await service.list({
+        actorProfileId: "another-profile",
+        organizationId: "org-1",
+        userId: "user-requester",
+        idempotencyKey: "request-1",
+      })
+    ).toEqual([]);
+    expect(
+      await service.list({
+        organizationId: "org-1",
+        userId: "other-user",
+        requestId: accepted.request.id,
+      })
+    ).toEqual([]);
+    expect(
+      await service.list({
+        organizationId: "other-org",
+        userId: "user-requester",
+        requestId: accepted.request.id,
+      })
+    ).toEqual([]);
+    expect(
+      await service.list({
+        organizationId: "org-1",
+        userId: "user-target",
+        idempotencyKey: "request-1",
+      })
+    ).toEqual([]);
+  });
+
+  function createService(acceptanceOnly = false) {
     const inboxProjection =
       createAgentProfileCreationRequestInboxProjectionService({
         now: () => NOW_MS,
@@ -688,13 +757,35 @@ describe("Agent Profile creation request service", () => {
         repository,
         resolve: resolveApprovalInbox,
       });
-    return createAgentProfileCreationRequestService({
+    const service = createAgentProfileCreationRequestService({
+      validateNewRequest: async () => {
+        // Runtime selection is covered by the RPC boundary tests.
+      },
       attemptInboxProjection: inboxProjection.attemptForRequest,
+      scheduleExecution: async () => {
+        // The fixture delivers explicitly after admission.
+      },
       createAgentProfile,
       now: () => NOW_MS,
       randomUuid: () => "22222222-2222-4222-8222-222222222222",
       repository,
     });
+    if (acceptanceOnly) {
+      return service;
+    }
+    // Existing lifecycle scenarios exercise admission followed by a separate
+    // delivery. Acceptance-only tests above deliberately do not deliver work.
+    return {
+      ...service,
+      create: async (request: Parameters<typeof service.create>[0]) => {
+        const result = await service.create(request);
+        return { ...result, request: await service.execute(result.request) };
+      },
+      decide: async (request: Parameters<typeof service.decide>[0]) =>
+        await service.execute(await service.decide(request)),
+      retry: async (request: Parameters<typeof service.retry>[0]) =>
+        await service.execute(await service.retry(request)),
+    };
   }
 });
 
@@ -727,6 +818,17 @@ function deferred<T>() {
 }
 
 class InMemoryRepository implements AgentProfileCreationRequestRepository {
+  listUnclaimedProfileCreations(input: { limit: number }) {
+    return Promise.resolve(
+      this.records
+        .filter(
+          (record) =>
+            record.status === "approved" &&
+            record.profileCreationStartedAtMs === null
+        )
+        .slice(0, input.limit)
+    );
+  }
   identityCheckpointError: Error | null = null;
   preference: {
     existingSessionPolicy: AgentProfileCreationApprovalPolicy;

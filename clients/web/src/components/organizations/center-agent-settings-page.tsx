@@ -728,12 +728,12 @@ function CenterAgentDangerSection(input: {
 					</p>
 					<p className="mt-1 text-muted-foreground text-sm">
 						{isPaused
-							? "It cannot start or continue tasks in OpenMeld, Slack, or connected channels until the Organization creator resumes it."
+							? "It cannot start or continue tasks in OpenMeld, Slack, or connected channels until an Organization owner or admin resumes it."
 							: "Stops every task currently interacting with the Center Agent across the organization and rejects new tasks until it is resumed."}
 					</p>
 					{input.canChangeOperatingState ? null : (
 						<p className="mt-2 text-muted-foreground text-xs">
-							Only the Organization creator can pause the Center Agent.
+							Only Organization owners and admins can pause the Center Agent.
 						</p>
 					)}
 				</div>

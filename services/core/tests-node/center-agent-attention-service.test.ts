@@ -104,6 +104,8 @@ function createHarness() {
     )`,
   });
   applyDrizzleMigrationsForTables(harness, [
+    "openmeld_profiles",
+    "center_agent_designations",
     "center_agent_attention_requests",
     "center_agent_tasks",
     "inbox_items",

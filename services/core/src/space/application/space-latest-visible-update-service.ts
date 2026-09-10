@@ -3,7 +3,6 @@ import {
   openMeldRuntimeProfileIdSchema,
 } from "@openmeld/schemas";
 import type { GetSpaceStatusResponse } from "@openmeld/schemas/types";
-import type { CoreBindings } from "../../lib/bindings";
 import { timestampMsToIso } from "../infrastructure/sql/space-schema-repo";
 import {
   type LatestFormalSignalCandidateCursor,
@@ -16,28 +15,10 @@ import {
   resolveSpaceStatusPreviewText,
 } from "../rules/formal-space-update";
 import { parseStoredSignal } from "../rules/parsers/stored-signal";
-import { redactSignalForViewer } from "../rules/privacy/agent-profile-visibility";
-import { resolveViewerCreatorProfileIdsByProfileId } from "../rules/privacy/profile-lineage";
 
-export async function readLatestVisibleFormalUpdate(input: {
+export function readLatestVisibleFormalUpdate(input: {
   sql: SqlStorage;
-  env: CoreBindings;
-  viewerOwnerUserId?: string;
-  viewerProfileId?: string;
-  // Optional per-request lineage loader shared across bootstrap branches.
-  lineageLoader?: (
-    ownerUserId: string
-  ) => Promise<Record<string, string | null> | undefined>;
-}): Promise<GetSpaceStatusResponse["latestVisibleUpdate"] | undefined> {
-  const viewerCreatorProfileIdsByProfileId =
-    input.lineageLoader && input.viewerOwnerUserId && input.viewerProfileId
-      ? await input.lineageLoader(input.viewerOwnerUserId)
-      : await resolveViewerCreatorProfileIdsByProfileId({
-          authRpc: input.env.OPENMELD_AUTH_WORKER,
-          viewerOwnerUserId: input.viewerOwnerUserId,
-          viewerProfileId: input.viewerProfileId,
-        });
-
+}): GetSpaceStatusResponse["latestVisibleUpdate"] | undefined {
   let before: LatestFormalSignalCandidateCursor | undefined;
   while (true) {
     const page = listLatestFormalSignalCandidateEntriesPage(input.sql, {
@@ -45,12 +26,7 @@ export async function readLatestVisibleFormalUpdate(input: {
       limit: 100,
     });
     for (const [, rawSignal] of page.entries) {
-      const candidate = projectLatestVisibleFormalUpdateCandidate({
-        rawSignal,
-        viewerOwnerUserId: input.viewerOwnerUserId,
-        viewerProfileId: input.viewerProfileId,
-        creatorProfileIdByProfileId: viewerCreatorProfileIdsByProfileId,
-      });
+      const candidate = projectLatestVisibleFormalUpdateCandidate(rawSignal);
       if (!candidate) {
         continue;
       }
@@ -70,37 +46,27 @@ export async function readLatestVisibleFormalUpdate(input: {
   }
 }
 
-function projectLatestVisibleFormalUpdateCandidate(input: {
-  rawSignal: string;
-  viewerOwnerUserId?: string;
-  viewerProfileId?: string;
-  creatorProfileIdByProfileId?: Record<string, string | null>;
-}): GetSpaceStatusResponse["latestVisibleUpdate"] | undefined {
-  const signal = parseStoredSignal(input.rawSignal);
+function projectLatestVisibleFormalUpdateCandidate(
+  rawSignal: string
+): GetSpaceStatusResponse["latestVisibleUpdate"] | undefined {
+  const signal = parseStoredSignal(rawSignal);
   if (!(signal && isFormalSpaceUpdateSignal(signal))) {
     return undefined;
   }
-  const visibleSignal = redactSignalForViewer({
-    signal,
-    viewerOwnerUserId: input.viewerOwnerUserId,
-    viewerProfileId: input.viewerProfileId,
-    creatorProfileIdByProfileId: input.creatorProfileIdByProfileId,
-  });
-  if (!isFormalSpaceUpdateSignal(visibleSignal)) {
-    return undefined;
-  }
-  const actorProfileId = resolveFormalSpaceUpdateActorProfileId(visibleSignal);
-  const previewText = resolveSpaceStatusPreviewText(visibleSignal);
+  // This authorized Space summary never includes local-origin fields. Project
+  // only its explicit summary fields; resolving Agent ancestry cannot change it.
+  const actorProfileId = resolveFormalSpaceUpdateActorProfileId(signal);
+  const previewText = resolveSpaceStatusPreviewText(signal);
   const parsedActorProfileId =
     openMeldRuntimeProfileIdSchema.safeParse(actorProfileId);
   if (!(parsedActorProfileId.success && previewText)) {
     return undefined;
   }
-  const actorName = resolveFormalSpaceUpdateActorName(visibleSignal);
+  const actorName = resolveFormalSpaceUpdateActorName(signal);
   return {
-    signalId: visibleSignal.id,
-    signalType: visibleSignal.type,
-    createdAt: timestampMsToIso(visibleSignal.ts),
+    signalId: signal.id,
+    signalType: signal.type,
+    createdAt: timestampMsToIso(signal.ts),
     actorProfileId: parsedActorProfileId.data,
     ...(actorName ? { actorName } : {}),
     previewText,

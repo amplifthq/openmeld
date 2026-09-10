@@ -29,7 +29,10 @@ import {
   createAgentExecutionReadinessReads,
 } from "../../agent-execution/application/agent-execution-readiness-reads";
 import { resolveCoreAgentExecutionReadiness } from "../../agent-execution/application/agent-execution-readiness-service";
-import { readAuthProfileFacts } from "../../auth/application/profile-facts-reader";
+import {
+  type AuthProfileFacts,
+  readAuthProfileFacts,
+} from "../../auth/application/profile-facts-reader";
 import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoutesBatch,
@@ -487,6 +490,7 @@ export const leaveSpaceUseCase = (input: {
 };
 
 export const listSpaceMembersSnapshotUseCase = async (input: {
+  profileFacts?: AuthProfileFacts | null;
   sql: SqlStorage;
   env: CoreBindings;
   spaceId: string;
@@ -601,7 +605,9 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
   const humans: SpaceMemberHumanSnapshot[] = [];
   const agentSnapshotPromises: Promise<SpaceMemberAgentSnapshot>[] = [];
   const activeOrganizationId = input.metaRecord?.organizationId ?? null;
-  const readinessReads = createAgentExecutionReadinessReads();
+  const readinessReads = createAgentExecutionReadinessReads({
+    profileFacts: input.profileFacts,
+  });
 
   for (const record of records) {
     if (record.profileKindSnapshot === "human") {
@@ -802,6 +808,7 @@ export const listSpaceMemberDirectoryUseCase = (input: {
 };
 
 export const readSpaceStatusMembersSummaryUseCase = async (input: {
+  profileFacts?: AuthProfileFacts | null;
   sql: SqlStorage;
   env: CoreBindings;
   spaceId: string;
@@ -813,6 +820,7 @@ export const readSpaceStatusMembersSummaryUseCase = async (input: {
   timing?: SpaceMembersSnapshotTiming;
 }): Promise<SpaceStatusMembersSummary> => {
   const snapshot = await listSpaceMembersSnapshotUseCase({
+    profileFacts: input.profileFacts,
     sql: input.sql,
     spaceId: input.spaceId,
     env: input.env,
@@ -1656,10 +1664,14 @@ export const SPACE_MEMBER_NAME_READ_BUDGET_MS = 500;
 export async function refreshSpaceMemberNamesFromAuth(input: {
   sql: SqlStorage;
   env: CoreBindings;
-}): Promise<boolean> {
+}): Promise<{
+  changed: boolean;
+  profileFacts: AuthProfileFacts | null | undefined;
+}> {
   const auth = input.env.OPENMELD_AUTH_WORKER;
   if (!auth?.resolveProfilesByIds) {
-    return false;
+    // No batch was attempted. Older Auth receivers still use scalar reads.
+    return { changed: false, profileFacts: undefined };
   }
   const members = listSpaceMemberRecords(input.sql, {
     status: "active",
@@ -1684,7 +1696,7 @@ export async function refreshSpaceMemberNamesFromAuth(input: {
       console.warn("[core.space.member_names_unavailable]", {
         memberCount: members.length,
       });
-      return false;
+      return { changed: false, profileFacts: null };
     }
     let changed = false;
     // A nonempty snapshot can still predate an Auth rename.
@@ -1709,7 +1721,7 @@ export async function refreshSpaceMemberNamesFromAuth(input: {
           profileName: profile.profileName,
         }) || changed;
     }
-    return changed;
+    return { changed, profileFacts: profiles };
   } finally {
     if (timer !== undefined) {
       clearTimeout(timer);

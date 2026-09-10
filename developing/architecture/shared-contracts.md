@@ -25,7 +25,54 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Space pin contracts
+
+`@openmeld/schemas` owns the strict message/file pin mutations and read models;
+`@openmeld/api-client` owns their GET/PATCH transport. Gateway authenticates
+`/v1/spaces/:spaceId/message-pins` and `/v1/spaces/:spaceId/file-pins`, then Core
+RPC delegates to the owning Space Durable Object. Mutations require an active
+human member whose owner matches the authenticated actor, and only the original
+pinner can unpin. Public and password-protected Space access still uses the
+existing Space authorization boundary.
+
+These are additive endpoints; existing message, file, and metadata wire models
+are unchanged. Web consumes both APIs and refreshes after existing
+`space.meta.changed` notifications, file changes, and stream reconnects. CLI,
+local Service, Desktop, and Agent execution contracts do not change. Delivery
+requires Core and Gateway before Web; no local component upgrade is required.
+
 ## Boundary
+
+### Personal Agent owner Inbox activity
+
+Inbox source-target version 6 adds optional `agentOwnerActivity` to Space targets.
+Version 5 retains DM routing but omits this marker; earlier readers retain their
+existing projected shapes. Deploy Web, Gateway, then Core before the producer
+writes this additive field. Core owns recipient qualification and unread totals:
+only current personal Agent ownership qualifies, never managed-role or Center
+Agent administrative ownership. Space canonical members supply delivery candidates;
+Space Index and current identity authorize subsequent Inbox reads. No database
+migration or CLI/Service contract change is required. Older API clients receive
+compatible projected targets. Preserve upgraded receivers when rolling back a
+producer after version 6 rows exist.
+
+### Space directory visibility
+
+The shared Space metadata PATCH schema accepts optional `visibility` (`private`
+or `public`). The Space Durable Object owns this setting and requires the same
+Space management authority as renaming. Direct Messages reject metadata changes.
+Changing visibility preserves link access, organization identity, and converted
+Direct Message metadata. Web refreshes the owning status and directory queries
+after saving; it does not infer access from directory visibility.
+
+This is an additive Web/API-client/Gateway/Core mutation. Existing clients and
+CLI/Service/Skills setup, Wake, Space actions, and diagnostics remain compatible;
+no storage migration or local component release is needed. Older Gateway/Core
+receivers reject the new field, so the new control works only after both are
+updated. For a combined Inbox release, preserve its documented receiver-first
+ordering; the visibility control must not be treated as available until its
+receivers are current. Reverting Web is safe; reverting a receiver makes new
+visibility writes unavailable without changing saved access policy.
 
 Personal native Agent creation and the Core/Remote private collaboration RPC
 use shared schemas, including the explicit `personal_agent` V4 identity. See
@@ -459,8 +506,14 @@ Inbox summary version `1` adds `unreadUrgentUpdateCount`, disjoint from
 `unresolvedActionCount`. Core derives both from the same recipient/access-filtered
 query; clients never count a list page to reconstruct them. The additive field
 is optional only for receiver-first interoperability: absent means unknown.
-Current API clients send `x-openmeld-inbox-summary-version: 1`; Gateway removes
-the new field for older strict clients, including already-open Web tabs.
+Current API clients send `x-openmeld-inbox-summary-version: 2`; Gateway keeps
+the urgent summary field for versions `1` and `2` and removes it for older strict clients,
+including already-open Web tabs. Version `2` also exposes `chatUnreadCount`,
+`chatUnresolvedActionCount`, `chatUnreadUrgentUpdateCount`, and grouped `attention`
+on Space summaries. These are recipient/access-filtered Core aggregates across
+all current DMs; the three totals do not inherit the unread grouped-row limit.
+Missing fields mean unknown, not zero. Gateway strips the four additions for
+older summary clients. The UI waits for known values without a Checking badge.
 Deploy compatible Gateway first, Core second, and Web last. New Gateway accepts
 old Core output; new Web reports unknown if the field is absent. The new
 `urgent_updates` and `recent_updates` preview list views are available only after Core and Gateway support them;
@@ -511,14 +564,24 @@ Interaction writers, adds all three scopes automatically, and rejects an
 explicit scope that omits any one of them. New receivers continue to accept
 every older target before the writer changes; after Core changes, every deployed
 strict receiver accepts both old and new rows. An already-loaded Web tab is a
-separate mixed-version reader: source-target version `4` receives the complete
-current target, version `3` receives Agent Interaction targets without the
+separate mixed-version reader: source-target version `5` receives the complete
+current target, including the optional `directMessage` flag on Space targets.
+Version `4` keeps thread locators but omits that flag; version `3` receives Agent Interaction targets without the
 thread locator, and missing or older versions retain the legacy projection.
 That legacy projection maps unsupported `message_channel` and Agent Profile
 creation targets to `{ kind: "center_agent" }`. Gateway applies the projection
 after validating Core's current response for list, direct-item, and read-mutation
 operations. The projection never rewrites the durable row or weakens the
 canonical schema.
+
+The DM target flag is emitted only from the Space-owned current DM classification
+(purpose, conversion state, and active member count), never from message wording.
+Its rollout follows Web, Gateway, Core. Old CLI, Service, and Skills continue
+through Gateway's version projection; setup, Wake, Space actions, runtime transport,
+status, and diagnostics contracts are unchanged. No local-component release or
+required-version floor change is needed. Retain compatible Core and Gateway
+readers while durable rows contain the additive flag; do not roll them back to
+strict readers that cannot parse those rows.
 
 The Human Mention Inbox kind follows the same receiver-first rule without
 reusing source-target versioning. The additive Database migration accepts both
@@ -629,6 +692,42 @@ current account email privately and returns a schema-validated sent or failed
 result containing no address. Core never copies Auth's user table or logs email
 content. The receiver must be deployed before Core begins calling the additive
 method; during rollback, stop the Core caller before removing the Auth method.
+
+## Space Message Mutation Contract
+
+`POST /v1/spaces/:spaceId/messages/:signalId` and `SpaceApi.mutateMessage` share
+`spaceMessageMutationBodySchema` / `spaceMessageMutationResponseSchema`.
+The body discriminates `edit`, `recall`, and `restore_draft`. Edit and recall
+require the caller's `expectedRevision` (zero for old messages). Core checks
+writable Space access, active Human membership, and exact sender identity.
+Clients cannot author `messageRevision`, `editedAt`, `recalledAt`, or
+`changedMessageId` through normal message posting.
+
+The Space owner changes the existing signal and version atomically. Recall
+keeps only a safe tombstone in its public payload, and stores the last published
+content in `space_recalled_message_drafts`, accessible only through the
+sender-authorized recovery action. Message retention cleans up this private
+snapshot. Legacy quote previews are updated in the same transaction.
+
+Restored composer drafts persist `restoredFromSignalId` and include it in the
+normal message metadata or thread reply body. Both publication paths validate
+the recalled source's sender and consume recovery in the publication transaction:
+mark the source with server-owned `repostedAt`, increment its revision, and delete
+the private draft. The new persisted message also lets live/catch-up clients hide
+the recovery action before the source's refreshed history arrives. Pending or
+failed outgoing messages never consume recovery.
+
+A durable system `signal.text` with purpose `space_message_changed` records only
+the affected message ID, never a content revision. It advances incremental
+readers and Agent observation guards without adding a conversation row, thread
+reply count, Inbox notification, or sidebar message preview. Incremental Space
+updates return the current affected message alongside this cursor event.
+Visible history pages exclude cursor events. Web merges message versions
+monotonically so stale history responses cannot resurrect recalled content.
+
+Mutation broadcasts preserve original thread placement. Existing dispatch
+records remain execution history; edits do not rewrite or restart executed
+work. This contract covers native Space messages, not Slack/Lark message sync.
 
 ## Web Organization Request Context
 
@@ -1864,7 +1963,15 @@ private context, access rights, or execution state is exported by this module.
 Remote adoption must supply its own authorized read tools and native delivery
 contract; Local action-proposal/CLI rules must not replace Remote automatic
 publication or Center native execution rules. This extraction does not integrate
-either hosted runtime or guarantee conflict-free multi-agent execution.
+Center execution or guarantee conflict-free multi-agent execution. Personal
+Remote Agents now consume these renderers and expose authorized Board and
+bounded public update tools through the personal Space-tool RPC. Version 4
+submission optionally carries the existing canonical message envelope for Wake
+participant context. Deploy Remote Agent before Core: older strict receivers
+reject the new submission field. The admitted field's presence enables the new
+read tools; requests admitted by older Core retain the existing tools, so the
+new runtime does not call unsupported Core operations during rollout. No
+workstation protocol, permission, or local-component version changes.
 
 `packages/schemas/src/schemas/http/space-board.ts` owns the strict Space Board
 HTTP/RPC response. Space/Core compose the response from the Space room
@@ -4936,6 +5043,39 @@ CLI presenters must validate emitted `setup.plan` payloads through this schema.
 They must not hand-write a parallel setup-plan shape, mint client-only action
 ids, or reinterpret `readOnly` as permission to mutate local state.
 
+## Space Message Reaction Contracts
+
+The Space owns persisted message reactions. `GET` and `PUT` on
+`/v1/spaces/:spaceId/message-reactions` use the shared reaction schemas. Writes
+take `signalId`, a supported Unicode `emoji`, and the desired `active` boolean;
+the authenticated request context supplies the actor. A write requires an active
+Human member with writable Space access and a persisted non-system text message.
+Reads preserve the existing Space access boundary.
+
+The unique identity is `(signalId, emoji, profileId)`. Retrying the same desired
+state is idempotent. Mutation and per-message revision increment are atomic.
+Supported aliases resolve to one canonical Unicode sequence; skin tones and
+joined emoji remain distinct. At most 30 distinct emoji groups may be active on
+one message.
+
+Text-envelope `reactions` is additive and optional for existing clients. Its
+`version` and `groups` describe current state. Each group includes the emoji,
+label, count, `reactedByMe`, an actor preview, and `actorsHasMore`. Actor records
+include profile identity, display name, and kind. The focused GET accepts `emoji`
+and `afterProfileId` to read actors in pages of 50, returning `nextCursor`.
+An actor preview must never be represented as the complete list when truncated.
+
+Only a changed mutation emits `space.reactions.changed` with affected
+`signalIds`. Clients invalidate reaction reads without creating a timeline
+signal or refreshing unread/Wake status; reconnect also refreshes mounted
+reaction reads. Revision checks prevent older responses replacing newer state.
+
+Shared message projections, CLI history, Center context manifests, and Remote
+Agent continuity preserve reaction metadata. Materialized-context hashes include
+the reaction state. Personal Remote Agent reads use the existing execution and
+Space-scoped tool authorization, without granting Center administration access.
+New-message delta cursors remain message cursors, not reaction-change cursors.
+
 ## Space Member Contracts
 
 Auth's internal `resolveProfilesByIds` RPC reads at most 64 requested Profile
@@ -4963,6 +5103,15 @@ Index projection outbox. Account working summaries resolve each distinct active
 Agent through Auth, without making the cross-Space index a membership writer.
 Space-wide name refresh uses bounded Auth fact batches instead of one RPC per
 member. It stops launching batches after the existing display-read deadline.
+Status and member snapshots reuse a successful refresh's validated Auth facts
+for Core readiness within that same request. Explicitly absent Profiles remain
+null entries. A failed or timed-out batch is unavailable identity evidence, not
+permission to launch one scalar Auth query per Agent. An absent batch capability
+means no batch was attempted and preserves scalar receiver compatibility. Both
+facts and failures expire with the request; a later request can read again
+without marking members deleted or changing their stored identity. Wake
+admission still reads its own current facts. Reuse does not skip Core's identity,
+ownership, Organization, Binding or execution checks.
 Refresh preserves membership, ownership, removal and aliases. It re-reads the
 member after the Auth call so a concurrent removal or changed name wins. Failed
 or mismatched identity reads do not write names: the last known snapshot remains
@@ -5202,6 +5351,13 @@ new CLI consume an older Core response without repeating the full message in
 status output; it does not cache, omit authorization, or change Space history.
 The field name and wire shape remain unchanged, so old readers continue to
 accept a new Core response and no ordered rollout is required.
+
+The authorized latest-update summary selects only message ID, type, time,
+actor ID/name and bounded preview text from Space storage. It never returns
+Agent local directories or native conversation IDs, so it does not load Auth
+Profile ancestry to redact those absent fields. Detailed member and history
+reads retain their local-origin privacy checks. The summary is a synchronous
+Space SQL read; it needs no separate asynchronous bootstrap branch or Auth wait.
 
 `packages/space` owns reusable pure policy for turning Space identity and
 membership facts into mention labels, addressing support, and member directory

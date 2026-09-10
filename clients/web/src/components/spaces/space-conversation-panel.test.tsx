@@ -11,11 +11,12 @@ import type {
 	SpaceThreadPreview,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
 	fireEvent,
-	render,
+	render as renderBare,
 	screen,
 	waitFor,
 	within,
@@ -71,9 +72,31 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: useQueryMock,
+		useQuery: (options: Parameters<typeof actual.useQuery>[0]) => {
+			const isReaction = options.queryKey[0] === "space-message-reactions";
+			const reactionQuery = actual.useQuery({
+				...options,
+				enabled: isReaction && options.enabled !== false,
+			});
+			const result = useQueryMock(options);
+			if (isReaction) {
+				return reactionQuery;
+			}
+			return options.enabled === false ? { data: undefined } : result;
+		},
 	};
 });
+
+function QueryWrapper({ children }: { children: ReactNode }) {
+	const [client] = useState(
+		() => new QueryClient({ defaultOptions: { queries: { retry: false } } })
+	);
+	return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+function render(ui: ReactNode) {
+	return renderBare(ui, { wrapper: QueryWrapper });
+}
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -689,7 +712,10 @@ describe("SpaceConversationPanel", () => {
 			'[data-slot="space-composer-section"]'
 		);
 		expect(composer).not.toBeNull();
-		expect(surface.nextElementSibling).toBe(composer);
+		expect(composer?.contains(surface)).toBe(true);
+		expect(
+			surface.nextElementSibling?.contains(screen.getByRole("textbox"))
+		).toBe(true);
 	});
 
 	it("anchors the earlier-history loading header to the conversation content rail", () => {
@@ -900,9 +926,10 @@ describe("SpaceConversationPanel", () => {
 			})
 		).toHaveLength(1);
 		expect(
-			firstDateMarker.querySelector("[data-conversation-date-marker-pill]")
-		).toBeNull();
-		expect(firstDateMarker.textContent).toBe("");
+			firstDateMarker.querySelector<HTMLElement>(
+				"[data-conversation-date-marker-pill]"
+			)?.hidden
+		).toBe(true);
 		expect(
 			secondDateMarker.querySelector("[data-conversation-date-marker-pill]")
 				?.firstElementChild?.className
@@ -927,9 +954,10 @@ describe("SpaceConversationPanel", () => {
 			})
 		).toHaveLength(1);
 		expect(
-			secondDateMarker.querySelector("[data-conversation-date-marker-pill]")
-		).toBeNull();
-		expect(secondDateMarker.textContent).toBe("");
+			secondDateMarker.querySelector<HTMLElement>(
+				"[data-conversation-date-marker-pill]"
+			)?.hidden
+		).toBe(true);
 		const stickyPillTrack = document.querySelector(
 			"[data-slot='conversation-date-pill-track']"
 		);
@@ -1726,7 +1754,7 @@ describe("SpaceConversationPanel", () => {
 		expect(messageText.className).toContain("[overflow-wrap:anywhere]");
 	});
 
-	it("keeps agent messages transparent and gives self messages a readable surface", () => {
+	it("gives Agent messages a neutral surface and self messages a blue surface while preserving alignment", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -1752,12 +1780,13 @@ describe("SpaceConversationPanel", () => {
 			.closest("[data-signal-id]");
 		expect(agentBubble?.classList.contains("border")).toBe(true);
 		expect(agentBubble?.classList.contains("border-transparent")).toBe(true);
-		expect(agentBubble?.classList.contains("bg-transparent")).toBe(true);
+		expect(agentBubble?.classList.contains("bg-muted/35")).toBe(true);
 		expect(agentBubble?.classList.contains("max-w-full")).toBe(true);
 		expect(agentBubble?.classList.contains("max-w-[62ch]")).toBe(false);
 		expect(selfBubble?.classList.contains("border")).toBe(true);
 		expect(selfBubble?.classList.contains("border-transparent")).toBe(true);
-		expect(selfBubble?.classList.contains("bg-muted/35")).toBe(true);
+		expect(selfBubble?.classList.contains("bg-unread/12")).toBe(true);
+		expect(selfBubble?.classList.contains("dark:bg-unread/40")).toBe(true);
 		expect(selfBubble?.classList.contains("rounded-md")).toBe(true);
 		expect(selfBubble?.classList.contains("max-w-full")).toBe(true);
 		expect(selfBubble?.classList.contains("min-w-[16rem]")).toBe(false);
@@ -1867,7 +1896,7 @@ describe("SpaceConversationPanel", () => {
 
 		for (const [messageText, expectedAlignment] of [
 			["Agent reply", "justify-start"],
-			["Self message", "justify-end"],
+			["Self message", "self-end"],
 		] as const) {
 			const message = screen.getByText(messageText).closest("[data-signal-id]");
 			const row = message?.closest("[data-message-row-id]");
@@ -1993,6 +2022,67 @@ describe("SpaceConversationPanel", () => {
 		expect(profileControl.compareDocumentPosition(sendButton)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
+	});
+
+	it.each([
+		"wake",
+		"reference",
+	] as const)("offers computer recovery before sending a disconnected %s target", (relation) => {
+		const profileId = "agt_22222222-2222-4222-8222-222222222222";
+		renderSpaceConversationPanel({
+			allowedActions: ["post_message"],
+			readOnly: false,
+			composerText: "@Runner hello",
+			composerAddressingTargets: [
+				{
+					profileId,
+					profileName: "Runner",
+					primaryMentionLabel: "Runner",
+					relation,
+					allowedRelations: { mention: false, reference: true, wake: false },
+					wakeAvailability: {
+						status: "blocked",
+						reasonCodes: ["local_service.not_connected_for_account"],
+						reasonText: "Connect your computer before this Agent can reply.",
+					},
+				},
+			],
+			prepareSetupHref: "/o/acme/connect",
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					profileId,
+					{
+						kind: "review_computer",
+						profileId,
+						profileName: "Runner",
+						primaryActionId: "reconnect_openmeld_service",
+						primaryActionLabel: "Reconnect Computer",
+						recoveryReasonCode: "local_service.not_connected_for_account",
+						title: "Runner’s computer is disconnected",
+						secondaryLabel: "Computer not connected",
+						body: "Reconnect the computer so it can receive local Wake work.",
+					},
+				],
+			]),
+		});
+		const recovery = screen.queryByRole("link", { name: "Reconnect Computer" });
+		if (relation === "wake") {
+			expect(recovery?.getAttribute("href")).toBe("/o/acme/connect");
+			expect(screen.getByText("Computer not connected")).toBeTruthy();
+			expect(
+				screen
+					.getByRole("button", { name: "Send message" })
+					.hasAttribute("disabled")
+			).toBe(true);
+		} else {
+			expect(recovery).toBeNull();
+			expect(screen.queryByText("Computer not connected")).toBeNull();
+			expect(
+				screen
+					.getByRole("button", { name: "Send message" })
+					.hasAttribute("disabled")
+			).toBe(false);
+		}
 	});
 
 	it("shows the current recovery action beside a known blocked Wake", () => {
@@ -2702,8 +2792,10 @@ describe("SpaceConversationPanel", () => {
 		const jumpButton = screen.getByRole("button", {
 			name: "Jump to latest message",
 		});
-		expect(jumpButton.getAttribute("data-active")).toBe("false");
-		expect(jumpButton.hasAttribute("inert")).toBe(true);
+		expect(
+			jumpButton.closest("[data-active]")?.getAttribute("data-active")
+		).toBe("false");
+		expect(!!jumpButton.closest("[inert]")).toBe(true);
 
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
@@ -2735,9 +2827,11 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.scroll(conversationLog);
 
 		await waitFor(() => {
-			expect(jumpButton.getAttribute("data-active")).toBe("true");
+			expect(
+				jumpButton.closest("[data-active]")?.getAttribute("data-active")
+			).toBe("true");
 		});
-		expect(jumpButton.hasAttribute("inert")).toBe(false);
+		expect(!!jumpButton.closest("[inert]")).toBe(false);
 		const messageScroller = jumpButton.closest(
 			"[data-slot='message-scroller']"
 		);
@@ -2747,31 +2841,6 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			jumpButton.closest("[data-slot='message-scroller-content']")
 		).toBeNull();
-		expect(jumpButton.getAttribute("data-slot")).toBe(
-			"message-scroller-button"
-		);
-		expect(jumpButton.getAttribute("data-variant")).toBe("secondary");
-		expect(jumpButton.className).toContain("border-transparent");
-		expect(jumpButton.className).toContain("conversation-floating-surface");
-		expect(jumpButton.className).toContain("conversation-floating-surface");
-		expect(jumpButton.className).not.toContain("ring-background");
-		expect(jumpButton.className).not.toContain("shadow-lg");
-		expect(jumpButton.className).toContain("data-[active=false]:blur-[6px]");
-		expect(jumpButton.className).toContain("data-[active=true]:blur-none");
-		expect(jumpButton.className).toContain(
-			"motion-reduce:data-[active=false]:blur-none"
-		);
-		expect(jumpButton.className).toContain("inset-s-1/2");
-		expect(jumpButton.className).toContain("-translate-x-1/2");
-		expect(jumpButton.className).toContain("data-[direction=end]:bottom-4");
-		expect(jumpButton.className).toContain(
-			"data-[direction=end]:data-[active=false]:translate-y-full"
-		);
-		expect(jumpButton.className).toContain(
-			"data-[active=false]:pointer-events-none"
-		);
-		expect(jumpButton.style.insetInlineEnd).toBe("");
-		expect(jumpButton.style.insetInlineStart).toBe("");
 
 		fireEvent.click(jumpButton);
 
@@ -2780,7 +2849,9 @@ describe("SpaceConversationPanel", () => {
 			top: 700,
 		});
 		await waitFor(() => {
-			expect(jumpButton.getAttribute("data-active")).toBe("false");
+			expect(
+				jumpButton.closest("[data-active]")?.getAttribute("data-active")
+			).toBe("false");
 		});
 	});
 
@@ -2991,9 +3062,6 @@ describe("SpaceConversationPanel", () => {
 			progressRow.querySelector('[data-space-agent-orb-state="connecting"]')
 		).toBeTruthy();
 		expect(progressInset).toBeNull();
-		expect(answerSurface?.className).toContain("px-0");
-		expect(answerSurface?.className).toContain("py-0");
-		expect(answerSurface?.className).toContain("sm:px-0");
 		expect(
 			answerSurface?.querySelector('[data-slot="space-message-body"]')
 		).toBeNull();
@@ -3258,6 +3326,57 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 	});
 
+	it.each([
+		false,
+		true,
+	])("keeps the same answer DOM row when a Local Agent finishes (DM=%s)", (isDirectMessage) => {
+		const streaming = createTimelineItem({
+			id: "stream:local-agent",
+			wakeDispatchId: "dispatch-1",
+			actorProfileKind: "agent",
+			actorProfileId: TARGET_PROFILE_ID,
+			actorName: "Runner",
+			text: "",
+			agentStreamState: {
+				reasonCode: null,
+				sequence: 1,
+				status: "streaming",
+				streamId: "local-agent:10:dispatch-1:9:attempt-1",
+			},
+		});
+		const rendered = renderSpaceConversationPanel({
+			isDirectMessage,
+			timelineItems: [streaming],
+		});
+		const row = screen
+			.getByRole("status", { name: "Agent is working" })
+			.closest("[data-message-id]");
+		expect(row).not.toBeNull();
+		rendered.rerender(
+			<SpaceConversationPanel
+				{...createSpaceConversationPanelProps({
+					isDirectMessage,
+					timelineItems: [
+						{
+							...streaming,
+							id: "durable-final",
+							text: "Ready to review.",
+							agentStreamState: undefined,
+							isAgentFinalReply: true,
+						},
+					],
+				})}
+			/>
+		);
+		expect(
+			screen.queryByRole("status", { name: "Agent is working" })
+		).toBeNull();
+		expect(
+			screen.getByText("Ready to review.").closest("[data-message-id]")
+		).toBe(row);
+		expect(row?.getAttribute("data-message-id")).toBe("durable-final");
+	});
+
 	it("aligns an empty local Agent working row with the profile name and separates it from the header", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
@@ -3376,9 +3495,6 @@ describe("SpaceConversationPanel", () => {
 			"I am working through the request"
 		);
 		expect(progressInset).toBeNull();
-		expect(messageBubble?.className).toContain("px-0");
-		expect(messageBubble?.className).toContain("py-0");
-		expect(messageBubble?.className).toContain("sm:px-0");
 		expect(screen.getByText("Agent is working")).toBeTruthy();
 		expect(messageBubble?.getAttribute("data-signal-id")).toBe(
 			"stream:submission-1"
@@ -3658,8 +3774,8 @@ describe("SpaceConversationPanel", () => {
 			"[data-slot='message-footer']"
 		) as HTMLElement;
 		expect(
-			within(footer).getByText("Codex 5.6 Sol couldn’t reply")
-		).toBeTruthy();
+			within(footer).queryByText("Codex 5.6 Sol couldn’t reply")
+		).toBeNull();
 		expect(
 			within(sourceMessage as HTMLElement).queryByText(detailedFailure)
 		).toBeNull();
@@ -3667,7 +3783,7 @@ describe("SpaceConversationPanel", () => {
 			within(sourceMessage as HTMLElement).queryByTestId("space-outcome-row")
 		).toBeNull();
 		const details = within(footer).getByRole("button", {
-			name: "Message details",
+			name: "View error details: Codex 5.6 Sol couldn’t reply",
 		});
 		expect(details.className).toContain("text-destructive");
 		fireEvent.click(details);
@@ -3726,7 +3842,11 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		);
 		await screen.findByRole("dialog", { name: "Message details" });
 		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
 		expect(
@@ -3766,7 +3886,12 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(screen.getByText("2 agents couldn’t reply")).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "View error details: 2 agents couldn’t reply",
+			})
+		).toBeTruthy();
+		expect(screen.queryByText("2 agents couldn’t reply")).toBeNull();
 		expect(screen.queryByTestId("space-outcome-row")).toBeNull();
 		expect(screen.queryByText("Codex 5.6 Sol couldn’t reply")).toBeNull();
 		expect(screen.queryByText("Claude Opus 4.8 couldn’t reply")).toBeNull();
@@ -3803,7 +3928,11 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(screen.getByText("Agent couldn’t reply")).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		).toBeTruthy();
 		expect(screen.getByText("Claude was stopped by the user.")).toBeTruthy();
 		expect(screen.getAllByTestId("space-outcome-row")).toHaveLength(1);
 		expect(
@@ -3882,7 +4011,8 @@ describe("SpaceConversationPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-wake']");
 		const footer = row?.querySelector("[data-slot='message-footer']");
-		expect(footer?.className).toContain("justify-end");
+		// The footer aligns with the self bubble; reactions start at its left edge.
+		expect(footer?.className).toContain("self-end");
 		expect(footer?.className).not.toContain("justify-start");
 		expect(row?.querySelector("[data-testid='space-outcome-row']")).toBeNull();
 	});
@@ -4109,7 +4239,7 @@ describe("SpaceConversationPanel", () => {
 		expect(dialog.queryByText("Now")).toBeNull();
 	});
 
-	it("shows agent controller metadata without owner repetition", () => {
+	it("attributes Local Agent messages to the owner", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -4133,9 +4263,7 @@ describe("SpaceConversationPanel", () => {
 			screen.getByTestId("space-agent-profile-avatar-agent-profile-1")
 		).toBeTruthy();
 		expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
-		expect(
-			screen.getByText("Controlled by Felix's MacBook Pro Codex")
-		).toBeTruthy();
+		expect(screen.getByText("Mira")).toBeTruthy();
 		expect(screen.queryByText("Owned by Mira")).toBeNull();
 		expect(
 			screen.queryByText(

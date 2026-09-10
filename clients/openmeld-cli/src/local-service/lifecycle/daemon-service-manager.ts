@@ -142,6 +142,9 @@ const LAUNCHD_STATE_PATTERN = /state\s*=\s*running/i;
 const LAUNCHD_DISABLED_SERVICES_ENTRY_PATTERN =
   /"([^"]+)"\s*=>\s*(enabled|disabled)/i;
 const LAUNCHD_STRING_PATTERN = /<string>([^<]+)<\/string>/g;
+const LAUNCHD_SERVICE_PROCESS_TYPE = "Interactive";
+const LAUNCHD_PROCESS_TYPE_PATTERN =
+  /<key>ProcessType<\/key>\s*<string>([^<]+)<\/string>/;
 const LAUNCHD_ENVIRONMENT_BLOCK_PATTERN =
   /<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/;
 const WINDOWS_LINE_SEPARATOR_PATTERN = /\r?\n/;
@@ -472,6 +475,41 @@ function sanitizeControlCharacters(value: string): string {
   return sanitized;
 }
 
+export function matchesLaunchdServiceStartupPolicy(
+  definition: string
+): boolean {
+  return (
+    LAUNCHD_PROCESS_TYPE_PATTERN.exec(definition)?.[1] ===
+    LAUNCHD_SERVICE_PROCESS_TYPE
+  );
+}
+
+/** Reads only the owned definition; callers report drift through existing diagnostics. */
+export async function readDaemonServiceStartupPolicyCurrent(input: {
+  controller: DaemonServiceController | null;
+  status: DaemonServiceManagerRuntimeStatus | null;
+}): Promise<boolean | null> {
+  if (
+    input.controller !== "launchd" ||
+    !input.status?.installed ||
+    !input.status.definitionPath
+  ) {
+    return null;
+  }
+  const definition = await readFile(input.status.definitionPath, "utf8").catch(
+    (error: NodeJS.ErrnoException) => {
+      // An uninstalled definition is not evidence of a scheduling-policy mismatch.
+      if (error.code === "ENOENT") {
+        return null;
+      }
+      throw error;
+    }
+  );
+  return definition === null
+    ? null
+    : matchesLaunchdServiceStartupPolicy(definition);
+}
+
 export function buildLaunchdPlist(
   spec: DaemonServiceCommandSpec,
   pathInput: OpenMeldPathResolutionInput = {}
@@ -511,6 +549,8 @@ ${args}
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>ProcessType</key>
+  <string>${LAUNCHD_SERVICE_PROCESS_TYPE}</string>
   <key>ThrottleInterval</key>
   <integer>${DAEMON_SERVICE_RESTART_BACKOFF_SECONDS}</integer>
   <key>EnvironmentVariables</key>

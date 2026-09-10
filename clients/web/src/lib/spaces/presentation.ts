@@ -15,6 +15,7 @@ import { AVAILABILITY_DISPLAY_LABELS } from "#/lib/availability-display";
 import {
 	isSpaceExecutionRecoveryNoticeItem,
 	isSpaceOutcomeNoticeItem,
+	resolveSpaceConversationItemKey,
 	type SpaceTimelineItem,
 } from "./timeline";
 
@@ -119,6 +120,8 @@ export function buildSpaceConversationEntries(input: {
 			previousItem !== null &&
 			!item.activeWakeProgress &&
 			!previousItem.activeWakeProgress &&
+			!item.wakeDispatchId &&
+			!previousItem.wakeDispatchId &&
 			item.agentStreamState?.status !== "streaming" &&
 			previousItem.agentStreamState?.status !== "streaming" &&
 			!input.groupBoundarySignalIds?.has(item.id) &&
@@ -136,7 +139,7 @@ export function buildSpaceConversationEntries(input: {
 		entries.push({
 			kind: "bubble_run",
 			run: {
-				id: item.id,
+				id: resolveSpaceConversationItemKey(item),
 				isSelf: item.actorProfileId === input.selfProfileId,
 				items: [item],
 				speaker: {

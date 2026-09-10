@@ -25,7 +25,7 @@ import {
   finalizeAgentActivitySessionInventoryCleanupAfterOrganizationMemberRemoval,
   requireAgentActivitySessionInventoryCleanupBeforeOrganizationMemberRemoval,
 } from "../organization/agent-activity-session-inventory-lifecycle";
-import { assertMemberDoesNotHostCenterAgent } from "../organization/center-agent-member-removal-guard";
+import { assertCenterAgentIdentityBeforeMemberRemoval } from "../organization/center-agent-member-removal-guard";
 import {
   type CenterAgentMemoryLifecycleWorker,
   deleteCenterAgentMemberMemoryOnOrganizationRemoval,
@@ -775,7 +775,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       },
       beforeRemoveMember: async ({ member, organization, user }) => {
         const userId = user.id ?? member.userId;
-        await assertMemberDoesNotHostCenterAgent({
+        await assertCenterAgentIdentityBeforeMemberRemoval({
           db: env.OPENMELD_DB,
           organizationId: organization.id,
           userId,

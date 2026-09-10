@@ -92,7 +92,7 @@ export async function readLocalRuntimeExpectedRoutes(input: {
       const profile = profiles.get(agentProfileId);
       return [
         agentProfileId,
-        profile && profile.ownerUserId.trim() === input.ownerUserId
+        profile && profile.ownerUserId?.trim() === input.ownerUserId
           ? {
               defaultProjectId: normalizeOptionalText(profile.defaultProjectId),
               profileKind: profile.profileKind,

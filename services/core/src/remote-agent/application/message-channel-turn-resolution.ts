@@ -71,7 +71,7 @@ export type MessageChannelCenterAgentTarget = {
   agentProfileId: string;
   bindingId: string;
   modelRoute: CenterAgentModelRoute;
-  ownerUserId: string;
+  ownerUserId: string | null;
   profileHandle: string;
   profileName: string;
 };
@@ -105,7 +105,7 @@ type OrganizationAccountIdentityProjection = Extract<
 >;
 
 type MessageChannelCenterAgentProfileRow = {
-  owner_user_id: string;
+  owner_user_id: string | null;
   profile_handle: string;
   profile_name: string;
 };
@@ -434,7 +434,7 @@ async function readMessageChannelCenterAgentTarget(input: {
   const binding = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: designation.agentProfileId,
     db: input.db,
-    owner: { id: profile.owner_user_id, kind: "owner_account" },
+    owner: { id: input.organizationId, kind: "organization" },
   });
   if (!(binding && isHostedCenterAgentExecutionTarget(binding))) {
     return null;

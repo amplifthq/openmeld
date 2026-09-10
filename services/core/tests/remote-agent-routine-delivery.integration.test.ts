@@ -4149,14 +4149,13 @@ async function seedRoutineDeliveryFixture() {
           profile_id, profile_name, profile_handle, profile_kind, is_default,
           status, organization_id, owner_user_id, created_by_user_id, source,
           managed_role, created_at, updated_at
-        ) VALUES (?, 'Routine Center Agent', ?, 'agent', 0, 'active', ?, ?, ?,
+        ) VALUES (?, 'Routine Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?,
           'auth_bootstrap', 'center_agent', ?, ?)
       `
     ).bind(
       profileId,
       `routine-center-agent-${suffix}`,
       organizationId,
-      userId,
       userId,
       nowMs,
       nowMs
@@ -4178,13 +4177,12 @@ async function seedRoutineDeliveryFixture() {
           space_id, profile_id, profile_kind_snapshot, profile_name_snapshot,
           owner_user_id_snapshot, controller_ref_snapshot, status, member_source,
           added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id
-        ) VALUES (?, ?, 'agent', 'Routine Center Agent', ?, ?, 'active',
+        ) VALUES (?, ?, 'agent', 'Routine Center Agent', NULL, ?, 'active',
           'member_add', ?, ?, ?, ?)
       `
     ).bind(
       spaceId,
       profileId,
-      userId,
       HOSTED_CENTER_AGENT_CONTROLLER_REF,
       nowMs,
       nowMs,
@@ -4200,12 +4198,12 @@ async function seedRoutineDeliveryFixture() {
           openmeld_service_runtime_id, runtime_kind, hosted_runtime_identity_json,
           agent_controller_ref, agent_controller_conversation_id, binding_state,
           created_at_ms, updated_at_ms
-        ) VALUES (?, 'owner_account', ?, ?, ?, 'hosted_center_agent', ?, ?,
+        ) VALUES (?, 'organization', ?, ?, ?, 'hosted_center_agent', ?, ?,
           NULL, 'enabled_primary', ?, ?)
       `
     ).bind(
       bindingId,
-      userId,
+      organizationId,
       profileId,
       HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
@@ -4350,7 +4348,7 @@ function buildEnv(input: {
       resolveProfileById: async () => ({
         ok: true,
         profile: {
-          ownerUserId: input.fixture.userId,
+          ownerUserId: null,
           profileHandle: "routine-center-agent",
           profileId: input.fixture.profileId,
           profileKind: "agent",

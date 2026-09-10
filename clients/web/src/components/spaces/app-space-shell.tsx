@@ -114,12 +114,7 @@ export function AppDirectMessageShell(input: {
 		<SpaceWindowShell
 			initialOuterSidebarState={input.initialOuterSidebarState}
 			initialSidebarState={input.initialSidebarState}
-			sidebar={
-				<ChatsSidebar
-					currentProfileId={input.currentProfileId}
-					currentSpaceId={input.currentSpaceId}
-				/>
-			}
+			sidebar={<ChatsSidebar currentSpaceId={input.currentSpaceId} />}
 			sidebarPreferenceKey="direct-messages"
 			sidebarSeparatorLabel="Resize the Chats sidebar"
 		>

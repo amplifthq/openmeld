@@ -1,5 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
+import { loadavg } from "node:os";
 import {
   createOpencodeClient,
   type Event,
@@ -24,6 +25,7 @@ import type {
 } from "@openmeld/adapter-core";
 import {
   buildCliLaunchInvocation,
+  createProviderOriginalError,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
 import { isLikelyOpenCodeContextLostError } from "../context/opencode-context-heal.js";
@@ -35,8 +37,10 @@ import {
 
 const SERVER_HOSTNAME = "127.0.0.1";
 const SERVER_HEALTH_TIMEOUT_MS = 5000;
-const SERVER_INITIAL_STARTUP_TIMEOUT_MS = 5000;
 const SERVER_STARTUP_TIMEOUT_MS = 15_000;
+const SERVER_MAX_START_ATTEMPTS = 2;
+const SERVER_SLOW_START_MS = 5000;
+const SERVER_DIAGNOSTIC_CONNECT_TIMEOUT_MS = 250;
 const SERVER_PROCESS_KILL_GRACE_MS = 1000;
 const SERVER_PROCESS_CLOSE_TIMEOUT_MS = 2000;
 const MAX_STDERR_CHARS = 16_000;
@@ -280,23 +284,21 @@ async function forkOpenCodeSessionWithClient(input: {
 async function startHealthyOpenCodeServer(
   input: OpenCodeServerLifecycleInput & { deadlineMs: number | null }
 ): Promise<{ server: OpenCodeServerProcess; serverUrl: string }> {
-  const startupTimeoutLimits = [
-    SERVER_INITIAL_STARTUP_TIMEOUT_MS,
-    SERVER_STARTUP_TIMEOUT_MS,
-  ];
   let lastError: OpenCodeServerTransportError | null = null;
+  const startupEvidence: string[] = [];
 
-  for (const [
-    attemptIndex,
-    startupTimeoutLimitMs,
-  ] of startupTimeoutLimits.entries()) {
+  for (
+    let attemptIndex = 0;
+    attemptIndex < SERVER_MAX_START_ATTEMPTS;
+    attemptIndex += 1
+  ) {
     const remainingTimeoutMs = readRemainingTimeoutMs(input.deadlineMs);
     if (remainingTimeoutMs !== null && remainingTimeoutMs <= 0) {
       break;
     }
     const startupTimeoutMs = Math.min(
       remainingTimeoutMs ?? Number.POSITIVE_INFINITY,
-      startupTimeoutLimitMs
+      SERVER_STARTUP_TIMEOUT_MS
     );
     const attempt = await runOpenCodeServerStartAttempt({
       ...input,
@@ -306,11 +308,25 @@ async function startHealthyOpenCodeServer(
     if (attempt.status === "success") {
       return { server: attempt.server, serverUrl: attempt.serverUrl };
     }
-    lastError = attempt.error;
+    startupEvidence.push(
+      `Startup evidence, attempt ${attemptIndex + 1}: ${JSON.stringify(attempt.evidence)}`
+    );
+    lastError = new OpenCodeServerTransportError({
+      ...attempt.error,
+      message: `${attempt.error.message} OpenCode server ${attempt.phase === "startup" ? "startup" : "health check"} failed on attempt ${attemptIndex + 1} of ${SERVER_MAX_START_ATTEMPTS}. No Agent task was sent.`,
+      originalError:
+        createProviderOriginalError(
+          [
+            ...startupEvidence,
+            `OpenCode server ${attempt.phase}, attempt ${attemptIndex + 1} of ${SERVER_MAX_START_ATTEMPTS}.`,
+            attempt.error.originalError ?? attempt.error.message,
+          ].join("\n")
+        ) ?? undefined,
+    });
     if (!attempt.serverExited) {
       throw createOpenCodeServerCleanupError();
     }
-    const hasNextAttempt = attemptIndex < startupTimeoutLimits.length - 1;
+    const hasNextAttempt = attemptIndex < SERVER_MAX_START_ATTEMPTS - 1;
     if (
       !shouldRetryOpenCodeServerStart({
         attempt,
@@ -341,6 +357,7 @@ type OpenCodeServerStartAttempt =
     }
   | {
       error: OpenCodeServerTransportError;
+      evidence: ReturnType<OpenCodeServerProcess["readStartupEvidence"]>;
       phase: "health" | "startup";
       serverExited: boolean;
       status: "failed";
@@ -410,8 +427,20 @@ async function closeFailedOpenCodeServer(input: {
     input.error,
     input.server.readStderr()
   );
+  const evidence = input.server.readStartupEvidence();
+  console.warn("[openmeld.opencode.server_start.failed]", {
+    ...evidence,
+    errorCode: error.code,
+    phase: input.phase,
+  });
   const serverExited = await input.server.close();
-  return { error, phase: input.phase, serverExited, status: "failed" };
+  return {
+    error,
+    evidence,
+    phase: input.phase,
+    serverExited,
+    status: "failed",
+  };
 }
 
 function shouldRetryOpenCodeServerStart(input: {
@@ -440,6 +469,7 @@ function logOpenCodeServerStartRetry(input: {
   console.warn("[openmeld.opencode.server_start.retry]", {
     attempt: input.attemptIndex + 1,
     errorCode: input.attempt.error.code,
+    originalError: input.attempt.error.originalError ?? null,
     nextAttempt: input.attemptIndex + 2,
     phase: input.attempt.phase,
     reasonCode: startupTimedOut
@@ -1118,6 +1148,17 @@ class OpenCodeServerProcess {
   #processTimeout: NodeJS.Timeout | null = null;
   #settledFailure: unknown = null;
   #stderr = "";
+  #stdoutBytes = 0;
+  #stderrBytes = 0;
+  #stdoutLines = 0;
+  #readyLineObserved = false;
+  #startupStartedAt = 0;
+  #port: number | null = null;
+  #portProbe: { status: string; elapsedMs?: number; observedAtMs?: number } = {
+    status: "not_sampled",
+  };
+  #slowStartTimer: NodeJS.Timeout | null = null;
+  #diagnosticSocket: ReturnType<typeof connect> | null = null;
   #startupReject: ((error: unknown) => void) | null = null;
   #startupResolve: ((url: string) => void) | null = null;
   readonly #startupTimeoutMs: number;
@@ -1154,6 +1195,8 @@ class OpenCodeServerProcess {
 
   async start(): Promise<string> {
     const port = await reserveLocalPort();
+    this.#port = port;
+    this.#startupStartedAt = performance.now();
     const invocation = buildCliLaunchInvocation({
       args: [
         "serve",
@@ -1198,6 +1241,7 @@ class OpenCodeServerProcess {
     });
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
+      this.#stdoutBytes += Buffer.byteLength(chunk);
       if (this.#lifecycle.firstStdoutAtMs === null) {
         const firstStdoutAtMs = Date.now();
         this.#lifecycle.firstStdoutAtMs = firstStdoutAtMs;
@@ -1211,6 +1255,7 @@ class OpenCodeServerProcess {
     });
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => {
+      this.#stderrBytes += Buffer.byteLength(chunk);
       if (this.#lifecycle.firstStderrAtMs === null) {
         const firstStderrAtMs = Date.now();
         this.#lifecycle.firstStderrAtMs = firstStderrAtMs;
@@ -1283,13 +1328,88 @@ class OpenCodeServerProcess {
       }, this.#openCodeTimeoutMs);
     }
 
-    return await Promise.race([
-      startup,
-      timeoutAfter(
-        this.#startupTimeoutMs,
-        "Timed out waiting for opencode serve to start."
-      ),
-    ]);
+    // Diagnose only a slow startup. This connection never authorizes execution
+    // or extends the listener deadline, and it sends no provider request.
+    if (this.#startupTimeoutMs > SERVER_SLOW_START_MS) {
+      this.#slowStartTimer = setTimeout(
+        () => this.#sampleSlowStartup(port),
+        SERVER_SLOW_START_MS
+      );
+      this.#slowStartTimer.unref?.();
+    }
+    try {
+      return await Promise.race([
+        startup,
+        timeoutAfter(
+          this.#startupTimeoutMs,
+          `OpenCode did not open its local server within ${this.#startupTimeoutMs}ms.`
+        ),
+      ]);
+    } finally {
+      this.#clearStartupDiagnostic();
+    }
+  }
+
+  readStartupEvidence() {
+    return {
+      processId: this.#lifecycle.processId,
+      processSpawnedAtMs: this.#lifecycle.processSpawnedAtMs,
+      elapsedMs: Math.round(performance.now() - this.#startupStartedAt),
+      budgetMs: this.#startupTimeoutMs,
+      firstStdoutAtMs: this.#lifecycle.firstStdoutAtMs,
+      firstStderrAtMs: this.#lifecycle.firstStderrAtMs,
+      stdoutBytes: this.#stdoutBytes,
+      stderrBytes: this.#stderrBytes,
+      stdoutLines: this.#stdoutLines,
+      readyLineObserved: this.#readyLineObserved,
+      port: this.#port,
+      portProbe: this.#portProbe,
+      processExitObserved: this.#lifecycle.exitObservedAtMs !== null,
+      hostLoadAverage: loadavg().map((value) => Math.round(value * 100) / 100),
+    };
+  }
+
+  #sampleSlowStartup(port: number): void {
+    const startedAt = performance.now();
+    const socket = connect({ host: SERVER_HOSTNAME, port });
+    this.#diagnosticSocket = socket;
+    this.#portProbe = { status: "pending", observedAtMs: Date.now() };
+    const finish = (status: string) => {
+      if (this.#diagnosticSocket !== socket) {
+        return;
+      }
+      this.#portProbe = {
+        status,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        observedAtMs: Date.now(),
+      };
+      this.#diagnosticSocket = null;
+      socket.destroy();
+      console.warn(
+        "[openmeld.opencode.server_start.slow]",
+        this.readStartupEvidence()
+      );
+    };
+    socket.once("connect", () => finish("connected"));
+    socket.once("error", (error: NodeJS.ErrnoException) =>
+      finish(error.code === "ECONNREFUSED" ? "refused" : "error")
+    );
+    socket.setTimeout(SERVER_DIAGNOSTIC_CONNECT_TIMEOUT_MS, () =>
+      finish("timeout")
+    );
+    socket.unref();
+  }
+
+  #clearStartupDiagnostic(): void {
+    if (this.#slowStartTimer) {
+      clearTimeout(this.#slowStartTimer);
+      this.#slowStartTimer = null;
+    }
+    if (this.#diagnosticSocket) {
+      this.#diagnosticSocket.destroy();
+      this.#diagnosticSocket = null;
+      this.#portProbe = { ...this.#portProbe, status: "cancelled" };
+    }
   }
 
   async close(): Promise<boolean> {
@@ -1396,6 +1516,7 @@ class OpenCodeServerProcess {
   }
 
   #clearTimers(): void {
+    this.#clearStartupDiagnostic();
     if (this.#processTimeout !== null) {
       clearTimeout(this.#processTimeout);
       this.#processTimeout = null;
@@ -1414,6 +1535,7 @@ class OpenCodeServerProcess {
         return;
       }
       const line = this.#lineBuffer.slice(0, newlineIndex).trim();
+      this.#stdoutLines += 1;
       this.#lineBuffer = this.#lineBuffer.slice(newlineIndex + 1);
       const match = line.match(SERVER_READY_LINE_PATTERN);
       if (!match) {
@@ -1438,6 +1560,7 @@ class OpenCodeServerProcess {
         return;
       }
       this.#startupResolve?.(reportedUrl);
+      this.#readyLineObserved = true;
       this.#startupResolve = null;
       this.#startupReject = null;
     }
@@ -1582,7 +1705,17 @@ function toOpenCodeServerTransportError(
   stderr: string
 ): OpenCodeServerTransportError {
   if (error instanceof OpenCodeServerTransportError) {
-    return error;
+    const originalError = createProviderOriginalError(
+      error.originalError ??
+        [error.message, normalizeOptionalText(stderr)]
+          .filter(Boolean)
+          .join("\n")
+    );
+    return new OpenCodeServerTransportError({
+      ...error,
+      message: error.message,
+      originalError: originalError ?? undefined,
+    });
   }
   const message = [
     error instanceof Error ? error.message : String(error),

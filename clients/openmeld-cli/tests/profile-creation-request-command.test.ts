@@ -201,6 +201,35 @@ describe("Agent Profile creation request CLI", () => {
     });
   });
 
+  it("keeps the generated intent key when creation status is unknown", async () => {
+    mocks.api.createAgentProfileCreationRequest.mockRejectedValue(
+      new Error("Network request failed")
+    );
+    await runProfileCreationRequestCreate({
+      profileName: "Review Agent",
+      targetOwner: "user-2",
+      sessionStrategy: "new",
+      view: "agent",
+    });
+    const key =
+      mocks.api.createAgentProfileCreationRequest.mock.calls[0]?.[0]
+        .idempotencyKey;
+    expect(key).toEqual(expect.any(String));
+    expect(mocks.presenterData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "profile.creation_request.outcome_unknown",
+        payload: expect.objectContaining({
+          error: expect.objectContaining({
+            message:
+              "The request may have been accepted. Its final status could not be checked.",
+            nextStep: expect.stringContaining(`--request-key ${key}`),
+          }),
+        }),
+      })
+    );
+    expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledOnce();
+  });
+
   it("passes the teammate Computer and Binding choices through the shared request", async () => {
     await runProfileCreationRequestCreate({
       agentController: "builtin:codex",

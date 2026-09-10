@@ -79,6 +79,7 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
       ).resolves.toEqual({
         organizationId: "org_one",
         totalUnreadCount: 0,
+        unreadUrgentUpdateCount: 0,
         unresolvedActionCount: 0,
       });
     } finally {
@@ -135,6 +136,7 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
       ).resolves.toEqual({
         organizationId: "org_one",
         totalUnreadCount: 1,
+        unreadUrgentUpdateCount: 0,
         unresolvedActionCount: 0,
       });
     } finally {
@@ -230,6 +232,8 @@ function createInboxHarness() {
     `,
   });
   applyDrizzleMigrationsForTables(harness, [
+    "openmeld_profiles",
+    "center_agent_designations",
     "center_agent_tasks",
     "space_index_spaces",
     "space_index_memberships",

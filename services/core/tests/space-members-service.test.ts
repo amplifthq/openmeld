@@ -50,7 +50,8 @@ const FROM_RUNTIME_EXECUTION_TARGETS_SQL_REGEX =
   /FROM\s+openMeldDaemon_runtime_registry_records\s+runtime/i;
 const TEST_RUNTIME_TRANSPORT = {
   get: () => ({
-    fetch: async () => new Response("{}", { status: 200 }),
+    fetch: async () =>
+      Response.json({ online: false, reasonCode: "daemon.session.not_found" }),
   }),
   idFromName: (name: string) => name,
 } as unknown as DurableObjectNamespace<RuntimeTransportHub>;
@@ -1340,7 +1341,7 @@ describe("space-members-service", () => {
         OPENMELD_AUTH_WORKER: { resolveProfilesByIds },
       } as unknown as CoreBindings,
     };
-    expect(await refreshSpaceMemberNamesFromAuth(input)).toBe(true);
+    expect((await refreshSpaceMemberNamesFromAuth(input)).changed).toBe(true);
     sql.seedSignal(
       createTextSignal({
         signalId: "old-id-name",
@@ -1368,7 +1369,7 @@ describe("space-members-service", () => {
       ],
     });
     expect(JSON.stringify(directory)).toContain("Amplift Center Agent");
-    expect(await refreshSpaceMemberNamesFromAuth(input)).toBe(false);
+    expect((await refreshSpaceMemberNamesFromAuth(input)).changed).toBe(false);
     expect(resolveProfilesByIds).toHaveBeenCalledTimes(2);
     upsertJoinedSpaceMember({
       sql: input.sql,
@@ -1429,7 +1430,7 @@ describe("space-members-service", () => {
           OPENMELD_AUTH_WORKER: { resolveProfilesByIds },
         } as unknown as CoreBindings,
       })
-    ).toBe(false);
+    ).toEqual({ changed: false, profileFacts: null });
     expect(Date.now() - startedAt).toBeLessThan(2000);
     expect(resolveProfilesByIds).toHaveBeenCalledTimes(1);
     expect(resolveProfilesByIds.mock.calls[0]?.[0].profileIds).toHaveLength(17);
@@ -1508,7 +1509,7 @@ describe("space-members-service", () => {
           OPENMELD_AUTH_WORKER: { resolveProfilesByIds },
         } as unknown as CoreBindings,
       })
-    ).toBe(false);
+    ).toMatchObject({ changed: false });
     if (scenario === "concurrent rename") {
       expect(
         readSpaceMemberRecord(sql as unknown as SqlStorage, profileId)
@@ -3207,6 +3208,91 @@ describe("space-members-service", () => {
     ).toEqual(Array.from({ length: 5 }, () => "available_for_wake"));
     expect(expectedRoutesRead).not.toHaveBeenCalled();
     expect(resolveProfileById).toHaveBeenCalledTimes(15);
+    const resolveProfilesByIds = vi.fn(
+      async ({ profileIds }: { profileIds: string[] }) => ({
+        ok: true as const,
+        profiles: Object.fromEntries(
+          profileIds.map((profileId) => [
+            profileId,
+            {
+              profileId,
+              profileKind:
+                profileId === "human-fanout"
+                  ? ("human" as const)
+                  : ("agent" as const),
+              profileName: `Current ${profileId}`,
+              profileHandle: profileId,
+              ownerUserId: "owner-1",
+              status: "active" as const,
+              defaultProjectId: null,
+            },
+          ])
+        ),
+      })
+    );
+    if (!env.OPENMELD_AUTH_WORKER) {
+      throw new Error("Missing Auth test binding");
+    }
+    Object.assign(env.OPENMELD_AUTH_WORKER, { resolveProfilesByIds });
+    const refreshed = await refreshSpaceMemberNamesFromAuth({
+      sql: snapshotInput.sql,
+      env,
+    });
+    resolveProfileById.mockClear();
+    const withNames = await listSpaceMembersSnapshotUseCase({
+      ...snapshotInput,
+      profileFacts: refreshed.profileFacts,
+    });
+    expect(resolveProfilesByIds).toHaveBeenCalledTimes(1);
+    expect(resolveProfilesByIds.mock.calls[0]?.[0].profileIds.sort()).toEqual(
+      [...memberIds, "human-fanout"].sort()
+    );
+    expect(resolveProfileById).not.toHaveBeenCalled();
+    expect(
+      withNames.agents.map((agent) => agent.agentWakeAvailability?.status)
+    ).toEqual(Array.from({ length: 5 }, () => "available_for_wake"));
+    expect(withNames.agents.map((agent) => agent.profileName).sort()).toEqual(
+      memberIds.map((id) => `Current ${id}`).sort()
+    );
+    resolveProfilesByIds.mockRejectedValueOnce(
+      new Error("D1_ERROR: D1 DB is overloaded. Requests queued for too long.")
+    );
+    const unavailable = await refreshSpaceMemberNamesFromAuth({
+      sql: snapshotInput.sql,
+      env,
+    });
+    const afterBatchFailure = await listSpaceMembersSnapshotUseCase({
+      ...snapshotInput,
+      profileFacts: unavailable.profileFacts,
+    });
+    expect(resolveProfileById).not.toHaveBeenCalled();
+    for (const agent of afterBatchFailure.agents) {
+      expect(
+        agent.ownerWakeDiagnostics?.agentExecutionReadiness?.facts.profile
+      ).toMatchObject({
+        active: false,
+        reasonCodes: ["agent_profile.identity_lookup_failed"],
+        source: "unavailable",
+      });
+      expect(
+        readSpaceMemberRecord(snapshotInput.sql, agent.profileId)?.status
+      ).toBe("active");
+    }
+    const retry = await refreshSpaceMemberNamesFromAuth({
+      sql: snapshotInput.sql,
+      env,
+    });
+    const afterRecovery = await listSpaceMembersSnapshotUseCase({
+      ...snapshotInput,
+      profileFacts: retry.profileFacts,
+    });
+    expect(resolveProfileById).not.toHaveBeenCalled();
+    expect(
+      afterRecovery.agents.map((agent) => agent.agentWakeAvailability?.status)
+    ).toEqual(Array.from({ length: 5 }, () => "available_for_wake"));
+    // A later request must read Auth again, not retain the previous snapshot.
+    await listSpaceMembersSnapshotUseCase(snapshotInput);
+    expect(resolveProfileById).toHaveBeenCalledTimes(5);
   });
 
   it("preloads route evidence for multiple agent members through one batch lookup", async () => {
@@ -4518,7 +4604,7 @@ describe("space-members-service", () => {
       label: "Available for Wake",
       reasonCode: "remote_agent.available",
       status: "available_for_wake",
-      summary: "Center Agent can answer now.",
+      summary: "This Agent can answer now.",
     });
     expect(
       JSON.stringify(hostedCenterAgent?.agentWakeAvailability)

@@ -114,7 +114,8 @@ describe("independent official CLI Skill", () => {
           throw new Error("Missing baseline Skill");
         }
         expect(before.version).not.toBe("skill-r1");
-        const compatible = selectOfficialSkillRelease(channel) !== null;
+        const selected = selectOfficialSkillRelease(channel);
+        const compatible = selected !== null;
         expect(await downloadOfficialSkillUpdate()).toBe(
           compatible ? "updated" : "incompatible"
         );
@@ -122,7 +123,9 @@ describe("independent official CLI Skill", () => {
         if (!first) {
           throw new Error("Missing updated Skill");
         }
-        expect(first.version).toBe(compatible ? "skill-r1" : before.version);
+        expect(first.version).toBe(
+          selected ? `skill-r${selected.payload.revision}` : before.version
+        );
         await installSkillsToTargets({
           skills: [first],
           targets: [{ id: "codex", dir: targetDir, type: "agent" }],

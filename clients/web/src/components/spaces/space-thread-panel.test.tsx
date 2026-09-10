@@ -9,6 +9,7 @@ import type {
 	SignalEnvelope,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -59,7 +60,21 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: useQueryMock,
+		useQuery: (options: {
+			enabled?: boolean;
+			queryKey: readonly unknown[];
+		}) => {
+			const isMessageDetails = options.queryKey.includes("message-details");
+			const query = actual.useQuery({
+				...options,
+				enabled: !isMessageDetails && options.enabled,
+			});
+			const result = useQueryMock(options);
+			if (!isMessageDetails) {
+				return query;
+			}
+			return options.enabled === false ? { data: undefined } : result;
+		},
 	};
 });
 
@@ -170,7 +185,7 @@ describe("SpaceThreadPanel", () => {
 		});
 
 		const pendingActions = screen.getByTestId("pending-agent-actions");
-		const composer = document.querySelector('[data-slot="thread-composer"]');
+		const composer = screen.getByRole("textbox");
 
 		expect(composer).toBeInstanceOf(HTMLElement);
 		if (!composer) {
@@ -733,8 +748,8 @@ describe("SpaceThreadPanel", () => {
 		const footer = sourceMessage?.querySelector("[data-slot='message-footer']");
 		expect(footer).not.toBeNull();
 		expect(
-			within(footer as HTMLElement).getByText("Codex 5.6 Sol couldn’t reply")
-		).toBeTruthy();
+			within(footer as HTMLElement).queryByText("Codex 5.6 Sol couldn’t reply")
+		).toBeNull();
 		expect(
 			within(sourceMessage as HTMLElement).queryByText(detailedFailure)
 		).toBeNull();
@@ -743,7 +758,7 @@ describe("SpaceThreadPanel", () => {
 		).toBeNull();
 		expect(
 			within(footer as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: "View error details: Codex 5.6 Sol couldn’t reply",
 			})
 		).toBeTruthy();
 	});
@@ -770,7 +785,11 @@ describe("SpaceThreadPanel", () => {
 		expect(
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		);
 		await screen.findByRole("dialog", { name: "Message details" });
 		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
 		expect(
@@ -827,7 +846,11 @@ describe("SpaceThreadPanel", () => {
 		});
 
 		expect(screen.queryByRole("button", { name: "Recover result" })).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		);
 		const recoverButton = await screen.findByRole("button", {
 			name: "Recover result",
 		});
@@ -870,7 +893,7 @@ describe("SpaceThreadPanel", () => {
 			.closest("[data-message-row-id='sig-thread-wake']");
 		expect(
 			sourceMessage?.querySelector("[data-slot='message-footer']")?.className
-		).toContain("justify-end");
+		).toContain("self-end");
 
 		rerenderThreadPanel({
 			selfProfileId: "human-profile-1",
@@ -1284,8 +1307,18 @@ function renderThreadPanel(
 		textareaRef: { current: null },
 		wakeFailureTargetContextsByProfileId: new Map(),
 	} satisfies ComponentProps<typeof SpaceThreadPanel>;
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
 	const renderResult = render(
-		<SpaceThreadPanel {...defaultProps} {...overrides} />
+		<SpaceThreadPanel {...defaultProps} {...overrides} />,
+		{
+			wrapper: ({ children }) => (
+				<QueryClientProvider client={queryClient}>
+					{children}
+				</QueryClientProvider>
+			),
+		}
 	);
 	return {
 		...renderResult,

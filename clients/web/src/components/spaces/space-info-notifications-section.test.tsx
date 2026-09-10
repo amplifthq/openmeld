@@ -48,7 +48,7 @@ vi.mock("#/components/inbox/browser-notification-toggle", () => ({
 	),
 }));
 
-const GLOBAL_SCOPE_TEXT_PATTERN = /every Space and Direct Message/i;
+const GLOBAL_SCOPE_TEXT_PATTERN = /all your Spaces and chats/i;
 const BLOCKED_PERMISSION_GUIDANCE_PATTERN =
 	/allow them in your browser’s site settings/i;
 
@@ -89,7 +89,7 @@ describe("SpaceInfoNotificationsSection", () => {
 		render(<SpaceInfoNotificationsSection />);
 
 		const description = screen.getByText(GLOBAL_SCOPE_TEXT_PATTERN);
-		expect(description.textContent).toContain("not just this one");
+		expect(description.textContent).toContain("Settings > Notifications");
 		expect(screen.getByText("Browser notifications")).toBeTruthy();
 
 		fireEvent.click(screen.getByText("toggle-control"));

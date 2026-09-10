@@ -6,6 +6,7 @@ import {
   createAgentControllerProcessTableSnapshotReader,
 } from "../dist/agent-controller-process.js";
 import {
+  resolveAgentControllerDescendantProcessIds,
   resolveAgentControllerSupervisedProcessIds,
   signalAgentControllerProcessTree,
   terminateRemainingAgentControllerProcesses,
@@ -162,6 +163,33 @@ test("aggregates repeated discovery timeouts and records recovery", () => {
   assert.equal(writes[2].level, "info");
   assert.equal(writes[2].payload.reasonCode, "process_discovery_recovered");
   assert.equal(writes[2].payload.occurrenceCount, 3);
+});
+
+test("distinguishes descendants from reparented supervised processes", () => {
+  const processTable = [
+    "4200 1 4200",
+    "4201 4200 4200",
+    "4300 4201 4300",
+    "4301 4300 4301",
+    "4400 1 4400 OPENMELD_PROCESS_SUPERVISION_ID=supervision-4200",
+    "4500 1 4500 OPENMELD_PROCESS_SUPERVISION_ID=another-task",
+  ].join("\n");
+
+  assert.deepEqual(
+    resolveAgentControllerDescendantProcessIds({
+      processId: 4200,
+      processTable,
+    }),
+    [4300, 4301]
+  );
+  assert.deepEqual(
+    resolveAgentControllerSupervisedProcessIds({
+      processId: 4200,
+      processTable,
+      supervisionId: "supervision-4200",
+    }),
+    [4300, 4301, 4400]
+  );
 });
 
 test("keeps reparented supervised processes after the leader exits", () => {

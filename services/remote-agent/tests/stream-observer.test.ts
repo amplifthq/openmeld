@@ -373,11 +373,10 @@ describe("Center Agent stream observation", () => {
         activeOrganizationId: "org_123",
         actorContext: {
           agentControllerRef: "hosted:center-agent",
-          callerPrincipalId: "user_1",
-          ownerUserId: "user_1",
+          callerPrincipalId: "agt_11111111-1111-4111-8111-111111111111",
           profileKind: "agent",
           requestId: `remote-agent-skill-activation:${SUBMISSION_ID}:skill_123`,
-          openMeldProfileId: expect.any(String),
+          openMeldProfileId: "agt_11111111-1111-4111-8111-111111111111",
         },
         agentControllerConversationId: SUBMISSION_ID,
       },

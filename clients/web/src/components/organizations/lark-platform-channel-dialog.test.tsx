@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LarkPlatformChannelDialog } from "./lark-platform-channel-dialog";
 
+const DID_NOT_ACCEPT_PATTERN = /did not accept/;
+
 afterEach(cleanup);
 
 describe("LarkPlatformChannelDialog", () => {
@@ -271,7 +273,7 @@ describe("LarkPlatformChannelDialog", () => {
 		expect(screen.getByRole("heading", { name: "Repair Lark" })).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Setup expired before OpenMeld could verify this app’s permissions and Webhook delivery. Repair retries the existing app; it does not create another one."
+				"Setup expired before OpenMeld could verify this app’s permissions and establish a connection. Repair retries the existing app; it does not create another one."
 			)
 		).toBeTruthy();
 		const badge = screen.getByText("Needs Attention");
@@ -380,7 +382,7 @@ describe("LarkPlatformChannelDialog", () => {
 			)
 		).toBeTruthy();
 		expect(screen.getByRole("alert").textContent).toBe(errorMessage);
-		expect(screen.queryByText(/did not accept/)).toBeNull();
+		expect(screen.queryByText(DID_NOT_ACCEPT_PATTERN)).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Check again" }));
 		expect(onRetryPoll).toHaveBeenCalledOnce();
 	});

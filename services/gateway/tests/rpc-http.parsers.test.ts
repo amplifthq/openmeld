@@ -268,6 +268,10 @@ describe("rpc-http parsers", () => {
   });
 
   it("parses patch meta body", () => {
+    expect(parsePatchSpaceMetaBody({ visibility: "public" })).toEqual({
+      ok: true,
+      value: { visibility: "public" },
+    });
     const parsed = parsePatchSpaceMetaBody({
       purpose: "coordinate launch sequencing",
       guide: "keep it short",
@@ -352,7 +356,7 @@ describe("rpc-http parsers", () => {
   it("returns stable errors for patch meta when supported fields are missing or invalid", () => {
     expect(parsePatchSpaceMetaBody({})).toEqual({
       ok: false,
-      message: "Expected name, purpose or guide",
+      message: "Expected name, purpose, guide or visibility",
     });
     expect(
       parsePatchSpaceMetaBody({

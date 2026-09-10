@@ -29,6 +29,7 @@ import type {
 	ModelCatalog,
 	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
+	PeopleComputer,
 } from "@openmeld/schemas/types";
 import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
@@ -1193,15 +1194,24 @@ function useCreateProfileDialogController(
 	});
 
 	const canChooseComputer = canChooseCreationComputer(ownerMode, sessionPreset);
+	useOnlyCreationComputer({
+		choices: computerChoices,
+		enabled: input.open,
+		canChooseComputer,
+		isSubmitting: createProfileMutation.isPending,
+		recovery,
+		onSelect: (target) => {
+			recovery.selectComputer(target);
+			setBoundAgentId("");
+			setAgentBindingValue("");
+			setErrorState(null);
+		},
+	});
 	const agentOwnerUserId =
 		ownerMode === "teammate" ? targetOwnerUserId : currentUserId;
 	const formProps: ComponentProps<typeof CreateProfileForm> = {
-		agentComputerSummary: canChooseComputer
-			? selectedComputerChoice?.label
-			: undefined,
 		agentComputerSlot:
-			canChooseComputer &&
-			(computerChoices.length > 1 || connectionChoices.length > 0) ? (
+			canChooseComputer && computerChoices.length > 1 ? (
 				<div className="grid gap-2 text-sm">
 					<CreationComputerSelector
 						choices={computerChoices}
@@ -2310,6 +2320,33 @@ function useCreationComputerReadiness(input: {
 	};
 }
 
+function useOnlyCreationComputer(input: {
+	choices: ReturnType<typeof resolveCreationComputerChoices>["choices"];
+	enabled: boolean;
+	canChooseComputer: boolean;
+	isSubmitting: boolean;
+	recovery: RecoveryController;
+	onSelect: RecoveryController["selectComputer"];
+}) {
+	useEffect(() => {
+		const target = input.choices.length === 1 ? input.choices[0]?.target : null;
+		if (
+			!(input.enabled && input.canChooseComputer) ||
+			input.isSubmitting ||
+			!target
+		) {
+			return;
+		}
+		if (
+			target.deviceId === input.recovery.deviceId &&
+			target.runtimeLane === input.recovery.runtimeLane
+		) {
+			return;
+		}
+		input.onSelect(target);
+	}, [input]);
+}
+
 function CreationComputerSelector(input: {
 	choices: ReturnType<typeof resolveCreationComputerChoices>["choices"];
 	selectedChoice: ReturnType<
@@ -2401,6 +2438,20 @@ function AdvancedCreationConnectionSelector(input: {
 	);
 }
 
+function availableCreationComputerSessions(computer: PeopleComputer) {
+	if (
+		computer.connection.status !== "connected" ||
+		computer.connection.reasonCodes.includes("daemon.session.reject_conflict")
+	) {
+		return [];
+	}
+	return computer.connection.sessions.filter(
+		(session) =>
+			session.executionCompatibility.status === "compatible" &&
+			!session.serviceUpdate.wakeBlocked
+	);
+}
+
 function resolveCreationComputerChoices(recovery: RecoveryController) {
 	const computers =
 		recovery.localRuntimesQuery.data?.peopleComputers.computers ?? [];
@@ -2409,17 +2460,19 @@ function resolveCreationComputerChoices(recovery: RecoveryController) {
 		label: string;
 		target: Parameters<RecoveryController["selectComputer"]>[0];
 	}[] = [];
-	const choices = computers.map((computer) => {
+	const choices = computers.flatMap((computer) => {
+		const sessions = availableCreationComputerSessions(computer);
+		if (sessions.length === 0) {
+			return [];
+		}
 		const targets = new Map(
-			[...computer.executionTargets, ...computer.connection.sessions].map(
-				(target) => [
-					JSON.stringify({
-						deviceId: target.deviceId,
-						runtimeLane: target.runtimeLane,
-					}),
-					target,
-				]
-			)
+			sessions.map((target) => [
+				JSON.stringify({
+					deviceId: target.deviceId,
+					runtimeLane: target.runtimeLane,
+				}),
+				target,
+			])
 		);
 		const selected = [...targets.values()].find(
 			(target) =>
@@ -2427,9 +2480,6 @@ function resolveCreationComputerChoices(recovery: RecoveryController) {
 				target.runtimeLane === recovery.runtimeLane
 		);
 		let target = selected;
-		if (!target && computer.connection.sessions.length === 1) {
-			target = computer.connection.sessions[0];
-		}
 		if (!target && targets.size === 1) {
 			target = [...targets.values()][0];
 		}
@@ -2441,7 +2491,7 @@ function resolveCreationComputerChoices(recovery: RecoveryController) {
 						deviceId: connection.deviceId,
 						runtimeLane: connection.runtimeLane,
 					},
-					label: `${computer.deviceDisplayName} · ${connection.runtimeLane} · ${connection.deviceId.slice(-6)}`,
+					label: `${computer.deviceDisplayName} · ${connection.runtimeLane} · ${connection.deviceId.slice(-6)} · Connected`,
 				});
 			}
 		}
@@ -2449,15 +2499,15 @@ function resolveCreationComputerChoices(recovery: RecoveryController) {
 			computers.filter(
 				(entry) => entry.deviceDisplayName === computer.deviceDisplayName
 			).length > 1;
-		return {
-			value: computer.deviceId,
-			target: target
-				? { deviceId: target.deviceId, runtimeLane: target.runtimeLane }
-				: null,
-			label: sameName
-				? `${computer.deviceDisplayName} · ${computer.deviceId.slice(-6)}`
-				: computer.deviceDisplayName,
-		};
+		return [
+			{
+				value: computer.deviceId,
+				target: target
+					? { deviceId: target.deviceId, runtimeLane: target.runtimeLane }
+					: null,
+				label: `${computer.deviceDisplayName}${sameName ? ` · ${computer.deviceId.slice(-6)}` : ""} · Connected`,
+			},
+		];
 	});
 	return {
 		choices,
@@ -3463,6 +3513,13 @@ function showCreatedAgentRequestToast(input: {
 				return;
 			}
 			toast.error("OpenMeld couldn't create this Agent.");
+			return;
+		case "approved":
+			toast.info(
+				input.request.createdAgentProfileId
+					? "Agent created. Finishing setup in the background."
+					: "Creating Agent. You can check progress in Agent requests."
+			);
 			return;
 		default:
 			toast.success("Request sent.");

@@ -22,7 +22,7 @@ const ACTIVE_MENTION_BOUNDARY_FILES = [
   "packages/space/src/authoring/mention-suggestions.ts",
   "packages/space/src/authoring/send-target-projection.ts",
   "packages/space/src/authoring/composer-submission.ts",
-  "packages/space/src/authoring/typed-submission.ts",
+  "packages/space/src/authoring/authored-mention-ranges.ts",
   "packages/space/src/target-identity/target-catalog.ts",
   "packages/space/src/target-identity/mention-resolution.ts",
 ] as const;

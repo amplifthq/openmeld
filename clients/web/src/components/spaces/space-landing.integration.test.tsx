@@ -268,6 +268,7 @@ vi.mock("@tanstack/react-query", async () => {
 	// mocked download API, including the optimistic local-preview phase.
 	const usesRealQuery = (queryKey: unknown) =>
 		isWakeProgressPresentationQuery(queryKey) ||
+		(Array.isArray(queryKey) && queryKey[0] === "space-message-reactions") ||
 		(Array.isArray(queryKey) &&
 			queryKey[0] === "space-files" &&
 			queryKey[2] === "content");
@@ -286,6 +287,18 @@ vi.mock("@tanstack/react-query", async () => {
 						}) as Parameters<typeof actual.useQuery>[0]
 			);
 			const queryMock = useQueryMock;
+			if (options.queryKey?.[3] === "history-navigation") {
+				return createQueryResult({
+					isSuccess: true,
+					data: { entries: [], total: 0 },
+				});
+			}
+			if (
+				options.queryKey?.[0] === "space-message-pins" ||
+				options.queryKey?.[0] === "space-file-pins"
+			) {
+				return createQueryResult({ isSuccess: true, data: { pins: [] } });
+			}
 			return useActualQuery ? actualQuery : queryMock(options);
 		},
 		useQueryClient: () => {
@@ -536,6 +549,8 @@ const PREPARE_TEXT = /prepare/i;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
 const RECENT_ACTIVITY_TS = Date.now();
 const TEST_FILE_EXTENSION_PATTERN = /\.[^.]+$/u;
+const MESSAGE_DETAILS_ACTION_NAME_PATTERN =
+	/^(?:Message details$|View error details:)/;
 const SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY =
 	"openmeld.space.members-panel.open:space-123";
 const OTHER_SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY =
@@ -2311,7 +2326,8 @@ describe("SpaceLanding", () => {
 			)
 		).toBeNull();
 		expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		expect(screen.queryByRole("button", { name: "Leave space" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Delete space" })).toBeNull();
 		expect(screen.queryByText("Couldn't Load This Space")).toBeNull();
@@ -2800,7 +2816,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 		fireEvent.click(screen.getByRole("button", { name: "Confirm leave" }));
 
@@ -2868,7 +2885,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 		fireEvent.click(screen.getByRole("button", { name: "Confirm leave" }));
 
@@ -2917,7 +2935,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {
 			target: { value: "DELETE" },
@@ -2983,7 +3002,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {
 			target: { value: "DELETE" },
@@ -3048,7 +3068,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 
 		expect(screen.getByRole("button", { name: "Leave space" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Delete space" })).toBeNull();
@@ -3180,7 +3201,7 @@ describe("SpaceLanding", () => {
 		expect(screen.getByText("@runner(wake) status check")).toBeTruthy();
 		const sourceMessage = screen
 			.getByText("@runner(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
@@ -3272,7 +3293,7 @@ describe("SpaceLanding", () => {
 		});
 		const sourceMessage = screen
 			.getByText("@runner(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
@@ -3381,7 +3402,7 @@ describe("SpaceLanding", () => {
 		});
 		const sourceMessage = screen
 			.getByText("@runner(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
@@ -3661,7 +3682,7 @@ describe("SpaceLanding", () => {
 		});
 		const sourceMessage = screen
 			.getByText("@runner(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
@@ -3984,7 +4005,7 @@ describe("SpaceLanding", () => {
 		});
 		const sourceMessage = screen
 			.getByText("@runner(wake) old status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
@@ -4119,6 +4140,12 @@ describe("SpaceLanding", () => {
 			(options: { queryKey: readonly unknown[] }) => {
 				if (!Array.isArray(options.queryKey)) {
 					throw new Error("Unexpected non-array query key");
+				}
+				const directoryResult = resolveEmptyOrganizationDirectoryQueryResult(
+					options.queryKey
+				);
+				if (directoryResult) {
+					return directoryResult;
 				}
 				const modelCatalogResult = resolveModelCatalogQueryResult(
 					options.queryKey
@@ -4508,7 +4535,7 @@ describe("SpaceLanding", () => {
 
 		const sourceMessage = screen
 			.getByText("@codex(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		const sourceMessageRow = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageRow).not.toBeNull();
@@ -4801,13 +4828,13 @@ describe("SpaceLanding", () => {
 
 		const sourceMessage = screen
 			.getByText("@runner(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		const sourceMessageRow = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageRow).not.toBeNull();
 		fireEvent.click(
 			within(sourceMessageRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 			})
 		);
 		const failedAgentActivity = await screen.findByRole("region", {
@@ -5389,12 +5416,17 @@ describe("SpaceLanding", () => {
 			],
 		});
 
-		expect(screen.getByText("Mira can view")).toBeTruthy();
+		expect(screen.getByText("View only")).toBeTruthy();
+		expect(
+			screen
+				.getByText("View only")
+				.closest('[data-slot="space-window-header-title"]')
+		).not.toBeNull();
 		const composer = screen.getByRole("textbox", {
 			name: "Message Runner",
 		});
 		expect(composer.getAttribute("aria-placeholder")).toBe(
-			"You can view this Direct Message because you own Runner. Join to participate."
+			"Alice is chatting with your agent, Runner. Join this conversation to send messages."
 		);
 		expect(
 			screen.getByText("Join the conversation to send the first message.")
@@ -5407,6 +5439,11 @@ describe("SpaceLanding", () => {
 			'[data-slot="space-composer-section"]'
 		);
 		expect(composerSection).not.toBeNull();
+		expect(
+			within(composerSection as HTMLElement).queryByText(
+				"Alice is chatting with your agent, Runner. Join this conversation to send messages."
+			)
+		).toBeNull();
 		expect(
 			within(composerSection as HTMLElement).queryByRole("button", {
 				name: "Send message",
@@ -5887,7 +5924,7 @@ describe("SpaceLanding", () => {
 
 		const sourceMessage = screen
 			.getByText("@codex(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		const sourceMessageRow = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageRow).not.toBeNull();
@@ -6202,8 +6239,8 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 		expect(screen.getByText("I am checking.")).toBeTruthy();
 		expect(
-			screen.getByText("Controlled by Ming's MacBook Pro Codex")
-		).toBeTruthy();
+			screen.queryByText("Controlled by Ming's MacBook Pro Codex")
+		).toBeNull();
 	});
 
 	it("keeps a non-owned agent concise without repeating ownership", () => {
@@ -8706,7 +8743,7 @@ describe("SpaceLanding", () => {
 		expect(statusEvent?.getAttribute("aria-label")).toBe("Message details");
 	});
 
-	it("shows where an agent is controlled from beside the agent name", () => {
+	it("keeps the Agent identity visible without repeating controller metadata", () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -8740,8 +8777,8 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding();
 
 		expect(
-			screen.getByText("Controlled by Felix's composer Codex")
-		).toBeTruthy();
+			screen.queryByText("Controlled by Felix's composer Codex")
+		).toBeNull();
 		expect(
 			screen.queryByText("Controlled by Felix's composer Codex · Owned by Mira")
 		).toBeNull();
@@ -9302,7 +9339,7 @@ describe("SpaceLanding", () => {
 			});
 			expect(
 				screen.getAllByText(currentBlockedReason).length
-			).toBeGreaterThanOrEqual(2);
+			).toBeGreaterThanOrEqual(1);
 		});
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		expect(readComposerValue(textarea)).toBe("@Runner please reply");
@@ -9312,8 +9349,14 @@ describe("SpaceLanding", () => {
 			currentMembersSnapshot
 		);
 		expect(
-			screen.getByRole("link", { name: "Choose local agent" })
-		).toBeTruthy();
+			screen
+				.getAllByRole("link", { name: "Choose local agent" })
+				.every(
+					(link) =>
+						link.getAttribute("href") ===
+						`/o/acme/agents?profileId=${DEFAULT_AGENT_PROFILE_ID}`
+				)
+		).toBe(true);
 
 		const relationControl = screen.getByRole("combobox", {
 			name: "Change relation for Runner",
@@ -9837,6 +9880,12 @@ describe("SpaceLanding", () => {
 		useQueryMock.mockImplementation(
 			(options: { queryKey: readonly unknown[] }) => {
 				const queryKey = JSON.stringify(options.queryKey);
+				const directoryResult = resolveEmptyOrganizationDirectoryQueryResult(
+					options.queryKey
+				);
+				if (directoryResult) {
+					return directoryResult;
+				}
 				const modelCatalogResult = resolveModelCatalogQueryResult(
 					options.queryKey
 				);
@@ -10457,6 +10506,14 @@ describe("SpaceLanding", () => {
 	});
 
 	it("shows a jump-to-latest button when the conversation is scrolled above the latest message", async () => {
+		// jsdom's shared frame scheduler can retain an interval from an earlier
+		// fake-clock test. Give this real-clock interaction its own frame queue.
+		vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) =>
+			window.setTimeout(() => callback(performance.now()), 0)
+		);
+		vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) =>
+			window.clearTimeout(id)
+		);
 		createWebSpaceApiMock.mockReturnValue({
 			getUpdates: vi.fn().mockResolvedValue({
 				signals: [],
@@ -10504,7 +10561,8 @@ describe("SpaceLanding", () => {
 			scrollTop: 320,
 		});
 		const scrollToMock = vi.fn((options: ScrollToOptions) => {
-			conversationHistory.scrollTop = Number(options.top);
+			conversationHistory.scrollTop = Math.min(Number(options.top), 640);
+			fireEvent.scroll(conversationHistory);
 		});
 		Object.defineProperty(conversationHistory, "scrollTo", {
 			configurable: true,
@@ -10514,8 +10572,12 @@ describe("SpaceLanding", () => {
 		const jumpButton = screen.getByRole("button", {
 			name: "Jump to latest message",
 		});
-		expect(jumpButton.getAttribute("data-active")).toBe("false");
-		expect(jumpButton.hasAttribute("inert")).toBe(true);
+		expect(
+			jumpButton.closest("[data-active]")?.getAttribute("data-active")
+		).toBe("false");
+		expect(jumpButton.closest("[data-active]")?.hasAttribute("inert")).toBe(
+			true
+		);
 
 		const latestMessageItem = conversationHistory.querySelector<HTMLElement>(
 			"[data-message-id='sig-scroll-2']"
@@ -10524,25 +10586,47 @@ describe("SpaceLanding", () => {
 			throw new Error("Expected the latest MessageScroller item");
 		}
 		vi.spyOn(latestMessageItem, "getBoundingClientRect").mockImplementation(
-			() => createTestDomRect({ bottom: 640, height: 80, top: 560 })
+			() =>
+				createTestDomRect({
+					bottom: 960 - conversationHistory.scrollTop,
+					height: 80,
+					top: 880 - conversationHistory.scrollTop,
+				})
 		);
 		fireEvent.wheel(conversationHistory);
 		fireEvent.scroll(conversationHistory);
 
 		await waitFor(() => {
-			expect(jumpButton.getAttribute("data-active")).toBe("true");
+			expect(
+				jumpButton.closest("[data-active]")?.getAttribute("data-active")
+			).toBe("true");
 		});
-		fireEvent.click(jumpButton);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Jump to latest message" }),
+			{ button: 0, detail: 1 }
+		);
 
-		expect(scrollToMock).toHaveBeenCalledWith({
-			behavior: "smooth",
-			top: 640,
+		await waitFor(() => {
+			expect(scrollToMock).toHaveBeenCalledWith({
+				behavior: "instant",
+				top: 960,
+			});
 		});
 		expect(conversationHistory.scrollTop).toBe(640);
 		await waitFor(() => {
-			expect(jumpButton.getAttribute("data-active")).toBe("false");
+			expect(
+				screen
+					.getByRole("button", { name: "Jump to latest message" })
+					.closest("[data-active]")
+					?.getAttribute("data-active")
+			).toBe("false");
 		});
-		expect(jumpButton.hasAttribute("inert")).toBe(true);
+		expect(
+			screen
+				.getByRole("button", { name: "Jump to latest message" })
+				.closest("[data-active]")
+				?.hasAttribute("inert")
+		).toBe(true);
 	});
 
 	it("refetches members after a live agent reply so member readiness does not stay stale", async () => {
@@ -13117,10 +13201,7 @@ describe("SpaceLanding", () => {
 		expect(URL.revokeObjectURL).toHaveBeenCalledWith(
 			"blob:source-image-preview"
 		);
-		expect(discardComposerUploadMock).toHaveBeenCalledWith({
-			spaceId: "space-123",
-			uploadId: expect.any(String),
-		});
+		expect(discardComposerUploadMock).not.toHaveBeenCalled();
 	});
 
 	it("retries an outcome-unknown stage once with the same upload identity", async () => {
@@ -13436,11 +13517,6 @@ describe("SpaceLanding", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-		await screen.findByText("This file could not be published.");
-		expect(screen.getByText("Request ID: request-publish-500")).toBeTruthy();
-		expect(
-			screen.getByText("1 file couldn't be uploaded and won't be sent.")
-		).toBeTruthy();
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [messageFile],
@@ -13461,6 +13537,11 @@ describe("SpaceLanding", () => {
 			);
 			await Promise.resolve();
 		});
+		await screen.findByText("This file could not be published.");
+		expect(screen.getByText("Request ID: request-publish-500")).toBeTruthy();
+		expect(
+			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+		).toBeTruthy();
 	});
 
 	it("retries an outcome-unknown publication once with the same mutation", async () => {
@@ -14259,7 +14340,7 @@ describe("SpaceLanding", () => {
 		});
 		const sourceMessage = screen
 			.getByText("DM hello")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
@@ -14945,7 +15026,7 @@ describe("SpaceLanding", () => {
 			expect(publishedMessage?.textContent).toContain("hello there");
 			expect(
 				publishedMessage?.querySelector(
-					'[data-slot="space-message-agent-mention"]'
+					'[data-slot="space-message-profile-mention"]'
 				)?.textContent
 			).toContain("Watcher");
 		});
@@ -15332,19 +15413,18 @@ describe("SpaceLanding", () => {
 
 		const agentMessage = screen
 			.getByText("The current time is 12:53 AM.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(agentMessage).not.toBeNull();
 		fireEvent.mouseEnter(agentMessage as HTMLElement);
 		fireEvent.click(screen.getByRole("button", { name: "Reply" }));
 
-		expect(
-			screen.getAllByText(
-				(_content, element) => element?.textContent === "Replying to Runner"
-			).length
-		).toBeGreaterThan(0);
-		expect(
-			document.querySelector('[data-slot="composer-reply-banner"]')?.className
-		).toContain("rounded-md");
+		const replyBanner = document.querySelector(
+			'[data-slot="composer-reply-banner"]'
+		);
+		expect(replyBanner?.textContent).toContain(
+			"Replying Runner: The current time is 12:53 AM."
+		);
+		expect(replyBanner?.className).toContain("border-b");
 		const composer = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
@@ -15386,7 +15466,7 @@ describe("SpaceLanding", () => {
 
 		const actionMessage = screen
 			.getByText("Please review this.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(actionMessage).not.toBeNull();
 		// The reserved footer is a sibling of the bubble under the shared
 		// data-message-row-id row. Its actions stay mounted while opacity handles
@@ -15534,7 +15614,7 @@ describe("SpaceLanding", () => {
 		).toBeTruthy();
 		const rootMessage = screen
 			.getByText("Can someone check the privacy page?")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		// The fixed footer always mounts so keyboard and screen-reader users can
 		// reach the action without a hover-only DOM change.
@@ -15584,7 +15664,7 @@ describe("SpaceLanding", () => {
 		const firstView = renderSpaceLanding();
 		const rootMessage = screen
 			.getByText("Keep this Thread open after reload.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -15817,7 +15897,7 @@ describe("SpaceLanding", () => {
 		const sourceActionScope = within(sourceRow as HTMLElement);
 		const sourceMessageDetailsButton =
 			sourceRow?.querySelector<HTMLButtonElement>(
-				'[data-slot="message-footer"] button[aria-label="Message details"]'
+				'[data-slot="message-footer"] button[aria-label="View error details: Agent couldn’t reply"]'
 			);
 		if (!sourceMessageDetailsButton) {
 			throw new Error("Expected the source message footer details action.");
@@ -15830,11 +15910,11 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByRole("menuitem", { name: "Reply in thread" })
 		).toBeTruthy();
-		// The source footer keeps only the calm failure summary. The diagnostic
+		// The source footer keeps only the failure icon. The diagnostic
 		// body remains in Message details instead of extending the timeline.
 		expect(
-			within(sourceRow as HTMLElement).getByText("Agent couldn’t reply")
-		).toBeTruthy();
+			within(sourceRow as HTMLElement).queryByText("Agent couldn’t reply")
+		).toBeNull();
 		expect(
 			within(sourceRow as HTMLElement).queryByText(
 				"Watcher could not complete this Wake."
@@ -15883,7 +15963,9 @@ describe("SpaceLanding", () => {
 			screen.getByRole("button", { name: "Close message details" })
 		);
 
-		const finalReply = screen.getByText("Done.").closest("[data-signal-id]");
+		const finalReply = screen
+			.getByText("Done.")
+			.closest("[data-message-row-id]");
 		expect(finalReply).not.toBeNull();
 		expect(
 			screen.queryByRole("heading", { name: "Message details" })
@@ -15915,7 +15997,9 @@ describe("SpaceLanding", () => {
 		);
 		// The persistent failure footer remains after Message details closes.
 		expect(
-			within(sourceRow as HTMLElement).getByText("Agent couldn’t reply")
+			within(sourceRow as HTMLElement).getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
 		).toBeTruthy();
 	});
 
@@ -15992,7 +16076,7 @@ describe("SpaceLanding", () => {
 		}
 		fireEvent.click(
 			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 			})
 		);
 		expect(
@@ -16086,7 +16170,7 @@ describe("SpaceLanding", () => {
 		}
 		fireEvent.click(
 			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 			})
 		);
 		await screen.findByRole("dialog", { name: "Message details" });
@@ -16350,7 +16434,7 @@ describe("SpaceLanding", () => {
 
 		const rootMessage = screen
 			.getByText("Can someone check the privacy page?")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.click(
 			within(rootMessage as HTMLElement).getByRole("button", {
@@ -16485,7 +16569,7 @@ describe("SpaceLanding", () => {
 
 		const rootMessage = screen
 			.getByText("I found the issue.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -16641,7 +16725,7 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding();
 		const rootMessage = screen
 			.getByText("Attach the thread notes here.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -16755,7 +16839,7 @@ describe("SpaceLanding", () => {
 		const view = renderSpaceLanding();
 		const rootMessage = screen
 			.getByText("Review the attached notes in this thread.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -16912,7 +16996,7 @@ describe("SpaceLanding", () => {
 
 		const rootMessage = screen
 			.getByText("Thread timeout root")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -17092,7 +17176,7 @@ describe("SpaceLanding", () => {
 
 		const rootMessage = screen
 			.getByText("I found the issue.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -17243,7 +17327,7 @@ describe("SpaceLanding", () => {
 
 		const rootMessage = screen
 			.getByText("I found the issue.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -17464,7 +17548,7 @@ async function openHistoricalWakeFailure(input: {
 	let sourceRow: Element | null;
 	if (input.thread) {
 		const rootMessage = document.querySelector(
-			`[data-signal-id="${sourceSignal.id}"]`
+			`[data-message-row-id="${sourceSignal.id}"]`
 		);
 		if (!rootMessage) {
 			throw new Error("Expected the failed Wake source message.");
@@ -17491,7 +17575,7 @@ async function openHistoricalWakeFailure(input: {
 	}
 	fireEvent.click(
 		within(sourceRow as HTMLElement).getByRole("button", {
-			name: "Message details",
+			name: MESSAGE_DETAILS_ACTION_NAME_PATTERN,
 		})
 	);
 	return await screen.findByRole("dialog", { name: "Message details" });
@@ -17561,7 +17645,7 @@ async function openAgentDirectMessageThreadProgrammaticSend(input: {
 
 	renderSpaceLanding();
 	const rootMessage = document.querySelector(
-		`[data-signal-id="${rootSignal.id}"]`
+		`[data-message-row-id="${rootSignal.id}"]`
 	);
 	if (!rootMessage) {
 		throw new Error("Expected the Agent Direct Message thread root.");
@@ -18091,7 +18175,8 @@ function mockSpaceQueries(input: {
 			if (
 				Array.isArray(options.queryKey) &&
 				options.queryKey[0] === "organizations" &&
-				options.queryKey[2] === "directory"
+				(options.queryKey[2] === "directory" ||
+					options.queryKey[2] === "profile-directory")
 			) {
 				if (!options.select && input.organizationDirectoryResponse) {
 					return createQueryResult({
@@ -18439,6 +18524,22 @@ function createOrganizationDirectoryFixture(input: {
 		],
 		organizationId: "org-acme",
 	};
+}
+
+function resolveEmptyOrganizationDirectoryQueryResult(
+	queryKey: readonly unknown[]
+) {
+	return queryKey[0] === "organizations" &&
+		(queryKey[2] === "directory" || queryKey[2] === "profile-directory")
+		? createQueryResult({
+				isSuccess: true,
+				data: {
+					agentProfiles: [],
+					members: [],
+					organizationId: "org-acme",
+				} satisfies OrganizationSpaceProfileCandidates,
+			})
+		: null;
 }
 
 function resolveModelCatalogQueryResult(queryKey: readonly unknown[]) {

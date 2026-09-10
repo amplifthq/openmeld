@@ -371,7 +371,7 @@ type NativeDeliveryBindingSnapshot = {
   } | null;
   modelRoute: CenterAgentModelRoute;
   organizationId: string;
-  ownerUserId: string;
+  ownerUserId: string | null;
 };
 
 type RemoteAgentSpaceNativeDeliveryInput = {
@@ -419,7 +419,7 @@ type NativeDeliveryPublishRecord = Pick<
 
 type RemoteAgentSlackNativeDeliveryInputBase = {
   agentProfileId: string;
-  agentProfileOwnerUserId: string;
+  agentProfileOwnerUserId: string | null;
   author: RemoteAgentWorkerAuthorContext;
   bindingId: string;
   conversationId: string;
@@ -791,20 +791,18 @@ export async function submitRemoteAgentNativeDelivery(
 
   const preparation = startRemoteAgentTurnContextAndSkills({
     readOrganizationSkills: () =>
-      input.binding.personalAgent
-        ? Promise.resolve([])
-        : measureRemoteAgentAdmissionStage(
-            input,
-            {
-              description: "Read enabled Organization Skill releases",
-              name: "openmeld_remote_admission_skill_selection",
-            },
-            () =>
-              readEnabledOrganizationSkillReleaseSelection({
-                db: input.db,
-                organizationId: input.binding.organizationId,
-              })
-          ),
+      measureRemoteAgentAdmissionStage(
+        input,
+        {
+          description: "Read enabled Organization Skill releases",
+          name: "openmeld_remote_admission_skill_selection",
+        },
+        () =>
+          readEnabledOrganizationSkillReleaseSelection({
+            db: input.db,
+            organizationId: input.binding.organizationId,
+          })
+      ),
     resolveTurnContext: async () => {
       const baseTurnEnvelope = await measureRemoteAgentAdmissionStage(
         input,
@@ -966,6 +964,7 @@ export async function submitRemoteAgentNativeDelivery(
             return {
               v: 4,
               conversationId,
+              sourceMessageEnvelope: input.message.sourceMessageEnvelope,
               conversationIdentity: {
                 kind: "personal_agent",
                 agentProfileId: input.message.targetProfileId,
@@ -1197,7 +1196,7 @@ async function finalizeRemoteAgentSpaceAdmission(input: {
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
   nowMs: number;
-  targetOwnerUserId: string;
+  targetOwnerUserId: string | null;
 }): Promise<{
   shouldAck: boolean;
   status: "submitted" | "stopped";
@@ -3105,11 +3104,6 @@ export async function submitRemoteAgentTaskContinuationDelivery(
     turnEnvelope,
   });
   const targetOwnerUserId = normalizeOptionalText(targetProfile.ownerUserId);
-  if (!targetOwnerUserId) {
-    throw new Error(
-      "Remote Agent task continuation target owner is unavailable"
-    );
-  }
   const isRoutineContinuation = turnEnvelope.sender.kind === "routine";
   const organizationSkillReleases = isRoutineContinuation
     ? requireRoutineContinuationOrganizationSkillReleases(observer)
@@ -3962,7 +3956,7 @@ type DelegatedNativeDeliveryTarget = {
   bindingId: string;
   delegatedMember?: DelegatedNativeDeliveryMember;
   modelRoute?: CenterAgentModelRoute;
-  ownerUserId: string;
+  ownerUserId: string | null;
   profileId: string;
   profileName: string;
 };
@@ -5650,7 +5644,7 @@ async function resolveDelegatedRemoteAgentNativeDeliveryTarget(input: {
     return {
       failureCode: "remote_agent.center_agent_paused",
       failureReason:
-        "the Organization creator has paused the Center Agent. Resume it before trying again.",
+        "an Organization owner or admin has paused the Center Agent. Resume it before trying again.",
       ok: false,
       target: null,
     };
@@ -5695,7 +5689,7 @@ async function resolveDelegatedRemoteAgentNativeDeliveryTarget(input: {
   const binding = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: designation.agentProfileId,
     db: input.db,
-    owner: { id: profile.owner_user_id, kind: "owner_account" },
+    owner: { id: input.organizationId, kind: "organization" },
   });
   const target = binding
     ? {
@@ -6783,7 +6777,9 @@ function buildRemoteAgentSubmissionContext(input: {
       requestId: `remote-agent-submit-${input.message.dispatchId}`,
       openMeldProfileId: input.message.targetProfileId,
       profileKind: "agent",
-      ownerUserId: input.binding.ownerUserId,
+      ...(input.binding.ownerUserId
+        ? { ownerUserId: input.binding.ownerUserId }
+        : {}),
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
       dispatchChainId: input.message.dispatchChainId,
       autoRelayDepth: input.message.autoRelayDepth,
@@ -6800,7 +6796,9 @@ function buildRemoteAgentRoutineSubmissionContext(input: {
   return {
     actorContext: {
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      ownerUserId: input.target.ownerUserId,
+      ...(input.target.ownerUserId
+        ? { ownerUserId: input.target.ownerUserId }
+        : {}),
       profileKind: "agent",
       profileName: input.target.profileName,
       requestId: `remote-agent-routine-turn-${input.run.id}`,

@@ -1,6 +1,7 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
 	fireEvent,
@@ -1285,6 +1286,9 @@ function renderSpaceMemberRow(input: {
 	}>;
 	prepareSetupHref?: string;
 }) {
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
 	return render(
 		<SpaceMemberRow
 			agentRecoveryPlan={input.agentRecoveryPlan ?? null}
@@ -1307,7 +1311,14 @@ function renderSpaceMemberRow(input: {
 			orgSlug="acme"
 			prepareSetupHref={input.prepareSetupHref}
 			variant="full"
-		/>
+		/>,
+		{
+			wrapper: ({ children }) => (
+				<QueryClientProvider client={queryClient}>
+					{children}
+				</QueryClientProvider>
+			),
+		}
 	);
 }
 

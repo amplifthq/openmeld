@@ -469,7 +469,7 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.queryByText("Up to date")).toBeNull();
 	});
 
-	it("shows Up to date only after the authoritative operation and both installed versions converge", () => {
+	it("hides completed update feedback while keeping software version details", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
 				{
@@ -503,7 +503,8 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("Up to date")).toBeTruthy();
+		expect(screen.queryByText("Up to date")).toBeNull();
+		expect(screen.getByText("Software versions")).toBeTruthy();
 		expect(screen.queryByText("Verifying…")).toBeNull();
 		expect(screen.getByText("Connected")).toBeTruthy();
 	});
@@ -1110,7 +1111,7 @@ describe("OpenMeldServiceCard", () => {
 			})
 		);
 
-		expect(screen.getByText("Up to date")).toBeTruthy();
+		expect(screen.queryByText("Up to date")).toBeNull();
 		expect(screen.getByText("Connected")).toBeTruthy();
 	});
 
