@@ -77,10 +77,10 @@ describe("Settings Local Agent usage limits", () => {
         .map((ring) => ring.getAttribute("aria-label"))
     ).toEqual(["Laptop · Go usage, 12% left, Low"]);
     expect(screen.queryByText("+2")).toBeNull();
-    const trigger = screen.getByTitle("OpenCode");
+    const trigger = screen.getByTestId("local-agent-usage-dock-OpenCode");
     fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
     fireEvent.mouseEnter(trigger);
-    expect(await screen.findByText("Laptop · Go")).toBeTruthy();
+    expect(await screen.findByText("Laptop · OpenCode")).toBeTruthy();
     expect(screen.getByText("Desktop · OpenCode")).toBeTruthy();
     expect(screen.getByText("75%")).toBeTruthy();
     expect(screen.getByText("60%")).toBeTruthy();

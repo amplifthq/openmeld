@@ -33,6 +33,7 @@ import {
   AccordionTrigger,
 } from "#fluid/accordion";
 import { FluidCardGroup, FluidCardItem } from "#fluid/card";
+import { ScrollArea } from "#fluid/scroll-area";
 import { Surface } from "#fluid/surface";
 import {
   resolveStatusToneAdvisoryBadgeClassName,
@@ -432,21 +433,10 @@ export function SettingsLocalAgentUsageSummary({
             </span>
           }
         />
-        <TooltipContent
-          arrowClassName="bg-popover fill-popover"
-          className="max-h-[min(28rem,80vh)] max-w-[calc(100vw-2rem)] flex-col items-stretch gap-3 overflow-y-auto bg-popover p-3 text-popover-foreground shadow-md ring-1 ring-border"
-          side="top"
-        >
-          <span className="font-medium">Usage limits</span>
-          <span className="grid gap-3">
-            {providerGroups.map((group) => (
-              <span className="grid gap-2" key={group.id}>
-                <span className="font-medium">{group.displayName}</span>
-                <UsageLimitPreviewGrid limits={group.limits} nowMs={nowMs} />
-              </span>
-            ))}
-          </span>
-        </TooltipContent>
+        <UsageTooltipContent>
+          <span className="font-medium">{agentName}</span>
+          <UsageLimitPreviewGrid limits={limits ?? []} nowMs={nowMs} />
+        </UsageTooltipContent>
       </Tooltip>
     );
   }
@@ -483,12 +473,8 @@ export function SettingsLocalAgentUsageSummary({
           </span>
         }
       />
-      <TooltipContent
-        arrowClassName="bg-popover fill-popover"
-        className="max-h-[min(28rem,80vh)] max-w-[calc(100vw-2rem)] flex-col items-stretch gap-3 overflow-y-auto bg-popover p-3 text-popover-foreground shadow-md ring-1 ring-border"
-        side="top"
-      >
-        <span className="font-medium">Usage limits</span>
+      <UsageTooltipContent>
+        <span className="font-medium">{agentName}</span>
         {orderedLimits && orderedLimits.length > 0 ? (
           <UsageLimitPreviewGrid limits={orderedLimits} nowMs={nowMs} />
         ) : (
@@ -496,7 +482,7 @@ export function SettingsLocalAgentUsageSummary({
             Not reported by provider yet.
           </span>
         )}
-      </TooltipContent>
+      </UsageTooltipContent>
     </Tooltip>
   );
 }
@@ -547,8 +533,8 @@ export function SettingsLocalAgentUsageDockItem({
         render={
           <span
             className="relative inline-flex size-[27px] shrink-0 items-end hover:z-50!"
+            data-testid={`local-agent-usage-dock-${agentName}`}
             style={{ zIndex: stackOrder }}
-            title={agentName}
           />
         }
       >
@@ -578,29 +564,45 @@ export function SettingsLocalAgentUsageDockItem({
           )}
         </span>
       </TooltipTrigger>
-      <TooltipContent
-        arrowClassName="bg-popover fill-popover"
-        className="max-h-[min(28rem,80vh)] max-w-[calc(100vw-2rem)] flex-col items-stretch gap-3 overflow-y-auto bg-popover p-3 text-popover-foreground shadow-md ring-1 ring-border"
-        side="top"
-        sideOffset={6}
-      >
-        <span className="font-medium">{agentName}</span>
-        {groups.map((group) => (
-          <span className="grid gap-2" key={group.id}>
-            <span className="font-medium">{group.label}</span>
+      <UsageTooltipContent>
+        {sources.length === 0 && <span>{agentName}</span>}
+        {sources.map((source) => (
+          <span className="grid gap-3" key={source.id}>
+            <span className="font-medium">
+              {source.label} · {agentName}
+            </span>
             <UsageLimitPreviewGrid
               limits={
                 orderUsageLimitsForDisplay({
                   agentName,
-                  limits: group.limits,
+                  limits: source.limits,
                 }) ?? []
               }
               nowMs={nowMs}
             />
           </span>
         ))}
-      </TooltipContent>
+      </UsageTooltipContent>
     </Tooltip>
+  );
+}
+
+function UsageTooltipContent({ children }: { children: ReactNode }) {
+  return (
+    <TooltipContent
+      arrowClassName="bg-popover fill-popover"
+      className="block w-96 max-w-[calc(100vw-2rem)] bg-popover p-0 text-popover-foreground shadow-md ring-1 ring-border"
+      side="top"
+      sideOffset={6}
+    >
+      <ScrollArea
+        contentClassName="grid gap-4 p-3"
+        scrollFade
+        viewportClassName="max-h-[min(18rem,60vh)]"
+      >
+        {children}
+      </ScrollArea>
+    </TooltipContent>
   );
 }
 
@@ -612,13 +614,7 @@ function UsageLimitPreviewGrid({
   nowMs: number;
 }) {
   return (
-    <span
-      className={cn(
-        "grid grid-cols-1 justify-items-center gap-3",
-        limits.length === 2 && "sm:grid-cols-2",
-        limits.length > 2 && "sm:grid-cols-3"
-      )}
-    >
+    <span className="flex flex-col items-center justify-center gap-3 sm:flex-row sm:flex-wrap sm:items-start">
       {limits.map((limit) => (
         <UsageLimitPreview key={limit.key} limit={limit} nowMs={nowMs} />
       ))}
@@ -655,7 +651,10 @@ function UsageLimitPreview({
           </span>
         </span>
       )}
-      <span className="line-clamp-2 font-medium">{limit.label}</span>
+      {limit.provider && (
+        <span className="font-medium">{limit.provider.displayName}</span>
+      )}
+      <span className="font-medium">{limit.label}</span>
       {presentation.label !== "Available" && (
         <span
           className={resolveStatusToneStrongTextClassName(presentation.tone)}
@@ -668,11 +667,9 @@ function UsageLimitPreview({
       </span>
       {limit.status === "stale" && (
         <span className="text-muted-foreground">
-          {formatUsageLimitObservation({
-            nowMs,
-            observedAt: limit.observedAt,
-            stale: limit.status === "stale",
-          })}
+          {formatRelativePastDuration(
+            Math.max(0, nowMs - Date.parse(limit.observedAt))
+          )}
         </span>
       )}
     </span>
