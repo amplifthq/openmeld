@@ -106,10 +106,12 @@ export function InvitationRequestLink(input: {
 	}
 	return (
 		<div className={cn("space-y-2 border-t pt-3", input.className)}>
-			<p className="font-medium text-sm">Invite link</p>
+			<p className="font-medium text-sm">
+				{input.spaceId ? "Teammate invite link" : "Invite link"}
+			</p>
 			<p className="text-muted-foreground text-sm">
 				{(link?.mode ?? mode) === "direct"
-					? `Anyone with this link can join the organization${input.spaceId ? " and this Space" : ""} as a member. No approval needed. The link expires after 30 days.`
+					? `Anyone with this link can join the organization${input.spaceId ? " and this Space" : ""}. Expires in 30 days.`
 					: "Anyone with this link can request to join. An owner or admin must approve each request."}
 			</p>
 			{link ? (

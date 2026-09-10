@@ -52,7 +52,7 @@ export function SpaceShareDialog(
 				<DialogHeader className="shrink-0 pr-8">
 					<DialogTitle>Share {input.spaceName}</DialogTitle>
 					<DialogDescription className="sr-only">
-						Invite people and manage access to this Space.
+						Invite people or share a link to this Space.
 					</DialogDescription>
 				</DialogHeader>
 				<ScrollArea
@@ -61,7 +61,7 @@ export function SpaceShareDialog(
 					data-testid="space-share-dialog-scroll-area"
 					orientation="vertical"
 				>
-					<SpaceAccessSettings {...input} />
+					<SpaceAccessSettings {...input} surface="share" />
 				</ScrollArea>
 			</DialogContent>
 		</Dialog>

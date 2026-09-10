@@ -2858,11 +2858,16 @@ Web presents a Space as a collaboration room and visible outcome surface.
 
 **Space settings** uses the shared Fluid Dialog and Settings navigation, with
 General, Access, and Advanced sections. General contains the canonical name and
-the existing global browser-notification control. Access and Share use the same
-access panel: an inline teammate invitation form, a Fluid Select for who can
-join the Space, and Copy Space link. Invite links and pending invitations use
-progressive disclosure. The Members panel owns the member list. Both entrances
-share permission checks and mutations; only their outer containers differ.
+the existing global browser-notification control. Access owns the Fluid Select
+for who can join, guest-access enablement, and member ownership management.
+Share owns teammate invitations, an always-visible teammate invite link, and
+guest invitations through one Teammate/Guest selector. Choosing Guest prompts
+Owners for confirmation when guest access is off; it does not require a trip to
+Settings. Share shows the current audience without membership or role editors.
+Copy Space link does not grant access; teammate invitation links
+explicitly describe Organization admission. Both surfaces reuse the same access
+facts and invitation components rather than defining separate permission rules.
+Pending invitations use progressive disclosure.
 Invitation links are read from Auth when the panel opens, scoped to the account,
 Organization, optional Space, and direct/request mode. A mutation response is
 not the only way to display an existing link. Failed reads offer retry rather

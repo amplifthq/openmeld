@@ -7,9 +7,15 @@ import {
 	AccordionItem,
 	AccordionTrigger,
 } from "@openmeld/ui/fluid/accordion";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+} from "@openmeld/ui/fluid/select";
 import { CopyIcon, GlobeIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { toast } from "sonner";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
@@ -24,6 +30,7 @@ import { SpaceOwnersSection } from "./space-owners-section";
 import { SpaceVisibilityPicker } from "./space-visibility-picker";
 
 export type SpaceAccessSettingsProps = {
+	surface?: "settings" | "share";
 	openMeldProfileId?: string;
 	accessMode: SpaceAccessMode;
 	canManageAccess: boolean;
@@ -35,7 +42,7 @@ export type SpaceAccessSettingsProps = {
 	visibility?: "public" | "private";
 };
 
-/** Settings and Share expose the same policy, audience, and invitation actions. */
+/** Share uses the same access facts without exposing policy or role editors. */
 export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 	const scope = useOptionalAppOrganization();
 	const organization = scope?.currentOrganization;
@@ -56,50 +63,62 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 	const hasExternalAccess = input.accessMode !== "members_only";
 	const organizationAudience = describeOrganizationAccess(input, everyoneLabel);
 	const audience = describeLinkAccess(input.accessMode, organizationAudience);
+	const isShare = input.surface === "share";
 
 	return (
 		<div className="min-w-0 space-y-4">
-			{scope ? <SpaceAccessInvitations spaceId={input.spaceId} /> : null}
-			<section className="grid gap-2 border-border/60 border-t pt-4">
-				<label className="block font-medium text-sm" htmlFor={generalAccessId}>
-					{hasExternalAccess
-						? "Organization access"
-						: "Who can join this Space"}
-				</label>
-				<SpaceVisibilityPicker
-					disabled={
-						!(
-							input.canManageAccess &&
-							input.onSetVisibility &&
-							input.visibility
-						) ||
-						save.isPending ||
-						input.isPending
-					}
-					id={generalAccessId}
-					onChange={(value) => save.mutate(value)}
-					value={input.visibility}
+			{scope && isShare ? (
+				<SpaceAccessInvitations
+					canInviteGuests={input.canManageAccess}
+					openMeldProfileId={input.openMeldProfileId}
+					spaceId={input.spaceId}
 				/>
-				<p className="text-muted-foreground text-xs/relaxed">
-					{organizationAudience}
-				</p>
-				{input.canManageAccess ? null : (
-					<p className="text-muted-foreground text-xs">
-						Only Space owners can change access.
+			) : null}
+			{!isShare && (
+				<section className="grid gap-2">
+					<label
+						className="block font-medium text-sm"
+						htmlFor={generalAccessId}
+					>
+						{hasExternalAccess
+							? "Organization access"
+							: "Who can join this Space"}
+					</label>
+					<SpaceVisibilityPicker
+						disabled={
+							!(
+								input.canManageAccess &&
+								input.onSetVisibility &&
+								input.visibility
+							) ||
+							save.isPending ||
+							input.isPending
+						}
+						id={generalAccessId}
+						onChange={(value) => save.mutate(value)}
+						value={input.visibility}
+					/>
+					<p className="text-muted-foreground text-xs/relaxed">
+						{organizationAudience}
 					</p>
-				)}
-				{save.isPending ? (
-					<output className="block text-muted-foreground text-xs">
-						Saving…
-					</output>
-				) : null}
-				{save.error ? (
-					<p className="text-destructive text-xs" role="alert">
-						{save.error.message}
-					</p>
-				) : null}
-			</section>
-			{hasExternalAccess ? (
+					{input.canManageAccess ? null : (
+						<p className="text-muted-foreground text-xs">
+							Only Space owners can change access.
+						</p>
+					)}
+					{save.isPending ? (
+						<output className="block text-muted-foreground text-xs">
+							Saving…
+						</output>
+					) : null}
+					{save.error ? (
+						<p className="text-destructive text-xs" role="alert">
+							{save.error.message}
+						</p>
+					) : null}
+				</section>
+			)}
+			{hasExternalAccess && !isShare ? (
 				<section className="space-y-2 border-border/60 border-t pt-4">
 					<div className="flex items-center gap-2 font-medium text-sm">
 						<GlobeIcon aria-hidden="true" className="size-4" />
@@ -130,18 +149,29 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 					</Accordion>
 				</section>
 			) : null}
-			{input.canManageAccess && organization && !organization.isPersonal ? (
+			{!isShare &&
+			input.canManageAccess &&
+			organization &&
+			!organization.isPersonal ? (
 				<SpaceGuestAccessSection
 					openMeldProfileId={input.openMeldProfileId}
 					spaceId={input.spaceId}
+					surface={isShare ? "share" : "settings"}
 				/>
 			) : null}
-			<SpaceOwnersSection
-				canManage={input.canManageAccess}
-				openMeldProfileId={input.openMeldProfileId}
-				spaceId={input.spaceId}
-			/>
+			{!isShare && (
+				<SpaceOwnersSection
+					canManage={input.canManageAccess}
+					openMeldProfileId={input.openMeldProfileId}
+					spaceId={input.spaceId}
+				/>
+			)}
 			<section className="flex items-center justify-end gap-3 border-border/60 border-t pt-4">
+				{isShare && (
+					<p className="mr-auto text-muted-foreground text-xs/relaxed">
+						{audience} Copying this link doesn’t grant additional access.
+					</p>
+				)}
 				<Button
 					onClick={async () => {
 						const url = buildPublicSpaceEntryUrl({
@@ -197,7 +227,14 @@ function describeLinkAccess(
 	}
 }
 
-function SpaceAccessInvitations(input: { spaceId: string }) {
+function SpaceAccessInvitations(input: {
+	spaceId: string;
+	canInviteGuests: boolean;
+	openMeldProfileId?: string;
+}) {
+	const [audience, setAudience] = useState<"organization" | "guest">(
+		"organization"
+	);
 	const scope = useOptionalAppOrganization();
 	const members = useQuery(
 		spaceMembersQueryOptions({
@@ -239,8 +276,41 @@ function SpaceAccessInvitations(input: { spaceId: string }) {
 	}
 	return (
 		<section className="grid gap-2">
-			<h3 className="font-medium text-sm">Invite teammates</h3>
-			<SpaceInvitationForm spaceId={input.spaceId} />
+			<div className="flex items-center justify-between gap-3">
+				<h3 className="font-medium text-sm">Invite people</h3>
+				{input.canInviteGuests && (
+					<Select
+						onValueChange={(value) => {
+							if (value === "organization" || value === "guest") {
+								setAudience(value);
+							}
+						}}
+						value={audience}
+					>
+						<SelectTrigger
+							aria-label="Invite as"
+							displayValue={audience === "guest" ? "Guest" : "Teammate"}
+						/>
+						<SelectContent>
+							<SelectItem index={0} value="organization">
+								Teammate
+							</SelectItem>
+							<SelectItem index={1} value="guest">
+								Guest
+							</SelectItem>
+						</SelectContent>
+					</Select>
+				)}
+			</div>
+			{audience === "guest" && input.canInviteGuests ? (
+				<SpaceGuestAccessSection
+					openMeldProfileId={input.openMeldProfileId}
+					spaceId={input.spaceId}
+					surface="share"
+				/>
+			) : (
+				<SpaceInvitationForm spaceId={input.spaceId} />
+			)}
 		</section>
 	);
 }

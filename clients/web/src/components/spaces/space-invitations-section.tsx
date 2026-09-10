@@ -46,7 +46,7 @@ function describeInvitationAudience(
 	organizationName: string
 ): string {
 	if (audience === "guest") {
-		return "Guests sign in to join only this Space. They won’t become organization members.";
+		return "Guests sign in to access only this Space.";
 	}
 	if (canInvite) {
 		return `New teammates will join ${organizationName} and this Space.`;
@@ -246,26 +246,12 @@ export function SpaceInvitationForm({
 				</p>
 			) : null}
 			{role.isSuccess && audience === "organization" ? (
-				<Accordion>
-					<AccordionItem value="invite-link">
-						<AccordionTrigger
-							chevronClassName="motion-reduce:transition-none"
-							className="py-1 text-muted-foreground text-xs"
-						>
-							Invite by link
-						</AccordionTrigger>
-						<AccordionContent className="motion-reduce:transition-none">
-							<div className="pt-3">
-								<InvitationRequestLink
-									canManage={canInvite}
-									className="border-t-0 pt-0"
-									organizationId={organization.id}
-									spaceId={spaceId}
-								/>
-							</div>
-						</AccordionContent>
-					</AccordionItem>
-				</Accordion>
+				<InvitationRequestLink
+					canManage={canInvite}
+					className="mt-2"
+					organizationId={organization.id}
+					spaceId={spaceId}
+				/>
 			) : null}
 			{sent && (
 				<output className="block text-sm">
