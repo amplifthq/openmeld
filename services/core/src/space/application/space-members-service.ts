@@ -1360,6 +1360,29 @@ async function buildAgentSnapshot(input: {
     ...redactedOriginFields,
     agentWakeAvailability,
     ownerWakeDiagnostics,
+    deviceWaitTarget: projectDeviceWaitTarget(
+      executionReadiness,
+      agentControllerRef
+    ),
+  };
+}
+
+function projectDeviceWaitTarget(
+  readiness: Awaited<ReturnType<typeof resolveCoreAgentExecutionReadiness>>,
+  agentControllerRef: string | null
+): SpaceMemberAgentSnapshot["deviceWaitTarget"] {
+  const binding = readiness.primaryBinding;
+  if (
+    isHostedAgentControllerRef(agentControllerRef) ||
+    binding?.bindingState !== "enabled_primary" ||
+    !binding.bindingId ||
+    !binding.executionTarget
+  ) {
+    return undefined;
+  }
+  return {
+    bindingId: binding.bindingId,
+    openMeldServiceRuntimeId: binding.executionTarget.openMeldServiceRuntimeId,
   };
 }
 

@@ -1009,6 +1009,7 @@ function FileTextEditor(input: {
 					key={input.editorKey}
 					maxBytes={SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES}
 					onChange={input.onChange}
+					scrollable
 					value={input.draft}
 				/>
 			) : (

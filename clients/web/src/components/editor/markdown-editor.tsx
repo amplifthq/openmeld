@@ -1,12 +1,14 @@
 "use client";
 
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import { MarkdownPlugin } from "@platejs/markdown";
 import { Plate, usePlateEditor } from "platejs/react";
 import { useRef } from "react";
-
 import { DocumentEditorKit } from "#/components/editor/plugins/document-editor-kit";
 import { Editor, EditorContainer } from "#/components/editor/ui/editor";
+import { FixedToolbar } from "#/components/editor/ui/fixed-toolbar";
+import { FixedToolbarButtons } from "#/components/editor/ui/fixed-toolbar-buttons";
 
 /**
  * The shared WYSIWYG Markdown surface for Organization Documents,
@@ -22,6 +24,7 @@ type MarkdownEditorContentLimit =
 export type MarkdownEditorProps = {
 	ariaLabel?: string;
 	disabled?: boolean;
+	scrollable?: boolean;
 	onChange: (value: string) => void;
 	placeholder?: string;
 	value: string;
@@ -30,7 +33,9 @@ export type MarkdownEditorProps = {
 export function MarkdownEditor(input: MarkdownEditorProps) {
 	const initialValue = useRef(input.value);
 	const editor = usePlateEditor({
-		plugins: DocumentEditorKit,
+		plugins: input.scrollable
+			? DocumentEditorKit.filter((plugin) => plugin.key !== "fixed-toolbar")
+			: DocumentEditorKit,
 		value: (editorInstance) =>
 			editorInstance
 				.getApi(MarkdownPlugin)
@@ -44,7 +49,12 @@ export function MarkdownEditor(input: MarkdownEditorProps) {
 	const overLimit = contentLength > contentLimit;
 
 	return (
-		<div className="grid gap-2">
+		<div
+			className={cn(
+				"gap-2",
+				input.scrollable ? "flex min-h-0 flex-1 flex-col" : "grid"
+			)}
+		>
 			<Plate
 				editor={editor}
 				onChange={({ editor: changedEditor }) => {
@@ -54,15 +64,34 @@ export function MarkdownEditor(input: MarkdownEditorProps) {
 				}}
 				readOnly={input.disabled}
 			>
-				<EditorContainer>
-					<Editor
-						aria-label={input.ariaLabel}
-						placeholder={
-							input.placeholder ?? "Write, or press '/' for commands…"
-						}
-						variant="document"
-					/>
-				</EditorContainer>
+				{input.scrollable ? (
+					<>
+						<FixedToolbar className="shrink-0">
+							<FixedToolbarButtons />
+						</FixedToolbar>
+						<ScrollArea className="min-h-0 flex-1">
+							<EditorContainer className="h-auto overflow-visible">
+								<Editor
+									aria-label={input.ariaLabel}
+									placeholder={
+										input.placeholder ?? "Write, or press '/' for commands…"
+									}
+									variant="document"
+								/>
+							</EditorContainer>
+						</ScrollArea>
+					</>
+				) : (
+					<EditorContainer>
+						<Editor
+							aria-label={input.ariaLabel}
+							placeholder={
+								input.placeholder ?? "Write, or press '/' for commands…"
+							}
+							variant="document"
+						/>
+					</EditorContainer>
+				)}
 			</Plate>
 			<p
 				className={cn(

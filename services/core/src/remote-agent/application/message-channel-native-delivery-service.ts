@@ -117,14 +117,21 @@ export class RemoteAgentMessageChannelSubmissionOutcomeUnknownError extends Erro
   }
 }
 
-export async function submitRemoteAgentMessageChannelNativeDelivery(input: {
+export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput: {
   db: D1Database;
   env: CoreBindings;
   memoryService?: CenterAgentMemoryService | null;
   nowMs: number;
   registry: MessageChannelProviderRegistry;
   request: RemoteAgentMessageChannelNativeDeliveryInput;
+  prepareInput?: () => Promise<
+    Pick<
+      RemoteAgentMessageChannelNativeDeliveryInput,
+      "attachments" | "inputFailure" | "turnEnvelope"
+    >
+  >;
 }): Promise<RemoteAgentMessageChannelNativeDeliveryResult> {
+  let input = initialInput;
   assertMessageChannelDeliveryAuthority(input.request);
   const { centerAgent, connection } = input.request.target;
   const identity = await buildRemoteAgentMessageChannelDeliveryIdentity(
@@ -156,6 +163,24 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(input: {
   }
   let preAdmission: RemoteAgentMessageChannelPreAdmissionResult;
   try {
+    // Cover input preparation as well as worker admission. A failed history or
+    // attachment fetch must not leave an already-visible receipt open forever.
+    await enqueueRemoteAgentAdmissionWatchdog({
+      ack: {
+        submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
+          identity.idempotencyKey
+        ),
+      },
+      env: input.env,
+      nowMs: input.nowMs,
+      target: {
+        dispatchId: identity.dispatchId,
+        idempotencyKey: identity.idempotencyKey,
+        organizationId: connection.organizationId,
+        profileId: centerAgent.agentProfileId,
+        spaceId: input.request.turnEnvelope.space.id,
+      },
+    });
     preAdmission = {
       ...admittedDelivery,
       workingCard: await prepareRemoteAgentMessageChannelWorkingCard({
@@ -184,6 +209,14 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(input: {
       provider: connection.provider,
       reasonCode: workingCard.reasonCode,
     });
+  }
+  // The durable receipt and its visible card precede history and file I/O.
+  // Replayed accepted deliveries return above without repeating preparation.
+  if (input.prepareInput) {
+    input = {
+      ...input,
+      request: { ...input.request, ...(await input.prepareInput()) },
+    };
   }
   if (input.request.inputFailure) {
     return await failMessageChannelDelivery({
@@ -278,23 +311,6 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(input: {
         "Message Channel native delivery lost its durable worker request"
       );
     }
-
-    await enqueueRemoteAgentAdmissionWatchdog({
-      ack: {
-        submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
-          identity.idempotencyKey
-        ),
-      },
-      env: input.env,
-      nowMs: input.nowMs,
-      target: {
-        dispatchId: identity.dispatchId,
-        idempotencyKey: identity.idempotencyKey,
-        organizationId: connection.organizationId,
-        profileId: centerAgent.agentProfileId,
-        spaceId: input.request.turnEnvelope.space.id,
-      },
-    });
   } catch (error) {
     await cleanupPreparedInputAttachments();
     throw error;

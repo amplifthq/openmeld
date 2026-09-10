@@ -286,6 +286,7 @@ export type SpaceApi = {
       includeSourceContext?: boolean;
       includeTiming?: boolean;
       includeWaitReason?: boolean;
+      includeDeviceWait?: boolean;
       includeWakeStopEligibility?: boolean;
       sourceProfileId?: string;
       targetProfileId?: string;
@@ -317,6 +318,7 @@ export type SpaceApi = {
       includeSourceContext?: boolean;
       includeTiming?: boolean;
       includeWaitReason?: boolean;
+      includeDeviceWait?: boolean;
       includeWakeStopEligibility?: boolean;
       targetProfileId?: string;
     }
@@ -347,6 +349,7 @@ export type SpaceApi = {
   postNormalMessage: (
     input: SpaceRequestInput & {
       text: PostNormalMessageBody["text"];
+      deviceWait?: PostNormalMessageBody["deviceWait"];
       attachments?: PostNormalMessageBody["attachments"];
       files?: PostNormalMessageBody["files"];
       messageEnvelope?: PostNormalMessageBody["messageEnvelope"];

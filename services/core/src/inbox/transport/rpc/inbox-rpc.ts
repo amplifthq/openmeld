@@ -327,7 +327,11 @@ async function prepareRequest(
   }
   return {
     organizationId: membership.organizationId,
-    service: createInboxService({ db }),
+    service: createInboxService({
+      db,
+      canManageAuthorizationUpdates:
+        membership.role === "owner" || membership.role === "admin",
+    }),
     userId: membership.userId,
   };
 }

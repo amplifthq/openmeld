@@ -24,7 +24,7 @@ import {
 	filterVisibleWakeProgressItems,
 	resolveSpaceDeleteActionVisibility,
 } from "@openmeld/space";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { SetStateAction } from "react";
 import {
@@ -54,10 +54,7 @@ import {
 	createOrganizationScopedWebSpaceApi,
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
-import {
-	isSpaceComposerFileInProgress,
-	type SpaceComposerFile,
-} from "#/lib/spaces/composer-attachment";
+import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import { removeDeletedSpaceFromAccountHistory } from "#/lib/spaces/delete-space-history-cleanup";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
@@ -127,6 +124,10 @@ import {
 	invalidateSpaceWakeStopQueries,
 	postWebSpaceWakeStop,
 } from "#/query/spaces/wake-stop";
+import {
+	applyDeviceWaitToSubmission,
+	type SpaceComposerSendOptions,
+} from "./space-composer-device-wait";
 import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
@@ -139,6 +140,11 @@ import type {
 	SpaceExecutionRecoveryResolution,
 } from "./space-execution-recovery-actions";
 import { persistSpaceNameUpdate } from "./space-name-update";
+import {
+	completeSpaceSend,
+	markSpaceSendPending,
+	setSpaceSendFailure,
+} from "./space-pending-send";
 import { usePublishSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import { useSpaceComposerSession } from "./use-space-composer-session";
 import {
@@ -169,6 +175,7 @@ import {
 	removeSetValue,
 	removeWakeProgressItemsForClientMessageId,
 	resolveBlockedWakeProfileIdFromSubmissionError,
+	resolveComposerAddressingTargets,
 	resolveComposerWakeProgressTargetProfileIds,
 	resolveDeleteSpaceErrorMessage,
 	resolveDiagnosticReportProblemType,
@@ -202,12 +209,14 @@ type SpaceMentionAuthoringController = ReturnType<
 
 type PendingComposerSubmission = ReturnType<
 	SpaceMentionAuthoringController["prepareSubmission"]
->;
+> &
+	SpaceComposerSendOptions;
 
 type PreparedSpaceMessageSubmission = Pick<
 	PendingComposerSubmission,
 	"messageEnvelope" | "text" | "restoredFromSignalId"
->;
+> &
+	SpaceComposerSendOptions;
 
 type SpaceComposerSendBoundary =
 	| { state: "access_rejected" }
@@ -220,7 +229,12 @@ class SpaceComposerSendBoundaryError extends Error {
 	constructor(
 		boundary: Exclude<SpaceComposerSendBoundary, { state: "ready" }>
 	) {
-		super("The Space send boundary rejected this message.");
+		super(
+			boundary.state === "posting_not_allowed" ||
+				boundary.state === "access_rejected"
+				? "Message not sent. You can no longer send messages in this Space."
+				: "Message not sent. Check your connection and try again."
+		);
 		this.boundary = boundary;
 	}
 }
@@ -328,7 +342,7 @@ function createPendingOutgoingSignal(input: {
 	// Browser-only attachment placeholders are replaced with server references
 	// before publication. Their local ids must never enter an API request.
 	const localFiles = (input.composerFiles ?? []).filter(
-		(file) => file.status === "ready" && file.upload !== null
+		(file) => file.status !== "failed"
 	);
 	const files =
 		input.files ??
@@ -379,10 +393,7 @@ function buildComposerFileSubmission(input: {
 	const composerFiles = input.isPendingMessage ? [] : input.files;
 
 	return {
-		hasReadyFiles: composerFiles.some(
-			(file) => file.status === "ready" && file.upload !== null
-		),
-		uploadInProgress: composerFiles.some(isSpaceComposerFileInProgress),
+		hasSendableFiles: composerFiles.some((file) => file.status !== "failed"),
 	};
 }
 
@@ -421,6 +432,7 @@ function resolveCenterAgentExecutionInput(input: {
 }
 
 function buildNormalMessagePostInput(input: {
+	deviceWait?: SpaceComposerSendOptions["deviceWait"];
 	restoredFromSignalId?: string;
 	centerAgentExecutionInput?: NonNullable<
 		TextSignalEnvelope["data"]["meta"]
@@ -448,6 +460,7 @@ function buildNormalMessagePostInput(input: {
 		},
 		spaceId: input.spaceId,
 		text: input.text,
+		...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
 		timeoutMs: SPACE_MESSAGE_SEND_TIMEOUT_MS,
 	};
 }
@@ -624,44 +637,6 @@ function restoreFailedPendingSubmission(input: {
 	);
 }
 
-function settleSpaceComposerSendFailure(input: {
-	onRejected: () => void;
-	clientMessageId: string;
-	consumePublishedFiles: (publishedLocalIds: readonly string[]) => void;
-	mentionAuthoring: SpaceMentionAuthoringController;
-	outcomeUnknown: boolean;
-	pendingSubmission: PendingComposerSubmission | null;
-	publishedLocalIds: readonly string[];
-	postedMessage: boolean;
-	setPendingSignals: (value: SetStateAction<PendingOutgoingSignal[]>) => void;
-}) {
-	if (input.postedMessage || input.outcomeUnknown) {
-		consumePublishedComposerFilesAfterAcceptedOrUnknownSend({
-			clientMessageId: input.clientMessageId,
-			consumePublishedFiles: input.consumePublishedFiles,
-			outcomeUnknown: input.outcomeUnknown,
-			postedMessage: input.postedMessage,
-			publishedLocalIds: input.publishedLocalIds,
-			setPendingSignals: input.setPendingSignals,
-		});
-		return;
-	}
-	input.onRejected();
-	const restoredPreviousSubmission = restoreFailedPendingSubmission({
-		mentionAuthoring: input.mentionAuthoring,
-		pendingSubmission: input.pendingSubmission,
-	});
-	if (restoredPreviousSubmission) {
-		removePendingOutgoingSignal(input.setPendingSignals, input.clientMessageId);
-		return;
-	}
-	markPendingOutgoingSignalFailed(
-		input.setPendingSignals,
-		input.clientMessageId
-	);
-	input.consumePublishedFiles(input.publishedLocalIds);
-}
-
 function createSpaceMessageSendSeed(input: {
 	composerText: string;
 	pendingMessage: PendingSpaceMessage | undefined;
@@ -684,14 +659,11 @@ function prepareSpaceMessageSendAttempt(input: {
 		isPendingMessage:
 			input.pendingMessage !== undefined && !input.pendingMessage.files?.length,
 	});
-	if (fileSubmission.uploadInProgress) {
-		return { errorMessage: null, status: "blocked" as const };
-	}
 	const messageSeed = createSpaceMessageSendSeed({
 		composerText: input.composerText,
 		pendingMessage: input.pendingMessage,
 	});
-	if (messageSeed.text.length === 0 && !fileSubmission.hasReadyFiles) {
+	if (messageSeed.text.length === 0 && !fileSubmission.hasSendableFiles) {
 		return {
 			errorMessage: "Enter a message or add a file before sending.",
 			status: "blocked" as const,
@@ -725,17 +697,13 @@ function prepareMainComposerSubmission(input: {
 
 function resolveThreadComposerBlockedReason(input: {
 	hasActiveThread: boolean;
-	hasReadyFiles: boolean;
+	hasSendableFiles: boolean;
 	text: string;
-	uploadInProgress: boolean;
 }): string | null {
 	if (!input.hasActiveThread) {
 		return "Open a thread before sending.";
 	}
-	if (input.uploadInProgress) {
-		return "Wait for files to finish uploading before sending.";
-	}
-	if (input.text.length === 0 && !input.hasReadyFiles) {
+	if (input.text.length === 0 && !input.hasSendableFiles) {
 		return "Enter a reply or add a file before sending.";
 	}
 	return null;
@@ -1074,6 +1042,7 @@ export type SpaceLandingController =
 			composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
 			composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
 			composerMentionPickerItems: readonly SpaceMentionPickerItem[];
+			composerMentionEmptyMessage?: string;
 			composerText: string;
 			mode: "loading";
 			onComposerBlur: () => void;
@@ -1103,6 +1072,7 @@ export type SpaceLandingController =
 			composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
 			composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
 			composerMentionPickerItems: readonly SpaceMentionPickerItem[];
+			composerMentionEmptyMessage?: string;
 			composerFiles: readonly SpaceComposerFile[];
 			composerFileLimitReached: boolean;
 			composerBlockedWakeProfileId: string | null;
@@ -1173,8 +1143,16 @@ export type SpaceLandingController =
 			onSetVisibility: (visibility: "public" | "private") => Promise<void>;
 			onThreadComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 			onThreadMentionButtonClick: () => void;
-			onThreadSend: () => Promise<void>;
+			onThreadSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 			onThreadSendText: (text: string) => Promise<void>;
+			onComposeExpiredDeviceWait: (request: {
+				sourceSignalId: string;
+				targetProfileId: string;
+			}) => void;
+			onThreadComposeExpiredDeviceWait: (request: {
+				sourceSignalId: string;
+				targetProfileId: string;
+			}) => void;
 			onAddThreadComposerFiles: (files: readonly File[]) => Promise<void>;
 			onRemoveThreadComposerFile: (localId: string) => void;
 			onReplyToMessage: (item: SpaceTimelineItem) => void;
@@ -1196,7 +1174,7 @@ export type SpaceLandingController =
 				profileName: string;
 				runtimeLane: DaemonServiceLane | null;
 			}) => Promise<void>;
-			onSend: () => Promise<void>;
+			onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 			onSendText: (text: string) => Promise<void>;
 			profileId: string;
 			spaceId: string;
@@ -1369,9 +1347,8 @@ export function useSpaceLandingController(input: {
 		string | null
 	>(null);
 	const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
-	const [pendingOutgoingSignals, setPendingOutgoingSignals] = useState<
-		PendingOutgoingSignal[]
-	>([]);
+	const [pendingOutgoingSignals, setPendingOutgoingSignals] =
+		usePendingOutgoingSignals(input.spaceId, input.profileId, null);
 	const [
 		pendingDiagnosticReportSignalIds,
 		setPendingDiagnosticReportSignalIds,
@@ -1543,7 +1520,6 @@ export function useSpaceLandingController(input: {
 		) {
 			return;
 		}
-		setPendingOutgoingSignals([]);
 		setWakeStopRequestStatusBySelectorKey(new Map());
 	}, [currentProfileId, currentSpaceId]);
 	useActiveSpaceHistorySync({
@@ -1907,6 +1883,7 @@ export function useSpaceLandingController(input: {
 				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
+				includeDeviceWait: true,
 				includeWakeStopEligibility: true,
 				spaceId: input.spaceId,
 				timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,
@@ -2142,6 +2119,11 @@ export function useSpaceLandingController(input: {
 		},
 		[activeWakeProgressSummaryQuery.refetch, input.profileId, input.spaceId]
 	);
+	useReconcilePendingOutgoingSignals(
+		pendingOutgoingSignals,
+		historyNavigation.visibleLiveEnvelopes,
+		setPendingOutgoingSignals
+	);
 	const timelinePresentationEnvelopes = useMemo(
 		() =>
 			mergePersistedAndPendingOutgoingSignals({
@@ -2217,6 +2199,7 @@ export function useSpaceLandingController(input: {
 			composerAddressingTargets: mentionAuthoring.addressingTargets,
 			composerAuthoredMentions: mentionAuthoring.authoredMentions,
 			composerMentionPickerItems: mentionAuthoring.mentionPickerItems,
+			composerMentionEmptyMessage: mentionAuthoring.mentionEmptyMessage,
 			composerText: mentionAuthoring.composerText,
 			mode: "loading",
 			onComposerBlur: () => {
@@ -2300,9 +2283,15 @@ export function useSpaceLandingController(input: {
 	return {
 		activeThread: threadController.activeThread,
 		agentStreams: agentStreamProjections,
-		composerAddressingTargets: mentionAuthoring.addressingTargets,
+		composerAddressingTargets: resolveComposerAddressingTargets({
+			addressingTargets: mentionAuthoring.addressingTargets,
+			membersSnapshot,
+			senderProfileId: input.profileId,
+			status: statusSnapshot,
+		}),
 		composerAuthoredMentions: mentionAuthoring.authoredMentions,
 		composerMentionPickerItems: mentionAuthoring.mentionPickerItems,
+		composerMentionEmptyMessage: mentionAuthoring.mentionEmptyMessage,
 		composerFiles: composerFilesController.files,
 		composerFileLimitReached: composerFilesController.isAtLimit,
 		composerErrorMessage,
@@ -2405,6 +2394,24 @@ export function useSpaceLandingController(input: {
 		onThreadMentionButtonClick: threadController.onThreadMentionButtonClick,
 		onThreadSend: threadController.onThreadSend,
 		onThreadSendText: threadController.onThreadSendText,
+		onThreadComposeExpiredDeviceWait:
+			threadController.onComposeExpiredDeviceWait,
+		onComposeExpiredDeviceWait: (request) => {
+			try {
+				if (composerFilesController.files.length > 0 || isSendingMessage) {
+					throw new Error(
+						"Send or clear your current draft before starting this task again."
+					);
+				}
+				mentionAuthoring.composeExpiredDeviceWait(request);
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Could not prepare a new task."
+				);
+			}
+		},
 		onAddThreadComposerFiles: threadController.onAddThreadComposerFiles,
 		onRemoveThreadComposerFile: threadController.onRemoveThreadComposerFile,
 		onReplyToMessage: (item: SpaceTimelineItem) => {
@@ -2467,18 +2474,21 @@ export function useSpaceLandingController(input: {
 	};
 
 	async function sendMessage(options?: {
+		deviceWait?: SpaceComposerSendOptions["deviceWait"];
 		pendingMessage?: PendingSpaceMessage;
+		retrySubmission?: PendingComposerSubmission;
+		retryFiles?: readonly SpaceComposerFile[];
 		throwOnFailure?: boolean;
 	}) {
 		if (composerSendInFlightRef.current) {
 			return;
 		}
 		const sendAttempt = prepareSpaceMessageSendAttempt({
-			composerFiles: composerFilesController.files,
+			composerFiles: options?.retryFiles ?? composerFilesController.files,
 			composerText: mentionAuthoring.composerText,
 			pendingMessage: options?.pendingMessage,
 		});
-		if (sendAttempt.status !== "ready") {
+		if (sendAttempt.status !== "ready" && !options?.retrySubmission) {
 			setComposerErrorMessage(sendAttempt.errorMessage);
 			throwSpaceSendFailureWhenRequested({
 				error: new Error(
@@ -2490,38 +2500,56 @@ export function useSpaceLandingController(input: {
 			});
 			return;
 		}
-		const { messageSeed } = sendAttempt;
+		const messageSeed = createSpaceMessageSendSeed({
+			composerText: mentionAuthoring.composerText,
+			pendingMessage: options?.pendingMessage,
+		});
 		const isTextOnlyPendingMessage =
 			options?.pendingMessage !== undefined &&
 			!options.pendingMessage.files?.length;
 
 		historyNavigation.latest();
 		composerSession.send.begin();
+		const request = composerSession.send.reserveRequest();
 
 		let postedMessage = false;
 		let publishedLocalIds: readonly string[] = [];
 		let pendingSubmission: PendingComposerSubmission | null = null;
+		let submittedFiles: readonly SpaceComposerFile[] = [];
 		try {
 			const missingMembersMessage =
 				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions.";
-			const preparedSubmission = prepareMainComposerSubmission({
-				mentionAuthoring,
-				messageSeed,
-				missingMembersMessage,
-				pendingMessage: options?.pendingMessage,
-			});
+			const preparedSubmission =
+				options?.retrySubmission ??
+				applyDeviceWaitToSubmission(
+					prepareMainComposerSubmission({
+						mentionAuthoring,
+						messageSeed,
+						missingMembersMessage,
+						pendingMessage: options?.pendingMessage,
+					}),
+					options?.deviceWait
+				);
 			pendingSubmission = preparedSubmission;
-			composerSession.recordPendingSubmission(!isTextOnlyPendingMessage);
+			submittedFiles =
+				options?.retryFiles ??
+				composerSession.recordPendingSubmission(!isTextOnlyPendingMessage);
+			markSpaceSendPending(messageSeed.clientMessageId, () => {
+				composerFilesController.consumePublishedFiles(
+					submittedFiles.map((file) => file.localId)
+				);
+				composerFilesController.finishSubmission(submittedFiles);
+			});
 			// Local feedback precedes every network admission or publication step.
 			stagePreparedSpaceMessage({
-				composerFiles: options?.pendingMessage
-					? []
-					: composerFilesController.files,
+				composerFiles: submittedFiles,
 				clientMessageId: messageSeed.clientMessageId,
 				createdAtMs: messageSeed.createdAtMs,
 				preparedSubmission,
 				status: statusSnapshot,
 			});
+			composerSession.send.finish();
+			await request.ready;
 			const sendBoundary = await resolveSpaceComposerSendBoundary({
 				ensureEntryConfirmed,
 				readCurrentStatus: readCurrentSpaceComposerSendStatus,
@@ -2531,6 +2559,7 @@ export function useSpaceLandingController(input: {
 			}
 			const currentStatus = sendBoundary.status;
 			await requireCurrentSpaceComposerWakeAdmission({
+				deviceWait: preparedSubmission.deviceWait,
 				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 					explicitActivationTargets:
 						preparedSubmission.messageEnvelope?.activationTargets ?? [],
@@ -2540,9 +2569,8 @@ export function useSpaceLandingController(input: {
 				}),
 				readCurrentMembers: readCurrentMembersForWakeAdmission,
 			});
-			const publishedFiles = await publishComposerFilesForSend(
-				isTextOnlyPendingMessage
-			);
+			const publishedFiles =
+				await composerFilesController.publishReadyFiles(submittedFiles);
 			publishedLocalIds = publishedFiles.publishedLocalIds;
 			if (
 				hasNoPublishedComposerContent({
@@ -2563,6 +2591,7 @@ export function useSpaceLandingController(input: {
 				status: currentStatus,
 			});
 			postedMessage = true;
+			completeSpaceSend(messageSeed.clientMessageId);
 			mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
 			composerFilesController.consumePublishedFiles(publishedLocalIds);
 			setComposerBlockedWakeProfileId(null);
@@ -2575,21 +2604,55 @@ export function useSpaceLandingController(input: {
 				}
 			);
 		} catch (error) {
+			await handleSubmissionFailure(error);
+		} finally {
+			request.complete();
+			if (postedMessage) {
+				composerFilesController.finishSubmission(submittedFiles);
+			}
+			composerSession.send.finish();
+		}
+		async function handleSubmissionFailure(error: unknown) {
 			const sendError = unwrapPreparedSpaceMessageSendError(error);
 			postedMessage ||= sendError.postedMessage;
 			const { originalError } = sendError;
-			settleSpaceComposerSendFailure({
-				onRejected: () =>
-					removeRejectedWakeProgress(messageSeed.clientMessageId),
-				clientMessageId: messageSeed.clientMessageId,
-				consumePublishedFiles: composerFilesController.consumePublishedFiles,
-				mentionAuthoring,
-				outcomeUnknown: sendError.outcomeUnknown,
-				pendingSubmission,
-				publishedLocalIds,
-				postedMessage,
-				setPendingSignals: setPendingOutgoingSignals,
-			});
+			if (pendingSubmission && !postedMessage) {
+				const retrySubmission = pendingSubmission;
+				removeRejectedWakeProgress(messageSeed.clientMessageId);
+				markPendingOutgoingSignalFailed(
+					setPendingOutgoingSignals,
+					messageSeed.clientMessageId
+				);
+				setSpaceSendFailure(messageSeed.clientMessageId, {
+					message: sendError.outcomeUnknown
+						? "Delivery not confirmed."
+						: toStructuredApiClientFailure(originalError).message,
+					retry: () =>
+						sendMessage({
+							pendingMessage: messageSeed,
+							retrySubmission,
+							retryFiles: submittedFiles,
+						}),
+				});
+			}
+			if (pendingSubmission) {
+				if (postedMessage) {
+					console.error(
+						"A space message was posted, but a follow-up step failed.",
+						originalError
+					);
+				}
+				await refreshStatusAfterProtectedComposerFailure({
+					failure: toStructuredApiClientFailure(originalError),
+					refetchStatus: statusQuery.refetch,
+				});
+				throwSpaceSendFailureWhenRequested({
+					error: originalError,
+					postedMessage,
+					throwOnFailure: options?.throwOnFailure === true,
+				});
+				return;
+			}
 			if (originalError instanceof SpaceComposerSendBoundaryError) {
 				settleSpaceComposerSendBoundaryFailure({
 					boundary: originalError.boundary,
@@ -2618,19 +2681,7 @@ export function useSpaceLandingController(input: {
 				postedMessage,
 				throwOnFailure: options?.throwOnFailure === true,
 			});
-		} finally {
-			composerSession.send.finish();
 		}
-	}
-
-	function publishComposerFilesForSend(isTextOnlyPendingMessage: boolean) {
-		return isTextOnlyPendingMessage
-			? {
-					messageFiles: [] as SpaceMessageFileReference[],
-					previewUrlsByFileId: new Map<string, string>(),
-					publishedLocalIds: [] as string[],
-				}
-			: composerFilesController.publishReadyFiles();
 	}
 
 	function removeRejectedWakeProgress(clientMessageId: string) {
@@ -2777,6 +2828,7 @@ export function useSpaceLandingController(input: {
 				openMeldProfileId: input.profileId,
 			});
 			const postInput = buildNormalMessagePostInput({
+				deviceWait: sendInput.preparedSubmission.deviceWait,
 				restoredFromSignalId: sendInput.preparedSubmission.restoredFromSignalId,
 				centerAgentExecutionInput,
 				files: sendInput.files,
@@ -3247,9 +3299,6 @@ function useSpaceThreadController(input: {
 	const [wakeProgressItems, setWakeProgressItems] = useState<
 		WakeProgressItem[]
 	>([]);
-	const [pendingOutgoingSignals, setPendingOutgoingSignals] = useState<
-		PendingOutgoingSignal[]
-	>([]);
 	const threadsQuery = useQuery(
 		spaceThreadsQueryOptions({
 			spaceId: input.spaceId,
@@ -3271,6 +3320,12 @@ function useSpaceThreadController(input: {
 		spaceId: input.spaceId,
 	});
 	const activeThreadId = threadPanelSelection.activeThreadId;
+	const [pendingOutgoingSignals, setPendingOutgoingSignals] =
+		usePendingOutgoingSignals(
+			input.spaceId,
+			input.profileId,
+			activeThreadId ?? "closed"
+		);
 	const threadSignalsQuery = useQuery(
 		spaceThreadSignalsQueryOptions({
 			spaceId: input.spaceId,
@@ -3319,6 +3374,11 @@ function useSpaceThreadController(input: {
 	const activeThread =
 		threads.find((thread) => thread.threadId === activeThreadId) ?? null;
 	const persistedThreadSignals = threadSignalsQuery.data?.signals ?? [];
+	useReconcilePendingOutgoingSignals(
+		pendingOutgoingSignals,
+		persistedThreadSignals,
+		setPendingOutgoingSignals
+	);
 	const threadSignals = mergePersistedAndPendingOutgoingSignals({
 		persisted: persistedThreadSignals,
 		pending: pendingOutgoingSignals,
@@ -3346,7 +3406,6 @@ function useSpaceThreadController(input: {
 		setIsCreatingThread(false);
 		composerSession.send.finish();
 		setWakeProgressItems([]);
-		setPendingOutgoingSignals([]);
 	}, [
 		composerSession.feedback.clear,
 		composerSession.send.finish,
@@ -3376,10 +3435,34 @@ function useSpaceThreadController(input: {
 		onThreadMentionButtonClick: mentionAuthoring.onMentionButtonClick,
 		onThreadSend: sendMessage,
 		onThreadSendText: sendTextMessage,
+		onComposeExpiredDeviceWait: (request: {
+			sourceSignalId: string;
+			targetProfileId: string;
+		}) => {
+			try {
+				if (composerFilesController.files.length > 0 || isSendingMessage) {
+					throw new Error(
+						"Send or clear your current draft before starting this task again."
+					);
+				}
+				mentionAuthoring.composeExpiredDeviceWait(request);
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Could not prepare a new task."
+				);
+			}
+		},
 		onAddThreadComposerFiles: composerFilesController.addFiles,
 		onRemoveThreadComposerFile: composerFilesController.removeFile,
 		threadComposerBlockedWakeProfileId: composerBlockedWakeProfileId,
-		threadComposerAddressingTargets: mentionAuthoring.addressingTargets,
+		threadComposerAddressingTargets: resolveComposerAddressingTargets({
+			addressingTargets: mentionAuthoring.addressingTargets,
+			membersSnapshot: input.membersSnapshot,
+			senderProfileId: input.profileId,
+			status: input.status,
+		}),
 		threadComposerAuthoredMentions: mentionAuthoring.authoredMentions,
 		threadComposerMentionPickerItems: mentionAuthoring.mentionPickerItems,
 		threadComposerErrorMessage: composerErrorMessage,
@@ -3410,14 +3493,12 @@ function useSpaceThreadController(input: {
 	function closeThread() {
 		threadPanelSelection.close();
 		composerSession.feedback.clear();
-		setPendingOutgoingSignals([]);
 		composerFilesController.clearFiles();
 	}
 
 	function openThread(threadId: string) {
 		threadPanelSelection.open(threadId);
 		composerSession.feedback.clear();
-		setPendingOutgoingSignals([]);
 		composerFilesController.clearFiles();
 	}
 
@@ -3477,48 +3558,64 @@ function useSpaceThreadController(input: {
 		}
 	}
 
-	async function sendMessage() {
+	async function sendMessage(
+		options?: SpaceComposerSendOptions,
+		retry?: {
+			submission: PendingComposerSubmission;
+			files: readonly SpaceComposerFile[];
+			thread: SpaceThread;
+			clientMessageId: string;
+		}
+	) {
 		if (threadComposerSendInFlightRef.current || !input.statusReady) {
 			return;
 		}
-		const thread = activeThread;
-		const trimmedText = mentionAuthoring.composerText.trim();
+		const thread = retry?.thread ?? activeThread;
+		const trimmedText =
+			retry?.submission.text ?? mentionAuthoring.composerText.trim();
 		const fileSubmission = buildComposerFileSubmission({
-			files: composerFilesController.files,
+			files: retry?.files ?? composerFilesController.files,
 			isPendingMessage: false,
 		});
 		const blockedReason = resolveThreadComposerBlockedReason({
 			hasActiveThread: thread !== null,
-			hasReadyFiles: fileSubmission.hasReadyFiles,
+			hasSendableFiles: fileSubmission.hasSendableFiles,
 			text: trimmedText,
-			uploadInProgress: fileSubmission.uploadInProgress,
 		});
-		if (blockedReason) {
+		if ((blockedReason && !retry) || !thread) {
 			setComposerErrorMessage(blockedReason);
 			return;
 		}
-		if (!thread) {
-			return;
-		}
+		const submittedThread = thread;
 
 		composerSession.send.begin();
 
+		const clientMessageId = retry?.clientMessageId ?? createClientMessageId();
+		let posted = false;
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		let publishedLocalIds: readonly string[] = [];
+		let submittedFiles: readonly SpaceComposerFile[] = [];
 		try {
 			const preparedSubmission =
-				trimmedText.length > 0
-					? mentionAuthoring.prepareSubmission(
-							"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
-						)
-					: mentionAuthoring.prepareFileOnlySubmission();
+				retry?.submission ??
+				applyDeviceWaitToSubmission(
+					trimmedText.length > 0
+						? mentionAuthoring.prepareSubmission(
+								"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
+							)
+						: mentionAuthoring.prepareFileOnlySubmission(),
+					options?.deviceWait
+				);
 			pendingSubmission = preparedSubmission;
-			composerSession.recordPendingSubmission();
+			submittedFiles =
+				retry?.files ?? composerSession.recordPendingSubmission();
+			composerSession.send.finish();
 			await sendPreparedThreadMessage({
-				composerFiles: composerFilesController.files,
+				composerFiles: submittedFiles,
+				clientMessageId,
 				prepareFiles: async () => {
 					const publishedFiles =
-						await composerFilesController.publishReadyFiles();
+						await composerFilesController.publishReadyFiles(submittedFiles);
 					publishedLocalIds = publishedFiles.publishedLocalIds;
 					if (
 						trimmedText.length === 0 &&
@@ -3531,6 +3628,8 @@ function useSpaceThreadController(input: {
 					return publishedFiles;
 				},
 				onPosted: () => {
+					posted = true;
+					completeSpaceSend(clientMessageId);
 					mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
 					composerFilesController.consumePublishedFiles(publishedLocalIds);
 					setComposerBlockedWakeProfileId(null);
@@ -3539,13 +3638,40 @@ function useSpaceThreadController(input: {
 				thread,
 			});
 		} catch (error) {
-			await handleSendMessageFailure({
-				error,
-				pendingSubmission,
-				publishedLocalIds,
-			});
+			await handleSubmissionFailure(error);
 		} finally {
+			if (posted) {
+				composerFilesController.finishSubmission(submittedFiles);
+			}
 			composerSession.send.finish();
+		}
+		async function handleSubmissionFailure(error: unknown) {
+			if (pendingSubmission && !posted) {
+				const submission = pendingSubmission;
+				markPendingOutgoingSignalFailed(
+					setPendingOutgoingSignals,
+					clientMessageId
+				);
+				const sendError = unwrapPreparedSpaceMessageSendError(error);
+				setSpaceSendFailure(clientMessageId, {
+					message: sendError.outcomeUnknown
+						? "Delivery not confirmed."
+						: toStructuredApiClientFailure(sendError.originalError).message,
+					retry: () =>
+						sendMessage(undefined, {
+							submission,
+							files: submittedFiles,
+							thread: submittedThread,
+							clientMessageId,
+						}),
+				});
+			} else {
+				await handleSendMessageFailure({
+					error,
+					pendingSubmission,
+					publishedLocalIds,
+				});
+			}
 		}
 	}
 
@@ -3553,6 +3679,7 @@ function useSpaceThreadController(input: {
 		preparedSubmission: PreparedSpaceMessageSubmission
 	) {
 		await requireCurrentSpaceComposerWakeAdmission({
+			deviceWait: preparedSubmission.deviceWait,
 			agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 				explicitActivationTargets:
 					preparedSubmission.messageEnvelope?.activationTargets ?? [],
@@ -3682,6 +3809,14 @@ function useSpaceThreadController(input: {
 	}): Promise<void> {
 		const clientMessageId =
 			sendInput.clientMessageId ?? createClientMessageId();
+		const request = composerSession.send.reserveRequest();
+		markSpaceSendPending(clientMessageId, () => {
+			const files = sendInput.composerFiles ?? [];
+			composerFilesController.consumePublishedFiles(
+				files.map((file) => file.localId)
+			);
+			composerFilesController.finishSubmission(files);
+		});
 		const messageCreatedAtMs = Date.now();
 		const activationTargets =
 			sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
@@ -3717,6 +3852,7 @@ function useSpaceThreadController(input: {
 		let postedMessage = false;
 		let publicationStarted = false;
 		try {
+			await request.ready;
 			await requireThreadWakeAdmission(sendInput.preparedSubmission);
 			const publishedFiles = await sendInput.prepareFiles?.();
 			if (publishedFiles) {
@@ -3734,6 +3870,9 @@ function useSpaceThreadController(input: {
 			}
 			const postInput = {
 				body: {
+					...(sendInput.preparedSubmission.deviceWait
+						? { deviceWait: sendInput.preparedSubmission.deviceWait }
+						: {}),
 					clientMessageId,
 					restoredFromSignalId:
 						sendInput.preparedSubmission.restoredFromSignalId,
@@ -3760,6 +3899,7 @@ function useSpaceThreadController(input: {
 					}).postThreadSignal(postInput)
 			);
 			postedMessage = true;
+			completeSpaceSend(clientMessageId);
 			recordWakeDiagnosticIfNeeded({
 				clientMessageId,
 				sourceSignalId: response.signal.id,
@@ -3831,6 +3971,8 @@ function useSpaceThreadController(input: {
 				outcomeUnknown,
 				postedMessage,
 			});
+		} finally {
+			request.complete();
 		}
 	}
 }
@@ -3984,6 +4126,7 @@ async function refreshWakeStopAfterResponse(input: {
 					includeSourceContext: true,
 					includeTiming: true,
 					includeWaitReason: true,
+					includeDeviceWait: true,
 					includeWakeStopEligibility: true,
 					spaceId: input.spaceId,
 					targetProfileId: input.targetProfileId,
@@ -4090,4 +4233,61 @@ function resolveNavigationPresentation(
 			? navigation.pending
 			: live.isLoadingEarlierHistory,
 	};
+}
+
+function usePendingOutgoingSignals(
+	spaceId: string,
+	profileId: string,
+	threadId: string | null
+) {
+	const queryClient = useQueryClient();
+	const queryKey = useMemo(
+		() => ["spaces", "pending-outgoing", spaceId, profileId, threadId] as const,
+		[spaceId, profileId, threadId]
+	);
+	const query = useQuery({
+		queryKey,
+		queryFn: skipToken,
+		initialData: [] as PendingOutgoingSignal[],
+		gcTime: Number.POSITIVE_INFINITY,
+		staleTime: Number.POSITIVE_INFINITY,
+	});
+	const update = useCallback(
+		(value: SetStateAction<PendingOutgoingSignal[]>) => {
+			queryClient.setQueryData<PendingOutgoingSignal[]>(queryKey, (current) =>
+				typeof value === "function" ? value(current ?? []) : value
+			);
+		},
+		[queryClient, queryKey]
+	);
+	return [query.data ?? [], update] as const;
+}
+
+function useReconcilePendingOutgoingSignals(
+	pending: readonly PendingOutgoingSignal[],
+	persisted: readonly SignalEnvelope[],
+	update: (value: SetStateAction<PendingOutgoingSignal[]>) => void
+) {
+	useEffect(() => {
+		const confirmed = new Set(
+			persisted.flatMap((signal) =>
+				signal.type === "signal.text" &&
+				typeof signal.data.meta?.clientMessageId === "string"
+					? [signal.data.meta.clientMessageId]
+					: []
+			)
+		);
+		const delivered = pending.filter((item) =>
+			confirmed.has(item.clientMessageId)
+		);
+		if (!delivered.length) {
+			return;
+		}
+		for (const item of delivered) {
+			completeSpaceSend(item.clientMessageId);
+		}
+		update((current) =>
+			current.filter((item) => !confirmed.has(item.clientMessageId))
+		);
+	}, [pending, persisted, update]);
 }

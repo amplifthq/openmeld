@@ -6,7 +6,7 @@ import type {
   OpenMeldDaemonDispatchQueueMessage,
   RuntimeTransportDeliveryExecutionIdentity,
 } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import {
   claimDispatchAttempt,
   claimFinalReplyEmission,
@@ -14,17 +14,20 @@ import {
   correlateDuplicateDispatchDeliveryAttempt,
   markDispatchAttemptWaitingForResult,
   markDispatchStatus,
-  OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE,
-  OPENMELD_DAEMON_DISPATCH_STATE,
   readDeliveryStabilityDispatchMetrics,
   recordDispatchAttemptExecutionOwnership,
   rollbackFinalReplyEmissionClaim,
   rollbackReplyingHintEmissionClaim,
-} from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
+} from "../src/dispatch/infrastructure/d1/dispatch-ledger-d1";
 import {
   DISPATCH_IDEMPOTENCY_WINDOW_MS,
   DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
-} from "../dispatch/rules/dispatch-runtime-constants";
+} from "../src/dispatch/rules/dispatch-runtime-constants";
+import { buildDispatchMessage } from "../tests-support/dispatch-ledger-message";
+import {
+  applyDrizzleMigrationsForTables,
+  createSqliteD1Harness,
+} from "./helpers/sqlite-d1-harness.test-support";
 
 type LedgerRow = {
   idempotencyKey: string;
@@ -104,1103 +107,128 @@ const buildExpectedRuntimeCoordinatorExecutionId = (
     targetProfileId: message.targetProfileId,
   });
 
-const createInMemoryDispatchLedgerDb = (options?: {
-  failNextAttemptInsert?: boolean;
-}) => {
-  const rows = new Map<string, LedgerRow>();
-  const attempts = new Map<string, AttemptRow>();
-  const runtimeCoordinatorRows = new Map<string, Record<string, unknown>>();
-  const dlqRows: DlqRow[] = [];
-  const opsDecisionRows: unknown[][] = [];
-  let shouldFailNextAttemptInsert = options?.failNextAttemptInsert === true;
-  const safeNumber = (value: unknown): number => {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
+const createDispatchLedgerFixture = () => {
+  const harness = createSqliteD1Harness();
+  onTestFinished(() => harness.close());
+  applyDrizzleMigrationsForTables(harness, [
+    "openMeldDaemon_dispatch_ledger",
+    "openMeldDaemon_dispatch_attempts",
+    "openMeldDaemon_dlq",
+    "openMeldDaemon_ops_decisions",
+    "openMeldDaemon_runtime_coordinator_executions",
+  ]);
+
+  // Fixture conversion only; production SQL is executed by SQLite unchanged.
+  const columnName = (key: string) =>
+    key === "executionRuntimeId"
+      ? "execution_openmeld_service_runtime_id"
+      : key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+  const readRecord = <T>(
+    table: string,
+    key: string,
+    value: string
+  ): T | undefined => {
+    const row = harness.queryFirst({
+      sql: `SELECT * FROM ${table} WHERE ${key} = ?`,
+      params: [value],
+    });
+    if (!row) {
+      return undefined;
+    }
+    return Object.fromEntries(
+      Object.entries(row).map(([column, field]) => [
+        column === "execution_openmeld_service_runtime_id"
+          ? "executionRuntimeId"
+          : column.replace(/_([a-z])/g, (_, letter: string) =>
+              letter.toUpperCase()
+            ),
+        field,
+      ])
+    ) as T;
   };
-  const normalizeOptionalText = (value: unknown): string | null => {
-    const normalized = String(value ?? "").trim();
-    return normalized.length > 0 ? normalized : null;
-  };
-  const fillDispatchOwnerEvidenceOnce = (
-    row: LedgerRow,
-    kind: unknown,
-    id: unknown
+  const seedRecord = (
+    table: string,
+    key: string,
+    row: Record<string, unknown>
   ) => {
-    if (row.dispatchOwnerKind != null || row.dispatchOwnerId != null) {
-      return;
-    }
-    const normalizedKind = normalizeOptionalText(kind);
-    const normalizedId = normalizeOptionalText(id);
-    if (normalizedKind !== "owner_account" || !normalizedId) {
-      return;
-    }
-    row.dispatchOwnerKind = normalizedKind;
-    row.dispatchOwnerId = normalizedId;
-  };
-
-  const readDeliveryStabilitySummary = (input: {
-    observeFromMs: number;
-    dispatchingTimeoutAtMs: number;
-  }) => {
-    const summary = {
-      failed_terminal_count: 0,
-      completed_relevant_count: 0,
-      deduped_count: 0,
-      dispatching_timeout_count: 0,
-    };
-    for (const row of rows.values()) {
-      if (row.lastAttemptAtMs < input.observeFromMs) {
-        continue;
-      }
-      if (row.status === "failed_terminal") {
-        summary.failed_terminal_count += 1;
-      }
-      if (
-        row.status === "succeeded" ||
-        row.status === "failed_retryable" ||
-        row.status === "failed_terminal" ||
-        row.status === "blocked"
-      ) {
-        summary.completed_relevant_count += 1;
-      }
-      if (row.status === "deduped") {
-        summary.deduped_count += 1;
-      }
-      if (
-        row.status === "dispatching" &&
-        row.lastAttemptAtMs <= input.dispatchingTimeoutAtMs
-      ) {
-        summary.dispatching_timeout_count += 1;
-      }
-    }
-    return summary;
-  };
-
-  const readDeliveryStabilityColdStartCount = (input: {
-    observeFromMs: number;
-  }) =>
-    dlqRows.reduce(
-      (count, row) =>
-        row.errorCode === "daemon.delivery.timeout" &&
-        row.failedAtMs >= input.observeFromMs
-          ? count + 1
-          : count,
-      0
+    const fields = Object.entries(row).filter(
+      ([, value]) => value !== undefined
     );
-
-  const seedDlqRow = (input: {
-    dispatchId: string;
-    idempotencyKey: string;
-    sourceEventId: string;
-    targetProfileId: string;
-    errorCode: string;
-    failedAtMs: number;
-  }): void => {
-    dlqRows.push({
-      dispatchId: input.dispatchId,
-      idempotencyKey: input.idempotencyKey,
-      sourceEventId: input.sourceEventId,
-      targetProfileId: input.targetProfileId,
-      errorCode: input.errorCode,
-      failedAtMs: input.failedAtMs,
+    const columns = fields.map(([name]) => columnName(name));
+    harness.run({
+      sql: `INSERT INTO ${table} (${columns.join(", ")})
+        VALUES (${columns.map(() => "?").join(", ")})
+        ON CONFLICT(${key}) DO UPDATE SET
+        ${columns
+          .filter((name) => name !== key)
+          .map((name) => `${name} = excluded.${name}`)
+          .join(", ")}`,
+      params: fields.map(([, value]) => value as string | number | null),
     });
   };
-  const seedRuntimeCoordinatorExecution = (input: {
-    attemptId?: string | null;
-    daemonSessionId?: string | null;
-    dispatchId: string;
-    leaseEpoch?: number | null;
-    status?: string;
-    targetProfileId: string;
-  }): void => {
-    const key = ["space-1", input.dispatchId, input.targetProfileId].join("\0");
-    runtimeCoordinatorRows.set(key, {
-      binding_id: "binding-1",
-      agent_controller_ref: "builtin:codex",
-      claim_lease_id: null,
-      connection_generation: 1,
-      created_at_ms: 1000,
-      daemon_session_id: input.daemonSessionId ?? null,
-      dispatch_id: input.dispatchId,
-      lease_epoch: input.leaseEpoch ?? null,
-      model_version: "openmeld.runtime_coordinator.execution.v1",
-      runtime_coordinator_execution_id: `rce-${input.dispatchId}`,
-      openmeld_service_runtime_id: "runtime-1",
-      openmeld_service_runtime_id_source: "runtime_registry_authority",
-      source_client_message_id: null,
-      space_id: "space-1",
-      status: input.status ?? "running",
-      target_profile_id: input.targetProfileId,
-      terminal_outcome_json: null,
-      attempt_id: input.attemptId ?? null,
-      updated_at_ms: 1000,
-    });
-  };
-  const seedAttemptRow = (row: AttemptRow): void => {
-    attempts.set(row.attemptId, row);
-  };
-
-  const db = {
-    prepare: (query: string) => {
-      const normalizedQuery = query.toLowerCase();
-      const compactQuery = normalizedQuery.replace(/\s+/g, " ");
-      const queryIncludes = (sql: string) =>
-        compactQuery.includes(sql.toLowerCase());
-      return {
-        bind: (...args: unknown[]) => ({
-          first: <T>() => {
-            if (
-              queryIncludes("from openMeldDaemon_dispatch_ledger") &&
-              queryIncludes("where idempotency_key = ?")
-            ) {
-              const idempotencyKey = String(args[0] ?? "");
-              const row = rows.get(idempotencyKey);
-              if (!row) {
-                return Promise.resolve(null as T | null);
-              }
-              return Promise.resolve({
-                idempotency_key: row.idempotencyKey,
-                dispatch_id: row.dispatchId,
-                first_seen_at_ms: row.firstSeenAtMs,
-                last_attempt_at_ms: row.lastAttemptAtMs,
-                latest_attempt_id: row.latestAttemptId,
-                attempt_count: row.attemptCount,
-                reply_hint_sent_at_ms: row.replyHintSentAtMs,
-                status: row.status,
-              } as T);
-            }
-            if (
-              queryIncludes("from openMeldDaemon_dispatch_attempts") &&
-              queryIncludes("where attempt_id = ?")
-            ) {
-              const attemptId = String(args[0] ?? "");
-              const row = attempts.get(attemptId);
-              if (!row) {
-                return Promise.resolve(null as T | null);
-              }
-              const selectedAttemptRow: Record<string, unknown> = {
-                attemptId: row.attemptId,
-                attemptNo: row.attemptNo,
-                status: row.status,
-                connectionGeneration: row.connectionGeneration,
-                daemonSessionId: row.daemonSessionId,
-                leaseEpoch: row.leaseEpoch,
-              };
-              if (queryIncludes("error_code as errorcode")) {
-                selectedAttemptRow.errorCode = row.errorCode;
-              }
-              return Promise.resolve({
-                ...selectedAttemptRow,
-              } as T);
-            }
-            if (
-              queryIncludes(
-                "from openMeldDaemon_runtime_coordinator_executions"
-              )
-            ) {
-              const [spaceId, dispatchId, targetProfileId] = args;
-              const key = [
-                String(spaceId ?? ""),
-                String(dispatchId ?? ""),
-                String(targetProfileId ?? ""),
-              ].join("\0");
-              return Promise.resolve(
-                (runtimeCoordinatorRows.get(key) as T | undefined) ?? null
-              );
-            }
-            if (
-              queryIncludes("from openMeldDaemon_dispatch_ledger") &&
-              queryIncludes("select")
-            ) {
-              const dispatchingTimeoutAtMs = safeNumber(args[0]);
-              const observeFromMs = safeNumber(args[1]);
-              return Promise.resolve(
-                readDeliveryStabilitySummary({
-                  dispatchingTimeoutAtMs,
-                  observeFromMs,
-                }) as T
-              );
-            }
-            if (
-              queryIncludes("from openMeldDaemon_dlq") &&
-              queryIncludes("count(*)")
-            ) {
-              const observeFromMs = safeNumber(args[0]);
-              return Promise.resolve({
-                cold_start_timeout_count: readDeliveryStabilityColdStartCount({
-                  observeFromMs,
-                }),
-              } as T);
-            }
-            return Promise.reject(
-              new Error(`unsupported first() query: ${query}`)
-            );
-          },
-          run: () => {
-            if (queryIncludes("insert into openMeldDaemon_dispatch_ledger")) {
-              const hasSourceClientMessageId = queryIncludes(
-                "source_client_message_id"
-              );
-              const hasSourceProfileId = queryIncludes("source_profile_id");
-              const hasDispatchOwner = queryIncludes("dispatch_owner_kind");
-              let argIndex = 0;
-              const idempotencyKey = args[argIndex++];
-              const dispatchId = args[argIndex++];
-              const spaceId = args[argIndex++];
-              const sourceEventId = args[argIndex++];
-              const sourceProfileId = hasSourceProfileId
-                ? normalizeOptionalText(args[argIndex++])
-                : null;
-              const sourceClientMessageId = hasSourceClientMessageId
-                ? normalizeOptionalText(args[argIndex++])
-                : null;
-              const dispatchOwnerKind = hasDispatchOwner
-                ? normalizeOptionalText(args[argIndex++])
-                : null;
-              const dispatchOwnerId = hasDispatchOwner
-                ? normalizeOptionalText(args[argIndex++])
-                : null;
-              const targetProfileId = args[argIndex++];
-              const status = args[argIndex++];
-              const firstSeenAtMs = args[argIndex++];
-              const lastAttemptAtMs = args[argIndex++];
-              const attemptCount = args[argIndex++];
-              const latestAttemptId = args[argIndex++];
-              if (rows.has(String(idempotencyKey))) {
-                if (queryIncludes("on conflict(idempotency_key) do nothing")) {
-                  return Promise.resolve({ meta: { changes: 0 } });
-                }
-                return Promise.reject(
-                  new Error(
-                    "D1_ERROR: UNIQUE constraint failed: openMeldDaemon_dispatch_ledger.idempotency_key"
-                  )
-                );
-              }
-              rows.set(String(idempotencyKey), {
-                idempotencyKey: String(idempotencyKey),
-                dispatchId: String(dispatchId),
-                spaceId: String(spaceId),
-                sourceEventId: String(sourceEventId),
-                sourceProfileId,
-                sourceClientMessageId,
-                dispatchOwnerKind,
-                dispatchOwnerId,
-                targetProfileId: String(targetProfileId),
-                status: String(status),
-                firstSeenAtMs: Number(firstSeenAtMs),
-                lastAttemptAtMs: Number(lastAttemptAtMs),
-                attemptCount: Number(attemptCount),
-                latestAttemptId: String(latestAttemptId ?? ""),
-                replyHintSentAtMs: null,
-                finalReplySentAtMs: null,
-              });
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            if (queryIncludes("insert into openMeldDaemon_dispatch_attempts")) {
-              if (shouldFailNextAttemptInsert) {
-                shouldFailNextAttemptInsert = false;
-                return Promise.reject(
-                  new Error("injected dispatch attempt insert failure")
-                );
-              }
-              if (queryIncludes("where exists")) {
-                const idempotencyKey = String(args[9] ?? "");
-                const latestAttemptId = String(args[10] ?? "");
-                const attemptCount = Number(args[11]);
-                const ledgerRow = rows.get(idempotencyKey);
-                if (
-                  !ledgerRow ||
-                  ledgerRow.latestAttemptId !== latestAttemptId ||
-                  ledgerRow.attemptCount !== attemptCount
-                ) {
-                  return Promise.resolve({ meta: { changes: 0 } });
-                }
-              }
-              const [
-                attemptId,
-                dispatchId,
-                idempotencyKey,
-                attemptNo,
-                status,
-                taskId,
-                targetProfileId,
-                createdAtMs,
-                startedAtMs,
-              ] = args;
-              attempts.set(String(attemptId), {
-                attemptId: String(attemptId),
-                dispatchId: String(dispatchId),
-                idempotencyKey: String(idempotencyKey),
-                attemptNo: Number(attemptNo),
-                status: String(status),
-                daemonSessionId: null,
-                connectionGeneration: null,
-                leaseEpoch: null,
-                executionBindingId: null,
-                executionAgentControllerRef: null,
-                executionIdentityModelVersion: null,
-                executionRuntimeId: null,
-                targetProfileId: normalizeOptionalText(targetProfileId),
-                taskId: normalizeOptionalText(taskId),
-                createdAtMs: Number(createdAtMs),
-                startedAtMs: Number(startedAtMs),
-                finishedAtMs: null,
-                errorCode: null,
-                errorMessage: null,
-              });
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            if (
-              queryIncludes("update openMeldDaemon_dispatch_ledger") &&
-              queryIncludes("set dispatch_owner_kind = ?") &&
-              queryIncludes("and dispatch_owner_kind is null") &&
-              queryIncludes("and dispatch_owner_id is null")
-            ) {
-              const [dispatchOwnerKind, dispatchOwnerId, idempotencyKey] = args;
-              const row = rows.get(String(idempotencyKey ?? ""));
-              if (!row) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              const beforeKind = row.dispatchOwnerKind ?? null;
-              const beforeId = row.dispatchOwnerId ?? null;
-              fillDispatchOwnerEvidenceOnce(
-                row,
-                dispatchOwnerKind,
-                dispatchOwnerId
-              );
-              const changed =
-                beforeKind !== (row.dispatchOwnerKind ?? null) ||
-                beforeId !== (row.dispatchOwnerId ?? null);
-              return Promise.resolve({ meta: { changes: changed ? 1 : 0 } });
-            }
-
-            if (
-              queryIncludes("update openMeldDaemon_dispatch_ledger") &&
-              queryIncludes("set reply_hint_sent_at_ms = ?") &&
-              queryIncludes("reply_hint_sent_at_ms is null")
-            ) {
-              const [replyHintSentAtMs, key] = args;
-              const row = rows.get(String(key ?? ""));
-              if (!row || row.replyHintSentAtMs !== null) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              row.replyHintSentAtMs = Number(replyHintSentAtMs);
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            if (
-              queryIncludes("update openMeldDaemon_dispatch_ledger") &&
-              queryIncludes("set reply_hint_sent_at_ms = null") &&
-              queryIncludes("reply_hint_sent_at_ms = ?")
-            ) {
-              const [key, replyHintSentAtMs] = args;
-              const row = rows.get(String(key ?? ""));
-              if (!row || row.replyHintSentAtMs !== Number(replyHintSentAtMs)) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              row.replyHintSentAtMs = null;
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            if (
-              queryIncludes("update openMeldDaemon_dispatch_ledger") &&
-              queryIncludes("set final_reply_sent_at_ms = ?") &&
-              queryIncludes("final_reply_sent_at_ms is null")
-            ) {
-              const [finalReplySentAtMs, key] = args;
-              const row = rows.get(String(key ?? ""));
-              if (!row || row.finalReplySentAtMs !== null) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              row.finalReplySentAtMs = Number(finalReplySentAtMs);
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            if (
-              queryIncludes("update openMeldDaemon_dispatch_ledger") &&
-              queryIncludes("set final_reply_sent_at_ms = null") &&
-              queryIncludes("final_reply_sent_at_ms = ?")
-            ) {
-              const [key, finalReplySentAtMs] = args;
-              const row = rows.get(String(key ?? ""));
-              if (
-                !row ||
-                row.finalReplySentAtMs !== Number(finalReplySentAtMs)
-              ) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              row.finalReplySentAtMs = null;
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            if (
-              queryIncludes("update openMeldDaemon_dispatch_ledger") &&
-              queryIncludes(
-                "set status = ?, last_attempt_at_ms = ?, latest_attempt_id = ?"
-              ) &&
-              queryIncludes("where idempotency_key = ?") &&
-              !queryIncludes("set dispatch_id = ?")
-            ) {
-              const [status, lastAttemptAtMs, latestAttemptId, key] = args;
-              const idempotencyKey = String(key ?? "");
-              const row = rows.get(idempotencyKey);
-              if (!row) {
-                return Promise.reject(
-                  new Error(`missing row for ${idempotencyKey}`)
-                );
-              }
-              row.status = String(status);
-              row.lastAttemptAtMs = Number(lastAttemptAtMs);
-              row.latestAttemptId = String(latestAttemptId ?? "");
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            if (
-              queryIncludes("update openMeldDaemon_dispatch_attempts") &&
-              queryIncludes("finished_at_ms = ?") &&
-              queryIncludes("and exists")
-            ) {
-              const [
-                status,
-                finishedAtMs,
-                errorCode,
-                errorMessage,
-                attemptId,
-                expectedStatus,
-                idempotencyKey,
-                expectedLatestAttemptId,
-                expectedAttemptCount,
-              ] = args;
-              const row = attempts.get(String(attemptId ?? ""));
-              const ledgerRow = rows.get(String(idempotencyKey ?? ""));
-              if (
-                !row ||
-                row.status !== String(expectedStatus ?? "") ||
-                !ledgerRow ||
-                ledgerRow.latestAttemptId !==
-                  String(expectedLatestAttemptId ?? "") ||
-                ledgerRow.attemptCount !== Number(expectedAttemptCount)
-              ) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              row.status = String(status);
-              row.finishedAtMs = Number(finishedAtMs);
-              row.errorCode = String(errorCode);
-              row.errorMessage = String(errorMessage);
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            if (
-              queryIncludes("update openMeldDaemon_dispatch_attempts") &&
-              queryIncludes("set daemon_session_id = ?") &&
-              queryIncludes("and dispatch_id = ?") &&
-              queryIncludes("and status = ?")
-            ) {
-              const [
-                daemonSessionId,
-                connectionGeneration,
-                leaseEpoch,
-                taskId,
-                targetProfileId,
-                executionIdentityModelVersion,
-                executionBindingId,
-                executionRuntimeId,
-                executionAgentControllerRef,
-                startedAtMs,
-                attemptId,
-                dispatchId,
-                expectedStatus,
-              ] = args;
-              const row = attempts.get(String(attemptId ?? ""));
-              if (
-                !row ||
-                row.dispatchId !== String(dispatchId ?? "") ||
-                row.status !== String(expectedStatus ?? "")
-              ) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              row.daemonSessionId = String(daemonSessionId);
-              row.connectionGeneration = Number(connectionGeneration);
-              row.leaseEpoch = Number(leaseEpoch);
-              row.taskId = normalizeOptionalText(taskId);
-              row.targetProfileId = normalizeOptionalText(targetProfileId);
-              row.executionIdentityModelVersion = normalizeOptionalText(
-                executionIdentityModelVersion
-              );
-              row.executionBindingId =
-                normalizeOptionalText(executionBindingId);
-              row.executionRuntimeId =
-                normalizeOptionalText(executionRuntimeId);
-              row.executionAgentControllerRef = normalizeOptionalText(
-                executionAgentControllerRef
-              );
-              row.startedAtMs =
-                row.startedAtMs === null
-                  ? Number(startedAtMs)
-                  : row.startedAtMs;
-              row.errorCode = null;
-              row.errorMessage = null;
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            if (
-              queryIncludes("update openMeldDaemon_dispatch_attempts") &&
-              queryIncludes("finished_at_ms = null") &&
-              queryIncludes("error_code = null") &&
-              queryIncludes("where attempt_id = ?")
-            ) {
-              const [
-                status,
-                daemonSessionId,
-                connectionGeneration,
-                leaseEpoch,
-                startedAtMs,
-                attemptId,
-              ] = args;
-              const row = attempts.get(String(attemptId ?? ""));
-              if (!row) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              row.status = String(status);
-              row.daemonSessionId =
-                daemonSessionId === null || daemonSessionId === undefined
-                  ? row.daemonSessionId
-                  : String(daemonSessionId);
-              row.connectionGeneration =
-                connectionGeneration === null ||
-                connectionGeneration === undefined
-                  ? row.connectionGeneration
-                  : Number(connectionGeneration);
-              row.leaseEpoch =
-                leaseEpoch === null || leaseEpoch === undefined
-                  ? row.leaseEpoch
-                  : Number(leaseEpoch);
-              row.startedAtMs =
-                row.startedAtMs === null
-                  ? Number(startedAtMs)
-                  : row.startedAtMs;
-              row.finishedAtMs = null;
-              row.errorCode = null;
-              row.errorMessage = null;
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            if (
-              queryIncludes("update openMeldDaemon_dispatch_attempts") &&
-              queryIncludes("where attempt_id = ?")
-            ) {
-              const [
-                status,
-                daemonSessionId,
-                connectionGeneration,
-                leaseEpoch,
-                taskId,
-                targetProfileId,
-                startedAtMs,
-                finishedAtMs,
-                errorCode,
-                errorMessage,
-                attemptId,
-              ] = args;
-              const row = attempts.get(String(attemptId ?? ""));
-              if (!row) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              row.status = String(status);
-              row.daemonSessionId =
-                daemonSessionId === null || daemonSessionId === undefined
-                  ? row.daemonSessionId
-                  : String(daemonSessionId);
-              row.connectionGeneration =
-                connectionGeneration === null ||
-                connectionGeneration === undefined
-                  ? row.connectionGeneration
-                  : Number(connectionGeneration);
-              row.leaseEpoch =
-                leaseEpoch === null || leaseEpoch === undefined
-                  ? row.leaseEpoch
-                  : Number(leaseEpoch);
-              row.taskId =
-                taskId === null || taskId === undefined
-                  ? row.taskId
-                  : String(taskId);
-              row.targetProfileId =
-                targetProfileId === null || targetProfileId === undefined
-                  ? row.targetProfileId
-                  : String(targetProfileId);
-              row.startedAtMs =
-                startedAtMs === null || startedAtMs === undefined
-                  ? row.startedAtMs
-                  : Number(startedAtMs);
-              row.finishedAtMs =
-                finishedAtMs === null || finishedAtMs === undefined
-                  ? row.finishedAtMs
-                  : Number(finishedAtMs);
-              row.errorCode =
-                errorCode === null || errorCode === undefined
-                  ? null
-                  : String(errorCode);
-              row.errorMessage =
-                errorMessage === null || errorMessage === undefined
-                  ? null
-                  : String(errorMessage);
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            if (
-              queryIncludes("update openMeldDaemon_dispatch_ledger") &&
-              queryIncludes("set space_id = ?") &&
-              queryIncludes("latest_attempt_id = ?") &&
-              !queryIncludes("set dispatch_id = ?")
-            ) {
-              let argIndex = 0;
-              const spaceId = args[argIndex++];
-              const sourceEventId = args[argIndex++];
-              const sourceProfileId = normalizeOptionalText(args[argIndex++]);
-              const sourceClientMessageId = args[argIndex++];
-              const dispatchOwnerKind = args[argIndex++];
-              const dispatchOwnerId = args[argIndex++];
-              const targetProfileId = args[argIndex++];
-              const status = args[argIndex++];
-              const lastAttemptAtMs = args[argIndex++];
-              const latestAttemptId = args[argIndex++];
-              const _maxAttempt = args[argIndex++];
-              const attempt = args[argIndex++];
-              const key = args[argIndex++];
-              const expectedStatus = args[argIndex++];
-              const expectedLastAttemptAtMs = args[argIndex++];
-              const expectedLatestAttemptId = args[argIndex++];
-              const idempotencyKey = String(key ?? "");
-              const row = rows.get(idempotencyKey);
-              if (!row) {
-                return Promise.reject(
-                  new Error(`missing row for ${idempotencyKey}`)
-                );
-              }
-              if (
-                queryIncludes("and status = ?") &&
-                row.status !== expectedStatus
-              ) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              if (
-                queryIncludes("and last_attempt_at_ms = ?") &&
-                row.lastAttemptAtMs !== Number(expectedLastAttemptAtMs ?? 0)
-              ) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              if (
-                queryIncludes("and latest_attempt_id is ?") &&
-                row.latestAttemptId !==
-                  (expectedLatestAttemptId === null ||
-                  expectedLatestAttemptId === undefined
-                    ? null
-                    : String(expectedLatestAttemptId))
-              ) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              row.spaceId = String(spaceId);
-              row.sourceEventId = String(sourceEventId);
-              row.sourceProfileId ??= sourceProfileId;
-              row.sourceClientMessageId = normalizeOptionalText(
-                sourceClientMessageId
-              );
-              fillDispatchOwnerEvidenceOnce(
-                row,
-                dispatchOwnerKind,
-                dispatchOwnerId
-              );
-              row.targetProfileId = String(targetProfileId);
-              row.status = String(status);
-              row.lastAttemptAtMs = Number(lastAttemptAtMs);
-              row.latestAttemptId = String(latestAttemptId ?? "");
-              row.attemptCount = Math.max(row.attemptCount, Number(attempt));
-              if (queryIncludes("reply_hint_sent_at_ms = null")) {
-                row.replyHintSentAtMs = null;
-              }
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            if (
-              queryIncludes("update openMeldDaemon_dispatch_ledger") &&
-              queryIncludes("set dispatch_id = ?")
-            ) {
-              const hasFirstSeenUpdate = queryIncludes("first_seen_at_ms = ?");
-              const hasSourceClientMessageId = queryIncludes(
-                "source_client_message_id = ?"
-              );
-              const hasSourceProfileId = queryIncludes("source_profile_id");
-              const hasDispatchOwner = queryIncludes("dispatch_owner_kind");
-              if (hasFirstSeenUpdate) {
-                let argIndex = 0;
-                const dispatchId = args[argIndex++];
-                const spaceId = args[argIndex++];
-                const sourceEventId = args[argIndex++];
-                const sourceProfileId = hasSourceProfileId
-                  ? normalizeOptionalText(args[argIndex++])
-                  : null;
-                const sourceClientMessageId = hasSourceClientMessageId
-                  ? args[argIndex++]
-                  : null;
-                const dispatchOwnerKind = hasDispatchOwner
-                  ? args[argIndex++]
-                  : null;
-                const dispatchOwnerId = hasDispatchOwner
-                  ? args[argIndex++]
-                  : null;
-                const targetProfileId = args[argIndex++];
-                const status = args[argIndex++];
-                const firstSeenAtMs = args[argIndex++];
-                const lastAttemptAtMs = args[argIndex++];
-                const attemptCount = args[argIndex++];
-                const latestAttemptId = args[argIndex++];
-                const key = args[argIndex++];
-                const expectedStatus = args[argIndex++];
-                const expectedLastAttemptAtMs = args[argIndex++];
-                const expectedLatestAttemptId = args[argIndex++];
-                const idempotencyKey = String(key ?? "");
-                const row = rows.get(idempotencyKey);
-                if (!row) {
-                  return Promise.reject(
-                    new Error(`missing row for ${idempotencyKey}`)
-                  );
-                }
-                if (
-                  queryIncludes("and status is ?") &&
-                  row.status !== expectedStatus
-                ) {
-                  return Promise.resolve({ meta: { changes: 0 } });
-                }
-                if (
-                  queryIncludes("and last_attempt_at_ms = ?") &&
-                  row.lastAttemptAtMs !== Number(expectedLastAttemptAtMs)
-                ) {
-                  return Promise.resolve({ meta: { changes: 0 } });
-                }
-                if (
-                  queryIncludes("and latest_attempt_id is ?") &&
-                  row.latestAttemptId !==
-                    (expectedLatestAttemptId === null ||
-                    expectedLatestAttemptId === undefined
-                      ? null
-                      : String(expectedLatestAttemptId))
-                ) {
-                  return Promise.resolve({ meta: { changes: 0 } });
-                }
-                row.dispatchId = String(dispatchId);
-                row.spaceId = String(spaceId);
-                row.sourceEventId = String(sourceEventId);
-                row.sourceProfileId ??= sourceProfileId;
-                row.sourceClientMessageId = normalizeOptionalText(
-                  sourceClientMessageId
-                );
-                fillDispatchOwnerEvidenceOnce(
-                  row,
-                  dispatchOwnerKind,
-                  dispatchOwnerId
-                );
-                row.targetProfileId = String(targetProfileId);
-                row.status = String(status);
-                row.firstSeenAtMs = Number(firstSeenAtMs);
-                row.lastAttemptAtMs = Number(lastAttemptAtMs);
-                row.attemptCount = Number(attemptCount);
-                row.latestAttemptId = String(latestAttemptId ?? "");
-                row.replyHintSentAtMs = null;
-                row.finalReplySentAtMs = null;
-                return Promise.resolve({ meta: { changes: 1 } });
-              }
-
-              let argIndex = 0;
-              const dispatchId = args[argIndex++];
-              const spaceId = args[argIndex++];
-              const sourceEventId = args[argIndex++];
-              const sourceProfileId = hasSourceProfileId
-                ? normalizeOptionalText(args[argIndex++])
-                : null;
-              const sourceClientMessageId = hasSourceClientMessageId
-                ? args[argIndex++]
-                : null;
-              const dispatchOwnerKind = hasDispatchOwner
-                ? args[argIndex++]
-                : null;
-              const dispatchOwnerId = hasDispatchOwner
-                ? args[argIndex++]
-                : null;
-              const targetProfileId = args[argIndex++];
-              const status = args[argIndex++];
-              const lastAttemptAtMs = args[argIndex++];
-              const latestAttemptId = args[argIndex++];
-              const _maxAttempt = args[argIndex++];
-              const attempt = args[argIndex++];
-              const key = args[argIndex++];
-              const expectedStatus = args[argIndex++];
-              const expectedLastAttemptAtMs = args[argIndex++];
-              const expectedLatestAttemptId = args[argIndex++];
-              const idempotencyKey = String(key ?? "");
-              const row = rows.get(idempotencyKey);
-              if (!row) {
-                return Promise.reject(
-                  new Error(`missing row for ${idempotencyKey}`)
-                );
-              }
-              if (
-                queryIncludes("and status = ?") &&
-                row.status !== expectedStatus
-              ) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              if (
-                queryIncludes("and last_attempt_at_ms = ?") &&
-                row.lastAttemptAtMs !== expectedLastAttemptAtMs
-              ) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              if (
-                queryIncludes("and latest_attempt_id is ?") &&
-                row.latestAttemptId !==
-                  (expectedLatestAttemptId === null ||
-                  expectedLatestAttemptId === undefined
-                    ? null
-                    : String(expectedLatestAttemptId))
-              ) {
-                return Promise.resolve({ meta: { changes: 0 } });
-              }
-              if (queryIncludes("from openMeldDaemon_dispatch_attempts")) {
-                const expectedAttemptId = args[argIndex++];
-                const expectedAttemptStatus = args[argIndex++];
-                const expectedAttempt = attempts.get(
-                  String(expectedAttemptId ?? "")
-                );
-                if (
-                  !expectedAttempt ||
-                  expectedAttempt.status !== String(expectedAttemptStatus ?? "")
-                ) {
-                  return Promise.resolve({ meta: { changes: 0 } });
-                }
-              }
-              row.dispatchId = String(dispatchId);
-              row.spaceId = String(spaceId);
-              row.sourceEventId = String(sourceEventId);
-              row.sourceProfileId ??= sourceProfileId;
-              row.sourceClientMessageId = normalizeOptionalText(
-                sourceClientMessageId
-              );
-              fillDispatchOwnerEvidenceOnce(
-                row,
-                dispatchOwnerKind,
-                dispatchOwnerId
-              );
-              row.targetProfileId = String(targetProfileId);
-              row.status = String(status);
-              row.lastAttemptAtMs = Number(lastAttemptAtMs);
-              row.latestAttemptId = String(latestAttemptId ?? "");
-              row.attemptCount = Math.max(row.attemptCount, Number(attempt));
-              if (queryIncludes("reply_hint_sent_at_ms = null")) {
-                row.replyHintSentAtMs = null;
-              }
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-            if (queryIncludes("insert into openMeldDaemon_dlq")) {
-              const [
-                dispatchId,
-                idempotencyKey,
-                sourceEventId,
-                targetProfileId,
-                errorCode,
-                _errorMessage,
-                failedAtMs,
-              ] = args;
-              dlqRows.push({
-                dispatchId: String(dispatchId),
-                idempotencyKey: String(idempotencyKey),
-                sourceEventId: String(sourceEventId),
-                targetProfileId: String(targetProfileId),
-                errorCode: String(errorCode),
-                failedAtMs: safeNumber(failedAtMs),
-              });
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-            if (queryIncludes("insert into openMeldDaemon_ops_decisions")) {
-              opsDecisionRows.push(args);
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-
-            return Promise.reject(
-              new Error(`unsupported run() query: ${query}`)
-            );
-          },
-        }),
-      };
-    },
-    batch: async (statements: D1PreparedStatement[]) => {
-      const rowSnapshot = new Map(
-        [...rows].map(([key, value]) => [key, { ...value }])
-      );
-      const attemptSnapshot = new Map(
-        [...attempts].map(([key, value]) => [key, { ...value }])
-      );
-      try {
-        const results: D1Result[] = [];
-        for (const statement of statements) {
-          results.push(await statement.run());
-        }
-        return results;
-      } catch (error) {
-        rows.clear();
-        attempts.clear();
-        for (const [key, value] of rowSnapshot) {
-          rows.set(key, value);
-        }
-        for (const [key, value] of attemptSnapshot) {
-          attempts.set(key, value);
-        }
-        throw error;
-      }
-    },
-  } as unknown as D1Database;
 
   return {
-    db,
-    injectNextAttemptInsertFailure: () => {
-      shouldFailNextAttemptInsert = true;
-    },
-    readRow: (idempotencyKey: string) => rows.get(idempotencyKey),
-    readAttempt: (attemptId: string) => attempts.get(attemptId),
-    seedAttemptRow,
-    seedDlqRow,
-    seedRuntimeCoordinatorExecution,
-    rows,
-    opsDecisionRows,
-  };
-};
-
-const buildDispatchMessage = (overrides?: {
-  deliveryRecoveryReason?: OpenMeldDaemonDispatchQueueMessage["deliveryRecoveryReason"];
-  dispatchOwner?: OpenMeldDaemonDispatchQueueMessage["dispatchOwner"];
-  dispatchId?: string;
-  idempotencyKey?: string;
-  sourceClientMessageId?: string;
-  sourceEventId?: string;
-  sourceProfileId?: string;
-  targetProfileId?: string;
-}): OpenMeldDaemonDispatchQueueMessage => {
-  const dispatchId = overrides?.dispatchId ?? "dispatch-1";
-  const sourceEventId = overrides?.sourceEventId ?? "evt-1";
-  const targetProfileId = overrides?.targetProfileId ?? "agt-1";
-  return {
-    v: 2,
-    dispatchId,
-    spaceId: "space-1",
-    sourceEventId,
-    sourceSignalSnapshot: {
-      profileId: overrides?.sourceProfileId ?? "human-1",
-      profileKind: "human",
-      text: "Wake the agent",
-    },
-    ...(overrides?.deliveryRecoveryReason
-      ? { deliveryRecoveryReason: overrides.deliveryRecoveryReason }
-      : {}),
-    ...(overrides?.sourceClientMessageId
-      ? { sourceClientMessageId: overrides.sourceClientMessageId }
-      : {}),
-    ...(overrides?.dispatchOwner
-      ? { dispatchOwner: overrides.dispatchOwner }
-      : {}),
-    targetProfileId,
-    dispatchChainId: dispatchId,
-    autoRelayDepth: 0,
-    visitedProfileIds: [],
-    visitedProfileIdsHash: "stable32:1234abcd",
-    dispatchContractVersion: 2,
-    dispatchPolicy: "mention_only",
-    ruleSource: "space",
-    ruleId: "space.default.all_members.v1",
-    ruleReason: "default allow all members mention",
-    taskId: `task-${dispatchId}`,
-    transportMode: "local-cli",
-    controllerSnapshot: {
-      targetBindingState: "bound",
-      targetBindingEnabled: true,
-      agentControllerRef: "codex",
-    },
-    contextIdMappingSpec: null,
-    dispatchRulesSnapshot: {
-      dispatchPolicy: "mention_only",
-      ruleSource: "space",
-      ruleId: "space.default.all_members.v1",
-      ruleReason: "default allow all members mention",
-    },
-    dispatchSnapshot: {
-      dispatchPolicy: "mention_only",
-      ruleSource: "space",
-      ruleId: "space.default.all_members.v1",
-      ruleReason: "default allow all members mention",
-      targetBindingState: "bound",
-      targetBindingEnabled: true,
-    },
-    idempotencyKey:
-      overrides?.idempotencyKey ?? `5:${sourceEventId}|5:${targetProfileId}`,
-    enqueuedAtMs: 1000,
-  };
-};
-
-const createDispatchLedgerInsertCaptureDb = () => {
-  let ledgerInsertQuery = "";
-  let ledgerInsertBindings: unknown[] = [];
-  const db = {
-    prepare: (query: string) => {
-      const compactQuery = query.toLowerCase().replace(/\s+/g, " ");
-      const queryIncludes = (sql: string) =>
-        compactQuery.includes(sql.toLowerCase());
-      return {
-        bind: (...args: unknown[]) => ({
-          first: () => {
-            if (
-              queryIncludes("from openMeldDaemon_dispatch_ledger") &&
-              queryIncludes("where idempotency_key = ?")
-            ) {
-              return Promise.resolve(null);
-            }
-            if (
-              queryIncludes(
-                "from openMeldDaemon_runtime_coordinator_executions"
-              )
-            ) {
-              return Promise.resolve(null);
-            }
-            throw new Error(`unsupported first() query: ${query}`);
-          },
-          run: () => {
-            if (queryIncludes("insert into openMeldDaemon_dispatch_ledger")) {
-              ledgerInsertQuery = query;
-              ledgerInsertBindings = args;
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-            if (queryIncludes("insert into openMeldDaemon_dispatch_attempts")) {
-              return Promise.resolve({ meta: { changes: 1 } });
-            }
-            throw new Error(`unsupported run() query: ${query}`);
-          },
-        }),
-      };
-    },
-    batch: async (statements: D1PreparedStatement[]) => {
-      const results: D1Result[] = [];
-      for (const statement of statements) {
-        results.push(await statement.run());
-      }
-      return results;
-    },
-  } as unknown as D1Database;
-
-  return {
-    db,
-    readLedgerInsert: () => ({
-      bindings: ledgerInsertBindings,
-      query: ledgerInsertQuery,
-    }),
+    db: harness.db,
+    seedRow: (row: LedgerRow) =>
+      seedRecord("openMeldDaemon_dispatch_ledger", "idempotency_key", row),
+    readRow: (key: string) =>
+      readRecord<LedgerRow>(
+        "openMeldDaemon_dispatch_ledger",
+        "idempotency_key",
+        key
+      ),
+    readRows: () =>
+      harness.queryAll({ sql: "SELECT * FROM openMeldDaemon_dispatch_ledger" }),
+    readAttempt: (id: string) =>
+      readRecord<AttemptRow>(
+        "openMeldDaemon_dispatch_attempts",
+        "attempt_id",
+        id
+      ),
+    seedAttemptRow: (row: AttemptRow) =>
+      seedRecord("openMeldDaemon_dispatch_attempts", "attempt_id", row),
+    readOpsDecisions: () =>
+      harness
+        .queryAll<{ decision_payload_json: string }>({
+          sql: "SELECT decision_payload_json FROM openMeldDaemon_ops_decisions ORDER BY rowid",
+        })
+        .map((row) => JSON.parse(row.decision_payload_json)),
+    injectAttemptInsertFailure: () =>
+      harness.run({
+        sql: `CREATE TEMP TRIGGER fail_dispatch_attempt_insert
+        BEFORE INSERT ON openMeldDaemon_dispatch_attempts
+        BEGIN SELECT RAISE(ABORT, 'injected dispatch attempt insert failure'); END`,
+      }),
+    clearAttemptInsertFailure: () =>
+      harness.run({ sql: "DROP TRIGGER fail_dispatch_attempt_insert" }),
+    seedDlqRow: (row: DlqRow) => seedRecord("openMeldDaemon_dlq", "id", row),
+    seedRuntimeCoordinatorExecution: (input: {
+      attemptId?: string | null;
+      daemonSessionId?: string | null;
+      dispatchId: string;
+      leaseEpoch?: number | null;
+      status?: string;
+      targetProfileId: string;
+    }) =>
+      harness.run({
+        sql: `INSERT INTO openMeldDaemon_runtime_coordinator_executions (
+        runtime_coordinator_execution_id, model_version, space_id, dispatch_id,
+        target_profile_id, openmeld_service_runtime_id_source, openmeld_service_runtime_id,
+        binding_id, agent_controller_ref, status, attempt_id, daemon_session_id,
+        lease_epoch, connection_generation, created_at_ms, updated_at_ms
+      ) VALUES (?, 'openmeld.runtime_coordinator.execution.v1', 'space-1', ?, ?,
+        'runtime_registry_authority', 'runtime-1', 'binding-1', 'builtin:codex',
+        ?, ?, ?, ?, 1, 1000, 1000)`,
+        params: [
+          `rce-${input.dispatchId}`,
+          input.dispatchId,
+          input.targetProfileId,
+          input.status ?? "running",
+          input.attemptId ?? null,
+          input.daemonSessionId ?? null,
+          input.leaseEpoch ?? null,
+        ],
+      }),
   };
 };
 
@@ -1208,6 +236,7 @@ const seedStaleDispatchLedgerClaim = async (input: {
   db: D1Database;
   message: OpenMeldDaemonDispatchQueueMessage;
   readRow: (idempotencyKey: string) => LedgerRow | undefined;
+  seedRow: (row: LedgerRow) => void;
   status: LedgerRow["status"];
 }) => {
   const first = await claimDispatchAttempt({
@@ -1226,6 +255,7 @@ const seedStaleDispatchLedgerClaim = async (input: {
   }
   seeded.status = input.status;
   seeded.lastAttemptAtMs = 1000;
+  input.seedRow(seeded);
 
   return first;
 };
@@ -1242,15 +272,9 @@ const summarizeConcurrentReclaim = (
 
 describe("dispatch ledger schema failures", () => {
   it("fails fast when the shared OPENMELD_DB migration has not created the ledger tables", async () => {
-    const db = {
-      prepare: () => ({
-        bind: () => ({
-          first: () => {
-            throw new Error("no such table: openMeldDaemon_dispatch_ledger");
-          },
-        }),
-      }),
-    } as unknown as D1Database;
+    const harness = createSqliteD1Harness();
+    onTestFinished(() => harness.close());
+    const db = harness.db;
 
     await expect(
       claimDispatchAttempt({
@@ -1265,9 +289,13 @@ describe("dispatch ledger schema failures", () => {
 
 describe("claimDispatchAttempt", () => {
   it("rolls back a new ledger claim when its attempt insert fails", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb({
-      failNextAttemptInsert: true,
-    });
+    const {
+      db,
+      readRow,
+      injectAttemptInsertFailure,
+      clearAttemptInsertFailure,
+    } = createDispatchLedgerFixture();
+    injectAttemptInsertFailure();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-atomic-new-claim-1",
       sourceEventId: "signal-atomic-new-claim-1",
@@ -1282,6 +310,7 @@ describe("claimDispatchAttempt", () => {
         nowMs: 1000,
       })
     ).rejects.toThrow("injected dispatch attempt insert failure");
+    clearAttemptInsertFailure();
 
     expect(readRow(message.idempotencyKey)).toBeUndefined();
     await expect(
@@ -1298,7 +327,7 @@ describe("claimDispatchAttempt", () => {
   });
 
   it("retains concurrent intake recovery until the same Wake reaches execution handoff", async () => {
-    const { db, rows } = createInMemoryDispatchLedgerDb();
+    const { db, readRows } = createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-concurrent-new-claim-1",
       sourceEventId: "signal-concurrent-new-claim-1",
@@ -1330,7 +359,7 @@ describe("claimDispatchAttempt", () => {
       status: "fulfilled",
       value: { status: "deduped", admissionInFlight: true },
     });
-    expect(rows).toHaveLength(1);
+    expect(readRows()).toHaveLength(1);
 
     const winner = claims[0];
     if (winner.status !== "fulfilled" || winner.value.status !== "claimed") {
@@ -1338,13 +367,13 @@ describe("claimDispatchAttempt", () => {
     }
     await markDispatchStatus({
       attemptId: winner.value.attemptId,
-      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
+      attemptStatus: "failed_retryable",
       db,
       errorCode: "agent_execution.readiness_unconfirmed",
       errorMessage: "Initial readiness evidence is not available yet",
       idempotencyKey: message.idempotencyKey,
       nowMs: 1100,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+      status: "failed_retryable",
     });
     const resumed = await claimDispatchAttempt({
       attempt: 2,
@@ -1372,11 +401,11 @@ describe("claimDispatchAttempt", () => {
         nowMs: 2200,
       })
     ).resolves.toEqual({ status: "deduped" });
-    expect(rows).toHaveLength(1);
+    expect(readRows()).toHaveLength(1);
   });
 
   it("projects hosted native delivery as waiting for a result without daemon ownership", async () => {
-    const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, readRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-hosted-native-delivery-1",
       sourceEventId: "signal-hosted-native-delivery-1",
@@ -1403,20 +432,20 @@ describe("claimDispatchAttempt", () => {
 
     expect(readRow(message.idempotencyKey)).toMatchObject({
       latestAttemptId: claim.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.dispatching,
+      status: "dispatching",
     });
     expect(readAttempt(claim.attemptId)).toMatchObject({
       connectionGeneration: null,
       daemonSessionId: null,
       leaseEpoch: null,
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.waitingResult,
+      status: "waiting_result",
       targetProfileId: message.targetProfileId,
       taskId: message.taskId,
     });
   });
 
   it("reuses the active dispatch attempt for incomplete hosted admission recovery", async () => {
-    const { db } = createInMemoryDispatchLedgerDb();
+    const { db } = createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-hosted-admission-recovery-1",
       sourceEventId: "signal-hosted-admission-recovery-1",
@@ -1449,134 +478,55 @@ describe("claimDispatchAttempt", () => {
     });
   });
 
-  it("persists source client message id on new ledger claims", async () => {
-    const { db, readLedgerInsert } = createDispatchLedgerInsertCaptureDb();
+  it("persists the source message, profile, and owner in their own columns", async () => {
+    const { db, readRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       sourceClientMessageId: "client-message-1",
+      sourceProfileId: "human-source-1",
+      dispatchOwner: { id: "owner-1", kind: "owner_account" },
     });
-
-    await claimDispatchAttempt({
-      db,
-      message,
-      attempt: 1,
-      nowMs: 1000,
-    });
-
-    const ledgerInsert = readLedgerInsert();
-    expect(ledgerInsert.query).toContain("source_client_message_id");
-    expect(ledgerInsert.bindings).toContain("client-message-1");
-  });
-
-  it("persists the immutable source profile selector on new ledger claims", async () => {
-    const { db, readLedgerInsert } = createDispatchLedgerInsertCaptureDb();
-
-    await claimDispatchAttempt({
-      db,
-      message: buildDispatchMessage({ sourceProfileId: "human-source-1" }),
-      attempt: 1,
-      nowMs: 1000,
-    });
-
-    const ledgerInsert = readLedgerInsert();
-    expect(ledgerInsert.query).toContain("source_profile_id");
-    expect(ledgerInsert.bindings).toContain("human-source-1");
-  });
-
-  it("persists dispatch owner evidence from the queue message on new ledger claims", async () => {
-    const { db, readLedgerInsert } = createDispatchLedgerInsertCaptureDb();
-    const message = buildDispatchMessage({
-      dispatchOwner: {
-        id: "owner-1",
-        kind: "owner_account",
-      },
-    });
-
-    await claimDispatchAttempt({
-      db,
-      message,
-      attempt: 1,
-      nowMs: 1000,
-    });
-
-    const ledgerInsert = readLedgerInsert();
-    expect(ledgerInsert.query).toContain("dispatch_owner_kind");
-    expect(ledgerInsert.query).toContain("dispatch_owner_id");
-    expect(ledgerInsert.bindings).toContain("owner_account");
-    expect(ledgerInsert.bindings).toContain("owner-1");
-  });
-
-  it("does not clear creation-time dispatch owner evidence on ownerless retry messages", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
-    const firstMessage = buildDispatchMessage({
-      dispatchOwner: {
-        id: "owner-a",
-        kind: "owner_account",
-      },
-    });
-
-    await claimDispatchAttempt({
-      db,
-      message: firstMessage,
-      attempt: 1,
-      nowMs: 1000,
-    });
-
-    const seeded = readRow(firstMessage.idempotencyKey);
-    if (!seeded) {
-      throw new Error("expected seeded row");
-    }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
-
-    await claimDispatchAttempt({
-      db,
-      message: buildDispatchMessage({
-        idempotencyKey: firstMessage.idempotencyKey,
-      }),
-      attempt: 2,
-      nowMs: 2000,
-    });
-
-    expect(readRow(firstMessage.idempotencyKey)).toMatchObject({
-      dispatchOwnerId: "owner-a",
+    await claimDispatchAttempt({ db, message, attempt: 1, nowMs: 1000 });
+    expect(readRow(message.idempotencyKey)).toMatchObject({
+      sourceClientMessageId: "client-message-1",
+      sourceProfileId: "human-source-1",
       dispatchOwnerKind: "owner_account",
+      dispatchOwnerId: "owner-1",
     });
   });
 
-  it("does not overwrite creation-time dispatch owner evidence on retry messages", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
+  it.each([
+    { name: "ownerless", owner: undefined },
+    {
+      name: "different-owner",
+      owner: { id: "owner-b", kind: "owner_account" as const },
+    },
+  ])("preserves creation-time owner evidence on a $name retry", async ({
+    owner,
+  }) => {
+    const { db, readRow, seedRow } = createDispatchLedgerFixture();
     const firstMessage = buildDispatchMessage({
-      dispatchOwner: {
-        id: "owner-a",
-        kind: "owner_account",
-      },
+      dispatchOwner: { id: "owner-a", kind: "owner_account" },
     });
-
     await claimDispatchAttempt({
       db,
       message: firstMessage,
       attempt: 1,
       nowMs: 1000,
     });
-
     const seeded = readRow(firstMessage.idempotencyKey);
     if (!seeded) {
       throw new Error("expected seeded row");
     }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
-
+    seedRow({ ...seeded, status: "failed_retryable" });
     await claimDispatchAttempt({
       db,
       message: buildDispatchMessage({
-        dispatchOwner: {
-          id: "owner-b",
-          kind: "owner_account",
-        },
         idempotencyKey: firstMessage.idempotencyKey,
+        dispatchOwner: owner,
       }),
       attempt: 2,
       nowMs: 2000,
     });
-
     expect(readRow(firstMessage.idempotencyKey)).toMatchObject({
       dispatchOwnerId: "owner-a",
       dispatchOwnerKind: "owner_account",
@@ -1584,7 +534,7 @@ describe("claimDispatchAttempt", () => {
   });
 
   it("fills missing dispatch owner evidence once from a valid retry message", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readRow, seedRow } = createDispatchLedgerFixture();
     const firstMessage = buildDispatchMessage();
 
     await claimDispatchAttempt({
@@ -1598,7 +548,8 @@ describe("claimDispatchAttempt", () => {
     if (!seeded) {
       throw new Error("expected seeded row");
     }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
+    seeded.status = "failed_retryable";
+    seedRow(seeded);
 
     const retryClaim = await claimDispatchAttempt({
       db,
@@ -1626,7 +577,7 @@ describe("claimDispatchAttempt", () => {
       attemptCount: 1,
       dispatchOwnerId: "owner-a",
       dispatchOwnerKind: "owner_account",
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+      status: "failed_retryable",
     });
   });
 
@@ -1635,7 +586,7 @@ describe("claimDispatchAttempt", () => {
     "agent_execution.readiness_unconfirmed",
     "working_folder.observation_coverage_invalid",
   ])("rechecks pre-execution admission after %s instead of requiring an existing execution", async (errorCode) => {
-    const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, readRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-head-accept-retry-1",
       sourceEventId: "signal-head-accept-retry-1",
@@ -1654,14 +605,14 @@ describe("claimDispatchAttempt", () => {
 
     await markDispatchStatus({
       attemptId: first.attemptId,
-      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
+      attemptStatus: "failed_retryable",
       db,
       errorCode,
       errorMessage:
         "RuntimeCoordinator head accept returned retry_later before execution creation",
       idempotencyKey: message.idempotencyKey,
       nowMs: 1100,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+      status: "failed_retryable",
     });
 
     const retry = await claimDispatchAttempt({
@@ -1682,19 +633,19 @@ describe("claimDispatchAttempt", () => {
     expect(readRow(message.idempotencyKey)).toMatchObject({
       attemptCount: 2,
       latestAttemptId: retry.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      status: "queued",
     });
     expect(readAttempt(first.attemptId)).toMatchObject({
       errorCode,
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
+      status: "failed_retryable",
     });
     expect(readAttempt(retry.attemptId)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.dispatching,
+      status: "dispatching",
     });
   });
 
   it("retries RuntimeCoordinator head no-execution after a retryable head decision failure instead of deduping", async () => {
-    const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, readRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-head-no-execution-retry-1",
       sourceEventId: "signal-head-no-execution-retry-1",
@@ -1713,14 +664,14 @@ describe("claimDispatchAttempt", () => {
 
     await markDispatchStatus({
       attemptId: first.attemptId,
-      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
+      attemptStatus: "failed_retryable",
       db,
       errorCode: "runtime_coordinator.head_no_execution_unavailable",
       errorMessage:
         "RuntimeCoordinator head no-execution decision returned retry_later before execution creation",
       idempotencyKey: message.idempotencyKey,
       nowMs: 1100,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+      status: "failed_retryable",
     });
 
     const retry = await claimDispatchAttempt({
@@ -1741,19 +692,19 @@ describe("claimDispatchAttempt", () => {
     expect(readRow(message.idempotencyKey)).toMatchObject({
       attemptCount: 2,
       latestAttemptId: retry.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      status: "queued",
     });
     expect(readAttempt(first.attemptId)).toMatchObject({
       errorCode: "runtime_coordinator.head_no_execution_unavailable",
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
+      status: "failed_retryable",
     });
     expect(readAttempt(retry.attemptId)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.dispatching,
+      status: "dispatching",
     });
   });
 
   it("dedupes terminal status inside idempotency window", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readRow, seedRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     const first = await claimDispatchAttempt({
@@ -1773,7 +724,8 @@ describe("claimDispatchAttempt", () => {
     if (!seeded) {
       throw new Error("expected seeded row");
     }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.succeeded;
+    seeded.status = "succeeded";
+    seedRow(seeded);
 
     const second = await claimDispatchAttempt({
       db,
@@ -1784,13 +736,11 @@ describe("claimDispatchAttempt", () => {
     expect(second).toEqual({
       status: "deduped",
     });
-    expect(readRow(message.idempotencyKey)?.status).toBe(
-      OPENMELD_DAEMON_DISPATCH_STATE.succeeded
-    );
+    expect(readRow(message.idempotencyKey)?.status).toBe("succeeded");
   });
 
   it("dedupes fresh queued status inside idempotency window", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readRow, seedRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     await claimDispatchAttempt({
@@ -1804,9 +754,10 @@ describe("claimDispatchAttempt", () => {
     if (!seeded) {
       throw new Error("expected seeded row");
     }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.queued;
+    seeded.status = "queued";
     seeded.lastAttemptAtMs = 1000;
     seeded.replyHintSentAtMs = 1100;
+    seedRow(seeded);
 
     const second = await claimDispatchAttempt({
       db,
@@ -1818,20 +769,19 @@ describe("claimDispatchAttempt", () => {
       status: "deduped",
       admissionInFlight: true,
     });
-    expect(readRow(message.idempotencyKey)?.status).toBe(
-      OPENMELD_DAEMON_DISPATCH_STATE.queued
-    );
+    expect(readRow(message.idempotencyKey)?.status).toBe("queued");
   });
 
   it("does not let stale queued D1 state reclaim delivery inside idempotency window", async () => {
-    const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, readRow, seedRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     const first = await seedStaleDispatchLedgerClaim({
       db,
       message,
       readRow,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      seedRow,
+      status: "queued",
     });
 
     const reclaimNowMs = 1000 + DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS + 1;
@@ -1852,7 +802,7 @@ describe("claimDispatchAttempt", () => {
     });
 
     expect(readRow(message.idempotencyKey)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      status: "queued",
       lastAttemptAtMs: 1000,
       latestAttemptId: first.attemptId,
       replyHintSentAtMs: null,
@@ -1864,14 +814,15 @@ describe("claimDispatchAttempt", () => {
   });
 
   it("keeps concurrent stale queued reclaim attempts as RuntimeCoordinator trigger evidence", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readRow, seedRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     await seedStaleDispatchLedgerClaim({
       db,
       message,
       readRow,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      seedRow,
+      status: "queued",
     });
 
     const reclaimNowMs = 1000 + DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS + 1;
@@ -1896,13 +847,13 @@ describe("claimDispatchAttempt", () => {
       hasDedupedClaim: true,
     });
     expect(readRow(message.idempotencyKey)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      status: "queued",
       lastAttemptAtMs: 1000,
     });
   });
 
   it("dedupes fresh dispatching status inside idempotency window", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readRow, seedRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     await claimDispatchAttempt({
@@ -1916,9 +867,10 @@ describe("claimDispatchAttempt", () => {
     if (!seeded) {
       throw new Error("expected seeded row");
     }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.dispatching;
+    seeded.status = "dispatching";
     seeded.lastAttemptAtMs = 1000;
     seeded.replyHintSentAtMs = 1100;
+    seedRow(seeded);
 
     const second = await claimDispatchAttempt({
       db,
@@ -1930,13 +882,11 @@ describe("claimDispatchAttempt", () => {
       status: "deduped",
       admissionInFlight: true,
     });
-    expect(readRow(message.idempotencyKey)?.status).toBe(
-      OPENMELD_DAEMON_DISPATCH_STATE.dispatching
-    );
+    expect(readRow(message.idempotencyKey)?.status).toBe("dispatching");
   });
 
   it("records daemon execution evidence while an attempt is still dispatching", async () => {
-    const { db, readAttempt } = createInMemoryDispatchLedgerDb();
+    const { db, readAttempt } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     const claim = await claimDispatchAttempt({
@@ -1980,7 +930,7 @@ describe("claimDispatchAttempt", () => {
   });
 
   it("does not overwrite daemon execution evidence after an attempt leaves dispatching", async () => {
-    const { db, readAttempt } = createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, seedAttemptRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     const claim = await claimDispatchAttempt({
@@ -2000,6 +950,7 @@ describe("claimDispatchAttempt", () => {
     attempt.daemonSessionId = "daemon-session-existing";
     attempt.connectionGeneration = 2;
     attempt.leaseEpoch = 1;
+    seedAttemptRow(attempt);
 
     await expect(
       recordDispatchAttemptExecutionOwnership({
@@ -2030,8 +981,14 @@ describe("claimDispatchAttempt", () => {
   });
 
   it("treats a waiting_result continuation as a RuntimeCoordinator trigger instead of resuming from D1", async () => {
-    const { db, opsDecisionRows, readAttempt, readRow } =
-      createInMemoryDispatchLedgerDb();
+    const {
+      db,
+      readOpsDecisions,
+      readAttempt,
+      readRow,
+      seedRow,
+      seedAttemptRow,
+    } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     const first = await claimDispatchAttempt({
@@ -2049,12 +1006,14 @@ describe("claimDispatchAttempt", () => {
     if (!(seeded && seededAttempt)) {
       throw new Error("expected seeded attempt");
     }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.dispatching;
+    seeded.status = "dispatching";
     seeded.lastAttemptAtMs = 1000;
     seeded.replyHintSentAtMs = 1100;
+    seedRow(seeded);
     seededAttempt.status = "waiting_result";
     seededAttempt.daemonSessionId = "daemon-session-1";
     seededAttempt.leaseEpoch = 9;
+    seedAttemptRow(seededAttempt);
 
     const second = await claimDispatchAttempt({
       db,
@@ -2075,15 +1034,21 @@ describe("claimDispatchAttempt", () => {
     expect(readRow(message.idempotencyKey)?.latestAttemptId).toBe(
       first.attemptId
     );
-    expect(JSON.stringify(opsDecisionRows)).toContain("continue_existing");
+    expect(JSON.stringify(readOpsDecisions())).toContain("continue_existing");
     expect(readAttempt(first.attemptId)).toMatchObject({
       status: "waiting_result",
     });
   });
 
   it("does not use missing RuntimeCoordinator projection to resume a waiting_result attempt", async () => {
-    const { db, opsDecisionRows, readAttempt, readRow } =
-      createInMemoryDispatchLedgerDb();
+    const {
+      db,
+      readOpsDecisions,
+      readAttempt,
+      readRow,
+      seedRow,
+      seedAttemptRow,
+    } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     const first = await claimDispatchAttempt({
@@ -2101,11 +1066,13 @@ describe("claimDispatchAttempt", () => {
     if (!(seeded && seededAttempt)) {
       throw new Error("expected seeded attempt");
     }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.dispatching;
+    seeded.status = "dispatching";
     seeded.lastAttemptAtMs = 1000;
+    seedRow(seeded);
     seededAttempt.status = "waiting_result";
     seededAttempt.daemonSessionId = "daemon-session-1";
     seededAttempt.leaseEpoch = 9;
+    seedAttemptRow(seededAttempt);
 
     const second = await claimDispatchAttempt({
       db,
@@ -2130,12 +1097,12 @@ describe("claimDispatchAttempt", () => {
     expect(readAttempt(first.attemptId)).toMatchObject({
       status: "waiting_result",
     });
-    expect(JSON.stringify(opsDecisionRows)).toContain("continue_existing");
+    expect(JSON.stringify(readOpsDecisions())).toContain("continue_existing");
   });
 
   it("does not treat a RuntimeCoordinator projection as first-Wake intake authority", async () => {
-    const { db, opsDecisionRows, readRow, seedRuntimeCoordinatorExecution } =
-      createInMemoryDispatchLedgerDb();
+    const { db, readOpsDecisions, readRow, seedRuntimeCoordinatorExecution } =
+      createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-runtime-coordinator-existing-1",
       sourceEventId: "evt-runtime-coordinator-existing-1",
@@ -2163,9 +1130,9 @@ describe("claimDispatchAttempt", () => {
     });
     expect(readRow(message.idempotencyKey)).toMatchObject({
       latestAttemptId: claim.status === "claimed" ? claim.attemptId : null,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      status: "queued",
     });
-    expect(JSON.stringify(opsDecisionRows)).not.toContain(
+    expect(JSON.stringify(readOpsDecisions())).not.toContain(
       "runtime_coordinator.execution_exists_for_claim_new"
     );
   });
@@ -2173,11 +1140,12 @@ describe("claimDispatchAttempt", () => {
   it("treats RuntimeCoordinator reclaim queue messages as trigger-only decisions", async () => {
     const {
       db,
-      opsDecisionRows,
+      readOpsDecisions,
       readAttempt,
       readRow,
       seedRuntimeCoordinatorExecution,
-    } = createInMemoryDispatchLedgerDb();
+      seedRow,
+    } = createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-runtime-coordinator-reclaim-1",
       sourceEventId: "evt-runtime-coordinator-reclaim-1",
@@ -2188,7 +1156,8 @@ describe("claimDispatchAttempt", () => {
       db,
       message,
       readRow,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      seedRow,
+      status: "queued",
     });
     seedRuntimeCoordinatorExecution({
       attemptId: first.attemptId,
@@ -2219,12 +1188,12 @@ describe("claimDispatchAttempt", () => {
     });
     expect(readRow(message.idempotencyKey)).toMatchObject({
       latestAttemptId: first.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      status: "queued",
     });
     expect(readAttempt(first.attemptId)).toMatchObject({
       status: "dispatching",
     });
-    const payload = JSON.parse(String(opsDecisionRows.at(-1)?.[2]));
+    const payload = readOpsDecisions().at(-1);
     expect(payload).toMatchObject({
       claimDecision: "reclaim_stale_queued",
       coordinatorDecision: {
@@ -2241,8 +1210,8 @@ describe("claimDispatchAttempt", () => {
   });
 
   it("does not let stale D1 queued state reclaim delivery when RuntimeCoordinator projection is missing", async () => {
-    const { db, opsDecisionRows, readAttempt, readRow } =
-      createInMemoryDispatchLedgerDb();
+    const { db, readOpsDecisions, readAttempt, readRow, seedRow } =
+      createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-runtime-coordinator-reclaim-missing-projection-1",
       sourceEventId: "evt-runtime-coordinator-reclaim-missing-projection-1",
@@ -2253,7 +1222,8 @@ describe("claimDispatchAttempt", () => {
       db,
       message,
       readRow,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      seedRow,
+      status: "queued",
     });
 
     const reclaim = await claimDispatchAttempt({
@@ -2276,12 +1246,12 @@ describe("claimDispatchAttempt", () => {
     });
     expect(readRow(message.idempotencyKey)).toMatchObject({
       latestAttemptId: first.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      status: "queued",
     });
     expect(readAttempt(first.attemptId)).toMatchObject({
       status: "dispatching",
     });
-    const payload = JSON.parse(String(opsDecisionRows.at(-1)?.[2]));
+    const payload = readOpsDecisions().at(-1);
     expect(payload).toMatchObject({
       claimDecision: "reclaim_stale_queued",
       reasonCode: "runtime_coordinator.queue_or_alarm_trigger_only",
@@ -2294,11 +1264,13 @@ describe("claimDispatchAttempt", () => {
   it("treats RuntimeCoordinator retry queue messages as trigger-only decisions", async () => {
     const {
       db,
-      opsDecisionRows,
+      readOpsDecisions,
       readAttempt,
       readRow,
       seedRuntimeCoordinatorExecution,
-    } = createInMemoryDispatchLedgerDb();
+      seedRow,
+      seedAttemptRow,
+    } = createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-runtime-coordinator-retry-1",
       sourceEventId: "evt-runtime-coordinator-retry-1",
@@ -2319,9 +1291,11 @@ describe("claimDispatchAttempt", () => {
     if (!(ledgerRow && attemptRow)) {
       throw new Error("expected seeded retry state");
     }
-    ledgerRow.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
+    ledgerRow.status = "failed_retryable";
+    seedRow(ledgerRow);
     attemptRow.status = "failed_retryable";
     attemptRow.errorCode = "daemon.session.connection_replaced";
+    seedAttemptRow(attemptRow);
     seedRuntimeCoordinatorExecution({
       attemptId: first.attemptId,
       daemonSessionId: "daemon-session-1",
@@ -2354,7 +1328,7 @@ describe("claimDispatchAttempt", () => {
     expect(readRow(message.idempotencyKey)?.latestAttemptId).toBe(
       first.attemptId
     );
-    const payload = JSON.parse(String(opsDecisionRows.at(-1)?.[2]));
+    const payload = readOpsDecisions().at(-1);
     expect(payload).toMatchObject({
       claimDecision: "claim_recovery",
       coordinatorDecision: {
@@ -2369,8 +1343,14 @@ describe("claimDispatchAttempt", () => {
   });
 
   it("does not let failed D1 attempt state retry delivery when RuntimeCoordinator projection is missing", async () => {
-    const { db, opsDecisionRows, readAttempt, readRow } =
-      createInMemoryDispatchLedgerDb();
+    const {
+      db,
+      readOpsDecisions,
+      readAttempt,
+      readRow,
+      seedRow,
+      seedAttemptRow,
+    } = createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-runtime-coordinator-retry-missing-projection-1",
       sourceEventId: "evt-runtime-coordinator-retry-missing-projection-1",
@@ -2391,9 +1371,11 @@ describe("claimDispatchAttempt", () => {
     if (!(ledgerRow && attemptRow)) {
       throw new Error("expected seeded retry state");
     }
-    ledgerRow.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
+    ledgerRow.status = "failed_retryable";
+    seedRow(ledgerRow);
     attemptRow.status = "failed_retryable";
     attemptRow.errorCode = "daemon.session.connection_replaced";
+    seedAttemptRow(attemptRow);
 
     const retry = await claimDispatchAttempt({
       db,
@@ -2418,9 +1400,9 @@ describe("claimDispatchAttempt", () => {
     });
     expect(readRow(message.idempotencyKey)).toMatchObject({
       latestAttemptId: first.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+      status: "failed_retryable",
     });
-    const payload = JSON.parse(String(opsDecisionRows.at(-1)?.[2]));
+    const payload = readOpsDecisions().at(-1);
     expect(payload).toMatchObject({
       claimDecision: "claim_recovery",
       reasonCode: "runtime_coordinator.queue_or_alarm_trigger_only",
@@ -2431,8 +1413,8 @@ describe("claimDispatchAttempt", () => {
   });
 
   it("does not reopen a completed correlated attempt for already_completed duplicate delivery", async () => {
-    const { db, readAttempt, readRow, seedAttemptRow } =
-      createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, readRow, seedAttemptRow, seedRow } =
+      createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-already-completed-correlation-1",
       sourceEventId: "evt-already-completed-correlation-1",
@@ -2453,9 +1435,10 @@ describe("claimDispatchAttempt", () => {
     if (!(seededLedger && seededAttempt)) {
       throw new Error("expected seeded dispatch state");
     }
-    seededLedger.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
-    seededAttempt.status =
-      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable;
+    seededLedger.status = "failed_retryable";
+    seedRow(seededLedger);
+    seededAttempt.status = "failed_retryable";
+    seedAttemptRow(seededAttempt);
 
     const duplicateAttemptId = "attempt-already-completed-duplicate-2";
     seedAttemptRow({
@@ -2467,15 +1450,17 @@ describe("claimDispatchAttempt", () => {
       errorMessage: null,
       finishedAtMs: null,
       startedAtMs: 2000,
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
+      status: "failed_retryable",
     });
-    seededLedger.status = OPENMELD_DAEMON_DISPATCH_STATE.succeeded;
+    seededLedger.status = "succeeded";
     seededLedger.lastAttemptAtMs = 1500;
     seededLedger.latestAttemptId = duplicateAttemptId;
-    seededAttempt.status = OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.succeeded;
+    seedRow(seededLedger);
+    seededAttempt.status = "succeeded";
     seededAttempt.finishedAtMs = 1500;
     seededAttempt.errorCode = null;
     seededAttempt.errorMessage = null;
+    seedAttemptRow(seededAttempt);
 
     await correlateDuplicateDispatchDeliveryAttempt({
       correlatedAttemptId: first.attemptId,
@@ -2490,23 +1475,23 @@ describe("claimDispatchAttempt", () => {
     });
 
     expect(readAttempt(first.attemptId)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.succeeded,
+      status: "succeeded",
       finishedAtMs: 1500,
       errorCode: null,
     });
     expect(readAttempt(duplicateAttemptId)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.superseded,
+      status: "superseded",
       errorCode: "dispatch.attempt.already_completed",
     });
     expect(readRow(message.idempotencyKey)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
+      status: "succeeded",
       lastAttemptAtMs: 1500,
     });
   });
 
   it("keeps already_pending duplicate delivery correlated to the active attempt", async () => {
-    const { db, readAttempt, readRow, seedAttemptRow } =
-      createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, readRow, seedAttemptRow, seedRow } =
+      createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-already-pending-correlation-1",
       sourceEventId: "evt-already-pending-correlation-1",
@@ -2527,9 +1512,10 @@ describe("claimDispatchAttempt", () => {
     if (!(ledger && firstAttempt)) {
       throw new Error("expected first dispatch state");
     }
-    ledger.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
-    firstAttempt.status =
-      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable;
+    ledger.status = "failed_retryable";
+    seedRow(ledger);
+    firstAttempt.status = "failed_retryable";
+    seedAttemptRow(firstAttempt);
 
     const duplicateAttemptId = "attempt-already-pending-duplicate-2";
     seedAttemptRow({
@@ -2541,12 +1527,14 @@ describe("claimDispatchAttempt", () => {
       errorMessage: null,
       finishedAtMs: null,
       startedAtMs: 2000,
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
+      status: "failed_retryable",
     });
-    ledger.status = OPENMELD_DAEMON_DISPATCH_STATE.dispatching;
+    ledger.status = "dispatching";
     ledger.latestAttemptId = duplicateAttemptId;
-    firstAttempt.status = OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.waitingResult;
+    seedRow(ledger);
+    firstAttempt.status = "waiting_result";
     firstAttempt.finishedAtMs = null;
+    seedAttemptRow(firstAttempt);
 
     await correlateDuplicateDispatchDeliveryAttempt({
       correlatedAttemptId: first.attemptId,
@@ -2561,31 +1549,32 @@ describe("claimDispatchAttempt", () => {
     });
 
     expect(readAttempt(first.attemptId)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.waitingResult,
+      status: "waiting_result",
       daemonSessionId: "daemon-session-4",
       connectionGeneration: 4,
       leaseEpoch: 9,
       finishedAtMs: null,
     });
     expect(readAttempt(duplicateAttemptId)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.superseded,
+      status: "superseded",
       errorCode: "dispatch.attempt.already_pending",
     });
     expect(readRow(message.idempotencyKey)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_STATE.dispatching,
+      status: "dispatching",
       latestAttemptId: first.attemptId,
     });
   });
 
   it("does not let stale dispatching D1 state reclaim delivery inside idempotency window", async () => {
-    const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, readRow, seedRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     const first = await seedStaleDispatchLedgerClaim({
       db,
       message,
       readRow,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.dispatching,
+      seedRow,
+      status: "dispatching",
     });
 
     const reclaimNowMs = 1000 + DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS + 1;
@@ -2605,7 +1594,7 @@ describe("claimDispatchAttempt", () => {
       status: "deduped",
     });
     expect(readRow(message.idempotencyKey)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_STATE.dispatching,
+      status: "dispatching",
       lastAttemptAtMs: 1000,
       latestAttemptId: first.attemptId,
     });
@@ -2616,7 +1605,7 @@ describe("claimDispatchAttempt", () => {
   });
 
   it("keeps stale dispatching threshold boundary as RuntimeCoordinator trigger evidence", async () => {
-    const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, readRow, seedRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     const first = await claimDispatchAttempt({
@@ -2633,8 +1622,9 @@ describe("claimDispatchAttempt", () => {
     if (!seeded) {
       throw new Error("expected seeded row");
     }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.dispatching;
+    seeded.status = "dispatching";
     seeded.lastAttemptAtMs = 1000;
+    seedRow(seeded);
 
     const boundaryNowMs = 1000 + DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS;
     const claim = await claimDispatchAttempt({
@@ -2653,7 +1643,7 @@ describe("claimDispatchAttempt", () => {
       status: "deduped",
     });
     expect(readRow(message.idempotencyKey)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_STATE.dispatching,
+      status: "dispatching",
       lastAttemptAtMs: 1000,
       latestAttemptId: first.attemptId,
     });
@@ -2661,14 +1651,15 @@ describe("claimDispatchAttempt", () => {
   });
 
   it("keeps concurrent stale dispatching reclaim attempts as RuntimeCoordinator trigger evidence", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readRow, seedRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     await seedStaleDispatchLedgerClaim({
       db,
       message,
       readRow,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.dispatching,
+      seedRow,
+      status: "dispatching",
     });
 
     const reclaimNowMs = 1000 + DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS + 1;
@@ -2693,13 +1684,13 @@ describe("claimDispatchAttempt", () => {
       hasDedupedClaim: true,
     });
     expect(readRow(message.idempotencyKey)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_STATE.dispatching,
+      status: "dispatching",
       lastAttemptAtMs: 1000,
     });
   });
 
   it("keeps retryable in-window dispatches as RuntimeCoordinator trigger evidence", async () => {
-    const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, readRow, seedRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     const firstClaim = await claimDispatchAttempt({
@@ -2717,8 +1708,9 @@ describe("claimDispatchAttempt", () => {
     if (!seeded) {
       throw new Error("expected seeded row");
     }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
+    seeded.status = "failed_retryable";
     seeded.replyHintSentAtMs = 1100;
+    seedRow(seeded);
 
     const retryClaim = await claimDispatchAttempt({
       db,
@@ -2739,19 +1731,33 @@ describe("claimDispatchAttempt", () => {
     });
     expect(readRow(message.idempotencyKey)).toMatchObject({
       latestAttemptId: firstClaim.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+      status: "failed_retryable",
       replyHintSentAtMs: 1100,
     });
     expect(readAttempt("attempt-2")).toBeUndefined();
   });
 
-  it("allows route_lost redrive to re-enter pre-execution waiting delivery", async () => {
-    const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
+  it.each([
+    ["daemon.profile.offline", 2000],
+    ["runtime_coordinator.device_waiting", 2000],
+    [
+      "runtime_coordinator.device_waiting",
+      DISPATCH_IDEMPOTENCY_WINDOW_MS + 2000,
+    ],
+  ] as const)("allows route_lost redrive to re-enter pre-execution waiting delivery for %s at %i", async (errorCode, recoveryAtMs) => {
+    const { db, readAttempt, readRow, seedRow, seedAttemptRow } =
+      createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-offline-waiting-redrive-1",
       sourceEventId: "evt-offline-waiting-redrive-1",
       targetProfileId: "agt-offline-waiting-redrive-1",
     });
+    message.deviceWait = {
+      bindingId: "binding-waiting",
+      openMeldServiceRuntimeId: "runtime-waiting",
+      targetProfileId: message.targetProfileId,
+      deadlineAtMs: 604_801_000,
+    };
 
     const firstClaim = await claimDispatchAttempt({
       db,
@@ -2768,10 +1774,24 @@ describe("claimDispatchAttempt", () => {
     if (!(seeded && firstAttempt)) {
       throw new Error("expected seeded offline waiting state");
     }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
-    firstAttempt.status =
-      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable;
-    firstAttempt.errorCode = "daemon.profile.offline";
+    seeded.status = "failed_retryable";
+    seedRow(seeded);
+    firstAttempt.status = "failed_retryable";
+    firstAttempt.errorCode = errorCode;
+    seedAttemptRow(firstAttempt);
+
+    if (errorCode === "runtime_coordinator.device_waiting") {
+      const duplicate = await claimDispatchAttempt({
+        db,
+        message,
+        attempt: 2,
+        nowMs: 1500,
+      });
+      expect(duplicate.status).toBe("deduped");
+      expect(readRow(message.idempotencyKey)?.latestAttemptId).toBe(
+        firstClaim.attemptId
+      );
+    }
 
     const redriveClaim = await claimDispatchAttempt({
       db,
@@ -2780,11 +1800,11 @@ describe("claimDispatchAttempt", () => {
         deliveryRecoveryReason: "route_lost",
       },
       attempt: 2,
-      nowMs: 2000,
+      nowMs: recoveryAtMs,
     });
 
     expect(redriveClaim).toMatchObject({
-      attemptNo: 2,
+      attemptNo: recoveryAtMs > DISPATCH_IDEMPOTENCY_WINDOW_MS ? 1 : 2,
       deliveryRecoveryReason: "route_lost",
       status: "claimed",
     });
@@ -2793,15 +1813,15 @@ describe("claimDispatchAttempt", () => {
     }
     expect(readRow(message.idempotencyKey)).toMatchObject({
       latestAttemptId: redriveClaim.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      status: "queued",
     });
     expect(readAttempt(redriveClaim.attemptId)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.dispatching,
+      status: "dispatching",
     });
   });
 
   it("supersedes the queue-wait attempt when coordinator promotion claims fresh delivery", async () => {
-    const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, readRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-profile-queue-promotion-1",
       sourceEventId: "evt-profile-queue-promotion-1",
@@ -2818,13 +1838,13 @@ describe("claimDispatchAttempt", () => {
     }
     await markDispatchStatus({
       attemptId: firstClaim.attemptId,
-      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.profileQueueWaiting,
+      attemptStatus: "profile_queue_waiting",
       db,
       errorCode: "agent_profile_work_coordinator.queued",
       errorMessage: "waiting behind the active profile Wake",
       idempotencyKey: message.idempotencyKey,
       nowMs: 1100,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      status: "queued",
     });
 
     const promotedClaim = await claimDispatchAttempt({
@@ -2848,20 +1868,27 @@ describe("claimDispatchAttempt", () => {
     expect(readRow(message.idempotencyKey)).toMatchObject({
       attemptCount: 2,
       latestAttemptId: promotedClaim.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      status: "queued",
     });
     expect(readAttempt(firstClaim.attemptId)).toMatchObject({
       errorCode: "agent_profile_work_coordinator.promoted",
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.superseded,
+      status: "superseded",
     });
     expect(readAttempt(promotedClaim.attemptId)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.dispatching,
+      status: "dispatching",
     });
   });
 
   it("rolls back an existing ledger update when its replacement attempt insert fails", async () => {
-    const { db, injectNextAttemptInsertFailure, readAttempt, readRow } =
-      createInMemoryDispatchLedgerDb();
+    const {
+      db,
+      injectAttemptInsertFailure,
+      clearAttemptInsertFailure,
+      readAttempt,
+      readRow,
+      seedRow,
+      seedAttemptRow,
+    } = createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-atomic-redrive-1",
       sourceEventId: "evt-atomic-redrive-1",
@@ -2882,11 +1909,12 @@ describe("claimDispatchAttempt", () => {
     if (!(seeded && firstAttempt)) {
       throw new Error("expected seeded offline waiting state");
     }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
-    firstAttempt.status =
-      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable;
+    seeded.status = "failed_retryable";
+    seedRow(seeded);
+    firstAttempt.status = "failed_retryable";
     firstAttempt.errorCode = "daemon.profile.offline";
-    injectNextAttemptInsertFailure();
+    seedAttemptRow(firstAttempt);
+    injectAttemptInsertFailure();
 
     await expect(
       claimDispatchAttempt({
@@ -2899,12 +1927,13 @@ describe("claimDispatchAttempt", () => {
         nowMs: 2000,
       })
     ).rejects.toThrow("injected dispatch attempt insert failure");
+    clearAttemptInsertFailure();
 
     expect(readRow(message.idempotencyKey)).toMatchObject({
       attemptCount: 1,
       lastAttemptAtMs: 1000,
       latestAttemptId: firstClaim.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+      status: "failed_retryable",
     });
     await expect(
       claimDispatchAttempt({
@@ -2923,7 +1952,8 @@ describe("claimDispatchAttempt", () => {
   });
 
   it("allows Queue retry to re-enter pre-execution waiting delivery as fallback trigger", async () => {
-    const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, readRow, seedRow, seedAttemptRow } =
+      createDispatchLedgerFixture();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-offline-waiting-queue-retry-1",
       sourceEventId: "evt-offline-waiting-queue-retry-1",
@@ -2945,10 +1975,11 @@ describe("claimDispatchAttempt", () => {
     if (!(seeded && firstAttempt)) {
       throw new Error("expected seeded offline waiting state");
     }
-    seeded.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
-    firstAttempt.status =
-      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable;
+    seeded.status = "failed_retryable";
+    seedRow(seeded);
+    firstAttempt.status = "failed_retryable";
     firstAttempt.errorCode = "daemon.profile.offline";
+    seedAttemptRow(firstAttempt);
 
     const retryClaim = await claimDispatchAttempt({
       db,
@@ -2966,15 +1997,16 @@ describe("claimDispatchAttempt", () => {
     }
     expect(readRow(message.idempotencyKey)).toMatchObject({
       latestAttemptId: retryClaim.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      status: "queued",
     });
     expect(readAttempt(retryClaim.attemptId)).toMatchObject({
-      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.dispatching,
+      status: "dispatching",
     });
   });
 
   it("keeps connection_replaced retry as RuntimeCoordinator trigger evidence", async () => {
-    const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readAttempt, readRow, seedRow, seedAttemptRow } =
+      createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     const firstClaim = await claimDispatchAttempt({
@@ -2992,7 +2024,8 @@ describe("claimDispatchAttempt", () => {
     if (!ledgerRow) {
       throw new Error("expected a seeded ledger row");
     }
-    ledgerRow.status = OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable;
+    ledgerRow.status = "failed_retryable";
+    seedRow(ledgerRow);
 
     const attemptRow = readAttempt(firstClaim.attemptId);
     if (!attemptRow) {
@@ -3000,6 +2033,7 @@ describe("claimDispatchAttempt", () => {
     }
     attemptRow.status = "failed_retryable";
     attemptRow.errorCode = "daemon.session.connection_replaced";
+    seedAttemptRow(attemptRow);
 
     const retryClaim = await claimDispatchAttempt({
       db,
@@ -3019,12 +2053,12 @@ describe("claimDispatchAttempt", () => {
     });
     expect(readRow(message.idempotencyKey)).toMatchObject({
       latestAttemptId: firstClaim.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+      status: "failed_retryable",
     });
   });
 
   it("keeps watchdog recovery redrive as RuntimeCoordinator trigger evidence", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readRow, seedRow } = createDispatchLedgerFixture();
     const message = {
       ...buildDispatchMessage(),
       deliveryRecoveryReason: "connection_replaced" as const,
@@ -3044,9 +2078,10 @@ describe("claimDispatchAttempt", () => {
     if (!ledgerRow) {
       throw new Error("expected a seeded ledger row");
     }
-    ledgerRow.status = OPENMELD_DAEMON_DISPATCH_STATE.queued;
+    ledgerRow.status = "queued";
     ledgerRow.lastAttemptAtMs = 1500;
     ledgerRow.replyHintSentAtMs = 1600;
+    seedRow(ledgerRow);
 
     const recoveryClaim = await claimDispatchAttempt({
       db,
@@ -3071,8 +2106,8 @@ describe("claimDispatchAttempt", () => {
   });
 
   it("keeps reset_existing outside the idempotency window as RuntimeCoordinator trigger evidence", async () => {
-    const { db, opsDecisionRows, readAttempt, readRow } =
-      createInMemoryDispatchLedgerDb();
+    const { db, readOpsDecisions, readAttempt, readRow } =
+      createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     const first = await claimDispatchAttempt({
@@ -3106,12 +2141,12 @@ describe("claimDispatchAttempt", () => {
     expect(readRow(message.idempotencyKey)).toMatchObject({
       firstSeenAtMs: 1000,
       latestAttemptId: first.attemptId,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      status: "queued",
     });
     expect(readAttempt(first.attemptId)).toMatchObject({
       status: "dispatching",
     });
-    const payload = JSON.parse(String(opsDecisionRows.at(-1)?.[2]));
+    const payload = readOpsDecisions().at(-1);
     expect(payload).toMatchObject({
       claimDecision: "reset_existing",
       reasonCode: "runtime_coordinator.queue_or_alarm_trigger_only",
@@ -3124,7 +2159,7 @@ describe("claimDispatchAttempt", () => {
 
 describe("claimFinalReplyEmission", () => {
   it("claims final reply persistence only once per idempotency key", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     await claimDispatchAttempt({
@@ -3154,7 +2189,7 @@ describe("claimFinalReplyEmission", () => {
   });
 
   it("rolls back a final reply claim when persistence fails", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     await claimDispatchAttempt({
@@ -3185,7 +2220,7 @@ describe("claimFinalReplyEmission", () => {
 
 describe("replying hint claim", () => {
   it("claims once and rolls back only with matching timestamp", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     await claimDispatchAttempt({
@@ -3227,7 +2262,7 @@ describe("replying hint claim", () => {
   });
 
   it("does not clear reply hint state from D1 reset_existing intake", async () => {
-    const { db, readRow } = createInMemoryDispatchLedgerDb();
+    const { db, readRow } = createDispatchLedgerFixture();
     const message = buildDispatchMessage();
 
     await claimDispatchAttempt({
@@ -3263,7 +2298,7 @@ describe("replying hint claim", () => {
   });
 
   it("returns missing_ledger_row when no ledger row exists", async () => {
-    const { db } = createInMemoryDispatchLedgerDb();
+    const { db } = createDispatchLedgerFixture();
     const claim = await claimReplyingHintEmission({
       db,
       idempotencyKey: "5:evt-missing|5:agt-missing",
@@ -3275,17 +2310,17 @@ describe("replying hint claim", () => {
 
 describe("readDeliveryStabilityDispatchMetrics", () => {
   it("aggregates delivery stability metrics with explicit window and timeout thresholds", async () => {
-    const { db, seedDlqRow, rows } = createInMemoryDispatchLedgerDb();
+    const { db, seedDlqRow, seedRow } = createDispatchLedgerFixture();
     const baseTs = 1_000_000;
 
-    rows.set("5:evt-1|5:agt-1", {
+    seedRow({
       idempotencyKey: "5:evt-1|5:agt-1",
       dispatchId: "dispatch-1",
       spaceId: "space-1",
       sourceEventId: "evt-1",
       sourceClientMessageId: null,
       targetProfileId: "agt-1",
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      status: "failed_terminal",
       firstSeenAtMs: baseTs - 45_000,
       lastAttemptAtMs: baseTs - 40_000,
       attemptCount: 1,
@@ -3293,14 +2328,14 @@ describe("readDeliveryStabilityDispatchMetrics", () => {
       replyHintSentAtMs: null,
       finalReplySentAtMs: null,
     });
-    rows.set("5:evt-2|5:agt-2", {
+    seedRow({
       idempotencyKey: "5:evt-2|5:agt-2",
       dispatchId: "dispatch-2",
       spaceId: "space-1",
       sourceEventId: "evt-2",
       sourceClientMessageId: null,
       targetProfileId: "agt-2",
-      status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
+      status: "succeeded",
       firstSeenAtMs: baseTs - 20_000,
       lastAttemptAtMs: baseTs - 10_000,
       attemptCount: 1,
@@ -3308,14 +2343,14 @@ describe("readDeliveryStabilityDispatchMetrics", () => {
       replyHintSentAtMs: null,
       finalReplySentAtMs: null,
     });
-    rows.set("5:evt-3|5:agt-3", {
+    seedRow({
       idempotencyKey: "5:evt-3|5:agt-3",
       dispatchId: "dispatch-3",
       spaceId: "space-1",
       sourceEventId: "evt-3",
       sourceClientMessageId: null,
       targetProfileId: "agt-3",
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+      status: "failed_retryable",
       firstSeenAtMs: baseTs - 8000,
       lastAttemptAtMs: baseTs - 8000,
       attemptCount: 2,
@@ -3323,14 +2358,14 @@ describe("readDeliveryStabilityDispatchMetrics", () => {
       replyHintSentAtMs: null,
       finalReplySentAtMs: null,
     });
-    rows.set("5:evt-4|5:agt-4", {
+    seedRow({
       idempotencyKey: "5:evt-4|5:agt-4",
       dispatchId: "dispatch-4",
       spaceId: "space-1",
       sourceEventId: "evt-4",
       sourceClientMessageId: null,
       targetProfileId: "agt-4",
-      status: OPENMELD_DAEMON_DISPATCH_STATE.deduped,
+      status: "deduped",
       firstSeenAtMs: baseTs - 5000,
       lastAttemptAtMs: baseTs - 5000,
       attemptCount: 1,
@@ -3338,14 +2373,14 @@ describe("readDeliveryStabilityDispatchMetrics", () => {
       replyHintSentAtMs: null,
       finalReplySentAtMs: null,
     });
-    rows.set("5:evt-5|5:agt-5", {
+    seedRow({
       idempotencyKey: "5:evt-5|5:agt-5",
       dispatchId: "dispatch-5",
       spaceId: "space-1",
       sourceEventId: "evt-5",
       sourceClientMessageId: null,
       targetProfileId: "agt-5",
-      status: OPENMELD_DAEMON_DISPATCH_STATE.dispatching,
+      status: "dispatching",
       firstSeenAtMs: baseTs - 3000,
       lastAttemptAtMs: baseTs - 6000,
       attemptCount: 3,
@@ -3387,7 +2422,7 @@ describe("readDeliveryStabilityDispatchMetrics", () => {
   });
 
   it("falls back to zero rates when no recent data exists", async () => {
-    const { db } = createInMemoryDispatchLedgerDb();
+    const { db } = createDispatchLedgerFixture();
     const metrics = await readDeliveryStabilityDispatchMetrics({
       db,
       nowMs: 1000,

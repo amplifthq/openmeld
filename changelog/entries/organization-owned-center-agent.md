@@ -4,6 +4,9 @@ title: Center Agents belong to their organizations
 kind: security
 areas: ["center-agent", "organizations", "spaces"]
 audiences: ["members", "admins"]
+publishedAt: 2026-09-10
+release: v0.3.193
+evidence: ["pr:870", "pr:876", "commit:204b0e70b271ab69158f8e14a33d1d97b43cb880", "workflow:34434697090"]
 ---
 
 Center Agents belong to their organizations, including Personal Workspaces.

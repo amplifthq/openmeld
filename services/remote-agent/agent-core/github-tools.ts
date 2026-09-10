@@ -37,7 +37,6 @@ import {
 } from "./connector-tools";
 import { callCoreRpc, requireCoreRpc } from "./core-rpc";
 import {
-  isRemoteAgentDestructiveConfirmationResult,
   resolveRemoteAgentDestructiveAuthorization,
   resolveRemoteAgentRoutineExternalWriteBlock,
 } from "./destructive-authorization";
@@ -1507,12 +1506,6 @@ function githubToolDefinition(input: {
     description: `${GITHUB_ACTOR_GUIDANCE} ${
       input.writeDisclosure ? `${GITHUB_WRITE_OPERATION_GUIDANCE} ` : ""
     }${actionDescription}`,
-    ...(destructive
-      ? {
-          endsTurnAfter: (result: unknown) =>
-            isRemoteAgentDestructiveConfirmationResult(result),
-        }
-      : {}),
     execute: async (payload) =>
       await executeGitHubAction({
         actionId: input.actionId,
@@ -1982,7 +1975,7 @@ async function resolvePendingGitHubDestructiveConfirmation(input: {
   return {
     attribution: input.attribution,
     ...result,
-    ...(result.status === "destructive_confirmation_required"
+    ...(result.status === "destructive_action_preview"
       ? {
           confirmation: {
             ...result.confirmation,
@@ -1998,7 +1991,7 @@ function describeGitHubWriteTool(input: {
   summary: string;
 }): string {
   if (input.destructive) {
-    return `${input.summary} This is a destructive external write. In an interactive conversation, the first call without writeConfirmationToken returns the required confirmation; after the user confirms, call again with that exact one-time token and unchanged input. Routines do not currently support delete or merge actions; the tool returns routine_destructive_action_unsupported with zero side effects.`;
+    return `${input.summary} This is a destructive external write. The first call without writeConfirmationToken previews the exact action and returns a one-time token. If the verified user already authorized that action and target, call again with the token and unchanged input in this turn; otherwise ask first. A token is not user authorization. Routines do not currently support delete or merge actions; the tool returns routine_destructive_action_unsupported with zero side effects.`;
   }
   return `${input.summary} This is an ordinary external write.`;
 }

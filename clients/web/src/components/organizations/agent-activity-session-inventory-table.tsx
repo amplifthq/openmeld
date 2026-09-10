@@ -1,3 +1,4 @@
+import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
 import type { AgentActivityInventorySession } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
@@ -191,6 +192,11 @@ function SessionProfileActions(input: {
 				</Button>
 			</div>
 		);
+	}
+	// Launch hold: existing Agent actions above remain available; creating on
+	// another member's behalf is retained below for isolated Request an Agent work.
+	if (!(TEAMMATE_AGENT_REQUESTS_ENABLED || input.isOwner)) {
+		return null;
 	}
 	return (
 		<div className="flex min-w-44 flex-wrap gap-1.5">

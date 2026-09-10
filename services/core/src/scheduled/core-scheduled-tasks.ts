@@ -36,6 +36,7 @@ import {
   resolveOrganizationMembershipById,
 } from "../organizations/organization-context";
 import { resolveOrganizationDirectoryMembers } from "../organizations/organization-directory";
+import { reconcileChannelAuthorizationUpdatesTick } from "../remote-agent/application/channel-authorization-update-service";
 import { runLarkPlatformRegistrationTick } from "../remote-agent/application/lark-platform-registration-scheduler";
 import {
   reconcileLinkedSlackNativeDeliveryInbox,
@@ -121,6 +122,11 @@ export async function runCoreScheduledTasks(input: {
     await runOrganizationDocumentInboxReconciliation(input);
     await runSlackNativeDeliveryInboxReconciliation(input);
     await runInboxEmailDeliveryRedrive(input);
+    await reconcileChannelAuthorizationUpdatesTick(input).catch((error) =>
+      console.error("[core.channel.authorization_updates_tick_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
     assertRoutineWorkflowConfiguration(input.env);
     const db = routineDb(input.env);
     if (!db) {
@@ -457,7 +463,7 @@ async function runInboxEmailDeliveryRedrive(input: {
   try {
     const organizationMembersById = new Map<
       string,
-      Promise<Set<string> | null>
+      Promise<Map<string, string> | null>
     >();
     const result = await (
       input.retryInboxEmailDeliveries ?? retryInboxUrgentEmailDeliveries
@@ -467,6 +473,7 @@ async function runInboxEmailDeliveryRedrive(input: {
       resolveOrganizationAccess: async ({
         organizationId,
         recipientUserId,
+        requireOrganizationManager,
       }) => {
         let members = organizationMembersById.get(organizationId);
         if (!members) {
@@ -476,7 +483,9 @@ async function runInboxEmailDeliveryRedrive(input: {
           })
             .then(
               (directoryMembers) =>
-                new Set(directoryMembers.map((member) => member.userId))
+                new Map(
+                  directoryMembers.map((member) => [member.userId, member.role])
+                )
             )
             .catch(() => null);
           organizationMembersById.set(organizationId, members);
@@ -485,7 +494,11 @@ async function runInboxEmailDeliveryRedrive(input: {
         if (!activeMemberIds) {
           return "unavailable";
         }
-        return activeMemberIds.has(recipientUserId) ? "allowed" : "denied";
+        const role = activeMemberIds.get(recipientUserId);
+        return role &&
+          (!requireOrganizationManager || role === "owner" || role === "admin")
+          ? "allowed"
+          : "denied";
       },
       send: async (request) => await sendInboxUrgentEmail(request),
     });

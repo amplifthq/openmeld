@@ -17,6 +17,9 @@ export const routines = sqliteTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    // Null preserves the Organization's designated Center Agent executor.
+    // Personal Routines keep an immutable, explicit Agent Profile identity.
+    agentProfileId: text("agent_profile_id"),
     instructions: text("instructions").notNull(),
     authorizedActionsJson: text("authorized_actions_json")
       .default("[]")
@@ -132,6 +135,7 @@ export const routineRuns = sqliteTable(
     failureCode: text("failure_code"),
     failureDetail: text("failure_detail"),
     routineNameSnapshot: text("routine_name_snapshot"),
+    agentProfileIdSnapshot: text("agent_profile_id_snapshot"),
     destinationKindSnapshot: text("destination_kind_snapshot"),
     targetSpaceIdSnapshot: text("target_space_id_snapshot"),
     slackTeamIdSnapshot: text("slack_team_id_snapshot"),
