@@ -1,4 +1,5 @@
 import {
+  buildMessageChannelConversationId,
   buildOpenMeldOrganizationWebUrl,
   deriveCenterAgentDirectMessageSpaceProjection,
 } from "@openmeld/schemas";
@@ -125,6 +126,17 @@ export async function resolveRemoteAgentTurnEnvelope(input: {
   });
 }
 
+function routineTriggerDestination(
+  destination: Parameters<
+    typeof resolveRemoteAgentRoutineTurnEnvelope
+  >[0]["destination"]
+) {
+  if (destination.kind !== "slack_thread") {
+    return destination;
+  }
+  return { ...destination, label: destination.label ?? undefined };
+}
+
 export async function resolveRemoteAgentRoutineTurnEnvelope(input: {
   authorizedActions?: CenterAgentRoutineAuthorizedAction[];
   centerAgentProfileId: string;
@@ -139,6 +151,10 @@ export async function resolveRemoteAgentRoutineTurnEnvelope(input: {
   externalActionPolicy: CenterAgentRoutineExternalActionPolicy;
   destination:
     | { kind: "space"; spaceId: string }
+    | {
+        kind: "message_channel";
+        locator: import("@openmeld/schemas/types").MessageChannelConversationLocator;
+      }
     | {
         channelId: string;
         conversationId: string;
@@ -207,15 +223,21 @@ export async function resolveRemoteAgentRoutineTurnEnvelope(input: {
     };
   } else {
     space = {
-      id: input.destination.conversationId,
+      id:
+        input.destination.kind === "message_channel"
+          ? buildMessageChannelConversationId(input.destination.locator)
+          : input.destination.conversationId,
       isCenterAgentDm: false,
       kind: "space",
-      name: input.destination.label ?? "Slack thread",
+      name:
+        input.destination.kind === "message_channel"
+          ? `${input.destination.locator.provider === "feishu" ? "Feishu" : "Lark"} conversation`
+          : (input.destination.label ?? "Slack thread"),
     };
   }
   return parseCoreOwnedRemoteAgentTurnEnvelope({
     interactionEnvironment:
-      input.destination.kind === "slack_thread"
+      input.destination.kind !== "space"
         ? "externally_shared"
         : resolveSpaceInteractionEnvironment(space),
     sender: {
@@ -235,20 +257,7 @@ export async function resolveRemoteAgentRoutineTurnEnvelope(input: {
     centerAgent,
     trigger: {
       authorizedActions: input.authorizedActions ?? [],
-      destination:
-        input.destination.kind === "space"
-          ? {
-              kind: "space",
-              spaceId: input.destination.spaceId,
-            }
-          : {
-              channelId: input.destination.channelId,
-              conversationId: input.destination.conversationId,
-              kind: "slack_thread",
-              label: input.destination.label ?? undefined,
-              teamId: input.destination.teamId,
-              threadTs: input.destination.threadTs,
-            },
+      destination: routineTriggerDestination(input.destination),
       source: "routine",
       externalActionPolicy: input.externalActionPolicy,
       routineId: input.routineId,
@@ -427,7 +436,8 @@ export async function resolveRemoteAgentRoutineTaskContinuationTurnEnvelope(inpu
     ...input.originalEnvelope,
     interactionEnvironment:
       input.originalEnvelope.interactionEnvironment ??
-      (input.originalEnvelope.trigger.destination?.kind === "slack_thread"
+      (input.originalEnvelope.trigger.destination?.kind === "slack_thread" ||
+      input.originalEnvelope.trigger.destination?.kind === "message_channel"
         ? "externally_shared"
         : resolveSpaceInteractionEnvironment(input.originalEnvelope.space)),
     centerAgent,

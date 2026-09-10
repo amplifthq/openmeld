@@ -114,6 +114,10 @@ import {
   readOrganizationRouteSlug,
 } from "../../organizations/organization-context";
 import {
+  isMessageChannelRoutineConnectionAvailable,
+  requireMessageChannelRoutineConnection,
+} from "../../routines/message-channel-routine-destination";
+import {
   listUnpublishedFailedRoutineRuns,
   markFailedRoutineRunPublished,
   markRoutineRunSkipped,
@@ -3990,6 +3994,7 @@ type DelegatedNativeDeliveryMember = {
 type RoutineDeliveryDestination = Pick<
   StoredRoutine,
   | "destinationKind"
+  | "messageChannelLocator"
   | "slackChannelId"
   | "slackConversationId"
   | "slackTeamId"
@@ -4001,6 +4006,11 @@ type RoutineDeliveryDestination = Pick<
 function resolveRoutineConversationId(
   destination: RoutineDeliveryDestination
 ): string | null {
+  if (destination.destinationKind === "message_channel") {
+    return destination.messageChannelLocator
+      ? buildMessageChannelConversationId(destination.messageChannelLocator)
+      : null;
+  }
   return destination.destinationKind === "space"
     ? normalizeOptionalText(destination.targetSpaceId)
     : normalizeOptionalText(destination.slackConversationId);
@@ -4010,6 +4020,7 @@ function routineRunDestination(
   run: CenterAgentRoutineRun
 ): RoutineDeliveryDestination {
   return {
+    messageChannelLocator: run.messageChannelLocator,
     destinationKind: run.destinationKind,
     slackChannelId: run.slackChannelId,
     slackConversationId: run.slackConversationId,
@@ -4234,6 +4245,10 @@ function requireRoutineTurnEnvelopeDestination(
 ):
   | { kind: "space"; spaceId: string }
   | {
+      kind: "message_channel";
+      locator: NonNullable<StoredRoutine["messageChannelLocator"]>;
+    }
+  | {
       channelId: string;
       conversationId: string;
       kind: "slack_thread";
@@ -4241,6 +4256,15 @@ function requireRoutineTurnEnvelopeDestination(
       teamId: string;
       threadTs: string;
     } {
+  if (destination.destinationKind === "message_channel") {
+    if (!destination.messageChannelLocator) {
+      throw new Error("Routine conversation destination is incomplete");
+    }
+    return {
+      kind: "message_channel",
+      locator: destination.messageChannelLocator,
+    };
+  }
   if (destination.destinationKind === "space") {
     return {
       kind: "space",
@@ -5375,6 +5399,7 @@ async function failRemoteAgentRoutineSubmissionRecovery(input: {
     failureReason,
     nowMs: input.nowMs,
     routine: {
+      messageChannelLocator: run.messageChannelLocator,
       destinationKind: run.destinationKind,
       id: run.routineId,
       name: input.delivery.routineNameSnapshot,
@@ -5412,7 +5437,10 @@ async function failRemoteAgentRoutineAdmissionForTarget(input: {
   const deliveryClaim = await claimRemoteAgentRoutineAdmissionFailure({
     bindingId: input.target.bindingId,
     conversationKind:
-      input.routine.destinationKind === "slack_thread" ? "slack" : "space",
+      input.routine.destinationKind === "slack_thread"
+        ? "slack"
+        : input.routine.destinationKind,
+    messageChannelLocator: input.routine.messageChannelLocator,
     db: input.db,
     failureCode: input.failureCode,
     failureDetail: input.failureReason,
@@ -5458,7 +5486,10 @@ async function claimRoutineDeliveryForTarget(input: {
   const deliveryClaim = await claimRemoteAgentRoutineNativeDelivery({
     bindingId: input.target.bindingId,
     conversationKind:
-      input.routine.destinationKind === "slack_thread" ? "slack" : "space",
+      input.routine.destinationKind === "slack_thread"
+        ? "slack"
+        : input.routine.destinationKind,
+    messageChannelLocator: input.routine.messageChannelLocator,
     db: input.db,
     nowMs: input.nowMs,
     onBehalfOfDisplayName: requireDelegatedNativeDeliveryMember(input.target)
@@ -5550,12 +5581,19 @@ async function resolveLostRoutineDeliveryClaim(input: {
 }
 
 type DelegatedNativeDeliveryDestination =
+  | { kind: "message_channel"; locator: StoredRoutine["messageChannelLocator"] }
   | { kind: "slack"; teamId: string | null }
   | { kind: "space"; spaceId: string | null };
 
 function toDelegatedNativeDeliveryDestination(
   destination: RoutineDeliveryDestination
 ): DelegatedNativeDeliveryDestination {
+  if (destination.destinationKind === "message_channel") {
+    return {
+      kind: "message_channel",
+      locator: destination.messageChannelLocator,
+    };
+  }
   return destination.destinationKind === "space"
     ? { kind: "space", spaceId: destination.targetSpaceId }
     : { kind: "slack", teamId: destination.slackTeamId };
@@ -5610,6 +5648,74 @@ function resolveDelegatedNativeDeliveryModelRoute(
       ok: false,
     };
   }
+}
+
+async function validateDelegatedNativeDeliveryDestination(input: {
+  db: D1Database;
+  organizationId: string;
+  agentProfileId: string;
+  destination: DelegatedNativeDeliveryDestination;
+}): Promise<{ failureCode: string; failureReason: string } | null> {
+  if (input.destination.kind === "space") {
+    const targetSpaceId = normalizeOptionalText(input.destination.spaceId);
+    if (!targetSpaceId) {
+      return {
+        failureCode: "delegated_native_delivery.space_unavailable",
+        failureReason: "the target Space is unavailable.",
+      };
+    }
+    const [space, membershipSpaceIds] = await Promise.all([
+      readSpaceIndexOrganizationJoinTarget({
+        db: input.db,
+        spaceId: targetSpaceId,
+      }),
+      listMembershipSpaceIdsForProfilesFromSpaceIndex({
+        db: input.db,
+        profileIds: [input.agentProfileId],
+        spaceIds: [targetSpaceId],
+      }),
+    ]);
+    if (
+      space?.organizationId !== input.organizationId ||
+      !membershipSpaceIds.includes(targetSpaceId)
+    ) {
+      return {
+        failureCode: "delegated_native_delivery.space_unavailable",
+        failureReason:
+          "its designated Center Agent cannot publish to the target Space.",
+      };
+    }
+  } else if (input.destination.kind === "message_channel") {
+    if (
+      !(await isMessageChannelRoutineConnectionAvailable({
+        db: input.db,
+        organizationId: input.organizationId,
+        locator: input.destination.locator,
+      }))
+    ) {
+      return {
+        failureCode: "routine.message_channel_unavailable",
+        failureReason:
+          "the destination chat is no longer connected to this Organization.",
+      };
+    }
+  } else {
+    const slackTeamId = normalizeOptionalText(input.destination.teamId);
+    const workspaceBinding = slackTeamId
+      ? await readRemoteAgentSlackWorkspaceBinding({
+          db: input.db,
+          slackTeamId,
+        })
+      : null;
+    if (workspaceBinding?.organizationId !== input.organizationId) {
+      return {
+        failureCode: "delegated_native_delivery.slack_unavailable",
+        failureReason:
+          "the target Slack thread is no longer connected to this Organization.",
+      };
+    }
+  }
+  return null;
 }
 
 async function resolveDelegatedRemoteAgentNativeDeliveryTarget(input: {
@@ -5719,57 +5825,14 @@ async function resolveDelegatedRemoteAgentNativeDeliveryTarget(input: {
       target,
     };
   }
-  if (input.destination.kind === "space") {
-    const targetSpaceId = normalizeOptionalText(input.destination.spaceId);
-    if (!targetSpaceId) {
-      return {
-        failureCode: "delegated_native_delivery.space_unavailable",
-        failureReason: "the target Space is unavailable.",
-        ok: false,
-        target,
-      };
-    }
-    const [space, membershipSpaceIds] = await Promise.all([
-      readSpaceIndexOrganizationJoinTarget({
-        db: input.db,
-        spaceId: targetSpaceId,
-      }),
-      listMembershipSpaceIdsForProfilesFromSpaceIndex({
-        db: input.db,
-        profileIds: [designation.agentProfileId],
-        spaceIds: [targetSpaceId],
-      }),
-    ]);
-    if (
-      space?.organizationId !== input.organizationId ||
-      !membershipSpaceIds.includes(targetSpaceId)
-    ) {
-      return {
-        failureCode: "delegated_native_delivery.space_unavailable",
-        failureReason:
-          "its designated Center Agent cannot publish to the target Space.",
-        ok: false,
-        target,
-      };
-    }
-  } else {
-    const slackTeamId = normalizeOptionalText(input.destination.teamId);
-    const workspaceBinding = slackTeamId
-      ? await readRemoteAgentSlackWorkspaceBinding({
-          db: input.db,
-          slackTeamId,
-        })
-      : null;
-    if (workspaceBinding?.organizationId !== input.organizationId) {
-      return {
-        failureCode: "delegated_native_delivery.slack_unavailable",
-        failureReason:
-          "the target Slack thread is no longer connected to this Organization.",
-        ok: false,
-        target,
-      };
-    }
+  const destinationFailure = await validateDelegatedNativeDeliveryDestination({
+    ...input,
+    agentProfileId: designation.agentProfileId,
+  });
+  if (destinationFailure) {
+    return { ...destinationFailure, ok: false, target };
   }
+
   return {
     ok: true,
     target: {
@@ -5814,7 +5877,8 @@ async function failRemoteAgentRoutineDelivery(input: {
   failureReason: string;
   nowMs: number;
   routine: {
-    destinationKind: "slack_thread" | "space";
+    messageChannelLocator?: StoredRoutine["messageChannelLocator"];
+    destinationKind: "slack_thread" | "space" | "message_channel";
     id: string;
     name: string;
     organizationId: string;
@@ -5860,31 +5924,40 @@ async function failRemoteAgentRoutineDelivery(input: {
   let publishedSignalId: string | null = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      const signal =
-        input.routine.destinationKind === "slack_thread"
-          ? await publishRoutineSlackThreadText({
-              env: input.env,
-              routine: input.routine,
-              text,
-            })
-          : await publishRemoteAgentRoutineText({
-              clientMessageId: input.run.id,
-              delivery: {
-                dispatchId: input.run.id,
-                organizationId: input.routine.organizationId,
-                profileId:
-                  input.target?.profileId ?? DISPATCH_HINT_SYSTEM_PROFILE_ID,
-                profileName:
-                  input.target?.profileName ??
-                  DISPATCH_HINT_SYSTEM_PROFILE_NAME,
-                ownerUserId: input.target?.ownerUserId ?? null,
-                spaceId: requireRoutineConversationId(input.routine),
-              },
-              env: input.env,
-              errorCode: input.failureCode,
-              purpose: REMOTE_AGENT_FAILURE_PURPOSE,
-              text,
-            });
+      let signal: { id?: string | null } | null;
+      if (input.routine.destinationKind === "message_channel") {
+        signal = await publishRoutineMessageChannelText({
+          env: input.env,
+          organizationId: input.routine.organizationId,
+          locator: input.routine.messageChannelLocator,
+          runId: input.run.id,
+          text,
+        });
+      } else if (input.routine.destinationKind === "slack_thread") {
+        signal = await publishRoutineSlackThreadText({
+          env: input.env,
+          routine: input.routine,
+          text,
+        });
+      } else {
+        signal = await publishRemoteAgentRoutineText({
+          clientMessageId: input.run.id,
+          delivery: {
+            dispatchId: input.run.id,
+            organizationId: input.routine.organizationId,
+            profileId:
+              input.target?.profileId ?? DISPATCH_HINT_SYSTEM_PROFILE_ID,
+            profileName:
+              input.target?.profileName ?? DISPATCH_HINT_SYSTEM_PROFILE_NAME,
+            ownerUserId: input.target?.ownerUserId ?? null,
+            spaceId: requireRoutineConversationId(input.routine),
+          },
+          env: input.env,
+          errorCode: input.failureCode,
+          purpose: REMOTE_AGENT_FAILURE_PURPOSE,
+          text,
+        });
+      }
       publishedSignalId = normalizeOptionalText(signal?.id);
       break;
     } catch (error) {
@@ -5917,6 +5990,85 @@ async function failRemoteAgentRoutineDelivery(input: {
       runId: input.run.id,
     });
   }
+}
+
+async function publishRoutineMessageChannelText(input: {
+  env: CoreBindings;
+  organizationId: string;
+  locator: StoredRoutine["messageChannelLocator"];
+  runId: string;
+  text: string;
+}): Promise<{ id: string } | null> {
+  const db = routineDb(input.env);
+  if (!db) {
+    throw new Error("Routine storage is unavailable");
+  }
+  await requireMessageChannelRoutineConnection({
+    db,
+    organizationId: input.organizationId,
+    locator: input.locator,
+  });
+  const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db,
+    idempotencyKey: input.runId,
+  });
+  if (
+    !delivery ||
+    delivery.organizationId !== input.organizationId ||
+    delivery.conversationKind !== "message_channel" ||
+    !input.locator ||
+    delivery.spaceId !== buildMessageChannelConversationId(input.locator)
+  ) {
+    return null;
+  }
+  if (delivery.publishedSignalId) {
+    return { id: delivery.publishedSignalId };
+  }
+  if (delivery.finalPublicationState === "outcome_unknown") {
+    return null;
+  }
+  const registry = createConfiguredMessageChannelProviderRegistry({
+    db,
+    env: input.env,
+  });
+  if (!registry) {
+    throw new Error("Message Channel publication is unavailable");
+  }
+  const nowMs = Date.now();
+  const claimId = crypto.randomUUID();
+  const failureCode = delivery.failureCode ?? "routine.execution_failed";
+  const claim = await claimRemoteAgentMessageChannelAdmissionFailurePublication(
+    {
+      db,
+      claimId,
+      claimExpiresAtMs:
+        nowMs + REMOTE_AGENT_SLACK_FINAL_PUBLICATION_CLAIM_LEASE_MS,
+      failureCode,
+      failureDetail: input.text,
+      idempotencyKey: input.runId,
+      nowMs,
+      status: "failed",
+    }
+  );
+  if (
+    !claim ||
+    (claim.status !== "failed" && claim.status !== "worker_unavailable")
+  ) {
+    return null;
+  }
+  const outcome = await publishRemoteAgentMessageChannelAdmissionFailure({
+    claimId,
+    db,
+    delivery: { ...claim, status: claim.status },
+    failureCode,
+    failureMessage: input.text,
+    releaseMode: "preserve_terminal",
+    registry,
+  });
+  if (outcome.status === "retryable") {
+    throw new Error(outcome.reasonCode);
+  }
+  return outcome.status === "published" ? { id: outcome.resultId } : null;
 }
 
 async function publishRoutineSlackThreadText(input: {
@@ -5964,6 +6116,7 @@ export async function retryRemoteAgentRoutineFailurePublications(input: {
   for (const run of runs) {
     try {
       const destination: RoutineDeliveryDestination = {
+        messageChannelLocator: run.messageChannelLocator,
         destinationKind: run.destinationKind,
         slackChannelId: run.slackChannelId,
         slackConversationId: run.slackConversationId,
@@ -6071,6 +6224,15 @@ async function publishRetriedRoutineFailure(input: {
     failureReason: resolveRoutineFailurePublicationReason(input.run),
     routineName: input.run.routineName,
   });
+  if (input.run.destinationKind === "message_channel") {
+    return await publishRoutineMessageChannelText({
+      env: input.env,
+      organizationId: input.run.organizationId,
+      locator: input.destination.messageChannelLocator,
+      runId: input.run.runId,
+      text,
+    });
+  }
   if (input.run.destinationKind === "slack_thread") {
     return await publishRoutineSlackThreadText({
       env: input.env,

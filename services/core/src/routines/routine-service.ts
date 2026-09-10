@@ -27,6 +27,10 @@ import {
 import { readRemoteAgentSlackWorkspaceBinding } from "../remote-agent/infrastructure/d1/slack-workspace-binding-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
+  requireMessageChannelRoutineConnection,
+  requireMessageChannelRoutineOrigin,
+} from "./message-channel-routine-destination";
+import {
   canManageRoutine,
   type RoutineAuthority,
   requireRoutineCreateAuthority,
@@ -157,6 +161,18 @@ export function createRoutineService(input: {
         centerAgentRoutineCreationAttributionSchema.parse({
           displayName: actor.creationDisplayName,
         });
+      if (
+        body.destinationKind === "message_channel" &&
+        body.messageChannelLocator
+      ) {
+        await requireMessageChannelRoutineOrigin({
+          db: input.db,
+          organizationId: actor.authority.organizationId,
+          userId: actor.authority.userId,
+          sourceNativeDeliveryId: actor.sourceNativeDeliveryId,
+          locator: body.messageChannelLocator,
+        });
+      }
       await requireValidDestination({
         body,
         db: input.db,
@@ -165,6 +181,7 @@ export function createRoutineService(input: {
         targetSpaceEligibility,
       });
       const routine: NewStoredRoutine = {
+        messageChannelLocator: body.messageChannelLocator ?? null,
         authorizedActions,
         createdAtMs: nowMs,
         createdByUserId: actor.authority.userId,
@@ -239,6 +256,20 @@ export function createRoutineService(input: {
         ...current,
         ...body,
       };
+      if (
+        candidate.destinationKind === "message_channel" &&
+        candidate.messageChannelLocator &&
+        JSON.stringify(candidate.messageChannelLocator) !==
+          JSON.stringify(current.messageChannelLocator)
+      ) {
+        await requireMessageChannelRoutineOrigin({
+          db: input.db,
+          organizationId: actor.authority.organizationId,
+          userId: actor.authority.userId,
+          sourceNativeDeliveryId: actor.sourceNativeDeliveryId,
+          locator: candidate.messageChannelLocator,
+        });
+      }
       const schedule = await requireValidSchedule(
         {
           cronExpression: candidate.cronExpression,
@@ -261,6 +292,7 @@ export function createRoutineService(input: {
         routine: {
           ...current,
           authorizedActions,
+          messageChannelLocator: candidate.messageChannelLocator ?? null,
           cronExpression: schedule.cronExpression,
           destinationKind: candidate.destinationKind,
           externalActionPolicy:
@@ -591,6 +623,7 @@ async function requireValidDestination(input: {
   body: Pick<
     CreateCenterAgentRoutineBody,
     | "destinationKind"
+    | "messageChannelLocator"
     | "slackChannelId"
     | "slackConversationId"
     | "slackTeamId"
@@ -604,6 +637,14 @@ async function requireValidDestination(input: {
     typeof createRoutineTargetSpaceEligibility
   >;
 }): Promise<void> {
+  if (input.body.destinationKind === "message_channel") {
+    await requireMessageChannelRoutineConnection({
+      db: input.db,
+      organizationId: input.organizationId,
+      locator: input.body.messageChannelLocator,
+    });
+    return;
+  }
   if (input.body.destinationKind === "space") {
     if (!input.body.targetSpaceId) {
       throw createCoreRpcHttpError({

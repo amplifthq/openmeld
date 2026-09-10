@@ -540,6 +540,11 @@ function resolveRoutineStatusLabel(
 function resolveRoutineDestinationLabel(
 	routine: CenterAgentRoutineManagement
 ): string {
+	if (routine.destinationKind === "message_channel") {
+		return routine.messageChannelLocator?.provider === "feishu"
+			? "Feishu conversation"
+			: "Lark conversation";
+	}
 	if (routine.destinationKind === "slack_thread") {
 		return routine.slackThreadLabel ?? "Slack thread";
 	}
