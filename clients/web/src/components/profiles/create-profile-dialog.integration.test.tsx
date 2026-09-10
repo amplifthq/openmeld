@@ -85,6 +85,14 @@ const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
 
+// The shared setup workflow has its own completion integration suite. This
+// boundary proves creation mounts that workflow without a second user action.
+vi.mock("#/components/connect/start-bring-agents-setup-page", () => ({
+	ComputerSetupFlow: () => (
+		<section aria-label="Inline computer setup">Setup command</section>
+	),
+}));
+
 vi.mock("sonner", () => ({
 	toast: {
 		error: toastErrorMock,
@@ -901,7 +909,7 @@ describe("CreateProfileDialog", () => {
 		});
 	});
 
-	it("replaces cached Agent configuration with an actionable reconnect step", async () => {
+	it("replaces cached Agent configuration with the inline connection workflow immediately", async () => {
 		const recovery = buildFakeRecovery();
 		const computer =
 			recovery.localRuntimesQuery.data?.peopleComputers.computers[0];
@@ -924,8 +932,14 @@ describe("CreateProfileDialog", () => {
 		readiness.service.matchingCurrentRuntime = false;
 		renderCurrentCreateProfileDialog({ recovery });
 		expect(
-			await screen.findByRole("button", { name: "Reconnect Computer" })
+			await screen.findByRole("region", { name: "Inline computer setup" })
 		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Reconnect Computer" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Back to Agent setup" })
+		).toBeNull();
 		expect(
 			screen.getByText("Office Mac isn’t connected right now")
 		).toBeTruthy();

@@ -46,6 +46,7 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
+import { ArrowLeftIcon } from "@phosphor-icons/react";
 import {
 	type QueryClient,
 	useMutation,
@@ -467,8 +468,9 @@ export function CreateProfileDialogStep(
 				disabled={view.formProps.isSubmitting}
 				onClick={() => view.onOpenChange(false)}
 				size="sm"
-				variant="ghost"
+				variant="outline"
 			>
+				<ArrowLeftIcon aria-hidden="true" className="size-4" />
 				Back to people and agents
 			</Button>
 			<DialogHeader>

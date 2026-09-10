@@ -8,7 +8,7 @@ export type AgentCreationComputerRecovery = {
 	state: "checking" | "check_failed" | "connect" | "reconnect" | "local_agents";
 	computerName?: string;
 	onStart: () => void;
-	/** The existing setup workflow, mounted only after the user requests it. */
+	/** The existing setup workflow, shown directly when connection is required. */
 	setup?: ReactNode;
 	onBack?: () => void;
 	computerChoices?: ReactNode;
@@ -61,14 +61,16 @@ export function AgentCreationComputerRecoveryPanel(input: {
 							: "Run the command on the computer you want to use. Keep this dialog open to continue with your Agent settings."}
 					</p>
 					{recovery.setup}
-					<Button
-						className="justify-self-start"
-						onClick={recovery.onBack}
-						type="button"
-						variant="ghost"
-					>
-						Back to Agent setup
-					</Button>
+					{recovery.onBack ? (
+						<Button
+							className="justify-self-start"
+							onClick={recovery.onBack}
+							type="button"
+							variant="outline"
+						>
+							Cancel new connection
+						</Button>
+					) : null}
 				</div>
 			) : null}
 		</section>

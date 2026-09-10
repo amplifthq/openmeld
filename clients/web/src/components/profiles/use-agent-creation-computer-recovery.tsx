@@ -44,14 +44,15 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 		input.guidance !== "set_up_local_agents" ||
 		!input.hasLocalAgents;
 	const state = resolveRecoveryState(input, target);
-	const start = () => setSetupTarget({ ...target, state });
+	const activeTarget =
+		setupTarget ?? resolveAutomaticSetupTarget(blocked, state, target);
 	const recovery: AgentCreationComputerRecovery | undefined =
 		input.enabled && (blocked || setupTarget)
 			? {
-					state: setupTarget?.state ?? state,
-					computerName: setupTarget ? setupTarget.name : target.name,
-					onStart: state === "check_failed" ? input.onRetry : start,
-					onBack: () => setSetupTarget(null),
+					state: activeTarget?.state ?? state,
+					computerName: activeTarget ? activeTarget.name : target.name,
+					onStart: input.onRetry,
+					onBack: setupTarget ? () => setSetupTarget(null) : undefined,
 					computerChoices:
 						!(setupTarget || selected) && enrolled.length > 1 ? (
 							<div className="grid gap-2">
@@ -74,13 +75,14 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 								</label>
 							</div>
 						) : undefined,
-					setup: setupTarget ? (
+					setup: activeTarget ? (
 						<BringAgentsSetupProvider
+							key={activeTarget.connectedComputerId ?? "new-computer"}
 							routeIntent={{
 								kind: "account_computer_setup",
 								returnTo: "agent_creation",
 								resetThisComputer: true,
-								connectedComputerId: setupTarget.connectedComputerId,
+								connectedComputerId: activeTarget.connectedComputerId,
 							}}
 						>
 							<ComputerSetupFlow
@@ -121,6 +123,16 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 				</Button>
 			) : null,
 	};
+}
+
+function resolveAutomaticSetupTarget(
+	blocked: boolean,
+	state: AgentCreationComputerRecovery["state"],
+	target: SetupTarget
+) {
+	return blocked && state !== "checking" && state !== "check_failed"
+		? { ...target, state }
+		: null;
 }
 
 function resolveRepairComputer(

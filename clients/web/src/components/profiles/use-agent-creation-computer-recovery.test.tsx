@@ -34,6 +34,9 @@ describe("Agent creation computer recovery", () => {
 			})
 		);
 		expect(result.current.computerRecovery?.state).toBe(expected);
+		expect(Boolean(result.current.computerRecovery?.setup)).toBe(
+			guidance !== "checking" && guidance !== "check_failed"
+		);
 		if (guidance === "check_failed") {
 			act(() => result.current.computerRecovery?.onStart());
 			expect(onRetry).toHaveBeenCalledOnce();
@@ -88,7 +91,6 @@ describe("Agent creation computer recovery", () => {
 				onRetry,
 			})
 		);
-		act(() => result.current.computerRecovery?.onStart());
 		const provider = result.current.computerRecovery?.setup as ReactElement<{
 			routeIntent: { connectedComputerId: string };
 			children: ReactElement<{ onCompleted: (snapshot: unknown) => void }>;
@@ -107,9 +109,10 @@ describe("Agent creation computer recovery", () => {
 			runtimeLane: "dev-local",
 		});
 		expect(onRetry).toHaveBeenCalledOnce();
-		expect(result.current.computerRecovery?.setup).toBeUndefined();
+		// Keep the workflow visible until the owning readiness projection refreshes.
+		expect(result.current.computerRecovery?.setup).toBeTruthy();
 	});
-	it("does not mount a setup session before an explicit action and clears it on close", () => {
+	it("shows setup immediately when open and never mounts it while closed", () => {
 		const base = {
 			orgSlug: "acme",
 			recovery: agentCreationRecoveryFixture({
@@ -126,11 +129,10 @@ describe("Agent creation computer recovery", () => {
 			({ enabled }) => useAgentCreationComputerRecovery({ ...base, enabled }),
 			{ initialProps: { enabled: true } }
 		);
-		expect(result.current.computerRecovery?.setup).toBeUndefined();
-		act(() => result.current.computerRecovery?.onStart());
 		expect(result.current.computerRecovery?.setup).toBeTruthy();
 		rerender({ enabled: false });
+		expect(result.current.computerRecovery).toBeUndefined();
 		rerender({ enabled: true });
-		expect(result.current.computerRecovery?.setup).toBeUndefined();
+		expect(result.current.computerRecovery?.setup).toBeTruthy();
 	});
 });

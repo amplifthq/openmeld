@@ -20,22 +20,22 @@ The Mock controls selector includes first connection, a saved offline computer,
 connection checking, a failed connection check, an online computer without local
 agents, a ready computer, two offline computers, and two available computers.
 Use the simulation buttons to move setup through connecting, failure, and success.
-Use Back to Agent setup before switching to another independent scenario while
-setup is active; preserving the active setup across background status changes is
-intentional.
+Connection instructions appear immediately in scenarios that require setup.
+No Connect or Reconnect confirmation click is needed. Cancel new connection is
+available only after explicitly choosing to connect another computer.
 
 Suggested review:
 
 1. Select Connected and ready. Edit the Agent name and expand advanced settings.
-2. Select Saved computer offline. Confirm the form yields to Reconnect Computer.
-3. Reconnect, simulate failure, retry, then simulate success. Confirm the name and
+2. Select Saved computer offline. Confirm connection instructions appear directly.
+3. Simulate failure, retry, then simulate success. Confirm the name and
    expanded settings return in the same dialog.
 4. Compare First connection with Saved computer offline. Existing computers must
    say reconnect; new computers must say connect.
 5. Try connection-check failure, checking, and no-local-agent states. Each should
    explain the current condition and offer the relevant action.
 6. Try two offline computers, select the intended computer, and confirm its name.
-7. From the ready form, choose Connect another computer, then return to setup.
+7. From the ready form, choose Connect another computer, then cancel that connection.
 8. Create the simulated Agent and confirm return to the preview Space context.
 
 ## Evidence and limits

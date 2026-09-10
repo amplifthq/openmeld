@@ -8,6 +8,7 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
+import { ArrowLeftIcon } from "@phosphor-icons/react";
 import {
 	createRootRoute,
 	createRoute,
@@ -143,8 +144,9 @@ function Preview() {
 							className="self-start"
 							onClick={() => setOpen(false)}
 							size="sm"
-							variant="ghost"
+							variant="outline"
 						>
+							<ArrowLeftIcon aria-hidden="true" className="size-4" />
 							Back to people and agents
 						</Button>
 						<DialogHeader>
