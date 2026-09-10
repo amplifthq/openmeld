@@ -1,5 +1,15 @@
 # Organization Agent ownership
 
+## Agent Context
+
+- Purpose: Define organization-owned Center Agent identity and the ownership migration boundary.
+- Read this when: Changing managed Agent ownership, access checks, or releasing the ownership migration.
+- Update this when: Ownership, migration preservation, or rollout prerequisites change.
+- Do not use this for: Personal Agent setup or general production release commands.
+- Source of truth: This file owns organization Agent identity, migration invariants, and the scoped rollout procedure.
+
+## Ownership
+
 The managed Center Agent has one Organization owner, including in a Personal
 Workspace. Auth stores `organization_id` and a null `owner_user_id`; its hosted
 Binding uses `owner_kind = organization` and the same Organization ID. Ordinary

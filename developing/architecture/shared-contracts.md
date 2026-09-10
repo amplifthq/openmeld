@@ -1,21 +1,5 @@
 # Shared Contracts
 
-## Space pin contracts
-
-`@openmeld/schemas` owns the strict message/file pin mutations and read models;
-`@openmeld/api-client` owns their GET/PATCH transport. Gateway authenticates
-`/v1/spaces/:spaceId/message-pins` and `/v1/spaces/:spaceId/file-pins`, then Core
-RPC delegates to the owning Space Durable Object. Mutations require an active
-human member whose owner matches the authenticated actor, and only the original
-pinner can unpin. Public and password-protected Space access still uses the
-existing Space authorization boundary.
-
-These are additive endpoints; existing message, file, and metadata wire models
-are unchanged. Web consumes both APIs and refreshes after existing
-`space.meta.changed` notifications, file changes, and stream reconnects. CLI,
-local Service, Desktop, and Agent execution contracts do not change. Delivery
-requires Core and Gateway before Web; no local component upgrade is required.
-
 ## Agent Context
 
 - Purpose: Define cross-client and cross-service shared contract ownership for
@@ -40,6 +24,22 @@ requires Core and Gateway before Web; no local component upgrade is required.
   one-off implementation notes.
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
+
+## Space pin contracts
+
+`@openmeld/schemas` owns the strict message/file pin mutations and read models;
+`@openmeld/api-client` owns their GET/PATCH transport. Gateway authenticates
+`/v1/spaces/:spaceId/message-pins` and `/v1/spaces/:spaceId/file-pins`, then Core
+RPC delegates to the owning Space Durable Object. Mutations require an active
+human member whose owner matches the authenticated actor, and only the original
+pinner can unpin. Public and password-protected Space access still uses the
+existing Space authorization boundary.
+
+These are additive endpoints; existing message, file, and metadata wire models
+are unchanged. Web consumes both APIs and refreshes after existing
+`space.meta.changed` notifications, file changes, and stream reconnects. CLI,
+local Service, Desktop, and Agent execution contracts do not change. Delivery
+requires Core and Gateway before Web; no local component upgrade is required.
 
 ## Boundary
 

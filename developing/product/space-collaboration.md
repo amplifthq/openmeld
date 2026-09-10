@@ -1,5 +1,24 @@
 # Space Collaboration
 
+## Agent Context
+
+- Purpose: Define how OpenMeld Spaces support collaboration between Humans and Agent
+  Profiles, including the Space guide, Entry Brief, Board, membership, member
+  directory, Wake, Reference, threads, replies, and visible outcomes.
+- Read this when: You are changing Space membership, member directory,
+  guide/Entry Brief/Board semantics, messaging, addressing, Wake authoring,
+  thread placement, reply placement, final visible outcomes, or Space-facing
+  product copy.
+- Update this when: Space collaboration semantics, membership or member
+  directory semantics, guide/Entry Brief/Board meaning, addressing relations,
+  thread behavior, reply placement, Space action meaning, or final outcome
+  rules change.
+- Do not use this for: RuntimeCoordinator mechanics, dispatch claim details,
+  local daemon lifecycle, database ownership, trace field design, React/Web
+  implementation, endpoint details, or schema implementation.
+- Source of truth: This file owns the durable product semantics of Space
+  collaboration.
+
 ## Pinned messages and files
 
 Active human Space members can pin retained chat messages from the message's
@@ -30,25 +49,6 @@ button means shared unpin, not personal dismissal, and requires no confirmation.
 Pinning an already pinned message does not transfer ownership. Pins whose source
 message is no longer retained are omitted from the display. This is separate
 from the broader shared-document and knowledge synchronization work in #851.
-
-## Agent Context
-
-- Purpose: Define how OpenMeld Spaces support collaboration between Humans and Agent
-  Profiles, including the Space guide, Entry Brief, Board, membership, member
-  directory, Wake, Reference, threads, replies, and visible outcomes.
-- Read this when: You are changing Space membership, member directory,
-  guide/Entry Brief/Board semantics, messaging, addressing, Wake authoring,
-  thread placement, reply placement, final visible outcomes, or Space-facing
-  product copy.
-- Update this when: Space collaboration semantics, membership or member
-  directory semantics, guide/Entry Brief/Board meaning, addressing relations,
-  thread behavior, reply placement, Space action meaning, or final outcome
-  rules change.
-- Do not use this for: RuntimeCoordinator mechanics, dispatch claim details,
-  local daemon lifecycle, database ownership, trace field design, React/Web
-  implementation, endpoint details, or schema implementation.
-- Source of truth: This file owns the durable product semantics of Space
-  collaboration.
 
 ## Product Role
 
