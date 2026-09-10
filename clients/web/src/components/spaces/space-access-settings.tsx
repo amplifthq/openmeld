@@ -169,7 +169,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 			<section className="flex items-center justify-end gap-3 border-border/60 border-t pt-4">
 				{isShare && (
 					<p className="mr-auto text-muted-foreground text-xs/relaxed">
-						{audience} Copying this link doesn’t grant additional access.
+						{hasExternalAccess ? audience : "This link doesn’t change access."}
 					</p>
 				)}
 				<Button
@@ -289,6 +289,7 @@ function SpaceAccessInvitations(input: {
 					>
 						<SelectTrigger
 							aria-label="Invite as"
+							className="w-fit min-w-0"
 							displayValue={audience === "guest" ? "Guest" : "Teammate"}
 						/>
 						<SelectContent>

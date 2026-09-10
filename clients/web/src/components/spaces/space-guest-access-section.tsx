@@ -94,7 +94,7 @@ export function SpaceGuestAccessSection({
 												disabled={save.isPending}
 												onClick={() => save.mutate(false)}
 												size="sm"
-												variant="ghost"
+												variant="outline"
 											>
 												Turn off guest access
 											</Button>

@@ -151,7 +151,7 @@ export function SpaceOwnersSection(input: {
 										>
 											<SelectTrigger
 												aria-label={`Role for ${person.profileName}`}
-												className="w-28"
+												className="w-fit min-w-0"
 												displayValue={
 													owners.includes(person.ownerUserId)
 														? "Owner"
