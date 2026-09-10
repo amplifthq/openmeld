@@ -4,7 +4,9 @@ title: Join your team's Spaces without opening them to everyone
 kind: improved
 areas: ["spaces", "invitations"]
 audiences: ["members", "admins"]
-evidence: ["https://github.com/amplifthq/openmeld/issues/886"]
+publishedAt: 2026-09-10
+release: v0.3.198
+evidence: ["https://github.com/amplifthq/openmeld/issues/886", "pr:935", "pr:937", "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4", "workflow:34523839085", "workflow:34525984891", "workflow:34522614437", "workflow:34523312980", "workflow:34525506615"]
 ---
 
 Organization members can join a Space open to their organization from Discover
