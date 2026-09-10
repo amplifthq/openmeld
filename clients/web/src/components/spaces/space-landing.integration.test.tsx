@@ -268,6 +268,7 @@ vi.mock("@tanstack/react-query", async () => {
 	// mocked download API, including the optimistic local-preview phase.
 	const usesRealQuery = (queryKey: unknown) =>
 		isWakeProgressPresentationQuery(queryKey) ||
+		(Array.isArray(queryKey) && queryKey[0] === "space-message-reactions") ||
 		(Array.isArray(queryKey) &&
 			queryKey[0] === "space-files" &&
 			queryKey[2] === "content");
@@ -286,6 +287,18 @@ vi.mock("@tanstack/react-query", async () => {
 						}) as Parameters<typeof actual.useQuery>[0]
 			);
 			const queryMock = useQueryMock;
+			if (options.queryKey?.[3] === "history-navigation") {
+				return createQueryResult({
+					isSuccess: true,
+					data: { entries: [], total: 0 },
+				});
+			}
+			if (
+				options.queryKey?.[0] === "space-message-pins" ||
+				options.queryKey?.[0] === "space-file-pins"
+			) {
+				return createQueryResult({ isSuccess: true, data: { pins: [] } });
+			}
 			return useActualQuery ? actualQuery : queryMock(options);
 		},
 		useQueryClient: () => {
@@ -3188,7 +3201,7 @@ describe("SpaceLanding", () => {
 		expect(screen.getByText("@runner(wake) status check")).toBeTruthy();
 		const sourceMessage = screen
 			.getByText("@runner(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
@@ -3280,7 +3293,7 @@ describe("SpaceLanding", () => {
 		});
 		const sourceMessage = screen
 			.getByText("@runner(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
@@ -3389,7 +3402,7 @@ describe("SpaceLanding", () => {
 		});
 		const sourceMessage = screen
 			.getByText("@runner(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
@@ -3669,7 +3682,7 @@ describe("SpaceLanding", () => {
 		});
 		const sourceMessage = screen
 			.getByText("@runner(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
@@ -3992,7 +4005,7 @@ describe("SpaceLanding", () => {
 		});
 		const sourceMessage = screen
 			.getByText("@runner(wake) old status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
@@ -4522,7 +4535,7 @@ describe("SpaceLanding", () => {
 
 		const sourceMessage = screen
 			.getByText("@codex(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		const sourceMessageRow = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageRow).not.toBeNull();
@@ -4815,7 +4828,7 @@ describe("SpaceLanding", () => {
 
 		const sourceMessage = screen
 			.getByText("@runner(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		const sourceMessageRow = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageRow).not.toBeNull();
@@ -5911,7 +5924,7 @@ describe("SpaceLanding", () => {
 
 		const sourceMessage = screen
 			.getByText("@codex(wake) status check")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		const sourceMessageRow = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageRow).not.toBeNull();
@@ -6226,8 +6239,8 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 		expect(screen.getByText("I am checking.")).toBeTruthy();
 		expect(
-			screen.getByText("Controlled by Ming's MacBook Pro Codex")
-		).toBeTruthy();
+			screen.queryByText("Controlled by Ming's MacBook Pro Codex")
+		).toBeNull();
 	});
 
 	it("keeps a non-owned agent concise without repeating ownership", () => {
@@ -8730,7 +8743,7 @@ describe("SpaceLanding", () => {
 		expect(statusEvent?.getAttribute("aria-label")).toBe("Message details");
 	});
 
-	it("shows where an agent is controlled from beside the agent name", () => {
+	it("keeps the Agent identity visible without repeating controller metadata", () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -8764,8 +8777,8 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding();
 
 		expect(
-			screen.getByText("Controlled by Felix's composer Codex")
-		).toBeTruthy();
+			screen.queryByText("Controlled by Felix's composer Codex")
+		).toBeNull();
 		expect(
 			screen.queryByText("Controlled by Felix's composer Codex · Owned by Mira")
 		).toBeNull();
@@ -9326,7 +9339,7 @@ describe("SpaceLanding", () => {
 			});
 			expect(
 				screen.getAllByText(currentBlockedReason).length
-			).toBeGreaterThanOrEqual(2);
+			).toBeGreaterThanOrEqual(1);
 		});
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		expect(readComposerValue(textarea)).toBe("@Runner please reply");
@@ -9336,8 +9349,14 @@ describe("SpaceLanding", () => {
 			currentMembersSnapshot
 		);
 		expect(
-			screen.getByRole("link", { name: "Choose local agent" })
-		).toBeTruthy();
+			screen
+				.getAllByRole("link", { name: "Choose local agent" })
+				.every(
+					(link) =>
+						link.getAttribute("href") ===
+						`/o/acme/agents?profileId=${DEFAULT_AGENT_PROFILE_ID}`
+				)
+		).toBe(true);
 
 		const relationControl = screen.getByRole("combobox", {
 			name: "Change relation for Runner",
@@ -10534,7 +10553,8 @@ describe("SpaceLanding", () => {
 			scrollTop: 320,
 		});
 		const scrollToMock = vi.fn((options: ScrollToOptions) => {
-			conversationHistory.scrollTop = Number(options.top);
+			conversationHistory.scrollTop = Math.min(Number(options.top), 640);
+			fireEvent.scroll(conversationHistory);
 		});
 		Object.defineProperty(conversationHistory, "scrollTo", {
 			configurable: true,
@@ -10544,8 +10564,12 @@ describe("SpaceLanding", () => {
 		const jumpButton = screen.getByRole("button", {
 			name: "Jump to latest message",
 		});
-		expect(jumpButton.getAttribute("data-active")).toBe("false");
-		expect(jumpButton.hasAttribute("inert")).toBe(true);
+		expect(
+			jumpButton.closest("[data-active]")?.getAttribute("data-active")
+		).toBe("false");
+		expect(jumpButton.closest("[data-active]")?.hasAttribute("inert")).toBe(
+			true
+		);
 
 		const latestMessageItem = conversationHistory.querySelector<HTMLElement>(
 			"[data-message-id='sig-scroll-2']"
@@ -10554,25 +10578,47 @@ describe("SpaceLanding", () => {
 			throw new Error("Expected the latest MessageScroller item");
 		}
 		vi.spyOn(latestMessageItem, "getBoundingClientRect").mockImplementation(
-			() => createTestDomRect({ bottom: 640, height: 80, top: 560 })
+			() =>
+				createTestDomRect({
+					bottom: 960 - conversationHistory.scrollTop,
+					height: 80,
+					top: 880 - conversationHistory.scrollTop,
+				})
 		);
 		fireEvent.wheel(conversationHistory);
 		fireEvent.scroll(conversationHistory);
 
 		await waitFor(() => {
-			expect(jumpButton.getAttribute("data-active")).toBe("true");
+			expect(
+				jumpButton.closest("[data-active]")?.getAttribute("data-active")
+			).toBe("true");
 		});
-		fireEvent.click(jumpButton);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Jump to latest message" }),
+			{ button: 0, detail: 1 }
+		);
 
-		expect(scrollToMock).toHaveBeenCalledWith({
-			behavior: "smooth",
-			top: 640,
+		await waitFor(() => {
+			expect(scrollToMock).toHaveBeenCalledWith({
+				behavior: "instant",
+				top: 960,
+			});
 		});
 		expect(conversationHistory.scrollTop).toBe(640);
 		await waitFor(() => {
-			expect(jumpButton.getAttribute("data-active")).toBe("false");
+			expect(
+				screen
+					.getByRole("button", { name: "Jump to latest message" })
+					.closest("[data-active]")
+					?.getAttribute("data-active")
+			).toBe("false");
 		});
-		expect(jumpButton.hasAttribute("inert")).toBe(true);
+		expect(
+			screen
+				.getByRole("button", { name: "Jump to latest message" })
+				.closest("[data-active]")
+				?.hasAttribute("inert")
+		).toBe(true);
 	});
 
 	it("refetches members after a live agent reply so member readiness does not stay stale", async () => {
@@ -13147,10 +13193,7 @@ describe("SpaceLanding", () => {
 		expect(URL.revokeObjectURL).toHaveBeenCalledWith(
 			"blob:source-image-preview"
 		);
-		expect(discardComposerUploadMock).toHaveBeenCalledWith({
-			spaceId: "space-123",
-			uploadId: expect.any(String),
-		});
+		expect(discardComposerUploadMock).not.toHaveBeenCalled();
 	});
 
 	it("retries an outcome-unknown stage once with the same upload identity", async () => {
@@ -13466,11 +13509,6 @@ describe("SpaceLanding", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-		await screen.findByText("This file could not be published.");
-		expect(screen.getByText("Request ID: request-publish-500")).toBeTruthy();
-		expect(
-			screen.getByText("1 file couldn't be uploaded and won't be sent.")
-		).toBeTruthy();
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [messageFile],
@@ -13491,6 +13529,11 @@ describe("SpaceLanding", () => {
 			);
 			await Promise.resolve();
 		});
+		await screen.findByText("This file could not be published.");
+		expect(screen.getByText("Request ID: request-publish-500")).toBeTruthy();
+		expect(
+			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+		).toBeTruthy();
 	});
 
 	it("retries an outcome-unknown publication once with the same mutation", async () => {
@@ -14289,7 +14332,7 @@ describe("SpaceLanding", () => {
 		});
 		const sourceMessage = screen
 			.getByText("DM hello")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
@@ -15362,19 +15405,18 @@ describe("SpaceLanding", () => {
 
 		const agentMessage = screen
 			.getByText("The current time is 12:53 AM.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(agentMessage).not.toBeNull();
 		fireEvent.mouseEnter(agentMessage as HTMLElement);
 		fireEvent.click(screen.getByRole("button", { name: "Reply" }));
 
-		expect(
-			screen.getAllByText(
-				(_content, element) => element?.textContent === "Replying to Runner"
-			).length
-		).toBeGreaterThan(0);
-		expect(
-			document.querySelector('[data-slot="composer-reply-banner"]')?.className
-		).toContain("rounded-md");
+		const replyBanner = document.querySelector(
+			'[data-slot="composer-reply-banner"]'
+		);
+		expect(replyBanner?.textContent).toContain(
+			"Replying Runner: The current time is 12:53 AM."
+		);
+		expect(replyBanner?.className).toContain("border-b");
 		const composer = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
@@ -15416,7 +15458,7 @@ describe("SpaceLanding", () => {
 
 		const actionMessage = screen
 			.getByText("Please review this.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(actionMessage).not.toBeNull();
 		// The reserved footer is a sibling of the bubble under the shared
 		// data-message-row-id row. Its actions stay mounted while opacity handles
@@ -15564,7 +15606,7 @@ describe("SpaceLanding", () => {
 		).toBeTruthy();
 		const rootMessage = screen
 			.getByText("Can someone check the privacy page?")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		// The fixed footer always mounts so keyboard and screen-reader users can
 		// reach the action without a hover-only DOM change.
@@ -15614,7 +15656,7 @@ describe("SpaceLanding", () => {
 		const firstView = renderSpaceLanding();
 		const rootMessage = screen
 			.getByText("Keep this Thread open after reload.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -15913,7 +15955,9 @@ describe("SpaceLanding", () => {
 			screen.getByRole("button", { name: "Close message details" })
 		);
 
-		const finalReply = screen.getByText("Done.").closest("[data-signal-id]");
+		const finalReply = screen
+			.getByText("Done.")
+			.closest("[data-message-row-id]");
 		expect(finalReply).not.toBeNull();
 		expect(
 			screen.queryByRole("heading", { name: "Message details" })
@@ -16382,7 +16426,7 @@ describe("SpaceLanding", () => {
 
 		const rootMessage = screen
 			.getByText("Can someone check the privacy page?")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.click(
 			within(rootMessage as HTMLElement).getByRole("button", {
@@ -16517,7 +16561,7 @@ describe("SpaceLanding", () => {
 
 		const rootMessage = screen
 			.getByText("I found the issue.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -16673,7 +16717,7 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding();
 		const rootMessage = screen
 			.getByText("Attach the thread notes here.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -16787,7 +16831,7 @@ describe("SpaceLanding", () => {
 		const view = renderSpaceLanding();
 		const rootMessage = screen
 			.getByText("Review the attached notes in this thread.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -16944,7 +16988,7 @@ describe("SpaceLanding", () => {
 
 		const rootMessage = screen
 			.getByText("Thread timeout root")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -17124,7 +17168,7 @@ describe("SpaceLanding", () => {
 
 		const rootMessage = screen
 			.getByText("I found the issue.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -17275,7 +17319,7 @@ describe("SpaceLanding", () => {
 
 		const rootMessage = screen
 			.getByText("I found the issue.")
-			.closest("[data-signal-id]");
+			.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.mouseEnter(rootMessage as HTMLElement);
 		fireEvent.click(
@@ -17496,7 +17540,7 @@ async function openHistoricalWakeFailure(input: {
 	let sourceRow: Element | null;
 	if (input.thread) {
 		const rootMessage = document.querySelector(
-			`[data-signal-id="${sourceSignal.id}"]`
+			`[data-message-row-id="${sourceSignal.id}"]`
 		);
 		if (!rootMessage) {
 			throw new Error("Expected the failed Wake source message.");
@@ -17593,7 +17637,7 @@ async function openAgentDirectMessageThreadProgrammaticSend(input: {
 
 	renderSpaceLanding();
 	const rootMessage = document.querySelector(
-		`[data-signal-id="${rootSignal.id}"]`
+		`[data-message-row-id="${rootSignal.id}"]`
 	);
 	if (!rootMessage) {
 		throw new Error("Expected the Agent Direct Message thread root.");
@@ -18123,7 +18167,8 @@ function mockSpaceQueries(input: {
 			if (
 				Array.isArray(options.queryKey) &&
 				options.queryKey[0] === "organizations" &&
-				options.queryKey[2] === "directory"
+				(options.queryKey[2] === "directory" ||
+					options.queryKey[2] === "profile-directory")
 			) {
 				if (!options.select && input.organizationDirectoryResponse) {
 					return createQueryResult({
@@ -18476,7 +18521,8 @@ function createOrganizationDirectoryFixture(input: {
 function resolveEmptyOrganizationDirectoryQueryResult(
 	queryKey: readonly unknown[]
 ) {
-	return queryKey[0] === "organizations" && queryKey[2] === "directory"
+	return queryKey[0] === "organizations" &&
+		(queryKey[2] === "directory" || queryKey[2] === "profile-directory")
 		? createQueryResult({
 				isSuccess: true,
 				data: {

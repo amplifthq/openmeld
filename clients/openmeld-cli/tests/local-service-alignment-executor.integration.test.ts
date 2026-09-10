@@ -18,6 +18,34 @@ import { withTempHome } from "./helpers/fs";
 
 const DAEMON_SERVICE_LAUNCHER_PATH_PATTERN = /daemon-service-launcher\.mjs$/;
 
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-startup-wait",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../src/local-service/lifecycle/daemon-service-startup-wait")
+      >();
+    return {
+      ...actual,
+      waitForSystemServiceStartup: (
+        input: Parameters<typeof actual.waitForSystemServiceStartup>[0]
+      ) =>
+        actual.waitForSystemServiceStartup({ ...input, waitMs: 50, pollMs: 1 }),
+    };
+  }
+);
+
+// Reconcile fixtures exercise service alignment without installing OS maintenance.
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-update-worker-manager",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../src/local-service/lifecycle/daemon-service-update-worker-manager")
+    >()),
+    ensureDaemonServiceMaintenanceInstalled: vi.fn(async () => undefined),
+  })
+);
+
 const {
   backupDaemonRuntimeDataForReinstallMock,
   captureDaemonServiceEvidenceBestEffortMock,
@@ -1673,181 +1701,153 @@ describe("local service alignment executor", () => {
   });
 
   it("fails verification when runtime still points at a different bundle entry", async () => {
-    const serviceManager = createServiceManager();
-    const previousInstallState = {
-      v: 1 as const,
-      schema: "openmeld-daemon-install-v1" as const,
-      daemonVersion: "0.1.9",
-      installSource: "cli.auto_check" as const,
-      installedAt: "2026-03-07T00:00:00.000Z",
-      updatedAt: "2026-03-07T00:00:00.000Z",
-    };
-    const previousActiveBundle = createActiveBundle({
-      bundleId: "bundle-0.1.9",
-      daemonVersion: "0.1.9",
-      bundleFormat: "self_contained_v1",
-    });
-    const previousContract = {
-      schema: "openmeld-daemon-service-contract-v1" as const,
-      v: 1 as const,
-      lane: "prod" as const,
-      generation: 1,
-      daemonVersion: "0.1.9",
-      bundleId: previousActiveBundle.bundleId,
-      desiredState: "background" as const,
-      serviceController: "launchd" as const,
-      autoStart: true,
-      gatewayUrl: "https://gateway.openmeld.invalid",
-      profileId: "agt_existing",
-      deviceId: "device_123",
-      heartbeatMs: 25_000,
-      updatedAt: "2026-03-07T00:00:00.000Z",
-    };
-    let currentRuntimeStatus = createRuntimeStatus({
-      status: "not_running",
-    });
-    serviceManager.start.mockImplementation(() => {
-      currentRuntimeStatus = createRuntimeStatus({
-        status: "running",
-        mode: "background",
-        pid: 777,
-        managedBySystemService: true,
-        serviceController: "launchd",
-        autoStart: true,
+    await withTempHome(async () => {
+      const serviceManager = createServiceManager();
+      const previousInstallState = {
+        v: 1 as const,
+        schema: "openmeld-daemon-install-v1" as const,
+        daemonVersion: "0.1.9",
+        installSource: "cli.auto_check" as const,
+        installedAt: "2026-03-07T00:00:00.000Z",
+        updatedAt: "2026-03-07T00:00:00.000Z",
+      };
+      const previousActiveBundle = createActiveBundle({
+        bundleId: "bundle-0.1.9",
+        daemonVersion: "0.1.9",
+        bundleFormat: "self_contained_v1",
       });
-    });
-    getDaemonRuntimeStatusMock.mockImplementation(
-      async () => currentRuntimeStatus
-    );
-    resolveDaemonServiceManagerMock.mockResolvedValue(serviceManager);
-    inspectDaemonServiceInventoryMock
-      .mockResolvedValueOnce(
-        createInventory({
-          installStatus: {
-            installed: true,
-            state: previousInstallState,
-          },
-          serviceContract: previousContract,
-          runtimeStatus: createRuntimeStatus({
-            status: "running",
-            mode: "background",
-            pid: 222,
-            managedBySystemService: true,
-            serviceController: "launchd",
-            autoStart: true,
-          }),
-          serviceManager,
-          serviceManagerStatus: {
-            installed: true,
-            running: true,
-            enabled: true,
-            definitionPath: "/Users/felix/Library/LaunchAgents/com.agent.plist",
-            commandSummary:
-              "node daemon-service-launcher.mjs service run --mode foreground",
-          },
-          activeBundle: previousActiveBundle,
-          activeBundleEntryPath:
-            "/Users/felix/.openmeld/runtime/daemon/bundles/bundle-0.1.9/dist/openmeld.js",
-          runtimeCommandEntryPath:
-            "/Users/felix/.openmeld/runtime/daemon/bundles/bundle-0.1.9/dist/openmeld.js",
-          runtimeCommandPathExists: true,
-          anomalies: [
-            {
-              code: "version_outdated",
-              message:
-                "Configured OpenMeld Service version is v0.1.9, expected v0.2.0.",
-            },
-          ],
-        })
-      )
-      .mockResolvedValueOnce(
-        createInventory({
-          installStatus: {
-            installed: true,
-            state: {
-              ...previousInstallState,
-              daemonVersion: "0.2.0",
-              updatedAt: "2026-03-07T00:05:00.000Z",
-            },
-          },
-          serviceContract: {
-            ...previousContract,
-            daemonVersion: "0.2.0",
-            bundleId: "fresh-bundle",
-          },
-          runtimeStatus: createRuntimeStatus({
-            status: "running",
-            mode: "background",
-            pid: 777,
-            managedBySystemService: true,
-            serviceController: "launchd",
-            autoStart: true,
-          }),
-          activeBundle: createActiveBundle({
-            bundleId: "fresh-bundle",
-            daemonVersion: "0.2.0",
-            bundleFormat: "self_contained_v1",
-          }),
-          activeBundleEntryPath:
-            "/Users/felix/.openmeld/runtime/daemon/bundles/fresh-bundle/dist/openmeld.js",
-          runtimeCommandEntryPath:
-            "/Users/felix/.openmeld/runtime/daemon/bundles/drifted-bundle/dist/openmeld.js",
-          runtimeCommandPathExists: true,
-          serviceManager,
-          serviceManagerStatus: {
-            installed: true,
-            running: true,
-            enabled: true,
-            definitionPath: "/Users/felix/Library/LaunchAgents/com.agent.plist",
-            commandSummary:
-              "node daemon-service-launcher.mjs service run --mode foreground",
-          },
-          anomalies: [],
-        })
-      )
-      .mockResolvedValueOnce(
-        createInventory({
-          installStatus: {
-            installed: true,
-            state: previousInstallState,
-          },
-          serviceContract: previousContract,
-          runtimeStatus: createRuntimeStatus({
-            status: "running",
-            mode: "background",
-            pid: 909,
-            managedBySystemService: true,
-            serviceController: "launchd",
-            autoStart: true,
-          }),
-          activeBundle: previousActiveBundle,
-          activeBundleEntryPath:
-            "/Users/felix/.openmeld/runtime/daemon/bundles/bundle-0.1.9/dist/openmeld.js",
-          runtimeCommandEntryPath:
-            "/Users/felix/.openmeld/runtime/daemon/bundles/bundle-0.1.9/dist/openmeld.js",
-          runtimeCommandPathExists: true,
-          serviceManager,
-          serviceManagerStatus: {
-            installed: true,
-            running: true,
-            enabled: true,
-            definitionPath: "/Users/felix/Library/LaunchAgents/com.agent.plist",
-            commandSummary:
-              "node daemon-service-launcher.mjs service run --mode foreground",
-          },
-          anomalies: [],
-        })
+      const previousContract = {
+        schema: "openmeld-daemon-service-contract-v1" as const,
+        v: 1 as const,
+        lane: "prod" as const,
+        generation: 1,
+        daemonVersion: "0.1.9",
+        bundleId: previousActiveBundle.bundleId,
+        desiredState: "background" as const,
+        serviceController: "launchd" as const,
+        autoStart: true,
+        gatewayUrl: "https://gateway.openmeld.invalid",
+        profileId: "agt_existing",
+        deviceId: "device_123",
+        heartbeatMs: 25_000,
+        updatedAt: "2026-03-07T00:00:00.000Z",
+      };
+      let currentRuntimeStatus = createRuntimeStatus({
+        status: "not_running",
+      });
+      serviceManager.start.mockImplementation(() => {
+        currentRuntimeStatus = createRuntimeStatus({
+          status: "running",
+          mode: "background",
+          pid: 777,
+          managedBySystemService: true,
+          serviceController: "launchd",
+          autoStart: true,
+        });
+        return Promise.resolve();
+      });
+      getDaemonRuntimeStatusMock.mockImplementation(
+        async () => currentRuntimeStatus
       );
+      resolveDaemonServiceManagerMock.mockResolvedValue(serviceManager);
+      inspectDaemonServiceInventoryMock
+        .mockResolvedValueOnce(
+          createInventory({
+            installStatus: {
+              installed: true,
+              state: previousInstallState,
+            },
+            serviceContract: previousContract,
+            runtimeStatus: createRuntimeStatus({
+              status: "running",
+              mode: "background",
+              pid: 222,
+              managedBySystemService: true,
+              serviceController: "launchd",
+              autoStart: true,
+            }),
+            serviceManager,
+            serviceManagerStatus: {
+              installed: true,
+              running: true,
+              enabled: true,
+              definitionPath:
+                "/Users/felix/Library/LaunchAgents/com.agent.plist",
+              commandSummary:
+                "node daemon-service-launcher.mjs service run --mode foreground",
+            },
+            activeBundle: previousActiveBundle,
+            activeBundleEntryPath:
+              "/Users/felix/.openmeld/runtime/daemon/bundles/bundle-0.1.9/dist/openmeld.js",
+            runtimeCommandEntryPath:
+              "/Users/felix/.openmeld/runtime/daemon/bundles/bundle-0.1.9/dist/openmeld.js",
+            runtimeCommandPathExists: true,
+            anomalies: [
+              {
+                code: "version_outdated",
+                message:
+                  "Configured OpenMeld Service version is v0.1.9, expected v0.2.0.",
+              },
+            ],
+          })
+        )
+        .mockResolvedValue(
+          createInventory({
+            installStatus: {
+              installed: true,
+              state: {
+                ...previousInstallState,
+                daemonVersion: "0.2.0",
+                updatedAt: "2026-03-07T00:05:00.000Z",
+              },
+            },
+            serviceContract: {
+              ...previousContract,
+              daemonVersion: "0.2.0",
+              bundleId: "fresh-bundle",
+            },
+            runtimeStatus: createRuntimeStatus({
+              status: "running",
+              mode: "background",
+              pid: 777,
+              managedBySystemService: true,
+              serviceController: "launchd",
+              autoStart: true,
+            }),
+            activeBundle: createActiveBundle({
+              bundleId: "fresh-bundle",
+              daemonVersion: "0.2.0",
+              bundleFormat: "self_contained_v1",
+            }),
+            activeBundleEntryPath:
+              "/Users/felix/.openmeld/runtime/daemon/bundles/fresh-bundle/dist/openmeld.js",
+            runtimeCommandEntryPath:
+              "/Users/felix/.openmeld/runtime/daemon/bundles/drifted-bundle/dist/openmeld.js",
+            runtimeCommandPathExists: true,
+            serviceManager,
+            serviceManagerStatus: {
+              installed: true,
+              running: true,
+              enabled: true,
+              definitionPath:
+                "/Users/felix/Library/LaunchAgents/com.agent.plist",
+              commandSummary:
+                "node daemon-service-launcher.mjs service run --mode foreground",
+            },
+            anomalies: [],
+          })
+        );
 
-    const result = await runDaemonServiceFullAlignment({
-      expectedVersion: "0.2.0",
-      intent: "startup_check",
+      const result = await runDaemonServiceFullAlignment({
+        expectedVersion: "0.2.0",
+        intent: "startup_check",
+      });
+
+      expect(result.status).toBe("failed");
+      expect(result.errorMessage).toContain(
+        "runtime is still using /Users/felix/.openmeld/runtime/daemon/bundles/drifted-bundle/dist/openmeld.js"
+      );
     });
-
-    expect(result.status).toBe("failed");
-    expect(result.errorMessage).toContain(
-      "runtime is still using /Users/felix/.openmeld/runtime/daemon/bundles/drifted-bundle/dist/openmeld.js"
-    );
   });
 });
 
