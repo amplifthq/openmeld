@@ -49,6 +49,12 @@ use Turbo's cache. Test commands run sequentially, Node test files run serially,
 and related Vitest tests use at most two workers without file parallelism.
 Every run uses a disposable `OPENMELD_HOME`.
 
+Workers pools need their own runtime limits. Gateway tests share one runtime
+and module cache, clear global/environment stubs, and retain per-test storage
+isolation; Vitest's worker count alone does not bound that pool.
+The package test command runs four sequential shards to release cached modules
+between groups. A failed shard stops the command.
+
 The push hook requires the checked-out, clean tree to match every pushed commit.
 An ordinary follow-up push checks the diff from the remote branch's previous
 commit; a first push or rewritten/unavailable history checks the branch against

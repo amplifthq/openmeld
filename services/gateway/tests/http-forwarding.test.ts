@@ -1239,6 +1239,7 @@ describe("gateway http forwarding", () => {
       "getSpaceConversationState",
       "getSpaceEntryResolution",
       "getSpaceIdentityDirectory",
+      "getSpaceLinkPreviews",
       "getSpaceMemberDirectory",
       "getSpaceMembers",
       "getSpaceStatus",
