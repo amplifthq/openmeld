@@ -354,7 +354,7 @@ function CenterAgentRoutinesPageHeader(input: {
 					</>
 				) : undefined
 			}
-			description="Schedule your Center Agent to work in a target Space."
+			description="Schedule work in a Space or a connected conversation."
 			eyebrow={
 				input.isPersonalWorkspace ? "Personal workspace" : "Organization"
 			}
