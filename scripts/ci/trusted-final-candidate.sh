@@ -120,10 +120,11 @@ readonly candidate_root="$(trusted_git rev-parse --show-toplevel)"
 readonly temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/openmeld-trusted-final-candidate.XXXXXX")"
 readonly network_root="$temporary_root/network.git"
 readonly control_root="$temporary_root/control"
+control_repository="$network_root"
 
 cleanup() {
   if [ -d "$control_root" ]; then
-    trusted_git -C "$candidate_root" worktree remove --force "$control_root" >/dev/null 2>&1 || true
+    trusted_git -C "$control_repository" worktree remove --force "$control_root" >/dev/null 2>&1 || true
   fi
   rm -rf "$temporary_root"
 }
@@ -149,17 +150,16 @@ case "$trusted_remote_url" in
     ;;
 esac
 trusted_git init --bare --quiet "$network_root"
-trusted_git --git-dir="$network_root" fetch --no-tags "$trusted_remote_url" \
+printf '%s\n' "Fetching the isolated current-main control snapshot (depth 1)."
+trusted_git --git-dir="$network_root" fetch --no-tags --depth=1 "$trusted_remote_url" \
   refs/heads/main:refs/heads/main
-trusted_git -C "$candidate_root" fetch --no-tags "$network_root" \
-  refs/heads/main:refs/remotes/origin/main
-readonly current_main="$(trusted_git -C "$candidate_root" rev-parse --verify refs/remotes/origin/main^{commit})"
+readonly current_main="$(trusted_git -C "$network_root" rev-parse --verify refs/heads/main^{commit})"
 readonly candidate_head="$(trusted_git -C "$candidate_root" rev-parse --verify HEAD^{commit})"
 readonly bootstrap_relative_path="scripts/ci/final-candidate-bootstrap.mjs"
 control_sha="$current_main"
 control_trust="current-main"
 
-if ! trusted_git -C "$candidate_root" cat-file -e "$current_main:$bootstrap_relative_path" 2>/dev/null; then
+if ! trusted_git -C "$network_root" cat-file -e "$current_main:$bootstrap_relative_path" 2>/dev/null; then
   bootstrap_control_sha=""
   bootstrap_reason=""
   arguments=("$@")
@@ -184,9 +184,10 @@ if ! trusted_git -C "$candidate_root" cat-file -e "$current_main:$bootstrap_rela
   fi
   control_sha="$candidate_head"
   control_trust="explicit-bootstrap"
+  control_repository="$candidate_root"
 fi
 
-trusted_git -C "$candidate_root" worktree add --detach --quiet "$control_root" "$control_sha"
+trusted_git -C "$control_repository" worktree add --detach --quiet "$control_root" "$control_sha"
 readonly bootstrap_path="$(cd "$control_root" && pwd -P)/$bootstrap_relative_path"
 readonly observer_path="$(cd "$control_root" && pwd -P)/scripts/ci/final-candidate-observer.mjs"
 readonly readiness_path="$(cd "$control_root" && pwd -P)/scripts/ci/local-final-candidate-readiness.mjs"

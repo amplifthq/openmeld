@@ -304,6 +304,12 @@ This lane fetches live `main`, reads the live PR, executes trusted current-main
 control against the candidate, rechecks identity after validation, posts the
 evidence comment, and publishes the same status. It requires an authenticated
 `gh` session and fails closed when GitHub or network evidence is unavailable.
+The first hop fetches a depth-one main snapshot into an isolated temporary Git
+repository and loads control code there. It does not import shallow boundaries
+into the candidate repository or download unrelated history. The bootstrap and
+candidate runner still refresh main and verify ancestry using the candidate's
+complete history. Repository-local network policy cannot influence the isolated
+control fetch, and a failed fetch cannot fall back to cached control code.
 Before installing or executing candidate checks, it prints a bounded local
 resource preflight: available disk and active OpenMeld dev stacks. Other stacks
 are facts, not an approval rule. Only the critical one-GiB free-disk safety
