@@ -452,14 +452,28 @@ Message, and threads. The shared Composer accepts up to ten files of any
 supported MIME type through **Add to message > Files**, file picker, paste, or
 drag and drop. Text is optional when at least one file is present. Upload begins
 before send as a temporary Composer Upload that is not visible in Files and is
-not yet a Space File. Removing the selection discards that upload; abandoned
-uploads expire after 24 hours and Core removes expired objects. Send publishes
-each ready Composer Upload as a canonical root-level Space File and then places
-the returned immutable revision reference in the message. An in-progress
-upload blocks Send. A failed upload also blocks Send until the member removes
-it; OpenMeld never silently omits a selected attachment. If publication fails,
-the whole message remains available for retry with the same upload identities.
-No partial or empty message is posted.
+not yet a Space File. Browser-local attachment drafts retain the source files
+and completed upload descriptors for up to 24 hours, scoped by Organization,
+Profile, Space, and thread or inline edit. Navigation preserves these drafts;
+explicit removal or a successful send clears them. Switching conversations
+does not redirect an in-flight upload or submission to the new conversation.
+Removing the selection discards that upload; abandoned uploads expire after
+24 hours and Core removes expired objects.
+
+Send immediately stages the message with local attachment previews and frees
+the Composer, including when uploads are still running. In the background it
+waits for the captured attachment batch, publishes every upload as a canonical
+root-level Space File, and posts the immutable revision references. A failed
+attachment is never silently omitted. A failure before publication keeps the
+message unsent with an explicit recovery path. File publication and message
+publication remain separate operations.
+
+Composer image attachments use compact, edge-to-edge thumbnails on surface 3,
+above the Composer's surface-2 context. Clicking an image opens the same
+Morphing Dialog preview used by sent images. File names appear in tooltips,
+and a persistent white circular remove button stays inside each thumbnail.
+Other files show an icon and file type. Normal upload progress and ready labels
+are not shown; failures remain explicit.
 
 During a multi-file CLI send, the CLI keeps the exact ids of files created by
 that not-yet-published submission. If a later selected upload fails, it moves
@@ -866,6 +880,32 @@ not create executable work for the named Agent Profile.
 
 Detailed Wake execution ownership belongs in
 `developing/architecture/agent-transport-contract.md`.
+
+## Continuing A Main Conversation And Editing Messages
+
+An ordinary Space's main composer may recommend the single Agent the current
+Human last explicitly woke after that Agent replies. The suggestion is not an
+addressing target. Click or Tab accepts it as an ordinary Wake token; ignoring
+it sends an ordinary message. Explicit dismissal suppresses the corresponding
+post-send suggestion. Other members' Wakes and ambiguous multi-target turns do
+not select the target.
+
+When that suggestion was ignored at send, only the sender sees a dismissible
+ordinary Agent token labeled `Click to wake` below their latest sent message.
+Clicking it directly saves an edit with that Agent's first Wake, without opening
+an editor, asking for another selection, or requiring another save. Failures
+remain beside the suggestion for retry; repeated clicks cannot dispatch twice.
+Manual `@` editing uses the same Composer member picker. Selection edits the
+draft; `Save & wake` commits its first Wake. `Save changes` only updates content. All viewers
+see the resulting ordinary Wake token and edited marker on the original
+message, with its ID, sent time, replies, reactions, and placement preserved.
+
+A message that already requested a Wake cannot request another through editing,
+including after failure. Original Wake targets remain fixed; an edit never
+rewrites an accepted execution's content snapshot. Ordinary edits can add or
+remove files using the Composer upload path. The inline editor preserves text,
+typography, attachment previews, expansion state, and reading position. It does
+not put a long message inside a small scrolling editor or silently reformat it.
 
 ## Human Input During A Wake
 

@@ -1,17 +1,9 @@
 import type { SpaceApi } from "@openmeld/api-client";
 import type { NavigationAction } from "@openmeld/schemas";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
-import {
-	MorphingDialog,
-	MorphingDialogClose,
-	MorphingDialogContainer,
-	MorphingDialogContent,
-	MorphingDialogImage,
-	MorphingDialogTrigger,
-} from "@openmeld/ui/components/morphing-dialog";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
-import { FileIcon, ImageIcon, XIcon } from "@phosphor-icons/react";
+import { FileIcon, ImageIcon } from "@phosphor-icons/react";
 import { useReducedMotionConfig } from "framer-motion";
 import {
 	type ComponentProps,
@@ -39,11 +31,10 @@ import {
 import { Marker, MarkerContent } from "./primitives/marker";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
+import { SpaceImagePreview } from "./space-image-preview";
+import { SpaceInlineMessageEditor } from "./space-inline-message-editor";
 import { collapseSpaceMessage } from "./space-message-collapse";
-import {
-	SpaceInlineMessageEditor,
-	useSpaceMessageEditing,
-} from "./space-message-editing";
+import { useSpaceMessageEditing } from "./space-message-editing";
 import {
 	buildSpaceMessageProfileMentionProfiles,
 	createSpaceMessageProfileMentionRemarkPlugin,
@@ -218,10 +209,12 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 	input: SpaceMessageBodyProps
 ) {
 	const editing = useSpaceMessageEditing();
+	const textPresentation = useSpaceMessageTextPresentation(input);
 	const bodyRef = useRef<HTMLDivElement | null>(null);
 	const [bodySize, setBodySize] = useState<{
 		width: number;
 		height: number;
+		textHeight: number;
 	} | null>(null);
 	const isEditing = Boolean(
 		input.item.id && editing?.edit?.id === input.item.id
@@ -236,10 +229,15 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 		}
 		const observer = new ResizeObserver(() => {
 			const { width, height } = body.getBoundingClientRect();
+			const textHeight =
+				body.querySelector(".content-space-message")?.getBoundingClientRect()
+					.height ?? height;
 			setBodySize((previous) =>
-				previous?.width === width && previous.height === height
+				previous?.width === width &&
+				previous.height === height &&
+				previous.textHeight === textHeight
 					? previous
-					: { width, height }
+					: { width, height, textHeight }
 			);
 		});
 		observer.observe(body);
@@ -282,18 +280,41 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 		return (
 			<SpaceInlineMessageEditor
 				bodySize={bodySize}
+				collapseControl={
+					<SpaceMessageCollapseButton
+						isExpanded={textPresentation.isExpanded}
+						onToggle={() =>
+							textPresentation.setIsExpanded((expanded) => !expanded)
+						}
+						visible={textPresentation.shouldCollapse}
+					/>
+				}
+				collapsedHeight={
+					textPresentation.shouldCollapse && !textPresentation.isExpanded
+						? bodySize?.textHeight
+						: undefined
+				}
 				item={editing.edit}
 				key={editing.edit.id}
 			/>
 		);
 	}
-	return <SpaceMessageBodyDisplay {...input} bodyRef={bodyRef} />;
+	return (
+		<SpaceMessageBodyDisplay
+			{...input}
+			bodyRef={bodyRef}
+			textPresentation={textPresentation}
+		/>
+	);
 });
 
 const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
-	input: SpaceMessageBodyProps & { bodyRef: Ref<HTMLDivElement> }
+	input: SpaceMessageBodyProps & {
+		bodyRef: Ref<HTMLDivElement>;
+		textPresentation: ReturnType<typeof useSpaceMessageTextPresentation>;
+	}
 ) {
-	const text = useSpaceMessageTextPresentation(input);
+	const text = input.textPresentation;
 	const references = useSpaceMessageReferencePresentation(input);
 	const className = cn(
 		"break-words content-space-message [overflow-wrap:anywhere]",
@@ -547,7 +568,7 @@ function isComputerSetupNavigationAction(
 	return action.target.kind === "computer_setup";
 }
 
-function SpaceMessageAttachmentGrid(input: {
+export function SpaceMessageAttachmentGrid(input: {
 	attachments: SpaceTimelineItem["attachments"];
 	organizationSlug?: string;
 	spaceId: string;
@@ -579,7 +600,7 @@ function SpaceMessageAttachmentGrid(input: {
 	);
 }
 
-function SpaceMessageFileList(input: {
+export function SpaceMessageFileList(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	files: NonNullable<SpaceTimelineItem["files"]>;
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
@@ -713,7 +734,7 @@ function SpaceMessageFileImage(input: {
 	}
 
 	return (
-		<SpaceMessageImagePreview
+		<SpaceImagePreview
 			altText={input.file.name}
 			focusedAction={
 				input.onOpenSpaceFile
@@ -772,7 +793,7 @@ function SpaceMessageAttachmentImage(input: {
 	}
 
 	return (
-		<SpaceMessageImagePreview
+		<SpaceImagePreview
 			altText={altText}
 			focusedAction={{
 				href: downloadPath,
@@ -784,105 +805,6 @@ function SpaceMessageAttachmentImage(input: {
 			onError={() => setIsBroken(true)}
 			width={input.attachment.width}
 		/>
-	);
-}
-
-function SpaceMessageImagePreview(input: {
-	altText: string;
-	focusedAction?:
-		| { href: string; label: string; onSelect?: never }
-		| { href?: never; label: string; onSelect: () => void };
-	height?: number;
-	imageSource: string;
-	isSingle: boolean;
-	onError: () => void;
-	width?: number;
-}) {
-	const shouldReduceMotion = useReducedMotionConfig();
-	const focusedActionClassName =
-		"absolute right-3 bottom-3 border border-border bg-background/95 px-3 py-2 font-medium text-foreground text-xs shadow-sm backdrop-blur-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none";
-
-	return (
-		<MorphingDialog
-			transition={
-				shouldReduceMotion === true
-					? { duration: 0 }
-					: { duration: 0.2, ease: [0.215, 0.61, 0.355, 1] }
-			}
-		>
-			<MorphingDialogTrigger
-				aria-label={`Open ${input.altText}`}
-				className={cn(
-					"group/image relative flex max-w-full items-center justify-center overflow-hidden focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
-					input.isSingle ? "w-fit" : "aspect-square w-full"
-				)}
-			>
-				<MorphingDialogImage
-					alt={input.altText}
-					className={cn(
-						"block transition-opacity group-hover/image:opacity-90 motion-reduce:transition-none",
-						input.isSingle
-							? "h-auto max-h-[32rem] w-auto max-w-full object-contain"
-							: "h-full w-full object-cover"
-					)}
-					decoding="async"
-					height={input.height}
-					loading="lazy"
-					onError={input.onError}
-					src={input.imageSource}
-					width={input.width}
-				/>
-			</MorphingDialogTrigger>
-			<MorphingDialogContainer>
-				<MorphingDialogContent className="relative">
-					<MorphingDialogImage
-						alt={input.altText}
-						className="h-auto max-h-[90vh] w-full max-w-[90vw] object-contain"
-						height={input.height}
-						src={input.imageSource}
-						width={input.width}
-					/>
-					{input.focusedAction ? (
-						<SpaceMessageImageFocusedAction
-							action={input.focusedAction}
-							className={focusedActionClassName}
-						/>
-					) : null}
-				</MorphingDialogContent>
-				<MorphingDialogClose className="fixed top-6 right-6 border border-border bg-background/95 p-1.5 text-foreground hover:bg-muted">
-					<XIcon aria-hidden="true" className="size-5" />
-				</MorphingDialogClose>
-			</MorphingDialogContainer>
-		</MorphingDialog>
-	);
-}
-
-function SpaceMessageImageFocusedAction(input: {
-	action:
-		| { href: string; label: string; onSelect?: never }
-		| { href?: never; label: string; onSelect: () => void };
-	className: string;
-}) {
-	if (input.action.href) {
-		return (
-			<a
-				className={input.className}
-				href={input.action.href}
-				rel="noreferrer"
-				target="_blank"
-			>
-				{input.action.label}
-			</a>
-		);
-	}
-	return (
-		<button
-			className={input.className}
-			onClick={input.action.onSelect}
-			type="button"
-		>
-			{input.action.label}
-		</button>
 	);
 }
 

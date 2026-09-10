@@ -12,7 +12,6 @@ import {
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import {
 	isSpaceComposerFileFailed,
-	isSpaceComposerFileInProgress,
 	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
 import {
@@ -37,6 +36,7 @@ import {
 	type SpaceComposerEditorChange,
 	type SpaceComposerInputRef,
 } from "./space-composer-editor";
+import { useSpaceWakeRecommendation } from "./space-wake-recommendation";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceMentionPickerItem,
@@ -106,7 +106,38 @@ const ignoreFiles = (_files: readonly File[]): Promise<void> =>
 	Promise.resolve();
 const ignoreFileRemoval = (_localId: string): void => undefined;
 
+function useComposerWakeSuggestion(input: SpaceComposerProps) {
+	const recommendations = useSpaceWakeRecommendation();
+	const candidate =
+		input.context.placement === "conversation" &&
+		input.context.conversationKind === "space" &&
+		input.availability.canSendMessage &&
+		input.content.authoredMentions.length === 0
+			? recommendations?.candidate
+			: null;
+	const recommended = candidate
+		? input.content.mentionPickerItems.find(
+				(item) =>
+					item.suggestion.profileId === candidate.profileId &&
+					item.suggestion.allowedRelations.wake &&
+					item.suggestion.wakeAvailability.status === "ready"
+			)
+		: undefined;
+	const acceptRecommendation = () => {
+		if (!recommended) {
+			return;
+		}
+		input.composerRef.current?.acceptWakeRecommendation?.(
+			recommended.suggestion.profileId
+		);
+		recommendations?.dismiss();
+	};
+	return { recommendations, recommended, acceptRecommendation };
+}
+
 export function SpaceComposer(input: SpaceComposerProps) {
+	const { recommendations, recommended, acceptRecommendation } =
+		useComposerWakeSuggestion(input);
 	const submit = (options?: SpaceComposerSendOptions) => {
 		if (
 			!resolveSpaceComposerBlockedWakeHint(
@@ -114,6 +145,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 				options?.deviceWait
 			)
 		) {
+			recommendations?.recordSend(recommended?.suggestion.profileId ?? null);
 			// Return from the send button within this user gesture, before the draft
 			// resets. Network completion must never take focus back from other work.
 			input.composerRef.current?.focus();
@@ -139,9 +171,6 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		targetName: input.context.targetName,
 		text: input.content.text,
 	});
-	const uploadInProgress = input.content.files.some(
-		isSpaceComposerFileInProgress
-	);
 	const uploadsDisabled =
 		input.availability.isSendingMessage ||
 		!(input.availability.canUploadFiles ?? input.availability.canSendMessage);
@@ -159,7 +188,6 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	const fileHint = resolveSpaceComposerFileHint({
 		files: input.content.files,
 		fileLimitReached: input.availability.fileLimitReached,
-		uploadInProgress,
 	});
 	const blockedWakeHint = resolveSpaceComposerBlockedWakeHint(
 		input.content.addressingTargets
@@ -229,6 +257,15 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						onSend={submit}
 						placeholder={policy.placeholder}
 						text={input.content.text}
+						wakeRecommendation={
+							recommended
+								? {
+										profileId: recommended.suggestion.profileId,
+										onAccept: acceptRecommendation,
+										onDismiss: () => recommendations?.dismiss(),
+									}
+								: undefined
+						}
 					/>
 					{deviceWaitPresentation.control}
 					<PromptInputActions className="min-w-0 justify-between gap-3 pt-2">
@@ -439,14 +476,7 @@ function SpaceComposerFileDropOverlay(input: { visible: boolean }) {
 export function resolveSpaceComposerFileHint(input: {
 	files: readonly SpaceComposerFile[];
 	fileLimitReached: boolean;
-	uploadInProgress?: boolean;
 }): string | null {
-	if (
-		input.uploadInProgress ??
-		input.files.some(isSpaceComposerFileInProgress)
-	) {
-		return "Uploading files…";
-	}
 	const failedCount = input.files.filter(isSpaceComposerFileFailed).length;
 	if (failedCount > 0) {
 		return failedCount === 1
@@ -455,12 +485,6 @@ export function resolveSpaceComposerFileHint(input: {
 	}
 	if (input.fileLimitReached) {
 		return "You can add up to 10 files.";
-	}
-	const readyCount = input.files.filter(
-		(file) => file.status === "ready"
-	).length;
-	if (readyCount > 0) {
-		return `${String(readyCount)} ${readyCount === 1 ? "file" : "files"} ready to send`;
 	}
 	return null;
 }

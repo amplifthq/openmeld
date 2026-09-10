@@ -773,6 +773,21 @@ Mutation broadcasts preserve original thread placement. Existing dispatch
 records remain execution history; edits do not rewrite or restart executed
 work. This contract covers native Space messages, not Slack/Lark message sync.
 
+An edit may add `messageEnvelope` recipients and `addedFiles` resolved by the
+Space file owner. Existing Wake targets are immutable. A message without a prior
+Wake may gain its first explicit Wake: the Space validates current targets and
+admission, creates the normal durable outbox snapshot, and updates the original
+message in one synchronous transaction. The message ID, sent time, and thread
+placement stay unchanged. Subsequent edits cannot rearm work, including after a
+failed Wake. Revision checks fence concurrent edits; admission failure rolls
+back both the edit and handoff. The outbox retains the content and file revisions
+accepted at that edit even when the message changes later.
+
+These optional request additions require the new Gateway/Core receivers before
+the Web caller. Old edit requests and existing CLI/Service dispatch and result
+contracts are unchanged; no local-component floor changes are required. Roll
+back the Web caller before removing receiver support.
+
 ## Web Organization Request Context
 
 An Organization-scoped Web request uses a two-stage contract: the browser

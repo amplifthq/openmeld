@@ -3367,6 +3367,7 @@ function useSpaceThreadController(input: {
 			organizationSlug: input.organizationSlug,
 			profileId: input.profileId,
 			spaceId: input.spaceId,
+			draftScope: `thread:${activeThreadId ?? "closed"}`,
 		},
 	});
 	const mentionAuthoring = composerSession.authoring;
@@ -3504,13 +3505,11 @@ function useSpaceThreadController(input: {
 	function closeThread() {
 		threadPanelSelection.close();
 		composerSession.feedback.clear();
-		composerFilesController.clearFiles();
 	}
 
 	function openThread(threadId: string) {
 		threadPanelSelection.open(threadId);
 		composerSession.feedback.clear();
-		composerFilesController.clearFiles();
 	}
 
 	async function openUnreadThread(threadInput: {

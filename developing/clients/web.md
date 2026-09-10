@@ -3150,16 +3150,15 @@ failure, and request id. A staged upload is not listed in Files. The file tray
 keeps compact fixed-width cards in one horizontal row and scrolls horizontally
 when they exceed the available composer width. The visual scrollbar stays
 hidden so it does not consume Composer height, while pointer, touch, and
-keyboard scrolling remain available. Each card keeps the file name
-above its status and truncates an overlong name; hovering the name reveals the
-complete value in a tooltip without hiding upload progress, failure copy, or
-the remove action. Sending waits
-for in-progress staging, publishes each ready upload as a canonical root-level
-Space File, and allows a file-only message without invented caption text. A
-failed stage blocks Send until the member removes that file. A publication
-failure preserves the entire message for retry with the same upload identities,
-including files that already published. Web does not silently omit attachments
-or post a partial or empty message.
+keyboard scrolling remain available. Image thumbnails open the shared preview;
+filenames appear in tooltips and removal remains visible. Normal upload progress
+and Ready labels are hidden, while failures stay explicit. Send immediately
+stages the outgoing message and frees the Composer. Its captured attachment batch
+finishes staging and publishes canonical Space Files in the background before
+the message is formally posted. File-only messages need no invented caption.
+Failed attachments are never silently omitted, and publication failure preserves
+the entire message for retry with the same upload identities, including files
+that already published. Navigation preserves each conversation's attachment draft.
 
 After publication, Web submits only server-returned Space File references. A pending
 outgoing message may use a local image preview until the canonical signal with
