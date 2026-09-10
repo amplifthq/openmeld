@@ -1,4 +1,5 @@
 import {
+  messageChannelCardControlSchema,
   messageChannelIngressEnvelopeSchema,
   normalizedMessageChannelEventSchema,
 } from "@openmeld/schemas";
@@ -114,14 +115,35 @@ function normalizeCardActionEvent(input: {
   const action = readObject(input.event, "action");
   const context = readObject(input.event, "context");
   const operator = readObject(input.event, "operator");
-  const actionName = readString(action, "name");
-  if (actionName !== "openmeld.center_agent.submit") {
+  // Ordinary buttons identify their callback through value; name is a form-only field.
+  const actionName =
+    readString(action, "name") ??
+    (readNestedString(action, "value", "openmeld_action") === "control"
+      ? "openmeld.center_agent.control"
+      : null);
+  if (
+    actionName !== "openmeld.center_agent.submit" &&
+    actionName !== "openmeld.center_agent.control"
+  ) {
     return {
       reasonCode: "message_channel.webhook_card_action_unsupported",
       status: "ignored",
     };
   }
-  const actionValue = readNestedString(action, "value", "prompt");
+  let actionValue = readNestedString(action, "value", "prompt");
+  if (actionName === "openmeld.center_agent.control") {
+    const { openmeld_action: _routing, ...value } =
+      (action ? readObject(action, "value") : null) ?? {};
+    const control = messageChannelCardControlSchema.safeParse(
+      value?.action === "reply"
+        ? {
+            ...value,
+            text: readNestedString(action, "form_value", "follow_up"),
+          }
+        : value
+    );
+    actionValue = control.success ? JSON.stringify(control.data) : null;
+  }
   const chatId = readString(context, "open_chat_id");
   const messageId = readString(context, "open_message_id");
   const occurredAtMs = readTimestampMs(input.header, "create_time");

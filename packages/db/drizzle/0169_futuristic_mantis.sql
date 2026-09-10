@@ -5,7 +5,8 @@ CREATE TABLE `space_owner_member_references` (
 	FOREIGN KEY (`member_id`) REFERENCES `members`(`id`) ON UPDATE no action ON DELETE restrict
 );
 --> statement-breakpoint
-CREATE INDEX `idx_space_owner_member_references_member` ON `space_owner_member_references` (`member_id`);
+CREATE INDEX `idx_space_owner_member_references_member` ON `space_owner_member_references` (`member_id`);--> statement-breakpoint
+ALTER TABLE `space_invitations` ADD `audience` text DEFAULT 'organization' NOT NULL;
 --> statement-breakpoint
 INSERT OR IGNORE INTO space_owner_member_references (space_id, member_id)
 SELECT s.space_id, m.id FROM space_index_spaces s

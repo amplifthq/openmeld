@@ -35,6 +35,8 @@ import { useSpaceListIndicators } from "./use-space-list-indicators";
 type Preferences = NonNullable<AccountSidebarPreferences["chats"]>;
 
 export function useChats(input: {
+	currentProfileId?: string;
+	includeSpaceIndicators?: boolean;
 	currentSpaceId?: string;
 	search: string;
 	archived: boolean;
@@ -42,7 +44,8 @@ export function useChats(input: {
 }) {
 	const { currentOrganization: org } = useAppOrganization();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
-	const profileId = defaultHumanProfile?.openMeldProfileId ?? "";
+	const profileId =
+		input.currentProfileId ?? defaultHumanProfile?.openMeldProfileId ?? "";
 	const store = useSidebarPreferences(profileId, org.id);
 	const spaces = useQuery(
 		accountSpaceItemsQueryOptions({
@@ -160,6 +163,7 @@ export function useChats(input: {
 		currentSpaceId: selected ?? "",
 		organizationId: org.id,
 		spaceIds: chats.map((chat) => chat.spaceId),
+		...(input.includeSpaceIndicators ? { sections: spaces.data } : {}),
 	});
 	// Publish each page immediately; searching and saved groups include older chats
 	// as subsequent pages arrive, without holding the first page behind them.
@@ -181,7 +185,7 @@ export function useChats(input: {
 	const sections = [
 		{ id: "pinned", name: "Pinned", ...preferences.pinned },
 		...preferences.groups,
-		{ id: "chats", name: "Chats", ...preferences.spaces },
+		{ id: "chats", name: "Direct messages", ...preferences.spaces },
 	];
 	const title = (chat: Chat) =>
 		preferences.titles[chat.spaceId] ?? chat.name ?? "New chat";

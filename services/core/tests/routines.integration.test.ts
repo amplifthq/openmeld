@@ -70,6 +70,8 @@ describe("Core Center Agent Routines", () => {
       scheduleKind: "once",
       status: "enabled",
     });
+    // Existing strict CLI readers must not receive new null channel fields.
+    expect(created.routine).not.toHaveProperty("messageChannelLocator");
     await expect(
       rpcListRoutines(env as CoreBindings, {
         context: fixture.contextFor("owner"),

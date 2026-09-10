@@ -20,6 +20,9 @@ import {
 
 const STREAM_STATE_PREFIX = "openmeld:remote-agent:stream:";
 const STREAM_FLUSH_INTERVAL_MS = 100;
+// CardKit is an external publication path, unlike the Web live projection.
+// Coalesce full snapshots below its per-card limit and avoid per-token D1 writes.
+const MESSAGE_CHANNEL_STREAM_FLUSH_INTERVAL_MS = 350;
 const STREAM_SENTENCE_BOUNDARY_MIN_MS = 60;
 const STREAM_CHUNK_TARGET_CHARS = 200;
 const STREAM_CALLBACK_MAX_ATTEMPTS = 2;
@@ -154,7 +157,9 @@ export function isRemoteAgentStreamEligible(
   const source = context.turnEnvelope?.trigger.source;
   return (
     context.callbackStatus === "pending" &&
-    (source === "space_wake" || source === "web_dm")
+    (source === "space_wake" ||
+      source === "web_dm" ||
+      source === "message_channel")
   );
 }
 
@@ -434,7 +439,12 @@ export function createRemoteAgentStreamPublisher(
           transientState,
         });
         if (
-          !shouldFlushRemoteAgentStream(state, input.observedAtMs, pendingDelta)
+          !shouldFlushRemoteAgentStream(
+            state,
+            input.observedAtMs,
+            pendingDelta,
+            input.context
+          )
         ) {
           return {
             status: "buffered",
@@ -665,8 +675,18 @@ function createRemoteAgentStreamState(
 function shouldFlushRemoteAgentStream(
   state: RemoteAgentStreamState,
   observedAtMs: number,
-  pendingDelta: string
+  pendingDelta: string,
+  context: RemoteAgentCallbackContext
 ): boolean {
+  if (context.turnEnvelope?.trigger.source === "message_channel") {
+    // Publish the first words immediately; later snapshots coalesce. The
+    // terminal flush still sends the tail before Core finalizes the same card.
+    return (
+      state.lastFlushedAtMs === null ||
+      observedAtMs - state.lastFlushedAtMs >=
+        MESSAGE_CHANNEL_STREAM_FLUSH_INTERVAL_MS
+    );
+  }
   const elapsedMs = observedAtMs - (state.lastFlushedAtMs ?? state.startedAtMs);
   if (state.lastFlushedAtMs !== null && elapsedMs < STREAM_FLUSH_INTERVAL_MS) {
     return false;

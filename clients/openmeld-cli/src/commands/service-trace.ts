@@ -122,17 +122,6 @@ type ServiceTraceAgentWaitingBoundary = Pick<
   | "waitingFor"
   | "waitingSince"
 >;
-const SERVICE_TRACE_RECOVERY_ACTIONS: Record<
-  ServiceTraceAgentWaitingBoundary["userRecoveryAction"],
-  string
-> = {
-  check_status:
-    "check current Space access and Agent status, then rerun trace with the same selector",
-  wait_for_wake_route_report:
-    "wait for the Wake route report, then rerun trace with the same selector",
-  start_or_restart_openmeld_service:
-    "start or restart OpenMeld Service, then rerun trace with the same selector",
-};
 type ServiceTraceAgentSummary = {
   currentState: string;
   delivered: boolean;
@@ -143,6 +132,16 @@ type ServiceTraceAgentSummary = {
   deliveryDestination?: string;
   runtimeFamily?: "hosted_center_agent";
   waitingBoundary?: ServiceTraceAgentWaitingBoundary;
+};
+const WAITING_BOUNDARY_NEXT_ACTION: Record<
+  ServiceTraceAgentWaitingBoundary["userRecoveryAction"],
+  string
+> = {
+  check_status: "check status, then rerun trace with the same selector",
+  start_or_restart_openmeld_service:
+    "start or restart OpenMeld Service, then rerun trace with the same selector",
+  wait_for_wake_route_report:
+    "wait for the Wake route report, then rerun trace with the same selector",
 };
 type ServiceTracePresenter = ReturnType<typeof createPresenter>;
 const SERVICE_TRACE_USE_CURRENT_PROFILE = "continue";
@@ -2519,7 +2518,7 @@ function buildAgentTraceCompactSummary(input: {
       currentState: headLifecycle.status,
       delivered: false,
       nextAction:
-        SERVICE_TRACE_RECOVERY_ACTIONS[waitingBoundary.userRecoveryAction],
+        WAITING_BOUNDARY_NEXT_ACTION[waitingBoundary.userRecoveryAction],
       reasonCode: waitingBoundary.reasonCode,
       visibleOutcome: finalVisibleOutcome.status,
       waitingBoundary: {

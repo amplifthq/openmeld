@@ -9,6 +9,11 @@ import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
+import {
+	readComposerFileDrafts,
+	removeComposerFileDraft,
+	saveComposerFileDraft,
+} from "#/lib/spaces/composer-file-drafts";
 import { runSpaceComposerIdempotentRequestWithRetry } from "#/lib/spaces/errors";
 import { formatSpaceFileSizeLimitError } from "./space-file-utils";
 
@@ -23,6 +28,7 @@ export function useSpaceComposerFiles(input: {
 	);
 	const submittingIdsRef = useRef(new Set<string>());
 	const uploadTasksRef = useRef(new Map<string, Promise<void>>());
+	const uploadControllersRef = useRef(new Map<string, AbortController>());
 	const sourceFilesRef = useRef(new Map<string, File>());
 	const filesRef = useRef<SpaceComposerFile[]>([]);
 	const activeFileIdsRef = useRef(new Set<string>());
@@ -60,7 +66,10 @@ export function useSpaceComposerFiles(input: {
 		}
 		for (const localId of activeFileIdsRef.current) {
 			if (!submittingIdsRef.current.has(localId)) {
+				uploadControllersRef.current.get(localId)?.abort();
+				uploadControllersRef.current.delete(localId);
 				activeFileIdsRef.current.delete(localId);
+				removeFileDraft(localId);
 				sourceFilesRef.current.delete(localId);
 			}
 		}
@@ -76,6 +85,7 @@ export function useSpaceComposerFiles(input: {
 			}
 			const publishedLocalIdSet = new Set(publishedLocalIds);
 			for (const localId of publishedLocalIdSet) {
+				removeFileDraft(localId);
 				activeFileIdsRef.current.delete(localId);
 				sourceFilesRef.current.delete(localId);
 				const previewUrl = previewUrlsByLocalIdRef.current.get(localId);
@@ -109,10 +119,20 @@ export function useSpaceComposerFiles(input: {
 		clearFiles,
 	]);
 
-	useEffect(() => clearFiles, [clearFiles]);
+	useEffect(
+		() => () => {
+			for (const url of previewUrlsByLocalIdRef.current.values()) {
+				URL.revokeObjectURL(url);
+			}
+		},
+		[]
+	);
 
 	const removeFile = useCallback(
 		(localId: string) => {
+			uploadControllersRef.current.get(localId)?.abort();
+			uploadControllersRef.current.delete(localId);
+			removeFileDraft(localId);
 			const file = filesRef.current.find((item) => item.localId === localId);
 			if (file?.upload) {
 				discardStagedFiles({
@@ -136,7 +156,10 @@ export function useSpaceComposerFiles(input: {
 	);
 
 	const addFiles = useCallback(
-		async (selectedFiles: readonly File[]) => {
+		async (
+			selectedFiles: readonly File[],
+			restored?: { id: string; publishMutationId: string }[]
+		) => {
 			const availableSlots = Math.max(
 				0,
 				SPACE_MESSAGE_FILE_MAX_COUNT -
@@ -149,8 +172,9 @@ export function useSpaceComposerFiles(input: {
 				return;
 			}
 
-			const pending = acceptedFiles.map((file) => {
-				const localId = `composer-file:${crypto.randomUUID()}`;
+			const pending = acceptedFiles.map((file, index) => {
+				const localId =
+					restored?.[index]?.id ?? `composer-file:${crypto.randomUUID()}`;
 				const mimeType = resolveSpaceFileMimeType({
 					declaredMimeType: file.type,
 					fileName: file.name,
@@ -172,8 +196,9 @@ export function useSpaceComposerFiles(input: {
 						localId,
 						mimeType,
 						previewUrl,
-						progress: 20,
-						publishMutationId: crypto.randomUUID(),
+						progress: 0,
+						publishMutationId:
+							restored?.[index]?.publishMutationId ?? crypto.randomUUID(),
 						status: "uploading",
 						upload: null,
 					} satisfies SpaceComposerFile,
@@ -187,6 +212,7 @@ export function useSpaceComposerFiles(input: {
 			await Promise.all(
 				pending.map(({ file, item }) => {
 					const task = uploadPendingFile({
+						controllers: uploadControllersRef.current,
 						activeFileIds: activeFileIdsRef.current,
 						file,
 						item,
@@ -202,6 +228,28 @@ export function useSpaceComposerFiles(input: {
 		},
 		[input.organizationSlug, input.profileId, input.spaceId, updateFiles]
 	);
+
+	useEffect(() => {
+		let disposed = false;
+		readComposerFileDrafts(scopeKey)
+			.then((drafts) => {
+				const pending = drafts.filter(
+					(d) => !activeFileIdsRef.current.has(d.id)
+				);
+				if (!disposed && pending.length) {
+					return addFiles(
+						pending.map((d) => d.file),
+						pending
+					);
+				}
+			})
+			.catch((error) =>
+				console.error("Could not restore attachment drafts", error)
+			);
+		return () => {
+			disposed = true;
+		};
+	}, [scopeKey, addFiles]);
 
 	const beginSubmission = useCallback(() => {
 		const submitted = filesRef.current.filter(
@@ -238,6 +286,7 @@ export function useSpaceComposerFiles(input: {
 					const source = sourceFilesRef.current.get(file.localId);
 					if (current?.status === "failed" && !current.upload && source) {
 						await uploadPendingFile({
+							controllers: uploadControllersRef.current,
 							activeFileIds: activeFileIdsRef.current,
 							file: source,
 							item: current,
@@ -309,6 +358,7 @@ export function useSpaceComposerFiles(input: {
 }
 
 async function uploadPendingFile(input: {
+	controllers: Map<string, AbortController>;
 	activeFileIds: Set<string>;
 	file: File;
 	item: SpaceComposerFile;
@@ -317,23 +367,33 @@ async function uploadPendingFile(input: {
 	setFiles: Dispatch<SetStateAction<SpaceComposerFile[]>>;
 	spaceId: string;
 }): Promise<void> {
+	const controller = new AbortController();
+	input.controllers.set(input.item.localId, controller);
 	try {
 		if (input.file.size > SPACE_FILE_MAX_SIZE_BYTES) {
 			throw new Error(formatSpaceFileSizeLimitError(input.item.fileName));
 		}
-		updateFile(input.setFiles, input.item.localId, (current) => ({
-			...current,
-			progress: 55,
-		}));
+		await saveComposerFileDraft({
+			id: input.item.localId,
+			scope: `${input.organizationSlug}:${input.profileId}:${input.spaceId}`,
+			file: input.file,
+			publishMutationId: input.item.publishMutationId,
+		});
 		const api = createUnscopedWebSpaceApi({
 			openMeldProfileId: input.profileId,
 		});
 		const stageInput = {
+			signal: controller.signal,
 			bytes: input.file,
 			mimeType: input.item.mimeType,
 			name: input.item.fileName,
 			spaceId: input.spaceId,
 			uploadId: input.item.localId.replace("composer-file:", ""),
+			onProgress: (uploaded: number, total: number) =>
+				updateFile(input.setFiles, input.item.localId, (current) => ({
+					...current,
+					progress: Math.round((uploaded / total) * 100),
+				})),
 		};
 		const upload = await runSpaceComposerIdempotentRequestWithRetry(
 			async () => await api.stageComposerUpload(stageInput)
@@ -375,7 +435,17 @@ async function uploadPendingFile(input: {
 			status: "failed",
 			upload: null,
 		}));
+	} finally {
+		if (input.controllers.get(input.item.localId) === controller) {
+			input.controllers.delete(input.item.localId);
+		}
 	}
+}
+
+function removeFileDraft(id: string) {
+	removeComposerFileDraft(id).catch((error) =>
+		console.error("Could not remove attachment draft", { id, error })
+	);
 }
 
 function toMessageFileReference(descriptor: {

@@ -43,6 +43,24 @@ const CODE_MODE_TIMEOUT_MS = 60_000;
 const CODE_MODE_INPUT_MAX_CHARS = 24_000;
 const CODE_MODE_LOG_MAX_COUNT = 10;
 const CODE_MODE_LOG_MAX_CHARS = 1000;
+const UNDEFINED_CAPABILITY = /\b([A-Za-z_$][\w$]*) is not defined\b/u;
+
+function withCodeModeCallableHint(
+  error: unknown,
+  definitions: RemoteAgentToolDefinition[]
+): unknown {
+  if (!(error instanceof Error)) {
+    return error;
+  }
+  const name = UNDEFINED_CAPABILITY.exec(error.message)?.[1];
+  if (!(name && definitions.some((definition) => definition.name === name))) {
+    return error;
+  }
+  return new Error(
+    `${error.message}. This capability is available as codemode.${name}(input), not a global function. Use that exact callable name; capability discovery does not require another activation step.`,
+    { cause: error }
+  );
+}
 const CODE_MODE_DESCRIPTION = `Use Code Mode after loading the capabilities you need with openmeld_search_capabilities and openmeld_describe_capabilities. Follow each model-visible input schema and description; runtime validation remains authoritative for normalization and custom constraints. Do not guess capability names or undeclared fields. A described capability named example_tool is available here as codemode.example_tool(input).
 
 Write one async JavaScript arrow function that returns the final result. Do not use TypeScript syntax, named top-level functions, Node.js APIs, process, require, direct fetch, or direct network connections. Generated code can reach external systems only through the typed tools above. Tool authorization, confirmation, identity, and audit rules still apply to every call.`;
@@ -185,6 +203,8 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
         });
         outcome = "succeeded";
         return { output: boundedOutput };
+      } catch (error) {
+        throw withCodeModeCallableHint(error, input.definitions);
       } finally {
         emitRemoteAgentToolUsage(input.env, {
           durationMs: Date.now() - startedAtMs,

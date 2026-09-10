@@ -41,12 +41,10 @@ vi.mock("#/components/app/current-computer-toolbar-launcher", () => ({
 	CurrentComputerToolbarLauncher: () => null,
 }));
 
-vi.mock("#/components/spaces/app-spaces-sidebar", () => ({
-	AppSpacesSidebar: () => <nav data-testid="spaces-sidebar">Spaces</nav>,
-}));
-
-vi.mock("#/components/spaces/chats-sidebar", () => ({
-	ChatsSidebar: () => <nav data-testid="direct-messages-sidebar">Chats</nav>,
+vi.mock("#/components/spaces/conversations-sidebar", () => ({
+	ConversationsSidebar: () => (
+		<nav data-testid="conversations-sidebar">Conversations</nav>
+	),
 }));
 
 const RUNNING_WAKE_PROGRESS_ITEMS = [
@@ -115,7 +113,7 @@ describe("AppSpaceShell", () => {
 		);
 
 		expect(screen.queryByTestId("inner-sidebar")).toBeNull();
-		expect(screen.queryByTestId("spaces-sidebar")).toBeNull();
+		expect(screen.queryByTestId("conversations-sidebar")).toBeNull();
 		expect(screen.getByText("Main content")).toBeTruthy();
 	});
 
@@ -127,7 +125,7 @@ describe("AppSpaceShell", () => {
 		);
 
 		expect(screen.getByText("Center Agent loading")).toBeTruthy();
-		expect(screen.queryByTestId("spaces-sidebar")).toBeNull();
+		expect(screen.queryByTestId("conversations-sidebar")).toBeNull();
 		expect(screen.getByTestId("space-window-frame")).toBeTruthy();
 	});
 
@@ -155,7 +153,7 @@ describe("AppSpaceShell", () => {
 });
 
 describe("AppDirectMessageShell", () => {
-	it("pairs the Chats sidebar with the shared conversation content", () => {
+	it("pairs the conversations sidebar with the shared conversation content", () => {
 		appInnerSidebarSpy.mockReset();
 		render(
 			<AppDirectMessageShell
@@ -166,8 +164,7 @@ describe("AppDirectMessageShell", () => {
 			</AppDirectMessageShell>
 		);
 
-		expect(screen.getByTestId("direct-messages-sidebar")).toBeTruthy();
-		expect(screen.queryByTestId("spaces-sidebar")).toBeNull();
+		expect(screen.getByTestId("conversations-sidebar")).toBeTruthy();
 		expect(screen.getByText("Messages")).toBeTruthy();
 		expect(appInnerSidebarSpy).not.toHaveBeenCalled();
 	});

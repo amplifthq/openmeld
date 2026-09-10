@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "536273cf-1230-4db6-87fa-a920ab7ff3e6",
-  "prevId": "4d7e3c9c-e0a7-4d45-9dc6-66597d9b5126",
+  "id": "8d2ad38e-4a22-41fa-8e02-6b546bc4ab79",
+  "prevId": "c8985024-2949-45fd-9c1e-dcd6e9e14dc0",
   "tables": {
     "account_sidebar_preferences": {
       "name": "account_sidebar_preferences",
@@ -7214,7 +7214,7 @@
         },
         "connector_connections_service_check": {
           "name": "connector_connections_service_check",
-          "value": "\"service\" in (\n        'github',\n        'gmail',\n        'googlecalendar',\n        'googledrive',\n        'notion',\n        'linear',\n        'figma',\n        'posthog',\n        'cloudflare_browser_rendering',\n        'cloudflare_dns',\n        'cloudflare_r2',\n        'cloudflare_worker'\n      )"
+          "value": "\"service\" in (\n        'github',\n        'feishu',\n        'lark',\n        'gmail',\n        'googlecalendar',\n        'googledrive',\n        'notion',\n        'linear',\n        'figma',\n        'posthog',\n        'cloudflare_browser_rendering',\n        'cloudflare_dns',\n        'cloudflare_r2',\n        'cloudflare_worker'\n      )"
         },
         "connector_connections_status_check": {
           "name": "connector_connections_status_check",
@@ -17285,6 +17285,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "message_channel_destination_json_snapshot": {
+          "name": "message_channel_destination_json_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "target_space_id_snapshot": {
           "name": "target_space_id_snapshot",
           "type": "text",
@@ -17558,6 +17565,13 @@
           "autoincrement": false,
           "default": "'space'"
         },
+        "message_channel_destination_json": {
+          "name": "message_channel_destination_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "target_space_id": {
           "name": "target_space_id",
           "type": "text",
@@ -17720,7 +17734,7 @@
         },
         "routines_destination_kind_check": {
           "name": "routines_destination_kind_check",
-          "value": "\"destination_kind\" in ('space', 'slack_thread')"
+          "value": "\"destination_kind\" in ('space', 'slack_thread', 'message_channel')"
         },
         "routines_target_space_non_empty_check": {
           "name": "routines_target_space_non_empty_check",
@@ -17728,7 +17742,7 @@
         },
         "routines_destination_fields_check": {
           "name": "routines_destination_fields_check",
-          "value": "(\"destination_kind\" = 'space' and \"target_space_id\" is not null and \"slack_team_id\" is null and \"slack_channel_id\" is null and \"slack_thread_ts\" is null and \"slack_conversation_id\" is null) or (\"destination_kind\" = 'slack_thread' and \"target_space_id\" is null and \"slack_team_id\" is not null and \"slack_channel_id\" is not null and \"slack_thread_ts\" is not null and \"slack_conversation_id\" is not null)"
+          "value": "(\"destination_kind\" = 'space' and \"message_channel_destination_json\" is null and \"target_space_id\" is not null and \"slack_team_id\" is null and \"slack_channel_id\" is null and \"slack_thread_ts\" is null and \"slack_conversation_id\" is null) or (\"destination_kind\" = 'slack_thread' and \"message_channel_destination_json\" is null and \"target_space_id\" is null and \"slack_team_id\" is not null and \"slack_channel_id\" is not null and \"slack_thread_ts\" is not null and \"slack_conversation_id\" is not null) or (\"destination_kind\" = 'message_channel' and \"message_channel_destination_json\" is not null and json_valid(\"message_channel_destination_json\") and \"target_space_id\" is null and \"slack_team_id\" is null and \"slack_channel_id\" is null and \"slack_thread_ts\" is null and \"slack_conversation_id\" is null)"
         },
         "routines_status_check": {
           "name": "routines_status_check",
@@ -19852,14 +19866,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "audience": {
-          "name": "audience",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'organization'"
-        },
         "inviter_user_id": {
           "name": "inviter_user_id",
           "type": "text",
@@ -19950,51 +19956,6 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "space_owner_member_references": {
-      "name": "space_owner_member_references",
-      "columns": {
-        "space_id": {
-          "name": "space_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "member_id": {
-          "name": "member_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "idx_space_owner_member_references_member": {
-          "name": "idx_space_owner_member_references_member",
-          "columns": ["member_id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "space_owner_member_references_member_id_members_id_fk": {
-          "name": "space_owner_member_references_member_id_members_id_fk",
-          "tableFrom": "space_owner_member_references",
-          "tableTo": "members",
-          "columnsFrom": ["member_id"],
-          "columnsTo": ["id"],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "space_owner_member_references_space_id_member_id_pk": {
-          "columns": ["space_id", "member_id"],
-          "name": "space_owner_member_references_space_id_member_id_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

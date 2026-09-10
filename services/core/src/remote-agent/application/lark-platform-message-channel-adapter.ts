@@ -132,6 +132,7 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         };
       }
       return await createLarkPlatformStreamingCard({
+        stopDeliveryId: publication.stopDeliveryId,
         appId: publication.connection.appId,
         appSecret,
         fetchImpl: input.fetchImpl,
@@ -392,6 +393,7 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         };
       }
       return await finalizeLarkPlatformStreamingCard({
+        replyDeliveryId: publication.replyDeliveryId,
         appId: publication.connection.appId,
         appSecret,
         cardId: publication.cardId,
