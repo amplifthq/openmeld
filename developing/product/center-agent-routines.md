@@ -29,6 +29,39 @@
 
 ## Current Implementation Status
 
+### Personal Remote Agent Routines
+
+Personal Remote Agents reuse the same Routine definitions, minute scheduler,
+atomic occurrence claim, Workflow execution, Run history, and native result
+publication. The owner can create, list, update, pause, resume, and delete that
+Agent's Routines through its chat tools. Personal Routine management is not yet
+exposed in the Center Agent Web or CLI Routine surfaces.
+
+- A personal definition stores its immutable `agent_profile_id`; each claimed
+  Run freezes `agent_profile_id_snapshot`. A null executor preserves the
+  designated Center Agent behavior for existing Routines.
+- Personal tools require the verified owner of the admitted Agent execution.
+  Another member cannot schedule work using that owner's authority. Lists and
+  mutations are scoped to the exact Agent; Center tools and existing human
+  Routine routes remain scoped to Center Routines.
+- Targets are the owner's DM with that Agent or an eligible organization Space.
+  The owner and Agent must retain access at admission. A disabled or reassigned
+  Agent, revoked membership, or mismatched Run executor prevents execution.
+- Runs use the personal Agent's current model, conversation identity, shared
+  tool policy, and Computer scope. They do not recall Center Agent memory.
+  The delegated owner remains the verified tool requester; the personal Agent
+  remains the visible result author.
+- Personal Routines cannot use Channels or grant Center-only unattended actions.
+  Existing standard/read-only policy, destructive-action restrictions, limits,
+  pause semantics, and duplicate-publication protection still apply.
+
+Deploy migration `0166`, then the new Core and Remote Agent together before
+opening personal Routine creation. The Remote receiver must understand the
+personal Routine author contract. Before rolling Core back to a version that
+does not understand personal executors, pause personal Routines and drain their
+in-flight Runs; an old scheduler must never scan enabled personal definitions.
+No Local Service or CLI upgrade is required for this capability.
+
 As of 2026-07-23, the repository implements the Center Agent Routines MVP
 product contract end to end:
 

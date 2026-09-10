@@ -246,8 +246,15 @@ Live View, and human takeover are outside this increment. Existing browser
 Quick Actions remain available. The browser facet does not own Agent scheduling.
 
 Completion must not write personal conversation content into Center Agent
-memory. Organization administration, personal Channels, Routines, and Center
-memory remain excluded. Shared infrastructure does not confer Center duties.
+memory. Organization administration, personal Channels, and Center memory
+remain excluded. Shared infrastructure does not confer Center duties.
+
+Personal Agents expose the six shared Routine management tools, scoped to their
+verified owner and exact Agent identity. The shared Core scheduler runs them
+through personal v4 conversations and returns results to the owner's DM or an
+eligible Space. Routine admission verifies the frozen delegated owner rather
+than requiring the Center Agent as the request author. See
+`center-agent-routines.md` for authority, lifecycle, and rollout requirements.
 
 Rollout is Core first, then Remote Agent: the latter now uses the additive
 `authorize` personal-tool operation before invoking shared capabilities. Old
