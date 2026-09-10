@@ -1,8 +1,7 @@
-import { Button } from "@openmeld/ui/components/button";
-import { XIcon } from "@phosphor-icons/react";
 import { createContext, type ReactNode, useContext, useState } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { useSpaceMessageEditing } from "./space-message-editing";
+import { SpaceWakeSuggestionToken } from "./space-wake-suggestion-token";
 
 export function findRecentWakeExchange(
 	items: readonly SpaceTimelineItem[],
@@ -129,24 +128,14 @@ export function SpaceMessageWakeRecommendation({
 	}
 	return (
 		<div
-			className={`mt-1 flex w-full min-w-0 items-center gap-1 text-muted-foreground text-xs ${align === "end" ? "justify-end" : "justify-start"}`}
+			className={`flex w-full min-w-0 items-center text-sm ${align === "end" ? "justify-end" : "justify-start"}`}
 			data-slot="message-wake-recommendation"
 		>
-			<Button
-				onClick={() => editing.beginEdit(item, nudge.profileId)}
-				size="sm"
-				variant="ghost"
-			>
-				Wake {target.suggestion.profileName}?
-			</Button>
-			<Button
-				aria-label="Dismiss Wake suggestion"
-				onClick={recommendation.dismissNudge}
-				size="icon-sm"
-				variant="ghost"
-			>
-				<XIcon />
-			</Button>
+			<SpaceWakeSuggestionToken
+				onAccept={() => editing.beginEdit(item, nudge.profileId)}
+				onDismiss={recommendation.dismissNudge}
+				target={target}
+			/>
 		</div>
 	);
 }

@@ -72,6 +72,7 @@ import {
 import { SpaceAgentAvailabilityIndicator } from "./space-member-inline-status-text";
 import { resolveSpaceMemberStatusTone } from "./space-member-status-tone";
 import { SpaceProfileIcon } from "./space-profile-icon";
+import { SpaceWakeSuggestionToken } from "./space-wake-suggestion-token";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceComposerSelection,
@@ -520,36 +521,14 @@ function SpaceComposerParagraphElement(props: PlateElementProps) {
 			className={context.inline ? "m-0 min-h-0" : "m-0 min-h-6"}
 		>
 			{candidate && recommendation ? (
-				<button
-					aria-label={`Accept Wake suggestion for ${candidate.suggestion.profileName}`}
-					className="relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted/40 px-1.5 align-baseline text-foreground opacity-50 hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-					contentEditable={false}
-					data-slot="composer-wake-recommendation"
-					onClick={recommendation.onAccept}
-					onMouseDown={(event) => event.preventDefault()}
-					type="button"
-				>
-					<span aria-hidden="true" className="shrink-0 font-semibold">
-						@
-					</span>
-					<SpaceProfileIcon
-						agentControllerRef={candidate.memberEntry.agentControllerRef}
-						avatarImageUrl={candidate.memberEntry.avatarUrl}
-						className="size-4 shrink-0"
-						isCenterAgent={
-							candidate.suggestion.profileId === context.centerAgentProfileId
-						}
-						profileId={candidate.suggestion.profileId}
-						profileKind="agent"
-						profileName={candidate.suggestion.profileName}
-					/>
-					<span className="min-w-0 truncate font-medium">
-						{candidate.suggestion.profileName}
-					</span>
-					<span className="inline-flex h-6 shrink-0 items-center border-border border-l px-1.5 font-medium text-muted-foreground text-xs">
-						Tab to wake
-					</span>
-				</button>
+				<SpaceWakeSuggestionToken
+					ghost
+					isCenterAgent={
+						candidate.suggestion.profileId === context.centerAgentProfileId
+					}
+					onAccept={recommendation.onAccept}
+					target={candidate}
+				/>
 			) : null}
 			{props.children}
 		</PlateElement>
