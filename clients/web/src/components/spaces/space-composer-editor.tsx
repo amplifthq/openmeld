@@ -52,6 +52,7 @@ import {
 } from "#/components/editor/ui/inline-combobox";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import { resolveSpaceMemberStatusBadgeDisplay } from "#/lib/spaces/presentation";
+import { SpaceComposerAllMentionOptions } from "./space-composer-all-mention-options";
 import {
 	createSpaceComposerEditorValue,
 	createSpaceComposerPastedValue,
@@ -679,6 +680,11 @@ function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
 					className="w-[min(24rem,calc(100vw-1.5rem))]"
 				>
 					<InlineComboboxCancel label="Close mentions" />
+					<SpaceComposerAllMentionOptions
+						suggestions={context.mentionPickerItems.map(
+							(item) => item.suggestion
+						)}
+					/>
 					<InlineComboboxEmpty>
 						{context.mentionEmptyMessage ?? "No matching members"}
 					</InlineComboboxEmpty>

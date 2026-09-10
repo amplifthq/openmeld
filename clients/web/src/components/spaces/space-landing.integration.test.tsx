@@ -13415,9 +13415,7 @@ describe("SpaceLanding", () => {
 			true
 		);
 		expect(
-			screen.getByText(
-				"1 file couldn't be uploaded. Remove it or add it again."
-			)
+			screen.getByText("Remove the failed file to continue.")
 		).toBeTruthy();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 
@@ -16799,9 +16797,7 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(threadComposer, "Thread text can still be sent");
 		expect(
-			within(threadPanel).getByText(
-				"1 file couldn't be uploaded. Remove it or add it again."
-			)
+			within(threadPanel).getByText("Remove the failed file to continue.")
 		).toBeTruthy();
 		expect(
 			within(threadPanel).getByRole("button", { name: "Send reply" })
