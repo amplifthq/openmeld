@@ -107,13 +107,27 @@ const ignoreFiles = (_files: readonly File[]): Promise<void> =>
 const ignoreFileRemoval = (_localId: string): void => undefined;
 
 export function SpaceComposer(input: SpaceComposerProps) {
-	const submit = () => {
-		if (!resolveSpaceComposerBlockedWakeHint(input.content.addressingTargets)) {
-			input.actions.onSubmit();
+	const submit = (options?: SpaceComposerSendOptions) => {
+		if (
+			!resolveSpaceComposerBlockedWakeHint(
+				input.content.addressingTargets,
+				options?.deviceWait
+			)
+		) {
+			// Return from the send button within this user gesture, before the draft
+			// resets. Network completion must never take focus back from other work.
+			input.composerRef.current?.focus();
+			if (options) {
+				input.actions.onSubmit(options);
+			} else {
+				input.actions.onSubmit();
+			}
 		}
 	};
-	const deviceWaitPresentation =
-		buildSpaceComposerDeviceWaitPresentation(input);
+	const deviceWaitPresentation = buildSpaceComposerDeviceWaitPresentation(
+		input,
+		submit
+	);
 
 	const policy = resolveSpaceComposerPolicy({
 		canSendMessage: input.availability.canSendMessage,
@@ -355,7 +369,7 @@ function renderSpaceComposerSendAction(input: {
 					input.blockedWakeHint !== null ||
 					input.availability.sendBlocked
 				}
-				onClick={input.onSubmit}
+				onClick={() => input.onSubmit()}
 				size="icon-sm"
 				type="button"
 			>
@@ -365,7 +379,10 @@ function renderSpaceComposerSendAction(input: {
 	);
 }
 
-function buildSpaceComposerDeviceWaitPresentation(input: SpaceComposerProps): {
+function buildSpaceComposerDeviceWaitPresentation(
+	input: SpaceComposerProps,
+	onSubmit: SpaceComposerProps["actions"]["onSubmit"]
+): {
 	control: ReactNode;
 	hint: string | null;
 } {
@@ -404,7 +421,7 @@ function buildSpaceComposerDeviceWaitPresentation(input: SpaceComposerProps): {
 					input.availability.sendBlocked ||
 					hint !== null
 				}
-				onSubmit={input.actions.onSubmit}
+				onSubmit={onSubmit}
 				target={target}
 			/>
 		),
