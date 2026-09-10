@@ -1460,6 +1460,7 @@ export const runtimeTransportRuntimeCoordinatorHeadNoExecutionReasonCodeSchema =
 
 export const runtimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategorySchema =
   z.enum([
+    "space_access_unavailable",
     "binding_required",
     "agent_profile_unavailable",
     "local_agent_unavailable",
@@ -1474,6 +1475,7 @@ export const runtimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategor
 
 export const runtimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryActionSchema =
   z.enum([
+    "send_new_wake",
     "set_up_agent_binding",
     "enable_agent_binding",
     "repair_agent_binding",
@@ -1538,13 +1540,28 @@ export const runtimeTransportRuntimeCoordinatorHeadNoExecutionResponseSchema =
   ]);
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingReasonCodeSchema =
-  z.enum(["daemon.profile.offline", "daemon.profile.pending_first_report"]);
+  z.enum([
+    "wake.device_wait.access_check_unavailable",
+    "daemon.service.draining",
+    "daemon.profile.offline",
+    "daemon.profile.pending_first_report",
+    "wake.device_wait.readiness_checking",
+  ]);
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingCategorySchema =
-  z.enum(["service_not_connected", "wake_route_registration_pending"]);
+  z.enum([
+    "space_access_unavailable",
+    "service_not_connected",
+    "wake_route_registration_pending",
+    "local_agent_unavailable",
+  ]);
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingRecoveryActionSchema =
-  z.enum(["start_or_restart_openmeld_service", "wait_for_wake_route_report"]);
+  z.enum([
+    "start_or_restart_openmeld_service",
+    "wait_for_wake_route_report",
+    "check_status",
+  ]);
 
 const runtimeCoordinatorOfflineWaitingDecisionShape = {
   reasonCode: z.literal("daemon.profile.offline"),
@@ -1558,6 +1575,21 @@ const runtimeCoordinatorPendingFirstReportWaitingDecisionShape = {
   waitingCategory: z.literal("wake_route_registration_pending"),
 } as const;
 
+const runtimeCoordinatorReadinessWaitingDecisionShape = {
+  reasonCode: z.enum([
+    "wake.device_wait.readiness_checking",
+    "daemon.service.draining",
+  ]),
+  userRecoveryAction: z.literal("check_status"),
+  waitingCategory: z.literal("local_agent_unavailable"),
+} as const;
+
+const runtimeCoordinatorAccessWaitingDecisionShape = {
+  reasonCode: z.literal("wake.device_wait.access_check_unavailable"),
+  userRecoveryAction: z.literal("check_status"),
+  waitingCategory: z.literal("space_access_unavailable"),
+} as const;
+
 const runtimeCoordinatorHeadWaitingBoundaryCommonShape = {
   deadlineAtMs: z.number().int().nonnegative(),
   deadlineOutcome: z.literal("publication_intent_ready"),
@@ -1569,6 +1601,20 @@ const runtimeCoordinatorHeadWaitingBoundaryCommonShape = {
 
 const runtimeTransportRuntimeCoordinatorHeadWaitingBoundarySchema =
   z.discriminatedUnion("reasonCode", [
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingBoundaryCommonShape,
+      ...runtimeCoordinatorAccessWaitingDecisionShape,
+      trigger: z.literal("space_access_rechecked"),
+      userVisibleState: z.literal("waiting_for_space_access"),
+      waitingFor: z.literal("space_access_check"),
+    }),
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingBoundaryCommonShape,
+      ...runtimeCoordinatorReadinessWaitingDecisionShape,
+      trigger: z.literal("agent_readiness_reported"),
+      userVisibleState: z.literal("waiting_for_agent_readiness"),
+      waitingFor: z.literal("agent_readiness_report"),
+    }),
     z.strictObject({
       ...runtimeCoordinatorHeadWaitingBoundaryCommonShape,
       ...runtimeCoordinatorOfflineWaitingDecisionShape,
@@ -1598,6 +1644,14 @@ export const runtimeTransportRuntimeCoordinatorHeadWaitingRequestSchema =
   z.discriminatedUnion("reasonCode", [
     z.strictObject({
       ...runtimeCoordinatorHeadWaitingRequestCommonShape,
+      ...runtimeCoordinatorAccessWaitingDecisionShape,
+    }),
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingRequestCommonShape,
+      ...runtimeCoordinatorReadinessWaitingDecisionShape,
+    }),
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingRequestCommonShape,
       ...runtimeCoordinatorOfflineWaitingDecisionShape,
     }),
     z.strictObject({
@@ -1619,6 +1673,14 @@ const runtimeCoordinatorHeadWaitingResponseCommonShape = {
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingResponseSchema =
   z.union([
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingResponseCommonShape,
+      ...runtimeCoordinatorAccessWaitingDecisionShape,
+    }),
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingResponseCommonShape,
+      ...runtimeCoordinatorReadinessWaitingDecisionShape,
+    }),
     z.strictObject({
       ...runtimeCoordinatorHeadWaitingResponseCommonShape,
       ...runtimeCoordinatorOfflineWaitingDecisionShape,

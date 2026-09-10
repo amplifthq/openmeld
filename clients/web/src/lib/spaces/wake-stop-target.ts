@@ -24,6 +24,7 @@ export type SpaceWakeStopUiStatus =
 export type SpaceWakeStopRequestStatus = PostSpaceWakeStopResponse["status"];
 
 export type SpaceWakeStopTargetResolution = {
+	isWaitingForDevice?: boolean;
 	canStop: boolean;
 	clientMessageId: string | null;
 	selector: SpaceWakeStopSelector | null;
@@ -401,6 +402,10 @@ export function resolveWakeStopTargetForProgressItem(input: {
 
 	return {
 		canStop,
+		isWaitingForDevice: Boolean(
+			input.item.deviceWait &&
+				(input.item.phase === "request_sent" || input.item.phase === "queued")
+		),
 		clientMessageId:
 			input.item.clientMessageId ??
 			input.sourceItem?.wakeClientMessageId ??

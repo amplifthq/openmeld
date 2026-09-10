@@ -1,6 +1,7 @@
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import { parseSignalText } from "@openmeld/protocol";
 import {
+  MAX_WAKE_DEVICE_WAIT_MS,
   type SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   type SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
   systemEmittedSignalTextSchema,
@@ -61,6 +62,7 @@ export class SpaceSignalAuthoringError extends Error {
 }
 
 export type SignalTextBuildOptions = {
+  deviceWait?: SignalTextData["deviceWait"];
   attachments?: SignalTextData["attachments"];
   files?: SignalTextData["files"];
   messageEnvelope?: SignalTextData["messageEnvelope"];
@@ -116,10 +118,13 @@ export function assertSpaceSignalNavigationActionPolicy(input: {
 export const buildSignalTextOptions = (
   data: SignalTextData
 ): SignalTextBuildOptions | undefined => {
-  const meta = omitReplyStalenessFromAuthoredMeta(data.meta);
+  // Persist one authoritative field. The public read encoder alone creates a
+  // metadata mirror for old clients; a mirror is never an authoring input.
+  const meta = omitReadOnlySignalTextMeta(data.meta);
   if (
     !(
       data.attachments ||
+      data.deviceWait ||
       data.files ||
       data.messageEnvelope ||
       meta ||
@@ -130,6 +135,7 @@ export const buildSignalTextOptions = (
   }
 
   return {
+    ...(data.deviceWait ? { deviceWait: data.deviceWait } : {}),
     ...(data.attachments ? { attachments: data.attachments } : {}),
     ...(data.files ? { files: data.files } : {}),
     ...(data.messageEnvelope ? { messageEnvelope: data.messageEnvelope } : {}),
@@ -138,14 +144,42 @@ export const buildSignalTextOptions = (
   };
 };
 
-function omitReplyStalenessFromAuthoredMeta(
+export function assertWakeDeviceWaitAuthoring(input: {
+  signal: SignalEnvelope;
+  targetProfileIds: readonly string[];
+  nowMs: number;
+}): void {
+  if (input.signal.type !== "signal.text") {
+    return;
+  }
+  const wait = input.signal.data.deviceWait;
+  if (!wait) {
+    return;
+  }
+  if (
+    input.signal.profile.kind === "system" ||
+    !input.targetProfileIds.includes(wait.targetProfileId) ||
+    !input.signal.data.meta?.clientMessageId ||
+    wait.deadlineAtMs <= input.nowMs ||
+    wait.deadlineAtMs > input.nowMs + MAX_WAKE_DEVICE_WAIT_MS
+  ) {
+    throw new SpaceSignalAuthoringError({
+      code: SPACE_WAKE_TARGET_INVALID_ERROR_CODE,
+      message:
+        "Choose a current Wake target and a future deadline within seven days.",
+      targetProfileId: wait.targetProfileId,
+    });
+  }
+}
+
+function omitReadOnlySignalTextMeta(
   meta: SignalTextData["meta"]
 ): SignalTextData["meta"] {
   if (!meta) {
     return meta;
   }
-  const { staleness, ...authoredMeta } = meta;
-  if (!staleness) {
+  const { staleness, deviceWait, ...authoredMeta } = meta;
+  if (!(staleness || deviceWait)) {
     return meta;
   }
   return Object.keys(authoredMeta).length > 0 ? authoredMeta : undefined;

@@ -24,8 +24,11 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import {
+	createContext,
 	lazy,
+	type ReactNode,
 	Suspense,
+	useContext,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -75,6 +78,45 @@ export function resolveMessageReactionInput(
 		readOnly,
 	};
 }
+const MessageReactionsContext = createContext<{
+	input?: MessageReactionInput;
+	state: ReturnType<typeof useMessageReactions>;
+} | null>(null);
+
+export function MessageReactionsProvider({
+	input,
+	children,
+}: {
+	input?: MessageReactionInput;
+	children: ReactNode;
+}) {
+	const state = useMessageReactions(input);
+	return (
+		<MessageReactionsContext value={{ input, state }}>
+			{children}
+		</MessageReactionsContext>
+	);
+}
+
+export function useMessageReactionsContext() {
+	const context = useContext(MessageReactionsContext);
+	if (!context) {
+		throw new Error("Message reactions require a message provider");
+	}
+	return context;
+}
+
+export function MessageBubbleReactions() {
+	const { input, state } = useMessageReactionsContext();
+	return input ? (
+		<MessageReactionRow
+			profileId={input.profileId}
+			readOnly={input.readOnly}
+			state={state}
+		/>
+	) : null;
+}
+
 export function messageReactionsKey(spaceId: string, signalId?: string) {
 	return signalId
 		? (["space-message-reactions", spaceId, signalId] as const)
@@ -206,6 +248,18 @@ export function useMessageReactions(input?: MessageReactionInput) {
 	};
 }
 export type MessageReactionsState = ReturnType<typeof useMessageReactions>;
+export function MessageReactionIcon() {
+	return (
+		<span className="relative">
+			<SmileyIcon aria-hidden="true" />
+			<PlusIcon
+				aria-hidden="true"
+				className="absolute -top-1 -right-1 size-2.5"
+			/>
+		</span>
+	);
+}
+
 export function MessageReactionPicker({
 	state,
 	buttonClassName,
@@ -251,13 +305,7 @@ export function MessageReactionPicker({
 					ref={triggerRef}
 					render={<Button size="icon-sm" variant="ghost" />}
 				>
-					<span className="relative">
-						<SmileyIcon aria-hidden="true" />
-						<PlusIcon
-							aria-hidden="true"
-							className="absolute -top-1 -right-1 size-2.5"
-						/>
-					</span>
+					<MessageReactionIcon />
 				</PopoverTrigger>
 			</MessageActionTooltip>
 			<PopoverContent

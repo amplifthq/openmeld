@@ -704,13 +704,19 @@ record belongs in either the shared submission contract or this storage domain.
 
 ## Center Agent Routine And Run Data Boundary
 
-D1 is the only durable product truth for Center Agent Routines:
+D1 is the only durable product truth for Center and personal Remote Agent Routines:
 
 - `routines` stores each organization-owned definition, its bounded structured
   unattended-action grants, and its rebuildable `nextDueAt` UTC projection.
 - `routine_runs` stores durable Run records for individually claimed
   occurrences and aggregate `skipped` records for bounded overdue ranges.
 - Core is the only runtime writer for both tables.
+- `routines.agent_profile_id` fixes the personal executor, while null retains
+  the designated Center executor. `routine_runs.agent_profile_id_snapshot`
+  freezes that distinction at occurrence claim, including skipped history.
+  Admission and callback handling reject executor mismatches. Personal and
+  Center management queries select their own executor scope; no second
+  scheduler or alternate Routine store is introduced.
 - Remote Agent Durable Object state, Flue private storage, client caches, and
   eligible-target projections are not alternate Routine or Run stores.
 

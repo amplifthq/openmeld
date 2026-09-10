@@ -89,7 +89,7 @@ describe("Remote Agent Code Mode", () => {
     expect(names).toContain("web_search");
     expect(names).toContain("openmeld_read_org_documents");
     expect(names).not.toContain("openmeld_create_project");
-    expect(names).not.toContain("openmeld_create_routine");
+    expect(names).toContain("openmeld_create_routine");
     const direct = tools.find((tool) => tool.name === "test_computer");
     const codeMode = tools.find((tool) => tool.name === "codemode");
     if (!(direct && codeMode)) {
@@ -111,7 +111,13 @@ describe("Remote Agent Code Mode", () => {
     );
     expect(execute).toHaveBeenCalledTimes(2);
   });
-  it("publishes a confirmation outcome without publishing its token", async () => {
+  it.each([
+    { status: "destructive_confirmation_required", needsHuman: true },
+    { status: "destructive_action_preview", needsHuman: false },
+  ])("keeps $status tokens private without misreporting a preview as waiting", async ({
+    status,
+    needsHuman,
+  }) => {
     const storage = await createStorage(createSubmitTurnRequest());
     const submitRemoteAgentStreamPart = vi.fn(
       async (body: { sequence: number }) => ({
@@ -120,7 +126,7 @@ describe("Remote Agent Code Mode", () => {
       })
     );
     const result = {
-      status: "destructive_confirmation_required",
+      status,
       sideEffects: 0,
       confirmationToken: "private-confirmation",
     };
@@ -151,13 +157,21 @@ describe("Remote Agent Code Mode", () => {
       streamPublisher: createRemoteAgentStreamPublisher(),
     });
     await runCodeModeTool(tool, { input: { code: "async () => null" } });
-    expect(submitRemoteAgentStreamPart).toHaveBeenCalledWith(
-      expect.objectContaining({
-        part: expect.objectContaining({
-          work: expect.objectContaining({ outcome: "confirmation_required" }),
-        }),
-      })
-    );
+    const confirmationEvent = expect.objectContaining({
+      part: expect.objectContaining({
+        work: expect.objectContaining({ outcome: "confirmation_required" }),
+      }),
+    });
+    if (needsHuman) {
+      expect(submitRemoteAgentStreamPart).toHaveBeenCalledWith(
+        confirmationEvent
+      );
+    } else {
+      expect(submitRemoteAgentStreamPart).toHaveBeenCalled();
+      expect(submitRemoteAgentStreamPart).not.toHaveBeenCalledWith(
+        confirmationEvent
+      );
+    }
     expect(
       JSON.stringify(submitRemoteAgentStreamPart.mock.calls)
     ).not.toContain("private-confirmation");

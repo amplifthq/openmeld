@@ -682,8 +682,9 @@ ID with different input fails closed.
 
 Remove Project remains a terminal soft archive. The Center Agent first returns
 the exact Project, permanent-effect warning, and short-lived opaque
-confirmation token. Only a later verified interactive member turn may consume
-that token during an interactive conversation. The token is bound to
+confirmation token. The same verified interactive member may consume it in
+the same turn when the existing request authorizes the exact removal; otherwise
+the Agent asks first. The token is bound to
 Organization, represented member, Center Agent, Project, and current Project
 version; expiry, reuse with different input, or a changed Project fails closed.
 

@@ -29,6 +29,10 @@ import { SPACE_WAKE_PROGRESS_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
+import {
+	buildSpaceComposerAddressingTargets,
+	type SpaceComposerAddressingTarget,
+} from "./use-space-mention-authoring";
 
 const LAST_WAKE_DIAGNOSTIC_STORAGE_KEY = "openmeld.space.last-wake-diagnostic";
 const LAST_DIAGNOSTIC_REPORT_STORAGE_KEY =
@@ -141,6 +145,24 @@ export function resolveComposerWakeProgressTargetProfileIds(input: {
 			(member) => member.status === "active"
 		) ?? [];
 	return activeAgents.length === 1 ? [activeAgents[0].profileId] : [];
+}
+
+export function resolveComposerAddressingTargets(input: {
+	addressingTargets: readonly SpaceComposerAddressingTarget[];
+	membersSnapshot: SpaceMembersSnapshot | null;
+	senderProfileId: string;
+	status: GetSpaceStatusResponse | null;
+}): readonly SpaceComposerAddressingTarget[] {
+	if (input.addressingTargets.length > 0) {
+		return input.addressingTargets;
+	}
+	return buildSpaceComposerAddressingTargets({
+		mentions: resolveComposerWakeProgressTargetProfileIds({
+			...input,
+			explicitActivationTargets: [],
+		}).map((profileId) => ({ profileId, relation: "wake" })),
+		snapshot: input.membersSnapshot,
+	});
 }
 
 export function createClientMessageId(): string {
@@ -559,6 +581,7 @@ export async function pollWakeProgress(input: {
 					includeSourceContext: true,
 					includeTiming: true,
 					includeWaitReason: true,
+					includeDeviceWait: true,
 					includeWakeStopEligibility: true,
 					spaceId: input.spaceId,
 					timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,

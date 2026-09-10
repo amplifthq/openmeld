@@ -9,6 +9,7 @@ import {
   type ListCenterAgentSessionsResponse,
   peopleComputerTargetSchema,
   toLegacySpaceAddressingWireValue,
+  toSpaceSignalReadWireValue,
 } from "@openmeld/schemas";
 import type {
   AccountSpaceActiveWakeSummaryResponse,
@@ -1657,11 +1658,37 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     );
   }
 
-  mutateSpaceMessage(input: import("./rpc/methods").MutateSpaceMessageInput) {
-    return rpcMutateSpaceMessage(this.env, input);
+  async postDeviceWaitingSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
+    if (!input.deviceWait) {
+      throw new Error("A device waiting request is required.");
+    }
+    return await this.#postSignalWithEvidence(input, spaceAddressingVersion);
+  }
+
+  async mutateSpaceMessage(
+    input: import("./rpc/methods").MutateSpaceMessageInput
+  ) {
+    return toSpaceSignalReadWireValue(
+      await rpcMutateSpaceMessage(this.env, input)
+    );
   }
 
   async postSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
+    if (input.deviceWait) {
+      throw new Error(
+        "Device waiting requests require postDeviceWaitingSignal."
+      );
+    }
+    return await this.#postSignalWithEvidence(input, spaceAddressingVersion);
+  }
+
+  async #postSignalWithEvidence(
     input: PostSignalInput,
     spaceAddressingVersion?: string
   ): Promise<SignalEnvelope> {
@@ -3833,6 +3860,13 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.listSignals(input, spaceAddressingVersion);
   }
 
+  postDeviceWaitingSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
+    return super.postDeviceWaitingSignal(input, spaceAddressingVersion);
+  }
+
   postSignal(
     input: PostSignalInput,
     spaceAddressingVersion?: string
@@ -5293,9 +5327,10 @@ function toSpaceAddressingRpcOutput<T>(
   value: T,
   spaceAddressingVersion: string | undefined
 ): T {
+  const readValue = toSpaceSignalReadWireValue(value);
   return spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION
-    ? value
-    : toLegacySpaceAddressingRpcOutput(value);
+    ? readValue
+    : toLegacySpaceAddressingRpcOutput(readValue);
 }
 
 async function withSpaceAddressingRpcOutput<T>(
