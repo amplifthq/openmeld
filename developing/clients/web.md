@@ -3323,9 +3323,12 @@ details instead of expanding the source message bubble. Unanchored outcomes and
 only to distinguish execution failure from OpenMeld publication failure.
 Read-only viewers must still see the outcome.
 
-Wake outcomes are message-scoped results, not standalone system announcements.
-Their rows and failure footers do not use system-event divider lines. Message
-details labels the persisted notice text as **Recorded outcome** and preserves
+Wake outcomes retain their message-scoped placement. Stopped outcomes reuse the
+shared Marker separator presentation: centered muted text between divider lines,
+without an Agent avatar or stop icon. The text still opens Message details when
+available. Failures and failure footers keep their compact non-divider treatment.
+This presentation does not create another system notice or change cancellation.
+Message details labels the persisted notice text as **Recorded outcome** and preserves
 its full public explanation, including unfamiliar failure codes. Current
 recovery eligibility supplies actions separately; it must not replace the
 recorded explanation with a generic failure summary or imply that an old
