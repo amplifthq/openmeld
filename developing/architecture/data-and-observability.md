@@ -2978,6 +2978,57 @@ CLI trace is a user-operable diagnostic surface. Operator shortcuts may wrap it,
 but they must stay thin wrappers and must not become direct D1 readers or a
 second trace system.
 
+### Automatic Wake failure discovery
+
+`pnpm ops:wake-failures` is the privileged developer failure list. It discovers
+automatically retained failure facts without a user submitting Send report.
+Dispatch attempts own execution/admission failure evidence; RuntimeCoordinator
+execution events own workstation reply-publication failure evidence. The list
+is a read projection of these existing records, not a new report table, writer,
+notification queue, or execution authority. Unlike trace wrappers, this bounded
+discovery command may read these D1 projections using operator credentials.
+Detailed investigation still uses the authorized Space trace and Cloudflare
+selectors returned in each record. Discovery does not grant Space membership.
+
+The default interval is 24 hours; a request is limited to 30 days and 200 rows.
+The cursor uses the observation timestamp plus the source record ID, and callers
+reuse the returned interval for later pages. Group counts cover only the current
+page. Attempt observation uses its first recorded finish time, falling back to
+creation time only for older rows without a finish timestamp. Existing evidence
+retention applies; missing or delayed projection writes
+are not inferred as successful executions. A missing correlation row preserves
+the failure with null pointers instead of silently dropping it.
+
+Repeated lifecycle callbacks update one attempt primary key; publication events
+use their existing idempotency key. Independent failed attempts remain auditable
+even after a later successful attempt. Groups separate attempt failures from
+publication failures and preserve the structured reason code. Retryable failures
+are not represented as final Wake outcomes. The exact admission reasons
+`runtime_coordinator.device_waiting` and
+`runtime_coordinator.agent_profile_execution_active` describe expected waiting
+and are excluded only on retryable attempts. Terminal failures remain visible
+even if they reuse one of those reason codes. User cancellation, running work,
+and success are not failures.
+No failure produces a new message, GitHub Issue, or human Diagnostic Report.
+The command selects identifiers, statuses, timestamps, and reason codes only;
+it never selects prompts, result bodies, raw error messages, or event payloads.
+
+Remote Agent observes each provider stream's terminal `done` or `error` event
+before empty-response retry suppression and token-usage merging. The shared
+`remoteAgentProviderCompletionSchema` bounds the structured completion log:
+submission ID, call ID, provider attempt number, response ID, stop reason,
+allowlisted raw stop reason, trimmed text/thinking lengths, tool count, and
+numeric usage. It excludes text, reasoning, tool arguments, and error bodies.
+The existing Analytics Engine execution-stage event also records the content
+kind and stop reason, for example `provider.completed_empty_stop`. A completed
+provider stream is not proof of a successful Wake or published reply.
+
+Completion observation adds no retry, per-token logging, execution timeout, or
+cross-service payload field. Reporter failure cannot interrupt stream delivery.
+These completion logs follow Workers log retention/access and Analytics Engine
+sampling; they are supporting evidence, not an unsampled durable failure ledger.
+An absent terminal event remains an evidence gap, not proof of an empty response.
+
 `EvidenceSyncHealth` is an owner-only diagnostic read model for explaining
 whether the evidence channels behind Wakeability were read, missing,
 stale, degraded, or blocked. It may compose Agent Profile identity, Binding,

@@ -1892,6 +1892,7 @@ export {
   updateProjectResponseSchema,
   updateProjectRpcInputSchema,
 } from "./http/projects";
+export { remoteAgentProviderCompletionSchema } from "./http/remote-agent-provider-completion";
 export {
   AGENT_CONTROLLER_TASK_LIFECYCLE_EVENT_BATCH_MAX_BYTES,
   agentControllerTaskLifecycleEventRejectedReasonSchema,
@@ -2355,6 +2356,7 @@ export {
   waitlistErrorResponseSchema,
   waitlistJoinStatusSchema,
 } from "./http/waitlist";
+export { wakeFailureListSchema } from "./http/wake-failure-list";
 export {
   formatLocalComponentsSummaryDescription,
   formatLocalComponentsSummaryLabel,
