@@ -222,6 +222,14 @@ export function runVerification(options = {}) {
     return 0;
   }
   const lane = mkdtempSync(path.join(tmpdir(), "openmeld-focused-checks-"));
+  const validationEnv = { ...process.env, OPENMELD_HOME: lane };
+  // Hooks export repository-local Git state. Tests that create temporary repos
+  // must not inherit the pushed worktree's GIT_DIR/GIT_INDEX_FILE, etc.
+  for (const name of git(["rev-parse", "--local-env-vars"])
+    .trim()
+    .split(WHITESPACE)) {
+    delete validationEnv[name];
+  }
   try {
     console.log(
       `Focused validation: ${base}...HEAD; isolated OPENMELD_HOME=${lane}`
@@ -229,7 +237,7 @@ export function runVerification(options = {}) {
     return runPrChecks(commands, (binary, args, spawnOptions) =>
       spawnSync(binary, args, {
         ...spawnOptions,
-        env: { ...process.env, OPENMELD_HOME: lane },
+        env: validationEnv,
       })
     );
   } finally {

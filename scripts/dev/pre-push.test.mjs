@@ -57,10 +57,20 @@ test("deletions and protected release updates do not run development tests", () 
 
 test("actual Git history selects new commits and rejects an uncommitted test tree", () => {
   const root = mkdtempSync(path.join(tmpdir(), "openmeld-pre-push-test-"));
+  // Protect the caller even when this test is invoked directly from a hook.
+  const env = { ...process.env };
+  for (const name of execFileSync("git", ["rev-parse", "--local-env-vars"], {
+    encoding: "utf8",
+  })
+    .trim()
+    .split("\n")) {
+    delete env[name];
+  }
   const run = (...args) =>
     execFileSync("git", args, {
       cwd: root,
       encoding: "utf8",
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
   try {
@@ -91,7 +101,7 @@ test("actual Git history selects new commits and rejects an uncommitted test tre
     const output = execFileSync(
       process.execPath,
       ["--input-type=module", "-e", code, "test-driver"],
-      { cwd: root, encoding: "utf8" }
+      { cwd: root, encoding: "utf8", env }
     );
     assert.equal(JSON.parse(output).base, base);
     writeFileSync(path.join(root, "uncommitted.ts"), "export {};\n");
@@ -103,6 +113,7 @@ test("actual Git history selects new commits and rejects an uncommitted test tre
           {
             cwd: root,
             stdio: "pipe",
+            env,
           }
         ),
       DIRTY_TREE
