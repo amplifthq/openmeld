@@ -58,7 +58,6 @@ import { copyTextToClipboard } from "#/lib/clipboard";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { useMemberActivityTime } from "#/lib/spaces/use-member-activity-time";
 import {
-	organizationAgentRuntimeOverviewQueryOptions,
 	organizationComputersQueryOptions,
 	organizationProfileDirectoryQueryOptions,
 } from "#/query/organizations/organization-directory";
@@ -514,12 +513,6 @@ function HumanProfileDetailsPopoverWithCollaboration(input: {
 			organizationId: input.organizationId,
 		})
 	);
-	const runtimeOverviewQuery = useQuery(
-		organizationAgentRuntimeOverviewQueryOptions({
-			enabled: true,
-			organizationId: input.organizationId,
-		})
-	);
 	const computersQuery = useQuery(
 		organizationComputersQueryOptions({
 			enabled: true,
@@ -531,7 +524,6 @@ function HumanProfileDetailsPopoverWithCollaboration(input: {
 				members: profileDirectoryQuery.data.members,
 				agentProfiles: profileDirectoryQuery.data.agentProfiles,
 				orgSlug: input.orgSlug,
-				runtimeOverview: runtimeOverviewQuery.data,
 			}).get(input.entry.ownerUserId ?? "") ?? [])
 		: [];
 	const agentsStatus = resolveDirectoryProjectionStatus({

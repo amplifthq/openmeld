@@ -144,7 +144,7 @@ export function PeopleAndAgentsPage(input: {
 	);
 	const organizationAgentRuntimeOverviewQuery = useQuery(
 		organizationAgentRuntimeOverviewQueryOptions({
-			enabled: true,
+			enabled: input.activeSectionId === "agents",
 			organizationId: currentOrganization.id,
 		})
 	);
@@ -257,7 +257,6 @@ export function PeopleAndAgentsPage(input: {
 					modelCatalog={modelCatalogQuery.data ?? null}
 					onCreateProfile={() => setIsCreateProfileOpen(true)}
 					recovery={recovery}
-					runtimeOverview={organizationAgentRuntimeOverviewQuery.data}
 					storageScope={recovery.storageScope}
 				/>
 				{createProfileDialog}

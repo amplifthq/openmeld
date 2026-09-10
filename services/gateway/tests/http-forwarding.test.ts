@@ -1643,6 +1643,60 @@ describe("gateway http forwarding", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it.each([
+    false,
+    true,
+  ])("returns Profile Directory model configuration only with opt-in=%s", async (includeModelSelection) => {
+    const { env, rpc } = makeEnv();
+    const profile = {
+      organizationId: "org-1",
+      profileId: "agt_11111111-1111-4111-8111-111111111111",
+      profileName: "Agent",
+      profileHandle: "agent",
+      profileKind: "agent",
+      isDefault: false,
+      status: "active",
+      ownerUserId: "user-1",
+      source: "cli_create",
+      managedRole: null,
+      createdByUserId: "user-1",
+      creatorProfileId: null,
+      lastUsedAt: null,
+      createdAt: "2026-09-10T00:00:00.000Z",
+      updatedAt: "2026-09-10T00:00:00.000Z",
+      agentControllerRef: "builtin:codex",
+      modelSelection: { modelId: "gpt-5.6-sol", reasoningLevel: "high" },
+    };
+    rpc.getCurrentOrganizationProfileDirectory.mockResolvedValue({
+      organizationId: "org-1",
+      generatedAt: profile.createdAt,
+      members: [],
+      agentProfiles: [profile],
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/organizations/current/profile-directory?includeModelSelection=${includeModelSelection}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    const { modelSelection, ...legacyProfile } = profile;
+    await expect(response.json()).resolves.toEqual({
+      organizationId: "org-1",
+      generatedAt: profile.createdAt,
+      members: [],
+      agentProfiles: [includeModelSelection ? profile : legacyProfile],
+    });
+    expect(rpc.getCurrentOrganizationProfileDirectory).toHaveBeenCalledWith({
+      context: EXPECTED_CORE_CONTEXT,
+      ...(includeModelSelection ? { includeModelSelection: true } : {}),
+    });
+    expect(
+      rpc.getCurrentOrganizationAgentRuntimeOverview
+    ).not.toHaveBeenCalled();
+  });
+
   it("forwards only dynamic Agent runtime options to the runtime overview", async () => {
     const { env, rpc } = makeEnv();
     const request = new Request(

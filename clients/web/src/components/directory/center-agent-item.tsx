@@ -12,7 +12,7 @@ import { useAppNavigationPresentation } from "#/components/app/app-navigation-pr
 import { resolveDesignatedCenterAgentProfile } from "#/components/organizations/center-agent-profile-presentation";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
-import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 
 export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 	const { currentOrganization } = useAppOrganization();
@@ -24,7 +24,7 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 		})
 	);
 	const directory = useQuery(
-		organizationDirectoryQueryOptions({
+		organizationProfileDirectoryQueryOptions({
 			enabled: true,
 			organizationId: currentOrganization.id,
 		})

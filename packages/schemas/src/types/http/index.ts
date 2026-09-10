@@ -621,6 +621,7 @@ export type {
   OrganizationDirectoryResponse,
   OrganizationMemberWebActivityResponse,
   OrganizationProfileDirectoryAgentProfile,
+  OrganizationProfileDirectoryReadOptions,
   OrganizationProfileDirectoryResponse,
 } from "./organization-directory";
 export type {

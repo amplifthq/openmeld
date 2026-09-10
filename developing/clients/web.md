@@ -1714,11 +1714,16 @@ tooltips. Local Agent identity
 uses the same catalog-owned logo and name as Computer detail; Web never creates
 a second name or logo map for People.
 
-People reads the lightweight Profile Directory first and renders member and
-Agent identity without waiting for the Agent Runtime Overview. It loads that
-overview independently to add the permission-scoped Controller and model
-summary to Agent cards when known. Unavailable Runtime Transport cannot blank
-member identity or delay the People workspace.
+People and Human Profile popovers read the lightweight Profile Directory with
+`includeModelSelection=true` for member identity and member-visible Agent
+Controller/model configuration. They do not request the Agent Runtime Overview
+to render these cards. An omitted model selection is unknown, not the default
+model; null with a Controller means its default model, while no Controller and
+null model selection mean no primary Binding. Binding changes invalidate the
+lightweight directory through the existing readiness refresh path, including
+cross-tab invalidations. These are configured values, not evidence that an Agent
+can Wake or that a particular model executed work. Agent pages retain their
+Core-owned runtime overview and Wakeability checks.
 
 Last-seen time comes only from the Core-owned, Organization-scoped Human activity
 projection. Web explicitly reports entry, return to the foreground, and a

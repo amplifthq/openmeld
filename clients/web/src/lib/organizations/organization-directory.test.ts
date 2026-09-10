@@ -50,7 +50,7 @@ describe("readCurrentOrganizationDirectory", () => {
 
 		expect(fetchMock).toHaveBeenCalledWith(
 			expect.stringContaining(
-				"/v1/organizations/current/profile-directory?includeMemberLastActiveAt=true"
+				"/v1/organizations/current/profile-directory?includeModelSelection=true&includeMemberLastActiveAt=true"
 			),
 			expect.objectContaining({
 				credentials: "include",

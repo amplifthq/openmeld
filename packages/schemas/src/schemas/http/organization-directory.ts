@@ -3,6 +3,7 @@ import { agentProfileWorkRecoveryActionKindSchema } from "../agent-profile-work-
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { agentProfileIdSchema, uuidProfileIdSchema } from "../protocol/profile";
 import { getAgentExecutionReadinessResponseSchema } from "./agent-execution-readiness";
+import { agentProfileBindingModelSelectionSchema } from "./agent-profile-binding";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
 import { authProfileManagedRoleSchema } from "./profiles";
 
@@ -113,8 +114,18 @@ export const organizationDirectoryAgentProfileSchema =
 export const organizationProfileDirectoryAgentProfileSchema =
   organizationDirectoryAgentProfileIdentitySchema.extend({
     agentControllerRef: nullableTrimmedStringSchema,
+    // Omitted: not requested or unavailable. Null with a Controller: default
+    // model. Null without a Controller: no primary Binding.
+    modelSelection: agentProfileBindingModelSelectionSchema
+      .nullable()
+      .optional(),
     isCenterAgent: z.boolean().optional(),
   });
+
+export const organizationProfileDirectoryReadOptionsSchema = z.strictObject({
+  includeMemberLastActiveAt: z.boolean().optional(),
+  includeModelSelection: z.boolean().optional(),
+});
 
 export const organizationProfileDirectoryResponseSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,

@@ -5,7 +5,6 @@ import type {
 	ListOrganizationDocumentsResponse,
 	MessageChannelConnectionListResponse,
 	MessageChannelConnectionProjection,
-	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
@@ -140,14 +139,12 @@ export function buildOrganizationHumanProfileRows(input: {
 	messageChannelsStatus: DirectoryProjectionStatus;
 	members: OrganizationProfileDirectoryResponse["members"];
 	orgSlug: string;
-	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 }): DirectoryHumanProfileRow[] {
 	const reportsBySubject = indexProfileReportDocuments(input.documents);
 	const agentProfilesByOwner = buildDirectoryAgentProfilesByOwner({
 		members: input.members,
 		agentProfiles: input.agentProfiles,
 		orgSlug: input.orgSlug,
-		runtimeOverview: input.runtimeOverview,
 	});
 	return input.members
 		.map((member) => {
@@ -362,14 +359,7 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 	members: OrganizationProfileDirectoryResponse["members"];
 	agentProfiles: readonly DirectoryAgentProfileSource[];
 	orgSlug: string;
-	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 }): ReadonlyMap<string, readonly DirectoryAgentProfileSummary[]> {
-	const readinessByProfileId = new Map(
-		(input.runtimeOverview?.agentProfiles ?? []).map((profile) => [
-			profile.profileId,
-			profile.readiness,
-		])
-	);
 	const sourcesByOwner = new Map<string, DirectoryAgentProfileSource[]>();
 	for (const profile of input.agentProfiles) {
 		if (profile.isCenterAgent === true || !profile.ownerUserId) {
@@ -393,27 +383,28 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 		const profiles = [...sources]
 			.sort(compareAgentProfileSourceRecency)
 			.map((profile) => {
-				const directoryReadiness =
-					"readiness" in profile ? profile.readiness : null;
-				const readiness =
-					readinessByProfileId.get(profile.profileId) ?? directoryReadiness;
-				const lightweightAgentControllerRef =
-					"agentControllerRef" in profile ? profile.agentControllerRef : null;
+				const readiness = "readiness" in profile ? profile.readiness : null;
 				const agentControllerRef =
-					lightweightAgentControllerRef ??
-					readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
-					readiness?.publicProfileConfiguration?.agentControllerRef ??
-					readiness?.agentControllerRef ??
-					null;
+					"agentControllerRef" in profile
+						? profile.agentControllerRef
+						: (readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
+							readiness?.publicProfileConfiguration?.agentControllerRef ??
+							readiness?.agentControllerRef ??
+							null);
 				return {
 					agentControllerRef,
 					avatarImageUrl: profile.avatarUrl ?? null,
 					id: profile.profileId,
 					modelSelection:
-						readiness?.primaryBinding?.modelSelection ??
-						readiness?.publicProfileConfiguration?.modelSelection ??
-						null,
-					modelSelectionIsKnown: readiness !== null,
+						"agentControllerRef" in profile
+							? (profile.modelSelection ?? null)
+							: (readiness?.primaryBinding?.modelSelection ??
+								readiness?.publicProfileConfiguration?.modelSelection ??
+								null),
+					modelSelectionIsKnown:
+						"agentControllerRef" in profile
+							? profile.modelSelection !== undefined
+							: readiness !== null,
 					name: profile.profileName,
 					path: personId
 						? buildOrganizationPersonAgentPath({
