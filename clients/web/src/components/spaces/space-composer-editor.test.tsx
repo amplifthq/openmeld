@@ -3,7 +3,6 @@ import {
 	createSpaceMemberHumanSnapshot,
 	createSpaceMembersSnapshot,
 } from "@openmeld/schemas/testing";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -15,20 +14,14 @@ import {
 } from "@testing-library/react";
 import "fake-indexeddb/auto";
 import { createPlateEditor } from "platejs/react";
-import { createRef, StrictMode, useLayoutEffect, useRef } from "react";
+import { createRef, useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import {
 	SpaceComposerEditor,
 	type SpaceComposerEditorHandle,
 	SpaceComposerEditorKit,
 } from "./space-composer-editor";
 import { getEditorFocusReadiness } from "./space-composer-focus";
-import { SpaceInlineMessageEditor } from "./space-inline-message-editor";
-import {
-	SpaceMessageEditingScope,
-	useSpaceMessageEditing,
-} from "./space-message-editing";
 import type { SpaceComposerAddressingTarget } from "./use-space-mention-authoring";
 import {
 	buildSpaceComposerAddressingTargets,
@@ -42,70 +35,8 @@ const RUNNER_OPTION_NAME = /Runner/;
 const ALL_OPTION_NAME = /@all/;
 const BOTH_OPTION_NAME = /Both/;
 
-const INLINE_MESSAGE = {
-	id: "inline-message",
-	spaceId: "space-1",
-	text: "Keep this existing message",
-	wakeTargetProfileIds: [],
-	attachments: [],
-} as unknown as SpaceTimelineItem;
-function InlineRecommendationHarness() {
-	const editing = useSpaceMessageEditing();
-	return editing?.edit ? (
-		<>
-			<SpaceInlineMessageEditor
-				bodySize={{ width: 500, height: 30 }}
-				item={INLINE_MESSAGE}
-			/>
-			<div ref={editing.setActionContainer} />
-		</>
-	) : (
-		<button
-			onClick={() => editing?.beginEdit(INLINE_MESSAGE, AGENT_PROFILE_ID)}
-			type="button"
-		>
-			Wake Runner?
-		</button>
-	);
-}
-
 describe("SpaceComposerEditor", () => {
 	afterEach(cleanup);
-
-	it("opens a recommended inline edit once under repeated mount effects", async () => {
-		render(
-			<StrictMode>
-				<QueryClientProvider client={new QueryClient()}>
-					<SpaceMessageEditingScope
-						draftKey=""
-						hasDraft={false}
-						mentionPickerItems={createMentionPickerItems()}
-						onRestore={() => Promise.resolve()}
-						orgSlug="test"
-						selfProfileId={HUMAN_PROFILE_ID}
-					>
-						<InlineRecommendationHarness />
-					</SpaceMessageEditingScope>
-				</QueryClientProvider>
-			</StrictMode>
-		);
-		fireEvent.click(screen.getByRole("button", { name: "Wake Runner?" }));
-		expect(
-			await screen.findByRole("combobox", { name: "Find a member to mention" })
-		).toBeTruthy();
-		fireEvent.click(
-			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
-		);
-		expect(
-			await screen.findByRole("button", { name: "Save & wake" })
-		).toBeTruthy();
-		expect(screen.getAllByTestId("space-composer-profile-token")).toHaveLength(
-			1
-		);
-		expect(
-			screen.getByRole("textbox", { name: "Edit message" }).textContent
-		).toContain(INLINE_MESSAGE.text);
-	});
 
 	it("opens the shared mention picker at the start of an existing message", async () => {
 		const composerRef = createRef<SpaceComposerEditorHandle>();

@@ -8,7 +8,9 @@ audiences: ["members"]
 
 The main Space composer can suggest the Agent you last woke after it replies.
 Accept the suggestion to add a Wake token, or ignore it to send normally. If
-you forget, edit your sent message to add its first Wake without reposting it.
+you forget, click the suggested Agent below your sent message to add its first
+Wake in one step. The original message gains a Wake token and an edited marker
+without being reposted or moved.
 Later edits never start the same work again.
 
 Message editing uses the Composer's member picker and file uploads, keeps long

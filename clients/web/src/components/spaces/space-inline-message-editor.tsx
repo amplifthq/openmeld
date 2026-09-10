@@ -142,7 +142,7 @@ function InlineEditor({
 	});
 	const hasPreviousWake = item.wakeTargetProfileIds.length > 0;
 	const pickerItems = useMemo(() => {
-		const result = editing.mentionPickerItems.map((entry) =>
+		return editing.mentionPickerItems.map((entry) =>
 			hasPreviousWake
 				? {
 						...entry,
@@ -156,18 +156,7 @@ function InlineEditor({
 					}
 				: entry
 		);
-		return editing.recommendedProfileId
-			? [...result].sort(
-					(a, b) =>
-						Number(b.suggestion.profileId === editing.recommendedProfileId) -
-						Number(a.suggestion.profileId === editing.recommendedProfileId)
-				)
-			: result;
-	}, [
-		editing.mentionPickerItems,
-		editing.recommendedProfileId,
-		hasPreviousWake,
-	]);
+	}, [editing.mentionPickerItems, hasPreviousWake]);
 	const addressingTargets = draft.authoredMentions.flatMap((mention) => {
 		const entry = pickerItems.find(
 			(target) => target.suggestion.profileId === mention.profileId
@@ -206,16 +195,7 @@ function InlineEditor({
 			'[contenteditable="true"]'
 		);
 		editable?.focus({ preventScroll: true });
-		if (editing.recommendedProfileId) {
-			// Wait for the mounted editor's DOM selection, and cancel a discarded
-			// mount before it can insert a second transient mention input.
-			const frame = window.requestAnimationFrame(() => {
-				editorRef.current?.selectTextRange({ start: 0, end: 0 });
-				editorRef.current?.insertMentionTrigger();
-			});
-			return () => window.cancelAnimationFrame(frame);
-		}
-	}, [editing.recommendedProfileId]);
+	}, []);
 
 	async function save() {
 		if (saving.current || busy) {

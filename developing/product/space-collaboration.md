@@ -822,10 +822,12 @@ post-send suggestion. Other members' Wakes and ambiguous multi-target turns do
 not select the target.
 
 When that suggestion was ignored at send, only the sender sees a dismissible
-`Wake {Agent}?` affordance on their latest sent message. It opens the inline
-editor and the same Composer member picker, with the suggested Agent first.
-Manual `@` editing uses that same picker. Selection edits the draft; `Save &
-wake` commits its first Wake. `Save changes` only updates content. All viewers
+ordinary Agent token labeled `Click to wake` below their latest sent message.
+Clicking it directly saves an edit with that Agent's first Wake, without opening
+an editor, asking for another selection, or requiring another save. Failures
+remain beside the suggestion for retry; repeated clicks cannot dispatch twice.
+Manual `@` editing uses the same Composer member picker. Selection edits the
+draft; `Save & wake` commits its first Wake. `Save changes` only updates content. All viewers
 see the resulting ordinary Wake token and edited marker on the original
 message, with its ID, sent time, replies, reactions, and placement preserved.
 

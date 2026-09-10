@@ -9,12 +9,14 @@ import "./space-wake-recommendation.css";
 export function SpaceWakeSuggestionToken({
 	target,
 	ghost = false,
+	disabled = false,
 	onAccept,
 	onDismiss,
 	isCenterAgent = false,
 }: {
 	target: SpaceMentionPickerItem;
 	ghost?: boolean;
+	disabled?: boolean;
 	isCenterAgent?: boolean;
 	onAccept: () => void;
 	onDismiss?: () => void;
@@ -43,6 +45,7 @@ export function SpaceWakeSuggestionToken({
 							: "message-wake-suggestion-token"
 					}
 					data-wake-pulse={!ghost || undefined}
+					disabled={disabled}
 					onClick={onAccept}
 					onMouseDown={(event) => event.preventDefault()}
 					type="button"
@@ -70,6 +73,7 @@ export function SpaceWakeSuggestionToken({
 					<button
 						aria-label="Dismiss Wake suggestion"
 						className="absolute -top-2 -right-2 z-10 inline-flex size-5 items-center justify-center rounded-full bg-popover text-muted-foreground shadow-sm ring-1 ring-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						disabled={disabled}
 						onClick={(event) => {
 							event.stopPropagation();
 							onDismiss();

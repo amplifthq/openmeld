@@ -38,11 +38,14 @@ type EditingContext = {
 	selfProfileId: string;
 	orgSlug: string;
 	mentionPickerItems: readonly SpaceMentionPickerItem[];
-	recommendedProfileId: string | null;
 	edit: SpaceTimelineItem | null;
 	draft: MessageEditDraft | null;
 	changes: ReadonlyMap<string, SpaceTimelineItem>;
-	beginEdit: (item: SpaceTimelineItem, recommendedProfileId?: string) => void;
+	beginEdit: (item: SpaceTimelineItem) => void;
+	wake: (
+		item: SpaceTimelineItem,
+		target: SpaceMentionPickerItem
+	) => Promise<boolean>;
 	cancel: () => void;
 	recall: (item: SpaceTimelineItem) => void;
 	restore: (item: SpaceTimelineItem) => void;
@@ -92,9 +95,6 @@ export function SpaceMessageEditingScope(input: {
 	const [actionContainer, setActionContainer] = useState<HTMLDivElement | null>(
 		null
 	);
-	const [recommendedProfileId, setRecommendedProfileId] = useState<
-		string | null
-	>(null);
 	const [draft, setDraft] = useState<MessageEditDraft | null>(null);
 	const [changes, setChanges] = useState<
 		ReadonlyMap<string, SpaceTimelineItem>
@@ -191,10 +191,10 @@ export function SpaceMessageEditingScope(input: {
 					next.delete(item.id);
 					return next;
 				});
-				if (body.action === "edit") {
+				if (body.action === "edit" && retryDraft) {
 					setDraft(retryDraft);
 					setEdit(item);
-				} else {
+				} else if (body.action !== "edit") {
 					setRecalling(item);
 				}
 				throw failure;
@@ -212,13 +212,53 @@ export function SpaceMessageEditingScope(input: {
 		setActionContainer,
 		orgSlug: input.orgSlug ?? "",
 		mentionPickerItems: input.mentionPickerItems ?? [],
-		recommendedProfileId,
 		edit,
 		draft,
 		changes,
 		busy,
 		error,
-		beginEdit: (item, recommended) => {
+		wake: async (item, target) => {
+			if (
+				input.readOnly ||
+				item.wakeTargetProfileIds.length > 0 ||
+				item.actorProfileId !== input.selfProfileId ||
+				!target.suggestion.allowedRelations.wake
+			) {
+				return false;
+			}
+			if (edit) {
+				setError("Finish or cancel your current edit first.");
+				return false;
+			}
+			if (target.suggestion.wakeAvailability.status !== "ready") {
+				setError(
+					`${target.suggestion.profileName} isn't available to wake. Try again when the Agent is ready.`
+				);
+				return false;
+			}
+			const profileId = target.suggestion.profileId;
+			const text = `@${target.suggestion.profileName} ${item.text}`;
+			return await mutate(
+				item,
+				{
+					action: "edit",
+					expectedRevision: item.messageRevision ?? 0,
+					text,
+					retainedFileIds: (item.files ?? []).map((file) => file.fileId),
+					retainedAttachmentIds: item.attachments.map((file) => file.id),
+					messageEnvelope: {
+						text,
+						activationTargets: [profileId],
+						referenceTargets: (item.referenceTargetProfileIds ?? []).filter(
+							(id) => id !== profileId
+						),
+						mentionTargets: [...(item.mentionTargetProfileIds ?? [])],
+					},
+				},
+				null
+			);
+		},
+		beginEdit: (item) => {
 			if (edit && edit.id !== item.id) {
 				setError("Finish or cancel your current edit first.");
 				return;
@@ -226,7 +266,6 @@ export function SpaceMessageEditingScope(input: {
 			if (!busy) {
 				setError(null);
 				setDraft(null);
-				setRecommendedProfileId(recommended ?? null);
 				setEdit(item);
 			}
 		},

@@ -128,14 +128,22 @@ export function SpaceMessageWakeRecommendation({
 	}
 	return (
 		<div
-			className={`flex w-full min-w-0 items-center text-sm ${align === "end" ? "justify-end" : "justify-start"}`}
+			className={`flex w-full min-w-0 flex-col text-sm ${align === "end" ? "items-end" : "items-start"}`}
 			data-slot="message-wake-recommendation"
 		>
 			<SpaceWakeSuggestionToken
-				onAccept={() => editing.beginEdit(item, nudge.profileId)}
+				disabled={editing.busy}
+				onAccept={async () => {
+					await editing.wake(item, target);
+				}}
 				onDismiss={recommendation.dismissNudge}
 				target={target}
 			/>
+			{editing.error ? (
+				<p className="text-destructive text-xs" role="alert">
+					{editing.error}
+				</p>
+			) : null}
 		</div>
 	);
 }
