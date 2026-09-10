@@ -48,7 +48,6 @@ export function ComputerSetupFlow(input: {
 		<StartSetupCommandCard
 			command="# Preview only — use the simulation controls above"
 			commandPlaceholder="Preparing command…"
-			compact
 			copyLabel="Copy command"
 			copyStatus={copied ? "copied" : "idle"}
 			expiresInLabel={null}

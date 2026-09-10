@@ -25,7 +25,6 @@ export const OPENMELD_SETUP_TERMINAL_CONFIRMATION_STEP =
 	"If Terminal asks you to accept the OpenMeld disclaimer or install missing OpenMeld skills, choose the recommended options.";
 
 type StartSetupCommandCardProps = {
-	compact?: boolean;
 	command: string | null;
 	commandPlaceholder: string;
 	commandPlatform?: WebSetupCommandPlatform;
@@ -62,14 +61,9 @@ type StartSetupCommandExpiryProps = {
 };
 
 function SetupCommandInstructions(
-	input: Pick<StartSetupCommandCardProps, "compact" | "commandPlatform">
+	input: Pick<StartSetupCommandCardProps, "commandPlatform">
 ) {
-	return input.compact ? (
-		<p className="text-muted-foreground text-sm">
-			Open {input.commandPlatform === "windows" ? "PowerShell" : "Terminal"},
-			paste the command, and follow the prompts.
-		</p>
-	) : (
+	return (
 		<ol className="grid gap-2 text-xs sm:grid-cols-3">
 			<li
 				className={cn(
@@ -193,10 +187,7 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 						</Button>
 					</div>
 				</TabPanel>
-				<SetupCommandInstructions
-					commandPlatform={input.commandPlatform}
-					compact={input.compact}
-				/>
+				<SetupCommandInstructions commandPlatform={input.commandPlatform} />
 				<StartSetupCommandExpiry
 					expiresInLabel={input.expiresInLabel}
 					expiresInState={input.expiresInState}

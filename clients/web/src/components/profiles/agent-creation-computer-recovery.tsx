@@ -78,9 +78,6 @@ export function AgentCreationComputerRecoveryPanel(input: {
 			{recovery.setup ? (
 				<div className="grid gap-3">
 					{recovery.setup}
-					<p className="text-muted-foreground text-xs">
-						Your Agent settings will appear here when connected.
-					</p>
 					{recovery.onBack ? (
 						<Button
 							className="justify-self-start"

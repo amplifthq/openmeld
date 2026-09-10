@@ -874,7 +874,6 @@ function PrepareSessionTimeline(input: {
 						<ConnectTerminalCard
 							command={input.command}
 							commandPlatform={input.commandPlatform}
-							compact={input.presentation === "embedded"}
 							copyCommand={input.copyCommand}
 							copyStatus={input.copyStatus}
 							isRefreshingCommand={input.isRefreshingCommand}
@@ -1045,7 +1044,6 @@ function resolveReadyActionDescription(input: {
 }
 
 function ConnectTerminalCard(input: {
-	compact?: boolean;
 	command: string | null;
 	commandPlatform: WebSetupCommandPlatform;
 	copyCommand: () => Promise<void>;
@@ -1079,7 +1077,6 @@ function ConnectTerminalCard(input: {
 					: input.setupCopy.commandPlaceholder
 			}
 			commandPlatform={input.commandPlatform}
-			compact={input.compact}
 			copyLabel={input.setupCopy.copyCommandLabel}
 			copyStatus={input.copyStatus}
 			expiresInLabel={expiresInLabel}
