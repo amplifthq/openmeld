@@ -841,8 +841,8 @@ function buildLarkPlatformStreamingCard(text: string): JsonObject {
     },
     config: {
       streaming_config: {
-        print_frequency_ms: { default: 70 },
-        print_step: { default: 1 },
+        print_frequency_ms: { default: 30 },
+        print_step: { default: 3 },
         print_strategy: "fast",
       },
       streaming_mode: true,

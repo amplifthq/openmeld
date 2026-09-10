@@ -637,6 +637,13 @@ the connected provider API.
    keeps any longer backoff. Existing stream coalescing remains the normal
    request-rate control; `Retry-After` is explicit provider backpressure, not a
    second scheduler or publication path.
+   Remote Agent admits `message_channel` answer deltas to this existing stream
+   path, alongside Web/Space. It publishes the first text immediately, coalesces
+   subsequent provider snapshots at 350 ms, and flushes remaining text before
+   tools and terminal completion. Thinking stays private; Web-only tool parts
+   are not sent to CardKit or counted as visible progress. Slack retains its
+   own publication path. The same durable card is finalized after the result;
+   streaming is not a second response or an execution-completion signal.
    Lark-platform event ingestion is bounded to four Queue attempts. Exhaustion
    records one durable failed ingress and stops; it never resets the attempt
    count by creating a fresh copy of the same event. Replayed provider images
