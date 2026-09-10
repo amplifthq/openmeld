@@ -34,6 +34,9 @@ Suggested review:
    say reconnect; new computers must say connect.
 5. Try connection-check failure, checking, and no-local-agent states. Each should
    explain the current condition and offer the relevant action.
+   The no-local-agent state shows the shared dashed installation card, five
+   supported agents, an install-guide link, and Check again, without a connection
+   command. The isolated harness does not host the installation-guide route.
 6. Try two offline computers, select the intended computer, and confirm its name.
 7. From the ready form, choose Connect another computer, then cancel that connection.
 8. Create the simulated Agent and confirm return to the preview Space context.

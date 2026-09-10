@@ -3,6 +3,8 @@
 import { Button } from "@openmeld/ui/components/button";
 import { DesktopTowerIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
+import { LocalAgentInstallEmptyState } from "#/components/agents/local-agent-install-empty-state";
+import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
 
 export type AgentCreationComputerRecovery = {
 	state: "checking" | "check_failed" | "connect" | "reconnect" | "local_agents";
@@ -25,7 +27,7 @@ export function agentCreationComputerActionLabel(
 		case "reconnect":
 			return "Reconnect Computer";
 		case "local_agents":
-			return "Set up local agents";
+			return "Check again";
 		default:
 			return "Connect Computer";
 	}
@@ -35,6 +37,26 @@ export function AgentCreationComputerRecoveryPanel(input: {
 	recovery: AgentCreationComputerRecovery;
 }) {
 	const recovery = input.recovery;
+	if (recovery.state === "local_agents") {
+		return (
+			<LocalAgentInstallEmptyState
+				description={`Your computer is connected. Install a supported local agent${recovery.computerName ? ` on ${recovery.computerName}` : " on this computer"}, then check again to continue.`}
+				installGuide={
+					<a
+						className="inline-flex min-h-9 items-center gap-1 font-medium text-sm underline underline-offset-4"
+						href={LOCAL_AGENTS_GUIDE_PATH}
+						rel="noopener noreferrer"
+						target="_blank"
+					>
+						See the install guide{" "}
+						<span className="text-muted-foreground text-xs">
+							(opens in a new tab)
+						</span>
+					</a>
+				}
+			/>
+		);
+	}
 	const copy = recoveryCopy(recovery);
 	return (
 		<section aria-label="Computer connection" className="grid gap-4 py-2">

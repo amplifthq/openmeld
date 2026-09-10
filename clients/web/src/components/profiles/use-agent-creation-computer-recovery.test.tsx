@@ -35,7 +35,7 @@ describe("Agent creation computer recovery", () => {
 		);
 		expect(result.current.computerRecovery?.state).toBe(expected);
 		expect(Boolean(result.current.computerRecovery?.setup)).toBe(
-			guidance !== "checking" && guidance !== "check_failed"
+			guidance === "connect_computer"
 		);
 		if (guidance === "check_failed") {
 			act(() => result.current.computerRecovery?.onStart());

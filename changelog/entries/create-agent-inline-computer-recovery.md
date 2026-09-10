@@ -10,3 +10,5 @@ Connect or reconnect a computer without leaving Agent creation. The form keeps
 your name and settings while you restore the connection, then lets you continue
 in the same place. Connection checks and unavailable local agents show their
 own next steps instead of leaving you at a disabled Create Agent button.
+If the computer is already connected but has no local agents, an installation
+guide and supported-agent list help you get started without reconnecting it.

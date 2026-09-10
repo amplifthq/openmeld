@@ -130,7 +130,7 @@ function resolveAutomaticSetupTarget(
 	state: AgentCreationComputerRecovery["state"],
 	target: SetupTarget
 ) {
-	return blocked && state !== "checking" && state !== "check_failed"
+	return blocked && (state === "connect" || state === "reconnect")
 		? { ...target, state }
 		: null;
 }

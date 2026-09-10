@@ -793,7 +793,12 @@ function useCreateProfileDialogController(
 	});
 	const retryCreationConnection = () => {
 		Promise.all([
-			recovery.refreshAll(),
+			creationGuidance === "set_up_local_agents" && bindingTarget
+				? recovery.refreshLocalAgentCatalog({
+						deviceId: bindingTarget.deviceId,
+						runtimeLane: bindingTarget.runtimeLane,
+					})
+				: recovery.refreshAll(),
 			creationComputerReadiness.refetch(),
 		]).catch((error: unknown) =>
 			console.error("Could not refresh the computer for Agent creation.", error)

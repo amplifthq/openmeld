@@ -6,6 +6,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { type FormEvent, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -41,7 +42,7 @@ describe("AgentProfileGenerator", () => {
 		["connect", "Connect Computer"],
 		["reconnect", "Reconnect Computer"],
 		["check_failed", "Try again"],
-		["local_agents", "Set up local agents"],
+		["local_agents", "Check again"],
 	] as const)("replaces stale configuration with an actionable %s state", (state, label) => {
 		const onStart = vi.fn();
 		const onSubmit = vi.fn();
@@ -60,6 +61,31 @@ describe("AgentProfileGenerator", () => {
 		expect(onSubmit).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("button", { name: label }));
 		expect(onStart).toHaveBeenCalledOnce();
+		if (state === "local_agents") {
+			expect(
+				screen.getByTestId("local-agent-catalog-empty").className
+			).toContain("border-dashed");
+			for (const name of [
+				"Codex",
+				"Claude Code",
+				"Grok Build",
+				"OpenCode",
+				"Cursor CLI",
+			]) {
+				expect(
+					within(screen.getByTestId("local-agent-catalog-empty")).getByText(
+						name,
+						{ selector: "div" }
+					)
+				).toBeTruthy();
+			}
+			const guide = screen.getByRole("link", {
+				name: "See the install guide (opens in a new tab)",
+			});
+			expect(guide.getAttribute("href")).toBe("/guides/local-agents");
+			expect(guide.getAttribute("target")).toBe("_blank");
+			expect(screen.queryByRole("button", { name: "Copy command" })).toBeNull();
+		}
 	});
 	it("keeps the edited name and expanded settings through disconnect and recovery", () => {
 		const view = render(<GeneratorHarness initialAgentId="codex" />);

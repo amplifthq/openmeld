@@ -3924,7 +3924,10 @@ failed connection check hides the configuration controls and replaces the
 disabled submit dead end with the connection workflow, even when an older local
 agent catalog is still cached. An enrolled Computer is described as already
 added but currently disconnected; a failed read never claims disconnection.
-Connected computers with no selectable local agent keep local-agent guidance.
+Connected computers with no selectable local agent show the shared Local agents
+installation empty state: a dashed border, supported-agent names and icons, and
+the installation guide in a new tab. They do not mount computer connection setup.
+Check again refreshes that computer's local-agent catalog before continuing.
 
 The parent creation form stays mounted through setup and back navigation,
 preserving the name, settings, and original Space membership context. Embedded
