@@ -1826,7 +1826,7 @@ export async function claimRemoteAgentRoutineNativeDelivery(input: {
     conversationKind: input.conversationKind,
     locator: input.messageChannelLocator ?? null,
     providerPublicationIdempotencyKey:
-      input.conversationKind === "message_channel" ? input.runId : null,
+      input.conversationKind === "message_channel" ? deliveryId : null,
     slackChannelId: input.slackChannelId,
     slackTeamId: input.slackTeamId,
     slackThreadTs: input.slackThreadTs,
@@ -2012,7 +2012,7 @@ export async function claimRemoteAgentRoutineAdmissionFailure(input: {
     conversationKind: input.conversationKind,
     locator: input.messageChannelLocator ?? null,
     providerPublicationIdempotencyKey:
-      input.conversationKind === "message_channel" ? input.runId : null,
+      input.conversationKind === "message_channel" ? deliveryId : null,
     slackChannelId: input.slackChannelId,
     slackTeamId: input.slackTeamId,
     slackThreadTs: input.slackThreadTs,

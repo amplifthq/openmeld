@@ -90,9 +90,16 @@ describe("Message Channel Routine destinations", () => {
       const first = await claimRemoteAgentRoutineNativeDelivery(claim);
       expect(first.status).toBe("claimed");
       expect(first.delivery?.messageChannelLocator).toEqual(locator);
-      expect(first.delivery?.providerPublicationIdempotencyKey).toBe("run");
-      expect((await claimRemoteAgentRoutineNativeDelivery(claim)).status).toBe(
-        "lost_race"
+      // The provider reply API requires a UUID, not OpenMeld's prefixed Run ID.
+      expect(first.delivery?.providerPublicationIdempotencyKey).toEqual(
+        expect.stringMatching(
+          "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        )
+      );
+      const duplicate = await claimRemoteAgentRoutineNativeDelivery(claim);
+      expect(duplicate.status).toBe("lost_race");
+      expect(duplicate.delivery?.providerPublicationIdempotencyKey).toBe(
+        first.delivery?.providerPublicationIdempotencyKey
       );
     } finally {
       harness.close();
