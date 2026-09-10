@@ -21,6 +21,7 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSpaceTimelineItems } from "#/lib/spaces/timeline";
+import { TestQueryClientProvider } from "#/test-support/query-client";
 import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
 import { SpaceThreadPanel } from "./space-thread-panel";
 
@@ -59,8 +60,16 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: (options: { enabled?: boolean }) => {
+		useQuery: (options: Parameters<typeof actual.useQuery>[0]) => {
+			const isReaction = options.queryKey[0] === "space-message-reactions";
+			const reactionQuery = actual.useQuery({
+				...options,
+				enabled: isReaction && options.enabled !== false,
+			});
 			const result = useQueryMock(options);
+			if (isReaction) {
+				return reactionQuery;
+			}
 			return options.enabled === false ? { data: undefined } : result;
 		},
 	};
@@ -165,7 +174,7 @@ describe("SpaceThreadPanel", () => {
 		).toBeNull();
 	});
 
-	it("places the current Space pending actions above the visible thread composer", () => {
+	it("places the current Space pending actions inside the composer above its editor", () => {
 		renderThreadPanel({
 			pendingActionSurface: (
 				<section data-testid="pending-agent-actions">Pending actions</section>
@@ -179,7 +188,12 @@ describe("SpaceThreadPanel", () => {
 		if (!composer) {
 			throw new Error("Expected the visible thread composer.");
 		}
-		expect(pendingActions.compareDocumentPosition(composer)).toBe(
+		expect(composer.contains(pendingActions)).toBe(true);
+		const editor = composer.querySelector('[role="textbox"]');
+		if (!editor) {
+			throw new Error("Expected the thread editor.");
+		}
+		expect(pendingActions.compareDocumentPosition(editor)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
 	});
@@ -881,7 +895,7 @@ describe("SpaceThreadPanel", () => {
 			.closest("[data-message-row-id='sig-thread-wake']");
 		expect(
 			sourceMessage?.querySelector("[data-slot='message-footer']")?.className
-		).toContain("justify-end");
+		).toContain("self-end");
 
 		rerenderThreadPanel({
 			selfProfileId: "human-profile-1",
@@ -1296,7 +1310,8 @@ function renderThreadPanel(
 		wakeFailureTargetContextsByProfileId: new Map(),
 	} satisfies ComponentProps<typeof SpaceThreadPanel>;
 	const renderResult = render(
-		<SpaceThreadPanel {...defaultProps} {...overrides} />
+		<SpaceThreadPanel {...defaultProps} {...overrides} />,
+		{ wrapper: TestQueryClientProvider }
 	);
 	return {
 		...renderResult,

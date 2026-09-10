@@ -41,6 +41,7 @@ import { DirectoryHumanProfileRoleBadge } from "#/components/directory/directory
 import { DirectoryIdentityAccountActionLink } from "#/components/directory/directory-identity-account-action-link";
 import { HumanProfileNameEditor } from "#/components/profiles/human-profile-name-editor";
 import { copyTextToClipboard } from "#/lib/clipboard";
+import { AgentConversationsSection } from "./agent-conversations-section";
 
 export type DirectoryHumanProfileResearchAction = {
 	description: string;
@@ -101,6 +102,9 @@ export function DirectoryHumanProfileDetails(
 				profiles={input.member.agentProfiles}
 			/>
 
+			{input.member.isCurrentUser ? (
+				<AgentConversationsSection member={input.member} />
+			) : null}
 			<DetailSection title="Computers">
 				{input.computersContent ?? (
 					<DirectoryComputerSummary member={input.member} size="detail" />

@@ -19,6 +19,37 @@
 - Source of truth: This file owns the durable product semantics of Space
   collaboration.
 
+## Pinned messages and files
+
+Active human Space members can pin retained chat messages from the message's
+More actions menu. Pins are shared Space state. A pin references the original
+message; it does not create a separate document or change its version history.
+The Messages view shows one compact preview at a time, with the original author,
+the person who pinned it, and a jump to the original message. The preview stays
+on one line and truncates. Multiple pins use previous/next navigation without
+stacking cards above the conversation.
+
+Files have a separate pin action in the Files browser. Pinned files appear at
+the top of the Messages conversation, above pinned messages. Each kind has its
+own compact preview and navigation; file and message pins never share a carousel.
+Opening a pinned file uses the existing Files viewer. The pin follows the file's
+identity and latest revision, including renames, rather than copying its content.
+Trashed files are omitted. Pinning a message with attachments does not pin those
+files, and unpinning a file never unpins its surrounding message.
+
+When a pinned file receives a newer revision after it was pinned, its title shows
+a compact `New updates` badge until the current reader opens that revision.
+The badge uses a nested Fluid Surface (Surface 2). Read progress is scoped to
+organization, profile, Space, and file in the current browser; it does not sync
+between devices. Opening older history never moves the read revision backwards.
+Failed content loads do not acknowledge a previewable file as read.
+
+Only the original pinner can remove a pin, including through the API. The close
+button means shared unpin, not personal dismissal, and requires no confirmation.
+Pinning an already pinned message does not transfer ownership. Pins whose source
+message is no longer retained are omitted from the display. This is separate
+from the broader shared-document and knowledge synchronization work in #851.
+
 ## Product Role
 
 A Space is the shared cloud room where Humans and Agent Profiles collaborate.
@@ -61,6 +92,43 @@ selected. Once added, the Center Agent follows ordinary Agent Profile member
 semantics for listing, addressing, Wake, removal, and degraded Direct Message
 behavior. This does not create another Space kind or apply the locked Center
 Agent Direct Message mutation rules to an ordinary Space.
+
+## Editing and Recalling Messages
+
+An active Human member can edit or recall their own sent messages, without a
+time limit. This does not grant permission to change another Human's messages,
+Agent replies, or system notices.
+
+Editing replaces the message in its original position, preserving its identity,
+timestamp, reply links, and thread. Show `(edited)` only when content changes.
+The editor lives directly in the existing bubble and preserves the bottom
+composer draft. Existing message attachments can be kept or removed. Removing
+all text while keeping attachments remains a valid message; removing all
+content asks for recall confirmation.
+
+Recall replaces the original row with a small system-style notice naming the
+sender. Original text and attachments are absent from the public message and
+quoted previews, while existing threads remain accessible. Recall is not file
+deletion: independently stored Space Files retain their own lifecycle.
+
+Only the sender can choose **Edit again** to recover the last successfully saved
+version into the appropriate composer. This creates a draft, never an automatic
+send or resurrection of the old message. Protect an existing draft with a
+replacement confirmation and do not overwrite text entered while recovery is
+loading. The draft retains its source message identity across refreshes and
+failed sends. Only successful publication consumes recovery: keep the divider
+notice, remove **Edit again**, and release the private recovery snapshot in the
+same transaction as the new message. Sending unrelated identical text does not
+consume recovery. Recovery otherwise lasts as long as the underlying message is
+retained; this is not a browsable edit-history feature.
+
+Editing and recall update the initiating client's view optimistically. A failed
+write restores the authoritative message and preserves the edit for retry.
+Concurrent stale edits must not overwrite a newer version. Existing Wake and
+mention delivery remain historical actions: editing does not issue another Wake
+or notification, and recall does not stop already-running work. Agents reading
+current conversation context must detect message changes before publishing a
+reply based on an obsolete observation.
 
 ## Email Invitations Into A Space
 
@@ -805,6 +873,33 @@ active Space Wake children. Core attempts all of those targets before reporting
 an aggregate failure; retry reuses the same exact Task Handles and cannot
 publish a stopped continuation.
 
+## Message Reactions
+
+An active Human member can add standard Unicode emoji reactions to persisted
+Human or Agent text messages, including thread replies. Selecting the same emoji
+again removes only that person's reaction. Multiple people share an emoji count;
+each person can use more than one emoji, once per emoji per message.
+
+Reactions share one row with message actions beneath their source message, before
+its thread preview. On self-authored messages the row starts at the bubble’s left
+edge and stays within its width. Overflow reactions appear in a +N pill that
+opens on hover or click. Emoji groups retain their first-added order while any
+member still uses them; a fully removed group returns at the end if added again. The
+message action bar opens a compact set of common emoji and an optional full
+picker. Existing reactions show counts and the viewer's selected state. Members
+can inspect who reacted, including a paginated complete list when needed.
+
+Reactions are quiet feedback. They do not create messages, unread activity, Wakes,
+task completion, or execution approval. Removing the last reaction removes its
+chip. Failed changes restore the confirmed state and offer a retry.
+
+Authorized Human and Agent message reads include the current reaction state,
+participant identities, and explicit preview truncation. This applies to Local,
+Center, and personal Remote Agent context reads within their existing access
+boundaries. Reading new-message deltas alone does not discover changes to older
+messages; reread the source message to obtain its current reactions. Agents do
+not write reactions in this first version.
+
 ## Threads
 
 A Space Thread is conversation placement under one root Space message.
@@ -833,6 +928,10 @@ message system for threads.
 If a user Wakes an Agent Profile from a thread, the Agent Profile's reply should
 default back to that same thread. The user asked from that local conversation,
 so the visible answer belongs there.
+
+Opening a thread under a main-timeline Wake does not move the running Wake's
+reply or its message-review scope into that thread. The root remains a main
+message, while also being a valid starting point for reading its thread.
 
 If the hosted runtime rolls a Space conversation to a fresh internal generation,
 the Space owner uses the exact dispatch's frozen thread placement to rebuild the

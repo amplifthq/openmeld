@@ -20,6 +20,16 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Space pin ownership
+
+Space Durable Object SQLite owns message and file pins, in separate
+`space_message_pins` and `space_file_pins` tables (schema version 36). Records
+contain the source identifier, pinner profile, and timestamp. Original messages,
+file metadata, and file revisions remain authoritative; pin reads resolve them
+instead of persisting copied previews. Missing messages and trashed files are
+omitted. Retrying a pin preserves its original owner and timestamp, and unpin
+ownership is checked synchronously before deletion in the owning Space.
+
 ## Space message previews and slow Web experiences
 
 Space owns message preview truth. Message publication and retention capture a
@@ -91,12 +101,13 @@ One physical storage binding can temporarily contain multiple domains. That does
 not create shared ownership. Logical ownership still decides who may write facts,
 who may project them, and who must repair them.
 
-Auth owns Organization membership removal. Its `beforeRemoveMember` guard may
-perform one read-only join from the Core-owned `center_agent_designations` row to
-the designated managed profile's owner in the shared D1 database. This bounded
-referential read exists only to prevent removal of the Center Agent execution
-host and must fail closed. It gives Auth no write authority over Center Agent or
-Agent Profile state; Core remains the only owner and writer of those facts.
+Auth owns Organization membership removal and managed Profile identity. A
+Center Agent belongs to the Organization, not a personal execution host;
+removing its creator does not remove the agent or its conversations. Core owns
+designation, operating state, and the organization-owned hosted Binding.
+Historical creation and designation actors are attribution, never an ownership
+guard or a grant of private Space access. See
+[Organization Agent ownership](organization-agent-ownership.md).
 
 ## Durable Data Domains
 
@@ -3004,6 +3015,38 @@ failed-step write; they do not require the damaged old Computer credential.
 When available, `nativeFailure.osStatus` preserves the immediate macOS error
 through wrapped exceptions without uploading the exception text. This optional
 field is stripped safely by older Core versions.
+
+Version 3 adds a 15-minute evidence window ending at collection start.
+The Service log reader reads at most the last 256 KiB and includes only complete,
+timestamped lines in that window. `serviceLogWindow` counts excluded undated and
+out-of-window lines and marks a truncated source; an empty tail means no eligible
+evidence in the inspected suffix, not that no failure occurred. Missing/empty
+files keep their existing notes; unreadable files are collection errors.
+Lifecycle entries are filtered to the same window before applying payload caps.
+
+`os.release` remains the kernel release. Optional `os.productVersion` and
+`os.buildVersion` come from a bounded macOS `sw_vers` query, not from the kernel
+version shown by older device metadata. `operationFailure` preserves allowlisted
+native code/errno/syscall and path categories from the immediate error or its
+bounded cause chain. It does not upload exception text or actual paths and never
+interprets EPERM/EACCES as proof of TCC or App Management denial.
+
+Carrier lifecycle evidence retains operation, distribution, actual actor PID,
+parent PID, target category, and structured operation failure in the uploaded
+projection. Exact executable/target paths and carrier exception messages remain
+local. These process IDs describe the OpenMeld operation, not an inferred macOS
+responsible/accessing process. No macOS unified logs are collected automatically.
+System-only notices still require narrowly scoped local evidence.
+
+Contract impact: all new top-level and OS fields are optional; bundle version is
+not a discriminator. New Core accepts v1/v2 producers; old Core strips unknown
+v3 fields and keeps the legacy bundle. Existing Service/CLI setup, Wake, status,
+Space actions, Skills, Gateway, and Web remain compatible, with no epoch bump or
+database migration. Deploy the Core schema before publishing CLI/Service to retain
+the richer evidence; reverse order only loses optional evidence. The feature PR
+defers version/manifest stamping; the eventual local release is advisory
+`available`. Diagnostics remain logs-only and never change lifecycle or execution
+authority.
 
 For support, resolve the reported email to its verified Auth user ID, then filter
 Workers Logs by `event = core.openmeld.setup.step_failed` and `ownerUserId`.

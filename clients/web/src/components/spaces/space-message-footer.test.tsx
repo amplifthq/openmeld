@@ -1,11 +1,13 @@
 import {
 	cleanup,
 	fireEvent,
-	render,
+	render as renderView,
 	screen,
 	within,
 } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TestQueryClientProvider } from "#/test-support/query-client";
 import {
 	SpaceMessageFooter,
 	type SpaceMessageFooterAddressingTarget,
@@ -33,12 +35,16 @@ const WAKE_TARGET: SpaceMessageFooterAddressingTarget = {
 	profileName: "Review Codex",
 };
 
+function render(ui: ReactElement) {
+	return renderView(ui, { wrapper: TestQueryClientProvider });
+}
+
 describe("SpaceMessageFooter", () => {
 	afterEach(() => {
 		cleanup();
 	});
 
-	it("keeps the normal action order and puts lower-priority actions in More", () => {
+	it("keeps ordinary actions inline without an empty overflow menu", () => {
 		const view = render(
 			<SpaceMessageFooter
 				addressingTargets={[WAKE_TARGET]}
@@ -67,20 +73,8 @@ describe("SpaceMessageFooter", () => {
 			"Reply in thread",
 			"Message addressing",
 			"Message details",
-			"More actions",
 		]);
-		expect(
-			screen.getByRole("button", { name: "More actions" }).className
-		).toContain("@min-[36rem]:hidden");
-
-		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
-		expect(screen.getByRole("menuitem", { name: "Reply" })).toBeTruthy();
-		expect(
-			screen.getByRole("menuitem", { name: "Reply in thread" })
-		).toBeTruthy();
-		expect(
-			screen.getByRole("menuitem", { name: "Message addressing" })
-		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
 	});
 
 	it("keeps a failed footer compact and moves every secondary action into More", () => {

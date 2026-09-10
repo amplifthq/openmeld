@@ -242,6 +242,9 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			composerDraft.setContent((currentDraft) => ({
 				...currentDraft,
 				authoredMentions: change.authoredMentions,
+				restoredFromSignalId:
+					change.restoredFromSignalId ??
+					(change.text.trim() ? currentDraft.restoredFromSignalId : undefined),
 				text: change.text,
 			}));
 		},
@@ -323,8 +326,11 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			pendingSelectionRef.current = { start: text.length, end: text.length };
 			textareaRef.current?.focus();
 		},
-		prepareSubmission: (missingSnapshotMessage: string) =>
-			prepareSpaceComposerSubmission({
+		prepareSubmission: (
+			missingSnapshotMessage: string
+		): PreparedSpaceComposerSubmission & { restoredFromSignalId?: string } => ({
+			restoredFromSignalId: composerDraft.content.restoredFromSignalId,
+			...prepareSpaceComposerSubmission({
 				authoredMentionsInTextOrder: authoredMentions.map(
 					toAuthoredMentionInput
 				),
@@ -333,8 +339,13 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				snapshot: input.snapshot,
 				text: composerText,
 			}),
-		prepareFileOnlySubmission: () =>
-			prepareSpaceFileOnlySubmission({ replyTo }),
+		}),
+		prepareFileOnlySubmission: (): PreparedSpaceComposerSubmission & {
+			restoredFromSignalId?: string;
+		} => ({
+			restoredFromSignalId: composerDraft.content.restoredFromSignalId,
+			...prepareSpaceFileOnlySubmission({ replyTo }),
+		}),
 		preparePlainTextSubmission: (
 			text: string,
 			missingSnapshotMessage: string
@@ -351,7 +362,9 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			resetComposerState();
 		},
 		restoreFailedSubmission: (
-			preparedSubmission: PreparedSpaceComposerSubmission
+			preparedSubmission: PreparedSpaceComposerSubmission & {
+				restoredFromSignalId?: string;
+			}
 		) => {
 			if (currentComposerHasDraftRef.current) {
 				return false;
@@ -359,6 +372,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			currentComposerHasDraftRef.current = true;
 			const nextCaretPosition = preparedSubmission.text.length;
 			composerDraft.setContent({
+				restoredFromSignalId: preparedSubmission.restoredFromSignalId,
 				authoredMentions: trackAuthoredMentionsInText({
 					mentions: preparedSubmission.authoredMentionsInTextOrder,
 					text: preparedSubmission.text,

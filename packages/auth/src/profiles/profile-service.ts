@@ -73,7 +73,7 @@ export type CreateAgentProfileInput = {
 };
 
 export type EnsureManagedAgentProfileInput = {
-  ownerUserId: string;
+  ownerUserId?: string | null;
   organizationId: string;
   profileName: string;
   managedRole: OpenMeldProfileManagedRole;
@@ -202,6 +202,9 @@ export function createOpenMeldProfileService(
   const ensurePrimaryProfileIsActiveAndDefault = async (
     profile: OpenMeldProfileRecord
   ): Promise<OpenMeldProfileRecord> => {
+    if (!profile.ownerUserId) {
+      throw new ProfileNotFoundError();
+    }
     if (profile.status === "active" && profile.isDefault === true) {
       return profile;
     }
@@ -453,7 +456,7 @@ export function createOpenMeldProfileService(
   const findManagedAgentByRoleScope = (input: {
     managedRole: OpenMeldProfileManagedRole;
     organizationId: string;
-    ownerUserId: string;
+    ownerUserId?: string | null;
   }): Promise<OpenMeldProfileRecord | null> => {
     if (input.managedRole === "center_agent") {
       return repository.findManagedAgentByOrganizationAndRole(
@@ -463,7 +466,7 @@ export function createOpenMeldProfileService(
     }
 
     return repository.findManagedAgentByOwnerAndRole(
-      input.ownerUserId,
+      normalizeRequiredText(input.ownerUserId ?? "", "ownerUserId"),
       input.managedRole
     );
   };
@@ -551,7 +554,7 @@ export function createOpenMeldProfileService(
       }
 
       const targetProfile = await repository.findByProfileId(targetProfileId);
-      if (!targetProfile) {
+      if (!targetProfile?.ownerUserId) {
         return false;
       }
       const ownerProfiles = await repository.listByOwner(
@@ -767,10 +770,10 @@ export function createOpenMeldProfileService(
     ensureManagedAgentProfile: async (
       input: EnsureManagedAgentProfileInput
     ): Promise<OpenMeldProfileRecord> => {
-      const ownerUserId = normalizeRequiredText(
-        input.ownerUserId,
-        "ownerUserId"
-      );
+      const ownerUserId =
+        input.managedRole === "center_agent"
+          ? null
+          : normalizeRequiredText(input.ownerUserId ?? "", "ownerUserId");
       const profileName = normalizeRequiredText(
         input.profileName,
         "profileName"
@@ -783,27 +786,35 @@ export function createOpenMeldProfileService(
       const existing = await findManagedAgentByRoleScope({
         managedRole,
         organizationId,
-        ownerUserId,
+        ownerUserId: input.ownerUserId,
       });
       if (existing) {
         return existing;
       }
 
       const createdByUserId = normalizeOptionalText(input.createdByUserId);
-      const creatorProfileId = await resolveAgentCreatorProfileId({
-        ownerUserId,
-        creatorProfileId: normalizeOptionalText(input.creatorProfileId),
-      });
+      const creatorProfileId = ownerUserId
+        ? await resolveAgentCreatorProfileId({
+            ownerUserId,
+            creatorProfileId: normalizeOptionalText(input.creatorProfileId),
+          })
+        : null;
       for (const _ of Array.from({ length: MAX_AGENT_PROFILE_ID_ATTEMPTS })) {
         const profileId = normalizeAgentProfileId(
           generateAgentProfileId(),
           "agentProfileId"
         );
-        const profileHandle = await resolveProfileHandleForOwner({
-          ownerUserId,
-          profileKind: "agent",
-          profileName,
-        });
+        const profileHandle = ownerUserId
+          ? await resolveProfileHandleForOwner({
+              ownerUserId,
+              profileKind: "agent",
+              profileName,
+            })
+          : resolveAvailableProfileHandle({
+              profileName,
+              profileKind: "agent",
+              takenHandles: [],
+            });
 
         await repository.insertAgentProfile({
           profileId,
@@ -817,10 +828,7 @@ export function createOpenMeldProfileService(
           source: "auth_bootstrap",
         });
 
-        const inserted = await repository.findByOwnerAndProfileId(
-          ownerUserId,
-          profileId
-        );
+        const inserted = await repository.findByProfileId(profileId);
 
         if (inserted) {
           return inserted;
@@ -829,7 +837,7 @@ export function createOpenMeldProfileService(
         const existingAfterConflict = await findManagedAgentByRoleScope({
           managedRole,
           organizationId,
-          ownerUserId,
+          ownerUserId: input.ownerUserId,
         });
         if (existingAfterConflict) {
           return existingAfterConflict;
@@ -1006,12 +1014,18 @@ export function createOpenMeldProfileService(
         throw new ProfileNotFoundError();
       }
 
-      await updateProfileIdentityWithRetry({
-        ownerUserId: existing.ownerUserId,
+      await repository.updateManagedProfileIdentityForOrganization(
+        organizationId,
         profileId,
-        profileKind: existing.profileKind,
-        profileName,
-      });
+        {
+          profileName,
+          profileHandle: resolveAvailableProfileHandle({
+            profileName,
+            profileKind: "agent",
+            takenHandles: [],
+          }),
+        }
+      );
 
       const updated = await repository.findByProfileId(profileId);
       if (!updated) {
@@ -1348,8 +1362,9 @@ function buildResolvedCreatorProfileIdByProfileId(
 function resolveDefaultHumanProfileId(
   profiles: readonly OpenMeldProfileRecord[]
 ): string | null {
-  const defaultHumanProfile = profiles.find((profile) =>
-    isDefaultHumanProfile(profile, profile.ownerUserId)
+  const defaultHumanProfile = profiles.find(
+    (profile) =>
+      profile.ownerUserId && isDefaultHumanProfile(profile, profile.ownerUserId)
   );
   return defaultHumanProfile
     ? normalizeAnyProfileId(defaultHumanProfile.profileId, "profileId")

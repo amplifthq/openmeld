@@ -45,7 +45,9 @@ export function buildRemoteAgentCoreContext(
   requestId: string
 ): OpenMeldRequestContext {
   assertCoreOriginatedTurnContext(turnContext);
-  if (!turnContext.agentProfileOwnerUserId) {
+  const personalAgent =
+    turnContext.conversationIdentity?.kind === "personal_agent";
+  if (personalAgent && !turnContext.agentProfileOwnerUserId) {
     throw new Error(
       "OpenMeld product tools require the Remote Agent submission owner context."
     );
@@ -57,8 +59,12 @@ export function buildRemoteAgentCoreContext(
         turnContext.conversationIdentity?.kind === "personal_agent"
           ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
           : HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      callerPrincipalId: turnContext.agentProfileOwnerUserId,
-      ownerUserId: turnContext.agentProfileOwnerUserId,
+      callerPrincipalId: personalAgent
+        ? (turnContext.agentProfileOwnerUserId ?? undefined)
+        : turnContext.agentProfileId,
+      ...(personalAgent && turnContext.agentProfileOwnerUserId
+        ? { ownerUserId: turnContext.agentProfileOwnerUserId }
+        : {}),
       profileKind: "agent",
       requestId,
       openMeldProfileId: turnContext.agentProfileId,

@@ -51,6 +51,7 @@ import { toast } from "sonner";
 import { Drawer } from "vaul";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
 import { UnsavedChangesDialog } from "#/components/forms/unsaved-changes-guard";
+import { markFileRevisionSeen } from "#/lib/spaces/file-update-seen";
 import { baseQueryOptions } from "#/query/query-config";
 import {
 	spaceFileContentQueryOptions,
@@ -156,6 +157,29 @@ export function SpaceFileDetail(input: {
 		})
 	);
 	const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+	const revisionVisible =
+		contentQuery.isSuccess ||
+		!(editable || html || imagePreviewable || previewRevision !== null);
+	useEffect(() => {
+		if (revisionVisible) {
+			markFileRevisionSeen(
+				{
+					organizationSlug: input.organizationSlug,
+					profileId: input.openMeldProfileId,
+					spaceId: input.spaceId,
+					fileId: input.file.id,
+				},
+				displayedRevision
+			);
+		}
+	}, [
+		revisionVisible,
+		displayedRevision,
+		input.organizationSlug,
+		input.openMeldProfileId,
+		input.spaceId,
+		input.file.id,
+	]);
 	useEffect(() => {
 		if (!(imagePreviewable && contentQuery.data)) {
 			setImagePreviewUrl(null);

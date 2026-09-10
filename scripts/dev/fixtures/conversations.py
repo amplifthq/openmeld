@@ -30,11 +30,19 @@ def seed(context, sid, index, members):
             return
         prompt, answer = TOPICS[index % len(TOPICS)]
         speakers = [context.human["profile_id"], *members]
-        for n, text in enumerate([prompt, answer, "I’ll capture the decision here so the next person has the context."]):
+        count = 480 if index == 0 else 90 if index == 1 else 31 if index == 4 else 3
+        texts = []
+        for n in range(count):
+            question, response = TOPICS[(n // 3) % len(TOPICS)]
+            cycle = n // (3 * len(TOPICS)) + 1
+            text = [f"Review {cycle}: {question}", response + "\n\nThe next step is to review the proposed change in the complete workflow.\n\n- Check the first attempt from a fresh session.\n- Keep the original reading position when new messages arrive.\n- Record the final decision in this Space.",
+                    f"Decision recorded for review {cycle}. We’ll revisit this after the next customer session."][n % 3]
+            texts.append(text if count > 3 else [prompt, answer, "I’ll capture the decision here so the next person has the context."][n])
+        for n, text in enumerate(texts):
             pid = speakers[n % len(speakers)]
             profile = context.db.execute("SELECT profile_name,profile_kind FROM openmeld_profiles WHERE profile_id=?", (pid,)).fetchone()
             mid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:{n}"))
-            ts = last - (2 - n) * 180_000
+            ts = last - (count - 1 - n) * (6 * 3600_000 if count > 3 else 180_000)
             envelope = {"v": 1, "id": mid, "spaceId": sid, "ts": ts,
                         "profile": {"kind": profile[1], "profileId": pid, "profileName": profile[0]},
                         "type": "signal.text", "data": {"text": text}}

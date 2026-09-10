@@ -95,6 +95,7 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 				authoredMentions: [],
 				selection: { end: 28, start: 28 },
 				text: "Keep this plan after refresh",
+				restoredFromSignalId: "recalled-1",
 			});
 		});
 		firstComposer.unmount();
@@ -118,6 +119,20 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		expect(restoredComposer.result.current.composerText).toBe(
 			"Keep this plan after refresh"
 		);
+		expect(
+			restoredComposer.result.current.prepareFileOnlySubmission()
+				.restoredFromSignalId
+		).toBe("recalled-1");
+		const submission =
+			restoredComposer.result.current.prepareFileOnlySubmission();
+		act(() => restoredComposer.result.current.recordPendingSubmission());
+		act(() =>
+			restoredComposer.result.current.restoreFailedSubmission(submission)
+		);
+		expect(
+			restoredComposer.result.current.prepareFileOnlySubmission()
+				.restoredFromSignalId
+		).toBe("recalled-1");
 	});
 
 	it("keeps each thread draft isolated and restores it when the thread reopens", () => {

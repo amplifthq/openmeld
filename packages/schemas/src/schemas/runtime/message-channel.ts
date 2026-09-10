@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "#lazy-zod";
 
 export const MESSAGE_CHANNEL_PROVIDERS = ["slack", "lark", "feishu"] as const;
 export const MESSAGE_CHANNEL_TRANSPORTS = ["webhook", "websocket"] as const;
@@ -266,7 +267,7 @@ export const messageChannelIngressEnvelopeSchema = z
     }
   });
 
-type MessageChannelConversationLocator = z.infer<
+type MessageChannelConversationLocator = zod.infer<
   typeof messageChannelConversationLocatorSchema
 >;
 

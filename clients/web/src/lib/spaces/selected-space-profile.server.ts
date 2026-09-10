@@ -53,6 +53,9 @@ export async function readSelectedSpaceProfileFromRequest(input: {
 	}
 
 	const { profile } = parsed.data;
+	if (!profile.ownerUserId) {
+		throw new Error("Selected space profile requires a personal owner.");
+	}
 	return {
 		openMeldProfileId: profile.openMeldProfileId,
 		profileKind: profile.profileKind,

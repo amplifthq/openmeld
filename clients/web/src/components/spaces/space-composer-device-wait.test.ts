@@ -34,6 +34,7 @@ describe("Space device waiting authoring and progress", () => {
 	});
 	it("turns the explicitly selected Reference into one Wake and preserves the deadline", () => {
 		const original = {
+			restoredFromSignalId: "recalled-source",
 			text: "@Runner check the report",
 			messageEnvelope: normalizeMessageEnvelope({
 				text: "@Runner check the report",
@@ -43,6 +44,7 @@ describe("Space device waiting authoring and progress", () => {
 			}),
 		};
 		const result = applyDeviceWaitToSubmission(original, deviceWait);
+		expect(result.restoredFromSignalId).toBe("recalled-source");
 		expect(result.messageEnvelope?.activationTargets).toEqual([
 			targetProfileId,
 		]);

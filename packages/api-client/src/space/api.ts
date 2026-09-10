@@ -28,6 +28,7 @@ import {
   updateSpaceFileEntry,
   uploadSpaceFile,
 } from "./files";
+import { getSpaceHistoryNavigation } from "./history-navigation";
 import { leaveSpace } from "./leave";
 import {
   addCenterAgentToSpace,
@@ -39,7 +40,12 @@ import {
   joinSpace,
 } from "./members";
 import { getSpaceMessageDetails } from "./message-details";
+import {
+  getSpaceMessageReactions,
+  setSpaceMessageReaction,
+} from "./message-reactions";
 import { updateSpaceMeta } from "./meta";
+import { mutateSpaceMessage } from "./mutate-message";
 import { postSpaceNormalMessage } from "./post-normal-message";
 import { removeSpaceMembers } from "./remove-members";
 import { listSpaceSignalEnvelopes, listSpaceSignals } from "./signals";
@@ -108,6 +114,8 @@ export const createSpaceApi: CreateSpaceApi = (
       await getSpaceMembersSnapshot(client, input),
     getMemberDirectory: async (input) =>
       await getSpaceMemberDirectory(client, input),
+    getHistoryNavigation: async (input) =>
+      await getSpaceHistoryNavigation(client, input),
     getIdentityDirectory: async (input) =>
       await getSpaceIdentityDirectory(client, input),
     getViewerMembership: async (input) =>
@@ -128,10 +136,13 @@ export const createSpaceApi: CreateSpaceApi = (
     getWakeProgress: async (input) => await getSpaceWakeProgress(client, input),
     getWakeTraceWaterfall: async (input) =>
       await getSpaceWakeTraceWaterfall(client, input),
+    getMessageReactions: (input) => getSpaceMessageReactions(client, input),
+    setMessageReaction: (input) => setSpaceMessageReaction(client, input),
     getMessageDetails: async (input) =>
       await getSpaceMessageDetails(client, input),
     createDiagnosticReport: async (input) =>
       await createSpaceDiagnosticReport(client, input),
+    mutateMessage: (input) => mutateSpaceMessage(client, input),
     postNormalMessage: async (input) =>
       await postSpaceNormalMessage(client, input),
     createThread: async (input) => await createSpaceThread(client, input),

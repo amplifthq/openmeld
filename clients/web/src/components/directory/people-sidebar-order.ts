@@ -16,7 +16,8 @@ export type PeopleFilter =
 
 export function resolvePeopleSections(
 	members: readonly DirectoryHumanProfileRow[],
-	preferences: PeopleSidebarPreferences
+	preferences: PeopleSidebarPreferences,
+	options: { includeOnline?: boolean } = {}
 ) {
 	const assigned = new Set([
 		...preferences.starred.itemIds,
@@ -58,6 +59,7 @@ export function resolvePeopleSections(
 		.filter(
 			(section) =>
 				section.members.length > 0 ||
+				(options.includeOnline && section.id === "online") ||
 				preferences.groups.some((group) => group.id === section.id)
 		)
 		.map((section) => ({

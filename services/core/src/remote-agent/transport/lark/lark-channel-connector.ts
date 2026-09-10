@@ -206,10 +206,22 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
     }
     this.applyProviderConfig(endpoint.data.ClientConfig);
     url.protocol = "https:";
-    const upgraded = await fetch(url, {
-      headers: { Upgrade: "websocket" },
-      signal: AbortSignal.timeout(15_000),
-    });
+    const handshakeController = new AbortController();
+    const handshakeTimer = setTimeout(
+      () => handshakeController.abort(),
+      15_000
+    );
+    let upgraded: Response;
+    try {
+      upgraded = await fetch(url, {
+        headers: { Upgrade: "websocket" },
+        signal: handshakeController.signal,
+      });
+    } finally {
+      // Workers keeps the request signal attached to the upgraded WebSocket.
+      // A handshake deadline must not abort the established channel later.
+      clearTimeout(handshakeTimer);
+    }
     const socket = upgraded.webSocket;
     if (!socket || upgraded.status !== 101) {
       throw new Error("lark.connection_handshake_failed");

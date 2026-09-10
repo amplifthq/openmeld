@@ -114,6 +114,18 @@ describe("local service dispatch bootstrap prompt", () => {
     expect(plan.developerInstructions).toContain("Information protection:");
     expect(plan.developerInstructions).toContain("OpenMeld Wake workflow:");
     expect(plan.fallbackPrompt).toContain("OpenMeld Wake workflow:");
+    for (const instructions of [
+      plan.developerInstructions,
+      plan.fallbackPrompt,
+    ]) {
+      expect(instructions).toContain(
+        "Consider incorporating the requester's clear follow-ups to the current task"
+      );
+      expect(instructions).toContain(
+        "within the current permissions and execution mode"
+      );
+      expect(instructions).toContain("Keep separate assignments separate");
+    }
     expect(plan.userPrompt).not.toContain("OpenMeld Wake workflow:");
     expect(plan.developerInstructions).not.toContain(input.prompt);
     expect(plan.developerInstructions).not.toContain(input.spaceGuide);

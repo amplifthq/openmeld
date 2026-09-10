@@ -60,7 +60,7 @@ export function SpaceAgentRecoveryActionControl(input: {
 	}
 
 	// Most Space surfaces leave Computer/service recovery to the Get-set-up
-	// banner. Message details can opt in when the current recovery plan confirms
+	// banner. Message details and composers opt in when the recovery plan confirms
 	// that this exact Agent still needs that Computer action.
 	if (plan.kind === "review_computer" && !input.allowComputerAction) {
 		return null;

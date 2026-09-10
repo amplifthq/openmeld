@@ -32,9 +32,7 @@ import {
   runDispatchExecutionPreflightGate,
 } from "../dispatch/application/dispatch-execution-service";
 import {
-  dispatchHostedOutboxMessageDirectly,
   dispatchOutboxMessageDirectly,
-  dispatchProductionOutboxMessageDirectly,
   retryPendingPreHeadFailurePublications,
 } from "../dispatch/application/dispatch-queue-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
@@ -1599,7 +1597,7 @@ describe("handleDispatchQueueBatch", () => {
       waitingCount: 1,
     });
 
-    const outcome = await dispatchProductionOutboxMessageDirectly({
+    const outcome = await dispatchOutboxMessageDirectly({
       ctx: { waitUntil: vi.fn() },
       env: makeEnvWithBindings(),
       message: body,
@@ -1621,35 +1619,6 @@ describe("handleDispatchQueueBatch", () => {
     );
   });
 
-  it("keeps workstation dispatch on Queue when hosted direct delivery is attempted", async () => {
-    const queueMessage = createDispatchQueueMessage({
-      dispatchId: "dispatch-hosted-direct-workstation-1",
-      sourceEventId: "evt-hosted-direct-workstation-1",
-      targetProfileId: "agt-hosted-direct-workstation-1",
-      visitedProfileIdsHash: "hash-hosted-direct-workstation-1",
-    });
-    const body = queueMessage.body as OpenMeldDaemonDispatchQueueMessage;
-
-    const outcome = await dispatchHostedOutboxMessageDirectly({
-      ctx: { waitUntil: vi.fn() },
-      env: makeEnvWithBindings(),
-      message: body,
-    });
-
-    expect(outcome).toEqual({
-      reasonCode: "dispatch_direct_target_not_hosted",
-      retryDelaySeconds: null,
-      status: "queue_required",
-    });
-    expect(claimDispatchAttempt).not.toHaveBeenCalled();
-    expect(
-      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
-    ).not.toHaveBeenCalled();
-    expect(
-      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
-    ).not.toHaveBeenCalled();
-  });
-
   it("submits a production workstation dispatch directly after authoritative preflight", async () => {
     const queueMessage = createDispatchQueueMessage({
       dispatchId: "dispatch-production-direct-workstation-1",
@@ -1659,7 +1628,7 @@ describe("handleDispatchQueueBatch", () => {
     });
     const body = queueMessage.body as OpenMeldDaemonDispatchQueueMessage;
 
-    const outcome = await dispatchProductionOutboxMessageDirectly({
+    const outcome = await dispatchOutboxMessageDirectly({
       ctx: { waitUntil: vi.fn() },
       env: makeEnvWithBindings(),
       message: body,
@@ -1707,7 +1676,7 @@ describe("handleDispatchQueueBatch", () => {
     });
     const body = queueMessage.body as OpenMeldDaemonDispatchQueueMessage;
 
-    const outcome = await dispatchHostedOutboxMessageDirectly({
+    const outcome = await dispatchOutboxMessageDirectly({
       ctx: { waitUntil: vi.fn() },
       env: {
         ...makeEnvWithBindings(
@@ -1798,7 +1767,7 @@ describe("handleDispatchQueueBatch", () => {
       },
     };
 
-    const outcome = await dispatchHostedOutboxMessageDirectly({
+    const outcome = await dispatchOutboxMessageDirectly({
       ctx: { waitUntil: vi.fn() },
       env: makeEnvWithBindings(
         createOpenMeldDbWithProfileRow({
@@ -1862,7 +1831,7 @@ describe("handleDispatchQueueBatch", () => {
       visitedProfileIdsHash: "hash-hosted-malformed-controller",
     });
 
-    const outcome = await dispatchHostedOutboxMessageDirectly({
+    const outcome = await dispatchOutboxMessageDirectly({
       ctx: { waitUntil: vi.fn() },
       env: makeEnvWithBindings(
         createOpenMeldDbWithProfileRow({
@@ -1987,7 +1956,7 @@ describe("handleDispatchQueueBatch", () => {
     );
 
     if (deliveryPath === "direct") {
-      const outcome = await dispatchHostedOutboxMessageDirectly({
+      const outcome = await dispatchOutboxMessageDirectly({
         ctx: { waitUntil: vi.fn() },
         env,
         message: dispatchBody,
@@ -2034,7 +2003,7 @@ describe("handleDispatchQueueBatch", () => {
     });
     const body = queueMessage.body as OpenMeldDaemonDispatchQueueMessage;
 
-    const outcome = await dispatchProductionOutboxMessageDirectly({
+    const outcome = await dispatchOutboxMessageDirectly({
       ctx: { waitUntil: vi.fn() },
       env: makeEnvWithBindings(
         createOpenMeldDbWithProfileRow({
@@ -2089,7 +2058,7 @@ describe("handleDispatchQueueBatch", () => {
         "twl_v1|7:space-1|36:evt-direct-head-accept-unavailable-1|54:agt_direct_head_accept_unavailable_1",
     });
 
-    const outcome = await dispatchProductionOutboxMessageDirectly({
+    const outcome = await dispatchOutboxMessageDirectly({
       ctx: { waitUntil: vi.fn() },
       env: makeEnvWithBindings(),
       message: body,
@@ -4675,7 +4644,7 @@ describe("handleDispatchQueueBatch", () => {
       status: "deduped",
       admissionInFlight: true,
     });
-    const outcome = await dispatchProductionOutboxMessageDirectly({
+    const outcome = await dispatchOutboxMessageDirectly({
       ctx: { waitUntil: vi.fn() },
       env: makeEnvWithBindings(),
       message: message.body as OpenMeldDaemonDispatchQueueMessage,

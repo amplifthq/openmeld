@@ -15,6 +15,7 @@ const CANONICAL_ENABLED_ERROR_PATTERN =
   /agent_profile_binding_canonical_enabled_check/;
 const CANONICAL_ENABLED_TRIGGER_MARKER =
   "openMeldDaemon_agent_profile_bindings_canonical_enabled_";
+const CREATE_TRIGGER_NAME_PATTERN = /CREATE TRIGGER `([^`]+)`/;
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const SECOND_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const THIRD_AGENT_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
@@ -56,9 +57,17 @@ const applySharedMigrations = (
 };
 
 const applyCanonicalEnabledBindingTriggers = (database: DatabaseSync) => {
+  const currentTriggers = new Map<string, string>();
   for (const statement of readSharedMigrationStatements().filter((candidate) =>
     candidate.includes(CANONICAL_ENABLED_TRIGGER_MARKER)
   )) {
+    const name = CREATE_TRIGGER_NAME_PATTERN.exec(statement)?.[1];
+    if (name) {
+      currentTriggers.set(name, statement);
+    }
+  }
+  // Table rebuilds replace earlier triggers. Install only their current definitions.
+  for (const statement of currentTriggers.values()) {
     database.exec(statement);
   }
 };
@@ -136,29 +145,31 @@ describe("Agent Profile Binding storage schema", () => {
         .prepare("PRAGMA table_info('openMeldDaemon_agent_profile_bindings')")
         .all()
         .map((column) => column.name);
-      expect(columns).toEqual([
-        "binding_id",
-        "owner_kind",
-        "owner_id",
-        "agent_profile_id",
-        "openmeld_service_runtime_id",
-        "agent_controller_ref",
-        "agent_controller_conversation_id",
-        "model_id",
-        "reasoning_level",
-        "agent_controller_permission_mode",
-        "binding_state",
-        "created_at_ms",
-        "updated_at_ms",
-        "disabled_at_ms",
-        "created_by_profile_id",
-        "reason_code",
-        "opencode_permission",
-        "runtime_kind",
-        "hosted_runtime_identity_json",
-        "agent_controller_collaboration_mode",
-        "configuration_revision",
-      ]);
+      expect(columns.toSorted()).toEqual(
+        [
+          "binding_id",
+          "owner_kind",
+          "owner_id",
+          "agent_profile_id",
+          "openmeld_service_runtime_id",
+          "agent_controller_ref",
+          "agent_controller_conversation_id",
+          "model_id",
+          "reasoning_level",
+          "agent_controller_permission_mode",
+          "binding_state",
+          "created_at_ms",
+          "updated_at_ms",
+          "disabled_at_ms",
+          "created_by_profile_id",
+          "reason_code",
+          "opencode_permission",
+          "runtime_kind",
+          "hosted_runtime_identity_json",
+          "agent_controller_collaboration_mode",
+          "configuration_revision",
+        ].toSorted()
+      );
 
       const indexes = database
         .prepare("PRAGMA index_list('openMeldDaemon_agent_profile_bindings')")

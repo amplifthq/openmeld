@@ -8,6 +8,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SpaceComposer, type SpaceComposerProps } from "./space-composer";
 import { buildSpaceComposerAddressingTargets } from "./use-space-mention-authoring";
 
+vi.mock("./space-composer-blocked-wake-recovery-action", () => ({
+	SpaceComposerBlockedWakeRecoveryAction: (input: {
+		blockedWakeProfileId: string;
+	}) => <button type="button">Recover {input.blockedWakeProfileId}</button>,
+}));
+
 const profileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const WAIT_DURATION_HINT = /wait up to 24 hours/u;
 function props(): SpaceComposerProps {
@@ -44,6 +50,28 @@ function props(): SpaceComposerProps {
 	};
 }
 describe("Composer offline waiting submission", () => {
+	it("keeps main's recovery action for blocked targets without competing with Send and wait", () => {
+		const input = props();
+		input.recovery = {
+			agentRecoveryPlansByProfileId: new Map(),
+			isAgentRecoveryPending: () => false,
+			onAgentRecoveryAction: vi.fn(),
+		};
+		const view = render(<SpaceComposer {...input} />);
+		expect(
+			screen.queryByRole("button", { name: `Recover ${profileId}` })
+		).toBeNull();
+		expect(screen.getByRole("button", { name: "Send and wait" })).toBeTruthy();
+		input.content.addressingTargets = input.content.addressingTargets.map(
+			(target) => ({ ...target, deviceWaitTarget: undefined })
+		);
+		view.rerender(<SpaceComposer {...input} />);
+		expect(
+			screen.getByRole("button", { name: `Recover ${profileId}` })
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Send and wait" })).toBeNull();
+	});
+
 	afterEach(() => {
 		cleanup();
 		vi.restoreAllMocks();

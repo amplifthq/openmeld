@@ -1687,10 +1687,14 @@ export const SPACE_MEMBER_NAME_READ_BUDGET_MS = 500;
 export async function refreshSpaceMemberNamesFromAuth(input: {
   sql: SqlStorage;
   env: CoreBindings;
-}): Promise<{ changed: boolean; profileFacts: AuthProfileFacts | null }> {
+}): Promise<{
+  changed: boolean;
+  profileFacts: AuthProfileFacts | null | undefined;
+}> {
   const auth = input.env.OPENMELD_AUTH_WORKER;
   if (!auth?.resolveProfilesByIds) {
-    return { changed: false, profileFacts: null };
+    // No batch was attempted. Older Auth receivers still use scalar reads.
+    return { changed: false, profileFacts: undefined };
   }
   const members = listSpaceMemberRecords(input.sql, {
     status: "active",

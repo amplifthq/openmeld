@@ -214,7 +214,7 @@ describe("CenterAgentSettingsContent", () => {
 		expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
 		expect(
 			screen.getByText(
-				"Only the Organization creator can pause the Center Agent."
+				"Only Organization owners and admins can pause the Center Agent."
 			)
 		).toBeTruthy();
 		await waitFor(() => {

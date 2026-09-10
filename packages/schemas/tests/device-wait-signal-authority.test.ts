@@ -51,6 +51,25 @@ describe("device-wait signal authority", () => {
     const projected = toSpaceSignalReadWireValue({ signals: [signal] });
     expect(projected.signals[0]?.data).not.toHaveProperty("deviceWait");
     expect(projected.signals[0]?.data.meta.deviceWait).toEqual(deviceWait);
+    const mutation = toSpaceSignalReadWireValue({
+      message: {
+        ...signal,
+        data: {
+          ...signal.data,
+          meta: {
+            ...signal.data.meta,
+            messageRevision: 2,
+            editedAt: 1_900_000_000_000,
+          },
+        },
+      },
+    });
+    expect(mutation.message.data).not.toHaveProperty("deviceWait");
+    expect(mutation.message.data.meta).toMatchObject({
+      deviceWait,
+      messageRevision: 2,
+      editedAt: 1_900_000_000_000,
+    });
     expect(signal.data.deviceWait).toBe(deviceWait);
     expect(signal.data.meta.deviceWait.bindingId).toBe("untrusted-mirror");
     expect(

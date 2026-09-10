@@ -6,6 +6,8 @@ import {
   postNormalMessageResponseSchema,
   readListSignalsQueryRawValues,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
+  spaceMessageMutationBodySchema,
+  spaceMessageMutationResponseSchema,
   validateSpaceSignalClientMessageIdPolicy,
 } from "@openmeld/schemas";
 import type { Hono } from "hono";
@@ -281,6 +283,38 @@ const registerGetSignalsRoute = (app: Hono<HonoBindings>): void => {
 };
 
 export function registerSignalsRoutes(app: Hono<HonoBindings>): void {
+  app.post("/v1/spaces/:spaceId/messages/:signalId", async (c) => {
+    const spaceId = c.req.param("spaceId");
+    const body = spaceMessageMutationBodySchema.safeParse(
+      await c.req.json().catch(() => null)
+    );
+    if (!body.success) {
+      return c.json(
+        {
+          error: {
+            code: "space.message.invalid_change",
+            message: "Invalid message change.",
+          },
+        },
+        400
+      );
+    }
+    return await executeRpcRoute({
+      c,
+      method: "POST",
+      route: "/v1/spaces/:spaceId/messages/:signalId",
+      spaceId,
+      execute: () =>
+        c.var.coreRpc.mutateSpaceMessage({
+          spaceId,
+          signalId: c.req.param("signalId"),
+          body: body.data,
+          context: buildCoreRpcContext(c),
+          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
+        }),
+      responseSchema: spaceMessageMutationResponseSchema,
+    });
+  });
   registerGetSignalsRoute(app);
 
   app.post("/v1/spaces/:spaceId/signals", async (c) => {

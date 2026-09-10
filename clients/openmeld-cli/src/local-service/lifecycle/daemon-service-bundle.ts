@@ -46,6 +46,10 @@ import {
   type OpenMeldDistribution,
   resolveOpenMeldDistribution,
 } from "../../runtime/distribution";
+import {
+  classifyDiagnosticPath,
+  collectLocalOperationFailure,
+} from "../../system/local-operation-diagnostics";
 import { emitDaemonLifecycleEvent } from "./daemon-lifecycle-journal";
 import { resolveDaemonServiceArtifact } from "./daemon-service-artifact";
 import { readPendingDaemonServiceUpdate } from "./daemon-service-update-state";
@@ -520,6 +524,9 @@ export async function runAuditedServiceManagerCarrierMutation<T>(input: {
     operation: input.operation,
     preset: resolveOpenMeldEnvPreset(pathInput),
     targetPath: input.targetPath,
+    targetCategory: classifyDiagnosticPath(input.targetPath),
+    actorPid: process.pid,
+    parentPid: process.ppid,
   };
   await emitDaemonLifecycleEvent({
     command: "openmeld service carrier mutation",
@@ -547,6 +554,7 @@ export async function runAuditedServiceManagerCarrierMutation<T>(input: {
       metadata: {
         ...metadata,
         errorMessage: error instanceof Error ? error.message : String(error),
+        operationFailure: collectLocalOperationFailure(error),
       },
       pathInput,
       result: "failed",

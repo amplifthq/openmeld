@@ -1,8 +1,9 @@
+import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
 import type { WakeDeviceWait } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowUpIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import {
 	PromptInput,
 	PromptInputAction,
@@ -19,6 +20,7 @@ import {
 	SpaceComposerFileTray,
 	useSpaceComposerFileInput,
 } from "./space-composer-attachments";
+import { SpaceComposerBlockedWakeRecoveryAction } from "./space-composer-blocked-wake-recovery-action";
 import {
 	resolveSpaceComposerPolicy,
 	type SpaceComposerConversationKind,
@@ -41,6 +43,10 @@ import type {
 } from "./use-space-mention-authoring";
 
 export type SpaceComposerProps = {
+	recovery?: Omit<
+		ComponentProps<typeof SpaceComposerBlockedWakeRecoveryAction>,
+		"blockedWakeProfileId"
+	>;
 	actions: {
 		onAddPeopleOrAgents?: () => void;
 		onAddFiles?: (files: readonly File[]) => Promise<void>;
@@ -80,6 +86,7 @@ export type SpaceComposerProps = {
 		maxHeight?: number;
 	};
 	slots?: {
+		pendingActionSurface?: ReactNode;
 		beforeInput?: ReactNode;
 		beforePrimaryAction?: ReactNode;
 		error?: ReactNode;
@@ -144,6 +151,10 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	);
 	const composerHint =
 		deviceWaitPresentation.hint ?? fileHint ?? policy.wakeTextHint;
+	const blockedWakeTarget = input.content.addressingTargets.find(
+		(target) =>
+			isBlockedWakeTarget(target) && !createSpaceComposerDeviceWait(target)
+	);
 	const accessHint = input.availability.canSendMessage
 		? null
 		: policy.placeholder;
@@ -168,15 +179,16 @@ export function SpaceComposer(input: SpaceComposerProps) {
 			className={input.presentation?.className}
 			data-slot={input.presentation?.dataSlot}
 		>
+			{input.slots?.pendingActionSurface}
 			<div className="relative">
 				<SpaceComposerFileDropOverlay visible={isDraggingFiles} />
-				{input.slots?.beforeInput}
 				<PromptInput
 					className="w-full"
 					maxHeight={input.presentation?.maxHeight ?? 240}
 					onSubmit={submit}
 					value={input.content.text}
 				>
+					{input.slots?.beforeInput}
 					<SpaceComposerFileTray
 						disabled={input.availability.isSendingMessage}
 						files={input.content.files}
@@ -236,13 +248,17 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									<p
 										aria-live="polite"
 										className={cn(
-											"min-w-0 flex-1 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
+											"min-w-0 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
 											composerHintClassName
 										)}
 									>
 										{composerHint}
 									</p>
 								) : null)}
+							<ComposerRecovery
+								recovery={input.recovery}
+								target={blockedWakeTarget}
+							/>
 						</div>
 						<div className="flex min-w-0 items-center justify-end gap-2">
 							{input.slots?.profileControl}
@@ -261,15 +277,36 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	);
 }
 
+function ComposerRecovery(input: {
+	recovery: SpaceComposerProps["recovery"];
+	target: SpaceComposerAddressingTarget | undefined;
+}) {
+	if (!(input.target && input.recovery)) {
+		return null;
+	}
+	return (
+		<SpaceComposerBlockedWakeRecoveryAction
+			{...input.recovery}
+			blockedWakeProfileId={input.target.profileId}
+		/>
+	);
+}
+
+function isBlockedWakeTarget(target: SpaceComposerAddressingTarget): boolean {
+	return (
+		target.relation === "wake" &&
+		target.wakeAvailability.status !== "ready" &&
+		target.wakeAvailability.status !== "preparing"
+	);
+}
+
 function resolveSpaceComposerBlockedWakeHint(
 	targets: readonly SpaceComposerAddressingTarget[],
 	deviceWait?: WakeDeviceWait
 ): string | null {
 	const blockedWakeTarget = targets.find(
 		(target) =>
-			target.relation === "wake" &&
-			target.wakeAvailability.status !== "ready" &&
-			target.wakeAvailability.status !== "preparing" &&
+			isBlockedWakeTarget(target) &&
 			!canSubmitSpaceComposerDeviceWait(target, deviceWait)
 	);
 	if (!blockedWakeTarget) {
@@ -277,7 +314,11 @@ function resolveSpaceComposerBlockedWakeHint(
 	}
 
 	const reason = blockedWakeTarget.wakeAvailability.reasonText?.trim();
+	const compactReason = resolvePublicAgentAvailabilityCopy(
+		blockedWakeTarget.wakeAvailability.reasonCodes[0]
+	)?.availabilityTooltip;
 	return (
+		compactReason ||
 		reason ||
 		`${blockedWakeTarget.profileName} can't reply right now. Change Wake to Reference or try again.`
 	);

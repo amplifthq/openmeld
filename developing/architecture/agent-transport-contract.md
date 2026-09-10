@@ -1262,6 +1262,14 @@ Runtime results use the Space action contract:
   Claude Code, Cursor, Grok Build, OpenCode, and future controllers use the same Space
   action boundary rather than provider-specific coordination prompts.
 
+Reply publication and observation use the source message's conversation scope.
+A main-timeline source remains in the main scope when a thread is opened beneath
+it; a `root` placement does not move that Wake into the thread. Only a source
+posted inside a thread defaults its outcome to that thread. Thread reads and
+the atomic reply guard both accept that thread's root as an observation cursor,
+including when there are no replies yet. Other threads' cursors remain invalid,
+and newer messages in the observed scope still require review.
+
 ACP is an adapter transport, not a second execution lane. Cursor and Grok Build
 may share JSON-RPC/session/process mechanics inside adapter core, but each
 adapter owns its vendor launch, authentication, model, interaction, and error
@@ -1312,13 +1320,14 @@ execution authority, or replacement canonical conversation. RuntimeCoordinator S
 transport failure remain the terminal controls; context review is not a new
 Wake, retry of external work, or unbounded transcript replay.
 
-An unavailable pre-publication read records diagnostic evidence and carries the
-dispatch source signal as the conservative observation cursor. The Space atomic
-check remains the final safety boundary and rejects the action if collaboration
-actually changed. This optimization helps later-finishing parallel Agents adapt;
-it does not serialize execution or replace explicit Center Agent delegation and
-Agent Task Coordination when work needs planned ownership, completion barriers,
-or parent synthesis.
+An unavailable pre-publication read records diagnostic evidence and fails the
+Wake explicitly with `dispatch.agent_reply_observation.unavailable`; it does not
+invent an empty delta or a successful observation cursor. The recorded action
+remains an unpublished proposal. After a successful read, the Space atomic check
+still rejects publication if collaboration advanced again. Context review helps
+later-finishing parallel Agents adapt; it does not serialize execution or replace
+explicit Center Agent delegation and Agent Task Coordination when work needs
+planned ownership, completion barriers, or parent synthesis.
 
 ### Agent Transport Space Action Delivery
 
