@@ -5485,6 +5485,12 @@ changed.
 
 ## Agent Profile Creation Request Contract
 
+The [teammate request launch hold](../product/agent-profiles.md#teammate-request-launch-hold)
+temporarily disables cross-user request behavior, not the shared self-creation
+protocol. Existing payloads, status enums, and identity checkpoints remain
+unchanged. Core enforces the hold for every caller and background execution;
+clients do not authorize the feature by rendering its retained UI.
+
 `packages/schemas/src/schemas/http/agent-profile-creation-request.ts` owns the
 strict cross-client request, list, decision, mutation, and approval-preference
 payloads. Web, CLI, the Local Agent Skill, API client, Gateway, Core, and Remote

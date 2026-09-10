@@ -309,7 +309,11 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
-      ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
+      ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
+        (name) =>
+          name !== "openmeld_get_agent_profile_creation_approval_preferences" &&
+          name !== "openmeld_set_agent_profile_creation_approval_preferences"
+      ),
     ]);
     expect(tools.map((tool) => tool.name)).not.toContain(
       "openmeld_create_task"
@@ -3165,7 +3169,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       "use openmeld_create_agent_profile_request"
     );
     expect(descriptions.get("openmeld_create_agent_profile_request")).toContain(
-      "single creation entry point"
+      "verified represented member only"
     );
     expect(
       [...descriptions.keys()].includes(
@@ -5230,7 +5234,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentCreateAgentProfileCreationRequest).not.toHaveBeenCalled();
   });
 
-  it("manages an Agent Profile request through Core-owned authority", async () => {
+  it("keeps setup recovery available but rejects unreleased approval actions", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorageWithPendingContext(request);
     const response = {
@@ -5249,9 +5253,16 @@ describe("remote agent OpenMeld tool catalog", () => {
         action: "approve",
         requestId: "request-1",
       })
+    ).rejects.toThrow();
+    expect(centerAgentManageAgentProfileCreationRequest).not.toHaveBeenCalled();
+    await expect(
+      executeTool(tools, "openmeld_manage_agent_profile_creation_request", {
+        action: "retry",
+        requestId: "request-1",
+      })
     ).resolves.toEqual(response);
     expect(centerAgentManageAgentProfileCreationRequest).toHaveBeenCalledWith({
-      action: "approve",
+      action: "retry",
       context: expect.any(Object),
       onBehalfOf: { profileId: request.author.profileId },
       requestId: "request-1",

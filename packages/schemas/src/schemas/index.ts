@@ -917,6 +917,7 @@ export {
   listAgentProfileCreationRequestsResponseSchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
+  TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "./http/agent-profile-creation-request";
 export {
   RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES,
