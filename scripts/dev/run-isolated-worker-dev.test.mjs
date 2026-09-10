@@ -37,23 +37,19 @@ const DOPPLER_ENVIRONMENT_SCRIPT = fileURLToPath(
 );
 
 test("enters Doppler at the individual Worker process boundary", () => {
-  assert.deepEqual(
-    resolveIsolatedWorkerDopplerCommand("gateway", {
-      OPENMELD_DEV_ENVIRONMENT_SOURCE: "doppler",
-    }),
-    {
-      args: [
-        DOPPLER_ENVIRONMENT_SCRIPT,
-        "component",
-        "gateway",
-        "--",
-        process.execPath,
-        ISOLATED_WORKER_SCRIPT,
-        "gateway",
-      ],
-      executable: process.execPath,
-    }
-  );
+  const command = resolveIsolatedWorkerDopplerCommand("gateway", {
+    OPENMELD_DEV_ENVIRONMENT_SOURCE: "doppler",
+  });
+  assert.equal(command.executable, "doppler");
+  assert.ok(command.args.includes("openmeld-gateway"));
+  assert.deepEqual(command.args.slice(-6), [
+    DOPPLER_ENVIRONMENT_SCRIPT,
+    "__run-component",
+    "gateway",
+    process.execPath,
+    ISOLATED_WORKER_SCRIPT,
+    "gateway",
+  ]);
   assert.equal(
     resolveIsolatedWorkerDopplerCommand("gateway", {
       OPENMELD_DEV_DOPPLER_COMPONENT: "gateway",
