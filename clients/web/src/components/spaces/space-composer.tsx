@@ -12,7 +12,6 @@ import {
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import {
 	isSpaceComposerFileFailed,
-	isSpaceComposerFileInProgress,
 	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
 import {
@@ -158,9 +157,6 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		targetName: input.context.targetName,
 		text: input.content.text,
 	});
-	const uploadInProgress = input.content.files.some(
-		isSpaceComposerFileInProgress
-	);
 	const uploadsDisabled =
 		input.availability.isSendingMessage ||
 		!(input.availability.canUploadFiles ?? input.availability.canSendMessage);
@@ -178,7 +174,6 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	const fileHint = resolveSpaceComposerFileHint({
 		files: input.content.files,
 		fileLimitReached: input.availability.fileLimitReached,
-		uploadInProgress,
 	});
 	const blockedWakeHint = resolveSpaceComposerBlockedWakeHint(
 		input.content.addressingTargets
@@ -464,14 +459,7 @@ function SpaceComposerFileDropOverlay(input: { visible: boolean }) {
 export function resolveSpaceComposerFileHint(input: {
 	files: readonly SpaceComposerFile[];
 	fileLimitReached: boolean;
-	uploadInProgress?: boolean;
 }): string | null {
-	if (
-		input.uploadInProgress ??
-		input.files.some(isSpaceComposerFileInProgress)
-	) {
-		return "Uploading files…";
-	}
 	const failedCount = input.files.filter(isSpaceComposerFileFailed).length;
 	if (failedCount > 0) {
 		return failedCount === 1
@@ -480,12 +468,6 @@ export function resolveSpaceComposerFileHint(input: {
 	}
 	if (input.fileLimitReached) {
 		return "You can add up to 10 files.";
-	}
-	const readyCount = input.files.filter(
-		(file) => file.status === "ready"
-	).length;
-	if (readyCount > 0) {
-		return `${String(readyCount)} ${readyCount === 1 ? "file" : "files"} ready to send`;
 	}
 	return null;
 }

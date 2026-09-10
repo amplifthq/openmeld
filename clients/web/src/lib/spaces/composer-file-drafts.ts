@@ -6,10 +6,13 @@ export type ComposerFileDraft = {
 	file: File;
 	publishMutationId: string;
 	expiresAt: number;
+	createdAt?: number;
 	upload?: SpaceComposerUploadDescriptor;
 };
 
 let database: Promise<IDBDatabase> | undefined;
+// File batches can be added within one millisecond; preserve selection order.
+let lastCreatedAt = 0;
 function openDatabase() {
 	database ??= new Promise<IDBDatabase>((resolve, reject) => {
 		const request = indexedDB.open("openmeld-composer-files", 1);
@@ -25,15 +28,23 @@ function openDatabase() {
 }
 
 export async function saveComposerFileDraft(
-	input: Omit<ComposerFileDraft, "expiresAt">
+	input: Omit<ComposerFileDraft, "expiresAt" | "createdAt">
 ) {
+	const createdAt = Math.max(Date.now(), lastCreatedAt + 1);
+	lastCreatedAt = createdAt;
 	const db = await openDatabase();
 	await new Promise<void>((resolve, reject) => {
 		const tx = db.transaction("files", "readwrite");
-		tx.objectStore("files").put({
-			...input,
-			expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-		});
+		const store = tx.objectStore("files");
+		const existing = store.get(input.id);
+		existing.onsuccess = () => {
+			store.put({
+				...input,
+				createdAt: existing.result?.createdAt ?? createdAt,
+				expiresAt:
+					existing.result?.expiresAt ?? Date.now() + 24 * 60 * 60 * 1000,
+			});
+		};
 		tx.oncomplete = () => resolve();
 		tx.onabort = () => reject(tx.error);
 		tx.onerror = () => reject(tx.error);
@@ -91,5 +102,7 @@ export async function readComposerFileDrafts(
 			.filter((d) => d.expiresAt <= Date.now())
 			.map((d) => removeComposerFileDraft(d.id))
 	);
-	return drafts.filter((d) => d.expiresAt > Date.now());
+	return drafts
+		.filter((d) => d.expiresAt > Date.now())
+		.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
 }

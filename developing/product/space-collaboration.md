@@ -416,14 +416,28 @@ Message, and threads. The shared Composer accepts up to ten files of any
 supported MIME type through **Add to message > Files**, file picker, paste, or
 drag and drop. Text is optional when at least one file is present. Upload begins
 before send as a temporary Composer Upload that is not visible in Files and is
-not yet a Space File. Removing the selection discards that upload; abandoned
-uploads expire after 24 hours and Core removes expired objects. Send publishes
-each ready Composer Upload as a canonical root-level Space File and then places
-the returned immutable revision reference in the message. An in-progress
-upload blocks Send, but a failed upload is excluded: the member's text and any
-other successfully published files still send. If neither text nor a
-successfully published file remains, the Composer stays open with an explicit
-recovery message instead of posting an empty message.
+not yet a Space File. Browser-local attachment drafts retain the source files
+and completed upload descriptors for up to 24 hours, scoped by Organization,
+Profile, Space, and thread or inline edit. Navigation preserves these drafts;
+explicit removal or a successful send clears them. Switching conversations
+does not redirect an in-flight upload or submission to the new conversation.
+Removing the selection discards that upload; abandoned uploads expire after
+24 hours and Core removes expired objects.
+
+Send immediately stages the message with local attachment previews and frees
+the Composer, including when uploads are still running. In the background it
+waits for the captured attachment batch, publishes every upload as a canonical
+root-level Space File, and posts the immutable revision references. A failed
+attachment is never silently omitted. A failure before publication keeps the
+message unsent with an explicit recovery path. File publication and message
+publication remain separate operations.
+
+Composer image attachments use compact, edge-to-edge thumbnails on surface 3,
+above the Composer's surface-2 context. Clicking an image opens the same
+Morphing Dialog preview used by sent images. File names appear in tooltips,
+and a persistent white circular remove button stays inside each thumbnail.
+Other files show an icon and file type. Normal upload progress and ready labels
+are not shown; failures remain explicit.
 
 During a multi-file CLI send, the CLI keeps the exact ids of files created by
 that not-yet-published submission. If a later selected upload fails, it moves

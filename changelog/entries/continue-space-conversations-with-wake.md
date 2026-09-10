@@ -16,3 +16,7 @@ Later edits never start the same work again.
 Message editing uses the Composer's member picker and file uploads, keeps long
 messages in place, and preserves attachment previews. Message actions have
 consistent icons, with Pin before Edit and Recall last.
+
+Image and file drafts stay with their conversation when you switch Spaces or
+threads and return. Compact image thumbnails open a larger preview when clicked;
+file names appear on hover, with a remove button always visible.
