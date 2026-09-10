@@ -1,0 +1,33 @@
+name: PR Feedback
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-feedback-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Affected checks and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENMELD_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
+      OPENMELD_HOME: ${{ runner.temp }}/openmeld-pr-feedback
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Show selected checks
+        run: pnpm run verify:pr -- --plan
+      - name: Run early feedback
+        run: pnpm run verify:pr
