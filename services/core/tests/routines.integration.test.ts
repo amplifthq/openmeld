@@ -411,7 +411,7 @@ describe("Core Center Agent Routines", () => {
     }
     const publicAudit = await rpcListCenterAgentAuditJournal(
       env as CoreBindings,
-      { actionSet: "v17", context, limit: 25 }
+      { actionSet: "v17", context: fixture.contextFor("owner"), limit: 25 }
     );
     const routineEntries = publicAudit.entries.filter(
       (entry) => entry.resource?.type === "routine"
@@ -461,7 +461,7 @@ describe("Core Center Agent Routines", () => {
 
     const audit = await rpcListCenterAgentAuditJournal(env as CoreBindings, {
       actionSet: "v17",
-      context,
+      context: fixture.contextFor("owner"),
       limit: 25,
     });
     const entry = audit.entries.find(
@@ -2644,13 +2644,12 @@ async function seedRoutineFixture() {
           managed_role,
           created_at,
           updated_at
-        ) VALUES (?, 'Routine Test Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'auth_bootstrap', 'center_agent', ?, ?)
+        ) VALUES (?, 'Routine Test Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'auth_bootstrap', 'center_agent', ?, ?)
       `
     ).bind(
       centerAgentProfileId,
       `routine-center-agent-${suffix}`,
       organizationId,
-      users.owner.userId,
       users.owner.userId,
       nowMs,
       nowMs
@@ -2712,8 +2711,7 @@ async function seedRoutineFixture() {
       activeOrganizationId: organizationId,
       actorContext: {
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-        callerPrincipalId: users.owner.userId,
-        ownerUserId: users.owner.userId,
+        callerPrincipalId: centerAgentProfileId,
         profileKind: "agent" as const,
         requestId: `request_${crypto.randomUUID()}`,
         openMeldProfileId: centerAgentProfileId,
