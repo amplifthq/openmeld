@@ -1075,7 +1075,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 	});
 
-	it("counts only pending requests from the existing organization request query", () => {
+	it("counts only approved self creation while teammate requests are paused", () => {
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
 			const organizationProjection = resolveOrganizationProjectionQuery(
@@ -1090,6 +1090,18 @@ describe("PeopleAndAgentsPage", () => {
 					data: {
 						organizationId: "org-123",
 						requests: [
+							{
+								id: "request-self",
+								status: "approved",
+								requesterUserId: "user-123",
+								targetOwnerUserId: "user-123",
+							},
+							{
+								id: "request-teammate",
+								status: "approved",
+								requesterUserId: "user-123",
+								targetOwnerUserId: "user-456",
+							},
 							{ id: "request-pending", status: "pending" },
 							{ id: "request-completed", status: "completed" },
 						],
