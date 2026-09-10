@@ -169,7 +169,7 @@ export function SpaceFileUpdateSettingsDialog(input: {
 			}}
 			open
 		>
-			<DialogContent>
+			<DialogContent className="flex max-h-[min(46rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-2xl">
 				<DialogHeader>
 					<DialogTitle>Notify on updates</DialogTitle>
 					<DialogDescription>
@@ -188,7 +188,7 @@ export function SpaceFileUpdateSettingsDialog(input: {
 							placeholder="Find people or agents…"
 							value={search}
 						/>
-						<div className="max-h-[min(28rem,50dvh)] overflow-y-auto">
+						<div className="max-h-[min(32rem,calc(100dvh-18rem))] min-h-0 overflow-y-auto">
 							<SpaceMembersRosterView
 								renderMember={renderMember}
 								roster={roster}
