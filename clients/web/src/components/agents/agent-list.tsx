@@ -34,22 +34,13 @@ const SORTS = {
 } as const;
 const GROUPINGS = {
 	none: "None",
-	type: "Agent type",
 	controller: "Controller",
 	model: "Model",
 } as const;
 const FACETS = {
-	availability: "Availability",
-	type: "Agent type",
 	controller: "Controller",
 	model: "Model",
 } as const;
-const AVAILABILITY = {
-	available: "Available",
-	checking: "Checking",
-	offline: "Offline",
-	unavailable: "Unavailable",
-};
 export type AgentListView = {
 	filters: AgentListFilters;
 	sort: AgentListSort;
@@ -100,7 +91,10 @@ export function AgentListControls(input: {
 				>
 					<SlidersHorizontalIcon />
 				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="w-64">
+				<DropdownMenuContent
+					align="end"
+					className="max-h-[min(24rem,var(--available-height))] w-64"
+				>
 					<DropdownMenuGroup>
 						<DropdownMenuLabel>Sort by</DropdownMenuLabel>
 						<DropdownMenuRadioGroup
@@ -151,11 +145,7 @@ export function AgentListControls(input: {
 										key={value}
 										onCheckedChange={() => changeFacet(facet, value)}
 									>
-										<span className="min-w-0 flex-1 truncate">
-											{facet === "availability"
-												? AVAILABILITY[value as keyof typeof AVAILABILITY]
-												: value}
-										</span>
+										<span className="min-w-0 flex-1 truncate">{value}</span>
 										<span className="text-muted-foreground">
 											{
 												input.items.filter(
@@ -193,11 +183,7 @@ export function AgentListFilterChips(input: {
 			{selected.map(({ facet, value }) => (
 				<SidebarFilterBadge
 					key={`${facet}:${value}`}
-					label={
-						facet === "availability"
-							? AVAILABILITY[value as keyof typeof AVAILABILITY]
-							: value
-					}
+					label={value}
 					onRemove={() =>
 						input.onChange({
 							...input.value,

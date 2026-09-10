@@ -9,6 +9,6 @@ audiences: ["users"]
 Team now has People and Agents tabs. The Agents tab places your organization's
 Center Agent first, followed by your Agents and other teammates' Agents.
 Personal and team Agent lists share cards, recent activity sorting, multiselect
-filters, and optional grouping by Agent type, Controller, or model.
+Controller and model filters, and optional grouping by Controller or model.
 Search opens from the magnifying glass, and group options appear on hover or
 keyboard focus. People groups also support Computer-status filters.

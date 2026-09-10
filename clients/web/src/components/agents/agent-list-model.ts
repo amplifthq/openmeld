@@ -12,21 +12,14 @@ import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-d
 import { resolveAgentProfileModel } from "#/lib/profiles/agent-profile-model-display";
 
 export type AgentListSort = "recent" | "created" | "name";
-export type AgentListFacet = "availability" | "type" | "controller" | "model";
+export type AgentListFacet = "controller" | "model";
 export type AgentListFilters = Record<AgentListFacet, string[]>;
-export type AgentListGrouping = "none" | "type" | "controller" | "model";
+export type AgentListGrouping = "none" | "controller" | "model";
 export const EMPTY_AGENT_LIST_FILTERS: AgentListFilters = {
-	availability: [],
-	type: [],
 	controller: [],
 	model: [],
 };
-export const AGENT_LIST_FACETS = [
-	"availability",
-	"type",
-	"controller",
-	"model",
-] as const;
+export const AGENT_LIST_FACETS = ["controller", "model"] as const;
 export type AgentListItem = {
 	profile: AuthProfileView;
 	lastTaskActivityAt: string | null;

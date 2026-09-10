@@ -73,16 +73,16 @@ describe("shared Agent lists", () => {
 	it("unions selections within a facet and intersects different facets and search", () => {
 		const filters = {
 			...EMPTY_AGENT_LIST_FILTERS,
-			availability: ["available", "offline"],
+			model: ["GPT", "Claude"],
 			controller: ["Codex"],
 		};
 		expect(matchesAgentListItem(old, filters, "Alex")).toBe(true);
-		expect(
-			matchesAgentListItem({ ...old, availability: "offline" }, filters)
-		).toBe(true);
-		expect(
-			matchesAgentListItem({ ...old, availability: "checking" }, filters)
-		).toBe(false);
+		expect(matchesAgentListItem({ ...old, model: "Claude" }, filters)).toBe(
+			true
+		);
+		expect(matchesAgentListItem({ ...old, model: "Gemini" }, filters)).toBe(
+			false
+		);
 		expect(
 			matchesAgentListItem({ ...old, controller: "Cursor" }, filters)
 		).toBe(false);

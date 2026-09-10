@@ -1781,10 +1781,11 @@ Agent view options live in an icon menu. Per-group tools appear on hover or
 keyboard focus and stay visible while their menu is open; touch users always
 see them. People groups also offer local Computer-status filters. Agent owner
 headers reuse the Human Profile avatar renderer, including its generated avatar.
-Filters support multiple selections: OR within a facet, AND across availability,
-Agent type, Controller, and model. Each selection has a removable chip.
+Filters support multiple selections: OR within a facet, AND across Controller
+and model. Each selection has a removable chip. Settings menus are capped at
+384px or the available viewport height and scroll internally.
 Page filters apply across groups; a group's controls further narrow its list.
-Optional type, Controller, or model subgroups preserve the outer person grouping.
+Optional Controller or model subgroups preserve the outer person grouping.
 
 Recent ordering uses the newer of creation and task activity from the existing
 30-day Wake evidence window. Generic profile edits and last-used timestamps do
