@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-10T01:34:21.873Z",
+  "updatedAt": "2026-09-10T04:53:54.979Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-organization-agent-ownership-v1",
-      "packageVersion": "0.3.193",
-      "updatePolicy": "required",
-      "reason": "Organization-owned Center Agents require nullable-owner command readers."
+      "packageVersion": "0.3.194",
+      "updatePolicy": "available",
+      "reason": "Existing CLI commands remain compatible with both cloud versions; retain the published required floor."
     },
     "service": {
-      "bundleHash": "3ded972a8f37fdd5321b4032ef1c2388725c53702c95dc1833e4de4994f848b0",
-      "bundleVersion": "0.3.193",
+      "bundleHash": "fcbb4014d4b0afcd29aaf3ba03fecc1aaa07c10b8c31550a9acfd41de80b0e06",
+      "bundleVersion": "0.3.194",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing Service execution, Prepare, Wake, Space action, and diagnostic contracts remain compatible in both cloud directions."
+      "reason": "Additive channel schemas change the packaged bundle; existing Service execution, Prepare, Wake, and diagnostics remain compatible with both cloud versions."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
-      "updatePolicy": "required",
-      "reason": "The Skills contract now requires explicit recipient flags matching the new CLI command contract. Update Skills with the CLI; older signed revisions remain available to their matching legacy contract."
+      "updatePolicy": "available",
+      "reason": "Managed Skills content and contracts are unchanged from the published release."
     }
   }
 }
