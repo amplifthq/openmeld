@@ -185,7 +185,7 @@ function resolveDeviceWaitStatus(
 		reason = "The computer is offline.";
 	} else if (wait.reason === "agent_not_ready") {
 		label = `Waiting for ${targetName} to become ready`;
-		reason = "The computer is connected; the Agent is still getting ready.";
+		reason = "OpenMeld has not confirmed that the Agent is ready to run.";
 	} else if (wait.reason === "access_check_unavailable") {
 		label = `Waiting to verify access for ${targetName}`;
 		reason =
