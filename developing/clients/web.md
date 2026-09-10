@@ -1746,8 +1746,9 @@ the icon tooltip and accessible name; Channel identities and email are omitted.
 Pending Computer checks stay on their rows without delaying Human grouping. Sorting and drag placement
 remain personal preferences; dragging cannot change Human presence.
 
-People and Space member/profile avatars share a compact Human presence indicator
-with accessible Online, Offline, or Online status unavailable labels. One app-shell
+People and Space member/profile avatars show a small inset green dot only when
+the Human is Online. Offline and unknown states have no visible marker; accessible
+Online, Offline, or Online status unavailable labels remain available. One app-shell
 reader refreshes the authorized batch every 30 visible seconds and on foreground
 return. Failed or stale reads remain unknown. Active pages renew a 90-second lease
 every 30 seconds; trusted pointer, keyboard, wheel and touch input reset the

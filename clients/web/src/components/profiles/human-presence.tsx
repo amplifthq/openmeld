@@ -63,16 +63,15 @@ export function HumanPresenceIndicator({
 		offline: "Offline",
 		unknown: "Online status unavailable",
 	}[status];
+	if (status !== "online") {
+		return <span className="sr-only">{label}</span>;
+	}
 	return (
 		<span
 			aria-label={label}
 			className={cn(
-				"absolute -right-0.5 -bottom-0.5 size-2 rounded-full ring-2 ring-background",
-				status === "online"
-					? "bg-emerald-500"
-					: "border border-muted-foreground bg-background",
-				large && "size-3",
-				status === "unknown" && "border-dashed"
+				"absolute right-0 bottom-0 size-1.5 rounded-full bg-emerald-500 ring-1 ring-background",
+				large && "right-1 bottom-1 size-2"
 			)}
 			role="img"
 			title={label}
