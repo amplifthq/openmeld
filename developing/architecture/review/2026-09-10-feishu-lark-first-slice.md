@@ -1,5 +1,16 @@
 # Feishu and Lark conversation feedback: first slice
 
+## Agent Context
+
+- Purpose: Record the first conversation-feedback slice and its acceptance boundary.
+- Read this when: Reviewing receipt timing and terminal card behavior in PR 864.
+- Update this when: The remaining first-slice acceptance results change.
+- Do not use this for: Full provider parity or production release authority.
+- Source of truth: This review records the first-slice implementation evidence; runtime owner documents define its contracts.
+
+Status: local success-path acceptance completed; the full provider state matrix remains open.
+Remove when the remaining first-slice acceptance gaps are resolved and stable behavior is recorded in the runtime owner documents.
+
 This change implements step 1 of the [product gap audit](2026-09-10-feishu-lark-product-gap-audit.md).
 It is not the completion of the full channel parity roadmap.
 

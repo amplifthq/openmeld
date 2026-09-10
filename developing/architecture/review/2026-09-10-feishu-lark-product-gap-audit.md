@@ -1,6 +1,15 @@
 # Feishu and Lark product gap audit
 
+## Agent Context
+
+- Purpose: Preserve the evidence and prioritization behind the Feishu/Lark product gap matrix.
+- Read this when: Choosing the next explicitly authorized channel productization slice.
+- Update this when: A gap is resolved or newer provider evidence changes its priority.
+- Do not use this for: Current production readiness or authorization to implement the entire roadmap.
+- Source of truth: This audit owns the dated gap assessment; product and architecture owner documents define shipped behavior.
+
 Status: research and prioritization only; no implementation or release requested by this audit.
+Remove when the gap matrix has been resolved or superseded and its durable decisions are recorded in the appropriate owner documents.
 
 ## Evidence boundary
 

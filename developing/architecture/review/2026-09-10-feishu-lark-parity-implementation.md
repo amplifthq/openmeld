@@ -1,5 +1,16 @@
 # Feishu and Lark parity implementation
 
+## Agent Context
+
+- Purpose: Record PR 864's native-channel parity implementation, rollout dependencies and acceptance limits.
+- Read this when: Validating or releasing PR 864 and continuing its deferred native acceptance.
+- Update this when: The implementation, rollout evidence or deferred acceptance changes.
+- Do not use this for: A new release authorization or business-App permissions.
+- Source of truth: This review owns scoped implementation evidence; shared-contracts and runtime owner documents own permanent contracts.
+
+Status: ready for independent release; local acceptance is bounded below.
+Remove when staged rollout and deferred native acceptance are complete and permanent contracts have been absorbed into their owner documents.
+
 The user accepted the first conversation-feedback slice and authorized sequential
 implementation of native-channel parity and differentiated Feishu/Lark workflows.
 PR 864 is ready for its separately authorized release after the main batch.
