@@ -184,7 +184,14 @@ The first release creates items for these explicit user-visible events:
    structured Human Mention receiving the more specific source kind.
 2. An Agent or Center Agent reply intended for the member who initiated the
    interaction, a current human member explicitly mentioned by the reply, or
-   the current human author of the target thread.
+   the current human author of the target thread. A personal Agent's published
+   reply also creates an ordinary unread update for its current owner, whether
+   the owner, another person, or an Agent initiated the work. The owner need not
+   have a separate Human membership when the existing personal-Agent access
+   contract grants access. Delivery rechecks the exact replying Agent's current
+   ownership; organization-managed Agents do not notify their administrator as
+   a personal owner. Overlapping recipient roles produce one item per reply.
+   Chats and Spaces reuse the same unread projection and read-through rules.
 3. An Agent Interaction that explicitly requests approval, an answer, plan
    review, or other supported human response.
 4. A Wake requested by the member that reaches a system-owned ending:
