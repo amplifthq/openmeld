@@ -564,7 +564,10 @@ function runCandidateCommand(command, selectedCheck, context) {
     `Running ${selectedCheck.id}: ${formatCommand(executionCommand)}\n`
   );
   const [binary, ...args] = executionCommand;
-  const commandEnvironment = createCandidateCommandEnvironment();
+  const commandEnvironment = {
+    ...createCandidateCommandEnvironment(),
+    OPENMELD_AFFECTED_BASE: context.plan.baseSha,
+  };
   const result = spawnSync(binary, args, {
     cwd:
       selectedCheck.id === "trusted-control-entrypoints"

@@ -7,10 +7,23 @@ import { finalCandidateEvidenceSchema } from "../../packages/schemas/src/schemas
 
 const REUSABLE_CHECK_TASK_PLANS = new Map([
   [
-    "affected-checks-and-unit-tests",
+    "affected-code-checks",
     [
-      { changedOnly: true, task: "check", turboArgs: ["--concurrency=2"] },
-      { changedOnly: true, task: "test", turboArgs: ["--concurrency=2"] },
+      {
+        changedOnly: false,
+        task: "check",
+        turboArgs: ["--concurrency=2", "--log-order=stream"],
+      },
+    ],
+  ],
+  [
+    "affected-unit-tests",
+    [
+      {
+        changedOnly: false,
+        task: "test",
+        turboArgs: ["--concurrency=2", "--log-order=stream"],
+      },
     ],
   ],
   [
@@ -19,12 +32,12 @@ const REUSABLE_CHECK_TASK_PLANS = new Map([
       {
         changedOnly: false,
         task: "test:integration",
-        turboArgs: ["--concurrency=1", "--output-logs=errors-only"],
+        turboArgs: ["--concurrency=1", "--log-order=stream"],
       },
     ],
   ],
 ]);
-const REUSE_PROTOCOL_VERSION = 2;
+const REUSE_PROTOCOL_VERSION = 3;
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const INPUT_FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/u;
 const MAX_PRIOR_EVIDENCE_FILES = 10;
@@ -200,6 +213,7 @@ function evidenceCanBeReused(evidence, input) {
     evidence.mode !== "remote" ||
     evidence.controlTrust !== "current-main" ||
     evidence.candidateKind !== "pull-request" ||
+    input.currentPlan.candidateKind !== "pull-request" ||
     evidence.repository !== input.repository ||
     evidence.pullRequestNumber !== input.pullRequestNumber ||
     evidence.branchName !== input.currentPlan.branchName ||
@@ -208,8 +222,7 @@ function evidenceCanBeReused(evidence, input) {
     !EXACT_SHA_PATTERN.test(evidence.headSha ?? "") ||
     !EXACT_SHA_PATTERN.test(evidence.treeSha ?? "") ||
     !input.isAncestor(evidence.baseSha, input.currentPlan.baseSha) ||
-    JSON.stringify(evidence.changedPaths) !==
-      JSON.stringify(input.currentPlan.changedPaths)
+    !input.isAncestor(evidence.headSha, input.currentPlan.headSha)
   ) {
     return false;
   }
