@@ -1874,8 +1874,9 @@ surface adopts official features where they are free**:
   member from the durable turn, call private Core RPC, and use the same
   represented-member authority as Web and CLI. Explicit create, update, pause,
   and resume requests execute without another confirmation. Interactive delete
-  requires one separate confirmation backed by a one-time Remote Agent token;
-  the first call ends the turn and the exact confirmed second call executes.
+  uses a one-time Remote Agent token bound to the exact action. An already
+  authorized request may consume it in the same turn; otherwise the Agent asks
+  before execution. The preview itself does not force the turn to end.
   Core remains the represented-member authorization layer.
 
   A Routine turn inherits the executable interactive catalog by default. This
@@ -1962,8 +1963,8 @@ surface adopts official features where they are free**:
   fingerprint, local connection state, or absolute paths. Mutations carry
   durable operation IDs; Core replays matching retries and rejects an operation
   ID reused with different input. Remove requires a short-lived Core token
-  prepared for the exact Project and consumed after explicit confirmation in a
-  later interactive member turn. Routine turns may list, create, update, and
+  prepared for the exact Project and consumed in the same interactive turn
+  when the verified request already authorizes removal. Routine turns may list, create, update, and
   select Default Project under the same represented-member and idempotency
   contracts without free-text permission evidence. Project removal during a
   Routine is unsupported in both Remote Agent and Core and returns

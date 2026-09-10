@@ -4092,12 +4092,12 @@ describe("remote agent OpenMeld tool catalog", () => {
         expect(result).toEqual({
           ...scenario.response,
           sideEffects: 0,
-          status: "destructive_confirmation_required",
+          status: "destructive_action_preview",
         });
         const definition = tools.find(
           (tool) => tool.name === "openmeld_prepare_remove_project"
         );
-        expect(definition?.endsTurnAfter?.(result)).toBe(true);
+        expect(definition?.endsTurnAfter?.(result)).not.toBe(true);
       } else {
         expect(result).toEqual(scenario.response);
       }
@@ -4236,7 +4236,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       sideEffects: 0,
       status: "routine_destructive_action_unsupported",
     });
-    expect(prepareDefinition?.endsTurnAfter?.(prepared)).toBe(false);
+    expect(prepareDefinition?.endsTurnAfter?.(prepared)).not.toBe(true);
     expect(centerAgentPrepareRemoveProject).not.toHaveBeenCalled();
     expect(centerAgentRemoveProject).not.toHaveBeenCalled();
   });

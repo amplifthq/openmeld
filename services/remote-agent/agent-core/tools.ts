@@ -220,7 +220,6 @@ import {
 } from "./connector-tools";
 import { callCoreRpc, requireCoreRpc } from "./core-rpc";
 import {
-  isRemoteAgentDestructiveConfirmationResult,
   resolveRemoteAgentDestructiveAuthorization,
   resolveRemoteAgentRoutineDestructiveActionBlock,
   resolveRemoteAgentRoutineExternalWriteBlock,
@@ -2815,9 +2814,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_prepare_remove_project",
       description:
-        "Prepare removal of one existing Project after listing it and explaining that removal is permanent. In an interactive conversation, this returns a short-lived confirmation token and ends the turn so the user can confirm once. Routines do not currently support Project removal and receive routine_destructive_action_unsupported with zero side effects.",
-      endsTurnAfter: (result) =>
-        isRemoteAgentDestructiveConfirmationResult(result),
+        "Prepare removal of one existing Project after listing it. Inspect the permanent-removal warning and use the short-lived token immediately if the verified user already authorized that exact removal; otherwise ask first. Preparation does not remove the Project or end the turn. Routines do not currently support Project removal and receive routine_destructive_action_unsupported with zero side effects.",
       input: prepareRemoveProjectToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -2852,14 +2849,14 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         return {
           ...response,
           sideEffects: 0,
-          status: "destructive_confirmation_required" as const,
+          status: "destructive_action_preview" as const,
         };
       },
     }),
     toolDefinition({
       name: "openmeld_remove_project",
       description:
-        "Remove the Project bound to a short-lived confirmation token returned by openmeld_prepare_remove_project. In an interactive conversation, call only after the same verified user confirms in a later turn. Routines do not currently support Project removal and receive routine_destructive_action_unsupported with zero side effects. Reuse the same operationId when retrying this exact removal.",
+        "Remove the Project bound to a short-lived confirmation token returned by openmeld_prepare_remove_project. Execute when the verified user's existing request authorizes that exact removal; a second user turn is not required. A token alone is not user permission. Routines do not currently support Project removal and receive routine_destructive_action_unsupported with zero side effects. Reuse the same operationId when retrying this exact removal.",
       input: removeProjectToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(removeProjectToolInputSchema, payload);
@@ -3539,9 +3536,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_delete_routine",
       description:
-        "Delete an OpenMeld Routine. In an interactive conversation, restate the Routine name and the exact delete action to the requester and obtain one separate confirmation, even when the initial request was explicit. A clear affirmative reply is confirmation; then delete it without asking again. Routines do not currently support destructive actions and receive routine_destructive_action_unsupported with zero side effects.",
-      endsTurnAfter: (result) =>
-        isRemoteAgentDestructiveConfirmationResult(result),
+        "Delete an OpenMeld Routine. Inspect the exact Routine name and ID. If the verified user already authorized this deletion, use the returned token with unchanged input in this turn; otherwise ask first. Do not request the same authorization twice. Routines do not currently support destructive actions and receive routine_destructive_action_unsupported with zero side effects.",
       input: routineDeleteToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(routineDeleteToolInputSchema, payload);

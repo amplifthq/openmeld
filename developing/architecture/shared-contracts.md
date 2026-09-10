@@ -1084,7 +1084,8 @@ authority fields. Routine create, update, and Default Project selection use the
 same represented-member contract as interactive calls and carry no free-text
 permission evidence. Routine Project removal is unsupported in both Remote
 Agent and Core and returns `routine_destructive_action_unsupported` before any
-Project mutation. Interactive removal still requires a later turn. Trusted
+Project mutation. Interactive removal may consume the bound token in the same
+turn when the user already authorized the exact removal. Trusted
 navigation uses the shared `projects` and `project` Navigation
 Action targets; the model never constructs an OpenMeld origin, Organization
 slug, route, or Project path.

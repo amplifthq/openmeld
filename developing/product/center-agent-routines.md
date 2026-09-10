@@ -289,13 +289,11 @@ closed.
 
 An explicit verified-member request authorizes create, update, pause, or resume
 without a second confirmation when the required fields are clear. Interactive
-delete remains the destructive exception: the Center Agent restates the Routine
-name and exact delete action and obtains one separate confirmation. A clear
-affirmative reply to that exact proposal completes the safeguard; the Center
-Agent must then execute without asking again. Remote Agent issues a one-time
+delete also proceeds without repeated authorization when the verified request
+names the exact Routine and deletion. Remote Agent issues a one-time
 token bound to the represented user, Organization, exact Routine, and exact
-delete input; the first call ends the turn and the token cannot be consumed by
-the same submission. The private Routine RPC still carries no confirmation
+delete input; the Agent may consume it in the same submission when already
+authorized, and asks first otherwise. The private Routine RPC still carries no confirmation
 token. Core's separate hard layer remains current identity, represented-member
 authorization, quota, schedule, and target validation.
 
@@ -745,12 +743,12 @@ idempotency, and Core authorization remain unchanged for ordinary actions.
 Routine deletion is unsupported during a Routine and returns
 `routine_destructive_action_unsupported` before reading the Routine directory
 or calling Core deletion. Interactive deletion still resolves the requested ID
-and name against Core-owned current state and uses its exact later-turn
+and name against Core-owned current state and uses its exact action-bound
 confirmation bound to that target.
 
 Project create, update, and Default Project selection are inherited as ordinary
 represented-member writes with durable operation IDs. They carry no free-text
-authorization evidence. Interactive Project removal retains its later-turn
+authorization evidence. Interactive Project removal retains its action-bound
 token; Project removal during a Routine is unsupported in both Remote Agent and
 Core and returns `routine_destructive_action_unsupported` with zero side
 effects.
