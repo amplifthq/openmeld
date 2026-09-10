@@ -955,8 +955,9 @@ approved that exact version; `--version` and `--next` are mutually exclusive.
 - Required is sometimes the least harmful user choice, but it is not the
   default and must not be applied to every release.
 
-The stamp command rebuilds the packaged CLI before recording its Service hash,
-rejects source drift, and verifies the result. Never hand-edit the hash, reuse
+The stamp command writes the version and required-update floor before building
+the packaged CLI, then records its Service hash and verifies the result. It
+rejects source drift and restores its metadata changes on failure. Never hand-edit the hash, reuse
 an existing `dist`, or pass `--current` to prepare a release manifest. Rerun the
 stamp after any merge, rebase, or later local-component change. Land the stamp
 through a versioned `codex/release-X.Y.Z-<baseSHA>` PR from a clean worktree;
