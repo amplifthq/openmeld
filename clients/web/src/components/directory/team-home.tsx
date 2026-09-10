@@ -12,9 +12,9 @@ import {
 import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import {
-	DesktopTowerIcon,
 	SlidersHorizontalIcon,
 	StarIcon,
+	UserIcon,
 	XIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -50,7 +50,7 @@ export function TeamHome(input: {
 	const allSections = resolvePeopleSections(
 		input.members,
 		sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR,
-		{ includeOnline: false }
+		{ includeCenterAgent: false }
 	);
 	const query = search.trim().toLocaleLowerCase();
 	const filtering =
@@ -153,8 +153,7 @@ export function TeamHome(input: {
 						No members match your search or filters.
 					</p>
 				) : null}
-				{sidebar.isPending ||
-				input.members.some((member) => member.computer.state === "checking") ? (
+				{sidebar.isPending ? (
 					<p className="text-muted-foreground text-sm">Loading team…</p>
 				) : (
 					sections.map((section) => (
@@ -181,8 +180,8 @@ export function TeamHome(input: {
 											</TooltipTrigger>
 											<TooltipContent>
 												{section.id === "online"
-													? "Computer online"
-													: "Computer offline"}
+													? "People using OpenMeld"
+													: "People not currently active in OpenMeld"}
 											</TooltipContent>
 										</Tooltip>
 									) : (
@@ -265,7 +264,7 @@ function TeamGroupIcon({ id }: { id: string }) {
 	}
 	if (id === "online") {
 		return (
-			<DesktopTowerIcon
+			<UserIcon
 				aria-hidden="true"
 				className="size-4 shrink-0 text-emerald-500"
 			/>
@@ -273,7 +272,7 @@ function TeamGroupIcon({ id }: { id: string }) {
 	}
 	if (id === "offline") {
 		return (
-			<DesktopTowerIcon
+			<UserIcon
 				aria-hidden="true"
 				className="size-4 shrink-0 text-muted-foreground"
 			/>

@@ -39,6 +39,7 @@ import type {
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { formatAgentWakeAvailabilityCheckedAt } from "./agents-page-agent-profile-helpers";
 
@@ -167,6 +168,7 @@ export function AgentProfileWorkspaceDetail(input: {
 					</div>
 				</div>
 			</div>
+			<AgentProfileUsage profileId={input.profile.openMeldProfileId} />
 			<AgentProfileCurrentActivity
 				activityNavigation={visibleActivityNavigation}
 				currentSession={input.currentSession}

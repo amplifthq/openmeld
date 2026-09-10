@@ -582,6 +582,7 @@ import {
   type ConsumeSlackIdentityLinkInput,
   type ConsumeSlackOAuthStateInput,
   type ConvertDirectMessageToSpaceInput,
+  type CoreRpcContextInput,
   type CreateCenterAgentContextLoadReceiptInput,
   type CreateCenterAgentContextManifestInput,
   type CreateCurrentOrganizationConnectorAppRequestInput,
@@ -703,6 +704,7 @@ import {
   type ReadSpaceFileContentRpcResponse,
   type ReconcileCurrentOrganizationConnectorConnectionsInput,
   type RecordCenterAgentAuditInput,
+  type RecordCurrentOrganizationMemberPresenceInput,
   type RecordCurrentOrganizationWebActivityInput,
   type RecordSpaceAttachmentInput,
   type RefreshCurrentLocalAgentCatalogInput,
@@ -842,6 +844,7 @@ import {
   rpcGetCurrentOrganizationComputers,
   rpcGetCurrentOrganizationDirectory,
   rpcGetCurrentOrganizationMemberOpenMeldServiceStatuses,
+  rpcGetCurrentOrganizationMemberPresence,
   rpcGetCurrentOrganizationProfileDirectory,
   rpcGetCurrentOrganizationSpaceDirectory,
   rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts,
@@ -928,6 +931,7 @@ import {
   rpcReadSpaceFileContent,
   rpcReconcileCurrentOrganizationConnectorConnections,
   rpcRecordCenterAgentAudit,
+  rpcRecordCurrentOrganizationMemberPresence,
   rpcRecordCurrentOrganizationWebActivity,
   rpcRecordSpaceAttachment,
   rpcRefreshCurrentLocalAgentCatalog,
@@ -2471,6 +2475,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetCurrentOrganizationAgentRuntimeOverviewInput
   ): Promise<OrganizationAgentRuntimeOverviewResponse> {
     return rpcGetCurrentOrganizationAgentRuntimeOverview(this.env, input);
+  }
+
+  getCurrentOrganizationMemberPresence(input: {
+    context?: CoreRpcContextInput;
+  }) {
+    return rpcGetCurrentOrganizationMemberPresence(this.env, input);
+  }
+
+  recordCurrentOrganizationMemberPresence(
+    input: RecordCurrentOrganizationMemberPresenceInput
+  ) {
+    return rpcRecordCurrentOrganizationMemberPresence(this.env, input);
   }
 
   recordCurrentOrganizationWebActivity(
@@ -4570,6 +4586,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: RecordCurrentOrganizationWebActivityInput
   ): Promise<OrganizationMemberWebActivityResponse> {
     return super.recordCurrentOrganizationWebActivity(input);
+  }
+
+  getCurrentOrganizationMemberPresence(input: {
+    context?: CoreRpcContextInput;
+  }) {
+    return super.getCurrentOrganizationMemberPresence(input);
+  }
+
+  recordCurrentOrganizationMemberPresence(
+    input: RecordCurrentOrganizationMemberPresenceInput
+  ) {
+    return super.recordCurrentOrganizationMemberPresence(input);
   }
 
   getCurrentOrganizationComputers(

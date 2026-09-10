@@ -102,7 +102,10 @@ import { organizationDocumentFolders } from "./organization-document-folder.sche
 import { centerAgentOrganizationDocumentOperations } from "./organization-document-operation.schema.ts";
 import { organizationInformationProtectionPolicies } from "./organization-information-protection.schema.ts";
 import { organizationJoinRequests } from "./organization-join-request.schema.ts";
-import { organizationMemberActivity } from "./organization-member-activity.schema.ts";
+import {
+  organizationMemberActivity,
+  organizationMemberPresenceSessions,
+} from "./organization-member-activity.schema.ts";
 import {
   centerAgentOrganizationSkillOperations,
   organizationSkillActivations,
@@ -1696,6 +1699,7 @@ export const coreSchema = {
   centerAgentOrganizationSkillOperations,
   organizationInformationProtectionPolicies,
   organizationMemberActivity,
+  organizationMemberPresenceSessions,
   organizationOpportunities,
   organizationWorkingLanguagePreferences,
   centerAgentDesignations,

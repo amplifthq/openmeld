@@ -26,6 +26,7 @@ import type {
 	DirectoryHumanProfileRow,
 	DirectoryIdentityAccount,
 } from "#/components/directory/directory-human-profile-model";
+import { useHumanPresence } from "#/components/profiles/human-presence";
 import { localPeopleSidebarFixtures } from "#/lib/dev/people-sidebar-fixtures";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { PeopleSidebar } from "./people-sidebar";
@@ -46,7 +47,7 @@ export type DirectoryHumanProfilesViewState = {
 	research: "idle" | "pending";
 };
 
-const DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
+const DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS = 30_000;
 
 export function DirectoryHumanProfilesWorkspace(input: {
 	activeBatch: CenterAgentMemberResearchBatch | null;
@@ -82,9 +83,14 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	state: DirectoryHumanProfilesViewState;
 }) {
 	const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
+	const presence = useHumanPresence();
+	const membersWithPresence = input.members.map((member) => ({
+		...member,
+		presence: presence.get(member.id) ?? ("unknown" as const),
+	}));
 	const [previewReady, setPreviewReady] = useState(false);
 	const preview = localPeopleSidebarFixtures({
-		members: input.members,
+		members: membersWithPresence,
 		computerGroups: input.computerGroups,
 		orgSlug: input.orgSlug,
 		enabled: previewReady,

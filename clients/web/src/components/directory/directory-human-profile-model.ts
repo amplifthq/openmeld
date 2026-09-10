@@ -102,6 +102,7 @@ export type DirectoryProfileReport =
 	| { state: "unavailable" };
 
 export type DirectoryHumanProfileRow = {
+	presence?: "online" | "offline" | "unknown";
 	agentProfiles: readonly DirectoryAgentProfileSummary[];
 	agentProfilesPath: string;
 	avatarImageUrl: string | null;

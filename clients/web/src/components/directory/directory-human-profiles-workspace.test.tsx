@@ -10,7 +10,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { cloneElement, type ReactElement, type ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
 import { DirectoryHumanProfilesWorkspace } from "./directory-human-profiles-workspace";
@@ -52,6 +52,19 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 		currentOrganization: { id: "org-test" },
 		currentUserId: "viewer",
 	}),
+}));
+const testPresence = vi.hoisted(() => new Map<string, "online" | "offline">());
+beforeEach(() => {
+	testPresence.clear();
+	testPresence.set("profile-current", "online");
+	testPresence.set("profile-grace", "offline");
+	testPresence.set("online-person", "online");
+});
+vi.mock("#/components/profiles/human-presence", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("#/components/profiles/human-presence")
+	>()),
+	useHumanPresence: () => testPresence,
 }));
 vi.mock("../app/use-sidebar-preferences", () => ({
 	useSidebarPreferences: () => ({
@@ -218,6 +231,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		const other = {
 			...buildMember({ current: false }),
 			name: "Alice",
+			presence: "online" as const,
 			computer: self.computer,
 		};
 		for (const sort of ["priority", "name", "manual", "recent"] as const) {
@@ -269,14 +283,14 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			sortSidebarPeople([other, self], settings).map((person) => person.id)
 		).toEqual([other.id, self.id]);
 	});
-	it("keeps People human-only and self first in Online without a default star", () => {
+	it("keeps People human-only and groups by Human presence without a default star", () => {
 		const self = buildMember({ current: true });
 		const offline = buildMember({ current: false });
 		const online = {
 			...offline,
 			id: "online-person",
 			name: "Online teammate",
-			computer: { ...self.computer },
+			computer: { ...offline.computer },
 		};
 		renderWorkspace({ members: [offline, online, self] });
 		const sidebar = screen.getByRole("navigation", { name: "People" });
@@ -294,12 +308,12 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		).toBeTruthy();
 		expect(
 			within(screen.getByRole("region", { name: "Online" })).getByText(
-				"Computer online"
+				"People using OpenMeld"
 			)
 		).toBeTruthy();
 		expect(
 			within(screen.getByRole("region", { name: "Offline" })).getByText(
-				"Computer offline"
+				"People not currently active in OpenMeld"
 			)
 		).toBeTruthy();
 		expect(
@@ -315,7 +329,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.queryByText("Workspace assistant")).toBeNull();
 	});
 
-	it("keeps unknown and attention states in Offline with their explanation", () => {
+	it("does not infer Human presence from Computer status when presence is unavailable", () => {
 		const teammate = buildMember({ current: false });
 		renderWorkspace({
 			members: [
@@ -343,7 +357,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				},
 			],
 		});
-		const offline = screen.getByRole("region", { name: "Offline" });
+		const offline = screen.getByRole("region", { name: "People" });
 		expect(
 			within(offline).getByRole("img", { name: "Computer needs attention" })
 		).toBeTruthy();
@@ -356,7 +370,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.queryByRole("region", { name: "Online" })).toBeNull();
 	});
 
-	it("keeps pending checks out of Offline until loading finishes", () => {
+	it("shows Human presence independently of pending Computer checks", () => {
 		const self = buildMember({ current: true });
 		const teammate = {
 			...buildMember({ current: false }),
@@ -368,8 +382,13 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			},
 		};
 		renderWorkspace({ members: [self, teammate] });
-		expect(screen.getByText("Loading people")).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Offline" })).toBeNull();
+		expect(screen.queryByText("Loading people")).toBeNull();
+		expect(
+			within(screen.getByRole("region", { name: "Offline" })).getByRole(
+				"button",
+				{ name: "Open Grace Hopper's profile" }
+			)
+		).toBeTruthy();
 		cleanup();
 		renderWorkspace({
 			members: [
@@ -396,6 +415,8 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 	});
 
 	it("places an offline self in Offline", () => {
+		testPresence.set("profile-current", "offline");
+		testPresence.set("profile-grace", "online");
 		const self = {
 			...buildMember({ current: true }),
 			computer: {
@@ -429,7 +450,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			within(sidebar)
 				.getAllByRole("region")
 				.map((group) => group.getAttribute("aria-label"))
-		).toEqual(["Online", "Offline"]);
+		).toEqual(["Center Agent", "Online", "Offline"]);
 	});
 
 	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {
@@ -844,6 +865,7 @@ function buildMember(input: {
 	const userId = input.current ? "user-current" : "user-grace";
 	return {
 		agentProfiles: input.agentProfiles ?? [],
+		presence: input.current ? "online" : "offline",
 		agentProfilesPath: "/o/acme/agents",
 		avatarImageUrl: null,
 		canEdit: input.current,
@@ -908,6 +930,7 @@ function buildCurrentComputerGroup(): OrganizationComputerGroup {
 		deviceType: "laptop",
 		executionTargets: [
 			{
+				capabilities: [],
 				deviceId: "device-current",
 				isCurrent: true,
 				lastObservedAtMs: Date.now(),

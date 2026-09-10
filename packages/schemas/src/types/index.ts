@@ -1,8 +1,13 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
+
 export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";
+export type {
+  OrganizationMemberPresenceBody,
+  OrganizationMemberPresenceResponse,
+} from "./http/organization-member-presence";
 export type {
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,

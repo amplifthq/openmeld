@@ -72,10 +72,7 @@ export function PeopleSidebar(input: {
 		input.members.find((m) => m.isCurrentUser)?.id ?? currentUserId;
 	const sidebar = useSidebarPreferences(viewerId, currentOrganization.id);
 	const preferences = sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR;
-	const loading =
-		input.loading ||
-		sidebar.isPending ||
-		input.members.some((member) => member.computer.state === "checking");
+	const loading = input.loading || sidebar.isPending;
 	const [search, setSearch] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [filter, setFilter] = useState<PeopleFilter>("all");
@@ -85,6 +82,8 @@ export function PeopleSidebar(input: {
 		...preferences.groups.map((g) => ({ id: g.id, label: g.name })),
 		{ id: "online", label: "Online" },
 		{ id: "offline", label: "Offline" },
+		{ id: "presence-unknown", label: "People with unknown status" },
+		{ id: "center-agent", label: "Center Agent" },
 	]);
 	const { presentation } = useAppNavigationPresentation();
 	const computers = useMemo(
@@ -115,7 +114,7 @@ export function PeopleSidebar(input: {
 	const contentReady = !(loading || input.error);
 	const starred = new Set(preferences.starred.itemIds);
 	const sections = resolvePeopleSections(filtered, preferences, {
-		includeOnline: false,
+		includeCenterAgent: false,
 	});
 	const activeGroupId =
 		sections.find((section) =>
@@ -163,7 +162,9 @@ export function PeopleSidebar(input: {
 				section.id,
 				members.map((m) => m.id)
 			);
-			const defaultSection = ["online", "offline"].includes(section.id);
+			const defaultSection = ["online", "offline", "presence-unknown"].includes(
+				section.id
+			);
 			const setSort = (sort: PeopleSidebarPreferences["people"]["sort"]) => {
 				if (section.id === "starred" || defaultSection) {
 					save({
@@ -195,41 +196,43 @@ export function PeopleSidebar(input: {
 							})
 					: undefined,
 				labelTooltip: new Map([
-					["online", "Computer online"],
-					["offline", "Computer offline"],
+					["online", "People using OpenMeld"],
+					["offline", "People not currently active in OpenMeld"],
 				]).get(section.id),
 				ariaLabel: section.label,
-				labelAccessory: (
-					<SidebarSectionActions
-						disabled={sidebar.disabled}
-						label={section.label}
-						onDelete={
-							!defaultSection && section.id !== "starred"
-								? () => save(removeSidebarPeopleGroup(preferences, section.id))
-								: undefined
-						}
-						onNewGroup={
-							sectionIndex === 0
-								? (name) =>
-										save({
-											...preferences,
-											groups: [
-												...preferences.groups,
-												{
-													id: crypto.randomUUID(),
-													name,
-													sort: "priority",
-													itemIds: [],
-												},
-											],
-										})
-								: undefined
-						}
-						onSort={setSort}
-						sort={section.settings.sort}
-						sortOptions={SORTS}
-					/>
-				),
+				labelAccessory:
+					section.id === "center-agent" ? undefined : (
+						<SidebarSectionActions
+							disabled={sidebar.disabled}
+							label={section.label}
+							onDelete={
+								!defaultSection && section.id !== "starred"
+									? () =>
+											save(removeSidebarPeopleGroup(preferences, section.id))
+									: undefined
+							}
+							onNewGroup={
+								sectionIndex === 0
+									? (name) =>
+											save({
+												...preferences,
+												groups: [
+													...preferences.groups,
+													{
+														id: crypto.randomUUID(),
+														name,
+														sort: "priority",
+														itemIds: [],
+													},
+												],
+											})
+									: undefined
+							}
+							onSort={setSort}
+							sort={section.settings.sort}
+							sortOptions={SORTS}
+						/>
+					),
 				content: (
 					<SidebarDropSection
 						ids={members.map((m) => m.id)}
@@ -286,7 +289,10 @@ export function PeopleSidebar(input: {
 		<ControlledSidebarGroupStateProvider value={disclosure}>
 			<SidebarDrag
 				canDrop={(itemId, section) => {
-					if (!["online", "offline"].includes(section)) {
+					if (section === "center-agent") {
+						return false;
+					}
+					if (!["online", "offline", "presence-unknown"].includes(section)) {
 						return true;
 					}
 					const member = input.members.find((m) => m.id === itemId);
@@ -295,9 +301,9 @@ export function PeopleSidebar(input: {
 					}
 					return (
 						section ===
-						(peopleConnectionFilter(member) === "connected"
-							? "online"
-							: "offline")
+						(member.presence && member.presence !== "unknown"
+							? member.presence
+							: "presence-unknown")
 					);
 				}}
 				groupIds={
@@ -308,7 +314,9 @@ export function PeopleSidebar(input: {
 						save(
 							moveSidebarPerson(
 								preferences,
-								["online", "offline"].includes(section) ? "people" : section,
+								["online", "offline", "presence-unknown"].includes(section)
+									? "people"
+									: section,
 								id,
 								visible.get(section) ?? [],
 								before

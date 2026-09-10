@@ -438,10 +438,11 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    workspace. Its Main Sidebar contextual list shows Human Profiles with search,
    computer-connection filters, personal Starred and named groups. Registered
    Computers alone do not qualify as Connected: use the existing service-state
-   projection. The default Online group contains confirmed connected Computers;
-   Offline contains the other members, preserving unknown and attention details
-   on their rows. Offline and never-connected Computers remain distinguishable in
-   filters. Human
+   projection. The default Online and Offline groups describe Human presence
+   from the independent Core-owned session projection. Unknown Human presence
+   stays unclassified under People. Computer connected, Computer disconnected,
+   and never-connected Computers remain distinguishable in independent filters.
+   Human
    `lastActiveAt` is recent authored activity, not online presence.
    A row's Chat action reuses the existing Direct Message entry point and is
    available only for another active Human Profile.
@@ -1734,7 +1735,7 @@ Core-owned runtime overview and Wakeability checks.
 
 Last-seen time comes only from the Core-owned, Organization-scoped Human activity
 projection. Web explicitly reports entry, return to the foreground, and a
-bounded visible-session heartbeat; Core re-verifies the active member and that
+bounded actual-interaction report; Core re-verifies the active member and that
 member's current active Human Profile before advancing the projection. CLI use,
 Auth session refreshes, Computer heartbeats, and Agent Activity are not
 substitutes. Undefined activity is omitted instead of rendering a placeholder,
@@ -1747,19 +1748,53 @@ return and every five visible minutes; Space member elapsed-time labels are
 formatted from `lastSeenAt` against the current clock, never a cached label.
 
 The People sidebar contains Human Profiles. Starred and user-defined groups
-precede **Online** and **Offline**, whose hover and keyboard tooltips
-say **Computer online** and **Computer offline**. The signed-in member follows
+precede **Online** and **Offline**, based only on Core's Human presence projection.
+Unknown presence stays in an unclassified **People** group. Computer connection
+remains an independent filter. The designated Center Agent lives in the Agents
+directory, outside Human presence counts. The signed-in member follows
 ordinary placement unless a saved star or custom group applies. The signed-in
 member always appears first within that group, regardless of sort or manual order;
 the remaining members retain the selected ordering. Explicit
 unstar and custom placement persist; deleting a group returns its members to
-ordinary placement. Computer online requires the existing connected Computer
-projection, not registration or recent Human activity. Other resolved states go
-under Offline. Rows show the avatar, name, Computer status icon, Human last-seen
+ordinary placement. Online requires a live foreground page with Human interaction
+within five minutes. Any active page keeps the Human Online. Computer connections,
+Agent work, and historical activity never establish Human presence.
+Rows show the avatar, name, Computer status icon, Human last-seen
 time when known, and enabled local-agent icons. Computer explanations remain in
 the icon tooltip and accessible name; Channel identities and email are omitted.
-Pending checks retain the loading state. Sorting and drag placement
-remain personal preferences; dragging cannot change Computer connection state.
+Pending Computer checks stay on their rows without delaying Human grouping. Sorting and drag placement
+remain personal preferences; dragging cannot change Human presence.
+
+People and Space member/profile avatars show a small inset green dot only when
+the Human is Online. Offline and unknown states have no visible marker; accessible
+Online, Offline, or Online status unavailable labels remain available. One app-shell
+reader refreshes the authorized batch every 30 visible seconds and on foreground
+return. Failed or stale reads remain unknown. Active pages renew a 90-second lease
+every 30 seconds; trusted pointer, keyboard, wheel and touch input reset the
+five-minute idle limit. Departure ends only that page's lease. Historical Web
+activity advances only on actual interaction, with its existing five-minute
+throttle; presence renewals do not advance it. Space-local Here … ago remains a
+separate historical fact. No system-wide activity or interaction contents are collected.
+
+Human cards combine enabled Local Agent logos and provider Usage in one compact, overlapping
+dock. Each controller appears once. A small ring overlays the logo's upper-right
+corner when the existing authorized Computer projection has quantified evidence;
+otherwise only the logo appears. The ring previews the first reported Computer/provider
+source, using the existing most-constrained-window summary. Additional sources
+appear only in the tooltip, never as an averaged or pooled quota. Hover previews every
+Computer, provider and window with remaining capacity, status, reset and observation
+times through the shared Computer Usage components. The compact sidebar logo strip
+keeps its existing sizing. This preview does not add permissions, collection or Wake policy.
+
+Agent Profile detail pages and Space profile previews read the same team-visible
+Computer Usage projection, matched to the Profile's current route Computer,
+owner, and controller. They never borrow a quota from another Computer or infer
+Wakeability from it. Human card docks align to the card's vertical center.
+Usage tooltips share compact remaining-capacity rings: up to three columns on
+wide screens and one column on narrow screens, with separate Computer/provider
+groups, reset times, and explicit non-available states. Stale evidence retains
+its observation time. Local presentation fixtures enter through the shared
+Computer reader so card previews and detail routes show the same evidence.
 
 Team opens a compact member overview at `/o/:orgSlug/people`, with the same
 grouping and ordering as its sidebar. The overview and sidebar share the member
