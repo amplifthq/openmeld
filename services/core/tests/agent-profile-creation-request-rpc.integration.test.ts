@@ -399,7 +399,6 @@ describe("Agent Profile creation request RPC", () => {
           actorContext: {
             callerPrincipalId: fixture.centerAgentProfileId,
             openMeldProfileId: fixture.centerAgentProfileId,
-            ownerUserId: null,
             profileKind: "agent",
             profileName: "Center Agent",
             requestId: fixture.suffix,
@@ -528,10 +527,7 @@ describe("Agent Profile creation request RPC", () => {
           reasoningLevel: null,
           targetComputerId: `computer-${fixture.suffix}`,
         },
-        context: contextFor(
-          fixture.requesterUserId,
-          fixture.requesterProfileId
-        ),
+        context: contextFor(fixture.targetUserId, fixture.targetProfileId),
         idempotencyKey: `resume-missing-${fixture.suffix}`,
         nativeSessionId: "native-codex-session-id",
         organizationId: fixture.organizationId,

@@ -309,7 +309,11 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
-      ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
+      ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
+        (name) =>
+          name !== "openmeld_get_agent_profile_creation_approval_preferences" &&
+          name !== "openmeld_set_agent_profile_creation_approval_preferences"
+      ),
     ]);
     expect(tools.map((tool) => tool.name)).not.toContain(
       "openmeld_create_task"
@@ -3008,7 +3012,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       "use openmeld_create_agent_profile_request"
     );
     expect(descriptions.get("openmeld_create_agent_profile_request")).toContain(
-      "single creation entry point"
+      "verified represented member only"
     );
     expect(
       [...descriptions.keys()].includes(
