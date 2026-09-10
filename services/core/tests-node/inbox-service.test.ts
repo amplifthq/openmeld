@@ -56,7 +56,22 @@ describe("Inbox service", () => {
       harness.close();
     }
   });
-  it("keeps absent personal Agent owners urgent in Inbox, blue in navigation, and revokes stale ownership", async () => {
+  it.each([
+    {
+      kind: "space_message" as const,
+      importance: "urgent" as const,
+      urgentCount: 1,
+    },
+    {
+      kind: "agent_reply" as const,
+      importance: "normal" as const,
+      urgentCount: 0,
+    },
+  ])("keeps absent personal Agent owner $kind unread and revokes stale ownership", async ({
+    kind,
+    importance,
+    urgentCount,
+  }) => {
     const harness = createInboxHarness();
     try {
       harness.run({
@@ -76,8 +91,8 @@ describe("Inbox service", () => {
         candidate: {
           ...identity,
           attention: "update",
-          importance: "urgent",
-          kind: "space_message",
+          importance,
+          kind,
           contextLabel: "Agent chat",
           occurredAtMs: 1000,
           preview: "Hello",
@@ -109,7 +124,7 @@ describe("Inbox service", () => {
         })
       ).toBe(false);
       expect(await service.summary(identity)).toMatchObject({
-        unreadUrgentUpdateCount: 1,
+        unreadUrgentUpdateCount: urgentCount,
       });
       expect(await service.spaceSummary(identity)).toMatchObject({
         ordinarySpaceUnreadCount: 1,
@@ -130,11 +145,17 @@ describe("Inbox service", () => {
       expect(await service.summary(identity)).toMatchObject({
         unreadUrgentUpdateCount: 0,
       });
+      expect(await service.spaceSummary(identity)).toMatchObject({
+        chatUnreadCount: 0,
+      });
       harness.run({
         sql: "UPDATE openmeld_profiles SET managed_role = NULL, owner_user_id = 'user_two'",
       });
       expect(await service.summary(identity)).toMatchObject({
         unreadUrgentUpdateCount: 0,
+      });
+      expect(await service.spaceSummary(identity)).toMatchObject({
+        chatUnreadCount: 0,
       });
       harness.run({
         sql: "UPDATE openmeld_profiles SET owner_user_id = 'user_one'",
@@ -146,6 +167,9 @@ describe("Inbox service", () => {
           throughOccurredAtMs: 1000,
         })
       ).resolves.toMatchObject({ markedReadCount: 1 });
+      expect(await service.spaceSummary(identity)).toMatchObject({
+        chatUnreadCount: 0,
+      });
       expect(await service.summary(identity)).toMatchObject({
         unreadUrgentUpdateCount: 0,
       });

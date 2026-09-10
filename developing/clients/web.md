@@ -444,6 +444,13 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    rules; this is not a separate interaction log or an Inbox history. Other
    people's profiles do not show this section, and organization ownership does
    not grant access to managed Center Agent private conversations.
+   An owned Agent's detail page reuses this same **Agent conversations** section
+   below its configuration, scoped to that Agent. It omits the Agent selector
+   and repeated Agent column. Loading, errors, empty states, ordering, and
+   conversation navigation share the Human profile implementation. These rows
+   describe accessible conversations the Agent has joined, with the latest
+   conversation preview; they do not claim a complete execution history or
+   that the latest message was authored by this Agent.
 5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. Its Main Sidebar contextual list groups

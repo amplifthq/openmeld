@@ -13676,17 +13676,29 @@ export class Space extends DurableObject<CoreBindings> {
       const targetInboxDb = inboxDb(this.bindings);
       const result = await attemptSpaceInboxProjectionOutboxRecord({
         db: targetInboxDb,
-        canReceiveAgentActivity: (candidate) =>
-          canReceivePersonalAgentActivity({
+        canReceiveAgentActivity: (candidate) => {
+          const reply =
+            candidate.kind === "agent_reply"
+              ? this.readSignalById(candidate.sourceKey)
+              : null;
+          return canReceivePersonalAgentActivity({
             db: this.requireSpaceIndexDb(),
             organizationId: candidate.organizationId,
             userId: candidate.recipientUserId,
             agentProfileIds: listSpaceMemberRecords(this.ctx.storage.sql, {
               status: "active",
             })
-              .filter((member) => member.profileKindSnapshot === "agent")
+              .filter(
+                (member) =>
+                  member.profileKindSnapshot === "agent" &&
+                  (candidate.kind !== "agent_reply" ||
+                    (reply?.type === "signal.text" &&
+                      reply.profile.kind === "agent" &&
+                      reply.profile.profileId === member.profileId))
+              )
               .map((member) => member.profileId),
-          }),
+          });
+        },
         isRecipientEligible: async (candidate) =>
           await resolveSpaceInboxRecipientEligibility({
             candidate,
