@@ -1,3 +1,4 @@
+import { RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import { OPENMELD_DAEMON_DISPATCH_STATE } from "../dispatch/rules/dispatch-lifecycle-contract";
 import { DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS } from "../dispatch/rules/dispatch-runtime-constants";
@@ -11,6 +12,35 @@ import {
 } from "../space/rules/policy/dispatch-outbox-redrive-policy";
 
 describe("dispatch outbox redrive policy", () => {
+  it("retains a Coordinator-owned device wait without repeated admission attempts", () => {
+    const input = {
+      outboxStatus: "handed_off",
+      nowMs: Date.now(),
+      recentInflightSkipWithinMs: 20_000,
+      staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
+      ledgerRow: {
+        status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+        lastAttemptAtMs: 1,
+        latestAttemptStatus: "failed_retryable",
+        latestAttemptErrorCode: RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE,
+        daemonSessionId: null,
+        connectionGeneration: null,
+        leaseEpoch: null,
+      },
+    };
+    expect(resolveHandedOffOutboxCandidatePolicyDecision(input)).toEqual({
+      kind: "skip",
+    });
+    expect(
+      resolveHandedOffOutboxCandidatePolicyDecision({
+        ...input,
+        ledgerRow: {
+          ...input.ledgerRow,
+          status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+        },
+      })
+    ).toEqual({ kind: "delete" });
+  });
   it("retains handed-off seeds until execution acceptance and leaves untracked candidates ready to submit", () => {
     expect(
       resolveHandedOffOutboxCandidatePolicyDecision({

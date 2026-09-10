@@ -16,6 +16,26 @@ import {
 } from "./space-wake-stop-control";
 
 describe("SpaceWakeStopControl", () => {
+	it("cancels an unstarted device wait through the existing exact Wake selector", async () => {
+		const target = createWakeStopTarget({
+			targetLabel: "Runner",
+			isWaitingForDevice: true,
+		});
+		const onStopWake = vi.fn().mockResolvedValue(createWakeStopResponse());
+		render(<SpaceWakeStopControl onStopWake={onStopWake} target={target} />);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Cancel waiting for Runner" })
+		);
+		const dialog = within(
+			screen.getByRole("dialog", { name: "Cancel waiting?" })
+		);
+		expect(dialog.getByRole("button", { name: "Keep waiting" })).toBeTruthy();
+		fireEvent.click(dialog.getByRole("button", { name: "Cancel waiting" }));
+		await waitFor(() =>
+			expect(onStopWake).toHaveBeenCalledExactlyOnceWith(target)
+		);
+	});
+
 	afterEach(() => {
 		cleanup();
 	});

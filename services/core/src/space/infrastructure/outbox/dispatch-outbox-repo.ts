@@ -103,6 +103,7 @@ export const createDispatchOutboxRecord = (input: {
   sourceAutoRelayDepth?: number;
   sourceDispatchChainId?: string;
   sourceSignalSnapshot: DispatchSourceSignalSnapshotInput;
+  deviceWait?: OpenMeldDaemonDispatchQueueMessage["deviceWait"];
   sourceMessageEnvelope?:
     | OpenMeldDaemonDispatchQueueMessage["sourceMessageEnvelope"]
     | null;
@@ -171,6 +172,7 @@ export const createDispatchOutboxRecord = (input: {
   const replyToSnapshot = buildReplyToSnapshot(input.replyToSnapshot);
 
   const message: OpenMeldDaemonDispatchQueueMessage = {
+    ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
     v: OPENMELD_DAEMON_DISPATCH_QUEUE_SCHEMA_VERSION,
     dispatchId,
     spaceId: input.spaceId,
