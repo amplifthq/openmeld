@@ -696,20 +696,25 @@ commands without running them; set `OPENMELD_AFFECTED_BASE` to the available
 base commit when needed. Focused iteration can still use a package command or
 `turbo-affected.mjs --changed-only`.
 
-PR Feedback runs this lane on PR creation and updates, including drafts.
-Use draft PRs for work still changing; new commits cancel superseded feedback.
-Integration tests remain selected by the responsible agent for the actual
-boundary. Standard Final Candidate does not repeat workspace tests. Checks and
-unit tests run as two explicit phases: packages
+Draft PR Feedback runs `verify:pr -- --feedback`: changed-file code checks,
+documentation contracts, adjacent Node tests, and statically related Vitest
+unit tests. It does not build every affected package or certify complete test
+coverage. Ready PRs use Final Candidate instead; standard candidates must pass
+affected code checks and unit tests, including downstream workspaces. Keep work
+in draft while iterating; new commits cancel superseded feedback or candidates.
+Checks and unit tests run as two explicit phases: packages
 may still run in parallel within one phase, but a memory-heavy package never
 runs its type-check and unit-test processes at the same time on one runner. The
 isolated Final Candidate wrapper also gives Node processes one explicit 6 GiB
 heap ceiling so Core type-checking is not constrained by Node's smaller default
 heap on a hosted runner.
 
-`test:integration:affected` is an agent-chosen development or review lane when
-a shared package, service, runtime, or persistence interaction cannot be proved
-more cheaply. Standard Final Candidate does not repeat it. `db:check` remains a
+`test:integration:affected` remains available for focused boundary diagnosis.
+Standard Final Candidate selects affected integration tests automatically for
+shared packages, dependency controls, services, and runtime boundaries; ordinary
+client-only changes avoid that lane. Missing or failed selected checks block
+the final status. Matching trusted task-input evidence can avoid repeated work
+after a main sync or documentation follow-up. `db:check` remains a
 standard candidate check for database owner paths. Local-component paths select
 strict release-ready verification on an exact versioned release branch and
 deferred base-aware verification on an ordinary feature branch. These

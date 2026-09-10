@@ -51,6 +51,8 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/trusted-final-candidate.sh",
   "scripts/ci/verify-trusted-candidate-entrypoints.mjs",
   "scripts/ci/verify-trusted-candidate-entrypoints.test.mjs",
+  "scripts/dev/verify-pr.mjs",
+  "scripts/dev/verify-pr.test.mjs",
 ]);
 const REPOSITORY_CONTROL_PREFIXES = [".github/", ".husky/", "scripts/"];
 const REPOSITORY_CONTROL_PATHS = new Set([
@@ -60,15 +62,17 @@ const REPOSITORY_CONTROL_PATHS = new Set([
   "turbo.json",
 ]);
 const BOUNDARY_PREFIXES = [
-  "packages/agent-runtime/",
-  "packages/db/",
-  "packages/schemas/",
+  "packages/",
   "runtime/",
-  "services/auth/",
-  "services/core/",
-  "services/gateway/",
-  "services/remote-agent/",
+  "services/",
+  "clients/openmeld-cli/",
 ];
+const DEPENDENCY_CONTROL_PATHS = new Set([
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "turbo.json",
+]);
 const DATABASE_PREFIXES = ["packages/db/drizzle/", "packages/db/src/"];
 
 const check = (id, command, reason) => ({ command, id, reason });
@@ -164,7 +168,7 @@ export function createFinalCandidatePlan(input) {
   }
 
   selectPrimaryChecks(context, selectedChecks, skippedChecks);
-  selectIntegrationCheck(context, skippedChecks);
+  selectIntegrationCheck(context, selectedChecks, skippedChecks);
   selectDatabaseCheck(context, selectedChecks, skippedChecks);
   selectReleaseReadyCheck(context, selectedChecks, skippedChecks);
   skippedChecks.push(
@@ -257,17 +261,37 @@ function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
     );
     return;
   }
-  skippedChecks.push(
-    skipped(
-      "affected-checks-and-unit-tests",
-      context.deliveryInfrastructureOnly
-        ? "Delivery infrastructure is covered by its behavioral contract suite during development and review; no product workspace changed."
-        : "Focused and affected behavior validation belongs to development and review; standard Final Candidate does not repeat the broad workspace lane. Use full confidence when that extra repository-wide closeout is worth the latency."
-    )
-  );
+  if (context.deliveryInfrastructureOnly) {
+    skippedChecks.push(
+      skipped(
+        "affected-checks-and-unit-tests",
+        "Repository contracts run the delivery control behavior tests; no product workspace changed."
+      )
+    );
+    return;
+  }
+  for (const [id, task] of [
+    ["affected-code-checks", "check"],
+    ["affected-unit-tests", "test"],
+  ]) {
+    selectedChecks.push(
+      check(
+        id,
+        [
+          "node",
+          "scripts/dev/turbo-affected.mjs",
+          task,
+          "--",
+          "--concurrency=2",
+          "--log-order=stream",
+        ],
+        "The ready candidate must pass affected workspaces and their dependents before merge."
+      )
+    );
+  }
 }
 
-function selectIntegrationCheck(context, skippedChecks) {
+function selectIntegrationCheck(context, selectedChecks, skippedChecks) {
   if (context.confidence === "full") {
     skippedChecks.push(
       skipped(
@@ -277,12 +301,31 @@ function selectIntegrationCheck(context, skippedChecks) {
     );
     return;
   }
+  if (
+    context.boundaryChange &&
+    !context.docsOnly &&
+    !context.deliveryInfrastructureOnly
+  ) {
+    selectedChecks.push(
+      check(
+        "affected-integration-tests",
+        [
+          "node",
+          "scripts/dev/turbo-affected.mjs",
+          "test:integration",
+          "--",
+          "--concurrency=1",
+          "--log-order=stream",
+        ],
+        "Shared contracts, dependencies, services, or runtime boundaries require affected integration coverage."
+      )
+    );
+    return;
+  }
   skippedChecks.push(
     skipped(
       "affected-integration-tests",
-      context.boundaryChange
-        ? "Cross-boundary integration validation belongs to development and review; standard Final Candidate does not repeat the broad integration lane. Use full confidence when the exact candidate still needs repository-wide integration coverage."
-        : "No shared, service, runtime, or persistence boundary changed; focused validation remains owned by development and review."
+      "No executable shared, service, runtime, dependency, or persistence boundary changed."
     )
   );
 }
@@ -557,7 +600,8 @@ function isRepositoryControlPath(path) {
 function isBoundaryPath(path) {
   return (
     !isEngineeringOnlySchemaPath(path) &&
-    BOUNDARY_PREFIXES.some((prefix) => path.startsWith(prefix))
+    (DEPENDENCY_CONTROL_PATHS.has(path) ||
+      BOUNDARY_PREFIXES.some((prefix) => path.startsWith(prefix)))
   );
 }
 

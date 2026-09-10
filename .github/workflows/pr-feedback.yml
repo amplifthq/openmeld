@@ -3,7 +3,7 @@ name: PR Feedback
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, converted_to_draft]
 
 permissions:
   contents: read
@@ -14,7 +14,8 @@ concurrency:
 
 jobs:
   verify:
-    name: Affected checks and tests
+    name: Focused checks and tests
+    if: github.event.pull_request.draft == true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -27,8 +28,8 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-node-pnpm
       - name: Show selected checks
-        run: pnpm run verify:pr -- --plan
+        run: pnpm run verify:pr -- --feedback --plan
       - name: Run early feedback
         env:
           OPENMELD_HOME: ${{ runner.temp }}/openmeld-pr-feedback
-        run: pnpm run verify:pr
+        run: pnpm run verify:pr -- --feedback
